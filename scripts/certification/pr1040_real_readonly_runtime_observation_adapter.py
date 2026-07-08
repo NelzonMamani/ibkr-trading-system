@@ -17,6 +17,7 @@ import json
 import os
 import re
 import sys
+import time
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -31,6 +32,8 @@ REAL_STORAGE_EVIDENCE_SOURCE = "REAL_ANALYTICS_STORAGE_WRITE_READBACK"
 STORAGE_EVIDENCE_UNAVAILABLE_BLOCKER = "Real analytics/storage write-readback evidence is unavailable."
 PRICED_INTENT_BLOCKER = "Accepted setup risk evidence missing numeric entry price."
 BROKER_AUDIT_INCOMPLETE_BLOCKER = "Broker before/after audit evidence is incomplete."
+MARKET_DATA_UNUSABLE_BLOCKER = "Real market data unusable before Focus M pattern evaluation."
+NO_PATTERN_INPUT_EVIDENCE_BLOCKER = "No real pattern input evidence was captured for Focus M candidates."
 
 DEFAULT_OBSERVATION_OUTPUT = Path(
     "artifacts/certification/pr1040/real_runtime_observation/real_runtime_observation.json"
@@ -41,6 +44,9 @@ DEFAULT_RAW_OUTPUT_DIR = Path(
 DEFAULT_VALIDATED_OUTPUT_DIR = Path(
     "artifacts/certification/pr1040/validated_real_runtime_observation"
 )
+DEFAULT_MAX_OBSERVATION_SYMBOLS = 50
+DEFAULT_MAX_OBSERVATION_SECONDS = 30.0
+DEFAULT_MAX_SNAPSHOT_FAILURES = 10
 
 TRUE_VALUES = {"1", "true", "yes", "on"}
 FALSE_VALUES = {"0", "false", "no", "off", ""}
@@ -56,6 +62,7 @@ ENTRY_PRICE_METADATA_KEYS = (
     "limit_price",
 )
 NUMERIC_PRICE_PATTERN = re.compile(r"[-+]?\d+(?:\.\d+)?")
+MARKET_DATA_UNUSABLE_DROP_REASONS = {"DROP_MISSING_PRICE", "DATA_QUALITY_FAIL_SNAPSHOT"}
 
 READ_ONLY_ENV_DEFAULTS: dict[str, str] = {
     "RUN_MODE": "READ_ONLY",
@@ -166,6 +173,7 @@ class RuntimeObservationEvidence:
     storage_readback_verified: bool = False
     storage_evidence_source: str = "UNAVAILABLE"
     storage_evidence_detail: Mapping[str, Any] | None = None
+    operator_observation_scope: Mapping[str, Any] | None = None
 
 
 def utc_now_iso() -> str:
@@ -252,6 +260,71 @@ def _read_json(path: Path) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise PR1040AdapterError(f"{path} must contain a JSON object")
     return payload
+
+
+def parse_observation_symbols(value: Any) -> list[str]:
+    if value is None:
+        return []
+    values: list[str] = []
+    if isinstance(value, (list, tuple, set)):
+        for item in value:
+            values.extend(parse_observation_symbols(item))
+    else:
+        values.extend(str(value or "").split(","))
+    symbols: list[str] = []
+    seen: set[str] = set()
+    for item in values:
+        symbol = str(item or "").strip().upper()
+        if not symbol or symbol in seen:
+            continue
+        seen.add(symbol)
+        symbols.append(symbol)
+    return symbols
+
+
+def _nonnegative_int(value: Any, *, default: int) -> int:
+    parsed = _safe_int(value, default)
+    return parsed if parsed >= 0 else default
+
+
+def _nonnegative_float(value: Any, *, default: float) -> float:
+    parsed = _safe_float(value, default)
+    return parsed if parsed >= 0.0 else default
+
+
+def build_operator_observation_scope(
+    *,
+    max_observation_symbols: int = DEFAULT_MAX_OBSERVATION_SYMBOLS,
+    max_observation_seconds: float = DEFAULT_MAX_OBSERVATION_SECONDS,
+    max_snapshot_failures: int = DEFAULT_MAX_SNAPSHOT_FAILURES,
+    observation_symbols: Sequence[str] | str | None = None,
+) -> dict[str, Any]:
+    return {
+        "scope_type": "OPERATOR_OBSERVATION_SCOPE_ONLY",
+        "max_observation_symbols": _nonnegative_int(max_observation_symbols, default=DEFAULT_MAX_OBSERVATION_SYMBOLS),
+        "max_observation_seconds": _nonnegative_float(max_observation_seconds, default=DEFAULT_MAX_OBSERVATION_SECONDS),
+        "max_snapshot_failures": _nonnegative_int(max_snapshot_failures, default=DEFAULT_MAX_SNAPSHOT_FAILURES),
+        "observation_symbols": parse_observation_symbols(observation_symbols),
+        "manual_focus_symbols_set": False,
+        "synthetic_trade_intents_set": False,
+    }
+
+
+def _operator_observation_scope(evidence: RuntimeObservationEvidence) -> dict[str, Any]:
+    scope = evidence.operator_observation_scope if isinstance(evidence.operator_observation_scope, Mapping) else {}
+    return build_operator_observation_scope(
+        max_observation_symbols=scope.get("max_observation_symbols", DEFAULT_MAX_OBSERVATION_SYMBOLS),
+        max_observation_seconds=scope.get("max_observation_seconds", DEFAULT_MAX_OBSERVATION_SECONDS),
+        max_snapshot_failures=scope.get("max_snapshot_failures", DEFAULT_MAX_SNAPSHOT_FAILURES),
+        observation_symbols=scope.get("observation_symbols", []),
+    ) | {
+        "observed_focus_symbols": parse_observation_symbols(scope.get("observed_focus_symbols", [])),
+        "evaluated_pattern_symbols": parse_observation_symbols(scope.get("evaluated_pattern_symbols", [])),
+        "snapshot_failure_count": _nonnegative_int(scope.get("snapshot_failure_count", 0), default=0),
+        "stopped_by_max_observation_symbols": bool(scope.get("stopped_by_max_observation_symbols", False)),
+        "stopped_by_max_observation_seconds": bool(scope.get("stopped_by_max_observation_seconds", False)),
+        "stopped_by_max_snapshot_failures": bool(scope.get("stopped_by_max_snapshot_failures", False)),
+    }
 
 
 def build_safe_readonly_env(base: Mapping[str, str] | None = None) -> dict[str, str]:
@@ -648,6 +721,151 @@ def _scanner_contract(payload: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _drop_reasons_from_value(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [_normalize_upper(value)] if value.strip() else []
+    if isinstance(value, Mapping):
+        reasons: list[str] = []
+        for key in ("reason", "drop_reason", "drop_reasons", "reasons", "code"):
+            if key in value:
+                reasons.extend(_drop_reasons_from_value(value.get(key)))
+        return reasons
+    if isinstance(value, (list, tuple, set)):
+        reasons: list[str] = []
+        for item in value:
+            reasons.extend(_drop_reasons_from_value(item))
+        return reasons
+    return [_normalize_upper(value)] if str(value or "").strip() else []
+
+
+def _scanner_candidate_rows(payload: Mapping[str, Any]) -> list[Any]:
+    return _scanner_rows(
+        payload,
+        (
+            "candidate_metrics",
+            "candidates",
+            "top_n",
+            "top_n_rows",
+            "symbols_rows",
+            "watchlist_k",
+            "watchlist_rows",
+            "focus_m",
+            "focus_rows",
+        ),
+    )
+
+
+def _drop_reason_symbol_map(payload: Mapping[str, Any]) -> dict[str, set[str]]:
+    reason_symbols: dict[str, set[str]] = {}
+    drop_ledger = payload.get("drop_ledger", {})
+    if isinstance(drop_ledger, Mapping):
+        for key, value in drop_ledger.items():
+            key_text = _normalize_upper(key)
+            if key_text.startswith("DROP") or key_text.startswith("DATA_QUALITY") or key_text in MARKET_DATA_UNUSABLE_DROP_REASONS:
+                symbols = parse_observation_symbols(value)
+                reason_symbols.setdefault(key_text, set()).update(symbols)
+            else:
+                symbol = str(key or "").strip().upper()
+                for reason in _drop_reasons_from_value(value):
+                    reason_symbols.setdefault(reason, set()).add(symbol)
+    for row in _scanner_candidate_rows(payload):
+        symbol = _symbol(row)
+        for reason in _drop_reasons_from_value(_get_value(row, "drop_reasons", [])):
+            reason_symbols.setdefault(reason, set()).add(symbol)
+        for reason in _drop_reasons_from_value(_get_value(row, "drop_reason", None)):
+            reason_symbols.setdefault(reason, set()).add(symbol)
+    return reason_symbols
+
+
+def _drop_reason_counts(payload: Mapping[str, Any]) -> dict[str, int]:
+    reason_symbols = _drop_reason_symbol_map(payload)
+    return {reason: len(symbols) for reason, symbols in sorted(reason_symbols.items()) if reason}
+
+
+def _dominant_drop_reason(payload: Mapping[str, Any]) -> str:
+    counts = _drop_reason_counts(payload)
+    if not counts:
+        return "NONE"
+    return sorted(counts.items(), key=lambda item: (-item[1], item[0]))[0][0]
+
+
+def _symbols_for_reasons(payload: Mapping[str, Any], reasons: set[str]) -> list[str]:
+    reason_symbols = _drop_reason_symbol_map(payload)
+    symbols: set[str] = set()
+    for reason in reasons:
+        symbols.update(reason_symbols.get(reason, set()))
+    return sorted(symbol for symbol in symbols if symbol)
+
+
+def _row_has_valid_last_price(row: Any) -> bool:
+    return any(_safe_float(_get_value(row, key), 0.0) > 0.0 for key in ("last_price", "price", "last", "mark"))
+
+
+def _row_has_valid_bid_ask(row: Any) -> bool:
+    bid = max(_safe_float(_get_value(row, "bid"), 0.0), _safe_float(_get_value(row, "bid_price"), 0.0))
+    ask = max(_safe_float(_get_value(row, "ask"), 0.0), _safe_float(_get_value(row, "ask_price"), 0.0))
+    return bid > 0.0 and ask > 0.0 and ask >= bid
+
+
+def _row_has_valid_volume(row: Any) -> bool:
+    return any(_safe_float(_get_value(row, key), 0.0) > 0.0 for key in ("volume", "day_volume", "relative_volume_base"))
+
+
+def _row_has_float(row: Any) -> bool:
+    return any(_safe_float(_get_value(row, key), 0.0) > 0.0 for key in ("float", "float_millions", "shares_float"))
+
+
+def _symbols_matching(rows: Sequence[Any], predicate: Any) -> list[str]:
+    symbols: set[str] = set()
+    for row in rows:
+        symbol = _symbol(row)
+        if symbol and predicate(row):
+            symbols.add(symbol)
+    return sorted(symbols)
+
+
+def _market_data_observation_outcome(evidence: RuntimeObservationEvidence) -> str:
+    focus_count = len(_scanner_symbols(evidence.scanner_payload, "focus_m_symbols") or _scanner_rows(evidence.scanner_payload, ("focus_m", "focus_rows")))
+    if focus_count == 0:
+        dominant = _dominant_drop_reason(evidence.scanner_payload)
+        if dominant in MARKET_DATA_UNUSABLE_DROP_REASONS:
+            return "REAL_MARKET_DATA_UNUSABLE"
+        return "NO_FOCUS_CANDIDATES"
+    if not evidence.pattern_input_evidence:
+        return "NO_PATTERN_INPUT_EVIDENCE"
+    return "FOCUS_PATTERN_INPUT_CAPTURED"
+
+
+def _market_data_observation_diagnostics(evidence: RuntimeObservationEvidence) -> dict[str, Any]:
+    payload = evidence.scanner_payload
+    top_symbols = _scanner_symbols(payload, "symbols") or _scanner_symbols(payload, "top_n_symbols")
+    watchlist_symbols = _scanner_symbols(payload, "watchlist_k_symbols") or _scanner_symbols(payload, "watchlist")
+    focus_symbols = _scanner_symbols(payload, "focus_m_symbols")
+    candidate_rows = _scanner_candidate_rows(payload)
+    reason_counts = _drop_reason_counts(payload)
+    return {
+        "candidate_count": int(payload.get("topn_count", len(top_symbols) or len(candidate_rows)) or 0),
+        "watchlist_k_count": len(watchlist_symbols) or len(_scanner_rows(payload, ("watchlist_k", "watchlist_rows"))),
+        "focus_m_count": len(focus_symbols) or len(_scanner_rows(payload, ("focus_m", "focus_rows"))),
+        "dominant_drop_reason": _dominant_drop_reason(payload),
+        "drop_reason_counts": reason_counts,
+        "symbols_dropped_missing_price": _symbols_for_reasons(payload, {"DROP_MISSING_PRICE"}),
+        "symbols_with_snapshot_timeout": _symbols_for_reasons(payload, {"DATA_QUALITY_FAIL_SNAPSHOT", "SNAPSHOT_TIMEOUT"}),
+        "symbols_with_reference_only": sorted(
+            set(_symbols_for_reasons(payload, {"REFERENCE_ONLY", "REFERENCE_DATA_ONLY"}))
+            | set(_symbols_matching(candidate_rows, lambda row: _normalize_bool(_get_value(row, "reference_only")) is True))
+        ),
+        "symbols_with_valid_last_price": _symbols_matching(candidate_rows, _row_has_valid_last_price),
+        "symbols_with_valid_bid_ask": _symbols_matching(candidate_rows, _row_has_valid_bid_ask),
+        "symbols_with_valid_volume": _symbols_matching(candidate_rows, _row_has_valid_volume),
+        "symbols_with_float": _symbols_matching(candidate_rows, _row_has_float),
+        "observation_scope": _operator_observation_scope(evidence),
+        "outcome": _market_data_observation_outcome(evidence),
+    }
+
+
 def _pattern_input_artifact(evidence: RuntimeObservationEvidence) -> dict[str, Any]:
     pattern_rows = evidence.pattern_input_evidence
     if not pattern_rows:
@@ -799,11 +1017,15 @@ def _classify_observation(evidence: RuntimeObservationEvidence, setup_artifact: 
         return "INSUFFICIENT_EVIDENCE", blockers
 
     focus_symbols = _scanner_symbols(evidence.scanner_payload, "focus_m_symbols")
+    diagnostics = _market_data_observation_diagnostics(evidence)
     if not focus_symbols:
-        blockers.append("No Focus M candidates reached real pattern input evaluation.")
+        if diagnostics.get("outcome") == "REAL_MARKET_DATA_UNUSABLE":
+            blockers.append(MARKET_DATA_UNUSABLE_BLOCKER)
+        else:
+            blockers.append("No Focus M candidates reached real pattern input evaluation.")
         return "INSUFFICIENT_EVIDENCE", blockers
     if not evidence.pattern_input_evidence:
-        blockers.append("No real pattern input evidence was captured for Focus M candidates.")
+        blockers.append(NO_PATTERN_INPUT_EVIDENCE_BLOCKER)
         return "INSUFFICIENT_EVIDENCE", blockers
 
     pattern_artifact = _pattern_input_artifact(evidence)
@@ -895,6 +1117,8 @@ def build_pr1039_observation_input(evidence: RuntimeObservationEvidence) -> dict
         "scenario_id": evidence.scenario_id,
         "operator": evidence.operator,
         "classification": classification,
+        "operator_observation_scope": _operator_observation_scope(evidence),
+        "market_data_observation_diagnostics": _market_data_observation_diagnostics(evidence),
         "broker_connection_snapshot": broker,
         "scanner_cycle_artifact": {
             "provider_source": evidence.scanner_payload.get("provider_source") or evidence.env.get("SCANNER_DATA_SOURCE", "IBKR"),
@@ -1016,10 +1240,27 @@ def _unavailable_pattern_evidence(symbol: str, reason: str, quality_flags: Seque
     }
 
 
-def collect_real_readonly_runtime_evidence(*, operator: str, env: Mapping[str, str], cycle_id: int = 1) -> RuntimeObservationEvidence:
+def _scope_allows_symbol(scope: Mapping[str, Any], symbol: str) -> bool:
+    requested = set(parse_observation_symbols(scope.get("observation_symbols", [])))
+    return not requested or symbol in requested
+
+
+def collect_real_readonly_runtime_evidence(
+    *,
+    operator: str,
+    env: Mapping[str, str],
+    cycle_id: int = 1,
+    operator_observation_scope: Mapping[str, Any] | None = None,
+) -> RuntimeObservationEvidence:
     apply_readonly_runtime_overrides(env)
     captured_at = utc_now_iso()
     broker_before = _broker_snapshot()
+    scope = build_operator_observation_scope(
+        max_observation_symbols=(operator_observation_scope or {}).get("max_observation_symbols", DEFAULT_MAX_OBSERVATION_SYMBOLS),
+        max_observation_seconds=(operator_observation_scope or {}).get("max_observation_seconds", DEFAULT_MAX_OBSERVATION_SECONDS),
+        max_snapshot_failures=(operator_observation_scope or {}).get("max_snapshot_failures", DEFAULT_MAX_SNAPSHOT_FAILURES),
+        observation_symbols=(operator_observation_scope or {}).get("observation_symbols", []),
+    )
 
     from src.core_engine.events import TradeIntentRecord
     from src.core_engine.state import RunMode
@@ -1042,6 +1283,13 @@ def collect_real_readonly_runtime_evidence(*, operator: str, env: Mapping[str, s
     pattern_inputs: list[dict[str, Any]] = []
     strategy_decisions: list[Any] = []
     intent_records: list[TradeIntentRecord] = []
+    observed_focus_symbols = [_symbol(row) for row in focus_rows if _symbol(row)]
+    evaluated_pattern_symbols: list[str] = []
+    snapshot_failure_count = 0
+    stopped_by_max_observation_symbols = False
+    stopped_by_max_observation_seconds = False
+    stopped_by_max_snapshot_failures = False
+    observation_started = time.monotonic()
 
     def session_context(label: str) -> Any:
         normalized = _normalize_upper(label)
@@ -1052,8 +1300,17 @@ def collect_real_readonly_runtime_evidence(*, operator: str, env: Mapping[str, s
         return SessionContext.REGULAR
 
     for index, row in enumerate(focus_rows, start=1):
+        if len(evaluated_pattern_symbols) >= int(scope["max_observation_symbols"]):
+            stopped_by_max_observation_symbols = True
+            break
+        if time.monotonic() - observation_started > float(scope["max_observation_seconds"]):
+            stopped_by_max_observation_seconds = True
+            break
+        if snapshot_failure_count >= int(scope["max_snapshot_failures"]):
+            stopped_by_max_snapshot_failures = True
+            break
         symbol = _symbol(row)
-        if not symbol:
+        if not symbol or not _scope_allows_symbol(scope, symbol):
             continue
         try:
             inputs, quality_flags = build_runtime_pattern_inputs(
@@ -1064,11 +1321,20 @@ def collect_real_readonly_runtime_evidence(*, operator: str, env: Mapping[str, s
                 session_phase=session_label,
             )
         except Exception as exc:
+            snapshot_failure_count += 1
             pattern_inputs.append(_unavailable_pattern_evidence(symbol, f"pattern_input_exception:{type(exc).__name__}", []))
+            if snapshot_failure_count >= int(scope["max_snapshot_failures"]):
+                stopped_by_max_snapshot_failures = True
+                break
             continue
         if inputs is None:
+            snapshot_failure_count += 1
             pattern_inputs.append(_unavailable_pattern_evidence(symbol, "pattern_inputs_unavailable", quality_flags))
+            if snapshot_failure_count >= int(scope["max_snapshot_failures"]):
+                stopped_by_max_snapshot_failures = True
+                break
             continue
+        evaluated_pattern_symbols.append(symbol)
         pattern_inputs.append(_pattern_evidence_from_inputs(symbol, inputs, quality_flags))
         liquidity = getattr(inputs, "liquidity_context", None)
         levels = getattr(inputs, "levels", None)
@@ -1136,6 +1402,16 @@ def collect_real_readonly_runtime_evidence(*, operator: str, env: Mapping[str, s
         account=account,
     )
     broker_after = _broker_snapshot()
+    scope.update(
+        {
+            "observed_focus_symbols": observed_focus_symbols,
+            "evaluated_pattern_symbols": evaluated_pattern_symbols,
+            "snapshot_failure_count": snapshot_failure_count,
+            "stopped_by_max_observation_symbols": stopped_by_max_observation_symbols,
+            "stopped_by_max_observation_seconds": stopped_by_max_observation_seconds,
+            "stopped_by_max_snapshot_failures": stopped_by_max_snapshot_failures,
+        }
+    )
 
     return RuntimeObservationEvidence(
         operator=operator,
@@ -1153,6 +1429,7 @@ def collect_real_readonly_runtime_evidence(*, operator: str, env: Mapping[str, s
         broker_before=broker_before,
         broker_after=broker_after,
         session_label=session_label,
+        operator_observation_scope=scope,
     )
 
 
@@ -1187,7 +1464,7 @@ def validate_with_pr1039(*, observation_input: Path, raw_output_dir: Path, valid
     )
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run PR1040 real READ_ONLY Ross runtime observation adapter.")
     parser.add_argument("--operator", required=True)
     parser.add_argument("--cycle-id", type=int, default=1)
@@ -1196,14 +1473,30 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--validated-output-dir", type=Path, default=DEFAULT_VALIDATED_OUTPUT_DIR)
     parser.add_argument("--validate-with-pr1039", action="store_true")
     parser.add_argument("--force", action="store_true")
+    parser.add_argument("--max-observation-symbols", type=int, default=DEFAULT_MAX_OBSERVATION_SYMBOLS)
+    parser.add_argument("--max-observation-seconds", type=float, default=DEFAULT_MAX_OBSERVATION_SECONDS)
+    parser.add_argument("--max-snapshot-failures", type=int, default=DEFAULT_MAX_SNAPSHOT_FAILURES)
+    parser.add_argument("--observation-symbols", type=parse_observation_symbols, default=[])
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = build_arg_parser()
     args = parser.parse_args(argv)
 
     env = build_safe_readonly_env()
+    operator_observation_scope = build_operator_observation_scope(
+        max_observation_symbols=args.max_observation_symbols,
+        max_observation_seconds=args.max_observation_seconds,
+        max_snapshot_failures=args.max_snapshot_failures,
+        observation_symbols=args.observation_symbols,
+    )
     try:
         evidence = collect_real_readonly_runtime_evidence(
             operator=args.operator,
             env=env,
             cycle_id=args.cycle_id,
+            operator_observation_scope=operator_observation_scope,
         )
         spec = build_pr1039_observation_input(evidence)
         spec["analytics_storage_artifact"]["artifact_paths"] = [str(args.observation_output)]
