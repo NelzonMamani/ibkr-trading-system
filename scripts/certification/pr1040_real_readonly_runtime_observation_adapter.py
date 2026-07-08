@@ -25,6 +25,10 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+from scripts.certification.pr1046_ibkr_market_data_diagnostics import (  # noqa: E402
+    build_ibkr_market_data_diagnostic,
+)
+
 SCHEMA_VERSION = "PR1040.real_readonly_runtime_observation_adapter.v1"
 PR1039_INPUT_SCHEMA_VERSION = "PR1039.controlled_readonly_observation_input.v1"
 CANONICAL_DECISION_AUTHORITY = "RossMomentumStrategy.evaluate"
@@ -845,6 +849,12 @@ def _market_data_observation_diagnostics(evidence: RuntimeObservationEvidence) -
     focus_symbols = _scanner_symbols(payload, "focus_m_symbols")
     candidate_rows = _scanner_candidate_rows(payload)
     reason_counts = _drop_reason_counts(payload)
+    ibkr_diagnostic = build_ibkr_market_data_diagnostic(
+        scanner_payload=payload,
+        env=evidence.env,
+        candidate_rows=candidate_rows,
+        drop_reason_counts=reason_counts,
+    )
     return {
         "candidate_count": int(payload.get("topn_count", len(top_symbols) or len(candidate_rows)) or 0),
         "watchlist_k_count": len(watchlist_symbols) or len(_scanner_rows(payload, ("watchlist_k", "watchlist_rows"))),
@@ -862,6 +872,7 @@ def _market_data_observation_diagnostics(evidence: RuntimeObservationEvidence) -
         "symbols_with_valid_volume": _symbols_matching(candidate_rows, _row_has_valid_volume),
         "symbols_with_float": _symbols_matching(candidate_rows, _row_has_float),
         "observation_scope": _operator_observation_scope(evidence),
+        "ibkr_market_data_diagnostic": ibkr_diagnostic,
         "outcome": _market_data_observation_outcome(evidence),
     }
 
