@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -191,12 +192,20 @@ def _evidence(*, scanner=None, pattern_inputs=None, storage: bool = True, scope=
 
 
 def test_pr1045_help_contains_all_runtime_cli_arguments() -> None:
-    help_text = pr1040.build_arg_parser().format_help()
+    result = subprocess.run(
+        [sys.executable, "scripts/certification/pr1040_real_readonly_runtime_observation_adapter.py", "--help"],
+        cwd=_ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
 
-    assert "--max-observation-symbols" in help_text
-    assert "--max-observation-seconds" in help_text
-    assert "--max-snapshot-failures" in help_text
-    assert "--observation-symbols" in help_text
+    assert result.returncode == 0, result.stderr
+    assert "--max-observation-symbols" in result.stdout
+    assert "--max-observation-seconds" in result.stdout
+    assert "--max-snapshot-failures" in result.stdout
+    assert "--observation-symbols" in result.stdout
 
 
 def test_pr1045_parser_returns_values_for_all_runtime_arguments() -> None:
