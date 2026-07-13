@@ -198,9 +198,70 @@ def _symbol(value: Any) -> str:
     return ""
 
 
+def _as_sequence(value: Any) -> list[Any]:
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple, set)):
+        return list(value)
+    return [value]
+
+
 def _has_error_signature(text: str) -> bool:
     lowered = text.lower()
     return bool(ERROR_CODE_RE.search(text) or any(signature in lowered for signature in ERROR_EVENT_TEXT_SIGNATURES))
+
+
+def _summary_symbols_for_code(symbols_by_code: Any, code: int | None) -> list[str]:
+    if code is None or not isinstance(symbols_by_code, Mapping):
+        return [""]
+    raw_symbols = symbols_by_code.get(str(code))
+    if raw_symbols is None:
+        raw_symbols = symbols_by_code.get(code)
+    symbols = [_normalize_upper(symbol) for symbol in _as_sequence(raw_symbols)]
+    symbols = [symbol for symbol in symbols if symbol]
+    return symbols or [""]
+
+
+def _error_events_from_diagnostic_summary(value: Mapping[str, Any]) -> list[dict[str, Any]]:
+    if "observed_error_codes" not in value and "observed_error_messages" not in value:
+        return []
+
+    codes = [
+        code
+        for code in (_coerce_error_code(item) for item in _as_sequence(value.get("observed_error_codes")))
+        if code is not None
+    ]
+    messages = [
+        message
+        for message in (_normalize_text(item).strip() for item in _as_sequence(value.get("observed_error_messages")))
+        if message
+    ]
+    if not codes and not messages:
+        return []
+
+    event_count = max(len(codes), len(messages), 1)
+    raw_event = {
+        key: _json_safe(value.get(key))
+        for key in ("observed_error_codes", "observed_error_messages", "symbols_by_error_code")
+        if key in value
+    }
+    events: list[dict[str, Any]] = []
+    for index in range(event_count):
+        code = codes[index] if index < len(codes) else (codes[0] if len(codes) == 1 else None)
+        message = messages[index] if index < len(messages) else (messages[0] if len(messages) == 1 else "")
+        if code is None and not _has_error_signature(message):
+            continue
+        for symbol in _summary_symbols_for_code(value.get("symbols_by_error_code"), code):
+            events.append(
+                {
+                    "code": code,
+                    "message": message,
+                    "symbol": symbol,
+                    "source": "PR1046_DIAGNOSTIC_SUMMARY",
+                    "raw_event": raw_event,
+                }
+            )
+    return events
 
 
 def _error_event_from_mapping(value: Mapping[str, Any]) -> dict[str, Any] | None:
@@ -243,19 +304,35 @@ def _error_event_from_text(value: Any) -> dict[str, Any] | None:
 def extract_ibkr_market_data_error_events(payload: Any) -> list[dict[str, Any]]:
     events: list[dict[str, Any]] = []
     seen: set[str] = set()
-    for item in _walk(payload):
-        event = None
-        if isinstance(item, Mapping):
-            event = _error_event_from_mapping(item)
-        elif isinstance(item, (str, int, float)):
-            event = _error_event_from_text(item)
+
+    def add_event(event: dict[str, Any] | None) -> None:
         if event is None:
-            continue
+            return
         stable = _stable_json(event)
         if stable in seen:
-            continue
+            return
         seen.add(stable)
         events.append(event)
+
+    def visit(value: Any) -> None:
+        if isinstance(value, Mapping):
+            summary_events = _error_events_from_diagnostic_summary(value)
+            if summary_events:
+                for event in summary_events:
+                    add_event(event)
+                return
+            add_event(_error_event_from_mapping(value))
+            for item in value.values():
+                visit(item)
+            return
+        if isinstance(value, (list, tuple, set)):
+            for item in value:
+                visit(item)
+            return
+        if isinstance(value, (str, int, float)):
+            add_event(_error_event_from_text(value))
+
+    visit(payload)
     return events
 
 
