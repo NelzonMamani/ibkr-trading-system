@@ -50,6 +50,10 @@ def _diagnostic_from_observation(payload: Mapping[str, Any]) -> dict[str, Any] |
     return None
 
 
+def _diagnostic_has_error_events(diagnostic: Mapping[str, Any]) -> bool:
+    return isinstance(diagnostic.get("ibkr_market_data_error_events"), list)
+
+
 def _observation_market_data(payload: Mapping[str, Any]) -> Mapping[str, Any]:
     market_data = payload.get("market_data_observation_diagnostics", {})
     return market_data if isinstance(market_data, Mapping) else {}
@@ -81,12 +85,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     assert source_path is not None
     payload = _read_json(source_path)
 
-    diagnostic = None
+    existing_diagnostic = None
     if args.observation_input is not None:
-        diagnostic = _diagnostic_from_observation(payload)
-    if diagnostic is None:
+        existing_diagnostic = _diagnostic_from_observation(payload)
+    if existing_diagnostic is not None and _diagnostic_has_error_events(existing_diagnostic):
+        diagnostic = existing_diagnostic
+    else:
         market_data = _observation_market_data(payload) if args.observation_input is not None else {}
         scanner_payload = _scanner_payload_from_observation(payload) if args.observation_input is not None else payload
+        if existing_diagnostic is not None:
+            scanner_payload = dict(scanner_payload)
+            scanner_payload["existing_ibkr_market_data_diagnostic"] = existing_diagnostic
         diagnostic = build_ibkr_market_data_diagnostic(
             scanner_payload=scanner_payload,
             drop_reason_counts=market_data.get("drop_reason_counts") if isinstance(market_data, Mapping) else None,
