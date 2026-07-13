@@ -53,6 +53,21 @@ The PR1040/PR1045 observation JSON now includes an IBKR-specific nested block un
     "ibkr_market_data_diagnostic": {
       "provider": "IBKR",
       "classification": "MARKET_DATA_SUBSCRIPTION_REQUIRED",
+      "observed_error_codes": [10089],
+      "ibkr_market_data_error_event_count": 1,
+      "ibkr_market_data_error_events": [
+        {
+          "code": 10089,
+          "message": "Requested market data requires additional subscription for API",
+          "symbol": "MISS1",
+          "source": "IBKR_ERROR_EVENT",
+          "raw_event": {
+            "code": 10089,
+            "message": "Requested market data requires additional subscription for API",
+            "symbol": "MISS1"
+          }
+        }
+      ],
       "paper_ready": "NO",
       "paper_readiness_gate": "FAIL"
     }
@@ -60,7 +75,9 @@ The PR1040/PR1045 observation JSON now includes an IBKR-specific nested block un
 }
 ```
 
-The nested block records observed error codes/messages, required quote-field aliases, missing fields by symbol, symbols with complete quote fields, drop-reason counts, requested market-data type, scanner mode, READ_ONLY runtime status, likely causes, and operator next steps.
+The nested block records observed error codes/messages, persisted IBKR market-data error events, required quote-field aliases, missing fields by symbol, symbols with complete quote fields, drop-reason counts, requested market-data type, scanner mode, READ_ONLY runtime status, likely causes, and operator next steps.
+
+`ibkr_market_data_error_events` preserves normalized event fields plus a JSON-safe `raw_event` copy of the source event or legacy diagnostic summary. Older artifacts with only summarized `observed_error_codes`, `observed_error_messages`, and `symbols_by_error_code` can be reprocessed by the probe to produce the persisted event list.
 
 ## Diagnostics Probe
 
