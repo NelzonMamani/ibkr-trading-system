@@ -135,6 +135,17 @@ def test_pr1046_classifies_ibkr_10089_subscription_required() -> None:
     assert diagnostic["classification"] == "MARKET_DATA_SUBSCRIPTION_REQUIRED"
     assert diagnostic["observed_error_codes"] == [10089]
     assert diagnostic["symbols_by_error_code"] == {"10089": ["MISS1"]}
+    assert diagnostic["ibkr_market_data_error_event_count"] == 1
+    event = diagnostic["ibkr_market_data_error_events"][0]
+    assert event["code"] == 10089
+    assert event["message"] == "Requested market data requires additional subscription for API"
+    assert event["symbol"] == "MISS1"
+    assert event["source"] == "IBKR_ERROR_EVENT"
+    assert event["raw_event"] == {
+        "code": 10089,
+        "message": "Requested market data requires additional subscription for API",
+        "symbol": "MISS1",
+    }
     assert diagnostic["paper_ready"] == "NO"
     assert diagnostic["paper_readiness_gate"] == "FAIL"
 
@@ -158,6 +169,8 @@ def test_pr1046_classifies_10167_delayed_unusable_when_fields_missing() -> None:
 
     assert diagnostic["classification"] == "DELAYED_DATA_AVAILABLE_BUT_UNUSABLE"
     assert diagnostic["observed_error_codes"] == [10167]
+    assert diagnostic["ibkr_market_data_error_event_count"] == 1
+    assert diagnostic["ibkr_market_data_error_events"][0]["code"] == 10167
     assert diagnostic["delayed_data_observed"] is True
     assert diagnostic["snapshot_fields_missing"] is True
 
@@ -216,6 +229,35 @@ def test_pr1046_symbol_keyed_drop_ledger_counts_actual_reason() -> None:
     assert diagnostic["snapshot_fields_missing"] is True
 
 
+def test_pr1046_required_field_drop_reasons_cover_volume_and_bid_ask() -> None:
+    for reason in ("DROP_MISSING_VOLUME", "DROP_MISSING_BID_ASK"):
+        scanner = {
+            "provider_source": "IBKR",
+            "drop_ledger": {reason: ["MISS1"]},
+            "candidate_metrics": [],
+        }
+
+        diagnostic = pr1046.build_ibkr_market_data_diagnostic(scanner_payload=scanner)
+
+        assert diagnostic["drop_reason_counts"] == {reason: 1}
+        assert diagnostic["classification"] == "SNAPSHOT_FIELDS_MISSING"
+        assert diagnostic["snapshot_fields_missing"] is True
+
+
+def test_pr1046_zero_count_missing_field_drop_reasons_do_not_create_evidence() -> None:
+    scanner = {
+        "provider_source": "IBKR",
+        "drop_ledger": {"DROP_MISSING_PRICE": []},
+        "candidate_metrics": [],
+    }
+
+    diagnostic = pr1046.build_ibkr_market_data_diagnostic(scanner_payload=scanner)
+
+    assert diagnostic["drop_reason_counts"] == {"DROP_MISSING_PRICE": 0}
+    assert diagnostic["classification"] == "MARKET_DATA_DIAGNOSTIC_UNKNOWN"
+    assert diagnostic["snapshot_fields_missing"] is False
+
+
 def test_pr1046_classifies_market_data_usable() -> None:
     scanner = _scanner([_quote_row("REAL1")])
 
@@ -264,6 +306,9 @@ def test_pr1040_observation_includes_nested_ibkr_diagnostic_block() -> None:
 
     assert market_data["outcome"] == "REAL_MARKET_DATA_UNUSABLE"
     assert ibkr["classification"] == "MARKET_DATA_SUBSCRIPTION_REQUIRED"
+    assert ibkr["ibkr_market_data_error_event_count"] == 1
+    assert ibkr["ibkr_market_data_error_events"][0]["code"] == 10089
+    assert ibkr["ibkr_market_data_error_events"][0]["symbol"] == "MISS1"
     assert ibkr["read_only_runtime"] is True
     assert ibkr["paper_ready"] == "NO"
     assert ibkr["paper_readiness_gate"] == "FAIL"
@@ -333,5 +378,71 @@ def test_pr1046_probe_classifies_backward_compatible_observation_without_nested_
     diagnostic = report["diagnostic"]
     assert diagnostic["classification"] == "SNAPSHOT_FIELDS_MISSING"
     assert diagnostic["drop_reason_counts"] == {"DROP_MISSING_PRICE": 1}
+    assert diagnostic["paper_ready"] == "NO"
+    assert diagnostic["paper_readiness_gate"] == "FAIL"
+
+
+def test_pr1046_probe_persists_error_events_from_legacy_nested_diagnostic(tmp_path) -> None:
+    observation_input = tmp_path / "legacy_nested_observation.json"
+    output = tmp_path / "diagnostic.json"
+    observation_input.write_text(
+        json.dumps(
+            {
+                "scanner_cycle_artifact": {
+                    "provider_source": "IBKR",
+                    "top_n_symbols": ["MISS1"],
+                    "drop_ledger": {"MISS1": "DROP_MISSING_PRICE"},
+                },
+                "market_data_observation_diagnostics": {
+                    "drop_reason_counts": {"DROP_MISSING_PRICE": 1},
+                    "ibkr_market_data_diagnostic": {
+                        "classification": "MARKET_DATA_SUBSCRIPTION_REQUIRED",
+                        "observed_error_codes": [10089],
+                        "observed_error_messages": [
+                            "Requested market data requires additional subscription for API"
+                        ],
+                        "symbols_by_error_code": {"10089": ["MISS1"]},
+                        "paper_ready": "NO",
+                        "paper_readiness_gate": "FAIL",
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(_PROBE_PATH),
+            "--observation-input",
+            str(observation_input),
+            "--output",
+            str(output),
+            "--operator",
+            "TEST_OPERATOR",
+        ],
+        cwd=_ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    report = json.loads(output.read_text(encoding="utf-8"))
+    diagnostic = report["diagnostic"]
+    assert diagnostic["classification"] == "MARKET_DATA_SUBSCRIPTION_REQUIRED"
+    assert diagnostic["ibkr_market_data_error_event_count"] == 1
+    event = diagnostic["ibkr_market_data_error_events"][0]
+    assert event["code"] == 10089
+    assert event["message"] == "Requested market data requires additional subscription for API"
+    assert event["symbol"] == "MISS1"
+    assert event["source"] == "PR1046_DIAGNOSTIC_SUMMARY"
+    assert event["raw_event"] == {
+        "observed_error_codes": [10089],
+        "observed_error_messages": ["Requested market data requires additional subscription for API"],
+        "symbols_by_error_code": {"10089": ["MISS1"]},
+    }
     assert diagnostic["paper_ready"] == "NO"
     assert diagnostic["paper_readiness_gate"] == "FAIL"
