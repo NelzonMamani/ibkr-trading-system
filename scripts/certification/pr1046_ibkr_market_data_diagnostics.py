@@ -59,6 +59,7 @@ ERROR_CODE_KEYS = (
 )
 ERROR_MESSAGE_KEYS = (
     "message",
+    "error",
     "error_message",
     "ib_error_message",
     "ibkr_error_message",
@@ -74,9 +75,19 @@ MISSING_FIELD_DROP_REASONS = {
     "DROP_QUOTE_UNAVAILABLE",
     "DROP_MISSING_QUOTE",
     "DROP_MISSING_MARKET_DATA",
+    "DROP_MISSING_VOLUME",
+    "DROP_MISSING_BID_ASK",
     "SNAPSHOT_FIELDS_MISSING",
     "QUOTE_FIELDS_MISSING",
 }
+ERROR_EVENT_TEXT_SIGNATURES = (
+    "additional subscription",
+    "not subscribed",
+    "delayed market data",
+    "displaying delayed",
+    "snapshot timeout",
+    "snapshot timed out",
+)
 
 
 def _normalize_text(value: Any) -> str:
@@ -113,9 +124,21 @@ def _safe_float(value: Any) -> float | None:
     return parsed if parsed > 0.0 else None
 
 
+def _json_safe(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, Mapping):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe(item) for item in value]
+    if hasattr(value, "__dict__"):
+        return _json_safe(vars(value))
+    return str(value)
+
+
 def _stable_json(value: Any) -> str:
     try:
-        return json.dumps(value, sort_keys=True, default=str, separators=(",", ":"))
+        return json.dumps(_json_safe(value), sort_keys=True, default=str, separators=(",", ":"))
     except TypeError:
         return str(value)
 
@@ -175,6 +198,67 @@ def _symbol(value: Any) -> str:
     return ""
 
 
+def _has_error_signature(text: str) -> bool:
+    lowered = text.lower()
+    return bool(ERROR_CODE_RE.search(text) or any(signature in lowered for signature in ERROR_EVENT_TEXT_SIGNATURES))
+
+
+def _error_event_from_mapping(value: Mapping[str, Any]) -> dict[str, Any] | None:
+    direct_code_keys = [key for key in ERROR_CODE_KEYS if key in value]
+    direct_message = _first_present(value, ERROR_MESSAGE_KEYS)
+    code = None
+    for key in direct_code_keys:
+        code = _coerce_error_code(value.get(key))
+        if code is not None:
+            break
+    message_text = _normalize_text(direct_message).strip()
+    if code is None and message_text:
+        code = _coerce_error_code(message_text)
+    if code is None and not message_text:
+        return None
+    if code is None and not _has_error_signature(message_text):
+        return None
+    return {
+        "code": code,
+        "message": message_text,
+        "symbol": _symbol(value),
+        "source": "IBKR_ERROR_EVENT",
+        "raw_event": _json_safe(value),
+    }
+
+
+def _error_event_from_text(value: Any) -> dict[str, Any] | None:
+    text = _normalize_text(value).strip()
+    if not text or not _has_error_signature(text):
+        return None
+    return {
+        "code": _coerce_error_code(text),
+        "message": text,
+        "symbol": "",
+        "source": "IBKR_ERROR_TEXT",
+        "raw_event": text,
+    }
+
+
+def extract_ibkr_market_data_error_events(payload: Any) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in _walk(payload):
+        event = None
+        if isinstance(item, Mapping):
+            event = _error_event_from_mapping(item)
+        elif isinstance(item, (str, int, float)):
+            event = _error_event_from_text(item)
+        if event is None:
+            continue
+        stable = _stable_json(event)
+        if stable in seen:
+            continue
+        seen.add(stable)
+        events.append(event)
+    return events
+
+
 def _is_drop_reason_key(value: Any) -> bool:
     text = _normalize_upper(value)
     return any(text.startswith(prefix) for prefix in DROP_REASON_PREFIXES)
@@ -208,42 +292,16 @@ def _extract_error_observations(payload: Any) -> tuple[list[int], list[str], dic
     messages: set[str] = set()
     symbols_by_code: dict[str, set[str]] = {str(code): set() for code in IBKR_MARKET_DATA_ERROR_CODES}
 
-    for item in _walk(payload):
-        if isinstance(item, Mapping):
-            code = None
-            for key in ERROR_CODE_KEYS:
-                if key in item:
-                    code = _coerce_error_code(item.get(key))
-                    if code is not None:
-                        break
-            message = _first_present(item, ERROR_MESSAGE_KEYS)
-            if code is not None:
-                codes.add(code)
-                text = _normalize_text(message).strip()
-                if text:
-                    messages.add(text)
-                symbol = _symbol(item)
-                if symbol:
-                    symbols_by_code[str(code)].add(symbol)
-            else:
-                text = _stable_json(item)
-                for match in ERROR_CODE_RE.finditer(text):
-                    codes.add(int(match.group(1)))
-        else:
-            text = _normalize_text(item).strip()
-            if not text:
-                continue
-            for match in ERROR_CODE_RE.finditer(text):
-                codes.add(int(match.group(1)))
-                messages.add(text)
-            lowered = text.lower()
-            if (
-                "additional subscription" in lowered
-                or "not subscribed" in lowered
-                or "delayed market data" in lowered
-                or "snapshot timeout" in lowered
-            ):
-                messages.add(text)
+    for event in extract_ibkr_market_data_error_events(payload):
+        code = event.get("code")
+        if isinstance(code, int):
+            codes.add(code)
+        message = _normalize_text(event.get("message")).strip()
+        if message:
+            messages.add(message)
+        symbol = _normalize_upper(event.get("symbol"))
+        if symbol and isinstance(code, int):
+            symbols_by_code[str(code)].add(symbol)
 
     return (
         sorted(codes),
@@ -362,7 +420,7 @@ def _normalized_counts(value: Mapping[str, Any] | None, scanner_payload: Mapping
 
 
 def _snapshot_timeout_observed(counts: Mapping[str, int], texts: Sequence[str]) -> bool:
-    if any(reason in counts for reason in SNAPSHOT_TIMEOUT_REASONS):
+    if any(value > 0 and reason in SNAPSHOT_TIMEOUT_REASONS for reason, value in counts.items()):
         return True
     for text in texts:
         lowered = text.lower()
@@ -374,7 +432,7 @@ def _snapshot_timeout_observed(counts: Mapping[str, int], texts: Sequence[str]) 
 
 
 def _missing_field_drop_observed(counts: Mapping[str, int]) -> bool:
-    return any(reason in counts for reason in MISSING_FIELD_DROP_REASONS)
+    return any(value > 0 and reason in MISSING_FIELD_DROP_REASONS for reason, value in counts.items())
 
 
 def _probable_causes(classification: str) -> list[str]:
@@ -471,6 +529,7 @@ def build_ibkr_market_data_diagnostic(
     payload = scanner_payload if isinstance(scanner_payload, Mapping) else {}
     rows = list(candidate_rows) if candidate_rows is not None else extract_candidate_rows(payload)
     counts = _normalized_counts(drop_reason_counts, payload)
+    events = extract_ibkr_market_data_error_events(payload)
     codes, messages, symbols_by_code = _extract_error_observations(payload)
     texts = _text_corpus(payload)
     joined_text = "\n".join(texts + messages).lower()
@@ -489,6 +548,8 @@ def build_ibkr_market_data_diagnostic(
         "observed_error_codes": codes,
         "observed_error_messages": messages,
         "symbols_by_error_code": symbols_by_code,
+        "ibkr_market_data_error_event_count": len(events),
+        "ibkr_market_data_error_events": events,
         "required_quote_fields": list(REQUIRED_QUOTE_FIELDS),
         "required_quote_field_aliases": {key: list(values) for key, values in QUOTE_FIELD_ALIASES.items()},
         "missing_fields_by_symbol": missing_by_symbol,
