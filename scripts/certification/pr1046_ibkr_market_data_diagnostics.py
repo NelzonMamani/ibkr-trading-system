@@ -321,7 +321,10 @@ def extract_ibkr_market_data_error_events(payload: Any) -> list[dict[str, Any]]:
                 for event in summary_events:
                     add_event(event)
                 return
-            add_event(_error_event_from_mapping(value))
+            mapping_event = _error_event_from_mapping(value)
+            if mapping_event is not None:
+                add_event(mapping_event)
+                return
             for item in value.values():
                 visit(item)
             return
