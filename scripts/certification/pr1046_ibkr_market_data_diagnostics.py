@@ -5,6 +5,24 @@ import json
 import re
 from typing import Any, Mapping, Sequence
 
+try:
+    from scripts.certification.pr1049_ibkr_market_data_error_runtime_capture import (
+        get_runtime_ibkr_market_data_error_events,
+        install_runtime_ibkr_market_data_error_capture,
+        reset_runtime_ibkr_market_data_error_events,
+    )
+except Exception:  # pragma: no cover - diagnostics must stay importable without runtime deps
+    def get_runtime_ibkr_market_data_error_events() -> list[dict[str, Any]]:
+        return []
+
+    def install_runtime_ibkr_market_data_error_capture() -> bool:
+        return False
+
+    def reset_runtime_ibkr_market_data_error_events() -> None:
+        return None
+else:
+    install_runtime_ibkr_market_data_error_capture()
+
 SCHEMA_VERSION = "PR1046.ibkr_market_data_diagnostic.v1"
 
 MARKET_DATA_SUBSCRIPTION_REQUIRED = "MARKET_DATA_SUBSCRIPTION_REQUIRED"
@@ -68,6 +86,17 @@ ERROR_MESSAGE_KEYS = (
     "description",
 )
 SYMBOL_KEYS = ("symbol", "ticker", "local_symbol", "localSymbol", "contract_symbol")
+OPTIONAL_ERROR_EVENT_FIELD_KEYS: dict[str, tuple[str, ...]] = {
+    "req_id": ("req_id", "reqId", "request_id", "order_id"),
+    "ticker_id": ("ticker_id", "tickerId"),
+    "callback_id": ("callback_id", "callbackId"),
+    "con_id": ("con_id", "conId"),
+    "exchange": ("exchange",),
+    "primary_exchange": ("primary_exchange", "primaryExchange"),
+    "market_data_type": ("market_data_type", "marketDataType"),
+    "attempt_label": ("attempt_label", "attempt", "label"),
+    "timestamp": ("timestamp", "timestamp_utc", "captured_at", "time"),
+}
 DROP_REASON_PREFIXES = ("DROP", "DATA_QUALITY", "SNAPSHOT", "QUOTE", "MARKET_DATA", "REFERENCE")
 SNAPSHOT_TIMEOUT_REASONS = {"DATA_QUALITY_FAIL_SNAPSHOT", "SNAPSHOT_TIMEOUT", "SNAPSHOT_TIMED_OUT"}
 MISSING_FIELD_DROP_REASONS = {
@@ -211,6 +240,13 @@ def _has_error_signature(text: str) -> bool:
     return bool(ERROR_CODE_RE.search(text) or any(signature in lowered for signature in ERROR_EVENT_TEXT_SIGNATURES))
 
 
+def _runtime_error_events() -> list[dict[str, Any]]:
+    try:
+        return [dict(event) for event in get_runtime_ibkr_market_data_error_events()]
+    except Exception:
+        return []
+
+
 def _summary_symbols_for_code(symbols_by_code: Any, code: int | None) -> list[str]:
     if code is None or not isinstance(symbols_by_code, Mapping):
         return [""]
@@ -279,13 +315,21 @@ def _error_event_from_mapping(value: Mapping[str, Any]) -> dict[str, Any] | None
         return None
     if code is None and not _has_error_signature(message_text):
         return None
-    return {
+    event = {
         "code": code,
         "message": message_text,
         "symbol": _symbol(value),
-        "source": "IBKR_ERROR_EVENT",
+        "source": _normalize_text(value.get("source") or "IBKR_ERROR_EVENT") or "IBKR_ERROR_EVENT",
         "raw_event": _json_safe(value),
     }
+    for output_key, keys in OPTIONAL_ERROR_EVENT_FIELD_KEYS.items():
+        optional_value = _first_present(value, keys)
+        if optional_value is None:
+            continue
+        if isinstance(optional_value, str) and not optional_value.strip():
+            continue
+        event[output_key] = _json_safe(optional_value)
+    return event
 
 
 def _error_event_from_text(value: Any) -> dict[str, Any] | None:
@@ -313,6 +357,9 @@ def extract_ibkr_market_data_error_events(payload: Any) -> list[dict[str, Any]]:
             return
         seen.add(stable)
         events.append(event)
+
+    for runtime_event in _runtime_error_events():
+        add_event(_error_event_from_mapping(runtime_event) if isinstance(runtime_event, Mapping) else None)
 
     def visit(value: Any) -> None:
         if isinstance(value, Mapping):
