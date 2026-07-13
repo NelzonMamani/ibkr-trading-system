@@ -9,9 +9,14 @@ from types import SimpleNamespace
 
 
 _ROOT = Path(__file__).resolve().parents[1]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
 _DIAGNOSTIC_PATH = _ROOT / "scripts" / "certification" / "pr1046_ibkr_market_data_diagnostics.py"
 _ADAPTER_PATH = _ROOT / "scripts" / "certification" / "pr1040_real_readonly_runtime_observation_adapter.py"
 _PROBE_PATH = _ROOT / "scripts" / "certification" / "pr1046_ibkr_market_data_diagnostic_probe.py"
+
+from scripts.certification import pr1049_ibkr_market_data_error_runtime_capture as pr1049_capture
 
 
 def _load_module(name: str, path: Path):
@@ -26,6 +31,14 @@ def _load_module(name: str, path: Path):
 
 pr1046 = _load_module("pr1046_ibkr_market_data_diagnostics_test", _DIAGNOSTIC_PATH)
 pr1040 = _load_module("pr1040_adapter_pr1046_test", _ADAPTER_PATH)
+
+
+def setup_function(_function) -> None:
+    pr1049_capture.reset_runtime_ibkr_market_data_error_events()
+
+
+def teardown_function(_function) -> None:
+    pr1049_capture.reset_runtime_ibkr_market_data_error_events()
 
 
 def _quote_row(symbol: str = "REAL1", **overrides):
@@ -46,6 +59,46 @@ def _quote_row(symbol: str = "REAL1", **overrides):
     }
     row.update(overrides)
     return row
+
+
+def _runtime_event(
+    code: int,
+    message: str,
+    *,
+    symbol: str = "MISS1",
+    req_id: int = 7001,
+    attempt_label: str = "primary",
+):
+    return {
+        "code": code,
+        "message": message,
+        "req_id": req_id,
+        "ticker_id": req_id,
+        "callback_id": req_id,
+        "symbol": symbol,
+        "con_id": 123456,
+        "exchange": "SMART",
+        "primary_exchange": "NASDAQ",
+        "market_data_type": "LIVE",
+        "attempt_label": attempt_label,
+        "timestamp": "2026-07-13T12:00:00+00:00",
+        "source": "IBKR_GENERIC_ERROR_CALLBACK_MARKET_DATA",
+    }
+
+
+def _runtime_client(symbol: str = "MISS1", req_id: int = 7001):
+    contract = SimpleNamespace(
+        symbol=symbol,
+        conId=123456,
+        exchange="SMART",
+        primaryExchange="NASDAQ",
+    )
+    ticker = SimpleNamespace(contract=contract)
+    return SimpleNamespace(
+        market_data_type="LIVE",
+        _request_type_by_req_id={req_id: "MARKET_DATA"},
+        _ticker_by_req_id={req_id: ticker},
+    )
 
 
 def _scanner(rows, *, errors=None, drop_ledger=None, focus_symbols=None):
@@ -285,6 +338,94 @@ def test_pr1046_classifies_unknown_without_evidence() -> None:
     assert diagnostic["classification"] == "MARKET_DATA_DIAGNOSTIC_UNKNOWN"
 
 
+def test_pr1046_structured_runtime_scanner_events_drive_subscription_diagnostic() -> None:
+    row = _quote_row("MISS1", last=None, close=None, volume=None, bid=None, ask=None)
+    scanner = _scanner(
+        [row],
+        focus_symbols=[],
+        drop_ledger={"DROP_MISSING_PRICE": ["MISS1"]},
+    )
+    scanner["ibkr_market_data_error_events"] = [
+        _runtime_event(
+            10089,
+            "Requested market data requires additional subscription for API",
+            symbol="MISS1",
+            req_id=7001,
+        ),
+        _runtime_event(
+            10167,
+            "Requested market data is not subscribed. Displaying delayed market data",
+            symbol="MISS1",
+            req_id=7002,
+            attempt_label="delayed_fallback",
+        ),
+    ]
+
+    diagnostic = pr1046.build_ibkr_market_data_diagnostic(scanner_payload=scanner, env=_safe_env())
+
+    assert diagnostic["observed_error_codes"] == [10089, 10167]
+    assert "Requested market data requires additional subscription for API" in diagnostic["observed_error_messages"]
+    assert "Requested market data is not subscribed. Displaying delayed market data" in diagnostic["observed_error_messages"]
+    assert diagnostic["subscription_required_observed"] is True
+    assert diagnostic["not_subscribed_observed"] is True
+    assert diagnostic["delayed_data_observed"] is True
+    assert diagnostic["classification"] == "MARKET_DATA_SUBSCRIPTION_REQUIRED"
+    assert diagnostic["paper_ready"] == "NO"
+    assert diagnostic["paper_readiness_gate"] == "FAIL"
+    event = next(item for item in diagnostic["ibkr_market_data_error_events"] if item["code"] == 10089)
+    assert event["req_id"] == 7001
+    assert event["ticker_id"] == 7001
+    assert event["callback_id"] == 7001
+    assert event["con_id"] == 123456
+    assert event["exchange"] == "SMART"
+    assert event["primary_exchange"] == "NASDAQ"
+    assert event["market_data_type"] == "LIVE"
+    assert event["attempt_label"] == "primary"
+
+
+def test_pr1046_runtime_callback_capture_events_are_merged_into_diagnostic() -> None:
+    row = _quote_row("MISS1", last=None, close=None, volume=None, bid=None, ask=None)
+    scanner = _scanner(
+        [row],
+        focus_symbols=[],
+        drop_ledger={"DROP_MISSING_PRICE": ["MISS1"]},
+    )
+    pr1049_capture.record_ibkr_client_market_data_error(
+        _runtime_client("MISS1", req_id=8101),
+        8101,
+        10089,
+        "Requested market data requires additional subscription for API",
+    )
+    pr1049_capture.record_ibkr_client_market_data_error(
+        _runtime_client("MISS1", req_id=8102),
+        8102,
+        10167,
+        "Requested market data is not subscribed. Displaying delayed market data",
+        attempt_label="delayed_fallback",
+    )
+
+    diagnostic = pr1046.build_ibkr_market_data_diagnostic(scanner_payload=scanner, env=_safe_env())
+
+    assert diagnostic["observed_error_codes"] == [10089, 10167]
+    assert diagnostic["subscription_required_observed"] is True
+    assert diagnostic["not_subscribed_observed"] is True
+    assert diagnostic["delayed_data_observed"] is True
+    assert diagnostic["classification"] == "MARKET_DATA_SUBSCRIPTION_REQUIRED"
+    assert diagnostic["ibkr_market_data_error_event_count"] == 2
+    event = next(item for item in diagnostic["ibkr_market_data_error_events"] if item["code"] == 10089)
+    assert event["source"] == "IBKR_GENERIC_ERROR_CALLBACK_MARKET_DATA"
+    assert event["req_id"] == 8101
+    assert event["symbol"] == "MISS1"
+    assert event["con_id"] == 123456
+    assert event["exchange"] == "SMART"
+    assert event["primary_exchange"] == "NASDAQ"
+    assert event["market_data_type"] == "LIVE"
+    assert event["raw_event"]["raw_event"]["callback"] == "IbkrClient.error"
+    assert "[IBKR][ORDER_ERROR]" in event["raw_event"]["raw_event"]["legacy_log_labels"]
+    assert diagnostic["paper_ready"] == "NO"
+    assert diagnostic["paper_readiness_gate"] == "FAIL"
+
+
 def test_pr1040_observation_includes_nested_ibkr_diagnostic_block() -> None:
     row = _quote_row("MISS1", last=None, close=None, volume=None, bid=None, ask=None)
     scanner = _scanner(
@@ -310,6 +451,39 @@ def test_pr1040_observation_includes_nested_ibkr_diagnostic_block() -> None:
     assert ibkr["ibkr_market_data_error_events"][0]["code"] == 10089
     assert ibkr["ibkr_market_data_error_events"][0]["symbol"] == "MISS1"
     assert ibkr["read_only_runtime"] is True
+    assert ibkr["paper_ready"] == "NO"
+    assert ibkr["paper_readiness_gate"] == "FAIL"
+    assert spec["final_verdict"]["paper_ready"] == "NO"
+    assert spec["final_verdict"]["paper_readiness_gate"] == "FAIL"
+    assert spec["execution_gate_artifact"]["execution_enabled"] is False
+    assert spec["broker_order_audit"]["order_attempt_count"] == 0
+
+
+def test_pr1040_adapter_uses_runtime_capture_events_in_market_data_diagnostics() -> None:
+    row = _quote_row("MISS1", last=None, close=None, volume=None, bid=None, ask=None)
+    scanner = _scanner(
+        [row],
+        focus_symbols=[],
+        drop_ledger={"DROP_MISSING_PRICE": ["MISS1"]},
+    )
+    pr1049_capture.record_ibkr_client_market_data_error(
+        _runtime_client("MISS1", req_id=9101),
+        9101,
+        10089,
+        "Requested market data requires additional subscription for API",
+    )
+
+    spec = pr1040.build_pr1039_observation_input(_evidence(scanner))
+    market_data = spec["market_data_observation_diagnostics"]
+    ibkr = market_data["ibkr_market_data_diagnostic"]
+
+    assert market_data["outcome"] == "REAL_MARKET_DATA_UNUSABLE"
+    assert ibkr["classification"] == "MARKET_DATA_SUBSCRIPTION_REQUIRED"
+    assert ibkr["observed_error_codes"] == [10089]
+    assert ibkr["subscription_required_observed"] is True
+    assert ibkr["ibkr_market_data_error_event_count"] == 1
+    assert ibkr["ibkr_market_data_error_events"][0]["req_id"] == 9101
+    assert ibkr["ibkr_market_data_error_events"][0]["source"] == "IBKR_GENERIC_ERROR_CALLBACK_MARKET_DATA"
     assert ibkr["paper_ready"] == "NO"
     assert ibkr["paper_readiness_gate"] == "FAIL"
     assert spec["final_verdict"]["paper_ready"] == "NO"
