@@ -77,6 +77,8 @@ The PR1040/PR1045 observation JSON now includes an IBKR-specific nested block un
 
 The nested block records observed error codes/messages, persisted IBKR market-data error events, required quote-field aliases, missing fields by symbol, symbols with complete quote fields, drop-reason counts, requested market-data type, scanner mode, READ_ONLY runtime status, likely causes, and operator next steps.
 
+PR1049 also installs a diagnostics-only runtime capture hook for the PR1040 adapter path. The hook records IBKR generic error callbacks from `IbkrClient.error` and `MarketDataClient._on_ib_error` as structured market-data error events. If legacy logs use `ORDER_ERROR` naming because IBKR reports market-data failures through a generic callback, the persisted event source is normalized as market-data evidence and does not count as broker order mutation evidence.
+
 `ibkr_market_data_error_events` preserves normalized event fields plus a JSON-safe `raw_event` copy of the source event or legacy diagnostic summary. Older artifacts with only summarized `observed_error_codes`, `observed_error_messages`, and `symbols_by_error_code` can be reprocessed by the probe to produce the persisted event list.
 
 ## Diagnostics Probe
