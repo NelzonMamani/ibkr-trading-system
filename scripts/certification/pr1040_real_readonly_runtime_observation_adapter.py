@@ -68,6 +68,30 @@ ENTRY_PRICE_METADATA_KEYS = (
 NUMERIC_PRICE_PATTERN = re.compile(r"[-+]?\d+(?:\.\d+)?")
 MARKET_DATA_UNUSABLE_DROP_REASONS = {"DROP_MISSING_PRICE", "DATA_QUALITY_FAIL_SNAPSHOT"}
 
+PR1050_FLOAT_DISCOVERY_COUNT_FIELDS = (
+    "float_discovery_requested_count",
+    "float_discovery_success_count",
+    "float_discovery_failed_count",
+    "float_discovery_cache_hit_count",
+    "float_discovery_same_cycle_rehydrated_count",
+    "float_discovery_pending_count",
+    "float_unknown_after_bounded_discovery_count",
+)
+PR1050_FLOAT_DISCOVERY_SYMBOL_FIELDS = (
+    "symbols_rehydrated_from_same_cycle_float_discovery",
+    "symbols_still_dropped_float_unknown",
+    "symbols_pending_same_cycle_float_discovery",
+    "symbols_failed_same_cycle_float_discovery",
+)
+PR1050_FLOAT_FOCUS_DIAGNOSTIC_SYMBOL_FIELDS = (
+    "symbols_with_usable_market_data",
+    "missing_market_data_symbols",
+    "usable_market_data_but_unknown_float_symbols",
+    "usable_market_data_but_over_float_symbols",
+    "usable_market_data_but_rvol_failure_symbols",
+    "usable_market_data_but_catalyst_news_failure_symbols",
+)
+
 READ_ONLY_ENV_DEFAULTS: dict[str, str] = {
     "RUN_MODE": "READ_ONLY",
     "RUN_MODE_EFFECTIVE": "READ_ONLY",
@@ -818,7 +842,7 @@ def _row_has_valid_volume(row: Any) -> bool:
 
 
 def _row_has_float(row: Any) -> bool:
-    return any(_safe_float(_get_value(row, key), 0.0) > 0.0 for key in ("float", "float_millions", "shares_float"))
+    return any(_safe_float(_get_value(row, key), 0.0) > 0.0 for key in ("float", "float_millions", "shares_float", "float_shares"))
 
 
 def _symbols_matching(rows: Sequence[Any], predicate: Any) -> list[str]:
@@ -828,6 +852,59 @@ def _symbols_matching(rows: Sequence[Any], predicate: Any) -> list[str]:
         if symbol and predicate(row):
             symbols.add(symbol)
     return sorted(symbols)
+
+
+def _nested_mapping(payload: Mapping[str, Any], *keys: str) -> Mapping[str, Any]:
+    current: Any = payload
+    for key in keys:
+        if not isinstance(current, Mapping):
+            return {}
+        current = current.get(key, {})
+    return current if isinstance(current, Mapping) else {}
+
+
+def _first_present_from_mappings(mappings: Sequence[Mapping[str, Any]], key: str, default: Any = None) -> Any:
+    for mapping in mappings:
+        if isinstance(mapping, Mapping) and key in mapping:
+            return mapping.get(key)
+    return default
+
+
+def _float_discovery_proof(payload: Mapping[str, Any]) -> dict[str, Any]:
+    sources = (
+        _nested_mapping(payload, "float_discovery"),
+        _nested_mapping(payload, "diagnostics", "float_discovery"),
+        payload if isinstance(payload, Mapping) else {},
+    )
+    proof: dict[str, Any] = {
+        field: max(0, _safe_int(_first_present_from_mappings(sources, field, 0), 0))
+        for field in PR1050_FLOAT_DISCOVERY_COUNT_FIELDS
+    }
+    for field in PR1050_FLOAT_DISCOVERY_SYMBOL_FIELDS:
+        proof[field] = parse_observation_symbols(_first_present_from_mappings(sources, field, []))
+    proof["max_same_cycle_float_discovery_requests"] = max(
+        0,
+        _safe_int(_first_present_from_mappings(sources, "max_same_cycle_float_discovery_requests", 0), 0),
+    )
+    return proof
+
+
+def _float_focus_diagnostics(payload: Mapping[str, Any]) -> dict[str, Any]:
+    sources = (
+        _nested_mapping(payload, "float_focus_diagnostics"),
+        _nested_mapping(payload, "diagnostics", "float_focus_diagnostics"),
+        payload if isinstance(payload, Mapping) else {},
+    )
+    diagnostics: dict[str, Any] = {
+        field: parse_observation_symbols(_first_present_from_mappings(sources, field, []))
+        for field in PR1050_FLOAT_FOCUS_DIAGNOSTIC_SYMBOL_FIELDS
+    }
+    diagnostics["focus_empty_explanation"] = str(
+        _first_present_from_mappings(sources, "focus_empty_explanation", "UNKNOWN") or "UNKNOWN"
+    )
+    counts = _first_present_from_mappings(sources, "focus_drop_reason_counts", {})
+    diagnostics["focus_drop_reason_counts"] = _json_safe(counts if isinstance(counts, Mapping) else {})
+    return diagnostics
 
 
 def _market_data_observation_outcome(evidence: RuntimeObservationEvidence) -> str:
@@ -849,6 +926,8 @@ def _market_data_observation_diagnostics(evidence: RuntimeObservationEvidence) -
     focus_symbols = _scanner_symbols(payload, "focus_m_symbols")
     candidate_rows = _scanner_candidate_rows(payload)
     reason_counts = _drop_reason_counts(payload)
+    float_discovery_proof = _float_discovery_proof(payload)
+    float_focus_diagnostics = _float_focus_diagnostics(payload)
     ibkr_diagnostic = build_ibkr_market_data_diagnostic(
         scanner_payload=payload,
         env=evidence.env,
@@ -856,6 +935,9 @@ def _market_data_observation_diagnostics(evidence: RuntimeObservationEvidence) -
         drop_reason_counts=reason_counts,
     )
     return {
+        **float_discovery_proof,
+        "float_discovery": dict(float_discovery_proof),
+        "float_focus_diagnostics": dict(float_focus_diagnostics),
         "candidate_count": int(payload.get("topn_count", len(top_symbols) or len(candidate_rows)) or 0),
         "watchlist_k_count": len(watchlist_symbols) or len(_scanner_rows(payload, ("watchlist_k", "watchlist_rows"))),
         "focus_m_count": len(focus_symbols) or len(_scanner_rows(payload, ("focus_m", "focus_rows"))),
@@ -1118,6 +1200,8 @@ def build_pr1039_observation_input(evidence: RuntimeObservationEvidence) -> dict
 
     order_mutation_count = _order_mutation_count(evidence)
     pattern_artifact = _pattern_input_artifact(evidence)
+    float_discovery_proof = _float_discovery_proof(evidence.scanner_payload)
+    float_focus_diagnostics = _float_focus_diagnostics(evidence.scanner_payload)
     storage_verified = _storage_evidence_verified(evidence)
     storage_count = 1 if storage_verified else 0
     readback_count = 1 if storage_verified else 0
@@ -1132,6 +1216,8 @@ def build_pr1039_observation_input(evidence: RuntimeObservationEvidence) -> dict
         "market_data_observation_diagnostics": _market_data_observation_diagnostics(evidence),
         "broker_connection_snapshot": broker,
         "scanner_cycle_artifact": {
+            **float_discovery_proof,
+            "float_discovery": dict(float_discovery_proof),
             "provider_source": evidence.scanner_payload.get("provider_source") or evidence.env.get("SCANNER_DATA_SOURCE", "IBKR"),
             "scanner_contract": _scanner_contract(evidence.scanner_payload),
             "candidate_count": int(evidence.scanner_payload.get("topn_count", len(top_symbols)) or 0),
@@ -1153,6 +1239,9 @@ def build_pr1039_observation_input(evidence: RuntimeObservationEvidence) -> dict
             "catalyst_bypass": False,
         },
         "watchlist_focus_artifact": {
+            **float_discovery_proof,
+            "float_discovery": dict(float_discovery_proof),
+            "float_focus_diagnostics": dict(float_focus_diagnostics),
             "watchlist_k_symbols": watchlist_symbols,
             "focus_m_symbols": focus_symbols,
             "watchlist_rows": _json_safe(evidence.watchlist_rows),

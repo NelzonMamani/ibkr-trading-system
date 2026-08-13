@@ -116,6 +116,18 @@ _STRATEGY_REGISTRY = build_default_registry()
 NEWS_AGE_MAX_MINUTES = 360
 ETF_EXCLUDED_SYMBOLS = {"SPY", "QQQ", "DIA", "IWM"}
 NY_TZ = ZoneInfo("America/New_York")
+PR1050_FLOAT_DISCOVERY_MAX_PER_CYCLE = 15
+PR1050_FLOAT_DISCOVERY_PROOF_FIELDS = (
+    "float_discovery_requested_count",
+    "float_discovery_success_count",
+    "float_discovery_failed_count",
+    "float_discovery_cache_hit_count",
+    "float_discovery_same_cycle_rehydrated_count",
+    "float_discovery_pending_count",
+    "float_unknown_after_bounded_discovery_count",
+    "symbols_rehydrated_from_same_cycle_float_discovery",
+    "symbols_still_dropped_float_unknown",
+)
 
 
 def _scanner_reference_trace_symbols() -> set[str]:
@@ -614,6 +626,247 @@ def _resolve_float_cache_path() -> Path:
     path = Path("data/reference/float_cache.json")
     print(f"[FLOAT][CACHE_PATH] path={path.resolve()}")
     return path
+
+
+def _empty_float_discovery_proof() -> Dict[str, Any]:
+    return {
+        "float_discovery_requested_count": 0,
+        "float_discovery_success_count": 0,
+        "float_discovery_failed_count": 0,
+        "float_discovery_cache_hit_count": 0,
+        "float_discovery_same_cycle_rehydrated_count": 0,
+        "float_discovery_pending_count": 0,
+        "float_unknown_after_bounded_discovery_count": 0,
+        "symbols_rehydrated_from_same_cycle_float_discovery": [],
+        "symbols_still_dropped_float_unknown": [],
+        "symbols_pending_same_cycle_float_discovery": [],
+        "symbols_failed_same_cycle_float_discovery": [],
+        "max_same_cycle_float_discovery_requests": PR1050_FLOAT_DISCOVERY_MAX_PER_CYCLE,
+    }
+
+
+def _dedupe_sorted_symbols(values: Iterable[Any]) -> list[str]:
+    return sorted({str(value or "").upper().strip() for value in values if str(value or "").strip()})
+
+
+def _usable_market_data_for_float_discovery(context: Dict[str, Any]) -> bool:
+    if context.get("snapshot_timeout") or context.get("snapshot_error"):
+        return False
+    last_price = _safe_float(context.get("last_price"), None)
+    bid = _safe_float(context.get("bid"), None)
+    ask = _safe_float(context.get("ask"), None)
+    volume = _safe_float(context.get("volume"), None)
+    return bool(
+        last_price is not None
+        and last_price > 0.0
+        and bid is not None
+        and bid > 0.0
+        and ask is not None
+        and ask > 0.0
+        and ask >= bid
+        and volume is not None
+        and volume > 0.0
+    )
+
+
+def _float_cache_entry_from_discovery(value: int, source: str, asof: Any = None) -> Dict[str, Any]:
+    return {
+        "float_value": int(value),
+        "float_source": str(source or "DISCOVERY"),
+        "float_asof": asof or datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def _rehydrate_context_float(
+    context: Dict[str, Any],
+    entry: Dict[str, Any],
+    *,
+    same_cycle: bool,
+    cache_hit: bool,
+) -> bool:
+    global _FLOAT_SOURCE_BY_SYMBOL, _FLOAT_CACHE_HIT_SYMBOLS
+    value = entry.get("float_value") if isinstance(entry, dict) else None
+    value_float = _safe_float(value, None)
+    if value_float is None or value_float <= 0:
+        return False
+    symbol = str(context.get("symbol") or "").upper().strip()
+    source = str(entry.get("float_source") or "DISCOVERY")
+    asof = entry.get("float_asof")
+    context["float_shares"] = int(value_float)
+    context["float_source"] = source
+    context["float_asof"] = asof
+    context["float_cache_hit"] = bool(cache_hit)
+    context["float_class"] = _classify_float(int(value_float))
+    context["float_discovery_same_cycle_rehydrated"] = bool(same_cycle)
+    flags = list(context.get("data_quality_flags", []) or [])
+    context["data_quality_flags"] = [flag for flag in flags if flag != "FLOAT_UNKNOWN"]
+    if symbol:
+        _FLOAT_SOURCE_BY_SYMBOL[symbol] = source
+        if cache_hit:
+            _FLOAT_CACHE_HIT_SYMBOLS.add(symbol)
+    print(
+        "[FLOAT][SAME_CYCLE_REHYDRATE] "
+        f"symbol={symbol} value={int(value_float)} source={source} cache_hit={bool(cache_hit)}"
+    )
+    return True
+
+
+def _attempt_same_cycle_float_discovery(
+    context: Dict[str, Any],
+    *,
+    float_cache: Dict[str, Dict[str, Any]],
+    cache_path: Path,
+    proof: Dict[str, Any],
+) -> None:
+    global _FLOAT_CACHE_STATE
+    symbol = str(context.get("symbol") or "").upper().strip()
+    if not symbol or context.get("float_shares") is not None:
+        return
+    if not _usable_market_data_for_float_discovery(context):
+        return
+    if int(proof.get("float_discovery_requested_count", 0) or 0) >= PR1050_FLOAT_DISCOVERY_MAX_PER_CYCLE:
+        proof["float_discovery_pending_count"] = int(proof.get("float_discovery_pending_count", 0) or 0) + 1
+        proof.setdefault("symbols_pending_same_cycle_float_discovery", []).append(symbol)
+        print(f"[FLOAT][SAME_CYCLE_DISCOVERY] symbol={symbol} status=PENDING reason=BOUNDED_LIMIT")
+        return
+
+    proof["float_discovery_requested_count"] = int(proof.get("float_discovery_requested_count", 0) or 0) + 1
+    worker = get_float_discovery_worker(cache_path)
+    discover_now = getattr(worker, "discover_now", None)
+    if discover_now is None:
+        proof["float_discovery_failed_count"] = int(proof.get("float_discovery_failed_count", 0) or 0) + 1
+        proof.setdefault("symbols_failed_same_cycle_float_discovery", []).append(symbol)
+        print(f"[FLOAT][SAME_CYCLE_DISCOVERY] symbol={symbol} status=FAILED reason=WORKER_UNSUPPORTED")
+        return
+
+    try:
+        result = discover_now(symbol)
+    except Exception as exc:
+        proof["float_discovery_failed_count"] = int(proof.get("float_discovery_failed_count", 0) or 0) + 1
+        proof.setdefault("symbols_failed_same_cycle_float_discovery", []).append(symbol)
+        print(f"[FLOAT][SAME_CYCLE_DISCOVERY] symbol={symbol} status=FAILED reason={type(exc).__name__}")
+        return
+
+    value = getattr(result, "value", None)
+    value_float = _safe_float(value, None)
+    source = str(getattr(result, "source", "DISCOVERY") or "DISCOVERY")
+    cache_used = bool(getattr(result, "cache_used", False))
+    if value_float is None or value_float <= 0:
+        proof["float_discovery_failed_count"] = int(proof.get("float_discovery_failed_count", 0) or 0) + 1
+        proof.setdefault("symbols_failed_same_cycle_float_discovery", []).append(symbol)
+        print(f"[FLOAT][SAME_CYCLE_DISCOVERY] symbol={symbol} status=FAILED source={source}")
+        return
+
+    proof["float_discovery_success_count"] = int(proof.get("float_discovery_success_count", 0) or 0) + 1
+    if cache_used:
+        proof["float_discovery_cache_hit_count"] = int(proof.get("float_discovery_cache_hit_count", 0) or 0) + 1
+    entry = _float_cache_entry_from_discovery(int(value_float), source)
+    float_cache[symbol] = entry
+    _FLOAT_CACHE_STATE["data"] = float_cache
+    if _rehydrate_context_float(context, entry, same_cycle=True, cache_hit=cache_used):
+        proof["float_discovery_same_cycle_rehydrated_count"] = int(proof.get("float_discovery_same_cycle_rehydrated_count", 0) or 0) + 1
+        proof.setdefault("symbols_rehydrated_from_same_cycle_float_discovery", []).append(symbol)
+
+
+def _finalize_float_discovery_proof(
+    proof: Dict[str, Any],
+    drop_ledger: Dict[str, str],
+) -> Dict[str, Any]:
+    finalized = dict(proof)
+    still_unknown = _dedupe_sorted_symbols(
+        symbol for symbol, reason in drop_ledger.items() if reason == "DROP_FLOAT_UNKNOWN"
+    )
+    finalized["symbols_rehydrated_from_same_cycle_float_discovery"] = _dedupe_sorted_symbols(
+        finalized.get("symbols_rehydrated_from_same_cycle_float_discovery", [])
+    )
+    finalized["symbols_still_dropped_float_unknown"] = still_unknown
+    finalized["float_unknown_after_bounded_discovery_count"] = len(still_unknown)
+    finalized["symbols_pending_same_cycle_float_discovery"] = _dedupe_sorted_symbols(
+        finalized.get("symbols_pending_same_cycle_float_discovery", [])
+    )
+    finalized["symbols_failed_same_cycle_float_discovery"] = _dedupe_sorted_symbols(
+        finalized.get("symbols_failed_same_cycle_float_discovery", [])
+    )
+    for field_name in PR1050_FLOAT_DISCOVERY_PROOF_FIELDS:
+        finalized.setdefault(field_name, [] if field_name.startswith("symbols_") else 0)
+    return finalized
+
+
+def _float_focus_failure_diagnostics(
+    *,
+    evaluated_contexts: List[Dict[str, Any]],
+    watchlist_contexts: List[Dict[str, Any]],
+    focus_symbols: List[str],
+    drop_ledger: Dict[str, str],
+) -> Dict[str, Any]:
+    context_by_symbol = {str(context.get("symbol") or "").upper(): context for context in evaluated_contexts if context.get("symbol")}
+    usable_market_data_symbols = {
+        symbol for symbol, context in context_by_symbol.items() if _usable_market_data_for_float_discovery(context)
+    }
+    market_data_drop_reasons = {
+        "DROP_QUOTE_UNAVAILABLE",
+        "DROP_MD_CONFLICT",
+        "DROP_UNSUBSCRIBED_MARKET_DATA",
+        "DROP_SNAPSHOT_TIMEOUT",
+        "DROP_MISSING_PRICE",
+        "DROP_MISSING_BID_ASK",
+        "DATA_QUALITY_FAIL_SNAPSHOT",
+    }
+    rvol_drop_reasons = {"DROP_MISSING_RVOL", "DROP_RVOL_DISCOVERY", "DROP_RVOL_FOCUS"}
+    focus_drop_by_symbol = {
+        str(context.get("symbol") or "").upper(): str(context.get("focus_drop_reason") or "")
+        for context in watchlist_contexts
+        if context.get("symbol") and context.get("focus_drop_reason")
+    }
+    missing_market_data_symbols = _dedupe_sorted_symbols(
+        symbol
+        for symbol, context in context_by_symbol.items()
+        if symbol not in usable_market_data_symbols or drop_ledger.get(symbol) in market_data_drop_reasons
+    )
+    unknown_float_symbols = _dedupe_sorted_symbols(
+        symbol
+        for symbol, reason in drop_ledger.items()
+        if reason == "DROP_FLOAT_UNKNOWN" and symbol in usable_market_data_symbols
+    )
+    over_float_symbols = _dedupe_sorted_symbols(
+        symbol
+        for symbol, reason in drop_ledger.items()
+        if reason == "DROP_FLOAT_MAX" and symbol in usable_market_data_symbols
+    )
+    rvol_failure_symbols = _dedupe_sorted_symbols(
+        symbol
+        for symbol, reason in {**drop_ledger, **focus_drop_by_symbol}.items()
+        if reason in rvol_drop_reasons and symbol in usable_market_data_symbols
+    )
+    catalyst_failure_symbols = _dedupe_sorted_symbols(
+        symbol
+        for symbol, reason in focus_drop_by_symbol.items()
+        if reason == "DROP_NO_CATALYST" and symbol in usable_market_data_symbols
+    )
+    if focus_symbols:
+        focus_empty_explanation = "FOCUS_M_POPULATED"
+    elif unknown_float_symbols:
+        focus_empty_explanation = "USABLE_MARKET_DATA_BUT_UNKNOWN_FLOAT"
+    elif over_float_symbols:
+        focus_empty_explanation = "USABLE_MARKET_DATA_BUT_OVER_FLOAT"
+    elif rvol_failure_symbols:
+        focus_empty_explanation = "USABLE_MARKET_DATA_BUT_RVOL_FAILURE"
+    elif catalyst_failure_symbols:
+        focus_empty_explanation = "USABLE_MARKET_DATA_BUT_CATALYST_NEWS_FAILURE"
+    elif usable_market_data_symbols:
+        focus_empty_explanation = "USABLE_MARKET_DATA_BUT_NO_ROSS_QUALITY_FOCUS_CANDIDATE"
+    else:
+        focus_empty_explanation = "MISSING_MARKET_DATA"
+    return {
+        "symbols_with_usable_market_data": sorted(usable_market_data_symbols),
+        "missing_market_data_symbols": missing_market_data_symbols,
+        "usable_market_data_but_unknown_float_symbols": unknown_float_symbols,
+        "usable_market_data_but_over_float_symbols": over_float_symbols,
+        "usable_market_data_but_rvol_failure_symbols": rvol_failure_symbols,
+        "usable_market_data_but_catalyst_news_failure_symbols": catalyst_failure_symbols,
+        "focus_empty_explanation": focus_empty_explanation,
+        "focus_drop_reason_counts": dict(Counter(reason for reason in focus_drop_by_symbol.values() if reason)),
+    }
 
 
 def _bootstrap_float_cache(
@@ -3394,6 +3647,18 @@ def _scanner_request_reject_payload(
         continuing_symbols=[],
         dropped_symbols=[],
     )
+    float_discovery_proof = _empty_float_discovery_proof()
+    diagnostics["float_discovery"] = dict(float_discovery_proof)
+    diagnostics["float_focus_diagnostics"] = {
+        "symbols_with_usable_market_data": [],
+        "missing_market_data_symbols": [],
+        "usable_market_data_but_unknown_float_symbols": [],
+        "usable_market_data_but_over_float_symbols": [],
+        "usable_market_data_but_rvol_failure_symbols": [],
+        "usable_market_data_but_catalyst_news_failure_symbols": [],
+        "focus_empty_explanation": "NO_SCANNER_CANDIDATES",
+        "focus_drop_reason_counts": {},
+    }
     _LAST_SCANNER_PAYLOAD = {
         "scanner_version": SCANNER_VERSION,
         "scanner_git_sha": SCANNER_GIT_SHA,
@@ -3420,6 +3685,9 @@ def _scanner_request_reject_payload(
         "data_quality_by_symbol": {},
         "data_quality_counts": {},
         "diagnostics": diagnostics,
+        "float_discovery": dict(float_discovery_proof),
+        "float_focus_diagnostics": dict(diagnostics["float_focus_diagnostics"]),
+        **float_discovery_proof,
         "cacheable": False,
     }
     return dict(_LAST_SCANNER_PAYLOAD)
@@ -3875,6 +4143,9 @@ def run_scanner_cycle(
         }
 
         float_cache = _bootstrap_float_cache(symbols, provider)
+        float_cache_path = _resolve_float_cache_path()
+        float_discovery_proof = _empty_float_discovery_proof()
+        float_discovery_proof["float_discovery_cache_hit_count"] = len(_FLOAT_CACHE_HIT_SYMBOLS)
         thresholds = _gate_thresholds(resolved_policy, runtime_thresholds)
         if explicit_mock and validation_override_active:
             thresholds = replace(
@@ -4123,6 +4394,13 @@ def run_scanner_cycle(
                 print(f"[SCANNER][DROP] symbol={symbol} reason={drop_reason}")
                 evaluated_contexts.append(context)
                 continue
+            if run_mode == RunMode.READ_ONLY and provider_source != "MOCK":
+                _attempt_same_cycle_float_discovery(
+                    context,
+                    float_cache=float_cache,
+                    cache_path=float_cache_path,
+                    proof=float_discovery_proof,
+                )
             pct_gate_considered += 1
             drop_reason = _evaluate_watchlist_gates(context, thresholds)
             if drop_reason:
@@ -4795,6 +5073,29 @@ def run_scanner_cycle(
 
         watchlist_symbols = [context["symbol"] for context in watchlist_contexts]
         focus_symbols = [row.symbol for row in deep_rows]
+        float_discovery_proof = _finalize_float_discovery_proof(float_discovery_proof, drop_ledger)
+        float_focus_diagnostics = _float_focus_failure_diagnostics(
+            evaluated_contexts=evaluated_contexts,
+            watchlist_contexts=watchlist_contexts,
+            focus_symbols=focus_symbols,
+            drop_ledger=drop_ledger,
+        )
+        diagnostics["float_discovery"] = dict(float_discovery_proof)
+        diagnostics["float_focus_diagnostics"] = dict(float_focus_diagnostics)
+        print(
+            "[FLOAT][DISCOVERY_PROOF] "
+            f"requested={float_discovery_proof['float_discovery_requested_count']} "
+            f"success={float_discovery_proof['float_discovery_success_count']} "
+            f"failed={float_discovery_proof['float_discovery_failed_count']} "
+            f"cache_hits={float_discovery_proof['float_discovery_cache_hit_count']} "
+            f"rehydrated={float_discovery_proof['float_discovery_same_cycle_rehydrated_count']} "
+            f"unknown_after={float_discovery_proof['float_unknown_after_bounded_discovery_count']}"
+        )
+        print(
+            "[SCANNER][FOCUS_EMPTY_REASON] "
+            f"reason={float_focus_diagnostics['focus_empty_explanation']} "
+            f"focus_count={len(focus_symbols)}"
+        )
 
         flow = diagnostics.get("scanner_flow", {})
         raw_count = int(flow.get("raw_broker_count", len(symbols)))
@@ -5164,6 +5465,9 @@ def run_scanner_cycle(
         "broker_returned_zero": broker_returned_zero,
         "raw_broker_count": raw_broker_count,
         "watchlist_count": watchlist_count,
+        "float_discovery": dict(float_discovery_proof),
+        "float_focus_diagnostics": dict(float_focus_diagnostics),
+        **float_discovery_proof,
         "cacheable": cacheable,
         "data_quality_mode": data_quality_mode,
         "strategy_policy_hook": {"data_quality_mode": data_quality_mode},

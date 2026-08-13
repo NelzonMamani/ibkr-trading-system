@@ -1,10 +1,22 @@
 from __future__ import annotations
 
 import threading
+from dataclasses import dataclass
 from pathlib import Path
 from queue import Empty, Queue
+from typing import Optional
 
 from src.data.fundamentals.float_provider import FloatProvider
+
+
+@dataclass(frozen=True)
+class FloatDiscoveryResult:
+    symbol: str
+    value: Optional[int]
+    source: str
+    cache_used: bool = False
+    fallback_used: bool = False
+    failures: tuple[tuple[str, str], ...] = ()
 
 
 class FloatDiscoveryWorker:
@@ -34,6 +46,21 @@ class FloatDiscoveryWorker:
             self._queued.add(normalized)
             self._queue.put(normalized)
             return True
+
+    def discover_now(self, symbol: str) -> FloatDiscoveryResult:
+        """Bounded foreground lookup used by READ_ONLY scanner proof cycles."""
+        normalized = str(symbol or "").upper().strip()
+        if not normalized:
+            return FloatDiscoveryResult(symbol="", value=None, source="UNKNOWN")
+        value, source = self._provider.get_float(normalized)
+        return FloatDiscoveryResult(
+            symbol=normalized,
+            value=int(value) if value is not None and value > 0 else None,
+            source=str(source or "UNKNOWN"),
+            cache_used=bool(getattr(self._provider, "last_cache_used", False)),
+            fallback_used=bool(getattr(self._provider, "last_fallback_used", False)),
+            failures=tuple(getattr(self._provider, "last_float_failures", []) or ()),
+        )
 
     def _worker_loop(self) -> None:
         while True:
