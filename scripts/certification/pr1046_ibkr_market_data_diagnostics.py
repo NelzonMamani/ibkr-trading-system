@@ -118,6 +118,30 @@ ERROR_EVENT_TEXT_SIGNATURES = (
     "snapshot timed out",
 )
 
+PR1050_FLOAT_DISCOVERY_COUNT_FIELDS = (
+    "float_discovery_requested_count",
+    "float_discovery_success_count",
+    "float_discovery_failed_count",
+    "float_discovery_cache_hit_count",
+    "float_discovery_same_cycle_rehydrated_count",
+    "float_discovery_pending_count",
+    "float_unknown_after_bounded_discovery_count",
+)
+PR1050_FLOAT_DISCOVERY_SYMBOL_FIELDS = (
+    "symbols_rehydrated_from_same_cycle_float_discovery",
+    "symbols_still_dropped_float_unknown",
+    "symbols_pending_same_cycle_float_discovery",
+    "symbols_failed_same_cycle_float_discovery",
+)
+PR1050_FLOAT_FOCUS_DIAGNOSTIC_SYMBOL_FIELDS = (
+    "symbols_with_usable_market_data",
+    "missing_market_data_symbols",
+    "usable_market_data_but_unknown_float_symbols",
+    "usable_market_data_but_over_float_symbols",
+    "usable_market_data_but_rvol_failure_symbols",
+    "usable_market_data_but_catalyst_news_failure_symbols",
+)
+
 
 def _normalize_text(value: Any) -> str:
     if hasattr(value, "value"):
@@ -153,6 +177,15 @@ def _safe_float(value: Any) -> float | None:
     return parsed if parsed > 0.0 else None
 
 
+def _safe_int(value: Any, default: int = 0) -> int:
+    try:
+        if value is None:
+            return default
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _json_safe(value: Any) -> Any:
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
@@ -163,6 +196,79 @@ def _json_safe(value: Any) -> Any:
     if hasattr(value, "__dict__"):
         return _json_safe(vars(value))
     return str(value)
+
+
+def _nested_mapping(payload: Mapping[str, Any], *keys: str) -> Mapping[str, Any]:
+    current: Any = payload
+    for key in keys:
+        if not isinstance(current, Mapping):
+            return {}
+        current = current.get(key, {})
+    return current if isinstance(current, Mapping) else {}
+
+
+def _first_present_from_mappings(mappings: Sequence[Mapping[str, Any]], key: str, default: Any = None) -> Any:
+    for mapping in mappings:
+        if isinstance(mapping, Mapping) and key in mapping:
+            return mapping.get(key)
+    return default
+
+
+def _symbol_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    values: list[str] = []
+    if isinstance(value, (list, tuple, set)):
+        for item in value:
+            values.extend(_symbol_list(item))
+    else:
+        values.extend(str(value or "").split(","))
+    symbols: list[str] = []
+    seen: set[str] = set()
+    for item in values:
+        symbol = str(item or "").strip().upper()
+        if not symbol or symbol in seen:
+            continue
+        seen.add(symbol)
+        symbols.append(symbol)
+    return symbols
+
+
+def _float_discovery_proof(payload: Mapping[str, Any]) -> dict[str, Any]:
+    sources = (
+        _nested_mapping(payload, "float_discovery"),
+        _nested_mapping(payload, "diagnostics", "float_discovery"),
+        payload if isinstance(payload, Mapping) else {},
+    )
+    proof: dict[str, Any] = {
+        field: max(0, _safe_int(_first_present_from_mappings(sources, field, 0), 0))
+        for field in PR1050_FLOAT_DISCOVERY_COUNT_FIELDS
+    }
+    for field in PR1050_FLOAT_DISCOVERY_SYMBOL_FIELDS:
+        proof[field] = _symbol_list(_first_present_from_mappings(sources, field, []))
+    proof["max_same_cycle_float_discovery_requests"] = max(
+        0,
+        _safe_int(_first_present_from_mappings(sources, "max_same_cycle_float_discovery_requests", 0), 0),
+    )
+    return proof
+
+
+def _float_focus_diagnostics(payload: Mapping[str, Any]) -> dict[str, Any]:
+    sources = (
+        _nested_mapping(payload, "float_focus_diagnostics"),
+        _nested_mapping(payload, "diagnostics", "float_focus_diagnostics"),
+        payload if isinstance(payload, Mapping) else {},
+    )
+    diagnostics: dict[str, Any] = {
+        field: _symbol_list(_first_present_from_mappings(sources, field, []))
+        for field in PR1050_FLOAT_FOCUS_DIAGNOSTIC_SYMBOL_FIELDS
+    }
+    diagnostics["focus_empty_explanation"] = str(
+        _first_present_from_mappings(sources, "focus_empty_explanation", "UNKNOWN") or "UNKNOWN"
+    )
+    counts = _first_present_from_mappings(sources, "focus_drop_reason_counts", {})
+    diagnostics["focus_drop_reason_counts"] = _json_safe(counts if isinstance(counts, Mapping) else {})
+    return diagnostics
 
 
 def _stable_json(value: Any) -> str:
@@ -662,6 +768,8 @@ def build_ibkr_market_data_diagnostic(
     joined_text = "\n".join(texts + messages).lower()
     missing_by_symbol = _missing_fields_by_symbol(rows)
     field_drop_observed = _missing_field_drop_observed(counts)
+    float_discovery_proof = _float_discovery_proof(payload)
+    float_focus_diagnostics = _float_focus_diagnostics(payload)
     classification = classify_ibkr_market_data(
         scanner_payload=payload,
         candidate_rows=rows,
@@ -669,6 +777,9 @@ def build_ibkr_market_data_diagnostic(
     )
 
     return {
+        **float_discovery_proof,
+        "float_discovery": dict(float_discovery_proof),
+        "float_focus_diagnostics": dict(float_focus_diagnostics),
         "schema_version": SCHEMA_VERSION,
         "provider": "IBKR",
         "classification": classification,
