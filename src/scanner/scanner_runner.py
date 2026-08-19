@@ -331,6 +331,9 @@ class NewsDiagnostics:
     rss_sources: int
     rss_failures: int
     rss_failure_summary: Dict[str, Dict[str, int]]
+    provider_status: str = "not_requested"
+    result_status_counts: Dict[str, int] = field(default_factory=dict)
+    symbols_by_status: Dict[str, List[str]] = field(default_factory=dict)
 
 
 @dataclass
@@ -845,14 +848,18 @@ def _float_focus_failure_diagnostics(
     )
     if focus_symbols:
         focus_empty_explanation = "FOCUS_M_POPULATED"
+    elif catalyst_failure_symbols:
+        focus_empty_explanation = "USABLE_MARKET_DATA_BUT_CATALYST_NEWS_FAILURE"
+    elif rvol_failure_symbols and focus_drop_by_symbol:
+        focus_empty_explanation = "USABLE_MARKET_DATA_BUT_RVOL_FAILURE"
+    elif focus_drop_by_symbol:
+        focus_empty_explanation = "USABLE_MARKET_DATA_BUT_NO_ROSS_QUALITY_FOCUS_CANDIDATE"
     elif unknown_float_symbols:
         focus_empty_explanation = "USABLE_MARKET_DATA_BUT_UNKNOWN_FLOAT"
     elif over_float_symbols:
         focus_empty_explanation = "USABLE_MARKET_DATA_BUT_OVER_FLOAT"
     elif rvol_failure_symbols:
         focus_empty_explanation = "USABLE_MARKET_DATA_BUT_RVOL_FAILURE"
-    elif catalyst_failure_symbols:
-        focus_empty_explanation = "USABLE_MARKET_DATA_BUT_CATALYST_NEWS_FAILURE"
     elif usable_market_data_symbols:
         focus_empty_explanation = "USABLE_MARKET_DATA_BUT_NO_ROSS_QUALITY_FOCUS_CANDIDATE"
     else:
@@ -1856,7 +1863,7 @@ def _allow_pre_rvol_bypass(
     spread_pct = _safe_float(context.get("spread_pct"), None)
     if spread_limit is not None and spread_pct is not None and spread_pct > spread_limit:
         return False
-    if thresholds.require_catalyst and not bool(context.get("catalyst_present") or context.get("news_present") or context.get("catalyst_summary")):
+    if thresholds.require_catalyst and not bool(context.get("catalyst_present") or context.get("catalyst_summary")):
         return False
     float_status = str(context.get("float_status") or "")
     if float_status in {"UNKNOWN", FloatQuality.UNKNOWN_FLOAT.value} and not thresholds.allow_unknown_float:
@@ -1896,7 +1903,6 @@ def _float_gate_check_ok(
 def _has_focus_catalyst(context: Dict[str, Any]) -> bool:
     return bool(
         context.get("catalyst_present")
-        or context.get("news_present")
         or context.get("catalyst_summary")
     )
 
@@ -2238,6 +2244,192 @@ def _detect_dilution(titles: Iterable[str]) -> bool:
     return False
 
 
+
+def _news_provider_status(summary: Any) -> str:
+    reason = str(getattr(summary, "reason", "") or "")
+    total_sources = int(getattr(summary, "total_sources", 0) or 0)
+    failure_count = int(getattr(summary, "failure_count", 0) or 0)
+    if reason == "no_symbols":
+        return "no_symbols"
+    if reason in {"no_sources", "feedparser_missing"}:
+        return "provider_unavailable"
+    if total_sources > 0 and failure_count >= total_sources:
+        return "provider_request_failure"
+    if failure_count > 0:
+        return "partial_request_failure"
+    return "available"
+
+
+def _news_status_index(news_by_symbol: Dict[str, Dict[str, Any]]) -> tuple[Dict[str, int], Dict[str, List[str]]]:
+    counts: Counter[str] = Counter()
+    symbols_by_status: Dict[str, List[str]] = {}
+    for symbol, context in news_by_symbol.items():
+        status = str(context.get("news_diagnostic_status") or "unknown")
+        counts[status] += 1
+        symbols_by_status.setdefault(status, []).append(str(symbol).upper())
+    return dict(counts), {status: sorted(symbols) for status, symbols in symbols_by_status.items()}
+
+
+def _with_news_status_index(diagnostics: NewsDiagnostics, news_by_symbol: Dict[str, Dict[str, Any]]) -> NewsDiagnostics:
+    counts, symbols_by_status = _news_status_index(news_by_symbol)
+    return replace(
+        diagnostics,
+        result_status_counts=counts,
+        symbols_by_status=symbols_by_status,
+    )
+
+
+def _disabled_news_diagnostics(
+    *,
+    news_enabled: bool,
+    run_mode: Any,
+    explicit_mock: bool,
+    symbols: Iterable[str],
+) -> NewsDiagnostics:
+    normalized_symbols = _dedupe_sorted_symbols(symbols)
+    if not news_enabled:
+        status = "provider_disabled"
+    elif explicit_mock:
+        status = "provider_disabled_for_mock"
+    else:
+        status = f"provider_disabled_for_{normalize_run_mode(run_mode).lower()}"
+    counts = {status: len(normalized_symbols)} if normalized_symbols else {}
+    symbols_by_status = {status: normalized_symbols} if normalized_symbols else {}
+    return NewsDiagnostics(
+        news_degraded=False,
+        news_gate_bypassed=False,
+        failure_reason=status,
+        rss_sources=0,
+        rss_failures=0,
+        rss_failure_summary={},
+        provider_status=status,
+        result_status_counts=counts,
+        symbols_by_status=symbols_by_status,
+    )
+
+
+def _prep_tag_to_catalyst_type(tag: Any) -> Optional[str]:
+    normalized = str(tag or "").strip().lower()
+    if not normalized or normalized in {"generic", "none", "offering"}:
+        return None
+    return {
+        "earnings": "EARNINGS",
+        "guidance": "EARNINGS",
+        "fda_clinical": "FDA",
+        "contract_order": "CONTRACT",
+        "partnership": "CONTRACT",
+        "acquisition_merger": "ACQUISITION",
+        "upgrade_analyst": "ANALYST_ACTION",
+        "sector_sympathy": "SECTOR_SYMPATHY",
+    }.get(normalized, normalized.upper())
+
+
+def _parse_utc_datetime(raw: Any) -> Optional[datetime]:
+    if not isinstance(raw, str) or not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _prep_news_context_from_entry(entry: Dict[str, Any]) -> Dict[str, Any]:
+    news_items = [item for item in list(entry.get("news_context") or []) if isinstance(item, dict)]
+    if not news_items:
+        return {}
+    max_age_hours = float(get_config("NEWS_MAX_AGE_HOURS"))
+    now = datetime.now(timezone.utc)
+    news_asof = _parse_utc_datetime(entry.get("news_asof"))
+    asof_fresh = news_asof is not None and (now - news_asof).total_seconds() <= max_age_hours * 3600
+
+    def _item_age_hours(item: Dict[str, Any]) -> Optional[float]:
+        age = _safe_float(item.get("age_hours"), None)
+        if age is not None:
+            return age
+        published = _parse_utc_datetime(item.get("published_at"))
+        if published is None:
+            return None
+        return max((now - published).total_seconds(), 0.0) / 3600.0
+
+    item_ages = [_item_age_hours(item) for item in news_items]
+    fresh_items = [
+        item
+        for item, age in zip(news_items, item_ages)
+        if str(item.get("freshness") or "").lower() == "fresh"
+        or (age is not None and age <= max_age_hours)
+    ]
+    top_item = (fresh_items or news_items)[0]
+    top_age = _item_age_hours(top_item)
+    title = str(top_item.get("title") or "")
+    catalyst_type = _prep_tag_to_catalyst_type(top_item.get("catalyst_tag"))
+    dilution_flag = _detect_dilution([title]) or str(top_item.get("catalyst_tag") or "").lower() == "offering"
+    fresh_news_count = len(fresh_items) if asof_fresh else 0
+    status = "catalyst_confirmed"
+    if not asof_fresh or fresh_news_count == 0:
+        status = "stale_news"
+    elif not catalyst_type or dilution_flag:
+        status = "news_present_non_qualifying"
+    ross_catalyst_valid = status == "catalyst_confirmed"
+    news_age_minutes = int(round((top_age or 0.0) * 60.0)) if top_age is not None else None
+    return {
+        "news_present": True,
+        "news_available": True,
+        "first_seen_ts": None,
+        "news_age_minutes": news_age_minutes,
+        "velocity_5m": 0,
+        "velocity_10m": 0,
+        "velocity_30m": 0,
+        "attention_tier": "T0",
+        "top_domains": [],
+        "top_links": [str(top_item.get("url") or "")] if top_item.get("url") else [],
+        "catalyst_type": catalyst_type,
+        "dilution_flag": dilution_flag,
+        "gam_ea_eligible": ross_catalyst_valid,
+        "ross_catalyst_valid": ross_catalyst_valid,
+        "ross_catalyst_notes": "Catalyst present" if ross_catalyst_valid else status,
+        "news_count": len(news_items),
+        "fresh_news_count": fresh_news_count,
+        "stale_news_count": max(len(news_items) - fresh_news_count, 0),
+        "top_news_title": title or None,
+        "top_news_age_hours": round(top_age, 3) if top_age is not None else None,
+        "top_news_catalyst_tag": catalyst_type or str(top_item.get("catalyst_tag") or "generic"),
+        "news_source_mode": "prep_cache",
+        "news_asof": entry.get("news_asof"),
+        "news_provider_status": "prep_cache",
+        "news_diagnostic_status": status,
+    }
+
+
+def _prep_news_contexts_for_symbols(
+    symbols: Iterable[str],
+    prep_candidates: Dict[str, Dict[str, Any]],
+) -> Dict[str, Dict[str, Any]]:
+    result: Dict[str, Dict[str, Any]] = {}
+    for symbol in _dedupe_sorted_symbols(symbols):
+        prep_entry = prep_candidates.get(symbol)
+        if not prep_entry:
+            continue
+        context = _prep_news_context_from_entry(prep_entry)
+        if context:
+            result[symbol] = context
+    return result
+
+
+def _merge_news_contexts(
+    base: Dict[str, Dict[str, Any]],
+    preferred: Dict[str, Dict[str, Any]],
+) -> Dict[str, Dict[str, Any]]:
+    merged = dict(base)
+    for symbol, context in preferred.items():
+        current = merged.get(symbol)
+        if current is None or (not current.get("ross_catalyst_valid") and context.get("ross_catalyst_valid")):
+            merged[symbol] = context
+    return merged
+
+
 def _enrich_news_context(
     symbols: List[str],
     provider_source: str,
@@ -2251,6 +2443,7 @@ def _enrich_news_context(
     )
     all_failed = summary.total_sources > 0 and summary.failure_count >= summary.total_sources
     reason_override = summary.reason
+    provider_status = _news_provider_status(summary)
     news_degraded = all_failed or bool(reason_override)
 
     if provider_source == "MOCK":
@@ -2287,8 +2480,17 @@ def _enrich_news_context(
             continue
 
         if not headlines:
+            if provider_status in {"provider_unavailable", "provider_request_failure"}:
+                news_status = provider_status
+                news_available = False
+                notes = provider_status
+            else:
+                news_status = "no_recent_news"
+                news_available = True
+                notes = "No recent news present"
             context = {
                 "news_present": False,
+                "news_available": news_available,
                 "first_seen_ts": None,
                 "news_age_minutes": None,
                 "velocity_5m": 0,
@@ -2301,7 +2503,7 @@ def _enrich_news_context(
                 "dilution_flag": False,
                 "gam_ea_eligible": False,
                 "ross_catalyst_valid": False,
-                "ross_catalyst_notes": "No news present",
+                "ross_catalyst_notes": notes,
                 "news_count": 0,
                 "fresh_news_count": 0,
                 "stale_news_count": 0,
@@ -2310,6 +2512,8 @@ def _enrich_news_context(
                 "top_news_catalyst_tag": None,
                 "news_source_mode": "rss_batch",
                 "news_asof": datetime.now(timezone.utc).isoformat(),
+                "news_provider_status": provider_status,
+                "news_diagnostic_status": news_status,
             }
             news_by_symbol[symbol] = context
             _NEWS_CACHE[symbol] = {"signature": signature, "context": context}
@@ -2333,6 +2537,15 @@ def _enrich_news_context(
         titles = [headline.title for headline in unique_headlines]
         catalyst_type = _detect_catalyst_type(titles)
         dilution_flag = _detect_dilution(titles)
+        fresh_news_count = sum(1 for age in ages if age <= NEWS_AGE_MAX_MINUTES)
+        news_is_fresh = news_age_minutes is not None and news_age_minutes <= NEWS_AGE_MAX_MINUTES
+        ross_catalyst_valid = bool(catalyst_type and not dilution_flag and news_is_fresh)
+        if ross_catalyst_valid:
+            news_status = "catalyst_confirmed"
+        elif not news_is_fresh:
+            news_status = "stale_news"
+        else:
+            news_status = "news_present_non_qualifying"
         gam_ea_eligible = bool(
             not dilution_flag
             and news_age_minutes is not None
@@ -2350,13 +2563,13 @@ def _enrich_news_context(
             if len(links) < 5 and headline.url:
                 links.append(headline.url)
 
-        ross_catalyst_valid = bool(not dilution_flag and news_age_minutes is not None)
-        ross_notes = "Catalyst present" if ross_catalyst_valid else "Catalyst missing or diluted"
+        ross_notes = "Catalyst present" if ross_catalyst_valid else news_status
 
         top_news = unique_headlines[0] if unique_headlines else None
         source_mode = "rss_batch"
         context = {
             "news_present": True,
+            "news_available": True,
             "first_seen_ts": min(headline.published_ts for headline in unique_headlines),
             "news_age_minutes": news_age_minutes,
             "velocity_5m": vel5,
@@ -2371,13 +2584,15 @@ def _enrich_news_context(
             "ross_catalyst_valid": ross_catalyst_valid,
             "ross_catalyst_notes": ross_notes,
             "news_count": len(unique_headlines),
-            "fresh_news_count": sum(1 for age in ages if age <= NEWS_AGE_MAX_MINUTES),
+            "fresh_news_count": fresh_news_count,
             "stale_news_count": sum(1 for age in ages if age > NEWS_AGE_MAX_MINUTES),
             "top_news_title": top_news.title if top_news else None,
             "top_news_age_hours": round((news_age_minutes or 0) / 60.0, 3) if news_age_minutes is not None else None,
             "top_news_catalyst_tag": catalyst_type or "generic",
             "news_source_mode": source_mode,
             "news_asof": datetime.now(timezone.utc).isoformat(),
+            "news_provider_status": provider_status,
+            "news_diagnostic_status": news_status,
         }
         news_by_symbol[symbol] = context
         _NEWS_CACHE[symbol] = {"signature": signature, "context": context}
@@ -2395,8 +2610,9 @@ def _enrich_news_context(
         rss_sources=summary.total_sources,
         rss_failures=summary.failure_count,
         rss_failure_summary=summary.failures_by_domain,
+        provider_status=provider_status,
     )
-    return news_by_symbol, diagnostics
+    return news_by_symbol, _with_news_status_index(diagnostics, news_by_symbol)
 
 
 def _rank_candidates(contexts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -2640,9 +2856,7 @@ def _candidate_from_context(
     session = (session_value or "").upper()
     volume = context.get("volume")
     premarket_volume = volume if session in {"PRE", "OVN"} else None
-    catalyst_present = bool(
-        news_context.get("ross_catalyst_valid") or news_context.get("news_present")
-    )
+    catalyst_present = bool(news_context.get("ross_catalyst_valid"))
     if catalyst_present_override is not None:
         catalyst_present = catalyst_present_override
     catalyst_type = news_context.get("catalyst_type")
@@ -2656,7 +2870,7 @@ def _candidate_from_context(
     news_source_mode = news_context.get("news_source_mode")
     news_asof = news_context.get("news_asof")
     catalyst_summary = None
-    if catalyst_type:
+    if catalyst_present and catalyst_type:
         catalyst_summary = (
             f"{catalyst_type} age={news_age}m"
             if news_age is not None
@@ -4485,7 +4699,6 @@ def run_scanner_cycle(
         news_enabled = bool(get_config("NEWS_ENABLED"))
         allow_news = news_enabled and run_mode not in {
             RunMode.LIVE,
-            RunMode.READ_ONLY,
             RunMode.PAPER,
         }
         if explicit_mock:
@@ -4508,6 +4721,15 @@ def run_scanner_cycle(
         candidate_symbols = [
             symbol for symbol in context_by_symbol.keys() if symbol
         ]
+        normalized_session = normalize_session_label(session_label)
+        prep_mode_seed_enabled = normalized_session == "PRE"
+        can_seed_prep = prep_mode_seed_enabled and not provider_error and bool(symbols)
+        prep_seed_blockers = []
+        if provider_error:
+            prep_seed_blockers.append("provider_error")
+        if not symbols:
+            prep_seed_blockers.append("empty_universe")
+        prep_candidates = _load_premarket_prep_candidates() if can_seed_prep else {}
         if catalyst_decision is not None and candidate_symbols:
             if catalyst_decision.status == CatalystStatus.DISABLED_FOR_VALIDATION:
                 log_catalyst_validation_bypass(run_mode, catalyst_decision.reason)
@@ -4516,13 +4738,28 @@ def run_scanner_cycle(
                     log_catalyst_unavailable(symbol, catalyst_decision.reason)
                     if run_mode == RunMode.LIVE:
                         log_catalyst_live_not_satisfied(symbol, catalyst_decision.reason)
-        news_by_symbol = {}
-        news_diag = NewsDiagnostics(False, False, None, 0, 0, {})
-        if selector is not None and allow_news and candidate_symbols:
-            news_by_symbol, news_diag = _enrich_news_context(
-                candidate_symbols,
+        prep_news_by_symbol = _prep_news_contexts_for_symbols(candidate_symbols, prep_candidates) if allow_news else {}
+        news_by_symbol = dict(prep_news_by_symbol)
+        news_diag = (
+            _disabled_news_diagnostics(
+                news_enabled=news_enabled,
+                run_mode=run_mode,
+                explicit_mock=explicit_mock,
+                symbols=candidate_symbols,
+            )
+            if not allow_news
+            else NewsDiagnostics(False, False, None, 0, 0, {}, provider_status="prep_cache" if prep_news_by_symbol else "not_requested")
+        )
+        news_symbols_to_fetch = [symbol for symbol in candidate_symbols if symbol not in news_by_symbol]
+        if selector is not None and allow_news and news_symbols_to_fetch:
+            fetched_news, news_diag = _enrich_news_context(
+                news_symbols_to_fetch,
                 provider_source,
             )
+            news_by_symbol = _merge_news_contexts(fetched_news, prep_news_by_symbol)
+            news_diag = _with_news_status_index(news_diag, news_by_symbol)
+        elif allow_news:
+            news_diag = _with_news_status_index(news_diag, news_by_symbol)
         candidate_metrics_for_ranking: List[CandidateMetrics] = []
         for context in evaluated_contexts:
             symbol = context.get("symbol")
@@ -4611,14 +4848,6 @@ def run_scanner_cycle(
                 if len(watchlist_contexts) >= watchlist_limit:
                     break
 
-        normalized_session = normalize_session_label(session_label)
-        prep_mode_seed_enabled = normalized_session == "PRE"
-        can_seed_prep = prep_mode_seed_enabled and not provider_error and bool(symbols)
-        prep_seed_blockers = []
-        if provider_error:
-            prep_seed_blockers.append("provider_error")
-        if not symbols:
-            prep_seed_blockers.append("empty_universe")
         print(
             "[SCANNER][SESSION_AWARE] "
             f"session={normalized_session} prep_mode_seed_enabled={prep_mode_seed_enabled} "
@@ -4792,7 +5021,6 @@ def run_scanner_cycle(
                 if len(watchlist_contexts) >= watchlist_limit:
                     break
 
-        prep_candidates = _load_premarket_prep_candidates() if can_seed_prep else {}
         print("[PREP][ARTIFACT]")
         print(f"session={normalized_session}")
         print(f"prep_mode_active={prep_mode_seed_enabled}")
@@ -4881,14 +5109,28 @@ def run_scanner_cycle(
                     "policy_name": resolved_policy.policy_name,
                 },
             )
-        if selector is None:
-            if watchlist_symbols and allow_news:
-                news_by_symbol, news_diag = _enrich_news_context(
-                    watchlist_symbols, provider_source
-                )
-            else:
-                news_by_symbol = {}
-                news_diag = NewsDiagnostics(False, False, None, 0, 0, {})
+        if allow_news and prep_candidates:
+            news_by_symbol = _merge_news_contexts(
+                news_by_symbol,
+                _prep_news_contexts_for_symbols(watchlist_symbols, prep_candidates),
+            )
+        missing_watchlist_news_symbols = [symbol for symbol in watchlist_symbols if symbol not in news_by_symbol]
+        if missing_watchlist_news_symbols and allow_news:
+            fetched_news, news_diag = _enrich_news_context(
+                missing_watchlist_news_symbols, provider_source
+            )
+            news_by_symbol = _merge_news_contexts(fetched_news, news_by_symbol)
+            news_diag = _with_news_status_index(news_diag, news_by_symbol)
+        elif not allow_news:
+            news_by_symbol = {}
+            news_diag = _disabled_news_diagnostics(
+                news_enabled=news_enabled,
+                run_mode=run_mode,
+                explicit_mock=explicit_mock,
+                symbols=watchlist_symbols,
+            )
+        else:
+            news_diag = _with_news_status_index(news_diag, news_by_symbol)
         diagnostics["news"] = {
             "news_degraded": news_diag.news_degraded,
             "news_gate_bypassed": news_diag.news_gate_bypassed,
@@ -4897,6 +5139,15 @@ def run_scanner_cycle(
             "rss_failure_summary": news_diag.rss_failure_summary,
             "rss_failure_reason": news_diag.failure_reason,
             "news_skipped": not allow_news,
+            "provider_status": news_diag.provider_status,
+            "result_status_counts": dict(news_diag.result_status_counts),
+            "symbols_by_status": dict(news_diag.symbols_by_status),
+            "provider_disabled": news_diag.provider_status == "provider_disabled",
+            "provider_unavailable": news_diag.provider_status == "provider_unavailable",
+            "provider_request_failure": news_diag.provider_status == "provider_request_failure",
+            "no_recent_news_count": int(news_diag.result_status_counts.get("no_recent_news", 0)),
+            "news_present_non_qualifying_count": int(news_diag.result_status_counts.get("news_present_non_qualifying", 0)),
+            "confirmed_catalyst_count": int(news_diag.result_status_counts.get("catalyst_confirmed", 0)),
         }
         if news_diag.news_degraded:
             for context in watchlist_contexts:
@@ -4926,6 +5177,22 @@ def run_scanner_cycle(
         for context in watchlist_contexts:
             symbol = str(context.get("symbol") or "")
             news_context = news_by_symbol.get(symbol, {})
+            for key in (
+                "news_present",
+                "news_available",
+                "news_count",
+                "fresh_news_count",
+                "stale_news_count",
+                "top_news_title",
+                "top_news_age_hours",
+                "top_news_catalyst_tag",
+                "news_source_mode",
+                "news_asof",
+                "news_provider_status",
+                "news_diagnostic_status",
+            ):
+                if key in news_context:
+                    context[key] = news_context.get(key)
             if catalyst_decision is not None:
                 context["catalyst_status"] = catalyst_decision.status.value
                 context["catalyst_present"] = bool(catalyst_decision.satisfied)
@@ -4933,15 +5200,15 @@ def run_scanner_cycle(
             else:
                 catalyst_confirmed = bool(
                     news_context.get("ross_catalyst_valid")
-                    or news_context.get("news_present")
                     or context.get("catalyst_present")
                     or context.get("catalyst_summary")
                 )
+                news_available = bool(news_context.get("news_available") or context.get("catalyst_summary"))
                 catalyst_status_decision = assess_catalyst(
                     mode=run_mode,
                     news_enabled=news_enabled,
-                    news_available=bool(news_context or context.get("catalyst_summary")),
-                    confirmed=True if catalyst_confirmed else (False if news_context else None),
+                    news_available=news_available,
+                    confirmed=True if catalyst_confirmed else (False if news_available else None),
                     validation_bypass_requested=validation_override_active,
                 )
                 context["catalyst_status"] = catalyst_status_decision.status.value
