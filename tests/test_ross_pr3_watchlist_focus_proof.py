@@ -260,7 +260,12 @@ def test_candidate_rationale_exposes_compact_classifications() -> None:
     thresholds = _thresholds_for("RTH_OPEN")
     candidate = _candidate_from_context(
         _focus_context(pct_source="IBKR", reference_source="IBKR"),
-        {"news_present": True, "catalyst_type": "CONTRACT", "news_count": 1},
+        {
+            "news_present": True,
+            "catalyst_type": "CONTRACT",
+            "news_count": 1,
+            "ross_catalyst_valid": True,
+        },
         thresholds,
         drop_reason=None,
         timestamp_utc="2026-06-12T00:00:00+00:00",
