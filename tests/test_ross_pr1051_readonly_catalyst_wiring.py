@@ -210,10 +210,14 @@ def _headline(title: str, *, age_seconds: int = 300):
 def _patch_news(monkeypatch: pytest.MonkeyPatch, headlines: list[Any], summary=None) -> None:
     resolved_summary = summary or _summary()
 
-    def fake_fetch(symbols, sources, lookback_hours=24.0, request_timeout_s=5.0):
+    def fake_fetch(symbols, sources, lookback_hours=24.0, request_timeout_s=5.0, **kwargs):
         return {symbol: list(headlines) for symbol in symbols}, resolved_summary
 
+    def fake_extended_fetch(symbols, sources, lookback_hours=24.0, request_timeout_s=5.0, **kwargs):
+        return {symbol: [] for symbol in symbols}, _summary(total=len(sources), failures=0)
+
     monkeypatch.setattr(scanner_runner, "fetch_fast_headlines_for_symbols", fake_fetch)
+    monkeypatch.setattr(scanner_runner, "fetch_headlines_for_symbols", fake_extended_fetch)
 
 
 def _run_cycle(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *, news_enabled: bool, headlines: list[Any], summary=None):

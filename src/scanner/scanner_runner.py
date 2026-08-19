@@ -29,8 +29,8 @@ from src.config.runtime_config import (
 )
 from src.core.event_collector import EventCollector
 from src.data.float_discovery_worker import get_float_discovery_worker
-from src.news.news_fetcher import Headline, fetch_fast_headlines_for_symbols
-from src.news.rss_registry import RSS_FAST_TRADING
+from src.news.news_fetcher import Headline, RssFailureSummary, fetch_fast_headlines_for_symbols, fetch_headlines_for_symbols
+from src.news.rss_registry import RSS_FAST_TRADING, RSS_PREP_EXTENDED
 from src.preparation.context_builder import SymbolContext, build_symbol_context
 from src.preparation.event_driven_refresh import RuntimeContextRegistry
 
@@ -334,6 +334,16 @@ class NewsDiagnostics:
     provider_status: str = "not_requested"
     result_status_counts: Dict[str, int] = field(default_factory=dict)
     symbols_by_status: Dict[str, List[str]] = field(default_factory=dict)
+    tier_source_counts: Dict[str, int] = field(default_factory=dict)
+    tier_match_counts: Dict[str, int] = field(default_factory=dict)
+    extended_fallback_requested: bool = False
+    extended_fallback_symbol_count: int = 0
+    ticker_token_match_count: int = 0
+    company_name_match_count: int = 0
+    description_summary_match_count: int = 0
+    qualifying_headline_count: int = 0
+    non_qualifying_headline_count: int = 0
+    max_entries_per_symbol: int = 0
 
 
 @dataclass
@@ -2430,17 +2440,191 @@ def _merge_news_contexts(
     return merged
 
 
+def _merge_rss_failure_summaries(*summaries: Any) -> RssFailureSummary:
+    total_sources = 0
+    failure_count = 0
+    failures_by_domain: Dict[str, Dict[str, int]] = {}
+    reason: str | None = None
+    tier_source_counts: Counter[str] = Counter()
+    tier_match_counts: Counter[str] = Counter()
+    ticker_token_match_count = 0
+    company_name_match_count = 0
+    description_summary_match_count = 0
+    max_entries_per_symbol = 0
+    for summary in summaries:
+        if summary is None:
+            continue
+        total_sources += int(getattr(summary, "total_sources", 0) or 0)
+        failure_count += int(getattr(summary, "failure_count", 0) or 0)
+        if reason is None:
+            raw_reason = getattr(summary, "reason", None)
+            reason = str(raw_reason) if raw_reason else None
+        for domain, codes in dict(getattr(summary, "failures_by_domain", {}) or {}).items():
+            bucket = failures_by_domain.setdefault(str(domain), {})
+            if isinstance(codes, dict):
+                for code, count in codes.items():
+                    bucket[str(code)] = bucket.get(str(code), 0) + int(count or 0)
+        tier_source_counts.update(dict(getattr(summary, "tier_source_counts", {}) or {}))
+        tier_match_counts.update(dict(getattr(summary, "tier_match_counts", {}) or {}))
+        ticker_token_match_count += int(getattr(summary, "ticker_token_match_count", 0) or 0)
+        company_name_match_count += int(getattr(summary, "company_name_match_count", 0) or 0)
+        description_summary_match_count += int(getattr(summary, "description_summary_match_count", 0) or 0)
+        max_entries_per_symbol = max(max_entries_per_symbol, int(getattr(summary, "max_entries_per_symbol", 0) or 0))
+    return RssFailureSummary(
+        total_sources=total_sources,
+        failure_count=failure_count,
+        failures_by_domain=failures_by_domain,
+        reason=reason,
+        tier_source_counts=dict(tier_source_counts),
+        tier_match_counts=dict(tier_match_counts),
+        ticker_token_match_count=ticker_token_match_count,
+        company_name_match_count=company_name_match_count,
+        description_summary_match_count=description_summary_match_count,
+        max_entries_per_symbol=max_entries_per_symbol,
+    )
+
+
+def _metadata_value_from_context(context: Dict[str, Any], key: str) -> Any:
+    value = context.get(key)
+    if value:
+        return value
+    quote_contract = context.get("quote_contract")
+    if isinstance(quote_contract, dict):
+        return quote_contract.get(key)
+    return None
+
+
+def _news_symbol_metadata_for_contexts(contexts: Iterable[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    metadata_keys = (
+        "company_name",
+        "companyName",
+        "issuer_name",
+        "issuerName",
+        "security_name",
+        "securityName",
+        "long_name",
+        "longName",
+        "short_name",
+        "shortName",
+        "contract_description",
+        "contractDescription",
+        "description",
+        "name",
+    )
+    metadata_by_symbol: Dict[str, Dict[str, Any]] = {}
+    for context in contexts:
+        symbol = str(context.get("symbol") or "").strip().upper()
+        if not symbol:
+            continue
+        values = {
+            key: _metadata_value_from_context(context, key)
+            for key in metadata_keys
+            if _metadata_value_from_context(context, key)
+        }
+        if values:
+            metadata_by_symbol[symbol] = values
+    return metadata_by_symbol
+
+
+def _dedupe_bounded_headlines(headlines: Iterable[Headline], max_entries_per_symbol: int) -> List[Headline]:
+    max_entries = max(1, int(max_entries_per_symbol or 1))
+    result: List[Headline] = []
+    seen: set[str] = set()
+    for headline in headlines:
+        key = f"{headline.title.lower().strip()}|{headline.source.lower().strip()}"
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(headline)
+        if len(result) >= max_entries:
+            break
+    return result
+
+
+def _headline_is_fresh(headline: Headline, now_ts: float) -> bool:
+    return max(0.0, (now_ts - headline.published_ts) / 60.0) <= NEWS_AGE_MAX_MINUTES
+
+
+def _headlines_have_confirmed_catalyst(headlines: Iterable[Headline], now_ts: float | None = None) -> bool:
+    current_ts = time.time() if now_ts is None else now_ts
+    for headline in headlines:
+        if not _headline_is_fresh(headline, current_ts):
+            continue
+        if _detect_catalyst_type([headline.title]) and not _detect_dilution([headline.title]):
+            return True
+    return False
+
+
+def _headline_quality_counts(headlines_by_symbol: Dict[str, List[Headline]], now_ts: float) -> tuple[int, int]:
+    qualifying = 0
+    non_qualifying = 0
+    for headlines in headlines_by_symbol.values():
+        for headline in _dedupe_bounded_headlines(headlines, int(get_config("NEWS_MAX_ENTRIES_PER_SYMBOL") or 5)):
+            is_qualifying = (
+                _headline_is_fresh(headline, now_ts)
+                and bool(_detect_catalyst_type([headline.title]))
+                and not _detect_dilution([headline.title])
+            )
+            if is_qualifying:
+                qualifying += 1
+            else:
+                non_qualifying += 1
+    return qualifying, non_qualifying
+
+
 def _enrich_news_context(
     symbols: List[str],
     provider_source: str,
+    symbol_metadata_by_symbol: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> tuple[Dict[str, Dict[str, Any]], NewsDiagnostics]:
     sources = list(RSS_FAST_TRADING)
-    headlines_by_symbol, summary = fetch_fast_headlines_for_symbols(
+    max_entries_per_symbol = int(get_config("NEWS_MAX_ENTRIES_PER_SYMBOL") or 5)
+    symbol_metadata = symbol_metadata_by_symbol or {}
+    headlines_by_symbol, fast_summary = fetch_fast_headlines_for_symbols(
         symbols,
         sources,
         lookback_hours=float(get_config("NEWS_LOOKBACK_HOURS")),
         request_timeout_s=float(get_config("NEWS_REQUEST_TIMEOUT_S")),
+        symbol_metadata=symbol_metadata,
+        max_entries_per_symbol=max_entries_per_symbol,
     )
+    summary: RssFailureSummary = fast_summary
+    fast_provider_status = _news_provider_status(fast_summary)
+    extended_fallback_requested = False
+    extended_fallback_symbol_count = 0
+
+    now_ts = time.time()
+    provider_failed = fast_provider_status in {"provider_unavailable", "provider_request_failure"}
+    if not provider_failed and provider_source != "MOCK":
+        unresolved_symbols = [
+            symbol
+            for symbol in symbols
+            if not _headlines_have_confirmed_catalyst(headlines_by_symbol.get(symbol, []), now_ts)
+        ]
+        if unresolved_symbols:
+            extended_sources = list(RSS_PREP_EXTENDED)
+            extended_fallback_requested = bool(extended_sources)
+            extended_fallback_symbol_count = len(unresolved_symbols) if extended_sources else 0
+            if extended_sources:
+                extended_metadata = {
+                    symbol: symbol_metadata.get(symbol, {})
+                    for symbol in unresolved_symbols
+                    if symbol_metadata.get(symbol)
+                }
+                extended_headlines_by_symbol, extended_summary = fetch_headlines_for_symbols(
+                    unresolved_symbols,
+                    extended_sources,
+                    lookback_hours=float(get_config("NEWS_LOOKBACK_HOURS")),
+                    request_timeout_s=float(get_config("NEWS_REQUEST_TIMEOUT_S")),
+                    symbol_metadata=extended_metadata,
+                    max_entries_per_symbol=max_entries_per_symbol,
+                    source_tier="extended",
+                )
+                for symbol, extended_headlines in extended_headlines_by_symbol.items():
+                    combined = list(headlines_by_symbol.get(symbol, [])) + list(extended_headlines)
+                    headlines_by_symbol[symbol] = _dedupe_bounded_headlines(combined, max_entries_per_symbol)
+                summary = _merge_rss_failure_summaries(fast_summary, extended_summary)
+
     all_failed = summary.total_sources > 0 and summary.failure_count >= summary.total_sources
     reason_override = summary.reason
     provider_status = _news_provider_status(summary)
@@ -2448,19 +2632,19 @@ def _enrich_news_context(
 
     if provider_source == "MOCK":
         if all(len(items) == 0 for items in headlines_by_symbol.values()):
-            now_ts = datetime.now(timezone.utc).timestamp()
+            mock_ts = datetime.now(timezone.utc).timestamp()
             for symbol in symbols[:20]:
                 headlines_by_symbol[symbol] = [
                     Headline(
                         title=f"{symbol} reports earnings beat and raises guidance",
                         source="MOCK_NEWS",
-                        published_ts=now_ts - 300,
+                        published_ts=mock_ts - 300,
                         url="https://mock.news/earnings",
                     ),
                     Headline(
                         title=f"{symbol} announces new partnership",
                         source="MOCK_NEWS",
-                        published_ts=now_ts - 900,
+                        published_ts=mock_ts - 900,
                         url="https://mock.news/partnership",
                     ),
                 ]
@@ -2470,8 +2654,9 @@ def _enrich_news_context(
     news_by_symbol: Dict[str, Dict[str, Any]] = {}
     now_ts = time.time()
     for symbol, headlines in headlines_by_symbol.items():
+        unique_headlines = _dedupe_bounded_headlines(headlines, max_entries_per_symbol)
         signature = tuple(
-            sorted((headline.title.strip().lower(), headline.source.strip().lower()) for headline in headlines)
+            sorted((headline.title.strip().lower(), headline.source.strip().lower()) for headline in unique_headlines)
         )
         cached = _NEWS_CACHE.get(symbol)
         if cached and cached.get("signature") == signature:
@@ -2479,7 +2664,7 @@ def _enrich_news_context(
             print(f"[NEWS] symbol={symbol} catalyst_tag={cached['context'].get('catalyst_type') or 'NONE'} news_changed=False")
             continue
 
-        if not headlines:
+        if not unique_headlines:
             if provider_status in {"provider_unavailable", "provider_request_failure"}:
                 news_status = provider_status
                 news_available = False
@@ -2521,12 +2706,6 @@ def _enrich_news_context(
             print(f"[NEWS] symbol={symbol} news_changed=True")
             continue
 
-        unique_map: Dict[str, Headline] = {}
-        for headline in headlines:
-            key = f"{headline.title.lower().strip()}|{headline.source.lower().strip()}"
-            unique_map.setdefault(key, headline)
-        unique_headlines = list(unique_map.values())
-
         ages = [max(0.0, (now_ts - headline.published_ts) / 60.0) for headline in unique_headlines]
         news_age_minutes = int(min(ages)) if ages else None
         vel5 = sum(1 for headline in unique_headlines if now_ts - headline.published_ts <= 5 * 60)
@@ -2566,7 +2745,8 @@ def _enrich_news_context(
         ross_notes = "Catalyst present" if ross_catalyst_valid else news_status
 
         top_news = unique_headlines[0] if unique_headlines else None
-        source_mode = "rss_batch"
+        tiers = {str(getattr(headline, "source_tier", "fast") or "fast") for headline in unique_headlines}
+        source_mode = "rss_batch_extended" if "extended" in tiers else "rss_batch"
         context = {
             "news_present": True,
             "news_available": True,
@@ -2603,6 +2783,7 @@ def _enrich_news_context(
         print(f"[NEWS] symbol={symbol} news_changed=True")
 
     news_gate_bypassed = all_failed or reason_override in {"no_sources", "feedparser_missing"}
+    qualifying_count, non_qualifying_count = _headline_quality_counts(headlines_by_symbol, now_ts)
     diagnostics = NewsDiagnostics(
         news_degraded=news_degraded,
         news_gate_bypassed=news_gate_bypassed,
@@ -2611,9 +2792,18 @@ def _enrich_news_context(
         rss_failures=summary.failure_count,
         rss_failure_summary=summary.failures_by_domain,
         provider_status=provider_status,
+        tier_source_counts=dict(getattr(summary, "tier_source_counts", {}) or {}),
+        tier_match_counts=dict(getattr(summary, "tier_match_counts", {}) or {}),
+        extended_fallback_requested=extended_fallback_requested,
+        extended_fallback_symbol_count=extended_fallback_symbol_count,
+        ticker_token_match_count=int(getattr(summary, "ticker_token_match_count", 0) or 0),
+        company_name_match_count=int(getattr(summary, "company_name_match_count", 0) or 0),
+        description_summary_match_count=int(getattr(summary, "description_summary_match_count", 0) or 0),
+        qualifying_headline_count=qualifying_count,
+        non_qualifying_headline_count=non_qualifying_count,
+        max_entries_per_symbol=max_entries_per_symbol,
     )
     return news_by_symbol, _with_news_status_index(diagnostics, news_by_symbol)
-
 
 def _rank_candidates(contexts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     strategy = _STRATEGY_REGISTRY.get("ross_momentum")
@@ -3383,6 +3573,13 @@ def _build_symbol_context(
         "primary_exchange": primary_exchange,
         "trading_class": trading_class,
         "local_symbol": local_symbol,
+        "company_name": scan_detail.get("company_name") or scan_detail.get("companyName"),
+        "issuer_name": scan_detail.get("issuer_name") or scan_detail.get("issuerName"),
+        "security_name": scan_detail.get("security_name") or scan_detail.get("securityName"),
+        "long_name": scan_detail.get("long_name") or scan_detail.get("longName"),
+        "short_name": scan_detail.get("short_name") or scan_detail.get("shortName"),
+        "contract_description": scan_detail.get("contract_description") or scan_detail.get("contractDescription"),
+        "description": scan_detail.get("description"),
         "currency": getattr(qualified_identity, "currency", None) or scan_detail.get("currency") or "USD",
         "instrument_type": getattr(qualified_identity, "sec_type", None) or scan_detail.get("secType") or "STK",
         "last_price": last_price,
@@ -5115,9 +5312,12 @@ def run_scanner_cycle(
                 _prep_news_contexts_for_symbols(watchlist_symbols, prep_candidates),
             )
         missing_watchlist_news_symbols = [symbol for symbol in watchlist_symbols if symbol not in news_by_symbol]
+        news_symbol_metadata = _news_symbol_metadata_for_contexts(watchlist_contexts)
         if missing_watchlist_news_symbols and allow_news:
             fetched_news, news_diag = _enrich_news_context(
-                missing_watchlist_news_symbols, provider_source
+                missing_watchlist_news_symbols,
+                provider_source,
+                symbol_metadata_by_symbol=news_symbol_metadata,
             )
             news_by_symbol = _merge_news_contexts(fetched_news, news_by_symbol)
             news_diag = _with_news_status_index(news_diag, news_by_symbol)
@@ -5148,6 +5348,20 @@ def run_scanner_cycle(
             "no_recent_news_count": int(news_diag.result_status_counts.get("no_recent_news", 0)),
             "news_present_non_qualifying_count": int(news_diag.result_status_counts.get("news_present_non_qualifying", 0)),
             "confirmed_catalyst_count": int(news_diag.result_status_counts.get("catalyst_confirmed", 0)),
+            "queried_source_tiers": dict(news_diag.tier_source_counts),
+            "queried_source_count": sum(int(count) for count in news_diag.tier_source_counts.values()),
+            "fast_tier_source_count": int(news_diag.tier_source_counts.get("fast", 0)),
+            "extended_tier_source_count": int(news_diag.tier_source_counts.get("extended", 0)),
+            "fast_tier_match_count": int(news_diag.tier_match_counts.get("fast", 0)),
+            "extended_tier_match_count": int(news_diag.tier_match_counts.get("extended", 0)),
+            "extended_fallback_requested": bool(news_diag.extended_fallback_requested),
+            "extended_fallback_symbol_count": int(news_diag.extended_fallback_symbol_count),
+            "ticker_token_match_count": int(news_diag.ticker_token_match_count),
+            "company_name_match_count": int(news_diag.company_name_match_count),
+            "description_summary_match_count": int(news_diag.description_summary_match_count),
+            "qualifying_headline_count": int(news_diag.qualifying_headline_count),
+            "non_qualifying_headline_count": int(news_diag.non_qualifying_headline_count),
+            "max_entries_per_symbol": int(news_diag.max_entries_per_symbol),
         }
         if news_diag.news_degraded:
             for context in watchlist_contexts:

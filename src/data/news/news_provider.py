@@ -6,11 +6,11 @@ import importlib
 import importlib.util
 import json
 from pathlib import Path
-import re
 from typing import Any
 import xml.etree.ElementTree as ET
 
 from src.config.config_resolver import get_config
+from src.news.news_fetcher import symbol_relevance_match
 from src.news.rss_registry import RSS_FAST_TRADING
 
 if importlib.util.find_spec("requests"):
@@ -154,8 +154,7 @@ def _classify_catalyst(title: str) -> str:
     return "generic"
 
 def _title_mentions_symbol(title: str, symbol: str) -> bool:
-    pattern = re.compile(rf"(?<![A-Z0-9]){re.escape(symbol)}(?![A-Z0-9])|\${re.escape(symbol)}")
-    return bool(pattern.search(title.upper()))
+    return symbol_relevance_match(symbol, title=title) is not None
 
 def _normalize_pub_date(raw: str) -> str:
     dt = _parse_iso(raw)

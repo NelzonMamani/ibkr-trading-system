@@ -211,10 +211,13 @@ class IbkrScannerProvider(ScannerDataProvider):
             contract = item.contractDetails.contract
             symbol = contract.symbol.upper()
             symbols.append(symbol)
+            details = getattr(item, "contractDetails", None)
             symbol_details[symbol] = {
                 "conId": getattr(contract, "conId", None),
                 "tradingClass": getattr(contract, "tradingClass", None),
                 "primaryExchange": getattr(contract, "primaryExchange", None),
+                "longName": getattr(details, "longName", None),
+                "description": getattr(contract, "description", None),
             }
         self.last_scan_details = {
             "requested_location_code": location_code,
