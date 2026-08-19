@@ -501,3 +501,99 @@ def test_pr1040_paper_ready_remains_no_and_gate_fail() -> None:
 
     assert spec["final_verdict"]["paper_ready"] == "NO"
     assert spec["final_verdict"]["paper_readiness_gate"] == "FAIL"
+
+
+def _scanner_payload_with_news_diagnostics(news_status: str, *, provider_status: str = "available", fresh_news_count: int = 0) -> dict:
+    scanner = _scanner_payload(catalyst="CONFIRMED" if news_status == "catalyst_confirmed" else "UNAVAILABLE")
+    for key in ("watchlist_k", "focus_m", "watchlist_rows", "focus_rows"):
+        for row in scanner.get(key, []) or []:
+            row.update(
+                {
+                    "news_available": provider_status not in {"provider_unavailable", "provider_request_failure", "provider_disabled"},
+                    "news_present": fresh_news_count > 0,
+                    "news_count": fresh_news_count,
+                    "fresh_news_count": fresh_news_count,
+                    "news_source_mode": "rss_batch",
+                    "news_diagnostic_status": news_status,
+                    "news_provider_status": provider_status,
+                    "ross_catalyst_valid": news_status == "catalyst_confirmed",
+                }
+            )
+    scanner["diagnostics"]["news"] = {
+        "news_degraded": False,
+        "news_gate_bypassed": False,
+        "rss_sources": 7,
+        "rss_failures": 1 if provider_status == "provider_request_failure" else 0,
+        "rss_failure_summary": {"www.reuters.com": {"HTTP_401": 1}} if provider_status == "provider_request_failure" else {},
+        "rss_failure_reason": None,
+        "news_skipped": False,
+        "provider_status": provider_status,
+        "result_status_counts": {news_status: 1},
+        "symbols_by_status": {news_status: ["REAL1"]},
+        "provider_disabled": provider_status == "provider_disabled",
+        "provider_unavailable": provider_status == "provider_unavailable",
+        "provider_request_failure": provider_status == "provider_request_failure",
+        "no_recent_news_count": 1 if news_status == "no_recent_news" else 0,
+        "news_present_non_qualifying_count": 1 if news_status == "news_present_non_qualifying" else 0,
+        "confirmed_catalyst_count": 1 if news_status == "catalyst_confirmed" else 0,
+        "queried_source_count": 6,
+        "total_source_count": 7,
+    }
+    return scanner
+
+
+def test_pr1055_pr1040_catalyst_artifact_retains_scanner_news_diagnostics_and_absent_no_recent() -> None:
+    scanner = _scanner_payload_with_news_diagnostics("no_recent_news", provider_status="available")
+
+    spec = pr1040.build_pr1039_observation_input(_evidence(scanner=scanner))
+    artifact = spec["catalyst_news_artifact"]
+
+    assert artifact["provider_status"] == "available"
+    assert artifact["result_status_counts"] == {"no_recent_news": 1}
+    assert artifact["symbols_by_status"] == {"no_recent_news": ["REAL1"]}
+    assert artifact["rss_sources"] == 7
+    assert artifact["rss_failures"] == 0
+    assert artifact["rss_failure_summary"] == {}
+    assert artifact["no_recent_news_count"] == 1
+    assert artifact["news_present_non_qualifying_count"] == 0
+    assert artifact["confirmed_catalyst_count"] == 0
+    assert artifact["queried_source_count"] == 6
+    assert artifact["total_source_count"] == 7
+    assert artifact["scanner_news_diagnostics"]["provider_status"] == "available"
+    assert artifact["scanner_news_diagnostics"]["result_status_counts"] == {"no_recent_news": 1}
+    assert artifact["catalyst_status_by_symbol"] == {"REAL1": "ABSENT"}
+    assert artifact["catalyst_diagnostic_status_by_symbol"] == {"REAL1": "no_recent_news"}
+    assert artifact["catalyst_status_reason_by_symbol"] == {"REAL1": "no_recent_news"}
+
+
+@pytest.mark.parametrize(
+    ("news_status", "provider_status", "fresh_news_count", "expected_artifact_status", "expected_reason"),
+    [
+        ("provider_request_failure", "provider_request_failure", 0, "DATA_UNAVAILABLE", "provider_request_failure"),
+        ("news_present_non_qualifying", "available", 1, "ABSENT", "non_qualifying"),
+        ("catalyst_confirmed", "available", 1, "CONFIRMED", "confirmed"),
+    ],
+)
+def test_pr1055_pr1040_catalyst_artifact_preserves_fail_closed_status_semantics(
+    news_status: str,
+    provider_status: str,
+    fresh_news_count: int,
+    expected_artifact_status: str,
+    expected_reason: str,
+) -> None:
+    scanner = _scanner_payload_with_news_diagnostics(
+        news_status,
+        provider_status=provider_status,
+        fresh_news_count=fresh_news_count,
+    )
+
+    spec = pr1040.build_pr1039_observation_input(_evidence(scanner=scanner))
+    artifact = spec["catalyst_news_artifact"]
+
+    assert artifact["provider_status"] == provider_status
+    assert artifact["result_status_counts"] == {news_status: 1}
+    assert artifact["symbols_by_status"] == {news_status: ["REAL1"]}
+    assert artifact["catalyst_status_by_symbol"] == {"REAL1": expected_artifact_status}
+    assert artifact["catalyst_diagnostic_status_by_symbol"] == {"REAL1": news_status}
+    assert artifact["catalyst_status_reason_by_symbol"] == {"REAL1": expected_reason}
+    assert artifact["catalyst_bypass"] is False

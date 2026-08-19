@@ -157,6 +157,36 @@ CATALYST_ACCEPT_VALUES = {
     "CATALYST_CONFIRMED",
     "VALID_CATALYST",
 }
+NEWS_DIAGNOSTIC_DATA_UNAVAILABLE_STATUSES = {
+    "data_unavailable",
+    "not_requested",
+    "provider_disabled",
+    "provider_request_failure",
+    "provider_unavailable",
+}
+NEWS_DIAGNOSTIC_ABSENT_STATUSES = {
+    "no_recent_news",
+    "news_present_non_qualifying",
+}
+NEWS_DIAGNOSTIC_CONFIRMED_STATUSES = {
+    "catalyst_confirmed",
+}
+NEWS_DIAGNOSTIC_ARTIFACT_KEYS = (
+    "provider_status",
+    "result_status_counts",
+    "symbols_by_status",
+    "rss_sources",
+    "rss_failures",
+    "rss_failure_summary",
+    "rss_failure_reason",
+    "no_recent_news_count",
+    "news_present_non_qualifying_count",
+    "confirmed_catalyst_count",
+    "queried_source_count",
+    "queried_sources_count",
+    "total_source_count",
+    "total_sources",
+)
 
 UNSAFE_FOCUS_FLAGS = (
     "manual_focus",
@@ -695,22 +725,178 @@ def _strategy_decision_rows(evidence: RuntimeObservationEvidence) -> list[dict[s
     return rows
 
 
-def _catalyst_statuses(payload: Mapping[str, Any], symbols: Sequence[str]) -> dict[str, str]:
-    rows = _scanner_rows(payload, ("focus_m", "watchlist_k", "candidate_metrics", "candidates", "focus_rows", "watchlist_rows"))
+def _scanner_news_diagnostics(payload: Mapping[str, Any]) -> Mapping[str, Any]:
+    diagnostics = payload.get("diagnostics", {}) if isinstance(payload.get("diagnostics"), Mapping) else {}
+    news = diagnostics.get("news", {}) if isinstance(diagnostics.get("news"), Mapping) else {}
+    return news if isinstance(news, Mapping) else {}
+
+
+def _news_diagnostics_for_artifact(payload: Mapping[str, Any]) -> dict[str, Any]:
+    news = _scanner_news_diagnostics(payload)
+    return {key: _json_safe(news[key]) for key in NEWS_DIAGNOSTIC_ARTIFACT_KEYS if key in news}
+
+
+def _normalize_news_diagnostic_status(value: Any) -> str:
+    return str(value or "").strip().lower()
+
+
+def _news_diagnostic_status_priority(status: str) -> int:
+    normalized = _normalize_news_diagnostic_status(status)
+    if normalized in NEWS_DIAGNOSTIC_CONFIRMED_STATUSES:
+        return 40
+    if normalized == "news_present_non_qualifying":
+        return 30
+    if normalized == "no_recent_news":
+        return 20
+    if normalized in NEWS_DIAGNOSTIC_DATA_UNAVAILABLE_STATUSES:
+        return 10
+    return 0
+
+
+def _merge_news_diagnostic_status(statuses: dict[str, str], symbol: Any, status: Any) -> None:
+    normalized_symbol = str(symbol or "").strip().upper()
+    normalized_status = _normalize_news_diagnostic_status(status)
+    if not normalized_symbol or not normalized_status:
+        return
+    existing = statuses.get(normalized_symbol)
+    if existing is None or _news_diagnostic_status_priority(normalized_status) >= _news_diagnostic_status_priority(existing):
+        statuses[normalized_symbol] = normalized_status
+
+
+def _scanner_news_status_by_symbol(payload: Mapping[str, Any]) -> dict[str, str]:
+    news = _scanner_news_diagnostics(payload)
+    symbols_by_status = news.get("symbols_by_status", {})
+    if not isinstance(symbols_by_status, Mapping):
+        return {}
     statuses: dict[str, str] = {}
-    for row in rows:
-        symbol = _symbol(row)
-        if not symbol:
-            continue
-        if _normalize_bool(_get_value(row, "catalyst_present")) is True:
-            statuses[symbol] = "CONFIRMED"
-        elif int(_get_value(row, "fresh_news_count", 0) or 0) > 0:
-            statuses[symbol] = "NEWS_PRESENT_NOT_CONFIRMED"
-        else:
-            statuses[symbol] = "UNAVAILABLE"
-    for symbol in symbols:
-        statuses.setdefault(str(symbol).upper(), "UNAVAILABLE")
+    for status, raw_symbols in symbols_by_status.items():
+        values = raw_symbols if isinstance(raw_symbols, (list, tuple, set)) else [raw_symbols]
+        for symbol in values:
+            _merge_news_diagnostic_status(statuses, symbol, status)
     return statuses
+
+
+def _row_news_diagnostic_status(row: Any) -> str:
+    if _normalize_bool(_get_value(row, "catalyst_present")) is True:
+        return "catalyst_confirmed"
+    if _normalize_bool(_get_value(row, "ross_catalyst_valid")) is True:
+        return "catalyst_confirmed"
+    explicit_status = _normalize_news_diagnostic_status(_get_value(row, "news_diagnostic_status"))
+    if explicit_status:
+        return explicit_status
+    if _normalize_bool(_get_value(row, "news_available")) is False:
+        provider_status = _normalize_news_diagnostic_status(_get_value(row, "news_provider_status"))
+        return provider_status or "data_unavailable"
+    if _safe_int(_get_value(row, "fresh_news_count", 0), 0) > 0:
+        return "news_present_non_qualifying"
+    if _normalize_bool(_get_value(row, "news_present")) is True:
+        return "news_present_non_qualifying"
+    if _normalize_bool(_get_value(row, "news_available")) is True:
+        return "no_recent_news"
+    return ""
+
+
+def _row_news_status_by_symbol(payload: Mapping[str, Any]) -> dict[str, str]:
+    statuses: dict[str, str] = {}
+    for row in _scanner_rows(payload, ("focus_m", "watchlist_k", "candidate_metrics", "candidates", "focus_rows", "watchlist_rows")):
+        _merge_news_diagnostic_status(statuses, _symbol(row), _row_news_diagnostic_status(row))
+    return statuses
+
+
+def _fallback_news_diagnostic_status(payload: Mapping[str, Any]) -> str:
+    news = _scanner_news_diagnostics(payload)
+    provider_status = _normalize_news_diagnostic_status(news.get("provider_status"))
+    if provider_status in NEWS_DIAGNOSTIC_DATA_UNAVAILABLE_STATUSES:
+        return provider_status
+    counts = news.get("result_status_counts", {})
+    if isinstance(counts, Mapping):
+        if _safe_int(counts.get("news_present_non_qualifying"), 0) > 0:
+            return "news_present_non_qualifying"
+        if _safe_int(counts.get("no_recent_news"), 0) > 0:
+            return "no_recent_news"
+        for status in NEWS_DIAGNOSTIC_DATA_UNAVAILABLE_STATUSES:
+            if _safe_int(counts.get(status), 0) > 0:
+                return status
+    if provider_status in {"available", "partial_request_failure"} and _safe_int(news.get("no_recent_news_count"), 0) > 0:
+        return "no_recent_news"
+    return ""
+
+
+def _catalyst_diagnostic_statuses(payload: Mapping[str, Any], symbols: Sequence[str]) -> dict[str, str]:
+    statuses = _row_news_status_by_symbol(payload)
+    for symbol, status in _scanner_news_status_by_symbol(payload).items():
+        _merge_news_diagnostic_status(statuses, symbol, status)
+    normalized_symbols = [str(symbol or "").strip().upper() for symbol in symbols if str(symbol or "").strip()]
+    fallback_status = _fallback_news_diagnostic_status(payload)
+    for symbol in normalized_symbols:
+        if symbol not in statuses and fallback_status:
+            statuses[symbol] = fallback_status
+    if normalized_symbols:
+        return {symbol: statuses[symbol] for symbol in normalized_symbols if symbol in statuses}
+    return statuses
+
+
+def _artifact_catalyst_status_for_news_status(status: str) -> str | None:
+    normalized = _normalize_news_diagnostic_status(status)
+    if normalized in NEWS_DIAGNOSTIC_CONFIRMED_STATUSES:
+        return "CONFIRMED"
+    if normalized in NEWS_DIAGNOSTIC_ABSENT_STATUSES:
+        return "ABSENT"
+    if normalized in NEWS_DIAGNOSTIC_DATA_UNAVAILABLE_STATUSES:
+        return "DATA_UNAVAILABLE"
+    return None
+
+
+def _artifact_catalyst_reason_for_news_status(status: str) -> str:
+    normalized = _normalize_news_diagnostic_status(status)
+    if normalized == "news_present_non_qualifying":
+        return "non_qualifying"
+    if normalized == "no_recent_news":
+        return "no_recent_news"
+    if normalized in NEWS_DIAGNOSTIC_CONFIRMED_STATUSES:
+        return "confirmed"
+    if normalized in NEWS_DIAGNOSTIC_DATA_UNAVAILABLE_STATUSES:
+        return normalized
+    return normalized or "unknown"
+
+
+def _catalyst_status_reasons(payload: Mapping[str, Any], symbols: Sequence[str]) -> dict[str, str]:
+    return {
+        symbol: _artifact_catalyst_reason_for_news_status(status)
+        for symbol, status in _catalyst_diagnostic_statuses(payload, symbols).items()
+    }
+
+
+def _catalyst_statuses(payload: Mapping[str, Any], symbols: Sequence[str]) -> dict[str, str]:
+    statuses: dict[str, str] = {}
+    diagnostic_statuses = _catalyst_diagnostic_statuses(payload, symbols)
+    for symbol, diagnostic_status in diagnostic_statuses.items():
+        artifact_status = _artifact_catalyst_status_for_news_status(diagnostic_status)
+        if artifact_status:
+            statuses[symbol] = artifact_status
+    for symbol in symbols:
+        normalized_symbol = str(symbol or "").strip().upper()
+        if not normalized_symbol:
+            continue
+        statuses.setdefault(normalized_symbol, "UNAVAILABLE")
+    return statuses
+
+
+def _catalyst_news_artifact(payload: Mapping[str, Any], symbols: Sequence[str], *, news_asof: str) -> dict[str, Any]:
+    artifact: dict[str, Any] = {
+        "news_source_mode": _news_source_mode(payload),
+        "news_asof": news_asof,
+        "catalyst_status_by_symbol": _catalyst_statuses(payload, symbols),
+        "catalyst_diagnostic_status_by_symbol": _catalyst_diagnostic_statuses(payload, symbols),
+        "catalyst_status_reason_by_symbol": _catalyst_status_reasons(payload, symbols),
+        "fresh_news_count": _fresh_news_count(payload),
+        "catalyst_bypass": False,
+    }
+    artifact.update(_news_diagnostics_for_artifact(payload))
+    raw_news_diagnostics = _scanner_news_diagnostics(payload)
+    if raw_news_diagnostics:
+        artifact["scanner_news_diagnostics"] = _json_safe(dict(raw_news_diagnostics))
+    return artifact
 
 
 def _fresh_news_count(payload: Mapping[str, Any]) -> int:
@@ -1231,13 +1417,11 @@ def build_pr1039_observation_input(evidence: RuntimeObservationEvidence) -> dict
             "threshold_override": False,
             "validation_override": False,
         },
-        "catalyst_news_artifact": {
-            "news_source_mode": _news_source_mode(evidence.scanner_payload),
-            "news_asof": evidence.captured_at_utc,
-            "catalyst_status_by_symbol": _catalyst_statuses(evidence.scanner_payload, focus_symbols or watchlist_symbols),
-            "fresh_news_count": _fresh_news_count(evidence.scanner_payload),
-            "catalyst_bypass": False,
-        },
+        "catalyst_news_artifact": _catalyst_news_artifact(
+            evidence.scanner_payload,
+            focus_symbols or watchlist_symbols,
+            news_asof=evidence.captured_at_utc,
+        ),
         "watchlist_focus_artifact": {
             **float_discovery_proof,
             "float_discovery": dict(float_discovery_proof),
