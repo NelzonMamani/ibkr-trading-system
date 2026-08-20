@@ -50,6 +50,12 @@ class RssFailureSummary:
     sources_attempted_count: int = 0
     sources_skipped_due_to_budget_count: int = 0
     tier_sources_attempted_counts: Dict[str, int] = field(default_factory=dict)
+    tier_budget_seconds: float = 0.0
+    tier_elapsed_seconds: float = 0.0
+    tier_budget_exhausted: bool = False
+    tier_budget_seconds_by_tier: Dict[str, float] = field(default_factory=dict)
+    tier_elapsed_seconds_by_tier: Dict[str, float] = field(default_factory=dict)
+    tier_budget_exhausted_by_tier: Dict[str, bool] = field(default_factory=dict)
 
 
 _METADATA_KEYS = (
@@ -330,6 +336,36 @@ def _budget_summary_kwargs(
     }
 
 
+def _tier_budget_summary_kwargs(
+    *,
+    source_tier: str,
+    tier_budget_seconds: float | None,
+    tier_started_at_s: float | None,
+    tier_deadline_s: float | None,
+    tier_budget_exhausted: bool = False,
+) -> Dict[str, Any]:
+    normalized_budget = _normalize_budget_seconds(tier_budget_seconds)
+    started_at_s = float(tier_started_at_s) if tier_started_at_s is not None else None
+    deadline_s = float(tier_deadline_s) if tier_deadline_s is not None else None
+    if deadline_s is None and normalized_budget is not None and started_at_s is not None:
+        deadline_s = started_at_s + normalized_budget
+    if normalized_budget is None and deadline_s is not None and started_at_s is not None:
+        normalized_budget = max(0.0, deadline_s - started_at_s)
+    remaining = _budget_remaining_seconds(deadline_s)
+    exhausted = bool(tier_budget_exhausted or (remaining is not None and remaining <= 0.0))
+    elapsed = _budget_elapsed_seconds(started_at_s) if started_at_s is not None else 0.0
+    budget_value = float(normalized_budget or 0.0)
+    tier = str(source_tier or "unknown")
+    return {
+        "tier_budget_seconds": budget_value,
+        "tier_elapsed_seconds": elapsed,
+        "tier_budget_exhausted": exhausted,
+        "tier_budget_seconds_by_tier": {tier: budget_value} if tier else {},
+        "tier_elapsed_seconds_by_tier": {tier: elapsed} if tier else {},
+        "tier_budget_exhausted_by_tier": {tier: exhausted} if tier else {},
+    }
+
+
 def _summary_for_unavailable(
     *,
     sources: List[str],
@@ -340,6 +376,9 @@ def _summary_for_unavailable(
     total_news_budget_seconds: float | None,
     stage_started_at_s: float,
     stage_deadline_s: float | None,
+    tier_budget_seconds: float | None = None,
+    tier_started_at_s: float | None = None,
+    tier_deadline_s: float | None = None,
 ) -> RssFailureSummary:
     return RssFailureSummary(
         len(sources),
@@ -356,6 +395,12 @@ def _summary_for_unavailable(
             stage_started_at_s=stage_started_at_s,
             stage_deadline_s=stage_deadline_s,
         ),
+        **_tier_budget_summary_kwargs(
+            source_tier=source_tier,
+            tier_budget_seconds=tier_budget_seconds,
+            tier_started_at_s=tier_started_at_s,
+            tier_deadline_s=tier_deadline_s,
+        ),
     )
 
 
@@ -371,6 +416,9 @@ def _fetch_headlines_from_sources(
     total_news_budget_seconds: float | None = None,
     stage_started_at_s: float | None = None,
     stage_deadline_s: float | None = None,
+    tier_budget_seconds: float | None = None,
+    tier_started_at_s: float | None = None,
+    tier_deadline_s: float | None = None,
 ) -> tuple[Dict[str, List[Headline]], RssFailureSummary]:
     budget_seconds = _normalize_budget_seconds(total_news_budget_seconds)
     started_at_s = time.monotonic() if stage_started_at_s is None else float(stage_started_at_s)
@@ -379,6 +427,13 @@ def _fetch_headlines_from_sources(
         deadline_s = started_at_s + budget_seconds
     if budget_seconds is None and deadline_s is not None:
         budget_seconds = max(0.0, deadline_s - started_at_s)
+    normalized_tier_budget = _normalize_budget_seconds(tier_budget_seconds)
+    tier_started_s = started_at_s if tier_started_at_s is None else float(tier_started_at_s)
+    tier_deadline = float(tier_deadline_s) if tier_deadline_s is not None else None
+    if tier_deadline is None and normalized_tier_budget is not None:
+        tier_deadline = tier_started_s + normalized_tier_budget
+    if normalized_tier_budget is None and tier_deadline is not None:
+        normalized_tier_budget = max(0.0, tier_deadline - tier_started_s)
 
     normalized_symbols = [str(symbol).strip().upper() for symbol in symbols if str(symbol).strip()]
     headlines: Dict[str, List[Headline]] = _empty_headlines(normalized_symbols)
@@ -393,10 +448,19 @@ def _fetch_headlines_from_sources(
             news_budget_exhausted=exhausted,
         )
 
+    def tier_budget_kwargs(exhausted: bool = False) -> Dict[str, Any]:
+        return _tier_budget_summary_kwargs(
+            source_tier=source_tier,
+            tier_budget_seconds=normalized_tier_budget,
+            tier_started_at_s=tier_started_s,
+            tier_deadline_s=tier_deadline,
+            tier_budget_exhausted=exhausted,
+        )
+
     if not normalized_symbols:
-        return headlines, RssFailureSummary(0, 0, failures_by_domain, "no_symbols", max_entries_per_symbol=max_entries, **budget_kwargs())
+        return headlines, RssFailureSummary(0, 0, failures_by_domain, "no_symbols", max_entries_per_symbol=max_entries, **budget_kwargs(), **tier_budget_kwargs())
     if not sources:
-        return headlines, RssFailureSummary(0, 0, failures_by_domain, "no_sources", max_entries_per_symbol=max_entries, **budget_kwargs())
+        return headlines, RssFailureSummary(0, 0, failures_by_domain, "no_sources", max_entries_per_symbol=max_entries, **budget_kwargs(), **tier_budget_kwargs())
     if feedparser is None:
         for url in sources:
             _record_failure(failures_by_domain, _domain_for_url(url), "DEPENDENCY_MISSING")
@@ -409,6 +473,9 @@ def _fetch_headlines_from_sources(
             total_news_budget_seconds=budget_seconds,
             stage_started_at_s=started_at_s,
             stage_deadline_s=deadline_s,
+            tier_budget_seconds=normalized_tier_budget,
+            tier_started_at_s=tier_started_s,
+            tier_deadline_s=tier_deadline,
         )
         _summarize_failures(summary)
         return headlines, summary
@@ -426,19 +493,28 @@ def _fetch_headlines_from_sources(
     sources_attempted = 0
     sources_skipped_due_to_budget = 0
     news_budget_exhausted = False
+    tier_budget_exhausted = False
     configured_timeout_s = max(0.001, float(request_timeout_s or 0.001))
 
     for index, url in enumerate(sources):
         if all(len(items) >= max_entries for items in headlines.values()):
             break
         remaining_budget_s = _budget_remaining_seconds(deadline_s)
+        remaining_tier_s = _budget_remaining_seconds(tier_deadline)
         if remaining_budget_s is not None and remaining_budget_s <= 0.0:
             news_budget_exhausted = True
+            tier_budget_exhausted = tier_budget_exhausted or (remaining_tier_s is not None and remaining_tier_s <= 0.0)
+            sources_skipped_due_to_budget += len(sources) - index
+            break
+        if remaining_tier_s is not None and remaining_tier_s <= 0.0:
+            tier_budget_exhausted = True
             sources_skipped_due_to_budget += len(sources) - index
             break
         timeout_s = configured_timeout_s
         if remaining_budget_s is not None:
-            timeout_s = min(configured_timeout_s, remaining_budget_s)
+            timeout_s = min(timeout_s, remaining_budget_s)
+        if remaining_tier_s is not None:
+            timeout_s = min(timeout_s, remaining_tier_s)
         try:
             sources_attempted += 1
             feed = _fetch_feed(url, timeout_s)
@@ -516,6 +592,7 @@ def _fetch_headlines_from_sources(
                     )
                 )
         remaining_budget_s = _budget_remaining_seconds(deadline_s)
+        remaining_tier_s = _budget_remaining_seconds(tier_deadline)
         if (
             remaining_budget_s is not None
             and remaining_budget_s <= 0.0
@@ -523,6 +600,16 @@ def _fetch_headlines_from_sources(
             and index + 1 < len(sources)
         ):
             news_budget_exhausted = True
+            tier_budget_exhausted = tier_budget_exhausted or (remaining_tier_s is not None and remaining_tier_s <= 0.0)
+            sources_skipped_due_to_budget += len(sources) - (index + 1)
+            break
+        if (
+            remaining_tier_s is not None
+            and remaining_tier_s <= 0.0
+            and not all(len(items) >= max_entries for items in headlines.values())
+            and index + 1 < len(sources)
+        ):
+            tier_budget_exhausted = True
             sources_skipped_due_to_budget += len(sources) - (index + 1)
             break
     summary = RssFailureSummary(
@@ -540,6 +627,7 @@ def _fetch_headlines_from_sources(
         sources_skipped_due_to_budget_count=sources_skipped_due_to_budget,
         tier_sources_attempted_counts={source_tier: sources_attempted},
         **budget_kwargs(news_budget_exhausted),
+        **tier_budget_kwargs(tier_budget_exhausted),
     )
     _summarize_failures(summary)
     return headlines, summary
@@ -557,6 +645,9 @@ def fetch_headlines_for_symbols(
     total_news_budget_seconds: float | None = None,
     stage_started_at_s: float | None = None,
     stage_deadline_s: float | None = None,
+    tier_budget_seconds: float | None = None,
+    tier_started_at_s: float | None = None,
+    tier_deadline_s: float | None = None,
 ) -> tuple[Dict[str, List[Headline]], RssFailureSummary]:
     return _fetch_headlines_from_sources(
         symbols,
@@ -569,6 +660,9 @@ def fetch_headlines_for_symbols(
         total_news_budget_seconds=total_news_budget_seconds,
         stage_started_at_s=stage_started_at_s,
         stage_deadline_s=stage_deadline_s,
+        tier_budget_seconds=tier_budget_seconds,
+        tier_started_at_s=tier_started_at_s,
+        tier_deadline_s=tier_deadline_s,
     )
 
 
@@ -583,6 +677,9 @@ def fetch_fast_headlines_for_symbols(
     total_news_budget_seconds: float | None = None,
     stage_started_at_s: float | None = None,
     stage_deadline_s: float | None = None,
+    tier_budget_seconds: float | None = None,
+    tier_started_at_s: float | None = None,
+    tier_deadline_s: float | None = None,
 ) -> tuple[Dict[str, List[Headline]], RssFailureSummary]:
     return _fetch_headlines_from_sources(
         symbols,
@@ -595,4 +692,7 @@ def fetch_fast_headlines_for_symbols(
         total_news_budget_seconds=total_news_budget_seconds,
         stage_started_at_s=stage_started_at_s,
         stage_deadline_s=stage_deadline_s,
+        tier_budget_seconds=tier_budget_seconds,
+        tier_started_at_s=tier_started_at_s,
+        tier_deadline_s=tier_deadline_s,
     )

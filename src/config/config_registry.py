@@ -1368,6 +1368,15 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
         "mutable": "dynamic",
         "description": "Total wall-clock budget (seconds) for a scanner news retrieval stage.",
     },
+    "NEWS_EXTENDED_TIER_RESERVE_FRACTION": {
+        "type": float,
+        "default": 0.35,
+        "env": ["NEWS_EXTENDED_TIER_RESERVE_FRACTION"],
+        "affects": ["NewsEngine"],
+        "enforcement": "SOFT",
+        "mutable": "dynamic",
+        "description": "Fraction of the scanner news retrieval stage reserved for extended-tier fallback.",
+    },
     "VERIFIED_RSS_PATH": {
         "type": str,
         "default_factory": _default_verified_rss_path,

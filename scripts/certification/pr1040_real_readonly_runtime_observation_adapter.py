@@ -202,6 +202,11 @@ NEWS_DIAGNOSTIC_ARTIFACT_KEYS = (
     "total_news_budget_seconds",
     "news_elapsed_seconds",
     "news_budget_exhausted",
+    "fast_budget_seconds",
+    "extended_budget_seconds",
+    "extended_budget_reserved_seconds",
+    "fast_budget_exhausted",
+    "extended_budget_exhausted",
     "fast_sources_attempted_count",
     "extended_sources_attempted_count",
     "sources_skipped_due_to_budget_count",
@@ -1772,6 +1777,15 @@ def validate_with_pr1039(*, observation_input: Path, raw_output_dir: Path, valid
     )
 
 
+def _cleanup_scanner_runtime_after_observation() -> None:
+    try:
+        from src.scanner.scanner_runner import reset_scanner_runtime_state
+
+        reset_scanner_runtime_state(clear_persistent_provider=True)
+    except Exception as exc:
+        print(f"[PR1040][CLEANUP_WARN] scanner_runtime_reset_failed={type(exc).__name__}", file=sys.stderr)
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run PR1040 real READ_ONLY Ross runtime observation adapter.")
     parser.add_argument("--operator", required=True)
@@ -1822,6 +1836,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     except Exception as exc:
         print(f"[PR1040][ABORT] {exc}", file=sys.stderr)
         return 2
+    finally:
+        _cleanup_scanner_runtime_after_observation()
 
     classification = spec.get("classification") or spec.get("final_verdict", {}).get("classification")
     print(
