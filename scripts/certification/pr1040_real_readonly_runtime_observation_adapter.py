@@ -199,6 +199,13 @@ NEWS_DIAGNOSTIC_ARTIFACT_KEYS = (
     "qualifying_headline_count",
     "non_qualifying_headline_count",
     "max_entries_per_symbol",
+    "total_news_budget_seconds",
+    "news_elapsed_seconds",
+    "news_budget_exhausted",
+    "fast_sources_attempted_count",
+    "extended_sources_attempted_count",
+    "sources_skipped_due_to_budget_count",
+    "symbols_unresolved_at_budget_exhaustion",
 )
 
 UNSAFE_FOCUS_FLAGS = (
@@ -757,6 +764,8 @@ def _news_diagnostic_status_priority(status: str) -> int:
     normalized = _normalize_news_diagnostic_status(status)
     if normalized in NEWS_DIAGNOSTIC_CONFIRMED_STATUSES:
         return 40
+    if normalized == "budget_exhausted":
+        return 35
     if normalized == "news_present_non_qualifying":
         return 30
     if normalized == "no_recent_news":
@@ -825,6 +834,8 @@ def _fallback_news_diagnostic_status(payload: Mapping[str, Any]) -> str:
     if isinstance(counts, Mapping):
         if _safe_int(counts.get("news_present_non_qualifying"), 0) > 0:
             return "news_present_non_qualifying"
+        if _safe_int(counts.get("budget_exhausted"), 0) > 0:
+            return "budget_exhausted"
         if _safe_int(counts.get("no_recent_news"), 0) > 0:
             return "no_recent_news"
         for status in NEWS_DIAGNOSTIC_DATA_UNAVAILABLE_STATUSES:
