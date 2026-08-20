@@ -5,7 +5,9 @@ import importlib.util
 import logging
 import re
 import time
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
+from math import ceil
 from typing import Any, Dict, Iterable, List, Mapping
 from urllib.parse import urlparse
 
@@ -56,6 +58,15 @@ class RssFailureSummary:
     tier_budget_seconds_by_tier: Dict[str, float] = field(default_factory=dict)
     tier_elapsed_seconds_by_tier: Dict[str, float] = field(default_factory=dict)
     tier_budget_exhausted_by_tier: Dict[str, bool] = field(default_factory=dict)
+    source_diagnostics: tuple[Mapping[str, Any], ...] = field(default_factory=tuple)
+    unique_source_urls_scheduled_count: int = 0
+    unique_source_urls_attempted_count: int = 0
+    duplicate_source_fetches_avoided_count: int = 0
+
+
+DEFAULT_RSS_FETCH_WORKERS = 4
+MIN_SOURCE_TIMEOUT_SECONDS = 0.05
+SOURCE_WAIT_POLL_SECONDS = 0.05
 
 
 _METADATA_KEYS = (
@@ -480,6 +491,7 @@ def _fetch_headlines_from_sources(
         _summarize_failures(summary)
         return headlines, summary
 
+
     now = time.time()
     min_ts = now - (lookback_hours * 3600)
     symbol_patterns = _compile_symbol_patterns(normalized_symbols)
@@ -495,42 +507,94 @@ def _fetch_headlines_from_sources(
     news_budget_exhausted = False
     tier_budget_exhausted = False
     configured_timeout_s = max(0.001, float(request_timeout_s or 0.001))
+    source_diagnostics: list[Mapping[str, Any]] = []
 
-    for index, url in enumerate(sources):
-        if all(len(items) >= max_entries for items in headlines.values()):
-            break
+    unique_sources: list[str] = []
+    seen_sources: set[str] = set()
+    duplicate_source_fetches_avoided = 0
+    for raw_url in sources:
+        url = str(raw_url or "").strip()
+        if not url:
+            continue
+        if url in seen_sources:
+            duplicate_source_fetches_avoided += 1
+            continue
+        seen_sources.add(url)
+        unique_sources.append(url)
+
+    def source_diag(
+        url: str,
+        *,
+        retrieval_status: str,
+        attempted: bool,
+        matched_count: int = 0,
+        failure_reason: str | None = None,
+        elapsed_seconds: float | None = None,
+        timeout_seconds: float | None = None,
+        timed_out: bool = False,
+        budget_exhausted: bool = False,
+    ) -> Mapping[str, Any]:
+        return {
+            "source_id": url,
+            "source_url": url,
+            "source_domain": _domain_for_url(url),
+            "provider": "rss_batch",
+            "source_group": "PREP_EXTENDED" if source_tier == "extended" else "FAST_TRADING",
+            "source_tier": source_tier,
+            "retrieval_status": retrieval_status,
+            "attempted": bool(attempted),
+            "matched_count": int(matched_count),
+            "failure_reason": failure_reason,
+            "elapsed_seconds": elapsed_seconds,
+            "timeout_seconds": timeout_seconds,
+            "timed_out": bool(timed_out),
+            "budget_exhausted": bool(budget_exhausted),
+        }
+
+    def per_source_timeout_seconds(remaining_source_count: int) -> float:
+        timeout_s = configured_timeout_s
         remaining_budget_s = _budget_remaining_seconds(deadline_s)
         remaining_tier_s = _budget_remaining_seconds(tier_deadline)
-        if remaining_budget_s is not None and remaining_budget_s <= 0.0:
-            news_budget_exhausted = True
-            tier_budget_exhausted = tier_budget_exhausted or (remaining_tier_s is not None and remaining_tier_s <= 0.0)
-            sources_skipped_due_to_budget += len(sources) - index
-            break
-        if remaining_tier_s is not None and remaining_tier_s <= 0.0:
-            tier_budget_exhausted = True
-            sources_skipped_due_to_budget += len(sources) - index
-            break
-        timeout_s = configured_timeout_s
         if remaining_budget_s is not None:
             timeout_s = min(timeout_s, remaining_budget_s)
         if remaining_tier_s is not None:
             timeout_s = min(timeout_s, remaining_tier_s)
+        worker_count = max(1, min(DEFAULT_RSS_FETCH_WORKERS, len(unique_sources) or 1))
+        waves_remaining = max(1, ceil(max(1, remaining_source_count) / worker_count))
+        if remaining_budget_s is not None:
+            timeout_s = min(timeout_s, max(MIN_SOURCE_TIMEOUT_SECONDS, remaining_budget_s / waves_remaining))
+        if remaining_tier_s is not None:
+            timeout_s = min(timeout_s, max(MIN_SOURCE_TIMEOUT_SECONDS, remaining_tier_s / waves_remaining))
+        return max(0.001, timeout_s)
+
+    def fetch_one(url: str, timeout_s: float) -> Mapping[str, Any]:
+        source_started_s = time.monotonic()
         try:
-            sources_attempted += 1
             feed = _fetch_feed(url, timeout_s)
-        except Exception as exc:
-            failures += 1
-            _record_failure(failures_by_domain, _domain_for_url(url), _failure_code(exc))
-            continue
-        if feed is None:
-            failures += 1
-            _record_failure(failures_by_domain, _domain_for_url(url), _failure_code(None, feed_missing=True))
-            continue
+            return {
+                "url": url,
+                "feed": feed,
+                "error": None,
+                "elapsed_seconds": _budget_elapsed_seconds(source_started_s),
+                "timeout_seconds": timeout_s,
+            }
+        except Exception as exc:  # pragma: no cover - exercised through tests with synthetic exceptions
+            return {
+                "url": url,
+                "feed": None,
+                "error": exc,
+                "elapsed_seconds": _budget_elapsed_seconds(source_started_s),
+                "timeout_seconds": timeout_s,
+            }
+
+    def process_feed(url: str, feed: Any) -> int:
+        nonlocal ticker_token_matches, company_name_matches, description_summary_matches, tier_matches
         source_name = ""
         try:
             source_name = (feed.feed.get("title") or "").strip()
         except Exception:
             source_name = ""
+        source_matches = 0
         for entry in getattr(feed, "entries", []) or []:
             if all(len(items) >= max_entries for items in headlines.values()):
                 break
@@ -579,6 +643,7 @@ def _fetch_headlines_from_sources(
                 if matched_field == "summary":
                     description_summary_matches += 1
                 tier_matches += 1
+                source_matches += 1
                 headlines[symbol].append(
                     Headline(
                         title=title,
@@ -591,27 +656,151 @@ def _fetch_headlines_from_sources(
                         matched_field=matched_field,
                     )
                 )
-        remaining_budget_s = _budget_remaining_seconds(deadline_s)
-        remaining_tier_s = _budget_remaining_seconds(tier_deadline)
-        if (
-            remaining_budget_s is not None
-            and remaining_budget_s <= 0.0
-            and not all(len(items) >= max_entries for items in headlines.values())
-            and index + 1 < len(sources)
-        ):
-            news_budget_exhausted = True
-            tier_budget_exhausted = tier_budget_exhausted or (remaining_tier_s is not None and remaining_tier_s <= 0.0)
-            sources_skipped_due_to_budget += len(sources) - (index + 1)
-            break
-        if (
-            remaining_tier_s is not None
-            and remaining_tier_s <= 0.0
-            and not all(len(items) >= max_entries for items in headlines.values())
-            and index + 1 < len(sources)
-        ):
-            tier_budget_exhausted = True
-            sources_skipped_due_to_budget += len(sources) - (index + 1)
-            break
+        return source_matches
+
+    if unique_sources:
+        worker_count = max(1, min(DEFAULT_RSS_FETCH_WORKERS, len(unique_sources)))
+        executor = ThreadPoolExecutor(max_workers=worker_count, thread_name_prefix="news-rss")
+        pending: dict[Any, tuple[str, float, float]] = {}
+        next_source_index = 0
+        skipped_sources_recorded = False
+
+        def record_budget_skipped_sources() -> None:
+            nonlocal sources_skipped_due_to_budget, skipped_sources_recorded
+            if skipped_sources_recorded:
+                return
+            skipped = max(0, len(unique_sources) - next_source_index)
+            sources_skipped_due_to_budget += skipped
+            for url in unique_sources[next_source_index:]:
+                source_diagnostics.append(
+                    source_diag(
+                        url,
+                        retrieval_status="budget_exhausted",
+                        attempted=False,
+                        failure_reason="deadline_exhausted_before_attempt",
+                        elapsed_seconds=0.0,
+                        timeout_seconds=0.0,
+                        budget_exhausted=True,
+                    )
+                )
+            skipped_sources_recorded = True
+
+        try:
+            while pending or next_source_index < len(unique_sources):
+                wave_timeout_s: float | None = None
+                while next_source_index < len(unique_sources) and len(pending) < worker_count:
+                    if all(len(items) >= max_entries for items in headlines.values()):
+                        break
+                    remaining_budget_s = _budget_remaining_seconds(deadline_s)
+                    remaining_tier_s = _budget_remaining_seconds(tier_deadline)
+                    if remaining_budget_s is not None and remaining_budget_s <= 0.0:
+                        news_budget_exhausted = True
+                        tier_budget_exhausted = tier_budget_exhausted or (remaining_tier_s is not None and remaining_tier_s <= 0.0)
+                        record_budget_skipped_sources()
+                        break
+                    if remaining_tier_s is not None and remaining_tier_s <= 0.0:
+                        tier_budget_exhausted = True
+                        record_budget_skipped_sources()
+                        break
+                    remaining_sources = len(unique_sources) - next_source_index
+                    if wave_timeout_s is None:
+                        wave_timeout_s = per_source_timeout_seconds(remaining_sources)
+                    timeout_s = wave_timeout_s
+                    url = unique_sources[next_source_index]
+                    next_source_index += 1
+                    sources_attempted += 1
+                    pending[executor.submit(fetch_one, url, timeout_s)] = (url, timeout_s, time.monotonic())
+                if not pending:
+                    break
+                remaining_budget_s = _budget_remaining_seconds(deadline_s)
+                remaining_tier_s = _budget_remaining_seconds(tier_deadline)
+                if remaining_budget_s is not None and remaining_budget_s <= 0.0:
+                    news_budget_exhausted = True
+                    tier_budget_exhausted = tier_budget_exhausted or (remaining_tier_s is not None and remaining_tier_s <= 0.0)
+                    record_budget_skipped_sources()
+                    break
+                if remaining_tier_s is not None and remaining_tier_s <= 0.0:
+                    tier_budget_exhausted = True
+                    record_budget_skipped_sources()
+                    break
+                wait_timeout = SOURCE_WAIT_POLL_SECONDS
+                if remaining_budget_s is not None:
+                    wait_timeout = min(wait_timeout, remaining_budget_s)
+                if remaining_tier_s is not None:
+                    wait_timeout = min(wait_timeout, remaining_tier_s)
+                done, _ = wait(tuple(pending.keys()), timeout=max(0.001, wait_timeout), return_when=FIRST_COMPLETED)
+                if not done:
+                    continue
+                for future in done:
+                    url, timeout_s, submitted_s = pending.pop(future)
+                    result = future.result()
+                    elapsed = float(result.get("elapsed_seconds") or _budget_elapsed_seconds(submitted_s))
+                    error = result.get("error")
+                    if error is not None:
+                        code = _failure_code(error if isinstance(error, Exception) else None)
+                        failures += 1
+                        _record_failure(failures_by_domain, _domain_for_url(url), code)
+                        source_diagnostics.append(
+                            source_diag(
+                                url,
+                                retrieval_status="provider_error",
+                                attempted=True,
+                                failure_reason=code,
+                                elapsed_seconds=elapsed,
+                                timeout_seconds=timeout_s,
+                                timed_out="TIMEOUT" in code or code.endswith("TIMEOUT"),
+                            )
+                        )
+                        continue
+                    feed = result.get("feed")
+                    if feed is None:
+                        failures += 1
+                        code = _failure_code(None, feed_missing=True)
+                        _record_failure(failures_by_domain, _domain_for_url(url), code)
+                        source_diagnostics.append(
+                            source_diag(
+                                url,
+                                retrieval_status="unavailable",
+                                attempted=True,
+                                failure_reason=code,
+                                elapsed_seconds=elapsed,
+                                timeout_seconds=timeout_s,
+                            )
+                        )
+                        continue
+                    matched_count = process_feed(url, feed)
+                    source_diagnostics.append(
+                        source_diag(
+                            url,
+                            retrieval_status="available",
+                            attempted=True,
+                            matched_count=matched_count,
+                            elapsed_seconds=elapsed,
+                            timeout_seconds=timeout_s,
+                        )
+                    )
+                if all(len(items) >= max_entries for items in headlines.values()):
+                    break
+        finally:
+            pending_cancelled_for_budget = bool(news_budget_exhausted or tier_budget_exhausted)
+            for future, (url, timeout_s, submitted_s) in list(pending.items()):
+                future.cancel()
+                elapsed = _budget_elapsed_seconds(submitted_s)
+                source_diagnostics.append(
+                    source_diag(
+                        url,
+                        retrieval_status="budget_exhausted" if pending_cancelled_for_budget else "partial",
+                        attempted=True,
+                        failure_reason="deadline_exhausted" if pending_cancelled_for_budget else "cancelled_after_max_entries",
+                        elapsed_seconds=elapsed,
+                        timeout_seconds=timeout_s,
+                        timed_out=pending_cancelled_for_budget,
+                        budget_exhausted=pending_cancelled_for_budget,
+                    )
+                )
+            executor.shutdown(wait=False, cancel_futures=True)
+    else:
+        duplicate_source_fetches_avoided = len(sources)
     summary = RssFailureSummary(
         len(sources),
         failures,
@@ -626,6 +815,10 @@ def _fetch_headlines_from_sources(
         sources_attempted_count=sources_attempted,
         sources_skipped_due_to_budget_count=sources_skipped_due_to_budget,
         tier_sources_attempted_counts={source_tier: sources_attempted},
+        source_diagnostics=tuple(source_diagnostics),
+        unique_source_urls_scheduled_count=len(unique_sources),
+        unique_source_urls_attempted_count=sources_attempted,
+        duplicate_source_fetches_avoided_count=duplicate_source_fetches_avoided,
         **budget_kwargs(news_budget_exhausted),
         **tier_budget_kwargs(tier_budget_exhausted),
     )

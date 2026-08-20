@@ -24,6 +24,7 @@ from src.news.news_intelligence_contract import (
     NewsRequest,
     RetrievalDiagnostics,
     RetrievalPolicy,
+    SourceDiagnostic,
 )
 from src.news.rss_batch_runtime import (
     dedupe_bounded_headlines,
@@ -86,6 +87,10 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
         source_groups = _source_groups_for_policy(retrieval_policy)
         fast_sources = _sources_for_group(source_groups, "FAST_TRADING")
         extended_sources = _sources_for_group(source_groups, "PREP_EXTENDED")
+        fast_source_set = set(fast_sources)
+        cross_tier_duplicate_sources = [url for url in extended_sources if url in fast_source_set]
+        if cross_tier_duplicate_sources:
+            extended_sources = [url for url in extended_sources if url not in fast_source_set]
         unresolved_for_extended = _explicit_unresolved_symbols(symbols, retrieval_policy)
         max_entries_per_symbol = _max_entries_per_symbol(request)
         lookback_hours = _lookback_hours(request)
@@ -138,6 +143,7 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
         extended_fallback_requested = False
         extended_fallback_symbol_count = 0
         budget_skipped_sources = 0
+        budget_skipped_source_diagnostics: tuple[Mapping[str, Any], ...] = ()
         extended_budget_seconds = 0.0
         fast_budget_exhausted = bool(getattr(fast_summary, "tier_budget_exhausted", False))
         extended_budget_exhausted = False
@@ -191,7 +197,11 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
                 summary = merge_rss_failure_summaries(fast_summary, extended_summary)
             else:
                 extended_budget_exhausted = True
-                budget_skipped_sources += len(extended_sources)
+                budget_skipped_source_diagnostics = _budget_skipped_source_diagnostics(
+                    extended_sources,
+                    source_tier="extended",
+                )
+                budget_skipped_sources += len(budget_skipped_source_diagnostics)
 
         summary_elapsed = max(
             float(getattr(summary, "news_elapsed_seconds", 0.0) or 0.0),
@@ -199,16 +209,42 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
         )
         budget_exhausted = bool(getattr(summary, "news_budget_exhausted", False)) or budget_skipped_sources > 0
         if budget_skipped_sources or summary_elapsed or budget_exhausted or total_news_budget_seconds:
-            summary = replace(
-                summary,
-                total_news_budget_seconds=total_news_budget_seconds,
-                news_elapsed_seconds=summary_elapsed,
-                news_budget_exhausted=budget_exhausted,
-                sources_skipped_due_to_budget_count=int(
+            summary_updates: dict[str, Any] = {
+                "total_news_budget_seconds": total_news_budget_seconds,
+                "news_elapsed_seconds": summary_elapsed,
+                "news_budget_exhausted": budget_exhausted,
+                "sources_skipped_due_to_budget_count": int(
                     getattr(summary, "sources_skipped_due_to_budget_count", 0) or 0
                 )
                 + budget_skipped_sources,
-            )
+            }
+            if budget_skipped_source_diagnostics:
+                tier_source_counts = dict(getattr(summary, "tier_source_counts", {}) or {})
+                tier_source_counts["extended"] = tier_source_counts.get("extended", 0) + len(
+                    budget_skipped_source_diagnostics
+                )
+                tier_attempt_counts = dict(getattr(summary, "tier_sources_attempted_counts", {}) or {})
+                tier_attempt_counts.setdefault("extended", 0)
+                tier_budget_seconds_by_tier = dict(getattr(summary, "tier_budget_seconds_by_tier", {}) or {})
+                tier_budget_seconds_by_tier.setdefault("extended", float(extended_budget_seconds))
+                tier_elapsed_seconds_by_tier = dict(getattr(summary, "tier_elapsed_seconds_by_tier", {}) or {})
+                tier_elapsed_seconds_by_tier.setdefault("extended", 0.0)
+                tier_budget_exhausted_by_tier = dict(getattr(summary, "tier_budget_exhausted_by_tier", {}) or {})
+                tier_budget_exhausted_by_tier["extended"] = True
+                summary_updates.update(
+                    source_diagnostics=tuple(getattr(summary, "source_diagnostics", ()) or ())
+                    + budget_skipped_source_diagnostics,
+                    tier_source_counts=tier_source_counts,
+                    tier_sources_attempted_counts=tier_attempt_counts,
+                    tier_budget_seconds_by_tier=tier_budget_seconds_by_tier,
+                    tier_elapsed_seconds_by_tier=tier_elapsed_seconds_by_tier,
+                    tier_budget_exhausted_by_tier=tier_budget_exhausted_by_tier,
+                    unique_source_urls_scheduled_count=int(
+                        getattr(summary, "unique_source_urls_scheduled_count", 0) or 0
+                    )
+                    + len(budget_skipped_source_diagnostics),
+                )
+            summary = replace(summary, **summary_updates)
 
         provider_status = news_provider_status(summary)
         retrieval_status = _retrieval_status(summary, provider_status)
@@ -263,6 +299,12 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
             )
 
         tier_attempt_counts = dict(getattr(summary, "tier_sources_attempted_counts", {}) or {})
+        source_diag_objects = _source_diagnostics_from_summary(summary)
+        source_diag_payload = [dict(getattr(item, "__dict__", {})) for item in source_diag_objects]
+        tier_elapsed_by_tier = dict(getattr(summary, "tier_elapsed_seconds_by_tier", {}) or {})
+        tier_budget_by_tier = dict(getattr(summary, "tier_budget_seconds_by_tier", {}) or {})
+        tier_exhausted_by_tier = dict(getattr(summary, "tier_budget_exhausted_by_tier", {}) or {})
+        duplicate_fetches_avoided = int(getattr(summary, "duplicate_source_fetches_avoided_count", 0) or 0) + len(cross_tier_duplicate_sources)
         diagnostics_payload = {
             "provider_id": self.provider_id,
             "legacy_batch_fetcher": "src.news.news_fetcher",
@@ -298,9 +340,20 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
             "sources_skipped_due_to_budget_count": int(
                 getattr(summary, "sources_skipped_due_to_budget_count", 0) or 0
             ),
+            "unique_source_urls_scheduled_count": int(getattr(summary, "unique_source_urls_scheduled_count", 0) or 0),
+            "unique_source_urls_attempted_count": int(getattr(summary, "unique_source_urls_attempted_count", 0) or 0),
+            "duplicate_source_fetches_avoided_count": duplicate_fetches_avoided,
+            "cross_tier_duplicate_source_urls_avoided": tuple(cross_tier_duplicate_sources),
+            "source_diagnostics": source_diag_payload,
+            "per_source_elapsed_seconds": {item.source_id: item.elapsed_seconds for item in source_diag_objects},
+            "tier_elapsed_seconds_by_tier": tier_elapsed_by_tier,
+            "tier_budget_seconds_by_tier": tier_budget_by_tier,
+            "tier_budget_exhausted_by_tier": tier_exhausted_by_tier,
+            "fast_tier_elapsed_seconds": float(tier_elapsed_by_tier.get("fast", 0.0) or 0.0),
+            "extended_tier_elapsed_seconds": float(tier_elapsed_by_tier.get("extended", 0.0) or 0.0),
             "symbols_unresolved_at_budget_exhaustion": sorted(budget_unresolved_symbols),
-            "diagnostics_mapping_gaps": (
-                "per_source_elapsed_seconds_not_available_from_RssFailureSummary",
+            "diagnostics_mapping_gaps": (),
+            "diagnostics_authority_notes": (
                 "event_and_catalyst_classification_remain_strategy_adapter_authority",
             ),
         }
@@ -312,6 +365,7 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
             source_groups_queried=_queried_source_groups(fast_fetched, extended_fetched),
             provider_groups_queried=("rss_batch",),
             sources_queried=tuple((fast_sources if fast_fetched else []) + (extended_sources if extended_fetched else [])),
+            source_diagnostics=source_diag_objects,
             source_failures=_flatten_failures(getattr(summary, "failures_by_domain", {}) or {}),
             sources_attempted_count=int(getattr(summary, "sources_attempted_count", 0) or 0),
             sources_skipped_due_to_budget_count=int(
@@ -371,6 +425,66 @@ def _sources_for_group(source_groups: Sequence[str], group_id: SourceGroupId) ->
     if group_id not in set(source_groups):
         return []
     return list(get_source_group_urls(group_id))
+
+
+def _budget_skipped_source_diagnostics(
+    sources: Sequence[str],
+    *,
+    source_tier: str,
+) -> tuple[Mapping[str, Any], ...]:
+    source_group = "PREP_EXTENDED" if source_tier == "extended" else "FAST_TRADING"
+    rows: list[Mapping[str, Any]] = []
+    seen: set[str] = set()
+    for raw_url in sources:
+        url = str(raw_url or "").strip()
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        rows.append(
+            {
+                "source_id": url,
+                "source_url": url,
+                "source_domain": (urlparse(url).netloc or url).lower(),
+                "provider": "rss_batch",
+                "source_group": source_group,
+                "source_tier": source_tier,
+                "retrieval_status": "budget_exhausted",
+                "attempted": False,
+                "matched_count": 0,
+                "failure_reason": "deadline_exhausted_before_attempt",
+                "elapsed_seconds": 0.0,
+                "timeout_seconds": 0.0,
+                "timed_out": False,
+                "budget_exhausted": True,
+            }
+        )
+    return tuple(rows)
+
+def _source_diagnostics_from_summary(summary: RssFailureSummary) -> tuple[SourceDiagnostic, ...]:
+    rows: list[SourceDiagnostic] = []
+    for item in tuple(getattr(summary, "source_diagnostics", ()) or ()):
+        if not isinstance(item, Mapping):
+            continue
+        source_id = str(item.get("source_id") or item.get("source_url") or "").strip()
+        if not source_id:
+            continue
+        rows.append(
+            SourceDiagnostic(
+                source_id=source_id,
+                provider=str(item.get("provider") or "rss_batch"),
+                source_group=str(item.get("source_group") or ""),
+                source_tier=str(item.get("source_tier") or ""),
+                retrieval_status=str(item.get("retrieval_status") or "unknown"),
+                attempted=bool(item.get("attempted", False)),
+                matched_count=int(item.get("matched_count") or 0),
+                failure_reason=item.get("failure_reason"),
+                elapsed_seconds=item.get("elapsed_seconds"),
+                timeout_seconds=item.get("timeout_seconds"),
+                timed_out=bool(item.get("timed_out", False)),
+                budget_exhausted=bool(item.get("budget_exhausted", False)),
+            )
+        )
+    return tuple(rows)
 
 
 def _explicit_unresolved_symbols(symbols: Sequence[str], retrieval_policy: RetrievalPolicy) -> list[str]:
