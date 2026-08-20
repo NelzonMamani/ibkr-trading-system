@@ -27,6 +27,14 @@ Strategy adapter / strategy policy
 
 The common contract does not put Ross price, gap, float, volume, RVOL, session, pattern, entry, stop, or target thresholds into either object.
 
+## Source Group Authority
+
+src/news/source_groups.py is the canonical strategy-neutral authority for active source-group membership and ordering. It describes the current active groups FAST_TRADING, PREP_EXTENDED, and MACRO_LONG_HORIZON, and it records VERIFIED_RSS_LEGACY as metadata for the historical verified_rss.txt catalogue.
+
+src/news/rss_registry.py remains a compatibility export layer for existing production call sites. Existing imports of RSS_FAST_TRADING, RSS_PREP_EXTENDED, RSS_MACRO_LONG_HORIZON, and RSS_REGISTRY continue to receive the same ordered URL lists.
+
+verified_rss.txt and legacy src/scanner/news_engine.py are not wired into the active Ross scanner path by this contract. They remain historical/legacy catalogue infrastructure until a later reviewed migration explicitly changes that behavior.
+
 ## Batch-First Model
 
 `NewsIntelligenceProvider.get_news(candidates, request, retrieval_policy)` is batch-first and returns `NewsBatchResult`. A single-symbol lookup is represented as a batch of one. This preserves the intended architecture where a provider can fetch each source once, parse once, and match many symbols.
@@ -92,3 +100,4 @@ This preserves the Ross contract: Price, Gap / percentage move, Float, Volume, a
 - ZERO BROKER ORDER MUTATIONS
 - PAPER_READY=NO
 - PAPER_READINESS_GATE=FAIL
+
