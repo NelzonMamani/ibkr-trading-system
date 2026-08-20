@@ -172,3 +172,26 @@ def test_req_historical_data_returns_bars_when_data_arrives_before_end_signal(mo
     bars = client.reqHistoricalData(contract)
 
     assert bars == [{"close": 123.45}]
+
+
+def test_disconnect_skips_join_when_called_from_network_thread(monkeypatch):
+    client = _build_client()
+    client._thread = threading.current_thread()
+
+    monkeypatch.setattr(EClient, "disconnect", lambda self: None)
+
+    client.disconnect()
+
+
+def test_run_loop_treats_shutdown_self_join_error_as_normal_exit(monkeypatch, capsys):
+    client = _build_client()
+    client._stop_event.set()
+
+    def raise_self_join(_self):
+        raise RuntimeError("cannot join current thread")
+
+    monkeypatch.setattr(EClient, "run", raise_self_join)
+
+    client._run_loop()
+
+    assert "Network loop error" not in capsys.readouterr().out

@@ -437,7 +437,11 @@ def _is_mock_scanner_mode() -> bool:
     return str(get_config("SCANNER_DATA_SOURCE") or "").strip().upper() == "MOCK"
 
 
-def reset_scanner_runtime_state(*, clear_persistent_provider: bool = True) -> None:
+def reset_scanner_runtime_state(
+    *,
+    clear_persistent_provider: bool = True,
+    suppress_disconnect_errors: bool = True,
+) -> None:
     """Reset scanner module runtime globals to avoid cross-test/runtime leakage."""
     global _WATCHLIST_HASH, _LAST_SESSION_LABEL, _SCAN_CYCLE_COUNT, _LAST_PRINT_CYCLE, _PERSISTENT_PROVIDER, _PERSISTENT_PROVIDER_SOURCE, _ROSS_DAILY_STATE, _LAST_BROKER_SCAN_TS, _LAST_SCANNER_PAYLOAD
     _PREV_WATCHLIST.clear()
@@ -453,7 +457,8 @@ def reset_scanner_runtime_state(*, clear_persistent_provider: bool = True) -> No
             try:
                 _PERSISTENT_PROVIDER.disconnect()
             except Exception:
-                pass
+                if not suppress_disconnect_errors:
+                    raise
         _PERSISTENT_PROVIDER = None
         _PERSISTENT_PROVIDER_SOURCE = None
 
@@ -4628,10 +4633,12 @@ def run_scanner_cycle(
     market_data_client: object | None = None,
     forced_session_label: str | None = None,
     forced_session_source: str | None = None,
+    runtime_deadline_s: float | None = None,
 ) -> Dict[str, Any]:
     global _SCAN_CYCLE_COUNT, _WATCHLIST_HASH, _LAST_SESSION_LABEL, _LAST_PRINT_CYCLE, _PERSISTENT_PROVIDER, _PERSISTENT_PROVIDER_SOURCE, _LAST_BROKER_SCAN_TS, _LAST_SCANNER_PAYLOAD
     _SCAN_CYCLE_COUNT += 1
     _REFERENCE_RESOLVER.reset_cycle()
+    runtime_started_s = time.monotonic()
     utc_now = _utc_now()
     session_ctx = _market_session_context_utc(utc_now)
     session_diag = resolve_session_diagnostics(
@@ -4643,6 +4650,69 @@ def run_scanner_cycle(
     session_phase = session_diag.resolved_session
     daily_state = _get_ross_daily_state(utc_now, session_label)
     diagnostics: Dict[str, Any] = {"mode": mode, "ross_trading_day": daily_state.trading_day, "session_phase": session_phase}
+    runtime_deadline_value: float | None = None
+    if runtime_deadline_s is not None:
+        try:
+            runtime_deadline_value = float(runtime_deadline_s)
+        except (TypeError, ValueError):
+            runtime_deadline_value = None
+    scanner_runtime_bound: Dict[str, Any] = {
+        "active": runtime_deadline_value is not None,
+        "budget_seconds": round(max(0.0, runtime_deadline_value - runtime_started_s), 3) if runtime_deadline_value is not None else None,
+        "stopped": False,
+        "stop_stage": None,
+        "stop_reason": None,
+        "elapsed_seconds": 0.0,
+        "completed_returned_payload": False,
+    }
+
+    def _runtime_remaining_seconds() -> float | None:
+        if runtime_deadline_value is None:
+            return None
+        return max(0.0, runtime_deadline_value - time.monotonic())
+
+    def _mark_runtime_bound(stage: str) -> None:
+        if scanner_runtime_bound["stopped"]:
+            return
+        scanner_runtime_bound["stopped"] = True
+        scanner_runtime_bound["stop_stage"] = stage
+        scanner_runtime_bound["stop_reason"] = "RUNTIME_DEADLINE_REACHED"
+        scanner_runtime_bound["elapsed_seconds"] = round(time.monotonic() - runtime_started_s, 3)
+        diagnostics["scanner_runtime_bound"] = dict(scanner_runtime_bound)
+        print(
+            "[SCANNER][BOUNDED_STOP] "
+            f"stage={stage} elapsed_seconds={scanner_runtime_bound['elapsed_seconds']} "
+            f"budget_seconds={scanner_runtime_bound['budget_seconds']}"
+        )
+
+    def _runtime_bound_reached(stage: str) -> bool:
+        remaining = _runtime_remaining_seconds()
+        if remaining is None:
+            return False
+        if scanner_runtime_bound["stopped"]:
+            return True
+        if remaining <= 0:
+            _mark_runtime_bound(stage)
+            return True
+        return False
+
+    def _runtime_stage_timeout(default_seconds: float) -> float:
+        remaining = _runtime_remaining_seconds()
+        if remaining is None:
+            return float(default_seconds)
+        if remaining <= 0:
+            return 0.0
+        return min(float(default_seconds), max(0.1, remaining))
+
+    def _finalize_runtime_bound() -> None:
+        if not scanner_runtime_bound["active"]:
+            return
+        scanner_runtime_bound["elapsed_seconds"] = round(time.monotonic() - runtime_started_s, 3)
+        scanner_runtime_bound["completed_returned_payload"] = True
+        diagnostics["scanner_runtime_bound"] = dict(scanner_runtime_bound)
+
+    if scanner_runtime_bound["active"]:
+        diagnostics["scanner_runtime_bound"] = dict(scanner_runtime_bound)
     drop_ledger: Dict[str, str] = {}
     universe_top_n: list[dict[str, Any]] = []
     print(f"[SCANNER] MODE={mode} SESSION={session_label}")
@@ -5012,20 +5082,29 @@ def run_scanner_cycle(
             f"unchanged={len(unchanged_symbols_delta)} escalated={len(escalated_symbols_delta)}"
         )
 
-        snapshot_enricher = MarketSnapshotEnricher(
-            connection_manager=getattr(provider, "connection_manager", None),
-            batch_timeout_seconds=5.0,
-        )
-        contract_details_by_symbol = _provider_contract_details_by_symbol(provider)
-        market_snapshots = snapshot_enricher.fetch_snapshots(
-            symbols,
-            contract_details_by_symbol=contract_details_by_symbol,
-        )
-        snapshot_diag = getattr(snapshot_enricher, "last_fetch_diagnostics", {}) or {}
+        snapshot_runtime_skipped = _runtime_bound_reached("pre_market_snapshot_enrichment")
+        snapshot_batch_timeout_seconds = 0.0
+        if snapshot_runtime_skipped:
+            market_snapshots = {}
+            snapshot_diag = {}
+        else:
+            snapshot_batch_timeout_seconds = _runtime_stage_timeout(5.0)
+            snapshot_enricher = MarketSnapshotEnricher(
+                connection_manager=getattr(provider, "connection_manager", None),
+                batch_timeout_seconds=snapshot_batch_timeout_seconds,
+            )
+            contract_details_by_symbol = _provider_contract_details_by_symbol(provider)
+            market_snapshots = snapshot_enricher.fetch_snapshots(
+                symbols,
+                contract_details_by_symbol=contract_details_by_symbol,
+            )
+            snapshot_diag = getattr(snapshot_enricher, "last_fetch_diagnostics", {}) or {}
         diagnostics["market_snapshot_enrichment"] = {
-            "requested_symbols": len(symbols),
+            "input_symbols": len(symbols),
+            "requested_symbols": 0 if snapshot_runtime_skipped else len(symbols),
             "snapshots_returned": len(market_snapshots),
-            "batch_timeout_seconds": 5.0,
+            "batch_timeout_seconds": snapshot_batch_timeout_seconds,
+            "skipped_due_to_runtime_bound": bool(snapshot_runtime_skipped),
             "snapshot_success_count": sum(1 for d in snapshot_diag.values() if d.get("snapshot_received")),
             "snapshot_failure_count": sum(1 for d in snapshot_diag.values() if not d.get("snapshot_received")),
             "symbols_with_last_price": sum(1 for d in snapshot_diag.values() if d.get("last_price") is not None),
@@ -5033,10 +5112,16 @@ def run_scanner_cycle(
             "symbols_with_volume": sum(1 for d in snapshot_diag.values() if d.get("volume") is not None),
         }
 
-        float_cache = _bootstrap_float_cache(symbols, provider)
         float_cache_path = _resolve_float_cache_path()
-        float_discovery_proof = _empty_float_discovery_proof()
-        float_discovery_proof["float_discovery_cache_hit_count"] = len(_FLOAT_CACHE_HIT_SYMBOLS)
+        if _runtime_bound_reached("pre_float_cache"):
+            float_cache = {}
+            float_discovery_proof = _empty_float_discovery_proof()
+            float_discovery_proof["float_discovery_pending_count"] = len(symbols)
+            float_discovery_proof["symbols_pending_same_cycle_float_discovery"] = list(symbols)
+        else:
+            float_cache = _bootstrap_float_cache(symbols, provider)
+            float_discovery_proof = _empty_float_discovery_proof()
+            float_discovery_proof["float_discovery_cache_hit_count"] = len(_FLOAT_CACHE_HIT_SYMBOLS)
         thresholds = _gate_thresholds(resolved_policy, runtime_thresholds)
         if explicit_mock and validation_override_active:
             thresholds = replace(
@@ -5063,6 +5148,8 @@ def run_scanner_cycle(
         print("[SCANNER][STAGE] market_snapshot_enrichment")
         print("[SCANNER][STAGE] gates")
         for rank, symbol in enumerate(symbols, start=1):
+            if _runtime_bound_reached("gates"):
+                break
             symbol_state = daily_state.top_universe.get(symbol)
             should_recheck = True
             if symbol_state is not None:
@@ -5379,6 +5466,8 @@ def run_scanner_cycle(
             RunMode.PAPER,
         }
         if explicit_mock:
+            allow_news = False
+        if allow_news and _runtime_bound_reached("pre_news"):
             allow_news = False
         catalyst_override = None
         catalyst_decision = None
@@ -5788,6 +5877,8 @@ def run_scanner_cycle(
             )
         missing_watchlist_news_symbols = [symbol for symbol in watchlist_symbols if symbol not in news_by_symbol]
         news_symbol_metadata = _news_symbol_metadata_for_contexts(watchlist_contexts)
+        if missing_watchlist_news_symbols and allow_news and _runtime_bound_reached("pre_watchlist_news"):
+            allow_news = False
         if missing_watchlist_news_symbols and allow_news:
             fetched_news, news_diag = _enrich_news_context(
                 missing_watchlist_news_symbols,
@@ -6404,6 +6495,7 @@ def run_scanner_cycle(
     raw_broker_count = int(raw_zero_payload.get("raw_broker_count", len(raw_symbols)))
     watchlist_count = len(watchlist_symbols)
     cacheable = not (broker_returned_zero or raw_broker_count == 0)
+    _finalize_runtime_bound()
 
     _LAST_SCANNER_PAYLOAD = {
         "scanner_version": SCANNER_VERSION,

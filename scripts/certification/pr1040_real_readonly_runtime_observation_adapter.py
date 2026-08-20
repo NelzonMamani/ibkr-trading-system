@@ -10,7 +10,7 @@ when the observed evidence is incomplete or unsafe.
 from __future__ import annotations
 
 import argparse
-from dataclasses import asdict, dataclass, is_dataclass
+from dataclasses import asdict, dataclass, is_dataclass, replace
 from datetime import datetime, timezone
 import importlib.util
 import json
@@ -1191,6 +1191,7 @@ def _market_data_observation_diagnostics(evidence: RuntimeObservationEvidence) -
         "symbols_with_float": _symbols_matching(candidate_rows, _row_has_float),
         "observation_scope": _operator_observation_scope(evidence),
         "ibkr_market_data_diagnostic": ibkr_diagnostic,
+        "scanner_runtime_bound": _json_safe(_nested_mapping(payload, "diagnostics", "scanner_runtime_bound")),
         "outcome": _market_data_observation_outcome(evidence),
     }
 
@@ -1579,6 +1580,21 @@ def _scope_allows_symbol(scope: Mapping[str, Any], symbol: str) -> bool:
     return not requested or symbol in requested
 
 
+def _bounded_scanner_request(policy: Any, scope: Mapping[str, Any]) -> Any:
+    from src.scanner.scanner_contract import scanner_request_from_policy
+
+    request = scanner_request_from_policy(policy)
+    scanner_symbol_cap = max(
+        1,
+        _nonnegative_int(
+            scope.get("max_observation_symbols", DEFAULT_MAX_OBSERVATION_SYMBOLS),
+            default=DEFAULT_MAX_OBSERVATION_SYMBOLS,
+        ),
+    )
+    requested_top_n = max(1, min(int(request.requested_top_n), scanner_symbol_cap))
+    return replace(request, requested_top_n=requested_top_n)
+
+
 def collect_real_readonly_runtime_evidence(
     *,
     operator: str,
@@ -1588,17 +1604,20 @@ def collect_real_readonly_runtime_evidence(
 ) -> RuntimeObservationEvidence:
     apply_readonly_runtime_overrides(env)
     captured_at = utc_now_iso()
-    broker_before = _broker_snapshot()
     scope = build_operator_observation_scope(
         max_observation_symbols=(operator_observation_scope or {}).get("max_observation_symbols", DEFAULT_MAX_OBSERVATION_SYMBOLS),
         max_observation_seconds=(operator_observation_scope or {}).get("max_observation_seconds", DEFAULT_MAX_OBSERVATION_SECONDS),
         max_snapshot_failures=(operator_observation_scope or {}).get("max_snapshot_failures", DEFAULT_MAX_SNAPSHOT_FAILURES),
         observation_symbols=(operator_observation_scope or {}).get("observation_symbols", []),
     )
+    runtime_started_s = time.monotonic()
+    scanner_runtime_deadline_s = runtime_started_s + float(scope["max_observation_seconds"])
+    broker_before = _broker_snapshot()
 
     from src.core_engine.events import TradeIntentRecord
     from src.core_engine.state import RunMode
     from src.risk.risk_audit import AccountSnapshot, evaluate_trade_intents
+    from src.scanner.contracts import policy_from_config
     from src.scanner.scanner_runner import run_scanner_cycle
     from src.strategies.ross_momentum.patterns.pattern_trace import build_runtime_pattern_inputs
     from src.strategies.ross_momentum.strategy import RossMomentumStrategy
@@ -1609,7 +1628,30 @@ def collect_real_readonly_runtime_evidence(
         StrategyInput,
     )
 
-    scanner_payload = run_scanner_cycle(mode="READ_ONLY")
+    policy = policy_from_config()
+    scanner_request = _bounded_scanner_request(policy, scope)
+    scanner_started_s = time.monotonic()
+    scanner_payload = run_scanner_cycle(
+        mode="READ_ONLY",
+        policy=policy,
+        scanner_request=scanner_request,
+        runtime_deadline_s=scanner_runtime_deadline_s,
+    )
+    scanner_elapsed_seconds = round(time.monotonic() - scanner_started_s, 3)
+    scanner_runtime_bound = (
+        scanner_payload.get("diagnostics", {}).get("scanner_runtime_bound", {})
+        if isinstance(scanner_payload, Mapping)
+        else {}
+    )
+    scope.update(
+        {
+            "scanner_requested_top_n": int(scanner_request.requested_top_n),
+            "scanner_runtime_budget_seconds": float(scope["max_observation_seconds"]),
+            "scanner_runtime_elapsed_seconds": scanner_elapsed_seconds,
+            "scanner_runtime_bound": _json_safe(scanner_runtime_bound if isinstance(scanner_runtime_bound, Mapping) else {}),
+            "scanner_returned_naturally": True,
+        }
+    )
     watchlist_rows = _scanner_rows(scanner_payload, ("watchlist_k", "watchlist_rows"))
     focus_rows = _scanner_rows(scanner_payload, ("focus_m", "focus_rows"))
     session_label = _session_label_from_payload(scanner_payload, focus_rows + watchlist_rows)
@@ -1744,6 +1786,7 @@ def collect_real_readonly_runtime_evidence(
             "stopped_by_max_observation_symbols": stopped_by_max_observation_symbols,
             "stopped_by_max_observation_seconds": stopped_by_max_observation_seconds,
             "stopped_by_max_snapshot_failures": stopped_by_max_snapshot_failures,
+            "total_runtime_elapsed_seconds": round(time.monotonic() - runtime_started_s, 3),
         }
     )
 
@@ -1798,13 +1841,55 @@ def validate_with_pr1039(*, observation_input: Path, raw_output_dir: Path, valid
     )
 
 
-def _cleanup_scanner_runtime_after_observation() -> None:
+def _cleanup_scanner_runtime_after_observation() -> dict[str, Any]:
+    started_s = time.monotonic()
+    diagnostics: dict[str, Any] = {
+        "status": "ok",
+        "scanner_runtime_reset": False,
+        "shared_manager_present": False,
+        "shared_manager_disconnect_called": False,
+        "shared_manager_connected_after": False,
+        "errors": [],
+    }
     try:
         from src.scanner.scanner_runner import reset_scanner_runtime_state
 
-        reset_scanner_runtime_state(clear_persistent_provider=True)
+        reset_scanner_runtime_state(
+            clear_persistent_provider=True,
+            suppress_disconnect_errors=False,
+        )
+        diagnostics["scanner_runtime_reset"] = True
     except Exception as exc:
-        print(f"[PR1040][CLEANUP_WARN] scanner_runtime_reset_failed={type(exc).__name__}", file=sys.stderr)
+        diagnostics["errors"].append(f"scanner_runtime_reset_failed:{type(exc).__name__}:{exc}")
+
+    try:
+        from src.adapters.brokers.ibkr import ibkr_connection_manager as manager_module
+
+        manager = getattr(manager_module, "_default_manager", None)
+        diagnostics["shared_manager_present"] = manager is not None
+        if manager is not None:
+            before = manager.connection_metadata()
+            diagnostics["shared_manager_before"] = _json_safe(before)
+            if bool(before.get("connected")):
+                manager.disconnect(reason="pr1040_observation_cleanup")
+                diagnostics["shared_manager_disconnect_called"] = True
+            after = manager.connection_metadata()
+            diagnostics["shared_manager_after"] = _json_safe(after)
+            diagnostics["shared_manager_connected_after"] = bool(after.get("connected"))
+    except Exception as exc:
+        diagnostics["errors"].append(f"shared_manager_cleanup_failed:{type(exc).__name__}:{exc}")
+
+    diagnostics["elapsed_seconds"] = round(time.monotonic() - started_s, 3)
+    if diagnostics["errors"] or diagnostics.get("shared_manager_connected_after"):
+        diagnostics["status"] = "error"
+    print(
+        "[PR1040][CLEANUP] "
+        f"status={diagnostics['status']} "
+        f"scanner_runtime_reset={diagnostics['scanner_runtime_reset']} "
+        f"shared_manager_connected_after={diagnostics['shared_manager_connected_after']} "
+        f"elapsed_seconds={diagnostics['elapsed_seconds']}"
+    )
+    return diagnostics
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -1834,6 +1919,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         max_snapshot_failures=args.max_snapshot_failures,
         observation_symbols=args.observation_symbols,
     )
+    spec = None
+    manifest = None
     try:
         evidence = collect_real_readonly_runtime_evidence(
             operator=args.operator,
@@ -1843,22 +1930,27 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         spec = build_pr1039_observation_input(evidence)
         spec["analytics_storage_artifact"]["artifact_paths"] = [str(args.observation_output)]
-        write_observation_input(args.observation_output, spec)
-        manifest = None
-        if args.validate_with_pr1039:
-            manifest = validate_with_pr1039(
-                observation_input=args.observation_output,
-                raw_output_dir=args.raw_output_dir,
-                validated_output_dir=args.validated_output_dir,
-                operator=args.operator,
-                env=env,
-                force=args.force,
-            )
     except Exception as exc:
         print(f"[PR1040][ABORT] {exc}", file=sys.stderr)
-        return 2
-    finally:
         _cleanup_scanner_runtime_after_observation()
+        return 2
+
+    shutdown_diagnostics = _cleanup_scanner_runtime_after_observation()
+    spec["shutdown_diagnostics"] = shutdown_diagnostics
+    spec["final_verdict"]["SHUTDOWN_CLEANUP_COMPLETED"] = "YES" if shutdown_diagnostics.get("status") == "ok" else "NO"
+    write_observation_input(args.observation_output, spec)
+    if shutdown_diagnostics.get("status") != "ok":
+        print(f"[PR1040][ABORT] cleanup_failed diagnostics={shutdown_diagnostics}", file=sys.stderr)
+        return 2
+    if args.validate_with_pr1039:
+        manifest = validate_with_pr1039(
+            observation_input=args.observation_output,
+            raw_output_dir=args.raw_output_dir,
+            validated_output_dir=args.validated_output_dir,
+            operator=args.operator,
+            env=env,
+            force=args.force,
+        )
 
     classification = spec.get("classification") or spec.get("final_verdict", {}).get("classification")
     print(

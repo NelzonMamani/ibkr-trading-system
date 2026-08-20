@@ -114,7 +114,8 @@ class _RuntimeProvider:
 
 
 @pytest.fixture(autouse=True)
-def _reset_runtime_state():
+def _reset_runtime_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    monkeypatch.setenv("NEWS_CACHE_FILE", str(tmp_path / "pr1051_news_cache.json"))
     scanner_runner.reset_scanner_runtime_state(clear_persistent_provider=True)
     scanner_runner._FLOAT_CACHE_STATE = {"mtime_ns": None, "data": {}}
     scanner_runner._NEWS_CACHE = {}

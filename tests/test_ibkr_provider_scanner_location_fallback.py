@@ -10,10 +10,12 @@ class _DummyMarketDataClient:
     def __init__(self, responses_by_location: dict[str, list]) -> None:
         self.responses_by_location = responses_by_location
         self.requested_locations: list[str] = []
+        self.requested_rows: list[int] = []
         self.connection_manager = object()
 
     def request_scanner_data(self, subscription):
         self.requested_locations.append(subscription.locationCode)
+        self.requested_rows.append(subscription.numberOfRows)
         return self.responses_by_location.get(subscription.locationCode, [])
 
 
@@ -52,6 +54,7 @@ def test_get_top_gainers_retries_with_location_fallback_chain(monkeypatch, caplo
 
     assert symbols == ["AAPL"]
     assert client.requested_locations == ["STK.US.MAJOR", "STK.US.SMART", "STK.NASDAQ"]
+    assert client.requested_rows == [10, 10, 10]
     assert "[SCANNER][IBKR][SUCCESS] using_location=STK.NASDAQ symbols=1" in caplog.text
 
 
@@ -79,6 +82,8 @@ def test_get_top_gainers_logs_fatal_when_all_locations_are_empty(monkeypatch, ca
         "STK.NASDAQ",
         "STK.NYSE",
     ]
+    assert client.requested_rows
+    assert set(client.requested_rows) == {5}
     assert len(client.requested_locations) > 4
     assert len(symbols) > 0
     assert "[SCANNER][FATAL] broker returned zero rows across all fallback locations" in caplog.text

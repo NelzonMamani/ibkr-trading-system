@@ -289,13 +289,17 @@ def test_pr1061_tier_budget_diagnostics_propagate_to_pr1040_artifact() -> None:
 
 
 def test_pr1061_pr1040_cleanup_resets_scanner_persistent_provider(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: list[bool] = []
+    calls: list[tuple[bool, bool]] = []
 
-    def fake_reset(*, clear_persistent_provider: bool = True) -> None:
-        calls.append(clear_persistent_provider)
+    def fake_reset(
+        *,
+        clear_persistent_provider: bool = True,
+        suppress_disconnect_errors: bool = True,
+    ) -> None:
+        calls.append((clear_persistent_provider, suppress_disconnect_errors))
 
     monkeypatch.setattr(scanner_runner, "reset_scanner_runtime_state", fake_reset)
 
     pr1040._cleanup_scanner_runtime_after_observation()
 
-    assert calls == [True]
+    assert calls == [(True, False)]

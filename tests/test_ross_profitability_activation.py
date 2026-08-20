@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import pytest
+
+from src.config.config_resolver import set_config_overrides
 from src.strategies.common.candles.candle_types import Candle
 from src.strategies.ross_momentum.patterns.pattern_inputs import (
     IndicatorSet,
@@ -18,6 +21,11 @@ from src.strategies.strategy_contracts import (
     StrategyInput,
 )
 
+@pytest.fixture(autouse=True)
+def _sim_mode_for_intent_unit_tests():
+    set_config_overrides({"RUN_MODE": "SIM", "RUN_MODE_EFFECTIVE": "SIM"})
+    yield
+    set_config_overrides({})
 
 def _inputs(
     symbol: str = "ROSSX",
