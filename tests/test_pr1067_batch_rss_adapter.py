@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ast
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -8,12 +7,12 @@ from types import SimpleNamespace
 import pytest
 
 from src.config.config_resolver import set_config_overrides
-from src.news import batch_rss_adapter
-from src.news import news_fetcher
+from src.news import batch_rss_adapter, news_fetcher, rss_batch_runtime
 from src.news.batch_rss_adapter import BatchRssNewsIntelligenceProvider
 from src.news.news_fetcher import Headline, RssFailureSummary
 from src.news.news_intelligence_contract import NewsCandidate, NewsRequest, RetrievalPolicy
 from src.news.source_groups import get_source_group_urls
+from src.scanner import scanner_runner
 
 
 @pytest.fixture(autouse=True)
@@ -102,7 +101,7 @@ def _summary(
     )
 
 
-def test_pr1067_fast_sources_order_and_batch_once(monkeypatch):
+def test_pr1067_fast_sources_order_and_batch_once_without_catalyst_classification(monkeypatch):
     fast_sources = list(get_source_group_urls("FAST_TRADING"))
     calls: dict[str, object] = {}
 
@@ -123,7 +122,7 @@ def test_pr1067_fast_sources_order_and_batch_once(monkeypatch):
         )
 
     def fake_extended(*args, **kwargs):
-        raise AssertionError("extended fallback must not run when fast evidence confirms every symbol")
+        raise AssertionError("common provider must not infer unresolved Ross catalyst symbols")
 
     monkeypatch.setattr(batch_rss_adapter, "fetch_fast_headlines_for_symbols", fake_fast)
     monkeypatch.setattr(batch_rss_adapter, "fetch_headlines_for_symbols", fake_extended)
@@ -140,24 +139,29 @@ def test_pr1067_fast_sources_order_and_batch_once(monkeypatch):
     assert calls["fast"]["kwargs"]["total_news_budget_seconds"] == 8.0
     assert calls["fast"]["kwargs"]["tier_budget_seconds"] == pytest.approx(5.2)
     assert result.diagnostics.source_groups_queried == ("FAST_TRADING",)
-    assert result.summaries_by_symbol["PR67A"].qualifying_event_class_count == 1
-    assert result.summaries_by_symbol["PR67B"].diagnostics["legacy_news_diagnostic_status"] == "catalyst_confirmed"
+    evidence = result.evidence_for_symbol("PR67A")[0]
+    assert evidence.event_class is None
+    assert evidence.catalyst_classification is None
+    assert evidence.is_qualifying_event_class is False
+    assert result.summaries_by_symbol["PR67A"].qualifying_event_class_count == 0
+    assert result.summaries_by_symbol["PR67B"].diagnostics["objective_news_status"] == "news_present_unclassified"
+    assert result.diagnostics.diagnostics["classification_authority"] == "strategy_adapter_not_common_provider"
 
 
-def test_pr1067_unresolved_only_extended_fallback(monkeypatch):
+def test_pr1067_unresolved_only_extended_fallback_uses_explicit_strategy_symbols(monkeypatch):
     captured_extended: dict[str, object] = {}
 
     def fake_fast(symbols, sources, **kwargs):
         return (
             {
                 "FASTY": [_headline("FASTY reports earnings beat")],
-                "SLOWY": [],
+                "SLOWY": [_headline("SLOWY moves higher in morning trading")],
             },
             _summary(
                 total_sources=len(sources),
                 tier="fast",
-                tier_matches=1,
-                ticker_matches=1,
+                tier_matches=2,
+                ticker_matches=2,
             ),
         )
 
@@ -182,7 +186,7 @@ def test_pr1067_unresolved_only_extended_fallback(monkeypatch):
     result = BatchRssNewsIntelligenceProvider().get_news(
         [NewsCandidate("FASTY"), NewsCandidate("SLOWY")],
         NewsRequest(),
-        RetrievalPolicy(),
+        RetrievalPolicy(metadata={"unresolved_symbols": ("SLOWY",)}),
     )
 
     assert captured_extended["symbols"] == ["SLOWY"]
@@ -190,7 +194,32 @@ def test_pr1067_unresolved_only_extended_fallback(monkeypatch):
     assert result.diagnostics.diagnostics["extended_fallback_requested"] is True
     assert result.diagnostics.diagnostics["extended_fallback_symbol_count"] == 1
     assert result.diagnostics.source_groups_queried == ("FAST_TRADING", "PREP_EXTENDED")
-    assert result.evidence_for_symbol("SLOWY")[0].source_group == "PREP_EXTENDED"
+    assert result.evidence_for_symbol("SLOWY")[1].source_group == "PREP_EXTENDED"
+    assert result.evidence_for_symbol("SLOWY")[1].event_class is None
+
+
+def test_pr1067_no_implicit_extended_fallback_without_strategy_unresolved_symbols(monkeypatch):
+    def fake_fast(symbols, sources, **kwargs):
+        return (
+            {"WAIT": []},
+            _summary(total_sources=len(sources), tier="fast"),
+        )
+
+    def fake_extended(*args, **kwargs):
+        raise AssertionError("extended fallback requires explicit unresolved symbols from strategy policy")
+
+    monkeypatch.setattr(batch_rss_adapter, "fetch_fast_headlines_for_symbols", fake_fast)
+    monkeypatch.setattr(batch_rss_adapter, "fetch_headlines_for_symbols", fake_extended)
+
+    result = BatchRssNewsIntelligenceProvider().get_news(
+        [NewsCandidate("WAIT")],
+        NewsRequest(),
+        RetrievalPolicy(),
+    )
+
+    assert result.diagnostics.diagnostics["extended_fallback_requested"] is False
+    assert result.diagnostics.diagnostics["explicit_unresolved_symbol_count"] == 0
+    assert result.summaries_by_symbol["WAIT"].diagnostics["objective_news_status"] == "no_recent_news"
 
 
 def test_pr1067_company_summary_matching_uses_existing_fetcher(monkeypatch):
@@ -221,7 +250,8 @@ def test_pr1067_company_summary_matching_uses_existing_fetcher(monkeypatch):
     assert len(evidence) == 1
     assert evidence[0].match_type == "company_name"
     assert evidence[0].matched_field == "summary"
-    assert evidence[0].event_class == "FDA"
+    assert evidence[0].event_class is None
+    assert evidence[0].is_qualifying_event_class is False
     assert result.diagnostics.diagnostics["company_name_match_count"] == 1
     assert result.diagnostics.diagnostics["description_summary_match_count"] == 1
 
@@ -268,18 +298,15 @@ def test_pr1067_budget_exhaustion_maps_unavailable_not_absent_or_confirmed(monke
     assert result.diagnostics.diagnostics["result_status_counts"] == {"budget_exhausted": 1}
 
 
-def test_pr1067_generic_news_remains_nonqualifying(monkeypatch):
+def test_pr1067_generic_or_keyword_news_remains_unclassified_and_fail_closed(monkeypatch):
     def fake_fast(symbols, sources, **kwargs):
         return (
-            {"GENR": [_headline("GENR shares move higher in morning trading")]},
+            {"GENR": [_headline("GENR announces earnings guidance and partnership")]},
             _summary(total_sources=len(sources), tier="fast", tier_matches=1, ticker_matches=1),
         )
 
-    def fake_extended(symbols, sources, **kwargs):
-        return (
-            {symbol: [] for symbol in symbols},
-            _summary(total_sources=len(sources), tier="extended", tier_budget=2.8),
-        )
+    def fake_extended(*args, **kwargs):
+        raise AssertionError("adapter must not infer unresolved status from keyword headlines")
 
     monkeypatch.setattr(batch_rss_adapter, "fetch_fast_headlines_for_symbols", fake_fast)
     monkeypatch.setattr(batch_rss_adapter, "fetch_headlines_for_symbols", fake_extended)
@@ -291,10 +318,11 @@ def test_pr1067_generic_news_remains_nonqualifying(monkeypatch):
     )
 
     evidence = result.evidence_for_symbol("GENR")
-    assert evidence[0].is_generic is True
+    assert evidence[0].event_class is None
+    assert evidence[0].catalyst_classification is None
     assert evidence[0].is_qualifying_event_class is False
     assert result.summaries_by_symbol["GENR"].qualifying_event_class_count == 0
-    assert result.summaries_by_symbol["GENR"].diagnostics["legacy_news_diagnostic_status"] == "news_present_non_qualifying"
+    assert result.summaries_by_symbol["GENR"].diagnostics["classification_authority"] == "strategy_adapter_not_common_provider"
 
 
 def test_pr1067_partial_failure_mapping(monkeypatch):
@@ -309,11 +337,8 @@ def test_pr1067_partial_failure_mapping(monkeypatch):
             ),
         )
 
-    def fake_extended(symbols, sources, **kwargs):
-        return (
-            {symbol: [] for symbol in symbols},
-            _summary(total_sources=len(sources), tier="extended", tier_budget=2.8),
-        )
+    def fake_extended(*args, **kwargs):
+        raise AssertionError("extended fallback requires explicit unresolved symbols")
 
     monkeypatch.setattr(batch_rss_adapter, "fetch_fast_headlines_for_symbols", fake_fast)
     monkeypatch.setattr(batch_rss_adapter, "fetch_headlines_for_symbols", fake_extended)
@@ -347,21 +372,52 @@ def test_pr1067_batch_of_one_uses_batch_contract(monkeypatch):
     )
 
     assert result.symbols == ("ONE",)
-    assert result.evidence_for_symbol("ONE")[0].event_class == "CONTRACT"
+    assert result.evidence_for_symbol("ONE")[0].event_class is None
 
 
-def test_pr1067_adapter_catalyst_keyword_table_matches_scanner_literal():
-    scanner_path = Path("src/scanner/scanner_runner.py")
-    scanner_ast = ast.parse(scanner_path.read_text(encoding="utf-8"))
-    literals: dict[str, object] = {}
-    for node in scanner_ast.body:
-        if isinstance(node, ast.Assign):
-            for target in node.targets:
-                if isinstance(target, ast.Name) and target.id in {"CATALYST_KEYWORDS", "DILUTION_KEYWORDS"}:
-                    literals[target.id] = ast.literal_eval(node.value)
+def test_pr1067_adapter_and_neutral_runtime_do_not_own_ross_catalyst_policy():
+    adapter_source = Path("src/news/batch_rss_adapter.py").read_text(encoding="utf-8")
+    runtime_source = Path("src/news/rss_batch_runtime.py").read_text(encoding="utf-8")
+    scanner_source = Path("src/scanner/scanner_runner.py").read_text(encoding="utf-8")
 
-    assert batch_rss_adapter.CATALYST_KEYWORDS == literals["CATALYST_KEYWORDS"]
-    assert batch_rss_adapter.DILUTION_KEYWORDS == literals["DILUTION_KEYWORDS"]
+    forbidden = (
+        "CATALYST_KEYWORDS",
+        "DILUTION_KEYWORDS",
+        "_detect_catalyst_type",
+        "_headlines_have_confirmed_catalyst",
+        "catalyst_confirmed",
+    )
+    for token in forbidden:
+        assert token not in adapter_source
+        assert token not in runtime_source
+    assert "CATALYST_KEYWORDS" in scanner_source
+    assert "DILUTION_KEYWORDS" in scanner_source
+    assert "def _detect_catalyst_type" in scanner_source
+
+
+def test_pr1067_neutral_runtime_helpers_match_scanner_wrappers():
+    fast = _summary(total_sources=2, tier="fast", tier_matches=1, ticker_matches=1)
+    extended = _summary(
+        total_sources=3,
+        tier="extended",
+        failure_count=1,
+        failures_by_domain={"example.com": {"TIMEOUT": 1}},
+        tier_budget=2.8,
+    )
+
+    assert scanner_runner._news_provider_status(fast) == rss_batch_runtime.news_provider_status(fast)
+    assert scanner_runner._news_fast_tier_budget_seconds(8.0, extended_sources_available=True) == pytest.approx(5.2)
+    assert scanner_runner._news_fast_tier_budget_seconds(8.0, extended_sources_available=False) == pytest.approx(8.0)
+
+    scanner_merged = scanner_runner._merge_rss_failure_summaries(fast, extended)
+    runtime_merged = rss_batch_runtime.merge_rss_failure_summaries(fast, extended)
+    assert scanner_merged == runtime_merged
+
+    duplicate = _headline("SAME headline", source="Same Source")
+    deduped = scanner_runner._dedupe_bounded_headlines([duplicate, duplicate], 5)
+    assert deduped == rss_batch_runtime.dedupe_bounded_headlines([duplicate, duplicate], 5)
+    assert len(deduped) == 1
+    assert len(rss_batch_runtime.dedupe_bounded_headlines([duplicate], 0)) == 1
 
 
 def test_pr1067_existing_scanner_runtime_remains_unmigrated():
