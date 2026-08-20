@@ -186,6 +186,19 @@ NEWS_DIAGNOSTIC_ARTIFACT_KEYS = (
     "queried_sources_count",
     "total_source_count",
     "total_sources",
+    "queried_source_tiers",
+    "fast_tier_source_count",
+    "extended_tier_source_count",
+    "fast_tier_match_count",
+    "extended_tier_match_count",
+    "extended_fallback_requested",
+    "extended_fallback_symbol_count",
+    "ticker_token_match_count",
+    "company_name_match_count",
+    "description_summary_match_count",
+    "qualifying_headline_count",
+    "non_qualifying_headline_count",
+    "max_entries_per_symbol",
 )
 
 UNSAFE_FOCUS_FLAGS = (
