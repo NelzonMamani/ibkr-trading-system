@@ -39,6 +39,14 @@ verified_rss.txt and legacy src/scanner/news_engine.py are not wired into the ac
 
 `NewsIntelligenceProvider.get_news(candidates, request, retrieval_policy)` is batch-first and returns `NewsBatchResult`. A single-symbol lookup is represented as a batch of one. This preserves the intended architecture where a provider can fetch each source once, parse once, and match many symbols.
 
+## PR1067 Batch RSS Adapter
+
+src/news/batch_rss_adapter.py introduces BatchRssNewsIntelligenceProvider, a strategy-neutral adapter over the existing src/news/news_fetcher.py batch RSS functions. The adapter keeps FAST_TRADING and PREP_EXTENDED source memberships and URL order from src/news/source_groups.py, uses fast-tier-first retrieval, and only asks PREP_EXTENDED for strategy-supplied unresolved symbols when the stage budget still allows it.
+
+The adapter maps objective headline, match, source, freshness, and retrieval facts. It does not copy scanner catalyst keywords, classify Ross catalyst events, or decide whether a headline confirms a Ross catalyst. Until the later Ross adapter migration, src/scanner/scanner_runner.py remains the Ross catalyst qualification authority.
+
+This PR does not migrate src/scanner/scanner_runner.py to the adapter, src/data/news/news_provider.py, prep/cache, or legacy src/scanner/news_engine.py. Ross runtime behavior, thresholds, catalyst semantics, READ_ONLY/PAPER/LIVE authority, and broker mutation paths remain unchanged.
+
 ## Evidence Model
 
 `NewsEvidence` preserves normalized objective facts:
