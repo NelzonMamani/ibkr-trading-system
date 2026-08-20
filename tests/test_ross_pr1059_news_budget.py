@@ -44,10 +44,10 @@ class _Clock:
 
 
 @pytest.fixture(autouse=True)
-def _reset_runtime_state():
+def _reset_runtime_state(tmp_path: Path):
     scanner_runner.reset_scanner_runtime_state(clear_persistent_provider=True)
     scanner_runner._NEWS_CACHE = {}
-    set_config_overrides({"NEWS_MAX_ENTRIES_PER_SYMBOL": 5, "NEWS_TOTAL_BUDGET_S": 5.0})
+    set_config_overrides({"NEWS_MAX_ENTRIES_PER_SYMBOL": 5, "NEWS_TOTAL_BUDGET_S": 5.0, "NEWS_CACHE_FILE": str(tmp_path / "news_cache.json")})
     yield
     scanner_runner.reset_scanner_runtime_state(clear_persistent_provider=True)
     scanner_runner._NEWS_CACHE = {}
@@ -169,7 +169,7 @@ def test_pr1059_fast_first_and_extended_only_unresolved_when_budget_remains(monk
 
     news_by_symbol, diagnostics = scanner_runner._enrich_news_context(["FAST", "SLOW"], "IBKR")
 
-    assert call_order == [("fast", ["FAST", "SLOW"], 5.0), ("extended", ["SLOW"], 5.0)]
+    assert call_order == [("fast", ["FAST", "SLOW"], 5.0), ("extended", ["SLOW"], 1.75)]
     assert news_by_symbol["FAST"]["ross_catalyst_valid"] is True
     assert news_by_symbol["SLOW"]["ross_catalyst_valid"] is True
     assert diagnostics.fast_sources_attempted_count == len(scanner_runner.RSS_FAST_TRADING)
@@ -177,8 +177,8 @@ def test_pr1059_fast_first_and_extended_only_unresolved_when_budget_remains(monk
     assert diagnostics.news_budget_exhausted is False
 
 
-def test_pr1059_budget_exhaustion_skips_extended_and_stays_fail_closed(monkeypatch: pytest.MonkeyPatch) -> None:
-    set_config_overrides({"NEWS_MAX_ENTRIES_PER_SYMBOL": 5, "NEWS_TOTAL_BUDGET_S": 0.5})
+def test_pr1059_budget_exhaustion_skips_extended_and_stays_fail_closed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    set_config_overrides({"NEWS_MAX_ENTRIES_PER_SYMBOL": 5, "NEWS_TOTAL_BUDGET_S": 0.5, "NEWS_CACHE_FILE": str(tmp_path / "news_cache.json")})
 
     def fake_fast(symbols, sources, lookback_hours=24.0, request_timeout_s=5.0, **kwargs):
         return {symbol: [] for symbol in symbols}, _summary(
@@ -332,7 +332,7 @@ def test_pr1059_budget_diagnostics_propagate_to_pr1040_artifact() -> None:
     assert artifact["sources_skipped_due_to_budget_count"] == 14
     assert artifact["symbols_unresolved_at_budget_exhaustion"] == ["PR59A"]
     assert artifact["catalyst_diagnostic_status_by_symbol"] == {"PR59A": "budget_exhausted"}
-    assert artifact["catalyst_status_by_symbol"] == {"PR59A": "UNAVAILABLE"}
+    assert artifact["catalyst_status_by_symbol"] == {"PR59A": "DATA_UNAVAILABLE"}
 
 
 def test_pr1059_paper_live_news_behavior_and_broker_mutation_remain_disabled() -> None:

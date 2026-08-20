@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import subprocess
 import sys
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -262,6 +263,7 @@ def test_pr1045_observation_output_includes_market_data_observation_diagnostics(
         "symbols_with_float",
         "observation_scope",
         "outcome",
+        "scanner_runtime_bound",
     }
     assert diagnostics["candidate_count"] == 1
     assert diagnostics["watchlist_k_count"] == 1
@@ -272,6 +274,79 @@ def test_pr1045_observation_output_includes_market_data_observation_diagnostics(
     assert diagnostics["symbols_with_float"] == ["REAL1"]
     assert diagnostics["outcome"] == "FOCUS_PATTERN_INPUT_CAPTURED"
 
+
+def test_pr1045_collect_uses_bounded_scanner_request_and_records_natural_return(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    broker_snapshot = {
+        "connected": True,
+        "readonly_connection": True,
+        "open_orders": [],
+        "metadata": {"readonly": True},
+    }
+
+    def fake_run_scanner_cycle(**kwargs):
+        captured.update(kwargs)
+        return {
+            "provider_source": "IBKR",
+            "symbols": [],
+            "topn_count": 0,
+            "survivors_count": 0,
+            "watchlist_k_symbols": [],
+            "focus_m_symbols": [],
+            "candidate_metrics": [],
+            "watchlist_k": [],
+            "focus_m": [],
+            "watchlist_rows": [],
+            "focus_rows": [],
+            "drop_ledger": {},
+            "diagnostics": {
+                "scanner_contract": {
+                    "top_n": 0,
+                    "watchlist_k": 0,
+                    "focus_m": 0,
+                    "contract_valid": True,
+                },
+                "scanner_runtime_bound": {
+                    "active": True,
+                    "budget_seconds": 15.0,
+                    "stopped": False,
+                    "stop_stage": None,
+                    "stop_reason": None,
+                    "elapsed_seconds": 0.25,
+                    "completed_returned_payload": True,
+                },
+            },
+        }
+
+    monkeypatch.setattr(pr1040, "_broker_snapshot", lambda: broker_snapshot)
+    monkeypatch.setattr("src.scanner.scanner_runner.run_scanner_cycle", fake_run_scanner_cycle)
+
+    scope = pr1040.build_operator_observation_scope(
+        max_observation_symbols=15,
+        max_observation_seconds=15,
+        max_snapshot_failures=2,
+    )
+    before = time.monotonic()
+    evidence = pr1040.collect_real_readonly_runtime_evidence(
+        operator="TEST_OP",
+        env=_safe_env(),
+        operator_observation_scope=scope,
+    )
+
+    scanner_request = captured["scanner_request"]
+    assert captured["mode"] == "READ_ONLY"
+    assert captured["policy"] is not None
+    assert captured["runtime_deadline_s"] >= before + 14
+    assert captured["runtime_news_reserve_s"] == 8.0
+    assert scanner_request.requested_top_n == 2
+    assert evidence.operator_observation_scope["scanner_original_requested_top_n"] >= 2
+    assert evidence.operator_observation_scope["scanner_requested_top_n"] == 2
+    assert evidence.operator_observation_scope["scanner_request_symbol_cap"] == 2
+    assert evidence.operator_observation_scope["scanner_runtime_budget_seconds"] == 15.0
+    assert evidence.operator_observation_scope["scanner_runtime_news_reserve_seconds"] == 8.0
+    assert evidence.operator_observation_scope["scanner_returned_naturally"] is True
+    assert evidence.operator_observation_scope["scanner_runtime_bound"]["completed_returned_payload"] is True
 
 def test_pr1045_observation_symbols_do_not_set_manual_or_synthetic_markers() -> None:
     env = _safe_env()

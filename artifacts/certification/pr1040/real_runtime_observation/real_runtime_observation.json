@@ -1,0 +1,1840 @@
+{
+  "adapter_schema_version": "PR1040.real_readonly_runtime_observation_adapter.v1",
+  "analytics_storage_artifact": {
+    "artifact_paths": [
+      "artifacts\\certification\\pr1040\\real_runtime_observation\\real_runtime_observation.json"
+    ],
+    "no_trade_records": [
+      {
+        "reason": "NO_FOCUS_CANDIDATES",
+        "symbols": [
+          "BTCT",
+          "PCLA"
+        ]
+      }
+    ],
+    "readback_proof": false,
+    "storage_evidence_detail": {},
+    "storage_evidence_source": "UNAVAILABLE",
+    "storage_key": "REAL_READ_ONLY_RUNTIME_OBSERVATION_2026-08-20T182304Z0000",
+    "storage_readback_count": 0,
+    "storage_write_count": 0,
+    "trade_plan_records": []
+  },
+  "broker_connection_snapshot": {
+    "account_id_redacted": "REDACTED",
+    "broker_after_connected": true,
+    "broker_audit_complete": true,
+    "broker_before_connected": true,
+    "client_id": 1040,
+    "connected": true,
+    "connection_after": {
+      "base_client_id": 7,
+      "connected": true,
+      "connected_client_id": 7,
+      "connection_generation": 1,
+      "host": "127.0.0.1",
+      "last_disconnect_reason": null,
+      "last_error": null,
+      "last_reconnect_time": null,
+      "market_data_type": "DELAYED",
+      "port": 7497,
+      "readonly_enabled": true,
+      "reconnect_count": 0,
+      "run_mode": "READ_ONLY",
+      "snapshot_timeout_seconds": 5
+    },
+    "connection_before": {
+      "base_client_id": 7,
+      "connected": false,
+      "connected_client_id": null,
+      "connection_generation": 0,
+      "host": "127.0.0.1",
+      "last_disconnect_reason": null,
+      "last_error": null,
+      "last_reconnect_time": null,
+      "market_data_type": "DELAYED",
+      "port": 7497,
+      "readonly_enabled": true,
+      "reconnect_count": 0,
+      "run_mode": "READ_ONLY",
+      "snapshot_timeout_seconds": 5
+    },
+    "host": "127.0.0.1",
+    "market_data_type": "IBKR_READ_ONLY",
+    "port": 7497,
+    "provider_name": "PR1040_REAL_READONLY_RUNTIME_ADAPTER",
+    "readonly_connection": true
+  },
+  "broker_order_audit": {
+    "broker_after_connected": true,
+    "broker_audit_complete": true,
+    "broker_before_connected": true,
+    "cancelled_orders_count": 0,
+    "modified_orders_count": 0,
+    "open_orders_after": [],
+    "open_orders_before": [],
+    "order_attempt_count": 0,
+    "submitted_orders_count": 0
+  },
+  "catalyst_news_artifact": {
+    "cache_hit_symbols": [],
+    "cache_hits_by_symbol": {},
+    "cache_miss_symbols": [
+      "BTCT",
+      "PCLA"
+    ],
+    "cache_read_failed": false,
+    "cache_state": "miss",
+    "cache_write_failed": false,
+    "catalyst_bypass": false,
+    "catalyst_diagnostic_status_by_symbol": {
+      "BTCT": "budget_exhausted",
+      "PCLA": "budget_exhausted"
+    },
+    "catalyst_status_by_symbol": {
+      "BTCT": "DATA_UNAVAILABLE",
+      "PCLA": "DATA_UNAVAILABLE"
+    },
+    "catalyst_status_reason_by_symbol": {
+      "BTCT": "budget_exhausted",
+      "PCLA": "budget_exhausted"
+    },
+    "company_name_match_count": 0,
+    "confirmed_catalyst_count": 0,
+    "description_summary_match_count": 0,
+    "evidence_count_by_symbol": {
+      "BTCT": 0,
+      "PCLA": 0
+    },
+    "extended_budget_exhausted": true,
+    "extended_budget_reserved_seconds": 2.8,
+    "extended_budget_seconds": 0.9503004999933182,
+    "extended_fallback_requested": true,
+    "extended_fallback_symbol_count": 2,
+    "extended_sources_attempted_count": 1,
+    "extended_tier_match_count": 0,
+    "extended_tier_source_count": 13,
+    "fast_budget_exhausted": true,
+    "fast_budget_seconds": 5.2,
+    "fast_sources_attempted_count": 4,
+    "fast_tier_match_count": 0,
+    "fast_tier_source_count": 7,
+    "fresh_news_count": 0,
+    "freshest_evidence_age_seconds_by_symbol": {
+      "BTCT": null,
+      "PCLA": null
+    },
+    "heat_by_symbol": {
+      "BTCT": null,
+      "PCLA": null
+    },
+    "match_types_by_symbol": {
+      "BTCT": [],
+      "PCLA": []
+    },
+    "max_entries_per_symbol": 5,
+    "news_asof": "2026-08-20T18:23:04+00:00",
+    "news_budget_exhausted": true,
+    "news_elapsed_seconds": 8.066035900003044,
+    "news_intelligence_diagnostics": {
+      "cache_file": "data\\news\\news_cache.json",
+      "cache_first": true,
+      "cache_hit_symbols": [],
+      "cache_hits_by_symbol": {},
+      "cache_miss_symbols": [
+        "BTCT",
+        "PCLA"
+      ],
+      "cache_namespace": "news_intelligence",
+      "cache_read_error": null,
+      "cache_read_failed": false,
+      "cache_write_error": null,
+      "cache_write_failed": false,
+      "cache_write_symbols": [
+        "BTCT",
+        "PCLA"
+      ],
+      "classification_authority": "strategy_adapter_not_common_provider",
+      "evidence_count_by_symbol": {
+        "BTCT": 0,
+        "PCLA": 0
+      },
+      "extended_refresh_news_intelligence_diagnostics": {
+        "cache_file": "data\\news\\news_cache.json",
+        "cache_first": true,
+        "cache_hit_symbols": [],
+        "cache_hits_by_symbol": {},
+        "cache_miss_symbols": [
+          "BTCT",
+          "PCLA"
+        ],
+        "cache_namespace": "news_intelligence",
+        "cache_read_error": null,
+        "cache_read_failed": false,
+        "cache_write_error": null,
+        "cache_write_failed": false,
+        "cache_write_symbols": [
+          "BTCT",
+          "PCLA"
+        ],
+        "classification_authority": "strategy_adapter_not_common_provider",
+        "evidence_count_by_symbol": {
+          "BTCT": 0,
+          "PCLA": 0
+        },
+        "freshest_evidence_age_seconds_by_symbol": {
+          "BTCT": null,
+          "PCLA": null
+        },
+        "heat_by_symbol": {
+          "BTCT": null,
+          "PCLA": null
+        },
+        "legacy_news_cache_symbols": [],
+        "match_types_by_symbol": {
+          "BTCT": [],
+          "PCLA": []
+        },
+        "prep_reuse_symbols": [],
+        "prep_stale_symbols": [],
+        "provider_id": "canonical_news_intelligence",
+        "refresh_allowed": true,
+        "refresh_diagnostics": {
+          "classification_authority": "strategy_adapter_not_common_provider",
+          "company_name_match_count": 0,
+          "description_summary_match_count": 0,
+          "diagnostics_mapping_gaps": [
+            "per_source_elapsed_seconds_not_available_from_RssFailureSummary",
+            "event_and_catalyst_classification_remain_strategy_adapter_authority"
+          ],
+          "explicit_unresolved_symbol_count": 2,
+          "extended_budget_exhausted": true,
+          "extended_budget_reserved_seconds": 0.33262403999869994,
+          "extended_budget_seconds": 0.9503004999933182,
+          "extended_fallback_requested": true,
+          "extended_fallback_symbol_count": 2,
+          "extended_fallback_unresolved_symbol_source": "retrieval_policy.metadata",
+          "extended_sources_attempted_count": 1,
+          "failure_reason": null,
+          "fast_budget_exhausted": false,
+          "fast_budget_seconds": 0.6177303599975859,
+          "fast_sources_attempted_count": 0,
+          "headline_count": 0,
+          "legacy_batch_fetcher": "src.news.news_fetcher",
+          "max_entries_per_symbol": 5,
+          "news_budget_exhausted": true,
+          "news_elapsed_seconds": 1.0163902999993297,
+          "provider_id": "rss_batch",
+          "provider_status": "available",
+          "result_status_counts": {
+            "budget_exhausted": 2
+          },
+          "rss_failure_summary": {},
+          "rss_failures": 0,
+          "rss_sources": 13,
+          "sources_skipped_due_to_budget_count": 12,
+          "symbols_by_status": {
+            "budget_exhausted": [
+              "BTCT",
+              "PCLA"
+            ]
+          },
+          "symbols_unresolved_at_budget_exhaustion": [
+            "BTCT",
+            "PCLA"
+          ],
+          "ticker_token_match_count": 0,
+          "tier_match_counts": {
+            "extended": 0
+          },
+          "tier_source_counts": {
+            "extended": 13
+          },
+          "total_news_budget_seconds": 0.9503543999962858
+        },
+        "refresh_requested_count": 2,
+        "refresh_symbols": [
+          "BTCT",
+          "PCLA"
+        ],
+        "reliability_by_symbol": {
+          "BTCT": null,
+          "PCLA": null
+        },
+        "source_provenance_by_symbol": {
+          "BTCT": [],
+          "PCLA": []
+        },
+        "stale_cache_miss_symbols": [],
+        "velocity_by_symbol": {
+          "BTCT": {
+            "velocity_10m": null,
+            "velocity_30m": null,
+            "velocity_5m": null,
+            "velocity_60m": null
+          },
+          "PCLA": {
+            "velocity_10m": null,
+            "velocity_30m": null,
+            "velocity_5m": null,
+            "velocity_60m": null
+          }
+        }
+      },
+      "fast_refresh_news_intelligence_diagnostics": {
+        "cache_file": "data\\news\\news_cache.json",
+        "cache_first": true,
+        "cache_hit_symbols": [],
+        "cache_hits_by_symbol": {},
+        "cache_miss_symbols": [
+          "BTCT",
+          "PCLA"
+        ],
+        "cache_namespace": "news_intelligence",
+        "cache_read_error": null,
+        "cache_read_failed": false,
+        "cache_write_error": null,
+        "cache_write_failed": false,
+        "cache_write_symbols": [
+          "BTCT",
+          "PCLA"
+        ],
+        "classification_authority": "strategy_adapter_not_common_provider",
+        "evidence_count_by_symbol": {
+          "BTCT": 0,
+          "PCLA": 0
+        },
+        "freshest_evidence_age_seconds_by_symbol": {
+          "BTCT": null,
+          "PCLA": null
+        },
+        "heat_by_symbol": {
+          "BTCT": null,
+          "PCLA": null
+        },
+        "legacy_news_cache_symbols": [],
+        "match_types_by_symbol": {
+          "BTCT": [],
+          "PCLA": []
+        },
+        "prep_reuse_symbols": [],
+        "prep_stale_symbols": [],
+        "provider_id": "canonical_news_intelligence",
+        "refresh_allowed": true,
+        "refresh_diagnostics": {
+          "classification_authority": "strategy_adapter_not_common_provider",
+          "company_name_match_count": 0,
+          "description_summary_match_count": 0,
+          "diagnostics_mapping_gaps": [
+            "per_source_elapsed_seconds_not_available_from_RssFailureSummary",
+            "event_and_catalyst_classification_remain_strategy_adapter_authority"
+          ],
+          "explicit_unresolved_symbol_count": 2,
+          "extended_budget_exhausted": false,
+          "extended_budget_reserved_seconds": 2.8,
+          "extended_budget_seconds": 0.0,
+          "extended_fallback_requested": false,
+          "extended_fallback_symbol_count": 0,
+          "extended_fallback_unresolved_symbol_source": "retrieval_policy.metadata",
+          "extended_sources_attempted_count": 0,
+          "failure_reason": null,
+          "fast_budget_exhausted": true,
+          "fast_budget_seconds": 5.2,
+          "fast_sources_attempted_count": 4,
+          "headline_count": 0,
+          "legacy_batch_fetcher": "src.news.news_fetcher",
+          "max_entries_per_symbol": 5,
+          "news_budget_exhausted": false,
+          "news_elapsed_seconds": 7.049645600003714,
+          "provider_id": "rss_batch",
+          "provider_status": "partial_request_failure",
+          "result_status_counts": {
+            "no_recent_news": 2
+          },
+          "rss_failure_summary": {
+            "www.reuters.com": {
+              "HTTP_401": 1
+            }
+          },
+          "rss_failures": 1,
+          "rss_sources": 7,
+          "sources_skipped_due_to_budget_count": 3,
+          "symbols_by_status": {
+            "no_recent_news": [
+              "BTCT",
+              "PCLA"
+            ]
+          },
+          "symbols_unresolved_at_budget_exhaustion": [],
+          "ticker_token_match_count": 0,
+          "tier_match_counts": {
+            "fast": 0
+          },
+          "tier_source_counts": {
+            "fast": 7
+          },
+          "total_news_budget_seconds": 8.0
+        },
+        "refresh_requested_count": 2,
+        "refresh_symbols": [
+          "BTCT",
+          "PCLA"
+        ],
+        "reliability_by_symbol": {
+          "BTCT": null,
+          "PCLA": null
+        },
+        "source_provenance_by_symbol": {
+          "BTCT": [],
+          "PCLA": []
+        },
+        "stale_cache_miss_symbols": [],
+        "velocity_by_symbol": {
+          "BTCT": {
+            "velocity_10m": null,
+            "velocity_30m": null,
+            "velocity_5m": null,
+            "velocity_60m": null
+          },
+          "PCLA": {
+            "velocity_10m": null,
+            "velocity_30m": null,
+            "velocity_5m": null,
+            "velocity_60m": null
+          }
+        }
+      },
+      "freshest_evidence_age_seconds_by_symbol": {
+        "BTCT": null,
+        "PCLA": null
+      },
+      "heat_by_symbol": {
+        "BTCT": null,
+        "PCLA": null
+      },
+      "legacy_news_cache_symbols": [],
+      "match_types_by_symbol": {
+        "BTCT": [],
+        "PCLA": []
+      },
+      "prep_reuse_symbols": [],
+      "prep_stale_symbols": [],
+      "provider_id": "canonical_news_intelligence",
+      "refresh_allowed": true,
+      "refresh_diagnostics": {
+        "classification_authority": "strategy_adapter_not_common_provider",
+        "company_name_match_count": 0,
+        "description_summary_match_count": 0,
+        "diagnostics_mapping_gaps": [
+          "per_source_elapsed_seconds_not_available_from_RssFailureSummary",
+          "event_and_catalyst_classification_remain_strategy_adapter_authority"
+        ],
+        "explicit_unresolved_symbol_count": 2,
+        "extended_budget_exhausted": true,
+        "extended_budget_reserved_seconds": 0.33262403999869994,
+        "extended_budget_seconds": 0.9503004999933182,
+        "extended_fallback_requested": true,
+        "extended_fallback_symbol_count": 2,
+        "extended_fallback_unresolved_symbol_source": "retrieval_policy.metadata",
+        "extended_sources_attempted_count": 1,
+        "failure_reason": null,
+        "fast_budget_exhausted": false,
+        "fast_budget_seconds": 0.6177303599975859,
+        "fast_sources_attempted_count": 0,
+        "headline_count": 0,
+        "legacy_batch_fetcher": "src.news.news_fetcher",
+        "max_entries_per_symbol": 5,
+        "news_budget_exhausted": true,
+        "news_elapsed_seconds": 1.0163902999993297,
+        "provider_id": "rss_batch",
+        "provider_status": "available",
+        "result_status_counts": {
+          "budget_exhausted": 2
+        },
+        "rss_failure_summary": {},
+        "rss_failures": 0,
+        "rss_sources": 13,
+        "sources_skipped_due_to_budget_count": 12,
+        "symbols_by_status": {
+          "budget_exhausted": [
+            "BTCT",
+            "PCLA"
+          ]
+        },
+        "symbols_unresolved_at_budget_exhaustion": [
+          "BTCT",
+          "PCLA"
+        ],
+        "ticker_token_match_count": 0,
+        "tier_match_counts": {
+          "extended": 0
+        },
+        "tier_source_counts": {
+          "extended": 13
+        },
+        "total_news_budget_seconds": 0.9503543999962858
+      },
+      "refresh_requested_count": 2,
+      "refresh_symbols": [
+        "BTCT",
+        "PCLA"
+      ],
+      "reliability_by_symbol": {
+        "BTCT": null,
+        "PCLA": null
+      },
+      "source_provenance_by_symbol": {
+        "BTCT": [],
+        "PCLA": []
+      },
+      "stale_cache_miss_symbols": [],
+      "velocity_by_symbol": {
+        "BTCT": {
+          "velocity_10m": null,
+          "velocity_30m": null,
+          "velocity_5m": null,
+          "velocity_60m": null
+        },
+        "PCLA": {
+          "velocity_10m": null,
+          "velocity_30m": null,
+          "velocity_5m": null,
+          "velocity_60m": null
+        }
+      }
+    },
+    "news_present_non_qualifying_count": 0,
+    "news_source_mode": "news_intelligence",
+    "no_recent_news_count": 0,
+    "non_qualifying_headline_count": 0,
+    "prep_reuse_symbols": [],
+    "prep_stale_symbols": [],
+    "provider_status": "available",
+    "qualifying_headline_count": 0,
+    "queried_source_count": 20,
+    "queried_source_tiers": {
+      "extended": 13,
+      "fast": 7
+    },
+    "refresh_requested_count": 4,
+    "refresh_symbols": [
+      "BTCT",
+      "PCLA"
+    ],
+    "reliability_by_symbol": {
+      "BTCT": null,
+      "PCLA": null
+    },
+    "result_status_counts": {
+      "budget_exhausted": 2
+    },
+    "rss_failure_reason": null,
+    "rss_failure_summary": {
+      "www.reuters.com": {
+        "HTTP_401": 1
+      }
+    },
+    "rss_failures": 1,
+    "rss_sources": 20,
+    "scanner_news_diagnostics": {
+      "cache_hit_symbols": [],
+      "cache_hits_by_symbol": {},
+      "cache_miss_symbols": [
+        "BTCT",
+        "PCLA"
+      ],
+      "cache_read_failed": false,
+      "cache_state": "miss",
+      "cache_write_failed": false,
+      "company_name_match_count": 0,
+      "confirmed_catalyst_count": 0,
+      "description_summary_match_count": 0,
+      "evidence_count_by_symbol": {
+        "BTCT": 0,
+        "PCLA": 0
+      },
+      "extended_budget_exhausted": true,
+      "extended_budget_reserved_seconds": 2.8,
+      "extended_budget_seconds": 0.9503004999933182,
+      "extended_fallback_requested": true,
+      "extended_fallback_symbol_count": 2,
+      "extended_sources_attempted_count": 1,
+      "extended_tier_match_count": 0,
+      "extended_tier_source_count": 13,
+      "fast_budget_exhausted": true,
+      "fast_budget_seconds": 5.2,
+      "fast_sources_attempted_count": 4,
+      "fast_tier_match_count": 0,
+      "fast_tier_source_count": 7,
+      "freshest_evidence_age_seconds_by_symbol": {
+        "BTCT": null,
+        "PCLA": null
+      },
+      "heat_by_symbol": {
+        "BTCT": null,
+        "PCLA": null
+      },
+      "match_types_by_symbol": {
+        "BTCT": [],
+        "PCLA": []
+      },
+      "max_entries_per_symbol": 5,
+      "news_budget_exhausted": true,
+      "news_degraded": true,
+      "news_elapsed_seconds": 8.066035900003044,
+      "news_gate_bypassed": false,
+      "news_intelligence_diagnostics": {
+        "cache_file": "data\\news\\news_cache.json",
+        "cache_first": true,
+        "cache_hit_symbols": [],
+        "cache_hits_by_symbol": {},
+        "cache_miss_symbols": [
+          "BTCT",
+          "PCLA"
+        ],
+        "cache_namespace": "news_intelligence",
+        "cache_read_error": null,
+        "cache_read_failed": false,
+        "cache_write_error": null,
+        "cache_write_failed": false,
+        "cache_write_symbols": [
+          "BTCT",
+          "PCLA"
+        ],
+        "classification_authority": "strategy_adapter_not_common_provider",
+        "evidence_count_by_symbol": {
+          "BTCT": 0,
+          "PCLA": 0
+        },
+        "extended_refresh_news_intelligence_diagnostics": {
+          "cache_file": "data\\news\\news_cache.json",
+          "cache_first": true,
+          "cache_hit_symbols": [],
+          "cache_hits_by_symbol": {},
+          "cache_miss_symbols": [
+            "BTCT",
+            "PCLA"
+          ],
+          "cache_namespace": "news_intelligence",
+          "cache_read_error": null,
+          "cache_read_failed": false,
+          "cache_write_error": null,
+          "cache_write_failed": false,
+          "cache_write_symbols": [
+            "BTCT",
+            "PCLA"
+          ],
+          "classification_authority": "strategy_adapter_not_common_provider",
+          "evidence_count_by_symbol": {
+            "BTCT": 0,
+            "PCLA": 0
+          },
+          "freshest_evidence_age_seconds_by_symbol": {
+            "BTCT": null,
+            "PCLA": null
+          },
+          "heat_by_symbol": {
+            "BTCT": null,
+            "PCLA": null
+          },
+          "legacy_news_cache_symbols": [],
+          "match_types_by_symbol": {
+            "BTCT": [],
+            "PCLA": []
+          },
+          "prep_reuse_symbols": [],
+          "prep_stale_symbols": [],
+          "provider_id": "canonical_news_intelligence",
+          "refresh_allowed": true,
+          "refresh_diagnostics": {
+            "classification_authority": "strategy_adapter_not_common_provider",
+            "company_name_match_count": 0,
+            "description_summary_match_count": 0,
+            "diagnostics_mapping_gaps": [
+              "per_source_elapsed_seconds_not_available_from_RssFailureSummary",
+              "event_and_catalyst_classification_remain_strategy_adapter_authority"
+            ],
+            "explicit_unresolved_symbol_count": 2,
+            "extended_budget_exhausted": true,
+            "extended_budget_reserved_seconds": 0.33262403999869994,
+            "extended_budget_seconds": 0.9503004999933182,
+            "extended_fallback_requested": true,
+            "extended_fallback_symbol_count": 2,
+            "extended_fallback_unresolved_symbol_source": "retrieval_policy.metadata",
+            "extended_sources_attempted_count": 1,
+            "failure_reason": null,
+            "fast_budget_exhausted": false,
+            "fast_budget_seconds": 0.6177303599975859,
+            "fast_sources_attempted_count": 0,
+            "headline_count": 0,
+            "legacy_batch_fetcher": "src.news.news_fetcher",
+            "max_entries_per_symbol": 5,
+            "news_budget_exhausted": true,
+            "news_elapsed_seconds": 1.0163902999993297,
+            "provider_id": "rss_batch",
+            "provider_status": "available",
+            "result_status_counts": {
+              "budget_exhausted": 2
+            },
+            "rss_failure_summary": {},
+            "rss_failures": 0,
+            "rss_sources": 13,
+            "sources_skipped_due_to_budget_count": 12,
+            "symbols_by_status": {
+              "budget_exhausted": [
+                "BTCT",
+                "PCLA"
+              ]
+            },
+            "symbols_unresolved_at_budget_exhaustion": [
+              "BTCT",
+              "PCLA"
+            ],
+            "ticker_token_match_count": 0,
+            "tier_match_counts": {
+              "extended": 0
+            },
+            "tier_source_counts": {
+              "extended": 13
+            },
+            "total_news_budget_seconds": 0.9503543999962858
+          },
+          "refresh_requested_count": 2,
+          "refresh_symbols": [
+            "BTCT",
+            "PCLA"
+          ],
+          "reliability_by_symbol": {
+            "BTCT": null,
+            "PCLA": null
+          },
+          "source_provenance_by_symbol": {
+            "BTCT": [],
+            "PCLA": []
+          },
+          "stale_cache_miss_symbols": [],
+          "velocity_by_symbol": {
+            "BTCT": {
+              "velocity_10m": null,
+              "velocity_30m": null,
+              "velocity_5m": null,
+              "velocity_60m": null
+            },
+            "PCLA": {
+              "velocity_10m": null,
+              "velocity_30m": null,
+              "velocity_5m": null,
+              "velocity_60m": null
+            }
+          }
+        },
+        "fast_refresh_news_intelligence_diagnostics": {
+          "cache_file": "data\\news\\news_cache.json",
+          "cache_first": true,
+          "cache_hit_symbols": [],
+          "cache_hits_by_symbol": {},
+          "cache_miss_symbols": [
+            "BTCT",
+            "PCLA"
+          ],
+          "cache_namespace": "news_intelligence",
+          "cache_read_error": null,
+          "cache_read_failed": false,
+          "cache_write_error": null,
+          "cache_write_failed": false,
+          "cache_write_symbols": [
+            "BTCT",
+            "PCLA"
+          ],
+          "classification_authority": "strategy_adapter_not_common_provider",
+          "evidence_count_by_symbol": {
+            "BTCT": 0,
+            "PCLA": 0
+          },
+          "freshest_evidence_age_seconds_by_symbol": {
+            "BTCT": null,
+            "PCLA": null
+          },
+          "heat_by_symbol": {
+            "BTCT": null,
+            "PCLA": null
+          },
+          "legacy_news_cache_symbols": [],
+          "match_types_by_symbol": {
+            "BTCT": [],
+            "PCLA": []
+          },
+          "prep_reuse_symbols": [],
+          "prep_stale_symbols": [],
+          "provider_id": "canonical_news_intelligence",
+          "refresh_allowed": true,
+          "refresh_diagnostics": {
+            "classification_authority": "strategy_adapter_not_common_provider",
+            "company_name_match_count": 0,
+            "description_summary_match_count": 0,
+            "diagnostics_mapping_gaps": [
+              "per_source_elapsed_seconds_not_available_from_RssFailureSummary",
+              "event_and_catalyst_classification_remain_strategy_adapter_authority"
+            ],
+            "explicit_unresolved_symbol_count": 2,
+            "extended_budget_exhausted": false,
+            "extended_budget_reserved_seconds": 2.8,
+            "extended_budget_seconds": 0.0,
+            "extended_fallback_requested": false,
+            "extended_fallback_symbol_count": 0,
+            "extended_fallback_unresolved_symbol_source": "retrieval_policy.metadata",
+            "extended_sources_attempted_count": 0,
+            "failure_reason": null,
+            "fast_budget_exhausted": true,
+            "fast_budget_seconds": 5.2,
+            "fast_sources_attempted_count": 4,
+            "headline_count": 0,
+            "legacy_batch_fetcher": "src.news.news_fetcher",
+            "max_entries_per_symbol": 5,
+            "news_budget_exhausted": false,
+            "news_elapsed_seconds": 7.049645600003714,
+            "provider_id": "rss_batch",
+            "provider_status": "partial_request_failure",
+            "result_status_counts": {
+              "no_recent_news": 2
+            },
+            "rss_failure_summary": {
+              "www.reuters.com": {
+                "HTTP_401": 1
+              }
+            },
+            "rss_failures": 1,
+            "rss_sources": 7,
+            "sources_skipped_due_to_budget_count": 3,
+            "symbols_by_status": {
+              "no_recent_news": [
+                "BTCT",
+                "PCLA"
+              ]
+            },
+            "symbols_unresolved_at_budget_exhaustion": [],
+            "ticker_token_match_count": 0,
+            "tier_match_counts": {
+              "fast": 0
+            },
+            "tier_source_counts": {
+              "fast": 7
+            },
+            "total_news_budget_seconds": 8.0
+          },
+          "refresh_requested_count": 2,
+          "refresh_symbols": [
+            "BTCT",
+            "PCLA"
+          ],
+          "reliability_by_symbol": {
+            "BTCT": null,
+            "PCLA": null
+          },
+          "source_provenance_by_symbol": {
+            "BTCT": [],
+            "PCLA": []
+          },
+          "stale_cache_miss_symbols": [],
+          "velocity_by_symbol": {
+            "BTCT": {
+              "velocity_10m": null,
+              "velocity_30m": null,
+              "velocity_5m": null,
+              "velocity_60m": null
+            },
+            "PCLA": {
+              "velocity_10m": null,
+              "velocity_30m": null,
+              "velocity_5m": null,
+              "velocity_60m": null
+            }
+          }
+        },
+        "freshest_evidence_age_seconds_by_symbol": {
+          "BTCT": null,
+          "PCLA": null
+        },
+        "heat_by_symbol": {
+          "BTCT": null,
+          "PCLA": null
+        },
+        "legacy_news_cache_symbols": [],
+        "match_types_by_symbol": {
+          "BTCT": [],
+          "PCLA": []
+        },
+        "prep_reuse_symbols": [],
+        "prep_stale_symbols": [],
+        "provider_id": "canonical_news_intelligence",
+        "refresh_allowed": true,
+        "refresh_diagnostics": {
+          "classification_authority": "strategy_adapter_not_common_provider",
+          "company_name_match_count": 0,
+          "description_summary_match_count": 0,
+          "diagnostics_mapping_gaps": [
+            "per_source_elapsed_seconds_not_available_from_RssFailureSummary",
+            "event_and_catalyst_classification_remain_strategy_adapter_authority"
+          ],
+          "explicit_unresolved_symbol_count": 2,
+          "extended_budget_exhausted": true,
+          "extended_budget_reserved_seconds": 0.33262403999869994,
+          "extended_budget_seconds": 0.9503004999933182,
+          "extended_fallback_requested": true,
+          "extended_fallback_symbol_count": 2,
+          "extended_fallback_unresolved_symbol_source": "retrieval_policy.metadata",
+          "extended_sources_attempted_count": 1,
+          "failure_reason": null,
+          "fast_budget_exhausted": false,
+          "fast_budget_seconds": 0.6177303599975859,
+          "fast_sources_attempted_count": 0,
+          "headline_count": 0,
+          "legacy_batch_fetcher": "src.news.news_fetcher",
+          "max_entries_per_symbol": 5,
+          "news_budget_exhausted": true,
+          "news_elapsed_seconds": 1.0163902999993297,
+          "provider_id": "rss_batch",
+          "provider_status": "available",
+          "result_status_counts": {
+            "budget_exhausted": 2
+          },
+          "rss_failure_summary": {},
+          "rss_failures": 0,
+          "rss_sources": 13,
+          "sources_skipped_due_to_budget_count": 12,
+          "symbols_by_status": {
+            "budget_exhausted": [
+              "BTCT",
+              "PCLA"
+            ]
+          },
+          "symbols_unresolved_at_budget_exhaustion": [
+            "BTCT",
+            "PCLA"
+          ],
+          "ticker_token_match_count": 0,
+          "tier_match_counts": {
+            "extended": 0
+          },
+          "tier_source_counts": {
+            "extended": 13
+          },
+          "total_news_budget_seconds": 0.9503543999962858
+        },
+        "refresh_requested_count": 2,
+        "refresh_symbols": [
+          "BTCT",
+          "PCLA"
+        ],
+        "reliability_by_symbol": {
+          "BTCT": null,
+          "PCLA": null
+        },
+        "source_provenance_by_symbol": {
+          "BTCT": [],
+          "PCLA": []
+        },
+        "stale_cache_miss_symbols": [],
+        "velocity_by_symbol": {
+          "BTCT": {
+            "velocity_10m": null,
+            "velocity_30m": null,
+            "velocity_5m": null,
+            "velocity_60m": null
+          },
+          "PCLA": {
+            "velocity_10m": null,
+            "velocity_30m": null,
+            "velocity_5m": null,
+            "velocity_60m": null
+          }
+        }
+      },
+      "news_present_non_qualifying_count": 0,
+      "news_skipped": false,
+      "news_source_mode": "news_intelligence",
+      "no_recent_news_count": 0,
+      "non_qualifying_headline_count": 0,
+      "prep_reuse_symbols": [],
+      "prep_stale_symbols": [],
+      "provider_disabled": false,
+      "provider_request_failure": false,
+      "provider_status": "available",
+      "provider_unavailable": false,
+      "qualifying_headline_count": 0,
+      "queried_source_count": 20,
+      "queried_source_tiers": {
+        "extended": 13,
+        "fast": 7
+      },
+      "refresh_requested_count": 4,
+      "refresh_symbols": [
+        "BTCT",
+        "PCLA"
+      ],
+      "reliability_by_symbol": {
+        "BTCT": null,
+        "PCLA": null
+      },
+      "result_status_counts": {
+        "budget_exhausted": 2
+      },
+      "rss_failure_reason": null,
+      "rss_failure_summary": {
+        "www.reuters.com": {
+          "HTTP_401": 1
+        }
+      },
+      "rss_failures": 1,
+      "rss_sources": 20,
+      "source_provenance_by_symbol": {
+        "BTCT": [],
+        "PCLA": []
+      },
+      "sources_skipped_due_to_budget_count": 15,
+      "stale_cache_miss_symbols": [],
+      "symbols_by_status": {
+        "budget_exhausted": [
+          "BTCT",
+          "PCLA"
+        ]
+      },
+      "symbols_unresolved_at_budget_exhaustion": [
+        "BTCT",
+        "PCLA"
+      ],
+      "ticker_token_match_count": 0,
+      "total_news_budget_seconds": 8.0,
+      "velocity_by_symbol": {
+        "BTCT": {
+          "velocity_10m": null,
+          "velocity_30m": null,
+          "velocity_5m": null,
+          "velocity_60m": null
+        },
+        "PCLA": {
+          "velocity_10m": null,
+          "velocity_30m": null,
+          "velocity_5m": null,
+          "velocity_60m": null
+        }
+      }
+    },
+    "source_provenance_by_symbol": {
+      "BTCT": [],
+      "PCLA": []
+    },
+    "sources_skipped_due_to_budget_count": 15,
+    "stale_cache_miss_symbols": [],
+    "symbols_by_status": {
+      "budget_exhausted": [
+        "BTCT",
+        "PCLA"
+      ]
+    },
+    "symbols_unresolved_at_budget_exhaustion": [
+      "BTCT",
+      "PCLA"
+    ],
+    "ticker_token_match_count": 0,
+    "total_news_budget_seconds": 8.0,
+    "velocity_by_symbol": {
+      "BTCT": {
+        "velocity_10m": null,
+        "velocity_30m": null,
+        "velocity_5m": null,
+        "velocity_60m": null
+      },
+      "PCLA": {
+        "velocity_10m": null,
+        "velocity_30m": null,
+        "velocity_5m": null,
+        "velocity_60m": null
+      }
+    }
+  },
+  "classification": "INSUFFICIENT_EVIDENCE",
+  "execution_gate_artifact": {
+    "api_write_allowed": false,
+    "broker_order_mutation_allowed": false,
+    "execution_enabled": false,
+    "execution_path": "READ_ONLY_ORDER_PATH_DISABLED",
+    "order_attempt_count": 0,
+    "order_submission_enabled": false
+  },
+  "final_verdict": {
+    "BROKER_CONNECTED_RUNTIME_ARTIFACT_CAPTURED": "YES",
+    "EXECUTION_DISABLED": "YES",
+    "READ_ONLY_FULL_STRATEGY_OBSERVATION_CAPTURED": "NO",
+    "SHUTDOWN_CLEANUP_COMPLETED": "YES",
+    "ZERO_BROKER_ORDER_MUTATIONS": "YES",
+    "blockers": [
+      "Human review required before PAPER decision.",
+      "No Focus M candidates reached real pattern input evaluation.",
+      "PAPER readiness remains blocked after PR1040 adapter output."
+    ],
+    "classification": "INSUFFICIENT_EVIDENCE",
+    "operator_signature": "NELZON",
+    "paper_readiness_gate": "FAIL",
+    "paper_ready": "NO",
+    "remaining_blockers": [
+      "Human review required before PAPER decision.",
+      "No Focus M candidates reached real pattern input evaluation.",
+      "PAPER readiness remains blocked after PR1040 adapter output."
+    ]
+  },
+  "market_data_observation_diagnostics": {
+    "candidate_count": 2,
+    "dominant_drop_reason": "NONE",
+    "drop_reason_counts": {},
+    "float_discovery": {
+      "float_discovery_cache_hit_count": 2,
+      "float_discovery_failed_count": 0,
+      "float_discovery_pending_count": 0,
+      "float_discovery_requested_count": 0,
+      "float_discovery_same_cycle_rehydrated_count": 0,
+      "float_discovery_success_count": 0,
+      "float_unknown_after_bounded_discovery_count": 0,
+      "max_same_cycle_float_discovery_requests": 15,
+      "symbols_failed_same_cycle_float_discovery": [],
+      "symbols_pending_same_cycle_float_discovery": [],
+      "symbols_rehydrated_from_same_cycle_float_discovery": [],
+      "symbols_still_dropped_float_unknown": []
+    },
+    "float_discovery_cache_hit_count": 2,
+    "float_discovery_failed_count": 0,
+    "float_discovery_pending_count": 0,
+    "float_discovery_requested_count": 0,
+    "float_discovery_same_cycle_rehydrated_count": 0,
+    "float_discovery_success_count": 0,
+    "float_focus_diagnostics": {
+      "focus_drop_reason_counts": {
+        "DROP_NO_CATALYST": 2
+      },
+      "focus_empty_explanation": "USABLE_MARKET_DATA_BUT_CATALYST_NEWS_FAILURE",
+      "missing_market_data_symbols": [],
+      "symbols_with_usable_market_data": [
+        "BTCT",
+        "PCLA"
+      ],
+      "usable_market_data_but_catalyst_news_failure_symbols": [
+        "BTCT",
+        "PCLA"
+      ],
+      "usable_market_data_but_over_float_symbols": [],
+      "usable_market_data_but_rvol_failure_symbols": [],
+      "usable_market_data_but_unknown_float_symbols": []
+    },
+    "float_unknown_after_bounded_discovery_count": 0,
+    "focus_m_count": 0,
+    "ibkr_market_data_diagnostic": {
+      "classification": "MARKET_DATA_USABLE",
+      "delayed_data_observed": false,
+      "drop_reason_counts": {},
+      "execution_enabled": false,
+      "float_discovery": {
+        "float_discovery_cache_hit_count": 2,
+        "float_discovery_failed_count": 0,
+        "float_discovery_pending_count": 0,
+        "float_discovery_requested_count": 0,
+        "float_discovery_same_cycle_rehydrated_count": 0,
+        "float_discovery_success_count": 0,
+        "float_unknown_after_bounded_discovery_count": 0,
+        "max_same_cycle_float_discovery_requests": 15,
+        "symbols_failed_same_cycle_float_discovery": [],
+        "symbols_pending_same_cycle_float_discovery": [],
+        "symbols_rehydrated_from_same_cycle_float_discovery": [],
+        "symbols_still_dropped_float_unknown": []
+      },
+      "float_discovery_cache_hit_count": 2,
+      "float_discovery_failed_count": 0,
+      "float_discovery_pending_count": 0,
+      "float_discovery_requested_count": 0,
+      "float_discovery_same_cycle_rehydrated_count": 0,
+      "float_discovery_success_count": 0,
+      "float_focus_diagnostics": {
+        "focus_drop_reason_counts": {
+          "DROP_NO_CATALYST": 2
+        },
+        "focus_empty_explanation": "USABLE_MARKET_DATA_BUT_CATALYST_NEWS_FAILURE",
+        "missing_market_data_symbols": [],
+        "symbols_with_usable_market_data": [
+          "BTCT",
+          "PCLA"
+        ],
+        "usable_market_data_but_catalyst_news_failure_symbols": [
+          "BTCT",
+          "PCLA"
+        ],
+        "usable_market_data_but_over_float_symbols": [],
+        "usable_market_data_but_rvol_failure_symbols": [],
+        "usable_market_data_but_unknown_float_symbols": []
+      },
+      "float_unknown_after_bounded_discovery_count": 0,
+      "ibkr_market_data_error_event_count": 0,
+      "ibkr_market_data_error_events": [],
+      "max_same_cycle_float_discovery_requests": 15,
+      "missing_fields_by_symbol": {},
+      "not_subscribed_observed": false,
+      "observed_error_codes": [],
+      "observed_error_messages": [],
+      "operator_next_steps": [
+        "Keep PAPER_READY=NO until the full PR1040/PR1045 observation and human review pass.",
+        "Re-run the bounded READ_ONLY adapter and validate the resulting observation input with the PR1039 producer."
+      ],
+      "order_submission_enabled": false,
+      "paper_readiness_gate": "FAIL",
+      "paper_ready": "NO",
+      "probable_causes": [
+        "Required quote fields were present for at least one observed scanner row and no known IBKR market-data error was detected."
+      ],
+      "provider": "IBKR",
+      "read_only_runtime": true,
+      "requested_market_data_type": "IBKR_READ_ONLY",
+      "required_quote_field_aliases": {
+        "ask": [
+          "ask",
+          "ask_price"
+        ],
+        "bid": [
+          "bid",
+          "bid_price"
+        ],
+        "close": [
+          "close",
+          "previous_close",
+          "prev_close",
+          "prior_close"
+        ],
+        "last": [
+          "last",
+          "last_price",
+          "price",
+          "mark",
+          "market_price"
+        ],
+        "volume": [
+          "volume",
+          "day_volume",
+          "snapshot_volume",
+          "total_volume"
+        ]
+      },
+      "required_quote_fields": [
+        "last",
+        "close",
+        "volume",
+        "bid",
+        "ask"
+      ],
+      "run_mode": "READ_ONLY",
+      "scanner_mode": "LIVE_READONLY",
+      "schema_version": "PR1046.ibkr_market_data_diagnostic.v1",
+      "snapshot_fields_missing": false,
+      "snapshot_timeout_observed": false,
+      "subscription_required_observed": false,
+      "symbols_by_error_code": {},
+      "symbols_failed_same_cycle_float_discovery": [],
+      "symbols_pending_same_cycle_float_discovery": [],
+      "symbols_rehydrated_from_same_cycle_float_discovery": [],
+      "symbols_still_dropped_float_unknown": [],
+      "symbols_with_all_required_fields": [
+        "BTCT",
+        "PCLA"
+      ],
+      "symbols_with_any_required_field": [
+        "BTCT",
+        "PCLA"
+      ]
+    },
+    "max_same_cycle_float_discovery_requests": 15,
+    "observation_scope": {
+      "evaluated_pattern_symbols": [],
+      "manual_focus_symbols_set": false,
+      "max_observation_seconds": 15.0,
+      "max_observation_symbols": 15,
+      "max_snapshot_failures": 2,
+      "observation_symbols": [],
+      "observed_focus_symbols": [],
+      "scanner_original_requested_top_n": 50,
+      "scanner_request_symbol_cap": 2,
+      "scanner_requested_top_n": 2,
+      "scanner_returned_naturally": true,
+      "scanner_runtime_bound": {
+        "active": true,
+        "budget_seconds": 14.807,
+        "completed_returned_payload": true,
+        "elapsed_seconds": 17.909,
+        "news_reserve_seconds": 8.0,
+        "stop_reason": null,
+        "stop_stage": null,
+        "stopped": false,
+        "upstream_budget_seconds": 6.807
+      },
+      "scanner_runtime_budget_seconds": 15.0,
+      "scanner_runtime_elapsed_seconds": 17.909,
+      "scanner_runtime_news_reserve_seconds": 8.0,
+      "scope_type": "OPERATOR_OBSERVATION_SCOPE_ONLY",
+      "snapshot_failure_count": 0,
+      "stopped_by_max_observation_seconds": false,
+      "stopped_by_max_observation_symbols": false,
+      "stopped_by_max_snapshot_failures": false,
+      "synthetic_trade_intents_set": false
+    },
+    "outcome": "NO_FOCUS_CANDIDATES",
+    "scanner_runtime_bound": {
+      "active": true,
+      "budget_seconds": 14.807,
+      "completed_returned_payload": true,
+      "elapsed_seconds": 17.909,
+      "news_reserve_seconds": 8.0,
+      "stop_reason": null,
+      "stop_stage": null,
+      "stopped": false,
+      "upstream_budget_seconds": 6.807
+    },
+    "symbols_dropped_missing_price": [],
+    "symbols_failed_same_cycle_float_discovery": [],
+    "symbols_pending_same_cycle_float_discovery": [],
+    "symbols_rehydrated_from_same_cycle_float_discovery": [],
+    "symbols_still_dropped_float_unknown": [],
+    "symbols_with_float": [
+      "BTCT",
+      "PCLA"
+    ],
+    "symbols_with_reference_only": [],
+    "symbols_with_snapshot_timeout": [],
+    "symbols_with_valid_bid_ask": [
+      "BTCT",
+      "PCLA"
+    ],
+    "symbols_with_valid_last_price": [
+      "BTCT",
+      "PCLA"
+    ],
+    "symbols_with_valid_volume": [
+      "BTCT",
+      "PCLA"
+    ],
+    "watchlist_k_count": 2
+  },
+  "operator": "NELZON",
+  "operator_observation_scope": {
+    "evaluated_pattern_symbols": [],
+    "manual_focus_symbols_set": false,
+    "max_observation_seconds": 15.0,
+    "max_observation_symbols": 15,
+    "max_snapshot_failures": 2,
+    "observation_symbols": [],
+    "observed_focus_symbols": [],
+    "scanner_original_requested_top_n": 50,
+    "scanner_request_symbol_cap": 2,
+    "scanner_requested_top_n": 2,
+    "scanner_returned_naturally": true,
+    "scanner_runtime_bound": {
+      "active": true,
+      "budget_seconds": 14.807,
+      "completed_returned_payload": true,
+      "elapsed_seconds": 17.909,
+      "news_reserve_seconds": 8.0,
+      "stop_reason": null,
+      "stop_stage": null,
+      "stopped": false,
+      "upstream_budget_seconds": 6.807
+    },
+    "scanner_runtime_budget_seconds": 15.0,
+    "scanner_runtime_elapsed_seconds": 17.909,
+    "scanner_runtime_news_reserve_seconds": 8.0,
+    "scope_type": "OPERATOR_OBSERVATION_SCOPE_ONLY",
+    "snapshot_failure_count": 0,
+    "stopped_by_max_observation_seconds": false,
+    "stopped_by_max_observation_symbols": false,
+    "stopped_by_max_snapshot_failures": false,
+    "synthetic_trade_intents_set": false
+  },
+  "pattern_input_artifact": {
+    "data_quality_flags": [
+      "NO_REAL_PATTERN_INPUT_EVIDENCE"
+    ],
+    "freshness_status": "MISSING",
+    "indicator_provenance": {},
+    "input_source": "REAL_RUNTIME_NO_FOCUS_OR_NO_PATTERN_INPUT_ATTEMPT",
+    "liquidity_context": {},
+    "missing_data_action": "BLOCK",
+    "news_context": {},
+    "stale_input_execution": false,
+    "symbol": "NONE",
+    "symbols": [],
+    "timeframe_provenance": {}
+  },
+  "risk_gate_artifact": {
+    "daily_governor_state": "NOT_EVALUATED_NO_TRADE",
+    "position_size_proposed": 0,
+    "risk_approval_source": "NOT_EVALUATED_NO_TRADE",
+    "risk_approved": false,
+    "risk_gate_called": false,
+    "risk_profile": "NONE",
+    "risk_reason": "NO_SETUP_NO_RISK_APPROVAL"
+  },
+  "scanner_cycle_artifact": {
+    "accepted_candidate_count": 2,
+    "candidate_count": 2,
+    "drop_ledger": {},
+    "float_discovery": {
+      "float_discovery_cache_hit_count": 2,
+      "float_discovery_failed_count": 0,
+      "float_discovery_pending_count": 0,
+      "float_discovery_requested_count": 0,
+      "float_discovery_same_cycle_rehydrated_count": 0,
+      "float_discovery_success_count": 0,
+      "float_unknown_after_bounded_discovery_count": 0,
+      "max_same_cycle_float_discovery_requests": 15,
+      "symbols_failed_same_cycle_float_discovery": [],
+      "symbols_pending_same_cycle_float_discovery": [],
+      "symbols_rehydrated_from_same_cycle_float_discovery": [],
+      "symbols_still_dropped_float_unknown": []
+    },
+    "float_discovery_cache_hit_count": 2,
+    "float_discovery_failed_count": 0,
+    "float_discovery_pending_count": 0,
+    "float_discovery_requested_count": 0,
+    "float_discovery_same_cycle_rehydrated_count": 0,
+    "float_discovery_success_count": 0,
+    "float_unknown_after_bounded_discovery_count": 0,
+    "max_same_cycle_float_discovery_requests": 15,
+    "provider_source": "IBKR",
+    "rejected_candidate_count": 0,
+    "ross_policy_thresholds_used": {
+      "source": "RossPolicy",
+      "threshold_override": false,
+      "validation_override": false
+    },
+    "scanner_contract": {
+      "contract_valid": true,
+      "focus_m": 0,
+      "top_n": 2,
+      "watchlist_k": 2
+    },
+    "selection_spec": {
+      "ranking_intent": "ROSS_MOMENTUM_STOCK_SELECTION",
+      "threshold_override": false
+    },
+    "session_classification": "RTH_MID",
+    "symbols_failed_same_cycle_float_discovery": [],
+    "symbols_pending_same_cycle_float_discovery": [],
+    "symbols_rehydrated_from_same_cycle_float_discovery": [],
+    "symbols_still_dropped_float_unknown": [],
+    "threshold_override": false,
+    "top_n_symbols": [
+      "BTCT",
+      "PCLA"
+    ],
+    "validation_override": false
+  },
+  "scenario_id": "REAL_READ_ONLY_RUNTIME_OBSERVATION_2026-08-20T182304Z0000",
+  "schema_version": "PR1039.controlled_readonly_observation_input.v1",
+  "setup_decision_artifact": {
+    "decision_authority": "NOT_EVALUATED",
+    "decision_path_canonical": false,
+    "decision_reason": "NO_FOCUS_CANDIDATES",
+    "decision_verdict": "NO_TRADE",
+    "detected_setups": [],
+    "entry_model": "NO_ENTRY_NO_TRADE",
+    "fallback_trade_intent": false,
+    "no_setup_reason": "NO_FOCUS_CANDIDATES",
+    "rationale_text": "Real READ_ONLY no-trade observation: NO_FOCUS_CANDIDATES.",
+    "selected_setup": "NONE",
+    "stop_model": "NO_STOP_NO_TRADE",
+    "strategy_decisions": [],
+    "target_model": "NO_TARGET_NO_TRADE"
+  },
+  "shutdown_diagnostics": {
+    "elapsed_seconds": 0.173,
+    "errors": [],
+    "scanner_runtime_reset": true,
+    "shared_manager_after": {
+      "base_client_id": 7,
+      "connected": false,
+      "connected_client_id": null,
+      "connection_generation": 1,
+      "host": "127.0.0.1",
+      "last_disconnect_reason": "market_data_client_disconnect",
+      "last_error": null,
+      "last_reconnect_time": null,
+      "market_data_type": "DELAYED",
+      "port": 7497,
+      "readonly_enabled": true,
+      "reconnect_count": 0,
+      "run_mode": "READ_ONLY",
+      "snapshot_timeout_seconds": 5
+    },
+    "shared_manager_before": {
+      "base_client_id": 7,
+      "connected": false,
+      "connected_client_id": null,
+      "connection_generation": 1,
+      "host": "127.0.0.1",
+      "last_disconnect_reason": "market_data_client_disconnect",
+      "last_error": null,
+      "last_reconnect_time": null,
+      "market_data_type": "DELAYED",
+      "port": 7497,
+      "readonly_enabled": true,
+      "reconnect_count": 0,
+      "run_mode": "READ_ONLY",
+      "snapshot_timeout_seconds": 5
+    },
+    "shared_manager_connected_after": false,
+    "shared_manager_disconnect_called": false,
+    "shared_manager_present": true,
+    "status": "ok"
+  },
+  "watchlist_focus_artifact": {
+    "float_discovery": {
+      "float_discovery_cache_hit_count": 2,
+      "float_discovery_failed_count": 0,
+      "float_discovery_pending_count": 0,
+      "float_discovery_requested_count": 0,
+      "float_discovery_same_cycle_rehydrated_count": 0,
+      "float_discovery_success_count": 0,
+      "float_unknown_after_bounded_discovery_count": 0,
+      "max_same_cycle_float_discovery_requests": 15,
+      "symbols_failed_same_cycle_float_discovery": [],
+      "symbols_pending_same_cycle_float_discovery": [],
+      "symbols_rehydrated_from_same_cycle_float_discovery": [],
+      "symbols_still_dropped_float_unknown": []
+    },
+    "float_discovery_cache_hit_count": 2,
+    "float_discovery_failed_count": 0,
+    "float_discovery_pending_count": 0,
+    "float_discovery_requested_count": 0,
+    "float_discovery_same_cycle_rehydrated_count": 0,
+    "float_discovery_success_count": 0,
+    "float_focus_diagnostics": {
+      "focus_drop_reason_counts": {
+        "DROP_NO_CATALYST": 2
+      },
+      "focus_empty_explanation": "USABLE_MARKET_DATA_BUT_CATALYST_NEWS_FAILURE",
+      "missing_market_data_symbols": [],
+      "symbols_with_usable_market_data": [
+        "BTCT",
+        "PCLA"
+      ],
+      "usable_market_data_but_catalyst_news_failure_symbols": [
+        "BTCT",
+        "PCLA"
+      ],
+      "usable_market_data_but_over_float_symbols": [],
+      "usable_market_data_but_rvol_failure_symbols": [],
+      "usable_market_data_but_unknown_float_symbols": []
+    },
+    "float_unknown_after_bounded_discovery_count": 0,
+    "focus_m_symbols": [],
+    "focus_rows": [],
+    "manual_focus_injection": false,
+    "max_same_cycle_float_discovery_requests": 15,
+    "non_focus_execution_ineligible": true,
+    "symbols_failed_same_cycle_float_discovery": [],
+    "symbols_pending_same_cycle_float_discovery": [],
+    "symbols_rehydrated_from_same_cycle_float_discovery": [],
+    "symbols_still_dropped_float_unknown": [],
+    "synthetic_focus": false,
+    "watchlist_k_symbols": [
+      "BTCT",
+      "PCLA"
+    ],
+    "watchlist_rows": [
+      {
+        "adv20_resolved": true,
+        "adv20_source": "INTRADAY_STATS",
+        "ask": 1.54,
+        "avg_volume_20d": 75054,
+        "bid": 1.53,
+        "catalyst_present": false,
+        "catalyst_summary": null,
+        "con_id": 650217279,
+        "context_status": "live_candidate",
+        "data_integrity_flags": [],
+        "data_quality_flags": [
+          "MD_DELAYED",
+          "SPREAD_UNKNOWN",
+          "PRICE_LOW_DEGRADED",
+          "NEWS_DELAYED"
+        ],
+        "data_quality_ok": false,
+        "degraded_adv20": false,
+        "degraded_data_profile": "NONE",
+        "degraded_execution_eligibility": false,
+        "degraded_focus_eligibility": false,
+        "degraded_pct_change": false,
+        "degraded_reference": false,
+        "degraded_rvol": false,
+        "degraded_rvol_gate_bypass": false,
+        "dollar_volume": 2080070.82,
+        "drop_reasons": [],
+        "eligibility_reason_codes": [
+          "PRICE_BELOW_LIVE_QUALITY",
+          "CATALYST_DATA_UNAVAILABLE"
+        ],
+        "exchange": "SMART",
+        "execution_eligible": false,
+        "execution_ready": false,
+        "float_asof": "2026-08-20T15:35:08.017695+00:00",
+        "float_cache_hit": true,
+        "float_millions": 9.17,
+        "float_shares": 9168463,
+        "float_source": "YAHOO",
+        "focus_eligible": false,
+        "fresh_news_count": 0,
+        "gap_pct": 83.46,
+        "gap_pct_resolved": 83.46,
+        "gap_source": "CALC(SESSION_REF)",
+        "gate_checks": {
+          "catalyst_ok": false,
+          "focus_bid_ask": true,
+          "focus_dollar_volume": true,
+          "focus_halt": true,
+          "focus_spread": true,
+          "focus_ssr": true,
+          "focus_volume": true,
+          "watch_float": true,
+          "watch_pct_change": true,
+          "watch_price": true,
+          "watch_rvol": true
+        },
+        "halted": null,
+        "hod_pct": null,
+        "ibkr_change_pct": null,
+        "last_price": 1.535,
+        "live_confirmation_pending": false,
+        "live_rvol_deferred": false,
+        "news_asof": "2026-08-20T18:23:22.141246+00:00",
+        "news_count": 0,
+        "news_source_mode": "news_intelligence",
+        "open_relative_pct_change": null,
+        "pct_change": 83.46,
+        "pct_change_degraded": false,
+        "pct_change_execution_usable": true,
+        "pct_change_failure_reason": null,
+        "pct_change_qualification_usable": true,
+        "pct_change_resolved": 83.46,
+        "pct_change_source_quality": "PRIMARY",
+        "pct_change_synthetic": false,
+        "pct_source": "CALC(SESSION_REF)",
+        "phase_volume_ratio": null,
+        "premarket_volume": null,
+        "prep_only": false,
+        "prep_seeded": false,
+        "prev_close": 0.8367,
+        "promotion_reason": "LIVE_SCAN",
+        "quote_integrity_state": "VALID",
+        "quote_usability_state": "MOMENTUM_OK",
+        "rank_components": {
+          "dollar_volume": 40.0,
+          "float_priority_boost": 0.0,
+          "pct_change": 90.0,
+          "rvol": 70.0
+        },
+        "rank_score": 100.0,
+        "ref_close_rth": 0.8367,
+        "reference_label": "LAST_RTH_CLOSE",
+        "reference_price": 0.8367,
+        "reference_quality_tier": "PRIMARY",
+        "reference_resolved": true,
+        "reference_source": "IBKR_PREV_CLOSE",
+        "reference_synthetic": false,
+        "relative_volume": 24.02,
+        "rvol": 51.59,
+        "rvol_degraded": false,
+        "rvol_discovery": 51.59,
+        "rvol_execution_usable": false,
+        "rvol_failure_reason": null,
+        "rvol_phase": 51.59,
+        "rvol_qualification_usable": true,
+        "rvol_status": "RESOLVED",
+        "selection_rationale": {
+          "catalyst": "UNKNOWN",
+          "drop_reasons": [],
+          "failed_gates": [
+            "catalyst_ok"
+          ],
+          "final_decision": "REJECT",
+          "float": "EXCELLENT_LOW_FLOAT",
+          "float_reason": "excellent_low_float",
+          "pct_change": "LIVE_QUALITY",
+          "pct_change_source": "CALC(SESSION_REF)",
+          "pct_change_threshold": 5.0,
+          "pct_change_value": 83.46,
+          "price": "LOW_PRICE_DEGRADED",
+          "price_reason": "below_live_quality_price",
+          "rvol": "LIVE_QUALITY",
+          "rvol_session_tier": "RTH_MID",
+          "rvol_threshold": 1.0,
+          "rvol_value": 51.59,
+          "session": "RTH_MID",
+          "spread_liquidity": "OK",
+          "stage": "WATCHLIST"
+        },
+        "session_label": "RTH_MID",
+        "session_phase": null,
+        "spread": null,
+        "spread_pct": null,
+        "ssr": null,
+        "stale_news_count": 0,
+        "symbol": "BTCT",
+        "timestamp_utc": "2026-08-20T18:23:04.239592+00:00",
+        "top_news_age_hours": null,
+        "top_news_catalyst_tag": null,
+        "top_news_title": null,
+        "volume": 1355095,
+        "watchlist_eligible": true,
+        "watchlist_source": "LIVE_SCAN"
+      },
+      {
+        "adv20_resolved": true,
+        "adv20_source": "INTRADAY_STATS",
+        "ask": 12.24,
+        "avg_volume_20d": 3218,
+        "bid": 12.24,
+        "catalyst_present": false,
+        "catalyst_summary": null,
+        "con_id": 848753961,
+        "context_status": "live_candidate",
+        "data_integrity_flags": [],
+        "data_quality_flags": [
+          "MD_DELAYED",
+          "NEWS_DELAYED"
+        ],
+        "data_quality_ok": false,
+        "degraded_adv20": false,
+        "degraded_data_profile": "NONE",
+        "degraded_execution_eligibility": false,
+        "degraded_focus_eligibility": false,
+        "degraded_pct_change": false,
+        "degraded_reference": false,
+        "degraded_rvol": false,
+        "degraded_rvol_gate_bypass": false,
+        "dollar_volume": 409169.12,
+        "drop_reasons": [],
+        "eligibility_reason_codes": [
+          "CATALYST_DATA_UNAVAILABLE"
+        ],
+        "exchange": "SMART",
+        "execution_eligible": false,
+        "execution_ready": false,
+        "float_asof": "2026-08-20T15:35:14.830172+00:00",
+        "float_cache_hit": true,
+        "float_millions": 1.09,
+        "float_shares": 1090024,
+        "float_source": "YAHOO",
+        "focus_eligible": false,
+        "fresh_news_count": 0,
+        "gap_pct": 69.06,
+        "gap_pct_resolved": 69.06,
+        "gap_source": "CALC(SESSION_REF)",
+        "gate_checks": {
+          "catalyst_ok": false,
+          "focus_bid_ask": true,
+          "focus_dollar_volume": true,
+          "focus_halt": true,
+          "focus_spread": true,
+          "focus_ssr": true,
+          "focus_volume": false,
+          "watch_float": true,
+          "watch_pct_change": true,
+          "watch_price": true,
+          "watch_rvol": true
+        },
+        "halted": null,
+        "hod_pct": null,
+        "ibkr_change_pct": null,
+        "last_price": 10.82,
+        "live_confirmation_pending": false,
+        "live_rvol_deferred": false,
+        "news_asof": "2026-08-20T18:23:22.141278+00:00",
+        "news_count": 0,
+        "news_source_mode": "news_intelligence",
+        "open_relative_pct_change": null,
+        "pct_change": 69.06,
+        "pct_change_degraded": false,
+        "pct_change_execution_usable": true,
+        "pct_change_failure_reason": null,
+        "pct_change_qualification_usable": true,
+        "pct_change_resolved": 69.06,
+        "pct_change_source_quality": "PRIMARY",
+        "pct_change_synthetic": false,
+        "pct_source": "CALC(SESSION_REF)",
+        "phase_volume_ratio": null,
+        "premarket_volume": null,
+        "prep_only": false,
+        "prep_seeded": false,
+        "prev_close": 6.4,
+        "promotion_reason": "LIVE_SCAN",
+        "quote_integrity_state": "VALID",
+        "quote_usability_state": "EXECUTION_OK",
+        "rank_components": {
+          "dollar_volume": 8.18,
+          "float_priority_boost": 0.0,
+          "pct_change": 90.0,
+          "rvol": 70.0
+        },
+        "rank_score": 100.0,
+        "ref_close_rth": 6.4,
+        "reference_label": "LAST_RTH_CLOSE",
+        "reference_price": 6.4,
+        "reference_quality_tier": "PRIMARY",
+        "reference_resolved": true,
+        "reference_source": "IBKR_PREV_CLOSE",
+        "reference_synthetic": false,
+        "relative_volume": 15.63,
+        "rvol": 33.58,
+        "rvol_degraded": false,
+        "rvol_discovery": 33.58,
+        "rvol_execution_usable": false,
+        "rvol_failure_reason": null,
+        "rvol_phase": 33.58,
+        "rvol_qualification_usable": true,
+        "rvol_status": "RESOLVED",
+        "selection_rationale": {
+          "catalyst": "UNKNOWN",
+          "drop_reasons": [],
+          "failed_gates": [
+            "focus_volume",
+            "catalyst_ok"
+          ],
+          "final_decision": "REJECT",
+          "float": "EXCELLENT_LOW_FLOAT",
+          "float_reason": "excellent_low_float",
+          "pct_change": "LIVE_QUALITY",
+          "pct_change_source": "CALC(SESSION_REF)",
+          "pct_change_threshold": 5.0,
+          "pct_change_value": 69.06,
+          "price": "LIVE_QUALITY",
+          "price_reason": "price_live_quality",
+          "rvol": "LIVE_QUALITY",
+          "rvol_session_tier": "RTH_MID",
+          "rvol_threshold": 1.0,
+          "rvol_value": 33.58,
+          "session": "RTH_MID",
+          "spread_liquidity": "OK",
+          "stage": "WATCHLIST"
+        },
+        "session_label": "RTH_MID",
+        "session_phase": null,
+        "spread": 0.0,
+        "spread_pct": 0.0,
+        "ssr": null,
+        "stale_news_count": 0,
+        "symbol": "PCLA",
+        "timestamp_utc": "2026-08-20T18:23:04.239592+00:00",
+        "top_news_age_hours": null,
+        "top_news_catalyst_tag": null,
+        "top_news_title": null,
+        "volume": 37816,
+        "watchlist_eligible": true,
+        "watchlist_source": "LIVE_SCAN"
+      }
+    ]
+  }
+}

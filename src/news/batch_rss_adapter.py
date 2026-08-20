@@ -14,6 +14,7 @@ from src.news.news_fetcher import (
     fetch_fast_headlines_for_symbols,
     fetch_headlines_for_symbols,
 )
+from src.news.evidence_store import enrich_evidence_metrics
 from src.news.news_intelligence_contract import (
     NewsBatchResult,
     NewsCandidate,
@@ -49,6 +50,10 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
     """Strategy-neutral adapter over the existing batch RSS fetcher."""
 
     provider_id = "rss_batch"
+
+    def __init__(self, *, fast_fetcher=None, extended_fetcher=None) -> None:
+        self._fast_fetcher = fast_fetcher or fetch_fast_headlines_for_symbols
+        self._extended_fetcher = extended_fetcher or fetch_headlines_for_symbols
 
     def get_news(
         self,
@@ -100,7 +105,7 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
         fast_fetched = bool(fast_sources)
         extended_fetched = False
         if fast_sources:
-            headlines_by_symbol, fast_summary_raw = fetch_fast_headlines_for_symbols(
+            headlines_by_symbol, fast_summary_raw = self._fast_fetcher(
                 symbols,
                 fast_sources,
                 lookback_hours=lookback_hours,
@@ -152,12 +157,15 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
                 extended_fallback_symbol_count = len(unresolved_for_extended)
                 extended_started_at_s = time.monotonic()
                 extended_budget_seconds = stage_remaining_seconds(stage_deadline_s)
+                explicit_extended_budget_seconds = retrieval_policy.budget_for_tier("extended")
+                if explicit_extended_budget_seconds is not None:
+                    extended_budget_seconds = min(extended_budget_seconds, max(0.0, explicit_extended_budget_seconds))
                 extended_metadata = {
                     symbol: symbol_metadata.get(symbol, {})
                     for symbol in unresolved_for_extended
                     if symbol_metadata.get(symbol)
                 }
-                extended_headlines_by_symbol, extended_summary = fetch_headlines_for_symbols(
+                extended_headlines_by_symbol, extended_summary = self._extended_fetcher(
                     unresolved_for_extended,
                     extended_sources,
                     lookback_hours=lookback_hours,
@@ -219,18 +227,21 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
             symbol = candidate.normalized_symbol
             unique_headlines = dedupe_bounded_headlines(headlines_by_symbol.get(symbol, []), max_entries_per_symbol)
             symbol_budget_exhausted = symbol in budget_unresolved_symbols
-            evidences = tuple(
-                _evidence_from_headline(
-                    candidate,
-                    headline,
-                    request=request,
-                    retrieval_status=("budget_exhausted" if symbol_budget_exhausted else retrieval_status),
-                    provider_status=provider_status,
-                    budget_exhausted=symbol_budget_exhausted,
-                    fetched_at=started_at,
-                    now_ts=now_ts,
-                )
-                for headline in unique_headlines
+            evidences = enrich_evidence_metrics(
+                tuple(
+                    _evidence_from_headline(
+                        candidate,
+                        headline,
+                        request=request,
+                        retrieval_status=("budget_exhausted" if symbol_budget_exhausted else retrieval_status),
+                        provider_status=provider_status,
+                        budget_exhausted=symbol_budget_exhausted,
+                        fetched_at=started_at,
+                        now_ts=now_ts,
+                    )
+                    for headline in unique_headlines
+                ),
+                now_ts=now_ts,
             )
             objective_status = _objective_status_for_symbol(
                 symbol,
@@ -288,11 +299,9 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
                 getattr(summary, "sources_skipped_due_to_budget_count", 0) or 0
             ),
             "symbols_unresolved_at_budget_exhaustion": sorted(budget_unresolved_symbols),
-            "unmigrated_runtime": "src.scanner.scanner_runner",
             "diagnostics_mapping_gaps": (
                 "per_source_elapsed_seconds_not_available_from_RssFailureSummary",
                 "event_and_catalyst_classification_remain_strategy_adapter_authority",
-                "cache_heat_velocity_reliability_not_populated_by_active_batch_fetcher",
             ),
         }
         diagnostics = RetrievalDiagnostics(
@@ -614,6 +623,12 @@ def _summary_for_symbol(
     fresh_evidence = [item for item in evidence if item.stale is False]
     source_count = len({item.observed_source for item in evidence if item.observed_source})
     freshest_age = min((item.age_seconds for item in evidence if item.age_seconds is not None), default=None)
+    reliability_values = [
+        float(value)
+        for item in evidence
+        for value in (item.source_reliability_score, item.source_credibility_score)
+        if value is not None
+    ]
     return NewsEvidenceSummary(
         symbol=symbol,
         evidence_count=len(evidence),
@@ -621,6 +636,13 @@ def _summary_for_symbol(
         qualifying_event_class_count=0,
         generic_evidence_count=0,
         freshest_evidence_age_seconds=freshest_age,
+        highest_reliability_score=max(reliability_values) if reliability_values else None,
+        average_reliability_score=(sum(reliability_values) / len(reliability_values)) if reliability_values else None,
+        heat_score=max((item.heat_score for item in evidence if item.heat_score is not None), default=None),
+        velocity_5m=max((item.velocity_5m for item in evidence if item.velocity_5m is not None), default=None),
+        velocity_10m=max((item.velocity_10m for item in evidence if item.velocity_10m is not None), default=None),
+        velocity_30m=max((item.velocity_30m for item in evidence if item.velocity_30m is not None), default=None),
+        velocity_60m=max((item.velocity_60m for item in evidence if item.velocity_60m is not None), default=None),
         independent_source_count=source_count,
         event_class_counts={},
         retrieval_status=retrieval_status,

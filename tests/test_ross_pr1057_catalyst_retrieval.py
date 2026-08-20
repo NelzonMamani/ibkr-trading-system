@@ -33,10 +33,10 @@ pr1040 = _load_pr1040_module()
 
 
 @pytest.fixture(autouse=True)
-def _reset_runtime_state():
+def _reset_runtime_state(tmp_path: Path):
     scanner_runner.reset_scanner_runtime_state(clear_persistent_provider=True)
     scanner_runner._NEWS_CACHE = {}
-    set_config_overrides({"NEWS_MAX_ENTRIES_PER_SYMBOL": 5})
+    set_config_overrides({"NEWS_MAX_ENTRIES_PER_SYMBOL": 5, "NEWS_CACHE_FILE": str(tmp_path / "news_cache.json")})
     yield
     scanner_runner.reset_scanner_runtime_state(clear_persistent_provider=True)
     scanner_runner._NEWS_CACHE = {}

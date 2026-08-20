@@ -114,7 +114,8 @@ class _RuntimeProvider:
 
 
 @pytest.fixture(autouse=True)
-def _reset_runtime_state():
+def _reset_runtime_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    monkeypatch.setenv("NEWS_CACHE_FILE", str(tmp_path / "pr1051_news_cache.json"))
     scanner_runner.reset_scanner_runtime_state(clear_persistent_provider=True)
     scanner_runner._FLOAT_CACHE_STATE = {"mtime_ns": None, "data": {}}
     scanner_runner._NEWS_CACHE = {}
@@ -244,6 +245,21 @@ def test_pr1051_news_config_disabled_fails_closed_with_diagnostics(monkeypatch, 
     assert news["provider_status"] == "provider_disabled"
     assert news["result_status_counts"] == {"provider_disabled": 1}
     assert payload["float_focus_diagnostics"]["focus_drop_reason_counts"] == {"DROP_NO_CATALYST": 1}
+
+
+def test_pr1070_runtime_news_deadline_skip_is_not_reported_as_provider_disabled() -> None:
+    diagnostics = scanner_runner._disabled_news_diagnostics(
+        news_enabled=True,
+        run_mode="READ_ONLY",
+        explicit_mock=False,
+        symbols=["PR70A"],
+        status_override="news_skipped_runtime_deadline",
+    )
+
+    assert diagnostics.provider_status == "news_skipped_runtime_deadline"
+    assert diagnostics.failure_reason == "news_skipped_runtime_deadline"
+    assert diagnostics.result_status_counts == {"news_skipped_runtime_deadline": 1}
+    assert diagnostics.symbols_by_status == {"news_skipped_runtime_deadline": ["PR70A"]}
 
 
 @pytest.mark.parametrize(

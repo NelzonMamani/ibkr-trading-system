@@ -184,10 +184,14 @@ class IbkrClient(EWrapper, EClient):
         try:
             super().disconnect()
         finally:
-            if self._thread and self._thread.is_alive():
-                self._thread.join(timeout=2)
-                if self._thread.is_alive():  # pragma: no cover - defensive
-                    print("[IBKR] Warning: network thread still alive after disconnect.")
+            thread = self._thread
+            if thread and thread.is_alive():
+                if thread is threading.current_thread():
+                    print("[IBKR] Disconnect called from network thread; skipping self-join.")
+                else:
+                    thread.join(timeout=2)
+                    if thread.is_alive():  # pragma: no cover - defensive
+                        print("[IBKR] Warning: network thread still alive after disconnect.")
             print("[IBKR][DISCONNECTED] client disconnected")
 
     def ensure_connection(self) -> None:
@@ -215,6 +219,8 @@ class IbkrClient(EWrapper, EClient):
             try:
                 super().run()
             except Exception as exc:  # pragma: no cover - defensive
+                if self._stop_event.is_set() and "cannot join current thread" in str(exc):
+                    break
                 print(f"[IBKR] Network loop error: {exc}")
                 time.sleep(0.1)
             else:

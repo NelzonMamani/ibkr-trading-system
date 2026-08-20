@@ -176,25 +176,29 @@ def test_pr1064_contract_shapes_are_dataclasses_and_provider_is_protocol() -> No
     assert getattr(NewsIntelligenceProvider, "_is_protocol", False) is True
 
 
-def test_pr1064_existing_scanner_and_fetcher_wiring_was_not_replaced() -> None:
+def test_pr1064_scanner_migration_keeps_common_contract_neutral() -> None:
     scanner_text = SCANNER_RUNNER.read_text(encoding="utf-8")
     fetcher_text = NEWS_FETCHER.read_text(encoding="utf-8")
     registry_text = RSS_REGISTRY.read_text(encoding="utf-8")
 
+    assert "CanonicalNewsIntelligenceService" in scanner_text
+    assert "BatchRssNewsIntelligenceProvider" in scanner_text
     assert "from src.news.news_fetcher import Headline, RssFailureSummary, fetch_fast_headlines_for_symbols, fetch_headlines_for_symbols" in scanner_text
-    assert "from src.news.rss_registry import RSS_FAST_TRADING, RSS_PREP_EXTENDED" in scanner_text
-    assert "news_intelligence_contract" not in scanner_text
-    assert "NewsIntelligenceProvider" not in scanner_text
+    assert "CATALYST_KEYWORDS" in scanner_text
+    assert "def _detect_catalyst_type" in scanner_text
     assert "news_intelligence_contract" not in fetcher_text
-    assert 'RSS_REGISTRY = {' in registry_text
-
+    assert "CATALYST_KEYWORDS" not in CONTRACT_MODULE.read_text(encoding="utf-8")
+    assert "RSS_REGISTRY = {" in registry_text
 
 def test_pr1064_architecture_document_records_contract_scope_and_safety() -> None:
     text = DOC_PATH.read_text(encoding="utf-8")
 
     for required in (
-        "CONTRACT/SCAFFOLD ONLY",
-        "NO PRODUCTION NEWS RETRIEVAL BEHAVIOR CHANGE",
+        "NEWS INTELLIGENCE COMPLETION",
+        "CANONICAL EVIDENCE/CACHE PATH COMPLETE",
+        "PREP/OVERNIGHT EVIDENCE REUSED THROUGH NEWS INTELLIGENCE",
+        "ROSS READ_ONLY NEWS RETRIEVAL MIGRATED TO NEWS INTELLIGENCE",
+        "ROSS CATALYST QUALIFICATION REMAINS IN ROSS/SCANNER POLICY",
         "NO ROSS THRESHOLD CHANGE",
         "NO ROSS FIVE-PILLAR REDEFINITION",
         "ABSOLUTE VOLUME AND RVOL REMAIN DISTINCT",

@@ -61,12 +61,14 @@ def robust_scan(
     preferred_scan_code: str | None = None,
     preferred_location: str | None = None,
     preferred_price_range: tuple[float, float] | None = None,
+    max_rows: int = 50,
 ) -> tuple[list, dict[str, Any]]:
     scan_codes = _with_preferred(preferred_scan_code, SCAN_CODES)
     locations = _with_preferred(preferred_location, LOCATIONS)
     price_ranges = list(PRICE_RANGES)
     if preferred_price_range is not None and preferred_price_range not in price_ranges:
         price_ranges.insert(0, preferred_price_range)
+    requested_rows = max(1, int(max_rows or 50))
 
     attempts = 0
     for price_low, price_high in price_ranges:
@@ -77,7 +79,7 @@ def robust_scan(
                     instrument=instrument,
                     locationCode=location,
                     scanCode=scan_code,
-                    numberOfRows=50,
+                    numberOfRows=requested_rows,
                     abovePrice=price_low,
                     belowPrice=price_high,
                 )
@@ -156,7 +158,10 @@ class IbkrScannerProvider(ScannerDataProvider):
         limit: int,
         request: ScannerRequest | None = None,
     ) -> list[str]:
-        resolved_requested_top_n = 50
+        try:
+            resolved_requested_top_n = max(1, int(limit))
+        except Exception:
+            resolved_requested_top_n = 50
 
         instrument = request.instrument if request and request.instrument else "STK"
         instrument_source = "scanner_request" if request and request.instrument else "adapter_default"
@@ -183,6 +188,7 @@ class IbkrScannerProvider(ScannerDataProvider):
                 request.above_price if request and request.above_price is not None else 1,
                 request.below_price if request and request.below_price is not None else 20,
             ),
+            max_rows=resolved_requested_top_n,
         )
         retry_attempts = int(scan_context.get("attempts") or 0)
         retry_exhausted = len(scan_items) == 0
@@ -247,7 +253,7 @@ class IbkrScannerProvider(ScannerDataProvider):
                     f"rank={rank} symbol={symbol} conId={con_id} "
                     f"primaryExchange={primary_exchange} tradingClass={trading_class}"
                 )
-            return symbols
+            return symbols[:resolved_requested_top_n]
 
         logger.error(
             "[SCANNER][FATAL] broker returned zero rows across all fallback locations"
