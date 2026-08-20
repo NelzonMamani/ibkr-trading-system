@@ -30,6 +30,10 @@ def merge_rss_failure_summaries(*summaries: Any) -> RssFailureSummary:
     tier_budget_seconds_by_tier: dict[str, float] = {}
     tier_elapsed_seconds_by_tier: dict[str, float] = {}
     tier_budget_exhausted_by_tier: dict[str, bool] = {}
+    source_diagnostics: list[dict[str, Any]] = []
+    unique_source_urls_scheduled_count = 0
+    unique_source_urls_attempted_count = 0
+    duplicate_source_fetches_avoided_count = 0
     for summary in summaries:
         if summary is None:
             continue
@@ -58,6 +62,10 @@ def merge_rss_failure_summaries(*summaries: Any) -> RssFailureSummary:
         news_budget_exhausted = news_budget_exhausted or bool(getattr(summary, "news_budget_exhausted", False))
         sources_attempted_count += int(getattr(summary, "sources_attempted_count", 0) or 0)
         sources_skipped_due_to_budget_count += int(getattr(summary, "sources_skipped_due_to_budget_count", 0) or 0)
+        source_diagnostics.extend(dict(item) for item in tuple(getattr(summary, "source_diagnostics", ()) or ()))
+        unique_source_urls_scheduled_count += int(getattr(summary, "unique_source_urls_scheduled_count", 0) or 0)
+        unique_source_urls_attempted_count += int(getattr(summary, "unique_source_urls_attempted_count", 0) or 0)
+        duplicate_source_fetches_avoided_count += int(getattr(summary, "duplicate_source_fetches_avoided_count", 0) or 0)
         tier_budget_seconds = max(tier_budget_seconds, float(getattr(summary, "tier_budget_seconds", 0.0) or 0.0))
         tier_elapsed_seconds = max(tier_elapsed_seconds, float(getattr(summary, "tier_elapsed_seconds", 0.0) or 0.0))
         tier_budget_exhausted = tier_budget_exhausted or bool(getattr(summary, "tier_budget_exhausted", False))
@@ -93,6 +101,10 @@ def merge_rss_failure_summaries(*summaries: Any) -> RssFailureSummary:
         tier_budget_seconds_by_tier=tier_budget_seconds_by_tier,
         tier_elapsed_seconds_by_tier=tier_elapsed_seconds_by_tier,
         tier_budget_exhausted_by_tier=tier_budget_exhausted_by_tier,
+        source_diagnostics=tuple(source_diagnostics),
+        unique_source_urls_scheduled_count=unique_source_urls_scheduled_count,
+        unique_source_urls_attempted_count=unique_source_urls_attempted_count,
+        duplicate_source_fetches_avoided_count=duplicate_source_fetches_avoided_count,
     )
 
 

@@ -128,6 +128,7 @@ class SourceDiagnostic:
     matched_count: int = 0
     failure_reason: str | None = None
     elapsed_seconds: float | None = None
+    timeout_seconds: float | None = None
     timed_out: bool = False
     budget_exhausted: bool = False
 
