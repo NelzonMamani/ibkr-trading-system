@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+from src.config.config_resolver import set_config_overrides
 from pathlib import Path
 
 from src.data.news import news_provider
@@ -75,7 +76,8 @@ def test_pr1065_existing_runtime_imports_receive_compatibility_lists() -> None:
     assert news_provider.RSS_FAST_TRADING == list(EXPECTED_FAST_TRADING)
 
 
-def test_pr1065_scanner_runtime_selects_same_ordered_fast_and_extended_sources(monkeypatch) -> None:
+def test_pr1065_scanner_runtime_selects_same_ordered_fast_and_extended_sources(monkeypatch, tmp_path) -> None:
+    set_config_overrides({"NEWS_CACHE_FILE": str(tmp_path / "news_cache.json")})
     captured: dict[str, list[str]] = {}
 
     def fake_fast(symbols, sources, **kwargs):
@@ -140,9 +142,9 @@ def test_pr1065_architecture_document_records_source_group_boundary_and_safety()
     assert "src/news/source_groups.py" in text
     assert "src/news/rss_registry.py" in text
     assert "VERIFIED_RSS_LEGACY" in text
-    assert "not wired into the active Ross scanner path" in text
+    assert "active Ross scanner path" in text
     for required in (
-        "NO PRODUCTION NEWS RETRIEVAL BEHAVIOR CHANGE",
+        "SOURCE LISTS AND ORDER UNCHANGED",
         "NO ROSS THRESHOLD CHANGE",
         "NO CATALYST BYPASS",
         "NO PAPER",

@@ -29,7 +29,17 @@ from src.config.runtime_config import (
 )
 from src.core.event_collector import EventCollector
 from src.data.float_discovery_worker import get_float_discovery_worker
+from src.news.batch_rss_adapter import BatchRssNewsIntelligenceProvider
 from src.news.news_fetcher import Headline, RssFailureSummary, fetch_fast_headlines_for_symbols, fetch_headlines_for_symbols
+from src.news.news_intelligence_contract import (
+    NewsBatchResult,
+    NewsCandidate,
+    NewsEvidence,
+    NewsEvidenceSummary,
+    NewsRequest,
+    RetrievalPolicy,
+)
+from src.news.news_intelligence_service import CanonicalNewsIntelligenceService
 from src.news.rss_batch_runtime import (
     dedupe_bounded_headlines as _rss_dedupe_bounded_headlines,
     extended_tier_reserve_fraction as _rss_extended_tier_reserve_fraction,
@@ -365,6 +375,26 @@ class NewsDiagnostics:
     extended_sources_attempted_count: int = 0
     sources_skipped_due_to_budget_count: int = 0
     symbols_unresolved_at_budget_exhaustion: List[str] = field(default_factory=list)
+    news_source_mode: str = "not_requested"
+    cache_state: str = "not_checked"
+    cache_hits_by_symbol: Dict[str, int] = field(default_factory=dict)
+    cache_hit_symbols: List[str] = field(default_factory=list)
+    stale_cache_miss_symbols: List[str] = field(default_factory=list)
+    cache_miss_symbols: List[str] = field(default_factory=list)
+    prep_reuse_symbols: List[str] = field(default_factory=list)
+    prep_stale_symbols: List[str] = field(default_factory=list)
+    refresh_requested_count: int = 0
+    refresh_symbols: List[str] = field(default_factory=list)
+    source_provenance_by_symbol: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)
+    match_types_by_symbol: Dict[str, List[str]] = field(default_factory=dict)
+    reliability_by_symbol: Dict[str, Optional[float]] = field(default_factory=dict)
+    heat_by_symbol: Dict[str, Optional[float]] = field(default_factory=dict)
+    velocity_by_symbol: Dict[str, Dict[str, Optional[int]]] = field(default_factory=dict)
+    evidence_count_by_symbol: Dict[str, int] = field(default_factory=dict)
+    freshest_evidence_age_seconds_by_symbol: Dict[str, Optional[float]] = field(default_factory=dict)
+    cache_read_failed: bool = False
+    cache_write_failed: bool = False
+    news_intelligence_diagnostics: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -2562,319 +2592,698 @@ def _news_stage_elapsed_seconds(stage_started_at_s: float) -> float:
     return _rss_stage_elapsed_seconds(stage_started_at_s)
 
 
+def _news_config_float(name: str, default: float) -> float:
+    try:
+        return float(get_config(name))
+    except Exception:
+        return default
+
+
+def _news_config_int(name: str, default: int) -> int:
+    try:
+        return int(get_config(name))
+    except Exception:
+        return default
+
+
+def _ross_news_request() -> NewsRequest:
+    return NewsRequest(
+        strategy_id="ross_momentum",
+        lookback_seconds=max(0.0, _news_config_float("NEWS_LOOKBACK_HOURS", 24.0)) * 3600.0,
+        freshness_seconds=float(NEWS_AGE_MAX_MINUTES * 60),
+        include_generic_news=True,
+        need_heat=True,
+        need_velocity=True,
+        need_reliability=True,
+        max_evidence_per_symbol=max(1, _news_config_int("NEWS_MAX_ENTRIES_PER_SYMBOL", 5)),
+        audit_reason="ross_readonly_scanner_news",
+    )
+
+
+def _ross_retrieval_policy(
+    *,
+    refresh_mode: str,
+    network_allowed: bool,
+    refresh_symbols: Iterable[str] = (),
+    source_groups: tuple[str, ...] = ("FAST_TRADING", "PREP_EXTENDED"),
+    tier_budgets: Optional[Dict[str, float]] = None,
+) -> RetrievalPolicy:
+    normalized_refresh_symbols = tuple(_dedupe_sorted_symbols(refresh_symbols))
+    metadata: Dict[str, Any] = {}
+    if normalized_refresh_symbols:
+        metadata["refresh_symbols"] = normalized_refresh_symbols
+        metadata["unresolved_symbols"] = normalized_refresh_symbols
+    return RetrievalPolicy(
+        source_groups=source_groups,
+        provider_groups=("rss_batch",),
+        allow_cache_read=True,
+        allow_cache_write=True,
+        refresh_mode=refresh_mode,  # type: ignore[arg-type]
+        network_allowed=network_allowed,
+        total_budget_seconds=_news_stage_budget_seconds(),
+        tier_budgets=tier_budgets or {},
+        extended_reserve_fraction=_news_extended_tier_reserve_fraction(),
+        request_timeout_seconds=max(0.0, _news_config_float("NEWS_REQUEST_TIMEOUT_S", 5.0)),
+        fallback_mode="unresolved_only",
+        metadata=metadata,
+    )
+
+
+def _news_intelligence_service_for_scanner() -> CanonicalNewsIntelligenceService:
+    return CanonicalNewsIntelligenceService(
+        retrieval_provider=BatchRssNewsIntelligenceProvider(
+            fast_fetcher=fetch_fast_headlines_for_symbols,
+            extended_fetcher=fetch_headlines_for_symbols,
+        )
+    )
+
+
+def _first_metadata_value(metadata: Dict[str, Any], keys: Iterable[str]) -> Optional[str]:
+    for key in keys:
+        value = metadata.get(key)
+        if value:
+            return str(value)
+    return None
+
+
+def _news_candidates_for_symbols(
+    symbols: Iterable[str],
+    symbol_metadata_by_symbol: Optional[Dict[str, Dict[str, Any]]] = None,
+) -> tuple[NewsCandidate, ...]:
+    metadata_by_symbol = symbol_metadata_by_symbol or {}
+    candidates: list[NewsCandidate] = []
+    for symbol in _dedupe_sorted_symbols(symbols):
+        metadata = dict(metadata_by_symbol.get(symbol, {}) or {})
+        aliases_raw = metadata.get("aliases") or metadata.get("alias") or ()
+        if isinstance(aliases_raw, str):
+            aliases = (aliases_raw,)
+        else:
+            try:
+                aliases = tuple(str(item) for item in aliases_raw if item)
+            except TypeError:
+                aliases = ()
+        company_name = _first_metadata_value(
+            metadata,
+            (
+                "company_name",
+                "companyName",
+                "issuer_name",
+                "issuerName",
+                "security_name",
+                "securityName",
+                "long_name",
+                "longName",
+                "short_name",
+                "shortName",
+                "contract_description",
+                "contractDescription",
+                "description",
+                "name",
+            ),
+        )
+        candidates.append(
+            NewsCandidate(
+                symbol=symbol,
+                company_name=company_name,
+                aliases=aliases,
+                price=_safe_float(metadata.get("last_price"), None),
+                gap_pct=_safe_float(metadata.get("gap_pct") or metadata.get("pct_change"), None),
+                percentage_move=_safe_float(metadata.get("pct_change"), None),
+                float_shares=int(metadata["float_shares"]) if metadata.get("float_shares") is not None else None,
+                absolute_share_volume=int(metadata["volume"]) if metadata.get("volume") is not None else None,
+                relative_volume_rvol=_safe_float(metadata.get("rvol"), None),
+                metadata=metadata,
+            )
+        )
+    return tuple(candidates)
+
+
+def _news_intelligence_diag(result: NewsBatchResult) -> Dict[str, Any]:
+    return dict(result.diagnostics.diagnostics or {})
+
+
+def _refresh_diag_value(diagnostics: Dict[str, Any], key: str, default: Any = None) -> Any:
+    refresh = diagnostics.get("refresh_diagnostics")
+    if isinstance(refresh, dict) and key in refresh:
+        return refresh.get(key)
+    return diagnostics.get(key, default)
+
+
+def _evidence_signature(evidence: Iterable[NewsEvidence], summary: NewsEvidenceSummary | None) -> tuple[Any, ...]:
+    items = [
+        (
+            str(item.evidence_id or ""),
+            str(item.headline or "").strip().lower(),
+            str(item.observed_source or item.original_source or "").strip().lower(),
+            str(item.url or "").strip().lower(),
+            str(item.cache_state or ""),
+            str(item.retrieval_status or ""),
+            bool(item.budget_exhausted),
+        )
+        for item in evidence
+    ]
+    status_bits: tuple[Any, ...] = ()
+    if summary is not None:
+        status_bits = (
+            summary.retrieval_status,
+            summary.provider_status,
+            summary.cache_state,
+            bool(summary.budget_exhausted),
+        )
+    return tuple(sorted(items)) + status_bits
+
+
+def _evidence_source_mode(evidence: Iterable[NewsEvidence], summary: NewsEvidenceSummary | None) -> str:
+    items = list(evidence)
+    if not items:
+        if summary is not None and summary.cache_state in {"hit", "stale"}:
+            return "news_intelligence_cache"
+        return "news_intelligence"
+    providers = {str(item.provider or "") for item in items}
+    tiers = {str(item.source_tier or "") for item in items}
+    cache_states = {str(item.cache_state or "") for item in items}
+    if "extended" in tiers:
+        return "rss_batch_extended"
+    if providers == {"prep_cache"}:
+        return "prep_cache"
+    if "rss_batch" in providers and "not_checked" in cache_states:
+        return "rss_batch"
+    if "prep_cache" in providers:
+        return "news_intelligence_prep_cache"
+    return "news_intelligence_cache"
+
+
+def _evidence_domains_and_links(evidence: Iterable[NewsEvidence]) -> tuple[list[str], list[str]]:
+    domains: list[str] = []
+    links: list[str] = []
+    seen_domains: set[str] = set()
+    for item in evidence:
+        domain = str(item.source_domain or "")
+        if not domain and item.url:
+            domain = item.url.split("/")[2] if "//" in item.url else item.url
+        if domain and domain not in seen_domains:
+            seen_domains.add(domain)
+            domains.append(domain)
+        if len(links) < 5 and item.url:
+            links.append(str(item.url))
+    return domains[:2], links[:5]
+
+
+def _fresh_evidence_count(evidence: Iterable[NewsEvidence]) -> int:
+    count = 0
+    for item in evidence:
+        if item.stale is False:
+            count += 1
+            continue
+        if item.stale is None and item.age_seconds is not None and item.age_seconds <= NEWS_AGE_MAX_MINUTES * 60:
+            count += 1
+    return count
+
+
+def _evidence_age_minutes(evidence: Iterable[NewsEvidence]) -> Optional[int]:
+    ages = [item.age_seconds for item in evidence if item.age_seconds is not None]
+    if not ages:
+        return None
+    return int(max(0.0, min(ages)) // 60)
+
+
+def _summary_velocity(summary: NewsEvidenceSummary | None, evidence: Iterable[NewsEvidence], attr: str, seconds: int) -> int:
+    if summary is not None:
+        value = getattr(summary, attr, None)
+        if value is not None:
+            return int(value)
+    return sum(1 for item in evidence if item.age_seconds is not None and item.age_seconds <= seconds)
+
+
+def _catalyst_type_from_evidence(evidence: Iterable[NewsEvidence]) -> Optional[str]:
+    items = list(evidence)
+    catalyst_type = _detect_catalyst_type([str(item.headline or "") for item in items])
+    if catalyst_type:
+        return catalyst_type
+    for item in items:
+        for raw_value in (
+            item.catalyst_classification,
+            item.event_class,
+            dict(item.raw or {}).get("catalyst_tag"),
+        ):
+            mapped = _prep_tag_to_catalyst_type(raw_value)
+            if mapped:
+                return mapped
+    return None
+
+
+def _dilution_from_evidence(evidence: Iterable[NewsEvidence]) -> bool:
+    items = list(evidence)
+    if _detect_dilution([str(item.headline or "") for item in items]):
+        return True
+    return any(
+        bool(item.dilution_or_offering)
+        or str(dict(item.raw or {}).get("catalyst_tag") or "").strip().lower() == "offering"
+        for item in items
+    )
+
+
+def _empty_news_context_from_summary(
+    symbol: str,
+    summary: NewsEvidenceSummary | None,
+    result: NewsBatchResult,
+) -> Dict[str, Any]:
+    diagnostics = _news_intelligence_diag(result)
+    provider_status = (
+        (summary.provider_status if summary is not None else None)
+        or result.diagnostics.provider_status
+        or "cache_miss"
+    )
+    retrieval_status = (
+        (summary.retrieval_status if summary is not None else None)
+        or result.diagnostics.retrieval_status
+    )
+    cache_state = (summary.cache_state if summary is not None else result.diagnostics.cache_state) or "not_checked"
+    budget_exhausted = bool(
+        (summary.budget_exhausted if summary is not None else False)
+        or result.diagnostics.budget_exhausted
+        or symbol in set(result.diagnostics.unresolved_symbols)
+    )
+    if provider_status in {"provider_unavailable", "provider_request_failure"}:
+        news_status = provider_status
+        news_available = False
+        notes = provider_status
+    elif budget_exhausted or retrieval_status == "budget_exhausted":
+        news_status = "budget_exhausted"
+        news_available = False
+        notes = "News retrieval budget exhausted before full source coverage"
+    else:
+        news_status = "no_recent_news"
+        news_available = True
+        notes = "No recent news present"
+    return {
+        "news_present": False,
+        "news_available": news_available,
+        "first_seen_ts": None,
+        "news_age_minutes": None,
+        "velocity_5m": 0,
+        "velocity_10m": 0,
+        "velocity_30m": 0,
+        "attention_tier": "T0",
+        "top_domains": [],
+        "top_links": [],
+        "catalyst_type": None,
+        "dilution_flag": False,
+        "gam_ea_eligible": False,
+        "ross_catalyst_valid": False,
+        "ross_catalyst_notes": notes,
+        "news_count": 0,
+        "fresh_news_count": 0,
+        "stale_news_count": 0,
+        "top_news_title": None,
+        "top_news_age_hours": None,
+        "top_news_catalyst_tag": None,
+        "news_source_mode": "news_intelligence_cache" if cache_state in {"hit", "stale"} else "news_intelligence",
+        "news_asof": datetime.now(timezone.utc).isoformat(),
+        "news_provider_status": provider_status,
+        "news_diagnostic_status": news_status,
+        "news_intelligence_cache_state": cache_state,
+        "news_intelligence_evidence_ids": tuple(),
+        "news_intelligence_source_provenance": diagnostics.get("source_provenance_by_symbol", {}).get(symbol, []),
+        "news_intelligence_match_types": diagnostics.get("match_types_by_symbol", {}).get(symbol, []),
+        "news_heat_score": None,
+        "news_hotness_score": None,
+        "news_top_source_credibility_score": None,
+        "news_source_reliability_score": None,
+        "news_independent_source_count": 0,
+        "velocity_60m": 0,
+    }
+
+
+def _ross_news_context_from_evidence(
+    symbol: str,
+    evidence: tuple[NewsEvidence, ...],
+    summary: NewsEvidenceSummary | None,
+    result: NewsBatchResult,
+) -> Dict[str, Any]:
+    if not evidence:
+        return _empty_news_context_from_summary(symbol, summary, result)
+
+    ordered = tuple(
+        sorted(
+            evidence,
+            key=lambda item: (
+                item.age_seconds is None,
+                item.age_seconds if item.age_seconds is not None else float("inf"),
+                str(item.headline or ""),
+            ),
+        )
+    )
+    diagnostics = _news_intelligence_diag(result)
+    news_age_minutes = _evidence_age_minutes(ordered)
+    fresh_news_count = _fresh_evidence_count(ordered)
+    stale_news_count = max(len(ordered) - fresh_news_count, 0)
+    news_is_fresh = news_age_minutes is not None and news_age_minutes <= NEWS_AGE_MAX_MINUTES
+    vel5 = _summary_velocity(summary, ordered, "velocity_5m", 5 * 60)
+    vel10 = _summary_velocity(summary, ordered, "velocity_10m", 10 * 60)
+    vel30 = _summary_velocity(summary, ordered, "velocity_30m", 30 * 60)
+    vel60 = _summary_velocity(summary, ordered, "velocity_60m", 60 * 60)
+    catalyst_type = _catalyst_type_from_evidence(ordered)
+    dilution_flag = _dilution_from_evidence(ordered)
+    budget_exhausted = bool(
+        (summary.budget_exhausted if summary is not None else False)
+        or result.diagnostics.budget_exhausted
+        or symbol in set(result.diagnostics.unresolved_symbols)
+    )
+    ross_catalyst_valid = bool(catalyst_type and not dilution_flag and news_is_fresh)
+    if ross_catalyst_valid:
+        news_status = "catalyst_confirmed"
+    elif budget_exhausted:
+        news_status = "budget_exhausted"
+    elif not news_is_fresh:
+        news_status = "stale_news"
+    else:
+        news_status = "news_present_non_qualifying"
+    gam_ea_eligible = bool(
+        not dilution_flag
+        and news_age_minutes is not None
+        and news_age_minutes <= NEWS_AGE_MAX_MINUTES
+    )
+    domains, links = _evidence_domains_and_links(ordered)
+    top_news = ordered[0]
+    reliability_values = [
+        float(value)
+        for item in ordered
+        for value in (item.source_reliability_score, item.source_credibility_score)
+        if value is not None
+    ]
+    heat_values = [float(item.heat_score) for item in ordered if item.heat_score is not None]
+    hotness_values = [float(item.hotness_score) for item in ordered if item.hotness_score is not None]
+    return {
+        "news_present": True,
+        "news_available": not budget_exhausted,
+        "first_seen_ts": min(
+            (
+                item.first_seen_at.timestamp()
+                for item in ordered
+                if item.first_seen_at is not None
+            ),
+            default=None,
+        ),
+        "news_age_minutes": news_age_minutes,
+        "velocity_5m": vel5,
+        "velocity_10m": vel10,
+        "velocity_30m": vel30,
+        "attention_tier": _attention_tier(vel5, vel10, vel30),
+        "top_domains": domains,
+        "top_links": links,
+        "catalyst_type": catalyst_type,
+        "dilution_flag": dilution_flag,
+        "gam_ea_eligible": gam_ea_eligible,
+        "ross_catalyst_valid": ross_catalyst_valid,
+        "ross_catalyst_notes": "Catalyst present" if ross_catalyst_valid else news_status,
+        "news_count": len(ordered),
+        "fresh_news_count": fresh_news_count,
+        "stale_news_count": stale_news_count,
+        "top_news_title": top_news.headline if top_news else None,
+        "top_news_age_hours": round((news_age_minutes or 0) / 60.0, 3) if news_age_minutes is not None else None,
+        "top_news_catalyst_tag": catalyst_type or dict(top_news.raw or {}).get("catalyst_tag") or "generic",
+        "news_source_mode": _evidence_source_mode(ordered, summary),
+        "news_asof": datetime.now(timezone.utc).isoformat(),
+        "news_provider_status": (summary.provider_status if summary is not None else None) or result.diagnostics.provider_status,
+        "news_diagnostic_status": news_status,
+        "news_intelligence_cache_state": (summary.cache_state if summary is not None else result.diagnostics.cache_state),
+        "news_intelligence_evidence_ids": tuple(item.evidence_id for item in ordered if item.evidence_id),
+        "news_intelligence_source_provenance": diagnostics.get("source_provenance_by_symbol", {}).get(symbol, []),
+        "news_intelligence_match_types": diagnostics.get("match_types_by_symbol", {}).get(symbol, []),
+        "news_heat_score": max(heat_values) if heat_values else None,
+        "news_hotness_score": max(hotness_values) if hotness_values else None,
+        "news_top_source_credibility_score": max(reliability_values) if reliability_values else None,
+        "news_source_reliability_score": max(reliability_values) if reliability_values else None,
+        "news_independent_source_count": summary.independent_source_count if summary is not None else 0,
+        "velocity_60m": vel60,
+    }
+
+
+def _ross_news_contexts_from_news_intelligence_result(
+    result: NewsBatchResult,
+) -> Dict[str, Dict[str, Any]]:
+    news_by_symbol: Dict[str, Dict[str, Any]] = {}
+    for symbol in result.symbols:
+        normalized = str(symbol or "").strip().upper()
+        if not normalized:
+            continue
+        evidence = result.evidence_for_symbol(normalized)
+        summary = result.summary_for_symbol(normalized)
+        signature = _evidence_signature(evidence, summary)
+        cached = _NEWS_CACHE.get(normalized)
+        if cached and cached.get("signature") == signature:
+            context = cached["context"]
+            news_by_symbol[normalized] = context
+            print(f"[NEWS] symbol={normalized} catalyst_tag={context.get('catalyst_type') or 'NONE'} news_changed=False")
+            continue
+        context = _ross_news_context_from_evidence(normalized, evidence, summary, result)
+        news_by_symbol[normalized] = context
+        _NEWS_CACHE[normalized] = {"signature": signature, "context": context}
+        if context.get("news_present"):
+            print(
+                f"[NEWS] symbol={normalized} catalyst_tag={(context.get('catalyst_type') or 'generic news').upper()} "
+                f"headlines={context.get('news_count') or 0}"
+            )
+        else:
+            print(f"[NEWS] symbol={normalized} catalyst_tag=NONE headlines=0")
+        print(f"[NEWS] symbol={normalized} news_changed=True")
+    return news_by_symbol
+
+
+def _unresolved_ross_news_symbols(symbols: Iterable[str], news_by_symbol: Dict[str, Dict[str, Any]]) -> list[str]:
+    unresolved: list[str] = []
+    for symbol in _dedupe_sorted_symbols(symbols):
+        context = news_by_symbol.get(symbol, {})
+        if not context.get("ross_catalyst_valid"):
+            unresolved.append(symbol)
+    return unresolved
+
+
+def _news_diagnostics_from_news_intelligence_result(
+    result: NewsBatchResult,
+    news_by_symbol: Dict[str, Dict[str, Any]],
+) -> NewsDiagnostics:
+    diagnostics = _news_intelligence_diag(result)
+    refresh_diag = diagnostics.get("refresh_diagnostics") if isinstance(diagnostics.get("refresh_diagnostics"), dict) else {}
+    failure_reason = _refresh_diag_value(diagnostics, "failure_reason", None)
+    provider_status = result.diagnostics.provider_status or "unknown"
+    all_failed = provider_status in {"provider_unavailable", "provider_request_failure"}
+    news_degraded = bool(
+        all_failed
+        or failure_reason
+        or result.diagnostics.budget_exhausted
+        or diagnostics.get("cache_read_failed")
+        or diagnostics.get("cache_write_failed")
+    )
+    news_gate_bypassed = all_failed or failure_reason in {"no_sources", "feedparser_missing"}
+    tier_attempt_counts = dict(refresh_diag.get("tier_sources_attempted_counts", {}) or {})
+    return _with_news_status_index(
+        NewsDiagnostics(
+            news_degraded=news_degraded,
+            news_gate_bypassed=news_gate_bypassed,
+            failure_reason=failure_reason,
+            rss_sources=int(_refresh_diag_value(diagnostics, "rss_sources", 0) or 0),
+            rss_failures=int(_refresh_diag_value(diagnostics, "rss_failures", 0) or 0),
+            rss_failure_summary=dict(_refresh_diag_value(diagnostics, "rss_failure_summary", {}) or {}),
+            provider_status=provider_status,
+            tier_source_counts=dict(_refresh_diag_value(diagnostics, "tier_source_counts", {}) or {}),
+            tier_match_counts=dict(_refresh_diag_value(diagnostics, "tier_match_counts", {}) or {}),
+            extended_fallback_requested=bool(_refresh_diag_value(diagnostics, "extended_fallback_requested", False)),
+            extended_fallback_symbol_count=int(_refresh_diag_value(diagnostics, "extended_fallback_symbol_count", 0) or 0),
+            ticker_token_match_count=int(_refresh_diag_value(diagnostics, "ticker_token_match_count", 0) or 0),
+            company_name_match_count=int(_refresh_diag_value(diagnostics, "company_name_match_count", 0) or 0),
+            description_summary_match_count=int(_refresh_diag_value(diagnostics, "description_summary_match_count", 0) or 0),
+            qualifying_headline_count=sum(1 for context in news_by_symbol.values() if context.get("ross_catalyst_valid")),
+            non_qualifying_headline_count=sum(1 for context in news_by_symbol.values() if context.get("news_present") and not context.get("ross_catalyst_valid")),
+            max_entries_per_symbol=max(1, _news_config_int("NEWS_MAX_ENTRIES_PER_SYMBOL", 5)),
+            total_news_budget_seconds=float(result.diagnostics.total_budget_seconds or 0.0),
+            news_elapsed_seconds=float(result.diagnostics.elapsed_seconds or 0.0),
+            news_budget_exhausted=bool(result.diagnostics.budget_exhausted),
+            fast_budget_seconds=float(_refresh_diag_value(diagnostics, "fast_budget_seconds", 0.0) or 0.0),
+            extended_budget_seconds=float(_refresh_diag_value(diagnostics, "extended_budget_seconds", 0.0) or 0.0),
+            extended_budget_reserved_seconds=float(_refresh_diag_value(diagnostics, "extended_budget_reserved_seconds", 0.0) or 0.0),
+            fast_budget_exhausted=bool(_refresh_diag_value(diagnostics, "fast_budget_exhausted", False)),
+            extended_budget_exhausted=bool(_refresh_diag_value(diagnostics, "extended_budget_exhausted", False)),
+            fast_sources_attempted_count=int(tier_attempt_counts.get("fast", _refresh_diag_value(diagnostics, "fast_sources_attempted_count", 0)) or 0),
+            extended_sources_attempted_count=int(tier_attempt_counts.get("extended", _refresh_diag_value(diagnostics, "extended_sources_attempted_count", 0)) or 0),
+            sources_skipped_due_to_budget_count=int(result.diagnostics.sources_skipped_due_to_budget_count or 0),
+            symbols_unresolved_at_budget_exhaustion=list(result.diagnostics.unresolved_symbols),
+            news_source_mode="news_intelligence",
+            cache_state=result.diagnostics.cache_state,
+            cache_hits_by_symbol=dict(diagnostics.get("cache_hits_by_symbol", {}) or {}),
+            cache_hit_symbols=list(diagnostics.get("cache_hit_symbols", []) or []),
+            stale_cache_miss_symbols=list(diagnostics.get("stale_cache_miss_symbols", []) or []),
+            cache_miss_symbols=list(diagnostics.get("cache_miss_symbols", []) or []),
+            prep_reuse_symbols=list(diagnostics.get("prep_reuse_symbols", []) or []),
+            prep_stale_symbols=list(diagnostics.get("prep_stale_symbols", []) or []),
+            refresh_requested_count=int(diagnostics.get("refresh_requested_count", 0) or 0),
+            refresh_symbols=list(diagnostics.get("refresh_symbols", []) or []),
+            source_provenance_by_symbol=dict(diagnostics.get("source_provenance_by_symbol", {}) or {}),
+            match_types_by_symbol=dict(diagnostics.get("match_types_by_symbol", {}) or {}),
+            reliability_by_symbol=dict(diagnostics.get("reliability_by_symbol", {}) or {}),
+            heat_by_symbol=dict(diagnostics.get("heat_by_symbol", {}) or {}),
+            velocity_by_symbol=dict(diagnostics.get("velocity_by_symbol", {}) or {}),
+            evidence_count_by_symbol=dict(diagnostics.get("evidence_count_by_symbol", {}) or {}),
+            freshest_evidence_age_seconds_by_symbol=dict(diagnostics.get("freshest_evidence_age_seconds_by_symbol", {}) or {}),
+            cache_read_failed=bool(diagnostics.get("cache_read_failed", False)),
+            cache_write_failed=bool(diagnostics.get("cache_write_failed", False)),
+            news_intelligence_diagnostics=diagnostics,
+        ),
+        news_by_symbol,
+    )
+
+
+def _merge_int_diagnostics(first: Dict[str, int], second: Dict[str, int]) -> Dict[str, int]:
+    merged: Dict[str, int] = dict(first or {})
+    for key, value in dict(second or {}).items():
+        merged[key] = int(merged.get(key, 0) or 0) + int(value or 0)
+    return merged
+
+
+def _merge_news_diagnostics(
+    fast_diagnostics: NewsDiagnostics,
+    extended_diagnostics: NewsDiagnostics,
+    news_by_symbol: Dict[str, Dict[str, Any]],
+) -> NewsDiagnostics:
+    merged_failure_summary = dict(fast_diagnostics.rss_failure_summary or {})
+    merged_failure_summary.update(dict(extended_diagnostics.rss_failure_summary or {}))
+    refresh_symbols = _dedupe_sorted_symbols(
+        list(fast_diagnostics.refresh_symbols) + list(extended_diagnostics.refresh_symbols)
+    )
+    merged_raw = dict(extended_diagnostics.news_intelligence_diagnostics or {})
+    merged_raw["fast_refresh_news_intelligence_diagnostics"] = dict(fast_diagnostics.news_intelligence_diagnostics or {})
+    merged_raw["extended_refresh_news_intelligence_diagnostics"] = dict(extended_diagnostics.news_intelligence_diagnostics or {})
+    return _with_news_status_index(
+        replace(
+            extended_diagnostics,
+            news_degraded=fast_diagnostics.news_degraded or extended_diagnostics.news_degraded,
+            news_gate_bypassed=fast_diagnostics.news_gate_bypassed or extended_diagnostics.news_gate_bypassed,
+            failure_reason=extended_diagnostics.failure_reason or fast_diagnostics.failure_reason,
+            rss_sources=int(fast_diagnostics.rss_sources or 0) + int(extended_diagnostics.rss_sources or 0),
+            rss_failures=int(fast_diagnostics.rss_failures or 0) + int(extended_diagnostics.rss_failures or 0),
+            rss_failure_summary=merged_failure_summary,
+            tier_source_counts=_merge_int_diagnostics(fast_diagnostics.tier_source_counts, extended_diagnostics.tier_source_counts),
+            tier_match_counts=_merge_int_diagnostics(fast_diagnostics.tier_match_counts, extended_diagnostics.tier_match_counts),
+            extended_fallback_requested=fast_diagnostics.extended_fallback_requested or extended_diagnostics.extended_fallback_requested,
+            extended_fallback_symbol_count=extended_diagnostics.extended_fallback_symbol_count,
+            ticker_token_match_count=int(fast_diagnostics.ticker_token_match_count or 0) + int(extended_diagnostics.ticker_token_match_count or 0),
+            company_name_match_count=int(fast_diagnostics.company_name_match_count or 0) + int(extended_diagnostics.company_name_match_count or 0),
+            description_summary_match_count=int(fast_diagnostics.description_summary_match_count or 0) + int(extended_diagnostics.description_summary_match_count or 0),
+            qualifying_headline_count=sum(1 for context in news_by_symbol.values() if context.get("ross_catalyst_valid")),
+            non_qualifying_headline_count=sum(1 for context in news_by_symbol.values() if context.get("news_present") and not context.get("ross_catalyst_valid")),
+            news_budget_exhausted=fast_diagnostics.news_budget_exhausted or extended_diagnostics.news_budget_exhausted,
+            fast_budget_seconds=fast_diagnostics.fast_budget_seconds,
+            extended_budget_reserved_seconds=fast_diagnostics.extended_budget_reserved_seconds,
+            fast_budget_exhausted=fast_diagnostics.fast_budget_exhausted,
+            extended_budget_exhausted=extended_diagnostics.extended_budget_exhausted,
+            fast_sources_attempted_count=fast_diagnostics.fast_sources_attempted_count,
+            extended_sources_attempted_count=extended_diagnostics.extended_sources_attempted_count,
+            sources_skipped_due_to_budget_count=int(fast_diagnostics.sources_skipped_due_to_budget_count or 0) + int(extended_diagnostics.sources_skipped_due_to_budget_count or 0),
+            symbols_unresolved_at_budget_exhaustion=_dedupe_sorted_symbols(
+                list(fast_diagnostics.symbols_unresolved_at_budget_exhaustion)
+                + list(extended_diagnostics.symbols_unresolved_at_budget_exhaustion)
+            ),
+            refresh_requested_count=int(fast_diagnostics.refresh_requested_count or 0) + int(extended_diagnostics.refresh_requested_count or 0),
+            refresh_symbols=refresh_symbols,
+            news_intelligence_diagnostics=merged_raw,
+        ),
+        news_by_symbol,
+    )
+
+
+def _with_extended_budget_skip(
+    diagnostics: NewsDiagnostics,
+    unresolved_symbols: Iterable[str],
+    news_by_symbol: Dict[str, Dict[str, Any]],
+) -> NewsDiagnostics:
+    skipped_symbols = _dedupe_sorted_symbols(unresolved_symbols)
+    raw = dict(diagnostics.news_intelligence_diagnostics or {})
+    raw["extended_fallback_skipped_due_to_budget"] = True
+    raw["extended_fallback_skipped_symbols"] = skipped_symbols
+    return _with_news_status_index(
+        replace(
+            diagnostics,
+            extended_budget_exhausted=True,
+            sources_skipped_due_to_budget_count=int(diagnostics.sources_skipped_due_to_budget_count or 0) + len(RSS_PREP_EXTENDED),
+            symbols_unresolved_at_budget_exhaustion=skipped_symbols,
+            news_intelligence_diagnostics=raw,
+        ),
+        news_by_symbol,
+    )
+
+
+def _fast_only_tier_budget() -> float:
+    return _news_fast_tier_budget_seconds(
+        _news_stage_budget_seconds(),
+        extended_sources_available=True,
+    )
+
+
+def _extended_only_tier_budget() -> float:
+    total_budget_seconds = _news_stage_budget_seconds()
+    return max(0.0, total_budget_seconds - _fast_only_tier_budget())
+
+
 def _enrich_news_context(
     symbols: List[str],
     provider_source: str,
     symbol_metadata_by_symbol: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> tuple[Dict[str, Dict[str, Any]], NewsDiagnostics]:
-    sources = list(RSS_FAST_TRADING)
-    extended_sources = list(RSS_PREP_EXTENDED)
-    max_entries_per_symbol = int(get_config("NEWS_MAX_ENTRIES_PER_SYMBOL") or 5)
-    total_news_budget_seconds = _news_stage_budget_seconds()
-    stage_started_at_s = time.monotonic()
-    stage_deadline_s = stage_started_at_s + total_news_budget_seconds
-    fast_budget_seconds = _news_fast_tier_budget_seconds(
-        total_news_budget_seconds,
-        extended_sources_available=provider_source != "MOCK" and bool(extended_sources),
+    candidates = _news_candidates_for_symbols(symbols, symbol_metadata_by_symbol)
+    if not candidates:
+        diagnostics = NewsDiagnostics(False, False, None, 0, 0, {}, provider_status="no_symbols")
+        return {}, diagnostics
+
+    service = _news_intelligence_service_for_scanner()
+    request = _ross_news_request()
+    cache_result = service.get_news(
+        candidates,
+        request,
+        _ross_retrieval_policy(refresh_mode="cache_only", network_allowed=False),
     )
-    extended_budget_reserved_seconds = max(0.0, total_news_budget_seconds - fast_budget_seconds)
-    fast_deadline_s = min(stage_deadline_s, stage_started_at_s + fast_budget_seconds)
-    symbol_metadata = symbol_metadata_by_symbol or {}
-    headlines_by_symbol, fast_summary_raw = fetch_fast_headlines_for_symbols(
-        symbols,
-        sources,
-        lookback_hours=float(get_config("NEWS_LOOKBACK_HOURS")),
-        request_timeout_s=float(get_config("NEWS_REQUEST_TIMEOUT_S")),
-        symbol_metadata=symbol_metadata,
-        max_entries_per_symbol=max_entries_per_symbol,
-        total_news_budget_seconds=total_news_budget_seconds,
-        stage_started_at_s=stage_started_at_s,
-        stage_deadline_s=stage_deadline_s,
-        tier_budget_seconds=fast_budget_seconds,
-        tier_started_at_s=stage_started_at_s,
-        tier_deadline_s=fast_deadline_s,
+    cache_news_by_symbol = _ross_news_contexts_from_news_intelligence_result(cache_result)
+    unresolved_symbols = _unresolved_ross_news_symbols([candidate.normalized_symbol for candidate in candidates], cache_news_by_symbol)
+
+    if provider_source == "MOCK" or not unresolved_symbols:
+        return cache_news_by_symbol, _news_diagnostics_from_news_intelligence_result(cache_result, cache_news_by_symbol)
+
+    fast_result = service.get_news(
+        candidates,
+        request,
+        _ross_retrieval_policy(
+            refresh_mode="bounded_refresh",
+            network_allowed=True,
+            refresh_symbols=unresolved_symbols,
+            source_groups=("FAST_TRADING",),
+            tier_budgets={"fast": _fast_only_tier_budget()},
+        ),
     )
-    fast_summary = _merge_rss_failure_summaries(fast_summary_raw)
-    summary: RssFailureSummary = fast_summary
-    fast_provider_status = _news_provider_status(fast_summary)
-    extended_fallback_requested = False
-    extended_fallback_symbol_count = 0
-    scanner_budget_skipped_sources = 0
-    extended_budget_seconds = 0.0
-    fast_budget_exhausted = bool(getattr(fast_summary, "tier_budget_exhausted", False))
-    extended_budget_exhausted = False
+    fast_news_by_symbol = _ross_news_contexts_from_news_intelligence_result(fast_result)
+    fast_diagnostics = _news_diagnostics_from_news_intelligence_result(fast_result, fast_news_by_symbol)
+    fast_unresolved_symbols = _unresolved_ross_news_symbols([candidate.normalized_symbol for candidate in candidates], fast_news_by_symbol)
+    if (
+        not fast_unresolved_symbols
+        or fast_diagnostics.provider_status in {"provider_unavailable", "provider_request_failure"}
+    ):
+        return fast_news_by_symbol, fast_diagnostics
+    if fast_diagnostics.news_budget_exhausted:
+        return fast_news_by_symbol, _with_extended_budget_skip(fast_diagnostics, fast_unresolved_symbols, fast_news_by_symbol)
 
-    now_ts = time.time()
-    provider_failed = fast_provider_status in {"provider_unavailable", "provider_request_failure"}
-    if not provider_failed and provider_source != "MOCK":
-        unresolved_symbols = [
-            symbol
-            for symbol in symbols
-            if not _headlines_have_confirmed_catalyst(headlines_by_symbol.get(symbol, []), now_ts)
-        ]
-        if unresolved_symbols:
-            budget_remaining_s = _news_stage_remaining_seconds(stage_deadline_s)
-            budget_exhausted_before_extended = bool(getattr(fast_summary, "news_budget_exhausted", False)) or budget_remaining_s <= 0.0
-            if extended_sources and not budget_exhausted_before_extended:
-                extended_fallback_requested = True
-                extended_fallback_symbol_count = len(unresolved_symbols)
-                extended_started_at_s = time.monotonic()
-                extended_budget_seconds = _news_stage_remaining_seconds(stage_deadline_s)
-                extended_metadata = {
-                    symbol: symbol_metadata.get(symbol, {})
-                    for symbol in unresolved_symbols
-                    if symbol_metadata.get(symbol)
-                }
-                extended_headlines_by_symbol, extended_summary = fetch_headlines_for_symbols(
-                    unresolved_symbols,
-                    extended_sources,
-                    lookback_hours=float(get_config("NEWS_LOOKBACK_HOURS")),
-                    request_timeout_s=float(get_config("NEWS_REQUEST_TIMEOUT_S")),
-                    symbol_metadata=extended_metadata,
-                    max_entries_per_symbol=max_entries_per_symbol,
-                    source_tier="extended",
-                    total_news_budget_seconds=total_news_budget_seconds,
-                    stage_started_at_s=stage_started_at_s,
-                    stage_deadline_s=stage_deadline_s,
-                    tier_budget_seconds=extended_budget_seconds,
-                    tier_started_at_s=extended_started_at_s,
-                    tier_deadline_s=stage_deadline_s,
-                )
-                extended_budget_exhausted = bool(
-                    getattr(extended_summary, "tier_budget_exhausted", False)
-                    or getattr(extended_summary, "news_budget_exhausted", False)
-                )
-                for symbol, extended_headlines in extended_headlines_by_symbol.items():
-                    combined = list(headlines_by_symbol.get(symbol, [])) + list(extended_headlines)
-                    headlines_by_symbol[symbol] = _dedupe_bounded_headlines(combined, max_entries_per_symbol)
-                summary = _merge_rss_failure_summaries(fast_summary, extended_summary)
-            elif extended_sources and budget_exhausted_before_extended:
-                extended_budget_exhausted = True
-                scanner_budget_skipped_sources += len(extended_sources)
-
-    summary_elapsed = max(
-        float(getattr(summary, "news_elapsed_seconds", 0.0) or 0.0),
-        _news_stage_elapsed_seconds(stage_started_at_s),
+    extended_result = service.get_news(
+        candidates,
+        request,
+        _ross_retrieval_policy(
+            refresh_mode="bounded_refresh",
+            network_allowed=True,
+            refresh_symbols=fast_unresolved_symbols,
+            source_groups=("PREP_EXTENDED",),
+            tier_budgets={"extended": _extended_only_tier_budget()},
+        ),
     )
-    budget_exhausted = bool(getattr(summary, "news_budget_exhausted", False)) or scanner_budget_skipped_sources > 0
-    if scanner_budget_skipped_sources or summary_elapsed or budget_exhausted or total_news_budget_seconds:
-        summary = replace(
-            summary,
-            total_news_budget_seconds=total_news_budget_seconds,
-            news_elapsed_seconds=summary_elapsed,
-            news_budget_exhausted=budget_exhausted,
-            sources_skipped_due_to_budget_count=int(getattr(summary, "sources_skipped_due_to_budget_count", 0) or 0)
-            + scanner_budget_skipped_sources,
-        )
-
-    all_failed = summary.total_sources > 0 and summary.failure_count >= summary.total_sources
-    reason_override = summary.reason
-    provider_status = _news_provider_status(summary)
-    now_ts = time.time()
-    symbols_unresolved_at_budget_exhaustion: List[str] = []
-    if bool(getattr(summary, "news_budget_exhausted", False)):
-        symbols_unresolved_at_budget_exhaustion = [
-            symbol
-            for symbol in symbols
-            if not _headlines_have_confirmed_catalyst(headlines_by_symbol.get(symbol, []), now_ts)
-        ]
-    budget_unresolved_symbols = set(symbols_unresolved_at_budget_exhaustion)
-    news_degraded = all_failed or bool(reason_override) or bool(getattr(summary, "news_budget_exhausted", False))
-
-    if provider_source == "MOCK":
-        if all(len(items) == 0 for items in headlines_by_symbol.values()):
-            mock_ts = datetime.now(timezone.utc).timestamp()
-            for symbol in symbols[:20]:
-                headlines_by_symbol[symbol] = [
-                    Headline(
-                        title=f"{symbol} reports earnings beat and raises guidance",
-                        source="MOCK_NEWS",
-                        published_ts=mock_ts - 300,
-                        url="https://mock.news/earnings",
-                    ),
-                    Headline(
-                        title=f"{symbol} announces new partnership",
-                        source="MOCK_NEWS",
-                        published_ts=mock_ts - 900,
-                        url="https://mock.news/partnership",
-                    ),
-                ]
-            news_degraded = True
-            reason_override = reason_override or "mock_headlines_injected"
-
-    news_by_symbol: Dict[str, Dict[str, Any]] = {}
-    now_ts = time.time()
-    for symbol, headlines in headlines_by_symbol.items():
-        unique_headlines = _dedupe_bounded_headlines(headlines, max_entries_per_symbol)
-        signature = tuple(
-            sorted((headline.title.strip().lower(), headline.source.strip().lower()) for headline in unique_headlines)
-        )
-        cached = _NEWS_CACHE.get(symbol)
-        if cached and cached.get("signature") == signature:
-            news_by_symbol[symbol] = cached["context"]
-            print(f"[NEWS] symbol={symbol} catalyst_tag={cached['context'].get('catalyst_type') or 'NONE'} news_changed=False")
-            continue
-
-        if not unique_headlines:
-            if provider_status in {"provider_unavailable", "provider_request_failure"}:
-                news_status = provider_status
-                news_available = False
-                notes = provider_status
-            elif symbol in budget_unresolved_symbols:
-                news_status = "budget_exhausted"
-                news_available = False
-                notes = "News retrieval budget exhausted before full source coverage"
-            else:
-                news_status = "no_recent_news"
-                news_available = True
-                notes = "No recent news present"
-            context = {
-                "news_present": False,
-                "news_available": news_available,
-                "first_seen_ts": None,
-                "news_age_minutes": None,
-                "velocity_5m": 0,
-                "velocity_10m": 0,
-                "velocity_30m": 0,
-                "attention_tier": "T0",
-                "top_domains": [],
-                "top_links": [],
-                "catalyst_type": None,
-                "dilution_flag": False,
-                "gam_ea_eligible": False,
-                "ross_catalyst_valid": False,
-                "ross_catalyst_notes": notes,
-                "news_count": 0,
-                "fresh_news_count": 0,
-                "stale_news_count": 0,
-                "top_news_title": None,
-                "top_news_age_hours": None,
-                "top_news_catalyst_tag": None,
-                "news_source_mode": "rss_batch",
-                "news_asof": datetime.now(timezone.utc).isoformat(),
-                "news_provider_status": provider_status,
-                "news_diagnostic_status": news_status,
-            }
-            news_by_symbol[symbol] = context
-            _NEWS_CACHE[symbol] = {"signature": signature, "context": context}
-            print(f"[NEWS] symbol={symbol} catalyst_tag=NONE headlines=0")
-            print(f"[NEWS] symbol={symbol} news_changed=True")
-            continue
-
-        ages = [max(0.0, (now_ts - headline.published_ts) / 60.0) for headline in unique_headlines]
-        news_age_minutes = int(min(ages)) if ages else None
-        vel5 = sum(1 for headline in unique_headlines if now_ts - headline.published_ts <= 5 * 60)
-        vel10 = sum(1 for headline in unique_headlines if now_ts - headline.published_ts <= 10 * 60)
-        vel30 = sum(1 for headline in unique_headlines if now_ts - headline.published_ts <= 30 * 60)
-        attention_tier = _attention_tier(vel5, vel10, vel30)
-
-        titles = [headline.title for headline in unique_headlines]
-        catalyst_type = _detect_catalyst_type(titles)
-        dilution_flag = _detect_dilution(titles)
-        fresh_news_count = sum(1 for age in ages if age <= NEWS_AGE_MAX_MINUTES)
-        news_is_fresh = news_age_minutes is not None and news_age_minutes <= NEWS_AGE_MAX_MINUTES
-        ross_catalyst_valid = bool(catalyst_type and not dilution_flag and news_is_fresh)
-        if ross_catalyst_valid:
-            news_status = "catalyst_confirmed"
-        elif symbol in budget_unresolved_symbols:
-            news_status = "budget_exhausted"
-        elif not news_is_fresh:
-            news_status = "stale_news"
-        else:
-            news_status = "news_present_non_qualifying"
-        gam_ea_eligible = bool(
-            not dilution_flag
-            and news_age_minutes is not None
-            and news_age_minutes <= NEWS_AGE_MAX_MINUTES
-        )
-
-        domains: list[str] = []
-        links: list[str] = []
-        seen_domains = set()
-        for headline in unique_headlines:
-            domain = headline.url.split("/")[2] if "//" in headline.url else headline.url
-            if domain and domain not in seen_domains:
-                seen_domains.add(domain)
-                domains.append(domain)
-            if len(links) < 5 and headline.url:
-                links.append(headline.url)
-
-        ross_notes = "Catalyst present" if ross_catalyst_valid else news_status
-
-        top_news = unique_headlines[0] if unique_headlines else None
-        tiers = {str(getattr(headline, "source_tier", "fast") or "fast") for headline in unique_headlines}
-        source_mode = "rss_batch_extended" if "extended" in tiers else "rss_batch"
-        context = {
-            "news_present": True,
-            "news_available": True,
-            "first_seen_ts": min(headline.published_ts for headline in unique_headlines),
-            "news_age_minutes": news_age_minutes,
-            "velocity_5m": vel5,
-            "velocity_10m": vel10,
-            "velocity_30m": vel30,
-            "attention_tier": attention_tier,
-            "top_domains": domains[:2],
-            "top_links": links[:5],
-            "catalyst_type": catalyst_type,
-            "dilution_flag": dilution_flag,
-            "gam_ea_eligible": gam_ea_eligible,
-            "ross_catalyst_valid": ross_catalyst_valid,
-            "ross_catalyst_notes": ross_notes,
-            "news_count": len(unique_headlines),
-            "fresh_news_count": fresh_news_count,
-            "stale_news_count": sum(1 for age in ages if age > NEWS_AGE_MAX_MINUTES),
-            "top_news_title": top_news.title if top_news else None,
-            "top_news_age_hours": round((news_age_minutes or 0) / 60.0, 3) if news_age_minutes is not None else None,
-            "top_news_catalyst_tag": catalyst_type or "generic",
-            "news_source_mode": source_mode,
-            "news_asof": datetime.now(timezone.utc).isoformat(),
-            "news_provider_status": provider_status,
-            "news_diagnostic_status": news_status,
-        }
-        news_by_symbol[symbol] = context
-        _NEWS_CACHE[symbol] = {"signature": signature, "context": context}
-        print(
-            f"[NEWS] symbol={symbol} catalyst_tag={(catalyst_type or 'generic news').upper()} "
-            f"headlines={len(unique_headlines)}"
-        )
-        print(f"[NEWS] symbol={symbol} news_changed=True")
-
-    news_gate_bypassed = all_failed or reason_override in {"no_sources", "feedparser_missing"}
-    qualifying_count, non_qualifying_count = _headline_quality_counts(headlines_by_symbol, now_ts)
-    tier_attempt_counts = dict(getattr(summary, "tier_sources_attempted_counts", {}) or {})
-    diagnostics = NewsDiagnostics(
-        news_degraded=news_degraded,
-        news_gate_bypassed=news_gate_bypassed,
-        failure_reason=reason_override,
-        rss_sources=summary.total_sources,
-        rss_failures=summary.failure_count,
-        rss_failure_summary=summary.failures_by_domain,
-        provider_status=provider_status,
-        tier_source_counts=dict(getattr(summary, "tier_source_counts", {}) or {}),
-        tier_match_counts=dict(getattr(summary, "tier_match_counts", {}) or {}),
-        extended_fallback_requested=extended_fallback_requested,
-        extended_fallback_symbol_count=extended_fallback_symbol_count,
-        ticker_token_match_count=int(getattr(summary, "ticker_token_match_count", 0) or 0),
-        company_name_match_count=int(getattr(summary, "company_name_match_count", 0) or 0),
-        description_summary_match_count=int(getattr(summary, "description_summary_match_count", 0) or 0),
-        qualifying_headline_count=qualifying_count,
-        non_qualifying_headline_count=non_qualifying_count,
-        max_entries_per_symbol=max_entries_per_symbol,
-        total_news_budget_seconds=float(getattr(summary, "total_news_budget_seconds", 0.0) or 0.0),
-        news_elapsed_seconds=float(getattr(summary, "news_elapsed_seconds", 0.0) or 0.0),
-        news_budget_exhausted=bool(getattr(summary, "news_budget_exhausted", False)),
-        fast_budget_seconds=float(fast_budget_seconds),
-        extended_budget_seconds=float(extended_budget_seconds),
-        extended_budget_reserved_seconds=float(extended_budget_reserved_seconds),
-        fast_budget_exhausted=bool(fast_budget_exhausted),
-        extended_budget_exhausted=bool(extended_budget_exhausted),
-        fast_sources_attempted_count=int(tier_attempt_counts.get("fast", 0) or 0),
-        extended_sources_attempted_count=int(tier_attempt_counts.get("extended", 0) or 0),
-        sources_skipped_due_to_budget_count=int(getattr(summary, "sources_skipped_due_to_budget_count", 0) or 0),
-        symbols_unresolved_at_budget_exhaustion=sorted(symbols_unresolved_at_budget_exhaustion),
-    )
-    return news_by_symbol, _with_news_status_index(diagnostics, news_by_symbol)
-
+    news_by_symbol = _ross_news_contexts_from_news_intelligence_result(extended_result)
+    extended_diagnostics = _news_diagnostics_from_news_intelligence_result(extended_result, news_by_symbol)
+    return news_by_symbol, _merge_news_diagnostics(fast_diagnostics, extended_diagnostics, news_by_symbol)
 
 def _rank_candidates(contexts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     strategy = _STRATEGY_REGISTRY.get("ross_momentum")
@@ -5006,8 +5415,8 @@ def run_scanner_cycle(
                     log_catalyst_unavailable(symbol, catalyst_decision.reason)
                     if run_mode == RunMode.LIVE:
                         log_catalyst_live_not_satisfied(symbol, catalyst_decision.reason)
-        prep_news_by_symbol = _prep_news_contexts_for_symbols(candidate_symbols, prep_candidates) if allow_news else {}
-        news_by_symbol = dict(prep_news_by_symbol)
+        prep_news_by_symbol: Dict[str, Dict[str, Any]] = {}
+        news_by_symbol: Dict[str, Dict[str, Any]] = {}
         news_diag = (
             _disabled_news_diagnostics(
                 news_enabled=news_enabled,
@@ -5016,9 +5425,9 @@ def run_scanner_cycle(
                 symbols=candidate_symbols,
             )
             if not allow_news
-            else NewsDiagnostics(False, False, None, 0, 0, {}, provider_status="prep_cache" if prep_news_by_symbol else "not_requested")
+            else NewsDiagnostics(False, False, None, 0, 0, {}, provider_status="not_requested")
         )
-        news_symbols_to_fetch = [symbol for symbol in candidate_symbols if symbol not in news_by_symbol]
+        news_symbols_to_fetch = list(candidate_symbols)
         if selector is not None and allow_news and news_symbols_to_fetch:
             fetched_news, news_diag = _enrich_news_context(
                 news_symbols_to_fetch,
@@ -5377,11 +5786,6 @@ def run_scanner_cycle(
                     "policy_name": resolved_policy.policy_name,
                 },
             )
-        if allow_news and prep_candidates:
-            news_by_symbol = _merge_news_contexts(
-                news_by_symbol,
-                _prep_news_contexts_for_symbols(watchlist_symbols, prep_candidates),
-            )
         missing_watchlist_news_symbols = [symbol for symbol in watchlist_symbols if symbol not in news_by_symbol]
         news_symbol_metadata = _news_symbol_metadata_for_contexts(watchlist_contexts)
         if missing_watchlist_news_symbols and allow_news:
@@ -5445,6 +5849,26 @@ def run_scanner_cycle(
             "extended_sources_attempted_count": int(news_diag.extended_sources_attempted_count),
             "sources_skipped_due_to_budget_count": int(news_diag.sources_skipped_due_to_budget_count),
             "symbols_unresolved_at_budget_exhaustion": list(news_diag.symbols_unresolved_at_budget_exhaustion),
+            "news_source_mode": news_diag.news_source_mode,
+            "cache_state": news_diag.cache_state,
+            "cache_hits_by_symbol": dict(news_diag.cache_hits_by_symbol),
+            "cache_hit_symbols": list(news_diag.cache_hit_symbols),
+            "stale_cache_miss_symbols": list(news_diag.stale_cache_miss_symbols),
+            "cache_miss_symbols": list(news_diag.cache_miss_symbols),
+            "prep_reuse_symbols": list(news_diag.prep_reuse_symbols),
+            "prep_stale_symbols": list(news_diag.prep_stale_symbols),
+            "refresh_requested_count": int(news_diag.refresh_requested_count),
+            "refresh_symbols": list(news_diag.refresh_symbols),
+            "source_provenance_by_symbol": dict(news_diag.source_provenance_by_symbol),
+            "match_types_by_symbol": dict(news_diag.match_types_by_symbol),
+            "reliability_by_symbol": dict(news_diag.reliability_by_symbol),
+            "heat_by_symbol": dict(news_diag.heat_by_symbol),
+            "velocity_by_symbol": dict(news_diag.velocity_by_symbol),
+            "evidence_count_by_symbol": dict(news_diag.evidence_count_by_symbol),
+            "freshest_evidence_age_seconds_by_symbol": dict(news_diag.freshest_evidence_age_seconds_by_symbol),
+            "cache_read_failed": bool(news_diag.cache_read_failed),
+            "cache_write_failed": bool(news_diag.cache_write_failed),
+            "news_intelligence_diagnostics": dict(news_diag.news_intelligence_diagnostics),
         }
         if news_diag.news_degraded:
             for context in watchlist_contexts:

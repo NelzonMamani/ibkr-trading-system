@@ -236,6 +236,13 @@ class MarketDataClient:
 
     def disconnect(self) -> None:
         if self.connection_manager is not None:
+            disconnect = getattr(self.connection_manager, "disconnect", None)
+            if callable(disconnect):
+                try:
+                    disconnect(reason="market_data_client_disconnect")
+                except TypeError:
+                    disconnect()
+            self.ib = None
             return
         ib = self._resolve_ib_client()
         if not ib.isConnected():

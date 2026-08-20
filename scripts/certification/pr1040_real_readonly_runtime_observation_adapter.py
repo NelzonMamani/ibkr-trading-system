@@ -163,6 +163,7 @@ NEWS_DIAGNOSTIC_DATA_UNAVAILABLE_STATUSES = {
     "provider_disabled",
     "provider_request_failure",
     "provider_unavailable",
+    "budget_exhausted",
 }
 NEWS_DIAGNOSTIC_ABSENT_STATUSES = {
     "no_recent_news",
@@ -211,6 +212,26 @@ NEWS_DIAGNOSTIC_ARTIFACT_KEYS = (
     "extended_sources_attempted_count",
     "sources_skipped_due_to_budget_count",
     "symbols_unresolved_at_budget_exhaustion",
+    "news_source_mode",
+    "cache_state",
+    "cache_hits_by_symbol",
+    "cache_hit_symbols",
+    "stale_cache_miss_symbols",
+    "cache_miss_symbols",
+    "prep_reuse_symbols",
+    "prep_stale_symbols",
+    "refresh_requested_count",
+    "refresh_symbols",
+    "source_provenance_by_symbol",
+    "match_types_by_symbol",
+    "reliability_by_symbol",
+    "heat_by_symbol",
+    "velocity_by_symbol",
+    "evidence_count_by_symbol",
+    "freshest_evidence_age_seconds_by_symbol",
+    "cache_read_failed",
+    "cache_write_failed",
+    "news_intelligence_diagnostics",
 )
 
 UNSAFE_FOCUS_FLAGS = (

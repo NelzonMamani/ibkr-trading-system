@@ -42,13 +42,14 @@ class _Clock:
 
 
 @pytest.fixture(autouse=True)
-def _reset_runtime_state():
+def _reset_runtime_state(tmp_path: Path):
     scanner_runner.reset_scanner_runtime_state(clear_persistent_provider=True)
     scanner_runner._NEWS_CACHE = {}
     set_config_overrides({
         "NEWS_MAX_ENTRIES_PER_SYMBOL": 5,
         "NEWS_TOTAL_BUDGET_S": 8.0,
         "NEWS_EXTENDED_TIER_RESERVE_FRACTION": 0.35,
+        "NEWS_CACHE_FILE": str(tmp_path / "news_cache.json"),
     })
     yield
     scanner_runner.reset_scanner_runtime_state(clear_persistent_provider=True)
@@ -203,11 +204,12 @@ def test_pr1061_fast_tier_exhaustion_still_allows_extended_fallback_for_unresolv
     assert news_by_symbol["PR61A"]["news_source_mode"] == "rss_batch_extended"
 
 
-def test_pr1061_global_budget_exhaustion_remains_unavailable_and_fail_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_pr1061_global_budget_exhaustion_remains_unavailable_and_fail_closed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     set_config_overrides({
         "NEWS_MAX_ENTRIES_PER_SYMBOL": 5,
         "NEWS_TOTAL_BUDGET_S": 0.5,
         "NEWS_EXTENDED_TIER_RESERVE_FRACTION": 0.35,
+        "NEWS_CACHE_FILE": str(tmp_path / "news_cache.json"),
     })
 
     def fake_fast(symbols, sources, lookback_hours=24.0, request_timeout_s=5.0, **kwargs):
@@ -283,7 +285,7 @@ def test_pr1061_tier_budget_diagnostics_propagate_to_pr1040_artifact() -> None:
     assert artifact["extended_budget_reserved_seconds"] == pytest.approx(2.8)
     assert artifact["fast_budget_exhausted"] is True
     assert artifact["extended_budget_exhausted"] is True
-    assert artifact["catalyst_status_by_symbol"] == {"PR61A": "UNAVAILABLE"}
+    assert artifact["catalyst_status_by_symbol"] == {"PR61A": "DATA_UNAVAILABLE"}
 
 
 def test_pr1061_pr1040_cleanup_resets_scanner_persistent_provider(monkeypatch: pytest.MonkeyPatch) -> None:

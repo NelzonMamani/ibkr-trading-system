@@ -16,7 +16,7 @@ from src.scanner import scanner_runner
 
 
 @pytest.fixture(autouse=True)
-def _news_config_defaults():
+def _news_config_defaults(tmp_path):
     set_config_overrides(
         {
             "NEWS_MAX_ENTRIES_PER_SYMBOL": 5,
@@ -24,6 +24,7 @@ def _news_config_defaults():
             "NEWS_REQUEST_TIMEOUT_S": 5,
             "NEWS_TOTAL_BUDGET_S": 8.0,
             "NEWS_EXTENDED_TIER_RESERVE_FRACTION": 0.35,
+            "NEWS_CACHE_FILE": str(tmp_path / "news_cache.json"),
         }
     )
     yield
@@ -420,12 +421,15 @@ def test_pr1067_neutral_runtime_helpers_match_scanner_wrappers():
     assert len(rss_batch_runtime.dedupe_bounded_headlines([duplicate], 0)) == 1
 
 
-def test_pr1067_existing_scanner_runtime_remains_unmigrated():
+def test_pr1067_scanner_runtime_uses_news_intelligence_with_fetcher_compatibility():
     scanner_source = Path("src/scanner/scanner_runner.py").read_text(encoding="utf-8")
 
-    assert "BatchRssNewsIntelligenceProvider" not in scanner_source
-    assert "src.news.batch_rss_adapter" not in scanner_source
+    assert "BatchRssNewsIntelligenceProvider" in scanner_source
+    assert "CanonicalNewsIntelligenceService" in scanner_source
+    assert "src.news.batch_rss_adapter" in scanner_source
     assert "fetch_fast_headlines_for_symbols" in scanner_source
     assert "fetch_headlines_for_symbols" in scanner_source
     assert "RSS_FAST_TRADING" in scanner_source
     assert "RSS_PREP_EXTENDED" in scanner_source
+    assert "CATALYST_KEYWORDS" in scanner_source
+    assert "def _detect_catalyst_type" in scanner_source
