@@ -51,6 +51,8 @@ DEFAULT_VALIDATED_OUTPUT_DIR = Path(
 DEFAULT_MAX_OBSERVATION_SYMBOLS = 50
 DEFAULT_MAX_OBSERVATION_SECONDS = 30.0
 DEFAULT_MAX_SNAPSHOT_FAILURES = 10
+DEFAULT_CERTIFICATION_SCANNER_SYMBOL_CAP = 2
+DEFAULT_CERTIFICATION_NEWS_RUNTIME_RESERVE_SECONDS = 8.0
 
 TRUE_VALUES = {"1", "true", "yes", "on"}
 FALSE_VALUES = {"0", "false", "no", "off", ""}
@@ -416,7 +418,7 @@ def build_operator_observation_scope(
 
 def _operator_observation_scope(evidence: RuntimeObservationEvidence) -> dict[str, Any]:
     scope = evidence.operator_observation_scope if isinstance(evidence.operator_observation_scope, Mapping) else {}
-    return build_operator_observation_scope(
+    normalized = build_operator_observation_scope(
         max_observation_symbols=scope.get("max_observation_symbols", DEFAULT_MAX_OBSERVATION_SYMBOLS),
         max_observation_seconds=scope.get("max_observation_seconds", DEFAULT_MAX_OBSERVATION_SECONDS),
         max_snapshot_failures=scope.get("max_snapshot_failures", DEFAULT_MAX_SNAPSHOT_FAILURES),
@@ -429,6 +431,19 @@ def _operator_observation_scope(evidence: RuntimeObservationEvidence) -> dict[st
         "stopped_by_max_observation_seconds": bool(scope.get("stopped_by_max_observation_seconds", False)),
         "stopped_by_max_snapshot_failures": bool(scope.get("stopped_by_max_snapshot_failures", False)),
     }
+    for key in (
+        "scanner_original_requested_top_n",
+        "scanner_requested_top_n",
+        "scanner_request_symbol_cap",
+        "scanner_runtime_budget_seconds",
+        "scanner_runtime_news_reserve_seconds",
+        "scanner_runtime_elapsed_seconds",
+        "scanner_runtime_bound",
+        "scanner_returned_naturally",
+    ):
+        if key in scope:
+            normalized[key] = _json_safe(scope.get(key))
+    return normalized
 
 
 def build_safe_readonly_env(base: Mapping[str, str] | None = None) -> dict[str, str]:
@@ -1580,18 +1595,32 @@ def _scope_allows_symbol(scope: Mapping[str, Any], symbol: str) -> bool:
     return not requested or symbol in requested
 
 
-def _bounded_scanner_request(policy: Any, scope: Mapping[str, Any]) -> Any:
-    from src.scanner.scanner_contract import scanner_request_from_policy
-
-    request = scanner_request_from_policy(policy)
-    scanner_symbol_cap = max(
+def _certification_scanner_symbol_cap(scope: Mapping[str, Any]) -> int:
+    operator_symbol_cap = max(
         1,
         _nonnegative_int(
             scope.get("max_observation_symbols", DEFAULT_MAX_OBSERVATION_SYMBOLS),
             default=DEFAULT_MAX_OBSERVATION_SYMBOLS,
         ),
     )
-    requested_top_n = max(1, min(int(request.requested_top_n), scanner_symbol_cap))
+    return max(1, min(operator_symbol_cap, DEFAULT_CERTIFICATION_SCANNER_SYMBOL_CAP))
+
+
+def _certification_news_runtime_reserve_seconds(scope: Mapping[str, Any]) -> float:
+    observation_seconds = _nonnegative_float(
+        scope.get("max_observation_seconds", DEFAULT_MAX_OBSERVATION_SECONDS),
+        default=DEFAULT_MAX_OBSERVATION_SECONDS,
+    )
+    if observation_seconds <= 0.0:
+        return 0.0
+    return min(DEFAULT_CERTIFICATION_NEWS_RUNTIME_RESERVE_SECONDS, observation_seconds)
+
+
+def _bounded_scanner_request(policy: Any, scope: Mapping[str, Any]) -> Any:
+    from src.scanner.scanner_contract import scanner_request_from_policy
+
+    request = scanner_request_from_policy(policy)
+    requested_top_n = max(1, min(int(request.requested_top_n), _certification_scanner_symbol_cap(scope)))
     return replace(request, requested_top_n=requested_top_n)
 
 
@@ -1618,6 +1647,7 @@ def collect_real_readonly_runtime_evidence(
     from src.core_engine.state import RunMode
     from src.risk.risk_audit import AccountSnapshot, evaluate_trade_intents
     from src.scanner.contracts import policy_from_config
+    from src.scanner.scanner_contract import scanner_request_from_policy
     from src.scanner.scanner_runner import run_scanner_cycle
     from src.strategies.ross_momentum.patterns.pattern_trace import build_runtime_pattern_inputs
     from src.strategies.ross_momentum.strategy import RossMomentumStrategy
@@ -1629,13 +1659,16 @@ def collect_real_readonly_runtime_evidence(
     )
 
     policy = policy_from_config()
+    scanner_base_request = scanner_request_from_policy(policy)
     scanner_request = _bounded_scanner_request(policy, scope)
+    scanner_news_reserve_seconds = _certification_news_runtime_reserve_seconds(scope)
     scanner_started_s = time.monotonic()
     scanner_payload = run_scanner_cycle(
         mode="READ_ONLY",
         policy=policy,
         scanner_request=scanner_request,
         runtime_deadline_s=scanner_runtime_deadline_s,
+        runtime_news_reserve_s=scanner_news_reserve_seconds,
     )
     scanner_elapsed_seconds = round(time.monotonic() - scanner_started_s, 3)
     scanner_runtime_bound = (
@@ -1645,8 +1678,11 @@ def collect_real_readonly_runtime_evidence(
     )
     scope.update(
         {
+            "scanner_original_requested_top_n": int(scanner_base_request.requested_top_n),
             "scanner_requested_top_n": int(scanner_request.requested_top_n),
+            "scanner_request_symbol_cap": int(_certification_scanner_symbol_cap(scope)),
             "scanner_runtime_budget_seconds": float(scope["max_observation_seconds"]),
+            "scanner_runtime_news_reserve_seconds": float(scanner_news_reserve_seconds),
             "scanner_runtime_elapsed_seconds": scanner_elapsed_seconds,
             "scanner_runtime_bound": _json_safe(scanner_runtime_bound if isinstance(scanner_runtime_bound, Mapping) else {}),
             "scanner_returned_naturally": True,

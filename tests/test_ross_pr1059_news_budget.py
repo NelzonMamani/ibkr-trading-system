@@ -169,7 +169,7 @@ def test_pr1059_fast_first_and_extended_only_unresolved_when_budget_remains(monk
 
     news_by_symbol, diagnostics = scanner_runner._enrich_news_context(["FAST", "SLOW"], "IBKR")
 
-    assert call_order == [("fast", ["FAST", "SLOW"], 5.0), ("extended", ["SLOW"], 5.0)]
+    assert call_order == [("fast", ["FAST", "SLOW"], 5.0), ("extended", ["SLOW"], 1.75)]
     assert news_by_symbol["FAST"]["ross_catalyst_valid"] is True
     assert news_by_symbol["SLOW"]["ross_catalyst_valid"] is True
     assert diagnostics.fast_sources_attempted_count == len(scanner_runner.RSS_FAST_TRADING)

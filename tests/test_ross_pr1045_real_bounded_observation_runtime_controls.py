@@ -338,9 +338,13 @@ def test_pr1045_collect_uses_bounded_scanner_request_and_records_natural_return(
     assert captured["mode"] == "READ_ONLY"
     assert captured["policy"] is not None
     assert captured["runtime_deadline_s"] >= before + 14
-    assert scanner_request.requested_top_n == 15
-    assert evidence.operator_observation_scope["scanner_requested_top_n"] == 15
+    assert captured["runtime_news_reserve_s"] == 8.0
+    assert scanner_request.requested_top_n == 2
+    assert evidence.operator_observation_scope["scanner_original_requested_top_n"] >= 2
+    assert evidence.operator_observation_scope["scanner_requested_top_n"] == 2
+    assert evidence.operator_observation_scope["scanner_request_symbol_cap"] == 2
     assert evidence.operator_observation_scope["scanner_runtime_budget_seconds"] == 15.0
+    assert evidence.operator_observation_scope["scanner_runtime_news_reserve_seconds"] == 8.0
     assert evidence.operator_observation_scope["scanner_returned_naturally"] is True
     assert evidence.operator_observation_scope["scanner_runtime_bound"]["completed_returned_payload"] is True
 

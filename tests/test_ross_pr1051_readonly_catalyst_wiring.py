@@ -247,6 +247,21 @@ def test_pr1051_news_config_disabled_fails_closed_with_diagnostics(monkeypatch, 
     assert payload["float_focus_diagnostics"]["focus_drop_reason_counts"] == {"DROP_NO_CATALYST": 1}
 
 
+def test_pr1070_runtime_news_deadline_skip_is_not_reported_as_provider_disabled() -> None:
+    diagnostics = scanner_runner._disabled_news_diagnostics(
+        news_enabled=True,
+        run_mode="READ_ONLY",
+        explicit_mock=False,
+        symbols=["PR70A"],
+        status_override="news_skipped_runtime_deadline",
+    )
+
+    assert diagnostics.provider_status == "news_skipped_runtime_deadline"
+    assert diagnostics.failure_reason == "news_skipped_runtime_deadline"
+    assert diagnostics.result_status_counts == {"news_skipped_runtime_deadline": 1}
+    assert diagnostics.symbols_by_status == {"news_skipped_runtime_deadline": ["PR70A"]}
+
+
 @pytest.mark.parametrize(
     ("summary", "expected"),
     [

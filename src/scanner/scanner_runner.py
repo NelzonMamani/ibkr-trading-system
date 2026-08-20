@@ -2340,9 +2340,12 @@ def _disabled_news_diagnostics(
     run_mode: Any,
     explicit_mock: bool,
     symbols: Iterable[str],
+    status_override: str | None = None,
 ) -> NewsDiagnostics:
     normalized_symbols = _dedupe_sorted_symbols(symbols)
-    if not news_enabled:
+    if status_override:
+        status = status_override
+    elif not news_enabled:
         status = "provider_disabled"
     elif explicit_mock:
         status = "provider_disabled_for_mock"
@@ -2632,6 +2635,7 @@ def _ross_retrieval_policy(
     refresh_symbols: Iterable[str] = (),
     source_groups: tuple[str, ...] = ("FAST_TRADING", "PREP_EXTENDED"),
     tier_budgets: Optional[Dict[str, float]] = None,
+    total_budget_seconds: float | None = None,
 ) -> RetrievalPolicy:
     normalized_refresh_symbols = tuple(_dedupe_sorted_symbols(refresh_symbols))
     metadata: Dict[str, Any] = {}
@@ -2645,7 +2649,11 @@ def _ross_retrieval_policy(
         allow_cache_write=True,
         refresh_mode=refresh_mode,  # type: ignore[arg-type]
         network_allowed=network_allowed,
-        total_budget_seconds=_news_stage_budget_seconds(),
+        total_budget_seconds=(
+            _news_stage_budget_seconds()
+            if total_budget_seconds is None
+            else max(0.0, float(total_budget_seconds))
+        ),
         tier_budgets=tier_budgets or {},
         extended_reserve_fraction=_news_extended_tier_reserve_fraction(),
         request_timeout_seconds=max(0.0, _news_config_float("NEWS_REQUEST_TIMEOUT_S", 5.0)),
@@ -3177,6 +3185,8 @@ def _merge_news_diagnostics(
             description_summary_match_count=int(fast_diagnostics.description_summary_match_count or 0) + int(extended_diagnostics.description_summary_match_count or 0),
             qualifying_headline_count=sum(1 for context in news_by_symbol.values() if context.get("ross_catalyst_valid")),
             non_qualifying_headline_count=sum(1 for context in news_by_symbol.values() if context.get("news_present") and not context.get("ross_catalyst_valid")),
+            total_news_budget_seconds=float(fast_diagnostics.total_news_budget_seconds or _news_stage_budget_seconds()),
+            news_elapsed_seconds=float(fast_diagnostics.news_elapsed_seconds or 0.0) + float(extended_diagnostics.news_elapsed_seconds or 0.0),
             news_budget_exhausted=fast_diagnostics.news_budget_exhausted or extended_diagnostics.news_budget_exhausted,
             fast_budget_seconds=fast_diagnostics.fast_budget_seconds,
             extended_budget_reserved_seconds=fast_diagnostics.extended_budget_reserved_seconds,
@@ -3272,7 +3282,12 @@ def _enrich_news_context(
         or fast_diagnostics.provider_status in {"provider_unavailable", "provider_request_failure"}
     ):
         return fast_news_by_symbol, fast_diagnostics
-    if fast_diagnostics.news_budget_exhausted:
+    elapsed_after_fast = max(0.0, float(fast_diagnostics.news_elapsed_seconds or 0.0))
+    extended_budget_remaining = min(
+        _extended_only_tier_budget(),
+        max(0.0, _news_stage_budget_seconds() - elapsed_after_fast),
+    )
+    if fast_diagnostics.news_budget_exhausted or extended_budget_remaining <= 0.0:
         return fast_news_by_symbol, _with_extended_budget_skip(fast_diagnostics, fast_unresolved_symbols, fast_news_by_symbol)
 
     extended_result = service.get_news(
@@ -3283,7 +3298,8 @@ def _enrich_news_context(
             network_allowed=True,
             refresh_symbols=fast_unresolved_symbols,
             source_groups=("PREP_EXTENDED",),
-            tier_budgets={"extended": _extended_only_tier_budget()},
+            tier_budgets={"extended": extended_budget_remaining},
+            total_budget_seconds=extended_budget_remaining,
         ),
     )
     news_by_symbol = _ross_news_contexts_from_news_intelligence_result(extended_result)
@@ -4634,6 +4650,7 @@ def run_scanner_cycle(
     forced_session_label: str | None = None,
     forced_session_source: str | None = None,
     runtime_deadline_s: float | None = None,
+    runtime_news_reserve_s: float | None = None,
 ) -> Dict[str, Any]:
     global _SCAN_CYCLE_COUNT, _WATCHLIST_HASH, _LAST_SESSION_LABEL, _LAST_PRINT_CYCLE, _PERSISTENT_PROVIDER, _PERSISTENT_PROVIDER_SOURCE, _LAST_BROKER_SCAN_TS, _LAST_SCANNER_PAYLOAD
     _SCAN_CYCLE_COUNT += 1
@@ -4656,9 +4673,21 @@ def run_scanner_cycle(
             runtime_deadline_value = float(runtime_deadline_s)
         except (TypeError, ValueError):
             runtime_deadline_value = None
+    runtime_news_reserve_value = 0.0
+    if runtime_news_reserve_s is not None:
+        try:
+            runtime_news_reserve_value = max(0.0, float(runtime_news_reserve_s))
+        except (TypeError, ValueError):
+            runtime_news_reserve_value = 0.0
     scanner_runtime_bound: Dict[str, Any] = {
         "active": runtime_deadline_value is not None,
         "budget_seconds": round(max(0.0, runtime_deadline_value - runtime_started_s), 3) if runtime_deadline_value is not None else None,
+        "news_reserve_seconds": round(runtime_news_reserve_value, 3) if runtime_deadline_value is not None else 0.0,
+        "upstream_budget_seconds": (
+            round(max(0.0, runtime_deadline_value - runtime_started_s - runtime_news_reserve_value), 3)
+            if runtime_deadline_value is not None
+            else None
+        ),
         "stopped": False,
         "stop_stage": None,
         "stop_reason": None,
@@ -4666,38 +4695,56 @@ def run_scanner_cycle(
         "completed_returned_payload": False,
     }
 
-    def _runtime_remaining_seconds() -> float | None:
+    def _runtime_remaining_seconds(*, reserve_news: bool = False) -> float | None:
         if runtime_deadline_value is None:
             return None
-        return max(0.0, runtime_deadline_value - time.monotonic())
+        effective_deadline = runtime_deadline_value
+        if reserve_news and runtime_news_reserve_value > 0.0:
+            effective_deadline -= runtime_news_reserve_value
+        return max(0.0, effective_deadline - time.monotonic())
 
-    def _mark_runtime_bound(stage: str) -> None:
+    def _mark_runtime_bound(stage: str, reason: str = "RUNTIME_DEADLINE_REACHED") -> None:
         if scanner_runtime_bound["stopped"]:
+            if (
+                scanner_runtime_bound.get("stop_reason") == "RUNTIME_NEWS_RESERVE_REACHED"
+                and reason == "RUNTIME_DEADLINE_REACHED"
+            ):
+                scanner_runtime_bound["stop_stage"] = stage
+                scanner_runtime_bound["stop_reason"] = reason
+                scanner_runtime_bound["elapsed_seconds"] = round(time.monotonic() - runtime_started_s, 3)
+                diagnostics["scanner_runtime_bound"] = dict(scanner_runtime_bound)
             return
         scanner_runtime_bound["stopped"] = True
         scanner_runtime_bound["stop_stage"] = stage
-        scanner_runtime_bound["stop_reason"] = "RUNTIME_DEADLINE_REACHED"
+        scanner_runtime_bound["stop_reason"] = reason
         scanner_runtime_bound["elapsed_seconds"] = round(time.monotonic() - runtime_started_s, 3)
         diagnostics["scanner_runtime_bound"] = dict(scanner_runtime_bound)
         print(
             "[SCANNER][BOUNDED_STOP] "
             f"stage={stage} elapsed_seconds={scanner_runtime_bound['elapsed_seconds']} "
-            f"budget_seconds={scanner_runtime_bound['budget_seconds']}"
+            f"budget_seconds={scanner_runtime_bound['budget_seconds']} reason={reason}"
         )
 
-    def _runtime_bound_reached(stage: str) -> bool:
-        remaining = _runtime_remaining_seconds()
+    def _runtime_bound_reached(stage: str, *, reserve_news: bool = False) -> bool:
+        remaining = _runtime_remaining_seconds(reserve_news=reserve_news)
         if remaining is None:
             return False
         if scanner_runtime_bound["stopped"]:
+            if scanner_runtime_bound.get("stop_reason") == "RUNTIME_NEWS_RESERVE_REACHED" and not reserve_news:
+                actual_remaining = _runtime_remaining_seconds(reserve_news=False)
+                if actual_remaining is not None and actual_remaining <= 0:
+                    _mark_runtime_bound(stage, "RUNTIME_DEADLINE_REACHED")
+                    return True
+                return False
             return True
         if remaining <= 0:
-            _mark_runtime_bound(stage)
+            reason = "RUNTIME_NEWS_RESERVE_REACHED" if reserve_news and runtime_news_reserve_value > 0.0 else "RUNTIME_DEADLINE_REACHED"
+            _mark_runtime_bound(stage, reason)
             return True
         return False
 
-    def _runtime_stage_timeout(default_seconds: float) -> float:
-        remaining = _runtime_remaining_seconds()
+    def _runtime_stage_timeout(default_seconds: float, *, reserve_news: bool = False) -> float:
+        remaining = _runtime_remaining_seconds(reserve_news=reserve_news)
         if remaining is None:
             return float(default_seconds)
         if remaining <= 0:
@@ -5082,13 +5129,13 @@ def run_scanner_cycle(
             f"unchanged={len(unchanged_symbols_delta)} escalated={len(escalated_symbols_delta)}"
         )
 
-        snapshot_runtime_skipped = _runtime_bound_reached("pre_market_snapshot_enrichment")
+        snapshot_runtime_skipped = _runtime_bound_reached("pre_market_snapshot_enrichment", reserve_news=True)
         snapshot_batch_timeout_seconds = 0.0
         if snapshot_runtime_skipped:
             market_snapshots = {}
             snapshot_diag = {}
         else:
-            snapshot_batch_timeout_seconds = _runtime_stage_timeout(5.0)
+            snapshot_batch_timeout_seconds = _runtime_stage_timeout(5.0, reserve_news=True)
             snapshot_enricher = MarketSnapshotEnricher(
                 connection_manager=getattr(provider, "connection_manager", None),
                 batch_timeout_seconds=snapshot_batch_timeout_seconds,
@@ -5113,7 +5160,7 @@ def run_scanner_cycle(
         }
 
         float_cache_path = _resolve_float_cache_path()
-        if _runtime_bound_reached("pre_float_cache"):
+        if _runtime_bound_reached("pre_float_cache", reserve_news=True):
             float_cache = {}
             float_discovery_proof = _empty_float_discovery_proof()
             float_discovery_proof["float_discovery_pending_count"] = len(symbols)
@@ -5148,7 +5195,7 @@ def run_scanner_cycle(
         print("[SCANNER][STAGE] market_snapshot_enrichment")
         print("[SCANNER][STAGE] gates")
         for rank, symbol in enumerate(symbols, start=1):
-            if _runtime_bound_reached("gates"):
+            if _runtime_bound_reached("gates", reserve_news=True):
                 break
             symbol_state = daily_state.top_universe.get(symbol)
             should_recheck = True
@@ -5461,6 +5508,7 @@ def run_scanner_cycle(
         selector = resolve_watchlist_selector(ranking_intent)
         watchlist_limit = limits["watchlist_limit"]
         news_enabled = bool(get_config("NEWS_ENABLED"))
+        news_skip_status: str | None = None
         allow_news = news_enabled and run_mode not in {
             RunMode.LIVE,
             RunMode.PAPER,
@@ -5468,6 +5516,7 @@ def run_scanner_cycle(
         if explicit_mock:
             allow_news = False
         if allow_news and _runtime_bound_reached("pre_news"):
+            news_skip_status = "news_skipped_runtime_deadline"
             allow_news = False
         catalyst_override = None
         catalyst_decision = None
@@ -5512,6 +5561,7 @@ def run_scanner_cycle(
                 run_mode=run_mode,
                 explicit_mock=explicit_mock,
                 symbols=candidate_symbols,
+                status_override=news_skip_status,
             )
             if not allow_news
             else NewsDiagnostics(False, False, None, 0, 0, {}, provider_status="not_requested")
@@ -5878,6 +5928,7 @@ def run_scanner_cycle(
         missing_watchlist_news_symbols = [symbol for symbol in watchlist_symbols if symbol not in news_by_symbol]
         news_symbol_metadata = _news_symbol_metadata_for_contexts(watchlist_contexts)
         if missing_watchlist_news_symbols and allow_news and _runtime_bound_reached("pre_watchlist_news"):
+            news_skip_status = "news_skipped_runtime_deadline"
             allow_news = False
         if missing_watchlist_news_symbols and allow_news:
             fetched_news, news_diag = _enrich_news_context(
@@ -5894,6 +5945,7 @@ def run_scanner_cycle(
                 run_mode=run_mode,
                 explicit_mock=explicit_mock,
                 symbols=watchlist_symbols,
+                status_override=news_skip_status,
             )
         else:
             news_diag = _with_news_status_index(news_diag, news_by_symbol)
