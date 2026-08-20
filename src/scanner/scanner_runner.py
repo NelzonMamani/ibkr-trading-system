@@ -344,6 +344,13 @@ class NewsDiagnostics:
     qualifying_headline_count: int = 0
     non_qualifying_headline_count: int = 0
     max_entries_per_symbol: int = 0
+    total_news_budget_seconds: float = 0.0
+    news_elapsed_seconds: float = 0.0
+    news_budget_exhausted: bool = False
+    fast_sources_attempted_count: int = 0
+    extended_sources_attempted_count: int = 0
+    sources_skipped_due_to_budget_count: int = 0
+    symbols_unresolved_at_budget_exhaustion: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -2447,10 +2454,16 @@ def _merge_rss_failure_summaries(*summaries: Any) -> RssFailureSummary:
     reason: str | None = None
     tier_source_counts: Counter[str] = Counter()
     tier_match_counts: Counter[str] = Counter()
+    tier_sources_attempted_counts: Counter[str] = Counter()
     ticker_token_match_count = 0
     company_name_match_count = 0
     description_summary_match_count = 0
     max_entries_per_symbol = 0
+    total_news_budget_seconds = 0.0
+    news_elapsed_seconds = 0.0
+    news_budget_exhausted = False
+    sources_attempted_count = 0
+    sources_skipped_due_to_budget_count = 0
     for summary in summaries:
         if summary is None:
             continue
@@ -2466,10 +2479,16 @@ def _merge_rss_failure_summaries(*summaries: Any) -> RssFailureSummary:
                     bucket[str(code)] = bucket.get(str(code), 0) + int(count or 0)
         tier_source_counts.update(dict(getattr(summary, "tier_source_counts", {}) or {}))
         tier_match_counts.update(dict(getattr(summary, "tier_match_counts", {}) or {}))
+        tier_sources_attempted_counts.update(dict(getattr(summary, "tier_sources_attempted_counts", {}) or {}))
         ticker_token_match_count += int(getattr(summary, "ticker_token_match_count", 0) or 0)
         company_name_match_count += int(getattr(summary, "company_name_match_count", 0) or 0)
         description_summary_match_count += int(getattr(summary, "description_summary_match_count", 0) or 0)
         max_entries_per_symbol = max(max_entries_per_symbol, int(getattr(summary, "max_entries_per_symbol", 0) or 0))
+        total_news_budget_seconds = max(total_news_budget_seconds, float(getattr(summary, "total_news_budget_seconds", 0.0) or 0.0))
+        news_elapsed_seconds = max(news_elapsed_seconds, float(getattr(summary, "news_elapsed_seconds", 0.0) or 0.0))
+        news_budget_exhausted = news_budget_exhausted or bool(getattr(summary, "news_budget_exhausted", False))
+        sources_attempted_count += int(getattr(summary, "sources_attempted_count", 0) or 0)
+        sources_skipped_due_to_budget_count += int(getattr(summary, "sources_skipped_due_to_budget_count", 0) or 0)
     return RssFailureSummary(
         total_sources=total_sources,
         failure_count=failure_count,
@@ -2481,6 +2500,12 @@ def _merge_rss_failure_summaries(*summaries: Any) -> RssFailureSummary:
         company_name_match_count=company_name_match_count,
         description_summary_match_count=description_summary_match_count,
         max_entries_per_symbol=max_entries_per_symbol,
+        total_news_budget_seconds=total_news_budget_seconds,
+        news_elapsed_seconds=news_elapsed_seconds,
+        news_budget_exhausted=news_budget_exhausted,
+        sources_attempted_count=sources_attempted_count,
+        sources_skipped_due_to_budget_count=sources_skipped_due_to_budget_count,
+        tier_sources_attempted_counts=dict(tier_sources_attempted_counts),
     )
 
 
@@ -2572,6 +2597,21 @@ def _headline_quality_counts(headlines_by_symbol: Dict[str, List[Headline]], now
     return qualifying, non_qualifying
 
 
+def _news_stage_budget_seconds() -> float:
+    try:
+        return max(0.0, float(get_config("NEWS_TOTAL_BUDGET_S") or 0.0))
+    except Exception:
+        return 0.0
+
+
+def _news_stage_remaining_seconds(stage_deadline_s: float) -> float:
+    return max(0.0, float(stage_deadline_s) - time.monotonic())
+
+
+def _news_stage_elapsed_seconds(stage_started_at_s: float) -> float:
+    return max(0.0, time.monotonic() - float(stage_started_at_s))
+
+
 def _enrich_news_context(
     symbols: List[str],
     provider_source: str,
@@ -2579,19 +2619,27 @@ def _enrich_news_context(
 ) -> tuple[Dict[str, Dict[str, Any]], NewsDiagnostics]:
     sources = list(RSS_FAST_TRADING)
     max_entries_per_symbol = int(get_config("NEWS_MAX_ENTRIES_PER_SYMBOL") or 5)
+    total_news_budget_seconds = _news_stage_budget_seconds()
+    stage_started_at_s = time.monotonic()
+    stage_deadline_s = stage_started_at_s + total_news_budget_seconds
     symbol_metadata = symbol_metadata_by_symbol or {}
-    headlines_by_symbol, fast_summary = fetch_fast_headlines_for_symbols(
+    headlines_by_symbol, fast_summary_raw = fetch_fast_headlines_for_symbols(
         symbols,
         sources,
         lookback_hours=float(get_config("NEWS_LOOKBACK_HOURS")),
         request_timeout_s=float(get_config("NEWS_REQUEST_TIMEOUT_S")),
         symbol_metadata=symbol_metadata,
         max_entries_per_symbol=max_entries_per_symbol,
+        total_news_budget_seconds=total_news_budget_seconds,
+        stage_started_at_s=stage_started_at_s,
+        stage_deadline_s=stage_deadline_s,
     )
+    fast_summary = _merge_rss_failure_summaries(fast_summary_raw)
     summary: RssFailureSummary = fast_summary
     fast_provider_status = _news_provider_status(fast_summary)
     extended_fallback_requested = False
     extended_fallback_symbol_count = 0
+    scanner_budget_skipped_sources = 0
 
     now_ts = time.time()
     provider_failed = fast_provider_status in {"provider_unavailable", "provider_request_failure"}
@@ -2603,9 +2651,11 @@ def _enrich_news_context(
         ]
         if unresolved_symbols:
             extended_sources = list(RSS_PREP_EXTENDED)
-            extended_fallback_requested = bool(extended_sources)
-            extended_fallback_symbol_count = len(unresolved_symbols) if extended_sources else 0
-            if extended_sources:
+            budget_remaining_s = _news_stage_remaining_seconds(stage_deadline_s)
+            budget_exhausted_before_extended = bool(getattr(fast_summary, "news_budget_exhausted", False)) or budget_remaining_s <= 0.0
+            if extended_sources and not budget_exhausted_before_extended:
+                extended_fallback_requested = True
+                extended_fallback_symbol_count = len(unresolved_symbols)
                 extended_metadata = {
                     symbol: symbol_metadata.get(symbol, {})
                     for symbol in unresolved_symbols
@@ -2619,16 +2669,45 @@ def _enrich_news_context(
                     symbol_metadata=extended_metadata,
                     max_entries_per_symbol=max_entries_per_symbol,
                     source_tier="extended",
+                    total_news_budget_seconds=total_news_budget_seconds,
+                    stage_started_at_s=stage_started_at_s,
+                    stage_deadline_s=stage_deadline_s,
                 )
                 for symbol, extended_headlines in extended_headlines_by_symbol.items():
                     combined = list(headlines_by_symbol.get(symbol, [])) + list(extended_headlines)
                     headlines_by_symbol[symbol] = _dedupe_bounded_headlines(combined, max_entries_per_symbol)
                 summary = _merge_rss_failure_summaries(fast_summary, extended_summary)
+            elif extended_sources and budget_exhausted_before_extended:
+                scanner_budget_skipped_sources += len(extended_sources)
+
+    summary_elapsed = max(
+        float(getattr(summary, "news_elapsed_seconds", 0.0) or 0.0),
+        _news_stage_elapsed_seconds(stage_started_at_s),
+    )
+    budget_exhausted = bool(getattr(summary, "news_budget_exhausted", False)) or scanner_budget_skipped_sources > 0
+    if scanner_budget_skipped_sources or summary_elapsed or budget_exhausted or total_news_budget_seconds:
+        summary = replace(
+            summary,
+            total_news_budget_seconds=total_news_budget_seconds,
+            news_elapsed_seconds=summary_elapsed,
+            news_budget_exhausted=budget_exhausted,
+            sources_skipped_due_to_budget_count=int(getattr(summary, "sources_skipped_due_to_budget_count", 0) or 0)
+            + scanner_budget_skipped_sources,
+        )
 
     all_failed = summary.total_sources > 0 and summary.failure_count >= summary.total_sources
     reason_override = summary.reason
     provider_status = _news_provider_status(summary)
-    news_degraded = all_failed or bool(reason_override)
+    now_ts = time.time()
+    symbols_unresolved_at_budget_exhaustion: List[str] = []
+    if bool(getattr(summary, "news_budget_exhausted", False)):
+        symbols_unresolved_at_budget_exhaustion = [
+            symbol
+            for symbol in symbols
+            if not _headlines_have_confirmed_catalyst(headlines_by_symbol.get(symbol, []), now_ts)
+        ]
+    budget_unresolved_symbols = set(symbols_unresolved_at_budget_exhaustion)
+    news_degraded = all_failed or bool(reason_override) or bool(getattr(summary, "news_budget_exhausted", False))
 
     if provider_source == "MOCK":
         if all(len(items) == 0 for items in headlines_by_symbol.values()):
@@ -2669,6 +2748,10 @@ def _enrich_news_context(
                 news_status = provider_status
                 news_available = False
                 notes = provider_status
+            elif symbol in budget_unresolved_symbols:
+                news_status = "budget_exhausted"
+                news_available = False
+                notes = "News retrieval budget exhausted before full source coverage"
             else:
                 news_status = "no_recent_news"
                 news_available = True
@@ -2721,6 +2804,8 @@ def _enrich_news_context(
         ross_catalyst_valid = bool(catalyst_type and not dilution_flag and news_is_fresh)
         if ross_catalyst_valid:
             news_status = "catalyst_confirmed"
+        elif symbol in budget_unresolved_symbols:
+            news_status = "budget_exhausted"
         elif not news_is_fresh:
             news_status = "stale_news"
         else:
@@ -2784,6 +2869,7 @@ def _enrich_news_context(
 
     news_gate_bypassed = all_failed or reason_override in {"no_sources", "feedparser_missing"}
     qualifying_count, non_qualifying_count = _headline_quality_counts(headlines_by_symbol, now_ts)
+    tier_attempt_counts = dict(getattr(summary, "tier_sources_attempted_counts", {}) or {})
     diagnostics = NewsDiagnostics(
         news_degraded=news_degraded,
         news_gate_bypassed=news_gate_bypassed,
@@ -2802,8 +2888,16 @@ def _enrich_news_context(
         qualifying_headline_count=qualifying_count,
         non_qualifying_headline_count=non_qualifying_count,
         max_entries_per_symbol=max_entries_per_symbol,
+        total_news_budget_seconds=float(getattr(summary, "total_news_budget_seconds", 0.0) or 0.0),
+        news_elapsed_seconds=float(getattr(summary, "news_elapsed_seconds", 0.0) or 0.0),
+        news_budget_exhausted=bool(getattr(summary, "news_budget_exhausted", False)),
+        fast_sources_attempted_count=int(tier_attempt_counts.get("fast", 0) or 0),
+        extended_sources_attempted_count=int(tier_attempt_counts.get("extended", 0) or 0),
+        sources_skipped_due_to_budget_count=int(getattr(summary, "sources_skipped_due_to_budget_count", 0) or 0),
+        symbols_unresolved_at_budget_exhaustion=sorted(symbols_unresolved_at_budget_exhaustion),
     )
     return news_by_symbol, _with_news_status_index(diagnostics, news_by_symbol)
+
 
 def _rank_candidates(contexts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     strategy = _STRATEGY_REGISTRY.get("ross_momentum")
@@ -5362,6 +5456,13 @@ def run_scanner_cycle(
             "qualifying_headline_count": int(news_diag.qualifying_headline_count),
             "non_qualifying_headline_count": int(news_diag.non_qualifying_headline_count),
             "max_entries_per_symbol": int(news_diag.max_entries_per_symbol),
+            "total_news_budget_seconds": float(news_diag.total_news_budget_seconds),
+            "news_elapsed_seconds": float(news_diag.news_elapsed_seconds),
+            "news_budget_exhausted": bool(news_diag.news_budget_exhausted),
+            "fast_sources_attempted_count": int(news_diag.fast_sources_attempted_count),
+            "extended_sources_attempted_count": int(news_diag.extended_sources_attempted_count),
+            "sources_skipped_due_to_budget_count": int(news_diag.sources_skipped_due_to_budget_count),
+            "symbols_unresolved_at_budget_exhaustion": list(news_diag.symbols_unresolved_at_budget_exhaustion),
         }
         if news_diag.news_degraded:
             for context in watchlist_contexts:

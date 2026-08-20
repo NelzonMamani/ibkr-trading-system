@@ -44,6 +44,12 @@ class RssFailureSummary:
     company_name_match_count: int = 0
     description_summary_match_count: int = 0
     max_entries_per_symbol: int = 0
+    total_news_budget_seconds: float = 0.0
+    news_elapsed_seconds: float = 0.0
+    news_budget_exhausted: bool = False
+    sources_attempted_count: int = 0
+    sources_skipped_due_to_budget_count: int = 0
+    tier_sources_attempted_counts: Dict[str, int] = field(default_factory=dict)
 
 
 _METADATA_KEYS = (
@@ -258,6 +264,28 @@ def _failure_code(exc: Exception | None, feed_missing: bool = False) -> str:
     return type(exc).__name__.upper()
 
 
+def _normalize_budget_seconds(value: float | None) -> float | None:
+    if value is None:
+        return None
+    try:
+        budget = float(value)
+    except (TypeError, ValueError):
+        return None
+    if budget < 0:
+        return 0.0
+    return budget
+
+
+def _budget_remaining_seconds(deadline_s: float | None) -> float | None:
+    if deadline_s is None:
+        return None
+    return max(0.0, float(deadline_s) - time.monotonic())
+
+
+def _budget_elapsed_seconds(started_at_s: float) -> float:
+    return max(0.0, time.monotonic() - float(started_at_s))
+
+
 def _record_failure(
     failures_by_domain: Dict[str, Dict[str, int]],
     domain: str,
@@ -286,6 +314,22 @@ def _empty_headlines(symbols: List[str]) -> Dict[str, List[Headline]]:
     return {str(symbol).upper(): [] for symbol in symbols}
 
 
+def _budget_summary_kwargs(
+    *,
+    total_news_budget_seconds: float | None,
+    stage_started_at_s: float,
+    stage_deadline_s: float | None,
+    news_budget_exhausted: bool = False,
+) -> Dict[str, Any]:
+    remaining = _budget_remaining_seconds(stage_deadline_s)
+    exhausted = bool(news_budget_exhausted or (remaining is not None and remaining <= 0.0))
+    return {
+        "total_news_budget_seconds": float(total_news_budget_seconds or 0.0),
+        "news_elapsed_seconds": _budget_elapsed_seconds(stage_started_at_s),
+        "news_budget_exhausted": exhausted,
+    }
+
+
 def _summary_for_unavailable(
     *,
     sources: List[str],
@@ -293,6 +337,9 @@ def _summary_for_unavailable(
     failures_by_domain: Dict[str, Dict[str, int]],
     reason: str,
     max_entries_per_symbol: int,
+    total_news_budget_seconds: float | None,
+    stage_started_at_s: float,
+    stage_deadline_s: float | None,
 ) -> RssFailureSummary:
     return RssFailureSummary(
         len(sources),
@@ -301,6 +348,14 @@ def _summary_for_unavailable(
         reason,
         tier_source_counts={source_tier: len(sources)} if sources else {},
         max_entries_per_symbol=max_entries_per_symbol,
+        sources_attempted_count=0,
+        sources_skipped_due_to_budget_count=0,
+        tier_sources_attempted_counts={source_tier: 0} if sources else {},
+        **_budget_summary_kwargs(
+            total_news_budget_seconds=total_news_budget_seconds,
+            stage_started_at_s=stage_started_at_s,
+            stage_deadline_s=stage_deadline_s,
+        ),
     )
 
 
@@ -313,15 +368,35 @@ def _fetch_headlines_from_sources(
     symbol_metadata: Mapping[str, Any] | None,
     max_entries_per_symbol: int,
     source_tier: str,
+    total_news_budget_seconds: float | None = None,
+    stage_started_at_s: float | None = None,
+    stage_deadline_s: float | None = None,
 ) -> tuple[Dict[str, List[Headline]], RssFailureSummary]:
+    budget_seconds = _normalize_budget_seconds(total_news_budget_seconds)
+    started_at_s = time.monotonic() if stage_started_at_s is None else float(stage_started_at_s)
+    deadline_s = float(stage_deadline_s) if stage_deadline_s is not None else None
+    if deadline_s is None and budget_seconds is not None:
+        deadline_s = started_at_s + budget_seconds
+    if budget_seconds is None and deadline_s is not None:
+        budget_seconds = max(0.0, deadline_s - started_at_s)
+
     normalized_symbols = [str(symbol).strip().upper() for symbol in symbols if str(symbol).strip()]
     headlines: Dict[str, List[Headline]] = _empty_headlines(normalized_symbols)
     failures_by_domain: Dict[str, Dict[str, int]] = {}
     max_entries = max(1, int(max_entries_per_symbol or 1))
+
+    def budget_kwargs(exhausted: bool = False) -> Dict[str, Any]:
+        return _budget_summary_kwargs(
+            total_news_budget_seconds=budget_seconds,
+            stage_started_at_s=started_at_s,
+            stage_deadline_s=deadline_s,
+            news_budget_exhausted=exhausted,
+        )
+
     if not normalized_symbols:
-        return headlines, RssFailureSummary(0, 0, failures_by_domain, "no_symbols", max_entries_per_symbol=max_entries)
+        return headlines, RssFailureSummary(0, 0, failures_by_domain, "no_symbols", max_entries_per_symbol=max_entries, **budget_kwargs())
     if not sources:
-        return headlines, RssFailureSummary(0, 0, failures_by_domain, "no_sources", max_entries_per_symbol=max_entries)
+        return headlines, RssFailureSummary(0, 0, failures_by_domain, "no_sources", max_entries_per_symbol=max_entries, **budget_kwargs())
     if feedparser is None:
         for url in sources:
             _record_failure(failures_by_domain, _domain_for_url(url), "DEPENDENCY_MISSING")
@@ -331,6 +406,9 @@ def _fetch_headlines_from_sources(
             failures_by_domain=failures_by_domain,
             reason="feedparser_missing",
             max_entries_per_symbol=max_entries,
+            total_news_budget_seconds=budget_seconds,
+            stage_started_at_s=started_at_s,
+            stage_deadline_s=deadline_s,
         )
         _summarize_failures(summary)
         return headlines, summary
@@ -345,12 +423,25 @@ def _fetch_headlines_from_sources(
     company_name_matches = 0
     description_summary_matches = 0
     tier_matches = 0
+    sources_attempted = 0
+    sources_skipped_due_to_budget = 0
+    news_budget_exhausted = False
+    configured_timeout_s = max(0.001, float(request_timeout_s or 0.001))
 
-    for url in sources:
+    for index, url in enumerate(sources):
         if all(len(items) >= max_entries for items in headlines.values()):
             break
+        remaining_budget_s = _budget_remaining_seconds(deadline_s)
+        if remaining_budget_s is not None and remaining_budget_s <= 0.0:
+            news_budget_exhausted = True
+            sources_skipped_due_to_budget += len(sources) - index
+            break
+        timeout_s = configured_timeout_s
+        if remaining_budget_s is not None:
+            timeout_s = min(configured_timeout_s, remaining_budget_s)
         try:
-            feed = _fetch_feed(url, request_timeout_s)
+            sources_attempted += 1
+            feed = _fetch_feed(url, timeout_s)
         except Exception as exc:
             failures += 1
             _record_failure(failures_by_domain, _domain_for_url(url), _failure_code(exc))
@@ -424,6 +515,16 @@ def _fetch_headlines_from_sources(
                         matched_field=matched_field,
                     )
                 )
+        remaining_budget_s = _budget_remaining_seconds(deadline_s)
+        if (
+            remaining_budget_s is not None
+            and remaining_budget_s <= 0.0
+            and not all(len(items) >= max_entries for items in headlines.values())
+            and index + 1 < len(sources)
+        ):
+            news_budget_exhausted = True
+            sources_skipped_due_to_budget += len(sources) - (index + 1)
+            break
     summary = RssFailureSummary(
         len(sources),
         failures,
@@ -435,6 +536,10 @@ def _fetch_headlines_from_sources(
         company_name_match_count=company_name_matches,
         description_summary_match_count=description_summary_matches,
         max_entries_per_symbol=max_entries,
+        sources_attempted_count=sources_attempted,
+        sources_skipped_due_to_budget_count=sources_skipped_due_to_budget,
+        tier_sources_attempted_counts={source_tier: sources_attempted},
+        **budget_kwargs(news_budget_exhausted),
     )
     _summarize_failures(summary)
     return headlines, summary
@@ -449,6 +554,9 @@ def fetch_headlines_for_symbols(
     symbol_metadata: Mapping[str, Any] | None = None,
     max_entries_per_symbol: int = 5,
     source_tier: str = "custom",
+    total_news_budget_seconds: float | None = None,
+    stage_started_at_s: float | None = None,
+    stage_deadline_s: float | None = None,
 ) -> tuple[Dict[str, List[Headline]], RssFailureSummary]:
     return _fetch_headlines_from_sources(
         symbols,
@@ -458,6 +566,9 @@ def fetch_headlines_for_symbols(
         symbol_metadata=symbol_metadata,
         max_entries_per_symbol=max_entries_per_symbol,
         source_tier=source_tier,
+        total_news_budget_seconds=total_news_budget_seconds,
+        stage_started_at_s=stage_started_at_s,
+        stage_deadline_s=stage_deadline_s,
     )
 
 
@@ -469,6 +580,9 @@ def fetch_fast_headlines_for_symbols(
     *,
     symbol_metadata: Mapping[str, Any] | None = None,
     max_entries_per_symbol: int = 5,
+    total_news_budget_seconds: float | None = None,
+    stage_started_at_s: float | None = None,
+    stage_deadline_s: float | None = None,
 ) -> tuple[Dict[str, List[Headline]], RssFailureSummary]:
     return _fetch_headlines_from_sources(
         symbols,
@@ -478,4 +592,7 @@ def fetch_fast_headlines_for_symbols(
         symbol_metadata=symbol_metadata,
         max_entries_per_symbol=max_entries_per_symbol,
         source_tier="fast",
+        total_news_budget_seconds=total_news_budget_seconds,
+        stage_started_at_s=stage_started_at_s,
+        stage_deadline_s=stage_deadline_s,
     )

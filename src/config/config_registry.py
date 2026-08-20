@@ -1359,6 +1359,15 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
         "mutable": "dynamic",
         "description": "HTTP timeout (seconds) for news RSS requests.",
     },
+    "NEWS_TOTAL_BUDGET_S": {
+        "type": float,
+        "default": 8.0,
+        "env": ["NEWS_TOTAL_BUDGET_S"],
+        "affects": ["NewsEngine"],
+        "enforcement": "SOFT",
+        "mutable": "dynamic",
+        "description": "Total wall-clock budget (seconds) for a scanner news retrieval stage.",
+    },
     "VERIFIED_RSS_PATH": {
         "type": str,
         "default_factory": _default_verified_rss_path,
