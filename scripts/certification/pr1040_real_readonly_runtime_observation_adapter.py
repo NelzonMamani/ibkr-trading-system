@@ -636,7 +636,7 @@ def _prep_context_watchlist_symbols(payload: Mapping[str, Any]) -> list[str]:
     combined = _combined_watchlist_symbols(payload)
     live = set(_live_watchlist_symbols(payload))
     prep_symbols: list[str] = []
-    rows = _scanner_rows(payload, ("watchlist_rows",))
+    rows = _scanner_rows(payload, ("watchlist_context_rows", "watchlist_rows"))
     for row in rows:
         symbol = _symbol(row)
         if symbol and symbol not in live and symbol not in prep_symbols:
@@ -654,7 +654,7 @@ def _live_watchlist_rows(payload: Mapping[str, Any]) -> list[Any]:
 
 def _prep_context_watchlist_rows(payload: Mapping[str, Any]) -> list[Any]:
     live = set(_live_watchlist_symbols(payload))
-    return [row for row in _scanner_rows(payload, ("watchlist_rows",)) if _symbol(row) not in live]
+    return [row for row in _scanner_rows(payload, ("watchlist_context_rows", "watchlist_rows")) if _symbol(row) not in live]
 
 
 def _session_label_from_payload(payload: Mapping[str, Any], rows: Sequence[Any]) -> str:
@@ -1615,7 +1615,7 @@ def build_pr1039_observation_input(evidence: RuntimeObservationEvidence) -> dict
             "watchlist_context_symbols": restored_watchlist_symbols,
             "prep_context_watchlist_symbols": prep_context_symbols,
             "watchlist_rows": _json_safe(_live_watchlist_rows(evidence.scanner_payload) or evidence.watchlist_rows),
-            "watchlist_context_rows": _json_safe(_scanner_rows(evidence.scanner_payload, ("watchlist_rows",)) or evidence.watchlist_rows),
+            "watchlist_context_rows": _json_safe(_scanner_rows(evidence.scanner_payload, ("watchlist_context_rows", "watchlist_rows")) or evidence.watchlist_rows),
             "prep_context_rows": _json_safe(_prep_context_watchlist_rows(evidence.scanner_payload)),
             "focus_rows": _json_safe(evidence.focus_rows),
             "manual_focus_injection": False,

@@ -6523,7 +6523,7 @@ def run_scanner_cycle(
         candidate_lookup = {candidate.symbol: candidate for candidate in candidate_metrics}
         watchlist_metrics = [
             candidate_lookup[symbol]
-            for symbol in watchlist_symbols
+            for symbol in live_watchlist_symbols
             if symbol in candidate_lookup
         ]
         focus_metrics = [
@@ -6645,25 +6645,32 @@ def run_scanner_cycle(
     watchlist_count = len(watchlist_symbols)
     cacheable = not (broker_returned_zero or raw_broker_count == 0)
     _finalize_runtime_bound()
+    live_watchlist_symbol_set = set(live_watchlist_symbols)
+    live_fast_rows = [
+        row
+        for row in fast_rows
+        if str(row.symbol or "").strip().upper() in live_watchlist_symbol_set
+    ]
 
     _LAST_SCANNER_PAYLOAD = {
         "scanner_version": SCANNER_VERSION,
         "scanner_git_sha": SCANNER_GIT_SHA,
         "timestamp_utc": utc_now.isoformat(),
         "universe_top_n": universe_top_n,
-        "symbols": [row.symbol for row in fast_rows],
+        "symbols": list(live_watchlist_symbols),
         "top_n_symbols": list(scanner_contract["top_n_symbols"]),
-        "watchlist": [row.symbol for row in fast_rows],
+        "watchlist": list(live_watchlist_symbols),
         "live_scanner_watchlist_k_symbols": live_watchlist_symbols,
         "prep_context_watchlist_symbols": prep_context_watchlist_symbols,
         "restored_watchlist_symbols": list(scanner_contract["restored_watchlist_symbols"]),
         "watchlist_context_symbols": watchlist_symbols,
-        "watchlist_rows": fast_rows,
+        "watchlist_rows": live_fast_rows,
+        "watchlist_context_rows": fast_rows,
         "focus_rows": deep_rows,
         "drop_ledger": drop_ledger,
         "watchlist_k": watchlist_metrics,
         "focus_m": focus_metrics,
-        "watchlist_k_symbols": watchlist_symbols,
+        "watchlist_k_symbols": list(live_watchlist_symbols),
         "focus_m_symbols": focus_symbols,
         "ross_top_universe_symbols": sorted(daily_state.top_universe.keys()),
         "ross_rejected_tracked_symbols": sorted(daily_state.rejected_tracked.keys()),

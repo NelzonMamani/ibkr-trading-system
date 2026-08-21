@@ -156,7 +156,13 @@ def test_run_scanner_cycle_runtime_deadline_returns_bounded_payload_without_symb
     market_snapshot = payload["diagnostics"]["market_snapshot_enrichment"]
     assert payload["topn_count"] == 2
     assert payload["symbols"] == []
+    assert payload["watchlist"] == []
     assert payload["watchlist_k_symbols"] == []
+    assert payload["live_scanner_watchlist_k_symbols"] == []
+    assert payload["prep_context_watchlist_symbols"] == payload["restored_watchlist_symbols"]
+    assert payload["watchlist_context_symbols"] == payload["restored_watchlist_symbols"]
+    assert [row.symbol for row in payload["watchlist_context_rows"]] == payload["restored_watchlist_symbols"]
+    assert payload["watchlist_rows"] == []
     assert provider.quote_calls == []
     assert runtime_bound["active"] is True
     assert runtime_bound["stopped"] is True

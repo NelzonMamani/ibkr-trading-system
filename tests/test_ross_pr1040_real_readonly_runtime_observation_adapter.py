@@ -109,15 +109,20 @@ def _scanner_payload_with_prep_context_rows() -> dict:
     ]
     return {
         "provider_source": "IBKR",
-        "symbols": ["JUNS", "SUGP", "QQQ", "SPY"],
+        "symbols": ["JUNS", "SUGP"],
         "top_n_symbols": ["JUNS", "SUGP"],
         "topn_count": 2,
         "survivors_count": 4,
-        "watchlist_k_symbols": ["JUNS", "SUGP", "QQQ", "SPY"],
+        "watchlist_k_symbols": ["JUNS", "SUGP"],
+        "live_scanner_watchlist_k_symbols": ["JUNS", "SUGP"],
+        "prep_context_watchlist_symbols": ["QQQ", "SPY"],
+        "restored_watchlist_symbols": ["JUNS", "SUGP", "QQQ", "SPY"],
+        "watchlist_context_symbols": ["JUNS", "SUGP", "QQQ", "SPY"],
         "focus_m_symbols": [],
         "watchlist_k": live_rows,
         "focus_m": [],
-        "watchlist_rows": live_rows + prep_rows,
+        "watchlist_rows": live_rows,
+        "watchlist_context_rows": live_rows + prep_rows,
         "focus_rows": [],
         "drop_ledger": {"SUGP": "DROP_FLOAT_UNKNOWN"},
         "diagnostics": {
