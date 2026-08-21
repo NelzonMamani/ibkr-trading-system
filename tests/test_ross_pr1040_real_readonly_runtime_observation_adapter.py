@@ -98,6 +98,39 @@ def _scanner_payload(*, catalyst: str = "CONFIRMED", manual_focus: bool = False)
     }
 
 
+def _scanner_payload_with_prep_context_rows() -> dict:
+    live_rows = [
+        {"symbol": "JUNS", "session_label": "PRE", "promotion_reason": "LIVE_SCAN", "watchlist_source": "LIVE_SCAN", "prep_seeded": False, "last_price": 7.85, "rvol": 3357.69, "float_millions": 0.48},
+        {"symbol": "SUGP", "session_label": "PRE", "promotion_reason": "LIVE_SCAN", "watchlist_source": "LIVE_SCAN", "prep_seeded": False, "last_price": 4.03, "rvol": 1180.56, "float_millions": None},
+    ]
+    prep_rows = [
+        {"symbol": "QQQ", "promotion_reason": "PREP_WATCHLIST_SEEDED", "watchlist_source": "PREP_SEEDED", "prep_seeded": True, "live_confirmation_pending": True, "data_quality_flags": ["PREP_WATCHLIST_SEEDED"]},
+        {"symbol": "SPY", "data_quality_flags": ["PREP_WATCHLIST_SEEDED"]},
+    ]
+    return {
+        "provider_source": "IBKR",
+        "symbols": ["JUNS", "SUGP", "QQQ", "SPY"],
+        "top_n_symbols": ["JUNS", "SUGP"],
+        "topn_count": 2,
+        "survivors_count": 4,
+        "watchlist_k_symbols": ["JUNS", "SUGP", "QQQ", "SPY"],
+        "focus_m_symbols": [],
+        "watchlist_k": live_rows,
+        "focus_m": [],
+        "watchlist_rows": live_rows + prep_rows,
+        "focus_rows": [],
+        "drop_ledger": {"SUGP": "DROP_FLOAT_UNKNOWN"},
+        "diagnostics": {
+            "scanner_contract": {
+                "top_n": 2,
+                "watchlist_k": 4,
+                "focus_m": 0,
+                "contract_valid": False,
+            }
+        },
+    }
+
+
 def _pattern_input(action: str = "BLOCK") -> dict:
     return {
         "symbol": "REAL1",
@@ -139,7 +172,7 @@ def _evidence(
     broker_after_connected: bool = True,
 ):
     scanner_payload = scanner if scanner is not None else _scanner_payload()
-    watchlist_rows = scanner_payload.get("watchlist_rows", [])
+    watchlist_rows = pr1040._live_watchlist_rows(scanner_payload) or scanner_payload.get("watchlist_rows", [])
     focus_rows = scanner_payload.get("focus_rows", [])
     source = storage_source or (pr1040.REAL_STORAGE_EVIDENCE_SOURCE if storage else "UNAVAILABLE")
     return pr1040.RuntimeObservationEvidence(
@@ -597,3 +630,63 @@ def test_pr1055_pr1040_catalyst_artifact_preserves_fail_closed_status_semantics(
     assert artifact["catalyst_diagnostic_status_by_symbol"] == {"REAL1": news_status}
     assert artifact["catalyst_status_reason_by_symbol"] == {"REAL1": expected_reason}
     assert artifact["catalyst_bypass"] is False
+
+def test_pr1075_pr1040_live_contract_excludes_prep_context_rows_without_dropping_context() -> None:
+    scanner = _scanner_payload_with_prep_context_rows()
+
+    spec = pr1040.build_pr1039_observation_input(_evidence(scanner=scanner, pattern_inputs=[]))
+
+    contract = spec["scanner_cycle_artifact"]["scanner_contract"]
+    assert spec["classification"] == "INSUFFICIENT_EVIDENCE"
+    assert contract["contract_valid"] is True
+    assert contract["top_n"] == 2
+    assert contract["watchlist_k"] == 2
+    assert contract["focus_m"] == 0
+    assert contract["live_scanner_watchlist_k_symbols"] == ["JUNS", "SUGP"]
+    assert contract["prep_context_watchlist_symbols"] == ["QQQ", "SPY"]
+    assert contract["restored_watchlist_symbols"] == ["JUNS", "SUGP", "QQQ", "SPY"]
+    assert spec["scanner_cycle_artifact"]["accepted_candidate_count"] == 2
+    assert spec["scanner_cycle_artifact"]["top_n_symbols"] == ["JUNS", "SUGP"]
+
+    diagnostics = spec["market_data_observation_diagnostics"]
+    assert diagnostics["watchlist_k_count"] == 2
+    assert diagnostics["watchlist_context_count"] == 4
+    assert diagnostics["prep_context_watchlist_count"] == 2
+
+    focus_artifact = spec["watchlist_focus_artifact"]
+    assert focus_artifact["watchlist_k_symbols"] == ["JUNS", "SUGP"]
+    assert focus_artifact["watchlist_context_symbols"] == ["JUNS", "SUGP", "QQQ", "SPY"]
+    assert focus_artifact["prep_context_watchlist_symbols"] == ["QQQ", "SPY"]
+    assert [row["symbol"] for row in focus_artifact["watchlist_rows"]] == ["JUNS", "SUGP"]
+    assert [row["symbol"] for row in focus_artifact["prep_context_rows"]] == ["QQQ", "SPY"]
+    assert focus_artifact["focus_m_symbols"] == []
+    assert "Scanner contract" not in " ".join(spec["final_verdict"]["blockers"])
+
+
+def test_pr1075_pr1040_genuine_live_watchlist_overflow_still_fails_contract() -> None:
+    scanner = _scanner_payload_with_prep_context_rows()
+    scanner["live_scanner_watchlist_k_symbols"] = ["JUNS", "SUGP", "LIVE3"]
+    scanner["watchlist_k_symbols"] = ["JUNS", "SUGP", "LIVE3"]
+    scanner["watchlist_k"].append({"symbol": "LIVE3", "promotion_reason": "LIVE_SCAN", "watchlist_source": "LIVE_SCAN", "prep_seeded": False})
+    scanner["watchlist_rows"] = list(scanner["watchlist_k"])
+
+    spec = pr1040.build_pr1039_observation_input(_evidence(scanner=scanner, pattern_inputs=[]))
+
+    contract = spec["scanner_cycle_artifact"]["scanner_contract"]
+    assert contract["contract_valid"] is False
+    assert contract["top_n"] == 2
+    assert contract["watchlist_k"] == 3
+    assert spec["classification"] == "INSUFFICIENT_EVIDENCE"
+    assert "Scanner contract" in " ".join(spec["final_verdict"]["blockers"])
+
+
+def test_pr1075_pr1040_focus_symbols_are_not_promoted_from_prep_context_rows() -> None:
+    scanner = _scanner_payload_with_prep_context_rows()
+
+    spec = pr1040.build_pr1039_observation_input(
+        _evidence(scanner=scanner, pattern_inputs=[], pattern_summaries=[])
+    )
+
+    assert spec["watchlist_focus_artifact"]["focus_m_symbols"] == []
+    assert spec["pattern_input_artifact"]["input_source"] == "REAL_RUNTIME_NO_FOCUS_OR_NO_PATTERN_INPUT_ATTEMPT"
+    assert spec["setup_decision_artifact"]["decision_reason"] == "NO_FOCUS_CANDIDATES"

@@ -556,11 +556,105 @@ def _scanner_rows(payload: Mapping[str, Any], keys: Sequence[str]) -> list[Any]:
 
 def _scanner_symbols(payload: Mapping[str, Any], key: str) -> list[str]:
     symbols: list[str] = []
+    seen: set[str] = set()
     for value in payload.get(key, []) or []:
         symbol = _symbol(value) if not isinstance(value, str) else value.strip().upper()
-        if symbol:
-            symbols.append(symbol)
+        if not symbol or symbol in seen:
+            continue
+        seen.add(symbol)
+        symbols.append(symbol)
     return symbols
+
+
+def _is_context_only_watchlist_row(row: Any, live_top_symbols: set[str]) -> bool:
+    symbol = _symbol(row)
+    if not symbol:
+        return False
+    promotion_reason = _normalize_upper(_get_value(row, "promotion_reason"))
+    watchlist_source = _normalize_upper(_get_value(row, "watchlist_source"))
+    declared_live = promotion_reason == "LIVE_SCAN" or watchlist_source == "LIVE_SCAN"
+    if promotion_reason == "PREP_CONTEXT_BACKFILL":
+        return True
+    if watchlist_source == "PREP_SEEDED":
+        return True
+    if _normalize_bool(_get_value(row, "prep_seeded")) is True and _normalize_bool(_get_value(row, "live_confirmation_pending")) is True:
+        return True
+    if symbol not in live_top_symbols and not declared_live:
+        return True
+    return False
+
+
+def _combined_watchlist_symbols(payload: Mapping[str, Any]) -> list[str]:
+    return (
+        _scanner_symbols(payload, "restored_watchlist_symbols")
+        or _scanner_symbols(payload, "watchlist_context_symbols")
+        or _scanner_symbols(payload, "watchlist_k_symbols")
+        or _scanner_symbols(payload, "watchlist")
+    )
+
+
+def _top_n_symbols(payload: Mapping[str, Any]) -> list[str]:
+    top_symbols = _scanner_symbols(payload, "top_n_symbols")
+    if top_symbols:
+        return top_symbols
+    result = payload.get("scanner_result")
+    result_symbols = parse_observation_symbols(_get_value(result, "top_n_symbols", []))
+    if result_symbols:
+        return result_symbols
+    return _scanner_symbols(payload, "symbols")
+
+
+def _live_watchlist_symbols(payload: Mapping[str, Any]) -> list[str]:
+    explicit = _scanner_symbols(payload, "live_scanner_watchlist_k_symbols")
+    if explicit:
+        return explicit
+
+    top_symbols = _top_n_symbols(payload)
+    top_set = set(top_symbols)
+    rows = _scanner_rows(payload, ("watchlist_k", "watchlist_rows"))
+    live: list[str] = []
+    if rows and top_set:
+        for row in rows:
+            symbol = _symbol(row)
+            if not symbol or symbol in live:
+                continue
+            if not _is_context_only_watchlist_row(row, top_set):
+                live.append(symbol)
+        return live
+
+    combined = _combined_watchlist_symbols(payload)
+    if top_set:
+        return [symbol for symbol in combined if symbol in top_set]
+    return combined
+
+
+def _prep_context_watchlist_symbols(payload: Mapping[str, Any]) -> list[str]:
+    explicit = _scanner_symbols(payload, "prep_context_watchlist_symbols")
+    if explicit:
+        return explicit
+
+    combined = _combined_watchlist_symbols(payload)
+    live = set(_live_watchlist_symbols(payload))
+    prep_symbols: list[str] = []
+    rows = _scanner_rows(payload, ("watchlist_rows",))
+    for row in rows:
+        symbol = _symbol(row)
+        if symbol and symbol not in live and symbol not in prep_symbols:
+            prep_symbols.append(symbol)
+    for symbol in combined:
+        if symbol not in live and symbol not in prep_symbols:
+            prep_symbols.append(symbol)
+    return prep_symbols
+
+
+def _live_watchlist_rows(payload: Mapping[str, Any]) -> list[Any]:
+    live = set(_live_watchlist_symbols(payload))
+    return [row for row in _scanner_rows(payload, ("watchlist_k", "watchlist_rows")) if _symbol(row) in live]
+
+
+def _prep_context_watchlist_rows(payload: Mapping[str, Any]) -> list[Any]:
+    live = set(_live_watchlist_symbols(payload))
+    return [row for row in _scanner_rows(payload, ("watchlist_rows",)) if _symbol(row) not in live]
 
 
 def _session_label_from_payload(payload: Mapping[str, Any], rows: Sequence[Any]) -> str:
@@ -987,16 +1081,30 @@ def _news_source_mode(payload: Mapping[str, Any]) -> str:
 def _scanner_contract(payload: Mapping[str, Any]) -> dict[str, Any]:
     diagnostics = payload.get("diagnostics", {}) if isinstance(payload.get("diagnostics"), Mapping) else {}
     contract = diagnostics.get("scanner_contract", {}) if isinstance(diagnostics.get("scanner_contract"), Mapping) else {}
-    if contract:
+    if contract and contract.get("contract_scope") == "LIVE_SCANNER_SELECTION":
         return dict(contract)
-    top_n = int(payload.get("topn_count", len(payload.get("symbols", []) or [])) or 0)
-    watchlist = len(payload.get("watchlist_k_symbols", []) or payload.get("watchlist", []) or [])
-    focus = len(payload.get("focus_m_symbols", []) or [])
+
+    top_symbols = _top_n_symbols(payload)
+    live_watchlist_symbols = _live_watchlist_symbols(payload)
+    prep_context_symbols = _prep_context_watchlist_symbols(payload)
+    restored_watchlist_symbols = _combined_watchlist_symbols(payload)
+    focus_symbols = _scanner_symbols(payload, "focus_m_symbols")
+    top_n = len(top_symbols) or int(payload.get("topn_count", 0) or 0)
+    focus_subset_valid = set(focus_symbols).issubset(set(live_watchlist_symbols))
+    contract_valid = 0 <= len(focus_symbols) <= len(live_watchlist_symbols) <= top_n and focus_subset_valid
     return {
+        "contract_scope": "LIVE_SCANNER_SELECTION",
         "top_n": top_n,
-        "watchlist_k": watchlist,
-        "focus_m": focus,
-        "contract_valid": 0 <= focus <= watchlist <= max(top_n, watchlist),
+        "requested_top_n": contract.get("requested_top_n") or contract.get("top_n"),
+        "watchlist_k": len(live_watchlist_symbols),
+        "focus_m": len(focus_symbols),
+        "contract_valid": contract_valid,
+        "focus_subset_of_live_watchlist": focus_subset_valid,
+        "top_n_symbols": top_symbols,
+        "live_scanner_watchlist_k_symbols": live_watchlist_symbols,
+        "prep_context_watchlist_symbols": prep_context_symbols,
+        "restored_watchlist_symbols": restored_watchlist_symbols,
+        "restored_watchlist_count": len(restored_watchlist_symbols),
     }
 
 
@@ -1172,8 +1280,10 @@ def _market_data_observation_outcome(evidence: RuntimeObservationEvidence) -> st
 
 def _market_data_observation_diagnostics(evidence: RuntimeObservationEvidence) -> dict[str, Any]:
     payload = evidence.scanner_payload
-    top_symbols = _scanner_symbols(payload, "symbols") or _scanner_symbols(payload, "top_n_symbols")
-    watchlist_symbols = _scanner_symbols(payload, "watchlist_k_symbols") or _scanner_symbols(payload, "watchlist")
+    top_symbols = _top_n_symbols(payload)
+    watchlist_symbols = _live_watchlist_symbols(payload)
+    restored_watchlist_symbols = _combined_watchlist_symbols(payload)
+    prep_context_symbols = _prep_context_watchlist_symbols(payload)
     focus_symbols = _scanner_symbols(payload, "focus_m_symbols")
     candidate_rows = _scanner_candidate_rows(payload)
     reason_counts = _drop_reason_counts(payload)
@@ -1190,7 +1300,9 @@ def _market_data_observation_diagnostics(evidence: RuntimeObservationEvidence) -
         "float_discovery": dict(float_discovery_proof),
         "float_focus_diagnostics": dict(float_focus_diagnostics),
         "candidate_count": int(payload.get("topn_count", len(top_symbols) or len(candidate_rows)) or 0),
-        "watchlist_k_count": len(watchlist_symbols) or len(_scanner_rows(payload, ("watchlist_k", "watchlist_rows"))),
+        "watchlist_k_count": len(watchlist_symbols),
+        "watchlist_context_count": len(restored_watchlist_symbols),
+        "prep_context_watchlist_count": len(prep_context_symbols),
         "focus_m_count": len(focus_symbols) or len(_scanner_rows(payload, ("focus_m", "focus_rows"))),
         "dominant_drop_reason": _dominant_drop_reason(payload),
         "drop_reason_counts": reason_counts,
@@ -1423,9 +1535,11 @@ def build_pr1039_observation_input(evidence: RuntimeObservationEvidence) -> dict
     if _order_mutation_count(evidence):
         raise PR1040AdapterError("broker order mutation evidence is forbidden in READ_ONLY observation")
 
-    watchlist_symbols = _scanner_symbols(evidence.scanner_payload, "watchlist_k_symbols") or _scanner_symbols(evidence.scanner_payload, "watchlist")
+    watchlist_symbols = _live_watchlist_symbols(evidence.scanner_payload)
+    restored_watchlist_symbols = _combined_watchlist_symbols(evidence.scanner_payload)
+    prep_context_symbols = _prep_context_watchlist_symbols(evidence.scanner_payload)
     focus_symbols = _scanner_symbols(evidence.scanner_payload, "focus_m_symbols")
-    top_symbols = _scanner_symbols(evidence.scanner_payload, "symbols") or _scanner_symbols(evidence.scanner_payload, "top_n_symbols")
+    top_symbols = _top_n_symbols(evidence.scanner_payload)
     setup_artifact = _setup_decision_artifact(evidence)
     risk_artifact = _risk_gate_artifact(evidence)
     classification, blockers = _classify_observation(evidence, setup_artifact, risk_artifact)
@@ -1473,9 +1587,12 @@ def build_pr1039_observation_input(evidence: RuntimeObservationEvidence) -> dict
             "provider_source": evidence.scanner_payload.get("provider_source") or evidence.env.get("SCANNER_DATA_SOURCE", "IBKR"),
             "scanner_contract": _scanner_contract(evidence.scanner_payload),
             "candidate_count": int(evidence.scanner_payload.get("topn_count", len(top_symbols)) or 0),
-            "accepted_candidate_count": int(evidence.scanner_payload.get("survivors_count", len(watchlist_symbols)) or 0),
-            "rejected_candidate_count": max(0, int(evidence.scanner_payload.get("topn_count", len(top_symbols)) or 0) - int(evidence.scanner_payload.get("survivors_count", len(watchlist_symbols)) or 0)),
+            "accepted_candidate_count": len(watchlist_symbols),
+            "rejected_candidate_count": max(0, int(evidence.scanner_payload.get("topn_count", len(top_symbols)) or 0) - len(watchlist_symbols)),
             "top_n_symbols": top_symbols,
+            "live_scanner_watchlist_k_symbols": watchlist_symbols,
+            "prep_context_watchlist_symbols": prep_context_symbols,
+            "restored_watchlist_symbols": restored_watchlist_symbols,
             "drop_ledger": _json_safe(evidence.scanner_payload.get("drop_ledger", {})),
             "selection_spec": {"ranking_intent": "ROSS_MOMENTUM_STOCK_SELECTION", "threshold_override": False},
             "ross_policy_thresholds_used": {"source": "RossPolicy", "threshold_override": False, "validation_override": False},
@@ -1485,7 +1602,7 @@ def build_pr1039_observation_input(evidence: RuntimeObservationEvidence) -> dict
         },
         "catalyst_news_artifact": _catalyst_news_artifact(
             evidence.scanner_payload,
-            focus_symbols or watchlist_symbols,
+            focus_symbols or restored_watchlist_symbols or watchlist_symbols,
             news_asof=evidence.captured_at_utc,
         ),
         "watchlist_focus_artifact": {
@@ -1494,7 +1611,12 @@ def build_pr1039_observation_input(evidence: RuntimeObservationEvidence) -> dict
             "float_focus_diagnostics": dict(float_focus_diagnostics),
             "watchlist_k_symbols": watchlist_symbols,
             "focus_m_symbols": focus_symbols,
-            "watchlist_rows": _json_safe(evidence.watchlist_rows),
+            "restored_watchlist_symbols": restored_watchlist_symbols,
+            "watchlist_context_symbols": restored_watchlist_symbols,
+            "prep_context_watchlist_symbols": prep_context_symbols,
+            "watchlist_rows": _json_safe(_live_watchlist_rows(evidence.scanner_payload) or evidence.watchlist_rows),
+            "watchlist_context_rows": _json_safe(_scanner_rows(evidence.scanner_payload, ("watchlist_rows",)) or evidence.watchlist_rows),
+            "prep_context_rows": _json_safe(_prep_context_watchlist_rows(evidence.scanner_payload)),
             "focus_rows": _json_safe(evidence.focus_rows),
             "manual_focus_injection": False,
             "synthetic_focus": False,
@@ -1530,7 +1652,7 @@ def build_pr1039_observation_input(evidence: RuntimeObservationEvidence) -> dict
             "storage_evidence_detail": _json_safe(evidence.storage_evidence_detail or {}),
             "readback_proof": storage_verified,
             "trade_plan_records": _json_safe(evidence.intent_records),
-            "no_trade_records": [] if evidence.intent_records else [{"reason": setup_artifact.get("decision_reason"), "symbols": focus_symbols or watchlist_symbols}],
+            "no_trade_records": [] if evidence.intent_records else [{"reason": setup_artifact.get("decision_reason"), "symbols": focus_symbols or restored_watchlist_symbols or watchlist_symbols}],
             "artifact_paths": [str(DEFAULT_OBSERVATION_OUTPUT)],
         },
         "final_verdict": {
@@ -1688,7 +1810,7 @@ def collect_real_readonly_runtime_evidence(
             "scanner_returned_naturally": True,
         }
     )
-    watchlist_rows = _scanner_rows(scanner_payload, ("watchlist_k", "watchlist_rows"))
+    watchlist_rows = _live_watchlist_rows(scanner_payload) or _scanner_rows(scanner_payload, ("watchlist_k",))
     focus_rows = _scanner_rows(scanner_payload, ("focus_m", "focus_rows"))
     session_label = _session_label_from_payload(scanner_payload, focus_rows + watchlist_rows)
     strategy = RossMomentumStrategy()
