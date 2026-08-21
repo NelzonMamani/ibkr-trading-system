@@ -107,3 +107,19 @@ def test_strict_policy_watchlist_stays_bounded_in_prep_mode():
     assert watchlist_count <= strict.watchlist_limit_k
     if survivors == 0:
         assert watchlist_count == 0
+
+def test_payload_legacy_symbols_track_live_watchlist_when_live_rows_are_enriched():
+    set_config_overrides({"RUN_MODE": "PAPER", "SCANNER_DATA_SOURCE": "MOCK", "ROSS_REQUIRE_NEWS": False, "NEWS_ENABLED": False})
+
+    payload = scanner_runner.run_scanner_cycle(
+        mode="READONLY",
+        policy=_relaxed_policy(watchlist_limit_k=5),
+        forced_session_label="RTH_MID",
+    )
+
+    live_symbols = payload.get("live_scanner_watchlist_k_symbols", [])
+    assert live_symbols
+    assert payload.get("symbols") == live_symbols
+    assert payload.get("watchlist") == live_symbols
+    assert payload.get("watchlist_k_symbols") == live_symbols
+    assert [row.symbol for row in payload.get("watchlist_rows", [])] == live_symbols

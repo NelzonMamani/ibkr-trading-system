@@ -17,6 +17,7 @@ from src.scanner.scanner_runner import (
     _evaluate_focus_gates,
     _gate_outcome_summary,
     _populate_pct_change,
+    _scanner_contract_view,
 )
 
 
@@ -441,3 +442,49 @@ def test_live_pre_context_with_broker_rows_does_not_end_with_zero_reference_summ
     assert enrich['reference_ok'] > 0
     assert enrich['pct_ready'] > 0
     assert enrich['rvol_ready'] > 0
+
+
+def test_pr1075_scanner_contract_counts_live_watchlist_separately_from_prep_context() -> None:
+    contexts = [
+        {"symbol": "JUNS", "promotion_reason": "LIVE_SCAN", "watchlist_source": "LIVE_SCAN", "prep_seeded": False},
+        {"symbol": "SUGP", "promotion_reason": "LIVE_SCAN", "watchlist_source": "LIVE_SCAN", "prep_seeded": False},
+        {"symbol": "QQQ", "promotion_reason": "PREP_WATCHLIST_SEEDED", "watchlist_source": "PREP_SEEDED", "prep_seeded": True, "live_confirmation_pending": True},
+        {"symbol": "SPY", "data_quality_flags": ["PREP_WATCHLIST_SEEDED"]},
+    ]
+
+    contract = _scanner_contract_view(
+        top_n_symbols=["JUNS", "SUGP"],
+        watchlist_contexts=contexts,
+        focus_symbols=[],
+        requested_top_n=2,
+    )
+
+    assert contract["contract_valid"] is True
+    assert contract["contract_scope"] == "LIVE_SCANNER_SELECTION"
+    assert contract["top_n"] == 2
+    assert contract["watchlist_k"] == 2
+    assert contract["focus_m"] == 0
+    assert contract["live_scanner_watchlist_k_symbols"] == ["JUNS", "SUGP"]
+    assert contract["prep_context_watchlist_symbols"] == ["QQQ", "SPY"]
+    assert contract["restored_watchlist_symbols"] == ["JUNS", "SUGP", "QQQ", "SPY"]
+    assert contract["restored_watchlist_count"] == 4
+
+
+def test_pr1075_scanner_contract_rejects_genuine_live_watchlist_overflow() -> None:
+    contexts = [
+        {"symbol": "JUNS", "promotion_reason": "LIVE_SCAN", "watchlist_source": "LIVE_SCAN"},
+        {"symbol": "SUGP", "promotion_reason": "LIVE_SCAN", "watchlist_source": "LIVE_SCAN"},
+        {"symbol": "LIVE3", "promotion_reason": "LIVE_SCAN", "watchlist_source": "LIVE_SCAN"},
+    ]
+
+    contract = _scanner_contract_view(
+        top_n_symbols=["JUNS", "SUGP"],
+        watchlist_contexts=contexts,
+        focus_symbols=[],
+        requested_top_n=2,
+    )
+
+    assert contract["contract_valid"] is False
+    assert contract["top_n"] == 2
+    assert contract["watchlist_k"] == 3
+    assert contract["prep_context_watchlist_symbols"] == []

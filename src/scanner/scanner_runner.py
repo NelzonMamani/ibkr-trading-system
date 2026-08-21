@@ -233,6 +233,89 @@ def _gate_outcome_summary(watchlist_contexts: list[Dict[str, Any]]) -> dict[str,
     }
 
 
+def _ordered_unique_symbols(values: Iterable[Any]) -> List[str]:
+    symbols: List[str] = []
+    seen: Set[str] = set()
+    for value in values:
+        if isinstance(value, dict):
+            raw = value.get("symbol")
+        else:
+            raw = getattr(value, "symbol", value)
+        symbol = str(raw or "").strip().upper()
+        if not symbol or symbol in seen:
+            continue
+        seen.add(symbol)
+        symbols.append(symbol)
+    return symbols
+
+
+def _is_context_only_watchlist_row(context: Dict[str, Any], live_top_symbols: Set[str]) -> bool:
+    symbol = str(context.get("symbol") or "").strip().upper()
+    if not symbol:
+        return False
+
+    promotion_reason = str(context.get("promotion_reason") or "").strip().upper()
+    watchlist_source = str(context.get("watchlist_source") or "").strip().upper()
+    declared_live = promotion_reason == "LIVE_SCAN" or watchlist_source == "LIVE_SCAN"
+    if promotion_reason == "PREP_CONTEXT_BACKFILL":
+        return True
+    if watchlist_source == "PREP_SEEDED":
+        return True
+    if bool(context.get("prep_seeded")) and bool(context.get("live_confirmation_pending")):
+        return True
+    if symbol not in live_top_symbols and not declared_live:
+        return True
+    return False
+
+
+def _scanner_contract_view(
+    *,
+    top_n_symbols: Iterable[Any],
+    watchlist_contexts: List[Dict[str, Any]],
+    focus_symbols: Iterable[Any],
+    requested_top_n: int | None = None,
+) -> dict[str, Any]:
+    live_top_symbols = _ordered_unique_symbols(top_n_symbols)
+    live_top_set = set(live_top_symbols)
+    live_watchlist_symbols: List[str] = []
+    prep_context_symbols: List[str] = []
+
+    for context in watchlist_contexts:
+        symbol = str(context.get("symbol") or "").strip().upper()
+        if not symbol:
+            continue
+        if _is_context_only_watchlist_row(context, live_top_set):
+            if symbol not in prep_context_symbols:
+                prep_context_symbols.append(symbol)
+            continue
+        if symbol not in live_watchlist_symbols:
+            live_watchlist_symbols.append(symbol)
+
+    restored_watchlist_symbols = _ordered_unique_symbols(watchlist_contexts)
+    focus = _ordered_unique_symbols(focus_symbols)
+    live_watchlist_set = set(live_watchlist_symbols)
+    focus_subset_valid = set(focus).issubset(live_watchlist_set)
+    contract_valid = (
+        0 <= len(focus) <= len(live_watchlist_symbols) <= len(live_top_symbols)
+        and focus_subset_valid
+    )
+
+    return {
+        "contract_scope": "LIVE_SCANNER_SELECTION",
+        "top_n": len(live_top_symbols),
+        "requested_top_n": requested_top_n,
+        "watchlist_k": len(live_watchlist_symbols),
+        "focus_m": len(focus),
+        "contract_valid": contract_valid,
+        "focus_subset_of_live_watchlist": focus_subset_valid,
+        "top_n_symbols": live_top_symbols,
+        "live_scanner_watchlist_k_symbols": live_watchlist_symbols,
+        "prep_context_watchlist_symbols": prep_context_symbols,
+        "restored_watchlist_symbols": restored_watchlist_symbols,
+        "restored_watchlist_count": len(restored_watchlist_symbols),
+    }
+
+
 def _apply_non_operational_backfill_markers(
     watchlist_contexts: list[Dict[str, Any]],
     *,
@@ -6204,6 +6287,14 @@ def run_scanner_cycle(
 
         watchlist_symbols = [context["symbol"] for context in watchlist_contexts]
         focus_symbols = [row.symbol for row in deep_rows]
+        scanner_contract = _scanner_contract_view(
+            top_n_symbols=symbols,
+            watchlist_contexts=watchlist_contexts,
+            focus_symbols=focus_symbols,
+            requested_top_n=requested_top_n,
+        )
+        live_watchlist_symbols = list(scanner_contract["live_scanner_watchlist_k_symbols"])
+        prep_context_watchlist_symbols = list(scanner_contract["prep_context_watchlist_symbols"])
         float_discovery_proof = _finalize_float_discovery_proof(float_discovery_proof, drop_ledger)
         float_focus_diagnostics = _float_focus_failure_diagnostics(
             evaluated_contexts=evaluated_contexts,
@@ -6255,6 +6346,8 @@ def run_scanner_cycle(
         print(f"candidate_count_entering_gates={len(symbols)}")
         print(f"survivor_count_after_gates={len(watchlist_contexts)}")
         print(f"watchlist_count={len(watchlist_symbols)}")
+        print(f"live_watchlist_count={len(live_watchlist_symbols)}")
+        print(f"prep_context_watchlist_count={len(prep_context_watchlist_symbols)}")
         print(f"focus_count={len(focus_symbols)}")
         print(f"[SCANNER_OK] topn_count={raw_count}")
         print(f"[WATCHLIST_OK] size={len(watchlist_symbols)}")
@@ -6269,19 +6362,21 @@ def run_scanner_cycle(
             print(f"[SCANNER][HARD_DIAGNOSTIC] watchlist=0 scanner_kept={len(after_gates_symbols)} elimination_path={elimination_path}")
             diagnostics["watchlist_hard_diagnostic"] = elimination_path
 
-        scanner_contract = {
-            "top_n": requested_top_n,
-            "watchlist_k": len(watchlist_symbols),
-            "focus_m": len(focus_symbols),
-        }
-        contract_valid = 0 <= scanner_contract["focus_m"] <= scanner_contract["watchlist_k"] <= scanner_contract["top_n"]
-        scanner_contract["contract_valid"] = contract_valid
+        contract_valid = bool(scanner_contract["contract_valid"])
         print("[SCANNER][CONTRACT]")
         print(f"top_n={scanner_contract['top_n']}")
         print(f"watchlist_k={scanner_contract['watchlist_k']}")
         print(f"focus_m={scanner_contract['focus_m']}")
+        print(f"restored_watchlist_count={scanner_contract['restored_watchlist_count']}")
+        print(f"prep_context_watchlist_count={len(prep_context_watchlist_symbols)}")
         print(f"contract_valid={contract_valid}")
         diagnostics["scanner_contract"] = scanner_contract
+        diagnostics["watchlist_contract_partition"] = {
+            "top_n_symbols": list(scanner_contract["top_n_symbols"]),
+            "live_scanner_watchlist_k_symbols": live_watchlist_symbols,
+            "prep_context_watchlist_symbols": prep_context_watchlist_symbols,
+            "restored_watchlist_symbols": list(scanner_contract["restored_watchlist_symbols"]),
+        }
 
         raw_zero_payload = {
             "provider": flow.get("provider", provider_source),
@@ -6304,6 +6399,8 @@ def run_scanner_cycle(
             "candidate_count_entering_gates": len(symbols),
             "survivor_count_after_gates": len(watchlist_contexts),
             "watchlist_count": len(watchlist_symbols),
+            "live_watchlist_count": len(live_watchlist_symbols),
+            "prep_context_watchlist_count": len(prep_context_watchlist_symbols),
             "focus_count": len(focus_symbols),
             "drop_reasons": drop_summary if (local_gating_eliminated_all or drop_summary) else {},
         }
@@ -6426,7 +6523,7 @@ def run_scanner_cycle(
         candidate_lookup = {candidate.symbol: candidate for candidate in candidate_metrics}
         watchlist_metrics = [
             candidate_lookup[symbol]
-            for symbol in watchlist_symbols
+            for symbol in live_watchlist_symbols
             if symbol in candidate_lookup
         ]
         focus_metrics = [
@@ -6548,20 +6645,32 @@ def run_scanner_cycle(
     watchlist_count = len(watchlist_symbols)
     cacheable = not (broker_returned_zero or raw_broker_count == 0)
     _finalize_runtime_bound()
+    live_watchlist_symbol_set = set(live_watchlist_symbols)
+    live_fast_rows = [
+        row
+        for row in fast_rows
+        if str(row.symbol or "").strip().upper() in live_watchlist_symbol_set
+    ]
 
     _LAST_SCANNER_PAYLOAD = {
         "scanner_version": SCANNER_VERSION,
         "scanner_git_sha": SCANNER_GIT_SHA,
         "timestamp_utc": utc_now.isoformat(),
         "universe_top_n": universe_top_n,
-        "symbols": [row.symbol for row in fast_rows],
-        "watchlist": [row.symbol for row in fast_rows],
-        "watchlist_rows": fast_rows,
+        "symbols": list(live_watchlist_symbols),
+        "top_n_symbols": list(scanner_contract["top_n_symbols"]),
+        "watchlist": list(live_watchlist_symbols),
+        "live_scanner_watchlist_k_symbols": live_watchlist_symbols,
+        "prep_context_watchlist_symbols": prep_context_watchlist_symbols,
+        "restored_watchlist_symbols": list(scanner_contract["restored_watchlist_symbols"]),
+        "watchlist_context_symbols": watchlist_symbols,
+        "watchlist_rows": live_fast_rows,
+        "watchlist_context_rows": fast_rows,
         "focus_rows": deep_rows,
         "drop_ledger": drop_ledger,
         "watchlist_k": watchlist_metrics,
         "focus_m": focus_metrics,
-        "watchlist_k_symbols": watchlist_symbols,
+        "watchlist_k_symbols": list(live_watchlist_symbols),
         "focus_m_symbols": focus_symbols,
         "ross_top_universe_symbols": sorted(daily_state.top_universe.keys()),
         "ross_rejected_tracked_symbols": sorted(daily_state.rejected_tracked.keys()),
@@ -6597,6 +6706,9 @@ def run_scanner_cycle(
         "broker_returned_zero": broker_returned_zero,
         "raw_broker_count": raw_broker_count,
         "watchlist_count": watchlist_count,
+        "live_watchlist_count": len(live_watchlist_symbols),
+        "prep_context_watchlist_count": len(prep_context_watchlist_symbols),
+        "watchlist_context_count": len(watchlist_symbols),
         "float_discovery": dict(float_discovery_proof),
         "float_focus_diagnostics": dict(float_focus_diagnostics),
         **float_discovery_proof,
