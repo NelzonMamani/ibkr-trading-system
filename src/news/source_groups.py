@@ -29,6 +29,7 @@ class NewsSourceGroup:
 FAST_TRADING_URLS: tuple[str, ...] = (
     "https://www.benzinga.com/feed",
     "https://www.globenewswire.com/RssFeed?Category=Finance",
+    "https://www.globenewswire.com/RssFeed/industry/9000-Technology/feedTitle/GlobeNewswire%20-%20Industry%20News%20on%20Technology",
     "https://www.reuters.com/markets/rss",
     "https://www.marketwatch.com/rss/topstories",
     "https://feeds.businessinsider.com/custom/all",
