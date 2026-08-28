@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import List
 
 from src.adapters.brokers.ibkr.ibkr_connection_manager import get_shared_ibkr_connection_manager
+from src.adapters.data.historical_bar_timeframes import resolve_intraday_timeframe_request
 from src.strategies.common.candles.candle_types import Candle
 
 
@@ -11,10 +12,9 @@ def get_intraday_bars(*, symbol: str, timeframe: str = "1m", limit: int = 50) ->
 
     Returns an empty list on any failure so callers can safely fall back to snapshots.
     """
-    if timeframe != "1m":
-        raise ValueError(f"Unsupported timeframe: {timeframe}")
     if limit <= 0:
         return []
+    request = resolve_intraday_timeframe_request(timeframe=timeframe, requested_bars=limit)
 
     try:
         manager = get_shared_ibkr_connection_manager(readonly_enabled=True)
@@ -22,12 +22,11 @@ def get_intraday_bars(*, symbol: str, timeframe: str = "1m", limit: int = 50) ->
         contract_details = client.resolve_contract(symbol)
         contract = getattr(contract_details, "contract", contract_details)
         # IBKR expects durationStr in seconds (S) or days (D), NOT minutes (M)
-        duration_seconds = max(limit * 60 * 2, 1800)  # at least 30 minutes
         bars = client.reqHistoricalData(
             contract,
             endDateTime="",
-            durationStr=f"{duration_seconds} S",
-            barSizeSetting="1 min",
+            durationStr=f"{request.duration_seconds} S",
+            barSizeSetting=request.bar_size_setting,
             whatToShow="TRADES",
             useRTH=False,
             formatDate=1,
@@ -37,7 +36,7 @@ def get_intraday_bars(*, symbol: str, timeframe: str = "1m", limit: int = 50) ->
         return []
 
     normalized: list[Candle] = []
-    for bar in bars[-limit:]:
+    for bar in bars[-request.requested_bars:]:
         try:
             normalized.append(
                 Candle(
