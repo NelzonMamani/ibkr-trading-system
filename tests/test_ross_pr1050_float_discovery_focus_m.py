@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from datetime import datetime, timedelta, timezone
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -143,6 +145,42 @@ class _DiscoveryWorkerStub:
         )
 
 
+class _BackgroundCacheWriteWorkerStub:
+    def __init__(self, cache_file: Path, values: dict[str, int | None]) -> None:
+        self.cache_file = cache_file
+        self.values = {symbol.upper(): value for symbol, value in values.items()}
+        self.queued: list[str] = []
+        self.requests: list[str] = []
+
+    def enqueue(self, symbol: str) -> bool:
+        normalized = symbol.upper()
+        if normalized in self.queued:
+            return False
+        self.queued.append(normalized)
+        value = self.values.get(normalized)
+        if value is not None:
+            payload = json.loads(self.cache_file.read_text(encoding="utf-8") or "{}")
+            payload[normalized] = {
+                "float": int(value),
+                "source": "YAHOO",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+            self.cache_file.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+        return True
+
+    def discover_now(self, symbol: str) -> FloatDiscoveryResult:
+        normalized = symbol.upper()
+        self.requests.append(normalized)
+        return FloatDiscoveryResult(
+            symbol=normalized,
+            value=None,
+            source="UNKNOWN",
+            cache_used=False,
+            fallback_used=False,
+            failures=(("PR1083_BACKGROUND", "foreground_not_expected"),),
+        )
+
+
 @pytest.fixture(autouse=True)
 def _reset_runtime_state():
     scanner_runner.reset_scanner_runtime_state(clear_persistent_provider=True)
@@ -177,6 +215,20 @@ def _install_discovery_worker(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, v
     cache_file = tmp_path / "float_cache.json"
     cache_file.write_text("{}", encoding="utf-8")
     worker = _DiscoveryWorkerStub(values)
+    monkeypatch.setattr(scanner_runner, "_resolve_float_cache_path", lambda: cache_file)
+    monkeypatch.setattr(scanner_runner, "get_float_discovery_worker", lambda path: worker)
+    scanner_runner._FLOAT_CACHE_STATE = {"mtime_ns": None, "data": {}}
+    return worker
+
+
+def _install_background_cache_write_worker(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    values: dict[str, int | None],
+) -> _BackgroundCacheWriteWorkerStub:
+    cache_file = tmp_path / "float_cache.json"
+    cache_file.write_text("{}", encoding="utf-8")
+    worker = _BackgroundCacheWriteWorkerStub(cache_file, values)
     monkeypatch.setattr(scanner_runner, "_resolve_float_cache_path", lambda: cache_file)
     monkeypatch.setattr(scanner_runner, "get_float_discovery_worker", lambda path: worker)
     scanner_runner._FLOAT_CACHE_STATE = {"mtime_ns": None, "data": {}}
@@ -240,6 +292,131 @@ def _metric_for(payload: dict[str, Any], symbol: str):
         if getattr(metric, "symbol", None) == symbol:
             return metric
     raise AssertionError(f"missing candidate metric for {symbol}")
+
+
+def test_pr1083_background_cache_write_rehydrates_before_unknown_float_drop_and_adapter_artifact(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    _configure_readonly(news_enabled=False)
+    worker = _install_background_cache_write_worker(monkeypatch, tmp_path, {"AREN": 13_144_349})
+    policy = _policy(require_catalyst=False)
+    request = scanner_request_from_policy(policy, strategy_name="ross_momentum")
+
+    payload = scanner_runner.run_scanner_cycle(
+        mode="READONLY",
+        policy=policy,
+        scanner_request=request,
+        provider=_ControlledRuntimeProvider(
+            [
+                _ross_row(
+                    "AREN",
+                    last=1.20,
+                    prev_close=0.94,
+                    bid=None,
+                    ask=None,
+                    volume=95_209,
+                    avg_volume=5_587,
+                )
+            ]
+        ),
+        forced_session_label="RTH_MID",
+        forced_session_source="PR1083_TEST",
+    )
+
+    assert worker.queued == ["AREN"]
+    assert worker.requests == []
+    assert payload["float_discovery_success_count"] == 1
+    assert payload["float_discovery_same_cycle_rehydrated_count"] == 1
+    assert payload["float_discovery_failed_count"] == 0
+    assert payload["float_unknown_after_bounded_discovery_count"] == 0
+    assert payload["symbols_rehydrated_from_same_cycle_float_discovery"] == ["AREN"]
+    assert "AREN" not in payload["symbols_still_dropped_float_unknown"]
+    assert payload["drop_ledger"].get("AREN") != "DROP_FLOAT_UNKNOWN"
+    assert payload["watchlist_k_symbols"] == ["AREN"]
+
+    metric = _metric_for(payload, "AREN")
+    assert metric.float_shares == 13_144_349
+    assert metric.float_source == "YAHOO"
+    assert "FLOAT_UNKNOWN" not in metric.data_quality_flags
+    assert metric.volume == 95_209
+    assert metric.rvol is not None and metric.rvol > 2.0
+    assert metric.gate_checks["watch_rvol"] is True
+    assert metric.gate_checks["watch_float"] is True
+
+    proof = payload["float_discovery"]
+    evidence = pr1040.RuntimeObservationEvidence(
+        operator="TEST_OP",
+        scenario_id="PR1083_ADAPTER_TEST",
+        env=pr1040.build_safe_readonly_env({}),
+        captured_at_utc="2026-08-28T14:55:00+00:00",
+        scanner_payload=payload,
+        focus_rows=[],
+        watchlist_rows=payload.get("watchlist_rows", []),
+        pattern_input_evidence=[],
+        pattern_summaries=[],
+        intent_records=[],
+        risk_decisions=[],
+        execution_events=[],
+        broker_before={"connected": True, "readonly_connection": True, "open_orders": [], "metadata": {}},
+        broker_after={"connected": True, "readonly_connection": True, "open_orders": [], "metadata": {}},
+        session_label="RTH_MID",
+        storage_write_verified=True,
+        storage_readback_verified=True,
+        storage_evidence_source=pr1040.REAL_STORAGE_EVIDENCE_SOURCE,
+        storage_evidence_detail={"path": "analytics/runtime/pr1083.json"},
+    )
+    spec = pr1040.build_pr1039_observation_input(evidence)
+
+    assert spec["scanner_cycle_artifact"]["float_discovery"] == proof
+    assert spec["watchlist_focus_artifact"]["float_discovery"] == proof
+    assert spec["market_data_observation_diagnostics"]["float_discovery"] == proof
+    assert "AREN" in spec["market_data_observation_diagnostics"]["symbols_with_float"]
+    assert spec["scanner_cycle_artifact"]["drop_ledger"].get("AREN") != "DROP_FLOAT_UNKNOWN"
+
+
+def test_pr1083_same_cycle_cache_result_after_runtime_bound_is_not_counted(tmp_path: Path) -> None:
+    cache_file = tmp_path / "float_cache.json"
+    cache_file.write_text(
+        json.dumps(
+            {
+                "LATE": {
+                    "float": 13_144_349,
+                    "source": "YAHOO",
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    scanner_runner._FLOAT_CACHE_STATE = {"mtime_ns": None, "data": {}}
+    float_cache: dict[str, dict[str, Any]] = {}
+    proof = scanner_runner._empty_float_discovery_proof()
+    context = {
+        "symbol": "LATE",
+        "float_shares": None,
+        "float_source": "UNKNOWN",
+        "volume": 95_209,
+        "rvol": 48.69,
+        "data_quality_flags": ["FLOAT_UNKNOWN"],
+    }
+
+    consumed = scanner_runner._consume_same_cycle_float_cache_update(
+        context,
+        float_cache=float_cache,
+        cache_path=cache_file,
+        proof=proof,
+        cycle_started_at_utc=datetime.now(timezone.utc) - timedelta(seconds=1),
+        runtime_bound_reached=lambda stage: True,
+    )
+
+    assert consumed is False
+    assert context["float_shares"] is None
+    assert context["volume"] == 95_209
+    assert context["rvol"] == 48.69
+    assert proof["float_discovery_success_count"] == 0
+    assert proof["float_discovery_same_cycle_rehydrated_count"] == 0
+    assert proof["symbols_rehydrated_from_same_cycle_float_discovery"] == []
 
 
 def test_pr1050_same_cycle_float_discovery_rehydrates_before_final_ross_gates(monkeypatch, tmp_path: Path) -> None:
