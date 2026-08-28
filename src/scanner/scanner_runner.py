@@ -12,7 +12,7 @@ from pathlib import Path
 import sys
 import time
 from zoneinfo import ZoneInfo
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Set, Tuple
 
 if __package__ in {None, ""}:
     repo_root = Path(__file__).resolve().parents[2]
@@ -861,6 +861,120 @@ def _rehydrate_context_float(
         f"symbol={symbol} value={int(value_float)} source={source} cache_hit={bool(cache_hit)}"
     )
     return True
+
+
+def _float_cache_mtime_ns(path: Path) -> int | None:
+    try:
+        return path.stat().st_mtime_ns if path.exists() else None
+    except Exception:
+        return None
+
+
+def _refresh_float_cache_from_disk_if_changed(
+    *,
+    float_cache: Dict[str, Dict[str, Any]],
+    cache_path: Path,
+) -> bool:
+    global _FLOAT_CACHE_STATE
+    file_mtime_ns = _float_cache_mtime_ns(cache_path)
+    if file_mtime_ns is None or _FLOAT_CACHE_STATE.get("mtime_ns") == file_mtime_ns:
+        return False
+
+    refreshed = _load_float_cache(cache_path)
+    float_cache.clear()
+    float_cache.update(refreshed)
+    _FLOAT_CACHE_STATE = {"mtime_ns": file_mtime_ns, "data": float_cache}
+    print(
+        "[FLOAT][CACHE_REFRESH] "
+        f"path={cache_path.resolve()} entries={len(float_cache)} reason=same_cycle_cache_change"
+    )
+    return True
+
+
+def _parse_float_cache_asof(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _float_cache_entry_from_current_cycle(
+    entry: Dict[str, Any],
+    *,
+    cycle_started_at_utc: datetime,
+) -> bool:
+    parsed_asof = _parse_float_cache_asof(entry.get("float_asof"))
+    if parsed_asof is None:
+        return False
+    cycle_start = cycle_started_at_utc
+    if cycle_start.tzinfo is None:
+        cycle_start = cycle_start.replace(tzinfo=timezone.utc)
+    cycle_start = cycle_start.astimezone(timezone.utc)
+    return parsed_asof >= cycle_start - timedelta(seconds=1)
+
+
+def _record_same_cycle_float_cache_rehydration(
+    proof: Dict[str, Any],
+    *,
+    symbol: str,
+    cache_used: bool,
+) -> None:
+    rehydrated = _dedupe_sorted_symbols(
+        proof.get("symbols_rehydrated_from_same_cycle_float_discovery", [])
+    )
+    if symbol in rehydrated:
+        return
+
+    proof["float_discovery_success_count"] = int(proof.get("float_discovery_success_count", 0) or 0) + 1
+    if cache_used:
+        proof["float_discovery_cache_hit_count"] = int(proof.get("float_discovery_cache_hit_count", 0) or 0) + 1
+    proof["float_discovery_same_cycle_rehydrated_count"] = (
+        int(proof.get("float_discovery_same_cycle_rehydrated_count", 0) or 0) + 1
+    )
+    proof.setdefault("symbols_rehydrated_from_same_cycle_float_discovery", []).append(symbol)
+
+    failed_symbols = _dedupe_sorted_symbols(proof.get("symbols_failed_same_cycle_float_discovery", []))
+    if symbol in failed_symbols:
+        proof["symbols_failed_same_cycle_float_discovery"] = [
+            failed for failed in failed_symbols if failed != symbol
+        ]
+        proof["float_discovery_failed_count"] = max(
+            0,
+            int(proof.get("float_discovery_failed_count", 0) or 0) - 1,
+        )
+
+
+def _consume_same_cycle_float_cache_update(
+    context: Dict[str, Any],
+    *,
+    float_cache: Dict[str, Dict[str, Any]],
+    cache_path: Path,
+    proof: Dict[str, Any],
+    cycle_started_at_utc: datetime,
+    runtime_bound_reached: Callable[[str], bool] | None = None,
+) -> bool:
+    symbol = str(context.get("symbol") or "").upper().strip()
+    if not symbol or context.get("float_shares") is not None:
+        return False
+    if runtime_bound_reached is not None and runtime_bound_reached("same_cycle_float_cache_rehydrate"):
+        return False
+
+    _refresh_float_cache_from_disk_if_changed(float_cache=float_cache, cache_path=cache_path)
+    entry = float_cache.get(symbol)
+    if not isinstance(entry, dict):
+        return False
+    if not _float_cache_entry_from_current_cycle(entry, cycle_started_at_utc=cycle_started_at_utc):
+        return False
+
+    if _rehydrate_context_float(context, entry, same_cycle=True, cache_hit=False):
+        _record_same_cycle_float_cache_rehydration(proof, symbol=symbol, cache_used=False)
+        return True
+    return False
 
 
 def _attempt_same_cycle_float_discovery(
@@ -5503,12 +5617,32 @@ def run_scanner_cycle(
                 evaluated_contexts.append(context)
                 continue
             if run_mode == RunMode.READ_ONLY and provider_source != "MOCK":
-                _attempt_same_cycle_float_discovery(
+                _consume_same_cycle_float_cache_update(
                     context,
                     float_cache=float_cache,
                     cache_path=float_cache_path,
                     proof=float_discovery_proof,
+                    cycle_started_at_utc=utc_now,
+                    runtime_bound_reached=lambda stage: _runtime_bound_reached(stage, reserve_news=True),
                 )
+                if context.get("float_shares") is None and not _runtime_bound_reached(
+                    "same_cycle_float_discovery",
+                    reserve_news=True,
+                ):
+                    _attempt_same_cycle_float_discovery(
+                        context,
+                        float_cache=float_cache,
+                        cache_path=float_cache_path,
+                        proof=float_discovery_proof,
+                    )
+                    _consume_same_cycle_float_cache_update(
+                        context,
+                        float_cache=float_cache,
+                        cache_path=float_cache_path,
+                        proof=float_discovery_proof,
+                        cycle_started_at_utc=utc_now,
+                        runtime_bound_reached=lambda stage: _runtime_bound_reached(stage, reserve_news=True),
+                    )
             pct_gate_considered += 1
             drop_reason = _evaluate_watchlist_gates(context, thresholds)
             if drop_reason:
