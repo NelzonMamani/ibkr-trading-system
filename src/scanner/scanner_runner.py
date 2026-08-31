@@ -5785,9 +5785,11 @@ def run_scanner_cycle(
         )
         news_symbols_to_fetch = list(candidate_symbols)
         if selector is not None and allow_news and news_symbols_to_fetch:
+            news_symbol_metadata = _news_symbol_metadata_for_contexts(evaluated_contexts)
             fetched_news, news_diag = _enrich_news_context(
                 news_symbols_to_fetch,
                 provider_source,
+                symbol_metadata_by_symbol=news_symbol_metadata,
             )
             news_by_symbol = _merge_news_contexts(fetched_news, prep_news_by_symbol)
             news_diag = _with_news_status_index(news_diag, news_by_symbol)
