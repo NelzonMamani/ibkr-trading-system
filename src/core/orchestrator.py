@@ -1313,6 +1313,29 @@ class CoreOrchestrator:
         return resolved
 
     @classmethod
+    def _focus_rows_within_watchlist(
+        cls,
+        focus_rows: list[object],
+        watch_rows: list[object],
+    ) -> tuple[list[object], list[str]]:
+        watch_symbols = {
+            cls._candidate_symbol(row)
+            for row in watch_rows
+            if cls._candidate_symbol(row)
+        }
+        filtered: list[object] = []
+        dropped: list[str] = []
+        for row in focus_rows:
+            symbol = cls._candidate_symbol(row)
+            if not symbol:
+                continue
+            if symbol in watch_symbols:
+                filtered.append(row)
+            else:
+                dropped.append(symbol)
+        return filtered, dropped
+
+    @classmethod
     def _payload_candidate_rows(
         cls,
         payload: dict,
@@ -3242,6 +3265,19 @@ class CoreOrchestrator:
                     base = list(cadence.watchlist.rows)[:focus_limit_max]
                     focus_authority = "WATCHLIST_FALLBACK"
                     focus_reason = "NON_ROSS_OR_NON_EXECUTION_MODE"
+                if focus_authority in {"SCANNER_PAYLOAD", "CACHED_SCANNER_PAYLOAD"}:
+                    base, focus_not_in_watchlist = self._focus_rows_within_watchlist(
+                        list(base),
+                        list(cadence.watchlist.rows),
+                    )
+                    if focus_not_in_watchlist:
+                        focus_reason = f"{focus_reason}|FOCUS_NOT_IN_CURRENT_WATCHLIST"
+                        print(
+                            "[FOCUS][AUTHORITY_REJECT] "
+                            f"strategy={active_strategy} source={focus_authority} "
+                            f"reason=FOCUS_NOT_IN_CURRENT_WATCHLIST symbols={focus_not_in_watchlist} "
+                            f"watchlist_symbols={cadence.watchlist.symbols}"
+                        )
                 cadence.focus.rows = list(base[:focus_limit_max])
                 cadence.focus.symbols = self._symbols_from_candidates(cadence.focus.rows)
                 cadence.focus.timestamp_utc = cycle_started_at

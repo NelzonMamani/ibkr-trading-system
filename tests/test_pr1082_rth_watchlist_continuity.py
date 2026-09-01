@@ -315,6 +315,35 @@ def test_pr1082_focus_refresh_retains_authoritative_news_provenance(monkeypatch,
     assert cadence.focus.rows[0].selection_rationale == {"catalyst_status": "CONFIRMED", "rank": 10.0}
 
 
+def test_pr1082_structurally_incompatible_focus_cannot_gain_authority(monkeypatch, capsys) -> None:
+    aaa = _row("AAA", catalyst=True)
+    bad = _row("BAD", catalyst=True)
+    orchestrator, scanner_calls, processed = _install_runtime_harness(
+        monkeypatch,
+        [_payload([aaa, bad], watchlist=[aaa], focus=[bad])],
+    )
+
+    assert orchestrator.run_once() is True
+
+    cadence = _cadence(orchestrator)
+    out = capsys.readouterr().out
+    assert cadence.watchlist.symbols == ["AAA"]
+    assert cadence.focus.symbols == []
+    assert processed == []
+    assert "source=SCANNER_PAYLOAD" in out
+    assert "FOCUS_NOT_IN_CURRENT_WATCHLIST" in out
+
+    _age_cache(cadence.focus, 11)
+    assert orchestrator.run_once() is True
+
+    out = capsys.readouterr().out
+    assert len(scanner_calls) == 1
+    assert cadence.watchlist.symbols == ["AAA"]
+    assert cadence.focus.symbols == []
+    assert processed == []
+    assert "source=CACHED_SCANNER_PAYLOAD" in out
+    assert "FOCUS_NOT_IN_CURRENT_WATCHLIST" in out
+
 def test_pr1082_rth_cold_start_does_not_require_existing_prep_artifact(monkeypatch, tmp_path, capsys) -> None:
     set_config_overrides({"SCANNER_SYMBOLS": ["AAA"], "MANUAL_FOCUS_ENABLED": False})
     orchestrator = CoreOrchestrator.__new__(CoreOrchestrator)
