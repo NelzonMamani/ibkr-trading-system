@@ -17,7 +17,7 @@ from typing import Dict, List, Optional, Set, Tuple
 
 from src.brokers import IbkrLiveBroker, SimBroker
 from src.adapters.brokers.ibkr.ibkr_order_translator import IBAPI_AVAILABLE
-from src.config.config_resolver import emit_config_event, get_config
+from src.config.config_resolver import emit_config_event, get_config, get_config_record
 from src.config.runtime_config import (
     EventReplayMode,
     RunMode,
@@ -200,17 +200,53 @@ PROJECT_ROOT = _resolve_project_root()
 MANUAL_FOCUS_PATH = PROJECT_ROOT / "config" / "manual_focus.json"
 
 
-def _disabled_manual_focus_config() -> ManualFocusConfig:
+def _disabled_manual_focus_config(
+    *,
+    effective_source: str = "DISABLED",
+    configured_enabled: bool | None = None,
+    configured_symbol_count: int | None = None,
+    reload_seconds: int = 60,
+) -> ManualFocusConfig:
     return ManualFocusConfig(
         enabled=False,
         manual_focus=[],
         max_manual_symbols=0,
-        live_reload_seconds=60,
+        live_reload_seconds=max(1, int(reload_seconds or 60)),
+        effective_source=effective_source,
+        configured_enabled=configured_enabled,
+        configured_symbol_count=configured_symbol_count,
     )
 
 
-def _manual_focus_config_from_dict(payload: dict) -> ManualFocusConfig:
-    enabled = bool(payload.get("enabled", True))
+def _manual_focus_enabled_override() -> tuple[bool | None, str]:
+    try:
+        record = get_config_record("MANUAL_FOCUS_ENABLED")
+    except Exception as exc:
+        raw = os.environ.get("MANUAL_FOCUS_ENABLED")
+        if raw is None or raw.strip() == "":
+            return None, "JSON_CONFIG"
+        normalized = raw.strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True, "ENV:MANUAL_FOCUS_ENABLED"
+        if normalized in {"0", "false", "no", "off"}:
+            return False, "ENV:MANUAL_FOCUS_ENABLED"
+        print(f"[MANUAL_FOCUS][AUTHORITY_WARN] invalid_env={raw!r} err={exc} action=FAIL_CLOSED")
+        return False, "ENV:MANUAL_FOCUS_ENABLED_INVALID_FAIL_CLOSED"
+
+    if record.value is None:
+        return None, "JSON_CONFIG"
+    source = f"{record.source}:{record.env or 'MANUAL_FOCUS_ENABLED'}"
+    return bool(record.value), source
+
+
+def _manual_focus_config_from_dict(
+    payload: dict,
+    *,
+    enabled_override: bool | None = None,
+    effective_source: str = "JSON_CONFIG",
+) -> ManualFocusConfig:
+    configured_enabled = bool(payload.get("enabled", True))
+    enabled = configured_enabled if enabled_override is None else bool(enabled_override)
     raw_symbols = payload.get("manual_focus", [])
     if not isinstance(raw_symbols, list):
         raw_symbols = []
@@ -226,6 +262,7 @@ def _manual_focus_config_from_dict(payload: dict) -> ManualFocusConfig:
     if max_manual_symbols < 0:
         max_manual_symbols = 0
     deduped_symbols = deduped_symbols[:max_manual_symbols]
+    effective_symbols = deduped_symbols if enabled else []
 
     live_reload_seconds = int(payload.get("live_reload_seconds", 60))
     if live_reload_seconds <= 0:
@@ -233,18 +270,29 @@ def _manual_focus_config_from_dict(payload: dict) -> ManualFocusConfig:
 
     return ManualFocusConfig(
         enabled=enabled,
-        manual_focus=deduped_symbols,
-        max_manual_symbols=max_manual_symbols,
+        manual_focus=effective_symbols,
+        max_manual_symbols=max_manual_symbols if enabled else 0,
         live_reload_seconds=live_reload_seconds,
+        effective_source=effective_source,
+        configured_enabled=configured_enabled,
+        configured_symbol_count=len(deduped_symbols),
     )
 
 
 def load_manual_focus_config() -> ManualFocusConfig:
     path = MANUAL_FOCUS_PATH
+    enabled_override, authority_source = _manual_focus_enabled_override()
 
     if not path.exists():
         print(f"[MANUAL_FOCUS][CONFIG_MISSING] path={path}")
-        return _disabled_manual_focus_config()
+        source = authority_source if enabled_override is not None else "CONFIG_MISSING"
+        cfg = _disabled_manual_focus_config(effective_source=source)
+        print(
+            "[MANUAL_FOCUS][EFFECTIVE] "
+            f"enabled={cfg.enabled} source={cfg.effective_source} symbols=[] "
+            "configured_enabled=None configured_symbol_count=0"
+        )
+        return cfg
 
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -254,13 +302,26 @@ def load_manual_focus_config() -> ManualFocusConfig:
 
         if not isinstance(payload, dict):
             print(f"[MANUAL_FOCUS][CONFIG_ERROR] invalid_schema={type(payload).__name__}")
-            return _disabled_manual_focus_config()
+            source = authority_source if enabled_override is not None else "CONFIG_ERROR"
+            return _disabled_manual_focus_config(effective_source=source)
 
-        return _manual_focus_config_from_dict(payload)
+        cfg = _manual_focus_config_from_dict(
+            payload,
+            enabled_override=enabled_override,
+            effective_source=authority_source,
+        )
+        print(
+            "[MANUAL_FOCUS][EFFECTIVE] "
+            f"enabled={cfg.enabled} source={cfg.effective_source} symbols={cfg.manual_focus} "
+            f"configured_enabled={cfg.configured_enabled} "
+            f"configured_symbol_count={cfg.configured_symbol_count}"
+        )
+        return cfg
 
     except Exception as e:
         print(f"[MANUAL_FOCUS][CONFIG_ERROR] {e}")
-        return _disabled_manual_focus_config()
+        source = authority_source if enabled_override is not None else "CONFIG_ERROR"
+        return _disabled_manual_focus_config(effective_source=source)
 
 
 class RuntimeSafetyError(RuntimeError):
@@ -279,6 +340,8 @@ class StrategyCadenceCache:
     symbols: list[str] = field(default_factory=list)
     timestamp_utc: datetime | None = None
     rows: list[object] = field(default_factory=list)
+    authority: str = "UNINITIALIZED"
+    authority_reason: str | None = None
 
 
 @dataclass
@@ -286,6 +349,8 @@ class StrategyCadenceState:
     top_n: StrategyCadenceCache = field(default_factory=StrategyCadenceCache)
     watchlist: StrategyCadenceCache = field(default_factory=StrategyCadenceCache)
     focus: StrategyCadenceCache = field(default_factory=StrategyCadenceCache)
+    scanner_payload: dict = field(default_factory=dict)
+    scanner_payload_timestamp_utc: datetime | None = None
     scanner_cooldown_until_utc: datetime | None = None
 
 
@@ -1225,6 +1290,67 @@ class CoreOrchestrator:
                 symbols.append(symbol)
         return symbols
 
+    @staticmethod
+    def _candidate_symbol(candidate: object) -> str:
+        if isinstance(candidate, str):
+            return candidate.strip().upper()
+        if isinstance(candidate, dict):
+            return str(candidate.get("symbol") or "").strip().upper()
+        return str(getattr(candidate, "symbol", "") or "").strip().upper()
+
+    @classmethod
+    def _rows_for_symbols(cls, rows: list[object], symbols: list[str]) -> list[object]:
+        by_symbol = {
+            cls._candidate_symbol(row): row
+            for row in rows
+            if cls._candidate_symbol(row)
+        }
+        resolved: list[object] = []
+        for symbol in symbols:
+            normalized = str(symbol or "").strip().upper()
+            if normalized in by_symbol:
+                resolved.append(by_symbol[normalized])
+        return resolved
+
+    @classmethod
+    def _payload_candidate_rows(
+        cls,
+        payload: dict,
+        row_key: str,
+        symbol_key: str,
+        source_rows: list[object],
+    ) -> tuple[list[object], bool]:
+        if not isinstance(payload, dict) or not payload:
+            return [], False
+
+        has_row_key = row_key in payload
+        has_symbol_key = symbol_key in payload
+        raw_rows = payload.get(row_key, [])
+        rows = list(raw_rows) if isinstance(raw_rows, (list, tuple)) else []
+        rows = [row for row in rows if cls._candidate_symbol(row)]
+        if rows:
+            return rows, True
+
+        raw_symbols = payload.get(symbol_key, [])
+        symbols = [
+            str(symbol or "").strip().upper()
+            for symbol in raw_symbols
+            if str(symbol or "").strip()
+        ] if isinstance(raw_symbols, (list, tuple)) else []
+        if symbols:
+            resolved = cls._rows_for_symbols(source_rows, symbols)
+            return resolved, bool(resolved)
+
+        if has_row_key or has_symbol_key:
+            return [], True
+        return [], False
+
+    @staticmethod
+    def _cache_age_seconds(cache: StrategyCadenceCache, now: datetime) -> float | None:
+        if cache.timestamp_utc is None:
+            return None
+        return max(0.0, (now - cache.timestamp_utc).total_seconds())
+
     def _resolve_tha_decisions(
         self,
         *,
@@ -1318,6 +1444,7 @@ class CoreOrchestrator:
             "MANUAL_BYPASS_FLOAT_FILTER",
             "MANUAL_BYPASS_RVOL_FILTER",
             "MANUAL_BYPASS_CATALYST_FILTER",
+            "MANUAL_BYPASS_STOCK_SELECTION",
             "STOCK_SELECTION_BYPASS",
             "SETUP_DETECTION_REQUIRED",
             "RISK_REQUIRED",
@@ -1440,7 +1567,7 @@ class CoreOrchestrator:
         symbols = list(cfg.manual_focus) if cfg.enabled else []
         print(
             "[MANUAL_FOCUS][LOAD] "
-            f"enabled={cfg.enabled} symbols={symbols} "
+            f"enabled={cfg.enabled} source={cfg.effective_source} symbols={symbols} "
             f"max={cfg.max_manual_symbols} reload_seconds={cfg.live_reload_seconds}"
         )
         print(f"[MANUAL_FOCUS][NORMALIZED] symbols={symbols}")
@@ -2903,6 +3030,7 @@ class CoreOrchestrator:
             active_request = self._build_scanner_request(active_scanner_policy, strategy_name=active_strategy, session_phase=session_phase)
             cadence = self._strategy_cadence(active_strategy)
             strategy_payload: dict = {}
+            scanner_payload_fresh = False
 
             top_stale = self._is_stale(cadence.top_n, cycle_started_at, top_refresh)
             watch_stale = self._is_stale(cadence.watchlist, cycle_started_at, watch_refresh)
@@ -2924,20 +3052,35 @@ class CoreOrchestrator:
                         forced_session_label=forced_session_label,
                         forced_session_source=forced_session_source,
                     )
+                    scanner_payload_fresh = bool(strategy_payload)
                     observations = list(strategy_payload.get("candidate_metrics", []))
                     universe_entries = list(strategy_payload.get("universe_top_n", []))
                     new_symbols = [entry.get("symbol") for entry in universe_entries if isinstance(entry, dict) and entry.get("symbol")][:top_limit]
+                    if not new_symbols:
+                        new_symbols = [
+                            str(symbol or "").strip().upper()
+                            for symbol in list(strategy_payload.get("top_n_symbols") or [])
+                            if str(symbol or "").strip()
+                        ][:top_limit]
+                    if not new_symbols and observations:
+                        new_symbols = self._symbols_from_candidates(observations)[:top_limit]
                     changed = new_symbols != cadence.top_n.symbols
                     if changed:
                         added = sorted(set(new_symbols) - set(cadence.top_n.symbols))
                         removed = sorted(set(cadence.top_n.symbols) - set(new_symbols))
                         print(f"[TOPN_REFRESH] strategy={active_strategy} added={added} removed={removed}")
-                        cadence.top_n.symbols = new_symbols
-                        cadence.top_n.rows = observations
-                        watch_stale = True
                     else:
                         print(f"[TOPN_REFRESH] strategy={active_strategy} unchanged")
+                    cadence.top_n.symbols = list(new_symbols)
+                    cadence.top_n.rows = observations
                     cadence.top_n.timestamp_utc = cycle_started_at
+                    cadence.top_n.authority = "SCANNER_PAYLOAD"
+                    cadence.top_n.authority_reason = "FULL_TOPN_REFRESH"
+                    cadence.scanner_payload = dict(strategy_payload)
+                    cadence.scanner_payload_timestamp_utc = cycle_started_at
+                    if self._payload_candidate_rows(strategy_payload, "watchlist_k", "watchlist_k_symbols", observations)[1]:
+                        watch_stale = True
+                        focus_stale = True
                     self._trace_event("TOPN_REFRESH", {"strategy": active_strategy, "size": len(cadence.top_n.symbols), "changed": changed})
                 except ProviderConnectionError:
                     raise
@@ -2952,12 +3095,40 @@ class CoreOrchestrator:
                         print(f"[SCANNER][WARN] strategy={active_strategy} err={message}")
 
             observations = list(cadence.top_n.rows)
-            payload_watch_rows = list(strategy_payload.get("watchlist_k", []))
-            payload_focus_rows = list(strategy_payload.get("focus_m", []))
+            payload_source_rows = list(strategy_payload.get("candidate_metrics") or []) or observations
+            cached_payload = cadence.scanner_payload if isinstance(cadence.scanner_payload, dict) else {}
+            cached_source_rows = list(cached_payload.get("candidate_metrics") or []) or observations
+            payload_watch_rows, payload_watch_authority = self._payload_candidate_rows(
+                strategy_payload,
+                "watchlist_k",
+                "watchlist_k_symbols",
+                payload_source_rows,
+            )
+            payload_focus_rows, payload_focus_authority = self._payload_candidate_rows(
+                strategy_payload,
+                "focus_m",
+                "focus_m_symbols",
+                payload_source_rows,
+            )
+            cached_watch_rows, cached_watch_authority = self._payload_candidate_rows(
+                cached_payload,
+                "watchlist_k",
+                "watchlist_k_symbols",
+                cached_source_rows,
+            )
+            cached_focus_rows, cached_focus_authority = self._payload_candidate_rows(
+                cached_payload,
+                "focus_m",
+                "focus_m_symbols",
+                cached_source_rows,
+            )
+            top_n_age_seconds = self._cache_age_seconds(cadence.top_n, cycle_started_at)
+            top_n_cache_fresh = top_n_age_seconds is not None and top_n_age_seconds <= max(1, top_refresh)
+            ross_focus_authority_required = self._ross_focus_authority_required(active_strategy)
 
             if watch_stale:
                 scanner_candidates = list(observations)
-                enriched_candidates = list(strategy_payload.get("candidate_metrics", [])) or list(scanner_candidates)
+                enriched_candidates = list(strategy_payload.get("candidate_metrics") or []) or list(scanner_candidates)
                 pre_gate = list(enriched_candidates)
                 post_gate = [
                     candidate
@@ -2975,17 +3146,36 @@ class CoreOrchestrator:
                 if not candidates_for_watchlist and scanner_candidates:
                     print("[ERROR][PIPELINE_BREAK] scanner produced symbols but watchlist input empty")
                     candidates_for_watchlist = list(scanner_candidates)
-                if not candidates_for_watchlist:
+
+                watch_rows: list[object]
+                focus_rows: list[object]
+                watch_authority = "UNINITIALIZED"
+                watch_reason = "UNSPECIFIED"
+                watch_drop_reasons: object = {}
+                if payload_watch_authority:
+                    watch_rows = list(payload_watch_rows)
+                    focus_rows = list(payload_focus_rows) if payload_focus_authority else []
+                    watch_authority = "SCANNER_PAYLOAD"
+                    watch_reason = "FULL_TOPN_REFRESH"
+                    watch_drop_reasons = strategy_payload.get("drop_reason_summary") or strategy_payload.get("drop_ledger") or {}
+                elif cached_watch_authority and top_n_cache_fresh:
+                    watch_rows = list(cached_watch_rows)
+                    focus_rows = list(cached_focus_rows) if cached_focus_authority else []
+                    watch_authority = "CACHED_SCANNER_PAYLOAD"
+                    watch_reason = "WITHIN_TOPN_REFRESH_WINDOW"
+                    watch_drop_reasons = cached_payload.get("drop_reason_summary") or cached_payload.get("drop_ledger") or {}
+                elif not candidates_for_watchlist:
                     watch_rows = []
                     focus_rows = []
+                    watch_authority = "NO_COMPATIBLE_INPUT"
+                    watch_reason = "EMPTY_SCANNER_CANDIDATE_CACHE"
                 else:
                     policy_v2 = resolve_policy_v2(active_strategy)
-                    if payload_watch_rows:
-                        watch_rows = payload_watch_rows
-                        focus_rows = payload_focus_rows
-                    elif policy_v2 and is_policy_v2_enabled_for_strategy(active_strategy):
+                    if policy_v2 and is_policy_v2_enabled_for_strategy(active_strategy) and not ross_focus_authority_required:
                         watch_rows, focus_rows = self._build_watchlist_focus_v2(policy_v2, candidates_for_watchlist)
-                    else:
+                        watch_authority = "POLICY_V2_RECOMPUTE"
+                        watch_reason = "CURRENT_CACHED_TOPN_POLICY_RECOMPUTE"
+                    elif not ross_focus_authority_required:
                         selector = resolve_watchlist_selector(active_scanner_policy.ranking_intent)
                         watch_rows = (
                             selector(candidates_for_watchlist, active_scanner_policy)
@@ -2997,25 +3187,72 @@ class CoreOrchestrator:
                             )
                         )
                         focus_rows = watch_rows[: max(0, active_scanner_policy.focus_limit_m)]
+                        watch_authority = "SCANNER_POLICY_RECOMPUTE"
+                        watch_reason = "CURRENT_CACHED_TOPN_POLICY_RECOMPUTE"
+                    elif cadence.watchlist.rows:
+                        watch_rows = list(cadence.watchlist.rows)
+                        focus_rows = []
+                        watch_authority = "DEGRADED_STALE_MONITORING"
+                        watch_reason = "MISSING_COMPATIBLE_SCANNER_LIST_AUTHORITY"
+                        print(
+                            "[WATCHLIST][CONTINUITY_BLOCK] "
+                            f"strategy={active_strategy} reason={watch_reason} "
+                            "preserving_visible_watchlist=true trade_authority=false"
+                        )
+                    else:
+                        watch_rows = []
+                        focus_rows = []
+                        watch_authority = "NO_COMPATIBLE_INPUT"
+                        watch_reason = "ROSS_REQUIRES_SCANNER_LIST_AUTHORITY"
                 cadence.watchlist.rows = list(watch_rows[:watch_limit])
                 cadence.watchlist.symbols = self._symbols_from_candidates(cadence.watchlist.rows)
                 cadence.watchlist.timestamp_utc = cycle_started_at
-                self._trace_event("WATCHLIST_CREATED", {"strategy": active_strategy, "size": len(cadence.watchlist.symbols)})
+                cadence.watchlist.authority = watch_authority
+                cadence.watchlist.authority_reason = watch_reason
+                print(
+                    "[WATCHLIST][AUTHORITY] "
+                    f"strategy={active_strategy} source={watch_authority} reason={watch_reason} "
+                    f"topn_age_seconds={top_n_age_seconds} watchlist_count={len(cadence.watchlist.symbols)} "
+                    f"focus_payload_count={len(focus_rows)} scanner_payload_fresh={scanner_payload_fresh} "
+                    f"drop_reasons={watch_drop_reasons}"
+                )
+                self._trace_event("WATCHLIST_CREATED", {"strategy": active_strategy, "size": len(cadence.watchlist.symbols), "authority": watch_authority})
                 if not focus_stale and not cadence.focus.rows:
                     focus_stale = True
 
             if focus_stale:
-                focus_authority_required = self._ross_focus_authority_required(active_strategy)
-                if payload_focus_rows:
-                    base = payload_focus_rows
+                focus_authority_required = ross_focus_authority_required
+                if payload_focus_authority:
+                    base = list(payload_focus_rows)
+                    focus_authority = "SCANNER_PAYLOAD"
+                    focus_reason = "FULL_TOPN_REFRESH"
+                elif cached_focus_authority and top_n_cache_fresh:
+                    base = list(cached_focus_rows)
+                    focus_authority = "CACHED_SCANNER_PAYLOAD"
+                    focus_reason = "WITHIN_TOPN_REFRESH_WINDOW"
+                elif cadence.watchlist.authority == "DEGRADED_STALE_MONITORING":
+                    base = []
+                    focus_authority = "BLOCKED_DEGRADED_WATCHLIST"
+                    focus_reason = "MISSING_COMPATIBLE_SCANNER_LIST_AUTHORITY"
                 elif focus_authority_required:
                     base = []
+                    focus_authority = "ROSS_FOCUS_AUTHORITY_REQUIRED"
+                    focus_reason = "FOCUS_M_MISSING_OR_EMPTY"
                 else:
                     base = list(cadence.watchlist.rows)[:focus_limit_max]
+                    focus_authority = "WATCHLIST_FALLBACK"
+                    focus_reason = "NON_ROSS_OR_NON_EXECUTION_MODE"
                 cadence.focus.rows = list(base[:focus_limit_max])
                 cadence.focus.symbols = self._symbols_from_candidates(cadence.focus.rows)
                 cadence.focus.timestamp_utc = cycle_started_at
-                self._trace_event("FOCUS_LIST_CREATED", {"strategy": active_strategy, "size": len(cadence.focus.symbols)})
+                cadence.focus.authority = focus_authority
+                cadence.focus.authority_reason = focus_reason
+                print(
+                    "[FOCUS][AUTHORITY] "
+                    f"strategy={active_strategy} source={focus_authority} reason={focus_reason} "
+                    f"watchlist_source={cadence.watchlist.authority} focus_count={len(cadence.focus.symbols)}"
+                )
+                self._trace_event("FOCUS_LIST_CREATED", {"strategy": active_strategy, "size": len(cadence.focus.symbols), "authority": focus_authority})
 
             print(
                 f"[STRATEGY_AUDIT] strategy={active_strategy} topn_size={len(cadence.top_n.symbols)} "

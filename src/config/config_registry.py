@@ -891,6 +891,16 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
         "mutable": "dynamic",
         "description": "Per-strategy focus refresh cadence in seconds.",
     },
+    "MANUAL_FOCUS_ENABLED": {
+        "type": bool,
+        "default": None,
+        "allow_none": True,
+        "env": ["MANUAL_FOCUS_ENABLED"],
+        "affects": ["CoreOrchestrator"],
+        "enforcement": "SOFT",
+        "mutable": "dynamic",
+        "description": "Optional effective authority override for config/manual_focus.json; explicit false disables manual focus for natural certification.",
+    },
     "PREP_REFRESH_CLOSED_MIN_SECONDS": {
         "type": int,
         "default": 7200,

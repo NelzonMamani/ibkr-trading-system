@@ -1,0 +1,159 @@
+{
+  "schema_version": "PR1082.continuous_rth_cold_start_defect_report.v1",
+  "report_created_at_utc": "2026-09-01T17:43:54Z",
+  "operator": "CODEX_1082_RTH_CONTINUITY_REPAIR",
+  "status": "DEFECT_REPORT_COMPLETE",
+  "locked_baseline": {
+    "branch_at_report_start": "main",
+    "head": "5a7230c9f2404b6b08fa42631950eab9fe0cbbed",
+    "required_head": "5a7230c9f2404b6b08fa42631950eab9fe0cbbed",
+    "matched_required_head": true,
+    "pre_existing_drift_preserved": [
+      "TRADING_OS_MASTER_CATALOGUE/03_STRATEGIES/04_STRATEGY_CERTIFICATION_AND_GOVERNANCE/STRATEGY_AUDIT_MATRIX_V2.md",
+      "TRADING_OS_MASTER_CATALOGUE/03_STRATEGIES/STRATEGY_CERTIFICATION_REPORT.md",
+      "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M5_VERIFICATION_AUTHORITY/M5_EVIDENCE_INDEX.json",
+      "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M6_DATA_LIFECYCLE_GOVERNANCE/M6_EVIDENCE_INDEX.json",
+      "artifacts/certification/pr1040/real_runtime_observation/real_runtime_observation.json",
+      "untracked artifact directories including artifacts/certification/pr1082/"
+    ]
+  },
+  "restored_file_verification": {
+    "manual_focus": {
+      "path": "config/manual_focus.json",
+      "backup": "artifacts/certification/pr1082/manual_focus_original_20260901T142015Z.json",
+      "sha256": "F922A5991B0ED0D4659A0C69973AB79889DB20376F2DEA6F3D0FF1840BF28571",
+      "matched_backup": true
+    },
+    "premarket_prep": {
+      "path": "data/prep/premarket_prep.json",
+      "backup": "artifacts/certification/pr1082/premarket_prep_original_for_cold_start_20260901T142151Z.json",
+      "sha256": "4C8415DDCA3F6C242910451F0FC0430C4FDC5EEF11629D8E8AB2A4D225F7C3CE",
+      "matched_backup": true
+    }
+  },
+  "canonical_runtime": {
+    "entrypoint": ".\\.venv\\Scripts\\python.exe -u -m src.main --mode READ_ONLY --strategy ross_momentum",
+    "instantiates": "src.main -> CoreOrchestrator.run_forever",
+    "run_log": "artifacts/certification/pr1082/continuous_rth_cold_start_corrected_20260901T143108Z.log",
+    "metadata": "artifacts/certification/pr1082/continuous_rth_cold_start_corrected_20260901T143108Z.metadata.json",
+    "wrapper_false_positive_evidence": "artifacts/certification/pr1082/continuous_rth_cold_start_20260901T142316Z.*",
+    "wrapper_counted_as_focus_reached": false
+  },
+  "cadence_observed": {
+    "cycle_sleep_seconds": 3,
+    "top_n_refresh_seconds": 300,
+    "watchlist_refresh_seconds": 60,
+    "focus_refresh_seconds": 10
+  },
+  "broker_audits": {
+    "pre_run": {
+      "path": "artifacts/certification/pr1082/validated_continuous_corrected_prerun_broker_audit_20260901T143015Z/",
+      "collected_at_utc": "2026-09-01T14:30:16+00:00",
+      "connected": true,
+      "host": "127.0.0.1",
+      "port": 7497,
+      "client_id": 1082,
+      "readonly_connection": true,
+      "open_orders_before": [],
+      "open_orders_after": [],
+      "submitted_orders_count": 0,
+      "modified_orders_count": 0,
+      "cancelled_orders_count": 0,
+      "execution_enabled": false,
+      "api_write_allowed": false,
+      "order_submission_enabled": false,
+      "order_attempt_count": 0,
+      "paper_ready": "NO",
+      "paper_readiness_gate": "FAIL"
+    },
+    "post_run": {
+      "path": "artifacts/certification/pr1082/validated_continuous_postrun_broker_audit_20260901T144002Z/",
+      "collected_at_utc": "2026-09-01T14:40:03+00:00",
+      "connected": true,
+      "host": "127.0.0.1",
+      "port": 7497,
+      "client_id": 1082,
+      "readonly_connection": true,
+      "open_orders_before": [],
+      "open_orders_after": [],
+      "submitted_orders_count": 0,
+      "modified_orders_count": 0,
+      "cancelled_orders_count": 0,
+      "execution_enabled": false,
+      "api_write_allowed": false,
+      "order_submission_enabled": false,
+      "order_attempt_count": 0,
+      "paper_ready": "NO",
+      "paper_readiness_gate": "FAIL"
+    },
+    "zero_broker_order_mutations": true
+  },
+  "proved_behaviour": {
+    "cold_start_without_prep_artifact": {
+      "proved": true,
+      "evidence": "line 693: [PREP] placeholder artifact written path=data\\prep\\premarket_prep.json"
+    },
+    "first_full_scanner_refresh": {
+      "evidence_lines": [8614, 8740, 8741, 8760, 8765, 8766, 8956],
+      "top_n_count": 50,
+      "watchlist_k_count": 15,
+      "watchlist_k_symbols": [
+        "PETZ",
+        "SSM",
+        "BIAF",
+        "FLYE",
+        "RDAC",
+        "SOWG",
+        "PXS",
+        "GYGY",
+        "FGL",
+        "WETO",
+        "WCT",
+        "WKHS",
+        "DAIC",
+        "YYGH",
+        "EMPD"
+      ],
+      "focus_m_count": 0,
+      "focus_m_reason": "catalyst/news failed closed; no manual focus; no execution intent"
+    },
+    "later_independent_list_refresh": {
+      "evidence_lines": [8998, 8999, 9000, 9001, 9003, 9004, 9005, 9010, 9011, 9022, 9046, 9198],
+      "scanner_output_count": 50,
+      "top_n_still_populated": true,
+      "watchlist_created_trace": true,
+      "actual_watchlist_count": 0,
+      "actual_focus_count": 0,
+      "erroneous_rejection_reason": "SCANNER_KEEP_NOT_IN_WATCHLIST"
+    },
+    "run_stop": {
+      "stop_condition": "B_CONCRETE_CONTINUOUS_RUNTIME_DEFECT",
+      "cycles_run": 23,
+      "shutdown": "manual Ctrl+C after defect proof; post-run broker audit completed"
+    }
+  },
+  "exact_root_cause": {
+    "summary": "CoreOrchestrator stores the full scanner refresh Top N observations in cadence.top_n.rows, but it does not store the scanner-produced canonical Watchlist K/Focus M payload as the authoritative list representation for later independent cadence refreshes. When watch_stale becomes true before top_stale, strategy_payload is empty because run_scanner_cycle is not invoked. The orchestrator then rebuilds Watchlist K via _build_watchlist_focus_v2 over cached observations instead of reusing or recomputing from the scanner-authoritative list context, and that incompatible path can produce an empty watchlist without explicit current scanner drop authority. The empty recomputation overwrites cadence.watchlist and turns previously scanner-kept symbols into SCANNER_KEEP_NOT_IN_WATCHLIST rejections.",
+    "source_files_and_functions": [
+      "src/core/orchestrator.py::StrategyCadenceState",
+      "src/core/orchestrator.py::_build_watchlist_focus_v2",
+      "src/core/orchestrator.py::run_once cadence block around run_scanner_cycle/list refresh/list assignment",
+      "src/scanner/scanner_runner.py::run_scanner_cycle payload keys watchlist_k/focus_m/watchlist_k_symbols/focus_m_symbols/candidate_metrics/watchlist_context_rows/symbol_context_registry"
+    ],
+    "manual_focus_authority_gap": "src/core/orchestrator.py::load_manual_focus_config reads config/manual_focus.json directly. Explicit MANUAL_FOCUS_ENABLED=false in the certification environment was not applied at that loader boundary, so natural certification had to temporarily rewrite the tracked JSON file to prevent manual symbols from entering the run."
+  },
+  "required_reconfirmations": {
+    "ross_thresholds_changed": "NO",
+    "catalyst_bypass": "NO",
+    "volume_rvol_separate": "YES",
+    "manual_or_synthetic_candidates_used": "NO",
+    "zero_broker_order_mutations": "YES",
+    "paper_ready": "NO",
+    "paper_readiness_gate": "FAIL"
+  },
+  "repair_authorization_status": {
+    "authorized": true,
+    "instruction": "CODEX_INSTRUCTION_1082_REPAIR_RTH_WATCHLIST_CONTINUITY.md",
+    "next_action": "Create branch codex/pr1082-rth-watchlist-continuity, implement smallest coherent continuity/manual-focus authority repair, add regression tests, run verification, commit once, open PR linked to #1082."
+  }
+}

@@ -1631,6 +1631,24 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
             _mark_execution_failure(None, "CALLBACK_TIMEOUT", reason=f"missing_order_id callback={event_type or 'unknown'}")
         return
     order_id_key = _order_id_key(order_id)
+    if event_type == "execdetails" and int(order_id_key) <= 0:
+        _UNMATCHED_CALLBACK_COUNT += 1
+        _UNRESOLVED_EXECUTION_RECONCILIATION_COUNT += 1
+        _FILL_AUTHORITY_STATE = "DEGRADED"
+        _record_reconciliation_result(False)
+        print(
+            "[ORDER_EVENT][UNMATCHED] "
+            f"event=EXECUTION reason=unknown_order_id order_id={order_id_key}"
+        )
+        print(
+            "[EXECUTION][RECONCILIATION_FAILED] "
+            f"event=EXECUTION callback=execDetails order_id={order_id_key}"
+        )
+        print(
+            "[EXECUTION][TRUTH_GAP] "
+            f"stage=FILL callback=execDetails reason=unknown_order_id order_id={order_id_key}"
+        )
+        return
     tracked = _RUNTIME_ORDERS.get(order_id_key)
     trace = _EXECUTION_TRACE_BY_ORDER_ID.get(order_id_key)
     if tracked is None and trace is None and event_type in {"openorder", "orderstatus"}:

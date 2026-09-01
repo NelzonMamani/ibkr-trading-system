@@ -302,12 +302,19 @@ def _pct_change(last_price: Optional[float], reference_price: Optional[float]) -
 
 
 def compute_scanner_rvol(
+    session_volume: Optional[float] = None,
+    avg_volume_20d: Optional[float] = None,
     *,
-    session_label: str,
-    session_volume: Optional[float],
-    avg_volume_20d: Optional[float],
+    session_label: Optional[str] = None,
     persisted_rvol: Optional[float] = None,
 ) -> Optional[float]:
+    if session_label is None:
+        volume = _safe_float(session_volume)
+        avg_volume = _safe_float(avg_volume_20d)
+        if volume is None or avg_volume in {None, 0}:
+            return None
+        return round(volume / avg_volume, 2)
+
     payload = compute_session_relative_volume_with_provenance(
         session_label=session_label,
         session_volume=session_volume,
