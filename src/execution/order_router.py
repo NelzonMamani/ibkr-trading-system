@@ -1039,6 +1039,64 @@ def _resolve_callback_order_id(callback_payload: Any) -> int | None:
     return None
 
 
+def _extract_callback_account(callback_payload: Any) -> str:
+    value = _extract_callback_field(callback_payload, "account", "account_id", "acctNumber", "acct_number")
+    if value is None:
+        order = _extract_callback_field(callback_payload, "order")
+        if order is not None:
+            value = getattr(order, "account", None)
+    if value is None:
+        execution = _extract_callback_field(callback_payload, "execution")
+        if execution is not None:
+            value = getattr(execution, "acctNumber", None) or getattr(execution, "account", None)
+    return str(value or "").upper().strip()
+
+
+def _normalize_order_action(value: Any) -> str:
+    normalized = str(value or "").upper().strip()
+    if normalized in {"BOT", "BUY", "LONG"}:
+        return "BUY"
+    if normalized in {"SLD", "SELL", "SHORT"}:
+        return "SELL"
+    return normalized
+
+
+def _extract_callback_action(callback_payload: Any) -> str:
+    value = _extract_callback_field(callback_payload, "action", "side", "order_action")
+    if value is None:
+        order = _extract_callback_field(callback_payload, "order")
+        if order is not None:
+            value = getattr(order, "action", None)
+    if value is None:
+        execution = _extract_callback_field(callback_payload, "execution")
+        if execution is not None:
+            value = getattr(execution, "side", None) or getattr(execution, "action", None)
+    return _normalize_order_action(value)
+
+
+def _collect_positive_callback_order_ids(callback_payload: Any) -> set[int]:
+    values: list[Any] = []
+    for field in ("order_id", "orderId", "permId", "perm_id"):
+        values.append(_extract_callback_field(callback_payload, field))
+    for nested_field in ("execution", "order"):
+        nested = _extract_callback_field(callback_payload, nested_field)
+        if nested is None:
+            continue
+        for field in ("order_id", "orderId", "permId", "perm_id"):
+            values.append(getattr(nested, field, None))
+    positive_ids: set[int] = set()
+    for value in values:
+        if value is None:
+            continue
+        try:
+            order_id = int(value)
+        except (TypeError, ValueError):
+            continue
+        if order_id > 0:
+            positive_ids.add(order_id)
+    return positive_ids
+
+
 def _extract_exec_order_id(exec_row: Any) -> int | None:
     for field in ("orderId", "order_id", "permId", "perm_id"):
         value = getattr(exec_row, field, None)
@@ -1420,6 +1478,233 @@ def _resolve_order_id_from_order_ref(order_ref: str) -> int | None:
     return None
 
 
+def _add_order_ref_candidate(candidates: dict[int, set[str]], order_id: Any, source: str) -> None:
+    if order_id is None:
+        return
+    try:
+        order_id_key = int(order_id)
+    except (TypeError, ValueError):
+        return
+    if order_id_key <= 0:
+        return
+    candidates.setdefault(order_id_key, set()).add(source)
+
+
+def _collect_order_ref_reconciliation_candidates(order_ref: str) -> dict[int, set[str]]:
+    normalized_order_ref = _normalize_order_ref(order_ref)
+    candidates: dict[int, set[str]] = {}
+    if not normalized_order_ref:
+        return candidates
+    _add_order_ref_candidate(candidates, _ORDER_ID_BY_ORDER_REF.get(normalized_order_ref), "mapping")
+    for order_id, row in _RUNTIME_ORDERS.items():
+        if _normalize_order_ref(row.order_ref) == normalized_order_ref:
+            _add_order_ref_candidate(candidates, order_id, "runtime_order")
+    for order_id, pending in _PENDING_SUBMISSIONS_BY_ORDER_ID.items():
+        if _normalize_order_ref(pending.order_ref) == normalized_order_ref:
+            _add_order_ref_candidate(candidates, order_id, "pending_submission")
+    for order_id, truth in _EXECUTION_TRUTH_BY_ORDER_ID.items():
+        if _normalize_order_ref(truth.order_ref) == normalized_order_ref:
+            _add_order_ref_candidate(candidates, truth.broker_order_id if truth.broker_order_id is not None else order_id, "execution_truth")
+    return candidates
+
+
+def _add_normalized_identity(values: set[str], value: Any) -> None:
+    normalized = str(value or "").upper().strip()
+    if normalized:
+        values.add(normalized)
+
+
+def _add_normalized_action(values: set[str], value: Any) -> None:
+    normalized = _normalize_order_action(value)
+    if normalized:
+        values.add(normalized)
+
+
+def _add_positive_identity_qty(values: set[int], value: Any) -> None:
+    if value is None:
+        return
+    try:
+        qty = int(float(value))
+    except (TypeError, ValueError):
+        return
+    if qty > 0:
+        values.add(qty)
+
+
+def _order_ref_identity_mismatch_reason(
+    *,
+    candidate_id: int,
+    callback_payload: Any,
+    callback_symbol: str,
+    callback_filled_qty: int,
+) -> str:
+    expected_symbols: set[str] = set()
+    expected_accounts: set[str] = set()
+    expected_actions: set[str] = set()
+    expected_qtys: set[int] = set()
+
+    tracked = _RUNTIME_ORDERS.get(int(candidate_id))
+    if tracked is not None:
+        _add_normalized_identity(expected_symbols, tracked.symbol)
+        _add_normalized_action(expected_actions, tracked.side)
+        _add_positive_identity_qty(expected_qtys, tracked.total_qty)
+        wire_payload = dict(tracked.order_wire_payload or {})
+        _add_normalized_identity(expected_symbols, wire_payload.get("symbol"))
+        _add_normalized_identity(expected_accounts, wire_payload.get("account"))
+        _add_normalized_action(expected_actions, wire_payload.get("action"))
+        _add_positive_identity_qty(expected_qtys, wire_payload.get("quantity"))
+        open_order_detail = dict(tracked.open_order_detail or {})
+        _add_normalized_identity(expected_symbols, open_order_detail.get("symbol"))
+        _add_normalized_action(expected_actions, open_order_detail.get("action"))
+        _add_positive_identity_qty(expected_qtys, open_order_detail.get("total_quantity"))
+
+    pending = _PENDING_SUBMISSIONS_BY_ORDER_ID.get(int(candidate_id))
+    if pending is not None:
+        _add_normalized_identity(expected_symbols, pending.symbol)
+
+    truth = _EXECUTION_TRUTH_BY_ORDER_ID.get(int(candidate_id))
+    if truth is not None:
+        _add_normalized_identity(expected_symbols, truth.symbol)
+        _add_normalized_action(expected_actions, truth.side)
+        _add_positive_identity_qty(expected_qtys, truth.submitted_qty)
+
+    normalized_callback_symbol = str(callback_symbol or "").upper().strip()
+    if normalized_callback_symbol and expected_symbols and normalized_callback_symbol not in expected_symbols:
+        return "identity_mismatch_symbol"
+
+    callback_account = _extract_callback_account(callback_payload)
+    if callback_account and expected_accounts and callback_account not in expected_accounts:
+        return "identity_mismatch_account"
+
+    callback_action = _extract_callback_action(callback_payload)
+    if callback_action and expected_actions and callback_action not in expected_actions:
+        return "identity_mismatch_action"
+
+    if int(callback_filled_qty or 0) > 0 and expected_qtys and int(callback_filled_qty) > max(expected_qtys):
+        return "identity_mismatch_quantity"
+
+    return ""
+
+
+def _log_order_ref_reconciliation_reject(
+    *,
+    order_ref: str,
+    callback_order_id: int | None,
+    reason: str,
+    candidate_ids: list[int] | None = None,
+    conflicting_order_ids: list[int] | None = None,
+) -> None:
+    print(
+        "[ORDER_EVENT][ORDER_REF_RECONCILE_REJECT] "
+        f"order_ref={order_ref or 'UNKNOWN'} callback_order_id={callback_order_id if callback_order_id is not None else 'UNKNOWN'} "
+        f"reason={reason} candidates={','.join(str(v) for v in (candidate_ids or [])) or 'NONE'} "
+        f"conflicts={','.join(str(v) for v in (conflicting_order_ids or [])) or 'NONE'}"
+    )
+
+
+def _resolve_execdetails_order_ref_reconciliation(
+    *,
+    callback_payload: Any,
+    callback_order_id: int | None,
+    callback_order_ref: str,
+    callback_symbol: str,
+    callback_filled_qty: int,
+) -> tuple[int | None, str]:
+    normalized_order_ref = _normalize_order_ref(callback_order_ref)
+    if not normalized_order_ref:
+        _log_order_ref_reconciliation_reject(
+            order_ref=normalized_order_ref,
+            callback_order_id=callback_order_id,
+            reason="missing_order_ref",
+        )
+        return None, "missing_order_ref"
+
+    candidates = _collect_order_ref_reconciliation_candidates(normalized_order_ref)
+    candidate_ids = sorted(candidates.keys())
+    if not candidate_ids:
+        _log_order_ref_reconciliation_reject(
+            order_ref=normalized_order_ref,
+            callback_order_id=callback_order_id,
+            reason="unknown_order_ref",
+        )
+        return None, "unknown_order_ref"
+    if len(candidate_ids) != 1:
+        _log_order_ref_reconciliation_reject(
+            order_ref=normalized_order_ref,
+            callback_order_id=callback_order_id,
+            reason="ambiguous_order_ref",
+            candidate_ids=candidate_ids,
+        )
+        return None, "ambiguous_order_ref"
+
+    candidate_id = int(candidate_ids[0])
+    candidate_sources = set(candidates.get(candidate_id, set()))
+    authoritative_sources = candidate_sources - {"mapping"}
+    if not authoritative_sources:
+        _log_order_ref_reconciliation_reject(
+            order_ref=normalized_order_ref,
+            callback_order_id=callback_order_id,
+            reason="stale_order_ref_mapping",
+            candidate_ids=candidate_ids,
+        )
+        return None, "stale_order_ref_mapping"
+
+    positive_callback_order_ids = _collect_positive_callback_order_ids(callback_payload)
+    conflicting_order_ids = sorted(order_id for order_id in positive_callback_order_ids if int(order_id) != candidate_id)
+    if conflicting_order_ids:
+        _log_order_ref_reconciliation_reject(
+            order_ref=normalized_order_ref,
+            callback_order_id=callback_order_id,
+            reason="conflicting_positive_order_id",
+            candidate_ids=candidate_ids,
+            conflicting_order_ids=conflicting_order_ids,
+        )
+        return None, "conflicting_positive_order_id"
+
+    mismatch_reason = _order_ref_identity_mismatch_reason(
+        candidate_id=candidate_id,
+        callback_payload=callback_payload,
+        callback_symbol=callback_symbol,
+        callback_filled_qty=callback_filled_qty,
+    )
+    if mismatch_reason:
+        _log_order_ref_reconciliation_reject(
+            order_ref=normalized_order_ref,
+            callback_order_id=callback_order_id,
+            reason=mismatch_reason,
+            candidate_ids=candidate_ids,
+        )
+        return None, mismatch_reason
+
+    print(
+        "[ORDER_EVENT][RECONCILED] "
+        f"source=orderRef order_ref={normalized_order_ref} order_id={candidate_id} "
+        f"callback_order_id={callback_order_id if callback_order_id is not None else 'UNKNOWN'} "
+        f"authority=unique_compatible sources={','.join(sorted(candidate_sources))}"
+    )
+    return candidate_id, "OK"
+
+
+def _reject_execdetails_reconciliation_failure(*, order_id: int, order_ref: str, reason: str) -> None:
+    global _UNMATCHED_CALLBACK_COUNT, _UNRESOLVED_EXECUTION_RECONCILIATION_COUNT, _FILL_AUTHORITY_STATE
+    _UNMATCHED_CALLBACK_COUNT += 1
+    _UNRESOLVED_EXECUTION_RECONCILIATION_COUNT += 1
+    _FILL_AUTHORITY_STATE = "DEGRADED"
+    _record_reconciliation_result(False)
+    print(
+        "[ORDER_EVENT][UNMATCHED] "
+        f"event=EXECUTION reason={reason or 'unknown_order_id'} order_id={order_id} order_ref={order_ref or 'UNKNOWN'}"
+    )
+    print(
+        "[EXECUTION][RECONCILIATION_FAILED] "
+        f"event=EXECUTION callback=execDetails order_id={order_id} order_ref={order_ref or 'UNKNOWN'} reason={reason or 'unknown_order_id'}"
+    )
+    print(
+        "[EXECUTION][TRUTH_GAP] "
+        f"stage=FILL callback=execDetails reason={reason or 'unknown_order_id'} order_id={order_id} order_ref={order_ref or 'UNKNOWN'}"
+    )
+
+
 def _recover_order_tracking_from_pending_submission(*, order_id: int, callback_symbol: str, timestamp: str) -> tuple[TrackedOrder | None, ExecutionTrace | None]:
     pending = _PENDING_SUBMISSIONS_BY_ORDER_ID.get(int(order_id))
     if pending is None:
@@ -1631,26 +1916,58 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
             _mark_execution_failure(None, "CALLBACK_TIMEOUT", reason=f"missing_order_id callback={event_type or 'unknown'}")
         return
     order_id_key = _order_id_key(order_id)
-    if event_type == "execdetails" and int(order_id_key) <= 0:
-        _UNMATCHED_CALLBACK_COUNT += 1
-        _UNRESOLVED_EXECUTION_RECONCILIATION_COUNT += 1
-        _FILL_AUTHORITY_STATE = "DEGRADED"
-        _record_reconciliation_result(False)
-        print(
-            "[ORDER_EVENT][UNMATCHED] "
-            f"event=EXECUTION reason=unknown_order_id order_id={order_id_key}"
-        )
-        print(
-            "[EXECUTION][RECONCILIATION_FAILED] "
-            f"event=EXECUTION callback=execDetails order_id={order_id_key}"
-        )
-        print(
-            "[EXECUTION][TRUTH_GAP] "
-            f"stage=FILL callback=execDetails reason=unknown_order_id order_id={order_id_key}"
-        )
-        return
     tracked = _RUNTIME_ORDERS.get(order_id_key)
     trace = _EXECUTION_TRACE_BY_ORDER_ID.get(order_id_key)
+    order_ref_rejection_reason = ""
+    order_ref_fail_closed_reasons = {
+        "ambiguous_order_ref",
+        "conflicting_positive_order_id",
+        "identity_mismatch_account",
+        "identity_mismatch_action",
+        "identity_mismatch_quantity",
+        "identity_mismatch_symbol",
+        "stale_order_ref_mapping",
+    }
+    if event_type == "execdetails" and callback_order_ref and (int(order_id_key) <= 0 or tracked is None):
+        mapped_id, order_ref_rejection_reason = _resolve_execdetails_order_ref_reconciliation(
+            callback_payload=callback_payload,
+            callback_order_id=order_id_key,
+            callback_order_ref=callback_order_ref,
+            callback_symbol=str(symbol or ""),
+            callback_filled_qty=int(filled_qty or 0),
+        )
+        if mapped_id is not None:
+            order_id = int(mapped_id)
+            order_id_key = _order_id_key(order_id)
+            tracked = _RUNTIME_ORDERS.get(order_id_key)
+            trace = _EXECUTION_TRACE_BY_ORDER_ID.get(order_id_key)
+            if tracked is None:
+                tracked, trace = _recover_order_tracking_from_pending_submission(
+                    order_id=order_id_key,
+                    callback_symbol=str(symbol or ""),
+                    timestamp=timestamp,
+                )
+        elif int(order_id_key) <= 0 or order_ref_rejection_reason in order_ref_fail_closed_reasons:
+            _reject_execdetails_reconciliation_failure(
+                order_id=order_id_key,
+                order_ref=callback_order_ref,
+                reason=order_ref_rejection_reason or "unknown_order_id",
+            )
+            return
+    if event_type == "execdetails" and int(order_id_key) <= 0:
+        order_ref_rejection_reason = order_ref_rejection_reason or "missing_order_ref"
+        if not callback_order_ref:
+            _log_order_ref_reconciliation_reject(
+                order_ref=callback_order_ref,
+                callback_order_id=order_id_key,
+                reason=order_ref_rejection_reason,
+            )
+        _reject_execdetails_reconciliation_failure(
+            order_id=order_id_key,
+            order_ref=callback_order_ref,
+            reason=order_ref_rejection_reason,
+        )
+        return
     if tracked is None and trace is None and event_type in {"openorder", "orderstatus"}:
         tracked, trace = _recover_order_tracking_from_pending_submission(
             order_id=order_id_key,
@@ -1667,21 +1984,6 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
                 f"stage=ACK event_type={event_type} order_id={order_id} tracked=false action=ignored"
             )
             return
-    if event_type == "execdetails" and tracked is None and callback_order_ref:
-        mapped_id = _resolve_order_id_from_order_ref(callback_order_ref)
-        if mapped_id is not None:
-            if mapped_id != order_id_key:
-                print(f"[ORDER_EVENT][RECONCILED] source=orderRef order_ref={callback_order_ref} order_id={mapped_id}")
-            order_id = int(mapped_id)
-            order_id_key = _order_id_key(order_id)
-            tracked = _RUNTIME_ORDERS.get(order_id_key)
-            trace = _EXECUTION_TRACE_BY_ORDER_ID.get(order_id_key)
-            if tracked is None:
-                tracked, trace = _recover_order_tracking_from_pending_submission(
-                    order_id=order_id_key,
-                    callback_symbol=str(symbol or ""),
-                    timestamp=timestamp,
-                )
     if event_type == "execdetails":
         normalized_symbol = str(symbol or "").upper().strip()
         exec_id = _extract_exec_id_from_execdetails(callback_payload)

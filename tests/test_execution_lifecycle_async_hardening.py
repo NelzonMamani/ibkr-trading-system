@@ -12,6 +12,7 @@ def _reset_router() -> None:
     order_router._RUNTIME_POSITIONS.clear()
     order_router._SEEN_EXEC_IDS.clear()
     order_router._EXECUTION_EVENT_BUFFER.clear()
+    order_router._EXECUTION_TRUTH_BY_ORDER_ID.clear()
     order_router._UNMATCHED_CALLBACK_COUNT = 0
     order_router._RECONCILIATION_SUCCESSES = 0
     order_router._RECONCILIATION_FAILURES = 0
@@ -55,6 +56,84 @@ def _decision(symbol: str = "ABCD", qty: int = 100, side: str = "LONG") -> RiskD
     )
     row.side = side
     return row
+
+
+def _seed_order_ref_order(
+    *,
+    order_id: int = 5151,
+    symbol: str = "ORRF",
+    qty: int = 10,
+    side: str = "BUY",
+    account: str = "DU12345",
+    order_ref: str | None = None,
+) -> tuple[int, str]:
+    normalized_symbol = symbol.upper().strip()
+    intent_id = f"{normalized_symbol}-ORDERREF"
+    ref = order_ref or f"TRADING_OS|ROSS_MOMENTUM|{intent_id}"
+    row = order_router._upsert_order_from_submission(
+        order_id=order_id,
+        symbol=normalized_symbol,
+        side=side,
+        total_qty=qty,
+        order_ref=ref,
+        intent_id=intent_id,
+    )
+    row.order_wire_payload = {
+        "symbol": normalized_symbol,
+        "account": account,
+        "action": side,
+        "quantity": qty,
+    }
+    row.open_order_detail = {
+        "symbol": normalized_symbol,
+        "action": side,
+        "total_quantity": qty,
+    }
+    trace = order_router.ExecutionTrace(symbol=normalized_symbol, cycle_id="ORDERREF_TEST", intent_id=intent_id)
+    trace.order_id = order_id
+    trace.order_submitted = True
+    order_router._EXECUTION_TRACE_BY_ORDER_ID[order_id] = trace
+    order_router._EXECUTION_TRACE_BY_INTENT[intent_id] = trace
+    order_router._EXECUTION_TRUTH_BY_ORDER_ID[order_id] = order_router._create_execution_truth(
+        order_ref=ref,
+        broker_order_id=order_id,
+        symbol=normalized_symbol,
+        intent_id=intent_id,
+        side=side,
+        submitted_qty=qty,
+    )
+    order_router._register_order_intent_mapping(order_id=order_id, intent_id=intent_id, order_ref=ref)
+    return order_id, ref
+
+
+def _execdetails_payload(
+    *,
+    order_id: int = -1,
+    order_ref: str | None,
+    symbol: str = "ORRF",
+    shares: int = 5,
+    exec_id: str = "ORDERREF-EXEC",
+    price: float = 21.25,
+    account: str | None = "DU12345",
+    action: str | None = "BUY",
+    **extra,
+) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "event_type": "execDetails",
+        "order_id": order_id,
+        "symbol": symbol,
+        "shares": shares,
+        "price": price,
+        "execId": exec_id,
+    }
+    if order_ref is not None:
+        payload["orderRef"] = order_ref
+    if account is not None:
+        payload["account"] = account
+    if action is not None:
+        payload["action"] = action
+    payload.update(extra)
+    return payload
 
 
 def test_entry_order_submitted_then_working_no_fill_yet(monkeypatch) -> None:
@@ -268,6 +347,185 @@ def test_execdetails_callback_reconciles_via_order_ref(monkeypatch, capsys) -> N
     out = capsys.readouterr().out
     assert f"[ORDER_EVENT][RECONCILED] source=orderRef order_ref=TRADING_OS|ROSS_MOMENTUM|ABCD-1 order_id={oid}" in out
     assert order_router._RUNTIME_ORDERS[oid].filled_qty == 10
+
+
+def test_execdetails_nonpositive_order_id_reconciles_via_unique_compatible_order_ref(monkeypatch, capsys) -> None:
+    _reset_router()
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: True)
+    oid, ref = _seed_order_ref_order(order_id=5151, symbol="ORRF", qty=10)
+
+    order_router._on_ibkr_callback(_execdetails_payload(order_id=-1, order_ref=ref, shares=5, exec_id="ORRF-1"))
+    out = capsys.readouterr().out
+
+    assert f"[ORDER_EVENT][RECONCILED] source=orderRef order_ref={ref} order_id={oid}" in out
+    assert "authority=unique_compatible" in out
+    assert "[EXECUTION][RECONCILIATION_FAILED]" not in out
+    assert order_router._RUNTIME_ORDERS[oid].filled_qty == 5
+    assert -1 not in order_router._RUNTIME_ORDERS
+    assert -1 not in order_router._PENDING_EXECUTIONS_BY_ORDER_ID
+
+
+def test_execdetails_placeholder_reconciles_before_nonpositive_rejection(monkeypatch, capsys) -> None:
+    _reset_router()
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: True)
+    oid, ref = _seed_order_ref_order(order_id=5152, symbol="BFRJ", qty=8)
+
+    order_router._on_ibkr_callback(_execdetails_payload(order_id=0, order_ref=ref, symbol="BFRJ", shares=3, exec_id="BFRJ-1"))
+    out = capsys.readouterr().out
+
+    assert "reason=unknown_order_id" not in out
+    assert "reason=missing_order_ref" not in out
+    assert order_router._UNRESOLVED_EXECUTION_RECONCILIATION_COUNT == 0
+    assert order_router._RUNTIME_ORDERS[oid].filled_qty == 3
+
+
+def test_execdetails_nonpositive_order_id_missing_order_ref_rejects_safely(monkeypatch, capsys) -> None:
+    _reset_router()
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: True)
+    oid, _ref = _seed_order_ref_order(order_id=5153, symbol="MISS", qty=10)
+
+    order_router._on_ibkr_callback(_execdetails_payload(order_id=-1, order_ref=None, symbol="MISS", exec_id="MISS-REF"))
+    out = capsys.readouterr().out
+
+    assert "reason=missing_order_ref" in out
+    assert order_router._RUNTIME_ORDERS[oid].filled_qty == 0
+    assert -1 not in order_router._RUNTIME_ORDERS
+    assert -1 not in order_router._PENDING_EXECUTIONS_BY_ORDER_ID
+    assert order_router._UNRESOLVED_EXECUTION_RECONCILIATION_COUNT == 1
+
+
+def test_execdetails_nonpositive_order_id_unknown_order_ref_rejects_safely(monkeypatch, capsys) -> None:
+    _reset_router()
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: True)
+    oid, _ref = _seed_order_ref_order(order_id=5154, symbol="UNKN", qty=10)
+
+    order_router._on_ibkr_callback(_execdetails_payload(order_id=-1, order_ref="TRADING_OS|ROSS_MOMENTUM|UNKNOWN", symbol="UNKN", exec_id="UNKNOWN-REF"))
+    out = capsys.readouterr().out
+
+    assert "reason=unknown_order_ref" in out
+    assert order_router._RUNTIME_ORDERS[oid].filled_qty == 0
+    assert -1 not in order_router._PENDING_EXECUTIONS_BY_ORDER_ID
+
+
+def test_execdetails_nonpositive_order_id_ambiguous_order_ref_rejects_safely(monkeypatch, capsys) -> None:
+    _reset_router()
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: True)
+    shared_ref = "TRADING_OS|ROSS_MOMENTUM|AMBIG-ORDERREF"
+    oid_one, _ = _seed_order_ref_order(order_id=5155, symbol="AMBG", qty=10, order_ref=shared_ref)
+    oid_two, _ = _seed_order_ref_order(order_id=5156, symbol="AMBG", qty=10, order_ref=shared_ref)
+
+    order_router._on_ibkr_callback(_execdetails_payload(order_id=-1, order_ref=shared_ref, symbol="AMBG", exec_id="AMBIG-REF"))
+    out = capsys.readouterr().out
+
+    assert "reason=ambiguous_order_ref" in out
+    assert "candidates=5155,5156" in out
+    assert order_router._RUNTIME_ORDERS[oid_one].filled_qty == 0
+    assert order_router._RUNTIME_ORDERS[oid_two].filled_qty == 0
+
+
+@pytest.mark.parametrize(
+    ("payload_update", "expected_reason"),
+    [
+        ({"symbol": "WRNG"}, "identity_mismatch_symbol"),
+        ({"account": "DU99999"}, "identity_mismatch_account"),
+        ({"action": "SELL"}, "identity_mismatch_action"),
+        ({"shares": 11}, "identity_mismatch_quantity"),
+    ],
+)
+def test_execdetails_nonpositive_order_id_identity_mismatch_rejects_safely(monkeypatch, capsys, payload_update, expected_reason) -> None:
+    _reset_router()
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: True)
+    oid, ref = _seed_order_ref_order(order_id=5157, symbol="SAFE", qty=10)
+    payload = _execdetails_payload(order_id=-1, order_ref=ref, symbol="SAFE", shares=5, exec_id=f"MISMATCH-{expected_reason}")
+    payload.update(payload_update)
+
+    order_router._on_ibkr_callback(payload)
+    out = capsys.readouterr().out
+
+    assert f"reason={expected_reason}" in out
+    assert order_router._RUNTIME_ORDERS[oid].filled_qty == 0
+    assert -1 not in order_router._PENDING_EXECUTIONS_BY_ORDER_ID
+
+
+def test_execdetails_nonpositive_order_id_conflicting_positive_broker_id_rejects_safely(monkeypatch, capsys) -> None:
+    _reset_router()
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: True)
+    oid, ref = _seed_order_ref_order(order_id=5158, symbol="CNFL", qty=10)
+
+    order_router._on_ibkr_callback(_execdetails_payload(order_id=-1, order_ref=ref, symbol="CNFL", exec_id="CONFLICT", permId=9999))
+    out = capsys.readouterr().out
+
+    assert "reason=conflicting_positive_order_id" in out
+    assert "conflicts=9999" in out
+    assert order_router._RUNTIME_ORDERS[oid].filled_qty == 0
+    assert 9999 not in order_router._RUNTIME_ORDERS
+
+
+def test_execdetails_order_ref_placeholder_reconciliation_is_idempotent(monkeypatch, capsys) -> None:
+    _reset_router()
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: True)
+    oid, ref = _seed_order_ref_order(order_id=5159, symbol="IDEM", qty=10)
+    payload = _execdetails_payload(order_id=-1, order_ref=ref, symbol="IDEM", shares=5, exec_id="IDEMPOTENT")
+
+    order_router._on_ibkr_callback(payload)
+    order_router._on_ibkr_callback(payload)
+    out = capsys.readouterr().out
+
+    assert "[EXECUTION][FILL_DEDUP]" in out
+    assert order_router._RUNTIME_ORDERS[oid].filled_qty == 5
+    assert order_router._RECONCILIATION_SUCCESSES >= 1
+
+
+def test_execdetails_positive_order_id_path_is_unchanged(monkeypatch, capsys) -> None:
+    _reset_router()
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: True)
+    oid, _ref = _seed_order_ref_order(order_id=5160, symbol="POSP", qty=10)
+
+    order_router._on_ibkr_callback(_execdetails_payload(order_id=oid, order_ref=None, symbol="POSP", shares=4, exec_id="POSITIVE-PATH"))
+    out = capsys.readouterr().out
+
+    assert "[ORDER_EVENT][ORDER_REF_RECONCILE_REJECT]" not in out
+    assert "authority=unique_compatible" not in out
+    assert order_router._RUNTIME_ORDERS[oid].filled_qty == 4
+
+
+def test_execdetails_order_ref_partial_and_full_fills_stay_on_same_lifecycle(monkeypatch) -> None:
+    _reset_router()
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: True)
+    oid, ref = _seed_order_ref_order(order_id=5161, symbol="LIFE", qty=10)
+
+    order_router._on_ibkr_callback(_execdetails_payload(order_id=-1, order_ref=ref, symbol="LIFE", shares=4, exec_id="LIFE-PARTIAL"))
+    order_router._on_ibkr_callback(_execdetails_payload(order_id=-1, order_ref=ref, symbol="LIFE", shares=6, exec_id="LIFE-FULL"))
+
+    tracked = order_router._RUNTIME_ORDERS[oid]
+    trace = order_router._EXECUTION_TRACE_BY_ORDER_ID[oid]
+    assert tracked.filled_qty == 10
+    assert tracked.remaining_qty == 0
+    assert tracked.canonical_state == "FILLED"
+    assert trace.order_id == oid
+    assert trace.fill_qty == 10
+    assert -1 not in order_router._RUNTIME_ORDERS
+
+
+def test_execdetails_order_ref_reconciliation_readonly_makes_zero_broker_order_mutations(monkeypatch) -> None:
+    _reset_router()
+    monkeypatch.setenv("RUN_MODE", "READ_ONLY")
+    monkeypatch.setenv("RUN_MODE_EFFECTIVE", "READ_ONLY")
+    monkeypatch.setenv("IBKR_READONLY_ENABLED", "true")
+    monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: False)
+    broker_mutations: list[str] = []
+    client = SimpleNamespace(
+        placeOrder=lambda *args, **kwargs: broker_mutations.append("placeOrder"),
+        cancelOrder=lambda *args, **kwargs: broker_mutations.append("cancelOrder"),
+        reqGlobalCancel=lambda *args, **kwargs: broker_mutations.append("reqGlobalCancel"),
+    )
+    monkeypatch.setattr(order_router, "get_shared_ibkr_connection_manager", lambda *args, **kwargs: SimpleNamespace(get_client=lambda: client))
+    oid, ref = _seed_order_ref_order(order_id=5162, symbol="RDON", qty=10)
+
+    order_router._on_ibkr_callback(_execdetails_payload(order_id=-1, order_ref=ref, symbol="RDON", shares=5, exec_id="READONLY-REF"))
+
+    assert order_router._RUNTIME_ORDERS[oid].filled_qty == 5
+    assert broker_mutations == []
 
 
 def test_execdetails_unknown_order_id_is_buffered_until_order_tracking_exists(monkeypatch, capsys) -> None:
