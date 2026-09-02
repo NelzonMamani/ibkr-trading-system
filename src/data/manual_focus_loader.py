@@ -19,7 +19,9 @@ class ManualFocusConfig:
     manual_focus: list[str]
     max_manual_symbols: int
     live_reload_seconds: int
-
+    effective_source: str = "JSON_CONFIG"
+    configured_enabled: bool | None = None
+    configured_symbol_count: int | None = None
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MANUAL_FOCUS_CONFIG_PATH = REPO_ROOT / "config" / "manual_focus.json"
