@@ -3811,8 +3811,82 @@ class CoreOrchestrator:
             if bool(getattr(intent, "trigger_ready", False))
         )
         if watchlist_symbols and setup_detected_symbols and not raw_strategy_output:
-            print("[ERROR] SETUP_WITHOUT_INTENT")
-            raise Exception("PIPELINE_BREAK_SETUP_TO_INTENT")
+            terminal_outcomes = getattr(ross_strategy, "last_symbol_terminal_outcomes", {}) if ross_strategy is not None else {}
+            current_cycle_id = cycle_started_at.isoformat()
+            allowed_terminal_outcomes = {
+                "SETUP_FOUND_BUT_NO_TRIGGER",
+                "SETUP_FOUND_TRIGGER_NOT_READY",
+                "SETUP_FOUND_DECISION_REJECTED",
+                "SETUP_FOUND_CONFIRMATION_BLOCKED",
+                "SETUP_TRIGGER_MAPPING_MISSING",
+            }
+            unterminated_setup_symbols = []
+            for symbol in sorted(setup_detected_symbols):
+                terminal = terminal_outcomes.get(symbol) if isinstance(terminal_outcomes, dict) else None
+                terminal_invalid_reason = None
+                if not isinstance(terminal, dict):
+                    terminal_invalid_reason = "missing_terminal_payload"
+                else:
+                    outcome = str(terminal.get("outcome") or "").strip()
+                    reason = str(terminal.get("reason") or "").strip()
+                    terminal_symbol = str(terminal.get("symbol") or "").strip().upper()
+                    terminal_cycle_id = str(terminal.get("cycle_id") or "").strip()
+                    selected_setup_family = str(terminal.get("selected_setup_family") or "").strip().upper()
+                    trigger_type = str(terminal.get("trigger_type") or "").strip().upper()
+                    terminal_stage = str(terminal.get("terminal_stage") or "").strip()
+                    pattern_inputs_ready = bool(terminal.get("pattern_inputs_ready"))
+                    pattern_detected = bool(terminal.get("pattern_detected"))
+                    trigger_evaluated = bool(terminal.get("trigger_evaluated"))
+                    if terminal_symbol != symbol:
+                        terminal_invalid_reason = "symbol_mismatch"
+                    elif terminal_cycle_id != current_cycle_id:
+                        terminal_invalid_reason = "cycle_mismatch"
+                    elif outcome not in allowed_terminal_outcomes:
+                        terminal_invalid_reason = "outcome_not_allowlisted"
+                    elif not reason:
+                        terminal_invalid_reason = "missing_reason"
+                    elif not pattern_inputs_ready:
+                        terminal_invalid_reason = "pattern_inputs_not_ready"
+                    elif not pattern_detected:
+                        terminal_invalid_reason = "pattern_not_detected"
+                    elif bool(terminal.get("intent_emitted")):
+                        terminal_invalid_reason = "intent_emitted_without_output"
+                    elif bool(terminal.get("trigger_ready_now")):
+                        terminal_invalid_reason = "trigger_ready_without_intent"
+                    elif not selected_setup_family or selected_setup_family == "UNKNOWN":
+                        terminal_invalid_reason = "missing_selected_setup_family"
+                    elif not trigger_type:
+                        terminal_invalid_reason = "missing_trigger_type"
+                    elif not terminal_stage:
+                        terminal_invalid_reason = "missing_terminal_stage"
+                if terminal_invalid_reason is not None:
+                    unterminated_setup_symbols.append(f"{symbol}:{terminal_invalid_reason}")
+                    continue
+                outcome = str(terminal.get("outcome") or "UNKNOWN")
+                reason = str(terminal.get("reason") or "UNKNOWN")
+                selected_setup_family = str(terminal.get("selected_setup_family") or "UNKNOWN")
+                trigger_type = str(terminal.get("trigger_type") or "UNKNOWN")
+                print(
+                    "[PIPELINE][SETUP_TERMINAL_NO_INTENT] "
+                    f"symbol={symbol} outcome={outcome} reason={reason} "
+                    f"setup_family={selected_setup_family} trigger_type={trigger_type}"
+                )
+                if outcome == "SETUP_TRIGGER_MAPPING_MISSING" or reason == "setup_trigger_mapping_missing":
+                    print(
+                        "[PIPELINE][INTERNAL_FAULT] "
+                        f"symbol={symbol} setup_family={selected_setup_family} reason=SETUP_TRIGGER_MAPPING_MISSING"
+                    )
+                pipeline_audit.mark_stage(symbol, "PATTERN", pattern_inputs_ready=pattern_inputs_ready, pattern_detected=pattern_detected)
+                if trigger_evaluated or str(terminal.get("terminal_stage") or "").strip().lower() == "trigger":
+                    pipeline_audit.mark_stage(symbol, "TRIGGER", trigger_fired=False)
+                pipeline_audit.mark_stage(symbol, "INTENT", intent_emitted=False)
+                pipeline_audit.record(symbol, TerminalOutcome.TRIGGER_NOT_FIRED, reason, "trigger")
+            if unterminated_setup_symbols:
+                print(
+                    "[ERROR] SETUP_WITHOUT_INTENT "
+                    f"symbols={unterminated_setup_symbols}"
+                )
+                raise Exception("PIPELINE_BREAK_SETUP_TO_INTENT")
         gated_strategy_output = self._enforce_ross_execution_integrity(raw_strategy_output)
         gated_strategy_output = self._apply_position_truth_entry_guard(
             gated_strategy_output,

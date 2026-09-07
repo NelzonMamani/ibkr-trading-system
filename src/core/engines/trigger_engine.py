@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from src.setup_engine.registry import CANONICAL_SETUP_REGISTRY, SetupImplementationStatus
 from src.strategies.common.triggers.trigger_registry import resolve_trigger_evaluator
 
 
@@ -16,6 +17,8 @@ class TriggerEngine:
         "MOMENTUM_RECLAIM": "VWAP_RECLAIM_CONTINUATION",
         "ASCENDING_TRIANGLE_BREAKOUT": "ASCENDING_TRIANGLE_BREAKOUT",
         "PENNANT_BREAK": "PENNANT_BREAK",
+        "P_THREE_BAR_PULLBACK": "THREE_BAR_PULLBACK",
+        "P_SECOND_PULLBACK": "SECOND_PULLBACK",
     }
     _DEFAULT_TRIGGER_TYPE = "BREAKOUT_HIGH"
 
@@ -44,6 +47,10 @@ class TriggerEngine:
             if not bool(setup.get("setup_detected", True)):
                 continue
             setup_family = str(setup.get("setup_family_id") or "").upper()
+            normalized_setup_family = self._FAMILY_ALIASES.get(setup_family, setup_family)
+            if normalized_setup_family in {"THREE_BAR_PULLBACK", "SECOND_PULLBACK"} and normalized_setup_family != setup_family:
+                setup = {**setup, "setup_family_id": normalized_setup_family, "setup_family": normalized_setup_family}
+                setup_family = normalized_setup_family
             required_types = [
                 str(t).upper()
                 for t in (setup.get("required_trigger_types") or [])
@@ -74,7 +81,7 @@ class TriggerEngine:
                 structure=structure,
                 last_low=last_low,
             )
-            trigger_ready_now, trigger_reason, quality_flags = self._is_ready(
+            trigger_ready_now, trigger_reason, quality_flags, resolved_trigger = self._is_ready(
                 trigger_type=trigger_type,
                 trigger_price_reference=trigger_price_reference,
                 invalidation_price_reference=invalidation_price_reference,
@@ -86,6 +93,28 @@ class TriggerEngine:
                 structure=structure,
                 candles=candles,
             )
+            execution_refinement_mode = str(setup.get("execution_refinement_mode") or "NONE")
+            if isinstance(resolved_trigger, dict):
+                trigger_type = str(resolved_trigger.get("trigger_type") or trigger_type)
+                resolved_trigger_reference = self._safe_float(resolved_trigger.get("trigger_price_reference"))
+                if resolved_trigger_reference is not None:
+                    trigger_price_reference = resolved_trigger_reference
+                resolved_invalidation_reference = self._safe_float(
+                    resolved_trigger.get("invalidation_price_reference")
+                )
+                if resolved_invalidation_reference is not None:
+                    comparison_trigger_reference = resolved_trigger_reference
+                    if comparison_trigger_reference is None:
+                        comparison_trigger_reference = trigger_price_reference
+                    resolved_invalidation_compatible = (
+                        comparison_trigger_reference is None
+                        or resolved_invalidation_reference < comparison_trigger_reference
+                    )
+                    if resolved_invalidation_compatible:
+                        invalidation_price_reference = resolved_invalidation_reference
+                execution_refinement_mode = str(
+                    resolved_trigger.get("execution_refinement_mode") or execution_refinement_mode
+                )
             if setup_family == "GAP_GO":
                 print(
                     "[TRIGGER][GAP_GO] "
@@ -105,7 +134,7 @@ class TriggerEngine:
                 "trigger_reason": trigger_reason,
                 "trigger_price_reference": trigger_price_reference,
                 "invalidation_price_reference": invalidation_price_reference,
-                "execution_refinement_mode": str(setup.get("execution_refinement_mode") or "NONE"),
+                "execution_refinement_mode": execution_refinement_mode,
                 "stop_anchor_type": str(setup.get("invalidation_anchor") or "STRUCTURE"),
                 "trigger_quality_flags": sorted(set(quality_flags + [*setup.get("quality_flags", [])])),
             }
@@ -182,14 +211,12 @@ class TriggerEngine:
         levels: dict,
         structure: dict,
         candles: list,
-    ) -> tuple[bool, str, list[str]]:
+    ) -> tuple[bool, str, list[str], dict | None]:
         flags: list[str] = []
-        if trigger_price_reference is None:
-            flags.append("MISSING_TRIGGER_REFERENCE")
-            return False, "trigger_reference_missing", flags
+        resolved_trigger: dict | None = None
         if last_close is None:
             flags.append("MISSING_LAST_CLOSE")
-            return False, "last_close_missing", flags
+            return False, "last_close_missing", flags, None
 
         trigger_type = str(trigger_type or "BREAKOUT_HIGH").upper()
         reclaim_state = str(structure.get("reclaim_state") or "NONE").upper()
@@ -199,6 +226,9 @@ class TriggerEngine:
 
         setup_family = str(setup.get("setup_family_id") or "").upper()
         if setup_family == "GAP_GO":
+            if trigger_price_reference is None:
+                flags.append("MISSING_TRIGGER_REFERENCE")
+                return False, "trigger_reference_missing", flags, None
             ready, reason = self._evaluate_gap_go_trigger(
                 trigger_type=trigger_type,
                 trigger_price_reference=trigger_price_reference,
@@ -225,8 +255,7 @@ class TriggerEngine:
                 invalidation_price_reference = self._safe_float(
                     registry_trigger.get("invalidation_price_reference")
                 ) or invalidation_price_reference
-                if registry_trigger.get("execution_refinement_mode"):
-                    setup["execution_refinement_mode"] = registry_trigger.get("execution_refinement_mode")
+                resolved_trigger = dict(registry_trigger)
                 if (
                     ready
                     and str(setup.get("setup_family_id") or "").upper() == "PREMARKET_HIGH_BREAK"
@@ -234,6 +263,9 @@ class TriggerEngine:
                 ):
                     symbol = str(structure.get("symbol") or "UNKNOWN")
                     print(f"[ROSS][PRE_TRIGGER_PROMOTION] symbol={symbol} reason=PRE_ACTIVATION_BREAKOUT")
+            elif trigger_price_reference is None:
+                flags.append("MISSING_TRIGGER_REFERENCE")
+                return False, "trigger_reference_missing", flags, None
             elif trigger_type in {"BREAKOUT_HIGH", "HOD_BREAK", "PMH_BREAK", "RANGE_BREAK", "PULLBACK_HIGH_BREAK"}:
                 ready, reason = self._evaluate_breakout_trigger(
                     last_close=last_close,
@@ -265,14 +297,28 @@ class TriggerEngine:
             ready = False
             reason = "at_or_below_invalidation"
 
-        return ready, reason, flags
+        return ready, reason, flags, resolved_trigger
 
     def _evaluate_registered_trigger(self, *, setup: dict, levels: dict, candles: list) -> dict | None:
         family = str(setup.get("setup_family_id") or "").upper()
         evaluator = resolve_trigger_evaluator(family)
         if evaluator is None:
-            if family == "BULL_FLAG":
-                print("[PIPELINE][ERROR] BULL_FLAG_WITHOUT_TRIGGER")
+            spec = CANONICAL_SETUP_REGISTRY.get(family)
+            if spec is not None and spec.status in {SetupImplementationStatus.TRADE_READY, SetupImplementationStatus.PROBATIONARY}:
+                print(
+                    "[PIPELINE][ERROR] "
+                    f"SETUP_TRIGGER_MAPPING_MISSING setup_family={family}"
+                )
+                return {
+                    "trigger_type": "UNMAPPED",
+                    "trigger_state": "BLOCKED",
+                    "trigger_ready_now": False,
+                    "trigger_event_emitted": False,
+                    "trigger_reason": "setup_trigger_mapping_missing",
+                    "trigger_price_reference": self._safe_float(setup.get("trigger_level")),
+                    "invalidation_price_reference": self._safe_float(setup.get("invalidation_level")),
+                    "trigger_quality_flags": ["BLOCKED", "SETUP_TRIGGER_MAPPING_MISSING"],
+                }
             return None
         trigger_payload = evaluator(
             setup,

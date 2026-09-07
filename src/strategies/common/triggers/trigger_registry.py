@@ -18,6 +18,10 @@ from src.strategies.common.triggers.trigger_opening_drive import evaluate_openin
 from src.strategies.common.triggers.trigger_orb import evaluate_orb_trigger
 from src.strategies.common.triggers.trigger_parabolic_exhaustion import evaluate_parabolic_exhaustion_trigger
 from src.strategies.common.triggers.trigger_premarket_high_break import evaluate_premarket_high_break_trigger
+from src.strategies.common.triggers.trigger_pullback_variants import (
+    evaluate_second_pullback_trigger,
+    evaluate_three_bar_pullback_trigger,
+)
 from src.strategies.common.triggers.trigger_stair_step import evaluate_stair_step_trigger
 from src.strategies.common.triggers.trigger_vwap_pullback import evaluate_vwap_pullback_trigger
 
@@ -41,6 +45,8 @@ TRIGGER_EVALUATOR_REGISTRY: dict[str, TriggerEvaluator] = {
     "PARABOLIC_EXHAUSTION": evaluate_parabolic_exhaustion_trigger,
     "TREND_CONTINUATION_STAIR_STEP": evaluate_stair_step_trigger,
     "VWAP_PULLBACK": evaluate_vwap_pullback_trigger,
+    "THREE_BAR_PULLBACK": evaluate_three_bar_pullback_trigger,
+    "SECOND_PULLBACK": evaluate_second_pullback_trigger,
 }
 
 

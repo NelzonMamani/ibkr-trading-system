@@ -27,7 +27,6 @@ def _reset_config(monkeypatch: pytest.MonkeyPatch):
     yield
     set_config_overrides(None)
 
-
 def _row(symbol: str, *, catalyst: bool = False, rvol: float = 3.0, rank: float = 10.0) -> SimpleNamespace:
     status = "CONFIRMED" if catalyst else "DATA_UNAVAILABLE"
     return SimpleNamespace(
@@ -70,7 +69,6 @@ def _row(symbol: str, *, catalyst: bool = False, rvol: float = 3.0, rank: float 
         rank_components={"score": rank},
     )
 
-
 def _payload(
     rows: list[SimpleNamespace],
     *,
@@ -93,6 +91,40 @@ def _payload(
     }
 
 
+def _terminal_payload(
+    symbol: str,
+    cycle_id: str,
+    *,
+    outcome: str = "SETUP_FOUND_BUT_NO_TRIGGER",
+    reason: str = "awaiting_pullback_break",
+    selected_setup_family: str = "THREE_BAR_PULLBACK",
+    selected_pattern_id: str = "P_THREE_BAR_PULLBACK",
+    trigger_type: str = "PULLBACK_HIGH_BREAK",
+    trigger_ready_now: bool = False,
+    intent_emitted: bool = False,
+    terminal_stage: str = "trigger",
+    pattern_inputs_ready: bool = True,
+    pattern_detected: bool = True,
+    trigger_evaluated: bool = True,
+) -> dict[str, object]:
+    return {
+        "symbol": symbol,
+        "cycle_id": cycle_id,
+        "outcome": outcome,
+        "reason": reason,
+        "terminal_stage": terminal_stage,
+        "trigger_ready_now": trigger_ready_now,
+        "intent_emitted": intent_emitted,
+        "pattern_inputs_ready": pattern_inputs_ready,
+        "pattern_detected": pattern_detected,
+        "trigger_evaluated": trigger_evaluated,
+        "session_label": "RTH",
+        "session_phase": "RTH_OPEN",
+        "runtime_mode": "READ_ONLY",
+        "selected_setup_family": selected_setup_family,
+        "selected_pattern_id": selected_pattern_id,
+        "trigger_type": trigger_type,
+    }
 def _install_runtime_harness(
     monkeypatch: pytest.MonkeyPatch,
     payloads: list[dict[str, object]],
@@ -162,15 +194,12 @@ def _install_runtime_harness(
     orchestrator.strategy_runner.generate_trade_intents = lambda *args, **kwargs: []
     return orchestrator, scanner_calls, processed
 
-
 def _cadence(orchestrator: CoreOrchestrator):
     return orchestrator._strategy_cadence("ross_momentum")
-
 
 def _age_cache(cache, seconds: int) -> None:
     assert cache.timestamp_utc is not None
     cache.timestamp_utc = cache.timestamp_utc - timedelta(seconds=seconds)
-
 
 def test_pr1082_full_scanner_refresh_creates_authoritative_watchlist(monkeypatch, capsys) -> None:
     aaa = _row("AAA")
@@ -189,7 +218,6 @@ def test_pr1082_full_scanner_refresh_creates_authoritative_watchlist(monkeypatch
     out = capsys.readouterr().out
     assert "[WATCHLIST][AUTHORITY] strategy=ross_momentum source=SCANNER_PAYLOAD" in out
     assert "symbol=AAA reason=SCANNER_KEEP_NOT_IN_WATCHLIST" not in out
-
 
 def test_pr1082_watchlist_refresh_uses_cached_payload_before_topn_refresh(monkeypatch, capsys) -> None:
     aaa = _row("AAA")
@@ -211,7 +239,6 @@ def test_pr1082_watchlist_refresh_uses_cached_payload_before_topn_refresh(monkey
     assert "source=CACHED_SCANNER_PAYLOAD reason=WITHIN_TOPN_REFRESH_WINDOW" in out
     assert "symbol=AAA reason=SCANNER_KEEP_NOT_IN_WATCHLIST" not in out
     assert "symbol=BBB reason=SCANNER_KEEP_NOT_IN_WATCHLIST" not in out
-
 
 def test_pr1082_old_failure_cannot_recur_when_policy_v2_would_empty(monkeypatch, capsys) -> None:
     aaa = _row("AAA")
@@ -236,7 +263,6 @@ def test_pr1082_old_failure_cannot_recur_when_policy_v2_would_empty(monkeypatch,
     assert "[PIPELINE][WATCHLIST] count=0 symbols=[]" not in out
     assert "SCANNER_KEEP_NOT_IN_WATCHLIST" not in out
 
-
 def test_pr1082_scanner_can_legitimately_empty_watchlist_with_drop_reasons(monkeypatch, capsys) -> None:
     bad = _row("BAD")
     orchestrator, _, _ = _install_runtime_harness(
@@ -251,7 +277,6 @@ def test_pr1082_scanner_can_legitimately_empty_watchlist_with_drop_reasons(monke
     assert cadence.watchlist.symbols == []
     assert cadence.watchlist.authority == "SCANNER_PAYLOAD"
     assert "drop_reasons={'DROP_FLOAT_MAX': 1}" in out
-
 
 def test_pr1082_data_unavailable_keeps_focus_empty_without_destroying_watchlist(monkeypatch, capsys) -> None:
     aaa = _row("AAA", catalyst=False)
@@ -272,7 +297,6 @@ def test_pr1082_data_unavailable_keeps_focus_empty_without_destroying_watchlist(
     assert cadence.focus.authority == "CACHED_SCANNER_PAYLOAD"
     assert "[PIPELINE][WATCHLIST] count=2 symbols=['AAA', 'BBB']" in out
     assert "[PIPELINE][FOCUS] count=0 symbols=[]" in out
-
 
 def test_pr1082_later_confirmed_catalyst_can_promote_genuine_focus(monkeypatch, capsys) -> None:
     unavailable = _row("AAA", catalyst=False)
@@ -297,7 +321,6 @@ def test_pr1082_later_confirmed_catalyst_can_promote_genuine_focus(monkeypatch, 
     assert cadence.focus.rows[0].selection_rationale["catalyst_status"] == "CONFIRMED"
     assert processed[-1] == ["AAA"]
 
-
 def test_pr1082_focus_refresh_retains_authoritative_news_provenance(monkeypatch, capsys) -> None:
     aaa = _row("AAA", catalyst=True)
     orchestrator, scanner_calls, _ = _install_runtime_harness(monkeypatch, [_payload([aaa], focus=[aaa])])
@@ -313,7 +336,6 @@ def test_pr1082_focus_refresh_retains_authoritative_news_provenance(monkeypatch,
     assert cadence.focus.authority == "CACHED_SCANNER_PAYLOAD"
     assert cadence.focus.rows[0] is aaa
     assert cadence.focus.rows[0].selection_rationale == {"catalyst_status": "CONFIRMED", "rank": 10.0}
-
 
 def test_pr1082_structurally_incompatible_focus_cannot_gain_authority(monkeypatch, capsys) -> None:
     aaa = _row("AAA", catalyst=True)
@@ -343,6 +365,86 @@ def test_pr1082_structurally_incompatible_focus_cannot_gain_authority(monkeypatc
     assert processed == []
     assert "source=CACHED_SCANNER_PAYLOAD" in out
     assert "FOCUS_NOT_IN_CURRENT_WATCHLIST" in out
+
+def _install_setup_terminal_process(orchestrator: CoreOrchestrator, *, payload_factory):
+    ross_strategy = next(
+        strategy
+        for strategy in orchestrator.strategy_runner.strategies
+        if getattr(strategy, "name", "") == "RossMomentumStrategyV1"
+    )
+
+    def _process(**kwargs):
+        ross_strategy.last_evaluated_symbols = ["UPC"]
+        ross_strategy.last_symbol_terminal_outcomes = {"UPC": payload_factory(kwargs["timestamp_utc"])}
+        ross_strategy._failure_trace_collector._symbols.append(
+            SimpleNamespace(symbol="UPC", detected_pattern_ids=["P_THREE_BAR_PULLBACK"])
+        )
+        return []
+
+    orchestrator.strategy_runner.process = _process
+
+def test_pr1082_setup_terminal_no_intent_does_not_halt_continuous_runtime(monkeypatch, capsys) -> None:
+    upc = _row("UPC", catalyst=True)
+    orchestrator, _, _ = _install_runtime_harness(monkeypatch, [_payload([upc], focus=[upc])])
+    _install_setup_terminal_process(
+        orchestrator,
+        payload_factory=lambda cycle_id: _terminal_payload("UPC", cycle_id),
+    )
+
+    assert orchestrator.run_once() is True
+    out = capsys.readouterr().out
+    assert (
+        "[PIPELINE][SETUP_TERMINAL_NO_INTENT] symbol=UPC "
+        "outcome=SETUP_FOUND_BUT_NO_TRIGGER reason=awaiting_pullback_break "
+        "setup_family=THREE_BAR_PULLBACK trigger_type=PULLBACK_HIGH_BREAK"
+    ) in out
+    assert "PIPELINE_BREAK_SETUP_TO_INTENT" not in out
+
+def test_pr1082_setup_terminal_rejects_stale_cycle_provenance(monkeypatch, capsys) -> None:
+    upc = _row("UPC", catalyst=True)
+    orchestrator, _, _ = _install_runtime_harness(monkeypatch, [_payload([upc], focus=[upc])])
+    _install_setup_terminal_process(
+        orchestrator,
+        payload_factory=lambda _cycle_id: _terminal_payload("UPC", "prior-cycle-id"),
+    )
+
+    assert orchestrator.run_once() is False
+
+    out = capsys.readouterr().out
+    assert "UPC:cycle_mismatch" in out
+
+def test_pr1082_setup_terminal_rejects_trigger_ready_without_intent(monkeypatch, capsys) -> None:
+    upc = _row("UPC", catalyst=True)
+    orchestrator, _, _ = _install_runtime_harness(monkeypatch, [_payload([upc], focus=[upc])])
+    _install_setup_terminal_process(
+        orchestrator,
+        payload_factory=lambda cycle_id: _terminal_payload("UPC", cycle_id, trigger_ready_now=True),
+    )
+
+    assert orchestrator.run_once() is False
+
+    out = capsys.readouterr().out
+    assert "UPC:trigger_ready_without_intent" in out
+
+
+def test_pr1082_missing_mapping_terminal_records_internal_fault_without_halting(monkeypatch, capsys) -> None:
+    upc = _row("UPC", catalyst=True)
+    orchestrator, _, _ = _install_runtime_harness(monkeypatch, [_payload([upc], focus=[upc])])
+    _install_setup_terminal_process(
+        orchestrator,
+        payload_factory=lambda cycle_id: _terminal_payload(
+            "UPC",
+            cycle_id,
+            outcome="SETUP_TRIGGER_MAPPING_MISSING",
+            reason="setup_trigger_mapping_missing",
+            trigger_type="UNMAPPED",
+        ),
+    )
+
+    assert orchestrator.run_once() is True
+    out = capsys.readouterr().out
+    assert "[PIPELINE][INTERNAL_FAULT] symbol=UPC setup_family=THREE_BAR_PULLBACK reason=SETUP_TRIGGER_MAPPING_MISSING" in out
+    assert "PIPELINE_BREAK_SETUP_TO_INTENT" not in out
 
 def test_pr1082_rth_cold_start_does_not_require_existing_prep_artifact(monkeypatch, tmp_path, capsys) -> None:
     set_config_overrides({"SCANNER_SYMBOLS": ["AAA"], "MANUAL_FOCUS_ENABLED": False})
@@ -376,7 +478,6 @@ def test_pr1082_rth_cold_start_does_not_require_existing_prep_artifact(monkeypat
     assert scheduled == ["RTH"]
     assert "placeholder artifact written" in out
 
-
 def test_pr1082_manual_focus_enabled_false_overrides_enabled_json(monkeypatch, tmp_path, capsys) -> None:
     path = tmp_path / "manual_focus.json"
     path.write_text(json.dumps({"enabled": True, "manual_focus": ["TMDE", "HURA"], "max_manual_symbols": 5, "live_reload_seconds": 60}), encoding="utf-8")
@@ -392,7 +493,6 @@ def test_pr1082_manual_focus_enabled_false_overrides_enabled_json(monkeypatch, t
     assert cfg.configured_symbol_count == 2
     assert cfg.effective_source == "OVERRIDE:MANUAL_FOCUS_ENABLED"
     assert "enabled=False source=OVERRIDE:MANUAL_FOCUS_ENABLED symbols=[]" in out
-
 
 def test_pr1082_manual_focus_enabled_true_keeps_rows_labeled_non_natural(monkeypatch, tmp_path) -> None:
     path = tmp_path / "manual_focus.json"
@@ -413,7 +513,6 @@ def test_pr1082_manual_focus_enabled_true_keeps_rows_labeled_non_natural(monkeyp
     assert rows[0].watchlist_source == "MANUAL_FOCUS"
     assert rows[0].promotion_reason == "manual_focus"
     assert "MANUAL_BYPASS_STOCK_SELECTION" in rows[0].eligibility_reason_codes
-
 
 def test_pr1082_read_only_execution_cannot_submit_modify_or_cancel(monkeypatch) -> None:
     set_config_overrides({"RUN_MODE": "READ_ONLY", "RUN_MODE_EFFECTIVE": "READ_ONLY", "EXECUTION_ENABLED": True})
@@ -461,7 +560,6 @@ def test_pr1082_read_only_execution_cannot_submit_modify_or_cancel(monkeypatch) 
     assert result.status == "BLOCKED"
     assert result.rationale == "LIVE_READ_ONLY_BLOCK"
     assert calls == []
-
 
 def test_pr1082_ross_thresholds_and_volume_rvol_separation_remain_unchanged() -> None:
     selection = POLICY_V2.stock_selection_law

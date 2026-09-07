@@ -23,8 +23,9 @@ def _pattern_result(*, detected: bool = True, confidence: float = 0.9, entry_zon
         setup_quality_tags=[],
         entry_zone=entry_zone,
         stop_suggestion="Below candle low",
+        target_suggestion="Measured move",
+        rationale_text="Detected gap-and-go setup with explicit trigger, stop, and target contract.",
     )
-
 
 def _summary(*, detected: bool = True, confidence: float = 0.9, entry_zone: str | None = "Breakout") -> PatternEvaluationSummary:
     result = _pattern_result(detected=detected, confidence=confidence, entry_zone=entry_zone)
@@ -42,7 +43,7 @@ def test_trigger_ready_true_emits_intent_or_explicit_block() -> None:
     intents = build_trade_intents(
         strategy_id="RossMomentumStrategy",
         symbol="ABCD",
-        summary=_summary(detected=True, confidence=0.2, entry_zone=None),
+        summary=_summary(detected=True, confidence=0.2, entry_zone="Breakout"),
         trigger_ready_now=True,
     )
     assert intents, "trigger_ready_now=True must produce an intent for valid setup inputs"
@@ -52,7 +53,7 @@ def test_trigger_authority_aligns_strategy_trace(capsys) -> None:
     build_trade_intents(
         strategy_id="RossMomentumStrategy",
         symbol="ABCD",
-        summary=_summary(detected=True, confidence=0.2, entry_zone=None),
+        summary=_summary(detected=True, confidence=0.2, entry_zone="Breakout"),
         trigger_ready_now=True,
     )
     out = capsys.readouterr().out

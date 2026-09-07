@@ -62,6 +62,8 @@ class RossPatternRegistry:
             "P_FIRST_PULLBACK": "FIRST_PULLBACK",
             "P_PREMKT_BREAK": "PREMARKET_HIGH_BREAK",
             "P_PREMARKET_HIGH_BREAK": "PREMARKET_HIGH_BREAK",
+            "P_THREE_BAR_PULLBACK": "THREE_BAR_PULLBACK",
+            "P_SECOND_PULLBACK": "SECOND_PULLBACK",
             "P_KEY_LEVEL_BREAK": "KEY_LEVEL_BREAK",
             "P_HOD_BREAK": "HOD_BREAK",
             "P_BULL_FLAG": "BULL_FLAG",

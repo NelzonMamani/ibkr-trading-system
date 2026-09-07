@@ -7,7 +7,7 @@ Consumes SignalEvent(s) and emits TradeIntent(s) using teaching-safe rules.
 from __future__ import annotations
 
 import json
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from src.config.config_resolver import ConfigResolutionError, get_config
 from src.config.runtime_config import RunMode
@@ -19,6 +19,7 @@ from src.core.engines.setup_engine import SetupEngine
 from src.core.engines.trigger_engine import TriggerEngine
 from src.core.engines.trigger_quality_engine import TriggerQualityEngine
 from src.domain.market_snapshot import MarketSnapshot
+from src.setup_engine.registry import CANONICAL_SETUP_REGISTRY, SetupImplementationStatus
 from src.models.data_models import PatternResult, TradeIntent
 from src.signals.signal_event import SignalEvent
 from src.strategy.base_strategy import BaseStrategy
@@ -59,6 +60,8 @@ class RossMomentumStrategyV1(BaseStrategy):
         "P_PREMARKET_HIGH_BREAK": "PREMARKET_HIGH_BREAK",
         "P_HOD_BREAK": "HOD_BREAK",
         "P_FIRST_PULLBACK": "FIRST_PULLBACK",
+        "P_THREE_BAR_PULLBACK": "THREE_BAR_PULLBACK",
+        "P_SECOND_PULLBACK": "SECOND_PULLBACK",
         "ORB": "OPENING_RANGE_BREAKOUT",
         "ORB_BREAK": "OPENING_RANGE_BREAKOUT",
         "OPENING_RANGE_BREAKOUT": "OPENING_RANGE_BREAKOUT",
@@ -85,6 +88,8 @@ class RossMomentumStrategyV1(BaseStrategy):
         "PREMARKET_HIGH_BREAK",
         "HOD_BREAK",
         "VWAP_RECLAIM_CONTINUATION",
+        "THREE_BAR_PULLBACK",
+        "SECOND_PULLBACK",
         "FIRST_PULLBACK",
         "MICRO_PULLBACK",
         "CUP_HANDLE",
@@ -527,7 +532,7 @@ class RossMomentumStrategyV1(BaseStrategy):
         if not symbols:
             print("[ROSS][ERROR] EMPTY_SYMBOL_LIST")
             print("[WARNING] condition hit but continuing for debug")
-        self.last_symbol_terminal_outcomes: dict[str, dict[str, str]] = {}
+        self.last_symbol_terminal_outcomes: dict[str, dict[str, object]] = {}
         self.last_evaluated_symbols: list[str] = []
         watchlist_symbols: list[str] = []
         gated_focus_symbols: list[str] = []
@@ -596,15 +601,52 @@ class RossMomentumStrategyV1(BaseStrategy):
             "READY_FOR_EXECUTION": 0,
         }
 
-        def _terminal(symbol: str, category: str, reason: str) -> None:
-            print(f"[ROSS][TERMINAL] symbol={symbol} category={category} reason={reason}")
-            self.last_symbol_terminal_outcomes[str(symbol).upper()] = {
-                "outcome": str(category),
-                "reason": str(reason),
+        def _terminal(
+            symbol: str,
+            category: str,
+            reason: str,
+            *,
+            selected_setup_family: str | None = None,
+            selected_pattern_id: str | None = None,
+            trigger_type: str | None = None,
+            trigger_ready_now: bool = False,
+            intent_emitted: bool = False,
+            stage: str = "unknown",
+            pattern_inputs_ready: bool = False,
+            pattern_detected: bool = False,
+            trigger_evaluated: bool = False,
+        ) -> None:
+            resolved_family = self._normalize_setup_family_id(selected_setup_family)
+            pattern_label = str(selected_pattern_id or "UNKNOWN")
+            trigger_label = str(trigger_type or "UNKNOWN").upper()
+            category_text = str(category)
+            reason_text = str(reason)
+            payload: dict[str, object] = {
+                "symbol": str(symbol).upper(),
+                "cycle_id": str(timestamp_utc),
+                "outcome": category_text,
+                "reason": reason_text,
+                "terminal_stage": str(stage or "unknown"),
+                "trigger_ready_now": bool(trigger_ready_now),
+                "intent_emitted": bool(intent_emitted),
+                "pattern_inputs_ready": bool(pattern_inputs_ready),
+                "pattern_detected": bool(pattern_detected),
+                "trigger_evaluated": bool(trigger_evaluated),
+                "session_label": str(session_label),
+                "session_phase": str(session_phase),
+                "runtime_mode": mode.value,
             }
+            if resolved_family:
+                payload["selected_setup_family"] = resolved_family
+            if selected_pattern_id:
+                payload["selected_pattern_id"] = pattern_label
+            if trigger_type:
+                payload["trigger_type"] = trigger_label
+            print(f"[ROSS][TERMINAL] symbol={symbol} category={category_text} reason={reason_text}")
+            self.last_symbol_terminal_outcomes[str(symbol).upper()] = payload
             print(
-                f"[ROSS][FINAL_DECISION] symbol={symbol} pattern=UNKNOWN "
-                f"trigger=UNKNOWN outcome={category} reason={reason}"
+                f"[ROSS][FINAL_DECISION] symbol={symbol} pattern={pattern_label} "
+                f"trigger={trigger_label} outcome={category_text} reason={reason_text}"
             )
 
         def _actionability(symbol: str, classification: str, reason: str) -> None:
@@ -892,7 +934,13 @@ class RossMomentumStrategyV1(BaseStrategy):
                 print(f"[DATA_CONTRACT_BLOCK] symbol={symbol} reason={reason_text}")
                 print(f"[ROSS][SETUP_REJECT] symbol={symbol} reason=DATA_CONTRACT_BLOCKED")
                 print(f"[CLASSIFICATION] symbol={symbol} category=DATA_BLOCKED")
-                _terminal(symbol, TERMINAL_CATEGORY["DATA_BLOCKED"], reason_text)
+                _terminal(
+                    symbol,
+                    TERMINAL_CATEGORY["DATA_BLOCKED"],
+                    reason_text,
+                    pattern_inputs_ready=True,
+                    stage="data",
+                )
                 classification_counts["DATA_BLOCKED"] += 1
                 symbol_trace.pre_registry_failure_reason = f"data_contract_blocked:{reason_text}"
                 symbol_trace.final_outcome = f"NO_SETUP:data_contract_blocked:{reason_text}"
@@ -1052,6 +1100,34 @@ class RossMomentumStrategyV1(BaseStrategy):
                         f"symbol={symbol} pattern_id={trace.pattern_id}"
                     )
 
+            pattern_trigger_setups = self._canonical_pattern_trigger_candidates(
+                results,
+                symbol=symbol,
+                existing_triggers=trigger_candidates,
+            )
+            if pattern_trigger_setups:
+                pattern_triggers = TriggerEngine().evaluate_triggers(
+                    symbol=symbol,
+                    candles=list(getattr(inputs, "candles", []) or []),
+                    setups=pattern_trigger_setups,
+                    levels={
+                        **levels,
+                        "rvol": input_summary.rvol,
+                        "spread": input_summary.spread,
+                    },
+                    structure=structure,
+                )
+                quality_engine = TriggerQualityEngine()
+                for trigger in pattern_triggers:
+                    trigger["quality"] = quality_engine.evaluate_trigger_quality(
+                        trigger=trigger,
+                        structure=structure,
+                        session_context=input_summary.session_context,
+                        rvol=input_summary.rvol,
+                    )
+                trigger_candidates.extend(pattern_triggers)
+                symbol_trace.input_summary["trigger_candidates"] = trigger_candidates
+
             decision = self._decision_engine.compute_decision(
                 symbol=symbol,
                 levels=levels,
@@ -1093,11 +1169,6 @@ class RossMomentumStrategyV1(BaseStrategy):
                 setup_family_id=decision.get("selected_setup_family"),
                 trigger_candidates=trigger_candidates,
             )
-            if selected_trigger is None:
-                selected_trigger = self._select_ready_trigger_candidate(
-                    trigger_candidates=trigger_candidates,
-                    prefer_trusted=True,
-                )
             print(
                 "[ROSS][TRIGGER_MAP] "
                 f"symbol={symbol} setup_family={decision.get('selected_setup_family')} "
@@ -1138,7 +1209,17 @@ class RossMomentumStrategyV1(BaseStrategy):
                     symbol_trace.final_reason_code = "DECISION_REJECTED"
                     print(f"[ROSS][SETUP_REJECT] symbol={symbol} reason=DECISION_REJECTED:{decision_reason}")
                     print(f"[CLASSIFICATION] symbol={symbol} category=SETUP_FOUND_DECISION_REJECTED")
-                    _terminal(symbol, TERMINAL_CATEGORY["SETUP_FOUND_DECISION_REJECTED"], decision_reason)
+                    _terminal(
+                        symbol,
+                        TERMINAL_CATEGORY["SETUP_FOUND_DECISION_REJECTED"],
+                        decision_reason,
+                        selected_setup_family=decision.get("selected_setup_family"),
+                        selected_pattern_id=decision.get("selected_pattern_id"),
+                        trigger_type="DECISION_REJECTED",
+                        pattern_inputs_ready=True,
+                        pattern_detected=True,
+                        stage="decision",
+                    )
                     classification_counts["TRIGGER_REJECTED"] += 1
                 else:
                     reason = decision.get("decision_reason") or "no_valid_pattern"
@@ -1160,7 +1241,14 @@ class RossMomentumStrategyV1(BaseStrategy):
                     print(f"[PATTERN_NO_SETUP] symbol={symbol} dominant_reason=no_valid_pattern")
                     print(f"[ROSS][NO_SETUP] symbol={symbol} reason=NO_PATTERN_DETECTED")
                     print(f"[CLASSIFICATION] symbol={symbol} category=PATTERN_NO_SETUP")
-                    _terminal(symbol, TERMINAL_CATEGORY["SETUP_NOT_FOUND"], pre_classification or "no_valid_pattern")
+                    _terminal(
+                        symbol,
+                        TERMINAL_CATEGORY["SETUP_NOT_FOUND"],
+                        pre_classification or "no_valid_pattern",
+                        trigger_type="NO_SETUP",
+                        pattern_inputs_ready=True,
+                        stage="setup",
+                    )
                     classification_counts["PATTERN_NO_SETUP"] += 1
                 self._log_no_trade_root_cause(
                     symbol=symbol,
@@ -1217,7 +1305,17 @@ class RossMomentumStrategyV1(BaseStrategy):
                     f"[CLASSIFICATION] symbol={symbol} category=TRIGGER_REJECTED"
                 )
                 print(f"[ROSS][TRIGGER_FAIL] symbol={symbol} reason=CONFIRMATION_BLOCKED")
-                _terminal(symbol, TERMINAL_CATEGORY["SETUP_FOUND_TRIGGER_NOT_READY"], "confirmation_blocked")
+                _terminal(
+                    symbol,
+                    TERMINAL_CATEGORY["SETUP_FOUND_TRIGGER_NOT_READY"],
+                    "confirmation_blocked",
+                    selected_setup_family=self._setup_family_from_pattern_id(best_pattern.pattern_id),
+                    selected_pattern_id=best_pattern.pattern_id,
+                    trigger_type="CONFIRMATION_GATE",
+                    pattern_inputs_ready=True,
+                    pattern_detected=True,
+                    stage="confirmation",
+                )
                 classification_counts["TRIGGER_REJECTED"] += 1
                 self._log_no_trade_root_cause(
                     symbol=symbol,
@@ -1254,7 +1352,18 @@ class RossMomentumStrategyV1(BaseStrategy):
                 symbol_trace.final_reason_code = "NO_TRIGGER_CANDIDATE"
                 print(f"[CLASSIFICATION] symbol={symbol} category=SETUP_FOUND_BUT_NO_TRIGGER")
                 print(f"[ROSS][TRIGGER_FAIL] symbol={symbol} reason=NO_TRIGGER_CANDIDATE")
-                _terminal(symbol, "SETUP_FOUND_BUT_NO_TRIGGER", "no_trigger_candidate")
+                _terminal(
+                    symbol,
+                    "SETUP_FOUND_BUT_NO_TRIGGER",
+                    "no_trigger_candidate",
+                    selected_setup_family=decision.get("selected_setup_family"),
+                    selected_pattern_id=decision.get("selected_pattern_id"),
+                    trigger_type="UNMAPPED",
+                    pattern_inputs_ready=True,
+                    pattern_detected=True,
+                    trigger_evaluated=True,
+                    stage="trigger",
+                )
                 _actionability(symbol, "BLOCKED_STRUCTURE", "TRIGGER_NOT_READY")
                 classification_counts["TRIGGER_REJECTED"] += 1
                 self._log_decision_blocked(symbol=symbol, final_stage="trigger", reason="no_trigger_candidate")
@@ -1263,31 +1372,56 @@ class RossMomentumStrategyV1(BaseStrategy):
                 self._failure_trace_collector.record_symbol(symbol_trace)
                 continue
             if selected_trigger.get("trigger_ready_now") is not True:
+                trigger_reason = str(selected_trigger.get("trigger_reason") or "trigger_not_ready")
                 print(
                     "[ROSS][TRIGGER] "
                     f"symbol={symbol} trigger_id={selected_trigger.get('trigger_type') or 'UNKNOWN'} fired=False "
-                    f"reason={selected_trigger.get('trigger_reason') or 'trigger_not_ready'}"
+                    f"reason={trigger_reason}"
                 )
                 print(
                     "[ROSS][NO_TRIGGER] "
-                    f"symbol={symbol} selected_setup={decision.get('selected_setup_family')} reason={selected_trigger.get('trigger_reason')}"
+                    f"symbol={symbol} selected_setup={decision.get('selected_setup_family')} reason={trigger_reason}"
                 )
-                symbol_trace.final_outcome = "SETUP_FOUND_BUT_NO_TRIGGER"
+                mapping_missing = trigger_reason == "setup_trigger_mapping_missing"
+                if mapping_missing:
+                    print(
+                        "[ROSS][INTERNAL_FAULT] "
+                        f"symbol={symbol} setup_family={decision.get('selected_setup_family')} "
+                        "reason=SETUP_TRIGGER_MAPPING_MISSING"
+                    )
+                symbol_trace.final_outcome = "SETUP_TRIGGER_MAPPING_MISSING" if mapping_missing else "SETUP_FOUND_BUT_NO_TRIGGER"
                 symbol_trace.trigger_stage = {
                     "status": "REJECTED",
-                    "reason_code": str(selected_trigger.get("trigger_reason") or "TRIGGER_NOT_READY"),
+                    "reason_code": "SETUP_TRIGGER_MAPPING_MISSING" if mapping_missing else trigger_reason,
                     "details": {"selected_trigger": selected_trigger},
                 }
-                symbol_trace.final_reason_code = str(selected_trigger.get("trigger_reason") or "TRIGGER_NOT_READY").upper()
-                print(f"[CLASSIFICATION] symbol={symbol} category=SETUP_FOUND_BUT_NO_TRIGGER")
-                print(f"[ROSS][TRIGGER_FAIL] symbol={symbol} reason={selected_trigger.get('trigger_reason')}")
-                _terminal(symbol, "SETUP_FOUND_BUT_NO_TRIGGER", str(selected_trigger.get("trigger_reason") or "trigger_not_ready"))
-                _actionability(symbol, "ARMED_WAITING", str(selected_trigger.get("trigger_reason") or "TRIGGER_NOT_READY"))
+                symbol_trace.final_reason_code = "SETUP_TRIGGER_MAPPING_MISSING" if mapping_missing else trigger_reason.upper()
+                classification = "SETUP_TRIGGER_MAPPING_MISSING" if mapping_missing else "SETUP_FOUND_BUT_NO_TRIGGER"
+                print(f"[CLASSIFICATION] symbol={symbol} category={classification}")
+                print(f"[ROSS][TRIGGER_FAIL] symbol={symbol} reason={trigger_reason}")
+                _terminal(
+                    symbol,
+                    classification,
+                    trigger_reason,
+                    selected_setup_family=decision.get("selected_setup_family"),
+                    selected_pattern_id=decision.get("selected_pattern_id"),
+                    trigger_type=str(selected_trigger.get("trigger_type") or "UNKNOWN"),
+                    trigger_ready_now=False,
+                    pattern_inputs_ready=True,
+                    pattern_detected=True,
+                    trigger_evaluated=True,
+                    stage="trigger",
+                )
+                _actionability(
+                    symbol,
+                    "BLOCKED_INTERNAL_FAULT" if mapping_missing else "ARMED_WAITING",
+                    "SETUP_TRIGGER_MAPPING_MISSING" if mapping_missing else trigger_reason,
+                )
                 classification_counts["TRIGGER_REJECTED"] += 1
                 self._log_decision_blocked(
                     symbol=symbol,
                     final_stage="trigger",
-                    reason=str(selected_trigger.get("trigger_reason") or "trigger_not_ready"),
+                    reason="SETUP_TRIGGER_MAPPING_MISSING" if mapping_missing else trigger_reason,
                 )
                 self._log_pipeline_no_decision(symbol)
                 symbol_traces.append(symbol_trace)
@@ -1307,7 +1441,19 @@ class RossMomentumStrategyV1(BaseStrategy):
                     f"[CLASSIFICATION] symbol={symbol} category=TRIGGER_REJECTED"
                 )
                 print(f"[ROSS][TRIGGER_FAIL] symbol={symbol} reason=INVALID_TRADE_STRUCTURE")
-                _terminal(symbol, TERMINAL_CATEGORY["SETUP_FOUND_TRIGGER_NOT_READY"], "invalid_trade_structure")
+                _terminal(
+                    symbol,
+                    TERMINAL_CATEGORY["SETUP_FOUND_TRIGGER_NOT_READY"],
+                    "invalid_trade_structure",
+                    selected_setup_family=decision.get("selected_setup_family"),
+                    selected_pattern_id=best_pattern.pattern_id,
+                    trigger_type=str(selected_trigger.get("trigger_type") or "UNKNOWN"),
+                    trigger_ready_now=bool(selected_trigger.get("trigger_ready_now")),
+                    pattern_inputs_ready=True,
+                    pattern_detected=True,
+                    trigger_evaluated=True,
+                    stage="trade_structure",
+                )
                 _actionability(symbol, "BLOCKED_STRUCTURE", "MISSING_STOP_ANCHOR")
                 classification_counts["TRIGGER_REJECTED"] += 1
                 self._log_no_trade_root_cause(
@@ -1345,6 +1491,19 @@ class RossMomentumStrategyV1(BaseStrategy):
                 print(f"[TRADE_INTENT][SKIP] symbol={symbol} reason={reasons or 'TRADEABLE_GATE_BLOCK'}")
                 symbol_trace.final_outcome = "SETUP_FOUND_DECISION_REJECTED"
                 symbol_trace.final_reason_code = "TRADEABLE_GATE_BLOCK"
+                _terminal(
+                    symbol,
+                    TERMINAL_CATEGORY["SETUP_FOUND_DECISION_REJECTED"],
+                    reasons or "tradeable_entry_block",
+                    selected_setup_family=setup_family,
+                    selected_pattern_id=best_pattern.pattern_id,
+                    trigger_type=str(selected_trigger.get("trigger_type") or "UNKNOWN"),
+                    trigger_ready_now=bool(selected_trigger.get("trigger_ready_now")),
+                    pattern_inputs_ready=True,
+                    pattern_detected=True,
+                    trigger_evaluated=True,
+                    stage="tradeable_entry",
+                )
                 classification_counts["TRIGGER_REJECTED"] += 1
                 self._log_decision_blocked(
                     symbol=symbol,
@@ -1421,7 +1580,19 @@ class RossMomentumStrategyV1(BaseStrategy):
                     f"[CLASSIFICATION] symbol={symbol} category=TRIGGER_REJECTED"
                 )
                 print(f"[ROSS][TRIGGER_FAIL] symbol={symbol} reason={permission_reason}")
-                _terminal(symbol, TERMINAL_CATEGORY["SETUP_FOUND_TRIGGER_NOT_READY"], permission_reason)
+                _terminal(
+                    symbol,
+                    TERMINAL_CATEGORY["SETUP_FOUND_TRIGGER_NOT_READY"],
+                    permission_reason,
+                    selected_setup_family=setup_family,
+                    selected_pattern_id=best_pattern.pattern_id,
+                    trigger_type=str(selected_trigger.get("trigger_type") or "UNKNOWN"),
+                    trigger_ready_now=bool(trigger_ready),
+                    pattern_inputs_ready=True,
+                    pattern_detected=True,
+                    trigger_evaluated=True,
+                    stage="trade_permission",
+                )
                 _actionability(symbol, "BLOCKED_STRUCTURE", permission_reason)
                 classification_counts["TRIGGER_REJECTED"] += 1
                 self._log_no_trade_root_cause(
@@ -1505,7 +1676,20 @@ class RossMomentumStrategyV1(BaseStrategy):
                 f"entry_reference={intent.entry_price} stop_reference={intent.stop_loss_price} "
                 f"invalidation_reference={intent.invalidation_level}"
             )
-            _terminal(symbol, TERMINAL_CATEGORY["INTENT_CREATED"], "intent_created")
+            _terminal(
+                symbol,
+                TERMINAL_CATEGORY["INTENT_CREATED"],
+                "intent_created",
+                selected_setup_family=setup_family,
+                selected_pattern_id=best_pattern.pattern_id,
+                trigger_type=str(selected_trigger.get("trigger_type") or "UNKNOWN"),
+                trigger_ready_now=bool(trigger_ready),
+                intent_emitted=True,
+                pattern_inputs_ready=True,
+                pattern_detected=True,
+                trigger_evaluated=True,
+                stage="intent",
+            )
             print(
                 f"[ROSS][FINAL_DECISION] symbol={symbol} pattern={best_pattern.pattern_id} "
                 f"trigger={intent.trigger_id} outcome=INTENT_CREATED reason=intent_created"
@@ -1838,6 +2022,111 @@ class RossMomentumStrategyV1(BaseStrategy):
             reverse=True,
         )
         return ranked[0] if ranked else None
+
+    @staticmethod
+    def _pattern_result_value(result: Any, *keys: str) -> Any:
+        for key in keys:
+            if isinstance(result, dict) and key in result:
+                return result.get(key)
+            if hasattr(result, key):
+                return getattr(result, key)
+        return None
+
+    def _canonical_pattern_trigger_candidates(
+        self,
+        pattern_results: list[Any] | None,
+        *,
+        symbol: str,
+        existing_triggers: list[dict] | None,
+    ) -> list[dict]:
+        existing_families = {
+            self._normalize_setup_family_id(trigger.get("setup_family_id"))
+            for trigger in (existing_triggers or [])
+            if isinstance(trigger, dict)
+        }
+        supported_pattern_families = {"THREE_BAR_PULLBACK", "SECOND_PULLBACK"}
+        authority_statuses = {SetupImplementationStatus.TRADE_READY, SetupImplementationStatus.PROBATIONARY}
+        candidates: list[dict] = []
+        for result in list(pattern_results or []):
+            if not bool(self._pattern_result_value(result, "detected")):
+                continue
+            pattern_id = str(self._pattern_result_value(result, "pattern_id", "setup_id", "id") or "").upper()
+            raw_family = self._pattern_result_value(result, "setup_family_id", "setup_family")
+            family = self._normalize_setup_family_id(str(raw_family or ""))
+            if not family or family.startswith("P_"):
+                family = self._setup_family_from_pattern_id(pattern_id)
+            family = self._normalize_setup_family_id(family)
+            if family not in supported_pattern_families or family in existing_families:
+                continue
+            spec = CANONICAL_SETUP_REGISTRY.get(family)
+            if spec is None or spec.status not in authority_statuses:
+                print(
+                    "[ROSS][CANONICAL_PATTERN_TRIGGER][SKIP] "
+                    f"symbol={symbol} setup_family={family} pattern_id={pattern_id} reason=family_not_authoritative"
+                )
+                continue
+            metadata_raw = self._pattern_result_value(result, "setup_metadata")
+            metadata = dict(metadata_raw) if isinstance(metadata_raw, dict) else {}
+            trigger_level = self._safe_float(
+                self._pattern_result_value(result, "trigger_level") or metadata.get("pullback_high")
+            )
+            stop_level = self._safe_float(
+                self._pattern_result_value(result, "stop_level") or metadata.get("pullback_low")
+            )
+            invalidation_level = self._safe_float(
+                self._pattern_result_value(result, "invalidation_level") or stop_level or metadata.get("pullback_low")
+            )
+            if trigger_level is None or stop_level is None or invalidation_level is None:
+                print(
+                    "[ROSS][CANONICAL_PATTERN_TRIGGER][SKIP] "
+                    f"symbol={symbol} setup_family={family} pattern_id={pattern_id} reason=missing_trigger_contract"
+                )
+                continue
+            direction_raw = self._pattern_result_value(result, "direction")
+            direction = str(getattr(direction_raw, "value", direction_raw) or "LONG").upper()
+            if direction != "LONG":
+                print(
+                    "[ROSS][CANONICAL_PATTERN_TRIGGER][SKIP] "
+                    f"symbol={symbol} setup_family={family} pattern_id={pattern_id} reason=non_long_direction"
+                )
+                continue
+            trigger_type = str(
+                self._pattern_result_value(result, "trigger_type") or metadata.get("trigger_type") or "PULLBACK_HIGH_BREAK"
+            ).upper()
+            tags_raw = self._pattern_result_value(result, "setup_quality_tags", "tags") or []
+            quality_flags = [str(flag) for flag in list(tags_raw) if str(flag)]
+            risk_flags_raw = self._pattern_result_value(result, "risk_flags") or []
+            blocking_flags = [str(flag) for flag in list(risk_flags_raw) if str(flag)]
+            confidence = float(self._safe_float(self._pattern_result_value(result, "confidence")) or 0.0)
+            pattern_name = str(self._pattern_result_value(result, "pattern_name", "name") or pattern_id or family)
+            candidate = {
+                "setup_family_id": family,
+                "setup_family": family,
+                "setup_name": pattern_name,
+                "pattern_id": pattern_id,
+                "pattern_name": pattern_name,
+                "direction": direction,
+                "confidence": confidence,
+                "quality_flags": list(dict.fromkeys([*quality_flags, "CANONICAL_PATTERN_TRIGGER_AUTHORITY"])),
+                "blocking_flags": blocking_flags,
+                "invalidation_anchor": "pullback_low",
+                "invalidation_level": invalidation_level,
+                "stop_level": stop_level,
+                "required_trigger_types": [trigger_type],
+                "trigger_level": trigger_level,
+                "setup_detected": True,
+                "source": "canonical_pattern_result",
+                "setup_metadata": metadata,
+                "execution_refinement_mode": str(self._pattern_result_value(result, "trigger_mode") or "NONE"),
+            }
+            print(
+                "[ROSS][CANONICAL_PATTERN_TRIGGER] "
+                f"symbol={symbol} setup_family={family} pattern_id={pattern_id} "
+                f"trigger_type={trigger_type} trigger_level={trigger_level} invalidation_level={invalidation_level}"
+            )
+            candidates.append(candidate)
+            existing_families.add(family)
+        return candidates
 
     @classmethod
     def _normalize_setup_family_id(cls, setup_family_id: str | None) -> str:
