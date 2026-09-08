@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import pytest
 
@@ -602,3 +603,123 @@ def test_missing_mapping_records_internal_fault_terminal_without_killing_strateg
     assert terminal["trigger_ready_now"] is False
     out = capsys.readouterr().out
     assert "[ROSS][INTERNAL_FAULT] symbol=UPC setup_family=THREE_BAR_PULLBACK reason=SETUP_TRIGGER_MAPPING_MISSING" in out
+
+
+def _detected_parabolic_exhaustion() -> PatternResult:
+    return PatternResult(
+        setup_id="P_PARABOLIC_EXHAUSTION",
+        pattern_name="P_PARABOLIC_EXHAUSTION",
+        pattern_family=PatternFamily.EXHAUSTION,
+        detected=True,
+        direction=Direction.SHORT,
+        confidence=0.82,
+        setup_quality_tags=["risk_off"],
+        setup_family_id="PARABOLIC_EXHAUSTION",
+        signal_class="RISK_OFF",
+        non_entry_signal=True,
+        rationale_text="parabolic exhaustion risk-off pattern",
+    )
+
+
+def _run_rejected_decision(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+    *,
+    results: list[PatternResult],
+    decision: dict[str, object],
+    cycle_id: str,
+) -> tuple[RossMomentumStrategyV1, list]:
+    strategy = _base_strategy(monkeypatch, tmp_path, state="not_ready")
+    strategy._pattern_registry = FakeRegistry(results)
+    strategy._decision_engine = SimpleNamespace(compute_decision=lambda **_kwargs: dict(decision))
+
+    intents = strategy.process_watchlist(
+        watchlist=[_watchlist_row("not_ready")],
+        snapshots={"UPC": _snapshot("not_ready")},
+        session_label="RTH",
+        timestamp_utc=cycle_id,
+        mode=RunMode.READ_ONLY,
+        session_phase="RTH_OPEN",
+    )
+    return strategy, intents
+
+
+def test_decision_rejection_terminal_records_single_family_provenance(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    result = _detected_pullback("P_THREE_BAR_PULLBACK")
+    strategy, intents = _run_rejected_decision(
+        monkeypatch,
+        tmp_path,
+        results=[result],
+        cycle_id="cycle-pr1082-single-rejection",
+        decision={
+            "decision_state": "CANDIDATE_REJECTED_INSUFFICIENT_QUALITY",
+            "selected_setup_family": None,
+            "selected_pattern_id": None,
+            "selected_pattern_name": None,
+            "decision_reason": "all_detected_candidates_rejected",
+            "rejected_candidates": [
+                {"pattern_id": "P_THREE_BAR_PULLBACK", "setup_family": "THREE_BAR_PULLBACK", "reason": "quality_gate"}
+            ],
+        },
+    )
+
+    assert intents == []
+    terminal = strategy.last_symbol_terminal_outcomes["UPC"]
+    assert terminal["outcome"] == "SETUP_FOUND_DECISION_REJECTED"
+    assert terminal["selected_setup_family"] == "THREE_BAR_PULLBACK"
+    assert terminal["selected_pattern_id"] == "P_THREE_BAR_PULLBACK"
+    assert "selected_setup_families" not in terminal
+
+
+def test_decision_rejection_terminal_records_multi_family_conflict_provenance(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    strategy, intents = _run_rejected_decision(
+        monkeypatch,
+        tmp_path,
+        results=[_detected_pullback("P_THREE_BAR_PULLBACK"), _detected_pullback("P_SECOND_PULLBACK")],
+        cycle_id="cycle-pr1082-multi-rejection",
+        decision={
+            "decision_state": "CANDIDATE_REJECTED_CONFLICT",
+            "selected_setup_family": None,
+            "selected_pattern_id": None,
+            "selected_pattern_name": None,
+            "decision_reason": "rejected_true_conflict_opposing_direction",
+            "rejected_candidates": [
+                {"pattern_id": "P_THREE_BAR_PULLBACK", "setup_family": "THREE_BAR_PULLBACK", "reason": "conflict"},
+                {"pattern_id": "P_SECOND_PULLBACK", "setup_family": "SECOND_PULLBACK", "reason": "conflict"},
+            ],
+        },
+    )
+
+    assert intents == []
+    terminal = strategy.last_symbol_terminal_outcomes["UPC"]
+    assert terminal["outcome"] == "SETUP_FOUND_DECISION_REJECTED"
+    assert "selected_setup_family" not in terminal
+    assert terminal["selected_setup_families"] == ["SECOND_PULLBACK", "THREE_BAR_PULLBACK"]
+    assert terminal["selected_pattern_ids"] == ["P_SECOND_PULLBACK", "P_THREE_BAR_PULLBACK"]
+    assert terminal["trigger_type"] == "DECISION_REJECTED"
+
+
+def test_decision_rejection_terminal_records_parabolic_exhaustion_provenance(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    strategy, intents = _run_rejected_decision(
+        monkeypatch,
+        tmp_path,
+        results=[_detected_parabolic_exhaustion()],
+        cycle_id="cycle-pr1082-parabolic-rejection",
+        decision={
+            "decision_state": "CANDIDATE_REJECTED_INSUFFICIENT_QUALITY",
+            "selected_setup_family": None,
+            "selected_pattern_id": None,
+            "selected_pattern_name": None,
+            "decision_reason": "all_detected_candidates_rejected",
+            "rejected_candidates": [
+                {"pattern_id": "P_PARABOLIC_EXHAUSTION", "reason": "parabolic_exhaustion_non_entry"}
+            ],
+        },
+    )
+
+    assert intents == []
+    terminal = strategy.last_symbol_terminal_outcomes["UPC"]
+    assert terminal["outcome"] == "SETUP_FOUND_DECISION_REJECTED"
+    assert terminal["selected_setup_family"] == "PARABOLIC_EXHAUSTION"
+    assert terminal["selected_pattern_id"] == "P_PARABOLIC_EXHAUSTION"
+    assert terminal["terminal_stage"] == "decision"

@@ -3753,13 +3753,13 @@ class CoreOrchestrator:
                 )
 
         emitted_symbols = {
-            getattr(intent, "symbol", None)
+            str(getattr(intent, "symbol", "") or "").upper()
             for intent in (strategy_output or [])
             if getattr(intent, "symbol", None)
         }
         for symbol in final_evaluation_symbols:
             print(f"[ROSS][EVALUATE][START] symbol={symbol}")
-            emitted = symbol in emitted_symbols
+            emitted = str(symbol or "").upper() in emitted_symbols
             if emitted:
                 no_trade_reason = "INTENT_EMITTED"
             elif symbol in set(manual_focus_accepted_symbols) and symbol not in set(auto_focus_symbols):
@@ -3791,11 +3791,12 @@ class CoreOrchestrator:
             "[PIPELINE][ARBITRATION_INPUT] "
             f"input_intents_count={len(pre_arbitration_intents)}"
         )
-        setup_detected_symbols = {
-            getattr(intent, "symbol", "").upper()
+        emitted_intent_symbols = {
+            str(getattr(intent, "symbol", "") or "").upper()
             for intent in raw_strategy_output
             if getattr(intent, "symbol", None)
         }
+        setup_detected_symbols = set(emitted_intent_symbols)
         if ross_strategy is not None:
             collector = getattr(ross_strategy, "_failure_trace_collector", None)
             traces = getattr(collector, "_symbols", []) if collector is not None else []
@@ -3810,7 +3811,10 @@ class CoreOrchestrator:
             for intent in raw_strategy_output
             if bool(getattr(intent, "trigger_ready", False))
         )
-        if watchlist_symbols and setup_detected_symbols and not raw_strategy_output:
+        no_intent_setup_symbols = {
+            symbol for symbol in setup_detected_symbols if symbol and symbol not in emitted_intent_symbols
+        }
+        if watchlist_symbols and no_intent_setup_symbols:
             terminal_outcomes = getattr(ross_strategy, "last_symbol_terminal_outcomes", {}) if ross_strategy is not None else {}
             current_cycle_id = cycle_started_at.isoformat()
             allowed_terminal_outcomes = {
@@ -3821,7 +3825,7 @@ class CoreOrchestrator:
                 "SETUP_TRIGGER_MAPPING_MISSING",
             }
             unterminated_setup_symbols = []
-            for symbol in sorted(setup_detected_symbols):
+            for symbol in sorted(no_intent_setup_symbols):
                 terminal = terminal_outcomes.get(symbol) if isinstance(terminal_outcomes, dict) else None
                 terminal_invalid_reason = None
                 if not isinstance(terminal, dict):
@@ -3832,6 +3836,18 @@ class CoreOrchestrator:
                     terminal_symbol = str(terminal.get("symbol") or "").strip().upper()
                     terminal_cycle_id = str(terminal.get("cycle_id") or "").strip()
                     selected_setup_family = str(terminal.get("selected_setup_family") or "").strip().upper()
+                    raw_selected_setup_families = terminal.get("selected_setup_families")
+                    selected_setup_families = []
+                    if isinstance(raw_selected_setup_families, (list, tuple, set)):
+                        selected_setup_families = [
+                            str(family or "").strip().upper()
+                            for family in raw_selected_setup_families
+                            if str(family or "").strip()
+                        ]
+                    elif raw_selected_setup_families is not None:
+                        selected_setup_family_list_value = str(raw_selected_setup_families or "").strip().upper()
+                        if selected_setup_family_list_value:
+                            selected_setup_families = [selected_setup_family_list_value]
                     trigger_type = str(terminal.get("trigger_type") or "").strip().upper()
                     terminal_stage = str(terminal.get("terminal_stage") or "").strip()
                     pattern_inputs_ready = bool(terminal.get("pattern_inputs_ready"))
@@ -3853,7 +3869,13 @@ class CoreOrchestrator:
                         terminal_invalid_reason = "intent_emitted_without_output"
                     elif bool(terminal.get("trigger_ready_now")):
                         terminal_invalid_reason = "trigger_ready_without_intent"
-                    elif not selected_setup_family or selected_setup_family == "UNKNOWN":
+                    elif selected_setup_family == "UNKNOWN" or any(
+                        family == "UNKNOWN" for family in selected_setup_families
+                    ):
+                        terminal_invalid_reason = "missing_selected_setup_family"
+                    elif len(selected_setup_families) != len(set(selected_setup_families)):
+                        terminal_invalid_reason = "duplicate_selected_setup_family"
+                    elif not selected_setup_family and not selected_setup_families:
                         terminal_invalid_reason = "missing_selected_setup_family"
                     elif not trigger_type:
                         terminal_invalid_reason = "missing_trigger_type"
@@ -3864,7 +3886,15 @@ class CoreOrchestrator:
                     continue
                 outcome = str(terminal.get("outcome") or "UNKNOWN")
                 reason = str(terminal.get("reason") or "UNKNOWN")
-                selected_setup_family = str(terminal.get("selected_setup_family") or "UNKNOWN")
+                selected_setup_family = str(terminal.get("selected_setup_family") or "").strip().upper()
+                selected_setup_families = terminal.get("selected_setup_families")
+                if isinstance(selected_setup_families, (list, tuple, set)):
+                    selected_setup_family = selected_setup_family or ",".join(
+                        str(family or "").strip().upper()
+                        for family in selected_setup_families
+                        if str(family or "").strip()
+                    )
+                selected_setup_family = selected_setup_family or "UNKNOWN"
                 trigger_type = str(terminal.get("trigger_type") or "UNKNOWN")
                 print(
                     "[PIPELINE][SETUP_TERMINAL_NO_INTENT] "

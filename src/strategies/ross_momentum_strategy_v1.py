@@ -609,6 +609,8 @@ class RossMomentumStrategyV1(BaseStrategy):
             selected_setup_family: str | None = None,
             selected_pattern_id: str | None = None,
             trigger_type: str | None = None,
+            selected_setup_families: list[str] | None = None,
+            selected_pattern_ids: list[str] | None = None,
             trigger_ready_now: bool = False,
             intent_emitted: bool = False,
             stage: str = "unknown",
@@ -617,7 +619,22 @@ class RossMomentumStrategyV1(BaseStrategy):
             trigger_evaluated: bool = False,
         ) -> None:
             resolved_family = self._normalize_setup_family_id(selected_setup_family)
-            pattern_label = str(selected_pattern_id or "UNKNOWN")
+            resolved_families = sorted(
+                {
+                    self._normalize_setup_family_id(str(family or ""))
+                    for family in list(selected_setup_families or [])
+                    if str(family or "").strip()
+                }
+            )
+            resolved_families = [family for family in resolved_families if family and family != "UNKNOWN"]
+            resolved_pattern_ids = sorted(
+                {
+                    str(pattern_id or "").strip().upper()
+                    for pattern_id in list(selected_pattern_ids or [])
+                    if str(pattern_id or "").strip()
+                }
+            )
+            pattern_label = str(selected_pattern_id or (",".join(resolved_pattern_ids) if resolved_pattern_ids else "UNKNOWN"))
             trigger_label = str(trigger_type or "UNKNOWN").upper()
             category_text = str(category)
             reason_text = str(reason)
@@ -638,8 +655,12 @@ class RossMomentumStrategyV1(BaseStrategy):
             }
             if resolved_family:
                 payload["selected_setup_family"] = resolved_family
+            elif resolved_families:
+                payload["selected_setup_families"] = resolved_families
             if selected_pattern_id:
                 payload["selected_pattern_id"] = pattern_label
+            elif resolved_pattern_ids:
+                payload["selected_pattern_ids"] = resolved_pattern_ids
             if trigger_type:
                 payload["trigger_type"] = trigger_label
             print(f"[ROSS][TERMINAL] symbol={symbol} category={category_text} reason={reason_text}")
@@ -1209,12 +1230,15 @@ class RossMomentumStrategyV1(BaseStrategy):
                     symbol_trace.final_reason_code = "DECISION_REJECTED"
                     print(f"[ROSS][SETUP_REJECT] symbol={symbol} reason=DECISION_REJECTED:{decision_reason}")
                     print(f"[CLASSIFICATION] symbol={symbol} category=SETUP_FOUND_DECISION_REJECTED")
+                    rejection_provenance = self._decision_rejection_provenance(decision, symbol_trace)
                     _terminal(
                         symbol,
                         TERMINAL_CATEGORY["SETUP_FOUND_DECISION_REJECTED"],
                         decision_reason,
-                        selected_setup_family=decision.get("selected_setup_family"),
-                        selected_pattern_id=decision.get("selected_pattern_id"),
+                        selected_setup_family=rejection_provenance.get("selected_setup_family"),
+                        selected_setup_families=rejection_provenance.get("selected_setup_families"),
+                        selected_pattern_id=rejection_provenance.get("selected_pattern_id"),
+                        selected_pattern_ids=rejection_provenance.get("selected_pattern_ids"),
                         trigger_type="DECISION_REJECTED",
                         pattern_inputs_ready=True,
                         pattern_detected=True,
@@ -1983,6 +2007,7 @@ class RossMomentumStrategyV1(BaseStrategy):
             "P_VWAP_PULLBACK": "VWAP_PULLBACK",
             "P_THREE_BAR_PULLBACK": "THREE_BAR_PULLBACK",
             "P_SECOND_PULLBACK": "SECOND_PULLBACK",
+            "P_PARABOLIC_EXHAUSTION": "PARABOLIC_EXHAUSTION",
         }
         return mapping.get(str(pattern_id or "").upper(), "UNKNOWN")
 
@@ -2132,6 +2157,75 @@ class RossMomentumStrategyV1(BaseStrategy):
     def _normalize_setup_family_id(cls, setup_family_id: str | None) -> str:
         normalized = str(setup_family_id or "").upper()
         return cls._SETUP_FAMILY_ALIASES.get(normalized, normalized)
+
+    @classmethod
+    def _decision_rejection_provenance(cls, decision: dict, symbol_trace) -> dict[str, object]:
+        traces = list(getattr(symbol_trace, "pattern_traces", []) or [])
+        trace_by_pattern_id = {
+            str(getattr(trace, "pattern_id", "") or "").strip().upper(): trace
+            for trace in traces
+            if str(getattr(trace, "pattern_id", "") or "").strip()
+        }
+        candidates = list(decision.get("rejected_candidates") or []) if isinstance(decision, dict) else []
+        if not candidates:
+            candidates = [
+                {
+                    "pattern_id": getattr(trace, "pattern_id", None),
+                    "setup_family": getattr(trace, "setup_family_id", None),
+                }
+                for trace in traces
+                if bool(getattr(trace, "detected", False))
+            ]
+
+        family_by_pattern_id: dict[str, str] = {}
+        family_set: set[str] = set()
+        pattern_ids: set[str] = set()
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                continue
+            pattern_id = str(candidate.get("pattern_id") or "").strip().upper()
+            family = cls._normalize_setup_family_id(
+                candidate.get("setup_family") or candidate.get("setup_family_id")
+            )
+            trace = trace_by_pattern_id.get(pattern_id)
+            if (not family or family == "UNKNOWN") and trace is not None:
+                family = cls._normalize_setup_family_id(getattr(trace, "setup_family_id", None))
+            if (not family or family == "UNKNOWN") and pattern_id:
+                family = cls._setup_family_from_pattern_id(pattern_id)
+            if not family or family == "UNKNOWN":
+                continue
+            family_set.add(family)
+            if pattern_id:
+                pattern_ids.add(pattern_id)
+                family_by_pattern_id[pattern_id] = family
+
+        selected_family = cls._normalize_setup_family_id(decision.get("selected_setup_family"))
+        selected_pattern = str(decision.get("selected_pattern_id") or "").strip().upper()
+        if selected_family and selected_family != "UNKNOWN":
+            payload: dict[str, object] = {"selected_setup_family": selected_family}
+            if selected_pattern:
+                payload["selected_pattern_id"] = selected_pattern
+            return payload
+
+        if len(family_set) == 1:
+            family = next(iter(family_set))
+            payload = {"selected_setup_family": family}
+            matching_pattern_ids = sorted(
+                pattern_id for pattern_id, candidate_family in family_by_pattern_id.items() if candidate_family == family
+            )
+            if len(matching_pattern_ids) == 1:
+                payload["selected_pattern_id"] = matching_pattern_ids[0]
+            elif matching_pattern_ids:
+                payload["selected_pattern_ids"] = matching_pattern_ids
+            return payload
+
+        if len(family_set) > 1:
+            payload = {"selected_setup_families": sorted(family_set)}
+            if pattern_ids:
+                payload["selected_pattern_ids"] = sorted(pattern_ids)
+            return payload
+
+        return {}
 
     @staticmethod
     def _resolve_trigger_quality_tier(*, selected_trigger: dict | None, pattern_confidence: float) -> str:

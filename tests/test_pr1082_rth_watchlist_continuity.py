@@ -14,7 +14,7 @@ from src.core.event_collector import EventCollector
 from src.core.orchestrator import CoreOrchestrator, load_manual_focus_config
 from src.core.stop_controller import StopController
 from src.execution.execution_engine import ExecutionEngine
-from src.models.data_models import RiskDecision
+from src.models.data_models import RiskDecision, TradeIntent
 from src.sim.price_feed import DeterministicPriceFeed
 from src.strategies.ross_momentum.strategy_policy import POLICY_V2
 
@@ -97,8 +97,8 @@ def _terminal_payload(
     *,
     outcome: str = "SETUP_FOUND_BUT_NO_TRIGGER",
     reason: str = "awaiting_pullback_break",
-    selected_setup_family: str = "THREE_BAR_PULLBACK",
-    selected_pattern_id: str = "P_THREE_BAR_PULLBACK",
+    selected_setup_family: str | None = "THREE_BAR_PULLBACK",
+    selected_pattern_id: str | None = "P_THREE_BAR_PULLBACK",
     trigger_type: str = "PULLBACK_HIGH_BREAK",
     trigger_ready_now: bool = False,
     intent_emitted: bool = False,
@@ -106,8 +106,9 @@ def _terminal_payload(
     pattern_inputs_ready: bool = True,
     pattern_detected: bool = True,
     trigger_evaluated: bool = True,
+    selected_setup_families: list[str] | None = None,
 ) -> dict[str, object]:
-    return {
+    payload = {
         "symbol": symbol,
         "cycle_id": cycle_id,
         "outcome": outcome,
@@ -121,10 +122,36 @@ def _terminal_payload(
         "session_label": "RTH",
         "session_phase": "RTH_OPEN",
         "runtime_mode": "READ_ONLY",
-        "selected_setup_family": selected_setup_family,
         "selected_pattern_id": selected_pattern_id,
         "trigger_type": trigger_type,
     }
+    if selected_setup_family is not None:
+        payload["selected_setup_family"] = selected_setup_family
+    if selected_setup_families is not None:
+        payload["selected_setup_families"] = list(selected_setup_families)
+    return payload
+
+
+def _trade_intent(symbol: str) -> TradeIntent:
+    intent = TradeIntent(
+        symbol=symbol,
+        direction="LONG",
+        strategy_name="RossMomentumStrategyV1",
+        confidence=0.91,
+        rationale="focused regression intent",
+        trader_type="MOMENTUM",
+        stop_loss_price=4.80,
+        take_profit_price=5.50,
+        pattern_name="P_THREE_BAR_PULLBACK",
+        setup_family_id="THREE_BAR_PULLBACK",
+        trigger_id="PULLBACK_HIGH_BREAK",
+    )
+    intent.has_valid_pattern = True
+    intent.confirmation_passed = True
+    intent.trigger_ready = True
+    return intent
+
+
 def _install_runtime_harness(
     monkeypatch: pytest.MonkeyPatch,
     payloads: list[dict[str, object]],
@@ -445,6 +472,135 @@ def test_pr1082_missing_mapping_terminal_records_internal_fault_without_halting(
     out = capsys.readouterr().out
     assert "[PIPELINE][INTERNAL_FAULT] symbol=UPC setup_family=THREE_BAR_PULLBACK reason=SETUP_TRIGGER_MAPPING_MISSING" in out
     assert "PIPELINE_BREAK_SETUP_TO_INTENT" not in out
+
+
+def _install_mixed_setup_terminal_process(
+    orchestrator: CoreOrchestrator,
+    *,
+    payload_factory,
+) -> None:
+    ross_strategy = next(
+        strategy
+        for strategy in orchestrator.strategy_runner.strategies
+        if getattr(strategy, "name", "") == "RossMomentumStrategyV1"
+    )
+
+    def _process(**kwargs):
+        cycle_id = kwargs["timestamp_utc"]
+        ross_strategy.last_evaluated_symbols = ["AAA", "BBB"]
+        terminal_outcomes = {
+            "AAA": _terminal_payload(
+                "AAA",
+                cycle_id,
+                outcome="INTENT_CREATED",
+                reason="intent_created",
+                trigger_ready_now=True,
+                intent_emitted=True,
+                terminal_stage="intent",
+            )
+        }
+        b_payload = payload_factory(cycle_id)
+        if b_payload is not None:
+            terminal_outcomes["BBB"] = b_payload
+        ross_strategy.last_symbol_terminal_outcomes = terminal_outcomes
+        ross_strategy._failure_trace_collector._symbols.append(
+            SimpleNamespace(symbol="BBB", detected_pattern_ids=["P_THREE_BAR_PULLBACK"])
+        )
+        return [_trade_intent("AAA")]
+
+    orchestrator.strategy_runner.process = _process
+
+
+def test_pr1082_mixed_output_validates_no_intent_symbol_terminal(monkeypatch, capsys) -> None:
+    aaa = _row("AAA", catalyst=True)
+    bbb = _row("BBB", catalyst=True)
+    orchestrator, _, _ = _install_runtime_harness(monkeypatch, [_payload([aaa, bbb], focus=[aaa, bbb])])
+    _install_mixed_setup_terminal_process(
+        orchestrator,
+        payload_factory=lambda cycle_id: _terminal_payload("BBB", cycle_id),
+    )
+
+    assert orchestrator.run_once() is True
+    out = capsys.readouterr().out
+    assert "[PIPELINE][SETUP_TERMINAL_NO_INTENT] symbol=BBB" in out
+    assert "[PIPELINE][SYMBOL_TRACE] symbol=AAA strategy_detected=True intent_created=True" in out
+    assert "[PIPELINE][SYMBOL_TRACE] symbol=BBB strategy_detected=True intent_created=False" in out
+    assert "PIPELINE_BREAK_SETUP_TO_INTENT" not in out
+
+
+def test_pr1082_mixed_output_rejects_missing_terminal_for_no_intent_symbol(monkeypatch, capsys) -> None:
+    aaa = _row("AAA", catalyst=True)
+    bbb = _row("BBB", catalyst=True)
+    orchestrator, _, _ = _install_runtime_harness(monkeypatch, [_payload([aaa, bbb], focus=[aaa, bbb])])
+    _install_mixed_setup_terminal_process(orchestrator, payload_factory=lambda _cycle_id: None)
+
+    assert orchestrator.run_once() is False
+    out = capsys.readouterr().out
+    assert "BBB:missing_terminal_payload" in out
+    assert "PIPELINE_BREAK_SETUP_TO_INTENT" in out
+
+
+def test_pr1082_mixed_output_rejects_trigger_ready_terminal_without_intent(monkeypatch, capsys) -> None:
+    aaa = _row("AAA", catalyst=True)
+    bbb = _row("BBB", catalyst=True)
+    orchestrator, _, _ = _install_runtime_harness(monkeypatch, [_payload([aaa, bbb], focus=[aaa, bbb])])
+    _install_mixed_setup_terminal_process(
+        orchestrator,
+        payload_factory=lambda cycle_id: _terminal_payload("BBB", cycle_id, trigger_ready_now=True),
+    )
+
+    assert orchestrator.run_once() is False
+    out = capsys.readouterr().out
+    assert "BBB:trigger_ready_without_intent" in out
+    assert "PIPELINE_BREAK_SETUP_TO_INTENT" in out
+
+
+def test_pr1082_decision_rejection_terminal_accepts_multi_family_provenance(monkeypatch, capsys) -> None:
+    upc = _row("UPC", catalyst=True)
+    orchestrator, _, _ = _install_runtime_harness(monkeypatch, [_payload([upc], focus=[upc])])
+    _install_setup_terminal_process(
+        orchestrator,
+        payload_factory=lambda cycle_id: _terminal_payload(
+            "UPC",
+            cycle_id,
+            outcome="SETUP_FOUND_DECISION_REJECTED",
+            reason="rejected_true_conflict_opposing_direction",
+            selected_setup_family=None,
+            selected_setup_families=["SECOND_PULLBACK", "THREE_BAR_PULLBACK"],
+            selected_pattern_id="MULTI_PATTERN_CONFLICT",
+            trigger_type="DECISION_REJECTED",
+            terminal_stage="decision",
+            trigger_evaluated=False,
+        ),
+    )
+
+    assert orchestrator.run_once() is True
+    out = capsys.readouterr().out
+    assert "[PIPELINE][SETUP_TERMINAL_NO_INTENT] symbol=UPC" in out
+    assert "missing_selected_setup_family" not in out
+
+
+def test_pr1082_decision_rejection_terminal_rejects_missing_provenance(monkeypatch, capsys) -> None:
+    upc = _row("UPC", catalyst=True)
+    orchestrator, _, _ = _install_runtime_harness(monkeypatch, [_payload([upc], focus=[upc])])
+    _install_setup_terminal_process(
+        orchestrator,
+        payload_factory=lambda cycle_id: _terminal_payload(
+            "UPC",
+            cycle_id,
+            outcome="SETUP_FOUND_DECISION_REJECTED",
+            reason="all_detected_candidates_rejected",
+            selected_setup_family=None,
+            selected_pattern_id=None,
+            trigger_type="DECISION_REJECTED",
+            terminal_stage="decision",
+            trigger_evaluated=False,
+        ),
+    )
+
+    assert orchestrator.run_once() is False
+    out = capsys.readouterr().out
+    assert "UPC:missing_selected_setup_family" in out
 
 def test_pr1082_rth_cold_start_does_not_require_existing_prep_artifact(monkeypatch, tmp_path, capsys) -> None:
     set_config_overrides({"SCANNER_SYMBOLS": ["AAA"], "MANUAL_FOCUS_ENABLED": False})
