@@ -404,7 +404,11 @@ def _install_setup_terminal_process(orchestrator: CoreOrchestrator, *, payload_f
         ross_strategy.last_evaluated_symbols = ["UPC"]
         ross_strategy.last_symbol_terminal_outcomes = {"UPC": payload_factory(kwargs["timestamp_utc"])}
         ross_strategy._failure_trace_collector._symbols.append(
-            SimpleNamespace(symbol="UPC", detected_pattern_ids=["P_THREE_BAR_PULLBACK"])
+            SimpleNamespace(
+                symbol="UPC",
+                cycle_id=kwargs["timestamp_utc"],
+                detected_pattern_ids=["P_THREE_BAR_PULLBACK"],
+            )
         )
         return []
 
@@ -504,7 +508,11 @@ def _install_mixed_setup_terminal_process(
             terminal_outcomes["BBB"] = b_payload
         ross_strategy.last_symbol_terminal_outcomes = terminal_outcomes
         ross_strategy._failure_trace_collector._symbols.append(
-            SimpleNamespace(symbol="BBB", detected_pattern_ids=["P_THREE_BAR_PULLBACK"])
+            SimpleNamespace(
+                symbol="BBB",
+                cycle_id=cycle_id,
+                detected_pattern_ids=["P_THREE_BAR_PULLBACK"],
+            )
         )
         return [_trade_intent("AAA")]
 
@@ -555,6 +563,73 @@ def test_pr1082_mixed_output_rejects_trigger_ready_terminal_without_intent(monke
     assert "PIPELINE_BREAK_SETUP_TO_INTENT" in out
 
 
+def test_pr1082_mixed_output_accepts_explicit_cycle_selection_block(monkeypatch, capsys) -> None:
+    aaa = _row("AAA", catalyst=True)
+    bbb = _row("BBB", catalyst=True)
+    orchestrator, _, _ = _install_runtime_harness(monkeypatch, [_payload([aaa, bbb], focus=[aaa, bbb])])
+    _install_mixed_setup_terminal_process(
+        orchestrator,
+        payload_factory=lambda cycle_id: _terminal_payload(
+            "BBB",
+            cycle_id,
+            outcome="SETUP_FOUND_CYCLE_SELECTION_BLOCKED",
+            reason="max_trades_per_cycle",
+            trigger_ready_now=True,
+            intent_emitted=False,
+            terminal_stage="cycle_selection",
+        ),
+    )
+
+    assert orchestrator.run_once() is True
+    out = capsys.readouterr().out
+    assert "[PIPELINE][SETUP_TERMINAL_NO_INTENT] symbol=BBB outcome=SETUP_FOUND_CYCLE_SELECTION_BLOCKED" in out
+    assert "PIPELINE_BREAK_SETUP_TO_INTENT" not in out
+
+
+def test_pr1082_mixed_output_accepts_explicit_tradeability_block(monkeypatch, capsys) -> None:
+    aaa = _row("AAA", catalyst=True)
+    bbb = _row("BBB", catalyst=True)
+    orchestrator, _, _ = _install_runtime_harness(monkeypatch, [_payload([aaa, bbb], focus=[aaa, bbb])])
+    _install_mixed_setup_terminal_process(
+        orchestrator,
+        payload_factory=lambda cycle_id: _terminal_payload(
+            "BBB",
+            cycle_id,
+            outcome="SETUP_FOUND_TRADEABILITY_BLOCKED",
+            reason="LOW_CONFIDENCE",
+            trigger_ready_now=True,
+            intent_emitted=False,
+            terminal_stage="tradeability",
+        ),
+    )
+
+    assert orchestrator.run_once() is True
+    out = capsys.readouterr().out
+    assert "[PIPELINE][SETUP_TERMINAL_NO_INTENT] symbol=BBB outcome=SETUP_FOUND_TRADEABILITY_BLOCKED" in out
+    assert "PIPELINE_BREAK_SETUP_TO_INTENT" not in out
+
+
+def test_pr1082_candidate_marked_emitted_but_absent_from_output_fails(monkeypatch, capsys) -> None:
+    aaa = _row("AAA", catalyst=True)
+    bbb = _row("BBB", catalyst=True)
+    orchestrator, _, _ = _install_runtime_harness(monkeypatch, [_payload([aaa, bbb], focus=[aaa, bbb])])
+    _install_mixed_setup_terminal_process(
+        orchestrator,
+        payload_factory=lambda cycle_id: _terminal_payload(
+            "BBB",
+            cycle_id,
+            outcome="INTENT_CREATED",
+            reason="intent_created",
+            trigger_ready_now=True,
+            intent_emitted=True,
+            terminal_stage="intent",
+        ),
+    )
+
+    assert orchestrator.run_once() is False
+    out = capsys.readouterr().out
+    assert "BBB:intent_emitted_without_output" in out
+
 def test_pr1082_decision_rejection_terminal_accepts_multi_family_provenance(monkeypatch, capsys) -> None:
     upc = _row("UPC", catalyst=True)
     orchestrator, _, _ = _install_runtime_harness(monkeypatch, [_payload([upc], focus=[upc])])
@@ -601,6 +676,86 @@ def test_pr1082_decision_rejection_terminal_rejects_missing_provenance(monkeypat
     assert orchestrator.run_once() is False
     out = capsys.readouterr().out
     assert "UPC:missing_selected_setup_family" in out
+
+def test_pr1082_historical_trace_ignored_when_current_focus_empty(monkeypatch, capsys) -> None:
+    aaa = _row("AAA", catalyst=False)
+    orchestrator, _, _ = _install_runtime_harness(monkeypatch, [_payload([aaa], focus=[])])
+    ross_strategy = next(
+        strategy
+        for strategy in orchestrator.strategy_runner.strategies
+        if getattr(strategy, "name", "") == "RossMomentumStrategyV1"
+    )
+    ross_strategy._failure_trace_collector._symbols.append(
+        SimpleNamespace(symbol="OLD", cycle_id="prior-cycle", detected_pattern_ids=["P_THREE_BAR_PULLBACK"])
+    )
+
+    assert orchestrator.run_once() is True
+    out = capsys.readouterr().out
+    assert "OLD:missing_terminal_payload" not in out
+    assert "PIPELINE_BREAK_SETUP_TO_INTENT" not in out
+
+
+def test_pr1082_trace_filter_uses_tha_filtered_current_strategy_symbols(monkeypatch, capsys) -> None:
+    aaa = _row("AAA", catalyst=True)
+    bbb = _row("BBB", catalyst=True)
+    orchestrator, _, _ = _install_runtime_harness(monkeypatch, [_payload([aaa, bbb], focus=[aaa, bbb])])
+    ross_strategy = next(
+        strategy
+        for strategy in orchestrator.strategy_runner.strategies
+        if getattr(strategy, "name", "") == "RossMomentumStrategyV1"
+    )
+    ross_strategy._failure_trace_collector._symbols.append(
+        SimpleNamespace(symbol="BBB", cycle_id="prior-cycle", detected_pattern_ids=["P_THREE_BAR_PULLBACK"])
+    )
+    monkeypatch.setattr(
+        CoreOrchestrator,
+        "_resolve_tha_decisions",
+        lambda self, **_kwargs: {
+            "AAA": SimpleNamespace(allow_entries=True, force_flat=False),
+            "BBB": SimpleNamespace(allow_entries=False, force_flat=False),
+        },
+    )
+
+    def _process(**kwargs):
+        cycle_id = kwargs["timestamp_utc"]
+        ross_strategy.last_evaluated_symbols = ["AAA"]
+        ross_strategy.last_symbol_terminal_outcomes = {"AAA": _terminal_payload("AAA", cycle_id)}
+        ross_strategy._failure_trace_collector._symbols.append(
+            SimpleNamespace(symbol="AAA", cycle_id=cycle_id, detected_pattern_ids=["P_THREE_BAR_PULLBACK"])
+        )
+        return []
+
+    orchestrator.strategy_runner.process = _process
+
+    assert orchestrator.run_once() is True
+    out = capsys.readouterr().out
+    assert "[PIPELINE][SETUP_TERMINAL_NO_INTENT] symbol=AAA" in out
+    assert "BBB:missing_terminal_payload" not in out
+    assert "PIPELINE_BREAK_SETUP_TO_INTENT" not in out
+
+
+def test_pr1082_trace_filter_ignores_prior_cycle_same_symbol_detection() -> None:
+    detected, invalid = CoreOrchestrator._setup_detected_symbols_from_current_cycle_traces(
+        [
+            SimpleNamespace(symbol="UPC", cycle_id="prior-cycle", detected_pattern_ids=["P_THREE_BAR_PULLBACK"]),
+            SimpleNamespace(symbol="UPC", cycle_id="current-cycle", detected_pattern_ids=[]),
+        ],
+        current_cycle_id="current-cycle",
+        current_strategy_symbols={"UPC"},
+    )
+
+    assert detected == set()
+    assert invalid == set()
+
+
+def test_pr1082_current_cycle_detected_trace_missing_terminal_still_fails(monkeypatch, capsys) -> None:
+    upc = _row("UPC", catalyst=True)
+    orchestrator, _, _ = _install_runtime_harness(monkeypatch, [_payload([upc], focus=[upc])])
+    _install_setup_terminal_process(orchestrator, payload_factory=lambda _cycle_id: None)
+
+    assert orchestrator.run_once() is False
+    out = capsys.readouterr().out
+    assert "UPC:missing_terminal_payload" in out
 
 def test_pr1082_rth_cold_start_does_not_require_existing_prep_artifact(monkeypatch, tmp_path, capsys) -> None:
     set_config_overrides({"SCANNER_SYMBOLS": ["AAA"], "MANUAL_FOCUS_ENABLED": False})

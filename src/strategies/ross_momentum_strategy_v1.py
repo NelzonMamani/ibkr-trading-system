@@ -45,6 +45,9 @@ TERMINAL_CATEGORY = {
     "SETUP_FOUND_DECISION_REJECTED": "SETUP_FOUND_DECISION_REJECTED",
     "SETUP_FOUND_CONFIRMATION_BLOCKED": "SETUP_FOUND_CONFIRMATION_BLOCKED",
     "SETUP_FOUND_TRIGGER_NOT_READY": "SETUP_FOUND_TRIGGER_NOT_READY",
+    "SETUP_FOUND_TRADEABILITY_BLOCKED": "SETUP_FOUND_TRADEABILITY_BLOCKED",
+    "SETUP_FOUND_CAPACITY_BLOCKED": "SETUP_FOUND_CAPACITY_BLOCKED",
+    "SETUP_FOUND_CYCLE_SELECTION_BLOCKED": "SETUP_FOUND_CYCLE_SELECTION_BLOCKED",
     "INTENT_CREATED": "INTENT_CREATED",
 }
 
@@ -1513,11 +1516,11 @@ class RossMomentumStrategyV1(BaseStrategy):
             if not bool(tradeable_eval.get("tradeable", False)):
                 reasons = ",".join(list(tradeable_eval.get("blocking_reasons") or []))
                 print(f"[TRADE_INTENT][SKIP] symbol={symbol} reason={reasons or 'TRADEABLE_GATE_BLOCK'}")
-                symbol_trace.final_outcome = "SETUP_FOUND_DECISION_REJECTED"
-                symbol_trace.final_reason_code = "TRADEABLE_GATE_BLOCK"
+                symbol_trace.final_outcome = "SETUP_FOUND_TRADEABILITY_BLOCKED"
+                symbol_trace.final_reason_code = "TRADEABILITY_BLOCKED"
                 _terminal(
                     symbol,
-                    TERMINAL_CATEGORY["SETUP_FOUND_DECISION_REJECTED"],
+                    TERMINAL_CATEGORY["SETUP_FOUND_TRADEABILITY_BLOCKED"],
                     reasons or "tradeable_entry_block",
                     selected_setup_family=setup_family,
                     selected_pattern_id=best_pattern.pattern_id,
@@ -1526,12 +1529,12 @@ class RossMomentumStrategyV1(BaseStrategy):
                     pattern_inputs_ready=True,
                     pattern_detected=True,
                     trigger_evaluated=True,
-                    stage="tradeable_entry",
+                    stage="tradeability",
                 )
                 classification_counts["TRIGGER_REJECTED"] += 1
                 self._log_decision_blocked(
                     symbol=symbol,
-                    final_stage="tradeable_entry",
+                    final_stage="tradeability",
                     reason=reasons or "tradeable_entry_block",
                 )
                 self._log_pipeline_no_decision(symbol)
@@ -1667,6 +1670,10 @@ class RossMomentumStrategyV1(BaseStrategy):
                     "intent": intent,
                     "quality_score": quality_score,
                     "setup_family_id": setup_family,
+                    "selected_pattern_id": best_pattern.pattern_id,
+                    "trigger_type": str(selected_trigger.get("trigger_type") or "UNKNOWN"),
+                    "trigger_ready_now": bool(trigger_ready),
+                    "symbol_trace": symbol_trace,
                     "tradeable": tradeable_eval,
                 }
             )
@@ -1690,38 +1697,10 @@ class RossMomentumStrategyV1(BaseStrategy):
                 f"entry={intent.entry_price} stop={intent.stop_loss_price} refinement={getattr(intent, 'execution_refinement_mode', None)}"
             )
             print(
-                "[ROSS][INTENT][EMIT] "
-                f"symbol={symbol} pattern={best_pattern.pattern_id} entry={entry} stop={stop} "
-                f"has_valid_pattern={intent.has_valid_pattern} confirmation_passed={intent.confirmation_passed} trigger_ready={intent.trigger_ready}"
-            )
-            print(
                 "[ROSS][INTENT_READY] "
                 f"symbol={symbol} setup_family_id={intent.setup_family_id} trigger_type={intent.trigger_id} "
                 f"entry_reference={intent.entry_price} stop_reference={intent.stop_loss_price} "
                 f"invalidation_reference={intent.invalidation_level}"
-            )
-            _terminal(
-                symbol,
-                TERMINAL_CATEGORY["INTENT_CREATED"],
-                "intent_created",
-                selected_setup_family=setup_family,
-                selected_pattern_id=best_pattern.pattern_id,
-                trigger_type=str(selected_trigger.get("trigger_type") or "UNKNOWN"),
-                trigger_ready_now=bool(trigger_ready),
-                intent_emitted=True,
-                pattern_inputs_ready=True,
-                pattern_detected=True,
-                trigger_evaluated=True,
-                stage="intent",
-            )
-            print(
-                f"[ROSS][FINAL_DECISION] symbol={symbol} pattern={best_pattern.pattern_id} "
-                f"trigger={intent.trigger_id} outcome=INTENT_CREATED reason=intent_created"
-            )
-            print(
-                "[ROSS][FINAL_SELECTION] "
-                f"symbol={symbol} selected_pattern={best_pattern.pattern_id} "
-                f"entry={entry} stop={stop}"
             )
             print(
                 "[ROSS][DECISION] "
@@ -1732,11 +1711,40 @@ class RossMomentumStrategyV1(BaseStrategy):
             symbol_traces.append(symbol_trace)
             self._failure_trace_collector.record_symbol(symbol_trace)
 
+
+        def _record_ready_candidate_no_intent(candidate: dict[str, object], *, category: str, reason: str, stage: str) -> None:
+            candidate_symbol = str(candidate.get("symbol") or "").upper()
+            if not candidate_symbol:
+                return
+            candidate_trace = candidate.get("symbol_trace")
+            if candidate_trace is not None:
+                setattr(candidate_trace, "final_outcome", category)
+                setattr(candidate_trace, "final_reason_code", str(reason).upper())
+            _terminal(
+                candidate_symbol,
+                category,
+                reason,
+                selected_setup_family=str(candidate.get("setup_family_id") or "UNKNOWN"),
+                selected_pattern_id=str(candidate.get("selected_pattern_id") or "UNKNOWN"),
+                trigger_type=str(candidate.get("trigger_type") or "UNKNOWN"),
+                trigger_ready_now=bool(candidate.get("trigger_ready_now")),
+                intent_emitted=False,
+                pattern_inputs_ready=True,
+                pattern_detected=True,
+                trigger_evaluated=True,
+                stage=stage,
+            )
         open_positions = self._infer_open_positions_count(watchlist)
         if open_positions >= self._max_concurrent_positions:
             for candidate in sorted(trade_candidates, key=lambda item: float(item.get("quality_score", 0.0)), reverse=True):
                 print(
                     f"[TRADE_SELECTION] symbol={candidate.get('symbol')} selected=False reason=max_concurrent_positions_reached"
+                )
+                _record_ready_candidate_no_intent(
+                    candidate,
+                    category=TERMINAL_CATEGORY["SETUP_FOUND_CAPACITY_BLOCKED"],
+                    reason="max_concurrent_positions_reached",
+                    stage="capacity",
                 )
             trade_candidates = []
 
@@ -1769,6 +1777,12 @@ class RossMomentumStrategyV1(BaseStrategy):
             print(f"[TRADE_SELECTION] symbol={symbol} selected={str(selected)} reason={reason}")
             if not selected:
                 print(f"[EXECUTION][SKIPPED_LOWER_RANK] symbol={symbol} rank={rank}")
+                _record_ready_candidate_no_intent(
+                    candidate,
+                    category=TERMINAL_CATEGORY["SETUP_FOUND_CYCLE_SELECTION_BLOCKED"],
+                    reason=reason,
+                    stage="cycle_selection",
+                )
                 continue
             intent = candidate["intent"]
             tradeable = candidate.get("tradeable") or {}
@@ -1780,6 +1794,30 @@ class RossMomentumStrategyV1(BaseStrategy):
             position_size = base_size * size_multiplier
             setattr(intent, "position_size", position_size)
             setattr(intent, "quantity", max(1, int(round(position_size))))
+            _terminal(
+                symbol,
+                TERMINAL_CATEGORY["INTENT_CREATED"],
+                "intent_created",
+                selected_setup_family=str(candidate.get("setup_family_id") or "UNKNOWN"),
+                selected_pattern_id=str(candidate.get("selected_pattern_id") or "UNKNOWN"),
+                trigger_type=str(candidate.get("trigger_type") or "UNKNOWN"),
+                trigger_ready_now=bool(candidate.get("trigger_ready_now")),
+                intent_emitted=True,
+                pattern_inputs_ready=True,
+                pattern_detected=True,
+                trigger_evaluated=True,
+                stage="intent",
+            )
+            print(
+                "[ROSS][FINAL_SELECTION] "
+                f"symbol={symbol} selected_pattern={candidate.get('selected_pattern_id')} "
+                f"entry={intent.entry_price} stop={intent.stop_loss_price}"
+            )
+            print(
+                "[ROSS][INTENT][EMIT] "
+                f"symbol={symbol} pattern={candidate.get('selected_pattern_id')} entry={intent.entry_price} stop={intent.stop_loss_price} "
+                f"has_valid_pattern={intent.has_valid_pattern} confirmation_passed={intent.confirmation_passed} trigger_ready={intent.trigger_ready}"
+            )
             translated_intents.append(intent)
             print(f"[EXECUTION][SELECTED] symbol={symbol} rank={rank} score={score:.2f}")
             print(f"[CAPITAL_ALLOCATION] symbol={symbol} size={size_multiplier:.2f} reason=quality_scaled")

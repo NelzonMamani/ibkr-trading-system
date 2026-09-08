@@ -247,7 +247,6 @@ def _base_strategy(monkeypatch: pytest.MonkeyPatch, tmp_path, *, state: str) -> 
     bars_by_timeframe = {timeframe: _bars(state, timeframe) for timeframe in ("10s", "1m", "5m")}
 
     def _get_intraday_bars(*, symbol, timeframe="1m", limit=50, **_kwargs):
-        assert symbol == "UPC"
         return list(bars_by_timeframe[str(timeframe)])[-int(limit):]
 
     monkeypatch.setattr(
@@ -549,6 +548,97 @@ def test_natural_three_bar_pullback_ready_trigger_reaches_readonly_intent(monkey
     assert "[ROSS][TRIGGER_MAP] symbol=UPC setup_family=THREE_BAR_PULLBACK trigger_id=PULLBACK_HIGH_BREAK" in out
     assert "[ROSS][INTENT_GENERATED] symbol=UPC" in out
     assert "[ORDER_ROUTER]" not in out
+
+def test_cycle_selection_marks_only_returned_intent_as_emitted(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    strategy = _base_strategy(monkeypatch, tmp_path, state="ready")
+    strategy._pattern_registry = FakeRegistry([_detected_three("ready")])
+
+    intents = strategy.process_watchlist(
+        watchlist=[_watchlist_row("ready", symbol="AAA"), _watchlist_row("ready", symbol="BBB")],
+        snapshots={"AAA": _snapshot("ready", symbol="AAA"), "BBB": _snapshot("ready", symbol="BBB")},
+        session_label="RTH",
+        timestamp_utc="cycle-pr1089-selection",
+        mode=RunMode.READ_ONLY,
+        session_phase="RTH_OPEN",
+    )
+
+    assert [intent.symbol for intent in intents] == ["AAA"]
+    winner = strategy.last_symbol_terminal_outcomes["AAA"]
+    loser = strategy.last_symbol_terminal_outcomes["BBB"]
+    assert winner["outcome"] == "INTENT_CREATED"
+    assert winner["intent_emitted"] is True
+    assert winner["terminal_stage"] == "intent"
+    assert loser["outcome"] == "SETUP_FOUND_CYCLE_SELECTION_BLOCKED"
+    assert loser["reason"] == "max_trades_per_cycle"
+    assert loser["trigger_ready_now"] is True
+    assert loser["intent_emitted"] is False
+    assert loser["terminal_stage"] == "cycle_selection"
+
+
+def test_existing_positions_exhaust_capacity_records_ready_no_intent_terminal(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    strategy = _base_strategy(monkeypatch, tmp_path, state="ready")
+    strategy._pattern_registry = FakeRegistry([_detected_three("ready")])
+    strategy._infer_open_positions_count = lambda _watchlist: strategy._max_concurrent_positions
+
+    intents = strategy.process_watchlist(
+        watchlist=[_watchlist_row("ready")],
+        snapshots={"UPC": _snapshot("ready")},
+        session_label="RTH",
+        timestamp_utc="cycle-pr1089-capacity",
+        mode=RunMode.READ_ONLY,
+        session_phase="RTH_OPEN",
+    )
+
+    assert intents == []
+    terminal = strategy.last_symbol_terminal_outcomes["UPC"]
+    assert terminal["outcome"] == "SETUP_FOUND_CAPACITY_BLOCKED"
+    assert terminal["reason"] == "max_concurrent_positions_reached"
+    assert terminal["trigger_ready_now"] is True
+    assert terminal["intent_emitted"] is False
+    assert terminal["terminal_stage"] == "capacity"
+
+
+@pytest.mark.parametrize(
+    "reason",
+    [
+        "LOW_CONFIDENCE",
+        "SPREAD_UNAVAILABLE",
+        "SPREAD_TOO_WIDE",
+        "ENTRY_EXTENSION_TOO_WIDE",
+        "MOMENTUM_CONTEXT_INVALID",
+    ],
+)
+def test_fired_trigger_tradeability_block_records_valid_no_intent_terminal(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+    reason: str,
+) -> None:
+    strategy = _base_strategy(monkeypatch, tmp_path, state="ready")
+    strategy._pattern_registry = FakeRegistry([_detected_three("ready")])
+    strategy.evaluate_tradeable_entry = lambda **_kwargs: {
+        "tradeable": False,
+        "blocking_reasons": [reason],
+        "spread_pct": 0.02,
+        "extension_pct": 0.02,
+    }
+
+    intents = strategy.process_watchlist(
+        watchlist=[_watchlist_row("ready")],
+        snapshots={"UPC": _snapshot("ready")},
+        session_label="RTH",
+        timestamp_utc=f"cycle-pr1089-tradeability-{reason.lower()}",
+        mode=RunMode.READ_ONLY,
+        session_phase="RTH_OPEN",
+    )
+
+    assert intents == []
+    terminal = strategy.last_symbol_terminal_outcomes["UPC"]
+    assert terminal["outcome"] == "SETUP_FOUND_TRADEABILITY_BLOCKED"
+    assert terminal["reason"] == reason
+    assert terminal["trigger_ready_now"] is True
+    assert terminal["intent_emitted"] is False
+    assert terminal["terminal_stage"] == "tradeability"
+    assert terminal["trigger_type"] == "PULLBACK_HIGH_BREAK"
 
 def test_natural_three_bar_pullback_not_ready_is_enriched_terminal_no_trade(monkeypatch: pytest.MonkeyPatch, tmp_path, capsys) -> None:
     strategy = _base_strategy(monkeypatch, tmp_path, state="not_ready")

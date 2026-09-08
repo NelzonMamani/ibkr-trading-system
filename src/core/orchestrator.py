@@ -1291,6 +1291,40 @@ class CoreOrchestrator:
         return symbols
 
     @staticmethod
+    def _setup_detected_symbols_from_current_cycle_traces(
+        traces: object,
+        *,
+        current_cycle_id: str,
+        current_strategy_symbols: set[str],
+    ) -> tuple[set[str], set[str]]:
+        cycle_id_text = str(current_cycle_id or "").strip()
+        strategy_symbols = {
+            str(symbol or "").strip().upper()
+            for symbol in (current_strategy_symbols or set())
+            if str(symbol or "").strip()
+        }
+        if not cycle_id_text or not strategy_symbols:
+            return set(), set()
+
+        detected_symbols: set[str] = set()
+        invalid_traces: set[str] = set()
+        for trace in traces or []:
+            symbol = str(getattr(trace, "symbol", "") or "").strip().upper()
+            if not symbol or symbol not in strategy_symbols:
+                continue
+            detected_ids = list(getattr(trace, "detected_pattern_ids", []) or [])
+            if not detected_ids:
+                continue
+            trace_cycle_id = str(getattr(trace, "cycle_id", "") or "").strip()
+            if not trace_cycle_id:
+                invalid_traces.add(f"{symbol}:missing_trace_cycle_id")
+                continue
+            if trace_cycle_id != cycle_id_text:
+                continue
+            detected_symbols.add(symbol)
+        return detected_symbols, invalid_traces
+
+    @staticmethod
     def _candidate_symbol(candidate: object) -> str:
         if isinstance(candidate, str):
             return candidate.strip().upper()
@@ -3796,15 +3830,23 @@ class CoreOrchestrator:
             for intent in raw_strategy_output
             if getattr(intent, "symbol", None)
         }
+        current_cycle_id = cycle_started_at.isoformat()
+        current_strategy_symbols = {
+            str(symbol or "").strip().upper()
+            for symbol in self._symbols_from_candidates(strategy_inputs)
+            if str(symbol or "").strip()
+        }
         setup_detected_symbols = set(emitted_intent_symbols)
+        trace_identity_failures: set[str] = set()
         if ross_strategy is not None:
             collector = getattr(ross_strategy, "_failure_trace_collector", None)
             traces = getattr(collector, "_symbols", []) if collector is not None else []
-            for trace in traces[-len(final_evaluation_symbols or []):]:
-                symbol = str(getattr(trace, "symbol", "") or "").upper()
-                detected_ids = list(getattr(trace, "detected_pattern_ids", []) or [])
-                if detected_ids and symbol:
-                    setup_detected_symbols.add(symbol)
+            trace_setup_symbols, trace_identity_failures = self._setup_detected_symbols_from_current_cycle_traces(
+                traces,
+                current_cycle_id=current_cycle_id,
+                current_strategy_symbols=current_strategy_symbols,
+            )
+            setup_detected_symbols.update(trace_setup_symbols)
         self._pipeline_runtime_counts["setups_detected"] += len(setup_detected_symbols)
         self._pipeline_runtime_counts["triggers_fired"] += sum(
             1
@@ -3814,17 +3856,24 @@ class CoreOrchestrator:
         no_intent_setup_symbols = {
             symbol for symbol in setup_detected_symbols if symbol and symbol not in emitted_intent_symbols
         }
-        if watchlist_symbols and no_intent_setup_symbols:
+        if watchlist_symbols and (no_intent_setup_symbols or trace_identity_failures):
             terminal_outcomes = getattr(ross_strategy, "last_symbol_terminal_outcomes", {}) if ross_strategy is not None else {}
-            current_cycle_id = cycle_started_at.isoformat()
             allowed_terminal_outcomes = {
                 "SETUP_FOUND_BUT_NO_TRIGGER",
                 "SETUP_FOUND_TRIGGER_NOT_READY",
                 "SETUP_FOUND_DECISION_REJECTED",
                 "SETUP_FOUND_CONFIRMATION_BLOCKED",
                 "SETUP_TRIGGER_MAPPING_MISSING",
+                "SETUP_FOUND_TRADEABILITY_BLOCKED",
+                "SETUP_FOUND_CAPACITY_BLOCKED",
+                "SETUP_FOUND_CYCLE_SELECTION_BLOCKED",
             }
-            unterminated_setup_symbols = []
+            ready_without_intent_allowed_stages = {
+                "SETUP_FOUND_TRADEABILITY_BLOCKED": {"tradeability"},
+                "SETUP_FOUND_CAPACITY_BLOCKED": {"capacity"},
+                "SETUP_FOUND_CYCLE_SELECTION_BLOCKED": {"cycle_selection"},
+            }
+            unterminated_setup_symbols = sorted(trace_identity_failures)
             for symbol in sorted(no_intent_setup_symbols):
                 terminal = terminal_outcomes.get(symbol) if isinstance(terminal_outcomes, dict) else None
                 terminal_invalid_reason = None
@@ -3857,6 +3906,8 @@ class CoreOrchestrator:
                         terminal_invalid_reason = "symbol_mismatch"
                     elif terminal_cycle_id != current_cycle_id:
                         terminal_invalid_reason = "cycle_mismatch"
+                    elif bool(terminal.get("intent_emitted")):
+                        terminal_invalid_reason = "intent_emitted_without_output"
                     elif outcome not in allowed_terminal_outcomes:
                         terminal_invalid_reason = "outcome_not_allowlisted"
                     elif not reason:
@@ -3865,9 +3916,7 @@ class CoreOrchestrator:
                         terminal_invalid_reason = "pattern_inputs_not_ready"
                     elif not pattern_detected:
                         terminal_invalid_reason = "pattern_not_detected"
-                    elif bool(terminal.get("intent_emitted")):
-                        terminal_invalid_reason = "intent_emitted_without_output"
-                    elif bool(terminal.get("trigger_ready_now")):
+                    elif bool(terminal.get("trigger_ready_now")) and terminal_stage.lower() not in ready_without_intent_allowed_stages.get(outcome, set()):
                         terminal_invalid_reason = "trigger_ready_without_intent"
                     elif selected_setup_family == "UNKNOWN" or any(
                         family == "UNKNOWN" for family in selected_setup_families
@@ -3907,10 +3956,13 @@ class CoreOrchestrator:
                         f"symbol={symbol} setup_family={selected_setup_family} reason=SETUP_TRIGGER_MAPPING_MISSING"
                     )
                 pipeline_audit.mark_stage(symbol, "PATTERN", pattern_inputs_ready=pattern_inputs_ready, pattern_detected=pattern_detected)
-                if trigger_evaluated or str(terminal.get("terminal_stage") or "").strip().lower() == "trigger":
-                    pipeline_audit.mark_stage(symbol, "TRIGGER", trigger_fired=False)
+                terminal_stage_key = str(terminal.get("terminal_stage") or "").strip().lower()
+                terminal_trigger_ready = bool(terminal.get("trigger_ready_now"))
+                if trigger_evaluated or terminal_stage_key in {"trigger", "tradeability", "capacity", "cycle_selection"}:
+                    pipeline_audit.mark_stage(symbol, "TRIGGER", trigger_fired=terminal_trigger_ready)
                 pipeline_audit.mark_stage(symbol, "INTENT", intent_emitted=False)
-                pipeline_audit.record(symbol, TerminalOutcome.TRIGGER_NOT_FIRED, reason, "trigger")
+                audit_outcome = TerminalOutcome.INTENT_NOT_EMITTED if terminal_trigger_ready else TerminalOutcome.TRIGGER_NOT_FIRED
+                pipeline_audit.record(symbol, audit_outcome, reason, terminal_stage_key or "trigger")
             if unterminated_setup_symbols:
                 print(
                     "[ERROR] SETUP_WITHOUT_INTENT "
