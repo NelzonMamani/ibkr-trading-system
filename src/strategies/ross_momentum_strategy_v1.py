@@ -46,6 +46,7 @@ TERMINAL_CATEGORY = {
     "SETUP_FOUND_CONFIRMATION_BLOCKED": "SETUP_FOUND_CONFIRMATION_BLOCKED",
     "SETUP_FOUND_TRIGGER_NOT_READY": "SETUP_FOUND_TRIGGER_NOT_READY",
     "SETUP_FOUND_TRADEABILITY_BLOCKED": "SETUP_FOUND_TRADEABILITY_BLOCKED",
+    "SETUP_FOUND_TRADE_STRUCTURE_BLOCKED": "SETUP_FOUND_TRADE_STRUCTURE_BLOCKED",
     "SETUP_FOUND_CAPACITY_BLOCKED": "SETUP_FOUND_CAPACITY_BLOCKED",
     "SETUP_FOUND_CYCLE_SELECTION_BLOCKED": "SETUP_FOUND_CYCLE_SELECTION_BLOCKED",
     "INTENT_CREATED": "INTENT_CREATED",
@@ -1456,43 +1457,46 @@ class RossMomentumStrategyV1(BaseStrategy):
                 continue
 
             pipeline_trace("TRIGGER", symbol)
-            trade = self._build_trade_from_pattern(best_pattern, inputs, selected_trigger=selected_trigger)
+            structure_rejection_reasons: list[str] = []
+            trade = self._build_trade_from_pattern(
+                best_pattern, inputs, selected_trigger=selected_trigger,
+                rejection_reasons=structure_rejection_reasons,
+            )
             if not trade:
-                print("[TRIGGER][EVALUATE] " f"symbol={symbol} trigger=trade_structure")
-                print(f"[TRIGGER][REJECT] symbol={symbol} reason=INVALID_TRADE_STRUCTURE")
-                print(f"[TRADE_INTENT][SKIP] symbol={symbol} reason=INVALID_TRADE_STRUCTURE")
-                symbol_trace.final_outcome = "SETUP_FOUND_TRIGGER_NOT_READY"
-                symbol_trace.trigger_stage = {"status": "REJECTED", "reason_code": "INVALID_TRADE_STRUCTURE"}
-                symbol_trace.final_reason_code = "INVALID_TRADE_STRUCTURE"
-                print(
-                    f"[CLASSIFICATION] symbol={symbol} category=TRIGGER_REJECTED"
-                )
-                print(f"[ROSS][TRIGGER_FAIL] symbol={symbol} reason=INVALID_TRADE_STRUCTURE")
+                structure_reason = structure_rejection_reasons[0] if structure_rejection_reasons else ""
+                print(f"[TRADE_INTENT][SKIP] symbol={symbol} reason={structure_reason}")
+                symbol_trace.final_outcome = "SETUP_FOUND_TRADE_STRUCTURE_BLOCKED"
+                symbol_trace.trigger_stage = {
+                    "status": "FIRED",
+                    "reason_code": str(selected_trigger.get("trigger_reason") or "TRIGGER_PASS"),
+                }
+                symbol_trace.final_reason_code = structure_reason
                 _terminal(
                     symbol,
-                    TERMINAL_CATEGORY["SETUP_FOUND_TRIGGER_NOT_READY"],
-                    "invalid_trade_structure",
+                    TERMINAL_CATEGORY["SETUP_FOUND_TRADE_STRUCTURE_BLOCKED"],
+                    structure_reason,
                     selected_setup_family=decision.get("selected_setup_family"),
                     selected_pattern_id=best_pattern.pattern_id,
                     trigger_type=str(selected_trigger.get("trigger_type") or "UNKNOWN"),
                     trigger_ready_now=bool(selected_trigger.get("trigger_ready_now")),
+                    intent_emitted=False,
                     pattern_inputs_ready=True,
                     pattern_detected=True,
                     trigger_evaluated=True,
                     stage="trade_structure",
                 )
-                _actionability(symbol, "BLOCKED_STRUCTURE", "MISSING_STOP_ANCHOR")
+                _actionability(symbol, "BLOCKED_STRUCTURE", structure_reason)
                 classification_counts["TRIGGER_REJECTED"] += 1
                 self._log_no_trade_root_cause(
                     symbol=symbol,
                     pattern=best_pattern.pattern_id,
-                    primary_reason="invalid_trade_structure",
-                    details=["entry_or_stop_missing_or_invalid"],
+                    primary_reason=structure_reason,
+                    details=[structure_reason],
                 )
                 self._log_decision_blocked(
                     symbol=symbol,
-                    final_stage="trigger",
-                    reason="invalid_trade_structure",
+                    final_stage="trade_structure",
+                    reason=structure_reason,
                 )
                 self._log_pipeline_no_decision(symbol)
                 symbol_traces.append(symbol_trace)
@@ -2405,7 +2409,10 @@ class RossMomentumStrategyV1(BaseStrategy):
         }
 
     @staticmethod
-    def _build_trade_from_pattern(pattern, inputs, *, selected_trigger: dict | None = None):
+    def _build_trade_from_pattern(
+        pattern, inputs, *, selected_trigger: dict | None = None,
+        rejection_reasons: list[str] | None = None,
+    ):
         levels = getattr(inputs, "levels", None)
         trigger_payload = selected_trigger or {}
         entry = trigger_payload.get("trigger_price_reference")
@@ -2433,6 +2440,8 @@ class RossMomentumStrategyV1(BaseStrategy):
                 stop = trigger_payload.get("stop_level")
 
         if entry is None or stop is None:
+            if rejection_reasons is not None:
+                rejection_reasons.append("missing_trigger_entry_or_stop")
             print(
                 "[TRADE][REJECT] "
                 f"symbol={getattr(inputs, 'symbol', 'UNKNOWN')} reason=missing_trigger_entry_or_stop"
@@ -2440,6 +2449,8 @@ class RossMomentumStrategyV1(BaseStrategy):
             return None
 
         if float(stop) >= float(entry):
+            if rejection_reasons is not None:
+                rejection_reasons.append("entry_stop_structure_invalid")
             print(
                 "[TRADE][REJECT] "
                 f"symbol={getattr(inputs, 'symbol', 'UNKNOWN')} reason=entry_stop_structure_invalid"

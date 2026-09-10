@@ -882,3 +882,48 @@ def test_pr1082_ross_thresholds_and_volume_rvol_separation_remain_unchanged() ->
     assert selection.relative_volume_model.watchlist_rvol_min == 0.5
     assert selection.relative_volume_model.focus_rvol_min == 2.0
     assert selection.catalyst_model.require_catalyst is True
+
+
+@pytest.mark.parametrize(
+    "overrides,error",
+    [
+        ({"terminal_stage": "trigger"}, "trade_structure_stage_mismatch"),
+        ({"terminal_stage": ""}, "trade_structure_stage_mismatch"),
+        ({"outcome": "SETUP_FOUND_TRIGGER_NOT_READY"}, "trigger_ready_without_intent"),
+        ({"reason": ""}, "missing_reason"),
+        ({"symbol": ""}, "symbol_mismatch"),
+        ({"symbol": "OTHER"}, "symbol_mismatch"),
+        ({"cycle_id": ""}, "cycle_mismatch"),
+        ({"cycle_id": "prior-cycle"}, "cycle_mismatch"),
+        ({"selected_setup_family": ""}, "missing_trade_structure_provenance"),
+        ({"selected_setup_family": "UNKNOWN"}, "missing_trade_structure_provenance"),
+        ({"selected_pattern_id": ""}, "missing_trade_structure_provenance"),
+        ({"trigger_type": ""}, "missing_trade_structure_provenance"),
+        ({"trigger_type": "UNKNOWN"}, "missing_trade_structure_provenance"),
+        ({"trigger_type": "UNMAPPED"}, "missing_trade_structure_provenance"),
+        ({"intent_emitted": True}, "intent_emitted_without_output"),
+        ({"trigger_evaluated": False}, "trade_structure_trigger_not_fired"),
+        ({"trigger_ready_now": False}, "trade_structure_trigger_not_fired"),
+        (None, "missing_terminal_payload"),
+    ],
+)
+def test_trade_structure_terminal_integrity_remains_fail_closed(monkeypatch, capsys, overrides, error) -> None:
+    aaa, bbb = _row("AAA", catalyst=True), _row("BBB", catalyst=True)
+    orchestrator, _, _ = _install_runtime_harness(monkeypatch, [_payload([aaa, bbb], focus=[aaa, bbb])])
+
+    def _terminal(cycle_id):
+        if overrides is None:
+            return None
+        payload = _terminal_payload(
+            "BBB", cycle_id, outcome="SETUP_FOUND_TRADE_STRUCTURE_BLOCKED",
+            reason="entry_stop_structure_invalid", trigger_ready_now=True,
+            terminal_stage="trade_structure",
+        )
+        payload.update(overrides)
+        return payload
+
+    _install_mixed_setup_terminal_process(orchestrator, payload_factory=_terminal)
+    assert orchestrator.run_once() is False
+    output = capsys.readouterr().out
+    assert f"BBB:{error}" in output
+    assert "PIPELINE_BREAK_SETUP_TO_INTENT" in output

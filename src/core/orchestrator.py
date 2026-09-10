@@ -3865,11 +3865,13 @@ class CoreOrchestrator:
                 "SETUP_FOUND_CONFIRMATION_BLOCKED",
                 "SETUP_TRIGGER_MAPPING_MISSING",
                 "SETUP_FOUND_TRADEABILITY_BLOCKED",
+                "SETUP_FOUND_TRADE_STRUCTURE_BLOCKED",
                 "SETUP_FOUND_CAPACITY_BLOCKED",
                 "SETUP_FOUND_CYCLE_SELECTION_BLOCKED",
             }
             ready_without_intent_allowed_stages = {
                 "SETUP_FOUND_TRADEABILITY_BLOCKED": {"tradeability"},
+                "SETUP_FOUND_TRADE_STRUCTURE_BLOCKED": {"trade_structure"},
                 "SETUP_FOUND_CAPACITY_BLOCKED": {"capacity"},
                 "SETUP_FOUND_CYCLE_SELECTION_BLOCKED": {"cycle_selection"},
             }
@@ -3916,6 +3918,18 @@ class CoreOrchestrator:
                         terminal_invalid_reason = "pattern_inputs_not_ready"
                     elif not pattern_detected:
                         terminal_invalid_reason = "pattern_not_detected"
+                    elif outcome == "SETUP_FOUND_TRADE_STRUCTURE_BLOCKED" and terminal_stage != "trade_structure":
+                        terminal_invalid_reason = "trade_structure_stage_mismatch"
+                    elif outcome == "SETUP_FOUND_TRADE_STRUCTURE_BLOCKED" and (
+                        terminal.get("trigger_ready_now") is not True or not trigger_evaluated
+                    ):
+                        terminal_invalid_reason = "trade_structure_trigger_not_fired"
+                    elif outcome == "SETUP_FOUND_TRADE_STRUCTURE_BLOCKED" and (
+                        not selected_setup_family or selected_setup_family == "UNKNOWN"
+                        or str(terminal.get("selected_pattern_id") or "").strip().upper() in {"", "UNKNOWN"}
+                        or trigger_type in {"", "UNKNOWN", "UNMAPPED"}
+                    ):
+                        terminal_invalid_reason = "missing_trade_structure_provenance"
                     elif bool(terminal.get("trigger_ready_now")) and terminal_stage.lower() not in ready_without_intent_allowed_stages.get(outcome, set()):
                         terminal_invalid_reason = "trigger_ready_without_intent"
                     elif selected_setup_family == "UNKNOWN" or any(

@@ -813,3 +813,110 @@ def test_decision_rejection_terminal_records_parabolic_exhaustion_provenance(mon
     assert terminal["selected_setup_family"] == "PARABOLIC_EXHAUSTION"
     assert terminal["selected_pattern_id"] == "P_PARABOLIC_EXHAUSTION"
     assert terminal["terminal_stage"] == "decision"
+
+
+@pytest.mark.parametrize(
+    "entry,stop,reason",
+    [
+        (None, 10.08, "missing_trigger_entry_or_stop"),
+        (10.44, None, "missing_trigger_entry_or_stop"),
+        (10.44, 10.44, "entry_stop_structure_invalid"),
+        (10.44, 10.60, "entry_stop_structure_invalid"),
+    ],
+    ids=["missing_entry", "missing_stop", "equal_stop", "higher_stop"],
+)
+def test_trade_structure_block_preserves_fired_trigger(
+    monkeypatch, tmp_path, entry, stop, reason,
+) -> None:
+    strategy = _base_strategy(monkeypatch, tmp_path, state="ready")
+    strategy._pattern_registry = FakeRegistry([_detected_three("ready")])
+    build_trade = strategy._build_trade_from_pattern
+
+    def _invalid_structure(pattern, inputs, *, selected_trigger, rejection_reasons):
+        assert selected_trigger["trigger_ready_now"] is True
+        payload = dict(selected_trigger)
+        payload.update(
+            trigger_price_reference=entry, trigger_level=entry,
+            invalidation_price_reference=stop, invalidation_level=stop, stop_level=stop,
+        )
+        return build_trade(pattern, inputs, selected_trigger=payload, rejection_reasons=rejection_reasons)
+
+    monkeypatch.setattr(strategy, "_build_trade_from_pattern", _invalid_structure)
+    intents = strategy.process_watchlist(
+        watchlist=[_watchlist_row("ready")],
+        snapshots={"UPC": _snapshot("ready")},
+        session_label="RTH", timestamp_utc="cycle-structure",
+        mode=RunMode.READ_ONLY, session_phase="RTH_OPEN",
+    )
+    assert intents == []
+    terminal = strategy.last_symbol_terminal_outcomes["UPC"]
+    assert terminal["outcome"] == "SETUP_FOUND_TRADE_STRUCTURE_BLOCKED"
+    assert terminal["reason"] == reason
+    assert terminal["terminal_stage"] == "trade_structure"
+    assert terminal["trigger_ready_now"] is True
+    assert terminal["intent_emitted"] is False
+    assert terminal["symbol"] == "UPC"
+    assert terminal["cycle_id"] == "cycle-structure"
+    assert terminal["selected_setup_family"] == "THREE_BAR_PULLBACK"
+    assert terminal["selected_pattern_id"] == "P_THREE_BAR_PULLBACK"
+    assert terminal["trigger_type"] == "PULLBACK_HIGH_BREAK"
+    trace = strategy._failure_trace_collector._symbols[-1]
+    assert trace.trigger_stage["status"] == "FIRED"
+    assert trace.final_reason_code == reason
+
+
+def test_trade_structure_mixed_cycle_preserves_valid_intent_without_broker_mutation(
+    monkeypatch, tmp_path, capsys,
+) -> None:
+    from test_pr1082_rth_watchlist_continuity import _install_runtime_harness, _payload, _row
+    from ibapi.client import EClient
+
+    broker_calls = []
+
+    def _forbid_broker_mutation(*args, **kwargs):
+        broker_calls.append((args, kwargs))
+        raise AssertionError("No broker mutation is allowed")
+
+    monkeypatch.setattr(EClient, "placeOrder", _forbid_broker_mutation)
+    monkeypatch.setattr(EClient, "cancelOrder", _forbid_broker_mutation)
+    aaa, bbb = _row("AAA", catalyst=True), _row("BBB", catalyst=True)
+    orchestrator, _, _ = _install_runtime_harness(monkeypatch, [_payload([aaa, bbb], focus=[aaa, bbb])])
+    strategy = _base_strategy(monkeypatch, tmp_path, state="ready")
+    strategy._pattern_registry = FakeRegistry([_detected_three("ready")])
+    build_trade = strategy._build_trade_from_pattern
+
+    def _build_with_invalid_b(pattern, inputs, *, selected_trigger, rejection_reasons):
+        assert selected_trigger["trigger_ready_now"] is True
+        payload = dict(selected_trigger)
+        if inputs.symbol == "BBB":
+            payload.update(invalidation_price_reference=20.0, invalidation_level=20.0, stop_level=20.0)
+        return build_trade(pattern, inputs, selected_trigger=payload, rejection_reasons=rejection_reasons)
+
+    monkeypatch.setattr(strategy, "_build_trade_from_pattern", _build_with_invalid_b)
+    orchestrator.strategy_runner.strategies = [strategy]
+    returned = []
+
+    def _process(**kwargs):
+        intents = strategy.process_watchlist(
+            watchlist=[_watchlist_row("ready", symbol=s) for s in ("AAA", "BBB")],
+            snapshots={s: _snapshot("ready", symbol=s) for s in ("AAA", "BBB")},
+            session_label="RTH", timestamp_utc=kwargs["timestamp_utc"],
+            mode=RunMode.READ_ONLY, session_phase="RTH_OPEN",
+        )
+        returned.extend(intents)
+        return intents
+
+    orchestrator.strategy_runner.process = _process
+    assert orchestrator.run_once() is True
+    assert [intent.symbol for intent in returned] == ["AAA"]
+    assert strategy.last_symbol_terminal_outcomes["AAA"]["intent_emitted"] is True
+    blocked = strategy.last_symbol_terminal_outcomes["BBB"]
+    assert blocked["outcome"] == "SETUP_FOUND_TRADE_STRUCTURE_BLOCKED"
+    assert blocked["reason"] == "entry_stop_structure_invalid"
+    assert blocked["trigger_ready_now"] is True
+    assert blocked["intent_emitted"] is False
+    output = capsys.readouterr().out
+    assert "PIPELINE_BREAK_SETUP_TO_INTENT" not in output
+    assert "[PIPELINE][SYMBOL_TRACE] symbol=AAA strategy_detected=True intent_created=True" in output
+    assert "[PIPELINE][SYMBOL_TRACE] symbol=BBB strategy_detected=True intent_created=False" in output
+    assert broker_calls == []
