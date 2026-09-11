@@ -2,6 +2,13 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
+from src.strategies.common.triggers.trigger_pullback_variants import (
+    evaluate_second_pullback_trigger,
+    evaluate_three_bar_pullback_trigger,
+)
+
 from src.strategies.common.patterns.pattern_hod_break import detect_hod_break
 from src.strategies.common.patterns.pattern_ema_pullback import detect_ema_pullback
 from src.strategies.common.patterns.pattern_flat_top_breakout import detect_flat_top_breakout
@@ -217,12 +224,76 @@ def _detected_pullback(
     )
 
 
+def _evaluate_armed_pullback(pattern, inputs: PatternInputs) -> PatternResult:
+    """Recover the newest originating structure within the supplied candle history.
+
+    The registry retains authority over session and input freshness. Historical
+    trigger checks consume only real bars and the existing registered contract.
+    A newer structural origin supersedes older ones even if it has since ended.
+    """
+    candles = list(inputs.candles or [])
+    if len(candles) < 5:
+        return pattern._evaluate_window(inputs)
+    latest_result = None
+    for start in range(len(candles) - 5, -1, -1):
+        origin = candles[start:start + 5]
+        result = pattern._evaluate_window(replace(inputs, candles=origin))
+        if latest_result is None:
+            latest_result = result
+        if not result.detected:
+            if result.rejection_reason == "structural_invalidation_breached":
+                return result
+            continue
+
+        evaluator = (
+            evaluate_three_bar_pullback_trigger
+            if result.setup_family_id == "THREE_BAR_PULLBACK"
+            else evaluate_second_pullback_trigger
+        )
+        for index in range(start + 4, len(candles)):
+            if _bar_values(candles[index - 1:index + 1]) is None:
+                return _reject_pullback(
+                    inputs=inputs, pattern_id=pattern.pattern_id,
+                    pattern_name=pattern.name, family=result.setup_family_id,
+                    reason="invalid_candle_fields",
+                )
+            if index > start + 4:
+                result = pattern._evaluate_window(
+                    replace(inputs, candles=[*origin[:4], candles[index]])
+                )
+                if not result.detected:
+                    return result
+            if index < len(candles) - 1:
+                trigger = evaluator(
+                    {
+                        "trigger_level": result.trigger_level,
+                        "stop_level": result.stop_level,
+                        "invalidation_level": result.invalidation_level,
+                        "setup_metadata": result.setup_metadata,
+                    },
+                    {"candles": candles[index - 1:index + 1]},
+                )
+                if trigger["trigger_ready_now"]:
+                    return _reject_pullback(
+                        inputs=inputs, pattern_id=pattern.pattern_id,
+                        pattern_name=pattern.name, family=result.setup_family_id,
+                        reason="pullback_breakout_already_consumed",
+                    )
+        result.setup_metadata["origin_timestamp"] = _read(origin[0], "timestamp")
+        result.setup_metadata["structure_completed_timestamp"] = _read(origin[3], "timestamp")
+        return result
+    return latest_result
+
+
 class ThreeBarPullbackPattern(_SimpleLongPattern):
     pattern_id = "P_THREE_BAR_PULLBACK"
     name = "Three-Bar Pullback"
     family = PatternFamily.PULLBACK
 
     def evaluate(self, inputs: PatternInputs) -> PatternResult:
+        return _evaluate_armed_pullback(self, inputs)
+
+    def _evaluate_window(self, inputs: PatternInputs) -> PatternResult:
         candles = list(inputs.candles or [])
         if len(candles) < 5:
             return _reject_pullback(
@@ -300,6 +371,9 @@ class SecondPullbackPattern(_SimpleLongPattern):
     family = PatternFamily.PULLBACK
 
     def evaluate(self, inputs: PatternInputs) -> PatternResult:
+        return _evaluate_armed_pullback(self, inputs)
+
+    def _evaluate_window(self, inputs: PatternInputs) -> PatternResult:
         candles = list(inputs.candles or [])
         if len(candles) < 5:
             return _reject_pullback(

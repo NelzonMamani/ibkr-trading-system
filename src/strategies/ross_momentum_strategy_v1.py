@@ -2202,7 +2202,15 @@ class RossMomentumStrategyV1(BaseStrategy):
 
     @classmethod
     def _decision_rejection_provenance(cls, decision: dict, symbol_trace) -> dict[str, object]:
-        traces = list(getattr(symbol_trace, "pattern_traces", []) or [])
+        symbol = str(getattr(symbol_trace, "symbol", "") or "").strip().upper()
+        cycle_id = str(getattr(symbol_trace, "cycle_id", "") or "").strip()
+        if not symbol or not cycle_id:
+            return {}
+        traces = [
+            trace for trace in list(getattr(symbol_trace, "pattern_traces", []) or [])
+            if str(getattr(trace, "symbol", "") or "").strip().upper() == symbol
+            and str(getattr(trace, "cycle_id", "") or "").strip() == cycle_id
+        ]
         trace_by_pattern_id = {
             str(getattr(trace, "pattern_id", "") or "").strip().upper(): trace
             for trace in traces
@@ -2226,12 +2234,12 @@ class RossMomentumStrategyV1(BaseStrategy):
             if not isinstance(candidate, dict):
                 continue
             pattern_id = str(candidate.get("pattern_id") or "").strip().upper()
-            family = cls._normalize_setup_family_id(
-                candidate.get("setup_family") or candidate.get("setup_family_id")
-            )
             trace = trace_by_pattern_id.get(pattern_id)
-            if (not family or family == "UNKNOWN") and trace is not None:
-                family = cls._normalize_setup_family_id(getattr(trace, "setup_family_id", None))
+            if trace is None or getattr(trace, "detected", False) is not True:
+                continue
+            if candidate.get("detected") is False or candidate.get("reason") == "not_detected":
+                continue
+            family = cls._normalize_setup_family_id(getattr(trace, "setup_family_id", None))
             if (not family or family == "UNKNOWN") and pattern_id:
                 family = cls._setup_family_from_pattern_id(pattern_id)
             if not family or family == "UNKNOWN":
@@ -2243,7 +2251,7 @@ class RossMomentumStrategyV1(BaseStrategy):
 
         selected_family = cls._normalize_setup_family_id(decision.get("selected_setup_family"))
         selected_pattern = str(decision.get("selected_pattern_id") or "").strip().upper()
-        if selected_family and selected_family != "UNKNOWN":
+        if selected_family and family_by_pattern_id.get(selected_pattern) == selected_family:
             payload: dict[str, object] = {"selected_setup_family": selected_family}
             if selected_pattern:
                 payload["selected_pattern_id"] = selected_pattern
