@@ -31,7 +31,7 @@ from src.strategies.ross_momentum.policy import (
     log_validation_override_active,
     synthetic_intent_allowed,
 )
-from src.strategies.ross_momentum.patterns.pattern_registry import RossPatternRegistry
+from src.strategies.ross_momentum.patterns.pattern_registry import RossPatternRegistry, resolve_trace_setup_family
 from src.strategies.ross_momentum.patterns.pattern_trace import (
     RossPatternFailureTraceCollector,
     RossSymbolTrace,
@@ -2239,19 +2239,28 @@ class RossMomentumStrategyV1(BaseStrategy):
                 continue
             if candidate.get("detected") is False or candidate.get("reason") == "not_detected":
                 continue
-            family = cls._normalize_setup_family_id(getattr(trace, "setup_family_id", None))
-            if (not family or family == "UNKNOWN") and pattern_id:
-                family = cls._setup_family_from_pattern_id(pattern_id)
-            if not family or family == "UNKNOWN":
+            family = cls._normalize_setup_family_id(
+                resolve_trace_setup_family(
+                    pattern_id, cls._normalize_setup_family_id(getattr(trace, "setup_family_id", None))
+                )
+            )
+            if not family or family == "UNKNOWN" or family.startswith("P_"):
                 continue
             family_set.add(family)
             if pattern_id:
                 pattern_ids.add(pattern_id)
                 family_by_pattern_id[pattern_id] = family
 
-        selected_family = cls._normalize_setup_family_id(decision.get("selected_setup_family"))
         selected_pattern = str(decision.get("selected_pattern_id") or "").strip().upper()
-        if selected_family and family_by_pattern_id.get(selected_pattern) == selected_family:
+        selected_family = cls._normalize_setup_family_id(
+            resolve_trace_setup_family(
+                selected_pattern, cls._normalize_setup_family_id(decision.get("selected_setup_family"))
+            )
+        )
+        if (
+            selected_family and selected_family != "UNKNOWN" and not selected_family.startswith("P_")
+            and family_by_pattern_id.get(selected_pattern) == selected_family
+        ):
             payload: dict[str, object] = {"selected_setup_family": selected_family}
             if selected_pattern:
                 payload["selected_pattern_id"] = selected_pattern
