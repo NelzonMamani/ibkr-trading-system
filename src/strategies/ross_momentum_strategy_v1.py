@@ -1131,9 +1131,22 @@ class RossMomentumStrategyV1(BaseStrategy):
                 existing_triggers=trigger_candidates,
             )
             if pattern_trigger_setups:
+                execution_timeframe = inputs.execution_refinement_timeframe
+                execution_candles = list(inputs.timeframe_candles.get(execution_timeframe) or [])
+                for setup in pattern_trigger_setups:
+                    setup["execution_stream"] = {
+                        "structure_timeframe": inputs.primary_timeframe,
+                        "execution_trigger_timeframe": execution_timeframe,
+                        "candle_stream": f"timeframe_candles[{execution_timeframe}]",
+                        "stream_provenance": inputs.timeframe_provenance.get(execution_timeframe, "MISSING"),
+                        "timeframe_provenance": dict(inputs.timeframe_provenance),
+                        "policy_action": (inputs.setup_quality.get(setup["setup_family_id"]) or {}).get("action"),
+                        "volume_confirmation_timeframe": execution_timeframe,
+                        "timeframe_substitution": False,
+                    }
                 pattern_triggers = TriggerEngine().evaluate_triggers(
                     symbol=symbol,
-                    candles=list(getattr(inputs, "candles", []) or []),
+                    candles=execution_candles,
                     setups=pattern_trigger_setups,
                     levels={
                         **levels,

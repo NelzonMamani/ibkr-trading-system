@@ -13,7 +13,7 @@ from src.strategies.common.triggers.trigger_pullback_variants import (
 from src.strategies.ross_momentum.patterns.pattern_registry import RossPatternRegistry
 from src.strategies.ross_momentum_strategy_v1 import RossMomentumStrategyV1
 from test_pr1082_trigger_to_intent_terminal_semantics import (
-    _base_strategy, _candles, _inputs, _rows, _snapshot, _trigger_payload, _watchlist_row,
+    _base_strategy, _candles, _execution_bars, _inputs, _rows, _snapshot, _trigger_payload, _watchlist_row,
 )
 
 
@@ -47,7 +47,7 @@ def _case(family):
 def _history_inputs(rows):
     inputs = _inputs()
     candles = _candles(rows)
-    return replace(inputs, candles=candles, timeframe_candles={**inputs.timeframe_candles, inputs.primary_timeframe: candles})
+    return replace(inputs, execution_refinement_timeframe=inputs.primary_timeframe, candles=candles, timeframe_candles={**inputs.timeframe_candles, inputs.primary_timeframe: candles})
 
 
 @pytest.mark.parametrize("family", ["THREE_BAR_PULLBACK", "SECOND_PULLBACK"])
@@ -146,7 +146,9 @@ def test_armed_pullback_real_strategy_delayed_outcome(monkeypatch, tmp_path, fam
     strategy._pattern_registry = registry
     history = list(rows)
     def bars(*, timeframe="1m", limit=50, **kwargs):
-        return _candles(history, step_seconds={"10s": 10, "1m": 60, "5m": 300}[timeframe])[-limit:]
+        if timeframe == "10s":
+            return _execution_bars(_candles(history))[-limit:]
+        return _candles(history, step_seconds={"1m": 60, "5m": 300}[timeframe])[-limit:]
     monkeypatch.setattr("src.strategies.ross_momentum.patterns.pattern_trace.get_intraday_bars", bars)
     def run(cycle):
         row = _watchlist_row()

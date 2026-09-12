@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import Any
+from datetime import datetime, timedelta, timezone
+from math import isfinite
 
 def _safe_float(value: Any) -> float | None:
     try:
@@ -53,6 +55,87 @@ def _metadata_bool(data: Mapping[str, Any], key: str) -> bool | None:
         return _normalise_bool(metadata.get(key))
     return None
 
+
+def _timestamp(value: Any) -> datetime | None:
+    if not isinstance(value, datetime) or value.tzinfo is None:
+        return None
+    return value.astimezone(timezone.utc)
+
+
+def _execution_evidence(data: Mapping[str, Any], candles: list) -> tuple[dict, str | None]:
+    """Use the existing current-volume > mean-pullback-volume rule in one stream.
+
+    Structural timestamps delimit the pullback; no primary bar volume or RVOL
+    participates in execution confirmation. Candle timestamps denote bar starts.
+    """
+    evidence = dict(data["execution_stream"])
+    metadata = _metadata(data)
+    timeframe = evidence.get("execution_trigger_timeframe")
+    seconds = {"10s": 10, "1m": 60, "5m": 300}.get(timeframe)
+    if not seconds:
+        return evidence, "execution_timeframe_unsupported"
+    if evidence.get("stream_provenance") != "PRESENT":
+        return evidence, "execution_stream_" + str(evidence.get("stream_provenance", "missing")).lower()
+    if evidence.get("policy_action") == "BLOCK":
+        return evidence, "execution_stream_policy_blocked"
+    if len(candles) < 2:
+        return evidence, "execution_stream_insufficient"
+    times = [_timestamp(_read(c, "timestamp")) for c in candles]
+    if any(t is None for t in times) or any(b <= a for a, b in zip(times, times[1:])):
+        return evidence, "execution_stream_malformed_timestamps"
+    evidence.update(
+        first_candle_timestamp=times[0].isoformat(),
+        last_candle_timestamp=times[-1].isoformat(),
+        candle_count=len(candles),
+    )
+    for candle in candles:
+        values = [_safe_float(_read(candle, key)) for key in ("open", "high", "low", "close", "volume")]
+        if any(v is None or not isfinite(v) for v in values):
+            return evidence, "execution_stream_malformed_candle"
+        o, h, l, c, v = values
+        if min(o, h, l, c) <= 0 or v < 0 or l > min(o, c) or h < max(o, c) or h < l:
+            return evidence, "execution_stream_malformed_candle"
+    start = _timestamp(metadata.get("pullback_start_timestamp"))
+    end = _timestamp(metadata.get("pullback_end_timestamp"))
+    if start is None or end is None or start >= end:
+        return evidence, "execution_volume_structure_window_missing"
+    baseline = [(t, c) for t, c in zip(times, candles) if start <= t < end]
+    step = timedelta(seconds=seconds)
+    if (not baseline or baseline[0][0] != start or baseline[-1][0] + step != end
+            or any(b[0] - a[0] != step for a, b in zip(baseline, baseline[1:]))):
+        return evidence, "execution_volume_history_missing"
+    if times[-1] < end or times[-1] - times[-2] != step:
+        return evidence, "execution_stream_insufficient"
+    average = sum(float(_read(c, "volume")) for _, c in baseline) / len(baseline)
+    if average <= 0:
+        return evidence, "execution_volume_confirmation_missing"
+    evidence.update(
+        volume_baseline=average,
+        volume_baseline_candle_count=len(baseline),
+        volume_baseline_start=start.isoformat(),
+        volume_baseline_end=end.isoformat(),
+        current_volume=float(_read(candles[-1], "volume")),
+        breakout_volume_confirmed=float(_read(candles[-1], "volume")) > average,
+    )
+    # An execution invalidation or consumed breakout remains terminal for this
+    # originating structure, even when the primary candle has not advanced yet.
+    level = _coalesce_float(data.get("trigger_level"), metadata.get("pullback_high"))
+    stop = _coalesce_float(data.get("invalidation_level"), metadata.get("pullback_low"))
+    for index, (timestamp, candle) in enumerate(zip(times, candles)):
+        if timestamp < end:
+            continue
+        if index == 0 or timestamp - times[index - 1] != step:
+            return evidence, "execution_stream_history_missing"
+        if stop is not None and float(_read(candle, "low")) <= stop:
+            return evidence, "structural_invalidation_breached"
+        if (index < len(candles) - 1 and level is not None
+                and float(_read(candles[index - 1], "close")) <= level
+                and float(_read(candle, "close")) > level
+                and float(_read(candle, "volume")) > average):
+            return evidence, "pullback_breakout_already_consumed"
+    return evidence, None
+
+
 def _base_payload(
     data: Mapping[str, Any],
     trigger_level: float | None,
@@ -64,6 +147,7 @@ def _base_payload(
     if execution_mode is None:
         execution_mode = metadata.get("execution_refinement_mode") or metadata.get("trigger_mode") or "NONE"
     return {
+        **({"execution_stream": dict(data["execution_stream"])} if "execution_stream" in data else {}),
         "trigger_type": "PULLBACK_HIGH_BREAK",
         "trigger_price_reference": trigger_level,
         "invalidation_price_reference": invalidation_level,
@@ -120,6 +204,15 @@ def _evaluate_pullback_high_break(family: str, pattern_result: Any, inputs: Any)
         metadata.get("pullback_low"),
         stop_level,
     )
+
+    if "execution_stream" in data:
+        evidence, blocked_reason = _execution_evidence(data, candles)
+        data = {**data, "execution_stream": evidence}
+        if blocked_reason:
+            return _terminal(
+                family, data, trigger_level, stop_level, invalidation_level,
+                "BLOCKED", False, blocked_reason, ["BLOCKED", "EXECUTION_STREAM_BLOCKED"],
+            )
 
     if len(candles) < 2:
         return _terminal(
@@ -193,7 +286,10 @@ def _evaluate_pullback_high_break(family: str, pattern_result: Any, inputs: Any)
             ["ARMED_WAITING"],
         )
 
-    volume_confirmation = _metadata_bool(data, "breakout_volume_confirmed")
+    volume_confirmation = (
+        data["execution_stream"].get("breakout_volume_confirmed")
+        if "execution_stream" in data else _metadata_bool(data, "breakout_volume_confirmed")
+    )
     if volume_confirmation is not True:
         if volume_confirmation is False:
             reason = "breakout_volume_confirmation_failed"

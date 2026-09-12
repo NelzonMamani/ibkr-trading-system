@@ -138,6 +138,8 @@ class TriggerEngine:
                 "stop_anchor_type": str(setup.get("invalidation_anchor") or "STRUCTURE"),
                 "trigger_quality_flags": sorted(set(quality_flags + [*setup.get("quality_flags", [])])),
             }
+            if isinstance(resolved_trigger, dict) and "execution_stream" in resolved_trigger:
+                output["execution_stream"] = resolved_trigger["execution_stream"]
             outputs.append(output)
 
         print(
@@ -214,7 +216,11 @@ class TriggerEngine:
     ) -> tuple[bool, str, list[str], dict | None]:
         flags: list[str] = []
         resolved_trigger: dict | None = None
-        if last_close is None:
+        execution_stream_pullback = (
+            str(setup.get("setup_family_id") or "").upper() in {"THREE_BAR_PULLBACK", "SECOND_PULLBACK"}
+            and "execution_stream" in setup
+        )
+        if last_close is None and not execution_stream_pullback:
             flags.append("MISSING_LAST_CLOSE")
             return False, "last_close_missing", flags, None
 
@@ -291,7 +297,10 @@ class TriggerEngine:
             flags.append("CONSOLIDATION_CONTEXT")
         if invalidation_price_reference is None:
             flags.append("MISSING_INVALIDATION_REFERENCE")
-        invalidation_violated = invalidation_price_reference is not None and last_close <= invalidation_price_reference
+        invalidation_violated = (
+            last_close is not None and invalidation_price_reference is not None
+            and last_close <= invalidation_price_reference
+        )
         if invalidation_violated:
             flags.append("NEAR_INVALIDATION")
             ready = False
@@ -385,7 +394,10 @@ class TriggerEngine:
         previous_pullback_high = self._safe_float(structure.get("previous_pullback_high"))
         setup_family_name = str(setup_family or "").upper()
         pre_activation = bool(structure.get("pre_activation_ready"))
-        invalidation_violated = invalidation_price_reference is not None and last_close <= invalidation_price_reference
+        invalidation_violated = (
+            last_close is not None and invalidation_price_reference is not None
+            and last_close <= invalidation_price_reference
+        )
         if (
             bool(structure.get("pullback_active"))
             and last_high is not None

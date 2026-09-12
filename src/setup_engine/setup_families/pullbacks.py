@@ -263,7 +263,7 @@ def _evaluate_armed_pullback(pattern, inputs: PatternInputs) -> PatternResult:
                 )
                 if not result.detected:
                     return result
-            if index < len(candles) - 1:
+            if index < len(candles) - 1 and inputs.execution_refinement_timeframe == inputs.primary_timeframe:
                 trigger = evaluator(
                     {
                         "trigger_level": result.trigger_level,
@@ -279,6 +279,10 @@ def _evaluate_armed_pullback(pattern, inputs: PatternInputs) -> PatternResult:
                         pattern_name=pattern.name, family=result.setup_family_id,
                         reason="pullback_breakout_already_consumed",
                     )
+        result.setup_metadata["pullback_start_timestamp"] = _read(
+            origin[1 if result.setup_family_id == "THREE_BAR_PULLBACK" else 3], "timestamp"
+        )
+        result.setup_metadata["pullback_end_timestamp"] = _read(origin[4], "timestamp")
         result.setup_metadata["origin_timestamp"] = _read(origin[0], "timestamp")
         result.setup_metadata["structure_completed_timestamp"] = _read(origin[3], "timestamp")
         return result

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
@@ -124,19 +124,32 @@ def _candles(
     end: datetime | None = None,
     step_seconds: int = 60,
 ) -> list[Candle]:
-    end = end or datetime.now(timezone.utc)
+    end = end or datetime.now(timezone.utc).replace(second=0, microsecond=0)
     start = end - timedelta(seconds=step_seconds * (len(rows) - 1))
     return [
         Candle(open=o, high=h, low=l, close=c, volume=v, timestamp=start + timedelta(seconds=index * step_seconds))
         for index, (o, h, l, c, v) in enumerate(rows)
     ]
 
+def _execution_bars(primary):
+    # Aligned 10s fixtures covering the same structural interval, with per-10s volume.
+    bars = []
+    for candle in primary[:-1]:
+        for offset in range(0, 60, 10):
+            bars.append(replace(candle, volume=candle.volume / 6,
+                                timestamp=candle.timestamp + timedelta(seconds=offset)))
+    bars.append(replace(primary[-1], volume=primary[-1].volume / 6))
+    return bars
+
+
 def _bars(state: str = "ready", timeframe: str = "1m", *, end: datetime | None = None) -> list[Candle]:
-    step_seconds = {"10s": 10, "1m": 60, "5m": 300}.get(timeframe, 60)
+    if timeframe == "10s":
+        return _execution_bars(_candles(_rows(state), end=end))
+    step_seconds = {"1m": 60, "5m": 300}.get(timeframe, 60)
     return _candles(_rows(state), end=end, step_seconds=step_seconds)
 
 def _inputs(state: str = "ready", *, now: datetime | None = None, omit_timeframes: set[str] | None = None):
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(timezone.utc).replace(second=0, microsecond=0)
     omit_timeframes = set(omit_timeframes or set())
     timeframe_candles = {
         timeframe: _bars(state, timeframe, end=now)
