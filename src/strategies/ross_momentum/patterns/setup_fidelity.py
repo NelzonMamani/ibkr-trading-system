@@ -13,6 +13,8 @@ from src.strategies.ross_momentum.patterns.pattern_types import Direction, Patte
 _POLICY_SETUP_BY_PATTERN_ID = {
     "P_MICRO_PULLBACK": "MICRO_PULLBACK",
     "P_FIRST_PULLBACK": "FIRST_PULLBACK",
+    "P_THREE_BAR_PULLBACK": "THREE_BAR_PULLBACK",
+    "P_SECOND_PULLBACK": "SECOND_PULLBACK",
     "P_FLAT_TOP_BREAKOUT": "FLAT_TOP_BREAKOUT",
     "P_HOD_BREAK": "HOD_BREAK",
     "P_PREMARKET_HIGH_BREAK": "PMH_BREAK",
@@ -44,6 +46,8 @@ def setup_policy_key(pattern_id: str | None, result: Any | None = None) -> str:
         "OPENING_RANGE_BREAKOUT": "ORB_GAP_GO",
         "ORB": "ORB_GAP_GO",
         "PREMARKET_HIGH_BREAK": "PMH_BREAK",
+        "THREE_BAR_PULLBACK": "THREE_BAR_PULLBACK",
+        "SECOND_PULLBACK": "SECOND_PULLBACK",
         "ABCD": "ABCD_CONTINUATION",
         "TREND_CONTINUATION_STAIR_STEP": "STAIR_STEP_CONTINUATION",
         "PARABOLIC_EXHAUSTION": "EXHAUSTION_EXIT_WARNING",

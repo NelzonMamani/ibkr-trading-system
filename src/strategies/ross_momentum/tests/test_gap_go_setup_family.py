@@ -70,7 +70,7 @@ def test_gap_go_rejects_when_rvol_is_insufficient() -> None:
             session_context=SessionContext.REGULAR,
             levels=LevelSet(premarket_high=11.45, hod=11.5, prior_close=10.0),
             indicators=IndicatorSet(ema9=11.31, ema20=11.2, vwap=11.25),
-            liquidity_context=LiquidityContext(spread=0.02, float_millions=18.0, rvol=1.0),
+            liquidity_context=LiquidityContext(spread=0.02, float_millions=18.0, rvol=0.9),
             news_context={"trend_up": "true", "impulse_active": "true"},
         )
     )

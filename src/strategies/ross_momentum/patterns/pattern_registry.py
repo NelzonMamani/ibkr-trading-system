@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Callable, List
 
 from src.config.config_resolver import get_config
-from src.setup_engine.registry import build_tradeable_patterns
+from src.setup_engine.registry import CANONICAL_SETUP_REGISTRY, build_tradeable_patterns
 from src.setup_engine.setup_families import (
     ClimaxTopPattern,
     EngulfingPattern,
@@ -24,6 +24,21 @@ from src.strategies.ross_momentum.patterns.setup_fidelity import (
 from src.strategies.ross_momentum.patterns.pattern_trace import RossPatternTrace
 from src.strategies.ross_momentum.patterns.pattern_types import Direction, PatternResult
 from src.strategies.strategy_contracts import SessionContext
+
+
+def resolve_trace_setup_family(pattern_id: str, setup_family_id: str | None = None) -> str | None:
+    """Resolve trace provenance from explicit family or registered pattern authority."""
+    family = str(setup_family_id or "").strip().upper()
+    if family in CANONICAL_SETUP_REGISTRY and not family.startswith("P_"):
+        return family
+    pattern_key = str(pattern_id or "").strip().upper()
+    families = {
+        spec.setup_id
+        for spec in CANONICAL_SETUP_REGISTRY.values()
+        if str(getattr(spec.pattern_cls, "pattern_id", "") or "").strip().upper() == pattern_key
+        and spec.setup_id and not spec.setup_id.startswith("P_")
+    }
+    return next(iter(families)) if len(families) == 1 else None
 
 
 def build_additional_heuristic_patterns() -> List[PatternBase]:
@@ -62,6 +77,8 @@ class RossPatternRegistry:
             "P_FIRST_PULLBACK": "FIRST_PULLBACK",
             "P_PREMKT_BREAK": "PREMARKET_HIGH_BREAK",
             "P_PREMARKET_HIGH_BREAK": "PREMARKET_HIGH_BREAK",
+            "P_THREE_BAR_PULLBACK": "THREE_BAR_PULLBACK",
+            "P_SECOND_PULLBACK": "SECOND_PULLBACK",
             "P_KEY_LEVEL_BREAK": "KEY_LEVEL_BREAK",
             "P_HOD_BREAK": "HOD_BREAK",
             "P_BULL_FLAG": "BULL_FLAG",
@@ -114,7 +131,7 @@ class RossPatternRegistry:
                 symbol_source=(trace_context or {}).get("symbol_source"),
                 pattern_id=pattern_id,
                 pattern_name=pattern.name,
-                setup_family_id=pattern_id,
+                setup_family_id=resolve_trace_setup_family(pattern_id),
                 invoked=True,
                 input_summary=input_summary,
                 input_quality_flags=list(inputs.data_quality_flags),
@@ -220,6 +237,9 @@ class RossPatternRegistry:
                     inputs,
                     pattern_id=pattern_id,
                 )
+                canonical_family = resolve_trace_setup_family(pattern_id, result.setup_family_id)
+                pattern_trace.setup_family = canonical_family
+                pattern_trace.setup_family_id = canonical_family
                 pattern_trace.detected = bool(result.detected)
                 pattern_trace.rejection_reason = result.rejection_reason
                 pattern_trace.final_outcome = "DETECTED" if result.detected else "REJECTED"

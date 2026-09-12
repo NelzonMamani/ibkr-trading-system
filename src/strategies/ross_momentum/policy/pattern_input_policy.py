@@ -69,6 +69,31 @@ def _requirements() -> dict[str, SetupFamilyInputRequirement]:
             optional_indicators=("vwap", "ema200", "macd_line"),
             missing_data_behavior={"timeframe:1m": block, "timeframe:5m": degrade, "ema9": block, "ema20": block, "ema200": warn},
         ),
+        "THREE_BAR_PULLBACK": SetupFamilyInputRequirement(
+            setup_family="THREE_BAR_PULLBACK",
+            required_timeframes=("1m", "10s"),
+            preferred_timeframes=("5m",),
+            optional_indicators=("ema9", "ema20", "vwap", "ema200", "macd_line"),
+            missing_data_behavior={
+                "timeframe:1m": block,
+                "timeframe:10s": block,
+                "timeframe:5m": warn,
+                "ema200": warn,
+                "macd_line": MissingDataBehavior.IGNORE,
+            },
+        ),
+        "SECOND_PULLBACK": SetupFamilyInputRequirement(
+            setup_family="SECOND_PULLBACK",
+            required_timeframes=("5m", "1m", "10s"),
+            optional_indicators=("ema9", "ema20", "vwap", "ema200", "macd_line"),
+            missing_data_behavior={
+                "timeframe:5m": block,
+                "timeframe:1m": block,
+                "timeframe:10s": block,
+                "ema200": warn,
+                "macd_line": MissingDataBehavior.IGNORE,
+            },
+        ),
         "FLAT_TOP_BREAKOUT": SetupFamilyInputRequirement(
             setup_family="FLAT_TOP_BREAKOUT",
             required_timeframes=("1m",),
@@ -218,6 +243,8 @@ class PatternInputPolicy:
             "ABCD": "ABCD_CONTINUATION",
             "TREND_CONTINUATION_STAIR_STEP": "STAIR_STEP_CONTINUATION",
             "STAIR_STEP": "STAIR_STEP_CONTINUATION",
+            "P_THREE_BAR_PULLBACK": "THREE_BAR_PULLBACK",
+            "P_SECOND_PULLBACK": "SECOND_PULLBACK",
             "FAILED_BREAKOUT": "FAILED_BREAKOUT_CAUTION",
             "EXHAUSTION": "EXHAUSTION_EXIT_WARNING",
         }

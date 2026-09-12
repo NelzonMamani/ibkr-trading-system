@@ -15,7 +15,7 @@ def test_first_pullback_and_premarket_high_break_emit_invoke_and_result_logs(cap
     registry._patterns = [
         pattern
         for pattern in registry.patterns
-        if getattr(pattern, "pattern_id", "") in {"P_FIRST_PULLBACK", "P_PREMKT_BREAK"}
+        if getattr(pattern, "pattern_id", "") in {"P_FIRST_PULLBACK", "P_PREMARKET_HIGH_BREAK"}
     ]
 
     inputs = PatternInputs(
@@ -41,7 +41,7 @@ def test_first_pullback_and_premarket_high_break_emit_invoke_and_result_logs(cap
     by_id = {result.setup_id: result for result in results}
 
     assert by_id["P_FIRST_PULLBACK"].detected is True
-    assert by_id["P_PREMKT_BREAK"].detected is True
+    assert by_id["P_PREMARKET_HIGH_BREAK"].detected is True
 
     output = capsys.readouterr().out
     assert "[SETUP][INVOKE] name=FIRST_PULLBACK" in output
