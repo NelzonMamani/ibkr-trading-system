@@ -29,4 +29,8 @@ def safe_import_ib_insync() -> Tuple[Any, Any, Any]:
     install_runtime_policy()
     from ib_insync import IB, ScannerSubscription, Stock
 
+    from src.ibkr.mutation_audit import install_sdk
+    from ib_insync.client import Client
+    from ib_insync.wrapper import Wrapper
+    install_sdk(Client, Wrapper)
     return IB, Stock, ScannerSubscription

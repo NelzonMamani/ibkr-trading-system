@@ -18,6 +18,7 @@ from ibapi.wrapper import EWrapper
 from src.domain.market_snapshot import MarketSnapshot
 from src.ibkr.market_data_client import MarketDataSnapshot
 from src.ibkr.read_only_guard import assert_read_only_allows
+from src.ibkr.evidence_safety import register_account, sanitize
 
 
 def _market_data_type_code(market_data_type: str) -> int:
@@ -134,17 +135,24 @@ class IbkrClient(EWrapper, EClient):
         if not hasattr(self, "_order_state_registry") or self._order_state_registry is None:
             self._order_state_registry = {}
 
-    def register_execution_callback(self, callback) -> None:
+    def register_execution_callback(self, callback, *, internal_reconciliation=False) -> None:
         if callback is None:
             return
         if callback in self._execution_callbacks:
             return
         self._execution_callbacks.append(callback)
+        if internal_reconciliation:
+            if not hasattr(self, "_internal_execution_callbacks"):
+                self._internal_execution_callbacks = set()
+            self._internal_execution_callbacks.add(callback)
+
+    def register_reconciliation_callback(self, callback) -> None:
+        self.register_execution_callback(callback, internal_reconciliation=True)
 
     def _emit_execution_callback(self, payload: dict) -> None:
         for callback in list(self._execution_callbacks):
             try:
-                callback(payload)
+                callback(payload if callback in getattr(self, "_internal_execution_callbacks", set()) else sanitize(payload))
             except Exception as exc:
                 print(f"[IBKR][CALLBACK_ERROR] reason={exc}")
 
@@ -841,6 +849,7 @@ class IbkrClient(EWrapper, EClient):
         value: str,
         currency: str,
     ):  # type: ignore[override]
+        register_account(account)
         rows = self._account_summary_rows.setdefault(reqId, {})
         rows[tag] = value
 
@@ -851,6 +860,7 @@ class IbkrClient(EWrapper, EClient):
         getattr(self, "_request_type_by_req_id", {}).pop(reqId, None)
 
     def managedAccounts(self, accountsList: str):  # type: ignore[override]
+        register_account(accountsList)
         self._managed_accounts = [
             account.strip() for account in accountsList.split(",") if account.strip()
         ]
@@ -1172,10 +1182,11 @@ class IbkrClient(EWrapper, EClient):
         getattr(self, "_request_type_by_req_id", {}).pop(reqId, None)
 
     def position(self, account, contract, pos, avgCost):  # type: ignore[override]
+        register_account(account)
         symbol = str(getattr(contract, "symbol", "") or "").upper()
         print(
             "[IBKR][CALLBACK_RAW] "
-            f"event=position account={account} symbol={symbol} pos={pos} avg_cost={avgCost}"
+            f"event=position account_id_redacted=REDACTED symbol={symbol} pos={pos} avg_cost={avgCost}"
         )
         if not symbol:
             return
@@ -1202,3 +1213,8 @@ class IbkrClient(EWrapper, EClient):
         self._last_disconnect_reason = "connectionClosed"
         self._connection_event.clear()
         print("[IBKR] Connection closed by broker.")
+
+
+from src.ibkr.mutation_audit import install_sdk, instrument_mutation
+install_sdk(EClient, IbkrClient)
+instrument_mutation(IbkrClient, "submit_order")
