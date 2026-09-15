@@ -2011,11 +2011,18 @@ class CoreOrchestrator:
     def run_forever(self, cycle_sleep_seconds=None, max_cycles=None) -> None:
         try:
             self._run_forever_inner(cycle_sleep_seconds, max_cycles)
+        except KeyboardInterrupt:
+            # Shutdown after a bounded loop is outside its inner try boundary.
+            self._handle_keyboard_interrupt()
         finally:
             if not getattr(self, "_shutdown_finished", False):
-                if not self.stop_controller.is_stop_requested():
-                    self._request_stop(StopMode.GRACEFUL, reason="Runtime finalization", source="CoreOrchestrator")
-                self._shutdown(self.stop_controller.stop_mode() or StopMode.GRACEFUL)
+                try:
+                    if not self.stop_controller.is_stop_requested():
+                        self._request_stop(StopMode.GRACEFUL, reason="Runtime finalization", source="CoreOrchestrator")
+                    self._shutdown(self.stop_controller.stop_mode() or StopMode.GRACEFUL)
+                except KeyboardInterrupt:
+                    self._handle_keyboard_interrupt()
+                    self._shutdown(self.stop_controller.stop_mode() or StopMode.PANIC)
 
     def _run_forever_inner(
         self,
@@ -6720,7 +6727,7 @@ class CoreOrchestrator:
                 self.event_collector.emit(event_type=event_type, source="CoreOrchestrator",
                                           payload=payload, include_cycle=False)
                 return True
-            except BaseException as exc:
+            except Exception as exc:
                 proof.hooks.append({"hook": "event_collector." + event_type,
                                     "attempted": True, "completed": False,
                                     "error_type": type(exc).__name__})

@@ -64,6 +64,8 @@ def disconnect_manager():
 
 def validate_terminal(evidence):
     blockers = []
+    if evidence.get("supervisor_error"):
+        blockers.append("Supervisor finalization failed")
     try:
         require_zero_attempts(evidence.get("mutation_attempts"))
     except RuntimeError as exc:
@@ -81,6 +83,8 @@ def validate_terminal(evidence):
     if any(type(value) is not int for value in times) or times != sorted(times):
         blockers.append("Contradictory event timestamps")
     names = [row.get("event") for row in events]
+    if any(row.get("mode") == "PANIC" or row.get("event") in {"PANIC_STOP_REQUESTED", "PANIC_STOP_TRIGGERED"} for row in events):
+        blockers.append("PANIC cannot certify graceful shutdown")
     required = ("GRACEFUL_STOP_REQUESTED", "SHUTDOWN_STARTED", "SHUTDOWN_COMPLETE", "TERMINAL_FLUSHED", "RUNTIME_PROCESS_EXITED", "NO_ROSS_RUNTIME", "FINAL_BROKER_QUERY", "FINAL_AUDIT_DISCONNECTED", "FINAL_EVIDENCE_FLUSHED")
     positions = []
     for name in required:

@@ -10,6 +10,9 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
+import math
+import posixpath
 from pathlib import Path
 import subprocess
 import sys
@@ -25,23 +28,148 @@ from src.ibkr.evidence_safety import SafeTextStream, capture_console, install_co
 from src.ibkr.shutdown_evidence import complete_after_process_exit
 
 
-def no_ross_runtime_remains():
-    """Return no command lines or account data; inspection failure fails closed."""
-    if os.name == "nt":
-        command = "@(Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object { $_.Name -match '^python' -and $_.CommandLine -match '(src[.]main|pr1040_real_readonly_runtime_observation_adapter)' }).Count"
-        result = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command], capture_output=True, text=True, timeout=15, check=True)
-        return result.stdout.strip() == "0"
-    proc = Path("/proc")
-    if not proc.is_dir():
+def split_windows_command_line(command):
+    """Decode Windows quoting/backslashes into argv, without invoking a shell."""
+    args, index = [], 0
+    while index < len(command):
+        while index < len(command) and command[index] in " \t":
+            index += 1
+        if index == len(command):
+            break
+        arg, quoted = [], False
+        while index < len(command) and (quoted or command[index] not in " \t"):
+            slashes = 0
+            while index < len(command) and command[index] == "\\":
+                slashes += 1
+                index += 1
+            if index < len(command) and command[index] == '"':
+                arg.extend("\\" * (slashes // 2))
+                if slashes % 2:
+                    arg.append('"')
+                elif quoted and index + 1 < len(command) and command[index + 1] == '"':
+                    arg.append('"')
+                    index += 1
+                else:
+                    quoted = not quoted
+                index += 1
+            else:
+                arg.extend("\\" * slashes)
+                if index < len(command) and (quoted or command[index] not in " \t"):
+                    arg.append(command[index])
+                    index += 1
+        if quoted:
+            raise ValueError("Unclosed process command quoting")
+        args.append("".join(arg))
+    return args
+
+
+def is_ross_runtime(args):
+    """Match the Python entrypoint, never later arguments or arbitrary text."""
+    if not args:
         return False
-    for path in proc.glob("[0-9]*/cmdline"):
-        try:
-            args = path.read_bytes().split(b"\0")
-        except FileNotFoundError:
-            continue
-        if b"src.main" in args or any(b"pr1040_real_readonly_runtime_observation_adapter" in arg for arg in args):
+    executable = args[0].replace("\\", "/").rsplit("/", 1)[-1].lower()
+    if not re.fullmatch(r"python(?:w)?(?:\d+(?:\.\d+)*)?(?:\.exe)?", executable):
+        return False
+    modules = {"src.main", "scripts.certification.pr1040_real_readonly_runtime_observation_adapter"}
+    index = 1
+    while index < len(args):
+        arg = args[index]
+        if arg == "--":
+            index += 1
+            break
+        if arg == "-m":
+            return index + 1 < len(args) and args[index + 1] in modules
+        if arg.startswith("-m"):
+            return arg[2:] in modules
+        if arg == "-" or arg.startswith("-c") or arg in {"--help", "--version", "-h", "-V"}:
             return False
-    return True
+        if arg in {"-W", "-X", "--check-hash-based-pycs"}:
+            index += 2
+            continue
+        if arg.startswith(("-W", "-X", "--check-hash-based-pycs=")):
+            index += 1
+            continue
+        if re.fullmatch(r"-[bBdEiIOPqRsSuvx]+m", arg):
+            return index + 1 < len(args) and args[index + 1] in modules
+        if re.fullmatch(r"-[bBdEiIOPqRsSuvx]+c", arg):
+            return False
+        if arg.startswith("-"):
+            # Python short flags can be grouped, e.g. -Iu. Unknown options
+            # invalidate the inventory rather than hiding an ambiguous launch.
+            if not re.fullmatch(r"-[bBdEiIOPqRsSuvx]+", arg):
+                raise ValueError("Unrecognized Python interpreter option")
+            index += 1
+            continue
+        break
+    if index >= len(args):
+        return False
+    script = posixpath.normpath(args[index].replace("\\", "/"))
+    if executable.endswith(".exe"):
+        script = script.lower()
+    parts = [part for part in script.split("/") if part not in {"", "."}]
+    return (len(parts) >= 2 and parts[-2:] == ["src", "main.py"]) or (
+        parts and parts[-1] == "pr1040_real_readonly_runtime_observation_adapter.py")
+
+
+def runtime_inventory(*, platform=None, proc_root=None):
+    """Preserve matching PID/argv evidence; any incomplete enumeration fails closed."""
+    platform = os.name if platform is None else platform
+    evidence = {"completed": False, "runtimes": []}
+    try:
+        if platform == "nt":
+            command = (
+                "$ErrorActionPreference='Stop'; "
+                "@(Get-CimInstance Win32_Process -ErrorAction Stop | "
+                "Where-Object { $_.Name -match '^python' } | "
+                "Select-Object ProcessId,CommandLine) | ConvertTo-Json -Compress"
+            )
+            result = subprocess.run(
+                ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command],
+                capture_output=True, text=True, timeout=15, check=True)
+            rows = json.loads(result.stdout)
+            if isinstance(rows, dict):
+                rows = [rows]
+            if not isinstance(rows, list) or not rows:
+                raise ValueError("Python process inventory is incomplete")
+            processes = []
+            for row in rows:
+                if not isinstance(row.get("CommandLine"), str) or not row["CommandLine"]:
+                    raise ValueError("Python command line unavailable")
+                processes.append((int(row["ProcessId"]), split_windows_command_line(row["CommandLine"])))
+        else:
+            proc = Path("/proc") if proc_root is None else Path(proc_root)
+            # iterdir raises on unavailable enumeration; glob could look empty.
+            entries = [entry for entry in proc.iterdir() if entry.name.isdigit()]
+            if not entries:
+                raise ValueError("Process inventory is empty")
+            processes = []
+            for entry in entries:
+                try:
+                    raw = (entry / "cmdline").read_bytes()
+                except FileNotFoundError:
+                    # A reaped process is harmless; a live unreadable entry is not.
+                    if entry.exists():
+                        raise
+                    continue
+                args = [os.fsdecode(arg) for arg in raw.rstrip(b"\0").split(b"\0")] if raw else []
+                processes.append((int(entry.name), args))
+        # A successful inventory must include this Python supervisor.
+        if os.getpid() not in {pid for pid, _ in processes}:
+            raise ValueError("Supervisor missing from process inventory")
+        for pid, args in processes:
+            if is_ross_runtime(args):
+                evidence["runtimes"].append({"pid": pid, "argv": [scrub_text(arg) for arg in args]})
+        evidence["completed"] = True
+    except Exception as exc:
+        evidence["error_type"] = type(exc).__name__
+    return evidence
+
+
+def no_ross_runtime_remains(evidence_path=None):
+    evidence = runtime_inventory()
+    if evidence_path is not None:
+        write_json(evidence_path, evidence)
+    return evidence["completed"] and not evidence["runtimes"]
 
 
 def final_broker_audit():
@@ -66,6 +194,8 @@ def final_broker_audit():
         result["query_completed"] = True
         result["open_orders_count"] = len(client._open_orders_snapshot)
     except BaseException as exc:
+        # Cleanup continues, but no partial query success survives any abort.
+        result["query_completed"] = False
         result["error"] = type(exc).__name__ + ": " + str(exc)
     finally:
         try:
@@ -211,7 +341,7 @@ def stop_and_finalize(process, readers, capture_errors, output, *, graceful_time
         healthy = False
 
     def quiet():
-        return not state["reader_failures"] and not state["capture_errors"] and no_ross_runtime_remains()
+        return not state["reader_failures"] and not state["capture_errors"] and no_ross_runtime_remains(output / "runtime_inventory.json")
 
     def audit():
         # Forced/incomplete termination cannot obtain a passing graceful report,
@@ -243,8 +373,8 @@ def main(argv=None):
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--expected-commit", required=True)
     args = parser.parse_args(argv)
-    if args.seconds <= 0:
-        parser.error("seconds must be positive")
+    if not math.isfinite(args.seconds) or args.seconds <= 0:
+        parser.error("seconds must be finite and positive")
     try:
         require_clean_certification_worktree(args.expected_commit)
     except RuntimeError as exc:

@@ -269,6 +269,15 @@ def _print_config_resolution_trace() -> None:
             print(f"      · {step}")
 
 
+def _report_shutdown(mode) -> None:
+    if getattr(mode, "value", mode) == "PANIC":
+        print("[SHUTDOWN] Exiting after PANIC stop.")
+        # Fail the supervisor's exit-code gate even if an earlier graceful
+        # evidence write completed immediately before the interrupt.
+        raise SystemExit(2)
+    print("[SHUTDOWN] Exiting gracefully. Goodbye!")
+
+
 def main() -> None:
     """Run the minimal teaching-first entry point."""
     from src.ibkr.evidence_safety import install_console_protection
@@ -442,7 +451,7 @@ def main() -> None:
 
     orchestrator.run_forever(max_cycles=args.cycles)
 
-    print("[SHUTDOWN] Exiting gracefully. Goodbye!")
+    _report_shutdown(orchestrator.stop_controller.stop_mode())
 
 
 if __name__ == "__main__":

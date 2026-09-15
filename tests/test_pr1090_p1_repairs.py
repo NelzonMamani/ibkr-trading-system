@@ -209,7 +209,7 @@ def test_escalation_finalizes_every_path(monkeypatch, tmp_path, outcomes, forced
     process = Process(outcomes)
     joined, audits = [], []
     readers = [SimpleNamespace(ident=1, join=lambda timeout: joined.append(timeout), is_alive=lambda: False) for _ in range(2)]
-    monkeypatch.setattr(supervisor, "no_ross_runtime_remains", lambda: True)
+    monkeypatch.setattr(supervisor, "no_ross_runtime_remains", lambda *args: True)
     def audit():
         assert process.poll() is not None
         audits.append("audit")
@@ -247,7 +247,7 @@ def test_reader_failure_keeps_cleanup_and_blocks_audit(monkeypatch, tmp_path, fa
             raise OSError("private detail")
     readers = [SimpleNamespace(ident=1, join=join, is_alive=lambda: failure == "alive"),
                SimpleNamespace(ident=2, join=lambda timeout: joined.append(True), is_alive=lambda: False)]
-    monkeypatch.setattr(supervisor, "no_ross_runtime_remains", lambda: True)
+    monkeypatch.setattr(supervisor, "no_ross_runtime_remains", lambda *args: True)
     monkeypatch.setattr(supervisor, "final_broker_audit", lambda: pytest.fail("audit after reader failure"))
     assert supervisor.stop_and_finalize(process, readers, ["capture failed"] if failure == "capture" else [], tmp_path) == 2
     assert joined == [True]
@@ -256,7 +256,7 @@ def test_reader_failure_keeps_cleanup_and_blocks_audit(monkeypatch, tmp_path, fa
 
 def test_remaining_runtime_blocks_audit(monkeypatch, tmp_path):
     prepare_child_proof(tmp_path)
-    monkeypatch.setattr(supervisor, "no_ross_runtime_remains", lambda: False)
+    monkeypatch.setattr(supervisor, "no_ross_runtime_remains", lambda *args: False)
     monkeypatch.setattr(supervisor, "final_broker_audit", lambda: pytest.fail("audit while runtime remains"))
     assert supervisor.stop_and_finalize(Process([0]), [], [], tmp_path) == 2
 
@@ -276,7 +276,7 @@ def test_clean_preflight_reaches_mock_child_and_finalization(monkeypatch, tmp_pa
         prepare_child_proof(output)
         return Process([0, 0])
     monkeypatch.setattr(supervisor.subprocess, "Popen", popen)
-    monkeypatch.setattr(supervisor, "no_ross_runtime_remains", lambda: True)
+    monkeypatch.setattr(supervisor, "no_ross_runtime_remains", lambda *args: True)
     monkeypatch.setattr(supervisor, "final_broker_audit", lambda: {"query_completed": True, "disconnected": True})
     assert supervisor.main(["--seconds", "1", "--output", str(output), "--expected-commit", HEAD]) == 0
     assert created == [True]
@@ -383,3 +383,251 @@ def test_run_loop_first_interrupt_graceful_second_interrupt_panic(monkeypatch, t
         saved = json.loads((tmp_path / "shutdown_evidence.json").read_text())
         assert saved["events"][-1]["event"] == "TERMINAL_FLUSHED"
         assert all(row["completed"] for row in saved["hooks"])
+
+
+@pytest.mark.parametrize("failure", [RuntimeError, OSError])
+def test_shutdown_event_failure_is_truthful_and_cleanup_continues(monkeypatch, tmp_path, failure):
+    from src.core.stop_controller import StopMode
+    instance, called = fake_orchestrator(monkeypatch)
+    monkeypatch.setenv("PR1090_EVIDENCE_DIR", str(tmp_path))
+    def emit(**kwargs):
+        raise failure("sink unavailable")
+    instance.event_collector.emit = emit
+    instance._shutdown(StopMode.GRACEFUL)
+    assert called == list(shutdown.REQUIRED_HOOKS)
+    proof = json.loads((tmp_path / "shutdown_evidence.json").read_text())
+    failures = [row for row in proof["hooks"] if row["hook"].startswith("event_collector.SHUTDOWN_")]
+    assert failures and all(row["attempted"] and not row["completed"] and row["error_type"] == failure.__name__ for row in failures)
+    assert next(row for row in proof["events"] if row["event"] == "SHUTDOWN_COMPLETE")["completed"] is False
+    assert not shutdown.validate_terminal(proof)["passed"]
+
+
+@pytest.mark.parametrize("exception_type", [KeyboardInterrupt, SystemExit, GeneratorExit])
+def test_event_sink_control_exceptions_propagate(monkeypatch, exception_type):
+    from src.core.stop_controller import StopMode
+    instance, called = fake_orchestrator(monkeypatch)
+    def emit(**kwargs):
+        raise exception_type
+    instance.event_collector.emit = emit
+    with pytest.raises(exception_type):
+        instance._shutdown(StopMode.GRACEFUL)
+    assert called == []
+    assert instance.shutdown_evidence.hooks == []
+    assert not getattr(instance, "_shutdown_finished", False)
+
+
+@pytest.mark.parametrize("event", ["SHUTDOWN_STARTED", "SHUTDOWN_HOOK_FAILED", "SHUTDOWN_COMPLETE"])
+@pytest.mark.parametrize("boundary", ["inner", "bounded", "finalizer"])
+def test_event_interrupt_reaches_panic_at_each_shutdown_boundary(monkeypatch, tmp_path, event, boundary):
+    from src.core.stop_controller import StopMode
+    instance, called = fake_orchestrator(monkeypatch)
+    instance._clean_start_ready_for_trading = True
+    instance._pipeline_runtime_counts = {}
+    monkeypatch.delenv("PR1090_STOP_FILE", raising=False)
+    monkeypatch.setenv("PR1090_EVIDENCE_DIR", str(tmp_path))
+    if boundary == "inner":
+        instance._handle_keyboard_interrupt()
+    elif boundary == "finalizer":
+        instance._run_forever_inner = lambda *args: None
+    if event == "SHUTDOWN_HOOK_FAILED":
+        instance._emit_ops_summary = lambda: (_ for _ in ()).throw(RuntimeError("hook failure"))
+    seen, interrupted = [], []
+    def emit(**kwargs):
+        if kwargs["event_type"] == event and not interrupted:
+            interrupted.append(instance.shutdown_evidence)
+            raise KeyboardInterrupt
+        seen.append(kwargs["event_type"])
+    instance.event_collector.emit = emit
+    instance.run_forever(cycle_sleep_seconds=0, max_cycles=0)
+    assert interrupted
+    assert instance.stop_controller.stop_mode() == StopMode.PANIC
+    assert "PANIC_STOP_TRIGGERED" in seen
+    assert "SHUTDOWN_COMPLETE" not in seen
+    assert not (tmp_path / "shutdown_evidence.json").exists()
+    assert not any(row["event"] == "TERMINAL_FLUSHED" for row in interrupted[0].events)
+    assert instance.shutdown_evidence.events[0]["event"] == "PANIC_STOP_REQUESTED"
+    assert not shutdown.validate_terminal(instance.shutdown_evidence.payload())["passed"]
+
+
+@pytest.mark.parametrize("args", [
+    ["python", "src/main.py"], ["python3", "/work/project/src/main.py"],
+    ["/opt/venv/bin/python3.12", "-u", "-B", "src/main.py"],
+    ["python", "-W", "ignore", "-X", "utf8", "-Iu", "-m", "src.main"],
+    ["python", "--", "./src/main.py"],
+    ["python3", "-um", "src.main"],
+    ["python", "src/../src/main.py"],
+    ["PYTHON.EXE", r"C:\repo\SRC\MAIN.PY"],
+    [r"C:\Program Files\Python\python.exe", "-u", "-m", "src.main"],
+    [r"C:\venv\pythonw.exe", r"C:\repo\src\main.py"],
+    ["python", "scripts/certification/pr1040_real_readonly_runtime_observation_adapter.py"],
+    ["python", "-m", "scripts.certification.pr1040_real_readonly_runtime_observation_adapter"],
+])
+def test_structured_runtime_entrypoints(args):
+    assert supervisor.is_ross_runtime(args)
+
+
+@pytest.mark.parametrize("args", [
+    ["pytest", "src/main.py"], ["python", "-m", "pytest", "src/main.py"],
+    ["python", "pytest.py", "src/main.py"], ["code", "src/main.py"],
+    ["bash", "-c", "python src/main.py"], ["python", "-c", "print('src/main.py')"],
+    ["python", "log_reader.py", "--text", "src.main"],
+    ["python", "scripts/certification/pr1090_terminal_observation_supervisor.py", "--output", "src/main.py"],
+    ["python", "-m", "scripts.certification.pr1090_terminal_observation_supervisor"],
+    ["python", "-uc", "print(123)"], ["python", "src/main.py.log"], ["python", "-W", "src/main.py", "unrelated.py"],
+])
+def test_textual_mentions_and_supervisor_are_not_runtime(args):
+    assert not supervisor.is_ross_runtime(args)
+
+
+@pytest.mark.parametrize("args", [
+    [r"C:\Program Files\Python\python.exe", "-u", r"C:\a b\src\main.py"],
+    ["python.exe", "-m", "src.main", 'quoted "argument"', "trailing\\"],
+    ["python.exe", "-c", 'print("src/main.py")'],
+])
+def test_windows_argv_roundtrip_is_platform_independent(args):
+    assert supervisor.split_windows_command_line(subprocess.list2cmdline(args)) == args
+
+
+def write_proc_entry(root, pid, args):
+    path = root / str(pid)
+    path.mkdir()
+    (path / "cmdline").write_bytes(b"\0".join(arg.encode() for arg in args) + b"\0")
+    return path
+
+
+@pytest.mark.parametrize("runtime", [True, False])
+def test_posix_inventory_preserves_pid_and_redacted_argv(monkeypatch, tmp_path, runtime):
+    monkeypatch.setattr(supervisor.os, "getpid", lambda: 100)
+    write_proc_entry(tmp_path, 100, ["python", "scripts/certification/pr1090_terminal_observation_supervisor.py"])
+    args = ["python3", "-u", "/repo/src/main.py", "DU" + "987654321"] if runtime else ["python", "-m", "pytest", "src/main.py"]
+    write_proc_entry(tmp_path, 200, args)
+    evidence = supervisor.runtime_inventory(platform="posix", proc_root=tmp_path)
+    assert evidence["completed"]
+    assert len(evidence["runtimes"]) == int(runtime)
+    if runtime:
+        assert evidence["runtimes"][0]["pid"] == 200
+        assert evidence["runtimes"][0]["argv"][-1] == "REDACTED"
+
+
+@pytest.mark.parametrize("problem", ["missing_root", "empty", "missing_self", "missing_cmdline"])
+def test_posix_incomplete_inventory_fails_closed(monkeypatch, tmp_path, problem):
+    monkeypatch.setattr(supervisor.os, "getpid", lambda: 100)
+    root = tmp_path
+    if problem == "missing_root":
+        root = tmp_path / "absent"
+    elif problem == "missing_self":
+        write_proc_entry(root, 200, ["python", "other.py"])
+    elif problem == "missing_cmdline":
+        write_proc_entry(root, 100, ["python", "supervisor.py"])
+        (root / "200").mkdir()
+    result = supervisor.runtime_inventory(platform="posix", proc_root=root)
+    assert result["completed"] is False
+    assert result["error_type"]
+
+
+def test_windows_inventory_uses_structured_commands(monkeypatch):
+    monkeypatch.setattr(supervisor.os, "getpid", lambda: 100)
+    rows = [
+        {"ProcessId": 100, "CommandLine": "python.exe scripts/certification/pr1090_terminal_observation_supervisor.py"},
+        {"ProcessId": 200, "CommandLine": '"C:\\Program Files\\Python\\python.exe" -u "C:\\repo\\src\\main.py"'},
+        {"ProcessId": 300, "CommandLine": 'python.exe -m pytest src/main.py'},
+    ]
+    monkeypatch.setattr(supervisor.subprocess, "run", lambda *a, **k: SimpleNamespace(stdout=json.dumps(rows)))
+    evidence = supervisor.runtime_inventory(platform="nt")
+    assert evidence["completed"]
+    assert [row["pid"] for row in evidence["runtimes"]] == [200]
+
+
+@pytest.mark.parametrize("stdout", ["", "null", "[]", "{}", '[{"ProcessId":100,"CommandLine":null}]'])
+def test_windows_unreadable_inventory_fails_closed(monkeypatch, stdout):
+    monkeypatch.setattr(supervisor.subprocess, "run", lambda *a, **k: SimpleNamespace(stdout=stdout))
+    assert supervisor.runtime_inventory(platform="nt")["completed"] is False
+
+
+@pytest.mark.parametrize("completed,runtimes", [(False, []), (True, [{"pid": 200, "argv": ["python", "src/main.py"]}])])
+def test_inventory_blocks_audit_and_persists_evidence(monkeypatch, tmp_path, completed, runtimes):
+    prepare_child_proof(tmp_path)
+    evidence = {"completed": completed, "runtimes": runtimes}
+    monkeypatch.setattr(supervisor, "runtime_inventory", lambda: evidence)
+    monkeypatch.setattr(supervisor, "final_broker_audit", lambda: pytest.fail("audit with unsafe inventory"))
+    assert supervisor.stop_and_finalize(Process([0]), [], [], tmp_path) == 2
+    assert json.loads((tmp_path / "runtime_inventory.json").read_text()) == evidence
+    assert "certification: FAIL" in (tmp_path / "FINAL_REPORT.md").read_text()
+
+
+def test_panic_marker_rejects_otherwise_complete_terminal_proof(tmp_path):
+    prepare_child_proof(tmp_path)
+    payload = json.loads((tmp_path / "shutdown_evidence.json").read_text())
+    payload["events"][0]["mode"] = "PANIC"
+    privacy.write_json(tmp_path / "shutdown_evidence.json", payload)
+    result = shutdown.complete_after_process_exit(tmp_path, SimpleNamespace(pid=Process.pid, poll=lambda: 0),
+        lambda: True, lambda: {"query_completed": True, "disconnected": True})
+    assert not result["passed"]
+    assert "PANIC cannot certify graceful shutdown" in result["blockers"]
+
+
+@pytest.mark.parametrize("seconds", ["nan", "inf", "-inf"])
+def test_nonfinite_observation_duration_rejected(monkeypatch, tmp_path, seconds):
+    monkeypatch.setattr(supervisor, "require_clean_certification_worktree", lambda *args: pytest.fail("preflight reached"))
+    with pytest.raises(SystemExit):
+        supervisor.main(["--seconds=" + seconds, "--output", str(tmp_path), "--expected-commit", HEAD])
+
+
+@pytest.mark.parametrize("mode", ["GRACEFUL", "PANIC"])
+def test_entrypoint_panic_exit_is_nonzero_and_never_claims_graceful(mode, capsys):
+    from src.main import _report_shutdown
+    if mode == "PANIC":
+        with pytest.raises(SystemExit) as caught:
+            _report_shutdown(mode)
+        assert caught.value.code == 2
+        assert "gracefully" not in capsys.readouterr().out
+    else:
+        _report_shutdown(mode)
+        assert "Exiting gracefully" in capsys.readouterr().out
+
+
+def test_panic_exit_rejects_preexisting_graceful_proof(tmp_path):
+    prepare_child_proof(tmp_path)
+    result = shutdown.complete_after_process_exit(tmp_path, SimpleNamespace(pid=Process.pid, poll=lambda: 2),
+        lambda: True, lambda: {"query_completed": True, "disconnected": True})
+    assert not result["passed"]
+    assert "Runtime did not exit successfully" in result["blockers"]
+
+
+def test_supervisor_error_rejects_otherwise_complete_terminal_proof(tmp_path):
+    prepare_child_proof(tmp_path)
+    payload = json.loads((tmp_path / "shutdown_evidence.json").read_text())
+    payload["supervisor_error"] = "KeyboardInterrupt"
+    privacy.write_json(tmp_path / "shutdown_evidence.json", payload)
+    result = shutdown.complete_after_process_exit(tmp_path, SimpleNamespace(pid=Process.pid, poll=lambda: 0),
+        lambda: True, lambda: {"query_completed": True, "disconnected": True})
+    assert not result["passed"]
+    assert "Supervisor finalization failed" in result["blockers"]
+
+
+@pytest.mark.parametrize("failure", [OSError, KeyboardInterrupt])
+def test_partial_final_query_failure_clears_success_and_disconnects(monkeypatch, failure):
+    from src.adapters.brokers.ibkr import ibkr_client
+    from src.config import runtime_config
+    calls = []
+    class Orders:
+        def __len__(self):
+            raise failure("query result unavailable")
+    class Client:
+        def __init__(self, **kwargs):
+            self._thread = None
+            self._open_orders_event = SimpleNamespace(clear=lambda: None, wait=lambda timeout: True)
+        def connect(self):
+            pass
+        def reqAllOpenOrders(self):
+            self._open_orders_snapshot = Orders()
+        def disconnect(self):
+            calls.append("disconnect")
+        def is_connected(self):
+            return False
+    monkeypatch.setattr(ibkr_client, "IbkrClient", Client)
+    monkeypatch.setattr(runtime_config, "resolve_ibkr_connection", lambda: ("fake", 0, 123, "READ_ONLY"))
+    result = supervisor.final_broker_audit()
+    assert result["query_completed"] is False
+    assert result["disconnected"] is True
+    assert calls == ["disconnect"]

@@ -68,12 +68,17 @@ def test_startup_banner_and_orchestrator_agree(monkeypatch: pytest.MonkeyPatch, 
 
     import src.main as main_module
 
+    from src.core.stop_controller import StopController, StopMode
+
     class _StubOrchestrator:
         def __init__(self):
             self.runtime_mode_manager = RuntimeModeManager.resolve()
+            self.stop_controller = StopController()
 
         def run_forever(self, max_cycles=None):
-            return None
+            self.stop_controller.request_stop(
+                StopMode.GRACEFUL, reason="Run loop complete", source="CoreOrchestrator"
+            )
 
     monkeypatch.setattr(main_module, "CoreOrchestrator", _StubOrchestrator)
     monkeypatch.setattr(sys, "argv", ["main.py", "--cycles", "0"])
