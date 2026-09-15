@@ -1,0 +1,292 @@
+"""Offline regressions for the three reviewed PR1090 P1 findings."""
+from io import StringIO
+import json
+import subprocess
+import threading
+from types import SimpleNamespace
+
+import pytest
+
+from scripts.certification import pr1090_terminal_observation_supervisor as supervisor
+from src.ibkr import evidence_safety as privacy
+from src.ibkr import shutdown_evidence as shutdown
+
+HEAD = "a" * 40
+
+
+def mock_git(monkeypatch, *, head=HEAD, status=""):
+    commands = []
+    def run(command, **kwargs):
+        commands.append(command)
+        assert command[:2] in (["git", "rev-parse"], ["git", "status"])
+        return SimpleNamespace(stdout=head + "\n" if command[1] == "rev-parse" else status)
+    monkeypatch.setattr(supervisor.subprocess, "run", run)
+    return commands
+
+
+def test_clean_expected_head_preflight_is_read_only(monkeypatch):
+    commands = mock_git(monkeypatch)
+    assert supervisor.require_clean_certification_worktree(HEAD) == HEAD
+    assert commands[-1] == ["git", "status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignore-submodules=none"]
+
+
+@pytest.mark.parametrize("head,status", [("b" * 40, ""), (HEAD, " M src/main.py\0"),
+    (HEAD, "M  src/main.py\0"), (HEAD, "?? src/injected.py\0"),
+    (HEAD, " M TRADING_OS_MASTER_CATALOGUE/generated.md\0")])
+def test_preflight_failure_creates_no_child_audit_or_artifacts(monkeypatch, tmp_path, head, status):
+    commands = mock_git(monkeypatch, head=head, status=status)
+    drift = tmp_path / "preserved.txt"
+    drift.write_text("user drift")
+    monkeypatch.setattr(supervisor.subprocess, "Popen", lambda *a, **k: pytest.fail("child created"))
+    monkeypatch.setattr(supervisor, "final_broker_audit", lambda: pytest.fail("audit reached"))
+    output = tmp_path / "evidence"
+    with pytest.raises(SystemExit) as exc:
+        supervisor.main(["--seconds", "1", "--output", str(output), "--expected-commit", HEAD])
+    assert exc.value.code != 0
+    assert not output.exists()
+    assert drift.read_text() == "user drift"
+    assert all(command[1] in {"rev-parse", "status"} for command in commands)
+
+
+def test_dirty_filename_is_redacted(monkeypatch):
+    token = "DU" + "987654321"
+    mock_git(monkeypatch, status="?? src/" + token + ".py\0")
+    with pytest.raises(RuntimeError) as exc:
+        supervisor.require_clean_certification_worktree(HEAD)
+    assert token not in str(exc.value)
+    assert "REDACTED.py" in str(exc.value)
+    assert '"status": "??"' in str(exc.value)
+
+
+def test_second_preflight_catches_change_during_preparation(monkeypatch, tmp_path):
+    from scripts.certification import pr1040_real_readonly_runtime_observation_adapter as adapter
+    calls = []
+    def preflight(head):
+        calls.append("preflight")
+        if len(calls) > 1:
+            raise RuntimeError("worktree changed")
+    monkeypatch.setattr(supervisor, "require_clean_certification_worktree", preflight)
+    monkeypatch.setattr(supervisor, "install_console_protection", lambda: None)
+    monkeypatch.setattr(adapter, "build_safe_readonly_env", lambda: {})
+    monkeypatch.setattr(supervisor.subprocess, "Popen", lambda *a, **k: pytest.fail("child created"))
+    output = tmp_path / "evidence"
+    with pytest.raises(SystemExit):
+        supervisor.main(["--seconds", "1", "--output", str(output), "--expected-commit", HEAD])
+    assert calls == ["preflight", "preflight"]
+    assert not output.exists()
+
+
+def fake_orchestrator(monkeypatch, nonessential=None, execution=None):
+    from src.core.orchestrator import CoreOrchestrator
+    from src.core.stop_controller import StopController
+    instance = object.__new__(CoreOrchestrator)
+    instance.stop_controller = StopController()
+    instance._stop_payload = lambda mode: {}
+    called = []
+    def hook(name):
+        def invoke():
+            called.append(name)
+            if nonessential is not None:
+                return nonessential()
+        return invoke
+    instance._emit_ops_summary = hook("ops_summary")
+    instance.learning_scheduler = SimpleNamespace(on_shutdown=hook("learning_scheduler"))
+    instance.execution_engine = SimpleNamespace(shutdown=execution or (lambda: called.append("execution_engine.shutdown")))
+    instance.trade_exit_engine = SimpleNamespace(shutdown=hook("trade_exit_engine.shutdown"))
+    instance.storage_engine = SimpleNamespace(shutdown=hook("storage_engine.shutdown"))
+    instance.trade_registry = SimpleNamespace(verify_empty=hook("active_trade_registry.verify_empty"))
+    instance.event_collector = SimpleNamespace(emit=lambda **kwargs: None, flush_summary=hook("event_collector.flush_summary"))
+    monkeypatch.setattr(shutdown, "reset_scanner", hook("scanner_reset"))
+    monkeypatch.setattr(shutdown, "disconnect_manager", hook("manager_disconnect"))
+    monkeypatch.setattr(privacy, "finish_console_protection", hook("console_flush"))
+    monkeypatch.delenv("PR1090_EVIDENCE_DIR", raising=False)
+    return instance, called
+
+
+def test_graceful_keeps_all_ordered_hooks_and_flush(monkeypatch, tmp_path):
+    from src.core.stop_controller import StopMode
+    instance, called = fake_orchestrator(monkeypatch)
+    monkeypatch.setenv("PR1090_EVIDENCE_DIR", str(tmp_path))
+    instance._shutdown(StopMode.GRACEFUL)
+    assert called == list(shutdown.REQUIRED_HOOKS)
+    proof = json.loads((tmp_path / "shutdown_evidence.json").read_text())
+    assert proof["events"][-1]["event"] == "TERMINAL_FLUSHED"
+    instance._shutdown(StopMode.GRACEFUL)
+    assert called == list(shutdown.REQUIRED_HOOKS)
+
+
+def test_graceful_hook_failure_is_isolated(monkeypatch):
+    from src.core.stop_controller import StopMode
+    instance, called = fake_orchestrator(monkeypatch)
+    instance._emit_ops_summary = lambda: (_ for _ in ()).throw(ValueError("failure"))
+    instance._shutdown(StopMode.GRACEFUL)
+    assert called == list(shutdown.REQUIRED_HOOKS)[1:]
+    assert instance.shutdown_evidence.hooks[0]["completed"] is False
+
+
+@pytest.mark.parametrize("execution_fails", [False, True])
+def test_panic_minimal_truthful_idempotent_and_never_certifies(monkeypatch, execution_fails):
+    from src.core.stop_controller import StopMode
+    attempts = []
+    def execution():
+        attempts.append("execution")
+        if execution_fails:
+            raise RuntimeError("essential failure")
+    def forbidden():
+        pytest.fail("PANIC entered a nonessential hook")
+    instance, called = fake_orchestrator(monkeypatch, forbidden, execution)
+    monkeypatch.setattr(shutdown.ShutdownEvidence, "flush", lambda *a: pytest.fail("PANIC flushed evidence"))
+    instance._shutdown(StopMode.PANIC)
+    instance._shutdown(StopMode.PANIC)
+    assert attempts == ["execution"]
+    assert called == []
+    proof = instance.shutdown_evidence.payload()
+    assert "GRACEFUL_STOP_REQUESTED" not in [row["event"] for row in proof["events"]]
+    assert proof["events"][0]["mode"] == "PANIC"
+    assert proof["hooks"][0]["completed"] is (not execution_fails)
+    assert all(row["skipped"] and row["reason"] == "PANIC" and not row["attempted"] for row in proof["hooks"][1:])
+    assert not shutdown.validate_terminal(proof)["passed"]
+
+
+def test_blocked_nonessential_hook_cannot_delay_panic(monkeypatch):
+    from src.core.stop_controller import StopMode
+    release = threading.Event()
+    instance, called = fake_orchestrator(monkeypatch, lambda: release.wait(timeout=5))
+    worker = threading.Thread(target=instance._shutdown, args=(StopMode.PANIC,), daemon=True)
+    try:
+        worker.start()
+        worker.join(timeout=1)
+        assert not worker.is_alive()
+        assert called == ["execution_engine.shutdown"]
+    finally:
+        release.set()
+        worker.join(timeout=1)
+
+
+class Process:
+    pid = 999999
+    def __init__(self, outcomes):
+        self.outcomes = iter(outcomes)
+        self.calls = []
+        self.returncode = None
+        self.stdout, self.stderr = StringIO(), StringIO()
+    def wait(self, timeout):
+        self.calls.append(("wait", timeout))
+        outcome = next(self.outcomes)
+        if outcome == "timeout":
+            raise subprocess.TimeoutExpired("account " + "DU" + "987654321", timeout)
+        self.returncode = outcome
+        return outcome
+    def poll(self):
+        return self.returncode
+    def terminate(self):
+        self.calls.append(("terminate",))
+    def kill(self):
+        self.calls.append(("kill",))
+
+
+def prepare_child_proof(tmp_path):
+    proof = shutdown.ShutdownEvidence()
+    proof.record("GRACEFUL_STOP_REQUESTED", completed=True)
+    proof.record("SHUTDOWN_STARTED", completed=True)
+    for name in shutdown.REQUIRED_HOOKS:
+        proof.attempt(name, lambda: None)
+    proof.record("SHUTDOWN_COMPLETE", completed=True)
+    proof.record("TERMINAL_FLUSHED", completed=True)
+    payload = proof.payload()
+    payload["pid"] = Process.pid
+    privacy.write_json(tmp_path / "shutdown_evidence.json", payload)
+
+
+@pytest.mark.parametrize("outcomes,forced,terminated,killed,exited", [
+    ([0], False, False, False, True),
+    (["timeout", 0], True, True, False, True),
+    (["timeout", "timeout", 0], True, True, True, True),
+    (["timeout", "timeout", "timeout"], True, True, True, False),
+])
+def test_escalation_finalizes_every_path(monkeypatch, tmp_path, outcomes, forced, terminated, killed, exited):
+    prepare_child_proof(tmp_path)
+    process = Process(outcomes)
+    joined, audits = [], []
+    readers = [SimpleNamespace(ident=1, join=lambda timeout: joined.append(timeout), is_alive=lambda: False) for _ in range(2)]
+    monkeypatch.setattr(supervisor, "no_ross_runtime_remains", lambda: True)
+    def audit():
+        assert process.poll() is not None
+        audits.append("audit")
+        return {"query_completed": True, "disconnected": True}
+    monkeypatch.setattr(supervisor, "final_broker_audit", audit)
+    result = supervisor.stop_and_finalize(process, readers, [], tmp_path)
+    assert result == (2 if forced else 0)
+    assert process.calls.count(("terminate",)) == int(terminated)
+    assert process.calls.count(("kill",)) == int(killed)
+    assert [call[1] for call in process.calls if call[0] == "wait"] == [60, 15, 15][:len(outcomes)]
+    assert joined == [15, 15]
+    assert process.stdout.closed and process.stderr.closed
+    state = json.loads((tmp_path / "supervisor_shutdown.json").read_text())
+    assert state["forced"] is forced
+    assert state["runtime_process_exited"] is exited
+    assert audits == ([] if forced else ["audit"])
+    assert (tmp_path / "FINAL_REPORT.md").exists()
+    if forced:
+        assert "certification: FAIL" in (tmp_path / "FINAL_REPORT.md").read_text()
+    if not exited:
+        terminal = json.loads((tmp_path / "terminal_evidence.json").read_text())
+        assert not next(e["completed"] for e in terminal["events"] if e["event"] == "RUNTIME_PROCESS_EXITED")
+        assert not next(e["completed"] for e in terminal["events"] if e["event"] == "NO_ROSS_RUNTIME")
+        assert state["surviving_pid"] == process.pid
+    assert "DU" + "987654321" not in (tmp_path / "supervisor_shutdown.json").read_text()
+
+
+@pytest.mark.parametrize("failure", ["capture", "join", "alive"])
+def test_reader_failure_keeps_cleanup_and_blocks_audit(monkeypatch, tmp_path, failure):
+    prepare_child_proof(tmp_path)
+    process = Process([0])
+    joined = []
+    def join(timeout):
+        if failure == "join":
+            raise OSError("private detail")
+    readers = [SimpleNamespace(ident=1, join=join, is_alive=lambda: failure == "alive"),
+               SimpleNamespace(ident=2, join=lambda timeout: joined.append(True), is_alive=lambda: False)]
+    monkeypatch.setattr(supervisor, "no_ross_runtime_remains", lambda: True)
+    monkeypatch.setattr(supervisor, "final_broker_audit", lambda: pytest.fail("audit after reader failure"))
+    assert supervisor.stop_and_finalize(process, readers, ["capture failed"] if failure == "capture" else [], tmp_path) == 2
+    assert joined == [True]
+    assert "certification: FAIL" in (tmp_path / "FINAL_REPORT.md").read_text()
+
+
+def test_remaining_runtime_blocks_audit(monkeypatch, tmp_path):
+    prepare_child_proof(tmp_path)
+    monkeypatch.setattr(supervisor, "no_ross_runtime_remains", lambda: False)
+    monkeypatch.setattr(supervisor, "final_broker_audit", lambda: pytest.fail("audit while runtime remains"))
+    assert supervisor.stop_and_finalize(Process([0]), [], [], tmp_path) == 2
+
+
+def test_clean_preflight_reaches_mock_child_and_finalization(monkeypatch, tmp_path):
+    from scripts.certification import pr1040_real_readonly_runtime_observation_adapter as adapter
+    mock_git(monkeypatch)
+    monkeypatch.setattr(supervisor, "install_console_protection", lambda: None)
+    monkeypatch.setattr(adapter, "build_safe_readonly_env", lambda: {})
+    # Restore environment keys set by main after the mocked child exits.
+    monkeypatch.setenv("PR1090_EVIDENCE_DIR", "")
+    monkeypatch.setenv("PR1090_STOP_FILE", "")
+    output = tmp_path / "evidence"
+    created = []
+    def popen(*args, **kwargs):
+        created.append(True)
+        prepare_child_proof(output)
+        return Process([0, 0])
+    monkeypatch.setattr(supervisor.subprocess, "Popen", popen)
+    monkeypatch.setattr(supervisor, "no_ross_runtime_remains", lambda: True)
+    monkeypatch.setattr(supervisor, "final_broker_audit", lambda: {"query_completed": True, "disconnected": True})
+    assert supervisor.main(["--seconds", "1", "--output", str(output), "--expected-commit", HEAD]) == 0
+    assert created == [True]
+    assert "certification: PASS" in (output / "FINAL_REPORT.md").read_text()
+
+
+def test_terminal_writer_failure_still_attempts_failed_report(monkeypatch, tmp_path):
+    process = Process(["timeout", "timeout", "timeout"])
+    monkeypatch.setattr(supervisor, "complete_after_process_exit", lambda *args: (_ for _ in ()).throw(OSError("private error")))
+    assert supervisor.stop_and_finalize(process, [], [], tmp_path) == 2
+    assert "certification: FAIL" in (tmp_path / "FINAL_REPORT.md").read_text()
+    state = json.loads((tmp_path / "supervisor_shutdown.json").read_text())
+    assert state["errors"][-1] == {"stage": "terminal_finalization", "type": "OSError"}

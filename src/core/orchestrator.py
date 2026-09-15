@@ -6691,6 +6691,27 @@ class CoreOrchestrator:
         resolved_mode = mode or StopMode.GRACEFUL
         if not self.stop_controller.is_stop_requested():
             self.stop_controller.request_stop(resolved_mode, reason="Shutdown finalization", source="CoreOrchestrator")
+        if resolved_mode == StopMode.PANIC:
+            from src.ibkr.shutdown_evidence import REQUIRED_HOOKS
+
+            # Emergency bookkeeping stays in memory: no nonessential hook or
+            # blocking evidence I/O may delay the essential execution shutdown.
+            # Missing durable graceful proof deliberately fails certification.
+            self._shutdown_finished = True
+            proof.record("PANIC_STOP_REQUESTED", mode="PANIC", completed=True)
+            proof.record("SHUTDOWN_STARTED", mode="PANIC", completed=True)
+            proof.attempt("execution_engine.shutdown", self.execution_engine.shutdown)
+            for name in REQUIRED_HOOKS:
+                if name == "execution_engine.shutdown":
+                    continue
+                row = {"hook": name, "attempted": False, "completed": False,
+                       "skipped": True, "reason": "PANIC"}
+                proof.hooks.append(row)
+                proof.record("SHUTDOWN_HOOK", **row)
+            proof.record("SHUTDOWN_COMPLETE", mode="PANIC",
+                         completed=proof.hooks[0]["completed"])
+            return
+
         proof.record("GRACEFUL_STOP_REQUESTED", completed=(
             self.stop_controller.is_stop_requested() and resolved_mode == StopMode.GRACEFUL))
 
