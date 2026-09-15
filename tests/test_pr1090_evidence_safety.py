@@ -108,7 +108,7 @@ def terminal_payload():
 
 def test_hook_failures_do_not_prevent_later_hooks():
     proof = ShutdownEvidence()
-    proof.attempt("broken", lambda: (_ for _ in ()).throw(KeyboardInterrupt()))
+    proof.attempt("broken", lambda: (_ for _ in ()).throw(RuntimeError()))
     proof.attempt("next", lambda: None)
     assert not proof.hooks[0]["completed"]
     assert proof.hooks[1]["completed"]

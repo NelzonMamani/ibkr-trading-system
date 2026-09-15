@@ -290,3 +290,96 @@ def test_terminal_writer_failure_still_attempts_failed_report(monkeypatch, tmp_p
     assert "certification: FAIL" in (tmp_path / "FINAL_REPORT.md").read_text()
     state = json.loads((tmp_path / "supervisor_shutdown.json").read_text())
     assert state["errors"][-1] == {"stage": "terminal_finalization", "type": "OSError"}
+
+
+def test_hook_ordinary_exception_is_recorded_and_next_hook_runs():
+    proof = shutdown.ShutdownEvidence()
+    failure = ValueError("ordinary hook failure")
+    def fail():
+        raise failure
+    assert proof.attempt("failed", fail) is None
+    assert proof.hooks[0] == {
+        "hook": "failed", "attempted": True, "completed": False,
+        "error_type": "ValueError", "error": "ordinary hook failure",
+    }
+    assert proof.events[0]["error_type"] == "ValueError"
+    assert proof.attempt("next", lambda: "completed") == "completed"
+    assert proof.hooks[1]["completed"] is True
+
+
+@pytest.mark.parametrize("exception_type", [KeyboardInterrupt, SystemExit, GeneratorExit])
+def test_hook_process_control_exception_propagates_without_failure_conversion(exception_type):
+    proof = shutdown.ShutdownEvidence()
+    interrupt = exception_type()
+    def stop():
+        raise interrupt
+    with pytest.raises(exception_type) as caught:
+        proof.attempt("interrupted", stop)
+    assert caught.value is interrupt
+    assert proof.hooks == [{"hook": "interrupted", "attempted": True, "completed": False}]
+    assert proof.events[0]["completed"] is False
+    assert "error_type" not in proof.events[0]
+    assert "error" not in proof.events[0]
+
+
+@pytest.mark.parametrize("second_interrupt", [False, True])
+def test_run_loop_first_interrupt_graceful_second_interrupt_panic(monkeypatch, tmp_path, second_interrupt):
+    from src.core.stop_controller import StopMode
+
+    instance, called = fake_orchestrator(monkeypatch)
+    instance._clean_start_ready_for_trading = True
+    instance._pipeline_runtime_counts = {}
+    monkeypatch.delenv("PR1090_STOP_FILE", raising=False)
+    monkeypatch.setenv("PR1090_EVIDENCE_DIR", str(tmp_path))
+    emitted = []
+    instance.event_collector.emit = lambda **kwargs: emitted.append(kwargs["event_type"])
+
+    # Inject the first interrupt inside the real loop's try boundary, before
+    # market/session work. The real handler and stop controller remain in use.
+    original_is_stopping = instance.stop_controller.is_stop_requested
+    boundary_calls = []
+    def first_interrupt():
+        boundary_calls.append(True)
+        if len(boundary_calls) == 1:
+            raise KeyboardInterrupt
+        return original_is_stopping()
+    monkeypatch.setattr(instance.stop_controller, "is_stop_requested", first_interrupt)
+
+    interrupted_proofs = []
+    if second_interrupt:
+        def interrupt_hook():
+            called.append("ops_summary")
+            assert instance.stop_controller.stop_mode() == StopMode.GRACEFUL
+            interrupted_proofs.append(instance.shutdown_evidence)
+            raise KeyboardInterrupt
+        instance._emit_ops_summary = interrupt_hook
+
+    instance.run_forever(cycle_sleep_seconds=0, max_cycles=0)
+
+    assert instance._shutdown_finished is True
+    proof = instance.shutdown_evidence.payload()
+    if second_interrupt:
+        assert instance.stop_controller.stop_mode() == StopMode.PANIC
+        assert instance.stop_controller.stop_reason() == "KeyboardInterrupt (escalation)"
+        assert called == ["ops_summary", "execution_engine.shutdown"]
+        assert emitted == ["SHUTDOWN_REQUESTED", "SHUTDOWN_STARTED", "PANIC_STOP_TRIGGERED"]
+        abandoned = interrupted_proofs[0]
+        assert abandoned.hooks == [{"hook": "ops_summary", "attempted": True, "completed": False}]
+        assert not any(row["event"] in {"SHUTDOWN_COMPLETE", "TERMINAL_FLUSHED"} for row in abandoned.events)
+        assert not any(row["event"] in {"GRACEFUL_STOP_REQUESTED", "TERMINAL_FLUSHED"} for row in proof["events"])
+        assert next(row for row in proof["events"] if row["event"] == "SHUTDOWN_COMPLETE")["mode"] == "PANIC"
+        assert not (tmp_path / "shutdown_evidence.json").exists()
+        # Even an observed zero exit cannot certify the missing graceful proof.
+        result = shutdown.complete_after_process_exit(
+            tmp_path, SimpleNamespace(pid=999999, poll=lambda: 0),
+            lambda: True, lambda: pytest.fail("audit without child exit proof"))
+        assert result["passed"] is False
+        assert "certification: FAIL" in (tmp_path / "FINAL_REPORT.md").read_text()
+    else:
+        assert instance.stop_controller.stop_mode() == StopMode.GRACEFUL
+        assert instance.stop_controller.stop_reason() == "KeyboardInterrupt"
+        assert called == list(shutdown.REQUIRED_HOOKS)
+        assert "PANIC_STOP_TRIGGERED" not in emitted
+        saved = json.loads((tmp_path / "shutdown_evidence.json").read_text())
+        assert saved["events"][-1]["event"] == "TERMINAL_FLUSHED"
+        assert all(row["completed"] for row in saved["hooks"])

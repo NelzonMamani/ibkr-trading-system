@@ -33,7 +33,7 @@ class ShutdownEvidence:
                 raise RuntimeError("Hook reported incomplete cleanup")
             row["completed"] = True
             return result
-        except BaseException as exc:
+        except Exception as exc:
             row["error_type"] = type(exc).__name__
             row["error"] = sanitize(str(exc))
         finally:
