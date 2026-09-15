@@ -2008,7 +2008,16 @@ class CoreOrchestrator:
             source="Main",
         )
 
-    def run_forever(
+    def run_forever(self, cycle_sleep_seconds=None, max_cycles=None) -> None:
+        try:
+            self._run_forever_inner(cycle_sleep_seconds, max_cycles)
+        finally:
+            if not getattr(self, "_shutdown_finished", False):
+                if not self.stop_controller.is_stop_requested():
+                    self._request_stop(StopMode.GRACEFUL, reason="Runtime finalization", source="CoreOrchestrator")
+                self._shutdown(self.stop_controller.stop_mode() or StopMode.GRACEFUL)
+
+    def _run_forever_inner(
         self,
         cycle_sleep_seconds: Optional[int] = None,
         max_cycles: Optional[int] = None,
@@ -2039,6 +2048,9 @@ class CoreOrchestrator:
 
         while True:
             try:
+                stop_file = os.environ.get("PR1090_STOP_FILE")
+                if stop_file and Path(stop_file).is_file():
+                    self._request_stop(StopMode.GRACEFUL, reason="Supervisor stop requested", source="PR1090")
                 if not self._clean_start_ready_for_trading:
                     print("[CLEAN_START][BLOCK] reason=DIRTY_SESSION_AFTER_CLEAN_ATTEMPT")
                     self._request_stop(
@@ -6662,115 +6674,89 @@ class CoreOrchestrator:
         os.makedirs(report_dir, exist_ok=True)
         report_path = os.path.join(report_dir, f"{ny_date}_ops_summary.json")
         try:
-            with open(report_path, "w", encoding="utf-8") as handle:
-                json.dump(summary, handle, indent=2, sort_keys=True)
+            from src.ibkr.evidence_safety import write_json
+            write_json(report_path, summary)
         except Exception as exc:
             print(f"[OPS][SUMMARY] Failed to write report: {exc}")
+            raise
 
     def _shutdown(self, mode: StopMode) -> None:
-        """
-        Structured shutdown sequence with hook isolation.
+        from src.ibkr.shutdown_evidence import ShutdownEvidence, reset_scanner, disconnect_manager
+        from src.ibkr.evidence_safety import finish_console_protection
 
-        GRACEFUL mode executes all hooks in order. PANIC mode skips
-        non-essential steps to exit quickly while still emitting events.
-        """
-
+        if getattr(self, "_shutdown_finished", False):
+            return
+        proof = ShutdownEvidence()
+        self.shutdown_evidence = proof
         resolved_mode = mode or StopMode.GRACEFUL
-        print(f"[SHUTDOWN] Beginning {resolved_mode.value} shutdown sequence.")
-        start_payload = self._stop_payload(resolved_mode)
-        self.event_collector.emit(
-            event_type="SHUTDOWN_STARTED",
-            source="CoreOrchestrator",
-            payload=start_payload,
-            include_cycle=False,
-        )
-        try:
-            self._emit_ops_summary()
-        except Exception as exc:
-            print(f"[OPS][SUMMARY] Failed to emit ops summary: {exc}")
-        try:
-            self.learning_scheduler.on_shutdown()
-        except Exception as exc:
-            print(f"[LEARNING][SCHEDULER] Shutdown check failed: {exc}")
+        if not self.stop_controller.is_stop_requested():
+            self.stop_controller.request_stop(resolved_mode, reason="Shutdown finalization", source="CoreOrchestrator")
         if resolved_mode == StopMode.PANIC:
-            print("[SHUTDOWN] Panic stop — running minimal hooks.")
-            try:
-                self.execution_engine.shutdown()
-            except Exception as exc:
-                fault = classify_exception(exc)
-                hook_payload = {
-                    **self._stop_payload(resolved_mode),
-                    "hook": "execution_engine.shutdown",
-                    "exception_type": type(exc).__name__,
-                    "exception_message": str(exc),
-                    "fault_category": fault.category.value,
-                    "fault_severity": fault.severity.value,
-                }
-                self.event_collector.emit(
-                    event_type="SHUTDOWN_HOOK_FAILED",
-                    source="CoreOrchestrator",
-                    payload=hook_payload,
-                    include_cycle=False,
-                )
-            complete_payload = self._stop_payload(resolved_mode)
-            self.event_collector.emit(
-                event_type="SHUTDOWN_COMPLETE",
-                source="CoreOrchestrator",
-                payload=complete_payload,
-                include_cycle=False,
-            )
+            from src.ibkr.shutdown_evidence import REQUIRED_HOOKS
+
+            # Emergency bookkeeping stays in memory: no nonessential hook or
+            # blocking evidence I/O may delay the essential execution shutdown.
+            # Missing durable graceful proof deliberately fails certification.
+            self._shutdown_finished = True
+            proof.record("PANIC_STOP_REQUESTED", mode="PANIC", completed=True)
+            proof.record("SHUTDOWN_STARTED", mode="PANIC", completed=True)
+            proof.attempt("execution_engine.shutdown", self.execution_engine.shutdown)
+            for name in REQUIRED_HOOKS:
+                if name == "execution_engine.shutdown":
+                    continue
+                row = {"hook": name, "attempted": False, "completed": False,
+                       "skipped": True, "reason": "PANIC"}
+                proof.hooks.append(row)
+                proof.record("SHUTDOWN_HOOK", **row)
+            proof.record("SHUTDOWN_COMPLETE", mode="PANIC",
+                         completed=proof.hooks[0]["completed"])
             return
 
+        proof.record("GRACEFUL_STOP_REQUESTED", completed=(
+            self.stop_controller.is_stop_requested() and resolved_mode == StopMode.GRACEFUL))
+
+        def emit_shutdown(event_type, payload):
+            try:
+                self.event_collector.emit(event_type=event_type, source="CoreOrchestrator",
+                                          payload=payload, include_cycle=False)
+                return True
+            except BaseException as exc:
+                proof.hooks.append({"hook": "event_collector." + event_type,
+                                    "attempted": True, "completed": False,
+                                    "error_type": type(exc).__name__})
+                return False
+
+        started = emit_shutdown("SHUTDOWN_STARTED", self._stop_payload(resolved_mode))
+        proof.record("SHUTDOWN_STARTED", completed=started)
         hooks = [
+            ("ops_summary", self._emit_ops_summary),
+            ("learning_scheduler", self.learning_scheduler.on_shutdown),
             ("execution_engine.shutdown", self.execution_engine.shutdown),
             ("trade_exit_engine.shutdown", self.trade_exit_engine.shutdown),
             ("storage_engine.shutdown", self.storage_engine.shutdown),
-            ("event_collector.flush_summary", self.event_collector.flush_summary),
             ("active_trade_registry.verify_empty", self.trade_registry.verify_empty),
+            ("scanner_reset", reset_scanner),
+            ("manager_disconnect", disconnect_manager),
         ]
-
-        for hook_name, hook_fn in hooks:
-            try:
-                result = hook_fn()
-                if hook_name == "active_trade_registry.verify_empty" and result is False:
-                    self.event_collector.emit(
-                        event_type="SHUTDOWN_HOOK_FAILED",
-                        source="CoreOrchestrator",
-                        payload={
-                            **self._stop_payload(resolved_mode),
-                            "hook": hook_name,
-                            "exception_type": "RegistryNotEmpty",
-                            "exception_message": "Active trades remain during shutdown",
-                            "fault_category": "STATE",
-                            "fault_severity": "CRITICAL",
-                        },
-                        include_cycle=False,
-                    )
-            except Exception as exc:
-                fault = classify_exception(exc)
-                hook_payload = {
-                    **self._stop_payload(resolved_mode),
-                    "hook": hook_name,
-                    "exception_type": type(exc).__name__,
-                    "exception_message": str(exc),
-                    "fault_category": fault.category.value,
-                    "fault_severity": fault.severity.value,
-                }
-                self.event_collector.emit(
-                    event_type="SHUTDOWN_HOOK_FAILED",
-                    source="CoreOrchestrator",
-                    payload=hook_payload,
-                    include_cycle=False,
-                )
-                continue
-
-        complete_payload = self._stop_payload(resolved_mode)
-        self.event_collector.emit(
-            event_type="SHUTDOWN_COMPLETE",
-            source="CoreOrchestrator",
-            payload=complete_payload,
-            include_cycle=False,
-        )
+        for name, function in hooks:
+            proof.attempt(name, function)
+            row = proof.hooks[-1]
+            if not row["completed"]:
+                emit_shutdown("SHUTDOWN_HOOK_FAILED",
+                    {**self._stop_payload(resolved_mode), "hook": name,
+                     "exception_type": row.get("error_type", "IncompleteHook"),
+                     "exception_message": row.get("error", "Incomplete hook"),
+                     "fault_category": "STATE", "fault_severity": "CRITICAL"})
+        emit_shutdown("SHUTDOWN_COMPLETE", self._stop_payload(resolved_mode))
+        proof.attempt("event_collector.flush_summary", self.event_collector.flush_summary)
+        proof.attempt("console_flush", finish_console_protection)
+        proof.record("SHUTDOWN_COMPLETE", completed=all(row["completed"] for row in proof.hooks))
+        directory = os.environ.get("PR1090_EVIDENCE_DIR")
+        if directory:
+            proof.flush(directory)
+            proof.record("TERMINAL_FLUSHED", completed=True)
+            proof.flush(directory)
+        self._shutdown_finished = True
 
     def _evaluate_runtime_safety(
         self,

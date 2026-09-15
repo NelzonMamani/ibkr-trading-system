@@ -1,3 +1,5 @@
+from dataclasses import replace
+from src.ibkr.evidence_safety import sanitize
 from datetime import datetime
 
 from src.core.run_event_timeline import RunEventTimeline
@@ -38,6 +40,7 @@ class EventCollector:
         self._cycle_events.clear()
 
     def record_event(self, event, include_cycle: bool = True):
+        event = replace(event, payload=sanitize(event.payload))
         if event.event_type == "TRADE_CLOSED":
             self._roll_daily_pnl(event.timestamp)
             payload = event.payload or {}
@@ -73,6 +76,7 @@ class EventCollector:
                 payload=payload,
                 timestamp=timestamp,
             )
+        event = replace(event, payload=sanitize(event.payload))
         self.record_event(event, include_cycle=include_cycle)
         return event
 

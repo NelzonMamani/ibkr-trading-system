@@ -9,6 +9,10 @@ configuration, or connecting to brokers or data sources.
 
 from __future__ import annotations
 
+if __name__ == "__main__":
+    from src.ibkr.evidence_safety import install_console_protection
+    install_console_protection()
+
 import asyncio
 
 try:
@@ -267,6 +271,8 @@ def _print_config_resolution_trace() -> None:
 
 def main() -> None:
     """Run the minimal teaching-first entry point."""
+    from src.ibkr.evidence_safety import install_console_protection
+    install_console_protection()
     _configure_console_output()
     args = _parse_args()
     _apply_cli_overrides(args)

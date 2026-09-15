@@ -2893,7 +2893,7 @@ def _validate_ibkr_connection(mode: RunMode) -> None:
             account = client.get_primary_account()
         except Exception:
             account = None
-    print(f"account={account or 'UNKNOWN'}")
+    print(f"account_id_redacted=REDACTED")
 
     connected = bool(metadata.get("connected", False))
     if not connected:
@@ -3330,7 +3330,7 @@ def _submit_ibkr_order(
     account = getattr(client, "get_primary_account", lambda: None)() if hasattr(client, "get_primary_account") else None
     if account:
         order.account = account
-        print(f"[IBKR][ACCOUNT_BINDING] account={account}")
+        print(f"[IBKR][ACCOUNT_BINDING] account_id_redacted=REDACTED")
     print("[EXECUTION][FINAL_ORDER_CHECK]")
     print(f"type={type(order)}")
     print(f"action={getattr(order, 'action', None)}")
@@ -3369,7 +3369,7 @@ def _submit_ibkr_order(
     )
     print(
         "[IBKR][PLACE_ORDER][START] "
-        f"symbol={symbol} order_id=PENDING client_id={getattr(client, 'client_id', None)} account={account or 'UNKNOWN'} "
+        f"symbol={symbol} order_id=PENDING client_id={getattr(client, 'client_id', None)} account_id_redacted=REDACTED "
         f"order_type={getattr(order, 'orderType', 'MKT')} tif={getattr(order, 'tif', 'DAY')} qty={quantity} side={side}"
     )
     quote_snapshot = _wait_for_ibkr_snapshot_for_symbol(str(symbol or ""), wait_up_to=0.4, poll_interval=0.1)
@@ -3710,7 +3710,8 @@ def execute_intents(
             callback = globals().get("_on_ibkr_callback")
             if callback is not None:
                 if hasattr(client, "register_execution_callback"):
-                    client.register_execution_callback(_on_ibkr_callback)
+                    register = getattr(client, "register_reconciliation_callback", client.register_execution_callback)
+                    register(_on_ibkr_callback)
                     print("[EXECUTION][CALLBACK_REGISTERED] source=ibkr_client event_types=orderStatus,execDetails,commissionReport")
                 else:
                     print("[EXECUTION][CALLBACK_UNAVAILABLE] register_execution_callback not supported by client")

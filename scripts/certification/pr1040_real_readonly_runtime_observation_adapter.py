@@ -354,10 +354,8 @@ def _json_safe(value: Any) -> Any:
 
 
 def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8", newline="\n") as handle:
-        json.dump(_json_safe(payload), handle, indent=2, sort_keys=True)
-        handle.write("\n")
+    from src.ibkr.evidence_safety import write_json
+    write_json(path, _json_safe(payload))
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -742,12 +740,20 @@ def _broker_snapshot() -> dict[str, Any]:
         client = manager.get_client()
         snapshot["connected"] = True
         open_orders: list[Any] = []
-        if hasattr(client, "openTrades"):
-            open_orders.extend(client.openTrades() or [])
-        elif hasattr(client, "openOrders"):
-            open_orders.extend(client.openOrders() or [])
+        if hasattr(client, "reqAllOpenOrders") and hasattr(client, "_open_orders_event"):
+            client._open_orders_event.clear()
+            client._open_orders_snapshot = {}
+            client.reqAllOpenOrders()
+            if not client._open_orders_event.wait(timeout=client.snapshot_timeout_seconds):
+                raise PR1040AdapterError("Fresh broker open-order query timed out")
+            open_orders.extend(client._open_orders_snapshot.values())
+        elif hasattr(client, "reqOpenOrders"):
+            open_orders.extend(client.reqOpenOrders() or [])
+        else:
+            raise PR1040AdapterError("Fresh broker order-query interface unavailable")
         snapshot["open_orders"] = _normalize_open_order_rows(open_orders)
     except Exception as exc:
+        snapshot["connected"] = False
         snapshot["error"] = f"{type(exc).__name__}: {exc}"
     return snapshot
 
@@ -788,7 +794,8 @@ def _broker_connected(evidence: RuntimeObservationEvidence) -> bool:
 
 
 def _order_mutation_count(evidence: RuntimeObservationEvidence) -> int:
-    count = 0
+    from src.ibkr.mutation_audit import snapshot
+    count = sum(snapshot().values())
     for event in evidence.execution_events:
         action = _normalize_upper(_get_value(event, "action"))
         if action in {"SUBMITTED", "ACKNOWLEDGED", "WORKING", "FILLED", "CANCELLED", "MODIFIED"}:
@@ -1530,6 +1537,7 @@ def _classify_observation(evidence: RuntimeObservationEvidence, setup_artifact: 
 
 
 def build_pr1039_observation_input(evidence: RuntimeObservationEvidence) -> dict[str, Any]:
+    from src.ibkr.mutation_audit import snapshot
     assert_safe_runtime_env(evidence.env)
     _assert_no_manual_or_synthetic_evidence(evidence)
     if _order_mutation_count(evidence):
@@ -1575,6 +1583,7 @@ def build_pr1039_observation_input(evidence: RuntimeObservationEvidence) -> dict
     return {
         "schema_version": PR1039_INPUT_SCHEMA_VERSION,
         "adapter_schema_version": SCHEMA_VERSION,
+        "mutation_attempts": snapshot(),
         "scenario_id": evidence.scenario_id,
         "operator": evidence.operator,
         "classification": classification,
@@ -1935,7 +1944,7 @@ def collect_real_readonly_runtime_evidence(
         health_status=None,
         account=account,
     )
-    broker_after = _broker_snapshot()
+    broker_after = {"connected": False, "audit_pending_shutdown": True}
     scope.update(
         {
             "observed_focus_symbols": observed_focus_symbols,
@@ -1969,6 +1978,8 @@ def collect_real_readonly_runtime_evidence(
 
 
 def write_observation_input(path: Path, spec: Mapping[str, Any]) -> dict[str, Any]:
+    from src.ibkr.evidence_safety import sanitize
+    spec = sanitize(_json_safe(spec))
     _write_json(path, spec)
     readback = _read_json(path)
     if _stable_json(readback) != _stable_json(spec):
@@ -2067,62 +2078,61 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = build_arg_parser()
-    args = parser.parse_args(argv)
-
+    from src.ibkr.evidence_safety import install_console_protection, capture_console, scan_artifacts, write_text
+    from src.ibkr.mutation_audit import snapshot, require_zero_attempts
+    install_console_protection()
+    args = build_arg_parser().parse_args(argv)
     env = build_safe_readonly_env()
-    operator_observation_scope = build_operator_observation_scope(
+    scope = build_operator_observation_scope(
         max_observation_symbols=args.max_observation_symbols,
         max_observation_seconds=args.max_observation_seconds,
         max_snapshot_failures=args.max_snapshot_failures,
-        observation_symbols=args.observation_symbols,
-    )
-    spec = None
-    manifest = None
-    try:
-        evidence = collect_real_readonly_runtime_evidence(
-            operator=args.operator,
-            env=env,
-            cycle_id=args.cycle_id,
-            operator_observation_scope=operator_observation_scope,
-        )
+        observation_symbols=args.observation_symbols)
+    evidence = None
+    error = None
+    shutdown = {}
+    audit_cleanup = {}
+    output = args.observation_output.parent
+    with capture_console(output):
+        try:
+            evidence = collect_real_readonly_runtime_evidence(
+                operator=args.operator, env=env, cycle_id=args.cycle_id,
+                operator_observation_scope=scope)
+        except BaseException as exc:
+            error = type(exc).__name__ + ": " + str(exc)
+        finally:
+            shutdown = _cleanup_scanner_runtime_after_observation()
+            if evidence is not None and shutdown.get("status") == "ok":
+                try:
+                    evidence.broker_after = _broker_snapshot()
+                except BaseException as exc:
+                    error = type(exc).__name__ + ": " + str(exc)
+                finally:
+                    audit_cleanup = _cleanup_scanner_runtime_after_observation()
+            _write_json(output / "terminal_cleanup.json", {
+                "strategy_cleanup": shutdown, "audit_cleanup": audit_cleanup,
+                "mutation_attempts": snapshot(), "error": error,
+                "runtime_process_exit": "REQUIRES_EXTERNAL_SUPERVISOR"})
+        if error is not None or evidence is None:
+            print("[PR1040][ABORT] " + str(error), file=sys.stderr)
+            return 2
+        require_zero_attempts(snapshot())
+        if shutdown.get("status") != "ok" or audit_cleanup.get("status") != "ok":
+            return 2
         spec = build_pr1039_observation_input(evidence)
         spec["analytics_storage_artifact"]["artifact_paths"] = [str(args.observation_output)]
-    except Exception as exc:
-        print(f"[PR1040][ABORT] {exc}", file=sys.stderr)
-        _cleanup_scanner_runtime_after_observation()
-        return 2
-
-    shutdown_diagnostics = _cleanup_scanner_runtime_after_observation()
-    spec["shutdown_diagnostics"] = shutdown_diagnostics
-    spec["final_verdict"]["SHUTDOWN_CLEANUP_COMPLETED"] = "YES" if shutdown_diagnostics.get("status") == "ok" else "NO"
-    write_observation_input(args.observation_output, spec)
-    if shutdown_diagnostics.get("status") != "ok":
-        print(f"[PR1040][ABORT] cleanup_failed diagnostics={shutdown_diagnostics}", file=sys.stderr)
-        return 2
-    if args.validate_with_pr1039:
-        manifest = validate_with_pr1039(
-            observation_input=args.observation_output,
-            raw_output_dir=args.raw_output_dir,
-            validated_output_dir=args.validated_output_dir,
-            operator=args.operator,
-            env=env,
-            force=args.force,
-        )
-
-    classification = spec.get("classification") or spec.get("final_verdict", {}).get("classification")
-    print(
-        "[PR1040][OBSERVE] "
-        f"classification={classification} "
-        "paper_ready=NO paper_readiness_gate=FAIL "
-        f"observation_input={args.observation_output}"
-    )
-    if manifest is not None:
-        print(
-            "[PR1040][PR1039_VALIDATE] "
-            f"status={manifest.get('status')} output={args.validated_output_dir}"
-        )
-    return 0
+        spec["shutdown_diagnostics"] = shutdown
+        spec["final_audit_cleanup"] = audit_cleanup
+        # A bounded adapter cannot witness its own terminal process state.
+        spec["final_verdict"]["TERMINAL_CERTIFICATION"] = "PENDING_EXTERNAL_PROCESS_EXIT_PROOF"
+        write_observation_input(args.observation_output, spec)
+        if args.validate_with_pr1039:
+            validate_with_pr1039(observation_input=args.observation_output,
+                raw_output_dir=args.raw_output_dir, validated_output_dir=args.validated_output_dir,
+                operator=args.operator, env=env, force=args.force)
+    scan = scan_artifacts(output)
+    _write_json(output / "sensitive_token_scan.json", scan)
+    return 0 if scan["passed"] else 2
 
 
 if __name__ == "__main__":
