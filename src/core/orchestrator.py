@@ -1983,6 +1983,20 @@ class CoreOrchestrator:
         return False
 
     def _handle_keyboard_interrupt(self):
+        # Latch through the existing authority before formatting, output or
+        # callbacks. A reentrant interrupt must observe the first stop.
+        if self.stop_controller.is_stop_requested():
+            self._request_stop(
+                StopMode.PANIC,
+                reason="KeyboardInterrupt (escalation)",
+                source="Main",
+            )
+            return
+        self._request_stop(
+            StopMode.GRACEFUL,
+            reason="KeyboardInterrupt",
+            source="Main",
+        )
         print(
             "[SUMMARY]\n"
             f"cycles_run={self._pipeline_runtime_counts.get('cycles_run', 0)}\n"
@@ -1993,20 +2007,7 @@ class CoreOrchestrator:
         )
         if hasattr(self, "strategy_runner") and self.strategy_runner is not None:
             self.strategy_runner.emit_shutdown_summary()
-        if not self.stop_controller.is_stop_requested():
-            print("[SHUTDOWN] KeyboardInterrupt — requesting graceful stop.")
-            self._request_stop(
-                StopMode.GRACEFUL,
-                reason="KeyboardInterrupt",
-                source="Main",
-            )
-            return
-        print("[SHUTDOWN] KeyboardInterrupt escalation — triggering panic stop.")
-        self._request_stop(
-            StopMode.PANIC,
-            reason="KeyboardInterrupt (escalation)",
-            source="Main",
-        )
+        print("[SHUTDOWN] KeyboardInterrupt: graceful stop requested.")
 
     def run_forever(self, cycle_sleep_seconds=None, max_cycles=None) -> None:
         try:

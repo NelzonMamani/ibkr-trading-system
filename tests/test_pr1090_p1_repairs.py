@@ -631,3 +631,92 @@ def test_partial_final_query_failure_clears_success_and_disconnects(monkeypatch,
     assert result["query_completed"] is False
     assert result["disconnected"] is True
     assert calls == ["disconnect"]
+
+
+@pytest.mark.parametrize("interrupt_at", [None, "format", "print", "strategy", "evidence"])
+def test_interrupt_latched_before_summary_and_reentrant_interrupt_panics(monkeypatch, tmp_path, interrupt_at):
+    import builtins
+    from src.core.stop_controller import StopMode
+    from src.main import _report_shutdown
+
+    instance, called = fake_orchestrator(monkeypatch)
+    instance._clean_start_ready_for_trading = True
+    monkeypatch.delenv("PR1090_STOP_FILE", raising=False)
+    monkeypatch.setenv("PR1090_EVIDENCE_DIR", str(tmp_path))
+    order, injected, emitted = [], [], []
+    real_request = instance.stop_controller.request_stop
+    def request(mode, reason, source):
+        real_request(mode, reason, source)
+        order.append(("latched", instance.stop_controller.stop_mode(), reason))
+    monkeypatch.setattr(instance.stop_controller, "request_stop", request)
+
+    def summary_work(stage):
+        assert instance.stop_controller.is_stop_requested()
+        assert instance.stop_controller.stop_mode() == StopMode.GRACEFUL
+        assert instance.stop_controller.stop_reason() == "KeyboardInterrupt"
+        assert instance.stop_controller.stop_source() == "Main"
+        order.append((stage, StopMode.GRACEFUL))
+        if stage == interrupt_at and not injected:
+            injected.append(stage)
+            raise KeyboardInterrupt
+
+    class Counts(dict):
+        def get(self, *args):
+            summary_work("format")
+            return super().get(*args)
+    instance._pipeline_runtime_counts = Counts()
+    instance.strategy_runner = SimpleNamespace(emit_shutdown_summary=lambda: summary_work("strategy"))
+    real_print = builtins.print
+    def printing(*args, **kwargs):
+        if args and str(args[0]).startswith("[SUMMARY]"):
+            summary_work("print")
+        return real_print(*args, **kwargs)
+    monkeypatch.setattr(builtins, "print", printing)
+    def emit(**kwargs):
+        mode = instance.stop_controller.stop_mode()
+        emitted.append((kwargs["event_type"], mode, instance.stop_controller.stop_reason()))
+        if kwargs["event_type"] == "SHUTDOWN_REQUESTED":
+            summary_work("evidence")
+    instance.event_collector.emit = emit
+
+    # First Ctrl-C enters the real inner-loop handler before any cycle work.
+    real_is_stopping = instance.stop_controller.is_stop_requested
+    first = []
+    def boundary():
+        if not first:
+            first.append(True)
+            raise KeyboardInterrupt
+        return real_is_stopping()
+    monkeypatch.setattr(instance.stop_controller, "is_stop_requested", boundary)
+    instance.run_forever(cycle_sleep_seconds=0, max_cycles=0)
+
+    assert order[0] == ("latched", StopMode.GRACEFUL, "KeyboardInterrupt")
+    assert emitted[0] == ("SHUTDOWN_REQUESTED", StopMode.GRACEFUL, "KeyboardInterrupt")
+    if interrupt_at is None:
+        assert not injected
+        assert instance.stop_controller.stop_mode() == StopMode.GRACEFUL
+        assert called == list(shutdown.REQUIRED_HOOKS)
+        _report_shutdown(instance.stop_controller.stop_mode())
+        saved = json.loads((tmp_path / "shutdown_evidence.json").read_text())
+        assert saved["events"][-1]["event"] == "TERMINAL_FLUSHED"
+        assert all(row["completed"] for row in saved["hooks"])
+    else:
+        assert injected == [interrupt_at]
+        assert instance.stop_controller.stop_mode() == StopMode.PANIC
+        assert instance.stop_controller.stop_reason() == "KeyboardInterrupt (escalation)"
+        assert called == ["execution_engine.shutdown"]
+        assert ("PANIC_STOP_TRIGGERED", StopMode.PANIC, "KeyboardInterrupt (escalation)") in emitted
+        instance._request_stop(StopMode.GRACEFUL, reason="late graceful request", source="test")
+        assert instance.stop_controller.stop_mode() == StopMode.PANIC
+        assert instance.stop_controller.stop_reason() == "KeyboardInterrupt (escalation)"
+        with pytest.raises(SystemExit) as exit_result:
+            _report_shutdown(instance.stop_controller.stop_mode())
+        assert exit_result.value.code == 2
+        assert instance.shutdown_evidence.events[0]["event"] == "PANIC_STOP_REQUESTED"
+        assert not (tmp_path / "shutdown_evidence.json").exists()
+        assert not shutdown.validate_terminal(instance.shutdown_evidence.payload())["passed"]
+        # Further interrupts retain PANIC without repeating nonessential summaries.
+        summary_count = len([row for row in order if row[0] in {"format", "print", "strategy"}])
+        instance._handle_keyboard_interrupt()
+        assert instance.stop_controller.stop_mode() == StopMode.PANIC
+        assert len([row for row in order if row[0] in {"format", "print", "strategy"}]) == summary_count
