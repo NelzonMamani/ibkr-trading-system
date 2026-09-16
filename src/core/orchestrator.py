@@ -1983,20 +1983,24 @@ class CoreOrchestrator:
         return False
 
     def _handle_keyboard_interrupt(self):
-        # Latch through the existing authority before formatting, output or
-        # callbacks. A reentrant interrupt must observe the first stop.
-        if self.stop_controller.is_stop_requested():
-            self._request_stop(
-                StopMode.PANIC,
-                reason="KeyboardInterrupt (escalation)",
-                source="Main",
+        try:
+            mode = self.stop_controller.transition_keyboard_interrupt()
+        except KeyboardInterrupt:
+            # This is an interrupt during interrupt handling, even if the
+            # interrupted transition had not published its state yet.
+            self.stop_controller.request_stop(
+                StopMode.PANIC, reason="KeyboardInterrupt (escalation)", source="Main"
             )
-            return
-        self._request_stop(
-            StopMode.GRACEFUL,
-            reason="KeyboardInterrupt",
-            source="Main",
+            mode = StopMode.PANIC
+        self._halted = True
+        self.event_collector.emit(
+            event_type="SHUTDOWN_REQUESTED" if mode == StopMode.GRACEFUL else "PANIC_STOP_TRIGGERED",
+            source="CoreOrchestrator",
+            payload=self._stop_payload(mode),
+            include_cycle=False,
         )
+        if mode == StopMode.PANIC:
+            return
         print(
             "[SUMMARY]\n"
             f"cycles_run={self._pipeline_runtime_counts.get('cycles_run', 0)}\n"

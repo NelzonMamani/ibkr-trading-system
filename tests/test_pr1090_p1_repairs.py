@@ -633,6 +633,92 @@ def test_partial_final_query_failure_clears_success_and_disconnects(monkeypatch,
     assert calls == ["disconnect"]
 
 
+def test_structural_transition_is_monotonic_and_reentrant(monkeypatch):
+    from src.core.stop_controller import StopController, StopMode
+
+    controller = StopController()
+    monkeypatch.setattr(controller, "is_stop_requested", lambda: pytest.fail("pre-latch predicate"))
+    monkeypatch.setattr(controller, "stop_mode", lambda: pytest.fail("pre-latch mode query"))
+    assert controller._lock.acquire(blocking=False)
+    acquired_again = controller._lock.acquire(blocking=False)
+    try:
+        assert acquired_again, "controller lock must support reentry"
+        assert controller.transition_keyboard_interrupt() == StopMode.GRACEFUL
+        assert controller.stop_reason() == "KeyboardInterrupt"
+        assert controller.stop_source() == "Main"
+        assert controller.transition_keyboard_interrupt() == StopMode.PANIC
+        controller.request_stop(StopMode.GRACEFUL, "late", "test")
+        assert controller.transition_keyboard_interrupt() == StopMode.PANIC
+        assert controller.stop_reason() == "KeyboardInterrupt (escalation)"
+    finally:
+        if acquired_again:
+            controller._lock.release()
+        controller._lock.release()
+
+
+@pytest.mark.parametrize("prior", ["GRACEFUL", "PANIC"])
+def test_structural_existing_stop_precedence(prior):
+    from src.core.stop_controller import StopController, StopMode
+
+    controller = StopController()
+    controller.request_stop(StopMode(prior), "risk stop", "Risk")
+    assert controller.transition_keyboard_interrupt() == StopMode.PANIC
+    expected = ("risk stop", "Risk") if prior == "PANIC" else ("KeyboardInterrupt (escalation)", "Main")
+    assert (controller.stop_reason(), controller.stop_source()) == expected
+    controller.request_stop(StopMode.GRACEFUL, "late", "test")
+    assert controller.stop_mode() == StopMode.PANIC
+    assert (controller.stop_reason(), controller.stop_source()) == expected
+
+
+@pytest.mark.parametrize("stage", ["before", "publication", "after"])
+def test_structural_interrupted_transition_panics(monkeypatch, tmp_path, stage):
+    from src.core import stop_controller
+    from src.main import _report_shutdown
+
+    instance, called = fake_orchestrator(monkeypatch)
+    controller = instance.stop_controller
+    monkeypatch.setenv("PR1090_EVIDENCE_DIR", str(tmp_path))
+    real_transition = controller.transition_keyboard_interrupt
+    real_predicate = controller.is_stop_requested
+    monkeypatch.setattr(controller, "is_stop_requested", lambda: pytest.fail("pre-latch predicate"))
+    emitted = []
+    instance.event_collector.emit = lambda **kwargs: emitted.append(kwargs["event_type"])
+    class NoSummary(dict):
+        def get(self, *args):
+            pytest.fail("PANIC must skip summaries")
+    instance._pipeline_runtime_counts = NoSummary()
+    instance.strategy_runner = SimpleNamespace(emit_shutdown_summary=lambda: pytest.fail("PANIC summary callback"))
+    if stage == "publication":
+        real_state = stop_controller._StopState
+        injected = []
+        def state(*args, **kwargs):
+            if not injected:
+                injected.append(True)
+                raise KeyboardInterrupt
+            return real_state(*args, **kwargs)
+        monkeypatch.setattr(stop_controller, "_StopState", state)
+    else:
+        def transition():
+            if stage == "after":
+                real_transition()
+            raise KeyboardInterrupt
+        monkeypatch.setattr(controller, "transition_keyboard_interrupt", transition)
+    instance._handle_keyboard_interrupt()
+    assert controller.stop_mode() == stop_controller.StopMode.PANIC
+    assert controller.stop_reason() == "KeyboardInterrupt (escalation)"
+    assert controller.stop_source() == "Main"
+    assert emitted == ["PANIC_STOP_TRIGGERED"]
+    monkeypatch.setattr(controller, "is_stop_requested", real_predicate)
+    instance._shutdown(controller.stop_mode())
+    assert called == ["execution_engine.shutdown"]
+    controller.request_stop(stop_controller.StopMode.GRACEFUL, "late", "test")
+    with pytest.raises(SystemExit) as result:
+        _report_shutdown(controller.stop_mode())
+    assert result.value.code == 2
+    assert not shutdown.validate_terminal(instance.shutdown_evidence.payload())["passed"]
+    assert not (tmp_path / "shutdown_evidence.json").exists()
+
+
 @pytest.mark.parametrize("interrupt_at", [None, "format", "print", "strategy", "evidence"])
 def test_interrupt_latched_before_summary_and_reentrant_interrupt_panics(monkeypatch, tmp_path, interrupt_at):
     import builtins

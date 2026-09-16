@@ -10,7 +10,7 @@ safe when called from exception blocks.
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from threading import Lock
+from threading import RLock
 from typing import Optional
 
 
@@ -28,6 +28,13 @@ class CircuitBreakerState:
     details: dict
 
 
+@dataclass(frozen=True)
+class _StopState:
+    mode: Optional[StopMode] = None
+    reason: Optional[str] = None
+    source: Optional[str] = None
+
+
 class StopController:
     """
     Coordinate stop requests across the orchestrator and engines.
@@ -37,11 +44,8 @@ class StopController:
     """
 
     def __init__(self) -> None:
-        self._lock = Lock()
-        self._stop_requested: bool = False
-        self._mode: Optional[StopMode] = None
-        self._reason: Optional[str] = None
-        self._source: Optional[str] = None
+        self._lock = RLock()
+        self._state = _StopState()
         self._circuit_breakers: dict[str, CircuitBreakerState] = {}
 
     def request_stop(self, mode: StopMode, reason: str, source: str) -> None:
@@ -53,30 +57,38 @@ class StopController:
         """
 
         with self._lock:
-            if not self._stop_requested:
-                self._stop_requested = True
-                self._mode = mode
-                self._reason = reason
-                self._source = source
-                return
+            if self._state.mode is None or (
+                self._state.mode == StopMode.GRACEFUL and mode == StopMode.PANIC
+            ):
+                # Publish one complete state; interruption cannot leave a
+                # requested flag inconsistent with mode/reason/source.
+                self._state = _StopState(mode, reason, source)
 
-            # If already stopping, keep the strongest mode and most recent reason.
-            if self._mode == StopMode.GRACEFUL and mode == StopMode.PANIC:
-                self._mode = mode
-                self._reason = reason
-                self._source = source
+    def transition_keyboard_interrupt(self) -> StopMode:
+        """Latch GRACEFUL on the first stop; any existing stop selects PANIC.
+
+        The returned GRACEFUL means this was the first graceful interrupt.
+        Decision and publication share the controller's reentrant lock.
+        Callers must treat interruption before return as nested interruption
+        and request PANIC directly, without making another first-stop query.
+        """
+        with self._lock:
+            mode = StopMode.GRACEFUL if self._state.mode is None else StopMode.PANIC
+            reason = "KeyboardInterrupt" if mode == StopMode.GRACEFUL else "KeyboardInterrupt (escalation)"
+            self.request_stop(mode, reason=reason, source="Main")
+            return self._state.mode
 
     def is_stop_requested(self) -> bool:
-        return self._stop_requested
+        return self._state.mode is not None
 
     def stop_mode(self) -> Optional[StopMode]:
-        return self._mode
+        return self._state.mode
 
     def stop_reason(self) -> Optional[str]:
-        return self._reason
+        return self._state.reason
 
     def stop_source(self) -> Optional[str]:
-        return self._source
+        return self._state.source
 
     def trip_breaker(
         self,
@@ -115,8 +127,5 @@ class StopController:
             if not self._circuit_breakers:
                 return True
             self._circuit_breakers.clear()
-            self._stop_requested = False
-            self._mode = None
-            self._reason = reason
-            self._source = source
+            self._state = _StopState(reason=reason, source=source)
             return True
