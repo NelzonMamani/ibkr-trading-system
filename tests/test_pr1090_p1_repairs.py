@@ -426,7 +426,7 @@ def test_event_interrupt_reaches_panic_at_each_shutdown_boundary(monkeypatch, tm
     monkeypatch.delenv("PR1090_STOP_FILE", raising=False)
     monkeypatch.setenv("PR1090_EVIDENCE_DIR", str(tmp_path))
     if boundary == "inner":
-        instance._handle_keyboard_interrupt()
+        instance.stop_controller.transition_keyboard_interrupt()
     elif boundary == "finalizer":
         instance._run_forever_inner = lambda *args: None
     if event == "SHUTDOWN_HOOK_FAILED":
@@ -631,6 +631,158 @@ def test_partial_final_query_failure_clears_success_and_disconnects(monkeypatch,
     assert result["query_completed"] is False
     assert result["disconnected"] is True
     assert calls == ["disconnect"]
+
+
+@pytest.mark.parametrize("boundary", ["inner", "outer", "finalizer"])
+@pytest.mark.parametrize("stage", [
+    "before_publication", "publication", "after_transition", "event",
+    "format", "print", "strategy", "hook", "selection", "shutdown",
+    "evidence", "terminal",
+])
+def test_shutdown_transaction_injection_matrix(monkeypatch, tmp_path, boundary, stage):
+    import builtins
+    from src.core import stop_controller
+    from src import main as entrypoint
+
+    instance, called = fake_orchestrator(monkeypatch)
+    controller = instance.stop_controller
+    instance._clean_start_ready_for_trading = True
+    monkeypatch.delenv("PR1090_STOP_FILE", raising=False)
+    monkeypatch.setenv("PR1090_EVIDENCE_DIR", str(tmp_path))
+    injected, summaries, invocations = [], [], []
+    def inject(point):
+        if point == stage and not injected:
+            injected.append(point)
+            raise KeyboardInterrupt
+
+    real_transition = controller.transition_keyboard_interrupt
+    def transition():
+        inject("before_publication")
+        mode = real_transition()
+        inject("after_transition")
+        return mode
+    monkeypatch.setattr(controller, "transition_keyboard_interrupt", transition)
+    real_state = stop_controller._StopState
+    def state(*args, **kwargs):
+        inject("publication")
+        return real_state(*args, **kwargs)
+    monkeypatch.setattr(stop_controller, "_StopState", state)
+
+    class Counts(dict):
+        def get(self, *args):
+            inject("format")
+            return super().get(*args)
+    instance._pipeline_runtime_counts = Counts()
+    real_print = builtins.print
+    def printing(*args, **kwargs):
+        if args and str(args[0]).startswith("[SUMMARY]"):
+            summaries.append("print")
+            inject("print")
+        return real_print(*args, **kwargs)
+    monkeypatch.setattr(builtins, "print", printing)
+    def strategy():
+        summaries.append("strategy")
+        inject("strategy")
+    instance.strategy_runner = SimpleNamespace(emit_shutdown_summary=strategy)
+    def emit(**kwargs):
+        if kwargs["event_type"] == "SHUTDOWN_REQUESTED":
+            inject("event")
+        elif kwargs["event_type"] == "SHUTDOWN_STARTED":
+            inject("shutdown")
+    instance.event_collector.emit = emit
+    real_hook = instance.learning_scheduler.on_shutdown
+    def hook():
+        inject("hook")
+        real_hook()
+    instance.learning_scheduler.on_shutdown = hook
+    real_shutdown = instance._shutdown
+    def finish(mode):
+        inject("selection")
+        invocations.append(mode)
+        real_shutdown(mode)
+    instance._shutdown = finish
+    real_flush = shutdown.ShutdownEvidence.flush
+    def flush(proof, directory):
+        inject("evidence")
+        return real_flush(proof, directory)
+    monkeypatch.setattr(shutdown.ShutdownEvidence, "flush", flush)
+    real_report = entrypoint._report_shutdown
+    def report(mode):
+        inject("terminal")
+        real_report(mode)
+    monkeypatch.setattr(entrypoint, "_report_shutdown", report)
+
+    first = []
+    def interrupt_once():
+        if not first:
+            first.append(True)
+            raise KeyboardInterrupt
+    if boundary == "outer":
+        instance._run_forever_inner = lambda *args: interrupt_once()
+    elif boundary == "finalizer":
+        instance._run_forever_inner = lambda *args: None
+        real_request = instance._request_stop
+        def request(*args, **kwargs):
+            interrupt_once()
+            return real_request(*args, **kwargs)
+        instance._request_stop = request
+    else:
+        real_predicate = controller.is_stop_requested
+        def predicate():
+            interrupt_once()
+            return real_predicate()
+        monkeypatch.setattr(controller, "is_stop_requested", predicate)
+
+    with pytest.raises(SystemExit) as result:
+        entrypoint._run_and_report(instance, 0)
+    assert result.value.code == 2
+    assert injected == [stage]
+    assert controller.stop_mode() == stop_controller.StopMode.PANIC
+    assert invocations[-1] == stop_controller.StopMode.PANIC
+    assert summaries.count("print") <= 1
+    assert summaries.count("strategy") <= 1
+    assert instance.shutdown_evidence.events[0]["event"] == "PANIC_STOP_REQUESTED"
+    assert not shutdown.validate_terminal(instance.shutdown_evidence.payload())["passed"]
+    controller.request_stop(stop_controller.StopMode.GRACEFUL, "late", "test")
+    assert controller.stop_mode() == stop_controller.StopMode.PANIC
+    # Completed PANIC handling is idempotent and never restarts graceful work.
+    completed_calls = list(called)
+    instance._handle_keyboard_interrupt()
+    assert called == completed_calls
+    assert invocations[-1] == stop_controller.StopMode.PANIC
+
+
+@pytest.mark.parametrize("interrupt", [False, True])
+def test_shutdown_transaction_normal_completion(monkeypatch, tmp_path, interrupt):
+    from src.core.stop_controller import StopMode
+    from src.main import _run_and_report
+    instance, called = fake_orchestrator(monkeypatch)
+    instance._clean_start_ready_for_trading = True
+    instance._pipeline_runtime_counts = {}
+    monkeypatch.delenv("PR1090_STOP_FILE", raising=False)
+    monkeypatch.setenv("PR1090_EVIDENCE_DIR", str(tmp_path))
+    if interrupt:
+        def first(*args):
+            raise KeyboardInterrupt
+        instance._run_forever_inner = first
+    _run_and_report(instance, 0)
+    assert instance.stop_controller.stop_mode() == StopMode.GRACEFUL
+    assert called == list(shutdown.REQUIRED_HOOKS)
+    assert instance.stop_controller.stop_reason() == ("KeyboardInterrupt" if interrupt else "Run loop complete")
+    assert instance.shutdown_evidence.events[-1]["event"] == "TERMINAL_FLUSHED"
+
+
+def test_shutdown_transaction_rejects_stale_graceful_selection(monkeypatch):
+    from src.core.stop_controller import StopMode
+    instance, called = fake_orchestrator(monkeypatch)
+    instance.stop_controller.request_stop(StopMode.PANIC, "existing panic", "Risk")
+    instance._shutdown(StopMode.GRACEFUL)
+    assert instance.stop_controller.stop_mode() == StopMode.PANIC
+    assert instance.stop_controller.stop_reason() == "existing panic"
+    assert called == ["execution_engine.shutdown"]
+    assert instance.shutdown_evidence.events[0]["event"] == "PANIC_STOP_REQUESTED"
+    instance._shutdown(StopMode.GRACEFUL)
+    assert called == ["execution_engine.shutdown"]
 
 
 def test_structural_transition_is_monotonic_and_reentrant(monkeypatch):

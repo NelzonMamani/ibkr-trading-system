@@ -278,6 +278,16 @@ def _report_shutdown(mode) -> None:
     print("[SHUTDOWN] Exiting gracefully. Goodbye!")
 
 
+def _run_and_report(orchestrator, max_cycles) -> None:
+    # Keep the return-to-main and terminal-report boundary protected too.
+    try:
+        orchestrator.run_forever(max_cycles=max_cycles)
+        _report_shutdown(orchestrator.stop_controller.stop_mode())
+    except KeyboardInterrupt:
+        orchestrator._handle_keyboard_interrupt()
+        _report_shutdown(orchestrator.stop_controller.stop_mode())
+
+
 def main() -> None:
     """Run the minimal teaching-first entry point."""
     from src.ibkr.evidence_safety import install_console_protection
@@ -449,9 +459,7 @@ def main() -> None:
     orchestrator = CoreOrchestrator()
     print("[LOOP] Entering continuous run loop. Press Ctrl+C to stop safely.")
 
-    orchestrator.run_forever(max_cycles=args.cycles)
-
-    _report_shutdown(orchestrator.stop_controller.stop_mode())
+    _run_and_report(orchestrator, args.cycles)
 
 
 if __name__ == "__main__":

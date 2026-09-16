@@ -1983,35 +1983,44 @@ class CoreOrchestrator:
         return False
 
     def _handle_keyboard_interrupt(self):
+        # Own the interval from first-stop publication through shutdown. A
+        # nested interrupt never returns to a caller to choose a default mode.
         try:
             mode = self.stop_controller.transition_keyboard_interrupt()
+            self._halted = True
+            self.event_collector.emit(
+                event_type="SHUTDOWN_REQUESTED" if mode == StopMode.GRACEFUL else "PANIC_STOP_TRIGGERED",
+                source="CoreOrchestrator",
+                payload=self._stop_payload(mode),
+                include_cycle=False,
+            )
+            if self.stop_controller.stop_mode() == StopMode.PANIC:
+                self._shutdown(self.stop_controller.stop_mode())
+                return
+            print(
+                "[SUMMARY]\n"
+                f"cycles_run={self._pipeline_runtime_counts.get('cycles_run', 0)}\n"
+                f"watchlist_count={self._pipeline_runtime_counts.get('watchlist_count', 0)}\n"
+                f"setups_detected={self._pipeline_runtime_counts.get('setups_detected', 0)}\n"
+                f"triggers_fired={self._pipeline_runtime_counts.get('triggers_fired', 0)}\n"
+                f"trade_intents={self._pipeline_runtime_counts.get('trade_intents', 0)}"
+            )
+            if hasattr(self, "strategy_runner") and self.strategy_runner is not None:
+                self.strategy_runner.emit_shutdown_summary()
+            print("[SHUTDOWN] KeyboardInterrupt: graceful stop requested.")
+            self._shutdown(self.stop_controller.stop_mode())
         except KeyboardInterrupt:
-            # This is an interrupt during interrupt handling, even if the
-            # interrupted transition had not published its state yet.
             self.stop_controller.request_stop(
                 StopMode.PANIC, reason="KeyboardInterrupt (escalation)", source="Main"
             )
-            mode = StopMode.PANIC
-        self._halted = True
-        self.event_collector.emit(
-            event_type="SHUTDOWN_REQUESTED" if mode == StopMode.GRACEFUL else "PANIC_STOP_TRIGGERED",
-            source="CoreOrchestrator",
-            payload=self._stop_payload(mode),
-            include_cycle=False,
-        )
-        if mode == StopMode.PANIC:
-            return
-        print(
-            "[SUMMARY]\n"
-            f"cycles_run={self._pipeline_runtime_counts.get('cycles_run', 0)}\n"
-            f"watchlist_count={self._pipeline_runtime_counts.get('watchlist_count', 0)}\n"
-            f"setups_detected={self._pipeline_runtime_counts.get('setups_detected', 0)}\n"
-            f"triggers_fired={self._pipeline_runtime_counts.get('triggers_fired', 0)}\n"
-            f"trade_intents={self._pipeline_runtime_counts.get('trade_intents', 0)}"
-        )
-        if hasattr(self, "strategy_runner") and self.strategy_runner is not None:
-            self.strategy_runner.emit_shutdown_summary()
-        print("[SHUTDOWN] KeyboardInterrupt: graceful stop requested.")
+            self._halted = True
+            try:
+                self.event_collector.emit(
+                    event_type="PANIC_STOP_TRIGGERED", source="CoreOrchestrator",
+                    payload=self._stop_payload(StopMode.PANIC), include_cycle=False,
+                )
+            finally:
+                self._shutdown(self.stop_controller.stop_mode())
 
     def run_forever(self, cycle_sleep_seconds=None, max_cycles=None) -> None:
         try:
@@ -2024,10 +2033,9 @@ class CoreOrchestrator:
                 try:
                     if not self.stop_controller.is_stop_requested():
                         self._request_stop(StopMode.GRACEFUL, reason="Runtime finalization", source="CoreOrchestrator")
-                    self._shutdown(self.stop_controller.stop_mode() or StopMode.GRACEFUL)
+                    self._shutdown(self.stop_controller.stop_mode())
                 except KeyboardInterrupt:
                     self._handle_keyboard_interrupt()
-                    self._shutdown(self.stop_controller.stop_mode() or StopMode.PANIC)
 
     def _run_forever_inner(
         self,
@@ -2070,14 +2078,14 @@ class CoreOrchestrator:
                         reason="DIRTY_SESSION_AFTER_CLEAN_ATTEMPT",
                         source="CoreOrchestrator",
                     )
-                    self._shutdown(self.stop_controller.stop_mode() or StopMode.GRACEFUL)
+                    self._shutdown(self.stop_controller.stop_mode())
                     performed_shutdown = True
                     break
 
                 if self.stop_controller.is_stop_requested():
                     if self._pending_connectivity_halt and not self._halt_emitted:
                         self._emit_canonical_halt(**self._pending_connectivity_halt)
-                    self._shutdown(self.stop_controller.stop_mode() or StopMode.GRACEFUL)
+                    self._shutdown(self.stop_controller.stop_mode())
                     performed_shutdown = True
                     break
 
@@ -2131,7 +2139,7 @@ class CoreOrchestrator:
                                 reason="Cycle requested halt",
                                 source="CoreOrchestrator",
                             )
-                        self._shutdown(self.stop_controller.stop_mode() or StopMode.GRACEFUL)
+                        self._shutdown(self.stop_controller.stop_mode())
                         performed_shutdown = True
                         break
 
@@ -2227,7 +2235,7 @@ class CoreOrchestrator:
                 time.sleep(backoff_seconds)
             except KeyboardInterrupt:
                 self._handle_keyboard_interrupt()
-                continue
+                return
         if not performed_shutdown:
             if not self.stop_controller.is_stop_requested():
                 self._request_stop(
@@ -2237,7 +2245,7 @@ class CoreOrchestrator:
                 )
             if self._pending_connectivity_halt and not self._halt_emitted:
                 self._emit_canonical_halt(**self._pending_connectivity_halt)
-            self._shutdown(self.stop_controller.stop_mode() or StopMode.GRACEFUL)
+            self._shutdown(self.stop_controller.stop_mode())
 
     def run_once(self) -> bool:
         """Run a single conceptual system cycle in teaching order."""
@@ -6696,13 +6704,20 @@ class CoreOrchestrator:
         from src.ibkr.shutdown_evidence import ShutdownEvidence, reset_scanner, disconnect_manager
         from src.ibkr.evidence_safety import finish_console_protection
 
+        # Reconcile the caller's request with the current monotonic authority;
+        # a captured GRACEFUL argument must never select graceful work after PANIC.
+        self.stop_controller.request_stop(mode, reason="Shutdown finalization", source="CoreOrchestrator")
+        resolved_mode = self.stop_controller.stop_mode()
+        if resolved_mode is None:
+            raise RuntimeError("Shutdown requires an authoritative stop mode")
         if getattr(self, "_shutdown_finished", False):
-            return
+            previous = self.shutdown_evidence.events
+            if resolved_mode != StopMode.PANIC or any(
+                row["event"] == "PANIC_STOP_REQUESTED" for row in previous
+            ):
+                return
         proof = ShutdownEvidence()
         self.shutdown_evidence = proof
-        resolved_mode = mode or StopMode.GRACEFUL
-        if not self.stop_controller.is_stop_requested():
-            self.stop_controller.request_stop(resolved_mode, reason="Shutdown finalization", source="CoreOrchestrator")
         if resolved_mode == StopMode.PANIC:
             from src.ibkr.shutdown_evidence import REQUIRED_HOOKS
 

@@ -260,7 +260,9 @@ def test_shutdown_event_failure_does_not_skip_cleanup(monkeypatch):
     called = []
     engine = SimpleNamespace(shutdown=lambda: called.append("engine"))
     instance = object.__new__(CoreOrchestrator)
-    instance.stop_controller = SimpleNamespace(is_stop_requested=lambda: True)
+    from src.core.stop_controller import StopController
+    instance.stop_controller = StopController()
+    instance.stop_controller.request_stop(StopMode.GRACEFUL, reason="test shutdown", source="test")
     instance._stop_payload = lambda mode: {}
     instance._emit_ops_summary = lambda: called.append("ops")
     instance.learning_scheduler = SimpleNamespace(on_shutdown=lambda: called.append("learning"))
