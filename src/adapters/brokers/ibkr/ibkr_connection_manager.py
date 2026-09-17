@@ -133,9 +133,11 @@ class IbkrConnectionManager:
                 f"client_id={client_id} generation={self._connection_generation}"
             )
             account_id = self._resolve_account_id(client)
+            from src.ibkr.evidence_safety import register_account
+            register_account(account_id)
             print(
                 f"[IBKR][SESSION] mode={config.run_mode} "
-                f"account={account_id} readonly={config.readonly_enabled}"
+                f"account_id_redacted=REDACTED readonly={config.readonly_enabled}"
             )
             return client
 

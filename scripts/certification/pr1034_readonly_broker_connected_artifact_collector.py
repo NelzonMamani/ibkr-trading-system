@@ -117,6 +117,10 @@ def load_ib_insync_ib_after_bootstrap() -> Any:
         from ib_insync import IB
     except ImportError as exc:
         raise CollectorValidationError("ib_insync IB is required for broker connection") from exc
+    from src.ibkr.mutation_audit import install_sdk
+    from ib_insync.client import Client
+    from ib_insync.wrapper import Wrapper
+    install_sdk(Client, Wrapper)
     return IB
 
 
@@ -297,10 +301,8 @@ def assert_broker_snapshot_safe(snapshot: Mapping[str, Any]) -> None:
 
 
 def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8", newline="\n") as handle:
-        json.dump(payload, handle, indent=2, sort_keys=True)
-        handle.write("\n")
+    from src.ibkr.evidence_safety import write_json
+    write_json(path, payload)
 
 
 def _safe_runtime_payload(runtime_env: Mapping[str, Any]) -> dict[str, Any]:

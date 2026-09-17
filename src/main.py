@@ -9,6 +9,10 @@ configuration, or connecting to brokers or data sources.
 
 from __future__ import annotations
 
+if __name__ == "__main__":
+    from src.ibkr.evidence_safety import install_console_protection
+    install_console_protection()
+
 import asyncio
 
 try:
@@ -265,8 +269,29 @@ def _print_config_resolution_trace() -> None:
             print(f"      · {step}")
 
 
+def _report_shutdown(mode) -> None:
+    if getattr(mode, "value", mode) == "PANIC":
+        print("[SHUTDOWN] Exiting after PANIC stop.")
+        # Fail the supervisor's exit-code gate even if an earlier graceful
+        # evidence write completed immediately before the interrupt.
+        raise SystemExit(2)
+    print("[SHUTDOWN] Exiting gracefully. Goodbye!")
+
+
+def _run_and_report(orchestrator, max_cycles) -> None:
+    # Keep the return-to-main and terminal-report boundary protected too.
+    try:
+        orchestrator.run_forever(max_cycles=max_cycles)
+        _report_shutdown(orchestrator.stop_controller.stop_mode())
+    except KeyboardInterrupt:
+        orchestrator._handle_keyboard_interrupt()
+        _report_shutdown(orchestrator.stop_controller.stop_mode())
+
+
 def main() -> None:
     """Run the minimal teaching-first entry point."""
+    from src.ibkr.evidence_safety import install_console_protection
+    install_console_protection()
     _configure_console_output()
     args = _parse_args()
     _apply_cli_overrides(args)
@@ -434,9 +459,7 @@ def main() -> None:
     orchestrator = CoreOrchestrator()
     print("[LOOP] Entering continuous run loop. Press Ctrl+C to stop safely.")
 
-    orchestrator.run_forever(max_cycles=args.cycles)
-
-    print("[SHUTDOWN] Exiting gracefully. Goodbye!")
+    _run_and_report(orchestrator, args.cycles)
 
 
 if __name__ == "__main__":

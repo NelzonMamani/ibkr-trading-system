@@ -20,3 +20,12 @@ def _session_event_loop_bootstrap():
             loop.close()
         finally:
             asyncio.set_event_loop(None)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_process_mutation_evidence(monkeypatch):
+    # Each test models an independent runtime; production counters have no reset API.
+    import weakref
+    from src.ibkr import mutation_audit
+    monkeypatch.setattr(mutation_audit, "_counts", {"place": 0, "modify": 0, "cancel": 0})
+    monkeypatch.setattr(mutation_audit, "_seen", weakref.WeakKeyDictionary())

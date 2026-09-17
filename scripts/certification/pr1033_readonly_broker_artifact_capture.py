@@ -25,6 +25,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from src.ibkr.evidence_safety import sanitize, write_json as safe_write_json
+
 SCHEMA_VERSION = "PR1033.readonly_broker_artifact_capture.v1"
 CAPTURE_STATUS = "CAPTURE_BUNDLE_VALIDATED_PENDING_HUMAN_REVIEW"
 DRY_RUN_STATUS = "DRY_RUN_VALIDATED_NOT_BROKER_EVIDENCE"
@@ -132,10 +135,7 @@ def load_json(path: Path) -> Any:
 
 
 def write_json(path: Path, payload: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8", newline="\n") as handle:
-        json.dump(payload, handle, indent=2, sort_keys=True)
-        handle.write("\n")
+    safe_write_json(path, payload)
 
 
 def sha256_file(path: Path) -> str:
@@ -206,7 +206,8 @@ def _looks_secret_key(key: str) -> bool:
 
 
 def redact_payload(value: Any) -> tuple[Any, bool]:
-    changed = False
+    protected = sanitize(value)
+    changed = protected != value
 
     def redact_inner(item: Any, parent_key: str | None = None) -> Any:
         nonlocal changed
@@ -214,7 +215,7 @@ def redact_payload(value: Any) -> tuple[Any, bool]:
             redacted: dict[str, Any] = {}
             for key, child in item.items():
                 if _looks_secret_key(str(key)):
-                    if child not in SAFE_REDACTED_VALUES:
+                    if not isinstance(child, str) or child not in SAFE_REDACTED_VALUES:
                         changed = True
                     redacted[str(key)] = REDACTED_VALUE
                 else:
@@ -223,12 +224,12 @@ def redact_payload(value: Any) -> tuple[Any, bool]:
         if isinstance(item, list):
             return [redact_inner(child, parent_key) for child in item]
         if parent_key and _looks_secret_key(parent_key):
-            if item not in SAFE_REDACTED_VALUES:
+            if not isinstance(item, str) or item not in SAFE_REDACTED_VALUES:
                 changed = True
             return REDACTED_VALUE
         return item
 
-    return redact_inner(deepcopy(value)), changed
+    return redact_inner(deepcopy(protected)), changed
 
 
 def _string_values(value: Any) -> list[str]:

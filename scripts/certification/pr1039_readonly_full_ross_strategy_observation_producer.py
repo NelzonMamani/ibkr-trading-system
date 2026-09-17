@@ -170,10 +170,8 @@ def _normalize_upper(value: Any) -> str:
 
 
 def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8", newline="\n") as handle:
-        json.dump(payload, handle, indent=2, sort_keys=True)
-        handle.write("\n")
+    from src.ibkr.evidence_safety import write_json
+    write_json(path, payload)
 
 
 def _read_json(path: Path) -> dict[str, Any]:
