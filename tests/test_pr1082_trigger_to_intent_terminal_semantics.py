@@ -70,6 +70,18 @@ class FakeRegistry:
 
 @pytest.fixture(autouse=True)
 def _reset_config(monkeypatch: pytest.MonkeyPatch):
+    from src.strategies.ross_momentum.patterns import pattern_trace
+
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            fixed = cls(2026, 9, 16, 14, 35, 30, tzinfo=timezone.utc)
+            return fixed.astimezone(tz) if tz is not None else fixed.replace(tzinfo=None)
+
+    # Keep aligned historical bars and the runtime freshness evaluation on
+    # one clock. The newest aligned bar is 30 seconds old, never in the future.
+    monkeypatch.setitem(globals(), "datetime", FrozenDateTime)
+    monkeypatch.setattr(pattern_trace, "datetime", FrozenDateTime)
     monkeypatch.delenv("FORCE_SESSION", raising=False)
     set_config_overrides(
         {
@@ -609,6 +621,31 @@ def test_existing_positions_exhaust_capacity_records_ready_no_intent_terminal(mo
     assert terminal["trigger_ready_now"] is True
     assert terminal["intent_emitted"] is False
     assert terminal["terminal_stage"] == "capacity"
+
+
+def test_stale_execution_stream_still_blocks_before_tradeability(monkeypatch, tmp_path):
+    from src.strategies.ross_momentum.patterns import pattern_trace
+
+    strategy = _base_strategy(monkeypatch, tmp_path, state="ready")
+    strategy._pattern_registry = FakeRegistry([_detected_three("ready")])
+    fresh_bars = pattern_trace.get_intraday_bars
+    def stale_bars(*, timeframe="1m", **kwargs):
+        bars = fresh_bars(timeframe=timeframe, **kwargs)
+        if timeframe == "10s":
+            return [replace(bar, timestamp=bar.timestamp - timedelta(seconds=90)) for bar in bars]
+        return bars
+    monkeypatch.setattr(pattern_trace, "get_intraday_bars", stale_bars)
+    strategy.evaluate_tradeable_entry = lambda **kwargs: pytest.fail("stale stream reached tradeability")
+    intents = strategy.process_watchlist(
+        watchlist=[_watchlist_row("ready")], snapshots={"UPC": _snapshot("ready")},
+        session_label="RTH", timestamp_utc="cycle-stale-execution",
+        mode=RunMode.READ_ONLY, session_phase="RTH_OPEN",
+    )
+    assert intents == []
+    terminal = strategy.last_symbol_terminal_outcomes["UPC"]
+    assert terminal["outcome"] == "SETUP_FOUND_BUT_NO_TRIGGER"
+    assert terminal["reason"] == "execution_stream_stale"
+    assert terminal["trigger_ready_now"] is False
 
 
 @pytest.mark.parametrize(
