@@ -165,6 +165,14 @@ def test_blocked_nonessential_hook_cannot_delay_panic(monkeypatch):
 
 class Process:
     pid = 999999
+    runtime_identity = {"pid": pid, "parent_pid": 1, "creation_token": "windows-filetime:100", "argv": ["python", "-m", "src.main"]}
+    launcher_identity = runtime_identity
+    identity_verified = True
+    lineage = [runtime_identity]
+    def bind(self):
+        pass
+    def close(self):
+        pass
     def __init__(self, outcomes):
         self.outcomes = iter(outcomes)
         self.calls = []
@@ -195,6 +203,7 @@ def prepare_child_proof(tmp_path):
     proof.record("TERMINAL_FLUSHED", completed=True)
     payload = proof.payload()
     payload["pid"] = Process.pid
+    payload["process_identity"] = Process.runtime_identity
     privacy.write_json(tmp_path / "shutdown_evidence.json", payload)
 
 
@@ -211,7 +220,6 @@ def test_escalation_finalizes_every_path(monkeypatch, tmp_path, outcomes, forced
     readers = [SimpleNamespace(ident=1, join=lambda timeout: joined.append(timeout), is_alive=lambda: False) for _ in range(2)]
     monkeypatch.setattr(supervisor, "no_ross_runtime_remains", lambda *args: True)
     def audit():
-        assert process.poll() is not None
         audits.append("audit")
         return {"query_completed": True, "disconnected": True}
     monkeypatch.setattr(supervisor, "final_broker_audit", audit)
@@ -225,20 +233,20 @@ def test_escalation_finalizes_every_path(monkeypatch, tmp_path, outcomes, forced
     state = json.loads((tmp_path / "supervisor_shutdown.json").read_text())
     assert state["forced"] is forced
     assert state["runtime_process_exited"] is exited
-    assert audits == ([] if forced else ["audit"])
+    assert audits == ["audit"]
     assert (tmp_path / "FINAL_REPORT.md").exists()
     if forced:
         assert "certification: FAIL" in (tmp_path / "FINAL_REPORT.md").read_text()
     if not exited:
         terminal = json.loads((tmp_path / "terminal_evidence.json").read_text())
         assert not next(e["completed"] for e in terminal["events"] if e["event"] == "RUNTIME_PROCESS_EXITED")
-        assert not next(e["completed"] for e in terminal["events"] if e["event"] == "NO_ROSS_RUNTIME")
+        assert next(e["completed"] for e in terminal["events"] if e["event"] == "NO_ROSS_RUNTIME")
         assert state["surviving_pid"] == process.pid
     assert "DU" + "987654321" not in (tmp_path / "supervisor_shutdown.json").read_text()
 
 
 @pytest.mark.parametrize("failure", ["capture", "join", "alive"])
-def test_reader_failure_keeps_cleanup_and_blocks_audit(monkeypatch, tmp_path, failure):
+def test_reader_failure_keeps_callbacks_and_blocks_certification(monkeypatch, tmp_path, failure):
     prepare_child_proof(tmp_path)
     process = Process([0])
     joined = []
@@ -248,17 +256,21 @@ def test_reader_failure_keeps_cleanup_and_blocks_audit(monkeypatch, tmp_path, fa
     readers = [SimpleNamespace(ident=1, join=join, is_alive=lambda: failure == "alive"),
                SimpleNamespace(ident=2, join=lambda timeout: joined.append(True), is_alive=lambda: False)]
     monkeypatch.setattr(supervisor, "no_ross_runtime_remains", lambda *args: True)
-    monkeypatch.setattr(supervisor, "final_broker_audit", lambda: pytest.fail("audit after reader failure"))
+    audits = []
+    monkeypatch.setattr(supervisor, "final_broker_audit", lambda: audits.append(True) or {"query_completed": True, "disconnected": True})
     assert supervisor.stop_and_finalize(process, readers, ["capture failed"] if failure == "capture" else [], tmp_path) == 2
     assert joined == [True]
+    assert audits == [True]
     assert "certification: FAIL" in (tmp_path / "FINAL_REPORT.md").read_text()
 
 
-def test_remaining_runtime_blocks_audit(monkeypatch, tmp_path):
+def test_remaining_runtime_keeps_audit_and_blocks_certification(monkeypatch, tmp_path):
     prepare_child_proof(tmp_path)
     monkeypatch.setattr(supervisor, "no_ross_runtime_remains", lambda *args: False)
-    monkeypatch.setattr(supervisor, "final_broker_audit", lambda: pytest.fail("audit while runtime remains"))
+    audits = []
+    monkeypatch.setattr(supervisor, "final_broker_audit", lambda: audits.append(True) or {"query_completed": True, "disconnected": True})
     assert supervisor.stop_and_finalize(Process([0]), [], [], tmp_path) == 2
+    assert audits == [True]
 
 
 def test_clean_preflight_reaches_mock_child_and_finalization(monkeypatch, tmp_path):
@@ -276,6 +288,7 @@ def test_clean_preflight_reaches_mock_child_and_finalization(monkeypatch, tmp_pa
         prepare_child_proof(output)
         return Process([0, 0])
     monkeypatch.setattr(supervisor.subprocess, "Popen", popen)
+    monkeypatch.setattr(supervisor, "SupervisedProcess", lambda launcher, *args, **kwargs: launcher)
     monkeypatch.setattr(supervisor, "no_ross_runtime_remains", lambda *args: True)
     monkeypatch.setattr(supervisor, "final_broker_audit", lambda: {"query_completed": True, "disconnected": True})
     assert supervisor.main(["--seconds", "1", "--output", str(output), "--expected-commit", HEAD]) == 0
@@ -372,7 +385,7 @@ def test_run_loop_first_interrupt_graceful_second_interrupt_panic(monkeypatch, t
         # Even an observed zero exit cannot certify the missing graceful proof.
         result = shutdown.complete_after_process_exit(
             tmp_path, SimpleNamespace(pid=999999, poll=lambda: 0),
-            lambda: True, lambda: pytest.fail("audit without child exit proof"))
+            lambda: True, lambda: {"query_completed": True, "disconnected": True})
         assert result["passed"] is False
         assert "certification: FAIL" in (tmp_path / "FINAL_REPORT.md").read_text()
     else:
@@ -545,12 +558,14 @@ def test_windows_unreadable_inventory_fails_closed(monkeypatch, stdout):
 
 
 @pytest.mark.parametrize("completed,runtimes", [(False, []), (True, [{"pid": 200, "argv": ["python", "src/main.py"]}])])
-def test_inventory_blocks_audit_and_persists_evidence(monkeypatch, tmp_path, completed, runtimes):
+def test_inventory_failure_keeps_audit_and_persists_evidence(monkeypatch, tmp_path, completed, runtimes):
     prepare_child_proof(tmp_path)
     evidence = {"completed": completed, "runtimes": runtimes}
     monkeypatch.setattr(supervisor, "runtime_inventory", lambda: evidence)
-    monkeypatch.setattr(supervisor, "final_broker_audit", lambda: pytest.fail("audit with unsafe inventory"))
+    audits = []
+    monkeypatch.setattr(supervisor, "final_broker_audit", lambda: audits.append(True) or {"query_completed": True, "disconnected": True})
     assert supervisor.stop_and_finalize(Process([0]), [], [], tmp_path) == 2
+    assert audits == [True]
     assert json.loads((tmp_path / "runtime_inventory.json").read_text()) == evidence
     assert "certification: FAIL" in (tmp_path / "FINAL_REPORT.md").read_text()
 

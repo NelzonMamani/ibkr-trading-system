@@ -4,6 +4,7 @@ import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import math
+import json
 import time
 from typing import Any, Optional, TYPE_CHECKING
 import threading
@@ -11,6 +12,7 @@ import threading
 from src.runtime.async_runtime_bootstrap import safe_import_ib_insync
 from src.adapters.data.historical_bar_timeframes import resolve_intraday_timeframe_request
 from src.ibkr.contract_qualification import qualify_contracts_resilient
+from src.ibkr.evidence_safety import sanitize
 
 
 from src.config.config_resolver import get_config
@@ -53,9 +55,20 @@ def _clean(value: Optional[float]) -> Optional[float]:
     return numeric
 
 
+def _returned_market_data_type(ticker) -> str:
+    # A requested mode (and ib_insync's default value of 1) is not a callback.
+    if getattr(ticker, "marketDataTypeConfirmed", False) is not True:
+        return "UNKNOWN"
+    return {1: "LIVE", 2: "FROZEN", 3: "DELAYED", 4: "DELAYED_FROZEN"}.get(
+        getattr(ticker, "marketDataType", None), "UNKNOWN"
+    )
+
+
 def _market_data_type_flags(market_data_type: str | None) -> list[str]:
-    normalized = (market_data_type or "").upper()
+    normalized = (market_data_type or "UNKNOWN").upper()
     flags: list[str] = []
+    if normalized not in {"LIVE", "FROZEN", "DELAYED", "DELAYED_FROZEN"}:
+        flags.append("MD_TYPE_UNKNOWN")
     if normalized in {"DELAYED", "DELAYED_FROZEN"}:
         flags.append("MD_DELAYED")
     if normalized in {"FROZEN", "DELAYED_FROZEN"}:
@@ -63,13 +76,158 @@ def _market_data_type_flags(market_data_type: str | None) -> list[str]:
     return flags
 
 
-def _resolve_snapshot_timestamp(ticker, fallback: datetime) -> datetime:
-    raw_time = getattr(ticker, "time", None) or getattr(ticker, "lastTime", None)
+def _resolve_snapshot_timestamp(ticker) -> datetime | None:
+    # ib_insync.time is transport receipt time, not the time of the market data.
+    raw_time = getattr(ticker, "lastTime", None) or getattr(ticker, "rtTime", None)
+    if raw_time is None and getattr(ticker, "timestampSource", None) == "BROKER":
+        raw_time = getattr(ticker, "time", None)
     if isinstance(raw_time, datetime):
         if raw_time.tzinfo is None:
             raw_time = raw_time.replace(tzinfo=timezone.utc)
         return raw_time.astimezone(timezone.utc)
-    return fallback
+    return None
+
+
+_PRICE_TICKS = {1: "bid", 2: "ask", 4: "last", 6: "high", 7: "low", 9: "close", 14: "open",
+                66: "bid", 67: "ask", 68: "last", 72: "high", 73: "low", 75: "close", 76: "open"}
+_SIZE_TICKS = {0: "bid_size", 3: "ask_size", 5: "last_size", 8: "volume",
+               69: "bid_size", 70: "ask_size", 71: "last_size", 74: "volume"}
+
+
+def _record_field_receipt(ticker, fields) -> None:
+    received = datetime.now(timezone.utc)
+    ticker.receivedAt = received
+    if not hasattr(ticker, "fieldReceivedAt"):
+        ticker.fieldReceivedAt = {}
+    for name in fields:
+        if name:
+            ticker.fieldReceivedAt[name] = received.isoformat()
+
+
+def _snapshot_authority_metadata(ticker, fields, *, completed_at, completion_reason):
+    def utc(attr):
+        value = getattr(ticker, attr, None)
+        return value.isoformat() if isinstance(value, datetime) else None
+
+    return {
+        "market_data_type_confirmation_source": (
+            "IBKR_MARKET_DATA_TYPE_CALLBACK"
+            if _returned_market_data_type(ticker) != "UNKNOWN" else "UNKNOWN"
+        ),
+        "request_started_at_utc": utc("requestStartedAt"),
+        "request_completed_at_utc": completed_at.isoformat(),
+        "snapshot_completed_at_utc": utc("snapshotEndedAt"),
+        "completion_reason": completion_reason,
+        "field_availability": {name: value is not None for name, value in fields.items()},
+        "field_received_at_utc": dict(getattr(ticker, "fieldReceivedAt", {})),
+        # This is when absence was observed, never a fabricated market timestamp.
+        "missing_fields_observed_at_utc": {
+            name: completed_at.isoformat() for name, value in fields.items() if value is None
+        },
+        "broker_errors": list(getattr(ticker, "brokerErrors", [])),
+    }
+
+
+def _track_insync_snapshot_callbacks(ib):
+    """Retain callback authority omitted by ib_insync's reusable Ticker objects."""
+    wrapper = getattr(ib, "wrapper", None)
+    if not isinstance(getattr(wrapper, "reqId2Ticker", None), dict):
+        return None
+    tracked = getattr(wrapper, "_snapshot_authority_requests", None)
+    if tracked is not None:
+        return tracked
+    tracked = {}
+    wrapper._snapshot_authority_requests = tracked
+    original_type = wrapper.marketDataType
+    original_end = wrapper.tickSnapshotEnd
+    original_string = wrapper.tickString
+    original_price = wrapper.priceSizeTick
+    original_size = wrapper.tickSize
+    original_error = wrapper.error
+
+    def market_data_type(req_id, data_type):
+        original_type(req_id, data_type)
+        ticker = tracked.get(req_id)
+        if ticker is not None:
+            ticker.marketDataTypeConfirmed = data_type in {1, 2, 3, 4}
+            ticker.marketDataTypeReceivedAt = datetime.now(timezone.utc)
+
+    def snapshot_end(req_id):
+        ticker = tracked.get(req_id)
+        if ticker is not None:
+            ticker.snapshotEnd = True
+            ticker.snapshotEndedAt = datetime.now(timezone.utc)
+        original_end(req_id)
+
+    def tick_string(req_id, tick_type, value):
+        original_string(req_id, tick_type, value)
+        ticker = tracked.get(req_id)
+        if ticker is not None and tick_type in {45, 88}:
+            try:
+                ticker.lastTime = datetime.fromtimestamp(float(value), timezone.utc)
+            except (TypeError, ValueError, OverflowError, OSError):
+                return
+            _record_field_receipt(ticker, ["market_timestamp"])
+
+    def price_size_tick(req_id, tick_type, price, size):
+        original_price(req_id, tick_type, price, size)
+        ticker = tracked.get(req_id)
+        if ticker is not None and tick_type in _PRICE_TICKS:
+            field = _PRICE_TICKS[tick_type]
+            _record_field_receipt(ticker, [field] + ([field + "_size"] if field in {"bid", "ask", "last"} else []))
+
+    def tick_size(req_id, tick_type, size):
+        original_size(req_id, tick_type, size)
+        ticker = tracked.get(req_id)
+        if ticker is not None and tick_type in _SIZE_TICKS:
+            _record_field_receipt(ticker, [_SIZE_TICKS[tick_type]])
+
+    def error(req_id, code, message, *args):
+        ticker = tracked.get(req_id)
+        if ticker is not None:
+            ticker.brokerErrors.append(sanitize({
+                "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+                "req_id": req_id, "code": int(code), "message": message,
+                "symbol": getattr(ticker.contract, "symbol", None),
+                "request_type": "MARKET_SNAPSHOT",
+            }))
+        original_error(req_id, code, message, *args)
+
+    wrapper.marketDataType = market_data_type
+    wrapper.tickSnapshotEnd = snapshot_end
+    wrapper.tickString = tick_string
+    wrapper.priceSizeTick = price_size_tick
+    wrapper.tickSize = tick_size
+    wrapper.error = error
+    return tracked
+
+
+def _prepare_snapshot_ticker(ib, ticker, requested_type, tracked, started_at):
+    if tracked is None and hasattr(ticker, "marketDataTypeConfirmed"):
+        # Native adapter constructs a fresh ticker before sending the request.
+        return
+    # ib_insync reuses tickers: cached values and its default LIVE type cannot
+    # certify the current request. Its event loop has not yielded yet. Keep
+    # numeric defaults as NaN because the SDK performs numeric operations.
+    for attr in (
+        "bid", "ask", "last", "close", "volume", "open", "high", "low", "vwap",
+        "bidSize", "askSize", "lastSize", "changePercent",
+    ):
+        setattr(ticker, attr, float("nan"))
+    for attr in ("lastTime", "rtTime", "time", "receivedAt", "marketDataType",
+                 "marketDataTypeReceivedAt", "snapshotEndedAt"):
+        setattr(ticker, attr, None)
+    ticker.snapshotEnd = False
+    ticker.marketDataTypeConfirmed = False
+    ticker.requestedMarketDataType = _market_data_type_code(requested_type)
+    ticker.requestStartedAt = started_at
+    ticker.fieldReceivedAt = {}
+    ticker.brokerErrors = []
+    if tracked is not None:
+        req_id = ib.wrapper.ticker2ReqId["mktData"].get(ticker)
+        if req_id is not None and ib.wrapper.reqId2Ticker.get(req_id) is ticker:
+            ticker.reqId = req_id
+            tracked[req_id] = ticker
 
 
 @dataclass(frozen=True)
@@ -89,8 +247,26 @@ class MarketDataSnapshot:
     close: Optional[float]
     change_percent: Optional[float]
     spread: Optional[float]
-    timestamp_utc: str
+    timestamp_utc: Optional[str]
     data_quality_flags: list[str] = field(default_factory=list)
+    requested_market_data_type: str = "UNKNOWN"
+    returned_market_data_type: str = "UNKNOWN"
+    market_data_type_confirmed: bool = False
+    timestamp_source: str = "UNKNOWN"
+    received_at_utc: Optional[str] = None
+    market_data_type_received_at_utc: Optional[str] = None
+    request_id: Optional[int] = None
+    snapshot_complete: bool = False
+    market_data_type_confirmation_source: str = "UNKNOWN"
+    request_started_at_utc: Optional[str] = None
+    request_completed_at_utc: Optional[str] = None
+    snapshot_completed_at_utc: Optional[str] = None
+    completion_reason: str = "NOT_REQUESTED"
+    field_availability: dict[str, bool] = field(default_factory=dict)
+    field_received_at_utc: dict[str, str] = field(default_factory=dict)
+    missing_fields_observed_at_utc: dict[str, str] = field(default_factory=dict)
+    broker_errors: list[dict] = field(default_factory=list)
+    snapshot_attempts: list[dict] = field(default_factory=list)
 
 
 class MarketDataClient:
@@ -126,6 +302,7 @@ class MarketDataClient:
         self._scanner_results_received = False
         self._scanner_request_active = False
         self._recent_error_codes: dict[str, int] = {}
+        self._broker_error_events: list[dict] = []
         self.last_snapshot_debug: dict[str, Any] = {}
         try:
             if self.ib is not None:
@@ -170,6 +347,16 @@ class MarketDataClient:
         return loop.run_until_complete(coro)
 
     def _on_ib_error(self, req_id, error_code, error_string, contract=None) -> None:
+        event = sanitize({
+            "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+            "req_id": req_id,
+            "symbol": getattr(contract, "symbol", None),
+            "code": int(error_code),
+            "message": error_string,
+        })
+        self._broker_error_events.append(event)
+        del self._broker_error_events[:-256]
+        print(f"[IBKR][BROKER_ERROR] {json.dumps(event, sort_keys=True)}")
         code = str(error_code)
         self._recent_error_codes[code] = self._recent_error_codes.get(code, 0) + 1
         if int(error_code) == 162 and self._scanner_results_received and not self._scanner_request_active:
@@ -302,181 +489,185 @@ class MarketDataClient:
         )
 
     def snapshot_stock(self, contract_or_symbol) -> MarketDataSnapshot:
-        now_utc = datetime.now(timezone.utc)
-        base_flags = _market_data_type_flags(self.market_data_type)
+        base_flags = _market_data_type_flags("UNKNOWN")
         symbol = getattr(contract_or_symbol, "symbol", None) or str(contract_or_symbol or "").upper()
         self.last_snapshot_debug = {
             "requested_symbol": symbol,
+            "requested_market_data_type": self.market_data_type,
+            "returned_market_data_type": "UNKNOWN",
+            "market_data_type_confirmed": False,
+            "attempts": [],
             "requested_contract": {
-                "symbol": getattr(contract_or_symbol, "symbol", None),
-                "conId": getattr(contract_or_symbol, "conId", None),
-                "exchange": getattr(contract_or_symbol, "exchange", None),
-                "primaryExchange": getattr(contract_or_symbol, "primaryExchange", None),
-                "tradingClass": getattr(contract_or_symbol, "tradingClass", None),
-                "localSymbol": getattr(contract_or_symbol, "localSymbol", None),
+                name: getattr(contract_or_symbol, name, None)
+                for name in ("symbol", "conId", "exchange", "primaryExchange", "tradingClass", "localSymbol")
             } if not isinstance(contract_or_symbol, str) else None,
         }
         try:
             contract = self._canonicalize_history_contract(contract_or_symbol)
         except Exception as exc:
-            flags = list(base_flags) + ["CONTRACT_QUALIFY_FAILED"]
             self.last_snapshot_debug.update(
                 {"qualification_error": str(exc), "timeout_occurred": False, "waited_seconds": 0.0}
             )
-            print(f"[SNAPSHOT][QUALITY] CONTRACT_QUALIFY_FAILED symbol={symbol} error={exc}")
-            return self._empty_snapshot(symbol, flags, error=str(exc))
+            return self._empty_snapshot(symbol, base_flags + ["CONTRACT_QUALIFY_FAILED"], error=str(exc))
         if contract is None:
-            flags = list(base_flags) + ["CONTRACT_QUALIFY_FAILED"]
             self.last_snapshot_debug.update(
                 {"qualification_error": "contract_none", "timeout_occurred": False, "waited_seconds": 0.0}
             )
-            print(f"[SNAPSHOT][QUALITY] CONTRACT_QUALIFY_FAILED symbol={symbol} error=contract_none")
-            return self._empty_snapshot(symbol, flags)
+            return self._empty_snapshot(symbol, base_flags + ["CONTRACT_QUALIFY_FAILED"])
         self.last_snapshot_debug["contract"] = {
-            "symbol": getattr(contract, "symbol", None),
-            "conId": getattr(contract, "conId", None),
-            "exchange": getattr(contract, "exchange", None),
-            "primaryExchange": getattr(contract, "primaryExchange", None),
-            "tradingClass": getattr(contract, "tradingClass", None),
-            "localSymbol": getattr(contract, "localSymbol", None),
+            name: getattr(contract, name, None)
+            for name in ("symbol", "conId", "exchange", "primaryExchange", "tradingClass", "localSymbol")
         }
-
         ib = self._resolve_ib_client()
-        attempts = [
-            (True, self.market_data_type, "primary"),
-            (True, self.market_data_type, "snapshot_retry"),
-        ]
-        normalized_type = (self.market_data_type or "").upper()
-        if normalized_type not in {"DELAYED", "DELAYED_FROZEN"}:
-            attempts.append((True, "DELAYED", "delayed_fallback"))
-
-        best_ticker = None
-        best_debug = None
+        attempts = [(self.market_data_type, "primary"), (self.market_data_type, "snapshot_retry")]
+        if (self.market_data_type or "").upper() not in {"DELAYED", "DELAYED_FROZEN"}:
+            attempts.append(("DELAYED", "delayed_fallback"))
         best_fields = None
+        best_debug = None
+        best_score = (-1, -1, -1, -1)
         final_flags = list(base_flags)
-        snapshot_timestamp = now_utc
-
-        for attempt_index, (snapshot_mode, market_data_type, attempt_label) in enumerate(attempts, start=1):
-            flags = _market_data_type_flags(market_data_type)
-            data_type_code = _market_data_type_code(market_data_type)
+        snapshot_timestamp = None
+        received_at = None
+        required_fields = ("bid", "ask", "last", "close", "volume")
+        for attempt_index, (requested_type, attempt_label) in enumerate(attempts, start=1):
             req_market_data_type = getattr(ib, "reqMarketDataType", None)
             if callable(req_market_data_type):
-                req_market_data_type(data_type_code)
-            ticker = ib.reqMktData(
-                contract,
-                genericTickList="",
-                snapshot=snapshot_mode,
-                regulatorySnapshot=False,
-            )
-            started_at = time.time()
-            timeout_at = started_at + self.snapshot_timeout_seconds
+                req_market_data_type(_market_data_type_code(requested_type))
+            tracked = _track_insync_snapshot_callbacks(ib)
+            request_started_at = datetime.now(timezone.utc)
+            ticker = ib.reqMktData(contract, genericTickList="", snapshot=True, regulatorySnapshot=False)
+            _prepare_snapshot_ticker(ib, ticker, requested_type, tracked, request_started_at)
+            started_at = time.monotonic()
             snapshot_complete = False
-            while time.time() < timeout_at:
-                ib.waitOnUpdate(timeout=0.2)
-                if self._ticker_has_required_snapshot(ticker):
-                    snapshot_complete = True
-                    break
-                if self._ticker_snapshot_complete(ticker):
-                    snapshot_complete = True
-                    break
-            waited_seconds = round(time.time() - started_at, 3)
-            raw_fields = self._snapshot_debug_fields(ticker)
-            missing_fields = [field for field in ("last", "close", "volume") if raw_fields.get(field) is None]
-            attempt_debug = {
-                "attempt": attempt_index,
-                "label": attempt_label,
-                "market_data_type": market_data_type,
-                "waited_seconds": waited_seconds,
-                "timeout_occurred": not snapshot_complete,
-                "raw_fields": raw_fields,
-                "missing_fields": missing_fields,
-            }
-            self.last_snapshot_debug = {**self.last_snapshot_debug, **attempt_debug}
-            if not snapshot_complete:
-                flags.append("MD_TIMEOUT")
-            if not snapshot_complete or missing_fields:
-                ib.cancelMktData(contract)
-            if best_fields is None or sum(v is not None for v in raw_fields.values()) > sum(v is not None for v in (best_fields or {}).values()):
-                best_ticker = ticker
-                best_debug = attempt_debug
-                best_fields = raw_fields
-                final_flags = list(flags)
-                snapshot_timestamp = _resolve_snapshot_timestamp(ticker, now_utc)
-            if not missing_fields:
-                best_ticker = ticker
-                best_debug = attempt_debug
-                best_fields = raw_fields
-                final_flags = list(flags)
-                snapshot_timestamp = _resolve_snapshot_timestamp(ticker, now_utc)
+            completion_reason = "timeout"
+            try:
+                while True:
+                    if self._ticker_snapshot_complete(ticker):
+                        snapshot_complete = True
+                        completion_reason = "snapshot_end"
+                        break
+                    if self._ticker_has_required_snapshot(ticker) and _returned_market_data_type(ticker) != "UNKNOWN":
+                        completion_reason = "required_fields"
+                        break
+                    remaining = self.snapshot_timeout_seconds - (time.monotonic() - started_at)
+                    if remaining <= 0:
+                        break
+                    ib.waitOnUpdate(timeout=min(0.2, remaining))
+                completed_at = datetime.now(timezone.utc)
+                raw_fields = self._snapshot_debug_fields(ticker)
+                returned_type = _returned_market_data_type(ticker)
+                flags = _market_data_type_flags(returned_type)
+                timestamp = _resolve_snapshot_timestamp(ticker)
+                receipt = getattr(ticker, "receivedAt", None) or getattr(ticker, "time", None)
+                if not isinstance(receipt, datetime):
+                    receipt = None
+                missing_fields = [name for name in required_fields if raw_fields.get(name) is None]
+                attempt_debug = {
+                    "attempt": attempt_index,
+                    "label": attempt_label,
+                    "market_data_type": returned_type,
+                    "requested_market_data_type": requested_type,
+                    "returned_market_data_type": returned_type,
+                    "market_data_type_confirmed": returned_type != "UNKNOWN",
+                    "waited_seconds": round(time.monotonic() - started_at, 3),
+                    "timeout_occurred": completion_reason == "timeout",
+                    "snapshot_complete": snapshot_complete,
+                    "request_id": getattr(ticker, "reqId", None),
+                    "market_data_type_received_at_utc": (
+                        ticker.marketDataTypeReceivedAt.isoformat()
+                        if getattr(ticker, "marketDataTypeReceivedAt", None) else None
+                    ),
+                    "completion_reason": completion_reason,
+                    "raw_fields": raw_fields,
+                    "missing_fields": missing_fields,
+                    **_snapshot_authority_metadata(ticker, raw_fields, completed_at=completed_at, completion_reason=completion_reason),
+                }
+                self.last_snapshot_debug["attempts"].append(attempt_debug)
+                if completion_reason == "timeout":
+                    flags.append("MD_TIMEOUT")
+                if not snapshot_complete:
+                    flags.append("MD_SNAPSHOT_INCOMPLETE")
+                score = (len(required_fields) - len(missing_fields), int(returned_type != "UNKNOWN"), int(snapshot_complete), sum(v is not None for v in raw_fields.values()))
+                if score > best_score:
+                    best_score = score
+                    best_fields = dict(raw_fields)
+                    best_debug = dict(attempt_debug)
+                    final_flags = flags
+                    snapshot_timestamp = timestamp
+                    received_at = receipt
+            finally:
+                # Copy all result fields first; cancel may remove or mutate ticker state.
+                if tracked is not None:
+                    req_id = getattr(ticker, "reqId", None)
+                    tracked.pop(req_id, None)
+                    if ib.wrapper.reqId2Ticker.get(req_id) is ticker:
+                        # ib_insync leaves this mapping after endTicker. Removing
+                        # our request prevents late ticks mutating a reused Ticker.
+                        ib.wrapper.reqId2Ticker.pop(req_id, None)
+                if tracked is not None and self._ticker_snapshot_complete(ticker):
+                    ib.wrapper.endTicker(ticker, "mktData")
+                else:
+                    ib.cancelMktData(contract)
+            if not missing_fields and returned_type != "UNKNOWN":
                 break
             print(
                 f"[SNAPSHOT][RETRY] symbol={symbol} attempt={attempt_index}/{len(attempts)} "
-                f"label={attempt_label} missing={missing_fields} market_data_type={market_data_type}"
+                f"label={attempt_label} missing={missing_fields} requested_type={requested_type} returned_type={returned_type}"
             )
-
-        if best_ticker is None or best_fields is None or best_debug is None:
-            return self._empty_snapshot(symbol, list(base_flags) + ["MD_EMPTY"])
-
+        if best_fields is None or best_debug is None:
+            return self._empty_snapshot(symbol, base_flags + ["MD_EMPTY"])
         self.last_snapshot_debug.update(best_debug)
-        self.last_snapshot_debug["raw_fields"] = best_fields
-
-        max_age_seconds = int(get_config("IBKR_SNAPSHOT_MAX_AGE_SECONDS"))
-        age_seconds = (now_utc - snapshot_timestamp).total_seconds()
-        if age_seconds > max_age_seconds:
+        if snapshot_timestamp is None:
+            final_flags.append("MD_TIMESTAMP_UNKNOWN")
+        elif (datetime.now(timezone.utc) - snapshot_timestamp).total_seconds() > int(get_config("IBKR_SNAPSHOT_MAX_AGE_SECONDS")):
             final_flags.append("MD_STALE")
-
-        bid = _clean(getattr(best_ticker, "bid", None))
-        ask = _clean(getattr(best_ticker, "ask", None))
-        last = _clean(getattr(best_ticker, "last", None))
-        last_size = _clean(getattr(best_ticker, "lastSize", None))
-        bid_size = _clean(getattr(best_ticker, "bidSize", None))
-        ask_size = _clean(getattr(best_ticker, "askSize", None))
-        volume = _clean(getattr(best_ticker, "volume", None))
-        vwap = _clean(getattr(best_ticker, "vwap", None))
-        high = _clean(getattr(best_ticker, "high", None))
-        low = _clean(getattr(best_ticker, "low", None))
-        close = _clean(getattr(best_ticker, "close", None))
-        open_price = _clean(getattr(best_ticker, "open", None))
-        change_percent = _clean(getattr(best_ticker, "changePercent", None))
-        if get_config("DEBUG_MARKET_DATA"):
-            print(
-                "[IBKR][MD][DEBUG] ticks "
-                f"symbol={symbol} bid={bid} ask={ask} last={last} close={close} "
-                f"volume={volume} vwap={vwap} high={high} low={low} open={open_price}"
-            )
-        spread = (ask - bid) if bid is not None and ask is not None else None
-        if self._recent_error_codes.get("10197"):
+        if any(event["code"] == 10197 for attempt in self.last_snapshot_debug["attempts"] for event in attempt["broker_errors"]):
             final_flags.append("MD_CONFLICT_10197")
-        if bid is None and ask is None and last is None:
+        if all(best_fields[name] is None for name in ("bid", "ask", "last")):
             final_flags.append("MD_EMPTY")
-        if last is None:
-            final_flags.append("MD_MISSING_LAST")
-        if close is None:
-            final_flags.append("MD_MISSING_CLOSE")
-        if volume is None:
-            final_flags.append("MD_MISSING_VOLUME")
-        final_flags = list(dict.fromkeys(final_flags))
-        if last is not None and volume is not None:
-            print(f"[SNAPSHOT_OK] symbol={symbol} last={last} close={close} volume={volume}")
-
+        for name in required_fields:
+            if best_fields[name] is None:
+                final_flags.append(f"MD_MISSING_{name.upper()}")
+        bid, ask = best_fields["bid"], best_fields["ask"]
+        timestamp_source = "LAST_TRADE" if snapshot_timestamp is not None else "UNKNOWN"
+        self.last_snapshot_debug.update({
+            "timestamp_source": timestamp_source,
+            "timestamp_utc": snapshot_timestamp.isoformat() if snapshot_timestamp else None,
+            "received_at_utc": received_at.isoformat() if received_at else None,
+        })
         return MarketDataSnapshot(
             symbol=symbol,
             bid=bid,
             ask=ask,
-            last=last,
-            bid_size=bid_size,
-            ask_size=ask_size,
-            last_size=last_size,
-            volume=volume,
-            vwap=vwap,
-            open=open_price,
-            high=high,
-            low=low,
-            close=close,
-            change_percent=change_percent,
-            spread=spread,
-            timestamp_utc=snapshot_timestamp.isoformat(),
-            data_quality_flags=final_flags,
+            last=best_fields["last"],
+            bid_size=best_fields["bid_size"],
+            ask_size=best_fields["ask_size"],
+            last_size=best_fields["last_size"],
+            volume=best_fields["volume"],
+            vwap=best_fields["vwap"],
+            open=best_fields["open"],
+            high=best_fields["high"],
+            low=best_fields["low"],
+            close=best_fields["close"],
+            change_percent=best_fields["change_percent"],
+            spread=(ask - bid) if bid is not None and ask is not None else None,
+            timestamp_utc=snapshot_timestamp.isoformat() if snapshot_timestamp else None,
+            data_quality_flags=list(dict.fromkeys(final_flags)),
+            requested_market_data_type=best_debug["requested_market_data_type"],
+            returned_market_data_type=best_debug["returned_market_data_type"],
+            market_data_type_confirmed=best_debug["market_data_type_confirmed"],
+            timestamp_source=timestamp_source,
+            received_at_utc=received_at.isoformat() if received_at else None,
+            market_data_type_received_at_utc=best_debug["market_data_type_received_at_utc"],
+            request_id=best_debug["request_id"],
+            snapshot_complete=best_debug["snapshot_complete"],
+            **{key: best_debug[key] for key in (
+                "market_data_type_confirmation_source", "request_started_at_utc",
+                "request_completed_at_utc", "snapshot_completed_at_utc", "completion_reason",
+                "field_availability", "field_received_at_utc", "missing_fields_observed_at_utc",
+                "broker_errors",
+            )},
+            snapshot_attempts=list(self.last_snapshot_debug["attempts"]),
         )
 
     @staticmethod
@@ -489,10 +680,8 @@ class MarketDataClient:
 
     @staticmethod
     def _ticker_has_required_snapshot(ticker) -> bool:
-        last = _clean(getattr(ticker, "last", None))
-        close = _clean(getattr(ticker, "close", None))
-        volume = _clean(getattr(ticker, "volume", None))
-        return last is not None and close is not None and volume is not None
+        fields = MarketDataClient._snapshot_debug_fields(ticker)
+        return all(fields[name] is not None for name in ("bid", "ask", "last", "close", "volume"))
 
     @staticmethod
     def _ticker_snapshot_complete(ticker) -> bool:
@@ -500,17 +689,23 @@ class MarketDataClient:
 
     @staticmethod
     def _snapshot_debug_fields(ticker) -> dict[str, Optional[float]]:
-        return {
-            "bid": _clean(getattr(ticker, "bid", None)),
-            "ask": _clean(getattr(ticker, "ask", None)),
-            "last": _clean(getattr(ticker, "last", None)),
-            "close": _clean(getattr(ticker, "close", None)),
-            "volume": _clean(getattr(ticker, "volume", None)),
-            "open": _clean(getattr(ticker, "open", None)),
-            "high": _clean(getattr(ticker, "high", None)),
-            "low": _clean(getattr(ticker, "low", None)),
-            "vwap": _clean(getattr(ticker, "vwap", None)),
+        fields = {
+            name: _clean(getattr(ticker, name, None))
+            for name in ("bid", "ask", "last", "close", "volume", "open", "high", "low", "vwap")
         }
+        for name in ("bid", "ask", "last", "close", "open", "high", "low", "vwap"):
+            if fields[name] is not None and fields[name] <= 0:
+                fields[name] = None
+        if fields["volume"] is not None and fields["volume"] < 0:
+            fields["volume"] = None
+        fields.update({
+            name: _clean(getattr(ticker, attr, None))
+            for name, attr in (("bid_size", "bidSize"), ("ask_size", "askSize"), ("last_size", "lastSize"), ("change_percent", "changePercent"))
+        })
+        for name in ("bid_size", "ask_size", "last_size"):
+            if fields[name] is not None and fields[name] < 0:
+                fields[name] = None
+        return fields
 
     def _canonicalize_history_contract(self, contract_or_symbol):
         contract = contract_or_symbol
@@ -675,8 +870,9 @@ class MarketDataClient:
             close=None,
             change_percent=None,
             spread=None,
-            timestamp_utc=datetime.now(timezone.utc).isoformat(),
-            data_quality_flags=flags,
+            timestamp_utc=None,
+            data_quality_flags=list(dict.fromkeys(flags + ["MD_TIMESTAMP_UNKNOWN"])),
+            requested_market_data_type=self.market_data_type,
         )
 
     def snapshot_for_symbol(self, symbol: str) -> MarketDataSnapshot:

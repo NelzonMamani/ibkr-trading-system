@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from typing import Any, Mapping, Sequence
 
 from src.news.batch_rss_adapter import BatchRssNewsIntelligenceProvider
+from src.news.retrieval_diagnostics import emit_retrieval_diagnostics
 from src.news.evidence_store import (
     CanonicalNewsEvidenceStore,
     dedupe_evidence,
@@ -57,7 +58,7 @@ class CanonicalNewsIntelligenceService(NewsIntelligenceProvider):
         ordered_candidates = _dedupe_candidates(candidates)
         symbols = [candidate.normalized_symbol for candidate in ordered_candidates]
         if not symbols:
-            return NewsBatchResult(
+            result = NewsBatchResult(
                 candidates=ordered_candidates,
                 evidence_by_symbol={},
                 summaries_by_symbol={},
@@ -72,6 +73,8 @@ class CanonicalNewsIntelligenceService(NewsIntelligenceProvider):
                 started_at=started_at,
                 completed_at=datetime.now(timezone.utc),
             )
+            emit_retrieval_diagnostics(result, provider_invoked=False)
+            return result
 
         cache_read = (
             self.evidence_store.read(ordered_candidates, request)
@@ -159,7 +162,7 @@ class CanonicalNewsIntelligenceService(NewsIntelligenceProvider):
             refresh_result=refresh_result,
             combined_evidence=combined_evidence,
         )
-        return NewsBatchResult(
+        result = NewsBatchResult(
             candidates=ordered_candidates,
             evidence_by_symbol=combined_evidence,
             summaries_by_symbol=summaries,
@@ -170,6 +173,10 @@ class CanonicalNewsIntelligenceService(NewsIntelligenceProvider):
             started_at=started_at,
             completed_at=datetime.now(timezone.utc),
         )
+        emit_retrieval_diagnostics(
+            result, provider_invoked=refresh_result is not None, cache_diagnostics=cache_diagnostics
+        )
+        return result
 
 
 def _dedupe_candidates(candidates: Sequence[NewsCandidate]) -> tuple[NewsCandidate, ...]:

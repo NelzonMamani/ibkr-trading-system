@@ -16,7 +16,15 @@ from ibapi.order import Order
 from ibapi.wrapper import EWrapper
 
 from src.domain.market_snapshot import MarketSnapshot
-from src.ibkr.market_data_client import MarketDataSnapshot
+from src.ibkr.market_data_client import (
+    MarketDataSnapshot,
+    _clean,
+    _market_data_type_flags,
+    _returned_market_data_type,
+    _resolve_snapshot_timestamp,
+    _record_field_receipt,
+    _snapshot_authority_metadata,
+)
 from src.ibkr.read_only_guard import assert_read_only_allows
 from src.ibkr.evidence_safety import register_account, sanitize
 
@@ -72,6 +80,8 @@ class IbkrClient(EWrapper, EClient):
         self._historical_events: Dict[int, threading.Event] = {}
         self._historical_data: Dict[int, List[object]] = {}
         self._errors: Dict[int, Tuple[int, str]] = {}
+        self._broker_error_events: list[dict] = []
+        self._request_context_by_req_id: dict[int, dict] = {}
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
         self._connection_event = threading.Event()
@@ -240,11 +250,21 @@ class IbkrClient(EWrapper, EClient):
             self._req_id += 1
             return self._req_id
 
-    def _register_request(self, req_id: int, request_type: str) -> None:
+    def _register_request(self, req_id: int, request_type: str, contract=None) -> None:
         if not hasattr(self, "_request_type_by_req_id"):
             self._request_type_by_req_id = {}
         with self._lock:
             self._request_type_by_req_id[req_id] = request_type
+            if not hasattr(self, "_request_context_by_req_id"):
+                self._request_context_by_req_id = {}
+            self._request_context_by_req_id[req_id] = {
+                "request_type": request_type,
+                "symbol": getattr(contract, "symbol", None),
+                "con_id": getattr(contract, "conId", None),
+            }
+            # Retain bounded context for broker errors arriving after cleanup.
+            if len(self._request_context_by_req_id) > 1024:
+                self._request_context_by_req_id.pop(next(iter(self._request_context_by_req_id)))
 
     def _cleanup_market_request(self, req_id: int) -> None:
         if not hasattr(self, "_active_market_req_ids"):
@@ -282,6 +302,21 @@ class IbkrClient(EWrapper, EClient):
             bidSize=None,
             askSize=None,
             lastSize=None,
+            open=None,
+            high=None,
+            low=None,
+            requestedMarketDataType=getattr(self, "_requested_market_data_type_code", _market_data_type_code(self.market_data_type)),
+            marketDataType=None,
+            marketDataTypeConfirmed=False,
+            marketDataTypeReceivedAt=None,
+            reqId=None,
+            snapshotEnd=False,
+            receivedAt=None,
+            lastTime=None,
+            requestStartedAt=datetime.now(timezone.utc),
+            snapshotEndedAt=None,
+            fieldReceivedAt={},
+            brokerErrors=[],
         )
 
     def reserve_order_id(self) -> int:
@@ -448,7 +483,7 @@ class IbkrClient(EWrapper, EClient):
         event = threading.Event()
         self._contract_events[req_id] = event
         self._contract_details[req_id] = []
-        self._register_request(req_id, "CONTRACT_DETAILS")
+        self._register_request(req_id, "CONTRACT_DETAILS", contract)
 
         self.reqContractDetails(req_id, contract)
 
@@ -489,6 +524,10 @@ class IbkrClient(EWrapper, EClient):
                 continue
         return qualified
 
+    def reqMarketDataType(self, marketDataType: int):  # type: ignore[override]
+        self._requested_market_data_type_code = int(marketDataType)
+        return super().reqMarketDataType(marketDataType)
+
     def reqMktData(self, *args, **kwargs):  # type: ignore[override]
         """
         Compatibility wrapper supporting both:
@@ -515,9 +554,10 @@ class IbkrClient(EWrapper, EClient):
             self._market_events[req_id] = threading.Event()
             self._market_data[req_id] = {"bid": None, "ask": None, "last": None, "volume": None}
             ticker = self._build_ticker(contract)
+            ticker.reqId = req_id
             self._ticker_by_req_id[req_id] = ticker
             self._req_id_by_contract_key[self._contract_key(contract)] = req_id
-            self._register_request(req_id, "MARKET_DATA")
+            self._register_request(req_id, "MARKET_DATA", contract)
             self._active_market_req_ids.add(req_id)
             super().reqMktData(
                 req_id,
@@ -534,32 +574,34 @@ class IbkrClient(EWrapper, EClient):
             if len(args) >= 2 and not isinstance(args[1], int):
                 contract = args[1]
                 self._req_id_by_contract_key[self._contract_key(contract)] = req_id
-                self._ticker_by_req_id.setdefault(req_id, self._build_ticker(contract))
-            self._register_request(req_id, "MARKET_DATA")
+                self._ticker_by_req_id.setdefault(req_id, self._build_ticker(contract)).reqId = req_id
+            self._market_events.setdefault(req_id, threading.Event())
+            self._market_data.setdefault(req_id, {"bid": None, "ask": None, "last": None, "volume": None})
+            self._register_request(req_id, "MARKET_DATA", contract)
             self._active_market_req_ids.add(req_id)
             return super().reqMktData(*args, **kwargs)
 
         raise TypeError("reqMktData requires either (contract, ...) or (reqId, contract, ...)")
 
     def cancelMktData(self, *args, **kwargs):  # type: ignore[override]
-        req_id: Optional[int] = None
-        active_market_req_ids = getattr(self, "_active_market_req_ids", set())
         if args and not isinstance(args[0], int):
-            contract = args[0]
-            req_id = self._req_id_by_contract_key.get(self._contract_key(contract))
-            if req_id is None or req_id not in active_market_req_ids:
-                return None
-            result = super().cancelMktData(req_id)
-            self._cleanup_market_request(req_id)
-            return result
-        if args and isinstance(args[0], int):
+            req_id = self._req_id_by_contract_key.get(self._contract_key(args[0]))
+        elif args:
             req_id = int(args[0])
-            if req_id not in active_market_req_ids:
+        else:
+            return super().cancelMktData(*args, **kwargs)
+        with self._lock:
+            if req_id not in self._active_market_req_ids:
                 return None
-            result = super().cancelMktData(req_id)
+            ticker = self._ticker_by_req_id.get(req_id)
+            completed = bool(getattr(ticker, "snapshotEnd", False))
+            # Stop accepting ticks before sending a cancellation over the wire.
+            self._active_market_req_ids.discard(req_id)
+        try:
+            # IBKR ends snapshot subscriptions itself; cancelling one produces 300.
+            return None if completed else super().cancelMktData(req_id)
+        finally:
             self._cleanup_market_request(req_id)
-            return result
-        return super().cancelMktData(*args, **kwargs)
 
     def reqHistoricalData(self, *args, **kwargs):  # type: ignore[override]
         """
@@ -587,7 +629,7 @@ class IbkrClient(EWrapper, EClient):
             req_id = self._next_req_id()
             self._historical_events[req_id] = threading.Event()
             self._historical_data[req_id] = []
-            self._register_request(req_id, "HISTORICAL_DATA")
+            self._register_request(req_id, "HISTORICAL_DATA", contract)
             print(
                 f"[IBKR][HIST_REQ] req_id={req_id} symbol={getattr(contract, 'symbol', None)}"
             )
@@ -634,7 +676,8 @@ class IbkrClient(EWrapper, EClient):
             req_id = int(args[0])
             self._historical_events.setdefault(req_id, threading.Event())
             self._historical_data.setdefault(req_id, [])
-            self._register_request(req_id, "HISTORICAL_DATA")
+            contract = args[1] if len(args) > 1 else kwargs.get("contract")
+            self._register_request(req_id, "HISTORICAL_DATA", contract)
             return super().reqHistoricalData(*args, **kwargs)
 
         raise TypeError(
@@ -662,48 +705,63 @@ class IbkrClient(EWrapper, EClient):
         contract = details.contract
         req_id = self._next_req_id()
         print(f"[IBKR] Requesting market snapshot symbol={symbol} req_id={req_id} conId={contract.conId}")
-
         event = threading.Event()
         self._market_events[req_id] = event
-        self._market_data[req_id] = {
-            "bid": None,
-            "ask": None,
-            "last": None,
-            "volume": None,
-        }
-        self._register_request(req_id, "MARKET_SNAPSHOT")
-        self._active_market_req_ids.add(req_id)
-
-        self.reqMktData(
-            req_id,
-            contract,
-            "",
-            True,
-            False,
-            [],
-        )
-
-        event.wait(timeout=self.snapshot_timeout_seconds)
-        self.cancelMktData(req_id)
-
-        prices = self._market_data.get(req_id, {})
+        self._market_data[req_id] = {"bid": None, "ask": None, "last": None, "volume": None}
+        try:
+            self.reqMktData(req_id, contract, "", True, False, [])
+            event.wait(timeout=self.snapshot_timeout_seconds)
+            completed_at = datetime.now(timezone.utc)
+            with self._lock:
+                # Cancellation owns cleanup; retain all values before it runs.
+                ticker = SimpleNamespace(**vars(self._ticker_by_req_id[req_id]))
+        finally:
+            self.cancelMktData(req_id)
+        returned_type = _returned_market_data_type(ticker)
+        requested_type = {1: "LIVE", 2: "FROZEN", 3: "DELAYED", 4: "DELAYED_FROZEN"}.get(ticker.requestedMarketDataType, "UNKNOWN")
+        timestamp = _resolve_snapshot_timestamp(ticker)
+        flags = _market_data_type_flags(returned_type)
+        completion_reason = "snapshot_end" if ticker.snapshotEnd else ("broker_error" if ticker.brokerErrors else "timeout")
+        if completion_reason == "timeout":
+            flags.append("MD_TIMEOUT")
+        if not ticker.snapshotEnd:
+            flags.append("MD_SNAPSHOT_INCOMPLETE")
+        if any(event["code"] == 10197 for event in ticker.brokerErrors):
+            flags.append("MD_CONFLICT_10197")
+        if timestamp is None:
+            flags.append("MD_TIMESTAMP_UNKNOWN")
+        fields = {name: _clean(getattr(ticker, name, None)) for name in ("bid", "ask", "last", "volume", "close", "open", "high", "low")}
+        for name in ("bid", "ask", "last", "close", "open", "high", "low"):
+            if fields[name] is not None and fields[name] <= 0:
+                fields[name] = None
+        if fields["volume"] is not None and fields["volume"] < 0:
+            fields["volume"] = None
+        for name in ("bid", "ask", "last", "close", "volume"):
+            if fields[name] is None:
+                flags.append(f"MD_MISSING_{name.upper()}")
+        if all(fields[name] is None for name in ("bid", "ask", "last")):
+            flags.append("MD_EMPTY")
         snapshot = MarketSnapshot(
             symbol=symbol,
-            bid=prices.get("bid"),
-            ask=prices.get("ask"),
-            last=prices.get("last"),
-            volume=prices.get("volume"),
+            **fields,
+            bid_size=_clean(ticker.bidSize),
+            ask_size=_clean(ticker.askSize),
+            last_size=_clean(ticker.lastSize),
             asof_utc=datetime.now(timezone.utc),
-            market_data_type=self.market_data_type,
+            market_data_type=returned_type,
+            requested_market_data_type=requested_type,
+            returned_market_data_type=returned_type,
+            market_data_type_confirmed=ticker.marketDataTypeConfirmed,
+            market_timestamp_utc=timestamp,
+            timestamp_source="LAST_TRADE" if timestamp else "UNKNOWN",
+            market_data_type_received_at_utc=ticker.marketDataTypeReceivedAt,
+            request_id=req_id,
+            snapshot_complete=ticker.snapshotEnd,
+            received_at_utc=ticker.receivedAt,
+            data_quality_flags=tuple(flags),
+            **_snapshot_authority_metadata(ticker, fields, completed_at=completed_at, completion_reason=completion_reason),
         )
-        if event.is_set():
-            print(
-                f"[IBKR] Snapshot symbol={symbol} req_id={req_id} bid={snapshot.bid} ask={snapshot.ask} last={snapshot.last}"
-            )
-        else:
-            print(
-                f"[IBKR] Snapshot timeout symbol={symbol} req_id={req_id} (bid/ask/last may be None)"
-            )
+        print(f"[IBKR] Snapshot symbol={symbol} req_id={req_id} requested_type={requested_type} returned_type={returned_type} complete={ticker.snapshotEnd} bid={snapshot.bid} ask={snapshot.ask} last={snapshot.last}")
         return snapshot
 
     def snapshot_stock(self, symbol: str) -> MarketDataSnapshot:
@@ -714,21 +772,33 @@ class IbkrClient(EWrapper, EClient):
             bid=snapshot.bid,
             ask=snapshot.ask,
             last=snapshot.last,
-            bid_size=None,
-            ask_size=None,
-            last_size=None,
+            bid_size=snapshot.bid_size,
+            ask_size=snapshot.ask_size,
+            last_size=snapshot.last_size,
             volume=snapshot.volume,
             vwap=None,
-            open=None,
-            high=None,
-            low=None,
-            close=snapshot.last,
+            open=snapshot.open,
+            high=snapshot.high,
+            low=snapshot.low,
+            close=snapshot.close,
             change_percent=None,
-            spread=(snapshot.ask - snapshot.bid)
-            if snapshot.ask is not None and snapshot.bid is not None
-            else None,
-            timestamp_utc=snapshot.asof_utc.isoformat(),
-            data_quality_flags=[],
+            spread=(snapshot.ask - snapshot.bid) if snapshot.ask is not None and snapshot.bid is not None else None,
+            timestamp_utc=snapshot.market_timestamp_utc.isoformat() if snapshot.market_timestamp_utc else None,
+            data_quality_flags=list(snapshot.data_quality_flags),
+            requested_market_data_type=snapshot.requested_market_data_type,
+            returned_market_data_type=snapshot.returned_market_data_type,
+            market_data_type_confirmed=snapshot.market_data_type_confirmed,
+            timestamp_source="LAST_TRADE" if snapshot.market_timestamp_utc else "UNKNOWN",
+            received_at_utc=snapshot.received_at_utc.isoformat() if snapshot.received_at_utc else None,
+            market_data_type_received_at_utc=snapshot.market_data_type_received_at_utc.isoformat() if snapshot.market_data_type_received_at_utc else None,
+            request_id=snapshot.request_id,
+            snapshot_complete=snapshot.snapshot_complete,
+            **{key: getattr(snapshot, key) for key in (
+                "market_data_type_confirmation_source", "request_started_at_utc",
+                "request_completed_at_utc", "snapshot_completed_at_utc", "completion_reason",
+                "field_availability", "field_received_at_utc", "missing_fields_observed_at_utc",
+                "broker_errors",
+            )},
         )
 
     def snapshot_for_symbol(self, symbol: str) -> MarketDataSnapshot:
@@ -764,70 +834,79 @@ class IbkrClient(EWrapper, EClient):
             return self.ib.cancelScannerSubscription(reqId)
         return super().cancelScannerSubscription(reqId)
 
-    def tickPrice(
-        self,
-        reqId: TickerId,
-        tickType: int,
-        price: float,
-        attrib,
-    ):  # type: ignore[override]
-        prices = self._market_data.setdefault(
-            reqId, {"bid": None, "ask": None, "last": None, "volume": None}
-        )
-        if tickType == 1:
-            prices["bid"] = price
-        elif tickType == 2:
-            prices["ask"] = price
-        elif tickType == 4:
-            prices["last"] = price
-        elif tickType == 9:
-            prices["last"] = prices.get("last") if prices.get("last") is not None else price
+    def marketDataType(self, reqId: TickerId, marketDataType: int):  # type: ignore[override]
+        with self._lock:
+            ticker = self._ticker_by_req_id.get(reqId)
+            if ticker is None or reqId not in self._active_market_req_ids:
+                return
+            ticker.marketDataType = marketDataType if marketDataType in {1, 2, 3, 4} else None
+            ticker.marketDataTypeConfirmed = ticker.marketDataType is not None
+            ticker.marketDataTypeReceivedAt = datetime.now(timezone.utc)
+            event = {
+                "req_id": reqId,
+                "symbol": getattr(ticker.contract, "symbol", None),
+                "requested_market_data_type": ticker.requestedMarketDataType,
+                "returned_market_data_type": ticker.marketDataType,
+                "timestamp_utc": ticker.marketDataTypeReceivedAt.isoformat(),
+            }
+        print(f"[IBKR][MARKET_DATA_TYPE] {json.dumps(event, sort_keys=True)}")
+        self._market_update_event.set()
 
-        ticker = self._ticker_by_req_id.get(reqId)
-        if ticker is not None:
-            if tickType == 1:
-                ticker.bid = price
-            elif tickType == 2:
-                ticker.ask = price
-            elif tickType == 4:
-                ticker.last = price
-            elif tickType == 9:
-                ticker.close = price
-
-        if any(value is not None for value in prices.values()):
+    def tickSnapshotEnd(self, reqId: TickerId):  # type: ignore[override]
+        with self._lock:
+            ticker = self._ticker_by_req_id.get(reqId)
+            if ticker is None or reqId not in self._active_market_req_ids:
+                return
+            ticker.snapshotEnd = True
+            ticker.snapshotEndedAt = datetime.now(timezone.utc)
             event = self._market_events.get(reqId)
             if event:
                 event.set()
-            self._market_update_event.set()
+        self._market_update_event.set()
 
-    def tickSize(
-        self,
-        reqId: TickerId,
-        tickType: int,
-        size: float,
-    ):  # type: ignore[override]
-        prices = self._market_data.setdefault(
-            reqId, {"bid": None, "ask": None, "last": None, "volume": None}
-        )
-        if tickType in (8, 37):
-            prices["volume"] = float(size)
+    def tickPrice(self, reqId: TickerId, tickType: int, price: float, attrib):  # type: ignore[override]
+        field = {1: "bid", 2: "ask", 4: "last", 6: "high", 7: "low", 9: "close", 14: "open",
+                 66: "bid", 67: "ask", 68: "last", 72: "high", 73: "low", 75: "close", 76: "open"}.get(tickType)
+        if field is None:
+            return
+        with self._lock:
+            ticker = self._ticker_by_req_id.get(reqId)
+            if ticker is None or reqId not in self._active_market_req_ids:
+                return
+            self._market_data[reqId][field] = price
+            setattr(ticker, field, price)
+            _record_field_receipt(ticker, [field])
+        self._market_update_event.set()
 
-        ticker = self._ticker_by_req_id.get(reqId)
-        if ticker is not None:
-            if tickType in (0, 66):
-                ticker.bidSize = size
-            elif tickType in (3, 69):
-                ticker.askSize = size
-            elif tickType in (5, 71):
-                ticker.lastSize = size
-            elif tickType in (8, 37):
-                ticker.volume = float(size)
+    def tickSize(self, reqId: TickerId, tickType: int, size: float):  # type: ignore[override]
+        field = {0: "bidSize", 3: "askSize", 5: "lastSize", 8: "volume",
+                 69: "bidSize", 70: "askSize", 71: "lastSize", 74: "volume"}.get(tickType)
+        if field is None:
+            return
+        with self._lock:
+            ticker = self._ticker_by_req_id.get(reqId)
+            if ticker is None or reqId not in self._active_market_req_ids:
+                return
+            value = float(size)
+            self._market_data[reqId][field] = value
+            setattr(ticker, field, value)
+            _record_field_receipt(ticker, [{"bidSize": "bid_size", "askSize": "ask_size", "lastSize": "last_size"}.get(field, field)])
+        self._market_update_event.set()
 
-        if any(value is not None for value in prices.values()):
-            event = self._market_events.get(reqId)
-            if event:
-                event.set()
-            self._market_update_event.set()
+    def tickString(self, reqId: TickerId, tickType: int, value: str):  # type: ignore[override]
+        if tickType not in {45, 88}:
+            return
+        try:
+            timestamp = datetime.fromtimestamp(float(value), timezone.utc)
+        except (TypeError, ValueError, OverflowError, OSError):
+            return
+        with self._lock:
+            ticker = self._ticker_by_req_id.get(reqId)
+            if ticker is None or reqId not in self._active_market_req_ids:
+                return
+            ticker.lastTime = timestamp
+            _record_field_receipt(ticker, ["market_timestamp"])
+        self._market_update_event.set()
 
     def historicalData(self, reqId: int, bar):  # type: ignore[override]
         self._historical_data.setdefault(reqId, []).append(bar)
@@ -898,8 +977,27 @@ class IbkrClient(EWrapper, EClient):
 
     # --- Error handling ---
     def error(self, reqId: int, errorCode: int, errorString: str):  # type: ignore[override]
+        timestamp_utc = datetime.now(timezone.utc).isoformat()
         request_type_by_req_id = getattr(self, "_request_type_by_req_id", {})
-        request_type = request_type_by_req_id.get(reqId)
+        context = getattr(self, "_request_context_by_req_id", {}).get(reqId, {})
+        request_type = request_type_by_req_id.get(reqId) or context.get("request_type")
+        ticker = self._ticker_by_req_id.get(reqId)
+        event = sanitize({
+            "timestamp_utc": timestamp_utc,
+            "req_id": reqId,
+            "request_type": request_type,
+            "symbol": getattr(getattr(ticker, "contract", None), "symbol", None) or context.get("symbol"),
+            "con_id": context.get("con_id"),
+            "code": int(errorCode),
+            "message": errorString,
+        })
+        if not hasattr(self, "_broker_error_events"):
+            self._broker_error_events = []
+        if ticker is not None and reqId in self._active_market_req_ids:
+            ticker.brokerErrors.append(event)
+        self._broker_error_events.append(event)
+        del self._broker_error_events[:-256]
+        print(f"[IBKR][BROKER_ERROR] {json.dumps(event, sort_keys=True)}")
         unknown_market_req = int(errorCode) == 300 and reqId >= 0 and request_type is None
         if unknown_market_req:
             print(
@@ -955,7 +1053,7 @@ class IbkrClient(EWrapper, EClient):
             print(f"[IBKR][WARN] order_id={reqId} code={errorCode} message={errorString}")
             message = f"[IBKR] Warning reqId={reqId} code={errorCode} msg={errorString}"
         else:
-            message = f"[IBKR] Error reqId={reqId} code={errorCode} msg={errorString}"
+            message = f"[IBKR] Error reqId={reqId} code={errorCode} msg={errorString} timestamp_utc={timestamp_utc}"
         if not fractional_unsupported_warning:
             print(
                 "[ORDER][ERROR] "

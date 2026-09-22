@@ -310,6 +310,20 @@ class IbkrScannerProvider(ScannerDataProvider):
             volume=snapshot.volume,
             timestamp_utc=snapshot.timestamp_utc,
             data_quality_flags=tuple(flags),
+            requested_market_data_type=getattr(snapshot, "requested_market_data_type", "UNKNOWN"),
+            returned_market_data_type=getattr(snapshot, "returned_market_data_type", "UNKNOWN"),
+            market_data_type_confirmed=getattr(snapshot, "market_data_type_confirmed", False),
+            timestamp_source=getattr(snapshot, "timestamp_source", "UNKNOWN"),
+            received_at_utc=getattr(snapshot, "received_at_utc", None),
+            market_data_type_received_at_utc=getattr(snapshot, "market_data_type_received_at_utc", None),
+            request_id=getattr(snapshot, "request_id", None),
+            snapshot_complete=getattr(snapshot, "snapshot_complete", False),
+            snapshot_evidence={name: getattr(snapshot, name, None) for name in (
+                "market_data_type_confirmation_source", "request_started_at_utc",
+                "request_completed_at_utc", "snapshot_completed_at_utc", "completion_reason",
+                "field_availability", "field_received_at_utc", "missing_fields_observed_at_utc",
+                "broker_errors", "snapshot_attempts",
+            )},
         )
 
     def qualifyContracts(self, *contracts):

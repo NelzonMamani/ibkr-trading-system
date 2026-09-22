@@ -4082,10 +4082,11 @@ def _build_symbol_context(
             "session": session_label,
             "data_quality_flags": list(dict.fromkeys(data_quality_flags)),
             "snapshot_error": "MD_CONFLICT",
+            **_quote_market_data_provenance(quote),
         }
     last_price = _resolve_price(quote)
     spread, spread_pct = _spread_values(quote)
-    snapshot_timeout = "MD_TIMEOUT" in data_quality_flags
+    snapshot_timeout = any(flag in data_quality_flags for flag in ("MD_TIMEOUT", "SNAPSHOT_TIMEOUT"))
     if get_config("DEBUG_MARKET_DATA"):
         print(
             "[SCANNER][MD][DEBUG] ticks "
@@ -4356,6 +4357,7 @@ def _build_symbol_context(
         "eligibility_reason_codes": [],
         "data_quality_flags": list(dict.fromkeys(data_quality_flags)),
         "snapshot_timeout": snapshot_timeout,
+        **_quote_market_data_provenance(quote),
         "universe_rank": universe_rank,
     }
     attach_session_contract(context, session_contract)
@@ -4365,6 +4367,73 @@ def _build_symbol_context(
     _emit_scanner_reference_trace("final_context_build", context)
     return context
     
+
+def _quote_market_data_provenance(quote) -> dict[str, Any]:
+    """Keep broker-confirmed type and market time separate from request/receipt."""
+    returned = str(getattr(quote, "returned_market_data_type", "UNKNOWN")).upper()
+    confirmed = getattr(quote, "market_data_type_confirmed", False) is True
+    confirmed = confirmed and returned in {"LIVE", "FROZEN", "DELAYED", "DELAYED_FROZEN"}
+    return {
+        "requested_market_data_type": str(getattr(quote, "requested_market_data_type", "UNKNOWN")).upper(),
+        "returned_market_data_type": returned if confirmed else "UNKNOWN",
+        "market_data_type_confirmed": confirmed,
+        "quote_timestamp_utc": getattr(quote, "timestamp_utc", None),
+        "quote_timestamp_source": str(getattr(quote, "timestamp_source", "UNKNOWN")),
+        "quote_received_at_utc": getattr(quote, "received_at_utc", None),
+        "market_data_type_received_at_utc": getattr(quote, "market_data_type_received_at_utc", None),
+        "quote_request_id": getattr(quote, "request_id", None),
+        "snapshot_complete": getattr(quote, "snapshot_complete", False) is True,
+        "snapshot_evidence": dict(getattr(quote, "snapshot_evidence", {})),
+    }
+
+
+def _observed_market_data_summary(contexts) -> dict[str, Any]:
+    """Summarize evaluated quotes, including rejected/unknown data, without inferring type."""
+    counts: dict[str, int] = {}
+    by_symbol: dict[str, dict[str, Any]] = {}
+    valid = {"LIVE", "FROZEN", "DELAYED", "DELAYED_FROZEN"}
+    unconfirmed_supplement_count = 0
+    for context in contexts:
+        returned = str(context.get("returned_market_data_type", "UNKNOWN"))
+        if context.get("market_data_type_confirmed") is not True or returned not in valid:
+            returned = "UNKNOWN"
+        counts[returned] = counts.get(returned, 0) + 1
+        supplements = context.get("snapshot_supplemented_fields", {})
+        unconfirmed_supplement_count += bool(supplements)
+        by_symbol[str(context.get("symbol", ""))] = {
+            "requested": context.get("requested_market_data_type", "UNKNOWN"),
+            "returned": returned,
+            "confirmed": returned != "UNKNOWN",
+            "type_received_at_utc": context.get("market_data_type_received_at_utc"),
+            "request_id": context.get("quote_request_id"),
+            "snapshot_complete": context.get("snapshot_complete", False),
+            "quote_timestamp_utc": context.get("quote_timestamp_utc"),
+            "quote_timestamp_source": context.get("quote_timestamp_source", "UNKNOWN"),
+            "quote_received_at_utc": context.get("quote_received_at_utc"),
+            "snapshot_evidence": context.get("snapshot_evidence", {}),
+            "supplemented_fields": supplements,
+            "combined_data_type": "UNKNOWN" if supplements else returned,
+        }
+    mode = "UNKNOWN"
+    if counts and "UNKNOWN" not in counts and not unconfirmed_supplement_count:
+        mode = next(iter(counts)) if len(counts) == 1 else "MIXED"
+    return {"mode": mode, "returned_type_counts": counts, "by_symbol": by_symbol,
+            "unconfirmed_supplement_count": unconfirmed_supplement_count}
+
+
+def _merge_snapshot_fields(context, snapshot_data):
+    """Preserve existing supplementation, recording its distinct unknown authority."""
+    if not isinstance(snapshot_data, dict):
+        return
+    for name in ("last_price", "bid", "ask", "volume", "close"):
+        context["snapshot_" + name] = snapshot_data.get(name)
+        if context.get(name) is None and snapshot_data.get(name) is not None:
+            context[name] = snapshot_data[name]
+            context.setdefault("snapshot_supplemented_fields", {})[name] = {
+                "source": "MarketSnapshotEnricher", "returned_market_data_type": "UNKNOWN",
+                "market_data_type_confirmed": False, "timestamp_utc": None,
+            }
+
 
 def _resolve_universe_symbols(
     *,
@@ -4970,11 +5039,10 @@ def run_scanner_cycle(
     )
     print("[WATCHLIST][BUILD_START]")
     print("candidates_incoming=0")
-    market_data_type = str(get_ibkr_market_data_type() or "LIVE").upper()
-    data_quality_mode = "DELAYED" if market_data_type in {"DELAYED", "DELAYED_FROZEN"} else "LIVE"
-    print(f"[DATA_QUALITY] mode={data_quality_mode}")
-    if data_quality_mode == "DELAYED":
-        print("[DATA_QUALITY][WARNING] DELAYED_DATA_ACTIVE")
+    market_data_type = str(get_ibkr_market_data_type() or "UNKNOWN").upper()
+    data_quality_mode = "UNKNOWN"
+    print(f"[DATA_QUALITY] requested={market_data_type} mode=UNKNOWN source=AWAITING_BROKER_CALLBACKS")
+    diagnostics["requested_market_data_type"] = market_data_type
     diagnostics["data_quality_mode"] = data_quality_mode
     diagnostics["strategy_policy_hook"] = {"data_quality_mode": data_quality_mode}
     scanner_mode = get_scanner_mode()
@@ -5465,22 +5533,7 @@ def run_scanner_cycle(
                 continue
             snapshot_data = market_snapshots.get(symbol, {}) if isinstance(market_snapshots, dict) else {}
             context["snapshot_fetch_attempted"] = True
-            if isinstance(snapshot_data, dict):
-                context["snapshot_last_price"] = snapshot_data.get("last_price")
-                context["snapshot_bid"] = snapshot_data.get("bid")
-                context["snapshot_ask"] = snapshot_data.get("ask")
-                context["snapshot_volume"] = snapshot_data.get("volume")
-                context["snapshot_close"] = snapshot_data.get("close")
-                if context.get("last_price") is None and snapshot_data.get("last_price") is not None:
-                    context["last_price"] = snapshot_data.get("last_price")
-                if context.get("bid") is None and snapshot_data.get("bid") is not None:
-                    context["bid"] = snapshot_data.get("bid")
-                if context.get("ask") is None and snapshot_data.get("ask") is not None:
-                    context["ask"] = snapshot_data.get("ask")
-                if context.get("volume") is None and snapshot_data.get("volume") is not None:
-                    context["volume"] = snapshot_data.get("volume")
-                if context.get("close") is None and snapshot_data.get("close") is not None:
-                    context["close"] = snapshot_data.get("close")
+            _merge_snapshot_fields(context, snapshot_data)
             identity = _context_identity(context)
             merge_target_found = isinstance(snapshot_data, dict) and any(snapshot_data.get(key) is not None for key in ("last_price", "bid", "ask", "volume", "close"))
             context["identity_key"] = identity.key
@@ -6302,7 +6355,8 @@ def run_scanner_cycle(
                 f"symbol={symbol} session={context.get('session') or session_label} "
                 f"pct_change={context.get('pct_change')} rvol_phase={context.get('rvol_phase')} "
                 f"price={context.get('last_price')} float={context.get('float_shares')} "
-                f"catalyst_status={context.get('catalyst_status') or 'UNKNOWN'}"
+                f"catalyst_status={context.get('catalyst_status') or 'UNKNOWN'} "
+                f"catalyst_reason={context.get('catalyst_policy_reason') or 'UNKNOWN'}"
             )
             focus_drop = _evaluate_focus_gates(context, thresholds)
             if focus_drop:
@@ -6747,6 +6801,13 @@ def run_scanner_cycle(
         if disconnect_provider and provider is not None:
             provider.disconnect()
 
+    observed_data = _observed_market_data_summary(evaluated_contexts)
+    data_quality_mode = observed_data["mode"]
+    diagnostics["market_data_observations"] = observed_data
+    diagnostics["data_quality_mode"] = data_quality_mode
+    diagnostics["strategy_policy_hook"] = {"data_quality_mode": data_quality_mode}
+    print(f"[DATA_QUALITY][OBSERVED] requested={market_data_type} mode={data_quality_mode} "
+          f"returned_type_counts={observed_data['returned_type_counts']}")
     new_symbols = sorted(set(watchlist_symbols) - _PREV_WATCHLIST)
     continuing_symbols = sorted(set(watchlist_symbols) & _PREV_WATCHLIST)
     dropped_symbols = sorted(_PREV_WATCHLIST - set(watchlist_symbols))

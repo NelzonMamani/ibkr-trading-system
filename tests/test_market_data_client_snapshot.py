@@ -34,6 +34,8 @@ class DummyIB:
         self.cancel_snapshot = {}
         self.qualified = False
         self.ticker = DummyTicker()
+        self.returned_type = 1
+        self.market_timestamp = datetime.now(timezone.utc)
 
     def isConnected(self):
         return True
@@ -55,6 +57,13 @@ class DummyIB:
             self.ticker.close = 100.0
         if self.wait_calls == 3:
             self.ticker.volume = 12000
+            self.ticker.bid = 100.9
+            self.ticker.ask = 101.1
+            self.ticker.marketDataType = self.returned_type
+            self.ticker.marketDataTypeConfirmed = True
+            self.ticker.marketDataTypeReceivedAt = datetime.now(timezone.utc)
+            self.ticker.lastTime = self.market_timestamp
+            self.ticker.snapshotEnd = True
         return True
 
     def cancelMktData(self, contract):
@@ -92,7 +101,8 @@ def test_snapshot_waits_for_required_ticks_before_cancel():
 
     dummy = client.ib
     assert dummy.qualified is True
-    assert dummy.cancelled is False
+    assert dummy.cancelled is True  # Completed requests still release local request state.
+    assert dummy.cancel_snapshot == {"last": 101.0, "close": 100.0, "volume": 12000}
     assert snapshot.last == 101.0
     assert snapshot.close == 100.0
     assert snapshot.volume == 12000
@@ -132,7 +142,8 @@ def test_snapshot_flags_delayed_frozen_and_stale():
     try:
         client = _client_with_dummy_ib()
         client.market_data_type = "DELAYED_FROZEN"
-        client.ib.ticker.time = datetime.now(timezone.utc) - timedelta(seconds=120)
+        client.ib.returned_type = 4
+        client.ib.market_timestamp = datetime.now(timezone.utc) - timedelta(seconds=120)
 
         snapshot = client.snapshot_stock("AAPL")
 

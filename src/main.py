@@ -12,6 +12,8 @@ from __future__ import annotations
 if __name__ == "__main__":
     from src.ibkr.evidence_safety import install_console_protection
     install_console_protection()
+    from src.runtime.process_identity import publish_runtime_identity
+    publish_runtime_identity()
 
 import asyncio
 

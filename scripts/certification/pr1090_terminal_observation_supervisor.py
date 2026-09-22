@@ -2,7 +2,7 @@
 """Explicit-entrypoint supervisor for a future READ_ONLY observation.
 
 Importing this module never starts a runtime or connects to a broker. The child
-must exit before a fresh audit is allowed. This is terminal safety evidence,
+is bound to a verified runtime identity before observation begins. This is terminal safety evidence,
 not a replacement for full-session RTH strategy certification.
 """
 from __future__ import annotations
@@ -11,6 +11,7 @@ import argparse
 import json
 import os
 import re
+import secrets
 import math
 import posixpath
 from pathlib import Path
@@ -26,41 +27,9 @@ if str(ROOT) not in sys.path:
 
 from src.ibkr.evidence_safety import SafeTextStream, capture_console, install_console_protection, scrub_text, write_json, write_text
 from src.ibkr.shutdown_evidence import complete_after_process_exit
+from src.runtime.process_identity import (HANDSHAKE_ACK, HANDSHAKE_NONCE, HANDSHAKE_PATH,
+                                          SupervisedProcess, split_windows_command_line)
 
-
-def split_windows_command_line(command):
-    """Decode Windows quoting/backslashes into argv, without invoking a shell."""
-    args, index = [], 0
-    while index < len(command):
-        while index < len(command) and command[index] in " \t":
-            index += 1
-        if index == len(command):
-            break
-        arg, quoted = [], False
-        while index < len(command) and (quoted or command[index] not in " \t"):
-            slashes = 0
-            while index < len(command) and command[index] == "\\":
-                slashes += 1
-                index += 1
-            if index < len(command) and command[index] == '"':
-                arg.extend("\\" * (slashes // 2))
-                if slashes % 2:
-                    arg.append('"')
-                elif quoted and index + 1 < len(command) and command[index + 1] == '"':
-                    arg.append('"')
-                    index += 1
-                else:
-                    quoted = not quoted
-                index += 1
-            else:
-                arg.extend("\\" * slashes)
-                if index < len(command) and (quoted or command[index] not in " \t"):
-                    arg.append(command[index])
-                    index += 1
-        if quoted:
-            raise ValueError("Unclosed process command quoting")
-        args.append("".join(arg))
-    return args
 
 
 def is_ross_runtime(args):
@@ -257,7 +226,14 @@ def require_clean_certification_worktree(expected_commit):
 def stop_and_finalize(process, readers, capture_errors, output, *, graceful_timeout=60,
                       terminate_timeout=15, kill_timeout=15, reader_timeout=15):
     """Bound every escalation and cleanup wait, including after a failed kill."""
-    state = {"pid": process.pid, "forced": False, "steps": [], "errors": [],
+    state = {"pid": process.pid, "launcher_pid": getattr(getattr(process, "launcher", process), "pid", None),
+             "runtime_pid": getattr(process, "runtime_identity", {}).get("pid") if getattr(process, "runtime_identity", None) else None,
+             "launcher_identity": getattr(process, "launcher_identity", None),
+             "runtime_identity": getattr(process, "runtime_identity", None),
+             "runtime_identity_verified": getattr(process, "identity_verified", False) is True,
+             "identity_error": getattr(process, "identity_error", None),
+             "lineage": getattr(process, "lineage", []),
+             "forced": False, "steps": [], "errors": [],
              "reader_failures": [], "runtime_process_exited": False}
 
     def error(stage, exc):
@@ -329,11 +305,23 @@ def stop_and_finalize(process, readers, capture_errors, output, *, graceful_time
     except BaseException as exc:
         error("final_poll", exc)
         exit_code = None
-    state["runtime_process_exited"] = exit_code is not None
-    state["exit_code"] = exit_code
+    state["runtime_process_exited"] = exit_code is not None and state["runtime_identity_verified"]
+    state["runtime_exit_code"] = exit_code
+    state["exit_code"] = exit_code  # Compatibility: this field now always belongs to the runtime.
+    launcher = getattr(process, "launcher", process)
+    try:
+        if launcher is not process and launcher is not getattr(process, "runtime_handle", None):
+            launcher.wait(timeout=terminate_timeout)
+        state["launcher_exit_code"] = launcher.poll()
+        if state["launcher_exit_code"] != 0:
+            state["errors"].append({"stage": "launcher_exit", "type": "UnsuccessfulLauncherExit"})
+    except BaseException as exc:
+        state["launcher_exit_code"] = None
+        error("launcher_exit", exc)
     if exit_code is None:
         state["surviving_pid"] = process.pid
-    healthy = not state["forced"] and not state["errors"] and not state["reader_failures"] and not state["capture_errors"]
+    healthy = (state["runtime_identity_verified"] and exit_code == 0 and not state["identity_error"]
+               and not state["forced"] and not state["errors"] and not state["reader_failures"] and not state["capture_errors"])
     try:
         write_json(output / "supervisor_shutdown.json", state)
     except BaseException as exc:
@@ -341,18 +329,18 @@ def stop_and_finalize(process, readers, capture_errors, output, *, graceful_time
         healthy = False
 
     def quiet():
-        return not state["reader_failures"] and not state["capture_errors"] and no_ross_runtime_remains(output / "runtime_inventory.json")
+        return no_ross_runtime_remains(output / "runtime_inventory.json")
 
     def audit():
-        # Forced/incomplete termination cannot obtain a passing graceful report,
-        # even if the OS exit code happens to be zero and child proof exists.
-        if not healthy:
-            return {"query_completed": False, "disconnected": False,
-                    "skipped_reason": "FORCED_OR_INCOMPLETE_SUPERVISOR_SHUTDOWN"}
         with capture_console(output / "audit"):
             return final_broker_audit()
 
-    observed_process = SimpleNamespace(pid=process.pid, poll=lambda: exit_code)
+    observed_process = SimpleNamespace(
+        pid=process.pid, poll=lambda: exit_code,
+        launcher_identity=state["launcher_identity"], runtime_identity=state["runtime_identity"],
+        identity_verified=state["runtime_identity_verified"], identity_error=state["identity_error"],
+        launcher_exit_code=state["launcher_exit_code"], lineage=state["lineage"],
+        supervisor_error=None if healthy else "FORCED_OR_INCOMPLETE_SUPERVISOR_SHUTDOWN")
     try:
         result = complete_after_process_exit(output, observed_process, quiet, audit)
     except BaseException as exc:
@@ -385,28 +373,45 @@ def main(argv=None):
     env = build_safe_readonly_env()
     env["PR1090_EVIDENCE_DIR"] = str(output)
     env["PR1090_STOP_FILE"] = str(output / "STOP_REQUESTED")
+    nonce = secrets.token_hex(32)
+    handshake = output / ("runtime_identity_" + nonce + ".json")
+    acknowledgement = output / ("runtime_identity_" + nonce + ".accepted.json")
+    env[HANDSHAKE_NONCE] = nonce
+    env[HANDSHAKE_PATH] = str(handshake)
+    env[HANDSHAKE_ACK] = str(acknowledgement)
     # Recheck after preparation, before creating artifacts or starting the child.
     try:
         require_clean_certification_worktree(args.expected_commit)
     except RuntimeError as exc:
         parser.error(str(exc))
     output.mkdir(parents=True, exist_ok=False)
-    process = subprocess.Popen([sys.executable, "-u", "-m", "src.main"], cwd=ROOT, env=env,
-                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace")
+    command = [sys.executable, "-u", "-m", "src.main"]
+    launcher = subprocess.Popen(command, cwd=ROOT, env=env,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace")
+    process = SupervisedProcess(launcher, command, nonce, handshake, acknowledgement_path=acknowledgement)
     capture_errors = []
     readers = [threading.Thread(target=_capture, args=(pipe, output / name, capture_errors), daemon=True)
                for pipe, name in ((process.stdout, "stdout.log"), (process.stderr, "stderr.log"))]
     try:
         for reader in readers:
             reader.start()
+        process.bind()
+        write_json(output / "process_binding.json", {
+            "launcher_identity": process.launcher_identity, "runtime_identity": process.runtime_identity,
+            "lineage": process.lineage, "identity_verified": process.identity_verified})
         process.wait(timeout=args.seconds)
     except (subprocess.TimeoutExpired, KeyboardInterrupt):
         pass
     except BaseException as exc:
         capture_errors.append(type(exc).__name__)
     # Configure only the supervisor audit environment; the child received env.
-    os.environ.update(env)
-    return stop_and_finalize(process, readers, capture_errors, output)
+    # Handshake variables belong exclusively to the child, not the audit.
+    os.environ.update({key: value for key, value in env.items()
+                       if key not in {HANDSHAKE_PATH, HANDSHAKE_NONCE, HANDSHAKE_ACK}})
+    try:
+        return stop_and_finalize(process, readers, capture_errors, output)
+    finally:
+        process.close()
 
 
 if __name__ == "__main__":
