@@ -112,6 +112,12 @@ class MarketDataSnapshotManager:
         if raw.bid is None or raw.ask is None:
             data_quality_flags.append("SPREAD_UNKNOWN")
         snapshot_last = raw.last if raw.last is not None else raw.close
+        confirmed = raw.market_data_type_confirmed is True and raw.returned_market_data_type in {
+            "LIVE", "FROZEN", "DELAYED", "DELAYED_FROZEN",
+        }
+        returned_type = raw.returned_market_data_type if confirmed else "UNKNOWN"
+        def timestamp(value):
+            return datetime.fromisoformat(value) if value is not None else None
         snapshot = MarketSnapshot(
             symbol=raw.symbol,
             bid=raw.bid,
@@ -119,7 +125,24 @@ class MarketDataSnapshotManager:
             last=snapshot_last,
             volume=raw.volume,
             asof_utc=datetime.now(timezone.utc),
-            market_data_type="LIVE",
+            market_data_type=returned_type,
+            returned_market_data_type=returned_type,
+            market_data_type_confirmed=confirmed,
+            requested_market_data_type=raw.requested_market_data_type,
+            market_timestamp_utc=timestamp(raw.timestamp_utc),
+            received_at_utc=timestamp(raw.received_at_utc),
+            market_data_type_received_at_utc=timestamp(raw.market_data_type_received_at_utc),
+            timestamp_source=raw.timestamp_source,
+            request_id=raw.request_id,
+            snapshot_complete=raw.snapshot_complete,
+            market_data_type_confirmation_source=(raw.market_data_type_confirmation_source if confirmed else "UNKNOWN"),
+            data_quality_flags=tuple(data_quality_flags),
+            **{name: getattr(raw, name) for name in (
+                "request_started_at_utc", "request_completed_at_utc", "snapshot_completed_at_utc",
+                "completion_reason", "field_availability", "field_received_at_utc",
+                "missing_fields_observed_at_utc", "broker_errors", "close", "open", "high", "low",
+                "bid_size", "ask_size", "last_size",
+            )},
             source="IBKR",
         )
         quality = SnapshotQuality(

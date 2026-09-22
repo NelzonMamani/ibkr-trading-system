@@ -237,3 +237,46 @@ def test_sdk_broker_error_retains_request_symbol_and_timestamp():
     assert result.broker_errors[0]["req_id"] == result.request_id
     assert result.broker_errors[0]["symbol"] == "AEMD"
     assert result.broker_errors[0]["timestamp_utc"]
+
+
+@pytest.mark.parametrize("returned,confirmed,expected", [
+    ("LIVE", True, "LIVE"), ("DELAYED", True, "DELAYED"),
+    ("FROZEN", True, "FROZEN"), ("DELAYED_FROZEN", True, "DELAYED_FROZEN"),
+    ("UNKNOWN", False, "UNKNOWN"), ("LIVE", False, "UNKNOWN"),
+])
+def test_focus_snapshot_translation_preserves_broker_authority(returned, confirmed, expected):
+    from dataclasses import replace
+    from src.core.managers.market_data_snapshot_manager import MarketDataSnapshotManager
+    raw = client_for(OfflineInsync(lambda ib, tick: sdk_fields(ib))).snapshot_stock(contract())
+    raw = replace(raw, returned_market_data_type=returned, market_data_type_confirmed=confirmed)
+    manager = MarketDataSnapshotManager(SimpleNamespace(snapshot_stock=lambda symbol: raw))
+    snapshot, quality = manager.get_snapshot("AEMD")
+    assert snapshot.market_data_type == snapshot.returned_market_data_type == expected
+    assert snapshot.market_data_type_confirmed is confirmed
+    assert snapshot.requested_market_data_type == "DELAYED"
+    assert snapshot.market_timestamp_utc == datetime.fromisoformat(raw.timestamp_utc)
+    assert snapshot.received_at_utc == datetime.fromisoformat(raw.received_at_utc)
+    assert snapshot.market_data_type_received_at_utc == datetime.fromisoformat(raw.market_data_type_received_at_utc)
+    assert snapshot.asof_utc != snapshot.market_timestamp_utc
+    assert snapshot.data_quality_flags == tuple(quality.data_quality_flags)
+    for name in ("timestamp_source", "request_id", "snapshot_complete", "request_started_at_utc",
+                 "request_completed_at_utc", "snapshot_completed_at_utc", "completion_reason",
+                 "field_availability", "field_received_at_utc", "missing_fields_observed_at_utc",
+                 "broker_errors", "close", "open", "high", "low", "bid_size", "ask_size", "last_size"):
+        assert getattr(snapshot, name) == getattr(raw, name)
+    assert snapshot.market_data_type_confirmation_source == (
+        "IBKR_MARKET_DATA_TYPE_CALLBACK" if confirmed else "UNKNOWN")
+
+
+def test_focus_snapshot_translation_does_not_invent_missing_timestamps(native, monkeypatch):
+    from src.core.managers.market_data_snapshot_manager import MarketDataSnapshotManager
+    monkeypatch.setattr(native, "resolve_contract", lambda symbol: SimpleNamespace(contract=contract()))
+    snapshot, quality = MarketDataSnapshotManager(native).get_snapshot("AEMD")
+    assert snapshot.market_data_type == snapshot.returned_market_data_type == "UNKNOWN"
+    assert snapshot.market_timestamp_utc is None
+    assert snapshot.received_at_utc is None
+    assert snapshot.market_data_type_received_at_utc is None
+    assert snapshot.timestamp_source == "UNKNOWN"
+    assert "MD_TIMEOUT" in snapshot.data_quality_flags
+    assert snapshot.snapshot_complete is False
+    assert snapshot.completion_reason == "timeout"
