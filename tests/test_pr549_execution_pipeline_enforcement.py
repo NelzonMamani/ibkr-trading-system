@@ -145,6 +145,7 @@ def test_ibkr_callbacks_emit_order_observability_logs(capsys: pytest.CaptureFixt
     client._exec_details_by_order = {}
     client._contract_events = {}
     client._market_events = {}
+    client._ticker_by_req_id = {}
     client._historical_events = {}
     client._account_summary_events = {}
     client._scanner_events = {}

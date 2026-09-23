@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Optional, Protocol, Sequence
+from dataclasses import dataclass, field
+from typing import Any, Mapping, Optional, Protocol, Sequence
 
 
 class ProviderConnectionError(RuntimeError):
@@ -23,6 +23,15 @@ class QuoteData:
     volume: Optional[float]
     timestamp_utc: Optional[str]
     data_quality_flags: Sequence[str]
+    requested_market_data_type: str = "UNKNOWN"
+    returned_market_data_type: str = "UNKNOWN"
+    market_data_type_confirmed: bool = False
+    timestamp_source: str = "UNKNOWN"
+    received_at_utc: Optional[str] = None
+    market_data_type_received_at_utc: Optional[str] = None
+    request_id: Optional[int] = None
+    snapshot_complete: bool = False
+    snapshot_evidence: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

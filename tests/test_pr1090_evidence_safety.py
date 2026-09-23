@@ -118,13 +118,20 @@ def test_missing_terminal_evidence_fails_closed():
     assert not validate_terminal({})["passed"]
 
 
+def verified_process(poll):
+    identity = {"pid": 999999, "parent_pid": 1, "creation_token": "windows-filetime:100", "argv": ["python", "-m", "src.main"]}
+    return SimpleNamespace(pid=999999, poll=poll, runtime_identity=identity,
+                           launcher_identity=identity, identity_verified=True, launcher_exit_code=0)
+
+
 def test_supervisor_orders_audit_after_exit_and_writes_report(tmp_path):
     proof = terminal_payload()
     payload = proof.payload()
     payload["pid"] = 999999
+    payload["process_identity"] = verified_process(lambda: 0).runtime_identity
     privacy.write_json(tmp_path / "shutdown_evidence.json", payload)
     order = []
-    process = SimpleNamespace(pid=999999, poll=lambda: order.append("poll") or 0)
+    process = verified_process(lambda: order.append("poll") or 0)
     def quiet():
         order.append("inventory")
         return True
@@ -137,14 +144,17 @@ def test_supervisor_orders_audit_after_exit_and_writes_report(tmp_path):
     assert (tmp_path / "FINAL_REPORT.md").exists()
 
 
-def test_live_process_blocks_audit_and_certification(tmp_path):
+def test_live_process_keeps_callbacks_and_blocks_certification(tmp_path):
     proof = terminal_payload()
     payload = proof.payload()
     payload["pid"] = 999999
+    payload["process_identity"] = verified_process(lambda: 0).runtime_identity
     privacy.write_json(tmp_path / "shutdown_evidence.json", payload)
-    process = SimpleNamespace(pid=999999, poll=lambda: None)
-    result = complete_after_process_exit(tmp_path, process, lambda: pytest.fail("inventory before exit"), lambda: pytest.fail("audit before exit"))
+    process = verified_process(lambda: None)
+    calls = []
+    result = complete_after_process_exit(tmp_path, process, lambda: calls.append("inventory") or False, lambda: calls.append("audit") or {"query_completed": True, "disconnected": True})
     assert not result["passed"]
+    assert calls == ["inventory", "audit"]
 
 
 @pytest.mark.parametrize("bad", [None, {}, {"place": False, "modify": 0, "cancel": 0}, {"place": -1, "modify": 0, "cancel": 0}])
@@ -177,8 +187,9 @@ def test_failing_audit_disconnect_fails_report(tmp_path):
     proof = terminal_payload()
     payload = proof.payload()
     payload["pid"] = 999999
+    payload["process_identity"] = verified_process(lambda: 0).runtime_identity
     privacy.write_json(tmp_path / "shutdown_evidence.json", payload)
-    result = complete_after_process_exit(tmp_path, SimpleNamespace(pid=999999, poll=lambda: 0), lambda: True,
+    result = complete_after_process_exit(tmp_path, verified_process(lambda: 0), lambda: True,
                                         lambda: {"query_completed": True, "disconnected": False})
     assert not result["passed"]
     assert "FAIL" in (tmp_path / "FINAL_REPORT.md").read_text()
