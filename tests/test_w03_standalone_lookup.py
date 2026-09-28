@@ -475,3 +475,35 @@ def test_json_writer_preserves_existing_fixed_temporary_sibling(tmp_path):
     assert json.loads(output_path.read_text(encoding="utf-8")) == payload
     assert existing_input.is_file(), "Result writing must not move an unrelated sibling input"
     assert existing_input.read_bytes() == original
+
+@pytest.mark.parametrize("protected_input", ["candidates", "prep"])
+def test_cli_rejects_cache_hardlink_to_candidate_or_prep_input(monkeypatch, tmp_path, protected_input, capsys):
+    from scripts import verify_news_discovery as command
+    target = tmp_path / (protected_input + ".json")
+    payload = ([{"symbol": "IRON", "company_name": CAPTURE["company_name"]}] if protected_input == "candidates"
+               else {"symbols": [{"symbol": "IRON", "news_context": []}], "generated_at": CAPTURE["published_at"]})
+    target.write_text(json.dumps(payload), encoding="utf-8")
+    original = target.read_bytes()
+    cache_alias = tmp_path / "separate-cache-name.json"
+    cache_alias.hardlink_to(target)
+    assert cache_alias.resolve() != target.resolve()
+    assert cache_alias.samefile(target)
+    option = "--candidates-file" if protected_input == "candidates" else "--prep-file"
+    arguments = ["IRON", option, str(target), "--cache-file", str(cache_alias), "--cache-mode", "refresh", "--format", "json"]
+    worker_calls = []
+
+    def no_worker(*args):
+        worker_calls.append(args)
+        pytest.fail("Cache/input hardlink reached the worker before validation")
+
+    monkeypatch.setattr(command, "run_supervised", no_worker)
+    try:
+        with pytest.raises(SystemExit) as raised:
+            command.main(arguments)
+        assert raised.value.code == 2
+        assert worker_calls == []
+        assert "--cache-file must be different from prep and candidate input files" in capsys.readouterr().err
+    finally:
+        assert target.read_bytes() == original
+        assert cache_alias.read_bytes() == original
+        assert cache_alias.samefile(target)

@@ -72,6 +72,16 @@ def _candidate_from_mapping(value) -> NewsCandidate:
     return NewsCandidate(**values)
 
 
+def _paths_alias(left: Path, right: Path) -> bool:
+    if left.resolve() == right.resolve():
+        return True
+    try:
+        return left.samefile(right)
+    except (FileNotFoundError, NotADirectoryError):
+        # A new output has no file identity yet; resolved names still protect it.
+        return False
+
+
 def _inputs(args):
     values = []
     if args.candidates_file:
@@ -97,11 +107,11 @@ def _inputs(args):
         prep_file=args.prep_file.resolve() if args.prep_file else None,
     ).validated()
     input_paths = {path.resolve() for path in (args.prep_file, args.candidates_file) if path}
-    if settings.cache_file in input_paths:
+    if any(_paths_alias(settings.cache_file, path) for path in input_paths):
         raise ValueError("--cache-file must be different from prep and candidate input files")
     if args.json_output:
         protected = input_paths | {settings.cache_file}
-        if args.json_output.resolve() in protected:
+        if any(_paths_alias(args.json_output, path) for path in protected):
             raise ValueError("--json-output must be different from cache, prep and candidate input files")
     return candidates, settings
 

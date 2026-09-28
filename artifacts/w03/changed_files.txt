@@ -58,6 +58,14 @@ artifacts/w03/review_expired_before.log
 artifacts/w03/review_expired_before_network_audit.json
 artifacts/w03/review_expired_source_hashes.json
 artifacts/w03/review_expired_verification.json
+artifacts/w03/review_hardlinks_after.log
+artifacts/w03/review_hardlinks_after_exit.txt
+artifacts/w03/review_hardlinks_after_network_audit.json
+artifacts/w03/review_hardlinks_before.log
+artifacts/w03/review_hardlinks_before_exit.txt
+artifacts/w03/review_hardlinks_before_network_audit.json
+artifacts/w03/review_hardlinks_source_hashes.json
+artifacts/w03/review_hardlinks_verification.json
 artifacts/w03/review_paths_after.log
 artifacts/w03/review_paths_after_exit.txt
 artifacts/w03/review_paths_after_network_audit.json
