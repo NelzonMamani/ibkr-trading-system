@@ -110,14 +110,27 @@ _TAG_RE = re.compile(r"<[^>]+>")
 _WORD_RE = re.compile(r"[A-Z0-9]+")
 
 
-def _compile_symbol_patterns(symbols: Iterable[str]) -> Dict[str, re.Pattern[str]]:
+def _compile_symbol_patterns(
+    symbols: Iterable[str], *, allow_bare: bool = True
+) -> Dict[str, re.Pattern[str]]:
     patterns: Dict[str, re.Pattern[str]] = {}
     for symbol in symbols:
         normalized = str(symbol or "").strip().upper()
         if not normalized:
             continue
         escaped = re.escape(normalized)
-        pattern = rf"(?<![A-Z0-9]){escaped}(?![A-Z0-9])|\${escaped}|\({escaped}\)"
+        # Summary prose can contain ordinary words or another company's brand
+        # (egg, hour, Link, CNET). Only explicit security notation establishes a
+        # ticker there. Preserve exact uppercase ticker titles and issuer aliases.
+        explicit = (
+            rf"(?<![A-Z0-9$])\${escaped}(?![A-Z0-9])"
+            rf"|\({escaped}\)"
+            rf"|(?<![A-Z0-9])(?:NASDAQ|NYSE(?:\s+AMERICAN|\s+ARCA)?|AMEX|OTCQX|OTCQB|OTC)"
+            rf"\s*:\s*{escaped}(?![A-Z0-9])"
+        )
+        pattern = rf"(?i:{explicit})"
+        if allow_bare:
+            pattern += rf"|(?<![A-Za-z0-9]){escaped}(?![A-Za-z0-9])"
         patterns[normalized] = re.compile(pattern)
     return patterns
 
@@ -199,13 +212,16 @@ def symbol_relevance_match(
     normalized_symbol = str(symbol or "").strip().upper()
     if not normalized_symbol:
         return None
-    title_upper = _clean_text(title).upper()
-    summary_upper = _clean_text(summary).upper()
+    title_text = _clean_text(title)
+    summary_text = _clean_text(summary)
     ticker_pattern = _compile_symbol_patterns([normalized_symbol]).get(normalized_symbol)
-    if ticker_pattern and ticker_pattern.search(title_upper):
+    summary_pattern = _compile_symbol_patterns([normalized_symbol], allow_bare=False).get(normalized_symbol)
+    if ticker_pattern and ticker_pattern.search(title_text):
         return "ticker_token", "title"
-    if ticker_pattern and summary_upper and ticker_pattern.search(summary_upper):
+    if summary_pattern and summary_text and summary_pattern.search(summary_text):
         return "ticker_token", "summary"
+    title_upper = title_text.upper()
+    summary_upper = summary_text.upper()
     for alias in company_aliases_for_symbol(normalized_symbol, metadata):
         tokens = _normalized_words(alias)
         if len(tokens) < 2:
@@ -495,6 +511,7 @@ def _fetch_headlines_from_sources(
     now = time.time()
     min_ts = now - (lookback_hours * 3600)
     symbol_patterns = _compile_symbol_patterns(normalized_symbols)
+    summary_symbol_patterns = _compile_symbol_patterns(normalized_symbols, allow_bare=False)
     company_patterns = _compile_company_patterns(normalized_symbols, symbol_metadata)
     seen_by_symbol: Dict[str, set[tuple[str, str]]] = {symbol: set() for symbol in normalized_symbols}
     failures = 0
@@ -614,10 +631,11 @@ def _fetch_headlines_from_sources(
                 match_type = ""
                 matched_field = ""
                 pattern = symbol_patterns.get(symbol)
-                if pattern and pattern.search(title_upper):
+                summary_pattern = summary_symbol_patterns.get(symbol)
+                if pattern and pattern.search(title):
                     match_type = "ticker_token"
                     matched_field = "title"
-                elif pattern and summary_upper and pattern.search(summary_upper):
+                elif summary_pattern and summary_text and summary_pattern.search(summary_text):
                     match_type = "ticker_token"
                     matched_field = "summary"
                 else:

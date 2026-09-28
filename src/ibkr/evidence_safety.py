@@ -134,6 +134,11 @@ class SafeTextStream:
             self.pending = ""
             self.stream.flush()
 
+    def reconfigure(self, **kwargs):
+        """Forward text settings without flushing an incomplete protected line."""
+        with self.lock:
+            return self.stream.reconfigure(**kwargs)
+
     @property
     def encoding(self):
         return self.stream.encoding

@@ -8,6 +8,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 from pathlib import Path
 import sys
 import time
@@ -30,7 +31,7 @@ from src.config.runtime_config import (
 from src.core.event_collector import EventCollector
 from src.data.float_discovery_worker import get_float_discovery_worker
 from src.news.batch_rss_adapter import BatchRssNewsIntelligenceProvider
-from src.news.news_fetcher import Headline, RssFailureSummary, fetch_fast_headlines_for_symbols, fetch_headlines_for_symbols
+from src.news.news_fetcher import Headline, RssFailureSummary, fetch_fast_headlines_for_symbols, fetch_headlines_for_symbols, symbol_relevance_match
 from src.news.news_intelligence_contract import (
     NewsBatchResult,
     NewsCandidate,
@@ -40,6 +41,8 @@ from src.news.news_intelligence_contract import (
     RetrievalPolicy,
 )
 from src.news.news_intelligence_service import CanonicalNewsIntelligenceService
+from src.news.news_heat import compute_news_heat_score
+from src.news.news_normalizer import normalize_headlines
 from src.news.rss_batch_runtime import (
     dedupe_bounded_headlines as _rss_dedupe_bounded_headlines,
     extended_tier_reserve_fraction as _rss_extended_tier_reserve_fraction,
@@ -356,6 +359,22 @@ CATALYST_KEYWORDS = {
     "quantum": "TECH_CATALYST",
     "semiconductor": "TECH_CATALYST",
     "gpu": "TECH_CATALYST",
+}
+# Preserve ordinary forms recognized by the established event vocabulary
+# without treating short abbreviations as arbitrary substrings of prose.
+CATALYST_KEYWORD_FORMS = {
+    "approval": ("approval", "approvals"),
+    "contract": ("contract", "contracts", "contracted", "contracting"),
+    "partnership": ("partnership", "partnerships"),
+    "upgrade": ("upgrade", "upgrades", "upgraded"),
+    "downgrade": ("downgrade", "downgrades", "downgraded"),
+    "press release": ("press release", "press releases"),
+    "crypto": ("crypto", "cryptos", "cryptocurrency", "cryptocurrencies"),
+    "bitcoin": ("bitcoin", "bitcoins"),
+    "ev": ("ev", "evs"),
+    "electric vehicle": ("electric vehicle", "electric vehicles"),
+    "semiconductor": ("semiconductor", "semiconductors"),
+    "gpu": ("gpu", "gpus"),
 }
 DILUTION_KEYWORDS = {
     "offering",
@@ -2437,6 +2456,26 @@ def _focus_volume_threshold_for_session(session: str, thresholds: GateThresholds
     return float(thresholds.focus_volume_min), "policy.min_volume"
 
 
+def _focus_summary_counts(
+    watchlist: Iterable[Dict[str, Any]], focus: Iterable[Dict[str, Any]]
+) -> Dict[str, int]:
+    rows = list(watchlist)
+    accepted_symbols = {str(row.get("symbol")) for row in focus}
+    accepted = sum(str(row.get("symbol")) in accepted_symbols for row in rows)
+    rejected = sum(
+        str(row.get("symbol")) not in accepted_symbols
+        and bool(row.get("focus_drop_reason"))
+        and row.get("focus_drop_reason") != "SOFT_FAIL_VOLUME"
+        for row in rows
+    )
+    return {
+        "evaluated": len(rows),
+        "accepted": accepted,
+        "rejected": rejected,
+        "ranked_out": len(rows) - accepted - rejected,
+    }
+
+
 def _bounded_pass_focus_candidates(
     candidates: list[Dict[str, Any]],
     *,
@@ -2494,7 +2533,10 @@ def _detect_catalyst_type(titles: Iterable[str]) -> Optional[str]:
     for title in titles:
         lowered = title.lower()
         for keyword, label in CATALYST_KEYWORDS.items():
-            if keyword in lowered:
+            # Abbreviations such as AI and EV are event terms, not substrings
+            # of unrelated words (waits, revenue, preview).
+            forms = "|".join(re.escape(value) for value in CATALYST_KEYWORD_FORMS.get(keyword, (keyword,)))
+            if re.search(rf"(?<![a-z0-9])(?:{forms})(?![a-z0-9])", lowered):
                 return label
     return None
 
@@ -2939,28 +2981,24 @@ def _refresh_diag_value(diagnostics: Dict[str, Any], key: str, default: Any = No
     return diagnostics.get(key, default)
 
 
-def _evidence_signature(evidence: Iterable[NewsEvidence], summary: NewsEvidenceSummary | None) -> tuple[Any, ...]:
-    items = [
-        (
-            str(item.evidence_id or ""),
-            str(item.headline or "").strip().lower(),
-            str(item.observed_source or item.original_source or "").strip().lower(),
-            str(item.url or "").strip().lower(),
-            str(item.cache_state or ""),
-            str(item.retrieval_status or ""),
-            bool(item.budget_exhausted),
-        )
-        for item in evidence
-    ]
-    status_bits: tuple[Any, ...] = ()
-    if summary is not None:
-        status_bits = (
-            summary.retrieval_status,
-            summary.provider_status,
-            summary.cache_state,
-            bool(summary.budget_exhausted),
-        )
-    return tuple(sorted(items)) + status_bits
+def _evidence_signature(
+    evidence: Iterable[NewsEvidence],
+    summary: NewsEvidenceSummary | None,
+    *,
+    candidate: NewsCandidate | None = None,
+    diagnostics: Any = None,
+) -> tuple[Any, ...]:
+    # Snapshot all context authority inputs, including exact-case text, summary
+    # issuer mentions, metadata, freshness, metrics and retrieval failure state.
+    # Storing only IDs (or references to mutable metadata) can reuse stale authority.
+    payload = {
+        "evidence": [asdict(item) for item in evidence],
+        "summary": asdict(summary) if summary is not None else None,
+        "candidate": asdict(candidate) if candidate is not None else None,
+        "diagnostics": asdict(diagnostics) if diagnostics is not None else None,
+    }
+    encoded = json.dumps(payload, sort_keys=True, default=str, ensure_ascii=True).encode("utf-8")
+    return (hashlib.sha256(encoded).hexdigest(),)
 
 
 def _evidence_source_mode(evidence: Iterable[NewsEvidence], summary: NewsEvidenceSummary | None) -> str:
@@ -3125,14 +3163,59 @@ def _empty_news_context_from_summary(
     }
 
 
+def _evidence_issuer_relevance_verified(
+    symbol: str, item: NewsEvidence, result: NewsBatchResult
+) -> bool:
+    # Recheck text-derived RSS evidence at the strategy boundary, including
+    # persisted entries written before the matcher was hardened. A cached
+    # ticker_token/classification field is not proof of issuer identity.
+    if item.provider not in {"rss_batch", "prep_cache", "legacy_news_provider_cache"} and item.match_type not in {
+        "ticker_token", "company_name", "prep_context"
+    }:
+        return True
+    candidate = next((row for row in result.candidates if row.normalized_symbol == symbol), None)
+    metadata = dict(candidate.metadata) if candidate is not None else {}
+    metadata["company_name"] = (
+        item.company_name
+        or (candidate.company_name if candidate is not None else None)
+        or metadata.get("company_name")
+    )
+    metadata["aliases"] = (
+        metadata.get("aliases") or (),
+        metadata.get("company_aliases") or (),
+        metadata.get("issuer_aliases") or (),
+        tuple(item.aliases),
+        tuple(candidate.aliases) if candidate is not None else (),
+    )
+    return symbol_relevance_match(
+        symbol, title=str(item.headline or ""), summary=str(item.summary or ""), metadata=metadata
+    ) is not None
+
+
 def _ross_news_context_from_evidence(
     symbol: str,
     evidence: tuple[NewsEvidence, ...],
     summary: NewsEvidenceSummary | None,
     result: NewsBatchResult,
 ) -> Dict[str, Any]:
+    original_evidence_count = len(evidence)
+    accepted_evidence = []
+    for item in evidence:
+        if _evidence_issuer_relevance_verified(symbol, item, result):
+            accepted_evidence.append(item)
+        else:
+            print(
+                "[NEWS][RELEVANCE_REJECT] "
+                f"symbol={symbol} evidence_id={item.evidence_id} reason=issuer_match_unverified"
+            )
+    evidence = tuple(accepted_evidence)
+    relevance_filtered = len(evidence) != original_evidence_count
     if not evidence:
-        return _empty_news_context_from_summary(symbol, summary, result)
+        context = _empty_news_context_from_summary(symbol, summary, result)
+        if relevance_filtered:
+            context["news_intelligence_source_provenance"] = []
+            context["news_intelligence_match_types"] = []
+        return context
 
     ordered = tuple(
         sorted(
@@ -3149,10 +3232,31 @@ def _ross_news_context_from_evidence(
     fresh_news_count = _fresh_evidence_count(ordered)
     stale_news_count = max(len(ordered) - fresh_news_count, 0)
     news_is_fresh = news_age_minutes is not None and news_age_minutes <= NEWS_AGE_MAX_MINUTES
-    vel5 = _summary_velocity(summary, ordered, "velocity_5m", 5 * 60)
-    vel10 = _summary_velocity(summary, ordered, "velocity_10m", 10 * 60)
-    vel30 = _summary_velocity(summary, ordered, "velocity_30m", 30 * 60)
-    vel60 = _summary_velocity(summary, ordered, "velocity_60m", 60 * 60)
+    # Stored per-item fields can themselves contain the original batch's
+    # aggregate metrics. After rejecting evidence, derive a fresh cohort view
+    # from accepted text/source/time facts, never those inherited aggregates.
+    filtered_metrics = None
+    if relevance_filtered:
+        metric_now = time.time()
+        metric_headlines = [
+            Headline(
+                title=str(item.headline or ""),
+                source=str(item.observed_source or item.original_source or item.source_domain or ""),
+                published_ts=(
+                    metric_now - item.age_seconds if item.age_seconds is not None
+                    else item.published_at.timestamp() if item.published_at is not None
+                    else 0.0
+                ),
+                url=str(item.url or ""),
+            )
+            for item in ordered
+        ]
+        filtered_metrics = normalize_headlines(metric_headlines, now_ts=metric_now)
+    velocity_summary = None if relevance_filtered else summary
+    vel5 = _summary_velocity(velocity_summary, ordered, "velocity_5m", 5 * 60)
+    vel10 = _summary_velocity(velocity_summary, ordered, "velocity_10m", 10 * 60)
+    vel30 = _summary_velocity(velocity_summary, ordered, "velocity_30m", 30 * 60)
+    vel60 = _summary_velocity(velocity_summary, ordered, "velocity_60m", 60 * 60)
     catalyst_type = _catalyst_type_from_evidence(ordered)
     dilution_flag = _dilution_from_evidence(ordered)
     budget_exhausted = bool(
@@ -3184,6 +3288,28 @@ def _ross_news_context_from_evidence(
     ]
     heat_values = [float(item.heat_score) for item in ordered if item.heat_score is not None]
     hotness_values = [float(item.hotness_score) for item in ordered if item.hotness_score is not None]
+    source_provenance = diagnostics.get("source_provenance_by_symbol", {}).get(symbol, [])
+    match_types = diagnostics.get("match_types_by_symbol", {}).get(symbol, [])
+    independent_source_count = summary.independent_source_count if summary is not None else 0
+    if filtered_metrics is not None:
+        heat_values = [compute_news_heat_score(filtered_metrics)]
+        hotness_values = heat_values
+        reliability_values = [float(filtered_metrics.get("news_top_source_credibility_score") or 0.0)]
+        independent_source_count = int(filtered_metrics.get("news_sources_count") or 0)
+        source_provenance = [
+            {
+                "source": item.observed_source or item.original_source,
+                "domain": item.source_domain,
+                "url": item.url,
+                "published_at": item.published_at.isoformat() if item.published_at else None,
+                "source_group": item.source_group,
+                "source_tier": item.source_tier,
+                "cache_state": item.cache_state,
+                "retrieval_status": item.retrieval_status,
+            }
+            for item in ordered
+        ]
+        match_types = sorted({str(item.match_type) for item in ordered if item.match_type})
     return {
         "news_present": True,
         "news_available": not budget_exhausted,
@@ -3219,13 +3345,13 @@ def _ross_news_context_from_evidence(
         "news_diagnostic_status": news_status,
         "news_intelligence_cache_state": (summary.cache_state if summary is not None else result.diagnostics.cache_state),
         "news_intelligence_evidence_ids": tuple(item.evidence_id for item in ordered if item.evidence_id),
-        "news_intelligence_source_provenance": diagnostics.get("source_provenance_by_symbol", {}).get(symbol, []),
-        "news_intelligence_match_types": diagnostics.get("match_types_by_symbol", {}).get(symbol, []),
+        "news_intelligence_source_provenance": source_provenance,
+        "news_intelligence_match_types": match_types,
         "news_heat_score": max(heat_values) if heat_values else None,
         "news_hotness_score": max(hotness_values) if hotness_values else None,
         "news_top_source_credibility_score": max(reliability_values) if reliability_values else None,
         "news_source_reliability_score": max(reliability_values) if reliability_values else None,
-        "news_independent_source_count": summary.independent_source_count if summary is not None else 0,
+        "news_independent_source_count": independent_source_count,
         "velocity_60m": vel60,
     }
 
@@ -3240,7 +3366,8 @@ def _ross_news_contexts_from_news_intelligence_result(
             continue
         evidence = result.evidence_for_symbol(normalized)
         summary = result.summary_for_symbol(normalized)
-        signature = _evidence_signature(evidence, summary)
+        candidate = next((row for row in result.candidates if row.normalized_symbol == normalized), None)
+        signature = _evidence_signature(evidence, summary, candidate=candidate, diagnostics=result.diagnostics)
         cached = _NEWS_CACHE.get(normalized)
         if cached and cached.get("signature") == signature:
             context = cached["context"]
@@ -6417,10 +6544,10 @@ def run_scanner_cycle(
                 ]
                 focus_contexts = eligible[: min(5, len(eligible))]
                 print(f"[FOCUS][FORCED_PROMOTION_PREMARKET] count={len(focus_contexts)}")
+        focus_summary = _focus_summary_counts(watchlist_contexts, focus_contexts)
         print(
             "[ROSS][FOCUS][SUMMARY] "
-            f"evaluated={len(watchlist_contexts)} accepted={len(focus_contexts)} "
-            f"rejected={sum(1 for context in watchlist_contexts if context.get('focus_drop_reason'))}"
+            + " ".join(f"{key}={value}" for key, value in focus_summary.items())
         )
         deep_rows = _build_deep_rows(focus_contexts, news_by_symbol)
 
