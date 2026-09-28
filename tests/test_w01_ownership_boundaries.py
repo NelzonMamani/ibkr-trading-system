@@ -208,6 +208,10 @@ def test_prep_refresh_cadence_survives_service_restart_independent_of_freshness(
     provider().get_news("EGG")
     cached = provider().get_news("EGG")
     assert retrieval.calls == 1
+    assert cached.diagnostics["retrieval"]["cache_state"] == "hit"
+    assert cached.diagnostics["retrieval"]["provider_available"] is (outcome != "unavailable")
+    assert cached.diagnostics["retrieval"]["provider_status"] == ("offline" if outcome == "unavailable" else "ok")
+    assert cached.diagnostics["retrieval"]["retrieval_status"] == ("unavailable" if outcome == "unavailable" else "available")
     assert cached.diagnostics["summary"]["provider_available"] is (outcome != "unavailable")
     assert cached.diagnostics["summary"]["retrieval_status"] == ("unavailable" if outcome == "unavailable" else "available")
     if outcome == "article":
@@ -288,3 +292,32 @@ def test_article_identity_preserves_distinct_urls_and_publication_times():
             replace(row, evidence_id="c"),
             replace(row, evidence_id="d", published_at=now - timedelta(days=1))]
     assert len(dedupe_evidence(rows, max_items=5)) == 4
+
+
+def test_mixed_cached_failure_and_fresh_success_batch_diagnostics(tmp_path, capsys):
+    now = datetime.now(timezone.utc)
+    store = CanonicalNewsEvidenceStore(tmp_path / "cache.json", prep_artifact_loader=lambda: {})
+    store.write({"EGG": ()}, retrieval_by_symbol={"EGG": {
+        "completed_at": now.isoformat(), "retrieval_status": "budget_exhausted",
+        "provider_status": "offline", "provider_available": False, "budget_exhausted": True,
+    }})
+    class Retrieval:
+        def get_news(self, candidates, request, policy):
+            assert [item.symbol for item in candidates] == ["FRESH"]
+            return NewsBatchResult(evidence_by_symbol={"FRESH": ()}, diagnostics=RetrievalDiagnostics(
+                retrieval_status="available", provider_status="ok", provider_available=True))
+    service = CanonicalNewsIntelligenceService(evidence_store=store, retrieval_provider=Retrieval())
+    result = service.get_news([NewsCandidate("EGG"), NewsCandidate("FRESH")], NewsRequest(),
+                              RetrievalPolicy(refresh_interval_seconds=1800))
+    assert result.diagnostics.cache_state == "hit"
+    assert result.diagnostics.retrieval_status == "partial"
+    assert result.diagnostics.provider_status == "mixed"
+    assert result.diagnostics.provider_available is False
+    assert result.diagnostics.budget_exhausted is True
+    assert result.diagnostics.unresolved_symbols == ("EGG",)
+    lines = [line for line in capsys.readouterr().out.splitlines() if line.startswith("[NEWS][RETRIEVAL_DIAGNOSTICS] ")]
+    record = json.loads(lines[-1].split(" ", 1)[1])
+    assert record["cache"]["cadence_cache_hit_symbols"] == ["EGG"]
+    assert record["provider_available"] is False
+    assert record["summaries"]["EGG"]["provider_available"] is False
+    assert record["summaries"]["FRESH"]["provider_available"] is True

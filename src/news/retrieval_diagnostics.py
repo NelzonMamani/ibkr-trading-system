@@ -103,7 +103,7 @@ def emit_retrieval_diagnostics(
             "write_attempted": provider_invoked and bool(policy.allow_cache_write) if policy else False,
             **{
                 key: _symbols(cache.get(key, ()))
-                for key in ("cache_hit_symbols", "cache_miss_symbols", "stale_cache_miss_symbols", "prep_reuse_symbols", "prep_stale_symbols")
+                for key in ("cache_hit_symbols", "cadence_cache_hit_symbols", "cache_miss_symbols", "stale_cache_miss_symbols", "prep_reuse_symbols", "prep_stale_symbols")
             },
             **{
                 key: bool(cache.get(key, False))
