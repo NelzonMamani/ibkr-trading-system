@@ -141,9 +141,15 @@ class CanonicalNewsIntelligenceService(NewsIntelligenceProvider):
                         "provider_available": diagnostics.provider_available,
                         "budget_exhausted": diagnostics.budget_exhausted,
                     }
-                write_diagnostics = self.evidence_store.write(
-                    retrieved, request, retrieval_by_symbol=retrieval_by_symbol,
-                )
+                write_with_metadata = getattr(self.evidence_store, "write_with_retrieval_metadata", None)
+                if callable(write_with_metadata):
+                    write_diagnostics = write_with_metadata(
+                        retrieved, request, retrieval_by_symbol=retrieval_by_symbol,
+                    )
+                else:
+                    # Existing injected stores retain their two-argument contract.
+                    # Without acquisition persistence they refresh conservatively.
+                    write_diagnostics = self.evidence_store.write(retrieved, request)
                 write_diagnostics["cache_write_skipped"] = False
 
         combined_evidence: dict[str, tuple[NewsEvidence, ...]] = {}

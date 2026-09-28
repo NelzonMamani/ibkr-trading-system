@@ -1,0 +1,10 @@
+{
+  "parent_head": "37136b656a8d1e5ab7b40a7d2194685329f23fc6",
+  "files": {
+    "docs/architecture/W01_OWNERSHIP.md": "4af333f62ccd2ad56fa189eeac2091d5e8ebe581222b93d479a53921b62043ed",
+    "src/news/evidence_store.py": "3c672623a0455708e59041960188ccdb8d3ef63be95f279a1fe8e328e65ffc88",
+    "src/news/news_intelligence_service.py": "f1863b10d5b25658c7d06b2189dfe8ebc9680baf844456a95f8697bd500fa43c"
+  },
+  "test_result": "108 passed",
+  "test_log_sha256": "d7dc6f641d9ed4b54e9f952255676959d9a76929d5eba14ca2e475f64436273b"
+}

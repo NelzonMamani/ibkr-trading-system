@@ -264,6 +264,16 @@ class CanonicalNewsEvidenceStore:
             diagnostics["cache_write_error"] = type(exc).__name__
         return diagnostics
 
+    def write_with_retrieval_metadata(
+        self,
+        evidence_by_symbol: Mapping[str, Sequence[NewsEvidence]],
+        request: NewsRequest | None,
+        *,
+        retrieval_by_symbol: Mapping[str, Mapping[str, Any]],
+    ) -> dict[str, Any]:
+        """Optional acquisition persistence capability beyond the legacy write seam."""
+        return self.write(evidence_by_symbol, request, retrieval_by_symbol=retrieval_by_symbol)
+
     def _load_cache_payload(self, diagnostics: dict[str, Any]) -> dict[str, Any]:
         if not self.cache_path.exists():
             return {"symbols": {}, NEWS_INTELLIGENCE_CACHE_NAMESPACE: {"schema_version": NEWS_INTELLIGENCE_SCHEMA_VERSION, "symbols": {}}}
