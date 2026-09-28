@@ -166,6 +166,7 @@ class CanonicalNewsIntelligenceService(NewsIntelligenceProvider):
                                else _provider_status(refresh_result, cache_diagnostics))
             provider_available = (refreshed_outcome.provider_available if refreshed_outcome is not None
                                   else _provider_available(refresh_result, cache_diagnostics))
+            budget_exhausted = cached_retrieval.get("budget_exhausted", _symbol_budget_exhausted(symbol, refresh_result))
             summaries[symbol] = summarize_news_evidence(
                 symbol,
                 merged,
@@ -174,7 +175,7 @@ class CanonicalNewsIntelligenceService(NewsIntelligenceProvider):
                 provider_status=cached_retrieval.get("provider_status") or provider_status,
                 provider_available=cached_retrieval.get("provider_available", provider_available),
                 cache_state=_symbol_cache_state(symbol, merged, cache_diagnostics),
-                budget_exhausted=cached_retrieval.get("budget_exhausted", _symbol_budget_exhausted(symbol, refresh_result)),
+                budget_exhausted=budget_exhausted,
                 diagnostics={
                     "provider_id": self.provider_id,
                     "cache_hit": symbol in set(cache_diagnostics.get("cache_hit_symbols", [])),
@@ -182,7 +183,7 @@ class CanonicalNewsIntelligenceService(NewsIntelligenceProvider):
                     "prep_reused": symbol in set(cache_diagnostics.get("prep_reuse_symbols", [])),
                     "refresh_requested": symbol in set(refresh_symbols),
                     "last_retrieval": dict(cached_retrieval),
-                    "objective_news_status": _objective_status(symbol, merged, refresh_result),
+                    "objective_news_status": _objective_status(symbol, merged, refresh_result, budget_exhausted=budget_exhausted),
                     "classification_authority": "strategy_adapter_not_common_provider",
                 },
             )
@@ -293,21 +294,36 @@ def _symbols_without_fresh_evidence(
 def _refresh_symbol_outcome(symbol: str, result: NewsBatchResult) -> NewsEvidenceSummary | RetrievalDiagnostics:
     """Use the same per-symbol outcome for persistence, summaries and aggregation."""
     summary = result.summary_for_symbol(symbol)
-    if summary is not None:
+    if summary is not None and (
+        summary.provider_available is not None
+        or summary.budget_exhausted
+        or summary.retrieval_status not in {"unknown", "not_requested"}
+    ):
         return summary
+    if summary is not None and summary.provider_status in {"provider_unavailable", "provider_request_failure"}:
+        return replace(summary, provider_available=False,
+                       retrieval_status="provider_error" if summary.provider_status == "provider_request_failure" else "unavailable")
     diagnostics = result.diagnostics
-    if not diagnostics.unresolved_symbols:
+    if diagnostics.unresolved_symbols:
+        unresolved = symbol in diagnostics.unresolved_symbols
+        exhausted = unresolved and diagnostics.budget_exhausted
+        diagnostics = replace(
+            diagnostics,
+            retrieval_status=("budget_exhausted" if exhausted else "unavailable") if unresolved else "available",
+            provider_status="unavailable" if unresolved else "available",
+            provider_available=not unresolved,
+            budget_exhausted=exhausted,
+            unresolved_symbols=(symbol,) if unresolved else (),
+        )
+    if summary is None:
         return diagnostics
-    unresolved = symbol in diagnostics.unresolved_symbols
-    exhausted = unresolved and diagnostics.budget_exhausted
-    return replace(
-        diagnostics,
-        retrieval_status=("budget_exhausted" if exhausted else "unavailable") if unresolved else "available",
-        provider_status="unavailable" if unresolved else "available",
-        provider_available=not unresolved,
-        budget_exhausted=exhausted,
-        unresolved_symbols=(symbol,) if unresolved else (),
-    )
+    # Providers may supply article metrics while leaving outcome fields unknown.
+    # Persist the explicit retrieval outcome so a cadence hit or service restart
+    # cannot turn a known failure into an apparently successful empty response.
+    return replace(summary, retrieval_status=diagnostics.retrieval_status,
+                   provider_status=diagnostics.provider_status,
+                   provider_available=diagnostics.provider_available,
+                   budget_exhausted=diagnostics.budget_exhausted)
 
 
 def _symbol_retrieval_status(
@@ -356,18 +372,19 @@ def _symbol_cache_state(
 def _symbol_budget_exhausted(symbol: str, refresh_result: NewsBatchResult | None) -> bool:
     if refresh_result is None:
         return False
-    summary = refresh_result.summary_for_symbol(symbol)
-    if summary is not None:
-        return bool(summary.budget_exhausted)
-    return symbol in set(refresh_result.diagnostics.unresolved_symbols) and bool(refresh_result.diagnostics.budget_exhausted)
+    return bool(_refresh_symbol_outcome(symbol, refresh_result).budget_exhausted)
 
 
 def _objective_status(
     symbol: str,
     evidence: Sequence[NewsEvidence],
     refresh_result: NewsBatchResult | None,
+    *,
+    budget_exhausted: bool | None = None,
 ) -> str:
-    if _symbol_budget_exhausted(symbol, refresh_result):
+    if budget_exhausted is None:
+        budget_exhausted = _symbol_budget_exhausted(symbol, refresh_result)
+    if budget_exhausted:
         return "budget_exhausted"
     if any(item.stale is False for item in evidence):
         return "news_present_unclassified"

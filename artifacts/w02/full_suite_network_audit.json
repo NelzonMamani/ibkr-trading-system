@@ -1,0 +1,87 @@
+{
+  "guard": "external/broker sockets blocked; stdlib private socketpair self-pipes allowed",
+  "attempts": [
+    {
+      "test": "tests/metadata/test_strategy_policy_v2_institutional_matrix.py::test_institutional_matrix_v2_generation_and_domain_coverage",
+      "outcome": "blocked_before_connection"
+    },
+    {
+      "test": "tests/metadata/test_strategy_policy_v2_institutional_matrix.py::test_institutional_matrix_v2_generation_and_domain_coverage",
+      "outcome": "blocked_before_connection"
+    },
+    {
+      "test": "tests/smoke/test_orchestrator_cycle.py::test_orchestrator_readonly_cycle",
+      "outcome": "blocked_before_connection"
+    },
+    {
+      "test": "tests/smoke/test_orchestrator_cycle.py::test_orchestrator_readonly_cycle",
+      "outcome": "blocked_before_connection"
+    },
+    {
+      "test": "tests/test_ross_pr1028_autonomous_scanner_catalyst_certification.py::test_pr1028_hard_scanner_rejections_do_not_enter_watchlist_or_focus",
+      "outcome": "blocked_before_connection"
+    },
+    {
+      "test": "tests/test_ross_pr1028_autonomous_scanner_catalyst_certification.py::test_pr1028_hard_scanner_rejections_do_not_enter_watchlist_or_focus",
+      "outcome": "blocked_before_connection"
+    },
+    {
+      "test": "tests/test_ross_pr1028_autonomous_scanner_catalyst_certification.py::test_pr1028_hard_scanner_rejections_do_not_enter_watchlist_or_focus",
+      "outcome": "blocked_before_connection"
+    },
+    {
+      "test": "tests/test_ross_pr1028_autonomous_scanner_catalyst_certification.py::test_pr1028_hard_scanner_rejections_do_not_enter_watchlist_or_focus",
+      "outcome": "blocked_before_connection"
+    },
+    {
+      "test": "tests/test_ross_pr3_watchlist_focus_proof.py::test_candidate_rationale_exposes_compact_classifications",
+      "outcome": "blocked_before_connection"
+    },
+    {
+      "test": "tests/test_ross_pr3_watchlist_focus_proof.py::test_candidate_rationale_exposes_compact_classifications",
+      "outcome": "blocked_before_connection"
+    },
+    {
+      "test": "tests/test_ross_pr3_watchlist_focus_proof.py::test_price_rejected_symbol_cannot_leak_through_selector_into_watchlist",
+      "outcome": "blocked_before_connection"
+    },
+    {
+      "test": "tests/test_ross_pr3_watchlist_focus_proof.py::test_price_rejected_symbol_cannot_leak_through_selector_into_watchlist",
+      "outcome": "blocked_before_connection"
+    },
+    {
+      "test": "tests/test_ross_pr3_watchlist_focus_proof.py::test_hard_rejections_cannot_enter_focus_m[DROP_FLOAT_MAX-context_overrides2-policy_overrides2-DROP_FLOAT_MAX]",
+      "outcome": "blocked_before_connection"
+    },
+    {
+      "test": "tests/test_ross_pr3_watchlist_focus_proof.py::test_hard_rejections_cannot_enter_focus_m[DROP_FLOAT_MAX-context_overrides2-policy_overrides2-DROP_FLOAT_MAX]",
+      "outcome": "blocked_before_connection"
+    },
+    {
+      "test": "tests/test_ross_pr3_watchlist_focus_proof.py::test_hard_rejections_cannot_enter_focus_m[DROP_SPREAD-context_overrides6-policy_overrides6-DROP_SPREAD]",
+      "outcome": "blocked_before_connection"
+    },
+    {
+      "test": "tests/test_ross_pr3_watchlist_focus_proof.py::test_hard_rejections_cannot_enter_focus_m[DROP_SPREAD-context_overrides6-policy_overrides6-DROP_SPREAD]",
+      "outcome": "blocked_before_connection"
+    },
+    {
+      "test": "tests/test_ross_pre_activation_runtime.py::test_registry_marks_session_incompatible_patterns_as_skipped",
+      "outcome": "blocked_before_connection"
+    },
+    {
+      "test": "tests/test_ross_pre_activation_runtime.py::test_registry_marks_session_incompatible_patterns_as_skipped",
+      "outcome": "blocked_before_connection"
+    },
+    {
+      "test": "tests/test_ross_pre_activation_runtime.py::test_pattern_inputs_normalize_level_aliases",
+      "outcome": "blocked_before_connection"
+    },
+    {
+      "test": "tests/test_ross_pre_activation_runtime.py::test_pattern_inputs_normalize_level_aliases",
+      "outcome": "blocked_before_connection"
+    }
+  ],
+  "stdlib_socketpair_connections": 26,
+  "exit_status": 0
+}

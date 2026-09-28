@@ -1,0 +1,94 @@
+FF                                                                       [100%]
+================================== FAILURES ===================================
+_ test_unknown_summary_keeps_explicit_symbol_failure_without_poisoning_healthy_summary[unavailable] _
+
+tmp_path = WindowsPath('C:/Users/nelzo/AppData/Local/Temp/pytest-of-nelzo/pytest-289/test_unknown_summary_keeps_exp0')
+budget = False
+
+    @pytest.mark.parametrize("budget", [False, True], ids=["unavailable", "budget"])
+    def test_unknown_summary_keeps_explicit_symbol_failure_without_poisoning_healthy_summary(tmp_path, budget):
+        class Provider:
+            calls = 0
+    
+            def get_news(self, candidates, request, policy):
+                self.calls += 1
+                return NewsBatchResult(evidence_by_symbol={"GOOD": (), "BAD": ()}, summaries_by_symbol={
+                    "GOOD": NewsEvidenceSummary(symbol="GOOD", retrieval_status="available", provider_available=True),
+                    "BAD": NewsEvidenceSummary(symbol="BAD"),
+                }, diagnostics=RetrievalDiagnostics(
+                    retrieval_status="budget_exhausted" if budget else "unavailable",
+                    provider_status="available" if budget else "provider_request_failure",
+                    provider_available=budget, budget_exhausted=budget, unresolved_symbols=("BAD",)))
+    
+        provider = Provider()
+        path = tmp_path / "news.json"
+        service = _service(path, provider)
+        for reader in (service, service, _service(path, provider)):
+            result = reader.get_news([NewsCandidate("GOOD"), NewsCandidate("BAD")], REQUEST, POLICY)
+            context, decision = _ross(result)
+            assert context["GOOD"]["news_available"] is True
+            assert context["GOOD"]["news_diagnostic_status"] == "no_recent_news"
+            assert decision["GOOD"].status.value == "ABSENT"
+>           assert context["BAD"]["news_available"] is False
+E           assert True is False
+
+tests\test_w02_news_consumer_acceptance.py:382: AssertionError
+---------------------------- Captured stdout call -----------------------------
+[NEWS][RETRIEVAL_DIAGNOSTICS] {"budget_exhausted":false,"cache":{"cache_hit_symbols":[],"cache_miss_symbols":["BAD","GOOD"],"cache_read_error":null,"cache_read_failed":false,"cache_write_error":null,"cache_write_failed":false,"cadence_cache_hit_symbols":[],"prep_read_error":null,"prep_read_failed":false,"prep_reuse_symbols":[],"prep_stale_symbols":[],"read_attempted":true,"read_skipped":false,"stale_cache_miss_symbols":[],"state":"miss","write_attempted":true},"completed_at_utc":"2026-08-21T14:05:00+00:00","elapsed_seconds":null,"network_allowed":true,"provider_available":false,"provider_failure_reason":null,"provider_invoked":true,"provider_status":"provider_request_failure","refresh_allowed":true,"refresh_symbols":["GOOD","BAD"],"request_mode":"incremental","retrieval_status":"unavailable","schema":"news.retrieval_diagnostics.v1","source_groups":[],"sources":[],"sources_attempted":0,"sources_skipped_due_to_budget":0,"started_at_utc":"2026-08-21T14:05:00+00:00","summaries":{"BAD":{"budget_exhausted":false,"cache_state":"miss","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"no_recent_news","provider_available":null,"provider_status":null,"retrieval_status":"unknown","retrieval_unavailable":false,"stale_evidence_count":0,"unavailability_reasons":[]},"GOOD":{"budget_exhausted":false,"cache_state":"miss","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"no_recent_news","provider_available":true,"provider_status":null,"retrieval_status":"available","retrieval_unavailable":false,"stale_evidence_count":0,"unavailability_reasons":[]}},"symbols":["GOOD","BAD"],"tier_budget_seconds":{"extended_budget_reserved_seconds":null,"extended_budget_seconds":null,"fast_budget_seconds":null},"total_budget_seconds":null,"unresolved_symbols":["BAD"]}
+[NEWS] symbol=GOOD catalyst_tag=NONE headlines=0
+[NEWS] symbol=GOOD news_changed=True
+[NEWS] symbol=BAD catalyst_tag=NONE headlines=0
+[NEWS] symbol=BAD news_changed=True
+[NEWS][RETRIEVAL_DIAGNOSTICS] {"budget_exhausted":false,"cache":{"cache_hit_symbols":[],"cache_miss_symbols":["BAD","GOOD"],"cache_read_error":null,"cache_read_failed":false,"cache_write_error":null,"cache_write_failed":false,"cadence_cache_hit_symbols":["GOOD","BAD"],"prep_read_error":null,"prep_read_failed":false,"prep_reuse_symbols":[],"prep_stale_symbols":[],"read_attempted":true,"read_skipped":false,"stale_cache_miss_symbols":[],"state":"hit","write_attempted":false},"completed_at_utc":"2026-08-21T14:05:00+00:00","elapsed_seconds":0.0,"network_allowed":true,"provider_available":null,"provider_failure_reason":null,"provider_invoked":false,"provider_status":"cache_miss","refresh_allowed":false,"refresh_symbols":[],"request_mode":"incremental","retrieval_status":"partial","schema":"news.retrieval_diagnostics.v1","source_groups":[],"sources":[],"sources_attempted":0,"sources_skipped_due_to_budget":0,"started_at_utc":"2026-08-21T14:05:00+00:00","summaries":{"BAD":{"budget_exhausted":false,"cache_state":"hit","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"no_recent_news","provider_available":null,"provider_status":"cache_miss","retrieval_status":"unknown","retrieval_unavailable":false,"stale_evidence_count":0,"unavailability_reasons":[]},"GOOD":{"budget_exhausted":false,"cache_state":"hit","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"no_recent_news","provider_available":true,"provider_status":"cache_miss","retrieval_status":"available","retrieval_unavailable":false,"stale_evidence_count":0,"unavailability_reasons":[]}},"symbols":["GOOD","BAD"],"tier_budget_seconds":{"extended_budget_reserved_seconds":null,"extended_budget_seconds":null,"fast_budget_seconds":null},"total_budget_seconds":8.0,"unresolved_symbols":[]}
+[NEWS] symbol=GOOD catalyst_tag=NONE headlines=0
+[NEWS] symbol=GOOD news_changed=True
+[NEWS] symbol=BAD catalyst_tag=NONE headlines=0
+[NEWS] symbol=BAD news_changed=True
+_ test_unknown_summary_keeps_explicit_symbol_failure_without_poisoning_healthy_summary[budget] _
+
+tmp_path = WindowsPath('C:/Users/nelzo/AppData/Local/Temp/pytest-of-nelzo/pytest-289/test_unknown_summary_keeps_exp1')
+budget = True
+
+    @pytest.mark.parametrize("budget", [False, True], ids=["unavailable", "budget"])
+    def test_unknown_summary_keeps_explicit_symbol_failure_without_poisoning_healthy_summary(tmp_path, budget):
+        class Provider:
+            calls = 0
+    
+            def get_news(self, candidates, request, policy):
+                self.calls += 1
+                return NewsBatchResult(evidence_by_symbol={"GOOD": (), "BAD": ()}, summaries_by_symbol={
+                    "GOOD": NewsEvidenceSummary(symbol="GOOD", retrieval_status="available", provider_available=True),
+                    "BAD": NewsEvidenceSummary(symbol="BAD"),
+                }, diagnostics=RetrievalDiagnostics(
+                    retrieval_status="budget_exhausted" if budget else "unavailable",
+                    provider_status="available" if budget else "provider_request_failure",
+                    provider_available=budget, budget_exhausted=budget, unresolved_symbols=("BAD",)))
+    
+        provider = Provider()
+        path = tmp_path / "news.json"
+        service = _service(path, provider)
+        for reader in (service, service, _service(path, provider)):
+            result = reader.get_news([NewsCandidate("GOOD"), NewsCandidate("BAD")], REQUEST, POLICY)
+            context, decision = _ross(result)
+            assert context["GOOD"]["news_available"] is True
+            assert context["GOOD"]["news_diagnostic_status"] == "no_recent_news"
+            assert decision["GOOD"].status.value == "ABSENT"
+>           assert context["BAD"]["news_available"] is False
+E           assert True is False
+
+tests\test_w02_news_consumer_acceptance.py:382: AssertionError
+---------------------------- Captured stdout call -----------------------------
+[NEWS][RETRIEVAL_DIAGNOSTICS] {"budget_exhausted":true,"cache":{"cache_hit_symbols":[],"cache_miss_symbols":["BAD","GOOD"],"cache_read_error":null,"cache_read_failed":false,"cache_write_error":null,"cache_write_failed":false,"cadence_cache_hit_symbols":[],"prep_read_error":null,"prep_read_failed":false,"prep_reuse_symbols":[],"prep_stale_symbols":[],"read_attempted":true,"read_skipped":false,"stale_cache_miss_symbols":[],"state":"miss","write_attempted":true},"completed_at_utc":"2026-08-21T14:05:00+00:00","elapsed_seconds":null,"network_allowed":true,"provider_available":true,"provider_failure_reason":null,"provider_invoked":true,"provider_status":"available","refresh_allowed":true,"refresh_symbols":["GOOD","BAD"],"request_mode":"incremental","retrieval_status":"budget_exhausted","schema":"news.retrieval_diagnostics.v1","source_groups":[],"sources":[],"sources_attempted":0,"sources_skipped_due_to_budget":0,"started_at_utc":"2026-08-21T14:05:00+00:00","summaries":{"BAD":{"budget_exhausted":false,"cache_state":"miss","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"no_recent_news","provider_available":null,"provider_status":null,"retrieval_status":"unknown","retrieval_unavailable":false,"stale_evidence_count":0,"unavailability_reasons":[]},"GOOD":{"budget_exhausted":false,"cache_state":"miss","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"no_recent_news","provider_available":true,"provider_status":null,"retrieval_status":"available","retrieval_unavailable":false,"stale_evidence_count":0,"unavailability_reasons":[]}},"symbols":["GOOD","BAD"],"tier_budget_seconds":{"extended_budget_reserved_seconds":null,"extended_budget_seconds":null,"fast_budget_seconds":null},"total_budget_seconds":null,"unresolved_symbols":["BAD"]}
+[NEWS] symbol=GOOD catalyst_tag=NONE headlines=0
+[NEWS] symbol=GOOD news_changed=True
+[NEWS] symbol=BAD catalyst_tag=NONE headlines=0
+[NEWS] symbol=BAD news_changed=True
+[NEWS][RETRIEVAL_DIAGNOSTICS] {"budget_exhausted":false,"cache":{"cache_hit_symbols":[],"cache_miss_symbols":["BAD","GOOD"],"cache_read_error":null,"cache_read_failed":false,"cache_write_error":null,"cache_write_failed":false,"cadence_cache_hit_symbols":["GOOD","BAD"],"prep_read_error":null,"prep_read_failed":false,"prep_reuse_symbols":[],"prep_stale_symbols":[],"read_attempted":true,"read_skipped":false,"stale_cache_miss_symbols":[],"state":"hit","write_attempted":false},"completed_at_utc":"2026-08-21T14:05:00+00:00","elapsed_seconds":0.0,"network_allowed":true,"provider_available":null,"provider_failure_reason":null,"provider_invoked":false,"provider_status":"cache_miss","refresh_allowed":false,"refresh_symbols":[],"request_mode":"incremental","retrieval_status":"partial","schema":"news.retrieval_diagnostics.v1","source_groups":[],"sources":[],"sources_attempted":0,"sources_skipped_due_to_budget":0,"started_at_utc":"2026-08-21T14:05:00+00:00","summaries":{"BAD":{"budget_exhausted":false,"cache_state":"hit","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"no_recent_news","provider_available":null,"provider_status":"cache_miss","retrieval_status":"unknown","retrieval_unavailable":false,"stale_evidence_count":0,"unavailability_reasons":[]},"GOOD":{"budget_exhausted":false,"cache_state":"hit","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"no_recent_news","provider_available":true,"provider_status":"cache_miss","retrieval_status":"available","retrieval_unavailable":false,"stale_evidence_count":0,"unavailability_reasons":[]}},"symbols":["GOOD","BAD"],"tier_budget_seconds":{"extended_budget_reserved_seconds":null,"extended_budget_seconds":null,"fast_budget_seconds":null},"total_budget_seconds":8.0,"unresolved_symbols":[]}
+[NEWS] symbol=GOOD catalyst_tag=NONE headlines=0
+[NEWS] symbol=GOOD news_changed=True
+[NEWS] symbol=BAD catalyst_tag=NONE headlines=0
+[NEWS] symbol=BAD news_changed=True
+=========================== short test summary info ===========================
+FAILED tests/test_w02_news_consumer_acceptance.py::test_unknown_summary_keeps_explicit_symbol_failure_without_poisoning_healthy_summary[unavailable]
+FAILED tests/test_w02_news_consumer_acceptance.py::test_unknown_summary_keeps_explicit_symbol_failure_without_poisoning_healthy_summary[budget]
+2 failed, 25 deselected in 5.32s

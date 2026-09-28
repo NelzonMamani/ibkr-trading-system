@@ -592,19 +592,23 @@ def _fetch_headlines_from_sources(
         source_started_s = time.monotonic()
         try:
             feed = _fetch_feed(url, timeout_s)
+            completed_at_s = time.monotonic()
             return {
                 "url": url,
                 "feed": feed,
                 "error": None,
-                "elapsed_seconds": _budget_elapsed_seconds(source_started_s),
+                "elapsed_seconds": max(0.0, completed_at_s - source_started_s),
+                "completed_at_s": completed_at_s,
                 "timeout_seconds": timeout_s,
             }
         except Exception as exc:  # pragma: no cover - exercised through tests with synthetic exceptions
+            completed_at_s = time.monotonic()
             return {
                 "url": url,
                 "feed": None,
                 "error": exc,
-                "elapsed_seconds": _budget_elapsed_seconds(source_started_s),
+                "elapsed_seconds": max(0.0, completed_at_s - source_started_s),
+                "completed_at_s": completed_at_s,
                 "timeout_seconds": timeout_s,
             }
 
@@ -757,8 +761,21 @@ def _fetch_headlines_from_sources(
                 if not done:
                     continue
                 for future in done:
-                    url, timeout_s, submitted_s = pending.pop(future)
                     result = future.result()
+                    # A bounded wait may resume after its deadline. Use the worker's
+                    # completion instant so in-time results survive coordinator lag.
+                    completed_at_s = float(result.get("completed_at_s", time.monotonic()))
+                    stage_expired = deadline_s is not None and completed_at_s >= deadline_s
+                    tier_expired = tier_deadline is not None and completed_at_s >= tier_deadline
+                    if stage_expired or tier_expired:
+                        news_budget_exhausted = news_budget_exhausted or stage_expired
+                        tier_budget_exhausted = tier_budget_exhausted or tier_expired
+                        record_budget_skipped_sources()
+                        # Late evidence is discarded, but an observed transport error
+                        # remains a fact alongside the exhausted local budget.
+                        if result.get("error") is None:
+                            continue
+                    url, timeout_s, submitted_s = pending.pop(future)
                     elapsed = float(result.get("elapsed_seconds") or _budget_elapsed_seconds(submitted_s))
                     error = result.get("error")
                     if error is not None:
@@ -768,12 +785,13 @@ def _fetch_headlines_from_sources(
                         source_diagnostics.append(
                             source_diag(
                                 url,
-                                retrieval_status="provider_error",
+                                retrieval_status="budget_exhausted" if stage_expired or tier_expired else "provider_error",
                                 attempted=True,
                                 failure_reason=code,
                                 elapsed_seconds=elapsed,
                                 timeout_seconds=timeout_s,
                                 timed_out="TIMEOUT" in code or code.endswith("TIMEOUT"),
+                                budget_exhausted=stage_expired or tier_expired,
                             )
                         )
                         continue
@@ -804,6 +822,8 @@ def _fetch_headlines_from_sources(
                             timeout_seconds=timeout_s,
                         )
                     )
+                if news_budget_exhausted or tier_budget_exhausted:
+                    break
                 if all(len(items) >= max_entries for items in headlines.values()):
                     break
         finally:
@@ -819,7 +839,9 @@ def _fetch_headlines_from_sources(
                         failure_reason="deadline_exhausted" if pending_cancelled_for_budget else "cancelled_after_max_entries",
                         elapsed_seconds=elapsed,
                         timeout_seconds=timeout_s,
-                        timed_out=pending_cancelled_for_budget,
+                        # The coordinator stopped waiting; no HTTP timeout was observed.
+                        # Running requests can still complete after this local deadline.
+                        timed_out=False,
                         budget_exhausted=pending_cancelled_for_budget,
                     )
                 )

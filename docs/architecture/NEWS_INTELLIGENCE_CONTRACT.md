@@ -114,7 +114,7 @@ It must not expose Ross decisions such as buy/pass/A-quality labels, and it must
 
 Absolute share volume and Relative Volume/RVOL are distinct upstream concepts. `NewsCandidate` may carry `absolute_share_volume` and `relative_volume_rvol` for prioritization or audit context, but News Intelligence does not calculate either value and is not the authority for either value.
 
-This preserves the Ross contract: Price, Gap / percentage move, Float, Volume, and News / catalyst remain the five stock-selection pillars, while RVOL remains a supporting metric.
+The five Ross stock-selection pillars are Price, Gap / % Change, RVOL, mandatory Catalyst / News, and low Float. Absolute Volume remains separate from RVOL. This statement corrects the documentation; it does not change trading policy, thresholds, or eligibility.
 
 ## Runtime Shutdown
 
@@ -155,3 +155,10 @@ PR1069 also fixes the post-PR1040 observe shutdown hang. A manager-owned `Market
 `issuer_relevance.py` owns the PR1092 text/issuer recheck. The evidence store applies it before deciding whether a cached item suppresses retrieval; scanner policy calls the same function as a boundary check. Legacy event labels never prove issuer relevance or strategy eligibility. Freshness uses publication time; an old relative age is anchored to the saved acquisition time, never to the current read. Missing/future publication time remains unknown. RSS UTC tuples are interpreted as UTC and undated/future RSS entries are excluded with TIME_REJECT diagnostics.
 
 Prep projects canonical evidence into the existing news_context result shape with provenance and retrieval diagnostics. It batches all candidates once, retains FAST_TRADING membership and configured budgets, and keeps no private cache or independent catalyst classifier. Catalyst eligibility remains strategy policy. See W01_OWNERSHIP.md for removals and compatibility conditions.
+
+
+## W02 budget and outcome diagnostics
+
+An explicit extended-tier budget bounds its own deadline, even when the total request has time remaining. Exhaustion of required extended retrieval applies only to the supplied unresolved symbols; successful per-symbol outcomes remain separate. `total_budget_exhausted` distinguishes the local provider-call total deadline from aggregate retrieval incompleteness.
+
+A source `timed_out` flag records an observed request timeout. A coordinator deadline produces `budget_exhausted` and a deadline failure reason; it does not assert an HTTP timeout or cancel a running request. Late results do not count as evidence returned within the retrieval budget. Canonical acquisition persistence and strategy projections retain per-symbol availability, including explicit failures accompanying default unknown summaries. Explicit unavailable retrieval outcomes do not become confirmed catalyst absence. Fresh validated persisted evidence retains its existing authority during incomplete refresh; availability and qualifying evidence remain separate dimensions.

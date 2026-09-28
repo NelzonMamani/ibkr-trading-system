@@ -1,0 +1,300 @@
+....FFFF                                                                 [100%]
+================================== FAILURES ===================================
+_ test_completed_future_is_accepted_only_before_applicable_deadline[at-stage] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x00000243B71216A0>
+deadline_kind = 'stage', completion_offset = 0.0
+
+    @pytest.mark.parametrize("deadline_kind", ["stage", "tier"])
+    @pytest.mark.parametrize("completion_offset", [-0.001, 0.0, 0.001], ids=["before", "at", "after"])
+    def test_completed_future_is_accepted_only_before_applicable_deadline(
+        monkeypatch, deadline_kind, completion_offset,
+    ):
+        clock = [100.0]
+        pending_work = {}
+        monkeypatch.setattr(news_fetcher.time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(news_fetcher, "feedparser", object())
+    
+        class DeferredExecutor:
+            def __init__(self, **kwargs):
+                pass
+    
+            def submit(self, function, *args):
+                future = Future()
+                future.set_running_or_notify_cancel()
+                pending_work[future] = (function, args)
+                return future
+    
+            def shutdown(self, **kwargs):
+                pass
+    
+        monkeypatch.setattr(news_fetcher, "ThreadPoolExecutor", DeferredExecutor)
+        feed = SimpleNamespace(feed={"title": "Controlled source"}, entries=[SimpleNamespace(
+            title="W02X wins contract", link="https://news.example/w02x",
+            published_parsed=time.gmtime(time.time() - 60),
+        )])
+        monkeypatch.setattr(news_fetcher, "_fetch_feed", lambda *args: feed)
+    
+        def completed_after_wait(futures, timeout, return_when):
+            # Model a completion racing the coordinator's bounded wait. No real sleep.
+            clock[0] = 101.0 + completion_offset
+            for future in futures:
+                function, args = pending_work.pop(future)
+                future.set_result(function(*args))
+            return set(futures), set()
+    
+        monkeypatch.setattr(news_fetcher, "wait", completed_after_wait)
+        stage_budget = 1.0 if deadline_kind == "stage" else 3.0
+        tier_budget = 1.0 if deadline_kind == "tier" else 3.0
+        headlines, summary = news_fetcher.fetch_headlines_for_symbols(
+            ["W02X"], ["rss://controlled"], source_tier="extended",
+            total_news_budget_seconds=stage_budget, stage_started_at_s=100.0,
+            stage_deadline_s=100.0 + stage_budget,
+            tier_budget_seconds=tier_budget, tier_started_at_s=100.0,
+            tier_deadline_s=100.0 + tier_budget,
+        )
+    
+        source = summary.source_diagnostics[0]
+        assert source["attempted"] is True
+        assert source["timed_out"] is False
+        assert summary.failure_count == 0
+        if completion_offset < 0:
+            assert [item.title for item in headlines["W02X"]] == ["W02X wins contract"]
+            assert source["retrieval_status"] == "available"
+            assert source["matched_count"] == 1
+            assert source["budget_exhausted"] is False
+            assert summary.news_budget_exhausted is False
+            assert summary.tier_budget_exhausted is False
+        else:
+>           assert headlines["W02X"] == []
+E           AssertionError: assert [Headline(tit...ield='title')] == []
+E             
+E             Left contains one more item: Headline(title='W02X wins contract', source='Controlled source', published_ts=1790623848.0, url='https://news.example/w02x', summary='', source_tier='extended', match_type='ticker_token', matched_field='title')
+E             Use -v to get more diff
+
+tests\test_w02_source_outcomes.py:125: AssertionError
+_ test_completed_future_is_accepted_only_before_applicable_deadline[at-tier] __
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x00000243B7037D50>
+deadline_kind = 'tier', completion_offset = 0.0
+
+    @pytest.mark.parametrize("deadline_kind", ["stage", "tier"])
+    @pytest.mark.parametrize("completion_offset", [-0.001, 0.0, 0.001], ids=["before", "at", "after"])
+    def test_completed_future_is_accepted_only_before_applicable_deadline(
+        monkeypatch, deadline_kind, completion_offset,
+    ):
+        clock = [100.0]
+        pending_work = {}
+        monkeypatch.setattr(news_fetcher.time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(news_fetcher, "feedparser", object())
+    
+        class DeferredExecutor:
+            def __init__(self, **kwargs):
+                pass
+    
+            def submit(self, function, *args):
+                future = Future()
+                future.set_running_or_notify_cancel()
+                pending_work[future] = (function, args)
+                return future
+    
+            def shutdown(self, **kwargs):
+                pass
+    
+        monkeypatch.setattr(news_fetcher, "ThreadPoolExecutor", DeferredExecutor)
+        feed = SimpleNamespace(feed={"title": "Controlled source"}, entries=[SimpleNamespace(
+            title="W02X wins contract", link="https://news.example/w02x",
+            published_parsed=time.gmtime(time.time() - 60),
+        )])
+        monkeypatch.setattr(news_fetcher, "_fetch_feed", lambda *args: feed)
+    
+        def completed_after_wait(futures, timeout, return_when):
+            # Model a completion racing the coordinator's bounded wait. No real sleep.
+            clock[0] = 101.0 + completion_offset
+            for future in futures:
+                function, args = pending_work.pop(future)
+                future.set_result(function(*args))
+            return set(futures), set()
+    
+        monkeypatch.setattr(news_fetcher, "wait", completed_after_wait)
+        stage_budget = 1.0 if deadline_kind == "stage" else 3.0
+        tier_budget = 1.0 if deadline_kind == "tier" else 3.0
+        headlines, summary = news_fetcher.fetch_headlines_for_symbols(
+            ["W02X"], ["rss://controlled"], source_tier="extended",
+            total_news_budget_seconds=stage_budget, stage_started_at_s=100.0,
+            stage_deadline_s=100.0 + stage_budget,
+            tier_budget_seconds=tier_budget, tier_started_at_s=100.0,
+            tier_deadline_s=100.0 + tier_budget,
+        )
+    
+        source = summary.source_diagnostics[0]
+        assert source["attempted"] is True
+        assert source["timed_out"] is False
+        assert summary.failure_count == 0
+        if completion_offset < 0:
+            assert [item.title for item in headlines["W02X"]] == ["W02X wins contract"]
+            assert source["retrieval_status"] == "available"
+            assert source["matched_count"] == 1
+            assert source["budget_exhausted"] is False
+            assert summary.news_budget_exhausted is False
+            assert summary.tier_budget_exhausted is False
+        else:
+>           assert headlines["W02X"] == []
+E           AssertionError: assert [Headline(tit...ield='title')] == []
+E             
+E             Left contains one more item: Headline(title='W02X wins contract', source='Controlled source', published_ts=1790623848.0, url='https://news.example/w02x', summary='', source_tier='extended', match_type='ticker_token', matched_field='title')
+E             Use -v to get more diff
+
+tests\test_w02_source_outcomes.py:125: AssertionError
+_ test_completed_future_is_accepted_only_before_applicable_deadline[after-stage] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x00000243B71B4150>
+deadline_kind = 'stage', completion_offset = 0.001
+
+    @pytest.mark.parametrize("deadline_kind", ["stage", "tier"])
+    @pytest.mark.parametrize("completion_offset", [-0.001, 0.0, 0.001], ids=["before", "at", "after"])
+    def test_completed_future_is_accepted_only_before_applicable_deadline(
+        monkeypatch, deadline_kind, completion_offset,
+    ):
+        clock = [100.0]
+        pending_work = {}
+        monkeypatch.setattr(news_fetcher.time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(news_fetcher, "feedparser", object())
+    
+        class DeferredExecutor:
+            def __init__(self, **kwargs):
+                pass
+    
+            def submit(self, function, *args):
+                future = Future()
+                future.set_running_or_notify_cancel()
+                pending_work[future] = (function, args)
+                return future
+    
+            def shutdown(self, **kwargs):
+                pass
+    
+        monkeypatch.setattr(news_fetcher, "ThreadPoolExecutor", DeferredExecutor)
+        feed = SimpleNamespace(feed={"title": "Controlled source"}, entries=[SimpleNamespace(
+            title="W02X wins contract", link="https://news.example/w02x",
+            published_parsed=time.gmtime(time.time() - 60),
+        )])
+        monkeypatch.setattr(news_fetcher, "_fetch_feed", lambda *args: feed)
+    
+        def completed_after_wait(futures, timeout, return_when):
+            # Model a completion racing the coordinator's bounded wait. No real sleep.
+            clock[0] = 101.0 + completion_offset
+            for future in futures:
+                function, args = pending_work.pop(future)
+                future.set_result(function(*args))
+            return set(futures), set()
+    
+        monkeypatch.setattr(news_fetcher, "wait", completed_after_wait)
+        stage_budget = 1.0 if deadline_kind == "stage" else 3.0
+        tier_budget = 1.0 if deadline_kind == "tier" else 3.0
+        headlines, summary = news_fetcher.fetch_headlines_for_symbols(
+            ["W02X"], ["rss://controlled"], source_tier="extended",
+            total_news_budget_seconds=stage_budget, stage_started_at_s=100.0,
+            stage_deadline_s=100.0 + stage_budget,
+            tier_budget_seconds=tier_budget, tier_started_at_s=100.0,
+            tier_deadline_s=100.0 + tier_budget,
+        )
+    
+        source = summary.source_diagnostics[0]
+        assert source["attempted"] is True
+        assert source["timed_out"] is False
+        assert summary.failure_count == 0
+        if completion_offset < 0:
+            assert [item.title for item in headlines["W02X"]] == ["W02X wins contract"]
+            assert source["retrieval_status"] == "available"
+            assert source["matched_count"] == 1
+            assert source["budget_exhausted"] is False
+            assert summary.news_budget_exhausted is False
+            assert summary.tier_budget_exhausted is False
+        else:
+>           assert headlines["W02X"] == []
+E           AssertionError: assert [Headline(tit...ield='title')] == []
+E             
+E             Left contains one more item: Headline(title='W02X wins contract', source='Controlled source', published_ts=1790623848.0, url='https://news.example/w02x', summary='', source_tier='extended', match_type='ticker_token', matched_field='title')
+E             Use -v to get more diff
+
+tests\test_w02_source_outcomes.py:125: AssertionError
+_ test_completed_future_is_accepted_only_before_applicable_deadline[after-tier] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x00000243B7115400>
+deadline_kind = 'tier', completion_offset = 0.001
+
+    @pytest.mark.parametrize("deadline_kind", ["stage", "tier"])
+    @pytest.mark.parametrize("completion_offset", [-0.001, 0.0, 0.001], ids=["before", "at", "after"])
+    def test_completed_future_is_accepted_only_before_applicable_deadline(
+        monkeypatch, deadline_kind, completion_offset,
+    ):
+        clock = [100.0]
+        pending_work = {}
+        monkeypatch.setattr(news_fetcher.time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(news_fetcher, "feedparser", object())
+    
+        class DeferredExecutor:
+            def __init__(self, **kwargs):
+                pass
+    
+            def submit(self, function, *args):
+                future = Future()
+                future.set_running_or_notify_cancel()
+                pending_work[future] = (function, args)
+                return future
+    
+            def shutdown(self, **kwargs):
+                pass
+    
+        monkeypatch.setattr(news_fetcher, "ThreadPoolExecutor", DeferredExecutor)
+        feed = SimpleNamespace(feed={"title": "Controlled source"}, entries=[SimpleNamespace(
+            title="W02X wins contract", link="https://news.example/w02x",
+            published_parsed=time.gmtime(time.time() - 60),
+        )])
+        monkeypatch.setattr(news_fetcher, "_fetch_feed", lambda *args: feed)
+    
+        def completed_after_wait(futures, timeout, return_when):
+            # Model a completion racing the coordinator's bounded wait. No real sleep.
+            clock[0] = 101.0 + completion_offset
+            for future in futures:
+                function, args = pending_work.pop(future)
+                future.set_result(function(*args))
+            return set(futures), set()
+    
+        monkeypatch.setattr(news_fetcher, "wait", completed_after_wait)
+        stage_budget = 1.0 if deadline_kind == "stage" else 3.0
+        tier_budget = 1.0 if deadline_kind == "tier" else 3.0
+        headlines, summary = news_fetcher.fetch_headlines_for_symbols(
+            ["W02X"], ["rss://controlled"], source_tier="extended",
+            total_news_budget_seconds=stage_budget, stage_started_at_s=100.0,
+            stage_deadline_s=100.0 + stage_budget,
+            tier_budget_seconds=tier_budget, tier_started_at_s=100.0,
+            tier_deadline_s=100.0 + tier_budget,
+        )
+    
+        source = summary.source_diagnostics[0]
+        assert source["attempted"] is True
+        assert source["timed_out"] is False
+        assert summary.failure_count == 0
+        if completion_offset < 0:
+            assert [item.title for item in headlines["W02X"]] == ["W02X wins contract"]
+            assert source["retrieval_status"] == "available"
+            assert source["matched_count"] == 1
+            assert source["budget_exhausted"] is False
+            assert summary.news_budget_exhausted is False
+            assert summary.tier_budget_exhausted is False
+        else:
+>           assert headlines["W02X"] == []
+E           AssertionError: assert [Headline(tit...ield='title')] == []
+E             
+E             Left contains one more item: Headline(title='W02X wins contract', source='Controlled source', published_ts=1790623848.0, url='https://news.example/w02x', summary='', source_tier='extended', match_type='ticker_token', matched_field='title')
+E             Use -v to get more diff
+
+tests\test_w02_source_outcomes.py:125: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_w02_source_outcomes.py::test_completed_future_is_accepted_only_before_applicable_deadline[at-stage]
+FAILED tests/test_w02_source_outcomes.py::test_completed_future_is_accepted_only_before_applicable_deadline[at-tier]
+FAILED tests/test_w02_source_outcomes.py::test_completed_future_is_accepted_only_before_applicable_deadline[after-stage]
+FAILED tests/test_w02_source_outcomes.py::test_completed_future_is_accepted_only_before_applicable_deadline[after-tier]
+4 failed, 4 passed in 1.06s

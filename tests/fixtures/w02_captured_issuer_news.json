@@ -1,0 +1,18 @@
+{
+  "schema": "w02.captured_issuer_news.v1",
+  "purpose": "Genuine issuer-match control from the single W02 provider capture; legal notice is not assumed to be a qualifying Ross catalyst.",
+  "symbol": "IRON",
+  "company_name": "Disc Medicine, Inc.",
+  "headline": "Disc Medicine Investor News: If You Have Suffered Losses in Disc Medicine, Inc. (NASDAQ: IRON), You Are Encouraged to Contact The Rosen Law Firm About Your Rights",
+  "summary_excerpt": "shareholders of Disc Medicine, Inc. (NASDAQ: IRON)",
+  "url": "https://www.globenewswire.com/news-release/2026/09/28/3370223/673/en/disc-medicine-investor-news-if-you-have-suffered-losses-in-disc-medicine-inc-nasdaq-iron-you-are-encouraged-to-contact-the-rosen-law-firm-about-your-rights.html",
+  "published_raw": "Mon, 28 Sep 2026 19:02 GMT",
+  "published_at": "2026-09-28T19:02:00+00:00",
+  "source_url": "https://www.globenewswire.com/RssFeed?Category=Finance",
+  "source_http_completed_at": "2026-09-28T19:19:15.050742+00:00",
+  "capture_completed_at": "2026-09-28T19:19:24.704801+00:00",
+  "capture_entry_index": 7,
+  "capture_manifest": "output/w02/provider_pass_20260928/provider_pass.json",
+  "source_response_path": "raw_responses/01.response",
+  "source_response_sha256": "2a6b59d6172803be1c2eb4135a33f1f135aaf3411514039035d48d09e7e8dbfc"
+}

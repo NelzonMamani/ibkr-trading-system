@@ -184,7 +184,7 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
                     stage_deadline_s=stage_deadline_s,
                     tier_budget_seconds=extended_budget_seconds,
                     tier_started_at_s=extended_started_at_s,
-                    tier_deadline_s=stage_deadline_s,
+                    tier_deadline_s=min(stage_deadline_s, extended_started_at_s + extended_budget_seconds),
                 )
                 extended_fetched = True
                 extended_budget_exhausted = bool(
@@ -207,7 +207,8 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
             float(getattr(summary, "news_elapsed_seconds", 0.0) or 0.0),
             stage_elapsed_seconds(stage_started_at_s),
         )
-        budget_exhausted = bool(getattr(summary, "news_budget_exhausted", False)) or budget_skipped_sources > 0
+        total_budget_exhausted = bool(getattr(summary, "news_budget_exhausted", False))
+        budget_exhausted = total_budget_exhausted or budget_skipped_sources > 0 or extended_budget_exhausted
         if budget_skipped_sources or summary_elapsed or budget_exhausted or total_news_budget_seconds:
             summary_updates: dict[str, Any] = {
                 "total_news_budget_seconds": total_news_budget_seconds,
@@ -263,13 +264,16 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
             symbol = candidate.normalized_symbol
             unique_headlines = dedupe_bounded_headlines(headlines_by_symbol.get(symbol, []), max_entries_per_symbol)
             symbol_budget_exhausted = symbol in budget_unresolved_symbols
+            symbol_retrieval_status = _retrieval_status(
+                summary, provider_status, budget_exhausted=symbol_budget_exhausted,
+            )
             evidences = enrich_evidence_metrics(
                 tuple(
                     _evidence_from_headline(
                         candidate,
                         headline,
                         request=request,
-                        retrieval_status=("budget_exhausted" if symbol_budget_exhausted else retrieval_status),
+                        retrieval_status=symbol_retrieval_status,
                         provider_status=provider_status,
                         budget_exhausted=symbol_budget_exhausted,
                         fetched_at=started_at,
@@ -291,7 +295,7 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
             summaries_by_symbol[symbol] = _summary_for_symbol(
                 symbol=symbol,
                 evidence=evidences,
-                retrieval_status=("budget_exhausted" if symbol_budget_exhausted else retrieval_status),
+                retrieval_status=symbol_retrieval_status,
                 provider_status=provider_status,
                 provider_available=_provider_available(provider_status),
                 budget_exhausted=symbol_budget_exhausted,
@@ -330,6 +334,7 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
             "total_news_budget_seconds": float(getattr(summary, "total_news_budget_seconds", 0.0) or 0.0),
             "news_elapsed_seconds": float(getattr(summary, "news_elapsed_seconds", 0.0) or 0.0),
             "news_budget_exhausted": bool(getattr(summary, "news_budget_exhausted", False)),
+            "total_budget_exhausted": total_budget_exhausted,
             "fast_budget_seconds": float(fast_budget_seconds),
             "extended_budget_seconds": float(extended_budget_seconds),
             "extended_budget_reserved_seconds": float(extended_budget_reserved_seconds),
@@ -576,12 +581,16 @@ def _fast_tier_budget_seconds(
     )
 
 
-def _retrieval_status(summary: RssFailureSummary, provider_status: str) -> str:
+def _retrieval_status(
+    summary: RssFailureSummary, provider_status: str, *, budget_exhausted: bool | None = None,
+) -> str:
+    if budget_exhausted is None:
+        budget_exhausted = bool(getattr(summary, "news_budget_exhausted", False))
     if provider_status == "provider_unavailable":
         return "unavailable"
     if provider_status == "provider_request_failure":
         return "provider_error"
-    if bool(getattr(summary, "news_budget_exhausted", False)):
+    if budget_exhausted:
         return "budget_exhausted"
     if provider_status == "partial_request_failure":
         return "partial"

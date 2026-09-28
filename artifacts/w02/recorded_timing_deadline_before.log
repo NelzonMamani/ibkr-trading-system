@@ -1,0 +1,138 @@
+FF..                                                                     [100%]
+================================== FAILURES ===================================
+_ test_extended_tier_deadline_bounds_actual_source_attempts[smaller-tier-cap] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x00000168C4F07230>
+extended_budget = 2.0, expected_attempts = 2
+
+    @pytest.mark.parametrize(
+        ("extended_budget", "expected_attempts"),
+        [(2.0, 2), (0.0, 0), (10.0, 7), (None, 7)],
+        ids=["smaller-tier-cap", "zero-tier-cap", "global-cap", "remaining-global-default"],
+    )
+    def test_extended_tier_deadline_bounds_actual_source_attempts(
+        monkeypatch: pytest.MonkeyPatch,
+        extended_budget: float | None,
+        expected_attempts: int,
+    ) -> None:
+        clock = _Clock()
+        extended_sources = tuple(f"rss://extended-{index}" for index in range(10))
+        calls: list[str] = []
+        monkeypatch.setattr(batch_rss_adapter.time, "monotonic", clock.monotonic)
+        monkeypatch.setattr(batch_rss_adapter, "get_source_group_urls", lambda group: (
+            ("rss://fast",) if group == "FAST_TRADING" else extended_sources
+        ))
+        monkeypatch.setattr(news_fetcher, "ThreadPoolExecutor", _InlineExecutor)
+        monkeypatch.setattr(news_fetcher, "DEFAULT_RSS_FETCH_WORKERS", 1)
+        monkeypatch.setattr(news_fetcher, "feedparser", object())
+    
+        def fake_fast(symbols, sources, **kwargs):
+            assert list(sources) == ["rss://fast"]
+            clock.advance(1.0)
+            return {symbol: [] for symbol in symbols}, news_fetcher.RssFailureSummary(
+                total_sources=1, failure_count=0, failures_by_domain={}, reason=None,
+            )
+    
+        def fake_feed(url: str, timeout_s: float):
+            calls.append(url)
+            clock.advance(1.0)
+            return SimpleNamespace(feed={"title": "Controlled feed"}, entries=[])
+    
+        monkeypatch.setattr(news_fetcher, "_fetch_feed", fake_feed)
+        tier_budgets = {"fast": 5.2}
+        if extended_budget is not None:
+            tier_budgets["extended"] = extended_budget
+        policy = RetrievalPolicy(
+            source_groups=("FAST_TRADING", "PREP_EXTENDED"),
+            total_budget_seconds=8.0,
+            tier_budgets=tier_budgets,
+            extended_reserve_fraction=0.35,
+            request_timeout_seconds=5.0,
+            metadata={"unresolved_symbols": ("W02X",)},
+        )
+    
+        result = batch_rss_adapter.BatchRssNewsIntelligenceProvider(
+            fast_fetcher=fake_fast,
+        ).get_news(
+            [NewsCandidate("W02X")],
+            NewsRequest(lookback_seconds=86400.0, max_evidence_per_symbol=5),
+            policy,
+        )
+    
+>       assert calls == list(extended_sources[:expected_attempts])
+E       AssertionError: assert ['rss://exten...ended-5', ...] == ['rss://exten...//extended-1']
+E         
+E         Left contains 5 more items, first extra item: 'rss://extended-2'
+E         Use -v to get more diff
+
+tests\test_w02_news_deadlines.py:91: AssertionError
+__ test_extended_tier_deadline_bounds_actual_source_attempts[zero-tier-cap] ___
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x00000168C4F06D70>
+extended_budget = 0.0, expected_attempts = 0
+
+    @pytest.mark.parametrize(
+        ("extended_budget", "expected_attempts"),
+        [(2.0, 2), (0.0, 0), (10.0, 7), (None, 7)],
+        ids=["smaller-tier-cap", "zero-tier-cap", "global-cap", "remaining-global-default"],
+    )
+    def test_extended_tier_deadline_bounds_actual_source_attempts(
+        monkeypatch: pytest.MonkeyPatch,
+        extended_budget: float | None,
+        expected_attempts: int,
+    ) -> None:
+        clock = _Clock()
+        extended_sources = tuple(f"rss://extended-{index}" for index in range(10))
+        calls: list[str] = []
+        monkeypatch.setattr(batch_rss_adapter.time, "monotonic", clock.monotonic)
+        monkeypatch.setattr(batch_rss_adapter, "get_source_group_urls", lambda group: (
+            ("rss://fast",) if group == "FAST_TRADING" else extended_sources
+        ))
+        monkeypatch.setattr(news_fetcher, "ThreadPoolExecutor", _InlineExecutor)
+        monkeypatch.setattr(news_fetcher, "DEFAULT_RSS_FETCH_WORKERS", 1)
+        monkeypatch.setattr(news_fetcher, "feedparser", object())
+    
+        def fake_fast(symbols, sources, **kwargs):
+            assert list(sources) == ["rss://fast"]
+            clock.advance(1.0)
+            return {symbol: [] for symbol in symbols}, news_fetcher.RssFailureSummary(
+                total_sources=1, failure_count=0, failures_by_domain={}, reason=None,
+            )
+    
+        def fake_feed(url: str, timeout_s: float):
+            calls.append(url)
+            clock.advance(1.0)
+            return SimpleNamespace(feed={"title": "Controlled feed"}, entries=[])
+    
+        monkeypatch.setattr(news_fetcher, "_fetch_feed", fake_feed)
+        tier_budgets = {"fast": 5.2}
+        if extended_budget is not None:
+            tier_budgets["extended"] = extended_budget
+        policy = RetrievalPolicy(
+            source_groups=("FAST_TRADING", "PREP_EXTENDED"),
+            total_budget_seconds=8.0,
+            tier_budgets=tier_budgets,
+            extended_reserve_fraction=0.35,
+            request_timeout_seconds=5.0,
+            metadata={"unresolved_symbols": ("W02X",)},
+        )
+    
+        result = batch_rss_adapter.BatchRssNewsIntelligenceProvider(
+            fast_fetcher=fake_fast,
+        ).get_news(
+            [NewsCandidate("W02X")],
+            NewsRequest(lookback_seconds=86400.0, max_evidence_per_symbol=5),
+            policy,
+        )
+    
+>       assert calls == list(extended_sources[:expected_attempts])
+E       AssertionError: assert ['rss://exten...ended-5', ...] == []
+E         
+E         Left contains 7 more items, first extra item: 'rss://extended-0'
+E         Use -v to get more diff
+
+tests\test_w02_news_deadlines.py:91: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_w02_news_deadlines.py::test_extended_tier_deadline_bounds_actual_source_attempts[smaller-tier-cap]
+FAILED tests/test_w02_news_deadlines.py::test_extended_tier_deadline_bounds_actual_source_attempts[zero-tier-cap]
+2 failed, 2 passed in 2.78s
