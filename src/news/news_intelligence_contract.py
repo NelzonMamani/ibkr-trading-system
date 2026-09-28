@@ -109,6 +109,8 @@ class RetrievalPolicy:
     timeout_policy: TimeoutPolicy = "clamp_to_remaining_budget"
     fallback_mode: FallbackMode = "unresolved_only"
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    # Acquisition cadence is independent of the evidence freshness window.
+    refresh_interval_seconds: float | None = None
 
     def budget_for_tier(self, tier: str) -> float | None:
         value = self.tier_budgets.get(str(tier or ""))

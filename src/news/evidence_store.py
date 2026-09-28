@@ -114,6 +114,13 @@ class CanonicalNewsEvidenceStore:
         cache_rows = _canonical_cache_rows(payload)
         legacy_rows = _legacy_news_cache_rows(payload)
         prep_rows = self._load_prep_rows(diagnostics) if include_prep else {}
+        namespace = payload.get(NEWS_INTELLIGENCE_CACHE_NAMESPACE, {})
+        buckets = namespace.get("symbols", {}) if isinstance(namespace, Mapping) else {}
+        diagnostics["last_retrieval_by_symbol"] = {
+            symbol: dict(bucket["last_retrieval"])
+            for symbol, bucket in buckets.items()
+            if isinstance(bucket, Mapping) and isinstance(bucket.get("last_retrieval"), Mapping)
+        } if isinstance(buckets, Mapping) else {}
 
         for candidate in candidates:
             symbol = candidate.normalized_symbol
@@ -194,6 +201,8 @@ class CanonicalNewsEvidenceStore:
         self,
         evidence_by_symbol: Mapping[str, Sequence[NewsEvidence]],
         request: NewsRequest | None = None,
+        *,
+        retrieval_by_symbol: Mapping[str, Mapping[str, Any]] | None = None,
     ) -> dict[str, Any]:
         diagnostics: dict[str, Any] = {
             "schema_version": NEWS_INTELLIGENCE_SCHEMA_VERSION,
@@ -234,10 +243,15 @@ class CanonicalNewsEvidenceStore:
                 if isinstance(item, NewsEvidence)
             ]
             merged = dedupe_evidence(existing + incoming, max_items=max_items)
-            symbols_payload[symbol] = {
-                "updated_at": now.isoformat(),
-                "evidence": [serialize_evidence(item) for item in merged],
-            }
+            previous = symbols_payload.get(symbol) or {}
+            bucket = {"updated_at": now.isoformat(),
+                      "evidence": [serialize_evidence(item) for item in merged]}
+            retrieval = (retrieval_by_symbol or {}).get(symbol)
+            if retrieval is not None:
+                bucket["last_retrieval"] = dict(retrieval)
+            elif isinstance(previous.get("last_retrieval"), Mapping):
+                bucket["last_retrieval"] = dict(previous["last_retrieval"])
+            symbols_payload[symbol] = bucket
             diagnostics["cache_write_symbols"].append(symbol)
             diagnostics["cache_write_evidence_count"] += len(incoming)
 
@@ -404,7 +418,7 @@ def evidence_from_prep_entry(
         is_generic = tag in {"", "generic", "none"}
         source = str(item.get("source") or "prep_cache")
         url = str(item.get("url") or "")
-        evidence_id = _stable_evidence_id("prep", candidate.normalized_symbol, title, source, url, str(index))
+        evidence_id = str(item.get("evidence_id") or "").strip() or _stable_evidence_id("prep", candidate.normalized_symbol, title, source, url, str(index))
         raw = {
             "prep_news_asof": entry.get("news_asof"),
             "prep_context_status": entry.get("context_status"),
@@ -593,7 +607,7 @@ def _legacy_news_cache_rows(payload: Mapping[str, Any]) -> dict[str, list[Mappin
             items.append(
                 {
                     "symbol": symbol,
-                    "evidence_id": _stable_evidence_id("legacy-news-cache", symbol, title, source, url, str(index)),
+                    "evidence_id": str(item.get("evidence_id") or "").strip() or _stable_evidence_id("legacy-news-cache", symbol, title, source, url, str(index)),
                     "headline": title,
                     "summary": str(item.get("summary") or ""),
                     "url": url,

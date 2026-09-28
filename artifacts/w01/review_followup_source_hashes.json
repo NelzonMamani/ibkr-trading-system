@@ -1,0 +1,13 @@
+{
+  "parent_head": "8c96d97c0d463426c37c954a6d72c73c362bc618",
+  "files": {
+    "docs/architecture/W01_OWNERSHIP.md": "5e23404ff08312919289e9d507ceaf49b6f429a62737eed5d8f09c2f32cc24ac",
+    "src/news/evidence_store.py": "b96d1322e630d15f20ec13466b4495f928996825120e403ec3a703050259b682",
+    "src/news/news_intelligence_contract.py": "ad2e76a8c92c249cf6c8a3b4b80115d632e215c9bd03b5c618372e5e0f581d5d",
+    "src/news/news_intelligence_service.py": "aa09cd5b91d4fcb2d8c5339596be6a61e6abf7af87f3fea894a0e9c152b852da",
+    "src/news/prep_adapter.py": "ca2c6bb74d1c9d472f7e4883a7217499e595dd1ee7012d914d8b2fff3943ebdf",
+    "tests/test_w01_ownership_boundaries.py": "f9ee09f3cc0550703bcf61fd2ea4d8127bfaa75ffaa5900a35993e2dfdf863a1"
+  },
+  "test_result": "97 passed",
+  "test_log_sha256": "a232b412ec65bd6c7f893c8e0c1d877dfd6aa6d5a87195ba445392e80234db8a"
+}

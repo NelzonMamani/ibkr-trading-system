@@ -155,3 +155,82 @@ def test_prep_projection_roundtrip_retains_summary_issuer_evidence(tmp_path):
     assert restored[0].summary == evidence.summary
     assert restored[0].company_name == evidence.company_name
     assert restored[0].aliases == evidence.aliases
+
+
+def test_prep_copy_cannot_evict_distinct_offering_at_evidence_cap(tmp_path):
+    now = datetime.now(timezone.utc)
+    evidence = tuple(NewsEvidence(
+        symbol="EGG", evidence_id=f"rss-batch:EGG:{index}",
+        headline="EGG announces offering" if index == 4 else f"EGG wins contract {index}",
+        published_at=now - timedelta(minutes=index), fetched_at=now,
+        age_seconds=index * 60, stale=False, provider="rss_batch", match_type="ticker_token",
+        observed_source="Example News", url=f"https://example.test/{index}",
+    ) for index in range(5))
+    class Service:
+        provider_id = "canonical_news_intelligence"
+        def get_news(self, *args):
+            return NewsBatchResult(evidence_by_symbol={"EGG": evidence}, completed_at=now)
+    projected = NewsProvider(service=Service()).get_news("EGG")
+    prep = {"symbols": [{"symbol": "EGG", "news_asof": now.isoformat(), "news_context": projected.news_context}]}
+    store = CanonicalNewsEvidenceStore(tmp_path / "cache.json", prep_artifact_loader=lambda: prep)
+    store.write({"EGG": evidence}, NewsRequest(max_evidence_per_symbol=5))
+    restored = store.read([NewsCandidate("EGG")], NewsRequest(max_evidence_per_symbol=5))
+    rows = restored.evidence_by_symbol["EGG"]
+    assert len(rows) == 5
+    assert {row.evidence_id for row in rows} == {row.evidence_id for row in evidence}
+    from src.scanner.scanner_runner import _ross_news_context_from_evidence
+    context = _ross_news_context_from_evidence("EGG", rows, None, NewsBatchResult(candidates=(NewsCandidate("EGG"),)))
+    assert context["dilution_flag"] is True
+    assert context["ross_catalyst_valid"] is False
+
+
+@pytest.mark.parametrize("outcome", ["article", "empty", "unavailable"])
+def test_prep_refresh_cadence_survives_service_restart_independent_of_freshness(tmp_path, outcome):
+    set_config_overrides({"NEWS_ENABLED": True, "NEWS_REFRESH_SECONDS_PREP": 1800,
+                          "NEWS_MAX_AGE_HOURS": 6.0, "NEWS_TOTAL_BUDGET_S": 8.0})
+    path = tmp_path / "cache.json"
+    class Retrieval:
+        calls = 0
+        def get_news(self, candidates, request, policy):
+            self.calls += 1
+            now = datetime.now(timezone.utc)
+            rows = (NewsEvidence(symbol="EGG", evidence_id="rss:1", headline="EGG reports earnings",
+                                 published_at=now - timedelta(minutes=10), fetched_at=now,
+                                 age_seconds=600, stale=False, provider="rss_batch"),) if outcome == "article" else ()
+            return NewsBatchResult(evidence_by_symbol={"EGG": rows}, completed_at=now,
+                diagnostics=RetrievalDiagnostics(retrieval_status="unavailable" if outcome == "unavailable" else "available",
+                                                 provider_status="offline" if outcome == "unavailable" else "ok",
+                                                 provider_available=outcome != "unavailable"))
+    retrieval = Retrieval()
+    def provider():
+        store = CanonicalNewsEvidenceStore(path, prep_artifact_loader=lambda: {})
+        return NewsProvider(service=CanonicalNewsIntelligenceService(evidence_store=store, retrieval_provider=retrieval))
+    provider().get_news("EGG")
+    cached = provider().get_news("EGG")
+    assert retrieval.calls == 1
+    assert cached.diagnostics["summary"]["provider_available"] is (outcome != "unavailable")
+    assert cached.diagnostics["summary"]["retrieval_status"] == ("unavailable" if outcome == "unavailable" else "available")
+    if outcome == "article":
+        assert cached.news_context[0]["freshness"] == "fresh"
+    payload = json.loads(path.read_text())
+    bucket = payload["news_intelligence"]["symbols"]["EGG"]
+    bucket["last_retrieval"]["completed_at"] = (datetime.now(timezone.utc) - timedelta(seconds=1801)).isoformat()
+    path.write_text(json.dumps(payload))
+    provider().get_news("EGG")
+    assert retrieval.calls == 2
+
+
+def test_explicit_refresh_still_overrides_acquisition_cadence(tmp_path):
+    now = datetime.now(timezone.utc)
+    store = CanonicalNewsEvidenceStore(tmp_path / "cache.json", prep_artifact_loader=lambda: {})
+    store.write({"EGG": ()}, retrieval_by_symbol={"EGG": {"completed_at": now.isoformat(), "retrieval_status": "available"}})
+    class Retrieval:
+        calls = 0
+        def get_news(self, *args):
+            self.calls += 1
+            return NewsBatchResult()
+    retrieval = Retrieval()
+    service = CanonicalNewsIntelligenceService(evidence_store=store, retrieval_provider=retrieval)
+    service.get_news([NewsCandidate("EGG")], NewsRequest(), RetrievalPolicy(
+        refresh_interval_seconds=1800, metadata={"refresh_symbols": ["EGG"]}))
+    assert retrieval.calls == 1

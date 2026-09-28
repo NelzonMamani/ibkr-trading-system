@@ -76,6 +76,7 @@ class NewsProvider:
                 total_budget_seconds=float(get_config("NEWS_TOTAL_BUDGET_S")),
                 request_timeout_seconds=float(get_config("NEWS_REQUEST_TIMEOUT_S")),
                 fallback_mode="none",
+                refresh_interval_seconds=float(get_config("NEWS_REFRESH_SECONDS_PREP")),
             ),
         )
         output = {}

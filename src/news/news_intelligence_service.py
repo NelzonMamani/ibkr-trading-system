@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import math
 from datetime import datetime, timezone
 from typing import Any, Mapping, Sequence
 
@@ -90,7 +91,11 @@ class CanonicalNewsIntelligenceService(NewsIntelligenceProvider):
             "cache_read_skipped": True,
         }
         explicit_refresh_symbols = _explicit_refresh_symbols(symbols, retrieval_policy.metadata)
-        if explicit_refresh_symbols is None:
+        if explicit_refresh_symbols is None and retrieval_policy.refresh_interval_seconds is not None:
+            refresh_symbols = _symbols_due_refresh(
+                symbols, cache_diagnostics, retrieval_policy.refresh_interval_seconds, now=started_at,
+            )
+        elif explicit_refresh_symbols is None:
             refresh_symbols = _symbols_without_fresh_evidence(symbols, cached_evidence)
         else:
             refresh_symbols = explicit_refresh_symbols
@@ -121,7 +126,24 @@ class CanonicalNewsIntelligenceService(NewsIntelligenceProvider):
             )
             refresh_result = self.retrieval_provider.get_news(refresh_candidates, request, refresh_policy)
             if retrieval_policy.allow_cache_write:
-                write_diagnostics = self.evidence_store.write(refresh_result.evidence_by_symbol, request)
+                # Persist acquisition outcomes even when the provider returns no articles.
+                retrieved = {symbol: tuple(refresh_result.evidence_by_symbol.get(symbol, ()))
+                             for symbol in refresh_symbols}
+                completed_at = refresh_result.completed_at or datetime.now(timezone.utc)
+                retrieval_by_symbol = {}
+                for symbol in refresh_symbols:
+                    summary = refresh_result.summary_for_symbol(symbol)
+                    diagnostics = summary or refresh_result.diagnostics
+                    retrieval_by_symbol[symbol] = {
+                        "completed_at": completed_at.isoformat(),
+                        "retrieval_status": diagnostics.retrieval_status,
+                        "provider_status": diagnostics.provider_status,
+                        "provider_available": diagnostics.provider_available,
+                        "budget_exhausted": diagnostics.budget_exhausted,
+                    }
+                write_diagnostics = self.evidence_store.write(
+                    retrieved, request, retrieval_by_symbol=retrieval_by_symbol,
+                )
                 write_diagnostics["cache_write_skipped"] = False
 
         combined_evidence: dict[str, tuple[NewsEvidence, ...]] = {}
@@ -132,21 +154,24 @@ class CanonicalNewsIntelligenceService(NewsIntelligenceProvider):
                 items.extend(refresh_result.evidence_by_symbol.get(symbol, ()))
             merged = tuple(dedupe_evidence(items, max_items=evidence_max_entries(request)))
             combined_evidence[symbol] = merged
+            cached_retrieval = (cache_diagnostics.get("last_retrieval_by_symbol", {}).get(symbol, {})
+                                if symbol in cache_diagnostics.get("cadence_cache_hit_symbols", []) else {})
             summaries[symbol] = summarize_news_evidence(
                 symbol,
                 merged,
                 request=request,
-                retrieval_status=_symbol_retrieval_status(symbol, refresh_result, merged, cache_diagnostics),
-                provider_status=_provider_status(refresh_result, cache_diagnostics),
-                provider_available=_provider_available(refresh_result, cache_diagnostics),
+                retrieval_status=cached_retrieval.get("retrieval_status") or _symbol_retrieval_status(symbol, refresh_result, merged, cache_diagnostics),
+                provider_status=cached_retrieval.get("provider_status") or _provider_status(refresh_result, cache_diagnostics),
+                provider_available=cached_retrieval.get("provider_available", _provider_available(refresh_result, cache_diagnostics)),
                 cache_state=_symbol_cache_state(symbol, merged, cache_diagnostics),
-                budget_exhausted=_symbol_budget_exhausted(symbol, refresh_result),
+                budget_exhausted=cached_retrieval.get("budget_exhausted", _symbol_budget_exhausted(symbol, refresh_result)),
                 diagnostics={
                     "provider_id": self.provider_id,
                     "cache_hit": symbol in set(cache_diagnostics.get("cache_hit_symbols", [])),
                     "cache_stale": symbol in set(cache_diagnostics.get("stale_cache_miss_symbols", [])),
                     "prep_reused": symbol in set(cache_diagnostics.get("prep_reuse_symbols", [])),
                     "refresh_requested": symbol in set(refresh_symbols),
+                    "last_retrieval": dict(cached_retrieval),
                     "objective_news_status": _objective_status(symbol, merged, refresh_result),
                     "classification_authority": "strategy_adapter_not_common_provider",
                 },
@@ -214,6 +239,34 @@ def _explicit_refresh_symbols(symbols: Sequence[str], metadata: Mapping[str, Any
     return [symbol for symbol in symbols if symbol in requested]
 
 
+def _symbols_due_refresh(symbols, diagnostics, interval_seconds, *, now):
+    """Use canonical acquisition timestamps, including empty outcomes, for cadence."""
+    try:
+        interval = float(interval_seconds)
+    except (TypeError, ValueError):
+        interval = 0.0
+    if not math.isfinite(interval) or interval < 0:
+        interval = 0.0
+    metadata = diagnostics.get("last_retrieval_by_symbol", {})
+    rejected = diagnostics.get("issuer_relevance_rejected_by_symbol", {})
+    due = []
+    hits = []
+    for symbol in symbols:
+        raw = metadata.get(symbol, {}).get("completed_at")
+        try:
+            acquired = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+            age = (now - acquired).total_seconds() if acquired.tzinfo is not None else -1
+        except (ValueError, TypeError):
+            age = -1
+        if symbol in rejected or not (0 <= age < interval):
+            due.append(symbol)
+        else:
+            hits.append(symbol)
+    diagnostics["cadence_cache_hit_symbols"] = hits
+    diagnostics["refresh_interval_seconds"] = interval
+    return due
+
+
 def _symbols_without_fresh_evidence(
     symbols: Sequence[str],
     evidence_by_symbol: Mapping[str, Sequence[NewsEvidence]],
@@ -265,7 +318,7 @@ def _symbol_cache_state(
     evidence: Sequence[NewsEvidence],
     cache_diagnostics: Mapping[str, Any],
 ) -> CacheState:
-    if symbol in set(cache_diagnostics.get("cache_hit_symbols", [])) or any(item.cache_state == "hit" for item in evidence):
+    if symbol in set(cache_diagnostics.get("cadence_cache_hit_symbols", [])) or symbol in set(cache_diagnostics.get("cache_hit_symbols", [])) or any(item.cache_state == "hit" for item in evidence):
         return "hit"
     if symbol in set(cache_diagnostics.get("stale_cache_miss_symbols", [])):
         return "stale"
@@ -331,6 +384,9 @@ def _combined_diagnostics(
         "cache_namespace": cache_diagnostics.get("cache_namespace"),
         "cache_hits_by_symbol": dict(cache_diagnostics.get("cache_hits_by_symbol", {}) or {}),
         "cache_hit_symbols": list(cache_hit_symbols),
+        "cadence_cache_hit_symbols": list(cache_diagnostics.get("cadence_cache_hit_symbols", [])),
+        "last_retrieval_by_symbol": dict(cache_diagnostics.get("last_retrieval_by_symbol", {})),
+        "refresh_interval_seconds": retrieval_policy.refresh_interval_seconds,
         "stale_cache_miss_symbols": list(stale_symbols),
         "cache_miss_symbols": list(miss_symbols),
         "prep_reuse_symbols": list(prep_symbols),
