@@ -310,7 +310,9 @@ def _refresh_symbol_outcome(symbol: str, result: NewsBatchResult) -> NewsEvidenc
         diagnostics = replace(
             diagnostics,
             retrieval_status=("budget_exhausted" if exhausted else "unavailable") if unresolved else "available",
-            provider_status="unavailable" if unresolved else "available",
+            # Preserve the provider's reason/reachability for unresolved symbols;
+            # successful peers must not inherit a failed batch provider label.
+            provider_status=diagnostics.provider_status if unresolved else "available",
             provider_available=not unresolved,
             budget_exhausted=exhausted,
             unresolved_symbols=(symbol,) if unresolved else (),

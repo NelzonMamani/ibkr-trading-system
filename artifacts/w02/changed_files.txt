@@ -27,6 +27,12 @@ artifacts/w02/recorded_timing_deadline_after.log
 artifacts/w02/recorded_timing_deadline_before.log
 artifacts/w02/recorded_timing_deadline_before_scoped_status.log
 artifacts/w02/recorded_timing_diagnosis.json
+artifacts/w02/review_combined_targeted.log
+artifacts/w02/review_combined_targeted_status.json
+artifacts/w02/review_p2_provider_status_before.log
+artifacts/w02/review_p2_provider_status_targeted.log
+artifacts/w02/review_source_changes.json
+artifacts/w02/review_targeted_network_audit.json
 artifacts/w02/run_final_suite.py
 artifacts/w02/source_evidence_matrix.csv
 artifacts/w02/source_evidence_matrix.json

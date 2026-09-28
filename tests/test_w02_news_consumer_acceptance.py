@@ -376,9 +376,11 @@ def test_unknown_summary_keeps_explicit_symbol_failure_without_poisoning_healthy
     for reader in (service, service, _service(path, provider)):
         result = reader.get_news([NewsCandidate("GOOD"), NewsCandidate("BAD")], REQUEST, POLICY)
         assert result.summary_for_symbol("BAD").retrieval_status == ("budget_exhausted" if budget else "unavailable")
+        assert result.summary_for_symbol("BAD").provider_status == ("available" if budget else "provider_request_failure")
         assert result.summary_for_symbol("BAD").provider_available is False
         assert result.summary_for_symbol("BAD").budget_exhausted is budget
         assert result.summary_for_symbol("GOOD").provider_available is True
+        assert result.summary_for_symbol("GOOD").provider_status not in {"provider_unavailable", "provider_request_failure"}
         assert result.summary_for_symbol("GOOD").budget_exhausted is False
         assert result.summary_for_symbol("BAD").diagnostics["objective_news_status"] == ("budget_exhausted" if budget else "no_recent_news")
         assert result.summary_for_symbol("GOOD").diagnostics["objective_news_status"] == "no_recent_news"
@@ -389,9 +391,11 @@ def test_unknown_summary_keeps_explicit_symbol_failure_without_poisoning_healthy
         assert context["GOOD"]["news_diagnostic_status"] == "no_recent_news"
         assert decision["GOOD"].status.value == "ABSENT"
         assert context["BAD"]["news_available"] is False
-        assert context["BAD"]["news_diagnostic_status"] == ("budget_exhausted" if budget else "provider_unavailable")
+        assert context["BAD"]["news_diagnostic_status"] == ("budget_exhausted" if budget else "provider_request_failure")
         assert decision["BAD"].status.value == "DATA_UNAVAILABLE"
     assert provider.calls == 1
+    persisted = json.loads(path.read_text())["news_intelligence"]["symbols"]["BAD"]["last_retrieval"]
+    assert persisted["provider_status"] == ("available" if budget else "provider_request_failure")
 
 
 @pytest.mark.parametrize("budget", [False, True])
