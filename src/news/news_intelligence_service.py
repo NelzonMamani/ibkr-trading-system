@@ -302,7 +302,8 @@ def _refresh_symbol_outcome(symbol: str, result: NewsBatchResult) -> NewsEvidenc
             status = "provider_error" if summary.provider_status == "provider_request_failure" else "unavailable"
         return replace(summary, provider_available=False, retrieval_status=status)
     if summary is not None and (
-        summary.provider_available is False
+        (summary.provider_available is False
+         and summary.provider_status not in {None, "", "unknown", "not_requested", "available"})
         or summary.budget_exhausted
         or summary.retrieval_status not in {"unknown", "not_requested"}
     ):
@@ -324,6 +325,17 @@ def _refresh_symbol_outcome(symbol: str, result: NewsBatchResult) -> NewsEvidenc
             budget_exhausted=exhausted,
             unresolved_symbols=(symbol,) if unresolved else (),
         )
+    if summary is not None and summary.provider_available is False:
+        # Negative availability alone does not supply the missing failure reason
+        # or budget outcome. Only enrich it from a failure scoped to this symbol;
+        # a healthy batch or another symbol's failure cannot clear that negative.
+        # Persist it as unavailable so later mixed cache diagnostics cannot
+        # reinterpret an unknown outcome as another symbol's budget failure.
+        if not (diagnostics.unavailable or diagnostics.provider_status in {"provider_unavailable", "provider_request_failure"}):
+            return replace(summary, retrieval_status="unavailable")
+        diagnostics = replace(diagnostics, provider_available=False)
+    if diagnostics.provider_available is False and diagnostics.retrieval_status in {"unknown", "not_requested"}:
+        diagnostics = replace(diagnostics, retrieval_status="budget_exhausted" if diagnostics.budget_exhausted else "unavailable")
     if summary is None:
         return diagnostics
     # Providers may supply article metrics while leaving outcome fields unknown.

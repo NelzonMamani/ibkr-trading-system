@@ -3016,8 +3016,15 @@ def _news_retrieval_state_for_symbol(
     result: NewsBatchResult,
 ) -> tuple[bool, bool]:
     """Keep per-symbol unavailability separate from batch budget exhaustion."""
+    incomplete_negative = bool(
+        summary is not None
+        and summary.provider_available is False
+        and summary.retrieval_status in {"unknown", "not_requested"}
+        and not summary.budget_exhausted
+        and summary.provider_status in {None, "", "unknown", "not_requested", "available"}
+    )
     if summary is not None:
-        if summary.retrieval_unavailable or summary.provider_status in {"provider_unavailable", "provider_request_failure"}:
+        if not incomplete_negative and (summary.retrieval_unavailable or summary.provider_status in {"provider_unavailable", "provider_request_failure"}):
             return True, summary.budget_exhausted or summary.retrieval_status == "budget_exhausted"
         if summary.retrieval_status in {"available", "partial", "cache_hit"}:
             return False, False
@@ -3026,9 +3033,9 @@ def _news_retrieval_state_for_symbol(
         # different symbol whose summary reports a definite successful outcome.
     diagnostics = result.diagnostics
     if diagnostics.unresolved_symbols and symbol not in diagnostics.unresolved_symbols:
-        return False, False
+        return incomplete_negative, False
     return (
-        diagnostics.unavailable
+        incomplete_negative or diagnostics.unavailable
         or symbol in diagnostics.unresolved_symbols
         or diagnostics.provider_status in {"provider_unavailable", "provider_request_failure"},
         diagnostics.budget_exhausted or diagnostics.retrieval_status == "budget_exhausted",
@@ -3036,15 +3043,29 @@ def _news_retrieval_state_for_symbol(
 
 
 def _news_provider_status_for_symbol(
+    symbol: str,
     summary: NewsEvidenceSummary | None,
     result: NewsBatchResult,
 ) -> str:
     if summary is None:
         return result.diagnostics.provider_status or "cache_miss"
-    if summary.provider_status:
+    incomplete_negative = bool(
+        summary.provider_available is False
+        and summary.retrieval_status in {"unknown", "not_requested"}
+        and not summary.budget_exhausted
+        and summary.provider_status in {None, "", "unknown", "not_requested", "available"}
+    )
+    if summary.provider_status and not incomplete_negative:
         return summary.provider_status
     if summary.provider_available is False:
-        return "provider_unavailable"
+        if incomplete_negative:
+            diagnostics = result.diagnostics
+            applies = not diagnostics.unresolved_symbols or symbol in diagnostics.unresolved_symbols
+            failed = (diagnostics.unavailable or symbol in diagnostics.unresolved_symbols
+                      or diagnostics.provider_status in {"provider_unavailable", "provider_request_failure"})
+            if applies and failed:
+                return diagnostics.provider_status or "unknown"
+        return summary.provider_status or "provider_unavailable"
     return "available" if summary.provider_available is True else "unknown"
 
 
@@ -3054,7 +3075,7 @@ def _empty_news_context_from_summary(
     result: NewsBatchResult,
 ) -> Dict[str, Any]:
     diagnostics = _news_intelligence_diag(result)
-    provider_status = _news_provider_status_for_symbol(summary, result)
+    provider_status = _news_provider_status_for_symbol(symbol, summary, result)
     cache_state = (summary.cache_state if summary is not None else result.diagnostics.cache_state) or "not_checked"
     retrieval_unavailable, budget_exhausted = _news_retrieval_state_for_symbol(symbol, summary, result)
     if retrieval_unavailable and provider_status in {"provider_unavailable", "provider_request_failure"}:
@@ -3260,7 +3281,7 @@ def _ross_news_context_from_evidence(
         "top_news_catalyst_tag": catalyst_type or dict(top_news.raw or {}).get("catalyst_tag") or "generic",
         "news_source_mode": _evidence_source_mode(ordered, summary),
         "news_asof": datetime.now(timezone.utc).isoformat(),
-        "news_provider_status": _news_provider_status_for_symbol(summary, result),
+        "news_provider_status": _news_provider_status_for_symbol(symbol, summary, result),
         "news_diagnostic_status": news_status,
         "news_intelligence_cache_state": (summary.cache_state if summary is not None else result.diagnostics.cache_state),
         "news_intelligence_evidence_ids": tuple(item.evidence_id for item in ordered if item.evidence_id),

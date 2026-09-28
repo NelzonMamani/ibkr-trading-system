@@ -357,8 +357,10 @@ def test_healthy_summary_without_provider_label_does_not_inherit_failed_batch_st
 
 @pytest.mark.parametrize(("budget", "budget_flag"), [(False, False), (True, True), (True, False)],
                          ids=["unavailable", "budget", "budget-status-only"])
-@pytest.mark.parametrize("provider_available", [None, True], ids=["unknown-reachability", "reachable"])
-def test_unknown_summary_keeps_explicit_symbol_failure_without_poisoning_healthy_summary(tmp_path, budget, budget_flag, provider_available):
+@pytest.mark.parametrize(("provider_available", "provider_status"), [
+    (None, None), (True, None), (False, None), (False, "unknown"), (False, "available"),
+], ids=["unknown-reachability", "reachable", "negative-default", "negative-unknown-label", "negative-reachable-label"])
+def test_unknown_summary_keeps_explicit_symbol_failure_without_poisoning_healthy_summary(tmp_path, budget, budget_flag, provider_available, provider_status):
     class Provider:
         calls = 0
 
@@ -366,7 +368,7 @@ def test_unknown_summary_keeps_explicit_symbol_failure_without_poisoning_healthy
             self.calls += 1
             return NewsBatchResult(evidence_by_symbol={"GOOD": (), "BAD": ()}, summaries_by_symbol={
                 "GOOD": NewsEvidenceSummary(symbol="GOOD", retrieval_status="available", provider_available=True),
-                "BAD": NewsEvidenceSummary(symbol="BAD", provider_available=provider_available),
+                "BAD": NewsEvidenceSummary(symbol="BAD", provider_available=provider_available, provider_status=provider_status),
             }, diagnostics=RetrievalDiagnostics(
                 retrieval_status="budget_exhausted" if budget else "unavailable",
                 provider_status="available" if budget else "provider_request_failure",
@@ -398,12 +400,17 @@ def test_unknown_summary_keeps_explicit_symbol_failure_without_poisoning_healthy
     assert provider.calls == 1
     persisted = json.loads(path.read_text())["news_intelligence"]["symbols"]["BAD"]["last_retrieval"]
     assert persisted["provider_status"] == ("available" if budget else "provider_request_failure")
+    assert persisted["retrieval_status"] == ("budget_exhausted" if budget else "unavailable")
+    assert persisted["provider_available"] is False
+    assert persisted["budget_exhausted"] is budget
 
 
 @pytest.mark.parametrize(("budget", "budget_flag"), [(False, False), (True, True), (True, False)],
                          ids=["unavailable", "budget", "budget-status-only"])
-@pytest.mark.parametrize("provider_available", [None, True], ids=["unknown-reachability", "reachable"])
-def test_raw_unknown_summary_reachability_does_not_override_unresolved_failure(budget, budget_flag, provider_available):
+@pytest.mark.parametrize(("provider_available", "provider_status"), [
+    (None, None), (True, None), (False, None), (False, "unknown"), (False, "available"),
+], ids=["unknown-reachability", "reachable", "negative-default", "negative-unknown-label", "negative-reachable-label"])
+def test_raw_unknown_summary_reachability_does_not_override_unresolved_failure(budget, budget_flag, provider_available, provider_status):
     now = news_intelligence_service.datetime.now(timezone.utc)
     result = NewsBatchResult(
         candidates=tuple(NewsCandidate(symbol) for symbol in ("GOOD", "BAD", "INFO")),
@@ -413,8 +420,8 @@ def test_raw_unknown_summary_reachability_does_not_override_unresolved_failure(b
         ),)},
         summaries_by_symbol={
             "GOOD": NewsEvidenceSummary(symbol="GOOD", retrieval_status="available", provider_available=True),
-            "BAD": NewsEvidenceSummary(symbol="BAD", provider_available=provider_available),
-            "INFO": NewsEvidenceSummary(symbol="INFO", provider_available=provider_available),
+            "BAD": NewsEvidenceSummary(symbol="BAD", provider_available=provider_available, provider_status=provider_status),
+            "INFO": NewsEvidenceSummary(symbol="INFO", provider_available=provider_available, provider_status=provider_status),
         },
         diagnostics=RetrievalDiagnostics(
             retrieval_status="budget_exhausted" if budget else "unavailable",
@@ -426,8 +433,78 @@ def test_raw_unknown_summary_reachability_does_not_override_unresolved_failure(b
     assert decision["GOOD"].status.value == "ABSENT"
     for symbol in ("BAD", "INFO"):
         assert context[symbol]["news_available"] is False
-        assert context[symbol]["news_diagnostic_status"] == ("budget_exhausted" if budget else "provider_unavailable")
+        expected_status = "budget_exhausted" if budget else "provider_unavailable"
+        if provider_available is False:
+            assert context[symbol]["news_provider_status"] == ("available" if budget else "provider_request_failure")
+            if not budget and symbol == "BAD":
+                expected_status = "provider_request_failure"
+        assert context[symbol]["news_diagnostic_status"] == expected_status
         assert decision[symbol].status.value == "DATA_UNAVAILABLE"
+
+
+@pytest.mark.parametrize(("batch_outcome", "summary_status"), [
+    ("healthy", "unknown"), ("other-symbol-budget", "not_requested"),
+    ("unscoped-failure", "unknown"), ("unscoped-budget", "not_requested"),
+])
+@pytest.mark.parametrize("summary_provider_status", [None, "unknown", "available"])
+def test_negative_default_summary_only_inherits_applicable_batch_failure(tmp_path, batch_outcome, summary_status, summary_provider_status):
+    budget = "budget" in batch_outcome
+    applicable = batch_outcome.startswith("unscoped")
+    provider_status = "provider_request_failure" if batch_outcome == "unscoped-failure" else "available"
+    batch = NewsBatchResult(
+        candidates=tuple(NewsCandidate(symbol) for symbol in ("GOOD", "BAD", "OTHER")),
+        evidence_by_symbol={"GOOD": (), "BAD": (), "OTHER": ()},
+        summaries_by_symbol={
+            "GOOD": NewsEvidenceSummary(symbol="GOOD", retrieval_status="available", provider_available=True),
+            "BAD": NewsEvidenceSummary(symbol="BAD", retrieval_status=summary_status, provider_available=False,
+                                       provider_status=summary_provider_status),
+            "OTHER": NewsEvidenceSummary(symbol="OTHER", retrieval_status="budget_exhausted" if budget else "available",
+                                         provider_status="available", provider_available=True, budget_exhausted=budget),
+        },
+        diagnostics=RetrievalDiagnostics(
+            retrieval_status="budget_exhausted" if budget else "unavailable" if applicable else "available",
+            provider_status=provider_status, provider_available=provider_status == "available",
+            unresolved_symbols=("OTHER",) if batch_outcome == "other-symbol-budget" else (),
+        ),
+    )
+
+    class Provider:
+        calls = 0
+
+        def get_news(self, candidates, request, policy):
+            self.calls += 1
+            return batch
+
+    expected_status = "budget_exhausted" if budget and applicable else "unavailable"
+    expected_diagnostic = ("budget_exhausted" if budget else "provider_request_failure") if applicable else "provider_unavailable"
+    provider = Provider()
+    path = tmp_path / "news.json"
+    service = _service(path, provider)
+    for result in [batch] + [reader.get_news(batch.candidates, REQUEST, POLICY)
+                             for reader in (service, service, _service(path, provider))]:
+        if result is not batch:
+            summary = result.summary_for_symbol("BAD")
+            assert summary.retrieval_status == expected_status
+            assert summary.provider_available is False
+            assert summary.budget_exhausted is (budget and applicable)
+            if applicable:
+                assert summary.provider_status == provider_status
+        context, decision = _ross(result)
+        assert context["BAD"]["news_available"] is False
+        assert context["BAD"]["news_diagnostic_status"] == expected_diagnostic
+        assert decision["BAD"].status.value == "DATA_UNAVAILABLE"
+        if applicable:
+            assert context["BAD"]["news_provider_status"] == provider_status
+        else:
+            assert context["BAD"]["news_provider_status"] != "provider_request_failure"
+        assert context["GOOD"]["news_available"] is True
+        assert decision["GOOD"].status.value == "ABSENT"
+    assert provider.calls == 1
+    persisted = json.loads(path.read_text())["news_intelligence"]["symbols"]["BAD"]["last_retrieval"]
+    assert persisted["retrieval_status"] == expected_status
+    assert persisted["provider_status"] == (provider_status if applicable else summary_provider_status)
+    assert persisted["provider_available"] is False
+    assert persisted["budget_exhausted"] is (budget and applicable)
 
 
 @pytest.mark.parametrize("budget", [False, True])
@@ -459,6 +536,51 @@ def test_confirmed_persisted_evidence_retains_authority_when_explicit_refresh_is
     assert context["EGG"]["news_available"] is False
     assert context["EGG"]["news_diagnostic_status"] == "catalyst_confirmed"
     assert decision["EGG"].status.value == "CONFIRMED"
+
+
+@pytest.mark.parametrize("summary_kind", ["omitted", "unknown", "reachable"])
+def test_effective_negative_batch_outcome_does_not_inherit_peer_budget_on_restart(tmp_path, summary_kind):
+    class Provider:
+        calls = 0
+
+        def get_news(self, candidates, request, policy):
+            self.calls += 1
+            summaries = {
+                "GOOD": NewsEvidenceSummary(symbol="GOOD", retrieval_status="available", provider_available=True),
+                "OTHER": NewsEvidenceSummary(symbol="OTHER", retrieval_status="budget_exhausted",
+                                             provider_status="available", provider_available=True, budget_exhausted=True),
+            }
+            if summary_kind != "omitted":
+                summaries["BAD"] = NewsEvidenceSummary(symbol="BAD", provider_available=True if summary_kind == "reachable" else None)
+            return NewsBatchResult(
+                evidence_by_symbol={"GOOD": (), "BAD": (), "OTHER": ()}, summaries_by_symbol=summaries,
+                diagnostics=RetrievalDiagnostics(provider_status="unknown", provider_available=False),
+            )
+
+    provider = Provider()
+    path = tmp_path / "news.json"
+    service = _service(path, provider)
+    results = [reader.get_news([NewsCandidate(symbol) for symbol in ("GOOD", "BAD", "OTHER")], REQUEST, POLICY)
+               for reader in (service, service, _service(path, provider))]
+    for result in results:
+        context, decision = _ross(result)
+        assert context["BAD"]["news_available"] is False
+        assert context["BAD"]["news_provider_status"] == "unknown"
+        assert context["BAD"]["news_diagnostic_status"] == "provider_unavailable"
+        assert decision["BAD"].status.value == "DATA_UNAVAILABLE"
+        assert context["OTHER"]["news_diagnostic_status"] == "budget_exhausted"
+        assert decision["GOOD"].status.value == "ABSENT"
+    for result in results:
+        summary = result.summary_for_symbol("BAD")
+        assert summary.retrieval_status == "unavailable"
+        assert summary.provider_available is False
+        assert summary.budget_exhausted is False
+    assert provider.calls == 1
+    persisted = json.loads(path.read_text())["news_intelligence"]["symbols"]["BAD"]["last_retrieval"]
+    assert persisted["retrieval_status"] == "unavailable"
+    assert persisted["provider_status"] == "unknown"
+    assert persisted["provider_available"] is False
+    assert persisted["budget_exhausted"] is False
 
 
 @pytest.mark.parametrize(("provider_status", "retrieval_status"), [
