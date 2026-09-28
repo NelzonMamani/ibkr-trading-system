@@ -4,7 +4,7 @@ import pytest
 
 from src.config.config_resolver import set_config_overrides
 from src.core.time.calendar_session import resolve_calendar_session
-from src.scanner.session_pct_change import resolve_market_session_context
+from src.market_data.session_pct_change import resolve_market_session_context
 
 
 @pytest.fixture(autouse=True)

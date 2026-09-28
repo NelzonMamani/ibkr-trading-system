@@ -5,7 +5,7 @@ from typing import Sequence
 
 from src.cli.ibkr_scanner_diagnostics import run_diagnostics
 from src.cli.test_trade_pipeline import run_pipeline
-from src.scanner.session_pct_change import resolve_session_diagnostics
+from src.market_data.session_pct_change import resolve_session_diagnostics
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:

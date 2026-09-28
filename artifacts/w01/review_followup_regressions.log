@@ -1,0 +1,734 @@
+...............FFF...................................................... [ 74%]
+.........................                                                [100%]
+================================== FAILURES ===================================
+_ test_prep_refresh_cadence_survives_service_restart_independent_of_freshness[article] _
+
+tmp_path = WindowsPath('C:/Users/nelzo/AppData/Local/Temp/pytest-of-nelzo/pytest-261/test_prep_refresh_cadence_surv0')
+outcome = 'article'
+
+    @pytest.mark.parametrize("outcome", ["article", "empty", "unavailable"])
+    def test_prep_refresh_cadence_survives_service_restart_independent_of_freshness(tmp_path, outcome):
+        set_config_overrides({"NEWS_ENABLED": True, "NEWS_REFRESH_SECONDS_PREP": 1800,
+                              "NEWS_MAX_AGE_HOURS": 6, "NEWS_TOTAL_BUDGET_S": 8})
+        path = tmp_path / "cache.json"
+        class Retrieval:
+            calls = 0
+            def get_news(self, candidates, request, policy):
+                self.calls += 1
+                now = datetime.now(timezone.utc)
+                rows = (NewsEvidence(symbol="EGG", evidence_id="rss:1", headline="EGG reports earnings",
+                                     published_at=now - timedelta(minutes=10), fetched_at=now,
+                                     age_seconds=600, stale=False, provider="rss_batch"),) if outcome == "article" else ()
+                return NewsBatchResult(evidence_by_symbol={"EGG": rows}, completed_at=now,
+                    diagnostics=RetrievalDiagnostics(retrieval_status="unavailable" if outcome == "unavailable" else "available",
+                                                     provider_status="offline" if outcome == "unavailable" else "ok",
+                                                     provider_available=outcome != "unavailable"))
+        retrieval = Retrieval()
+        def provider():
+            store = CanonicalNewsEvidenceStore(path, prep_artifact_loader=lambda: {})
+            return NewsProvider(service=CanonicalNewsIntelligenceService(evidence_store=store, retrieval_provider=retrieval))
+>       provider().get_news("EGG")
+
+tests\test_w01_ownership_boundaries.py:208: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+src\news\prep_adapter.py:52: in get_news
+    return self.get_news_batch([normalized])[normalized]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\news\prep_adapter.py:60: in get_news_batch
+    enabled = bool(get_config("NEWS_ENABLED"))
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\config\config_resolver.py:667: in get_config
+    resolved = resolve_config()
+               ^^^^^^^^^^^^^^^^
+src\config\config_resolver.py:654: in resolve_config
+    record = _resolve_entry(name, entry)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+name = 'NEWS_MAX_AGE_HOURS'
+entry = {'type': <class 'float'>, 'default': 6.0, 'env': ['NEWS_MAX_AGE_HOURS'], 'affects': ['NewsEngine', 'PreMarketPrep'], ...}
+
+    def _resolve_entry(name: str, entry: Dict[str, Any]) -> ConfigRecord:
+        env_names: Iterable[str] = entry.get("env", [])
+        env_value = None
+        env_used = None
+        for env_name in env_names:
+            if env_name in os.environ and os.environ[env_name] != "":
+                env_value = os.environ[env_name]
+                env_used = env_name
+                break
+    
+        # Authority law (highest -> lowest):
+        # 1) in-process overrides (tests/runtime)
+        # 2) environment
+        # 3) registry defaults
+        if name in _CONFIG_OVERRIDES:
+            value = _CONFIG_OVERRIDES[name]
+            source = "OVERRIDE"
+            trace = (f"{name}=override({value!r})",)
+        elif env_value is not None:
+            value = _cast_env_value(name, env_value, entry.get("type"), entry)
+            source = "ENV"
+            trace = (
+                f"{name}=env[{env_used}] raw={env_value!r} parsed={value!r}",
+            )
+        else:
+            if "default_factory" in entry:
+                value = entry["default_factory"]()
+            else:
+                value = entry.get("default")
+            source = "DEFAULT"
+            trace = (f"{name}=default({value!r})",)
+    
+        value = _normalize(value, entry.get("normalizer"))
+        if trace and value is not None:
+            trace = (*trace, f"{name}=normalized({value!r})")
+        if value is None and entry.get("enforcement") == "HARD" and not entry.get("allow_none"):
+            raise ConfigResolutionError(
+                f"Missing required configuration value for {name}"
+            )
+    
+        if value is not None:
+            type_hint = entry.get("type")
+            if type_hint in {list, set}:
+                if not isinstance(value, type_hint):
+                    raise ConfigResolutionError(
+                        f"Config {name} must be {type_hint}, got {type(value)}"
+                    )
+            elif type_hint is dict:
+                if not isinstance(value, dict):
+                    raise ConfigResolutionError(
+                        f"Config {name} must be dict, got {type(value)}"
+                    )
+            elif type_hint is time:
+                if not isinstance(value, time):
+                    raise ConfigResolutionError(
+                        f"Config {name} must be time, got {type(value)}"
+                    )
+            elif type_hint not in {None, "date"} and not isinstance(value, type_hint):
+>               raise ConfigResolutionError(
+                    f"Config {name} must be {type_hint}, got {type(value)}"
+                )
+E               src.config.config_resolver.ConfigResolutionError: Config NEWS_MAX_AGE_HOURS must be <class 'float'>, got <class 'int'>
+
+src\config\config_resolver.py:264: ConfigResolutionError
+---------------------------- Captured stdout call -----------------------------
+[CONFIG][RESOLVE] key=RUN_MODE source=DEFAULT value='LIVE'
+[CONFIG][RESOLVE] key=EVENT_REPLAY_MODE source=DEFAULT value='CYCLE'
+[CONFIG][RESOLVE] key=AUTONOMOUS_CERTIFICATION_ENABLED source=DEFAULT value=True
+[CONFIG][RESOLVE] key=EXECUTION_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=FORCE_EXECUTION_ON_TRADE_READY source=DEFAULT value=True
+[CONFIG][RESOLVE] key=FORCE_RISK_APPROVAL_FOR_TRADE_READY source=DEFAULT value=True
+[CONFIG][RESOLVE] key=FORCE_CLEAN_START source=DEFAULT value=False
+[CONFIG][RESOLVE] key=CLEAN_START_TIMEOUT_SECONDS source=DEFAULT value=120
+[CONFIG][RESOLVE] key=PREMARKET_MIN_VOLUME source=DEFAULT value=2000
+[CONFIG][RESOLVE] key=RTH_MIN_VOLUME source=DEFAULT value=10000
+[CONFIG][RESOLVE] key=RISK_PROFILE source=DEFAULT value='NORMAL'
+[CONFIG][RESOLVE] key=RISK_ACCOUNT_EQUITY source=DEFAULT value=100000.0
+[CONFIG][RESOLVE] key=IBKR_READONLY_ENABLED source=DEFAULT value=True
+[CONFIG][RESOLVE] key=IBKR_API_WRITE_ALLOWED source=DEFAULT value=True
+[CONFIG][RESOLVE] key=INTENT_DEDUP_SELFTEST_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=LEARNING_ENABLED source=DEFAULT value=True
+[CONFIG][RESOLVE] key=LEARNING_LIVE_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_LAYER_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_POLICY_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_MIN_CONFIDENCE_TO_APPLY source=DEFAULT value=0.65
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_STRATEGY_WEIGHTING_MODE source=DEFAULT value='OFF'
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_MAX_RISK_MULTIPLIER source=DEFAULT value=1.0
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_MIN_RISK_MULTIPLIER source=DEFAULT value=0.25
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_ALLOWED_SESSIONS source=DEFAULT value=['RTH']
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_FEATURE_SET source=DEFAULT value='BASIC'
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_BASELINE_WINDOW source=DEFAULT value=60
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_EWMA_ALPHA source=DEFAULT value=0.2
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_LOG_LEVEL source=DEFAULT value='INFO'
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_ALLOWED_RISK_MULTIPLIERS source=DEFAULT value=[0.0, 0.25, 0.5, 0.75, 1.0]
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_ALLOWED_STRATEGY_WEIGHTS source=DEFAULT value=[0.0, 0.25, 0.5, 0.75, 1.0]
+[CONFIG][RESOLVE] key=IBKR_HOST source=DEFAULT value='127.0.0.1'
+[CONFIG][RESOLVE] key=IBKR_PORT source=DEFAULT value=7497
+[CONFIG][RESOLVE] key=IBKR_CLIENT_ID source=DEFAULT value=7
+[CONFIG][RESOLVE] key=IBKR_MARKET_DATA_TYPE source=DEFAULT value='DELAYED'
+[CONFIG][RESOLVE] key=IBKR_SNAPSHOT_TIMEOUT_SECONDS source=DEFAULT value=5
+[CONFIG][RESOLVE] key=IBKR_SNAPSHOT_MAX_AGE_SECONDS source=DEFAULT value=15
+[CONFIG][RESOLVE] key=IBKR_MAX_SYMBOLS_PER_CYCLE source=ENV value=50
+[CONFIG][RESOLVE] key=IBKR_FALLBACK_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=IBKR_FALLBACK_SOURCE source=DEFAULT value='STATIC'
+[CONFIG][RESOLVE] key=IBKR_AUTO_LOCKDOWN_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=DEBUG_MARKET_DATA source=DEFAULT value=False
+[CONFIG][RESOLVE] key=DEBUG_SCANNER source=DEFAULT value=False
+[CONFIG][RESOLVE] key=IBKR_DEFAULT_EXCHANGE source=DEFAULT value='SMART'
+[CONFIG][RESOLVE] key=IBKR_DEFAULT_CURRENCY source=DEFAULT value='USD'
+[CONFIG][RESOLVE] key=IBKR_ORDER_TRANSLATION_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=IBKR_ORDER_SUBMISSION_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=LIVE_EXECUTION_PROBE_MODE source=DEFAULT value=True
+[CONFIG][RESOLVE] key=PROBE_SYMBOLS source=DEFAULT value=['UGRO']
+[CONFIG][RESOLVE] key=PROBE_ORDER_SIZE source=DEFAULT value=1
+[CONFIG][RESOLVE] key=PROBE_HOLD_SECONDS source=DEFAULT value=60
+[CONFIG][RESOLVE] key=IBKR_KILL_SWITCH source=DEFAULT value=True
+[CONFIG][RESOLVE] key=IBKR_MAX_ORDERS_PER_RUN source=DEFAULT value=1
+[CONFIG][RESOLVE] key=IBKR_SUBMIT_ONLY_SYMBOL source=DEFAULT value=None
+[CONFIG][RESOLVE] key=IBKR_PAPER_ONLY_ENFORCED source=DEFAULT value=True
+[CONFIG][RESOLVE] key=IBKR_PAPER_HOST source=DEFAULT value='127.0.0.1'
+[CONFIG][RESOLVE] key=IBKR_PAPER_PORT source=DEFAULT value=7497
+[CONFIG][RESOLVE] key=IBKR_LIVE_PORT source=DEFAULT value=7496
+[CONFIG][RESOLVE] key=IBKR_ACK_TIMEOUT_SECONDS source=DEFAULT value=10
+[CONFIG][RESOLVE] key=IBKR_CLIENT_ID_ORDER_SUBMIT source=DEFAULT value=9012
+[CONFIG][RESOLVE] key=IBKR_GUARD_PERSIST_PATH source=DEFAULT value='runtime/submission_guard.json'
+[CONFIG][RESOLVE] key=DAILY_LOSS_WARNING_LIMIT source=DEFAULT value=5.0
+[CONFIG][RESOLVE] key=DAILY_LOSS_HARD_LIMIT source=DEFAULT value=10.0
+[CONFIG][RESOLVE] key=DAILY_RISK_GOVERNOR_ENABLED source=DEFAULT value=True
+[CONFIG][RESOLVE] key=DAILY_RISK_TIMEZONE source=DEFAULT value='America/New_York'
+[CONFIG][RESOLVE] key=DAILY_RISK_MAX_LOSS_AMOUNT source=DEFAULT value=10.0
+[CONFIG][RESOLVE] key=DAILY_RISK_MAX_LOSS_PCT source=DEFAULT value=0.0
+[CONFIG][RESOLVE] key=DAILY_RISK_MAX_DRAWDOWN_AMOUNT source=DEFAULT value=0.0
+[CONFIG][RESOLVE] key=DAILY_RISK_MAX_DRAWDOWN_PCT source=DEFAULT value=0.0
+[CONFIG][RESOLVE] key=DAILY_RISK_INCLUDE_UNREALIZED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=DAILY_RISK_MAX_TRADES source=DEFAULT value=0
+[CONFIG][RESOLVE] key=DAILY_RISK_MAX_LOSING_TRADES source=DEFAULT value=0
+[CONFIG][RESOLVE] key=DAILY_RISK_MAX_CONSECUTIVE_LOSSES source=DEFAULT value=0
+[CONFIG][RESOLVE] key=DAILY_RISK_EXISTING_POSITION_POLICY source=DEFAULT value='MANAGED_ONLY'
+[CONFIG][RESOLVE] key=DAILY_RISK_LIVE_FAIL_CLOSED source=DEFAULT value=True
+[CONFIG][RESOLVE] key=DAILY_RISK_MANUAL_HALT source=DEFAULT value=False
+[CONFIG][RESOLVE] key=DAILY_RISK_RESET_TIME_LOCAL source=DEFAULT value='00:00'
+[CONFIG][RESOLVE] key=SCANNER_MODE source=DEFAULT value='TEACHING'
+[CONFIG][RESOLVE] key=SCANNER_SYMBOLS source=DEFAULT value=[]
+[CONFIG][RESOLVE] key=SCANNER_DEFAULT_SYMBOLS source=DEFAULT value=['AAPL', 'TSLA', 'NVDA', 'AMD', 'SPY']
+[CONFIG][RESOLVE] key=SCANNER_DATA_SOURCE source=DEFAULT value='AUTO'
+[CONFIG][RESOLVE] key=HISTORICAL_ENRICH_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=SCANNER_TOP_GAINERS_COUNT source=DEFAULT value=50
+[CONFIG][RESOLVE] key=SCANNER_TEACHING_SYMBOL_CAP source=DEFAULT value=0
+[CONFIG][RESOLVE] key=TOPN_REFRESH_SECONDS source=DEFAULT value=300
+[CONFIG][RESOLVE] key=WATCHLIST_REFRESH_SECONDS source=DEFAULT value=60
+[CONFIG][RESOLVE] key=FOCUS_REFRESH_SECONDS source=DEFAULT value=10
+[CONFIG][RESOLVE] key=MANUAL_FOCUS_ENABLED source=DEFAULT value=None
+[CONFIG][RESOLVE] key=PREP_REFRESH_CLOSED_MIN_SECONDS source=DEFAULT value=7200
+[CONFIG][RESOLVE] key=PREP_REFRESH_CLOSED_MAX_SECONDS source=DEFAULT value=21600
+[CONFIG][RESOLVE] key=PREP_REFRESH_PRE_MIN_SECONDS source=DEFAULT value=900
+[CONFIG][RESOLVE] key=PREP_REFRESH_PRE_MAX_SECONDS source=DEFAULT value=1800
+[CONFIG][RESOLVE] key=PREP_REFRESH_REG_MIN_SECONDS source=DEFAULT value=1800
+[CONFIG][RESOLVE] key=PREP_REFRESH_REG_MAX_SECONDS source=DEFAULT value=3600
+[CONFIG][RESOLVE] key=PREP_REFRESH_AH_MIN_SECONDS source=DEFAULT value=3600
+[CONFIG][RESOLVE] key=PREP_REFRESH_AH_MAX_SECONDS source=DEFAULT value=10800
+[CONFIG][RESOLVE] key=POSITION_MANAGEMENT_TICK_SECONDS source=DEFAULT value=1
+[CONFIG][RESOLVE] key=FOCUS_MAX_SYMBOLS_PER_STRATEGY source=DEFAULT value=5
+[CONFIG][RESOLVE] key=WATCHLIST_MAX_SYMBOLS_PER_STRATEGY source=DEFAULT value=15
+[CONFIG][RESOLVE] key=TOPN_MAX_SYMBOLS_PER_STRATEGY source=DEFAULT value=50
+[CONFIG][RESOLVE] key=SCANNER_WATCHLIST_LIMIT source=DEFAULT value=15
+[CONFIG][RESOLVE] key=WATCHLIST_PRINT_EVERY_N_CYCLES source=DEFAULT value=20
+[CONFIG][RESOLVE] key=SCANNER_SESSION_WINDOWS_UTC source=DEFAULT value={'PRE_START': 12.0, 'RTH_START': 14.0, 'AFT_START': 21.5, 'AFT_END': 23.0}
+[CONFIG][RESOLVE] key=SCANNER_MOCK_SEED source=DEFAULT value=42
+[CONFIG][RESOLVE] key=SCANNER_MOCK_SYMBOLS_FILE source=DEFAULT value='src/scanner/mock_universe.txt'
+[CONFIG][RESOLVE] key=SCANNER_FLOAT_CACHE_FILE source=DEFAULT value='data/reference/float_cache.json'
+[CONFIG][RESOLVE] key=SCANNER_VERSION source=DEFAULT value='v2026-01-04-11'
+[CONFIG][RESOLVE] key=SCANNER_GIT_SHA source=DEFAULT value=''
+[CONFIG][RESOLVE] key=SHOW_URLS source=DEFAULT value=True
+[CONFIG][RESOLVE] key=DISABLE_OSC8 source=DEFAULT value=False
+[CONFIG][RESOLVE] key=ROSS_MIN_PCT_CHANGE source=DEFAULT value=10.0
+[CONFIG][RESOLVE] key=ROSS_MIN_PRICE source=DEFAULT value=1.0
+[CONFIG][RESOLVE] key=ROSS_MAX_PRICE source=DEFAULT value=20.0
+[CONFIG][RESOLVE] key=ROSS_MAX_FLOAT source=DEFAULT value=20000000
+[CONFIG][RESOLVE] key=ROSS_MIN_RVOL source=DEFAULT value=2.0
+[CONFIG][RESOLVE] key=ROSS_PCT_CHANGE_MIN source=DEFAULT value=3.0
+[CONFIG][RESOLVE] key=ROSS_RVOL_MIN source=DEFAULT value=0.5
+[CONFIG][RESOLVE] key=WATCHLIST_RVOL_MIN source=DEFAULT value=None
+[CONFIG][RESOLVE] key=FOCUS_RVOL_MIN source=DEFAULT value=None
+[CONFIG][RESOLVE] key=FORCE_DEBUG_TRADES source=DEFAULT value=False
+[CONFIG][RESOLVE] key=ROSS_VALIDATION_OVERRIDE_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=FORCE_PREMARKET_TRIGGER source=DEFAULT value=False
+[CONFIG][RESOLVE] key=MAX_SPREAD_PCT source=DEFAULT value=None
+[CONFIG][RESOLVE] key=ALLOW_UNKNOWN_FLOAT source=DEFAULT value=False
+[CONFIG][RESOLVE] key=ROSS_MIN_VOLUME source=DEFAULT value=1000000
+[CONFIG][RESOLVE] key=ROSS_MIN_PREMARKET_VOLUME source=DEFAULT value=100000
+[CONFIG][RESOLVE] key=ROSS_REQUIRE_NEWS source=DEFAULT value=True
+[CONFIG][RESOLVE] key=NEWS_MAX_AGE_SECONDS source=DEFAULT value=3600
+[CONFIG][RESOLVE] key=NEWS_MIN_VELOCITY_10M source=DEFAULT value=1
+[CONFIG][RESOLVE] key=NEWS_MIN_REGIONS source=DEFAULT value=1
+[CONFIG][RESOLVE] key=NEWS_CACHE_FILE source=DEFAULT value='data/news/news_cache.json'
+_ test_prep_refresh_cadence_survives_service_restart_independent_of_freshness[empty] _
+
+tmp_path = WindowsPath('C:/Users/nelzo/AppData/Local/Temp/pytest-of-nelzo/pytest-261/test_prep_refresh_cadence_surv1')
+outcome = 'empty'
+
+    @pytest.mark.parametrize("outcome", ["article", "empty", "unavailable"])
+    def test_prep_refresh_cadence_survives_service_restart_independent_of_freshness(tmp_path, outcome):
+        set_config_overrides({"NEWS_ENABLED": True, "NEWS_REFRESH_SECONDS_PREP": 1800,
+                              "NEWS_MAX_AGE_HOURS": 6, "NEWS_TOTAL_BUDGET_S": 8})
+        path = tmp_path / "cache.json"
+        class Retrieval:
+            calls = 0
+            def get_news(self, candidates, request, policy):
+                self.calls += 1
+                now = datetime.now(timezone.utc)
+                rows = (NewsEvidence(symbol="EGG", evidence_id="rss:1", headline="EGG reports earnings",
+                                     published_at=now - timedelta(minutes=10), fetched_at=now,
+                                     age_seconds=600, stale=False, provider="rss_batch"),) if outcome == "article" else ()
+                return NewsBatchResult(evidence_by_symbol={"EGG": rows}, completed_at=now,
+                    diagnostics=RetrievalDiagnostics(retrieval_status="unavailable" if outcome == "unavailable" else "available",
+                                                     provider_status="offline" if outcome == "unavailable" else "ok",
+                                                     provider_available=outcome != "unavailable"))
+        retrieval = Retrieval()
+        def provider():
+            store = CanonicalNewsEvidenceStore(path, prep_artifact_loader=lambda: {})
+            return NewsProvider(service=CanonicalNewsIntelligenceService(evidence_store=store, retrieval_provider=retrieval))
+>       provider().get_news("EGG")
+
+tests\test_w01_ownership_boundaries.py:208: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+src\news\prep_adapter.py:52: in get_news
+    return self.get_news_batch([normalized])[normalized]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\news\prep_adapter.py:60: in get_news_batch
+    enabled = bool(get_config("NEWS_ENABLED"))
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\config\config_resolver.py:667: in get_config
+    resolved = resolve_config()
+               ^^^^^^^^^^^^^^^^
+src\config\config_resolver.py:654: in resolve_config
+    record = _resolve_entry(name, entry)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+name = 'NEWS_MAX_AGE_HOURS'
+entry = {'type': <class 'float'>, 'default': 6.0, 'env': ['NEWS_MAX_AGE_HOURS'], 'affects': ['NewsEngine', 'PreMarketPrep'], ...}
+
+    def _resolve_entry(name: str, entry: Dict[str, Any]) -> ConfigRecord:
+        env_names: Iterable[str] = entry.get("env", [])
+        env_value = None
+        env_used = None
+        for env_name in env_names:
+            if env_name in os.environ and os.environ[env_name] != "":
+                env_value = os.environ[env_name]
+                env_used = env_name
+                break
+    
+        # Authority law (highest -> lowest):
+        # 1) in-process overrides (tests/runtime)
+        # 2) environment
+        # 3) registry defaults
+        if name in _CONFIG_OVERRIDES:
+            value = _CONFIG_OVERRIDES[name]
+            source = "OVERRIDE"
+            trace = (f"{name}=override({value!r})",)
+        elif env_value is not None:
+            value = _cast_env_value(name, env_value, entry.get("type"), entry)
+            source = "ENV"
+            trace = (
+                f"{name}=env[{env_used}] raw={env_value!r} parsed={value!r}",
+            )
+        else:
+            if "default_factory" in entry:
+                value = entry["default_factory"]()
+            else:
+                value = entry.get("default")
+            source = "DEFAULT"
+            trace = (f"{name}=default({value!r})",)
+    
+        value = _normalize(value, entry.get("normalizer"))
+        if trace and value is not None:
+            trace = (*trace, f"{name}=normalized({value!r})")
+        if value is None and entry.get("enforcement") == "HARD" and not entry.get("allow_none"):
+            raise ConfigResolutionError(
+                f"Missing required configuration value for {name}"
+            )
+    
+        if value is not None:
+            type_hint = entry.get("type")
+            if type_hint in {list, set}:
+                if not isinstance(value, type_hint):
+                    raise ConfigResolutionError(
+                        f"Config {name} must be {type_hint}, got {type(value)}"
+                    )
+            elif type_hint is dict:
+                if not isinstance(value, dict):
+                    raise ConfigResolutionError(
+                        f"Config {name} must be dict, got {type(value)}"
+                    )
+            elif type_hint is time:
+                if not isinstance(value, time):
+                    raise ConfigResolutionError(
+                        f"Config {name} must be time, got {type(value)}"
+                    )
+            elif type_hint not in {None, "date"} and not isinstance(value, type_hint):
+>               raise ConfigResolutionError(
+                    f"Config {name} must be {type_hint}, got {type(value)}"
+                )
+E               src.config.config_resolver.ConfigResolutionError: Config NEWS_MAX_AGE_HOURS must be <class 'float'>, got <class 'int'>
+
+src\config\config_resolver.py:264: ConfigResolutionError
+---------------------------- Captured stdout call -----------------------------
+[CONFIG][RESOLVE] key=RUN_MODE source=DEFAULT value='LIVE'
+[CONFIG][RESOLVE] key=EVENT_REPLAY_MODE source=DEFAULT value='CYCLE'
+[CONFIG][RESOLVE] key=AUTONOMOUS_CERTIFICATION_ENABLED source=DEFAULT value=True
+[CONFIG][RESOLVE] key=EXECUTION_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=FORCE_EXECUTION_ON_TRADE_READY source=DEFAULT value=True
+[CONFIG][RESOLVE] key=FORCE_RISK_APPROVAL_FOR_TRADE_READY source=DEFAULT value=True
+[CONFIG][RESOLVE] key=FORCE_CLEAN_START source=DEFAULT value=False
+[CONFIG][RESOLVE] key=CLEAN_START_TIMEOUT_SECONDS source=DEFAULT value=120
+[CONFIG][RESOLVE] key=PREMARKET_MIN_VOLUME source=DEFAULT value=2000
+[CONFIG][RESOLVE] key=RTH_MIN_VOLUME source=DEFAULT value=10000
+[CONFIG][RESOLVE] key=RISK_PROFILE source=DEFAULT value='NORMAL'
+[CONFIG][RESOLVE] key=RISK_ACCOUNT_EQUITY source=DEFAULT value=100000.0
+[CONFIG][RESOLVE] key=IBKR_READONLY_ENABLED source=DEFAULT value=True
+[CONFIG][RESOLVE] key=IBKR_API_WRITE_ALLOWED source=DEFAULT value=True
+[CONFIG][RESOLVE] key=INTENT_DEDUP_SELFTEST_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=LEARNING_ENABLED source=DEFAULT value=True
+[CONFIG][RESOLVE] key=LEARNING_LIVE_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_LAYER_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_POLICY_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_MIN_CONFIDENCE_TO_APPLY source=DEFAULT value=0.65
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_STRATEGY_WEIGHTING_MODE source=DEFAULT value='OFF'
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_MAX_RISK_MULTIPLIER source=DEFAULT value=1.0
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_MIN_RISK_MULTIPLIER source=DEFAULT value=0.25
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_ALLOWED_SESSIONS source=DEFAULT value=['RTH']
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_FEATURE_SET source=DEFAULT value='BASIC'
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_BASELINE_WINDOW source=DEFAULT value=60
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_EWMA_ALPHA source=DEFAULT value=0.2
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_LOG_LEVEL source=DEFAULT value='INFO'
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_ALLOWED_RISK_MULTIPLIERS source=DEFAULT value=[0.0, 0.25, 0.5, 0.75, 1.0]
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_ALLOWED_STRATEGY_WEIGHTS source=DEFAULT value=[0.0, 0.25, 0.5, 0.75, 1.0]
+[CONFIG][RESOLVE] key=IBKR_HOST source=DEFAULT value='127.0.0.1'
+[CONFIG][RESOLVE] key=IBKR_PORT source=DEFAULT value=7497
+[CONFIG][RESOLVE] key=IBKR_CLIENT_ID source=DEFAULT value=7
+[CONFIG][RESOLVE] key=IBKR_MARKET_DATA_TYPE source=DEFAULT value='DELAYED'
+[CONFIG][RESOLVE] key=IBKR_SNAPSHOT_TIMEOUT_SECONDS source=DEFAULT value=5
+[CONFIG][RESOLVE] key=IBKR_SNAPSHOT_MAX_AGE_SECONDS source=DEFAULT value=15
+[CONFIG][RESOLVE] key=IBKR_MAX_SYMBOLS_PER_CYCLE source=ENV value=50
+[CONFIG][RESOLVE] key=IBKR_FALLBACK_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=IBKR_FALLBACK_SOURCE source=DEFAULT value='STATIC'
+[CONFIG][RESOLVE] key=IBKR_AUTO_LOCKDOWN_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=DEBUG_MARKET_DATA source=DEFAULT value=False
+[CONFIG][RESOLVE] key=DEBUG_SCANNER source=DEFAULT value=False
+[CONFIG][RESOLVE] key=IBKR_DEFAULT_EXCHANGE source=DEFAULT value='SMART'
+[CONFIG][RESOLVE] key=IBKR_DEFAULT_CURRENCY source=DEFAULT value='USD'
+[CONFIG][RESOLVE] key=IBKR_ORDER_TRANSLATION_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=IBKR_ORDER_SUBMISSION_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=LIVE_EXECUTION_PROBE_MODE source=DEFAULT value=True
+[CONFIG][RESOLVE] key=PROBE_SYMBOLS source=DEFAULT value=['UGRO']
+[CONFIG][RESOLVE] key=PROBE_ORDER_SIZE source=DEFAULT value=1
+[CONFIG][RESOLVE] key=PROBE_HOLD_SECONDS source=DEFAULT value=60
+[CONFIG][RESOLVE] key=IBKR_KILL_SWITCH source=DEFAULT value=True
+[CONFIG][RESOLVE] key=IBKR_MAX_ORDERS_PER_RUN source=DEFAULT value=1
+[CONFIG][RESOLVE] key=IBKR_SUBMIT_ONLY_SYMBOL source=DEFAULT value=None
+[CONFIG][RESOLVE] key=IBKR_PAPER_ONLY_ENFORCED source=DEFAULT value=True
+[CONFIG][RESOLVE] key=IBKR_PAPER_HOST source=DEFAULT value='127.0.0.1'
+[CONFIG][RESOLVE] key=IBKR_PAPER_PORT source=DEFAULT value=7497
+[CONFIG][RESOLVE] key=IBKR_LIVE_PORT source=DEFAULT value=7496
+[CONFIG][RESOLVE] key=IBKR_ACK_TIMEOUT_SECONDS source=DEFAULT value=10
+[CONFIG][RESOLVE] key=IBKR_CLIENT_ID_ORDER_SUBMIT source=DEFAULT value=9012
+[CONFIG][RESOLVE] key=IBKR_GUARD_PERSIST_PATH source=DEFAULT value='runtime/submission_guard.json'
+[CONFIG][RESOLVE] key=DAILY_LOSS_WARNING_LIMIT source=DEFAULT value=5.0
+[CONFIG][RESOLVE] key=DAILY_LOSS_HARD_LIMIT source=DEFAULT value=10.0
+[CONFIG][RESOLVE] key=DAILY_RISK_GOVERNOR_ENABLED source=DEFAULT value=True
+[CONFIG][RESOLVE] key=DAILY_RISK_TIMEZONE source=DEFAULT value='America/New_York'
+[CONFIG][RESOLVE] key=DAILY_RISK_MAX_LOSS_AMOUNT source=DEFAULT value=10.0
+[CONFIG][RESOLVE] key=DAILY_RISK_MAX_LOSS_PCT source=DEFAULT value=0.0
+[CONFIG][RESOLVE] key=DAILY_RISK_MAX_DRAWDOWN_AMOUNT source=DEFAULT value=0.0
+[CONFIG][RESOLVE] key=DAILY_RISK_MAX_DRAWDOWN_PCT source=DEFAULT value=0.0
+[CONFIG][RESOLVE] key=DAILY_RISK_INCLUDE_UNREALIZED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=DAILY_RISK_MAX_TRADES source=DEFAULT value=0
+[CONFIG][RESOLVE] key=DAILY_RISK_MAX_LOSING_TRADES source=DEFAULT value=0
+[CONFIG][RESOLVE] key=DAILY_RISK_MAX_CONSECUTIVE_LOSSES source=DEFAULT value=0
+[CONFIG][RESOLVE] key=DAILY_RISK_EXISTING_POSITION_POLICY source=DEFAULT value='MANAGED_ONLY'
+[CONFIG][RESOLVE] key=DAILY_RISK_LIVE_FAIL_CLOSED source=DEFAULT value=True
+[CONFIG][RESOLVE] key=DAILY_RISK_MANUAL_HALT source=DEFAULT value=False
+[CONFIG][RESOLVE] key=DAILY_RISK_RESET_TIME_LOCAL source=DEFAULT value='00:00'
+[CONFIG][RESOLVE] key=SCANNER_MODE source=DEFAULT value='TEACHING'
+[CONFIG][RESOLVE] key=SCANNER_SYMBOLS source=DEFAULT value=[]
+[CONFIG][RESOLVE] key=SCANNER_DEFAULT_SYMBOLS source=DEFAULT value=['AAPL', 'TSLA', 'NVDA', 'AMD', 'SPY']
+[CONFIG][RESOLVE] key=SCANNER_DATA_SOURCE source=DEFAULT value='AUTO'
+[CONFIG][RESOLVE] key=HISTORICAL_ENRICH_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=SCANNER_TOP_GAINERS_COUNT source=DEFAULT value=50
+[CONFIG][RESOLVE] key=SCANNER_TEACHING_SYMBOL_CAP source=DEFAULT value=0
+[CONFIG][RESOLVE] key=TOPN_REFRESH_SECONDS source=DEFAULT value=300
+[CONFIG][RESOLVE] key=WATCHLIST_REFRESH_SECONDS source=DEFAULT value=60
+[CONFIG][RESOLVE] key=FOCUS_REFRESH_SECONDS source=DEFAULT value=10
+[CONFIG][RESOLVE] key=MANUAL_FOCUS_ENABLED source=DEFAULT value=None
+[CONFIG][RESOLVE] key=PREP_REFRESH_CLOSED_MIN_SECONDS source=DEFAULT value=7200
+[CONFIG][RESOLVE] key=PREP_REFRESH_CLOSED_MAX_SECONDS source=DEFAULT value=21600
+[CONFIG][RESOLVE] key=PREP_REFRESH_PRE_MIN_SECONDS source=DEFAULT value=900
+[CONFIG][RESOLVE] key=PREP_REFRESH_PRE_MAX_SECONDS source=DEFAULT value=1800
+[CONFIG][RESOLVE] key=PREP_REFRESH_REG_MIN_SECONDS source=DEFAULT value=1800
+[CONFIG][RESOLVE] key=PREP_REFRESH_REG_MAX_SECONDS source=DEFAULT value=3600
+[CONFIG][RESOLVE] key=PREP_REFRESH_AH_MIN_SECONDS source=DEFAULT value=3600
+[CONFIG][RESOLVE] key=PREP_REFRESH_AH_MAX_SECONDS source=DEFAULT value=10800
+[CONFIG][RESOLVE] key=POSITION_MANAGEMENT_TICK_SECONDS source=DEFAULT value=1
+[CONFIG][RESOLVE] key=FOCUS_MAX_SYMBOLS_PER_STRATEGY source=DEFAULT value=5
+[CONFIG][RESOLVE] key=WATCHLIST_MAX_SYMBOLS_PER_STRATEGY source=DEFAULT value=15
+[CONFIG][RESOLVE] key=TOPN_MAX_SYMBOLS_PER_STRATEGY source=DEFAULT value=50
+[CONFIG][RESOLVE] key=SCANNER_WATCHLIST_LIMIT source=DEFAULT value=15
+[CONFIG][RESOLVE] key=WATCHLIST_PRINT_EVERY_N_CYCLES source=DEFAULT value=20
+[CONFIG][RESOLVE] key=SCANNER_SESSION_WINDOWS_UTC source=DEFAULT value={'PRE_START': 12.0, 'RTH_START': 14.0, 'AFT_START': 21.5, 'AFT_END': 23.0}
+[CONFIG][RESOLVE] key=SCANNER_MOCK_SEED source=DEFAULT value=42
+[CONFIG][RESOLVE] key=SCANNER_MOCK_SYMBOLS_FILE source=DEFAULT value='src/scanner/mock_universe.txt'
+[CONFIG][RESOLVE] key=SCANNER_FLOAT_CACHE_FILE source=DEFAULT value='data/reference/float_cache.json'
+[CONFIG][RESOLVE] key=SCANNER_VERSION source=DEFAULT value='v2026-01-04-11'
+[CONFIG][RESOLVE] key=SCANNER_GIT_SHA source=DEFAULT value=''
+[CONFIG][RESOLVE] key=SHOW_URLS source=DEFAULT value=True
+[CONFIG][RESOLVE] key=DISABLE_OSC8 source=DEFAULT value=False
+[CONFIG][RESOLVE] key=ROSS_MIN_PCT_CHANGE source=DEFAULT value=10.0
+[CONFIG][RESOLVE] key=ROSS_MIN_PRICE source=DEFAULT value=1.0
+[CONFIG][RESOLVE] key=ROSS_MAX_PRICE source=DEFAULT value=20.0
+[CONFIG][RESOLVE] key=ROSS_MAX_FLOAT source=DEFAULT value=20000000
+[CONFIG][RESOLVE] key=ROSS_MIN_RVOL source=DEFAULT value=2.0
+[CONFIG][RESOLVE] key=ROSS_PCT_CHANGE_MIN source=DEFAULT value=3.0
+[CONFIG][RESOLVE] key=ROSS_RVOL_MIN source=DEFAULT value=0.5
+[CONFIG][RESOLVE] key=WATCHLIST_RVOL_MIN source=DEFAULT value=None
+[CONFIG][RESOLVE] key=FOCUS_RVOL_MIN source=DEFAULT value=None
+[CONFIG][RESOLVE] key=FORCE_DEBUG_TRADES source=DEFAULT value=False
+[CONFIG][RESOLVE] key=ROSS_VALIDATION_OVERRIDE_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=FORCE_PREMARKET_TRIGGER source=DEFAULT value=False
+[CONFIG][RESOLVE] key=MAX_SPREAD_PCT source=DEFAULT value=None
+[CONFIG][RESOLVE] key=ALLOW_UNKNOWN_FLOAT source=DEFAULT value=False
+[CONFIG][RESOLVE] key=ROSS_MIN_VOLUME source=DEFAULT value=1000000
+[CONFIG][RESOLVE] key=ROSS_MIN_PREMARKET_VOLUME source=DEFAULT value=100000
+[CONFIG][RESOLVE] key=ROSS_REQUIRE_NEWS source=DEFAULT value=True
+[CONFIG][RESOLVE] key=NEWS_MAX_AGE_SECONDS source=DEFAULT value=3600
+[CONFIG][RESOLVE] key=NEWS_MIN_VELOCITY_10M source=DEFAULT value=1
+[CONFIG][RESOLVE] key=NEWS_MIN_REGIONS source=DEFAULT value=1
+[CONFIG][RESOLVE] key=NEWS_CACHE_FILE source=DEFAULT value='data/news/news_cache.json'
+_ test_prep_refresh_cadence_survives_service_restart_independent_of_freshness[unavailable] _
+
+tmp_path = WindowsPath('C:/Users/nelzo/AppData/Local/Temp/pytest-of-nelzo/pytest-261/test_prep_refresh_cadence_surv2')
+outcome = 'unavailable'
+
+    @pytest.mark.parametrize("outcome", ["article", "empty", "unavailable"])
+    def test_prep_refresh_cadence_survives_service_restart_independent_of_freshness(tmp_path, outcome):
+        set_config_overrides({"NEWS_ENABLED": True, "NEWS_REFRESH_SECONDS_PREP": 1800,
+                              "NEWS_MAX_AGE_HOURS": 6, "NEWS_TOTAL_BUDGET_S": 8})
+        path = tmp_path / "cache.json"
+        class Retrieval:
+            calls = 0
+            def get_news(self, candidates, request, policy):
+                self.calls += 1
+                now = datetime.now(timezone.utc)
+                rows = (NewsEvidence(symbol="EGG", evidence_id="rss:1", headline="EGG reports earnings",
+                                     published_at=now - timedelta(minutes=10), fetched_at=now,
+                                     age_seconds=600, stale=False, provider="rss_batch"),) if outcome == "article" else ()
+                return NewsBatchResult(evidence_by_symbol={"EGG": rows}, completed_at=now,
+                    diagnostics=RetrievalDiagnostics(retrieval_status="unavailable" if outcome == "unavailable" else "available",
+                                                     provider_status="offline" if outcome == "unavailable" else "ok",
+                                                     provider_available=outcome != "unavailable"))
+        retrieval = Retrieval()
+        def provider():
+            store = CanonicalNewsEvidenceStore(path, prep_artifact_loader=lambda: {})
+            return NewsProvider(service=CanonicalNewsIntelligenceService(evidence_store=store, retrieval_provider=retrieval))
+>       provider().get_news("EGG")
+
+tests\test_w01_ownership_boundaries.py:208: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+src\news\prep_adapter.py:52: in get_news
+    return self.get_news_batch([normalized])[normalized]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\news\prep_adapter.py:60: in get_news_batch
+    enabled = bool(get_config("NEWS_ENABLED"))
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\config\config_resolver.py:667: in get_config
+    resolved = resolve_config()
+               ^^^^^^^^^^^^^^^^
+src\config\config_resolver.py:654: in resolve_config
+    record = _resolve_entry(name, entry)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+name = 'NEWS_MAX_AGE_HOURS'
+entry = {'type': <class 'float'>, 'default': 6.0, 'env': ['NEWS_MAX_AGE_HOURS'], 'affects': ['NewsEngine', 'PreMarketPrep'], ...}
+
+    def _resolve_entry(name: str, entry: Dict[str, Any]) -> ConfigRecord:
+        env_names: Iterable[str] = entry.get("env", [])
+        env_value = None
+        env_used = None
+        for env_name in env_names:
+            if env_name in os.environ and os.environ[env_name] != "":
+                env_value = os.environ[env_name]
+                env_used = env_name
+                break
+    
+        # Authority law (highest -> lowest):
+        # 1) in-process overrides (tests/runtime)
+        # 2) environment
+        # 3) registry defaults
+        if name in _CONFIG_OVERRIDES:
+            value = _CONFIG_OVERRIDES[name]
+            source = "OVERRIDE"
+            trace = (f"{name}=override({value!r})",)
+        elif env_value is not None:
+            value = _cast_env_value(name, env_value, entry.get("type"), entry)
+            source = "ENV"
+            trace = (
+                f"{name}=env[{env_used}] raw={env_value!r} parsed={value!r}",
+            )
+        else:
+            if "default_factory" in entry:
+                value = entry["default_factory"]()
+            else:
+                value = entry.get("default")
+            source = "DEFAULT"
+            trace = (f"{name}=default({value!r})",)
+    
+        value = _normalize(value, entry.get("normalizer"))
+        if trace and value is not None:
+            trace = (*trace, f"{name}=normalized({value!r})")
+        if value is None and entry.get("enforcement") == "HARD" and not entry.get("allow_none"):
+            raise ConfigResolutionError(
+                f"Missing required configuration value for {name}"
+            )
+    
+        if value is not None:
+            type_hint = entry.get("type")
+            if type_hint in {list, set}:
+                if not isinstance(value, type_hint):
+                    raise ConfigResolutionError(
+                        f"Config {name} must be {type_hint}, got {type(value)}"
+                    )
+            elif type_hint is dict:
+                if not isinstance(value, dict):
+                    raise ConfigResolutionError(
+                        f"Config {name} must be dict, got {type(value)}"
+                    )
+            elif type_hint is time:
+                if not isinstance(value, time):
+                    raise ConfigResolutionError(
+                        f"Config {name} must be time, got {type(value)}"
+                    )
+            elif type_hint not in {None, "date"} and not isinstance(value, type_hint):
+>               raise ConfigResolutionError(
+                    f"Config {name} must be {type_hint}, got {type(value)}"
+                )
+E               src.config.config_resolver.ConfigResolutionError: Config NEWS_MAX_AGE_HOURS must be <class 'float'>, got <class 'int'>
+
+src\config\config_resolver.py:264: ConfigResolutionError
+---------------------------- Captured stdout call -----------------------------
+[CONFIG][RESOLVE] key=RUN_MODE source=DEFAULT value='LIVE'
+[CONFIG][RESOLVE] key=EVENT_REPLAY_MODE source=DEFAULT value='CYCLE'
+[CONFIG][RESOLVE] key=AUTONOMOUS_CERTIFICATION_ENABLED source=DEFAULT value=True
+[CONFIG][RESOLVE] key=EXECUTION_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=FORCE_EXECUTION_ON_TRADE_READY source=DEFAULT value=True
+[CONFIG][RESOLVE] key=FORCE_RISK_APPROVAL_FOR_TRADE_READY source=DEFAULT value=True
+[CONFIG][RESOLVE] key=FORCE_CLEAN_START source=DEFAULT value=False
+[CONFIG][RESOLVE] key=CLEAN_START_TIMEOUT_SECONDS source=DEFAULT value=120
+[CONFIG][RESOLVE] key=PREMARKET_MIN_VOLUME source=DEFAULT value=2000
+[CONFIG][RESOLVE] key=RTH_MIN_VOLUME source=DEFAULT value=10000
+[CONFIG][RESOLVE] key=RISK_PROFILE source=DEFAULT value='NORMAL'
+[CONFIG][RESOLVE] key=RISK_ACCOUNT_EQUITY source=DEFAULT value=100000.0
+[CONFIG][RESOLVE] key=IBKR_READONLY_ENABLED source=DEFAULT value=True
+[CONFIG][RESOLVE] key=IBKR_API_WRITE_ALLOWED source=DEFAULT value=True
+[CONFIG][RESOLVE] key=INTENT_DEDUP_SELFTEST_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=LEARNING_ENABLED source=DEFAULT value=True
+[CONFIG][RESOLVE] key=LEARNING_LIVE_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_LAYER_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_POLICY_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_MIN_CONFIDENCE_TO_APPLY source=DEFAULT value=0.65
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_STRATEGY_WEIGHTING_MODE source=DEFAULT value='OFF'
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_MAX_RISK_MULTIPLIER source=DEFAULT value=1.0
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_MIN_RISK_MULTIPLIER source=DEFAULT value=0.25
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_ALLOWED_SESSIONS source=DEFAULT value=['RTH']
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_FEATURE_SET source=DEFAULT value='BASIC'
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_BASELINE_WINDOW source=DEFAULT value=60
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_EWMA_ALPHA source=DEFAULT value=0.2
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_LOG_LEVEL source=DEFAULT value='INFO'
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_ALLOWED_RISK_MULTIPLIERS source=DEFAULT value=[0.0, 0.25, 0.5, 0.75, 1.0]
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_ALLOWED_STRATEGY_WEIGHTS source=DEFAULT value=[0.0, 0.25, 0.5, 0.75, 1.0]
+[CONFIG][RESOLVE] key=IBKR_HOST source=DEFAULT value='127.0.0.1'
+[CONFIG][RESOLVE] key=IBKR_PORT source=DEFAULT value=7497
+[CONFIG][RESOLVE] key=IBKR_CLIENT_ID source=DEFAULT value=7
+[CONFIG][RESOLVE] key=IBKR_MARKET_DATA_TYPE source=DEFAULT value='DELAYED'
+[CONFIG][RESOLVE] key=IBKR_SNAPSHOT_TIMEOUT_SECONDS source=DEFAULT value=5
+[CONFIG][RESOLVE] key=IBKR_SNAPSHOT_MAX_AGE_SECONDS source=DEFAULT value=15
+[CONFIG][RESOLVE] key=IBKR_MAX_SYMBOLS_PER_CYCLE source=ENV value=50
+[CONFIG][RESOLVE] key=IBKR_FALLBACK_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=IBKR_FALLBACK_SOURCE source=DEFAULT value='STATIC'
+[CONFIG][RESOLVE] key=IBKR_AUTO_LOCKDOWN_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=DEBUG_MARKET_DATA source=DEFAULT value=False
+[CONFIG][RESOLVE] key=DEBUG_SCANNER source=DEFAULT value=False
+[CONFIG][RESOLVE] key=IBKR_DEFAULT_EXCHANGE source=DEFAULT value='SMART'
+[CONFIG][RESOLVE] key=IBKR_DEFAULT_CURRENCY source=DEFAULT value='USD'
+[CONFIG][RESOLVE] key=IBKR_ORDER_TRANSLATION_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=IBKR_ORDER_SUBMISSION_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=LIVE_EXECUTION_PROBE_MODE source=DEFAULT value=True
+[CONFIG][RESOLVE] key=PROBE_SYMBOLS source=DEFAULT value=['UGRO']
+[CONFIG][RESOLVE] key=PROBE_ORDER_SIZE source=DEFAULT value=1
+[CONFIG][RESOLVE] key=PROBE_HOLD_SECONDS source=DEFAULT value=60
+[CONFIG][RESOLVE] key=IBKR_KILL_SWITCH source=DEFAULT value=True
+[CONFIG][RESOLVE] key=IBKR_MAX_ORDERS_PER_RUN source=DEFAULT value=1
+[CONFIG][RESOLVE] key=IBKR_SUBMIT_ONLY_SYMBOL source=DEFAULT value=None
+[CONFIG][RESOLVE] key=IBKR_PAPER_ONLY_ENFORCED source=DEFAULT value=True
+[CONFIG][RESOLVE] key=IBKR_PAPER_HOST source=DEFAULT value='127.0.0.1'
+[CONFIG][RESOLVE] key=IBKR_PAPER_PORT source=DEFAULT value=7497
+[CONFIG][RESOLVE] key=IBKR_LIVE_PORT source=DEFAULT value=7496
+[CONFIG][RESOLVE] key=IBKR_ACK_TIMEOUT_SECONDS source=DEFAULT value=10
+[CONFIG][RESOLVE] key=IBKR_CLIENT_ID_ORDER_SUBMIT source=DEFAULT value=9012
+[CONFIG][RESOLVE] key=IBKR_GUARD_PERSIST_PATH source=DEFAULT value='runtime/submission_guard.json'
+[CONFIG][RESOLVE] key=DAILY_LOSS_WARNING_LIMIT source=DEFAULT value=5.0
+[CONFIG][RESOLVE] key=DAILY_LOSS_HARD_LIMIT source=DEFAULT value=10.0
+[CONFIG][RESOLVE] key=DAILY_RISK_GOVERNOR_ENABLED source=DEFAULT value=True
+[CONFIG][RESOLVE] key=DAILY_RISK_TIMEZONE source=DEFAULT value='America/New_York'
+[CONFIG][RESOLVE] key=DAILY_RISK_MAX_LOSS_AMOUNT source=DEFAULT value=10.0
+[CONFIG][RESOLVE] key=DAILY_RISK_MAX_LOSS_PCT source=DEFAULT value=0.0
+[CONFIG][RESOLVE] key=DAILY_RISK_MAX_DRAWDOWN_AMOUNT source=DEFAULT value=0.0
+[CONFIG][RESOLVE] key=DAILY_RISK_MAX_DRAWDOWN_PCT source=DEFAULT value=0.0
+[CONFIG][RESOLVE] key=DAILY_RISK_INCLUDE_UNREALIZED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=DAILY_RISK_MAX_TRADES source=DEFAULT value=0
+[CONFIG][RESOLVE] key=DAILY_RISK_MAX_LOSING_TRADES source=DEFAULT value=0
+[CONFIG][RESOLVE] key=DAILY_RISK_MAX_CONSECUTIVE_LOSSES source=DEFAULT value=0
+[CONFIG][RESOLVE] key=DAILY_RISK_EXISTING_POSITION_POLICY source=DEFAULT value='MANAGED_ONLY'
+[CONFIG][RESOLVE] key=DAILY_RISK_LIVE_FAIL_CLOSED source=DEFAULT value=True
+[CONFIG][RESOLVE] key=DAILY_RISK_MANUAL_HALT source=DEFAULT value=False
+[CONFIG][RESOLVE] key=DAILY_RISK_RESET_TIME_LOCAL source=DEFAULT value='00:00'
+[CONFIG][RESOLVE] key=SCANNER_MODE source=DEFAULT value='TEACHING'
+[CONFIG][RESOLVE] key=SCANNER_SYMBOLS source=DEFAULT value=[]
+[CONFIG][RESOLVE] key=SCANNER_DEFAULT_SYMBOLS source=DEFAULT value=['AAPL', 'TSLA', 'NVDA', 'AMD', 'SPY']
+[CONFIG][RESOLVE] key=SCANNER_DATA_SOURCE source=DEFAULT value='AUTO'
+[CONFIG][RESOLVE] key=HISTORICAL_ENRICH_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=SCANNER_TOP_GAINERS_COUNT source=DEFAULT value=50
+[CONFIG][RESOLVE] key=SCANNER_TEACHING_SYMBOL_CAP source=DEFAULT value=0
+[CONFIG][RESOLVE] key=TOPN_REFRESH_SECONDS source=DEFAULT value=300
+[CONFIG][RESOLVE] key=WATCHLIST_REFRESH_SECONDS source=DEFAULT value=60
+[CONFIG][RESOLVE] key=FOCUS_REFRESH_SECONDS source=DEFAULT value=10
+[CONFIG][RESOLVE] key=MANUAL_FOCUS_ENABLED source=DEFAULT value=None
+[CONFIG][RESOLVE] key=PREP_REFRESH_CLOSED_MIN_SECONDS source=DEFAULT value=7200
+[CONFIG][RESOLVE] key=PREP_REFRESH_CLOSED_MAX_SECONDS source=DEFAULT value=21600
+[CONFIG][RESOLVE] key=PREP_REFRESH_PRE_MIN_SECONDS source=DEFAULT value=900
+[CONFIG][RESOLVE] key=PREP_REFRESH_PRE_MAX_SECONDS source=DEFAULT value=1800
+[CONFIG][RESOLVE] key=PREP_REFRESH_REG_MIN_SECONDS source=DEFAULT value=1800
+[CONFIG][RESOLVE] key=PREP_REFRESH_REG_MAX_SECONDS source=DEFAULT value=3600
+[CONFIG][RESOLVE] key=PREP_REFRESH_AH_MIN_SECONDS source=DEFAULT value=3600
+[CONFIG][RESOLVE] key=PREP_REFRESH_AH_MAX_SECONDS source=DEFAULT value=10800
+[CONFIG][RESOLVE] key=POSITION_MANAGEMENT_TICK_SECONDS source=DEFAULT value=1
+[CONFIG][RESOLVE] key=FOCUS_MAX_SYMBOLS_PER_STRATEGY source=DEFAULT value=5
+[CONFIG][RESOLVE] key=WATCHLIST_MAX_SYMBOLS_PER_STRATEGY source=DEFAULT value=15
+[CONFIG][RESOLVE] key=TOPN_MAX_SYMBOLS_PER_STRATEGY source=DEFAULT value=50
+[CONFIG][RESOLVE] key=SCANNER_WATCHLIST_LIMIT source=DEFAULT value=15
+[CONFIG][RESOLVE] key=WATCHLIST_PRINT_EVERY_N_CYCLES source=DEFAULT value=20
+[CONFIG][RESOLVE] key=SCANNER_SESSION_WINDOWS_UTC source=DEFAULT value={'PRE_START': 12.0, 'RTH_START': 14.0, 'AFT_START': 21.5, 'AFT_END': 23.0}
+[CONFIG][RESOLVE] key=SCANNER_MOCK_SEED source=DEFAULT value=42
+[CONFIG][RESOLVE] key=SCANNER_MOCK_SYMBOLS_FILE source=DEFAULT value='src/scanner/mock_universe.txt'
+[CONFIG][RESOLVE] key=SCANNER_FLOAT_CACHE_FILE source=DEFAULT value='data/reference/float_cache.json'
+[CONFIG][RESOLVE] key=SCANNER_VERSION source=DEFAULT value='v2026-01-04-11'
+[CONFIG][RESOLVE] key=SCANNER_GIT_SHA source=DEFAULT value=''
+[CONFIG][RESOLVE] key=SHOW_URLS source=DEFAULT value=True
+[CONFIG][RESOLVE] key=DISABLE_OSC8 source=DEFAULT value=False
+[CONFIG][RESOLVE] key=ROSS_MIN_PCT_CHANGE source=DEFAULT value=10.0
+[CONFIG][RESOLVE] key=ROSS_MIN_PRICE source=DEFAULT value=1.0
+[CONFIG][RESOLVE] key=ROSS_MAX_PRICE source=DEFAULT value=20.0
+[CONFIG][RESOLVE] key=ROSS_MAX_FLOAT source=DEFAULT value=20000000
+[CONFIG][RESOLVE] key=ROSS_MIN_RVOL source=DEFAULT value=2.0
+[CONFIG][RESOLVE] key=ROSS_PCT_CHANGE_MIN source=DEFAULT value=3.0
+[CONFIG][RESOLVE] key=ROSS_RVOL_MIN source=DEFAULT value=0.5
+[CONFIG][RESOLVE] key=WATCHLIST_RVOL_MIN source=DEFAULT value=None
+[CONFIG][RESOLVE] key=FOCUS_RVOL_MIN source=DEFAULT value=None
+[CONFIG][RESOLVE] key=FORCE_DEBUG_TRADES source=DEFAULT value=False
+[CONFIG][RESOLVE] key=ROSS_VALIDATION_OVERRIDE_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=FORCE_PREMARKET_TRIGGER source=DEFAULT value=False
+[CONFIG][RESOLVE] key=MAX_SPREAD_PCT source=DEFAULT value=None
+[CONFIG][RESOLVE] key=ALLOW_UNKNOWN_FLOAT source=DEFAULT value=False
+[CONFIG][RESOLVE] key=ROSS_MIN_VOLUME source=DEFAULT value=1000000
+[CONFIG][RESOLVE] key=ROSS_MIN_PREMARKET_VOLUME source=DEFAULT value=100000
+[CONFIG][RESOLVE] key=ROSS_REQUIRE_NEWS source=DEFAULT value=True
+[CONFIG][RESOLVE] key=NEWS_MAX_AGE_SECONDS source=DEFAULT value=3600
+[CONFIG][RESOLVE] key=NEWS_MIN_VELOCITY_10M source=DEFAULT value=1
+[CONFIG][RESOLVE] key=NEWS_MIN_REGIONS source=DEFAULT value=1
+[CONFIG][RESOLVE] key=NEWS_CACHE_FILE source=DEFAULT value='data/news/news_cache.json'
+=========================== short test summary info ===========================
+FAILED tests/test_w01_ownership_boundaries.py::test_prep_refresh_cadence_survives_service_restart_independent_of_freshness[article]
+FAILED tests/test_w01_ownership_boundaries.py::test_prep_refresh_cadence_survives_service_restart_independent_of_freshness[empty]
+FAILED tests/test_w01_ownership_boundaries.py::test_prep_refresh_cadence_survives_service_restart_independent_of_freshness[unavailable]
+3 failed, 94 passed in 18.28s

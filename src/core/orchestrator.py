@@ -46,7 +46,7 @@ from src.core.strategy_arbitration_authority import (
     StrategyArbitrationAuthority,
     StrategyArbitrationDecision,
 )
-from src.data.fundamentals.float_provider import FloatProvider
+from src.market_data.float_provider import FloatProvider
 from src.data.manual_focus_loader import ManualFocusConfig
 from src.core.faults import (
     RecoveryAction,
@@ -114,7 +114,7 @@ from src.strategy_policy_v2.registry import resolve_policy_v2
 from src.scanner.scanner_runner import run_scanner_cycle
 from src.scanner.providers.base import ProviderConnectionError
 from src.scanner.providers.mock_provider import MockScannerProvider
-from src.scanner.session_pct_change import canonical_session_label, normalize_session_label, resolve_market_session_context
+from src.market_data.session_pct_change import canonical_session_label, normalize_session_label, resolve_market_session_context
 from src.core.time.calendar_session import resolve_calendar_session
 from src.core.time.trading_windows import (
     TradingWindowDecision,

@@ -10,9 +10,9 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from src.scanner import scanner_runner
-from src.scanner.candidate_identity import CandidateIdentity
+from src.market_data.candidate_identity import CandidateIdentity
 from src.scanner.providers.base import IntradayStats, QuoteData, ScannerDataProvider
-from src.scanner.reference_resolver import CanonicalReferenceResolver, HistoricalDailyBar, PersistentReferenceCache
+from src.market_data.reference_resolver import CanonicalReferenceResolver, HistoricalDailyBar, PersistentReferenceCache
 from src.scanner.scanner_runner import GateThresholds, _build_symbol_context, _evaluate_gates, _score_context, reset_scanner_runtime_state
 
 NY_TZ = ZoneInfo("America/New_York")

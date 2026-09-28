@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Iterable
 
 from src.scanner.result_models import CandidateMetrics
-from src.scanner.session_pct_change import normalize_session_label
+from src.market_data.session_pct_change import normalize_session_label
 
 
 class ScannerDiagnosticsManager:

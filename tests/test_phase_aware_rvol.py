@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from src.scanner.session_pct_change import (
+from src.market_data.session_pct_change import (
     compute_phase_aware_rvol,
     normalize_session_label,
     resolve_market_session_context,

@@ -3,7 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from src.core.orchestrator import CoreOrchestrator
-from src.scanner.session_pct_change import canonical_session_label, normalize_session_label
+from src.market_data.session_pct_change import canonical_session_label, normalize_session_label
 
 
 def test_noncanonical_aliases_canonicalize_for_policy() -> None:

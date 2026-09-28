@@ -56,7 +56,7 @@ from enum import Enum
 from typing import Optional, Sequence
 
 from src.scanner.result_models import CandidateMetrics
-from src.scanner.session_pct_change import normalize_session_label
+from src.market_data.session_pct_change import normalize_session_label
 
 
 POLICY_V2 = StrategyPolicyV2(

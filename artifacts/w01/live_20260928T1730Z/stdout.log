@@ -1,0 +1,813 @@
+[CONFIG][RESOLVE] key=RUN_MODE source=OVERRIDE value='READ_ONLY'
+[CONFIG][RESOLVE] key=EVENT_REPLAY_MODE source=OVERRIDE value='OFF'
+[CONFIG][RESOLVE] key=AUTONOMOUS_CERTIFICATION_ENABLED source=DEFAULT value=True
+[CONFIG][RESOLVE] key=EXECUTION_ENABLED source=OVERRIDE value=False
+[CONFIG][RESOLVE] key=FORCE_EXECUTION_ON_TRADE_READY source=OVERRIDE value=False
+[CONFIG][RESOLVE] key=FORCE_RISK_APPROVAL_FOR_TRADE_READY source=OVERRIDE value=False
+[CONFIG][RESOLVE] key=FORCE_CLEAN_START source=OVERRIDE value=False
+[CONFIG][RESOLVE] key=CLEAN_START_TIMEOUT_SECONDS source=DEFAULT value=120
+[CONFIG][RESOLVE] key=PREMARKET_MIN_VOLUME source=DEFAULT value=2000
+[CONFIG][RESOLVE] key=RTH_MIN_VOLUME source=DEFAULT value=10000
+[CONFIG][RESOLVE] key=RISK_PROFILE source=DEFAULT value='NORMAL'
+[CONFIG][RESOLVE] key=RISK_ACCOUNT_EQUITY source=DEFAULT value=100000.0
+[CONFIG][RESOLVE] key=IBKR_READONLY_ENABLED source=OVERRIDE value=True
+[CONFIG][RESOLVE] key=IBKR_API_WRITE_ALLOWED source=OVERRIDE value=False
+[CONFIG][RESOLVE] key=INTENT_DEDUP_SELFTEST_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=LEARNING_ENABLED source=DEFAULT value=True
+[CONFIG][RESOLVE] key=LEARNING_LIVE_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_LAYER_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_POLICY_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_MIN_CONFIDENCE_TO_APPLY source=DEFAULT value=0.65
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_STRATEGY_WEIGHTING_MODE source=DEFAULT value='OFF'
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_MAX_RISK_MULTIPLIER source=DEFAULT value=1.0
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_MIN_RISK_MULTIPLIER source=DEFAULT value=0.25
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_ALLOWED_SESSIONS source=DEFAULT value=['RTH']
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_FEATURE_SET source=DEFAULT value='BASIC'
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_BASELINE_WINDOW source=DEFAULT value=60
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_EWMA_ALPHA source=DEFAULT value=0.2
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_LOG_LEVEL source=DEFAULT value='INFO'
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_ALLOWED_RISK_MULTIPLIERS source=DEFAULT value=[0.0, 0.25, 0.5, 0.75, 1.0]
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_ALLOWED_STRATEGY_WEIGHTS source=DEFAULT value=[0.0, 0.25, 0.5, 0.75, 1.0]
+[CONFIG][RESOLVE] key=IBKR_HOST source=ENV value='127.0.0.1'
+[CONFIG][RESOLVE] key=IBKR_PORT source=ENV value=7497
+[CONFIG][RESOLVE] key=IBKR_CLIENT_ID source=ENV value=19282
+[CONFIG][RESOLVE] key=IBKR_MARKET_DATA_TYPE source=ENV value='LIVE'
+[CONFIG][RESOLVE] key=IBKR_SNAPSHOT_TIMEOUT_SECONDS source=DEFAULT value=5
+[CONFIG][RESOLVE] key=IBKR_SNAPSHOT_MAX_AGE_SECONDS source=DEFAULT value=15
+[CONFIG][RESOLVE] key=IBKR_MAX_SYMBOLS_PER_CYCLE source=ENV value=50
+[CONFIG][RESOLVE] key=IBKR_FALLBACK_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=IBKR_FALLBACK_SOURCE source=DEFAULT value='STATIC'
+[CONFIG][RESOLVE] key=IBKR_AUTO_LOCKDOWN_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=DEBUG_MARKET_DATA source=DEFAULT value=False
+[CONFIG][RESOLVE] key=DEBUG_SCANNER source=DEFAULT value=False
+[CONFIG][RESOLVE] key=IBKR_DEFAULT_EXCHANGE source=DEFAULT value='SMART'
+[CONFIG][RESOLVE] key=IBKR_DEFAULT_CURRENCY source=DEFAULT value='USD'
+[CONFIG][RESOLVE] key=IBKR_ORDER_TRANSLATION_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=IBKR_ORDER_SUBMISSION_ENABLED source=OVERRIDE value=False
+[CONFIG][RESOLVE] key=LIVE_EXECUTION_PROBE_MODE source=DEFAULT value=True
+[CONFIG][RESOLVE] key=PROBE_SYMBOLS source=DEFAULT value=['UGRO']
+[CONFIG][RESOLVE] key=PROBE_ORDER_SIZE source=DEFAULT value=1
+[CONFIG][RESOLVE] key=PROBE_HOLD_SECONDS source=DEFAULT value=60
+[CONFIG][RESOLVE] key=IBKR_KILL_SWITCH source=DEFAULT value=True
+[CONFIG][RESOLVE] key=IBKR_MAX_ORDERS_PER_RUN source=DEFAULT value=1
+[CONFIG][RESOLVE] key=IBKR_SUBMIT_ONLY_SYMBOL source=DEFAULT value=None
+[CONFIG][RESOLVE] key=IBKR_PAPER_ONLY_ENFORCED source=DEFAULT value=True
+[CONFIG][RESOLVE] key=IBKR_PAPER_HOST source=DEFAULT value='127.0.0.1'
+[CONFIG][RESOLVE] key=IBKR_PAPER_PORT source=DEFAULT value=7497
+[CONFIG][RESOLVE] key=IBKR_LIVE_PORT source=DEFAULT value=7496
+[CONFIG][RESOLVE] key=IBKR_ACK_TIMEOUT_SECONDS source=DEFAULT value=10
+[CONFIG][RESOLVE] key=IBKR_CLIENT_ID_ORDER_SUBMIT source=DEFAULT value=9012
+[CONFIG][RESOLVE] key=IBKR_GUARD_PERSIST_PATH source=DEFAULT value='runtime/submission_guard.json'
+[CONFIG][RESOLVE] key=DAILY_LOSS_WARNING_LIMIT source=DEFAULT value=5.0
+[CONFIG][RESOLVE] key=DAILY_LOSS_HARD_LIMIT source=DEFAULT value=10.0
+[CONFIG][RESOLVE] key=DAILY_RISK_GOVERNOR_ENABLED source=DEFAULT value=True
+[CONFIG][RESOLVE] key=DAILY_RISK_TIMEZONE source=DEFAULT value='America/New_York'
+[CONFIG][RESOLVE] key=DAILY_RISK_MAX_LOSS_AMOUNT source=DEFAULT value=10.0
+[CONFIG][RESOLVE] key=DAILY_RISK_MAX_LOSS_PCT source=DEFAULT value=0.0
+[CONFIG][RESOLVE] key=DAILY_RISK_MAX_DRAWDOWN_AMOUNT source=DEFAULT value=0.0
+[CONFIG][RESOLVE] key=DAILY_RISK_MAX_DRAWDOWN_PCT source=DEFAULT value=0.0
+[CONFIG][RESOLVE] key=DAILY_RISK_INCLUDE_UNREALIZED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=DAILY_RISK_MAX_TRADES source=DEFAULT value=0
+[CONFIG][RESOLVE] key=DAILY_RISK_MAX_LOSING_TRADES source=DEFAULT value=0
+[CONFIG][RESOLVE] key=DAILY_RISK_MAX_CONSECUTIVE_LOSSES source=DEFAULT value=0
+[CONFIG][RESOLVE] key=DAILY_RISK_EXISTING_POSITION_POLICY source=DEFAULT value='MANAGED_ONLY'
+[CONFIG][RESOLVE] key=DAILY_RISK_LIVE_FAIL_CLOSED source=DEFAULT value=True
+[CONFIG][RESOLVE] key=DAILY_RISK_MANUAL_HALT source=DEFAULT value=False
+[CONFIG][RESOLVE] key=DAILY_RISK_RESET_TIME_LOCAL source=DEFAULT value='00:00'
+[CONFIG][RESOLVE] key=SCANNER_MODE source=OVERRIDE value='LIVE_READONLY'
+[CONFIG][RESOLVE] key=SCANNER_SYMBOLS source=DEFAULT value=[]
+[CONFIG][RESOLVE] key=SCANNER_DEFAULT_SYMBOLS source=DEFAULT value=['AAPL', 'TSLA', 'NVDA', 'AMD', 'SPY']
+[CONFIG][RESOLVE] key=SCANNER_DATA_SOURCE source=OVERRIDE value='IBKR'
+[CONFIG][RESOLVE] key=HISTORICAL_ENRICH_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=SCANNER_TOP_GAINERS_COUNT source=DEFAULT value=50
+[CONFIG][RESOLVE] key=SCANNER_TEACHING_SYMBOL_CAP source=DEFAULT value=0
+[CONFIG][RESOLVE] key=TOPN_REFRESH_SECONDS source=DEFAULT value=300
+[CONFIG][RESOLVE] key=WATCHLIST_REFRESH_SECONDS source=DEFAULT value=60
+[CONFIG][RESOLVE] key=FOCUS_REFRESH_SECONDS source=DEFAULT value=10
+[CONFIG][RESOLVE] key=MANUAL_FOCUS_ENABLED source=OVERRIDE value=False
+[CONFIG][RESOLVE] key=PREP_REFRESH_CLOSED_MIN_SECONDS source=DEFAULT value=7200
+[CONFIG][RESOLVE] key=PREP_REFRESH_CLOSED_MAX_SECONDS source=DEFAULT value=21600
+[CONFIG][RESOLVE] key=PREP_REFRESH_PRE_MIN_SECONDS source=DEFAULT value=900
+[CONFIG][RESOLVE] key=PREP_REFRESH_PRE_MAX_SECONDS source=DEFAULT value=1800
+[CONFIG][RESOLVE] key=PREP_REFRESH_REG_MIN_SECONDS source=DEFAULT value=1800
+[CONFIG][RESOLVE] key=PREP_REFRESH_REG_MAX_SECONDS source=DEFAULT value=3600
+[CONFIG][RESOLVE] key=PREP_REFRESH_AH_MIN_SECONDS source=DEFAULT value=3600
+[CONFIG][RESOLVE] key=PREP_REFRESH_AH_MAX_SECONDS source=DEFAULT value=10800
+[CONFIG][RESOLVE] key=POSITION_MANAGEMENT_TICK_SECONDS source=DEFAULT value=1
+[CONFIG][RESOLVE] key=FOCUS_MAX_SYMBOLS_PER_STRATEGY source=DEFAULT value=5
+[CONFIG][RESOLVE] key=WATCHLIST_MAX_SYMBOLS_PER_STRATEGY source=DEFAULT value=15
+[CONFIG][RESOLVE] key=TOPN_MAX_SYMBOLS_PER_STRATEGY source=DEFAULT value=50
+[CONFIG][RESOLVE] key=SCANNER_WATCHLIST_LIMIT source=DEFAULT value=15
+[CONFIG][RESOLVE] key=WATCHLIST_PRINT_EVERY_N_CYCLES source=DEFAULT value=20
+[CONFIG][RESOLVE] key=SCANNER_SESSION_WINDOWS_UTC source=DEFAULT value={'PRE_START': 12.0, 'RTH_START': 14.0, 'AFT_START': 21.5, 'AFT_END': 23.0}
+[CONFIG][RESOLVE] key=SCANNER_MOCK_SEED source=DEFAULT value=42
+[CONFIG][RESOLVE] key=SCANNER_MOCK_SYMBOLS_FILE source=DEFAULT value='src/scanner/mock_universe.txt'
+[CONFIG][RESOLVE] key=SCANNER_FLOAT_CACHE_FILE source=DEFAULT value='data/reference/float_cache.json'
+[CONFIG][RESOLVE] key=SCANNER_VERSION source=DEFAULT value='v2026-01-04-11'
+[CONFIG][RESOLVE] key=SCANNER_GIT_SHA source=DEFAULT value=''
+[CONFIG][RESOLVE] key=SHOW_URLS source=DEFAULT value=True
+[CONFIG][RESOLVE] key=DISABLE_OSC8 source=DEFAULT value=False
+[CONFIG][RESOLVE] key=ROSS_MIN_PCT_CHANGE source=DEFAULT value=10.0
+[CONFIG][RESOLVE] key=ROSS_MIN_PRICE source=DEFAULT value=1.0
+[CONFIG][RESOLVE] key=ROSS_MAX_PRICE source=DEFAULT value=20.0
+[CONFIG][RESOLVE] key=ROSS_MAX_FLOAT source=DEFAULT value=20000000
+[CONFIG][RESOLVE] key=ROSS_MIN_RVOL source=DEFAULT value=2.0
+[CONFIG][RESOLVE] key=ROSS_PCT_CHANGE_MIN source=DEFAULT value=3.0
+[CONFIG][RESOLVE] key=ROSS_RVOL_MIN source=DEFAULT value=0.5
+[CONFIG][RESOLVE] key=WATCHLIST_RVOL_MIN source=DEFAULT value=None
+[CONFIG][RESOLVE] key=FOCUS_RVOL_MIN source=DEFAULT value=None
+[CONFIG][RESOLVE] key=FORCE_DEBUG_TRADES source=DEFAULT value=False
+[CONFIG][RESOLVE] key=ROSS_VALIDATION_OVERRIDE_ENABLED source=OVERRIDE value=False
+[CONFIG][RESOLVE] key=FORCE_PREMARKET_TRIGGER source=DEFAULT value=False
+[CONFIG][RESOLVE] key=MAX_SPREAD_PCT source=DEFAULT value=None
+[CONFIG][RESOLVE] key=ALLOW_UNKNOWN_FLOAT source=DEFAULT value=False
+[CONFIG][RESOLVE] key=ROSS_MIN_VOLUME source=DEFAULT value=1000000
+[CONFIG][RESOLVE] key=ROSS_MIN_PREMARKET_VOLUME source=DEFAULT value=100000
+[CONFIG][RESOLVE] key=ROSS_REQUIRE_NEWS source=DEFAULT value=True
+[CONFIG][RESOLVE] key=NEWS_MAX_AGE_SECONDS source=DEFAULT value=3600
+[CONFIG][RESOLVE] key=NEWS_MIN_VELOCITY_10M source=DEFAULT value=1
+[CONFIG][RESOLVE] key=NEWS_MIN_REGIONS source=DEFAULT value=1
+[CONFIG][RESOLVE] key=NEWS_CACHE_FILE source=DEFAULT value='data/news/news_cache.json'
+[CONFIG][RESOLVE] key=NEWS_MAX_AGE_HOURS source=DEFAULT value=6.0
+[CONFIG][RESOLVE] key=NEWS_REFRESH_SECONDS_PREP source=DEFAULT value=1800
+[CONFIG][RESOLVE] key=NEWS_REFRESH_SECONDS_PRE source=DEFAULT value=300
+[CONFIG][RESOLVE] key=NEWS_REFRESH_SECONDS_RTH source=DEFAULT value=120
+[CONFIG][RESOLVE] key=NEWS_ENABLED source=DEFAULT value=True
+[CONFIG][RESOLVE] key=NEWS_LOOKBACK_HOURS source=DEFAULT value=6.0
+[CONFIG][RESOLVE] key=NEWS_MAX_ENTRIES_PER_SYMBOL source=DEFAULT value=5
+[CONFIG][RESOLVE] key=NEWS_REQUEST_TIMEOUT_S source=DEFAULT value=5
+[CONFIG][RESOLVE] key=NEWS_TOTAL_BUDGET_S source=DEFAULT value=8.0
+[CONFIG][RESOLVE] key=NEWS_EXTENDED_TIER_RESERVE_FRACTION source=DEFAULT value=0.35
+[CONFIG][RESOLVE] key=VERIFIED_RSS_PATH source=DEFAULT value='verified_rss.txt'
+[CONFIG][RESOLVE] key=NEWS_REFRESH_SECONDS source=DEFAULT value=90
+[CONFIG][RESOLVE] key=NEWS_MAX_ITEMS_PER_FEED source=DEFAULT value=75
+[CONFIG][RESOLVE] key=NEWS_MAX_TOP_HEADLINES source=DEFAULT value=5
+[CONFIG][RESOLVE] key=NEWS_DEBUG source=DEFAULT value=False
+[CONFIG][RESOLVE] key=CYCLE_SLEEP_SECONDS source=DEFAULT value=3
+[CONFIG][RESOLVE] key=ACTIVE_SESSIONS source=DEFAULT value=['PRE', 'RTH', 'AH']
+[CONFIG][RESOLVE] key=SESSION_PHASE_OVERRIDE source=DEFAULT value=None
+[CONFIG][RESOLVE] key=MARKET_HOLIDAYS source=DEFAULT value=set()
+[CONFIG][RESOLVE] key=MARKET_HALF_DAYS source=DEFAULT value=set()
+[CONFIG][RESOLVE] key=MARKET_EARLY_CLOSE_TIME source=DEFAULT value=datetime.time(13, 0)
+[CONFIG][RESOLVE] key=MARKET_SESSION_WINDOWS_LOCAL source=DEFAULT value={'PRE_START': datetime.time(4, 0), 'REGULAR_START': datetime.time(9, 30), 'REGULAR_END': datetime.time(16, 0), 'AFTER_END': datetime.time(20, 0)}
+[CONFIG][RESOLVE] key=PERSISTENCE_ENABLED source=DEFAULT value=True
+[CONFIG][RESOLVE] key=PERSISTENCE_BACKEND source=DEFAULT value='sqlite'
+[CONFIG][RESOLVE] key=PERSISTENCE_SQLITE_PATH source=DEFAULT value='data/ibkr_system.db'
+[CONFIG][RESOLVE] key=PERSISTENCE_JSONL_MIRROR_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=AUDIT_HASH_CHAIN_ENABLED source=DEFAULT value=True
+[CONFIG][RESOLVE] key=AUDIT_VERIFY_ON_START source=DEFAULT value=False
+[CONFIG][RESOLVE] key=PERSIST_FLUSH_EACH_CYCLE source=DEFAULT value=True
+[CONFIG][RESOLVE] key=APP_VERSION source=DEFAULT value='UNKNOWN'
+[CONFIG][RESOLVE] key=GIT_SHA source=DEFAULT value=None
+[CONFIG][RESOLVE] key=RISK_STRATEGY_LIMITS source=DEFAULT value={'SCALPER': {'max_trades': 2}, 'MOMENTUM': {'max_trades': 1}}
+[CONFIG][RESOLVE] key=STRATEGY_CAPITAL_ALLOCATIONS source=DEFAULT value={}
+[CONFIG][RESOLVE] key=STRATEGY_CAPITAL_DEFAULT_ALLOCATION_PCT source=DEFAULT value=0.5
+[CONFIG][RESOLVE] key=RISK_MAX_POSITION_SIZE source=DEFAULT value=1
+[CONFIG][RESOLVE] key=RISK_MAX_OPEN_POSITIONS source=DEFAULT value=5
+[CONFIG][RESOLVE] key=RISK_MAX_TOTAL_EXPOSURE_PCT source=DEFAULT value=15.0
+[CONFIG][RESOLVE] key=LIFECYCLE_MAX_PORTFOLIO_EXPOSURE source=DEFAULT value=5000.0
+[CONFIG][RESOLVE] key=LIFECYCLE_MAX_POSITION_EXPOSURE source=DEFAULT value=1500.0
+[CONFIG][RESOLVE] key=LIFECYCLE_MAX_POSITIONS source=DEFAULT value=5
+[CONFIG][RESOLVE] key=LIFECYCLE_MANUAL_KILL_SWITCH source=DEFAULT value=False
+[CONFIG][RESOLVE] key=RISK_CONFIDENCE_LOW_THRESHOLD source=DEFAULT value=0.75
+[CONFIG][RESOLVE] key=RISK_CONFIDENCE_MEDIUM_THRESHOLD source=DEFAULT value=0.5
+[CONFIG][RESOLVE] key=EXECUTION_MAX_ATTEMPTS_BY_TRADER source=DEFAULT value={'SCALPER': 2, 'MOMENTUM': 3, 'DEFAULT': 1}
+[CONFIG][RESOLVE] key=ROSS_RISK_MIN_GAP source=DEFAULT value=4.0
+[CONFIG][RESOLVE] key=ROSS_RISK_MAX_GAP source=DEFAULT value=20.0
+[CONFIG][RESOLVE] key=ROSS_RISK_FLOAT_CEILING source=DEFAULT value=100.0
+[CONFIG][RESOLVE] key=ROSS_RISK_RVOL_FLOOR source=DEFAULT value=2.0
+[CONFIG][RESOLVE] key=ROSS_RISK_CONFIDENCE_FLOOR source=DEFAULT value=0.6
+[CONFIG][RESOLVE] key=ROSS_RISK_COOLDOWN_TICKS source=DEFAULT value=5
+[CONFIG][RESOLVE] key=ROSS_RISK_MAX_ATTEMPTS_PER_SYMBOL source=DEFAULT value=2
+[CONFIG][RESOLVE] key=MIN_HOLD_TICKS source=DEFAULT value=2
+[CONFIG][RESOLVE] key=MAX_HOLD_TICKS source=DEFAULT value=10
+[CONFIG][RESOLVE] key=ROSS_ENABLE_ADDITIONAL_HEURISTIC_PATTERNS source=DEFAULT value=False
+[CONFIG][RESOLVE] key=ROSS_MOMENTUM_STRATEGY_ENABLED source=DEFAULT value=True
+[CONFIG][RESOLVE] key=STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=MEAN_REVERSION_STRATEGY_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=LONG_HORIZON_VALUE_STRATEGY_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=E22_STRATEGY_SCALABILITY_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=E22_MAX_STRATEGIES_PER_CYCLE source=DEFAULT value=20
+[CONFIG][RESOLVE] key=E22_MAX_INTENTS_PER_CYCLE source=DEFAULT value=200
+[CONFIG][RESOLVE] key=E22_MAX_POSITIONS_PER_CYCLE source=DEFAULT value=50
+[CONFIG][RESOLVE] key=E22_SYMBOL_EXCLUSIVITY source=DEFAULT value=True
+[CONFIG][RESOLVE] key=E22_STRATEGY_PRIORITY source=DEFAULT value={}
+[CONFIG][RESOLVE] key=E22_STRATEGY_MAX_INTENTS source=DEFAULT value={}
+[CONFIG][RESOLVE] key=SELECTED_STRATEGY source=DEFAULT value=''
+[CONFIG][RESOLVE] key=STRATEGY_POLICY_V2_ENABLED source=DEFAULT value=True
+[CONFIG][RESOLVE] key=STRATEGY_POLICY_V2_STRATEGIES source=DEFAULT value={'ross_momentum': True}
+[CONFIG][RESOLVE] key=ENABLED_STRATEGIES source=DEFAULT value={'GapAndGoStrategy': True, 'MomentumContinuationStrategy': True, 'EventEarningsReactionStrategy': False, 'EventNewsShockContinuationStrategy': False, 'VolatilityContractionBreakoutStrategy': False, 'VolatilityCarryRiskPremiumStrategy': False, 'PairsDivergenceReversionStrategy': False, 'CrossSectionalRelativeStrengthRotationStrategy': False, 'TimeBasedSeasonalityStrategy': False, 'TrendFollowingClassicStrategy': False, 'LongHorizonQualityCompounderStrategy': False, 'RegimeAdaptiveMetaAllocatorStrategy': False, 'OpeningDriveStrategy': False, 'VwapReclaimStrategy': False, 'PowerHourStrategy': False, 'VolatilityExpansionStrategy': False, 'RangeBoundFadeStrategy': False, 'SupportResistanceChannelStrategy': False}
+[CONFIG][RESOLVE] key=IBKR_TRANSLATION_TEST_SYMBOL source=DEFAULT value=''
+[CONFIG][RESOLVE] key=IBKR_TRANSLATION_TEST_DIRECTION source=DEFAULT value='LONG'
+[CONFIG][RESOLVE] key=IBKR_TRANSLATION_TEST_ORDER_TYPE source=DEFAULT value='MKT'
+[CONFIG][RESOLVE] key=IBKR_TRANSLATION_TEST_QUANTITY source=DEFAULT value=1
+[CONFIG][RESOLVE] key=IBKR_TRANSLATION_TEST_LIMIT_PRICE source=DEFAULT value=None
+[CONFIG][RESOLVE] key=IBKR_TRANSLATION_TEST_TIF source=DEFAULT value='DAY'
+[CONFIG][RESOLVE] key=IBKR_TRANSLATION_TEST_CLIENT_ORDER_ID source=DEFAULT value='dry-run-ibkr-translation'
+[CONFIG][RESOLVE] key=IBKR_TRANSLATION_TEST_STRATEGY_NAME source=DEFAULT value='DRY_RUN'
+[CONFIG][RESOLVE] key=IBKR_TRANSLATION_TEST_TRADER_TYPE source=DEFAULT value='MANUAL'
+[CONFIG][RESOLVE] key=IBKR_SMOKE_SYMBOL source=DEFAULT value=''
+[CONFIG][RESOLVE] key=FUTURE_NEWS_SENTIMENT_MODEL source=DEFAULT value='PLACEHOLDER'
+[CONFIG][RESOLVE] key=FUTURE_EXECUTION_RATE_LIMIT source=DEFAULT value=0
+[CONFIG][RESOLVE] key=FUTURE_STORAGE_RETENTION_DAYS source=DEFAULT value=0
+[CONFIG] Loaded 216 variables
+[CONFIG] HARD enforced: 52
+[CONFIG] Optional: 163
+[CONFIG] Scanner symbol cap: 50 (source=DEFAULT)
+[CONFIG] Market data snapshot cap: 50 (source=ENV)
+[CONFIG] No ambiguous defaults detected
+[MODE][INPUT] run_mode_raw=READ_ONLY execution_enabled_raw=False
+[MODE][NORMALIZED] run_mode=READ_ONLY execution_enabled=False
+[MODE][TRACE] requested=READ_ONLY env_RUN_MODE=READ_ONLY env_EXECUTION_ENABLED=false effective=READ_ONLY reason=mode_non_executable
+[MODE][AUTHORITY] effective_mode=READ_ONLY trade_enabled=False scan_only=True reason=mode_non_executable
+[IBKR][READONLY_OVERRIDE] readonly=True (execution_enabled=False, run_mode=READ_ONLY)
+[IBKR][CONFIG] mode=READ_ONLY port=7497 host=127.0.0.1 client_id=19282
+[IBKR][MANAGER] init mode=READ_ONLY host=127.0.0.1 port=7497 base_client_id=19282 readonly=True market_data_type=LIVE snapshot_timeout_seconds=5
+[IBKR][MANAGER] connect_attempt client_id=19282
+[IBKR][CLIENT] connect host=127.0.0.1 port=7497 client_id=19282 timeout=5 market_data_type=LIVE readonly=True
+[IBKR][ORDER_ID_REBASE] broker_next=1 local_last=361 chosen=362
+[IBKR][NEXT_VALID_ID] order_id=362
+[IBKR] Setting market data type=LIVE code=1
+[IBKR][BROKER_ERROR] {"code": 2104, "con_id": null, "message": "Market data farm connection is OK:usfarm.nj", "req_id": -1, "request_type": null, "symbol": null, "timestamp_utc": "2026-09-28T17:29:49.432589+00:00"}
+[ORDER][ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:usfarm.nj
+[IBKR][ORDER_ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:usfarm.nj
+[IBKR] Error reqId=-1 code=2104 msg=Market data farm connection is OK:usfarm.nj timestamp_utc=2026-09-28T17:29:49.432589+00:00
+[IBKR][BROKER_ERROR] {"code": 2104, "con_id": null, "message": "Market data farm connection is OK:hfarm", "req_id": -1, "request_type": null, "symbol": null, "timestamp_utc": "2026-09-28T17:29:49.432863+00:00"}
+[ORDER][ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:hfarm
+[IBKR][ORDER_ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:hfarm
+[IBKR] Error reqId=-1 code=2104 msg=Market data farm connection is OK:hfarm timestamp_utc=2026-09-28T17:29:49.432863+00:00
+[IBKR][BROKER_ERROR] {"code": 2104, "con_id": null, "message": "Market data farm connection is OK:jfarm", "req_id": -1, "request_type": null, "symbol": null, "timestamp_utc": "2026-09-28T17:29:49.433098+00:00"}
+[ORDER][ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:jfarm
+[IBKR][ORDER_ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:jfarm
+[IBKR] Error reqId=-1 code=2104 msg=Market data farm connection is OK:jfarm timestamp_utc=2026-09-28T17:29:49.433098+00:00
+[IBKR][BROKER_ERROR] {"code": 2104, "con_id": null, "message": "Market data farm connection is OK:eufarm", "req_id": -1, "request_type": null, "symbol": null, "timestamp_utc": "2026-09-28T17:29:49.433276+00:00"}
+[ORDER][ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:eufarm
+[IBKR][ORDER_ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:eufarm
+[IBKR] Error reqId=-1 code=2104 msg=Market data farm connection is OK:eufarm timestamp_utc=2026-09-28T17:29:49.433276+00:00
+[IBKR][BROKER_ERROR] {"code": 2104, "con_id": null, "message": "Market data farm connection is OK:usfuture", "req_id": -1, "request_type": null, "symbol": null, "timestamp_utc": "2026-09-28T17:29:49.433485+00:00"}
+[ORDER][ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:usfuture
+[IBKR][ORDER_ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:usfuture
+[IBKR] Error reqId=-1 code=2104 msg=Market data farm connection is OK:usfuture timestamp_utc=2026-09-28T17:29:49.433485+00:00
+[IBKR][BROKER_ERROR] {"code": 2104, "con_id": null, "message": "Market data farm connection is OK:cashfarm", "req_id": -1, "request_type": null, "symbol": null, "timestamp_utc": "2026-09-28T17:29:49.433575+00:00"}
+[ORDER][ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:cashfarm
+[IBKR][ORDER_ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:cashfarm
+[IBKR] Error reqId=-1 code=2104 msg=Market data farm connection is OK:cashfarm timestamp_utc=2026-09-28T17:29:49.433575+00:00
+[IBKR][BROKER_ERROR] {"code": 2104, "con_id": null, "message": "Market data farm connection is OK:usfarm", "req_id": -1, "request_type": null, "symbol": null, "timestamp_utc": "2026-09-28T17:29:49.433656+00:00"}
+[ORDER][ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:usfarm
+[IBKR][ORDER_ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:usfarm
+[IBKR] Error reqId=-1 code=2104 msg=Market data farm connection is OK:usfarm timestamp_utc=2026-09-28T17:29:49.433656+00:00
+[IBKR][BROKER_ERROR] {"code": 2106, "con_id": null, "message": "HMDS data farm connection is OK:euhmds", "req_id": -1, "request_type": null, "symbol": null, "timestamp_utc": "2026-09-28T17:29:49.433734+00:00"}
+[ORDER][ERROR] order_id=-1 code=2106 message=HMDS data farm connection is OK:euhmds
+[IBKR][ORDER_ERROR] order_id=-1 code=2106 message=HMDS data farm connection is OK:euhmds
+[IBKR] Error reqId=-1 code=2106 msg=HMDS data farm connection is OK:euhmds timestamp_utc=2026-09-28T17:29:49.433734+00:00
+[IBKR][BROKER_ERROR] {"code": 2106, "con_id": null, "message": "HMDS data farm connection is OK:fundfarm", "req_id": -1, "request_type": null, "symbol": null, "timestamp_utc": "2026-09-28T17:29:49.433811+00:00"}
+[ORDER][ERROR] order_id=-1 code=2106 message=HMDS data farm connection is OK:fundfarm
+[IBKR][ORDER_ERROR] order_id=-1 code=2106 message=HMDS data farm connection is OK:fundfarm
+[IBKR] Error reqId=-1 code=2106 msg=HMDS data farm connection is OK:fundfarm timestamp_utc=2026-09-28T17:29:49.433811+00:00
+[IBKR][BROKER_ERROR] {"code": 2106, "con_id": null, "message": "HMDS data farm connection is OK:ushmds", "req_id": -1, "request_type": null, "symbol": null, "timestamp_utc": "2026-09-28T17:29:49.433891+00:00"}
+[ORDER][ERROR] order_id=-1 code=2106 message=HMDS data farm connection is OK:ushmds
+[IBKR][ORDER_ERROR] order_id=-1 code=2106 message=HMDS data farm connection is OK:ushmds
+[IBKR] Error reqId=-1 code=2106 msg=HMDS data farm connection is OK:ushmds timestamp_utc=2026-09-28T17:29:49.433891+00:00
+[IBKR][BROKER_ERROR] {"code": 2158, "con_id": null, "message": "Sec-def data farm connection is OK:secdefil", "req_id": -1, "request_type": null, "symbol": null, "timestamp_utc": "2026-09-28T17:29:49.433968+00:00"}
+[ORDER][ERROR] order_id=-1 code=2158 message=Sec-def data farm connection is OK:secdefil
+[IBKR][ORDER_ERROR] order_id=-1 code=2158 message=Sec-def data farm connection is OK:secdefil
+[IBKR] Error reqId=-1 code=2158 msg=Sec-def data farm connection is OK:secdefil timestamp_utc=2026-09-28T17:29:49.433968+00:00
+[IBKR] connection_status=True
+[IBKR][CONNECTED] Connected client_id=19282
+[IBKR][MANAGER] connected client_id=19282 generation=1
+[IBKR][SESSION] mode=READ_ONLY account_id_redacted=REDACTED readonly=True
+[IBKR][CALLBACK_RAW] event=openOrderEnd
+[SESSION][TIME] utc=2026-09-28T17:29:49.470327+00:00 ny=2026-09-28T13:29:49.470327-04:00 run_mode=READ_ONLY phase=RTH_MID coarse=RTH source=TIME
+[SESSION][TIME] utc=2026-09-28T17:29:49.470327+00:00 ny=2026-09-28T13:29:49.470327-04:00 run_mode=READ_ONLY phase=RTH_MID coarse=RTH source=TIME
+[ROSS][STATE] reset trading_day=2026-09-28 session=RTH_MID
+[SCANNER] MODE=READ_ONLY SESSION=RTH_MID
+[SESSION][MODE] utc=2026-09-28T17:29:49.470327+00:00 ny=2026-09-28T13:29:49.470327-04:00 resolved=RTH_MID canonical=RTH_MID reason=MARKET_CLOCK forced=NONE forced_source=NONE reference_trading_date=2026-09-28 previous_valid_market_session_date=2026-09-25
+[WATCHLIST][BUILD_START]
+candidates_incoming=0
+[DATA_QUALITY] requested=LIVE mode=UNKNOWN source=AWAITING_BROKER_CALLBACKS
+[SESSION][RVOL_POLICY] session=RTH_MID watchlist_rvol_min=1.0(STRATEGY) focus_rvol_min=2.0(STRATEGY)
+[CONFIG][ROSS_DEBUG_THRESHOLDS] pct_min=3.0 rvol_min=1.0 source=pct:DEFAULT|rvol:STRATEGY
+[SESSION][PCT_REFERENCE] session=RTH_MID pct_reference=LAST_RTH_CLOSE gap_reference=SESSION_OPEN_VS_LAST_RTH_CLOSE closed_prep_reference=LAST_SESSION_REFERENCE
+[PREP][MODE] session=RTH_MID prep_watchlist_enabled=True seed_enabled=False seed_semantics=PRE_ONLY execution_allowed=True
+[PREP][REFERENCE] session=RTH_MID pct_reference=LAST_RTH_CLOSE gap_reference=SESSION_OPEN_VS_LAST_RTH_CLOSE reference_date=2026-09-28
+[SESSION][EXECUTION_WINDOW] session=RTH_MID execution_allowed=True execution_allowlist=['PRE', 'RTH_OPEN', 'RTH_MID', 'RTH_LATE'] prep_or_closed_mode=False
+[SCANNER][REFRESH]
+cycle_seconds=10
+scanner_refresh_active=True
+last_refresh_utc=2026-09-28T17:29:49.470327+00:00
+next_refresh_due_utc=2026-09-28T17:29:59.470327+00:00
+[SCANNER][POLICY] source=STRATEGY policy_name=CONFIG_DEFAULTS price=1.0-20.0 gap_min=10.0 watchlist_rvol_min=1.0(STRATEGY) focus_rvol_min=2.0(STRATEGY) float_max_millions=20.0 spread_max_pct=None(STRATEGY) allow_unknown_float=False(STRATEGY) watchlist_k=15 focus_m=5
+[SCANNER][ENTRY] strategy=CONFIG_DEFAULTS strategy_policy_version=v1 requested_top_n=2 watchlist_k=15 focus_m=5 universe=IBKR_TOP_GAINERS universe_source=scanner_request scan_code=TOP_PERC_GAIN scan_code_source=scanner_request instrument=STK instrument_source=scanner_request location=STK.US location_source=scanner_request above_price=1.0 below_price=20.0
+[IBKR][MANAGER] reuse client_id=19282 generation=1
+[IBKR][MANAGER] reuse client_id=19282 generation=1
+[IBKR][MD] heartbeat ok
+[IBKR][MD] persistent connection active provider=IBKR
+[SCANNER][PROVIDER] provider=IBKR
+[SCANNER][PROVIDER] source=live_broker
+[SCANNER][LIMITS] Symbol limits (value/source/env)
+[SCANNER][LIMITS] IBKR_MAX_SYMBOLS_PER_CYCLE=50 source=ENV env=IBKR_MAX_SYMBOLS_PER_CYCLE
+[SCANNER][LIMITS] SCANNER_TEACHING_SYMBOL_CAP=0 source=DEFAULT env=-
+[SCANNER][LIMITS] Policy caps top_gainers_n=50 watchlist_k=15 focus_m=5 max_symbols_per_cycle=50
+[SCANNER][LIMITS] Universe override top_n=2
+[SCANNER][LIMITS] requested_top_n=2 requested_top_n_source=scanner_request_or_policy broker_rows_requested=2 broker_rows_source=resolved_symbol_limit effective_internal_processing_limit=2 effective_limit_source=resolved_symbol_limit reductions=['none']
+[SCANNER][LIMITS] Focus list limit=5
+[SCANNER][STAGE] bootstrap
+[SCANNER][IBKR][SUBSCRIPTION] instrument=STK instrument_source=scanner_request location=STK.US.MAJOR scanCode=TOP_PERC_GAIN numberOfRows=2
+[SCANNER][ATTEMPT] scan=TOP_PERC_GAIN loc=STK.US.MAJOR price=1-20 rows=2
+[SCANNER][SUCCESS]
+[SCANNER][IBKR] requested_rows=2 returned_rows=2
+RAW_SCAN_SYMBOLS (N=2): ['KNRX', 'LFCR']
+[SCANNER][IBKR][ROW] rank=1 symbol=KNRX conId=817976192 primaryExchange= tradingClass=KNRX
+[SCANNER][IBKR][ROW] rank=1 symbol=LFCR conId=4814301 primaryExchange= tradingClass=NMS
+[SCANNER][RAW_RESULT] broker_symbols=2 provider_symbols=2
+[SCANNER][IBKR] universe_return ibkr_returned_count=2 requested_top_n=2 truncation=False reasons=['none']
+[SCANNER][IBKR][ATTRIBUTION] raw_zero=False reason=broker_returned_candidates effective_location=STK.US.MAJOR effective_scanCode=TOP_PERC_GAIN
+SCANNER_RAW_N=2 returned 2 symbols
+[ROSS][DELTA] new=2 exited=0 unchanged=0 escalated=0
+[IBKR][MANAGER] reuse client_id=19282 generation=1
+[IBKR][SNAPSHOT_REQUEST] symbol=KNRX source=SCANNER_METADATA identity_key=conid:817976192
+[IBKR][SNAPSHOT_REQUEST] symbol=LFCR source=SCANNER_METADATA identity_key=conid:4814301
+[EXECUTION][QUALIFY][START] symbol=KNRX
+[EXECUTION][QUALIFY][SYNC_FALLBACK] symbol=KNRX
+[IBKR] Resolving contract for symbol=KNRX req_id=2
+[IBKR][BROKER_ERROR] {"code": 162, "con_id": null, "message": "Historical Market Data Service error message:API scanner subscription cancelled: 1", "req_id": 1, "request_type": "SCANNER_DATA", "symbol": null, "timestamp_utc": "2026-09-28T17:29:51.042800+00:00"}
+[ORDER][ERROR] order_id=1 code=162 message=Historical Market Data Service error message:API scanner subscription cancelled: 1
+[IBKR][ORDER_ERROR] order_id=1 code=162 message=Historical Market Data Service error message:API scanner subscription cancelled: 1
+[IBKR] Error reqId=1 code=162 msg=Historical Market Data Service error message:API scanner subscription cancelled: 1 timestamp_utc=2026-09-28T17:29:51.042800+00:00
+[IBKR] Resolved contract symbol=KNRX req_id=2 conId=817976192
+[EXECUTION][QUALIFY][OK] symbol=KNRX conId=817976192
+[EXECUTION][QUALIFY][START] symbol=LFCR
+[EXECUTION][QUALIFY][SYNC_FALLBACK] symbol=LFCR
+[IBKR] Resolving contract for symbol=LFCR req_id=3
+[IBKR] Resolved contract symbol=LFCR req_id=3 conId=4814301
+[EXECUTION][QUALIFY][OK] symbol=LFCR conId=4814301
+[SNAPSHOT][QUALIFY_OK] symbol=KNRX conId=817976192 identity_key=conid:817976192
+[SNAPSHOT][QUALIFY_OK] symbol=LFCR conId=4814301 identity_key=conid:4814301
+[IBKR][MARKET_DATA_TYPE] {"req_id": 4, "requested_market_data_type": 1, "returned_market_data_type": 1, "symbol": "KNRX", "timestamp_utc": "2026-09-28T17:29:51.679716+00:00"}
+[IBKR][SNAPSHOT_RECEIVED] symbol=KNRX identity_key=conid:817976192 last=1.22 bid=None ask=None volume=None
+[IBKR][MARKET_DATA_TYPE] {"req_id": 5, "requested_market_data_type": 1, "returned_market_data_type": 1, "symbol": "LFCR", "timestamp_utc": "2026-09-28T17:29:52.078707+00:00"}
+[IBKR][SNAPSHOT_RECEIVED] symbol=LFCR identity_key=conid:4814301 last=6.51 bid=None ask=None volume=None
+[IBKR][BROKER_ERROR] {"code": 300, "con_id": 4814301, "message": "Can't find EId with tickerId:5", "req_id": 5, "request_type": "MARKET_DATA", "symbol": "LFCR", "timestamp_utc": "2026-09-28T17:29:52.199856+00:00"}
+[ORDER][ERROR] order_id=5 code=300 message=Can't find EId with tickerId:5
+[IBKR][ORDER_ERROR] order_id=5 code=300 message=Can't find EId with tickerId:5
+[IBKR] Error reqId=5 code=300 msg=Can't find EId with tickerId:5 timestamp_utc=2026-09-28T17:29:52.199856+00:00
+[FLOAT][CACHE_PATH] path=C:\Users\nelzo\.codex\worktrees\w01-consolidation\ibkr-trading-system\data\reference\float_cache.json
+[FLOAT][CACHE_PATH] path=C:\Users\nelzo\.codex\worktrees\w01-consolidation\ibkr-trading-system\data\reference\float_cache.json
+[FLOAT][CACHE_PATH] path=C:\Users\nelzo\.codex\worktrees\w01-consolidation\ibkr-trading-system\data\reference\float_cache.json
+[FLOAT][CACHE_LOAD] path=C:\Users\nelzo\.codex\worktrees\w01-consolidation\ibkr-trading-system\data\reference\float_cache.json entries=0
+[FLOAT][PROVENANCE] symbol=KNRX reason=cache_missing
+[FLOAT][REQUIRED] symbol=KNRX status=RESOLVING
+[FLOAT][SOURCE] symbol=KNRX source=UNKNOWN
+[FLOAT][CACHE_USED] symbol=KNRX used=False
+[FLOAT][FALLBACK_USED] symbol=KNRX used=True
+[FLOAT][RESOLVE] symbol=KNRX source=UNKNOWN tolerated=True
+[FLOAT][QUEUE] symbol=KNRX queued_for_discovery
+[FLOAT][RESOLVE] symbol=KNRX source=DISCOVERY_QUEUED
+[FLOAT][PROVENANCE] symbol=LFCR reason=cache_missing
+[FLOAT][REQUIRED] symbol=LFCR status=RESOLVING
+[FLOAT][SOURCE] symbol=LFCR source=UNKNOWN
+[FLOAT][CACHE_USED] symbol=LFCR used=False
+[FLOAT][FALLBACK_USED] symbol=LFCR used=True
+[FLOAT][RESOLVE] symbol=LFCR source=UNKNOWN tolerated=True
+[FLOAT][QUEUE] symbol=LFCR queued_for_discovery
+[FLOAT][RESOLVE] symbol=LFCR source=DISCOVERY_QUEUED
+[FLOAT][SUMMARY] requested=2 cache_hits=0 unknown_tolerated=2 discovery_queued=2
+[GATE][THRESHOLDS] pct_min=5.0 rvol_min=1.0
+[SCANNER][STAGE] market_snapshot_enrichment
+[SCANNER][STAGE] gates
+[EXECUTION][QUALIFY][START] symbol=KNRX
+[EXECUTION][QUALIFY][SYNC_FALLBACK] symbol=KNRX
+[IBKR] Resolving contract for symbol=KNRX req_id=6
+[IBKR] Resolved contract symbol=KNRX req_id=6 conId=817976192
+[EXECUTION][QUALIFY][OK] symbol=KNRX conId=817976192
+[IBKR][PROVIDER][QUOTE] symbol=KNRX contract_symbol=KNRX conId=817976192 exchange=SMART primaryExchange=AMEX
+[IBKR][MARKET_DATA_TYPE] {"req_id": 7, "requested_market_data_type": 1, "returned_market_data_type": 1, "symbol": "KNRX", "timestamp_utc": "2026-09-28T17:29:53.316948+00:00"}
+[SNAPSHOT][RETRY] symbol=KNRX attempt=1/3 label=primary missing=['bid', 'ask'] requested_type=LIVE returned_type=LIVE
+[IBKR][MARKET_DATA_TYPE] {"req_id": 8, "requested_market_data_type": 1, "returned_market_data_type": 1, "symbol": "KNRX", "timestamp_utc": "2026-09-28T17:29:53.432074+00:00"}
+[SNAPSHOT][RETRY] symbol=KNRX attempt=2/3 label=snapshot_retry missing=['bid', 'ask'] requested_type=LIVE returned_type=LIVE
+[FLOAT][DISCOVERY] symbol=KNRX provider=YAHOO result=SUCCESS value=15644782
+[FLOAT][CACHE_WRITE] symbol=KNRX path=C:\Users\nelzo\.codex\worktrees\w01-consolidation\ibkr-trading-system\data\reference\float_cache.json source=YAHOO value=15644782
+[FLOAT][DISCOVERY_WORKER] symbol=KNRX provider=YAHOO result=SUCCESS value=15644782
+[FLOAT][DISCOVERY] symbol=LFCR provider=YAHOO result=SUCCESS value=19328908
+[FLOAT][CACHE_WRITE] symbol=LFCR path=C:\Users\nelzo\.codex\worktrees\w01-consolidation\ibkr-trading-system\data\reference\float_cache.json source=YAHOO value=19328908
+[FLOAT][DISCOVERY_WORKER] symbol=LFCR provider=YAHOO result=SUCCESS value=19328908
+[IBKR][MARKET_DATA_TYPE] {"req_id": 9, "requested_market_data_type": 3, "returned_market_data_type": 1, "symbol": "KNRX", "timestamp_utc": "2026-09-28T17:29:54.307407+00:00"}
+[SNAPSHOT][RETRY] symbol=KNRX attempt=3/3 label=delayed_fallback missing=['bid', 'ask'] requested_type=DELAYED returned_type=LIVE
+[IBKR][PROVIDER][QUOTE][SNAPSHOT] symbol=KNRX raw_fields={'bid': None, 'ask': None, 'last': 1.22, 'close': 0.304, 'volume': 1773510.0, 'open': 0.3179, 'high': 1.52, 'low': 0.319, 'vwap': None, 'bid_size': 0.0, 'ask_size': 0.0, 'last_size': 0.0, 'change_percent': None} waited_seconds=0.842 timeout_occurred=False
+[EXECUTION][QUALIFY][START] symbol=KNRX
+[EXECUTION][QUALIFY][SYNC_FALLBACK] symbol=KNRX
+[IBKR] Resolving contract for symbol=KNRX req_id=10
+[IBKR] Resolved contract symbol=KNRX req_id=10 conId=817976192
+[EXECUTION][QUALIFY][OK] symbol=KNRX conId=817976192
+[IBKR][MARKET_DATA_TYPE] {"req_id": 11, "requested_market_data_type": 1, "returned_market_data_type": 1, "symbol": "KNRX", "timestamp_utc": "2026-09-28T17:29:55.463191+00:00"}
+[SNAPSHOT][RETRY] symbol=KNRX attempt=1/3 label=primary missing=['bid', 'ask'] requested_type=LIVE returned_type=LIVE
+[IBKR][MARKET_DATA_TYPE] {"req_id": 12, "requested_market_data_type": 1, "returned_market_data_type": 1, "symbol": "KNRX", "timestamp_utc": "2026-09-28T17:29:56.461081+00:00"}
+[SNAPSHOT][RETRY] symbol=KNRX attempt=2/3 label=snapshot_retry missing=['bid', 'ask'] requested_type=LIVE returned_type=LIVE
+[IBKR][MARKET_DATA_TYPE] {"req_id": 13, "requested_market_data_type": 3, "returned_market_data_type": 1, "symbol": "KNRX", "timestamp_utc": "2026-09-28T17:29:57.367868+00:00"}
+[SNAPSHOT][RETRY] symbol=KNRX attempt=3/3 label=delayed_fallback missing=['bid', 'ask'] requested_type=DELAYED returned_type=LIVE
+[EXECUTION][QUALIFY][START] symbol=KNRX
+[EXECUTION][QUALIFY][SYNC_FALLBACK] symbol=KNRX
+[IBKR] Resolving contract for symbol=KNRX req_id=14
+[IBKR] Resolved contract symbol=KNRX req_id=14 conId=817976192
+[EXECUTION][QUALIFY][OK] symbol=KNRX conId=817976192
+[IBKR][HIST_ATTEMPT] symbol=KNRX conId=817976192 secType=STK exchange=SMART primaryExchange=AMEX tradingClass=KNRX localSymbol=KNRX currency=USD label=primary useRTH=True endDateTime='' durationStr=20 D whatToShow=TRADES
+[IBKR][HIST_REQ] req_id=15 symbol=KNRX
+[IBKR][HIST_DONE] req_id=15 bars=20
+[IBKR][HIST_RETURN] req_id=15 bars=20
+[IBKR][HIST_ATTEMPT_RESULT] symbol=KNRX conId=817976192 label=primary raw_bar_count=20
+[REFERENCE][CACHE_MISS] symbol=KNRX identity_key=conid:817976192 source=cycle
+[REFERENCE][CACHE_MISS] symbol=KNRX identity_key=conid:817976192 source=persistent
+[EXECUTION][QUALIFY][START] symbol=KNRX
+[EXECUTION][QUALIFY][SYNC_FALLBACK] symbol=KNRX
+[IBKR] Resolving contract for symbol=KNRX req_id=16
+[IBKR] Resolved contract symbol=KNRX req_id=16 conId=817976192
+[EXECUTION][QUALIFY][OK] symbol=KNRX conId=817976192
+[REFERENCE][QUALIFIED] symbol=KNRX identity_key=conid:817976192 conId=817976192 primaryExchange=AMEX exchange=SMART
+[REFERENCE][HISTORICAL_REQUEST] identity_key=conid:817976192 source=provider_daily_bars symbol=KNRX conId=817976192 secType=STK exchange=SMART primaryExchange=AMEX localSymbol=KNRX tradingClass=KNRX currency=USD
+[REFERENCE][HISTORICAL_REQUEST_PARAMS] identity_key=conid:817976192 attempt=primary useRTH=True endDateTime='' durationStr=25 D
+[IBKR][PROVIDER][HISTORY] identity_key=conid:817976192 symbol=KNRX conId=817976192 exchange=SMART primaryExchange=AMEX tradingClass=KNRX localSymbol=KNRX
+[EXECUTION][QUALIFY][START] symbol=KNRX
+[EXECUTION][QUALIFY][SYNC_FALLBACK] symbol=KNRX
+[IBKR] Resolving contract for symbol=KNRX req_id=17
+[IBKR] Resolved contract symbol=KNRX req_id=17 conId=817976192
+[EXECUTION][QUALIFY][OK] symbol=KNRX conId=817976192
+[IBKR][PROVIDER][HISTORY][CONTRACT] symbol=KNRX conId=817976192 exchange=SMART primaryExchange=AMEX
+[IBKR][HIST_ATTEMPT] symbol=KNRX conId=817976192 secType=STK exchange=SMART primaryExchange=AMEX tradingClass=KNRX localSymbol=KNRX currency=USD label=primary useRTH=True endDateTime='' durationStr=25 D whatToShow=TRADES
+[IBKR][HIST_REQ] req_id=18 symbol=KNRX
+[IBKR][HIST_DONE] req_id=18 bars=25
+[IBKR][HIST_RETURN] req_id=18 bars=25
+[IBKR][HIST_ATTEMPT_RESULT] symbol=KNRX conId=817976192 label=primary raw_bar_count=25
+[IBKR][PROVIDER][HISTORY][RESULT] symbol=KNRX raw_bars=25 normalized_bars=25
+[REFERENCE][HISTORICAL_ATTEMPT_RESULT] identity_key=conid:817976192 attempt=primary raw_bar_count=25 normalized_bar_count=25
+[REFERENCE][HISTORICAL_RESPONSE] identity_key=conid:817976192 bar_count=25 first_bar_date=20260824 last_bar_date=20260928
+[REFERENCE_FILTER] total_bars=25 filtered_bars=24 current_day=2026-09-28
+[EXECUTION][QUALIFY][START] symbol=KNRX
+[EXECUTION][QUALIFY][SYNC_FALLBACK] symbol=KNRX
+[IBKR] Resolving contract for symbol=KNRX req_id=19
+[IBKR] Resolved contract symbol=KNRX req_id=19 conId=817976192
+[EXECUTION][QUALIFY][OK] symbol=KNRX conId=817976192
+[IBKR][PROVIDER][QUOTE] symbol=KNRX contract_symbol=KNRX conId=817976192 exchange=SMART primaryExchange=AMEX
+[IBKR][MARKET_DATA_TYPE] {"req_id": 20, "requested_market_data_type": 1, "returned_market_data_type": 1, "symbol": "KNRX", "timestamp_utc": "2026-09-28T17:29:58.821818+00:00"}
+[SNAPSHOT][RETRY] symbol=KNRX attempt=1/3 label=primary missing=['bid', 'ask'] requested_type=LIVE returned_type=LIVE
+[IBKR][MARKET_DATA_TYPE] {"req_id": 21, "requested_market_data_type": 1, "returned_market_data_type": 1, "symbol": "KNRX", "timestamp_utc": "2026-09-28T17:29:59.021277+00:00"}
+[SNAPSHOT][RETRY] symbol=KNRX attempt=2/3 label=snapshot_retry missing=['bid', 'ask'] requested_type=LIVE returned_type=LIVE
+[IBKR][MARKET_DATA_TYPE] {"req_id": 22, "requested_market_data_type": 3, "returned_market_data_type": 1, "symbol": "KNRX", "timestamp_utc": "2026-09-28T17:29:59.928577+00:00"}
+[SNAPSHOT][RETRY] symbol=KNRX attempt=3/3 label=delayed_fallback missing=['bid', 'ask'] requested_type=DELAYED returned_type=LIVE
+[IBKR][PROVIDER][QUOTE][SNAPSHOT] symbol=KNRX raw_fields={'bid': None, 'ask': None, 'last': 1.22, 'close': 0.304, 'volume': 1773510.0, 'open': 0.3179, 'high': 1.52, 'low': 0.319, 'vwap': None, 'bid_size': 0.0, 'ask_size': 0.0, 'last_size': 0.0, 'change_percent': None} waited_seconds=0.436 timeout_occurred=False
+[REFERENCE][SNAPSHOT_PREV_CLOSE] symbol=KNRX identity_key=conid:817976192 value=0.304
+[EXECUTION][QUALIFY][START] symbol=KNRX
+[EXECUTION][QUALIFY][SYNC_FALLBACK] symbol=KNRX
+[IBKR] Resolving contract for symbol=KNRX req_id=23
+[IBKR] Resolved contract symbol=KNRX req_id=23 conId=817976192
+[EXECUTION][QUALIFY][OK] symbol=KNRX conId=817976192
+[IBKR][HIST_ATTEMPT] symbol=KNRX conId=817976192 secType=STK exchange=SMART primaryExchange=AMEX tradingClass=KNRX localSymbol=KNRX currency=USD label=primary useRTH=True endDateTime='' durationStr=20 D whatToShow=TRADES
+[IBKR][HIST_REQ] req_id=24 symbol=KNRX
+[IBKR][HIST_DONE] req_id=24 bars=20
+[IBKR][HIST_RETURN] req_id=24 bars=20
+[IBKR][HIST_ATTEMPT_RESULT] symbol=KNRX conId=817976192 label=primary raw_bar_count=20
+[REFERENCE][HISTORICAL_RESULT] symbol=KNRX identity_key=conid:817976192 bar_count=25 first_bar_date=20260824 last_bar_date=20260928 found=True value=0.304 window_days=20 selected_source=IBKR_PREV_CLOSE
+[RVOL][HISTORICAL_RESULT] symbol=KNRX identity_key=conid:817976192 avg_volume_20d=86256 window_days=20
+[REFERENCE][PERSIST] symbol=KNRX identity_key=conid:817976192 path=data\reference\reference_cache.json keys=('conid:817976192',)
+[RVOL_DEBUG] symbol=NA session=RTH_MID current_volume=1773510 expected_volume=53080.62 normalized_rvol=33.41
+[RVOL_DEBUG] symbol=KNRX session=RTH_MID current_volume=1773510.0 expected_volume=53080.62 normalized_rvol=33.41
+[REFERENCE][MERGE] symbol=KNRX identity_key=conid:817976192 merge_target_found=True reference_label=LAST_RTH_CLOSE value=0.304
+[MARKET_CONTEXT] symbol=KNRX session=RTH_MID phase=RTH_MID last=1.22 prev_close=0.304 pct_change=301.32 current_volume=1773510.0 avg_volume_20d=86256.0 expected_volume=30189.6 rvol=58.75 spread_pct=None float_millions=None sources=pct:CALC(SESSION_REF)|rvol:PHASE_MODEL|ref:IBKR_PREV_CLOSE
+[FLOAT][MISSING_CRITICAL] symbol=KNRX
+[FLOAT][REQUIRED] symbol=KNRX status=FAILED
+[FLOAT][PROVENANCE] symbol=KNRX value=None source=UNKNOWN asof=None cache_hit=False
+[QUOTE_POLICY] symbol=KNRX scanner_valid=True momentum_valid=True execution_valid=False usability=MOMENTUM_OK
+[ENRICH][SNAPSHOT_MERGE] symbol=KNRX conId=817976192 last=1.22 bid=-1.0 ask=-1.0 volume=1773510 merge_target_found=True
+[REFERENCE][CACHE_HIT] symbol=KNRX identity_key=conid:817976192 source=cycle lookup_key=conid:817976192
+[RVOL_DEBUG] symbol=KNRX session=RTH_MID current_volume=1773510.0 expected_volume=53080.62 normalized_rvol=33.41
+[REFERENCE][RESULT] symbol=KNRX identity_key=conid:817976192 found=True value=0.304 asof=conid:817976192 source=IBKR_PREV_CLOSE
+[PCT] symbol=KNRX session=RTH_MID baseline=LAST_RTH_CLOSE value=301.32
+[PCT_DEBUG] symbol=KNRX session=RTH_MID reference=LAST_RTH_CLOSE last_price=1.22 reference_price=0.304 pct_change=301.32
+[GAP] symbol=KNRX source=prep reference=LAST_RTH_CLOSE value=301.32
+[RVOL][REQUEST] symbol=KNRX conId=817976192 session=RTH_MID source=intraday_stats
+[RVOL][BASELINE] symbol=KNRX avg_volume_20d=86256 expected_phase_volume=30189.6 source=SESSION_NORMALIZED_RVOL found=True
+[RVOL][MERGE] symbol=KNRX merge_target_found=True rvol_discovery=58.75 rvol_phase=58.75
+[SESSION][FINAL] resolved_session=RTH_MID
+[ROSS][SESSION_CONTRACT]
+symbol=KNRX
+orchestrator_session=RTH_MID
+scanner_session=RTH_MID
+policy_session=RTH_MID
+pattern_input_session=RTH_MID
+[FLOAT][CACHE_LOAD] path=C:\Users\nelzo\.codex\worktrees\w01-consolidation\ibkr-trading-system\data\reference\float_cache.json entries=2
+[FLOAT][CACHE_REFRESH] path=C:\Users\nelzo\.codex\worktrees\w01-consolidation\ibkr-trading-system\data\reference\float_cache.json entries=2 reason=same_cycle_cache_change
+[FLOAT][SAME_CYCLE_REHYDRATE] symbol=KNRX value=15644782 source=YAHOO cache_hit=False
+[ROSS][GATE] session=RTH_MID pct_change_min=5.0
+[GATE][PCT] symbol=KNRX pct_change=301.32 source=CALC(SESSION_REF) verdict=PASS reason=VALUE_PRESENT
+[SCANNER][KEEP] symbol=KNRX last=1.22 final_pct=301.32 pct_source=CALC(SESSION_REF) vol=1773510 bid=-1.00 ask=-1.00
+[EXECUTION][QUALIFY][START] symbol=LFCR
+[EXECUTION][QUALIFY][SYNC_FALLBACK] symbol=LFCR
+[IBKR] Resolving contract for symbol=LFCR req_id=25
+[IBKR] Resolved contract symbol=LFCR req_id=25 conId=4814301
+[EXECUTION][QUALIFY][OK] symbol=LFCR conId=4814301
+[IBKR][PROVIDER][QUOTE] symbol=LFCR contract_symbol=LFCR conId=4814301 exchange=SMART primaryExchange=NASDAQ
+[IBKR][MARKET_DATA_TYPE] {"req_id": 26, "requested_market_data_type": 1, "returned_market_data_type": 1, "symbol": "LFCR", "timestamp_utc": "2026-09-28T17:30:00.924213+00:00"}
+[IBKR][PROVIDER][QUOTE][SNAPSHOT] symbol=LFCR raw_fields={'bid': 6.51, 'ask': 6.52, 'last': 6.51, 'close': 4.2, 'volume': 30590.0, 'open': 6.52, 'high': 6.6454, 'low': 6.4, 'vwap': None, 'bid_size': 6.0, 'ask_size': 14.0, 'last_size': 1.0, 'change_percent': None} waited_seconds=0.472 timeout_occurred=False
+[EXECUTION][QUALIFY][START] symbol=LFCR
+[EXECUTION][QUALIFY][SYNC_FALLBACK] symbol=LFCR
+[IBKR] Resolving contract for symbol=LFCR req_id=27
+[IBKR] Resolved contract symbol=LFCR req_id=27 conId=4814301
+[EXECUTION][QUALIFY][OK] symbol=LFCR conId=4814301
+[IBKR][MARKET_DATA_TYPE] {"req_id": 28, "requested_market_data_type": 1, "returned_market_data_type": 1, "symbol": "LFCR", "timestamp_utc": "2026-09-28T17:30:01.155749+00:00"}
+[EXECUTION][QUALIFY][START] symbol=LFCR
+[EXECUTION][QUALIFY][SYNC_FALLBACK] symbol=LFCR
+[IBKR] Resolving contract for symbol=LFCR req_id=29
+[IBKR][BROKER_ERROR] {"code": 300, "con_id": 4814301, "message": "Can't find EId with tickerId:28", "req_id": 28, "request_type": "MARKET_DATA", "symbol": "LFCR", "timestamp_utc": "2026-09-28T17:30:01.159258+00:00"}
+[ORDER][ERROR] order_id=28 code=300 message=Can't find EId with tickerId:28
+[IBKR][ORDER_ERROR] order_id=28 code=300 message=Can't find EId with tickerId:28
+[IBKR] Error reqId=28 code=300 msg=Can't find EId with tickerId:28 timestamp_utc=2026-09-28T17:30:01.159258+00:00
+[IBKR] Resolved contract symbol=LFCR req_id=29 conId=4814301
+[EXECUTION][QUALIFY][OK] symbol=LFCR conId=4814301
+[IBKR][HIST_ATTEMPT] symbol=LFCR conId=4814301 secType=STK exchange=SMART primaryExchange=NASDAQ tradingClass=NMS localSymbol=LFCR currency=USD label=primary useRTH=True endDateTime='' durationStr=20 D whatToShow=TRADES
+[IBKR][HIST_REQ] req_id=30 symbol=LFCR
+[IBKR][HIST_DONE] req_id=30 bars=20
+[IBKR][HIST_RETURN] req_id=30 bars=20
+[IBKR][HIST_ATTEMPT_RESULT] symbol=LFCR conId=4814301 label=primary raw_bar_count=20
+[REFERENCE][CACHE_MISS] symbol=LFCR identity_key=conid:4814301 source=cycle
+[REFERENCE][CACHE_MISS] symbol=LFCR identity_key=conid:4814301 source=persistent
+[EXECUTION][QUALIFY][START] symbol=LFCR
+[EXECUTION][QUALIFY][SYNC_FALLBACK] symbol=LFCR
+[IBKR] Resolving contract for symbol=LFCR req_id=31
+[IBKR] Resolved contract symbol=LFCR req_id=31 conId=4814301
+[EXECUTION][QUALIFY][OK] symbol=LFCR conId=4814301
+[REFERENCE][QUALIFIED] symbol=LFCR identity_key=conid:4814301 conId=4814301 primaryExchange=NASDAQ exchange=SMART
+[REFERENCE][HISTORICAL_REQUEST] identity_key=conid:4814301 source=provider_daily_bars symbol=LFCR conId=4814301 secType=STK exchange=SMART primaryExchange=NASDAQ localSymbol=LFCR tradingClass=NMS currency=USD
+[REFERENCE][HISTORICAL_REQUEST_PARAMS] identity_key=conid:4814301 attempt=primary useRTH=True endDateTime='' durationStr=25 D
+[IBKR][PROVIDER][HISTORY] identity_key=conid:4814301 symbol=LFCR conId=4814301 exchange=SMART primaryExchange=NASDAQ tradingClass=NMS localSymbol=LFCR
+[EXECUTION][QUALIFY][START] symbol=LFCR
+[EXECUTION][QUALIFY][SYNC_FALLBACK] symbol=LFCR
+[IBKR] Resolving contract for symbol=LFCR req_id=32
+[IBKR] Resolved contract symbol=LFCR req_id=32 conId=4814301
+[EXECUTION][QUALIFY][OK] symbol=LFCR conId=4814301
+[IBKR][PROVIDER][HISTORY][CONTRACT] symbol=LFCR conId=4814301 exchange=SMART primaryExchange=NASDAQ
+[IBKR][HIST_ATTEMPT] symbol=LFCR conId=4814301 secType=STK exchange=SMART primaryExchange=NASDAQ tradingClass=NMS localSymbol=LFCR currency=USD label=primary useRTH=True endDateTime='' durationStr=25 D whatToShow=TRADES
+[IBKR][HIST_REQ] req_id=33 symbol=LFCR
+[IBKR][HIST_DONE] req_id=33 bars=25
+[IBKR][HIST_RETURN] req_id=33 bars=25
+[IBKR][HIST_ATTEMPT_RESULT] symbol=LFCR conId=4814301 label=primary raw_bar_count=25
+[IBKR][PROVIDER][HISTORY][RESULT] symbol=LFCR raw_bars=25 normalized_bars=25
+[REFERENCE][HISTORICAL_ATTEMPT_RESULT] identity_key=conid:4814301 attempt=primary raw_bar_count=25 normalized_bar_count=25
+[REFERENCE][HISTORICAL_RESPONSE] identity_key=conid:4814301 bar_count=25 first_bar_date=20260824 last_bar_date=20260928
+[REFERENCE_FILTER] total_bars=25 filtered_bars=24 current_day=2026-09-28
+[EXECUTION][QUALIFY][START] symbol=LFCR
+[EXECUTION][QUALIFY][SYNC_FALLBACK] symbol=LFCR
+[IBKR] Resolving contract for symbol=LFCR req_id=34
+[IBKR] Resolved contract symbol=LFCR req_id=34 conId=4814301
+[EXECUTION][QUALIFY][OK] symbol=LFCR conId=4814301
+[IBKR][PROVIDER][QUOTE] symbol=LFCR contract_symbol=LFCR conId=4814301 exchange=SMART primaryExchange=NASDAQ
+[IBKR][MARKET_DATA_TYPE] {"req_id": 35, "requested_market_data_type": 1, "returned_market_data_type": 1, "symbol": "LFCR", "timestamp_utc": "2026-09-28T17:30:02.642014+00:00"}
+[IBKR][PROVIDER][QUOTE][SNAPSHOT] symbol=LFCR raw_fields={'bid': 6.51, 'ask': 6.52, 'last': 6.51, 'close': 4.2, 'volume': 30590.0, 'open': 6.52, 'high': 6.6454, 'low': 6.4, 'vwap': None, 'bid_size': 6.0, 'ask_size': 14.0, 'last_size': 1.0, 'change_percent': None} waited_seconds=0.446 timeout_occurred=False
+[REFERENCE][SNAPSHOT_PREV_CLOSE] symbol=LFCR identity_key=conid:4814301 value=4.2
+[EXECUTION][QUALIFY][START] symbol=LFCR
+[EXECUTION][QUALIFY][SYNC_FALLBACK] symbol=LFCR
+[IBKR] Resolving contract for symbol=LFCR req_id=36
+[IBKR][BROKER_ERROR] {"code": 300, "con_id": 4814301, "message": "Can't find EId with tickerId:35", "req_id": 35, "request_type": "MARKET_DATA", "symbol": "LFCR", "timestamp_utc": "2026-09-28T17:30:02.646731+00:00"}
+[ORDER][ERROR] order_id=35 code=300 message=Can't find EId with tickerId:35
+[IBKR][ORDER_ERROR] order_id=35 code=300 message=Can't find EId with tickerId:35
+[IBKR] Error reqId=35 code=300 msg=Can't find EId with tickerId:35 timestamp_utc=2026-09-28T17:30:02.646731+00:00
+[IBKR] Resolved contract symbol=LFCR req_id=36 conId=4814301
+[EXECUTION][QUALIFY][OK] symbol=LFCR conId=4814301
+[IBKR][HIST_ATTEMPT] symbol=LFCR conId=4814301 secType=STK exchange=SMART primaryExchange=NASDAQ tradingClass=NMS localSymbol=LFCR currency=USD label=primary useRTH=True endDateTime='' durationStr=20 D whatToShow=TRADES
+[IBKR][HIST_REQ] req_id=37 symbol=LFCR
+[IBKR][HIST_DONE] req_id=37 bars=20
+[IBKR][HIST_RETURN] req_id=37 bars=20
+[IBKR][HIST_ATTEMPT_RESULT] symbol=LFCR conId=4814301 label=primary raw_bar_count=20
+[REFERENCE][HISTORICAL_RESULT] symbol=LFCR identity_key=conid:4814301 bar_count=25 first_bar_date=20260824 last_bar_date=20260928 found=True value=4.2 window_days=20 selected_source=IBKR_PREV_CLOSE
+[RVOL][HISTORICAL_RESULT] symbol=LFCR identity_key=conid:4814301 avg_volume_20d=2242 window_days=20
+[REFERENCE][PERSIST] symbol=LFCR identity_key=conid:4814301 path=data\reference\reference_cache.json keys=('conid:4814301',)
+[RVOL_DEBUG] symbol=NA session=RTH_MID current_volume=30590 expected_volume=1379.98 normalized_rvol=22.17
+[RVOL_DEBUG] symbol=LFCR session=RTH_MID current_volume=30590.0 expected_volume=1379.98 normalized_rvol=22.17
+[REFERENCE][MERGE] symbol=LFCR identity_key=conid:4814301 merge_target_found=True reference_label=LAST_RTH_CLOSE value=4.2
+[MARKET_CONTEXT] symbol=LFCR session=RTH_MID phase=RTH_MID last=6.51 prev_close=4.2 pct_change=55.0 current_volume=30590.0 avg_volume_20d=2242.0 expected_volume=784.7 rvol=38.98 spread_pct=0.0015 float_millions=19.3289 sources=pct:CALC(SESSION_REF)|rvol:PHASE_MODEL|ref:IBKR_PREV_CLOSE
+[FLOAT][REQUIRED] symbol=LFCR status=RECOVERED
+[FLOAT][PROVENANCE] symbol=LFCR value=19328908 source=YAHOO asof=2026-09-28T17:29:53.964374+00:00 cache_hit=False
+[QUOTE_POLICY] symbol=LFCR scanner_valid=True momentum_valid=True execution_valid=True usability=EXECUTION_OK
+[ENRICH][SNAPSHOT_MERGE] symbol=LFCR conId=4814301 last=6.51 bid=6.51 ask=6.52 volume=30590 merge_target_found=True
+[FLOAT] symbol=LFCR class=ROSS_SWEET_SPOT shares=19328908
+[REFERENCE][CACHE_HIT] symbol=LFCR identity_key=conid:4814301 source=cycle lookup_key=conid:4814301
+[RVOL_DEBUG] symbol=LFCR session=RTH_MID current_volume=30590.0 expected_volume=1379.98 normalized_rvol=22.17
+[REFERENCE][RESULT] symbol=LFCR identity_key=conid:4814301 found=True value=4.2 asof=conid:4814301 source=IBKR_PREV_CLOSE
+[PCT] symbol=LFCR session=RTH_MID baseline=LAST_RTH_CLOSE value=55.0
+[PCT_DEBUG] symbol=LFCR session=RTH_MID reference=LAST_RTH_CLOSE last_price=6.51 reference_price=4.2 pct_change=55.0
+[GAP] symbol=LFCR source=prep reference=LAST_RTH_CLOSE value=55.0
+[RVOL][REQUEST] symbol=LFCR conId=4814301 session=RTH_MID source=intraday_stats
+[RVOL][BASELINE] symbol=LFCR avg_volume_20d=2242 expected_phase_volume=784.7 source=SESSION_NORMALIZED_RVOL found=True
+[RVOL][MERGE] symbol=LFCR merge_target_found=True rvol_discovery=38.98 rvol_phase=38.98
+[SESSION][FINAL] resolved_session=RTH_MID
+[ROSS][SESSION_CONTRACT]
+symbol=LFCR
+orchestrator_session=RTH_MID
+scanner_session=RTH_MID
+policy_session=RTH_MID
+pattern_input_session=RTH_MID
+[ROSS][GATE] session=RTH_MID pct_change_min=5.0
+[GATE][PCT] symbol=LFCR pct_change=55.0 source=CALC(SESSION_REF) verdict=PASS reason=VALUE_PRESENT
+[SCANNER][KEEP] symbol=LFCR last=6.51 final_pct=55.00 pct_source=CALC(SESSION_REF) vol=30590 bid=6.51 ask=6.52 spread=0.0100
+[GATE][PCT][SUMMARY] considered=2 passed=2 failed=0
+AFTER_GATES_SYMBOLS (N=2): ['KNRX', 'LFCR']
+[SCANNER][STAGE] rank
+[SCANNER][RANKING_SOURCE] source=STRATEGY strategy=ross_momentum
+[ROSS][RANKING] ordered_symbols=['KNRX', 'LFCR']
+[SCANNER][STAGE] watchlist
+[WATCHLIST][BUILD_START]
+candidates_incoming=2
+[WATCHLIST][INPUT] session=RTH_MID gated_survivors=2 k=15
+[WATCHLIST][ORDER] symbols=['KNRX', 'LFCR'] ranking_basis=strategy:ross_momentum
+[WATCHLIST][PASS] survivor_count=2 <= k=15; all survivors expected unless explicitly rejected
+[SCANNER][SESSION_AWARE] session=RTH_MID prep_mode_seed_enabled=False prep_seed_enabled=False prep_seed_blockers=['none']
+[ENRICH][SUMMARY] candidates=2 snapshot_ok=2 reference_ok=2 pct_ready=2 gap_ready=2 rvol_ready=2 float_ready=2 identity_merge_failures=0
+[ROSS][GATE] session=RTH_MID pct_change_min=5.0
+[ROSS][GATE] session=RTH_MID pct_change_min=5.0
+[DISCOVERY_STATS] pct_change_pass=2 price_pass=2 float_pass=2 watchlist_final=2
+[ROSS][WATCHLIST][EVAL] symbol=KNRX decision=ACCEPT rationale={"catalyst":"UNKNOWN","drop_reasons":[],"failed_gates":["catalyst_ok"],"final_decision":"REJECT","float":"ACCEPTABLE_LOW_FLOAT","float_reason":"acceptable_low_float","pct_change":"LIVE_QUALITY","pct_change_source":"CALC(SESSION_REF)","pct_change_threshold":5.0,"pct_change_value":301.32,"price":"LOW_PRICE_DEGRADED","price_reason":"below_live_quality_price","rvol":"LIVE_QUALITY","rvol_session_tier":"RTH_MID","rvol_threshold":1.0,"rvol_value":58.75,"session":"RTH_MID","spread_liquidity":"OK","stage":"WATCHLIST"}
+[WATCHLIST][EVAL] symbol=KNRX passed=true reasons=['SELECTED_FOR_WATCHLIST']
+[ROSS][WATCHLIST][EVAL] symbol=LFCR decision=ACCEPT rationale={"catalyst":"UNKNOWN","drop_reasons":[],"failed_gates":["focus_volume","catalyst_ok"],"final_decision":"REJECT","float":"ACCEPTABLE_LOW_FLOAT","float_reason":"acceptable_low_float","pct_change":"LIVE_QUALITY","pct_change_source":"CALC(SESSION_REF)","pct_change_threshold":5.0,"pct_change_value":55.0,"price":"PREFERRED_SWEET_SPOT","price_reason":"preferred_price_sweet_spot","rvol":"LIVE_QUALITY","rvol_session_tier":"RTH_MID","rvol_threshold":1.0,"rvol_value":38.98,"session":"RTH_MID","spread_liquidity":"OK","stage":"WATCHLIST"}
+[WATCHLIST][EVAL] symbol=LFCR passed=true reasons=['SELECTED_FOR_WATCHLIST']
+[WATCHLIST][SUMMARY]
+total_incoming=2
+total_passed=2
+total_rejected=0
+dominant_rejection_reasons={}
+[WATCHLIST][SELECT] selected=2 selected_symbols=['KNRX', 'LFCR']
+[WATCHLIST] size=2 symbols=['KNRX', 'LFCR']
+[WATCHLIST][DETAIL] symbol=KNRX pct_change=301.32 rvol=58.75 float=15644782 catalyst=None spread=None
+[WATCHLIST][DETAIL] symbol=LFCR pct_change=55.0 rvol=38.98 float=19328908 catalyst=None spread=0.0015
+[SCANNER][RANKING_SOURCE] source=STRATEGY strategy=ross_momentum
+[ROSS][RANKING] ordered_symbols=['KNRX', 'LFCR']
+[PREP][ARTIFACT]
+session=RTH_MID
+prep_mode_active=False
+prep_seed_enabled=False
+status=SKIPPED reason=session_not_pre
+[SCANNER][RANKING_SOURCE] source=STRATEGY strategy=ross_momentum
+[ROSS][RANKING] ordered_symbols=['KNRX', 'LFCR']
+[SCANNER][STAGE] enrich
+WATCHLIST_K_SELECTED (K=2): ['KNRX', 'LFCR']
+[ROSS][WATCHLIST][ACCEPT] symbol=KNRX reason=LIVE_SCAN rationale={"catalyst":"UNKNOWN","drop_reasons":[],"failed_gates":["catalyst_ok"],"final_decision":"REJECT","float":"ACCEPTABLE_LOW_FLOAT","float_reason":"acceptable_low_float","pct_change":"LIVE_QUALITY","pct_change_source":"CALC(SESSION_REF)","pct_change_threshold":5.0,"pct_change_value":301.32,"price":"LOW_PRICE_DEGRADED","price_reason":"below_live_quality_price","rvol":"LIVE_QUALITY","rvol_session_tier":"RTH_MID","rvol_threshold":1.0,"rvol_value":58.75,"session":"RTH_MID","spread_liquidity":"OK","stage":"WATCHLIST"}
+[ROSS][WATCHLIST][ACCEPT] symbol=LFCR reason=LIVE_SCAN rationale={"catalyst":"UNKNOWN","drop_reasons":[],"failed_gates":["focus_volume","catalyst_ok"],"final_decision":"REJECT","float":"ACCEPTABLE_LOW_FLOAT","float_reason":"acceptable_low_float","pct_change":"LIVE_QUALITY","pct_change_source":"CALC(SESSION_REF)","pct_change_threshold":5.0,"pct_change_value":55.0,"price":"PREFERRED_SWEET_SPOT","price_reason":"preferred_price_sweet_spot","rvol":"LIVE_QUALITY","rvol_session_tier":"RTH_MID","rvol_threshold":1.0,"rvol_value":38.98,"session":"RTH_MID","spread_liquidity":"OK","stage":"WATCHLIST"}
+[NEWS][RETRIEVAL_DIAGNOSTICS] {"budget_exhausted":false,"cache":{"cache_hit_symbols":[],"cache_miss_symbols":["KNRX","LFCR"],"cache_read_error":null,"cache_read_failed":false,"cache_write_error":null,"cache_write_failed":false,"prep_read_error":null,"prep_read_failed":false,"prep_reuse_symbols":[],"prep_stale_symbols":[],"read_attempted":true,"read_skipped":false,"stale_cache_miss_symbols":[],"state":"miss","write_attempted":false},"completed_at_utc":"2026-09-28T17:30:03.033486+00:00","elapsed_seconds":0.0,"network_allowed":false,"provider_available":true,"provider_failure_reason":null,"provider_invoked":false,"provider_status":"cache_miss","refresh_allowed":false,"refresh_symbols":["KNRX","LFCR"],"request_mode":"cache_only","retrieval_status":"not_requested","schema":"news.retrieval_diagnostics.v1","source_groups":[],"sources":[],"sources_attempted":0,"sources_skipped_due_to_budget":0,"started_at_utc":"2026-09-28T17:30:03.032925+00:00","summaries":{"KNRX":{"budget_exhausted":false,"cache_state":"miss","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"no_recent_news","provider_available":true,"provider_status":"cache_miss","retrieval_status":"not_requested","retrieval_unavailable":false,"stale_evidence_count":0,"unavailability_reasons":[]},"LFCR":{"budget_exhausted":false,"cache_state":"miss","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"no_recent_news","provider_available":true,"provider_status":"cache_miss","retrieval_status":"not_requested","retrieval_unavailable":false,"stale_evidence_count":0,"unavailability_reasons":[]}},"symbols":["KNRX","LFCR"],"tier_budget_seconds":{"extended_budget_reserved_seconds":null,"extended_budget_seconds":null,"fast_budget_seconds":null},"total_budget_seconds":8.0,"unresolved_symbols":[]}
+[NEWS] symbol=KNRX catalyst_tag=NONE headlines=0
+[NEWS] symbol=KNRX news_changed=True
+[NEWS] symbol=LFCR catalyst_tag=NONE headlines=0
+[NEWS] symbol=LFCR news_changed=True
+[NEWS][RETRIEVAL_DIAGNOSTICS] {"budget_exhausted":false,"cache":{"cache_hit_symbols":[],"cache_miss_symbols":["KNRX","LFCR"],"cache_read_error":null,"cache_read_failed":false,"cache_write_error":null,"cache_write_failed":false,"prep_read_error":null,"prep_read_failed":false,"prep_reuse_symbols":[],"prep_stale_symbols":[],"read_attempted":true,"read_skipped":false,"stale_cache_miss_symbols":[],"state":"miss","write_attempted":true},"completed_at_utc":"2026-09-28T17:30:07.521015+00:00","elapsed_seconds":4.480777200020384,"network_allowed":true,"provider_available":true,"provider_failure_reason":null,"provider_invoked":true,"provider_status":"partial_request_failure","refresh_allowed":true,"refresh_symbols":["KNRX","LFCR"],"request_mode":"bounded_refresh","retrieval_status":"partial","schema":"news.retrieval_diagnostics.v1","source_groups":["FAST_TRADING"],"sources":[{"attempted":true,"budget_exhausted":false,"elapsed_seconds":1.085860599996522,"failure_code":"HTTP_401","http_status":401,"matched_count":0,"provider":"rss_batch","source":"https://www.reuters.com/markets/rss","source_group":"FAST_TRADING","source_tier":"fast","status":"provider_error","timed_out":false,"timeout_seconds":2.597801600000821},{"attempted":true,"budget_exhausted":false,"elapsed_seconds":1.4004620999912731,"failure_code":null,"http_status":null,"matched_count":0,"provider":"rss_batch","source":"https://www.benzinga.com/feed","source_group":"FAST_TRADING","source_tier":"fast","status":"available","timed_out":false,"timeout_seconds":2.597801600000821},{"attempted":true,"budget_exhausted":false,"elapsed_seconds":2.819909200014081,"failure_code":null,"http_status":null,"matched_count":0,"provider":"rss_batch","source":"https://www.globenewswire.com/RssFeed","source_group":"FAST_TRADING","source_tier":"fast","status":"available","timed_out":false,"timeout_seconds":2.597801600000821},{"attempted":true,"budget_exhausted":false,"elapsed_seconds":1.4479855000390671,"failure_code":null,"http_status":null,"matched_count":0,"provider":"rss_batch","source":"https://feeds.businessinsider.com/custom/all","source_group":"FAST_TRADING","source_tier":"fast","status":"available","timed_out":false,"timeout_seconds":3.770634100015741},{"attempted":true,"budget_exhausted":false,"elapsed_seconds":2.9833348999964073,"failure_code":null,"http_status":null,"matched_count":0,"provider":"rss_batch","source":"https://www.globenewswire.com/RssFeed/industry/9000-Technology/feedTitle/GlobeNewswire%20-%20Industry%20News%20on%20Technology","source_group":"FAST_TRADING","source_tier":"fast","status":"available","timed_out":false,"timeout_seconds":2.597801600000821},{"attempted":true,"budget_exhausted":false,"elapsed_seconds":0.4732384000089951,"failure_code":null,"http_status":null,"matched_count":0,"provider":"rss_batch","source":"http://rss.cnn.com/rss/edition_business.rss","source_group":"FAST_TRADING","source_tier":"fast","status":"available","timed_out":false,"timeout_seconds":2.275550000020303},{"attempted":true,"budget_exhausted":false,"elapsed_seconds":1.421416400000453,"failure_code":null,"http_status":null,"matched_count":0,"provider":"rss_batch","source":"https://seekingalpha.com/feed","source_group":"FAST_TRADING","source_tier":"fast","status":"available","timed_out":false,"timeout_seconds":2.3434972999966703},{"attempted":true,"budget_exhausted":false,"elapsed_seconds":3.385353999969084,"failure_code":null,"http_status":null,"matched_count":0,"provider":"rss_batch","source":"https://www.marketwatch.com/rss/topstories","source_group":"FAST_TRADING","source_tier":"fast","status":"available","timed_out":false,"timeout_seconds":4.1064748000353575}],"sources_attempted":8,"sources_skipped_due_to_budget":0,"started_at_utc":"2026-09-28T17:30:03.036802+00:00","summaries":{"KNRX":{"budget_exhausted":false,"cache_state":"miss","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"no_recent_news","provider_available":true,"provider_status":"partial_request_failure","retrieval_status":"partial","retrieval_unavailable":false,"stale_evidence_count":0,"unavailability_reasons":[]},"LFCR":{"budget_exhausted":false,"cache_state":"miss","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"no_recent_news","provider_available":true,"provider_status":"partial_request_failure","retrieval_status":"partial","retrieval_unavailable":false,"stale_evidence_count":0,"unavailability_reasons":[]}},"symbols":["KNRX","LFCR"],"tier_budget_seconds":{"extended_budget_reserved_seconds":2.8,"extended_budget_seconds":0.0,"fast_budget_seconds":5.2},"total_budget_seconds":8.0,"unresolved_symbols":[]}
+[NEWS] symbol=KNRX catalyst_tag=NONE headlines=0
+[NEWS] symbol=KNRX news_changed=True
+[NEWS] symbol=LFCR catalyst_tag=NONE headlines=0
+[NEWS] symbol=LFCR news_changed=True
+[NEWS][RETRIEVAL_DIAGNOSTICS] {"budget_exhausted":true,"cache":{"cache_hit_symbols":[],"cache_miss_symbols":["KNRX","LFCR"],"cache_read_error":null,"cache_read_failed":false,"cache_write_error":null,"cache_write_failed":false,"prep_read_error":null,"prep_read_failed":false,"prep_reuse_symbols":[],"prep_stale_symbols":[],"read_attempted":true,"read_skipped":false,"stale_cache_miss_symbols":[],"state":"miss","write_attempted":true},"completed_at_utc":"2026-09-28T17:30:10.346021+00:00","elapsed_seconds":2.807617999962531,"network_allowed":true,"provider_available":true,"provider_failure_reason":null,"provider_invoked":true,"provider_status":"available","refresh_allowed":true,"refresh_symbols":["KNRX","LFCR"],"request_mode":"bounded_refresh","retrieval_status":"budget_exhausted","schema":"news.retrieval_diagnostics.v1","source_groups":["PREP_EXTENDED"],"sources":[{"attempted":true,"budget_exhausted":false,"elapsed_seconds":1.3375124000012875,"failure_code":null,"http_status":null,"matched_count":0,"provider":"rss_batch","source":"https://www.forbes.com/finance/feed2","source_group":"PREP_EXTENDED","source_tier":"extended","status":"available","timed_out":false,"timeout_seconds":0.6999683000030927},{"attempted":true,"budget_exhausted":false,"elapsed_seconds":1.4493263000040315,"failure_code":null,"http_status":null,"matched_count":0,"provider":"rss_batch","source":"https://www.forbes.com/business/feed2","source_group":"PREP_EXTENDED","source_tier":"extended","status":"available","timed_out":false,"timeout_seconds":0.6999683000030927},{"attempted":true,"budget_exhausted":false,"elapsed_seconds":1.4940419999766164,"failure_code":null,"http_status":null,"matched_count":0,"provider":"rss_batch","source":"https://feeds.a.dj.com/rss/RSSMarketsMain.xml","source_group":"PREP_EXTENDED","source_tier":"extended","status":"available","timed_out":false,"timeout_seconds":0.6999683000030927},{"attempted":true,"budget_exhausted":false,"elapsed_seconds":1.9382470999844372,"failure_code":null,"http_status":null,"matched_count":0,"provider":"rss_batch","source":"https://fortune.com/rss","source_group":"PREP_EXTENDED","source_tier":"extended","status":"available","timed_out":false,"timeout_seconds":0.6999683000030927},{"attempted":false,"budget_exhausted":true,"elapsed_seconds":0.0,"failure_code":"deadline_exhausted_before_attempt","http_status":null,"matched_count":0,"provider":"rss_batch","source":"https://markets.businessinsider.com/rss","source_group":"PREP_EXTENDED","source_tier":"extended","status":"budget_exhausted","timed_out":false,"timeout_seconds":0.0},{"attempted":false,"budget_exhausted":true,"elapsed_seconds":0.0,"failure_code":"deadline_exhausted_before_attempt","http_status":null,"matched_count":0,"provider":"rss_batch","source":"https://www.investing.com/rss/news.rss","source_group":"PREP_EXTENDED","source_tier":"extended","status":"budget_exhausted","timed_out":false,"timeout_seconds":0.0},{"attempted":false,"budget_exhausted":true,"elapsed_seconds":0.0,"failure_code":"deadline_exhausted_before_attempt","http_status":null,"matched_count":0,"provider":"rss_batch","source":"https://www.marketbeat.com/feed","source_group":"PREP_EXTENDED","source_tier":"extended","status":"budget_exhausted","timed_out":false,"timeout_seconds":0.0},{"attempted":false,"budget_exhausted":true,"elapsed_seconds":0.0,"failure_code":"deadline_exhausted_before_attempt","http_status":null,"matched_count":0,"provider":"rss_batch","source":"https://techcrunch.com/rss","source_group":"PREP_EXTENDED","source_tier":"extended","status":"budget_exhausted","timed_out":false,"timeout_seconds":0.0},{"attempted":false,"budget_exhausted":true,"elapsed_seconds":0.0,"failure_code":"deadline_exhausted_before_attempt","http_status":null,"matched_count":0,"provider":"rss_batch","source":"https://venturebeat.com/feed","source_group":"PREP_EXTENDED","source_tier":"extended","status":"budget_exhausted","timed_out":false,"timeout_seconds":0.0},{"attempted":true,"budget_exhausted":true,"elapsed_seconds":1.464915300020948,"failure_code":"deadline_exhausted","http_status":null,"matched_count":0,"provider":"rss_batch","source":"https://feeds.bbci.co.uk/news/rss.xml","source_group":"PREP_EXTENDED","source_tier":"extended","status":"budget_exhausted","timed_out":true,"timeout_seconds":0.4859821999950024},{"attempted":true,"budget_exhausted":true,"elapsed_seconds":1.3475738000124693,"failure_code":"deadline_exhausted","http_status":null,"matched_count":0,"provider":"rss_batch","source":"https://www.bbc.com/news/business/rss.xml","source_group":"PREP_EXTENDED","source_tier":"extended","status":"budget_exhausted","timed_out":true,"timeout_seconds":0.6702850500005297},{"attempted":true,"budget_exhausted":true,"elapsed_seconds":1.3097157999873161,"failure_code":"deadline_exhausted","http_status":null,"matched_count":0,"provider":"rss_batch","source":"https://feeds.skynews.com/feeds/rss/world.xml","source_group":"PREP_EXTENDED","source_tier":"extended","status":"budget_exhausted","timed_out":true,"timeout_seconds":0.6513472000078764},{"attempted":true,"budget_exhausted":true,"elapsed_seconds":0.8404990999842994,"failure_code":"deadline_exhausted","http_status":null,"matched_count":0,"provider":"rss_batch","source":"https://www.france24.com/en/rss","source_group":"PREP_EXTENDED","source_tier":"extended","status":"budget_exhausted","timed_out":true,"timeout_seconds":0.4167297999956645}],"sources_attempted":8,"sources_skipped_due_to_budget":5,"started_at_utc":"2026-09-28T17:30:07.525845+00:00","summaries":{"KNRX":{"budget_exhausted":true,"cache_state":"miss","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"budget_exhausted","provider_available":true,"provider_status":"available","retrieval_status":"budget_exhausted","retrieval_unavailable":true,"stale_evidence_count":0,"unavailability_reasons":["budget_exhausted","retrieval_budget_exhausted"]},"LFCR":{"budget_exhausted":true,"cache_state":"miss","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"budget_exhausted","provider_available":true,"provider_status":"available","retrieval_status":"budget_exhausted","retrieval_unavailable":true,"stale_evidence_count":0,"unavailability_reasons":["budget_exhausted","retrieval_budget_exhausted"]}},"symbols":["KNRX","LFCR"],"tier_budget_seconds":{"extended_budget_reserved_seconds":0.98,"extended_budget_seconds":2.799937499978114,"fast_budget_seconds":1.8199999999999998},"total_budget_seconds":2.8,"unresolved_symbols":["KNRX","LFCR"]}
+[NEWS] symbol=KNRX catalyst_tag=NONE headlines=0
+[NEWS] symbol=KNRX news_changed=True
+[NEWS] symbol=LFCR catalyst_tag=NONE headlines=0
+[NEWS] symbol=LFCR news_changed=True
+[SCANNER][STAGE] print
+[ROSS][FOCUS][EVAL] symbol=KNRX session=RTH_MID pct_change=301.32 rvol_phase=58.75 price=1.22 float=15644782 catalyst_status=DATA_UNAVAILABLE catalyst_reason=news_unavailable
+[ROSS][FOCUS][REJECT] symbol=KNRX reason=DROP_NO_CATALYST
+[SCANNER][FOCUS_DROP] symbol=KNRX reason=DROP_NO_CATALYST
+[ROSS][FOCUS][EVAL] symbol=LFCR session=RTH_MID pct_change=55.0 rvol_phase=38.98 price=6.51 float=19328908 catalyst_status=DATA_UNAVAILABLE catalyst_reason=news_unavailable
+[ROSS][FOCUS][REJECT] symbol=LFCR reason=DROP_NO_CATALYST
+[SCANNER][FOCUS_DROP] symbol=LFCR reason=DROP_NO_CATALYST
+[SCANNER][RANKING_SOURCE] source=STRATEGY strategy=ross_momentum
+[ROSS][RANKING] ordered_symbols=[]
+[ROSS][FOCUS][SUMMARY] evaluated=2 accepted=0 rejected=2 ranked_out=0
+[SCANNER][FOCUS_EMPTY] blocked_by_focus_rvol=0 blocked_by_spread=0 blocked_by_float=0 blocked_by_news=2 blocked_by_data_quality=0
+[SCANNER][SUMMARY] session=RTH_MID candidates=2 survivors=2 watchlist=2 true_gate_pass_count=2 degraded_fallback_survivor_count=0 backfill_count=0 seeded_count=0 focus_eligible_count=0 execution_eligible_count=0 scanner_operational=True qualification_dead=False all_backfilled=False drop_reasons={}
+[FLOAT][DISCOVERY_PROOF] requested=0 success=1 failed=0 cache_hits=0 rehydrated=1 unknown_after=0
+[SCANNER][FOCUS_EMPTY_REASON] reason=USABLE_MARKET_DATA_BUT_CATALYST_NEWS_FAILURE focus_count=0
+[SCANNER][RAW_ZERO]
+provider=IBKR
+broker_returned_zero=False
+instrument=STK
+location=STK.US.MAJOR
+scanCode=TOP_PERC_GAIN
+effective_location_code=STK.US.MAJOR
+effective_scan_code=TOP_PERC_GAIN
+retry_attempts=1
+retry_exhausted=False
+returned_rows=2
+requested_top_n=2
+broker_rows_requested=2
+effective_internal_processing_limit=2
+translation_or_truncation_occurred=False
+local_gating_applied=True
+local_gating_eliminated_all=False
+raw_broker_count=2
+candidate_count_entering_gates=2
+survivor_count_after_gates=2
+watchlist_count=2
+live_watchlist_count=2
+prep_context_watchlist_count=0
+focus_count=0
+[SCANNER_OK] topn_count=2
+[WATCHLIST_OK] size=2
+[SCANNER][CONTRACT]
+top_n=2
+watchlist_k=2
+focus_m=0
+restored_watchlist_count=2
+prep_context_watchlist_count=0
+contract_valid=True
+[ROSS][WATCHLIST][STATE] symbol=KNRX state=NEW reason=LIVE_SCAN
+[ROSS][PROMOTE] symbol=KNRX from=TOP_UNIVERSE to=WATCHLIST_K reason=LIVE_SCAN
+[ROSS][WATCHLIST][STATE] symbol=LFCR state=NEW reason=LIVE_SCAN
+[ROSS][PROMOTE] symbol=LFCR from=TOP_UNIVERSE to=WATCHLIST_K reason=LIVE_SCAN
+[SCANNER][DROP_SUMMARY] topn=2 evaluated=2 dropped=0 reasons={}
+[SCANNER][WATCHLIST] session=RTH_MID count=2
+KNRX session=RTH_MID price=$1.22 gap=283.77% LAST_RTH_CLOSE=0.30 ibkr_pct=NA% pct_change_resolved=301.32% pct_source=CALC(SESSION_REF) gap_pct_resolved=283.77% gap_source=SESSION_OPEN_VS_REF reference_label=LAST_RTH_CLOSE context_status=live_candidate rvol=58.75 rvol_discovery=58.75 rvol_phase=58.75 phase_volume_ratio=NA float=15.64M vol=1773510 pm=NA spread=NA% news_flag=NO news_count=0 news_fresh_count=0 float_source=YAHOO float_asof=2026-09-28T17:29:53.562084+00:00 execution_ready=False prep_only=False live_rvol_deferred=False prep_seeded=False live_confirmation_pending=False promotion_reason=LIVE_SCAN watchlist_source=LIVE_SCAN source_of_candidate=LIVE_RTH adv20=86256 adv20_source=INTRADAY_STATS adv20_resolved=True rvol_status=RESOLVED reference_source=IBKR_PREV_CLOSE reference_quality=PRIMARY reference_resolved=True summary=NA halted=NA ssr=NA dq=BAD score=100.00
+LFCR session=RTH_MID price=$6.51 gap=-0.15% LAST_RTH_CLOSE=4.20 ibkr_pct=NA% pct_change_resolved=55.00% pct_source=CALC(SESSION_REF) gap_pct_resolved=-0.15% gap_source=SESSION_OPEN_VS_REF reference_label=LAST_RTH_CLOSE context_status=live_candidate rvol=38.98 rvol_discovery=38.98 rvol_phase=38.98 phase_volume_ratio=NA float=19.33M vol=30590 pm=NA spread=0.0015% news_flag=NO news_count=0 news_fresh_count=0 float_source=YAHOO float_asof=2026-09-28T17:29:53.964374+00:00 execution_ready=False prep_only=False live_rvol_deferred=False prep_seeded=False live_confirmation_pending=False promotion_reason=LIVE_SCAN watchlist_source=LIVE_SCAN source_of_candidate=LIVE_RTH adv20=2242 adv20_source=INTRADAY_STATS adv20_resolved=True rvol_status=RESOLVED reference_source=IBKR_PREV_CLOSE reference_quality=PRIMARY reference_resolved=True summary=NA halted=NA ssr=NA dq=BAD score=100.00
+[SCANNER][FOCUS] session=RTH_MID count=0
+[ROSS][LIST] TOP_UNIVERSE size=2
+[ROSS][LIST] WATCHLIST_K size=2
+[ROSS][LIST] FOCUS_M size=0
+[ROSS][LIST] REJECTED_TRACKED size=0
+[DATA_QUALITY][OBSERVED] requested=LIVE mode=UNKNOWN returned_type_counts={'LIVE': 2}
+TopN: 2
+GatedSurvivors: 2
+DropReasons: {}
+WATCHLIST_K: ['KNRX', 'LFCR']
+FOCUS_M: []
+NEW: ['KNRX', 'LFCR']
+CONTINUING: []
+DROPPED: []
+[WATCHLIST][SUMMARY]
+total_incoming=0
+total_passed=0
+total_rejected=0
+dominant_rejection_reasons={}
+[WATCHLIST][PIPELINE_EXIT_POINT]
+reason=SUCCESS
+[CAPITAL] available_capital=0 focus_count=0 capital_per_symbol=0
+[IBKR][MANAGER] disconnect reason=market_data_client_disconnect client_id=19282
+[IBKR] Disconnecting client_id=19282
+[IBKR] Connection closed by broker.
+[IBKR] Disconnecting client_id=19282
+[IBKR] Disconnect called from network thread; skipping self-join.
+[IBKR][DISCONNECTED] client disconnected
+[IBKR][DISCONNECTED] client disconnected
+[PR1040][CLEANUP] status=ok scanner_runtime_reset=True shared_manager_connected_after=False elapsed_seconds=0.032
+[IBKR][MANAGER] connect_attempt client_id=19282
+[IBKR][CLIENT] connect host=127.0.0.1 port=7497 client_id=19282 timeout=5 market_data_type=LIVE readonly=True
+[IBKR][ORDER_ID_REBASE] broker_next=1 local_last=361 chosen=362
+[IBKR][NEXT_VALID_ID] order_id=362
+[IBKR][BROKER_ERROR] {"code": 2104, "con_id": null, "message": "Market data farm connection is OK:usfarm.nj", "req_id": -1, "request_type": null, "symbol": null, "timestamp_utc": "2026-09-28T17:30:10.424993+00:00"}
+[ORDER][ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:usfarm.nj
+[IBKR][ORDER_ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:usfarm.nj
+[IBKR] Error reqId=-1 code=2104 msg=Market data farm connection is OK:usfarm.nj timestamp_utc=2026-09-28T17:30:10.424993+00:00
+[IBKR][BROKER_ERROR] {"code": 2104, "con_id": null, "message": "Market data farm connection is OK:hfarm", "req_id": -1, "request_type": null, "symbol": null, "timestamp_utc": "2026-09-28T17:30:10.425599+00:00"}
+[ORDER][ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:hfarm
+[IBKR][ORDER_ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:hfarm
+[IBKR] Error reqId=-1 code=2104 msg=Market data farm connection is OK:hfarm timestamp_utc=2026-09-28T17:30:10.425599+00:00
+[IBKR][BROKER_ERROR] {"code": 2104, "con_id": null, "message": "Market data farm connection is OK:jfarm", "req_id": -1, "request_type": null, "symbol": null, "timestamp_utc": "2026-09-28T17:30:10.426307+00:00"}
+[ORDER][ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:jfarm
+[IBKR][ORDER_ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:jfarm
+[IBKR] Error reqId=-1 code=2104 msg=Market data farm connection is OK:jfarm timestamp_utc=2026-09-28T17:30:10.426307+00:00
+[IBKR][BROKER_ERROR] {"code": 2104, "con_id": null, "message": "Market data farm connection is OK:eufarm", "req_id": -1, "request_type": null, "symbol": null, "timestamp_utc": "2026-09-28T17:30:10.426709+00:00"}
+[ORDER][ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:eufarm
+[IBKR][ORDER_ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:eufarm
+[IBKR] Error reqId=-1 code=2104 msg=Market data farm connection is OK:eufarm timestamp_utc=2026-09-28T17:30:10.426709+00:00
+[IBKR][BROKER_ERROR] {"code": 2104, "con_id": null, "message": "Market data farm connection is OK:usfuture", "req_id": -1, "request_type": null, "symbol": null, "timestamp_utc": "2026-09-28T17:30:10.427093+00:00"}
+[ORDER][ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:usfuture
+[IBKR] Setting market data type=LIVE code=1[IBKR][ORDER_ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:usfuture
+
+[IBKR] Error reqId=-1 code=2104 msg=Market data farm connection is OK:usfuture timestamp_utc=2026-09-28T17:30:10.427093+00:00
+[IBKR][BROKER_ERROR] {"code": 2104, "con_id": null, "message": "Market data farm connection is OK:cashfarm", "req_id": -1, "request_type": null, "symbol": null, "timestamp_utc": "2026-09-28T17:30:10.428017+00:00"}
+[ORDER][ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:cashfarm
+[IBKR][ORDER_ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:cashfarm
+[IBKR] Error reqId=-1 code=2104 msg=Market data farm connection is OK:cashfarm timestamp_utc=2026-09-28T17:30:10.428017+00:00
+[IBKR][BROKER_ERROR] {"code": 2104, "con_id": null, "message": "Market data farm connection is OK:usfarm", "req_id": -1, "request_type": null, "symbol": null, "timestamp_utc": "2026-09-28T17:30:10.428575+00:00"}
+[ORDER][ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:usfarm
+[IBKR][ORDER_ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:usfarm
+[IBKR] Error reqId=-1 code=2104 msg=Market data farm connection is OK:usfarm timestamp_utc=2026-09-28T17:30:10.428575+00:00
+[IBKR][BROKER_ERROR] {"code": 2106, "con_id": null, "message": "HMDS data farm connection is OK:euhmds", "req_id": -1, "request_type": null, "symbol": null, "timestamp_utc": "2026-09-28T17:30:10.429062+00:00"}
+[ORDER][ERROR] order_id=-1 code=2106 message=HMDS data farm connection is OK:euhmds
+[IBKR][ORDER_ERROR] order_id=-1 code=2106 message=HMDS data farm connection is OK:euhmds
+[IBKR] Error reqId=-1 code=2106 msg=HMDS data farm connection is OK:euhmds timestamp_utc=2026-09-28T17:30:10.429062+00:00
+[IBKR][BROKER_ERROR] {"code": 2106, "con_id": null, "message": "HMDS data farm connection is OK:fundfarm", "req_id": -1, "request_type": null, "symbol": null, "timestamp_utc": "2026-09-28T17:30:10.429566+00:00"}
+[ORDER][ERROR] order_id=-1 code=2106 message=HMDS data farm connection is OK:fundfarm
+[IBKR][ORDER_ERROR] order_id=-1 code=2106 message=HMDS data farm connection is OK:fundfarm
+[IBKR] Error reqId=-1 code=2106 msg=HMDS data farm connection is OK:fundfarm timestamp_utc=2026-09-28T17:30:10.429566+00:00
+[IBKR][BROKER_ERROR] {"code": 2106, "con_id": null, "message": "HMDS data farm connection is OK:ushmds", "req_id": -1, "request_type": null, "symbol": null, "timestamp_utc": "2026-09-28T17:30:10.430050+00:00"}
+[ORDER][ERROR] order_id=-1 code=2106 message=HMDS data farm connection is OK:ushmds
+[IBKR][ORDER_ERROR] order_id=-1 code=2106 message=HMDS data farm connection is OK:ushmds
+[IBKR] Error reqId=-1 code=2106 msg=HMDS data farm connection is OK:ushmds timestamp_utc=2026-09-28T17:30:10.430050+00:00
+[IBKR][BROKER_ERROR] {"code": 2158, "con_id": null, "message": "Sec-def data farm connection is OK:secdefil", "req_id": -1, "request_type": null, "symbol": null, "timestamp_utc": "2026-09-28T17:30:10.430546+00:00"}
+[ORDER][ERROR] order_id=-1 code=2158 message=Sec-def data farm connection is OK:secdefil
+[IBKR][ORDER_ERROR] order_id=-1 code=2158 message=Sec-def data farm connection is OK:secdefil
+[IBKR] Error reqId=-1 code=2158 msg=Sec-def data farm connection is OK:secdefil timestamp_utc=2026-09-28T17:30:10.430546+00:00
+[IBKR] connection_status=True
+[IBKR][CONNECTED] Connected client_id=19282
+[IBKR][MANAGER] connected client_id=19282 generation=2
+[IBKR][SESSION] mode=READ_ONLY account_id_redacted=REDACTED readonly=True
+[IBKR][CALLBACK_RAW] event=openOrderEnd
+[IBKR][MANAGER] disconnect reason=pr1040_observation_cleanup client_id=19282
+[IBKR] Disconnecting client_id=19282
+[IBKR] Connection closed by broker.
+[IBKR] Disconnecting client_id=19282
+[IBKR] Disconnect called from network thread; skipping self-join.
+[IBKR][DISCONNECTED] client disconnected
+[IBKR][DISCONNECTED] client disconnected
+[PR1040][CLEANUP] status=ok scanner_runtime_reset=True shared_manager_connected_after=False elapsed_seconds=0.206

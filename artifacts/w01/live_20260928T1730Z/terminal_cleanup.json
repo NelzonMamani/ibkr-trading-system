@@ -1,0 +1,91 @@
+{
+  "audit_cleanup": {
+    "elapsed_seconds": 0.206,
+    "errors": [],
+    "scanner_runtime_reset": true,
+    "shared_manager_after": {
+      "base_client_id": 19282,
+      "connected": false,
+      "connected_client_id": null,
+      "connection_generation": 2,
+      "host": "127.0.0.1",
+      "last_disconnect_reason": "pr1040_observation_cleanup",
+      "last_error": null,
+      "last_reconnect_time": null,
+      "market_data_type": "LIVE",
+      "port": 7497,
+      "readonly_enabled": true,
+      "reconnect_count": 0,
+      "run_mode": "READ_ONLY",
+      "snapshot_timeout_seconds": 5
+    },
+    "shared_manager_before": {
+      "base_client_id": 19282,
+      "connected": true,
+      "connected_client_id": 19282,
+      "connection_generation": 2,
+      "host": "127.0.0.1",
+      "last_disconnect_reason": "market_data_client_disconnect",
+      "last_error": null,
+      "last_reconnect_time": null,
+      "market_data_type": "LIVE",
+      "port": 7497,
+      "readonly_enabled": true,
+      "reconnect_count": 0,
+      "run_mode": "READ_ONLY",
+      "snapshot_timeout_seconds": 5
+    },
+    "shared_manager_connected_after": false,
+    "shared_manager_disconnect_called": true,
+    "shared_manager_present": true,
+    "status": "ok"
+  },
+  "error": null,
+  "mutation_attempts": {
+    "cancel": 0,
+    "modify": 0,
+    "place": 0
+  },
+  "runtime_process_exit": "REQUIRES_EXTERNAL_SUPERVISOR",
+  "strategy_cleanup": {
+    "elapsed_seconds": 0.032,
+    "errors": [],
+    "scanner_runtime_reset": true,
+    "shared_manager_after": {
+      "base_client_id": 19282,
+      "connected": false,
+      "connected_client_id": null,
+      "connection_generation": 1,
+      "host": "127.0.0.1",
+      "last_disconnect_reason": "market_data_client_disconnect",
+      "last_error": null,
+      "last_reconnect_time": null,
+      "market_data_type": "LIVE",
+      "port": 7497,
+      "readonly_enabled": true,
+      "reconnect_count": 0,
+      "run_mode": "READ_ONLY",
+      "snapshot_timeout_seconds": 5
+    },
+    "shared_manager_before": {
+      "base_client_id": 19282,
+      "connected": false,
+      "connected_client_id": null,
+      "connection_generation": 1,
+      "host": "127.0.0.1",
+      "last_disconnect_reason": "market_data_client_disconnect",
+      "last_error": null,
+      "last_reconnect_time": null,
+      "market_data_type": "LIVE",
+      "port": 7497,
+      "readonly_enabled": true,
+      "reconnect_count": 0,
+      "run_mode": "READ_ONLY",
+      "snapshot_timeout_seconds": 5
+    },
+    "shared_manager_connected_after": false,
+    "shared_manager_disconnect_called": false,
+    "shared_manager_present": true,
+    "status": "ok"
+  }
+}

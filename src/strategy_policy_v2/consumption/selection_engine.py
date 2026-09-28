@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from src.scanner.session_pct_change import normalize_session_label
+from src.market_data.session_pct_change import normalize_session_label
 from src.strategy_policy_v2.policy_v2 import StrategyPolicyV2
 from src.strategy_policy_v2.consumption.models import Candidate, DroppedCandidate, SelectionResult
 

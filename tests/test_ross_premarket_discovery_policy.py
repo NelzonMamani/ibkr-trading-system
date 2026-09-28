@@ -1,4 +1,4 @@
-from src.scanner.session_pct_change import compute_session_relative_volume_with_provenance
+from src.market_data.session_pct_change import compute_session_relative_volume_with_provenance
 from src.strategies.ross_momentum.strategy_policy import (
     RossMomentumPolicy,
     stock_selection_policy_for_session_phase,

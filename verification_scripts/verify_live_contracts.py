@@ -9,8 +9,8 @@ if str(REPO_ROOT) not in sys.path:
 
 from src.runtime.async_runtime_bootstrap import safe_import_ib_insync
 from src.config.runtime_config import resolve_ibkr_connection
-from src.scanner.candidate_identity import CandidateIdentity
-from src.scanner.reference_resolver import CanonicalReferenceResolver
+from src.market_data.candidate_identity import CandidateIdentity
+from src.market_data.reference_resolver import CanonicalReferenceResolver
 from src.scanner.providers.ibkr_provider import IbkrScannerProvider
 
 

@@ -1,0 +1,16 @@
+{
+  "completed_at": "2026-09-28T17:29:12.993829+00:00",
+  "connected": true,
+  "disconnected": true,
+  "managed_account_count": 1,
+  "mutation_attempts": {
+    "cancel": 0,
+    "modify": 0,
+    "place": 0
+  },
+  "open_orders_count": 0,
+  "order_query_completed": true,
+  "paper_identity_verified": true,
+  "read_only_guards": true,
+  "started_at": "2026-09-28T17:29:12.677223+00:00"
+}

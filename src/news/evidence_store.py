@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from dataclasses import asdict, dataclass, fields, replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 from urllib.parse import urlparse
@@ -13,6 +14,7 @@ from src.news.news_fetcher import Headline
 from src.news.news_heat import compute_news_heat_score
 from src.news.news_intelligence_contract import (
     CacheState,
+    NewsBatchResult,
     NewsCandidate,
     NewsEvidence,
     NewsEvidenceSummary,
@@ -20,6 +22,7 @@ from src.news.news_intelligence_contract import (
     RetrievalStatus,
 )
 from src.news.news_normalizer import normalize_headlines
+from src.news.issuer_relevance import evidence_issuer_relevance_verified
 from src.prep.premarket_prep_artifact import load_canonical_premarket_prep_artifact
 
 
@@ -111,6 +114,13 @@ class CanonicalNewsEvidenceStore:
         cache_rows = _canonical_cache_rows(payload)
         legacy_rows = _legacy_news_cache_rows(payload)
         prep_rows = self._load_prep_rows(diagnostics) if include_prep else {}
+        namespace = payload.get(NEWS_INTELLIGENCE_CACHE_NAMESPACE, {})
+        buckets = namespace.get("symbols", {}) if isinstance(namespace, Mapping) else {}
+        diagnostics["last_retrieval_by_symbol"] = {
+            symbol: dict(bucket["last_retrieval"])
+            for symbol, bucket in buckets.items()
+            if isinstance(bucket, Mapping) and isinstance(bucket.get("last_retrieval"), Mapping)
+        } if isinstance(buckets, Mapping) else {}
 
         for candidate in candidates:
             symbol = candidate.normalized_symbol
@@ -134,7 +144,19 @@ class CanonicalNewsEvidenceStore:
                 if prep_evidence:
                     diagnostics["prep_reuse_symbols"].append(symbol)
 
-            deduped = dedupe_evidence(evidence, max_items=evidence_max_entries(request))
+            accepted = [item for item in evidence if evidence_issuer_relevance_verified(
+                symbol, item, NewsBatchResult(candidates=(candidate,))
+            )]
+            if len(accepted) != len(evidence):
+                diagnostics.setdefault("issuer_relevance_rejected_by_symbol", {})[symbol] = len(evidence) - len(accepted)
+                # Old cohort metrics may include rejected articles; recompute from facts.
+                accepted = list(enrich_evidence_metrics(tuple(replace(
+                    item, velocity_5m=None, velocity_10m=None, velocity_30m=None,
+                    velocity_60m=None, heat_score=None, hotness_score=None,
+                    source_credibility_score=None, source_reliability_score=None,
+                    independent_source_count=None,
+                ) for item in accepted), now_ts=now.timestamp()))
+            deduped = dedupe_evidence(accepted, max_items=evidence_max_entries(request))
             evidence_by_symbol[symbol] = tuple(deduped)
             fresh_count = sum(1 for item in deduped if item.stale is False)
             stale_count = sum(1 for item in deduped if item.stale is True)
@@ -179,6 +201,8 @@ class CanonicalNewsEvidenceStore:
         self,
         evidence_by_symbol: Mapping[str, Sequence[NewsEvidence]],
         request: NewsRequest | None = None,
+        *,
+        retrieval_by_symbol: Mapping[str, Mapping[str, Any]] | None = None,
     ) -> dict[str, Any]:
         diagnostics: dict[str, Any] = {
             "schema_version": NEWS_INTELLIGENCE_SCHEMA_VERSION,
@@ -219,10 +243,15 @@ class CanonicalNewsEvidenceStore:
                 if isinstance(item, NewsEvidence)
             ]
             merged = dedupe_evidence(existing + incoming, max_items=max_items)
-            symbols_payload[symbol] = {
-                "updated_at": now.isoformat(),
-                "evidence": [serialize_evidence(item) for item in merged],
-            }
+            previous = symbols_payload.get(symbol) or {}
+            bucket = {"updated_at": now.isoformat(),
+                      "evidence": [serialize_evidence(item) for item in merged]}
+            retrieval = (retrieval_by_symbol or {}).get(symbol)
+            if retrieval is not None:
+                bucket["last_retrieval"] = dict(retrieval)
+            elif isinstance(previous.get("last_retrieval"), Mapping):
+                bucket["last_retrieval"] = dict(previous["last_retrieval"])
+            symbols_payload[symbol] = bucket
             diagnostics["cache_write_symbols"].append(symbol)
             diagnostics["cache_write_evidence_count"] += len(incoming)
 
@@ -234,6 +263,20 @@ class CanonicalNewsEvidenceStore:
             diagnostics["cache_write_failed"] = True
             diagnostics["cache_write_error"] = type(exc).__name__
         return diagnostics
+
+    def write_with_retrieval_metadata(
+        self,
+        evidence_by_symbol: Mapping[str, Sequence[NewsEvidence]],
+        request: NewsRequest | None,
+        *,
+        retrieval_by_symbol: Mapping[str, Mapping[str, Any]],
+    ) -> dict[str, Any]:
+        """Optional acquisition persistence capability beyond the legacy write seam."""
+        if type(self).write is not CanonicalNewsEvidenceStore.write:
+            # An inherited capability must not change a subclass's legacy seam.
+            # Custom stores can override this capability to persist acquisition data.
+            return self.write(evidence_by_symbol, request)
+        return self.write(evidence_by_symbol, request, retrieval_by_symbol=retrieval_by_symbol)
 
     def _load_cache_payload(self, diagnostics: dict[str, Any]) -> dict[str, Any]:
         if not self.cache_path.exists():
@@ -382,15 +425,14 @@ def evidence_from_prep_entry(
             continue
         published = _parse_datetime(item.get("published_at"))
         age_hours = _safe_float(item.get("age_hours"), None)
-        if published is None and age_hours is not None:
-            published = datetime.fromtimestamp(now.timestamp() - max(0.0, age_hours) * 3600.0, tz=timezone.utc)
-        published = published or news_asof or now
+        if published is None and age_hours is not None and math.isfinite(age_hours) and age_hours >= 0 and news_asof is not None:
+            published = news_asof - timedelta(hours=max(0.0, age_hours))
         tag = str(item.get("catalyst_tag") or "").strip().lower()
         event_class = None if not tag else tag
         is_generic = tag in {"", "generic", "none"}
         source = str(item.get("source") or "prep_cache")
         url = str(item.get("url") or "")
-        evidence_id = _stable_evidence_id("prep", candidate.normalized_symbol, title, source, url, str(index))
+        evidence_id = str(item.get("evidence_id") or "").strip() or _stable_evidence_id("prep", candidate.normalized_symbol, title, source, url, str(index))
         raw = {
             "prep_news_asof": entry.get("news_asof"),
             "prep_context_status": entry.get("context_status"),
@@ -402,8 +444,8 @@ def evidence_from_prep_entry(
                 NewsEvidence(
                     symbol=candidate.normalized_symbol,
                     evidence_id=evidence_id,
-                    company_name=candidate.company_name or entry.get("company_name"),
-                    aliases=tuple(candidate.aliases or ()),
+                    company_name=candidate.company_name or entry.get("company_name") or item.get("company_name"),
+                    aliases=tuple(candidate.aliases or item.get("aliases") or ()),
                     match_type=str(item.get("match_type") or "prep_context"),
                     matched_field=str(item.get("matched_field") or "news_context"),
                     headline=title,
@@ -446,10 +488,10 @@ def refresh_evidence_age(
     cache_state: CacheState | None = None,
 ) -> NewsEvidence:
     now = now or datetime.now(timezone.utc)
-    basis = evidence.published_at or evidence.fetched_at or evidence.first_seen_at
-    age_seconds = evidence.age_seconds
-    if basis is not None:
-        age_seconds = max(0.0, (now - basis.astimezone(timezone.utc)).total_seconds())
+    basis = evidence.published_at
+    age_seconds = None
+    if basis is not None and basis <= now:
+        age_seconds = (now - basis.astimezone(timezone.utc)).total_seconds()
     freshness_seconds = evidence_freshness_seconds(request)
     stale = None
     if age_seconds is not None:
@@ -472,7 +514,7 @@ def enrich_evidence_metrics(
         Headline(
             title=str(item.headline or ""),
             source=str(item.observed_source or item.original_source or item.source_domain or ""),
-            published_ts=(item.published_at.timestamp() if item.published_at is not None else now_ts),
+            published_ts=item.published_at.timestamp(),
             url=str(item.url or ""),
             summary=str(item.summary or ""),
             source_tier=str(item.source_tier or ""),
@@ -480,7 +522,7 @@ def enrich_evidence_metrics(
             matched_field=str(item.matched_field or ""),
         )
         for item in evidence
-        if item.headline
+        if item.headline and item.published_at is not None and item.published_at.timestamp() <= now_ts
     ]
     metrics = normalize_headlines(headlines, now_ts=now_ts)
     heat_score = compute_news_heat_score(metrics)
@@ -510,11 +552,13 @@ def enrich_evidence_metrics(
 
 def dedupe_evidence(evidence: Sequence[NewsEvidence], *, max_items: int) -> list[NewsEvidence]:
     seen: set[str] = set()
+    seen_articles: set[tuple[str, ...]] = set()
     ordered = sorted(
         evidence,
         key=lambda item: (
             item.stale is True,
             -(item.published_at.timestamp() if item.published_at else 0.0),
+            item.provider in {"prep_cache", "legacy_news_provider_cache"},
             str(item.evidence_id or ""),
         ),
     )
@@ -527,9 +571,19 @@ def dedupe_evidence(evidence: Sequence[NewsEvidence], *, max_items: int) -> list
             item.observed_source or item.original_source or "",
             item.url or "",
         )
-        if key in seen:
+        # Persistence formats use different ID prefixes for the same article.
+        # Keep URL case intact; without a URL, publication time distinguishes repeats.
+        article = (
+            item.normalized_symbol,
+            " ".join(str(item.headline or "").split()).casefold(),
+            str(item.observed_source or item.original_source or "").strip().casefold(),
+            str(item.url or "").strip(),
+            "" if item.url else (item.published_at.isoformat() if item.published_at else ""),
+        )
+        if key in seen or article in seen_articles:
             continue
         seen.add(key)
+        seen_articles.add(article)
         result.append(item)
         if len(result) >= max(1, int(max_items or 1)):
             break
@@ -571,15 +625,15 @@ def _legacy_news_cache_rows(payload: Mapping[str, Any]) -> dict[str, list[Mappin
             published = _parse_datetime(item.get("published_at"))
             if published is None:
                 age_hours = _safe_float(item.get("age_hours"), None)
-                if age_hours is not None:
-                    published = datetime.fromtimestamp(now.timestamp() - max(0.0, age_hours) * 3600.0, tz=timezone.utc)
+                if age_hours is not None and math.isfinite(age_hours) and age_hours >= 0 and (anchor := _parse_datetime(fetched_at)) is not None:
+                    published = anchor - timedelta(hours=max(0.0, age_hours))
             tag = str(item.get("catalyst_tag") or "").strip().lower()
             url = str(item.get("url") or "")
             source = str(item.get("source") or result.get("source_mode") or "legacy_news_cache")
             items.append(
                 {
                     "symbol": symbol,
-                    "evidence_id": _stable_evidence_id("legacy-news-cache", symbol, title, source, url, str(index)),
+                    "evidence_id": str(item.get("evidence_id") or "").strip() or _stable_evidence_id("legacy-news-cache", symbol, title, source, url, str(index)),
                     "headline": title,
                     "summary": str(item.get("summary") or ""),
                     "url": url,
@@ -587,9 +641,9 @@ def _legacy_news_cache_rows(payload: Mapping[str, Any]) -> dict[str, list[Mappin
                     "is_generic": tag in {"", "generic", "none"},
                     "is_qualifying_event_class": False,
                     "dilution_or_offering": tag == "offering",
-                    "published_at": (published or now).isoformat(),
+                    "published_at": published.isoformat() if published is not None else None,
                     "fetched_at": fetched_at,
-                    "first_seen_at": (published or now).isoformat(),
+                    "first_seen_at": published.isoformat() if published is not None else None,
                     "original_source": source,
                     "observed_source": source,
                     "source_domain": _domain(url),

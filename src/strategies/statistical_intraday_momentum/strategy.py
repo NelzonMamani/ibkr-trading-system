@@ -8,7 +8,7 @@ from typing import List
 
 from src.models.data_models import PatternResult, TradeIntent
 from src.config.runtime_config import RunMode
-from src.scanner.session_pct_change import normalize_session_label
+from src.market_data.session_pct_change import normalize_session_label
 from src.strategy.base_strategy import BaseStrategy
 from src.strategy.exit_signal import ExitSignal
 from src.strategies.statistical_intraday_momentum.strategy_policy import (

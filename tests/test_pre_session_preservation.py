@@ -13,7 +13,7 @@ from src.core.orchestrator import CoreOrchestrator
 from src.scanner import scanner_runner
 from src.scanner.scanner_contract import ScannerRequest
 from src.scanner.providers.mock_provider import MockScannerProvider
-from src.scanner.session_pct_change import (
+from src.market_data.session_pct_change import (
     compute_phase_aware_rvol,
     compute_session_aligned_pct_change,
     resolve_market_session_context,

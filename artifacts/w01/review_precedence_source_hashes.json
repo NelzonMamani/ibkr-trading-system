@@ -1,0 +1,10 @@
+{
+  "parent_head": "a4f14273e61a11d67b379ca17f7f71f9d98a8bb5",
+  "files": {
+    "docs/architecture/W01_OWNERSHIP.md": "4c84bb1f2c22731397c9dffb2ebb4f5abce77034bf0e131e7b4a08225de73e49",
+    "src/news/evidence_store.py": "be7127846656f2228f3c4f9b3c8745306dc52053033f04306e099b7fe75686aa",
+    "tests/test_w01_ownership_boundaries.py": "c14d7429abb9eb05ac6a4bce0afe47dbedfb05ba55921d75a3f96ebc83f2b27a"
+  },
+  "test_result": "132 passed",
+  "test_log_sha256": "a6d091e73f5a6c0a5c8626a08c1646ae4f15338adee0d2422b967a1a50520090"
+}

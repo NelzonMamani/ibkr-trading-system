@@ -104,3 +104,12 @@ At minimum:
 - `EMPTY WATCHLIST (valid)` if applicable
 
 END.
+
+
+## W01 concrete ownership (2026-09-28)
+
+- `src/news`: canonical shared retrieval, issuer relevance, normalization, publication freshness, evidence/cache and prep result projection. Strategy eligibility is a downstream consumer.
+- `src/market_data`: market/reference identity, session math, float/reference providers and caches, snapshot quality translation, batch enrichment and per-cycle hub/events. Broker SDK transport remains in the existing adapter.
+- `src/scanner`: policy-driven discovery, ranking and Watchlist/Focus continuity, consuming canonical news/market facts. Risk retains final authority; no scanner, news or market-data component gains order authority.
+
+The historical logical `data` role above maps to `src/market_data` for these facts. Thin compatibility imports retain old paths until downstream migration. See [W01 ownership and removal map](docs/architecture/W01_OWNERSHIP.md) for caller evidence, distinct adapter responsibilities, removed engines and wrapper removal conditions. Generic strategy, recovery, shutdown/PANIC, risk and execution contracts remain unchanged.

@@ -33,7 +33,7 @@ The common contract does not put Ross price, gap, float, volume, RVOL, session, 
 
 `src/news/rss_registry.py` remains a compatibility export layer for existing call sites. Existing imports of `RSS_FAST_TRADING`, `RSS_PREP_EXTENDED`, `RSS_MACRO_LONG_HORIZON`, and `RSS_REGISTRY` continue to receive the same ordered URL lists.
 
-`verified_rss.txt` and legacy `src/scanner/news_engine.py` are not wired into the active Ross scanner path. They remain historical/legacy catalogue infrastructure until a later reviewed migration explicitly changes that behavior.
+W01 retires `src/scanner/news_engine.py`; the active Ross scanner path continues through the canonical service. `verified_rss.txt` remains historical catalogue metadata; it is not a second retrieval authority. The dated scanner CLI delegates to `scanner_main`.
 
 ## Batch-First Model
 
@@ -43,7 +43,7 @@ The common contract does not put Ross price, gap, float, volume, RVOL, session, 
 
 ## Canonical Evidence And Cache
 
-`src/news/evidence_store.py` is the canonical evidence/cache bridge. It uses the existing `NEWS_CACHE_FILE` and stores common evidence under the `news_intelligence` namespace while preserving the legacy top-level `symbols` cache shape used by `src/data/news/news_provider.py`.
+`src/news/evidence_store.py` is the canonical evidence/cache bridge. It uses the existing `NEWS_CACHE_FILE` and stores common evidence under the `news_intelligence` namespace while preserving and revalidating the legacy top-level `symbols` cache shape. `src/data/news/news_provider.py` is now an import-only compatibility path; prep uses `src/news/prep_adapter.py` and the canonical service.
 
 Read path:
 
@@ -148,3 +148,10 @@ PR1069 also fixes the post-PR1040 observe shutdown hang. A manager-owned `Market
 - ZERO BROKER ORDER MUTATIONS
 - PAPER_READY=NO
 - PAPER_READINESS_GATE=FAIL
+
+
+## W01 shared revalidation
+
+`issuer_relevance.py` owns the PR1092 text/issuer recheck. The evidence store applies it before deciding whether a cached item suppresses retrieval; scanner policy calls the same function as a boundary check. Legacy event labels never prove issuer relevance or strategy eligibility. Freshness uses publication time; an old relative age is anchored to the saved acquisition time, never to the current read. Missing/future publication time remains unknown. RSS UTC tuples are interpreted as UTC and undated/future RSS entries are excluded with TIME_REJECT diagnostics.
+
+Prep projects canonical evidence into the existing news_context result shape with provenance and retrieval diagnostics. It batches all candidates once, retains FAST_TRADING membership and configured budgets, and keeps no private cache or independent catalyst classifier. Catalyst eligibility remains strategy policy. See W01_OWNERSHIP.md for removals and compatibility conditions.

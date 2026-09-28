@@ -1,0 +1,121 @@
+[IBKR][CLIENT] connect host=127.0.0.1 port=7497 client_id=19284 timeout=8 market_data_type=LIVE readonly=True
+[IBKR][ORDER_ID_REBASE] broker_next=1 local_last=361 chosen=362
+[IBKR][NEXT_VALID_ID] order_id=362
+[IBKR][BROKER_ERROR] {"code": 2104, "con_id": null, "message": "Market data farm connection is OK:usfarm.nj", "req_id": -1, "request_type": null, "symbol": null, "timestamp_utc": "2026-09-28T17:32:32.346494+00:00"}
+[ORDER][ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:usfarm.nj
+[IBKR][ORDER_ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:usfarm.nj
+[IBKR] Error reqId=-1 code=2104 msg=Market data farm connection is OK:usfarm.nj timestamp_utc=2026-09-28T17:32:32.346494+00:00
+[IBKR][BROKER_ERROR] {"code": 2104, "con_id": null, "message": "Market data farm connection is OK:hfarm", "req_id": -1, "request_type": null, "symbol": null, "timestamp_utc": "2026-09-28T17:32:32.346643+00:00"}
+[ORDER][ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:hfarm
+[IBKR][ORDER_ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:hfarm
+[IBKR] Error reqId=-1 code=2104 msg=Market data farm connection is OK:hfarm timestamp_utc=2026-09-28T17:32:32.346643+00:00
+[IBKR][BROKER_ERROR] {"code": 2104, "con_id": null, "message": "Market data farm connection is OK:jfarm", "req_id": -1, "request_type": null, "symbol": null, "timestamp_utc": "2026-09-28T17:32:32.346745+00:00"}
+[ORDER][ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:jfarm
+[IBKR][ORDER_ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:jfarm
+[IBKR] Error reqId=-1 code=2104 msg=Market data farm connection is OK:jfarm timestamp_utc=2026-09-28T17:32:32.346745+00:00
+[IBKR][BROKER_ERROR] {"code": 2104, "con_id": null, "message": "Market data farm connection is OK:eufarm", "req_id": -1, "request_type": null, "symbol": null, "timestamp_utc": "2026-09-28T17:32:32.346835+00:00"}
+[ORDER][ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:eufarm
+[IBKR][ORDER_ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:eufarm
+[IBKR] Error reqId=-1 code=2104 msg=Market data farm connection is OK:eufarm timestamp_utc=2026-09-28T17:32:32.346835+00:00
+[IBKR][BROKER_ERROR] {"code": 2104, "con_id": null, "message": "Market data farm connection is OK:usfuture", "req_id": -1, "request_type": null, "symbol": null, "timestamp_utc": "2026-09-28T17:32:32.346927+00:00"}
+[ORDER][ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:usfuture
+[IBKR][ORDER_ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:usfuture
+[IBKR] Error reqId=-1 code=2104 msg=Market data farm connection is OK:usfuture timestamp_utc=2026-09-28T17:32:32.346927+00:00
+[IBKR][BROKER_ERROR] {"code": 2104, "con_id": null, "message": "Market data farm connection is OK:cashfarm", "req_id": -1, "request_type": null, "symbol": null, "timestamp_utc": "2026-09-28T17:32:32.347014+00:00"}
+[ORDER][ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:cashfarm
+[IBKR][ORDER_ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:cashfarm
+[IBKR] Error reqId=-1 code=2104 msg=Market data farm connection is OK:cashfarm timestamp_utc=2026-09-28T17:32:32.347014+00:00
+[IBKR] Setting market data type=LIVE code=1
+[IBKR] connection_status=True
+[IBKR][CONNECTED] Connected client_id=19284
+[IBKR][BROKER_ERROR] {"code": 2104, "con_id": null, "message": "Market data farm connection is OK:usfarm", "req_id": -1, "request_type": null, "symbol": null, "timestamp_utc": "2026-09-28T17:32:32.347398+00:00"}
+[ORDER][ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:usfarm
+[IBKR][ORDER_ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:usfarm
+[IBKR] Error reqId=-1 code=2104 msg=Market data farm connection is OK:usfarm timestamp_utc=2026-09-28T17:32:32.347398+00:00
+[IBKR][BROKER_ERROR] {"code": 2106, "con_id": null, "message": "HMDS data farm connection is OK:euhmds", "req_id": -1, "request_type": null, "symbol": null, "timestamp_utc": "2026-09-28T17:32:32.347515+00:00"}
+[ORDER][ERROR] order_id=-1 code=2106 message=HMDS data farm connection is OK:euhmds
+[IBKR][ORDER_ERROR] order_id=-1 code=2106 message=HMDS data farm connection is OK:euhmds
+[IBKR] Error reqId=-1 code=2106 msg=HMDS data farm connection is OK:euhmds timestamp_utc=2026-09-28T17:32:32.347515+00:00
+[IBKR][BROKER_ERROR] {"code": 2106, "con_id": null, "message": "HMDS data farm connection is OK:fundfarm", "req_id": -1, "request_type": null, "symbol": null, "timestamp_utc": "2026-09-28T17:32:32.347630+00:00"}
+[ORDER][ERROR] order_id=-1 code=2106 message=HMDS data farm connection is OK:fundfarm
+[IBKR][ORDER_ERROR] order_id=-1 code=2106 message=HMDS data farm connection is OK:fundfarm
+[IBKR] Error reqId=-1 code=2106 msg=HMDS data farm connection is OK:fundfarm timestamp_utc=2026-09-28T17:32:32.347630+00:00
+[IBKR][BROKER_ERROR] {"code": 2106, "con_id": null, "message": "HMDS data farm connection is OK:ushmds", "req_id": -1, "request_type": null, "symbol": null, "timestamp_utc": "2026-09-28T17:32:32.347726+00:00"}
+[ORDER][ERROR] order_id=-1 code=2106 message=HMDS data farm connection is OK:ushmds
+[IBKR][ORDER_ERROR] order_id=-1 code=2106 message=HMDS data farm connection is OK:ushmds
+[IBKR] Error reqId=-1 code=2106 msg=HMDS data farm connection is OK:ushmds timestamp_utc=2026-09-28T17:32:32.347726+00:00
+[IBKR][BROKER_ERROR] {"code": 2158, "con_id": null, "message": "Sec-def data farm connection is OK:secdefil", "req_id": -1, "request_type": null, "symbol": null, "timestamp_utc": "2026-09-28T17:32:32.347889+00:00"}
+[ORDER][ERROR] order_id=-1 code=2158 message=Sec-def data farm connection is OK:secdefil
+[IBKR][ORDER_ERROR] order_id=-1 code=2158 message=Sec-def data farm connection is OK:secdefil
+[IBKR] Error reqId=-1 code=2158 msg=Sec-def data farm connection is OK:secdefil timestamp_utc=2026-09-28T17:32:32.347889+00:00
+[IBKR] Resolving contract for symbol=KNRX req_id=1
+[IBKR] Resolved contract symbol=KNRX req_id=1 conId=817976192
+[IBKR] Requesting market snapshot symbol=KNRX req_id=2 conId=817976192
+[IBKR][MARKET_DATA_TYPE] {"req_id": 2, "requested_market_data_type": 1, "returned_market_data_type": 1, "symbol": "KNRX", "timestamp_utc": "2026-09-28T17:32:32.689630+00:00"}
+[IBKR] Snapshot symbol=KNRX req_id=2 requested_type=LIVE returned_type=LIVE complete=True bid=None ask=None last=1.22
+[IBKR] Resolving contract for symbol=KNRX req_id=3
+[IBKR] Resolved contract symbol=KNRX req_id=3 conId=817976192
+[IBKR][HIST_REQ] req_id=4 symbol=None
+[IBKR] Disconnecting client_id=19284
+[IBKR] Connection closed by broker.
+[IBKR] Disconnecting client_id=19284
+[IBKR] Disconnect called from network thread; skipping self-join.
+[IBKR][DISCONNECTED] client disconnected
+[IBKR][DISCONNECTED] client disconnected
+[IBKR][CLIENT] connect host=127.0.0.1 port=7497 client_id=19285 timeout=10 market_data_type=DELAYED readonly=True
+[IBKR][ORDER_ID_REBASE] broker_next=1 local_last=361 chosen=362
+[IBKR][NEXT_VALID_ID] order_id=362
+[IBKR] Setting market data type=DELAYED code=3
+[IBKR][BROKER_ERROR] {"code": 2104, "con_id": null, "message": "Market data farm connection is OK:usfarm.nj", "req_id": -1, "request_type": null, "symbol": null, "timestamp_utc": "2026-09-28T17:32:33.025756+00:00"}
+[ORDER][ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:usfarm.nj
+[IBKR][ORDER_ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:usfarm.nj
+[IBKR] Error reqId=-1 code=2104 msg=Market data farm connection is OK:usfarm.nj timestamp_utc=2026-09-28T17:32:33.025756+00:00
+[IBKR][BROKER_ERROR] {"code": 2104, "con_id": null, "message": "Market data farm connection is OK:hfarm", "req_id": -1, "request_type": null, "symbol": null, "timestamp_utc": "2026-09-28T17:32:33.025881+00:00"}
+[ORDER][ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:hfarm
+[IBKR][ORDER_ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:hfarm
+[IBKR] Error reqId=-1 code=2104 msg=Market data farm connection is OK:hfarm timestamp_utc=2026-09-28T17:32:33.025881+00:00
+[IBKR] connection_status=True
+[IBKR][BROKER_ERROR] {"code": 2104, "con_id": null, "message": "Market data farm connection is OK:jfarm", "req_id": -1, "request_type": null, "symbol": null, "timestamp_utc": "2026-09-28T17:32:33.026455+00:00"}[IBKR][CONNECTED] Connected client_id=19285
+
+[ORDER][ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:jfarm
+[IBKR][ORDER_ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:jfarm
+[IBKR] Error reqId=-1 code=2104 msg=Market data farm connection is OK:jfarm timestamp_utc=2026-09-28T17:32:33.026455+00:00
+[IBKR][BROKER_ERROR] {"code": 2104, "con_id": null, "message": "Market data farm connection is OK:eufarm", "req_id": -1, "request_type": null, "symbol": null, "timestamp_utc": "2026-09-28T17:32:33.026820+00:00"}
+[ORDER][ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:eufarm
+[IBKR][ORDER_ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:eufarm
+[IBKR] Error reqId=-1 code=2104 msg=Market data farm connection is OK:eufarm timestamp_utc=2026-09-28T17:32:33.026820+00:00
+[IBKR][BROKER_ERROR] {"code": 2104, "con_id": null, "message": "Market data farm connection is OK:usfuture", "req_id": -1, "request_type": null, "symbol": null, "timestamp_utc": "2026-09-28T17:32:33.026943+00:00"}
+[ORDER][ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:usfuture
+[IBKR][ORDER_ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:usfuture
+[IBKR] Error reqId=-1 code=2104 msg=Market data farm connection is OK:usfuture timestamp_utc=2026-09-28T17:32:33.026943+00:00
+[IBKR][BROKER_ERROR] {"code": 2104, "con_id": null, "message": "Market data farm connection is OK:cashfarm", "req_id": -1, "request_type": null, "symbol": null, "timestamp_utc": "2026-09-28T17:32:33.027074+00:00"}
+[ORDER][ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:cashfarm
+[IBKR][ORDER_ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:cashfarm
+[IBKR] Error reqId=-1 code=2104 msg=Market data farm connection is OK:cashfarm timestamp_utc=2026-09-28T17:32:33.027074+00:00
+[IBKR][BROKER_ERROR] {"code": 2104, "con_id": null, "message": "Market data farm connection is OK:usfarm", "req_id": -1, "request_type": null, "symbol": null, "timestamp_utc": "2026-09-28T17:32:33.027171+00:00"}
+[ORDER][ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:usfarm
+[IBKR][ORDER_ERROR] order_id=-1 code=2104 message=Market data farm connection is OK:usfarm
+[IBKR] Error reqId=-1 code=2104 msg=Market data farm connection is OK:usfarm timestamp_utc=2026-09-28T17:32:33.027171+00:00
+[IBKR][BROKER_ERROR] {"code": 2106, "con_id": null, "message": "HMDS data farm connection is OK:euhmds", "req_id": -1, "request_type": null, "symbol": null, "timestamp_utc": "2026-09-28T17:32:33.027262+00:00"}
+[ORDER][ERROR] order_id=-1 code=2106 message=HMDS data farm connection is OK:euhmds
+[IBKR][ORDER_ERROR] order_id=-1 code=2106 message=HMDS data farm connection is OK:euhmds
+[IBKR] Error reqId=-1 code=2106 msg=HMDS data farm connection is OK:euhmds timestamp_utc=2026-09-28T17:32:33.027262+00:00
+[IBKR][BROKER_ERROR] {"code": 2106, "con_id": null, "message": "HMDS data farm connection is OK:fundfarm", "req_id": -1, "request_type": null, "symbol": null, "timestamp_utc": "2026-09-28T17:32:33.027350+00:00"}
+[ORDER][ERROR] order_id=-1 code=2106 message=HMDS data farm connection is OK:fundfarm
+[IBKR][ORDER_ERROR] order_id=-1 code=2106 message=HMDS data farm connection is OK:fundfarm
+[IBKR] Error reqId=-1 code=2106 msg=HMDS data farm connection is OK:fundfarm timestamp_utc=2026-09-28T17:32:33.027350+00:00
+[IBKR][BROKER_ERROR] {"code": 2106, "con_id": null, "message": "HMDS data farm connection is OK:ushmds", "req_id": -1, "request_type": null, "symbol": null, "timestamp_utc": "2026-09-28T17:32:33.027442+00:00"}
+[ORDER][ERROR] order_id=-1 code=2106 message=HMDS data farm connection is OK:ushmds
+[IBKR][ORDER_ERROR] order_id=-1 code=2106 message=HMDS data farm connection is OK:ushmds
+[IBKR] Error reqId=-1 code=2106 msg=HMDS data farm connection is OK:ushmds timestamp_utc=2026-09-28T17:32:33.027442+00:00
+[IBKR][BROKER_ERROR] {"code": 2158, "con_id": null, "message": "Sec-def data farm connection is OK:secdefil", "req_id": -1, "request_type": null, "symbol": null, "timestamp_utc": "2026-09-28T17:32:33.027560+00:00"}
+[ORDER][ERROR] order_id=-1 code=2158 message=Sec-def data farm connection is OK:secdefil
+[IBKR][ORDER_ERROR] order_id=-1 code=2158 message=Sec-def data farm connection is OK:secdefil
+[IBKR] Error reqId=-1 code=2158 msg=Sec-def data farm connection is OK:secdefil timestamp_utc=2026-09-28T17:32:33.027560+00:00
+[IBKR][CALLBACK_RAW] event=openOrderEnd
+[IBKR] Disconnecting client_id=19285
+[IBKR] Connection closed by broker.
+[IBKR] Disconnecting client_id=19285
+[IBKR] Disconnect called from network thread; skipping self-join.
+[IBKR][DISCONNECTED] client disconnected
+[IBKR][DISCONNECTED] client disconnected

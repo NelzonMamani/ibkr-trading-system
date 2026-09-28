@@ -9,9 +9,9 @@ from typing import Any, Iterable, Optional
 
 from src.adapters.data import historical_data_provider
 from src.adapters.data.historical_data_provider import get_intraday_bars
-from src.data.fundamentals.float_provider import FloatProvider
+from src.market_data.float_provider import FloatProvider
 from src.domain.market_snapshot import MarketSnapshot
-from src.scanner.session_pct_change import compute_session_relative_volume_with_provenance, normalize_session_label
+from src.market_data.session_pct_change import compute_session_relative_volume_with_provenance, normalize_session_label
 from src.scanner.result_models import CandidateMetrics
 from src.strategies.common.candles.candle_types import Candle
 from src.strategies.ross_momentum.patterns.pattern_inputs import (

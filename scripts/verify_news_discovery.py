@@ -8,7 +8,7 @@ if __package__ in {None, ""}:
     if str(repo_root) not in sys.path:
         sys.path.insert(0, str(repo_root))
 
-from src.data.news.news_provider import NewsProvider
+from src.news.prep_adapter import NewsProvider
 
 
 def main() -> None:

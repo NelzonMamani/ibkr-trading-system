@@ -88,7 +88,7 @@ NEWS_SOURCE_GROUPS: dict[SourceGroupId, NewsSourceGroup] = {
     ),
     "VERIFIED_RSS_LEGACY": NewsSourceGroup(
         group_id="VERIFIED_RSS_LEGACY",
-        purpose="Historical verified RSS catalogue consumed by legacy scanner/news_engine code.",
+        purpose="Historical verified RSS catalogue retained as metadata; no active retrieval engine.",
         runtime_scope="legacy_metadata_only",
         active_runtime_group=False,
         catalogue_path="verified_rss.txt",

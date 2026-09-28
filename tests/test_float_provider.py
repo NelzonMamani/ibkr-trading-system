@@ -1,4 +1,4 @@
-from src.data.fundamentals.float_provider import FloatProvider
+from src.market_data.float_provider import FloatProvider
 
 
 def test_parse_shares_value_suffixes() -> None:

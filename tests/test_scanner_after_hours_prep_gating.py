@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from src.scanner import scanner_runner
-from src.scanner.reference_resolver import resolve_reference_bundle
+from src.market_data.reference_resolver import resolve_reference_bundle
 
 
 def _base_context(*, prep_only: bool, rvol: float | None) -> dict:

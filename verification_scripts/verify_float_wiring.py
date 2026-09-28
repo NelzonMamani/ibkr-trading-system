@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 
 from src.config.runtime_config import get_persistence_sqlite_path
-from src.data.float_discovery_worker import get_float_discovery_worker
+from src.market_data.float_discovery_worker import get_float_discovery_worker
 from src.scanner import scanner_runner
 
 

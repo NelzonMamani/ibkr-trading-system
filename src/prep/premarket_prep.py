@@ -7,7 +7,7 @@ from typing import Optional, Sequence
 
 from src.config.config_resolver import get_config
 from src.core.event_collector import EventCollector
-from src.data.news.news_provider import NewsProvider
+from src.news.prep_adapter import NewsProvider
 from src.utils.time_utils import to_ny_time
 
 

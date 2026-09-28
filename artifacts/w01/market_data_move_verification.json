@@ -1,0 +1,44 @@
+[
+  {
+    "old": "src/scanner/reference_resolver.py",
+    "canonical": "src/market_data/reference_resolver.py",
+    "identical_except_import_paths": true,
+    "sha256": "326ce16d8ad983e65c105ed5d2969352730015f9b21f87c36ee29ac1fd1efb88"
+  },
+  {
+    "old": "src/scanner/session_pct_change.py",
+    "canonical": "src/market_data/session_pct_change.py",
+    "identical_except_import_paths": true,
+    "sha256": "061708407006a2fb6cca04811f425f65e677cfff5ce95895e3954e6d3bceacd5"
+  },
+  {
+    "old": "src/core/managers/market_data_snapshot_manager.py",
+    "canonical": "src/market_data/market_data_snapshot_manager.py",
+    "identical_except_import_paths": true,
+    "sha256": "f2631d810bec88f594a4b14676c235996e0b0d541110b47121f693f63e3173dc"
+  },
+  {
+    "old": "src/data/fundamentals/float_provider.py",
+    "canonical": "src/market_data/float_provider.py",
+    "identical_except_import_paths": true,
+    "sha256": "49e7858bb29953c6f9ac473ed790071fef027fd18806ece8faa25bbdbe75cb64"
+  },
+  {
+    "old": "src/data/float_discovery_worker.py",
+    "canonical": "src/market_data/float_discovery_worker.py",
+    "identical_except_import_paths": true,
+    "sha256": "27c78671335ef64de29d6221156d7c11788f6f188e411fea744fcf9f3cc8b456"
+  },
+  {
+    "old": "src/scanner/market_metrics_context.py",
+    "canonical": "src/market_data/market_metrics_context.py",
+    "identical_except_import_paths": true,
+    "sha256": "bbc252ca3ada166e8bce10f9e6d69ff2591ac6bc6b9a35234193ad39454881a7"
+  },
+  {
+    "old": "src/scanner/candidate_identity.py",
+    "canonical": "src/market_data/candidate_identity.py",
+    "identical_except_import_paths": true,
+    "sha256": "66a0043523ce25fe24436c6555a735ea2e61af68b85a64b1c37f7c0fd5462c22"
+  }
+]

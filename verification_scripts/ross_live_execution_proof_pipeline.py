@@ -25,7 +25,7 @@ if str(REPO_ROOT) not in sys.path:
 from src.core.orchestrator import CoreOrchestrator
 from src.models.data_models import RiskDecision
 from src.scanner.scanner_runner import run_scanner_cycle
-from src.scanner.session_pct_change import resolve_session_diagnostics
+from src.market_data.session_pct_change import resolve_session_diagnostics
 
 
 OUT_DIR = REPO_ROOT / "AUDIT_EVIDENCE" / "ross_execution_proof"
