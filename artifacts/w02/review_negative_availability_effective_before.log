@@ -1,0 +1,172 @@
+FFF                                                                      [100%]
+================================== FAILURES ===================================
+_ test_effective_negative_batch_outcome_does_not_inherit_peer_budget_on_restart[omitted] _
+
+tmp_path = WindowsPath('C:/Users/nelzo/AppData/Local/Temp/pytest-of-nelzo/pytest-317/test_effective_negative_batch_0')
+summary_kind = 'omitted'
+
+    @pytest.mark.parametrize("summary_kind", ["omitted", "unknown", "reachable"])
+    def test_effective_negative_batch_outcome_does_not_inherit_peer_budget_on_restart(tmp_path, summary_kind):
+        class Provider:
+            calls = 0
+    
+            def get_news(self, candidates, request, policy):
+                self.calls += 1
+                summaries = {
+                    "GOOD": NewsEvidenceSummary(symbol="GOOD", retrieval_status="available", provider_available=True),
+                    "OTHER": NewsEvidenceSummary(symbol="OTHER", retrieval_status="budget_exhausted",
+                                                 provider_status="available", provider_available=True, budget_exhausted=True),
+                }
+                if summary_kind != "omitted":
+                    summaries["BAD"] = NewsEvidenceSummary(symbol="BAD", provider_available=True if summary_kind == "reachable" else None)
+                return NewsBatchResult(
+                    evidence_by_symbol={"GOOD": (), "BAD": (), "OTHER": ()}, summaries_by_symbol=summaries,
+                    diagnostics=RetrievalDiagnostics(provider_status="unknown", provider_available=False),
+                )
+    
+        provider = Provider()
+        path = tmp_path / "news.json"
+        service = _service(path, provider)
+        results = [reader.get_news([NewsCandidate(symbol) for symbol in ("GOOD", "BAD", "OTHER")], REQUEST, POLICY)
+                   for reader in (service, service, _service(path, provider))]
+        for result in results:
+            context, decision = _ross(result)
+            assert context["BAD"]["news_available"] is False
+>           assert context["BAD"]["news_provider_status"] == "unknown"
+E           AssertionError: assert 'mixed' == 'unknown'
+E             
+E             - unknown
+E             + mixed
+
+tests\test_w02_news_consumer_acceptance.py:568: AssertionError
+---------------------------- Captured stdout call -----------------------------
+[NEWS][RETRIEVAL_DIAGNOSTICS] {"budget_exhausted":true,"cache":{"cache_hit_symbols":[],"cache_miss_symbols":["BAD","GOOD","OTHER"],"cache_read_error":null,"cache_read_failed":false,"cache_write_error":null,"cache_write_failed":false,"cadence_cache_hit_symbols":[],"prep_read_error":null,"prep_read_failed":false,"prep_reuse_symbols":[],"prep_stale_symbols":[],"read_attempted":true,"read_skipped":false,"stale_cache_miss_symbols":[],"state":"miss","write_attempted":true},"completed_at_utc":"2026-08-21T14:05:00+00:00","elapsed_seconds":null,"network_allowed":true,"provider_available":false,"provider_failure_reason":null,"provider_invoked":true,"provider_status":"unknown","refresh_allowed":true,"refresh_symbols":["GOOD","BAD","OTHER"],"request_mode":"incremental","retrieval_status":"unknown","schema":"news.retrieval_diagnostics.v1","source_groups":[],"sources":[],"sources_attempted":0,"sources_skipped_due_to_budget":0,"started_at_utc":"2026-08-21T14:05:00+00:00","summaries":{"BAD":{"budget_exhausted":false,"cache_state":"miss","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"no_recent_news","provider_available":false,"provider_status":"unknown","retrieval_status":"unknown","retrieval_unavailable":true,"stale_evidence_count":0,"unavailability_reasons":["provider_unavailable"]},"GOOD":{"budget_exhausted":false,"cache_state":"miss","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"no_recent_news","provider_available":true,"provider_status":null,"retrieval_status":"available","retrieval_unavailable":false,"stale_evidence_count":0,"unavailability_reasons":[]},"OTHER":{"budget_exhausted":true,"cache_state":"miss","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"budget_exhausted","provider_available":true,"provider_status":"available","retrieval_status":"budget_exhausted","retrieval_unavailable":true,"stale_evidence_count":0,"unavailability_reasons":["budget_exhausted","retrieval_budget_exhausted"]}},"symbols":["GOOD","BAD","OTHER"],"tier_budget_seconds":{"extended_budget_reserved_seconds":null,"extended_budget_seconds":null,"fast_budget_seconds":null},"total_budget_seconds":null,"unresolved_symbols":["OTHER"]}
+[NEWS][RETRIEVAL_DIAGNOSTICS] {"budget_exhausted":true,"cache":{"cache_hit_symbols":[],"cache_miss_symbols":["BAD","GOOD","OTHER"],"cache_read_error":null,"cache_read_failed":false,"cache_write_error":null,"cache_write_failed":false,"cadence_cache_hit_symbols":["GOOD","BAD","OTHER"],"prep_read_error":null,"prep_read_failed":false,"prep_reuse_symbols":[],"prep_stale_symbols":[],"read_attempted":true,"read_skipped":false,"stale_cache_miss_symbols":[],"state":"hit","write_attempted":false},"completed_at_utc":"2026-08-21T14:05:00+00:00","elapsed_seconds":0.0,"network_allowed":true,"provider_available":false,"provider_failure_reason":null,"provider_invoked":false,"provider_status":"mixed","refresh_allowed":false,"refresh_symbols":[],"request_mode":"incremental","retrieval_status":"partial","schema":"news.retrieval_diagnostics.v1","source_groups":[],"sources":[],"sources_attempted":0,"sources_skipped_due_to_budget":0,"started_at_utc":"2026-08-21T14:05:00+00:00","summaries":{"BAD":{"budget_exhausted":false,"cache_state":"hit","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"no_recent_news","provider_available":false,"provider_status":"unknown","retrieval_status":"unknown","retrieval_unavailable":true,"stale_evidence_count":0,"unavailability_reasons":["provider_unavailable"]},"GOOD":{"budget_exhausted":false,"cache_state":"hit","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"no_recent_news","provider_available":true,"provider_status":"cache_miss","retrieval_status":"available","retrieval_unavailable":false,"stale_evidence_count":0,"unavailability_reasons":[]},"OTHER":{"budget_exhausted":true,"cache_state":"hit","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"budget_exhausted","provider_available":true,"provider_status":"available","retrieval_status":"budget_exhausted","retrieval_unavailable":true,"stale_evidence_count":0,"unavailability_reasons":["budget_exhausted","retrieval_budget_exhausted"]}},"symbols":["GOOD","BAD","OTHER"],"tier_budget_seconds":{"extended_budget_reserved_seconds":null,"extended_budget_seconds":null,"fast_budget_seconds":null},"total_budget_seconds":8.0,"unresolved_symbols":["BAD","OTHER"]}
+[NEWS][RETRIEVAL_DIAGNOSTICS] {"budget_exhausted":true,"cache":{"cache_hit_symbols":[],"cache_miss_symbols":["BAD","GOOD","OTHER"],"cache_read_error":null,"cache_read_failed":false,"cache_write_error":null,"cache_write_failed":false,"cadence_cache_hit_symbols":["GOOD","BAD","OTHER"],"prep_read_error":null,"prep_read_failed":false,"prep_reuse_symbols":[],"prep_stale_symbols":[],"read_attempted":true,"read_skipped":false,"stale_cache_miss_symbols":[],"state":"hit","write_attempted":false},"completed_at_utc":"2026-08-21T14:05:00+00:00","elapsed_seconds":0.0,"network_allowed":true,"provider_available":false,"provider_failure_reason":null,"provider_invoked":false,"provider_status":"mixed","refresh_allowed":false,"refresh_symbols":[],"request_mode":"incremental","retrieval_status":"partial","schema":"news.retrieval_diagnostics.v1","source_groups":[],"sources":[],"sources_attempted":0,"sources_skipped_due_to_budget":0,"started_at_utc":"2026-08-21T14:05:00+00:00","summaries":{"BAD":{"budget_exhausted":false,"cache_state":"hit","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"no_recent_news","provider_available":false,"provider_status":"unknown","retrieval_status":"unknown","retrieval_unavailable":true,"stale_evidence_count":0,"unavailability_reasons":["provider_unavailable"]},"GOOD":{"budget_exhausted":false,"cache_state":"hit","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"no_recent_news","provider_available":true,"provider_status":"cache_miss","retrieval_status":"available","retrieval_unavailable":false,"stale_evidence_count":0,"unavailability_reasons":[]},"OTHER":{"budget_exhausted":true,"cache_state":"hit","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"budget_exhausted","provider_available":true,"provider_status":"available","retrieval_status":"budget_exhausted","retrieval_unavailable":true,"stale_evidence_count":0,"unavailability_reasons":["budget_exhausted","retrieval_budget_exhausted"]}},"symbols":["GOOD","BAD","OTHER"],"tier_budget_seconds":{"extended_budget_reserved_seconds":null,"extended_budget_seconds":null,"fast_budget_seconds":null},"total_budget_seconds":8.0,"unresolved_symbols":["BAD","OTHER"]}
+[NEWS] symbol=GOOD catalyst_tag=NONE headlines=0
+[NEWS] symbol=GOOD news_changed=True
+[NEWS] symbol=BAD catalyst_tag=NONE headlines=0
+[NEWS] symbol=BAD news_changed=True
+[NEWS] symbol=OTHER catalyst_tag=NONE headlines=0
+[NEWS] symbol=OTHER news_changed=True
+[NEWS] symbol=GOOD catalyst_tag=NONE headlines=0
+[NEWS] symbol=GOOD news_changed=True
+[NEWS] symbol=BAD catalyst_tag=NONE headlines=0
+[NEWS] symbol=BAD news_changed=True
+[NEWS] symbol=OTHER catalyst_tag=NONE headlines=0
+[NEWS] symbol=OTHER news_changed=True
+_ test_effective_negative_batch_outcome_does_not_inherit_peer_budget_on_restart[unknown] _
+
+tmp_path = WindowsPath('C:/Users/nelzo/AppData/Local/Temp/pytest-of-nelzo/pytest-317/test_effective_negative_batch_1')
+summary_kind = 'unknown'
+
+    @pytest.mark.parametrize("summary_kind", ["omitted", "unknown", "reachable"])
+    def test_effective_negative_batch_outcome_does_not_inherit_peer_budget_on_restart(tmp_path, summary_kind):
+        class Provider:
+            calls = 0
+    
+            def get_news(self, candidates, request, policy):
+                self.calls += 1
+                summaries = {
+                    "GOOD": NewsEvidenceSummary(symbol="GOOD", retrieval_status="available", provider_available=True),
+                    "OTHER": NewsEvidenceSummary(symbol="OTHER", retrieval_status="budget_exhausted",
+                                                 provider_status="available", provider_available=True, budget_exhausted=True),
+                }
+                if summary_kind != "omitted":
+                    summaries["BAD"] = NewsEvidenceSummary(symbol="BAD", provider_available=True if summary_kind == "reachable" else None)
+                return NewsBatchResult(
+                    evidence_by_symbol={"GOOD": (), "BAD": (), "OTHER": ()}, summaries_by_symbol=summaries,
+                    diagnostics=RetrievalDiagnostics(provider_status="unknown", provider_available=False),
+                )
+    
+        provider = Provider()
+        path = tmp_path / "news.json"
+        service = _service(path, provider)
+        results = [reader.get_news([NewsCandidate(symbol) for symbol in ("GOOD", "BAD", "OTHER")], REQUEST, POLICY)
+                   for reader in (service, service, _service(path, provider))]
+        for result in results:
+            context, decision = _ross(result)
+            assert context["BAD"]["news_available"] is False
+>           assert context["BAD"]["news_provider_status"] == "unknown"
+E           AssertionError: assert 'mixed' == 'unknown'
+E             
+E             - unknown
+E             + mixed
+
+tests\test_w02_news_consumer_acceptance.py:568: AssertionError
+---------------------------- Captured stdout call -----------------------------
+[NEWS][RETRIEVAL_DIAGNOSTICS] {"budget_exhausted":true,"cache":{"cache_hit_symbols":[],"cache_miss_symbols":["BAD","GOOD","OTHER"],"cache_read_error":null,"cache_read_failed":false,"cache_write_error":null,"cache_write_failed":false,"cadence_cache_hit_symbols":[],"prep_read_error":null,"prep_read_failed":false,"prep_reuse_symbols":[],"prep_stale_symbols":[],"read_attempted":true,"read_skipped":false,"stale_cache_miss_symbols":[],"state":"miss","write_attempted":true},"completed_at_utc":"2026-08-21T14:05:00+00:00","elapsed_seconds":null,"network_allowed":true,"provider_available":false,"provider_failure_reason":null,"provider_invoked":true,"provider_status":"unknown","refresh_allowed":true,"refresh_symbols":["GOOD","BAD","OTHER"],"request_mode":"incremental","retrieval_status":"unknown","schema":"news.retrieval_diagnostics.v1","source_groups":[],"sources":[],"sources_attempted":0,"sources_skipped_due_to_budget":0,"started_at_utc":"2026-08-21T14:05:00+00:00","summaries":{"BAD":{"budget_exhausted":false,"cache_state":"miss","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"no_recent_news","provider_available":false,"provider_status":"unknown","retrieval_status":"unknown","retrieval_unavailable":true,"stale_evidence_count":0,"unavailability_reasons":["provider_unavailable"]},"GOOD":{"budget_exhausted":false,"cache_state":"miss","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"no_recent_news","provider_available":true,"provider_status":null,"retrieval_status":"available","retrieval_unavailable":false,"stale_evidence_count":0,"unavailability_reasons":[]},"OTHER":{"budget_exhausted":true,"cache_state":"miss","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"budget_exhausted","provider_available":true,"provider_status":"available","retrieval_status":"budget_exhausted","retrieval_unavailable":true,"stale_evidence_count":0,"unavailability_reasons":["budget_exhausted","retrieval_budget_exhausted"]}},"symbols":["GOOD","BAD","OTHER"],"tier_budget_seconds":{"extended_budget_reserved_seconds":null,"extended_budget_seconds":null,"fast_budget_seconds":null},"total_budget_seconds":null,"unresolved_symbols":["OTHER"]}
+[NEWS][RETRIEVAL_DIAGNOSTICS] {"budget_exhausted":true,"cache":{"cache_hit_symbols":[],"cache_miss_symbols":["BAD","GOOD","OTHER"],"cache_read_error":null,"cache_read_failed":false,"cache_write_error":null,"cache_write_failed":false,"cadence_cache_hit_symbols":["GOOD","BAD","OTHER"],"prep_read_error":null,"prep_read_failed":false,"prep_reuse_symbols":[],"prep_stale_symbols":[],"read_attempted":true,"read_skipped":false,"stale_cache_miss_symbols":[],"state":"hit","write_attempted":false},"completed_at_utc":"2026-08-21T14:05:00+00:00","elapsed_seconds":0.0,"network_allowed":true,"provider_available":false,"provider_failure_reason":null,"provider_invoked":false,"provider_status":"mixed","refresh_allowed":false,"refresh_symbols":[],"request_mode":"incremental","retrieval_status":"partial","schema":"news.retrieval_diagnostics.v1","source_groups":[],"sources":[],"sources_attempted":0,"sources_skipped_due_to_budget":0,"started_at_utc":"2026-08-21T14:05:00+00:00","summaries":{"BAD":{"budget_exhausted":false,"cache_state":"hit","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"no_recent_news","provider_available":false,"provider_status":"unknown","retrieval_status":"unknown","retrieval_unavailable":true,"stale_evidence_count":0,"unavailability_reasons":["provider_unavailable"]},"GOOD":{"budget_exhausted":false,"cache_state":"hit","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"no_recent_news","provider_available":true,"provider_status":"cache_miss","retrieval_status":"available","retrieval_unavailable":false,"stale_evidence_count":0,"unavailability_reasons":[]},"OTHER":{"budget_exhausted":true,"cache_state":"hit","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"budget_exhausted","provider_available":true,"provider_status":"available","retrieval_status":"budget_exhausted","retrieval_unavailable":true,"stale_evidence_count":0,"unavailability_reasons":["budget_exhausted","retrieval_budget_exhausted"]}},"symbols":["GOOD","BAD","OTHER"],"tier_budget_seconds":{"extended_budget_reserved_seconds":null,"extended_budget_seconds":null,"fast_budget_seconds":null},"total_budget_seconds":8.0,"unresolved_symbols":["BAD","OTHER"]}
+[NEWS][RETRIEVAL_DIAGNOSTICS] {"budget_exhausted":true,"cache":{"cache_hit_symbols":[],"cache_miss_symbols":["BAD","GOOD","OTHER"],"cache_read_error":null,"cache_read_failed":false,"cache_write_error":null,"cache_write_failed":false,"cadence_cache_hit_symbols":["GOOD","BAD","OTHER"],"prep_read_error":null,"prep_read_failed":false,"prep_reuse_symbols":[],"prep_stale_symbols":[],"read_attempted":true,"read_skipped":false,"stale_cache_miss_symbols":[],"state":"hit","write_attempted":false},"completed_at_utc":"2026-08-21T14:05:00+00:00","elapsed_seconds":0.0,"network_allowed":true,"provider_available":false,"provider_failure_reason":null,"provider_invoked":false,"provider_status":"mixed","refresh_allowed":false,"refresh_symbols":[],"request_mode":"incremental","retrieval_status":"partial","schema":"news.retrieval_diagnostics.v1","source_groups":[],"sources":[],"sources_attempted":0,"sources_skipped_due_to_budget":0,"started_at_utc":"2026-08-21T14:05:00+00:00","summaries":{"BAD":{"budget_exhausted":false,"cache_state":"hit","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"no_recent_news","provider_available":false,"provider_status":"unknown","retrieval_status":"unknown","retrieval_unavailable":true,"stale_evidence_count":0,"unavailability_reasons":["provider_unavailable"]},"GOOD":{"budget_exhausted":false,"cache_state":"hit","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"no_recent_news","provider_available":true,"provider_status":"cache_miss","retrieval_status":"available","retrieval_unavailable":false,"stale_evidence_count":0,"unavailability_reasons":[]},"OTHER":{"budget_exhausted":true,"cache_state":"hit","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"budget_exhausted","provider_available":true,"provider_status":"available","retrieval_status":"budget_exhausted","retrieval_unavailable":true,"stale_evidence_count":0,"unavailability_reasons":["budget_exhausted","retrieval_budget_exhausted"]}},"symbols":["GOOD","BAD","OTHER"],"tier_budget_seconds":{"extended_budget_reserved_seconds":null,"extended_budget_seconds":null,"fast_budget_seconds":null},"total_budget_seconds":8.0,"unresolved_symbols":["BAD","OTHER"]}
+[NEWS] symbol=GOOD catalyst_tag=NONE headlines=0
+[NEWS] symbol=GOOD news_changed=True
+[NEWS] symbol=BAD catalyst_tag=NONE headlines=0
+[NEWS] symbol=BAD news_changed=True
+[NEWS] symbol=OTHER catalyst_tag=NONE headlines=0
+[NEWS] symbol=OTHER news_changed=True
+[NEWS] symbol=GOOD catalyst_tag=NONE headlines=0
+[NEWS] symbol=GOOD news_changed=True
+[NEWS] symbol=BAD catalyst_tag=NONE headlines=0
+[NEWS] symbol=BAD news_changed=True
+[NEWS] symbol=OTHER catalyst_tag=NONE headlines=0
+[NEWS] symbol=OTHER news_changed=True
+_ test_effective_negative_batch_outcome_does_not_inherit_peer_budget_on_restart[reachable] _
+
+tmp_path = WindowsPath('C:/Users/nelzo/AppData/Local/Temp/pytest-of-nelzo/pytest-317/test_effective_negative_batch_2')
+summary_kind = 'reachable'
+
+    @pytest.mark.parametrize("summary_kind", ["omitted", "unknown", "reachable"])
+    def test_effective_negative_batch_outcome_does_not_inherit_peer_budget_on_restart(tmp_path, summary_kind):
+        class Provider:
+            calls = 0
+    
+            def get_news(self, candidates, request, policy):
+                self.calls += 1
+                summaries = {
+                    "GOOD": NewsEvidenceSummary(symbol="GOOD", retrieval_status="available", provider_available=True),
+                    "OTHER": NewsEvidenceSummary(symbol="OTHER", retrieval_status="budget_exhausted",
+                                                 provider_status="available", provider_available=True, budget_exhausted=True),
+                }
+                if summary_kind != "omitted":
+                    summaries["BAD"] = NewsEvidenceSummary(symbol="BAD", provider_available=True if summary_kind == "reachable" else None)
+                return NewsBatchResult(
+                    evidence_by_symbol={"GOOD": (), "BAD": (), "OTHER": ()}, summaries_by_symbol=summaries,
+                    diagnostics=RetrievalDiagnostics(provider_status="unknown", provider_available=False),
+                )
+    
+        provider = Provider()
+        path = tmp_path / "news.json"
+        service = _service(path, provider)
+        results = [reader.get_news([NewsCandidate(symbol) for symbol in ("GOOD", "BAD", "OTHER")], REQUEST, POLICY)
+                   for reader in (service, service, _service(path, provider))]
+        for result in results:
+            context, decision = _ross(result)
+            assert context["BAD"]["news_available"] is False
+>           assert context["BAD"]["news_provider_status"] == "unknown"
+E           AssertionError: assert 'mixed' == 'unknown'
+E             
+E             - unknown
+E             + mixed
+
+tests\test_w02_news_consumer_acceptance.py:568: AssertionError
+---------------------------- Captured stdout call -----------------------------
+[NEWS][RETRIEVAL_DIAGNOSTICS] {"budget_exhausted":true,"cache":{"cache_hit_symbols":[],"cache_miss_symbols":["BAD","GOOD","OTHER"],"cache_read_error":null,"cache_read_failed":false,"cache_write_error":null,"cache_write_failed":false,"cadence_cache_hit_symbols":[],"prep_read_error":null,"prep_read_failed":false,"prep_reuse_symbols":[],"prep_stale_symbols":[],"read_attempted":true,"read_skipped":false,"stale_cache_miss_symbols":[],"state":"miss","write_attempted":true},"completed_at_utc":"2026-08-21T14:05:00+00:00","elapsed_seconds":null,"network_allowed":true,"provider_available":false,"provider_failure_reason":null,"provider_invoked":true,"provider_status":"unknown","refresh_allowed":true,"refresh_symbols":["GOOD","BAD","OTHER"],"request_mode":"incremental","retrieval_status":"unknown","schema":"news.retrieval_diagnostics.v1","source_groups":[],"sources":[],"sources_attempted":0,"sources_skipped_due_to_budget":0,"started_at_utc":"2026-08-21T14:05:00+00:00","summaries":{"BAD":{"budget_exhausted":false,"cache_state":"miss","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"no_recent_news","provider_available":false,"provider_status":"unknown","retrieval_status":"unknown","retrieval_unavailable":true,"stale_evidence_count":0,"unavailability_reasons":["provider_unavailable"]},"GOOD":{"budget_exhausted":false,"cache_state":"miss","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"no_recent_news","provider_available":true,"provider_status":null,"retrieval_status":"available","retrieval_unavailable":false,"stale_evidence_count":0,"unavailability_reasons":[]},"OTHER":{"budget_exhausted":true,"cache_state":"miss","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"budget_exhausted","provider_available":true,"provider_status":"available","retrieval_status":"budget_exhausted","retrieval_unavailable":true,"stale_evidence_count":0,"unavailability_reasons":["budget_exhausted","retrieval_budget_exhausted"]}},"symbols":["GOOD","BAD","OTHER"],"tier_budget_seconds":{"extended_budget_reserved_seconds":null,"extended_budget_seconds":null,"fast_budget_seconds":null},"total_budget_seconds":null,"unresolved_symbols":["OTHER"]}
+[NEWS][RETRIEVAL_DIAGNOSTICS] {"budget_exhausted":true,"cache":{"cache_hit_symbols":[],"cache_miss_symbols":["BAD","GOOD","OTHER"],"cache_read_error":null,"cache_read_failed":false,"cache_write_error":null,"cache_write_failed":false,"cadence_cache_hit_symbols":["GOOD","BAD","OTHER"],"prep_read_error":null,"prep_read_failed":false,"prep_reuse_symbols":[],"prep_stale_symbols":[],"read_attempted":true,"read_skipped":false,"stale_cache_miss_symbols":[],"state":"hit","write_attempted":false},"completed_at_utc":"2026-08-21T14:05:00+00:00","elapsed_seconds":0.0,"network_allowed":true,"provider_available":false,"provider_failure_reason":null,"provider_invoked":false,"provider_status":"mixed","refresh_allowed":false,"refresh_symbols":[],"request_mode":"incremental","retrieval_status":"partial","schema":"news.retrieval_diagnostics.v1","source_groups":[],"sources":[],"sources_attempted":0,"sources_skipped_due_to_budget":0,"started_at_utc":"2026-08-21T14:05:00+00:00","summaries":{"BAD":{"budget_exhausted":false,"cache_state":"hit","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"no_recent_news","provider_available":false,"provider_status":"unknown","retrieval_status":"unknown","retrieval_unavailable":true,"stale_evidence_count":0,"unavailability_reasons":["provider_unavailable"]},"GOOD":{"budget_exhausted":false,"cache_state":"hit","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"no_recent_news","provider_available":true,"provider_status":"cache_miss","retrieval_status":"available","retrieval_unavailable":false,"stale_evidence_count":0,"unavailability_reasons":[]},"OTHER":{"budget_exhausted":true,"cache_state":"hit","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"budget_exhausted","provider_available":true,"provider_status":"available","retrieval_status":"budget_exhausted","retrieval_unavailable":true,"stale_evidence_count":0,"unavailability_reasons":["budget_exhausted","retrieval_budget_exhausted"]}},"symbols":["GOOD","BAD","OTHER"],"tier_budget_seconds":{"extended_budget_reserved_seconds":null,"extended_budget_seconds":null,"fast_budget_seconds":null},"total_budget_seconds":8.0,"unresolved_symbols":["BAD","OTHER"]}
+[NEWS][RETRIEVAL_DIAGNOSTICS] {"budget_exhausted":true,"cache":{"cache_hit_symbols":[],"cache_miss_symbols":["BAD","GOOD","OTHER"],"cache_read_error":null,"cache_read_failed":false,"cache_write_error":null,"cache_write_failed":false,"cadence_cache_hit_symbols":["GOOD","BAD","OTHER"],"prep_read_error":null,"prep_read_failed":false,"prep_reuse_symbols":[],"prep_stale_symbols":[],"read_attempted":true,"read_skipped":false,"stale_cache_miss_symbols":[],"state":"hit","write_attempted":false},"completed_at_utc":"2026-08-21T14:05:00+00:00","elapsed_seconds":0.0,"network_allowed":true,"provider_available":false,"provider_failure_reason":null,"provider_invoked":false,"provider_status":"mixed","refresh_allowed":false,"refresh_symbols":[],"request_mode":"incremental","retrieval_status":"partial","schema":"news.retrieval_diagnostics.v1","source_groups":[],"sources":[],"sources_attempted":0,"sources_skipped_due_to_budget":0,"started_at_utc":"2026-08-21T14:05:00+00:00","summaries":{"BAD":{"budget_exhausted":false,"cache_state":"hit","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"no_recent_news","provider_available":false,"provider_status":"unknown","retrieval_status":"unknown","retrieval_unavailable":true,"stale_evidence_count":0,"unavailability_reasons":["provider_unavailable"]},"GOOD":{"budget_exhausted":false,"cache_state":"hit","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"no_recent_news","provider_available":true,"provider_status":"cache_miss","retrieval_status":"available","retrieval_unavailable":false,"stale_evidence_count":0,"unavailability_reasons":[]},"OTHER":{"budget_exhausted":true,"cache_state":"hit","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"budget_exhausted","provider_available":true,"provider_status":"available","retrieval_status":"budget_exhausted","retrieval_unavailable":true,"stale_evidence_count":0,"unavailability_reasons":["budget_exhausted","retrieval_budget_exhausted"]}},"symbols":["GOOD","BAD","OTHER"],"tier_budget_seconds":{"extended_budget_reserved_seconds":null,"extended_budget_seconds":null,"fast_budget_seconds":null},"total_budget_seconds":8.0,"unresolved_symbols":["BAD","OTHER"]}
+[NEWS] symbol=GOOD catalyst_tag=NONE headlines=0
+[NEWS] symbol=GOOD news_changed=True
+[NEWS] symbol=BAD catalyst_tag=NONE headlines=0
+[NEWS] symbol=BAD news_changed=True
+[NEWS] symbol=OTHER catalyst_tag=NONE headlines=0
+[NEWS] symbol=OTHER news_changed=True
+[NEWS] symbol=GOOD catalyst_tag=NONE headlines=0
+[NEWS] symbol=GOOD news_changed=True
+[NEWS] symbol=BAD catalyst_tag=NONE headlines=0
+[NEWS] symbol=BAD news_changed=True
+[NEWS] symbol=OTHER catalyst_tag=NONE headlines=0
+[NEWS] symbol=OTHER news_changed=True
+=========================== short test summary info ===========================
+FAILED tests/test_w02_news_consumer_acceptance.py::test_effective_negative_batch_outcome_does_not_inherit_peer_budget_on_restart[omitted]
+FAILED tests/test_w02_news_consumer_acceptance.py::test_effective_negative_batch_outcome_does_not_inherit_peer_budget_on_restart[unknown]
+FAILED tests/test_w02_news_consumer_acceptance.py::test_effective_negative_batch_outcome_does_not_inherit_peer_budget_on_restart[reachable]
+3 failed, 79 deselected in 6.63s

@@ -1,0 +1,572 @@
+..........FFFFFFFF                                                       [100%]
+================================== FAILURES ===================================
+_ test_late_observed_transport_failure_retains_error_and_budget_facts[HTTP_401-at-stage] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000020F1ECBDB70>
+deadline_kind = 'stage', completion_offset = 0.0, failure_code = 'HTTP_401'
+
+    @pytest.mark.parametrize("deadline_kind", ["stage", "tier"])
+    @pytest.mark.parametrize("completion_offset", [0.0, 0.001], ids=["at", "after"])
+    @pytest.mark.parametrize("failure_code", ["HTTP_401", "READTIMEOUT"])
+    def test_late_observed_transport_failure_retains_error_and_budget_facts(
+        monkeypatch, deadline_kind, completion_offset, failure_code,
+    ):
+        clock = [100.0]
+        pending_work = {}
+        monkeypatch.setattr(news_fetcher.time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(news_fetcher, "feedparser", object())
+    
+        class DeferredExecutor:
+            def __init__(self, **kwargs):
+                pass
+    
+            def submit(self, function, *args):
+                future = Future()
+                future.set_running_or_notify_cancel()
+                pending_work[future] = (function, args)
+                return future
+    
+            def shutdown(self, **kwargs):
+                pass
+    
+        monkeypatch.setattr(news_fetcher, "ThreadPoolExecutor", DeferredExecutor)
+    
+        def failed_feed(*args):
+            if failure_code == "READTIMEOUT":
+                raise requests.exceptions.ReadTimeout("offline controlled exception")
+            response = requests.Response()
+            response.status_code = 401
+            response.url = "https://news.example/rss"
+            response.raise_for_status()
+    
+        def completed_after_wait(futures, timeout, return_when):
+            clock[0] = 101.0 + completion_offset
+            for future in futures:
+                function, args = pending_work.pop(future)
+                future.set_result(function(*args))
+            return set(futures), set()
+    
+        monkeypatch.setattr(news_fetcher, "_fetch_feed", failed_feed)
+        monkeypatch.setattr(news_fetcher, "wait", completed_after_wait)
+        stage_budget = 1.0 if deadline_kind == "stage" else 3.0
+        tier_budget = 1.0 if deadline_kind == "tier" else 3.0
+        headlines, summary = news_fetcher.fetch_headlines_for_symbols(
+            ["W02X"], ["https://news.example/rss"], source_tier="extended",
+            total_news_budget_seconds=stage_budget, stage_started_at_s=100.0,
+            stage_deadline_s=100.0 + stage_budget,
+            tier_budget_seconds=tier_budget, tier_started_at_s=100.0,
+            tier_deadline_s=100.0 + tier_budget,
+        )
+    
+        source = summary.source_diagnostics[0]
+        assert headlines == {"W02X": []}
+        assert source["attempted"] is True
+        assert source["retrieval_status"] == "budget_exhausted"
+        assert source["budget_exhausted"] is True
+>       assert source["failure_reason"] == failure_code
+E       AssertionError: assert 'deadline_exhausted' == 'HTTP_401'
+E         
+E         - HTTP_401
+E         + deadline_exhausted
+
+tests\test_w02_source_outcomes.py:197: AssertionError
+_ test_late_observed_transport_failure_retains_error_and_budget_facts[HTTP_401-at-tier] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000020F1EC4A340>
+deadline_kind = 'tier', completion_offset = 0.0, failure_code = 'HTTP_401'
+
+    @pytest.mark.parametrize("deadline_kind", ["stage", "tier"])
+    @pytest.mark.parametrize("completion_offset", [0.0, 0.001], ids=["at", "after"])
+    @pytest.mark.parametrize("failure_code", ["HTTP_401", "READTIMEOUT"])
+    def test_late_observed_transport_failure_retains_error_and_budget_facts(
+        monkeypatch, deadline_kind, completion_offset, failure_code,
+    ):
+        clock = [100.0]
+        pending_work = {}
+        monkeypatch.setattr(news_fetcher.time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(news_fetcher, "feedparser", object())
+    
+        class DeferredExecutor:
+            def __init__(self, **kwargs):
+                pass
+    
+            def submit(self, function, *args):
+                future = Future()
+                future.set_running_or_notify_cancel()
+                pending_work[future] = (function, args)
+                return future
+    
+            def shutdown(self, **kwargs):
+                pass
+    
+        monkeypatch.setattr(news_fetcher, "ThreadPoolExecutor", DeferredExecutor)
+    
+        def failed_feed(*args):
+            if failure_code == "READTIMEOUT":
+                raise requests.exceptions.ReadTimeout("offline controlled exception")
+            response = requests.Response()
+            response.status_code = 401
+            response.url = "https://news.example/rss"
+            response.raise_for_status()
+    
+        def completed_after_wait(futures, timeout, return_when):
+            clock[0] = 101.0 + completion_offset
+            for future in futures:
+                function, args = pending_work.pop(future)
+                future.set_result(function(*args))
+            return set(futures), set()
+    
+        monkeypatch.setattr(news_fetcher, "_fetch_feed", failed_feed)
+        monkeypatch.setattr(news_fetcher, "wait", completed_after_wait)
+        stage_budget = 1.0 if deadline_kind == "stage" else 3.0
+        tier_budget = 1.0 if deadline_kind == "tier" else 3.0
+        headlines, summary = news_fetcher.fetch_headlines_for_symbols(
+            ["W02X"], ["https://news.example/rss"], source_tier="extended",
+            total_news_budget_seconds=stage_budget, stage_started_at_s=100.0,
+            stage_deadline_s=100.0 + stage_budget,
+            tier_budget_seconds=tier_budget, tier_started_at_s=100.0,
+            tier_deadline_s=100.0 + tier_budget,
+        )
+    
+        source = summary.source_diagnostics[0]
+        assert headlines == {"W02X": []}
+        assert source["attempted"] is True
+        assert source["retrieval_status"] == "budget_exhausted"
+        assert source["budget_exhausted"] is True
+>       assert source["failure_reason"] == failure_code
+E       AssertionError: assert 'deadline_exhausted' == 'HTTP_401'
+E         
+E         - HTTP_401
+E         + deadline_exhausted
+
+tests\test_w02_source_outcomes.py:197: AssertionError
+_ test_late_observed_transport_failure_retains_error_and_budget_facts[HTTP_401-after-stage] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000020F1EAB2BD0>
+deadline_kind = 'stage', completion_offset = 0.001, failure_code = 'HTTP_401'
+
+    @pytest.mark.parametrize("deadline_kind", ["stage", "tier"])
+    @pytest.mark.parametrize("completion_offset", [0.0, 0.001], ids=["at", "after"])
+    @pytest.mark.parametrize("failure_code", ["HTTP_401", "READTIMEOUT"])
+    def test_late_observed_transport_failure_retains_error_and_budget_facts(
+        monkeypatch, deadline_kind, completion_offset, failure_code,
+    ):
+        clock = [100.0]
+        pending_work = {}
+        monkeypatch.setattr(news_fetcher.time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(news_fetcher, "feedparser", object())
+    
+        class DeferredExecutor:
+            def __init__(self, **kwargs):
+                pass
+    
+            def submit(self, function, *args):
+                future = Future()
+                future.set_running_or_notify_cancel()
+                pending_work[future] = (function, args)
+                return future
+    
+            def shutdown(self, **kwargs):
+                pass
+    
+        monkeypatch.setattr(news_fetcher, "ThreadPoolExecutor", DeferredExecutor)
+    
+        def failed_feed(*args):
+            if failure_code == "READTIMEOUT":
+                raise requests.exceptions.ReadTimeout("offline controlled exception")
+            response = requests.Response()
+            response.status_code = 401
+            response.url = "https://news.example/rss"
+            response.raise_for_status()
+    
+        def completed_after_wait(futures, timeout, return_when):
+            clock[0] = 101.0 + completion_offset
+            for future in futures:
+                function, args = pending_work.pop(future)
+                future.set_result(function(*args))
+            return set(futures), set()
+    
+        monkeypatch.setattr(news_fetcher, "_fetch_feed", failed_feed)
+        monkeypatch.setattr(news_fetcher, "wait", completed_after_wait)
+        stage_budget = 1.0 if deadline_kind == "stage" else 3.0
+        tier_budget = 1.0 if deadline_kind == "tier" else 3.0
+        headlines, summary = news_fetcher.fetch_headlines_for_symbols(
+            ["W02X"], ["https://news.example/rss"], source_tier="extended",
+            total_news_budget_seconds=stage_budget, stage_started_at_s=100.0,
+            stage_deadline_s=100.0 + stage_budget,
+            tier_budget_seconds=tier_budget, tier_started_at_s=100.0,
+            tier_deadline_s=100.0 + tier_budget,
+        )
+    
+        source = summary.source_diagnostics[0]
+        assert headlines == {"W02X": []}
+        assert source["attempted"] is True
+        assert source["retrieval_status"] == "budget_exhausted"
+        assert source["budget_exhausted"] is True
+>       assert source["failure_reason"] == failure_code
+E       AssertionError: assert 'deadline_exhausted' == 'HTTP_401'
+E         
+E         - HTTP_401
+E         + deadline_exhausted
+
+tests\test_w02_source_outcomes.py:197: AssertionError
+_ test_late_observed_transport_failure_retains_error_and_budget_facts[HTTP_401-after-tier] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000020F1EAB1FD0>
+deadline_kind = 'tier', completion_offset = 0.001, failure_code = 'HTTP_401'
+
+    @pytest.mark.parametrize("deadline_kind", ["stage", "tier"])
+    @pytest.mark.parametrize("completion_offset", [0.0, 0.001], ids=["at", "after"])
+    @pytest.mark.parametrize("failure_code", ["HTTP_401", "READTIMEOUT"])
+    def test_late_observed_transport_failure_retains_error_and_budget_facts(
+        monkeypatch, deadline_kind, completion_offset, failure_code,
+    ):
+        clock = [100.0]
+        pending_work = {}
+        monkeypatch.setattr(news_fetcher.time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(news_fetcher, "feedparser", object())
+    
+        class DeferredExecutor:
+            def __init__(self, **kwargs):
+                pass
+    
+            def submit(self, function, *args):
+                future = Future()
+                future.set_running_or_notify_cancel()
+                pending_work[future] = (function, args)
+                return future
+    
+            def shutdown(self, **kwargs):
+                pass
+    
+        monkeypatch.setattr(news_fetcher, "ThreadPoolExecutor", DeferredExecutor)
+    
+        def failed_feed(*args):
+            if failure_code == "READTIMEOUT":
+                raise requests.exceptions.ReadTimeout("offline controlled exception")
+            response = requests.Response()
+            response.status_code = 401
+            response.url = "https://news.example/rss"
+            response.raise_for_status()
+    
+        def completed_after_wait(futures, timeout, return_when):
+            clock[0] = 101.0 + completion_offset
+            for future in futures:
+                function, args = pending_work.pop(future)
+                future.set_result(function(*args))
+            return set(futures), set()
+    
+        monkeypatch.setattr(news_fetcher, "_fetch_feed", failed_feed)
+        monkeypatch.setattr(news_fetcher, "wait", completed_after_wait)
+        stage_budget = 1.0 if deadline_kind == "stage" else 3.0
+        tier_budget = 1.0 if deadline_kind == "tier" else 3.0
+        headlines, summary = news_fetcher.fetch_headlines_for_symbols(
+            ["W02X"], ["https://news.example/rss"], source_tier="extended",
+            total_news_budget_seconds=stage_budget, stage_started_at_s=100.0,
+            stage_deadline_s=100.0 + stage_budget,
+            tier_budget_seconds=tier_budget, tier_started_at_s=100.0,
+            tier_deadline_s=100.0 + tier_budget,
+        )
+    
+        source = summary.source_diagnostics[0]
+        assert headlines == {"W02X": []}
+        assert source["attempted"] is True
+        assert source["retrieval_status"] == "budget_exhausted"
+        assert source["budget_exhausted"] is True
+>       assert source["failure_reason"] == failure_code
+E       AssertionError: assert 'deadline_exhausted' == 'HTTP_401'
+E         
+E         - HTTP_401
+E         + deadline_exhausted
+
+tests\test_w02_source_outcomes.py:197: AssertionError
+_ test_late_observed_transport_failure_retains_error_and_budget_facts[READTIMEOUT-at-stage] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000020F1EBB78B0>
+deadline_kind = 'stage', completion_offset = 0.0, failure_code = 'READTIMEOUT'
+
+    @pytest.mark.parametrize("deadline_kind", ["stage", "tier"])
+    @pytest.mark.parametrize("completion_offset", [0.0, 0.001], ids=["at", "after"])
+    @pytest.mark.parametrize("failure_code", ["HTTP_401", "READTIMEOUT"])
+    def test_late_observed_transport_failure_retains_error_and_budget_facts(
+        monkeypatch, deadline_kind, completion_offset, failure_code,
+    ):
+        clock = [100.0]
+        pending_work = {}
+        monkeypatch.setattr(news_fetcher.time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(news_fetcher, "feedparser", object())
+    
+        class DeferredExecutor:
+            def __init__(self, **kwargs):
+                pass
+    
+            def submit(self, function, *args):
+                future = Future()
+                future.set_running_or_notify_cancel()
+                pending_work[future] = (function, args)
+                return future
+    
+            def shutdown(self, **kwargs):
+                pass
+    
+        monkeypatch.setattr(news_fetcher, "ThreadPoolExecutor", DeferredExecutor)
+    
+        def failed_feed(*args):
+            if failure_code == "READTIMEOUT":
+                raise requests.exceptions.ReadTimeout("offline controlled exception")
+            response = requests.Response()
+            response.status_code = 401
+            response.url = "https://news.example/rss"
+            response.raise_for_status()
+    
+        def completed_after_wait(futures, timeout, return_when):
+            clock[0] = 101.0 + completion_offset
+            for future in futures:
+                function, args = pending_work.pop(future)
+                future.set_result(function(*args))
+            return set(futures), set()
+    
+        monkeypatch.setattr(news_fetcher, "_fetch_feed", failed_feed)
+        monkeypatch.setattr(news_fetcher, "wait", completed_after_wait)
+        stage_budget = 1.0 if deadline_kind == "stage" else 3.0
+        tier_budget = 1.0 if deadline_kind == "tier" else 3.0
+        headlines, summary = news_fetcher.fetch_headlines_for_symbols(
+            ["W02X"], ["https://news.example/rss"], source_tier="extended",
+            total_news_budget_seconds=stage_budget, stage_started_at_s=100.0,
+            stage_deadline_s=100.0 + stage_budget,
+            tier_budget_seconds=tier_budget, tier_started_at_s=100.0,
+            tier_deadline_s=100.0 + tier_budget,
+        )
+    
+        source = summary.source_diagnostics[0]
+        assert headlines == {"W02X": []}
+        assert source["attempted"] is True
+        assert source["retrieval_status"] == "budget_exhausted"
+        assert source["budget_exhausted"] is True
+>       assert source["failure_reason"] == failure_code
+E       AssertionError: assert 'deadline_exhausted' == 'READTIMEOUT'
+E         
+E         - READTIMEOUT
+E         + deadline_exhausted
+
+tests\test_w02_source_outcomes.py:197: AssertionError
+_ test_late_observed_transport_failure_retains_error_and_budget_facts[READTIMEOUT-at-tier] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000020F1EBB7C20>
+deadline_kind = 'tier', completion_offset = 0.0, failure_code = 'READTIMEOUT'
+
+    @pytest.mark.parametrize("deadline_kind", ["stage", "tier"])
+    @pytest.mark.parametrize("completion_offset", [0.0, 0.001], ids=["at", "after"])
+    @pytest.mark.parametrize("failure_code", ["HTTP_401", "READTIMEOUT"])
+    def test_late_observed_transport_failure_retains_error_and_budget_facts(
+        monkeypatch, deadline_kind, completion_offset, failure_code,
+    ):
+        clock = [100.0]
+        pending_work = {}
+        monkeypatch.setattr(news_fetcher.time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(news_fetcher, "feedparser", object())
+    
+        class DeferredExecutor:
+            def __init__(self, **kwargs):
+                pass
+    
+            def submit(self, function, *args):
+                future = Future()
+                future.set_running_or_notify_cancel()
+                pending_work[future] = (function, args)
+                return future
+    
+            def shutdown(self, **kwargs):
+                pass
+    
+        monkeypatch.setattr(news_fetcher, "ThreadPoolExecutor", DeferredExecutor)
+    
+        def failed_feed(*args):
+            if failure_code == "READTIMEOUT":
+                raise requests.exceptions.ReadTimeout("offline controlled exception")
+            response = requests.Response()
+            response.status_code = 401
+            response.url = "https://news.example/rss"
+            response.raise_for_status()
+    
+        def completed_after_wait(futures, timeout, return_when):
+            clock[0] = 101.0 + completion_offset
+            for future in futures:
+                function, args = pending_work.pop(future)
+                future.set_result(function(*args))
+            return set(futures), set()
+    
+        monkeypatch.setattr(news_fetcher, "_fetch_feed", failed_feed)
+        monkeypatch.setattr(news_fetcher, "wait", completed_after_wait)
+        stage_budget = 1.0 if deadline_kind == "stage" else 3.0
+        tier_budget = 1.0 if deadline_kind == "tier" else 3.0
+        headlines, summary = news_fetcher.fetch_headlines_for_symbols(
+            ["W02X"], ["https://news.example/rss"], source_tier="extended",
+            total_news_budget_seconds=stage_budget, stage_started_at_s=100.0,
+            stage_deadline_s=100.0 + stage_budget,
+            tier_budget_seconds=tier_budget, tier_started_at_s=100.0,
+            tier_deadline_s=100.0 + tier_budget,
+        )
+    
+        source = summary.source_diagnostics[0]
+        assert headlines == {"W02X": []}
+        assert source["attempted"] is True
+        assert source["retrieval_status"] == "budget_exhausted"
+        assert source["budget_exhausted"] is True
+>       assert source["failure_reason"] == failure_code
+E       AssertionError: assert 'deadline_exhausted' == 'READTIMEOUT'
+E         
+E         - READTIMEOUT
+E         + deadline_exhausted
+
+tests\test_w02_source_outcomes.py:197: AssertionError
+_ test_late_observed_transport_failure_retains_error_and_budget_facts[READTIMEOUT-after-stage] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000020F1ECEE990>
+deadline_kind = 'stage', completion_offset = 0.001, failure_code = 'READTIMEOUT'
+
+    @pytest.mark.parametrize("deadline_kind", ["stage", "tier"])
+    @pytest.mark.parametrize("completion_offset", [0.0, 0.001], ids=["at", "after"])
+    @pytest.mark.parametrize("failure_code", ["HTTP_401", "READTIMEOUT"])
+    def test_late_observed_transport_failure_retains_error_and_budget_facts(
+        monkeypatch, deadline_kind, completion_offset, failure_code,
+    ):
+        clock = [100.0]
+        pending_work = {}
+        monkeypatch.setattr(news_fetcher.time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(news_fetcher, "feedparser", object())
+    
+        class DeferredExecutor:
+            def __init__(self, **kwargs):
+                pass
+    
+            def submit(self, function, *args):
+                future = Future()
+                future.set_running_or_notify_cancel()
+                pending_work[future] = (function, args)
+                return future
+    
+            def shutdown(self, **kwargs):
+                pass
+    
+        monkeypatch.setattr(news_fetcher, "ThreadPoolExecutor", DeferredExecutor)
+    
+        def failed_feed(*args):
+            if failure_code == "READTIMEOUT":
+                raise requests.exceptions.ReadTimeout("offline controlled exception")
+            response = requests.Response()
+            response.status_code = 401
+            response.url = "https://news.example/rss"
+            response.raise_for_status()
+    
+        def completed_after_wait(futures, timeout, return_when):
+            clock[0] = 101.0 + completion_offset
+            for future in futures:
+                function, args = pending_work.pop(future)
+                future.set_result(function(*args))
+            return set(futures), set()
+    
+        monkeypatch.setattr(news_fetcher, "_fetch_feed", failed_feed)
+        monkeypatch.setattr(news_fetcher, "wait", completed_after_wait)
+        stage_budget = 1.0 if deadline_kind == "stage" else 3.0
+        tier_budget = 1.0 if deadline_kind == "tier" else 3.0
+        headlines, summary = news_fetcher.fetch_headlines_for_symbols(
+            ["W02X"], ["https://news.example/rss"], source_tier="extended",
+            total_news_budget_seconds=stage_budget, stage_started_at_s=100.0,
+            stage_deadline_s=100.0 + stage_budget,
+            tier_budget_seconds=tier_budget, tier_started_at_s=100.0,
+            tier_deadline_s=100.0 + tier_budget,
+        )
+    
+        source = summary.source_diagnostics[0]
+        assert headlines == {"W02X": []}
+        assert source["attempted"] is True
+        assert source["retrieval_status"] == "budget_exhausted"
+        assert source["budget_exhausted"] is True
+>       assert source["failure_reason"] == failure_code
+E       AssertionError: assert 'deadline_exhausted' == 'READTIMEOUT'
+E         
+E         - READTIMEOUT
+E         + deadline_exhausted
+
+tests\test_w02_source_outcomes.py:197: AssertionError
+_ test_late_observed_transport_failure_retains_error_and_budget_facts[READTIMEOUT-after-tier] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000020F1ECEC190>
+deadline_kind = 'tier', completion_offset = 0.001, failure_code = 'READTIMEOUT'
+
+    @pytest.mark.parametrize("deadline_kind", ["stage", "tier"])
+    @pytest.mark.parametrize("completion_offset", [0.0, 0.001], ids=["at", "after"])
+    @pytest.mark.parametrize("failure_code", ["HTTP_401", "READTIMEOUT"])
+    def test_late_observed_transport_failure_retains_error_and_budget_facts(
+        monkeypatch, deadline_kind, completion_offset, failure_code,
+    ):
+        clock = [100.0]
+        pending_work = {}
+        monkeypatch.setattr(news_fetcher.time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(news_fetcher, "feedparser", object())
+    
+        class DeferredExecutor:
+            def __init__(self, **kwargs):
+                pass
+    
+            def submit(self, function, *args):
+                future = Future()
+                future.set_running_or_notify_cancel()
+                pending_work[future] = (function, args)
+                return future
+    
+            def shutdown(self, **kwargs):
+                pass
+    
+        monkeypatch.setattr(news_fetcher, "ThreadPoolExecutor", DeferredExecutor)
+    
+        def failed_feed(*args):
+            if failure_code == "READTIMEOUT":
+                raise requests.exceptions.ReadTimeout("offline controlled exception")
+            response = requests.Response()
+            response.status_code = 401
+            response.url = "https://news.example/rss"
+            response.raise_for_status()
+    
+        def completed_after_wait(futures, timeout, return_when):
+            clock[0] = 101.0 + completion_offset
+            for future in futures:
+                function, args = pending_work.pop(future)
+                future.set_result(function(*args))
+            return set(futures), set()
+    
+        monkeypatch.setattr(news_fetcher, "_fetch_feed", failed_feed)
+        monkeypatch.setattr(news_fetcher, "wait", completed_after_wait)
+        stage_budget = 1.0 if deadline_kind == "stage" else 3.0
+        tier_budget = 1.0 if deadline_kind == "tier" else 3.0
+        headlines, summary = news_fetcher.fetch_headlines_for_symbols(
+            ["W02X"], ["https://news.example/rss"], source_tier="extended",
+            total_news_budget_seconds=stage_budget, stage_started_at_s=100.0,
+            stage_deadline_s=100.0 + stage_budget,
+            tier_budget_seconds=tier_budget, tier_started_at_s=100.0,
+            tier_deadline_s=100.0 + tier_budget,
+        )
+    
+        source = summary.source_diagnostics[0]
+        assert headlines == {"W02X": []}
+        assert source["attempted"] is True
+        assert source["retrieval_status"] == "budget_exhausted"
+        assert source["budget_exhausted"] is True
+>       assert source["failure_reason"] == failure_code
+E       AssertionError: assert 'deadline_exhausted' == 'READTIMEOUT'
+E         
+E         - READTIMEOUT
+E         + deadline_exhausted
+
+tests\test_w02_source_outcomes.py:197: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_w02_source_outcomes.py::test_late_observed_transport_failure_retains_error_and_budget_facts[HTTP_401-at-stage]
+FAILED tests/test_w02_source_outcomes.py::test_late_observed_transport_failure_retains_error_and_budget_facts[HTTP_401-at-tier]
+FAILED tests/test_w02_source_outcomes.py::test_late_observed_transport_failure_retains_error_and_budget_facts[HTTP_401-after-stage]
+FAILED tests/test_w02_source_outcomes.py::test_late_observed_transport_failure_retains_error_and_budget_facts[HTTP_401-after-tier]
+FAILED tests/test_w02_source_outcomes.py::test_late_observed_transport_failure_retains_error_and_budget_facts[READTIMEOUT-at-stage]
+FAILED tests/test_w02_source_outcomes.py::test_late_observed_transport_failure_retains_error_and_budget_facts[READTIMEOUT-at-tier]
+FAILED tests/test_w02_source_outcomes.py::test_late_observed_transport_failure_retains_error_and_budget_facts[READTIMEOUT-after-stage]
+FAILED tests/test_w02_source_outcomes.py::test_late_observed_transport_failure_retains_error_and_budget_facts[READTIMEOUT-after-tier]
+8 failed, 10 passed in 3.73s

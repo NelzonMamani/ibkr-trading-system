@@ -3010,35 +3010,86 @@ def _dilution_from_evidence(evidence: Iterable[NewsEvidence]) -> bool:
     )
 
 
+def _news_retrieval_state_for_symbol(
+    symbol: str,
+    summary: NewsEvidenceSummary | None,
+    result: NewsBatchResult,
+) -> tuple[bool, bool]:
+    """Keep per-symbol unavailability separate from batch budget exhaustion."""
+    incomplete_negative = bool(
+        summary is not None
+        and summary.provider_available is False
+        and summary.retrieval_status in {"unknown", "not_requested"}
+        and not summary.budget_exhausted
+        and summary.provider_status in {None, "", "unknown", "not_requested", "available"}
+    )
+    if summary is not None:
+        if not incomplete_negative and (summary.retrieval_unavailable or summary.provider_status in {"provider_unavailable", "provider_request_failure"}):
+            return True, summary.budget_exhausted or summary.retrieval_status == "budget_exhausted"
+        if summary.retrieval_status in {"available", "partial", "cache_hit"}:
+            return False, False
+        # Reachability or an optional/default summary does not prove completion.
+        # Retain explicit failure facts for this symbol without affecting a
+        # different symbol whose summary reports a definite successful outcome.
+    diagnostics = result.diagnostics
+    if diagnostics.unresolved_symbols and symbol not in diagnostics.unresolved_symbols:
+        return incomplete_negative, False
+    return (
+        incomplete_negative or diagnostics.unavailable
+        or symbol in diagnostics.unresolved_symbols
+        or diagnostics.provider_status in {"provider_unavailable", "provider_request_failure"},
+        diagnostics.budget_exhausted or diagnostics.retrieval_status == "budget_exhausted",
+    )
+
+
+def _news_provider_status_for_symbol(
+    symbol: str,
+    summary: NewsEvidenceSummary | None,
+    result: NewsBatchResult,
+) -> str:
+    if summary is None:
+        return result.diagnostics.provider_status or "cache_miss"
+    incomplete_negative = bool(
+        summary.provider_available is False
+        and summary.retrieval_status in {"unknown", "not_requested"}
+        and not summary.budget_exhausted
+        and summary.provider_status in {None, "", "unknown", "not_requested", "available"}
+    )
+    if summary.provider_status and not incomplete_negative:
+        return summary.provider_status
+    if summary.provider_available is False:
+        if incomplete_negative:
+            diagnostics = result.diagnostics
+            applies = not diagnostics.unresolved_symbols or symbol in diagnostics.unresolved_symbols
+            failed = (diagnostics.unavailable or symbol in diagnostics.unresolved_symbols
+                      or diagnostics.provider_status in {"provider_unavailable", "provider_request_failure"})
+            if applies and failed:
+                return diagnostics.provider_status or "unknown"
+        return summary.provider_status or "provider_unavailable"
+    return "available" if summary.provider_available is True else "unknown"
+
+
 def _empty_news_context_from_summary(
     symbol: str,
     summary: NewsEvidenceSummary | None,
     result: NewsBatchResult,
 ) -> Dict[str, Any]:
     diagnostics = _news_intelligence_diag(result)
-    provider_status = (
-        (summary.provider_status if summary is not None else None)
-        or result.diagnostics.provider_status
-        or "cache_miss"
-    )
-    retrieval_status = (
-        (summary.retrieval_status if summary is not None else None)
-        or result.diagnostics.retrieval_status
-    )
+    provider_status = _news_provider_status_for_symbol(symbol, summary, result)
     cache_state = (summary.cache_state if summary is not None else result.diagnostics.cache_state) or "not_checked"
-    budget_exhausted = bool(
-        (summary.budget_exhausted if summary is not None else False)
-        or result.diagnostics.budget_exhausted
-        or symbol in set(result.diagnostics.unresolved_symbols)
-    )
-    if provider_status in {"provider_unavailable", "provider_request_failure"}:
+    retrieval_unavailable, budget_exhausted = _news_retrieval_state_for_symbol(symbol, summary, result)
+    if retrieval_unavailable and provider_status in {"provider_unavailable", "provider_request_failure"}:
         news_status = provider_status
         news_available = False
         notes = provider_status
-    elif budget_exhausted or retrieval_status == "budget_exhausted":
+    elif budget_exhausted:
         news_status = "budget_exhausted"
         news_available = False
         notes = "News retrieval budget exhausted before full source coverage"
+    elif retrieval_unavailable:
+        news_status = "provider_unavailable"
+        news_available = False
+        notes = provider_status
     else:
         news_status = "no_recent_news"
         news_available = True
@@ -3150,16 +3201,14 @@ def _ross_news_context_from_evidence(
     vel60 = _summary_velocity(velocity_summary, ordered, "velocity_60m", 60 * 60)
     catalyst_type = _catalyst_type_from_evidence(ordered)
     dilution_flag = _dilution_from_evidence(ordered)
-    budget_exhausted = bool(
-        (summary.budget_exhausted if summary is not None else False)
-        or result.diagnostics.budget_exhausted
-        or symbol in set(result.diagnostics.unresolved_symbols)
-    )
+    retrieval_unavailable, budget_exhausted = _news_retrieval_state_for_symbol(symbol, summary, result)
     ross_catalyst_valid = bool(catalyst_type and not dilution_flag and news_is_fresh)
     if ross_catalyst_valid:
         news_status = "catalyst_confirmed"
     elif budget_exhausted:
         news_status = "budget_exhausted"
+    elif retrieval_unavailable:
+        news_status = "provider_unavailable"
     elif not news_is_fresh:
         news_status = "stale_news"
     else:
@@ -3203,7 +3252,7 @@ def _ross_news_context_from_evidence(
         match_types = sorted({str(item.match_type) for item in ordered if item.match_type})
     return {
         "news_present": True,
-        "news_available": not budget_exhausted,
+        "news_available": not retrieval_unavailable,
         "first_seen_ts": min(
             (
                 item.first_seen_at.timestamp()
@@ -3232,7 +3281,7 @@ def _ross_news_context_from_evidence(
         "top_news_catalyst_tag": catalyst_type or dict(top_news.raw or {}).get("catalyst_tag") or "generic",
         "news_source_mode": _evidence_source_mode(ordered, summary),
         "news_asof": datetime.now(timezone.utc).isoformat(),
-        "news_provider_status": (summary.provider_status if summary is not None else None) or result.diagnostics.provider_status,
+        "news_provider_status": _news_provider_status_for_symbol(symbol, summary, result),
         "news_diagnostic_status": news_status,
         "news_intelligence_cache_state": (summary.cache_state if summary is not None else result.diagnostics.cache_state),
         "news_intelligence_evidence_ids": tuple(item.evidence_id for item in ordered if item.evidence_id),

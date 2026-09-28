@@ -1,0 +1,271 @@
+.......FFF.FFFF                                                          [100%]
+================================== FAILURES ===================================
+_ test_public_service_unavailable_remains_unavailable_in_ross_after_restart[unavailable] _
+
+tmp_path = WindowsPath('C:/Users/nelzo/AppData/Local/Temp/pytest-of-nelzo/pytest-275/test_public_service_unavailabl0')
+status = 'unavailable'
+
+    @pytest.mark.parametrize("status", ["unavailable", "timeout", "provider_error", "budget_exhausted"])
+    def test_public_service_unavailable_remains_unavailable_in_ross_after_restart(tmp_path, status):
+        class Provider:
+            calls = 0
+    
+            def get_news(self, candidates, request, policy):
+                self.calls += 1
+                return NewsBatchResult(evidence_by_symbol={"BAD": ()}, diagnostics=RetrievalDiagnostics(
+                    retrieval_status=status, provider_status="offline", provider_available=False,
+                    budget_exhausted=status == "budget_exhausted"))
+    
+        provider = Provider()
+        path = tmp_path / "news.json"
+        for service in (_service(path, provider), _service(path, provider)):
+            result = service.get_news([NewsCandidate("BAD")], REQUEST, POLICY)
+            context, decision = _ross(result)
+            assert result.summary_for_symbol("BAD").provider_available is False
+>           assert context["BAD"]["news_available"] is False
+E           assert True is False
+
+tests\test_w02_news_consumer_acceptance.py:209: AssertionError
+---------------------------- Captured stdout call -----------------------------
+[NEWS][RETRIEVAL_DIAGNOSTICS] {"budget_exhausted":false,"cache":{"cache_hit_symbols":[],"cache_miss_symbols":["BAD"],"cache_read_error":null,"cache_read_failed":false,"cache_write_error":null,"cache_write_failed":false,"cadence_cache_hit_symbols":[],"prep_read_error":null,"prep_read_failed":false,"prep_reuse_symbols":[],"prep_stale_symbols":[],"read_attempted":true,"read_skipped":false,"stale_cache_miss_symbols":[],"state":"miss","write_attempted":true},"completed_at_utc":"2026-08-21T14:05:00+00:00","elapsed_seconds":null,"network_allowed":true,"provider_available":false,"provider_failure_reason":null,"provider_invoked":true,"provider_status":"offline","refresh_allowed":true,"refresh_symbols":["BAD"],"request_mode":"incremental","retrieval_status":"unavailable","schema":"news.retrieval_diagnostics.v1","source_groups":[],"sources":[],"sources_attempted":0,"sources_skipped_due_to_budget":0,"started_at_utc":"2026-08-21T14:05:00+00:00","summaries":{"BAD":{"budget_exhausted":false,"cache_state":"miss","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"no_recent_news","provider_available":false,"provider_status":"offline","retrieval_status":"unavailable","retrieval_unavailable":true,"stale_evidence_count":0,"unavailability_reasons":["provider_unavailable","retrieval_unavailable"]}},"symbols":["BAD"],"tier_budget_seconds":{"extended_budget_reserved_seconds":null,"extended_budget_seconds":null,"fast_budget_seconds":null},"total_budget_seconds":null,"unresolved_symbols":[]}
+[NEWS] symbol=BAD catalyst_tag=NONE headlines=0
+[NEWS] symbol=BAD news_changed=True
+_ test_public_service_unavailable_remains_unavailable_in_ross_after_restart[timeout] _
+
+tmp_path = WindowsPath('C:/Users/nelzo/AppData/Local/Temp/pytest-of-nelzo/pytest-275/test_public_service_unavailabl1')
+status = 'timeout'
+
+    @pytest.mark.parametrize("status", ["unavailable", "timeout", "provider_error", "budget_exhausted"])
+    def test_public_service_unavailable_remains_unavailable_in_ross_after_restart(tmp_path, status):
+        class Provider:
+            calls = 0
+    
+            def get_news(self, candidates, request, policy):
+                self.calls += 1
+                return NewsBatchResult(evidence_by_symbol={"BAD": ()}, diagnostics=RetrievalDiagnostics(
+                    retrieval_status=status, provider_status="offline", provider_available=False,
+                    budget_exhausted=status == "budget_exhausted"))
+    
+        provider = Provider()
+        path = tmp_path / "news.json"
+        for service in (_service(path, provider), _service(path, provider)):
+            result = service.get_news([NewsCandidate("BAD")], REQUEST, POLICY)
+            context, decision = _ross(result)
+            assert result.summary_for_symbol("BAD").provider_available is False
+>           assert context["BAD"]["news_available"] is False
+E           assert True is False
+
+tests\test_w02_news_consumer_acceptance.py:209: AssertionError
+---------------------------- Captured stdout call -----------------------------
+[NEWS][RETRIEVAL_DIAGNOSTICS] {"budget_exhausted":false,"cache":{"cache_hit_symbols":[],"cache_miss_symbols":["BAD"],"cache_read_error":null,"cache_read_failed":false,"cache_write_error":null,"cache_write_failed":false,"cadence_cache_hit_symbols":[],"prep_read_error":null,"prep_read_failed":false,"prep_reuse_symbols":[],"prep_stale_symbols":[],"read_attempted":true,"read_skipped":false,"stale_cache_miss_symbols":[],"state":"miss","write_attempted":true},"completed_at_utc":"2026-08-21T14:05:00+00:00","elapsed_seconds":null,"network_allowed":true,"provider_available":false,"provider_failure_reason":null,"provider_invoked":true,"provider_status":"offline","refresh_allowed":true,"refresh_symbols":["BAD"],"request_mode":"incremental","retrieval_status":"timeout","schema":"news.retrieval_diagnostics.v1","source_groups":[],"sources":[],"sources_attempted":0,"sources_skipped_due_to_budget":0,"started_at_utc":"2026-08-21T14:05:00+00:00","summaries":{"BAD":{"budget_exhausted":false,"cache_state":"miss","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"no_recent_news","provider_available":false,"provider_status":"offline","retrieval_status":"timeout","retrieval_unavailable":true,"stale_evidence_count":0,"unavailability_reasons":["provider_unavailable","retrieval_timeout"]}},"symbols":["BAD"],"tier_budget_seconds":{"extended_budget_reserved_seconds":null,"extended_budget_seconds":null,"fast_budget_seconds":null},"total_budget_seconds":null,"unresolved_symbols":[]}
+[NEWS] symbol=BAD catalyst_tag=NONE headlines=0
+[NEWS] symbol=BAD news_changed=True
+_ test_public_service_unavailable_remains_unavailable_in_ross_after_restart[provider_error] _
+
+tmp_path = WindowsPath('C:/Users/nelzo/AppData/Local/Temp/pytest-of-nelzo/pytest-275/test_public_service_unavailabl2')
+status = 'provider_error'
+
+    @pytest.mark.parametrize("status", ["unavailable", "timeout", "provider_error", "budget_exhausted"])
+    def test_public_service_unavailable_remains_unavailable_in_ross_after_restart(tmp_path, status):
+        class Provider:
+            calls = 0
+    
+            def get_news(self, candidates, request, policy):
+                self.calls += 1
+                return NewsBatchResult(evidence_by_symbol={"BAD": ()}, diagnostics=RetrievalDiagnostics(
+                    retrieval_status=status, provider_status="offline", provider_available=False,
+                    budget_exhausted=status == "budget_exhausted"))
+    
+        provider = Provider()
+        path = tmp_path / "news.json"
+        for service in (_service(path, provider), _service(path, provider)):
+            result = service.get_news([NewsCandidate("BAD")], REQUEST, POLICY)
+            context, decision = _ross(result)
+            assert result.summary_for_symbol("BAD").provider_available is False
+>           assert context["BAD"]["news_available"] is False
+E           assert True is False
+
+tests\test_w02_news_consumer_acceptance.py:209: AssertionError
+---------------------------- Captured stdout call -----------------------------
+[NEWS][RETRIEVAL_DIAGNOSTICS] {"budget_exhausted":false,"cache":{"cache_hit_symbols":[],"cache_miss_symbols":["BAD"],"cache_read_error":null,"cache_read_failed":false,"cache_write_error":null,"cache_write_failed":false,"cadence_cache_hit_symbols":[],"prep_read_error":null,"prep_read_failed":false,"prep_reuse_symbols":[],"prep_stale_symbols":[],"read_attempted":true,"read_skipped":false,"stale_cache_miss_symbols":[],"state":"miss","write_attempted":true},"completed_at_utc":"2026-08-21T14:05:00+00:00","elapsed_seconds":null,"network_allowed":true,"provider_available":false,"provider_failure_reason":null,"provider_invoked":true,"provider_status":"offline","refresh_allowed":true,"refresh_symbols":["BAD"],"request_mode":"incremental","retrieval_status":"provider_error","schema":"news.retrieval_diagnostics.v1","source_groups":[],"sources":[],"sources_attempted":0,"sources_skipped_due_to_budget":0,"started_at_utc":"2026-08-21T14:05:00+00:00","summaries":{"BAD":{"budget_exhausted":false,"cache_state":"miss","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"no_recent_news","provider_available":false,"provider_status":"offline","retrieval_status":"provider_error","retrieval_unavailable":true,"stale_evidence_count":0,"unavailability_reasons":["provider_unavailable","retrieval_provider_error"]}},"symbols":["BAD"],"tier_budget_seconds":{"extended_budget_reserved_seconds":null,"extended_budget_seconds":null,"fast_budget_seconds":null},"total_budget_seconds":null,"unresolved_symbols":[]}
+[NEWS] symbol=BAD catalyst_tag=NONE headlines=0
+[NEWS] symbol=BAD news_changed=True
+_ test_mixed_public_service_outcomes_reach_ross_per_symbol_and_survive_restart[summaryless-provider-failure] _
+
+tmp_path = WindowsPath('C:/Users/nelzo/AppData/Local/Temp/pytest-of-nelzo/pytest-275/test_mixed_public_service_outc0')
+budget = False, with_summaries = False
+
+    @pytest.mark.parametrize("budget", [False, True], ids=["failure", "budget"])
+    @pytest.mark.parametrize("with_summaries", [False, True], ids=["summaryless-provider", "provider-summaries"])
+    def test_mixed_public_service_outcomes_reach_ross_per_symbol_and_survive_restart(tmp_path, budget, with_summaries):
+        class Provider:
+            calls = 0
+    
+            def get_news(self, candidates, request, policy):
+                self.calls += 1
+                summaries = {
+                    "EMPTY": NewsEvidenceSummary(symbol="EMPTY", retrieval_status="available", provider_status="ok", provider_available=True),
+                    "BAD": NewsEvidenceSummary(symbol="BAD", retrieval_status="budget_exhausted" if budget else "unavailable",
+                                               provider_status="offline", provider_available=False, budget_exhausted=budget),
+                }
+                return NewsBatchResult(evidence_by_symbol={"EMPTY": (), "BAD": ()},
+                    summaries_by_symbol=summaries if with_summaries else {}, diagnostics=RetrievalDiagnostics(
+                        retrieval_status="partial", provider_status="mixed", provider_available=False,
+                        budget_exhausted=budget, unresolved_symbols=("BAD",)))
+    
+        provider = Provider()
+        path = tmp_path / "news.json"
+        for service in (_service(path, provider), _service(path, provider)):
+            result = service.get_news([NewsCandidate("EMPTY"), NewsCandidate("BAD")], REQUEST, POLICY)
+            context, decision = _ross(result)
+            assert result.diagnostics.unresolved_symbols == ("BAD",)
+            assert context["EMPTY"]["news_available"] is True
+            assert context["EMPTY"]["news_diagnostic_status"] == "no_recent_news"
+            assert decision["EMPTY"].status.value == "ABSENT"
+            assert context["BAD"]["news_available"] is False
+>           assert context["BAD"]["news_diagnostic_status"] == ("budget_exhausted" if budget else "provider_unavailable")
+E           AssertionError: assert 'budget_exhausted' == 'provider_unavailable'
+E             
+E             - provider_unavailable
+E             + budget_exhausted
+
+tests\test_w02_news_consumer_acceptance.py:243: AssertionError
+---------------------------- Captured stdout call -----------------------------
+[NEWS][RETRIEVAL_DIAGNOSTICS] {"budget_exhausted":false,"cache":{"cache_hit_symbols":[],"cache_miss_symbols":["BAD","EMPTY"],"cache_read_error":null,"cache_read_failed":false,"cache_write_error":null,"cache_write_failed":false,"cadence_cache_hit_symbols":[],"prep_read_error":null,"prep_read_failed":false,"prep_reuse_symbols":[],"prep_stale_symbols":[],"read_attempted":true,"read_skipped":false,"stale_cache_miss_symbols":[],"state":"miss","write_attempted":true},"completed_at_utc":"2026-08-21T14:05:00+00:00","elapsed_seconds":null,"network_allowed":true,"provider_available":false,"provider_failure_reason":null,"provider_invoked":true,"provider_status":"mixed","refresh_allowed":true,"refresh_symbols":["EMPTY","BAD"],"request_mode":"incremental","retrieval_status":"partial","schema":"news.retrieval_diagnostics.v1","source_groups":[],"sources":[],"sources_attempted":0,"sources_skipped_due_to_budget":0,"started_at_utc":"2026-08-21T14:05:00+00:00","summaries":{"BAD":{"budget_exhausted":false,"cache_state":"miss","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"no_recent_news","provider_available":false,"provider_status":"unavailable","retrieval_status":"unavailable","retrieval_unavailable":true,"stale_evidence_count":0,"unavailability_reasons":["provider_unavailable","retrieval_unavailable"]},"EMPTY":{"budget_exhausted":false,"cache_state":"miss","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"no_recent_news","provider_available":true,"provider_status":"available","retrieval_status":"available","retrieval_unavailable":false,"stale_evidence_count":0,"unavailability_reasons":[]}},"symbols":["EMPTY","BAD"],"tier_budget_seconds":{"extended_budget_reserved_seconds":null,"extended_budget_seconds":null,"fast_budget_seconds":null},"total_budget_seconds":null,"unresolved_symbols":["BAD"]}
+[NEWS] symbol=EMPTY catalyst_tag=NONE headlines=0
+[NEWS] symbol=EMPTY news_changed=True
+[NEWS] symbol=BAD catalyst_tag=NONE headlines=0
+[NEWS] symbol=BAD news_changed=True
+_ test_mixed_public_service_outcomes_reach_ross_per_symbol_and_survive_restart[summaryless-provider-budget] _
+
+tmp_path = WindowsPath('C:/Users/nelzo/AppData/Local/Temp/pytest-of-nelzo/pytest-275/test_mixed_public_service_outc1')
+budget = True, with_summaries = False
+
+    @pytest.mark.parametrize("budget", [False, True], ids=["failure", "budget"])
+    @pytest.mark.parametrize("with_summaries", [False, True], ids=["summaryless-provider", "provider-summaries"])
+    def test_mixed_public_service_outcomes_reach_ross_per_symbol_and_survive_restart(tmp_path, budget, with_summaries):
+        class Provider:
+            calls = 0
+    
+            def get_news(self, candidates, request, policy):
+                self.calls += 1
+                summaries = {
+                    "EMPTY": NewsEvidenceSummary(symbol="EMPTY", retrieval_status="available", provider_status="ok", provider_available=True),
+                    "BAD": NewsEvidenceSummary(symbol="BAD", retrieval_status="budget_exhausted" if budget else "unavailable",
+                                               provider_status="offline", provider_available=False, budget_exhausted=budget),
+                }
+                return NewsBatchResult(evidence_by_symbol={"EMPTY": (), "BAD": ()},
+                    summaries_by_symbol=summaries if with_summaries else {}, diagnostics=RetrievalDiagnostics(
+                        retrieval_status="partial", provider_status="mixed", provider_available=False,
+                        budget_exhausted=budget, unresolved_symbols=("BAD",)))
+    
+        provider = Provider()
+        path = tmp_path / "news.json"
+        for service in (_service(path, provider), _service(path, provider)):
+            result = service.get_news([NewsCandidate("EMPTY"), NewsCandidate("BAD")], REQUEST, POLICY)
+            context, decision = _ross(result)
+            assert result.diagnostics.unresolved_symbols == ("BAD",)
+>           assert context["EMPTY"]["news_available"] is True
+E           assert False is True
+
+tests\test_w02_news_consumer_acceptance.py:239: AssertionError
+---------------------------- Captured stdout call -----------------------------
+[NEWS][RETRIEVAL_DIAGNOSTICS] {"budget_exhausted":true,"cache":{"cache_hit_symbols":[],"cache_miss_symbols":["BAD","EMPTY"],"cache_read_error":null,"cache_read_failed":false,"cache_write_error":null,"cache_write_failed":false,"cadence_cache_hit_symbols":[],"prep_read_error":null,"prep_read_failed":false,"prep_reuse_symbols":[],"prep_stale_symbols":[],"read_attempted":true,"read_skipped":false,"stale_cache_miss_symbols":[],"state":"miss","write_attempted":true},"completed_at_utc":"2026-08-21T14:05:00+00:00","elapsed_seconds":null,"network_allowed":true,"provider_available":false,"provider_failure_reason":null,"provider_invoked":true,"provider_status":"mixed","refresh_allowed":true,"refresh_symbols":["EMPTY","BAD"],"request_mode":"incremental","retrieval_status":"partial","schema":"news.retrieval_diagnostics.v1","source_groups":[],"sources":[],"sources_attempted":0,"sources_skipped_due_to_budget":0,"started_at_utc":"2026-08-21T14:05:00+00:00","summaries":{"BAD":{"budget_exhausted":true,"cache_state":"miss","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"budget_exhausted","provider_available":false,"provider_status":"unavailable","retrieval_status":"budget_exhausted","retrieval_unavailable":true,"stale_evidence_count":0,"unavailability_reasons":["provider_unavailable","budget_exhausted","retrieval_budget_exhausted"]},"EMPTY":{"budget_exhausted":false,"cache_state":"miss","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"no_recent_news","provider_available":true,"provider_status":"available","retrieval_status":"available","retrieval_unavailable":false,"stale_evidence_count":0,"unavailability_reasons":[]}},"symbols":["EMPTY","BAD"],"tier_budget_seconds":{"extended_budget_reserved_seconds":null,"extended_budget_seconds":null,"fast_budget_seconds":null},"total_budget_seconds":null,"unresolved_symbols":["BAD"]}
+[NEWS] symbol=EMPTY catalyst_tag=NONE headlines=0
+[NEWS] symbol=EMPTY news_changed=True
+[NEWS] symbol=BAD catalyst_tag=NONE headlines=0
+[NEWS] symbol=BAD news_changed=True
+_ test_mixed_public_service_outcomes_reach_ross_per_symbol_and_survive_restart[provider-summaries-failure] _
+
+tmp_path = WindowsPath('C:/Users/nelzo/AppData/Local/Temp/pytest-of-nelzo/pytest-275/test_mixed_public_service_outc2')
+budget = False, with_summaries = True
+
+    @pytest.mark.parametrize("budget", [False, True], ids=["failure", "budget"])
+    @pytest.mark.parametrize("with_summaries", [False, True], ids=["summaryless-provider", "provider-summaries"])
+    def test_mixed_public_service_outcomes_reach_ross_per_symbol_and_survive_restart(tmp_path, budget, with_summaries):
+        class Provider:
+            calls = 0
+    
+            def get_news(self, candidates, request, policy):
+                self.calls += 1
+                summaries = {
+                    "EMPTY": NewsEvidenceSummary(symbol="EMPTY", retrieval_status="available", provider_status="ok", provider_available=True),
+                    "BAD": NewsEvidenceSummary(symbol="BAD", retrieval_status="budget_exhausted" if budget else "unavailable",
+                                               provider_status="offline", provider_available=False, budget_exhausted=budget),
+                }
+                return NewsBatchResult(evidence_by_symbol={"EMPTY": (), "BAD": ()},
+                    summaries_by_symbol=summaries if with_summaries else {}, diagnostics=RetrievalDiagnostics(
+                        retrieval_status="partial", provider_status="mixed", provider_available=False,
+                        budget_exhausted=budget, unresolved_symbols=("BAD",)))
+    
+        provider = Provider()
+        path = tmp_path / "news.json"
+        for service in (_service(path, provider), _service(path, provider)):
+            result = service.get_news([NewsCandidate("EMPTY"), NewsCandidate("BAD")], REQUEST, POLICY)
+            context, decision = _ross(result)
+            assert result.diagnostics.unresolved_symbols == ("BAD",)
+            assert context["EMPTY"]["news_available"] is True
+            assert context["EMPTY"]["news_diagnostic_status"] == "no_recent_news"
+            assert decision["EMPTY"].status.value == "ABSENT"
+            assert context["BAD"]["news_available"] is False
+>           assert context["BAD"]["news_diagnostic_status"] == ("budget_exhausted" if budget else "provider_unavailable")
+E           AssertionError: assert 'budget_exhausted' == 'provider_unavailable'
+E             
+E             - provider_unavailable
+E             + budget_exhausted
+
+tests\test_w02_news_consumer_acceptance.py:243: AssertionError
+---------------------------- Captured stdout call -----------------------------
+[NEWS][RETRIEVAL_DIAGNOSTICS] {"budget_exhausted":false,"cache":{"cache_hit_symbols":[],"cache_miss_symbols":["BAD","EMPTY"],"cache_read_error":null,"cache_read_failed":false,"cache_write_error":null,"cache_write_failed":false,"cadence_cache_hit_symbols":[],"prep_read_error":null,"prep_read_failed":false,"prep_reuse_symbols":[],"prep_stale_symbols":[],"read_attempted":true,"read_skipped":false,"stale_cache_miss_symbols":[],"state":"miss","write_attempted":true},"completed_at_utc":"2026-08-21T14:05:00+00:00","elapsed_seconds":null,"network_allowed":true,"provider_available":false,"provider_failure_reason":null,"provider_invoked":true,"provider_status":"mixed","refresh_allowed":true,"refresh_symbols":["EMPTY","BAD"],"request_mode":"incremental","retrieval_status":"partial","schema":"news.retrieval_diagnostics.v1","source_groups":[],"sources":[],"sources_attempted":0,"sources_skipped_due_to_budget":0,"started_at_utc":"2026-08-21T14:05:00+00:00","summaries":{"BAD":{"budget_exhausted":false,"cache_state":"miss","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"no_recent_news","provider_available":false,"provider_status":"offline","retrieval_status":"unavailable","retrieval_unavailable":true,"stale_evidence_count":0,"unavailability_reasons":["provider_unavailable","retrieval_unavailable"]},"EMPTY":{"budget_exhausted":false,"cache_state":"miss","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"no_recent_news","provider_available":true,"provider_status":"ok","retrieval_status":"available","retrieval_unavailable":false,"stale_evidence_count":0,"unavailability_reasons":[]}},"symbols":["EMPTY","BAD"],"tier_budget_seconds":{"extended_budget_reserved_seconds":null,"extended_budget_seconds":null,"fast_budget_seconds":null},"total_budget_seconds":null,"unresolved_symbols":["BAD"]}
+[NEWS] symbol=EMPTY catalyst_tag=NONE headlines=0
+[NEWS] symbol=EMPTY news_changed=True
+[NEWS] symbol=BAD catalyst_tag=NONE headlines=0
+[NEWS] symbol=BAD news_changed=True
+_ test_mixed_public_service_outcomes_reach_ross_per_symbol_and_survive_restart[provider-summaries-budget] _
+
+tmp_path = WindowsPath('C:/Users/nelzo/AppData/Local/Temp/pytest-of-nelzo/pytest-275/test_mixed_public_service_outc3')
+budget = True, with_summaries = True
+
+    @pytest.mark.parametrize("budget", [False, True], ids=["failure", "budget"])
+    @pytest.mark.parametrize("with_summaries", [False, True], ids=["summaryless-provider", "provider-summaries"])
+    def test_mixed_public_service_outcomes_reach_ross_per_symbol_and_survive_restart(tmp_path, budget, with_summaries):
+        class Provider:
+            calls = 0
+    
+            def get_news(self, candidates, request, policy):
+                self.calls += 1
+                summaries = {
+                    "EMPTY": NewsEvidenceSummary(symbol="EMPTY", retrieval_status="available", provider_status="ok", provider_available=True),
+                    "BAD": NewsEvidenceSummary(symbol="BAD", retrieval_status="budget_exhausted" if budget else "unavailable",
+                                               provider_status="offline", provider_available=False, budget_exhausted=budget),
+                }
+                return NewsBatchResult(evidence_by_symbol={"EMPTY": (), "BAD": ()},
+                    summaries_by_symbol=summaries if with_summaries else {}, diagnostics=RetrievalDiagnostics(
+                        retrieval_status="partial", provider_status="mixed", provider_available=False,
+                        budget_exhausted=budget, unresolved_symbols=("BAD",)))
+    
+        provider = Provider()
+        path = tmp_path / "news.json"
+        for service in (_service(path, provider), _service(path, provider)):
+            result = service.get_news([NewsCandidate("EMPTY"), NewsCandidate("BAD")], REQUEST, POLICY)
+            context, decision = _ross(result)
+            assert result.diagnostics.unresolved_symbols == ("BAD",)
+>           assert context["EMPTY"]["news_available"] is True
+E           assert False is True
+
+tests\test_w02_news_consumer_acceptance.py:239: AssertionError
+---------------------------- Captured stdout call -----------------------------
+[NEWS][RETRIEVAL_DIAGNOSTICS] {"budget_exhausted":true,"cache":{"cache_hit_symbols":[],"cache_miss_symbols":["BAD","EMPTY"],"cache_read_error":null,"cache_read_failed":false,"cache_write_error":null,"cache_write_failed":false,"cadence_cache_hit_symbols":[],"prep_read_error":null,"prep_read_failed":false,"prep_reuse_symbols":[],"prep_stale_symbols":[],"read_attempted":true,"read_skipped":false,"stale_cache_miss_symbols":[],"state":"miss","write_attempted":true},"completed_at_utc":"2026-08-21T14:05:00+00:00","elapsed_seconds":null,"network_allowed":true,"provider_available":false,"provider_failure_reason":null,"provider_invoked":true,"provider_status":"mixed","refresh_allowed":true,"refresh_symbols":["EMPTY","BAD"],"request_mode":"incremental","retrieval_status":"partial","schema":"news.retrieval_diagnostics.v1","source_groups":[],"sources":[],"sources_attempted":0,"sources_skipped_due_to_budget":0,"started_at_utc":"2026-08-21T14:05:00+00:00","summaries":{"BAD":{"budget_exhausted":true,"cache_state":"miss","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"budget_exhausted","provider_available":false,"provider_status":"offline","retrieval_status":"budget_exhausted","retrieval_unavailable":true,"stale_evidence_count":0,"unavailability_reasons":["provider_unavailable","budget_exhausted","retrieval_budget_exhausted"]},"EMPTY":{"budget_exhausted":false,"cache_state":"miss","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"no_recent_news","provider_available":true,"provider_status":"ok","retrieval_status":"available","retrieval_unavailable":false,"stale_evidence_count":0,"unavailability_reasons":[]}},"symbols":["EMPTY","BAD"],"tier_budget_seconds":{"extended_budget_reserved_seconds":null,"extended_budget_seconds":null,"fast_budget_seconds":null},"total_budget_seconds":null,"unresolved_symbols":["BAD"]}
+[NEWS] symbol=EMPTY catalyst_tag=NONE headlines=0
+[NEWS] symbol=EMPTY news_changed=True
+[NEWS] symbol=BAD catalyst_tag=NONE headlines=0
+[NEWS] symbol=BAD news_changed=True
+=========================== short test summary info ===========================
+FAILED tests/test_w02_news_consumer_acceptance.py::test_public_service_unavailable_remains_unavailable_in_ross_after_restart[unavailable]
+FAILED tests/test_w02_news_consumer_acceptance.py::test_public_service_unavailable_remains_unavailable_in_ross_after_restart[timeout]
+FAILED tests/test_w02_news_consumer_acceptance.py::test_public_service_unavailable_remains_unavailable_in_ross_after_restart[provider_error]
+FAILED tests/test_w02_news_consumer_acceptance.py::test_mixed_public_service_outcomes_reach_ross_per_symbol_and_survive_restart[summaryless-provider-failure]
+FAILED tests/test_w02_news_consumer_acceptance.py::test_mixed_public_service_outcomes_reach_ross_per_symbol_and_survive_restart[summaryless-provider-budget]
+FAILED tests/test_w02_news_consumer_acceptance.py::test_mixed_public_service_outcomes_reach_ross_per_symbol_and_survive_restart[provider-summaries-failure]
+FAILED tests/test_w02_news_consumer_acceptance.py::test_mixed_public_service_outcomes_reach_ross_per_symbol_and_survive_restart[provider-summaries-budget]
+7 failed, 8 passed in 4.80s

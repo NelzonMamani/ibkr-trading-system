@@ -1,0 +1,52 @@
+C:\tmp\pr1091-cert-env-20260923\Lib\site-packages\_pytest\unraisableexception.py:67: PytestUnraisableExceptionWarning: Exception ignored in: <function BaseEventLoop.__del__ at 0x0000014A840B8900>
+
+Traceback (most recent call last):
+  File "C:\Users\nelzo\AppData\Local\Programs\Python\Python313\Lib\asyncio\base_events.py", line 760, in __del__
+    self.close()
+    ~~~~~~~~~~^^
+  File "C:\Users\nelzo\AppData\Local\Programs\Python\Python313\Lib\asyncio\proactor_events.py", line 694, in close
+    self._close_self_pipe()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\nelzo\AppData\Local\Programs\Python\Python313\Lib\asyncio\proactor_events.py", line 776, in _close_self_pipe
+    self._ssock.close()
+    ^^^^^^^^^^^
+AttributeError: 'ProactorEventLoop' object has no attribute '_ssock'
+
+Enable tracemalloc to get traceback where the object was allocated.
+See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+  warnings.warn(pytest.PytestUnraisableExceptionWarning(msg))
+
+=================================== ERRORS ====================================
+___________ ERROR collecting tests/test_pr1091_console_reporting.py ___________
+src\main.py:21: in <module>
+    asyncio.get_running_loop()
+E   RuntimeError: no running event loop
+
+During handling of the above exception, another exception occurred:
+tests\test_pr1091_console_reporting.py:5: in <module>
+    from src import main as main_module
+src\main.py:23: in <module>
+    loop = asyncio.new_event_loop()
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+..\..\..\..\AppData\Local\Programs\Python\Python313\Lib\asyncio\events.py:837: in new_event_loop
+    return get_event_loop_policy().new_event_loop()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\..\..\..\AppData\Local\Programs\Python\Python313\Lib\asyncio\events.py:734: in new_event_loop
+    return self._loop_factory()
+           ^^^^^^^^^^^^^^^^^^^^
+..\..\..\..\AppData\Local\Programs\Python\Python313\Lib\asyncio\windows_events.py:316: in __init__
+    super().__init__(proactor)
+..\..\..\..\AppData\Local\Programs\Python\Python313\Lib\asyncio\proactor_events.py:637: in __init__
+    self._make_self_pipe()
+..\..\..\..\AppData\Local\Programs\Python\Python313\Lib\asyncio\proactor_events.py:784: in _make_self_pipe
+    self._ssock, self._csock = socket.socketpair()
+                               ^^^^^^^^^^^^^^^^^^^
+..\..\..\..\AppData\Local\Programs\Python\Python313\Lib\socket.py:623: in _fallback_socketpair
+    csock.connect((addr, port))
+scripts\diagnostics\w02_offline_guard.py:20: in _deny
+    raise OSError("W02_OFFLINE_NETWORK_DISABLED")
+E   OSError: W02_OFFLINE_NETWORK_DISABLED
+=========================== short test summary info ===========================
+ERROR tests/test_pr1091_console_reporting.py - OSError: W02_OFFLINE_NETWORK_D...
+!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+1 error in 12.54s

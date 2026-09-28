@@ -1,0 +1,28 @@
+{
+  "full_suite_commit": "2452d78da7e9cef8a8d3ba5d3f733a988e255f10",
+  "changed_after_local_full_suite": {
+    "src/news/news_fetcher.py": {
+      "full_suite_sha256": "8bbc79a755c5f88df4419be192e1f8480cb83bf0d1040bc14462d7671d60ccb7",
+      "reviewed_sha256": "204ae0839117ce71332ac6dda94618840d6dd817858249f5255e11df40efa8b9"
+    },
+    "src/news/news_intelligence_service.py": {
+      "full_suite_sha256": "6b8cf867a06bffd41ce5c4f2eea62badfacb79b19359e30ab860899a0d7d3456",
+      "reviewed_sha256": "53385e69f7b20bb16d45f6328820fb1b5a6c3021f50609d4b76048bf83edbc21"
+    },
+    "src/scanner/scanner_runner.py": {
+      "full_suite_sha256": "7e3a5e373642b7bcb9edf5ae6259bd1e723f663107c7b5af864caa21e065114c",
+      "reviewed_sha256": "154dfd72945ccb99be70f611bc22e98969c8d2dfc48000105d836640ceaa051e"
+    },
+    "tests/test_w02_news_consumer_acceptance.py": {
+      "full_suite_sha256": "9f6076278282c856939585ce1a10c7b7b7304fcf35380ec8c30889b639908fa8",
+      "reviewed_sha256": "d1f5cd9bad28a248aff4afafef412471cf6103d3e5ec63aa23f62b7165b4cb13"
+    },
+    "tests/test_w02_source_outcomes.py": {
+      "full_suite_sha256": "a60c5689c7b7cda13738ff52aa0e52a0547d023d9b3c17971f09d0ca8b43e8fe",
+      "reviewed_sha256": "6829860db2e1e44bd41e94de9a0fa57cc59bfbf581be576a7d408f6dd4c99e33"
+    }
+  },
+  "other_python_sources_unchanged": true,
+  "final_manifest_sha256": "57d72ea7ba5d2dc11ea5395cffcb4d06429b787ffd6b7288adec8425393ffda4",
+  "verification": "40 focused, 68 affected and 272 combined targeted tests passed; independent peer review found no concrete blocker. Final-head CI performs full-suite validation. Accepted local full suite not repeated."
+}

@@ -1,0 +1,16 @@
+{
+  "full_suite_commit": "2452d78da7e9cef8a8d3ba5d3f733a988e255f10",
+  "changed_after_local_full_suite": {
+    "src/news/news_intelligence_service.py": {
+      "full_suite_sha256": "6b8cf867a06bffd41ce5c4f2eea62badfacb79b19359e30ab860899a0d7d3456",
+      "reviewed_sha256": "699cab50f9cdfbcf4b342dcab5e32bed35a5ed44e555907c43c73719f65779fc"
+    },
+    "tests/test_w02_news_consumer_acceptance.py": {
+      "full_suite_sha256": "9f6076278282c856939585ce1a10c7b7b7304fcf35380ec8c30889b639908fa8",
+      "reviewed_sha256": "9f6bd7f211516d5d2de2105679f68bb42e2f666bfbcf507416701ad8189b74e9"
+    }
+  },
+  "other_python_sources_unchanged": true,
+  "final_manifest_sha256": "f85fbec0f45aa965c52fe09c1a9a72fdc84b5d5577d9c04fb4591b09ec1858ed",
+  "verification": "71 affected and 230 combined targeted tests passed after review fix; final exact-head CI performs required full-suite validation. Accepted local full suite not repeated."
+}

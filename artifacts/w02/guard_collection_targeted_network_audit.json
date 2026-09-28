@@ -1,0 +1,10 @@
+{
+  "guard": "all socket connections blocked",
+  "attempts": [
+    {
+      "test": null,
+      "outcome": "blocked_before_connection"
+    }
+  ],
+  "exit_status": 2
+}

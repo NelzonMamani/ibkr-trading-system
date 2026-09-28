@@ -1,0 +1,1099 @@
+........FF........FF..FFFF..FFFFFF                                       [100%]
+================================== FAILURES ===================================
+_ test_completed_future_is_accepted_only_before_applicable_deadline[before-with-late-coordinator-stage] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000020B61359040>
+deadline_kind = 'stage', completion_offset = -0.001, coordinator_lag = 0.002
+
+    @pytest.mark.parametrize("deadline_kind", ["stage", "tier"])
+    @pytest.mark.parametrize(
+        ("completion_offset", "coordinator_lag"),
+        [(-0.001, 0.0), (0.0, 0.0), (0.001, 0.0), (-0.001, 0.002)],
+        ids=["before", "at", "after", "before-with-late-coordinator"],
+    )
+    def test_completed_future_is_accepted_only_before_applicable_deadline(
+        monkeypatch, deadline_kind, completion_offset, coordinator_lag,
+    ):
+        clock = [100.0]
+        pending_work = {}
+        monkeypatch.setattr(news_fetcher.time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(news_fetcher, "feedparser", object())
+    
+        class DeferredExecutor:
+            def __init__(self, **kwargs):
+                pass
+    
+            def submit(self, function, *args):
+                future = Future()
+                future.set_running_or_notify_cancel()
+                pending_work[future] = (function, args)
+                return future
+    
+            def shutdown(self, **kwargs):
+                pass
+    
+        monkeypatch.setattr(news_fetcher, "ThreadPoolExecutor", DeferredExecutor)
+        feed = SimpleNamespace(feed={"title": "Controlled source"}, entries=[SimpleNamespace(
+            title="W02X wins contract", link="https://news.example/w02x",
+            published_parsed=time.gmtime(time.time() - 60),
+        )])
+        monkeypatch.setattr(news_fetcher, "_fetch_feed", lambda *args: feed)
+    
+        def completed_after_wait(futures, timeout, return_when):
+            # Model a completion racing the coordinator's bounded wait. No real sleep.
+            clock[0] = 101.0 + completion_offset
+            for future in futures:
+                function, args = pending_work.pop(future)
+                future.set_result(function(*args))
+            clock[0] += coordinator_lag
+            return set(futures), set()
+    
+        monkeypatch.setattr(news_fetcher, "wait", completed_after_wait)
+        stage_budget = 1.0 if deadline_kind == "stage" else 3.0
+        tier_budget = 1.0 if deadline_kind == "tier" else 3.0
+        headlines, summary = news_fetcher.fetch_headlines_for_symbols(
+            ["W02X"], ["rss://controlled"], source_tier="extended",
+            total_news_budget_seconds=stage_budget, stage_started_at_s=100.0,
+            stage_deadline_s=100.0 + stage_budget,
+            tier_budget_seconds=tier_budget, tier_started_at_s=100.0,
+            tier_deadline_s=100.0 + tier_budget,
+        )
+    
+        source = summary.source_diagnostics[0]
+        assert source["attempted"] is True
+        assert source["timed_out"] is False
+        assert summary.failure_count == 0
+        if completion_offset < 0:
+            assert [item.title for item in headlines["W02X"]] == ["W02X wins contract"]
+            assert source["retrieval_status"] == "available"
+            assert source["matched_count"] == 1
+            assert source["budget_exhausted"] is False
+>           assert summary.news_budget_exhausted is False
+E           AssertionError: assert True is False
+E            +  where True = RssFailureSummary(total_sources=1, failure_count=0, failures_by_domain={}, reason=None, tier_source_counts={'extended'..., unique_source_urls_scheduled_count=1, unique_source_urls_attempted_count=1, duplicate_source_fetches_avoided_count=0).news_budget_exhausted
+
+tests\test_w02_source_outcomes.py:128: AssertionError
+_ test_completed_future_is_accepted_only_before_applicable_deadline[before-with-late-coordinator-tier] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000020B61396C10>
+deadline_kind = 'tier', completion_offset = -0.001, coordinator_lag = 0.002
+
+    @pytest.mark.parametrize("deadline_kind", ["stage", "tier"])
+    @pytest.mark.parametrize(
+        ("completion_offset", "coordinator_lag"),
+        [(-0.001, 0.0), (0.0, 0.0), (0.001, 0.0), (-0.001, 0.002)],
+        ids=["before", "at", "after", "before-with-late-coordinator"],
+    )
+    def test_completed_future_is_accepted_only_before_applicable_deadline(
+        monkeypatch, deadline_kind, completion_offset, coordinator_lag,
+    ):
+        clock = [100.0]
+        pending_work = {}
+        monkeypatch.setattr(news_fetcher.time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(news_fetcher, "feedparser", object())
+    
+        class DeferredExecutor:
+            def __init__(self, **kwargs):
+                pass
+    
+            def submit(self, function, *args):
+                future = Future()
+                future.set_running_or_notify_cancel()
+                pending_work[future] = (function, args)
+                return future
+    
+            def shutdown(self, **kwargs):
+                pass
+    
+        monkeypatch.setattr(news_fetcher, "ThreadPoolExecutor", DeferredExecutor)
+        feed = SimpleNamespace(feed={"title": "Controlled source"}, entries=[SimpleNamespace(
+            title="W02X wins contract", link="https://news.example/w02x",
+            published_parsed=time.gmtime(time.time() - 60),
+        )])
+        monkeypatch.setattr(news_fetcher, "_fetch_feed", lambda *args: feed)
+    
+        def completed_after_wait(futures, timeout, return_when):
+            # Model a completion racing the coordinator's bounded wait. No real sleep.
+            clock[0] = 101.0 + completion_offset
+            for future in futures:
+                function, args = pending_work.pop(future)
+                future.set_result(function(*args))
+            clock[0] += coordinator_lag
+            return set(futures), set()
+    
+        monkeypatch.setattr(news_fetcher, "wait", completed_after_wait)
+        stage_budget = 1.0 if deadline_kind == "stage" else 3.0
+        tier_budget = 1.0 if deadline_kind == "tier" else 3.0
+        headlines, summary = news_fetcher.fetch_headlines_for_symbols(
+            ["W02X"], ["rss://controlled"], source_tier="extended",
+            total_news_budget_seconds=stage_budget, stage_started_at_s=100.0,
+            stage_deadline_s=100.0 + stage_budget,
+            tier_budget_seconds=tier_budget, tier_started_at_s=100.0,
+            tier_deadline_s=100.0 + tier_budget,
+        )
+    
+        source = summary.source_diagnostics[0]
+        assert source["attempted"] is True
+        assert source["timed_out"] is False
+        assert summary.failure_count == 0
+        if completion_offset < 0:
+            assert [item.title for item in headlines["W02X"]] == ["W02X wins contract"]
+            assert source["retrieval_status"] == "available"
+            assert source["matched_count"] == 1
+            assert source["budget_exhausted"] is False
+            assert summary.news_budget_exhausted is False
+>           assert summary.tier_budget_exhausted is False
+E           AssertionError: assert True is False
+E            +  where True = RssFailureSummary(total_sources=1, failure_count=0, failures_by_domain={}, reason=None, tier_source_counts={'extended'..., unique_source_urls_scheduled_count=1, unique_source_urls_attempted_count=1, duplicate_source_fetches_avoided_count=0).tier_budget_exhausted
+
+tests\test_w02_source_outcomes.py:129: AssertionError
+_ test_coordinator_drains_in_time_completions_before_expiring_remaining_work[wait-completed-stage] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000020B612D6180>
+deadline_kind = 'stage', remaining_work = 'completed', completion_phase = 'wait'
+
+    @pytest.mark.parametrize("deadline_kind", ["stage", "tier"])
+    @pytest.mark.parametrize("remaining_work", ["completed", "pending", "unattempted"])
+    @pytest.mark.parametrize("completion_phase", ["wait", "processing"])
+    def test_coordinator_drains_in_time_completions_before_expiring_remaining_work(
+        monkeypatch, deadline_kind, remaining_work, completion_phase,
+    ):
+        clock = [100.0]
+        work = {}
+        waits = []
+        monkeypatch.setattr(news_fetcher.time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(news_fetcher, "feedparser", object())
+        monkeypatch.setattr(news_fetcher, "DEFAULT_RSS_FETCH_WORKERS", 2)
+    
+        class Executor:
+            def __init__(self, **kwargs): pass
+            def submit(self, function, *args):
+                future = Future()
+                future.set_running_or_notify_cancel()
+                work[future] = (function, args)
+                return future
+            def shutdown(self, **kwargs): pass
+    
+        monkeypatch.setattr(news_fetcher, "ThreadPoolExecutor", Executor)
+        monkeypatch.setattr(news_fetcher, "_fetch_feed", lambda url, timeout: SimpleNamespace(
+            feed={"title": "Controlled source"}, entries=[SimpleNamespace(
+                title=f"W02X update {url}", link=url,
+                published_parsed=time.gmtime(time.time() - 60),
+            )],
+        ))
+    
+        def finish(future):
+            function, args = work[future]
+            future.set_result(function(*args))
+    
+        def first_completed(futures, timeout, return_when):
+            waits.append(timeout)
+            assert len(waits) == 1  # Draining completed work must not wait again.
+            clock[0] = 100.998
+            finish(futures[0])
+            if completion_phase == "wait":
+                clock[0] = 100.999
+                if remaining_work != "pending":
+                    finish(futures[1])
+                clock[0] = 101.001
+            # FIRST_COMPLETED need not contain every completion now observable.
+            return {futures[0]}, set(futures[1:])
+    
+        clean_text = news_fetcher._clean_text
+        def delayed_processing(value):
+            if completion_phase == "processing" and clock[0] < 101.0:
+                clock[0] = 100.999
+                if remaining_work != "pending":
+                    finish(next(future for future in work if not future.done()))
+                clock[0] = 101.001
+            return clean_text(value)
+    
+        monkeypatch.setattr(news_fetcher, "wait", first_completed)
+        monkeypatch.setattr(news_fetcher, "_clean_text", delayed_processing)
+        stage_budget = 1.0 if deadline_kind == "stage" else 3.0
+        tier_budget = 1.0 if deadline_kind == "tier" else 3.0
+        sources = ["rss://first", "rss://second"]
+        if remaining_work == "unattempted":
+            sources.append("rss://third")
+        rows, summary = news_fetcher.fetch_headlines_for_symbols(
+            ["W02X"], sources, source_tier="extended",
+            total_news_budget_seconds=stage_budget, stage_started_at_s=100.0,
+            stage_deadline_s=100.0 + stage_budget,
+            tier_budget_seconds=tier_budget, tier_started_at_s=100.0,
+            tier_deadline_s=100.0 + tier_budget,
+        )
+    
+        expected_count = 1 if remaining_work == "pending" else 2
+>       assert len(rows["W02X"]) == expected_count
+E       AssertionError: assert 1 == 2
+E        +  where 1 = len([Headline(title='W02X update rss://first', source='Controlled source', published_ts=1790627120.0, url='rss://first', summary='', source_tier='extended', match_type='ticker_token', matched_field='title')])
+
+tests\test_w02_source_outcomes.py:292: AssertionError
+_ test_coordinator_drains_in_time_completions_before_expiring_remaining_work[wait-completed-tier] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000020B61443C50>
+deadline_kind = 'tier', remaining_work = 'completed', completion_phase = 'wait'
+
+    @pytest.mark.parametrize("deadline_kind", ["stage", "tier"])
+    @pytest.mark.parametrize("remaining_work", ["completed", "pending", "unattempted"])
+    @pytest.mark.parametrize("completion_phase", ["wait", "processing"])
+    def test_coordinator_drains_in_time_completions_before_expiring_remaining_work(
+        monkeypatch, deadline_kind, remaining_work, completion_phase,
+    ):
+        clock = [100.0]
+        work = {}
+        waits = []
+        monkeypatch.setattr(news_fetcher.time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(news_fetcher, "feedparser", object())
+        monkeypatch.setattr(news_fetcher, "DEFAULT_RSS_FETCH_WORKERS", 2)
+    
+        class Executor:
+            def __init__(self, **kwargs): pass
+            def submit(self, function, *args):
+                future = Future()
+                future.set_running_or_notify_cancel()
+                work[future] = (function, args)
+                return future
+            def shutdown(self, **kwargs): pass
+    
+        monkeypatch.setattr(news_fetcher, "ThreadPoolExecutor", Executor)
+        monkeypatch.setattr(news_fetcher, "_fetch_feed", lambda url, timeout: SimpleNamespace(
+            feed={"title": "Controlled source"}, entries=[SimpleNamespace(
+                title=f"W02X update {url}", link=url,
+                published_parsed=time.gmtime(time.time() - 60),
+            )],
+        ))
+    
+        def finish(future):
+            function, args = work[future]
+            future.set_result(function(*args))
+    
+        def first_completed(futures, timeout, return_when):
+            waits.append(timeout)
+            assert len(waits) == 1  # Draining completed work must not wait again.
+            clock[0] = 100.998
+            finish(futures[0])
+            if completion_phase == "wait":
+                clock[0] = 100.999
+                if remaining_work != "pending":
+                    finish(futures[1])
+                clock[0] = 101.001
+            # FIRST_COMPLETED need not contain every completion now observable.
+            return {futures[0]}, set(futures[1:])
+    
+        clean_text = news_fetcher._clean_text
+        def delayed_processing(value):
+            if completion_phase == "processing" and clock[0] < 101.0:
+                clock[0] = 100.999
+                if remaining_work != "pending":
+                    finish(next(future for future in work if not future.done()))
+                clock[0] = 101.001
+            return clean_text(value)
+    
+        monkeypatch.setattr(news_fetcher, "wait", first_completed)
+        monkeypatch.setattr(news_fetcher, "_clean_text", delayed_processing)
+        stage_budget = 1.0 if deadline_kind == "stage" else 3.0
+        tier_budget = 1.0 if deadline_kind == "tier" else 3.0
+        sources = ["rss://first", "rss://second"]
+        if remaining_work == "unattempted":
+            sources.append("rss://third")
+        rows, summary = news_fetcher.fetch_headlines_for_symbols(
+            ["W02X"], sources, source_tier="extended",
+            total_news_budget_seconds=stage_budget, stage_started_at_s=100.0,
+            stage_deadline_s=100.0 + stage_budget,
+            tier_budget_seconds=tier_budget, tier_started_at_s=100.0,
+            tier_deadline_s=100.0 + tier_budget,
+        )
+    
+        expected_count = 1 if remaining_work == "pending" else 2
+>       assert len(rows["W02X"]) == expected_count
+E       AssertionError: assert 1 == 2
+E        +  where 1 = len([Headline(title='W02X update rss://first', source='Controlled source', published_ts=1790627120.0, url='rss://first', summary='', source_tier='extended', match_type='ticker_token', matched_field='title')])
+
+tests\test_w02_source_outcomes.py:292: AssertionError
+_ test_coordinator_drains_in_time_completions_before_expiring_remaining_work[wait-unattempted-stage] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000020B612DBA10>
+deadline_kind = 'stage', remaining_work = 'unattempted'
+completion_phase = 'wait'
+
+    @pytest.mark.parametrize("deadline_kind", ["stage", "tier"])
+    @pytest.mark.parametrize("remaining_work", ["completed", "pending", "unattempted"])
+    @pytest.mark.parametrize("completion_phase", ["wait", "processing"])
+    def test_coordinator_drains_in_time_completions_before_expiring_remaining_work(
+        monkeypatch, deadline_kind, remaining_work, completion_phase,
+    ):
+        clock = [100.0]
+        work = {}
+        waits = []
+        monkeypatch.setattr(news_fetcher.time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(news_fetcher, "feedparser", object())
+        monkeypatch.setattr(news_fetcher, "DEFAULT_RSS_FETCH_WORKERS", 2)
+    
+        class Executor:
+            def __init__(self, **kwargs): pass
+            def submit(self, function, *args):
+                future = Future()
+                future.set_running_or_notify_cancel()
+                work[future] = (function, args)
+                return future
+            def shutdown(self, **kwargs): pass
+    
+        monkeypatch.setattr(news_fetcher, "ThreadPoolExecutor", Executor)
+        monkeypatch.setattr(news_fetcher, "_fetch_feed", lambda url, timeout: SimpleNamespace(
+            feed={"title": "Controlled source"}, entries=[SimpleNamespace(
+                title=f"W02X update {url}", link=url,
+                published_parsed=time.gmtime(time.time() - 60),
+            )],
+        ))
+    
+        def finish(future):
+            function, args = work[future]
+            future.set_result(function(*args))
+    
+        def first_completed(futures, timeout, return_when):
+            waits.append(timeout)
+            assert len(waits) == 1  # Draining completed work must not wait again.
+            clock[0] = 100.998
+            finish(futures[0])
+            if completion_phase == "wait":
+                clock[0] = 100.999
+                if remaining_work != "pending":
+                    finish(futures[1])
+                clock[0] = 101.001
+            # FIRST_COMPLETED need not contain every completion now observable.
+            return {futures[0]}, set(futures[1:])
+    
+        clean_text = news_fetcher._clean_text
+        def delayed_processing(value):
+            if completion_phase == "processing" and clock[0] < 101.0:
+                clock[0] = 100.999
+                if remaining_work != "pending":
+                    finish(next(future for future in work if not future.done()))
+                clock[0] = 101.001
+            return clean_text(value)
+    
+        monkeypatch.setattr(news_fetcher, "wait", first_completed)
+        monkeypatch.setattr(news_fetcher, "_clean_text", delayed_processing)
+        stage_budget = 1.0 if deadline_kind == "stage" else 3.0
+        tier_budget = 1.0 if deadline_kind == "tier" else 3.0
+        sources = ["rss://first", "rss://second"]
+        if remaining_work == "unattempted":
+            sources.append("rss://third")
+        rows, summary = news_fetcher.fetch_headlines_for_symbols(
+            ["W02X"], sources, source_tier="extended",
+            total_news_budget_seconds=stage_budget, stage_started_at_s=100.0,
+            stage_deadline_s=100.0 + stage_budget,
+            tier_budget_seconds=tier_budget, tier_started_at_s=100.0,
+            tier_deadline_s=100.0 + tier_budget,
+        )
+    
+        expected_count = 1 if remaining_work == "pending" else 2
+>       assert len(rows["W02X"]) == expected_count
+E       AssertionError: assert 1 == 2
+E        +  where 1 = len([Headline(title='W02X update rss://first', source='Controlled source', published_ts=1790627120.0, url='rss://first', summary='', source_tier='extended', match_type='ticker_token', matched_field='title')])
+
+tests\test_w02_source_outcomes.py:292: AssertionError
+_ test_coordinator_drains_in_time_completions_before_expiring_remaining_work[wait-unattempted-tier] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000020B612DAD60>
+deadline_kind = 'tier', remaining_work = 'unattempted'
+completion_phase = 'wait'
+
+    @pytest.mark.parametrize("deadline_kind", ["stage", "tier"])
+    @pytest.mark.parametrize("remaining_work", ["completed", "pending", "unattempted"])
+    @pytest.mark.parametrize("completion_phase", ["wait", "processing"])
+    def test_coordinator_drains_in_time_completions_before_expiring_remaining_work(
+        monkeypatch, deadline_kind, remaining_work, completion_phase,
+    ):
+        clock = [100.0]
+        work = {}
+        waits = []
+        monkeypatch.setattr(news_fetcher.time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(news_fetcher, "feedparser", object())
+        monkeypatch.setattr(news_fetcher, "DEFAULT_RSS_FETCH_WORKERS", 2)
+    
+        class Executor:
+            def __init__(self, **kwargs): pass
+            def submit(self, function, *args):
+                future = Future()
+                future.set_running_or_notify_cancel()
+                work[future] = (function, args)
+                return future
+            def shutdown(self, **kwargs): pass
+    
+        monkeypatch.setattr(news_fetcher, "ThreadPoolExecutor", Executor)
+        monkeypatch.setattr(news_fetcher, "_fetch_feed", lambda url, timeout: SimpleNamespace(
+            feed={"title": "Controlled source"}, entries=[SimpleNamespace(
+                title=f"W02X update {url}", link=url,
+                published_parsed=time.gmtime(time.time() - 60),
+            )],
+        ))
+    
+        def finish(future):
+            function, args = work[future]
+            future.set_result(function(*args))
+    
+        def first_completed(futures, timeout, return_when):
+            waits.append(timeout)
+            assert len(waits) == 1  # Draining completed work must not wait again.
+            clock[0] = 100.998
+            finish(futures[0])
+            if completion_phase == "wait":
+                clock[0] = 100.999
+                if remaining_work != "pending":
+                    finish(futures[1])
+                clock[0] = 101.001
+            # FIRST_COMPLETED need not contain every completion now observable.
+            return {futures[0]}, set(futures[1:])
+    
+        clean_text = news_fetcher._clean_text
+        def delayed_processing(value):
+            if completion_phase == "processing" and clock[0] < 101.0:
+                clock[0] = 100.999
+                if remaining_work != "pending":
+                    finish(next(future for future in work if not future.done()))
+                clock[0] = 101.001
+            return clean_text(value)
+    
+        monkeypatch.setattr(news_fetcher, "wait", first_completed)
+        monkeypatch.setattr(news_fetcher, "_clean_text", delayed_processing)
+        stage_budget = 1.0 if deadline_kind == "stage" else 3.0
+        tier_budget = 1.0 if deadline_kind == "tier" else 3.0
+        sources = ["rss://first", "rss://second"]
+        if remaining_work == "unattempted":
+            sources.append("rss://third")
+        rows, summary = news_fetcher.fetch_headlines_for_symbols(
+            ["W02X"], sources, source_tier="extended",
+            total_news_budget_seconds=stage_budget, stage_started_at_s=100.0,
+            stage_deadline_s=100.0 + stage_budget,
+            tier_budget_seconds=tier_budget, tier_started_at_s=100.0,
+            tier_deadline_s=100.0 + tier_budget,
+        )
+    
+        expected_count = 1 if remaining_work == "pending" else 2
+>       assert len(rows["W02X"]) == expected_count
+E       AssertionError: assert 1 == 2
+E        +  where 1 = len([Headline(title='W02X update rss://first', source='Controlled source', published_ts=1790627120.0, url='rss://first', summary='', source_tier='extended', match_type='ticker_token', matched_field='title')])
+
+tests\test_w02_source_outcomes.py:292: AssertionError
+_ test_coordinator_drains_in_time_completions_before_expiring_remaining_work[processing-completed-stage] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000020B613902F0>
+deadline_kind = 'stage', remaining_work = 'completed'
+completion_phase = 'processing'
+
+    @pytest.mark.parametrize("deadline_kind", ["stage", "tier"])
+    @pytest.mark.parametrize("remaining_work", ["completed", "pending", "unattempted"])
+    @pytest.mark.parametrize("completion_phase", ["wait", "processing"])
+    def test_coordinator_drains_in_time_completions_before_expiring_remaining_work(
+        monkeypatch, deadline_kind, remaining_work, completion_phase,
+    ):
+        clock = [100.0]
+        work = {}
+        waits = []
+        monkeypatch.setattr(news_fetcher.time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(news_fetcher, "feedparser", object())
+        monkeypatch.setattr(news_fetcher, "DEFAULT_RSS_FETCH_WORKERS", 2)
+    
+        class Executor:
+            def __init__(self, **kwargs): pass
+            def submit(self, function, *args):
+                future = Future()
+                future.set_running_or_notify_cancel()
+                work[future] = (function, args)
+                return future
+            def shutdown(self, **kwargs): pass
+    
+        monkeypatch.setattr(news_fetcher, "ThreadPoolExecutor", Executor)
+        monkeypatch.setattr(news_fetcher, "_fetch_feed", lambda url, timeout: SimpleNamespace(
+            feed={"title": "Controlled source"}, entries=[SimpleNamespace(
+                title=f"W02X update {url}", link=url,
+                published_parsed=time.gmtime(time.time() - 60),
+            )],
+        ))
+    
+        def finish(future):
+            function, args = work[future]
+            future.set_result(function(*args))
+    
+        def first_completed(futures, timeout, return_when):
+            waits.append(timeout)
+            assert len(waits) == 1  # Draining completed work must not wait again.
+            clock[0] = 100.998
+            finish(futures[0])
+            if completion_phase == "wait":
+                clock[0] = 100.999
+                if remaining_work != "pending":
+                    finish(futures[1])
+                clock[0] = 101.001
+            # FIRST_COMPLETED need not contain every completion now observable.
+            return {futures[0]}, set(futures[1:])
+    
+        clean_text = news_fetcher._clean_text
+        def delayed_processing(value):
+            if completion_phase == "processing" and clock[0] < 101.0:
+                clock[0] = 100.999
+                if remaining_work != "pending":
+                    finish(next(future for future in work if not future.done()))
+                clock[0] = 101.001
+            return clean_text(value)
+    
+        monkeypatch.setattr(news_fetcher, "wait", first_completed)
+        monkeypatch.setattr(news_fetcher, "_clean_text", delayed_processing)
+        stage_budget = 1.0 if deadline_kind == "stage" else 3.0
+        tier_budget = 1.0 if deadline_kind == "tier" else 3.0
+        sources = ["rss://first", "rss://second"]
+        if remaining_work == "unattempted":
+            sources.append("rss://third")
+        rows, summary = news_fetcher.fetch_headlines_for_symbols(
+            ["W02X"], sources, source_tier="extended",
+            total_news_budget_seconds=stage_budget, stage_started_at_s=100.0,
+            stage_deadline_s=100.0 + stage_budget,
+            tier_budget_seconds=tier_budget, tier_started_at_s=100.0,
+            tier_deadline_s=100.0 + tier_budget,
+        )
+    
+        expected_count = 1 if remaining_work == "pending" else 2
+>       assert len(rows["W02X"]) == expected_count
+E       AssertionError: assert 1 == 2
+E        +  where 1 = len([Headline(title='W02X update rss://first', source='Controlled source', published_ts=1790627120.0, url='rss://first', summary='', source_tier='extended', match_type='ticker_token', matched_field='title')])
+
+tests\test_w02_source_outcomes.py:292: AssertionError
+_ test_coordinator_drains_in_time_completions_before_expiring_remaining_work[processing-completed-tier] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000020B61390130>
+deadline_kind = 'tier', remaining_work = 'completed'
+completion_phase = 'processing'
+
+    @pytest.mark.parametrize("deadline_kind", ["stage", "tier"])
+    @pytest.mark.parametrize("remaining_work", ["completed", "pending", "unattempted"])
+    @pytest.mark.parametrize("completion_phase", ["wait", "processing"])
+    def test_coordinator_drains_in_time_completions_before_expiring_remaining_work(
+        monkeypatch, deadline_kind, remaining_work, completion_phase,
+    ):
+        clock = [100.0]
+        work = {}
+        waits = []
+        monkeypatch.setattr(news_fetcher.time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(news_fetcher, "feedparser", object())
+        monkeypatch.setattr(news_fetcher, "DEFAULT_RSS_FETCH_WORKERS", 2)
+    
+        class Executor:
+            def __init__(self, **kwargs): pass
+            def submit(self, function, *args):
+                future = Future()
+                future.set_running_or_notify_cancel()
+                work[future] = (function, args)
+                return future
+            def shutdown(self, **kwargs): pass
+    
+        monkeypatch.setattr(news_fetcher, "ThreadPoolExecutor", Executor)
+        monkeypatch.setattr(news_fetcher, "_fetch_feed", lambda url, timeout: SimpleNamespace(
+            feed={"title": "Controlled source"}, entries=[SimpleNamespace(
+                title=f"W02X update {url}", link=url,
+                published_parsed=time.gmtime(time.time() - 60),
+            )],
+        ))
+    
+        def finish(future):
+            function, args = work[future]
+            future.set_result(function(*args))
+    
+        def first_completed(futures, timeout, return_when):
+            waits.append(timeout)
+            assert len(waits) == 1  # Draining completed work must not wait again.
+            clock[0] = 100.998
+            finish(futures[0])
+            if completion_phase == "wait":
+                clock[0] = 100.999
+                if remaining_work != "pending":
+                    finish(futures[1])
+                clock[0] = 101.001
+            # FIRST_COMPLETED need not contain every completion now observable.
+            return {futures[0]}, set(futures[1:])
+    
+        clean_text = news_fetcher._clean_text
+        def delayed_processing(value):
+            if completion_phase == "processing" and clock[0] < 101.0:
+                clock[0] = 100.999
+                if remaining_work != "pending":
+                    finish(next(future for future in work if not future.done()))
+                clock[0] = 101.001
+            return clean_text(value)
+    
+        monkeypatch.setattr(news_fetcher, "wait", first_completed)
+        monkeypatch.setattr(news_fetcher, "_clean_text", delayed_processing)
+        stage_budget = 1.0 if deadline_kind == "stage" else 3.0
+        tier_budget = 1.0 if deadline_kind == "tier" else 3.0
+        sources = ["rss://first", "rss://second"]
+        if remaining_work == "unattempted":
+            sources.append("rss://third")
+        rows, summary = news_fetcher.fetch_headlines_for_symbols(
+            ["W02X"], sources, source_tier="extended",
+            total_news_budget_seconds=stage_budget, stage_started_at_s=100.0,
+            stage_deadline_s=100.0 + stage_budget,
+            tier_budget_seconds=tier_budget, tier_started_at_s=100.0,
+            tier_deadline_s=100.0 + tier_budget,
+        )
+    
+        expected_count = 1 if remaining_work == "pending" else 2
+>       assert len(rows["W02X"]) == expected_count
+E       AssertionError: assert 1 == 2
+E        +  where 1 = len([Headline(title='W02X update rss://first', source='Controlled source', published_ts=1790627120.0, url='rss://first', summary='', source_tier='extended', match_type='ticker_token', matched_field='title')])
+
+tests\test_w02_source_outcomes.py:292: AssertionError
+_ test_coordinator_drains_in_time_completions_before_expiring_remaining_work[processing-unattempted-stage] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000020B61390590>
+deadline_kind = 'stage', remaining_work = 'unattempted'
+completion_phase = 'processing'
+
+    @pytest.mark.parametrize("deadline_kind", ["stage", "tier"])
+    @pytest.mark.parametrize("remaining_work", ["completed", "pending", "unattempted"])
+    @pytest.mark.parametrize("completion_phase", ["wait", "processing"])
+    def test_coordinator_drains_in_time_completions_before_expiring_remaining_work(
+        monkeypatch, deadline_kind, remaining_work, completion_phase,
+    ):
+        clock = [100.0]
+        work = {}
+        waits = []
+        monkeypatch.setattr(news_fetcher.time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(news_fetcher, "feedparser", object())
+        monkeypatch.setattr(news_fetcher, "DEFAULT_RSS_FETCH_WORKERS", 2)
+    
+        class Executor:
+            def __init__(self, **kwargs): pass
+            def submit(self, function, *args):
+                future = Future()
+                future.set_running_or_notify_cancel()
+                work[future] = (function, args)
+                return future
+            def shutdown(self, **kwargs): pass
+    
+        monkeypatch.setattr(news_fetcher, "ThreadPoolExecutor", Executor)
+        monkeypatch.setattr(news_fetcher, "_fetch_feed", lambda url, timeout: SimpleNamespace(
+            feed={"title": "Controlled source"}, entries=[SimpleNamespace(
+                title=f"W02X update {url}", link=url,
+                published_parsed=time.gmtime(time.time() - 60),
+            )],
+        ))
+    
+        def finish(future):
+            function, args = work[future]
+            future.set_result(function(*args))
+    
+        def first_completed(futures, timeout, return_when):
+            waits.append(timeout)
+            assert len(waits) == 1  # Draining completed work must not wait again.
+            clock[0] = 100.998
+            finish(futures[0])
+            if completion_phase == "wait":
+                clock[0] = 100.999
+                if remaining_work != "pending":
+                    finish(futures[1])
+                clock[0] = 101.001
+            # FIRST_COMPLETED need not contain every completion now observable.
+            return {futures[0]}, set(futures[1:])
+    
+        clean_text = news_fetcher._clean_text
+        def delayed_processing(value):
+            if completion_phase == "processing" and clock[0] < 101.0:
+                clock[0] = 100.999
+                if remaining_work != "pending":
+                    finish(next(future for future in work if not future.done()))
+                clock[0] = 101.001
+            return clean_text(value)
+    
+        monkeypatch.setattr(news_fetcher, "wait", first_completed)
+        monkeypatch.setattr(news_fetcher, "_clean_text", delayed_processing)
+        stage_budget = 1.0 if deadline_kind == "stage" else 3.0
+        tier_budget = 1.0 if deadline_kind == "tier" else 3.0
+        sources = ["rss://first", "rss://second"]
+        if remaining_work == "unattempted":
+            sources.append("rss://third")
+        rows, summary = news_fetcher.fetch_headlines_for_symbols(
+            ["W02X"], sources, source_tier="extended",
+            total_news_budget_seconds=stage_budget, stage_started_at_s=100.0,
+            stage_deadline_s=100.0 + stage_budget,
+            tier_budget_seconds=tier_budget, tier_started_at_s=100.0,
+            tier_deadline_s=100.0 + tier_budget,
+        )
+    
+        expected_count = 1 if remaining_work == "pending" else 2
+>       assert len(rows["W02X"]) == expected_count
+E       AssertionError: assert 1 == 2
+E        +  where 1 = len([Headline(title='W02X update rss://first', source='Controlled source', published_ts=1790627120.0, url='rss://first', summary='', source_tier='extended', match_type='ticker_token', matched_field='title')])
+
+tests\test_w02_source_outcomes.py:292: AssertionError
+_ test_coordinator_drains_in_time_completions_before_expiring_remaining_work[processing-unattempted-tier] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000020B613EBD20>
+deadline_kind = 'tier', remaining_work = 'unattempted'
+completion_phase = 'processing'
+
+    @pytest.mark.parametrize("deadline_kind", ["stage", "tier"])
+    @pytest.mark.parametrize("remaining_work", ["completed", "pending", "unattempted"])
+    @pytest.mark.parametrize("completion_phase", ["wait", "processing"])
+    def test_coordinator_drains_in_time_completions_before_expiring_remaining_work(
+        monkeypatch, deadline_kind, remaining_work, completion_phase,
+    ):
+        clock = [100.0]
+        work = {}
+        waits = []
+        monkeypatch.setattr(news_fetcher.time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(news_fetcher, "feedparser", object())
+        monkeypatch.setattr(news_fetcher, "DEFAULT_RSS_FETCH_WORKERS", 2)
+    
+        class Executor:
+            def __init__(self, **kwargs): pass
+            def submit(self, function, *args):
+                future = Future()
+                future.set_running_or_notify_cancel()
+                work[future] = (function, args)
+                return future
+            def shutdown(self, **kwargs): pass
+    
+        monkeypatch.setattr(news_fetcher, "ThreadPoolExecutor", Executor)
+        monkeypatch.setattr(news_fetcher, "_fetch_feed", lambda url, timeout: SimpleNamespace(
+            feed={"title": "Controlled source"}, entries=[SimpleNamespace(
+                title=f"W02X update {url}", link=url,
+                published_parsed=time.gmtime(time.time() - 60),
+            )],
+        ))
+    
+        def finish(future):
+            function, args = work[future]
+            future.set_result(function(*args))
+    
+        def first_completed(futures, timeout, return_when):
+            waits.append(timeout)
+            assert len(waits) == 1  # Draining completed work must not wait again.
+            clock[0] = 100.998
+            finish(futures[0])
+            if completion_phase == "wait":
+                clock[0] = 100.999
+                if remaining_work != "pending":
+                    finish(futures[1])
+                clock[0] = 101.001
+            # FIRST_COMPLETED need not contain every completion now observable.
+            return {futures[0]}, set(futures[1:])
+    
+        clean_text = news_fetcher._clean_text
+        def delayed_processing(value):
+            if completion_phase == "processing" and clock[0] < 101.0:
+                clock[0] = 100.999
+                if remaining_work != "pending":
+                    finish(next(future for future in work if not future.done()))
+                clock[0] = 101.001
+            return clean_text(value)
+    
+        monkeypatch.setattr(news_fetcher, "wait", first_completed)
+        monkeypatch.setattr(news_fetcher, "_clean_text", delayed_processing)
+        stage_budget = 1.0 if deadline_kind == "stage" else 3.0
+        tier_budget = 1.0 if deadline_kind == "tier" else 3.0
+        sources = ["rss://first", "rss://second"]
+        if remaining_work == "unattempted":
+            sources.append("rss://third")
+        rows, summary = news_fetcher.fetch_headlines_for_symbols(
+            ["W02X"], sources, source_tier="extended",
+            total_news_budget_seconds=stage_budget, stage_started_at_s=100.0,
+            stage_deadline_s=100.0 + stage_budget,
+            tier_budget_seconds=tier_budget, tier_started_at_s=100.0,
+            tier_deadline_s=100.0 + tier_budget,
+        )
+    
+        expected_count = 1 if remaining_work == "pending" else 2
+>       assert len(rows["W02X"]) == expected_count
+E       AssertionError: assert 1 == 2
+E        +  where 1 = len([Headline(title='W02X update rss://first', source='Controlled source', published_ts=1790627120.0, url='rss://first', summary='', source_tier='extended', match_type='ticker_token', matched_field='title')])
+
+tests\test_w02_source_outcomes.py:292: AssertionError
+_ test_in_time_public_retrieval_survives_late_coordinator_and_cache_restart[empty-feed-stage] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000020B613EBA10>
+tmp_path = WindowsPath('C:/Users/nelzo/AppData/Local/Temp/pytest-of-nelzo/pytest-307/test_in_time_public_retrieval_0')
+deadline_kind = 'stage', has_evidence = False
+
+    @pytest.mark.parametrize("deadline_kind", ["stage", "tier"])
+    @pytest.mark.parametrize("has_evidence", [False, True], ids=["empty-feed", "matched-feed"])
+    def test_in_time_public_retrieval_survives_late_coordinator_and_cache_restart(
+        monkeypatch, tmp_path, deadline_kind, has_evidence,
+    ):
+        clock = [100.0]
+        work = {}
+        fetch_calls = []
+        monkeypatch.setattr(news_fetcher.time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(news_fetcher, "feedparser", object())
+        monkeypatch.setattr(batch_rss_adapter, "get_source_group_urls", lambda group: ("rss://controlled",))
+    
+        class Executor:
+            def __init__(self, **kwargs): pass
+            def submit(self, function, *args):
+                future = Future()
+                future.set_running_or_notify_cancel()
+                work[future] = (function, args)
+                return future
+            def shutdown(self, **kwargs): pass
+    
+        monkeypatch.setattr(news_fetcher, "ThreadPoolExecutor", Executor)
+        feed = SimpleNamespace(feed={"title": "Controlled source"}, entries=[SimpleNamespace(
+            title="W02X company update", link="https://news.example/w02x",
+            published_parsed=time.gmtime(time.time() - 60),
+        )] if has_evidence else [])
+        monkeypatch.setattr(news_fetcher, "_fetch_feed", lambda *args: feed)
+        def completed_before_deadline(futures, timeout, return_when):
+            clock[0] = 100.999
+            for future in futures:
+                function, args = work.pop(future)
+                future.set_result(function(*args))
+            clock[0] = 101.001
+            return set(futures), set()
+        monkeypatch.setattr(news_fetcher, "wait", completed_before_deadline)
+        def actual_fetcher(*args, **kwargs):
+            fetch_calls.append(args[1])
+            return news_fetcher.fetch_headlines_for_symbols(*args, **kwargs)
+    
+        provider = BatchRssNewsIntelligenceProvider(extended_fetcher=actual_fetcher)
+        path = tmp_path / "cache.json"
+        def service():
+            return CanonicalNewsIntelligenceService(
+                evidence_store=CanonicalNewsEvidenceStore(path, prep_artifact_loader=lambda: {}),
+                retrieval_provider=provider,
+            )
+        policy = RetrievalPolicy(
+            source_groups=("PREP_EXTENDED",), refresh_interval_seconds=1800,
+            total_budget_seconds=1.0 if deadline_kind == "stage" else 3.0,
+            tier_budgets={"extended": 1.0}, metadata={"unresolved_symbols": ["W02X"]},
+        )
+        instance = service()
+        for reader in (instance, instance, service()):
+            result = reader.get_news([NewsCandidate("W02X")], NewsRequest(), policy)
+            summary = result.summary_for_symbol("W02X")
+>           assert summary.retrieval_unavailable is False
+E           AssertionError: assert True is False
+E            +  where True = NewsEvidenceSummary(symbol='W02X', evidence_count=0, fresh_evidence_count=0, qualifying_event_class_count=0, generic_e...: {}, 'objective_news_status': 'budget_exhausted', 'classification_authority': 'strategy_adapter_not_common_provider'}).retrieval_unavailable
+
+tests\test_w02_source_outcomes.py:366: AssertionError
+---------------------------- Captured stdout call -----------------------------
+[NEWS][RETRIEVAL_DIAGNOSTICS] {"budget_exhausted":true,"cache":{"cache_hit_symbols":[],"cache_miss_symbols":["W02X"],"cache_read_error":null,"cache_read_failed":false,"cache_write_error":null,"cache_write_failed":false,"cadence_cache_hit_symbols":[],"prep_read_error":null,"prep_read_failed":false,"prep_reuse_symbols":[],"prep_stale_symbols":[],"read_attempted":true,"read_skipped":false,"stale_cache_miss_symbols":[],"state":"miss","write_attempted":true},"completed_at_utc":"2026-09-28T20:26:20.758649+00:00","elapsed_seconds":1.0010000000000048,"network_allowed":true,"provider_available":true,"provider_failure_reason":null,"provider_invoked":true,"provider_status":"available","refresh_allowed":true,"refresh_symbols":["W02X"],"request_mode":"incremental","retrieval_status":"budget_exhausted","schema":"news.retrieval_diagnostics.v1","source_groups":["PREP_EXTENDED"],"sources":[{"attempted":true,"budget_exhausted":false,"elapsed_seconds":1.0010000000000048,"failure_code":null,"http_status":null,"matched_count":0,"provider":"rss_batch","source":"REDACTED","source_group":"PREP_EXTENDED","source_tier":"extended","status":"available","timed_out":false,"timeout_seconds":1.0}],"sources_attempted":1,"sources_skipped_due_to_budget":0,"started_at_utc":"2026-09-28T20:26:20.754042+00:00","summaries":{"W02X":{"budget_exhausted":true,"cache_state":"miss","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"budget_exhausted","provider_available":true,"provider_status":"available","retrieval_status":"budget_exhausted","retrieval_unavailable":true,"stale_evidence_count":0,"unavailability_reasons":["budget_exhausted","retrieval_budget_exhausted"]}},"symbols":["W02X"],"tier_budget_seconds":{"extended_budget_reserved_seconds":0.35,"extended_budget_seconds":1.0,"fast_budget_seconds":0.65},"total_budget_seconds":1.0,"unresolved_symbols":["W02X"]}
+_ test_in_time_public_retrieval_survives_late_coordinator_and_cache_restart[empty-feed-tier] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000020B613EB230>
+tmp_path = WindowsPath('C:/Users/nelzo/AppData/Local/Temp/pytest-of-nelzo/pytest-307/test_in_time_public_retrieval_1')
+deadline_kind = 'tier', has_evidence = False
+
+    @pytest.mark.parametrize("deadline_kind", ["stage", "tier"])
+    @pytest.mark.parametrize("has_evidence", [False, True], ids=["empty-feed", "matched-feed"])
+    def test_in_time_public_retrieval_survives_late_coordinator_and_cache_restart(
+        monkeypatch, tmp_path, deadline_kind, has_evidence,
+    ):
+        clock = [100.0]
+        work = {}
+        fetch_calls = []
+        monkeypatch.setattr(news_fetcher.time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(news_fetcher, "feedparser", object())
+        monkeypatch.setattr(batch_rss_adapter, "get_source_group_urls", lambda group: ("rss://controlled",))
+    
+        class Executor:
+            def __init__(self, **kwargs): pass
+            def submit(self, function, *args):
+                future = Future()
+                future.set_running_or_notify_cancel()
+                work[future] = (function, args)
+                return future
+            def shutdown(self, **kwargs): pass
+    
+        monkeypatch.setattr(news_fetcher, "ThreadPoolExecutor", Executor)
+        feed = SimpleNamespace(feed={"title": "Controlled source"}, entries=[SimpleNamespace(
+            title="W02X company update", link="https://news.example/w02x",
+            published_parsed=time.gmtime(time.time() - 60),
+        )] if has_evidence else [])
+        monkeypatch.setattr(news_fetcher, "_fetch_feed", lambda *args: feed)
+        def completed_before_deadline(futures, timeout, return_when):
+            clock[0] = 100.999
+            for future in futures:
+                function, args = work.pop(future)
+                future.set_result(function(*args))
+            clock[0] = 101.001
+            return set(futures), set()
+        monkeypatch.setattr(news_fetcher, "wait", completed_before_deadline)
+        def actual_fetcher(*args, **kwargs):
+            fetch_calls.append(args[1])
+            return news_fetcher.fetch_headlines_for_symbols(*args, **kwargs)
+    
+        provider = BatchRssNewsIntelligenceProvider(extended_fetcher=actual_fetcher)
+        path = tmp_path / "cache.json"
+        def service():
+            return CanonicalNewsIntelligenceService(
+                evidence_store=CanonicalNewsEvidenceStore(path, prep_artifact_loader=lambda: {}),
+                retrieval_provider=provider,
+            )
+        policy = RetrievalPolicy(
+            source_groups=("PREP_EXTENDED",), refresh_interval_seconds=1800,
+            total_budget_seconds=1.0 if deadline_kind == "stage" else 3.0,
+            tier_budgets={"extended": 1.0}, metadata={"unresolved_symbols": ["W02X"]},
+        )
+        instance = service()
+        for reader in (instance, instance, service()):
+            result = reader.get_news([NewsCandidate("W02X")], NewsRequest(), policy)
+            summary = result.summary_for_symbol("W02X")
+>           assert summary.retrieval_unavailable is False
+E           AssertionError: assert True is False
+E            +  where True = NewsEvidenceSummary(symbol='W02X', evidence_count=0, fresh_evidence_count=0, qualifying_event_class_count=0, generic_e...: {}, 'objective_news_status': 'budget_exhausted', 'classification_authority': 'strategy_adapter_not_common_provider'}).retrieval_unavailable
+
+tests\test_w02_source_outcomes.py:366: AssertionError
+---------------------------- Captured stdout call -----------------------------
+[NEWS][RETRIEVAL_DIAGNOSTICS] {"budget_exhausted":true,"cache":{"cache_hit_symbols":[],"cache_miss_symbols":["W02X"],"cache_read_error":null,"cache_read_failed":false,"cache_write_error":null,"cache_write_failed":false,"cadence_cache_hit_symbols":[],"prep_read_error":null,"prep_read_failed":false,"prep_reuse_symbols":[],"prep_stale_symbols":[],"read_attempted":true,"read_skipped":false,"stale_cache_miss_symbols":[],"state":"miss","write_attempted":true},"completed_at_utc":"2026-09-28T20:26:20.787913+00:00","elapsed_seconds":1.0010000000000048,"network_allowed":true,"provider_available":true,"provider_failure_reason":null,"provider_invoked":true,"provider_status":"available","refresh_allowed":true,"refresh_symbols":["W02X"],"request_mode":"incremental","retrieval_status":"budget_exhausted","schema":"news.retrieval_diagnostics.v1","source_groups":["PREP_EXTENDED"],"sources":[{"attempted":true,"budget_exhausted":false,"elapsed_seconds":1.0010000000000048,"failure_code":null,"http_status":null,"matched_count":0,"provider":"rss_batch","source":"REDACTED","source_group":"PREP_EXTENDED","source_tier":"extended","status":"available","timed_out":false,"timeout_seconds":1.0}],"sources_attempted":1,"sources_skipped_due_to_budget":0,"started_at_utc":"2026-09-28T20:26:20.780722+00:00","summaries":{"W02X":{"budget_exhausted":true,"cache_state":"miss","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"budget_exhausted","provider_available":true,"provider_status":"available","retrieval_status":"budget_exhausted","retrieval_unavailable":true,"stale_evidence_count":0,"unavailability_reasons":["budget_exhausted","retrieval_budget_exhausted"]}},"symbols":["W02X"],"tier_budget_seconds":{"extended_budget_reserved_seconds":1.0499999999999998,"extended_budget_seconds":1.0,"fast_budget_seconds":1.9500000000000002},"total_budget_seconds":3.0,"unresolved_symbols":["W02X"]}
+_ test_in_time_public_retrieval_survives_late_coordinator_and_cache_restart[matched-feed-stage] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000020B613EB7E0>
+tmp_path = WindowsPath('C:/Users/nelzo/AppData/Local/Temp/pytest-of-nelzo/pytest-307/test_in_time_public_retrieval_2')
+deadline_kind = 'stage', has_evidence = True
+
+    @pytest.mark.parametrize("deadline_kind", ["stage", "tier"])
+    @pytest.mark.parametrize("has_evidence", [False, True], ids=["empty-feed", "matched-feed"])
+    def test_in_time_public_retrieval_survives_late_coordinator_and_cache_restart(
+        monkeypatch, tmp_path, deadline_kind, has_evidence,
+    ):
+        clock = [100.0]
+        work = {}
+        fetch_calls = []
+        monkeypatch.setattr(news_fetcher.time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(news_fetcher, "feedparser", object())
+        monkeypatch.setattr(batch_rss_adapter, "get_source_group_urls", lambda group: ("rss://controlled",))
+    
+        class Executor:
+            def __init__(self, **kwargs): pass
+            def submit(self, function, *args):
+                future = Future()
+                future.set_running_or_notify_cancel()
+                work[future] = (function, args)
+                return future
+            def shutdown(self, **kwargs): pass
+    
+        monkeypatch.setattr(news_fetcher, "ThreadPoolExecutor", Executor)
+        feed = SimpleNamespace(feed={"title": "Controlled source"}, entries=[SimpleNamespace(
+            title="W02X company update", link="https://news.example/w02x",
+            published_parsed=time.gmtime(time.time() - 60),
+        )] if has_evidence else [])
+        monkeypatch.setattr(news_fetcher, "_fetch_feed", lambda *args: feed)
+        def completed_before_deadline(futures, timeout, return_when):
+            clock[0] = 100.999
+            for future in futures:
+                function, args = work.pop(future)
+                future.set_result(function(*args))
+            clock[0] = 101.001
+            return set(futures), set()
+        monkeypatch.setattr(news_fetcher, "wait", completed_before_deadline)
+        def actual_fetcher(*args, **kwargs):
+            fetch_calls.append(args[1])
+            return news_fetcher.fetch_headlines_for_symbols(*args, **kwargs)
+    
+        provider = BatchRssNewsIntelligenceProvider(extended_fetcher=actual_fetcher)
+        path = tmp_path / "cache.json"
+        def service():
+            return CanonicalNewsIntelligenceService(
+                evidence_store=CanonicalNewsEvidenceStore(path, prep_artifact_loader=lambda: {}),
+                retrieval_provider=provider,
+            )
+        policy = RetrievalPolicy(
+            source_groups=("PREP_EXTENDED",), refresh_interval_seconds=1800,
+            total_budget_seconds=1.0 if deadline_kind == "stage" else 3.0,
+            tier_budgets={"extended": 1.0}, metadata={"unresolved_symbols": ["W02X"]},
+        )
+        instance = service()
+        for reader in (instance, instance, service()):
+            result = reader.get_news([NewsCandidate("W02X")], NewsRequest(), policy)
+            summary = result.summary_for_symbol("W02X")
+>           assert summary.retrieval_unavailable is False
+E           AssertionError: assert True is False
+E            +  where True = NewsEvidenceSummary(symbol='W02X', evidence_count=1, fresh_evidence_count=0, qualifying_event_class_count=0, generic_e...: {}, 'objective_news_status': 'budget_exhausted', 'classification_authority': 'strategy_adapter_not_common_provider'}).retrieval_unavailable
+
+tests\test_w02_source_outcomes.py:366: AssertionError
+---------------------------- Captured stdout call -----------------------------
+[NEWS][RETRIEVAL_DIAGNOSTICS] {"budget_exhausted":true,"cache":{"cache_hit_symbols":[],"cache_miss_symbols":["W02X"],"cache_read_error":null,"cache_read_failed":false,"cache_write_error":null,"cache_write_failed":false,"cadence_cache_hit_symbols":[],"prep_read_error":null,"prep_read_failed":false,"prep_reuse_symbols":[],"prep_stale_symbols":[],"read_attempted":true,"read_skipped":false,"stale_cache_miss_symbols":[],"state":"miss","write_attempted":true},"completed_at_utc":"2026-09-28T20:26:20.809447+00:00","elapsed_seconds":1.0010000000000048,"network_allowed":true,"provider_available":true,"provider_failure_reason":null,"provider_invoked":true,"provider_status":"available","refresh_allowed":true,"refresh_symbols":["W02X"],"request_mode":"incremental","retrieval_status":"budget_exhausted","schema":"news.retrieval_diagnostics.v1","source_groups":["PREP_EXTENDED"],"sources":[{"attempted":true,"budget_exhausted":false,"elapsed_seconds":1.0010000000000048,"failure_code":null,"http_status":null,"matched_count":1,"provider":"rss_batch","source":"REDACTED","source_group":"PREP_EXTENDED","source_tier":"extended","status":"available","timed_out":false,"timeout_seconds":1.0}],"sources_attempted":1,"sources_skipped_due_to_budget":0,"started_at_utc":"2026-09-28T20:26:20.804432+00:00","summaries":{"W02X":{"budget_exhausted":true,"cache_state":"miss","evidence_count":1,"fresh_evidence_count":0,"objective_news_status":"budget_exhausted","provider_available":true,"provider_status":"available","retrieval_status":"budget_exhausted","retrieval_unavailable":true,"stale_evidence_count":0,"unavailability_reasons":["budget_exhausted","retrieval_budget_exhausted"]}},"symbols":["W02X"],"tier_budget_seconds":{"extended_budget_reserved_seconds":0.35,"extended_budget_seconds":1.0,"fast_budget_seconds":0.65},"total_budget_seconds":1.0,"unresolved_symbols":["W02X"]}
+_ test_in_time_public_retrieval_survives_late_coordinator_and_cache_restart[matched-feed-tier] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000020B61402510>
+tmp_path = WindowsPath('C:/Users/nelzo/AppData/Local/Temp/pytest-of-nelzo/pytest-307/test_in_time_public_retrieval_3')
+deadline_kind = 'tier', has_evidence = True
+
+    @pytest.mark.parametrize("deadline_kind", ["stage", "tier"])
+    @pytest.mark.parametrize("has_evidence", [False, True], ids=["empty-feed", "matched-feed"])
+    def test_in_time_public_retrieval_survives_late_coordinator_and_cache_restart(
+        monkeypatch, tmp_path, deadline_kind, has_evidence,
+    ):
+        clock = [100.0]
+        work = {}
+        fetch_calls = []
+        monkeypatch.setattr(news_fetcher.time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(news_fetcher, "feedparser", object())
+        monkeypatch.setattr(batch_rss_adapter, "get_source_group_urls", lambda group: ("rss://controlled",))
+    
+        class Executor:
+            def __init__(self, **kwargs): pass
+            def submit(self, function, *args):
+                future = Future()
+                future.set_running_or_notify_cancel()
+                work[future] = (function, args)
+                return future
+            def shutdown(self, **kwargs): pass
+    
+        monkeypatch.setattr(news_fetcher, "ThreadPoolExecutor", Executor)
+        feed = SimpleNamespace(feed={"title": "Controlled source"}, entries=[SimpleNamespace(
+            title="W02X company update", link="https://news.example/w02x",
+            published_parsed=time.gmtime(time.time() - 60),
+        )] if has_evidence else [])
+        monkeypatch.setattr(news_fetcher, "_fetch_feed", lambda *args: feed)
+        def completed_before_deadline(futures, timeout, return_when):
+            clock[0] = 100.999
+            for future in futures:
+                function, args = work.pop(future)
+                future.set_result(function(*args))
+            clock[0] = 101.001
+            return set(futures), set()
+        monkeypatch.setattr(news_fetcher, "wait", completed_before_deadline)
+        def actual_fetcher(*args, **kwargs):
+            fetch_calls.append(args[1])
+            return news_fetcher.fetch_headlines_for_symbols(*args, **kwargs)
+    
+        provider = BatchRssNewsIntelligenceProvider(extended_fetcher=actual_fetcher)
+        path = tmp_path / "cache.json"
+        def service():
+            return CanonicalNewsIntelligenceService(
+                evidence_store=CanonicalNewsEvidenceStore(path, prep_artifact_loader=lambda: {}),
+                retrieval_provider=provider,
+            )
+        policy = RetrievalPolicy(
+            source_groups=("PREP_EXTENDED",), refresh_interval_seconds=1800,
+            total_budget_seconds=1.0 if deadline_kind == "stage" else 3.0,
+            tier_budgets={"extended": 1.0}, metadata={"unresolved_symbols": ["W02X"]},
+        )
+        instance = service()
+        for reader in (instance, instance, service()):
+            result = reader.get_news([NewsCandidate("W02X")], NewsRequest(), policy)
+            summary = result.summary_for_symbol("W02X")
+>           assert summary.retrieval_unavailable is False
+E           AssertionError: assert True is False
+E            +  where True = NewsEvidenceSummary(symbol='W02X', evidence_count=1, fresh_evidence_count=0, qualifying_event_class_count=0, generic_e...: {}, 'objective_news_status': 'budget_exhausted', 'classification_authority': 'strategy_adapter_not_common_provider'}).retrieval_unavailable
+
+tests\test_w02_source_outcomes.py:366: AssertionError
+---------------------------- Captured stdout call -----------------------------
+[NEWS][RETRIEVAL_DIAGNOSTICS] {"budget_exhausted":true,"cache":{"cache_hit_symbols":[],"cache_miss_symbols":["W02X"],"cache_read_error":null,"cache_read_failed":false,"cache_write_error":null,"cache_write_failed":false,"cadence_cache_hit_symbols":[],"prep_read_error":null,"prep_read_failed":false,"prep_reuse_symbols":[],"prep_stale_symbols":[],"read_attempted":true,"read_skipped":false,"stale_cache_miss_symbols":[],"state":"miss","write_attempted":true},"completed_at_utc":"2026-09-28T20:26:20.833181+00:00","elapsed_seconds":1.0010000000000048,"network_allowed":true,"provider_available":true,"provider_failure_reason":null,"provider_invoked":true,"provider_status":"available","refresh_allowed":true,"refresh_symbols":["W02X"],"request_mode":"incremental","retrieval_status":"budget_exhausted","schema":"news.retrieval_diagnostics.v1","source_groups":["PREP_EXTENDED"],"sources":[{"attempted":true,"budget_exhausted":false,"elapsed_seconds":1.0010000000000048,"failure_code":null,"http_status":null,"matched_count":1,"provider":"rss_batch","source":"REDACTED","source_group":"PREP_EXTENDED","source_tier":"extended","status":"available","timed_out":false,"timeout_seconds":1.0}],"sources_attempted":1,"sources_skipped_due_to_budget":0,"started_at_utc":"2026-09-28T20:26:20.826854+00:00","summaries":{"W02X":{"budget_exhausted":true,"cache_state":"miss","evidence_count":1,"fresh_evidence_count":0,"objective_news_status":"budget_exhausted","provider_available":true,"provider_status":"available","retrieval_status":"budget_exhausted","retrieval_unavailable":true,"stale_evidence_count":0,"unavailability_reasons":["budget_exhausted","retrieval_budget_exhausted"]}},"symbols":["W02X"],"tier_budget_seconds":{"extended_budget_reserved_seconds":1.0499999999999998,"extended_budget_seconds":1.0,"fast_budget_seconds":1.9500000000000002},"total_budget_seconds":3.0,"unresolved_symbols":["W02X"]}
+=========================== short test summary info ===========================
+FAILED tests/test_w02_source_outcomes.py::test_completed_future_is_accepted_only_before_applicable_deadline[before-with-late-coordinator-stage]
+FAILED tests/test_w02_source_outcomes.py::test_completed_future_is_accepted_only_before_applicable_deadline[before-with-late-coordinator-tier]
+FAILED tests/test_w02_source_outcomes.py::test_coordinator_drains_in_time_completions_before_expiring_remaining_work[wait-completed-stage]
+FAILED tests/test_w02_source_outcomes.py::test_coordinator_drains_in_time_completions_before_expiring_remaining_work[wait-completed-tier]
+FAILED tests/test_w02_source_outcomes.py::test_coordinator_drains_in_time_completions_before_expiring_remaining_work[wait-unattempted-stage]
+FAILED tests/test_w02_source_outcomes.py::test_coordinator_drains_in_time_completions_before_expiring_remaining_work[wait-unattempted-tier]
+FAILED tests/test_w02_source_outcomes.py::test_coordinator_drains_in_time_completions_before_expiring_remaining_work[processing-completed-stage]
+FAILED tests/test_w02_source_outcomes.py::test_coordinator_drains_in_time_completions_before_expiring_remaining_work[processing-completed-tier]
+FAILED tests/test_w02_source_outcomes.py::test_coordinator_drains_in_time_completions_before_expiring_remaining_work[processing-unattempted-stage]
+FAILED tests/test_w02_source_outcomes.py::test_coordinator_drains_in_time_completions_before_expiring_remaining_work[processing-unattempted-tier]
+FAILED tests/test_w02_source_outcomes.py::test_in_time_public_retrieval_survives_late_coordinator_and_cache_restart[empty-feed-stage]
+FAILED tests/test_w02_source_outcomes.py::test_in_time_public_retrieval_survives_late_coordinator_and_cache_restart[empty-feed-tier]
+FAILED tests/test_w02_source_outcomes.py::test_in_time_public_retrieval_survives_late_coordinator_and_cache_restart[matched-feed-stage]
+FAILED tests/test_w02_source_outcomes.py::test_in_time_public_retrieval_survives_late_coordinator_and_cache_restart[matched-feed-tier]
+14 failed, 20 passed in 1.55s
