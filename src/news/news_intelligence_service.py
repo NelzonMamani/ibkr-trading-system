@@ -157,11 +157,17 @@ class CanonicalNewsIntelligenceService(NewsIntelligenceProvider):
         compatible = {symbol: previous_retrievals.get(symbol, {}).get("acquisition_profile") == profile
                       for symbol, profile in profiles.items()}
         mismatches = [symbol for symbol in symbols if require_compatible and not compatible[symbol]]
+        # Research coverage expires by acquisition cadence even when an explicit
+        # refresh scope excludes the symbol. None deliberately configures no expiry.
+        acquisition_due_symbols = (
+            _symbols_due_refresh(symbols, cache_diagnostics, retrieval_policy.refresh_interval_seconds, now=started_at)
+            if require_compatible and retrieval_policy.refresh_interval_seconds is not None else []
+        )
         explicit_refresh_symbols = _explicit_refresh_symbols(symbols, retrieval_policy.metadata)
         if explicit_refresh_symbols is None and retrieval_policy.refresh_mode == "force_refresh":
             refresh_symbols = list(symbols)
         elif explicit_refresh_symbols is None and retrieval_policy.refresh_interval_seconds is not None:
-            refresh_symbols = _symbols_due_refresh(
+            refresh_symbols = acquisition_due_symbols if require_compatible else _symbols_due_refresh(
                 symbols, cache_diagnostics, retrieval_policy.refresh_interval_seconds, now=started_at,
             )
         elif explicit_refresh_symbols is None:
@@ -230,10 +236,14 @@ class CanonicalNewsIntelligenceService(NewsIntelligenceProvider):
                     write_diagnostics = self.evidence_store.write(retrieved, request)
                 write_diagnostics["cache_write_skipped"] = False
 
-        coverage_unknown = [symbol for symbol in mismatches if symbol not in retrieval_by_symbol]
+        coverage_unknown = [
+            symbol for symbol in symbols
+            if (symbol in mismatches or symbol in acquisition_due_symbols) and symbol not in retrieval_by_symbol
+        ]
         if require_compatible:
             cache_diagnostics["acquisition_cache_hit_symbols"] = [
-                symbol for symbol in symbols if compatible[symbol] and symbol not in retrieval_by_symbol
+                symbol for symbol in symbols
+                if compatible[symbol] and symbol not in retrieval_by_symbol and symbol not in coverage_unknown
             ]
         combined_evidence: dict[str, tuple[NewsEvidence, ...]] = {}
         summaries: dict[str, NewsEvidenceSummary] = {}

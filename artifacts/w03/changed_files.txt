@@ -50,6 +50,14 @@ artifacts/w03/offline_article_example.json
 artifacts/w03/post_suite_formatting.json
 artifacts/w03/preservation.json
 artifacts/w03/publisher_verification.json
+artifacts/w03/review_expired_affected.log
+artifacts/w03/review_expired_affected_network_audit.json
+artifacts/w03/review_expired_after.log
+artifacts/w03/review_expired_after_network_audit.json
+artifacts/w03/review_expired_before.log
+artifacts/w03/review_expired_before_network_audit.json
+artifacts/w03/review_expired_source_hashes.json
+artifacts/w03/review_expired_verification.json
 artifacts/w03/run_affected.py
 artifacts/w03/run_final_suite.py
 artifacts/w03/source_evidence_matrix.csv

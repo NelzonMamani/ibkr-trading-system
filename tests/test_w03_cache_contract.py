@@ -7,7 +7,7 @@ import socket
 import pytest
 
 from src.config.config_resolver import set_config_overrides
-from src.news import evidence_store, news_intelligence_service
+from src.news import evidence_store, news_intelligence_service, standalone_lookup
 from src.news.evidence_store import CanonicalNewsEvidenceStore
 from src.news.news_intelligence_contract import (
     NewsBatchResult, NewsCandidate, NewsEvidence, NewsRequest, RetrievalDiagnostics,
@@ -15,6 +15,7 @@ from src.news.news_intelligence_contract import (
 )
 from src.news.news_intelligence_service import CanonicalNewsIntelligenceService
 from src.news.prep_adapter import NewsProvider
+from src.news.standalone_lookup import LookupSettings, lookup_news
 
 
 NOW = datetime(2026, 9, 28, 20, tzinfo=timezone.utc)
@@ -33,16 +34,19 @@ def offline(monkeypatch):
         raise AssertionError("W03 cache contract must remain offline")
 
     class Clock(datetime):
+        current = NOW
+
         @classmethod
         def now(cls, tz=None):
-            return cls.fromtimestamp(NOW.timestamp(), tz)
+            return cls.fromtimestamp(cls.current.timestamp(), tz)
 
     monkeypatch.setattr(socket, "create_connection", blocked)
     monkeypatch.setattr(socket.socket, "connect", blocked)
     monkeypatch.setattr(news_intelligence_service, "datetime", Clock)
     monkeypatch.setattr(evidence_store, "datetime", Clock)
+    monkeypatch.setattr(standalone_lookup, "datetime", Clock)
     set_config_overrides({"NEWS_ENABLED": True})
-    yield
+    yield Clock
     set_config_overrides({})
 
 
@@ -252,3 +256,84 @@ def test_current_retrieval_ids_distinguish_reused_article_after_empty_refresh(tm
     assert len(provider.calls) == 2
     assert [item.evidence_id for item in refreshed.evidence_for_symbol("ACME")] == ["rss:original"]
     assert refreshed.diagnostics.diagnostics["retrieved_evidence_ids_by_symbol"] == {"ACME": []}
+
+
+@pytest.mark.parametrize("has_article", [False, True], ids=["empty", "retained_article"])
+def test_expired_compatible_cache_only_lookup_has_unknown_coverage(tmp_path, monkeypatch, offline, has_article):
+    class ArticleProvider(Provider):
+        def get_news(self, candidates, request, policy):
+            result = super().get_news(candidates, request, policy)
+            if has_article:
+                now = news_intelligence_service.datetime.now(timezone.utc)
+                return replace(result, evidence_by_symbol={"ACME": (NewsEvidence(
+                    symbol="ACME", evidence_id="rss:original", headline="Acme Industries reports earnings",
+                    company_name="Acme Industries", provider="rss_batch", match_type="company_name",
+                    published_at=now - timedelta(minutes=5), fetched_at=now, stale=False,
+                ),)})
+            return result
+
+    for module in (news_intelligence_service, standalone_lookup):
+        monkeypatch.setattr(module, "get_source_group_urls", lambda group: ("https://example.test/feed",))
+    provider = ArticleProvider()
+    settings = LookupSettings(cache_file=tmp_path / "news.json", source_groups=("FAST_TRADING",),
+                              refresh_interval_seconds=1800)
+    current = service(settings.cache_file, provider)
+    cold = lookup_news([CANDIDATE], settings, service=current)
+    assert cold["symbols"]["ACME"]["coverage_status"] == "complete"
+    assert cold["symbols"]["ACME"]["outcome"] == ("matched" if has_article else "completed_no_match")
+    historical = cold["diagnostics"]["diagnostics"]["last_retrieval_by_symbol"]["ACME"]
+    saved = settings.cache_file.read_bytes()
+
+    offline.current = NOW + timedelta(seconds=1801)
+    for reader in (current, service(settings.cache_file, provider)):
+        result = lookup_news([CANDIDATE], replace(settings, cache_mode="only"), service=reader)
+        symbol = result["symbols"]["ACME"]
+        details = result["diagnostics"]["diagnostics"]
+        assert symbol["cache_profile_compatible"] is True
+        assert symbol["coverage_status"] == "unknown"
+        assert symbol["outcome"] == ("matched" if has_article else "coverage_unknown")
+        assert symbol["retrieval_status"] == "unknown"
+        assert symbol["provider_status"] == "coverage_unknown"
+        assert symbol["provider_available"] is None
+        assert details["acquisition_profile_mismatch_symbols"] == []
+        assert details["acquisition_coverage_unknown_symbols"] == ["ACME"]
+        assert details["acquisition_cache_hit_symbols"] == []
+        assert details["last_retrieval_by_symbol"]["ACME"] == historical
+        assert result["diagnostics"]["sources_attempted_count"] == 0
+        assert result["diagnostics"]["retrieval_status"] == "unknown"
+        assert [item["evidence_id"] for item in symbol["articles"]] == (["rss:original"] if has_article else [])
+        if has_article:
+            assert symbol["articles"][0]["published_at"] == cold["symbols"]["ACME"]["articles"][0]["published_at"]
+            assert symbol["articles"][0]["acquisition_origin"] == "cache_or_prep"
+        assert settings.cache_file.read_bytes() == saved
+    assert len(provider.calls) == 1
+
+
+@pytest.mark.parametrize("scoped_refresh", [False, True], ids=["cache_only", "scoped_peer_refresh"])
+def test_expired_acquisition_does_not_hide_behind_fresh_or_refreshed_peer(tmp_path, offline, scoped_refresh):
+    class TimedProvider(Provider):
+        def get_news(self, candidates, request, policy):
+            return replace(super().get_news(candidates, request, policy),
+                           completed_at=news_intelligence_service.datetime.now(timezone.utc))
+
+    provider = TimedProvider()
+    current = service(tmp_path / "news.json", provider)
+    cold = current.get_news([CANDIDATE], REQUEST, POLICY)
+    historical = cold.summary_for_symbol("ACME").diagnostics["last_retrieval"]
+    offline.current = NOW + timedelta(seconds=900)
+    peer = NewsCandidate("SECOND")
+    current.get_news([peer], REQUEST, POLICY)
+    offline.current = NOW + timedelta(seconds=1801)
+    policy = (replace(POLICY, refresh_mode="force_refresh",
+                      metadata={**POLICY.metadata, "refresh_symbols": ["SECOND"]}) if scoped_refresh
+              else replace(POLICY, network_allowed=False, refresh_mode="cache_only"))
+    result = current.get_news([CANDIDATE, peer], REQUEST, policy)
+    details = result.diagnostics.diagnostics
+    assert details["acquisition_profile_compatible_by_symbol"] == {"ACME": True, "SECOND": True}
+    assert details["acquisition_coverage_unknown_symbols"] == ["ACME"]
+    assert details["acquisition_cache_hit_symbols"] == ([] if scoped_refresh else ["SECOND"])
+    assert result.summary_for_symbol("ACME").retrieval_status == "unknown"
+    assert result.summary_for_symbol("ACME").diagnostics["last_retrieval"] == historical
+    assert result.summary_for_symbol("SECOND").retrieval_status == "available"
+    assert result.diagnostics.retrieval_status == "partial"
+    assert len(provider.calls) == (3 if scoped_refresh else 2)
