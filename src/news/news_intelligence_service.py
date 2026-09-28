@@ -162,13 +162,18 @@ class CanonicalNewsIntelligenceService(NewsIntelligenceProvider):
             combined_evidence[symbol] = merged
             cached_retrieval = (cache_diagnostics.get("last_retrieval_by_symbol", {}).get(symbol, {})
                                 if symbol in cache_diagnostics.get("cadence_cache_hit_symbols", []) else {})
+            refreshed_summary = refresh_result.summary_for_symbol(symbol) if refresh_result is not None else None
+            provider_status = (refreshed_summary.provider_status if refreshed_summary is not None
+                               else _provider_status(refresh_result, cache_diagnostics))
+            provider_available = (refreshed_summary.provider_available if refreshed_summary is not None
+                                  else _provider_available(refresh_result, cache_diagnostics))
             summaries[symbol] = summarize_news_evidence(
                 symbol,
                 merged,
                 request=request,
                 retrieval_status=cached_retrieval.get("retrieval_status") or _symbol_retrieval_status(symbol, refresh_result, merged, cache_diagnostics),
-                provider_status=cached_retrieval.get("provider_status") or _provider_status(refresh_result, cache_diagnostics),
-                provider_available=cached_retrieval.get("provider_available", _provider_available(refresh_result, cache_diagnostics)),
+                provider_status=cached_retrieval.get("provider_status") or provider_status,
+                provider_available=cached_retrieval.get("provider_available", provider_available),
                 cache_state=_symbol_cache_state(symbol, merged, cache_diagnostics),
                 budget_exhausted=cached_retrieval.get("budget_exhausted", _symbol_budget_exhausted(symbol, refresh_result)),
                 diagnostics={

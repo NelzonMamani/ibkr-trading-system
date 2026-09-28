@@ -321,3 +321,31 @@ def test_mixed_cached_failure_and_fresh_success_batch_diagnostics(tmp_path, caps
     assert record["provider_available"] is False
     assert record["summaries"]["EGG"]["provider_available"] is False
     assert record["summaries"]["FRESH"]["provider_available"] is True
+
+
+def test_cadence_aggregation_preserves_refreshed_per_symbol_availability(tmp_path):
+    from src.news.news_intelligence_contract import NewsEvidenceSummary
+    now = datetime.now(timezone.utc)
+    store = CanonicalNewsEvidenceStore(tmp_path / "cache.json", prep_artifact_loader=lambda: {})
+    store.write({"EGG": ()}, retrieval_by_symbol={"EGG": {
+        "completed_at": now.isoformat(), "retrieval_status": "available",
+        "provider_status": "ok", "provider_available": True, "budget_exhausted": False,
+    }})
+    class Retrieval:
+        def get_news(self, candidates, request, policy):
+            assert [item.symbol for item in candidates] == ["FRESH", "BAD"]
+            return NewsBatchResult(evidence_by_symbol={"FRESH": (), "BAD": ()},
+                summaries_by_symbol={
+                    "FRESH": NewsEvidenceSummary(symbol="FRESH", retrieval_status="available", provider_status="ok", provider_available=True),
+                    "BAD": NewsEvidenceSummary(symbol="BAD", retrieval_status="unavailable", provider_status="offline", provider_available=False),
+                }, diagnostics=RetrievalDiagnostics(retrieval_status="partial", provider_status="mixed",
+                    provider_available=False, unresolved_symbols=("BAD",)))
+    service = CanonicalNewsIntelligenceService(evidence_store=store, retrieval_provider=Retrieval())
+    result = service.get_news([NewsCandidate(symbol) for symbol in ("EGG", "FRESH", "BAD")],
+                              NewsRequest(), RetrievalPolicy(refresh_interval_seconds=1800))
+    assert result.summary_for_symbol("FRESH").provider_available is True
+    assert result.summary_for_symbol("FRESH").provider_status == "ok"
+    assert result.summary_for_symbol("BAD").provider_available is False
+    assert result.diagnostics.unresolved_symbols == ("BAD",)
+    assert result.diagnostics.retrieval_status == "partial"
+    assert result.diagnostics.provider_available is False
