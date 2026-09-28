@@ -132,8 +132,7 @@ class CanonicalNewsIntelligenceService(NewsIntelligenceProvider):
                 completed_at = refresh_result.completed_at or datetime.now(timezone.utc)
                 retrieval_by_symbol = {}
                 for symbol in refresh_symbols:
-                    summary = refresh_result.summary_for_symbol(symbol)
-                    diagnostics = summary or refresh_result.diagnostics
+                    diagnostics = _refresh_symbol_outcome(symbol, refresh_result)
                     retrieval_by_symbol[symbol] = {
                         "completed_at": completed_at.isoformat(),
                         "retrieval_status": diagnostics.retrieval_status,
@@ -162,10 +161,10 @@ class CanonicalNewsIntelligenceService(NewsIntelligenceProvider):
             combined_evidence[symbol] = merged
             cached_retrieval = (cache_diagnostics.get("last_retrieval_by_symbol", {}).get(symbol, {})
                                 if symbol in cache_diagnostics.get("cadence_cache_hit_symbols", []) else {})
-            refreshed_summary = refresh_result.summary_for_symbol(symbol) if refresh_result is not None else None
-            provider_status = (refreshed_summary.provider_status if refreshed_summary is not None
+            refreshed_outcome = _refresh_symbol_outcome(symbol, refresh_result) if refresh_result is not None else None
+            provider_status = (refreshed_outcome.provider_status if refreshed_outcome is not None
                                else _provider_status(refresh_result, cache_diagnostics))
-            provider_available = (refreshed_summary.provider_available if refreshed_summary is not None
+            provider_available = (refreshed_outcome.provider_available if refreshed_outcome is not None
                                   else _provider_available(refresh_result, cache_diagnostics))
             summaries[symbol] = summarize_news_evidence(
                 symbol,
@@ -291,6 +290,26 @@ def _symbols_without_fresh_evidence(
     return refresh
 
 
+def _refresh_symbol_outcome(symbol: str, result: NewsBatchResult) -> NewsEvidenceSummary | RetrievalDiagnostics:
+    """Use the same per-symbol outcome for persistence, summaries and aggregation."""
+    summary = result.summary_for_symbol(symbol)
+    if summary is not None:
+        return summary
+    diagnostics = result.diagnostics
+    if not diagnostics.unresolved_symbols:
+        return diagnostics
+    unresolved = symbol in diagnostics.unresolved_symbols
+    exhausted = unresolved and diagnostics.budget_exhausted
+    return replace(
+        diagnostics,
+        retrieval_status=("budget_exhausted" if exhausted else "unavailable") if unresolved else "available",
+        provider_status="unavailable" if unresolved else "available",
+        provider_available=not unresolved,
+        budget_exhausted=exhausted,
+        unresolved_symbols=(symbol,) if unresolved else (),
+    )
+
+
 def _symbol_retrieval_status(
     symbol: str,
     refresh_result: NewsBatchResult | None,
@@ -298,10 +317,7 @@ def _symbol_retrieval_status(
     cache_diagnostics: Mapping[str, Any],
 ) -> str:
     if refresh_result is not None:
-        summary = refresh_result.summary_for_symbol(symbol)
-        if summary is not None:
-            return summary.retrieval_status
-        return refresh_result.diagnostics.retrieval_status
+        return _refresh_symbol_outcome(symbol, refresh_result).retrieval_status
     if any(item.stale is False for item in evidence):
         return "cache_hit"
     if symbol in set(cache_diagnostics.get("stale_cache_miss_symbols", [])):

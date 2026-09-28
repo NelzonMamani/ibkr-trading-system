@@ -323,7 +323,8 @@ def test_mixed_cached_failure_and_fresh_success_batch_diagnostics(tmp_path, caps
     assert record["summaries"]["FRESH"]["provider_available"] is True
 
 
-def test_cadence_aggregation_preserves_refreshed_per_symbol_availability(tmp_path):
+@pytest.mark.parametrize("with_summaries", [True, False])
+def test_cadence_aggregation_preserves_refreshed_per_symbol_availability(tmp_path, with_summaries):
     from src.news.news_intelligence_contract import NewsEvidenceSummary
     now = datetime.now(timezone.utc)
     store = CanonicalNewsEvidenceStore(tmp_path / "cache.json", prep_artifact_loader=lambda: {})
@@ -338,14 +339,22 @@ def test_cadence_aggregation_preserves_refreshed_per_symbol_availability(tmp_pat
                 summaries_by_symbol={
                     "FRESH": NewsEvidenceSummary(symbol="FRESH", retrieval_status="available", provider_status="ok", provider_available=True),
                     "BAD": NewsEvidenceSummary(symbol="BAD", retrieval_status="unavailable", provider_status="offline", provider_available=False),
-                }, diagnostics=RetrievalDiagnostics(retrieval_status="partial", provider_status="mixed",
+                } if with_summaries else {}, diagnostics=RetrievalDiagnostics(retrieval_status="partial", provider_status="mixed",
                     provider_available=False, unresolved_symbols=("BAD",)))
     service = CanonicalNewsIntelligenceService(evidence_store=store, retrieval_provider=Retrieval())
     result = service.get_news([NewsCandidate(symbol) for symbol in ("EGG", "FRESH", "BAD")],
                               NewsRequest(), RetrievalPolicy(refresh_interval_seconds=1800))
     assert result.summary_for_symbol("FRESH").provider_available is True
-    assert result.summary_for_symbol("FRESH").provider_status == "ok"
+    assert result.summary_for_symbol("FRESH").provider_status == ("ok" if with_summaries else "available")
+    assert result.summary_for_symbol("FRESH").retrieval_status == "available"
     assert result.summary_for_symbol("BAD").provider_available is False
+    assert result.summary_for_symbol("BAD").retrieval_status == "unavailable"
     assert result.diagnostics.unresolved_symbols == ("BAD",)
     assert result.diagnostics.retrieval_status == "partial"
     assert result.diagnostics.provider_available is False
+
+    cached = service.get_news([NewsCandidate(symbol) for symbol in ("EGG", "FRESH", "BAD")],
+                              NewsRequest(), RetrievalPolicy(refresh_interval_seconds=1800))
+    assert cached.summary_for_symbol("FRESH").provider_available is True
+    assert cached.summary_for_symbol("BAD").provider_available is False
+    assert cached.diagnostics.unresolved_symbols == ("BAD",)
