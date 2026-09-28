@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from src.scanner.session_pct_change import canonical_session_label, normalize_session_label
+from src.market_data.session_pct_change import canonical_session_label, normalize_session_label
 
 
 def build_canonical_session_contract(*, detected_session: str, session_decision_source: str) -> dict[str, Any]:

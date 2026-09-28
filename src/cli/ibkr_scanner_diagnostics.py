@@ -5,7 +5,7 @@ from typing import Any, Sequence
 
 from src.adapters.brokers.ibkr.ibkr_connection_manager import get_shared_ibkr_connection_manager
 from src.config.config_resolver import get_config
-from src.core.managers.market_data_snapshot_manager import MarketDataSnapshotManager
+from src.market_data.market_data_snapshot_manager import MarketDataSnapshotManager
 from src.scanner.scanner_contract import scanner_request_from_policy
 from src.scanner.scanner_runner import run_scanner_cycle
 from src.strategies.ross_momentum.strategy_policy import RossMomentumPolicy

@@ -11,7 +11,7 @@ import pytest
 
 from scripts.certification import pr1040_real_readonly_runtime_observation_adapter as pr1040
 from src.config.config_resolver import set_config_overrides
-from src.data.float_discovery_worker import FloatDiscoveryResult
+from src.market_data.float_discovery_worker import FloatDiscoveryResult
 from src.scanner import scanner_runner
 from src.scanner.providers.base import IntradayStats, QuoteData
 from src.scanner.scanner_contract import scanner_request_from_policy

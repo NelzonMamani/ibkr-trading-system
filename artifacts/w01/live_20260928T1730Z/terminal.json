@@ -1,0 +1,23 @@
+{
+  "PAPER_READINESS_GATE": "FAIL",
+  "PAPER_READY": "NO",
+  "child_pid": 20048,
+  "completed_at": "2026-09-28T17:30:13.186093+00:00",
+  "diagnostic_only": true,
+  "exit_code": 0,
+  "independent_final_broker_audit": {
+    "disconnected": true,
+    "mutation_attempts": {
+      "cancel": 0,
+      "modify": 0,
+      "place": 0
+    },
+    "open_orders_count": 0,
+    "query_completed": true
+  },
+  "process_inventory_after": {
+    "completed": true,
+    "runtimes": []
+  },
+  "started_at": "2026-09-28T17:29:46.630699+00:00"
+}

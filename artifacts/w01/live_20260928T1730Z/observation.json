@@ -1,0 +1,3143 @@
+{
+  "adapter_schema_version": "PR1040.real_readonly_runtime_observation_adapter.v1",
+  "analytics_storage_artifact": {
+    "artifact_paths": [
+      "artifacts\\w01\\live_20260928T1730Z\\observation.json"
+    ],
+    "no_trade_records": [
+      {
+        "reason": "NO_FOCUS_CANDIDATES",
+        "symbols": [
+          "KNRX",
+          "LFCR"
+        ]
+      }
+    ],
+    "readback_proof": false,
+    "storage_evidence_detail": {},
+    "storage_evidence_source": "UNAVAILABLE",
+    "storage_key": "REAL_READ_ONLY_RUNTIME_OBSERVATION_2026-09-28T172949Z0000",
+    "storage_readback_count": 0,
+    "storage_write_count": 0,
+    "trade_plan_records": []
+  },
+  "broker_connection_snapshot": {
+    "account_id_redacted": "REDACTED",
+    "broker_after_connected": true,
+    "broker_audit_complete": true,
+    "broker_before_connected": true,
+    "client_id": 19282,
+    "connected": true,
+    "connection_after": {
+      "base_client_id": 19282,
+      "connected": false,
+      "connected_client_id": null,
+      "connection_generation": 1,
+      "host": "127.0.0.1",
+      "last_disconnect_reason": "market_data_client_disconnect",
+      "last_error": null,
+      "last_reconnect_time": null,
+      "market_data_type": "LIVE",
+      "port": 7497,
+      "readonly_enabled": true,
+      "reconnect_count": 0,
+      "run_mode": "READ_ONLY",
+      "snapshot_timeout_seconds": 5
+    },
+    "connection_before": {
+      "base_client_id": 19282,
+      "connected": false,
+      "connected_client_id": null,
+      "connection_generation": 0,
+      "host": "127.0.0.1",
+      "last_disconnect_reason": null,
+      "last_error": null,
+      "last_reconnect_time": null,
+      "market_data_type": "LIVE",
+      "port": 7497,
+      "readonly_enabled": true,
+      "reconnect_count": 0,
+      "run_mode": "READ_ONLY",
+      "snapshot_timeout_seconds": 5
+    },
+    "host": "127.0.0.1",
+    "market_data_type": "LIVE",
+    "port": 7497,
+    "provider_name": "PR1040_REAL_READONLY_RUNTIME_ADAPTER",
+    "readonly_connection": true
+  },
+  "broker_order_audit": {
+    "broker_after_connected": true,
+    "broker_audit_complete": true,
+    "broker_before_connected": true,
+    "cancelled_orders_count": 0,
+    "modified_orders_count": 0,
+    "open_orders_after": [],
+    "open_orders_before": [],
+    "order_attempt_count": 0,
+    "submitted_orders_count": 0
+  },
+  "catalyst_news_artifact": {
+    "cache_hit_symbols": [],
+    "cache_hits_by_symbol": {},
+    "cache_miss_symbols": [
+      "KNRX",
+      "LFCR"
+    ],
+    "cache_read_failed": false,
+    "cache_state": "miss",
+    "cache_write_failed": false,
+    "catalyst_bypass": false,
+    "catalyst_diagnostic_status_by_symbol": {
+      "KNRX": "budget_exhausted",
+      "LFCR": "budget_exhausted"
+    },
+    "catalyst_status_by_symbol": {
+      "KNRX": "DATA_UNAVAILABLE",
+      "LFCR": "DATA_UNAVAILABLE"
+    },
+    "catalyst_status_reason_by_symbol": {
+      "KNRX": "budget_exhausted",
+      "LFCR": "budget_exhausted"
+    },
+    "company_name_match_count": 0,
+    "confirmed_catalyst_count": 0,
+    "description_summary_match_count": 0,
+    "evidence_count_by_symbol": {
+      "KNRX": 0,
+      "LFCR": 0
+    },
+    "extended_budget_exhausted": true,
+    "extended_budget_reserved_seconds": 2.8,
+    "extended_budget_seconds": 2.799937499978114,
+    "extended_fallback_requested": true,
+    "extended_fallback_symbol_count": 2,
+    "extended_sources_attempted_count": 8,
+    "extended_tier_match_count": 0,
+    "extended_tier_source_count": 13,
+    "fast_budget_exhausted": false,
+    "fast_budget_seconds": 5.2,
+    "fast_sources_attempted_count": 8,
+    "fast_tier_match_count": 0,
+    "fast_tier_source_count": 8,
+    "fresh_news_count": 0,
+    "freshest_evidence_age_seconds_by_symbol": {
+      "KNRX": null,
+      "LFCR": null
+    },
+    "heat_by_symbol": {
+      "KNRX": null,
+      "LFCR": null
+    },
+    "match_types_by_symbol": {
+      "KNRX": [],
+      "LFCR": []
+    },
+    "max_entries_per_symbol": 5,
+    "news_asof": "2026-09-28T17:29:49+00:00",
+    "news_budget_exhausted": true,
+    "news_elapsed_seconds": 7.288395199982915,
+    "news_intelligence_diagnostics": {
+      "cache_file": "data\\news\\news_cache.json",
+      "cache_first": true,
+      "cache_hit_symbols": [],
+      "cache_hits_by_symbol": {},
+      "cache_miss_symbols": [
+        "KNRX",
+        "LFCR"
+      ],
+      "cache_namespace": "news_intelligence",
+      "cache_read_error": null,
+      "cache_read_failed": false,
+      "cache_write_error": null,
+      "cache_write_failed": false,
+      "cache_write_symbols": [
+        "KNRX",
+        "LFCR"
+      ],
+      "classification_authority": "strategy_adapter_not_common_provider",
+      "evidence_count_by_symbol": {
+        "KNRX": 0,
+        "LFCR": 0
+      },
+      "extended_refresh_news_intelligence_diagnostics": {
+        "cache_file": "data\\news\\news_cache.json",
+        "cache_first": true,
+        "cache_hit_symbols": [],
+        "cache_hits_by_symbol": {},
+        "cache_miss_symbols": [
+          "KNRX",
+          "LFCR"
+        ],
+        "cache_namespace": "news_intelligence",
+        "cache_read_error": null,
+        "cache_read_failed": false,
+        "cache_write_error": null,
+        "cache_write_failed": false,
+        "cache_write_symbols": [
+          "KNRX",
+          "LFCR"
+        ],
+        "classification_authority": "strategy_adapter_not_common_provider",
+        "evidence_count_by_symbol": {
+          "KNRX": 0,
+          "LFCR": 0
+        },
+        "freshest_evidence_age_seconds_by_symbol": {
+          "KNRX": null,
+          "LFCR": null
+        },
+        "heat_by_symbol": {
+          "KNRX": null,
+          "LFCR": null
+        },
+        "legacy_news_cache_symbols": [],
+        "match_types_by_symbol": {
+          "KNRX": [],
+          "LFCR": []
+        },
+        "prep_reuse_symbols": [],
+        "prep_stale_symbols": [],
+        "provider_id": "canonical_news_intelligence",
+        "refresh_allowed": true,
+        "refresh_diagnostics": {
+          "classification_authority": "strategy_adapter_not_common_provider",
+          "company_name_match_count": 0,
+          "cross_tier_duplicate_source_urls_avoided": [],
+          "description_summary_match_count": 0,
+          "diagnostics_authority_notes": [
+            "event_and_catalyst_classification_remain_strategy_adapter_authority"
+          ],
+          "diagnostics_mapping_gaps": [],
+          "duplicate_source_fetches_avoided_count": 0,
+          "explicit_unresolved_symbol_count": 2,
+          "extended_budget_exhausted": true,
+          "extended_budget_reserved_seconds": 0.98,
+          "extended_budget_seconds": 2.799937499978114,
+          "extended_fallback_requested": true,
+          "extended_fallback_symbol_count": 2,
+          "extended_fallback_unresolved_symbol_source": "retrieval_policy.metadata",
+          "extended_sources_attempted_count": 8,
+          "extended_tier_elapsed_seconds": 2.8070604999666102,
+          "failure_reason": null,
+          "fast_budget_exhausted": false,
+          "fast_budget_seconds": 1.8199999999999998,
+          "fast_sources_attempted_count": 0,
+          "fast_tier_elapsed_seconds": 0.0,
+          "headline_count": 0,
+          "legacy_batch_fetcher": "src.news.news_fetcher",
+          "max_entries_per_symbol": 5,
+          "news_budget_exhausted": true,
+          "news_elapsed_seconds": 2.807617999962531,
+          "per_source_elapsed_seconds": {
+            "https://feeds.a.dj.com/rss/RSSMarketsMain.xml": 1.4940419999766164,
+            "https://feeds.bbci.co.uk/news/rss.xml": 1.464915300020948,
+            "https://feeds.skynews.com/feeds/rss/world.xml": 1.3097157999873161,
+            "https://fortune.com/rss": 1.9382470999844372,
+            "https://markets.businessinsider.com/rss": 0.0,
+            "https://techcrunch.com/rss": 0.0,
+            "https://venturebeat.com/feed": 0.0,
+            "https://www.bbc.com/news/business/rss.xml": 1.3475738000124693,
+            "https://www.forbes.com/business/feed2": 1.4493263000040315,
+            "https://www.forbes.com/finance/feed2": 1.3375124000012875,
+            "https://www.france24.com/en/rss": 0.8404990999842994,
+            "https://www.investing.com/rss/news.rss": 0.0,
+            "https://www.marketbeat.com/feed": 0.0
+          },
+          "provider_id": "rss_batch",
+          "provider_status": "available",
+          "result_status_counts": {
+            "budget_exhausted": 2
+          },
+          "rss_failure_summary": {},
+          "rss_failures": 0,
+          "rss_sources": 13,
+          "source_diagnostics": [
+            {
+              "attempted": true,
+              "budget_exhausted": false,
+              "elapsed_seconds": 1.3375124000012875,
+              "failure_reason": null,
+              "matched_count": 0,
+              "provider": "rss_batch",
+              "retrieval_status": "available",
+              "source_group": "PREP_EXTENDED",
+              "source_id": "https://www.forbes.com/finance/feed2",
+              "source_tier": "extended",
+              "timed_out": false,
+              "timeout_seconds": 0.6999683000030927
+            },
+            {
+              "attempted": true,
+              "budget_exhausted": false,
+              "elapsed_seconds": 1.4493263000040315,
+              "failure_reason": null,
+              "matched_count": 0,
+              "provider": "rss_batch",
+              "retrieval_status": "available",
+              "source_group": "PREP_EXTENDED",
+              "source_id": "https://www.forbes.com/business/feed2",
+              "source_tier": "extended",
+              "timed_out": false,
+              "timeout_seconds": 0.6999683000030927
+            },
+            {
+              "attempted": true,
+              "budget_exhausted": false,
+              "elapsed_seconds": 1.4940419999766164,
+              "failure_reason": null,
+              "matched_count": 0,
+              "provider": "rss_batch",
+              "retrieval_status": "available",
+              "source_group": "PREP_EXTENDED",
+              "source_id": "https://feeds.a.dj.com/rss/RSSMarketsMain.xml",
+              "source_tier": "extended",
+              "timed_out": false,
+              "timeout_seconds": 0.6999683000030927
+            },
+            {
+              "attempted": true,
+              "budget_exhausted": false,
+              "elapsed_seconds": 1.9382470999844372,
+              "failure_reason": null,
+              "matched_count": 0,
+              "provider": "rss_batch",
+              "retrieval_status": "available",
+              "source_group": "PREP_EXTENDED",
+              "source_id": "https://fortune.com/rss",
+              "source_tier": "extended",
+              "timed_out": false,
+              "timeout_seconds": 0.6999683000030927
+            },
+            {
+              "attempted": false,
+              "budget_exhausted": true,
+              "elapsed_seconds": 0.0,
+              "failure_reason": "deadline_exhausted_before_attempt",
+              "matched_count": 0,
+              "provider": "rss_batch",
+              "retrieval_status": "budget_exhausted",
+              "source_group": "PREP_EXTENDED",
+              "source_id": "https://markets.businessinsider.com/rss",
+              "source_tier": "extended",
+              "timed_out": false,
+              "timeout_seconds": 0.0
+            },
+            {
+              "attempted": false,
+              "budget_exhausted": true,
+              "elapsed_seconds": 0.0,
+              "failure_reason": "deadline_exhausted_before_attempt",
+              "matched_count": 0,
+              "provider": "rss_batch",
+              "retrieval_status": "budget_exhausted",
+              "source_group": "PREP_EXTENDED",
+              "source_id": "https://www.investing.com/rss/news.rss",
+              "source_tier": "extended",
+              "timed_out": false,
+              "timeout_seconds": 0.0
+            },
+            {
+              "attempted": false,
+              "budget_exhausted": true,
+              "elapsed_seconds": 0.0,
+              "failure_reason": "deadline_exhausted_before_attempt",
+              "matched_count": 0,
+              "provider": "rss_batch",
+              "retrieval_status": "budget_exhausted",
+              "source_group": "PREP_EXTENDED",
+              "source_id": "https://www.marketbeat.com/feed",
+              "source_tier": "extended",
+              "timed_out": false,
+              "timeout_seconds": 0.0
+            },
+            {
+              "attempted": false,
+              "budget_exhausted": true,
+              "elapsed_seconds": 0.0,
+              "failure_reason": "deadline_exhausted_before_attempt",
+              "matched_count": 0,
+              "provider": "rss_batch",
+              "retrieval_status": "budget_exhausted",
+              "source_group": "PREP_EXTENDED",
+              "source_id": "https://techcrunch.com/rss",
+              "source_tier": "extended",
+              "timed_out": false,
+              "timeout_seconds": 0.0
+            },
+            {
+              "attempted": false,
+              "budget_exhausted": true,
+              "elapsed_seconds": 0.0,
+              "failure_reason": "deadline_exhausted_before_attempt",
+              "matched_count": 0,
+              "provider": "rss_batch",
+              "retrieval_status": "budget_exhausted",
+              "source_group": "PREP_EXTENDED",
+              "source_id": "https://venturebeat.com/feed",
+              "source_tier": "extended",
+              "timed_out": false,
+              "timeout_seconds": 0.0
+            },
+            {
+              "attempted": true,
+              "budget_exhausted": true,
+              "elapsed_seconds": 1.464915300020948,
+              "failure_reason": "deadline_exhausted",
+              "matched_count": 0,
+              "provider": "rss_batch",
+              "retrieval_status": "budget_exhausted",
+              "source_group": "PREP_EXTENDED",
+              "source_id": "https://feeds.bbci.co.uk/news/rss.xml",
+              "source_tier": "extended",
+              "timed_out": true,
+              "timeout_seconds": 0.4859821999950024
+            },
+            {
+              "attempted": true,
+              "budget_exhausted": true,
+              "elapsed_seconds": 1.3475738000124693,
+              "failure_reason": "deadline_exhausted",
+              "matched_count": 0,
+              "provider": "rss_batch",
+              "retrieval_status": "budget_exhausted",
+              "source_group": "PREP_EXTENDED",
+              "source_id": "https://www.bbc.com/news/business/rss.xml",
+              "source_tier": "extended",
+              "timed_out": true,
+              "timeout_seconds": 0.6702850500005297
+            },
+            {
+              "attempted": true,
+              "budget_exhausted": true,
+              "elapsed_seconds": 1.3097157999873161,
+              "failure_reason": "deadline_exhausted",
+              "matched_count": 0,
+              "provider": "rss_batch",
+              "retrieval_status": "budget_exhausted",
+              "source_group": "PREP_EXTENDED",
+              "source_id": "https://feeds.skynews.com/feeds/rss/world.xml",
+              "source_tier": "extended",
+              "timed_out": true,
+              "timeout_seconds": 0.6513472000078764
+            },
+            {
+              "attempted": true,
+              "budget_exhausted": true,
+              "elapsed_seconds": 0.8404990999842994,
+              "failure_reason": "deadline_exhausted",
+              "matched_count": 0,
+              "provider": "rss_batch",
+              "retrieval_status": "budget_exhausted",
+              "source_group": "PREP_EXTENDED",
+              "source_id": "https://www.france24.com/en/rss",
+              "source_tier": "extended",
+              "timed_out": true,
+              "timeout_seconds": 0.4167297999956645
+            }
+          ],
+          "sources_skipped_due_to_budget_count": 5,
+          "symbols_by_status": {
+            "budget_exhausted": [
+              "KNRX",
+              "LFCR"
+            ]
+          },
+          "symbols_unresolved_at_budget_exhaustion": [
+            "KNRX",
+            "LFCR"
+          ],
+          "ticker_token_match_count": 0,
+          "tier_budget_exhausted_by_tier": {
+            "extended": true
+          },
+          "tier_budget_seconds_by_tier": {
+            "extended": 2.799937499978114
+          },
+          "tier_elapsed_seconds_by_tier": {
+            "extended": 2.8070604999666102
+          },
+          "tier_match_counts": {
+            "extended": 0
+          },
+          "tier_source_counts": {
+            "extended": 13
+          },
+          "total_news_budget_seconds": 2.8,
+          "unique_source_urls_attempted_count": 8,
+          "unique_source_urls_scheduled_count": 13
+        },
+        "refresh_requested_count": 2,
+        "refresh_symbols": [
+          "KNRX",
+          "LFCR"
+        ],
+        "reliability_by_symbol": {
+          "KNRX": null,
+          "LFCR": null
+        },
+        "source_provenance_by_symbol": {
+          "KNRX": [],
+          "LFCR": []
+        },
+        "stale_cache_miss_symbols": [],
+        "velocity_by_symbol": {
+          "KNRX": {
+            "velocity_10m": null,
+            "velocity_30m": null,
+            "velocity_5m": null,
+            "velocity_60m": null
+          },
+          "LFCR": {
+            "velocity_10m": null,
+            "velocity_30m": null,
+            "velocity_5m": null,
+            "velocity_60m": null
+          }
+        }
+      },
+      "fast_refresh_news_intelligence_diagnostics": {
+        "cache_file": "data\\news\\news_cache.json",
+        "cache_first": true,
+        "cache_hit_symbols": [],
+        "cache_hits_by_symbol": {},
+        "cache_miss_symbols": [
+          "KNRX",
+          "LFCR"
+        ],
+        "cache_namespace": "news_intelligence",
+        "cache_read_error": null,
+        "cache_read_failed": false,
+        "cache_write_error": null,
+        "cache_write_failed": false,
+        "cache_write_symbols": [
+          "KNRX",
+          "LFCR"
+        ],
+        "classification_authority": "strategy_adapter_not_common_provider",
+        "evidence_count_by_symbol": {
+          "KNRX": 0,
+          "LFCR": 0
+        },
+        "freshest_evidence_age_seconds_by_symbol": {
+          "KNRX": null,
+          "LFCR": null
+        },
+        "heat_by_symbol": {
+          "KNRX": null,
+          "LFCR": null
+        },
+        "legacy_news_cache_symbols": [],
+        "match_types_by_symbol": {
+          "KNRX": [],
+          "LFCR": []
+        },
+        "prep_reuse_symbols": [],
+        "prep_stale_symbols": [],
+        "provider_id": "canonical_news_intelligence",
+        "refresh_allowed": true,
+        "refresh_diagnostics": {
+          "classification_authority": "strategy_adapter_not_common_provider",
+          "company_name_match_count": 0,
+          "cross_tier_duplicate_source_urls_avoided": [],
+          "description_summary_match_count": 0,
+          "diagnostics_authority_notes": [
+            "event_and_catalyst_classification_remain_strategy_adapter_authority"
+          ],
+          "diagnostics_mapping_gaps": [],
+          "duplicate_source_fetches_avoided_count": 0,
+          "explicit_unresolved_symbol_count": 2,
+          "extended_budget_exhausted": false,
+          "extended_budget_reserved_seconds": 2.8,
+          "extended_budget_seconds": 0.0,
+          "extended_fallback_requested": false,
+          "extended_fallback_symbol_count": 0,
+          "extended_fallback_unresolved_symbol_source": "retrieval_policy.metadata",
+          "extended_sources_attempted_count": 0,
+          "extended_tier_elapsed_seconds": 0.0,
+          "failure_reason": null,
+          "fast_budget_exhausted": false,
+          "fast_budget_seconds": 5.2,
+          "fast_sources_attempted_count": 8,
+          "fast_tier_elapsed_seconds": 4.480379400018137,
+          "headline_count": 0,
+          "legacy_batch_fetcher": "src.news.news_fetcher",
+          "max_entries_per_symbol": 5,
+          "news_budget_exhausted": false,
+          "news_elapsed_seconds": 4.480777200020384,
+          "per_source_elapsed_seconds": {
+            "http://rss.cnn.com/rss/edition_business.rss": 0.4732384000089951,
+            "https://feeds.businessinsider.com/custom/all": 1.4479855000390671,
+            "https://seekingalpha.com/feed": 1.421416400000453,
+            "https://www.benzinga.com/feed": 1.4004620999912731,
+            "https://www.globenewswire.com/RssFeed/industry/9000-Technology/feedTitle/GlobeNewswire%20-%20Industry%20News%20on%20Technology": 2.9833348999964073,
+            "https://www.globenewswire.com/RssFeed?Category=Finance": 2.819909200014081,
+            "https://www.marketwatch.com/rss/topstories": 3.385353999969084,
+            "https://www.reuters.com/markets/rss": 1.085860599996522
+          },
+          "provider_id": "rss_batch",
+          "provider_status": "partial_request_failure",
+          "result_status_counts": {
+            "no_recent_news": 2
+          },
+          "rss_failure_summary": {
+            "www.reuters.com": {
+              "HTTP_401": 1
+            }
+          },
+          "rss_failures": 1,
+          "rss_sources": 8,
+          "source_diagnostics": [
+            {
+              "attempted": true,
+              "budget_exhausted": false,
+              "elapsed_seconds": 1.085860599996522,
+              "failure_reason": "HTTP_401",
+              "matched_count": 0,
+              "provider": "rss_batch",
+              "retrieval_status": "provider_error",
+              "source_group": "FAST_TRADING",
+              "source_id": "https://www.reuters.com/markets/rss",
+              "source_tier": "fast",
+              "timed_out": false,
+              "timeout_seconds": 2.597801600000821
+            },
+            {
+              "attempted": true,
+              "budget_exhausted": false,
+              "elapsed_seconds": 1.4004620999912731,
+              "failure_reason": null,
+              "matched_count": 0,
+              "provider": "rss_batch",
+              "retrieval_status": "available",
+              "source_group": "FAST_TRADING",
+              "source_id": "https://www.benzinga.com/feed",
+              "source_tier": "fast",
+              "timed_out": false,
+              "timeout_seconds": 2.597801600000821
+            },
+            {
+              "attempted": true,
+              "budget_exhausted": false,
+              "elapsed_seconds": 2.819909200014081,
+              "failure_reason": null,
+              "matched_count": 0,
+              "provider": "rss_batch",
+              "retrieval_status": "available",
+              "source_group": "FAST_TRADING",
+              "source_id": "https://www.globenewswire.com/RssFeed?Category=Finance",
+              "source_tier": "fast",
+              "timed_out": false,
+              "timeout_seconds": 2.597801600000821
+            },
+            {
+              "attempted": true,
+              "budget_exhausted": false,
+              "elapsed_seconds": 1.4479855000390671,
+              "failure_reason": null,
+              "matched_count": 0,
+              "provider": "rss_batch",
+              "retrieval_status": "available",
+              "source_group": "FAST_TRADING",
+              "source_id": "https://feeds.businessinsider.com/custom/all",
+              "source_tier": "fast",
+              "timed_out": false,
+              "timeout_seconds": 3.770634100015741
+            },
+            {
+              "attempted": true,
+              "budget_exhausted": false,
+              "elapsed_seconds": 2.9833348999964073,
+              "failure_reason": null,
+              "matched_count": 0,
+              "provider": "rss_batch",
+              "retrieval_status": "available",
+              "source_group": "FAST_TRADING",
+              "source_id": "https://www.globenewswire.com/RssFeed/industry/9000-Technology/feedTitle/GlobeNewswire%20-%20Industry%20News%20on%20Technology",
+              "source_tier": "fast",
+              "timed_out": false,
+              "timeout_seconds": 2.597801600000821
+            },
+            {
+              "attempted": true,
+              "budget_exhausted": false,
+              "elapsed_seconds": 0.4732384000089951,
+              "failure_reason": null,
+              "matched_count": 0,
+              "provider": "rss_batch",
+              "retrieval_status": "available",
+              "source_group": "FAST_TRADING",
+              "source_id": "http://rss.cnn.com/rss/edition_business.rss",
+              "source_tier": "fast",
+              "timed_out": false,
+              "timeout_seconds": 2.275550000020303
+            },
+            {
+              "attempted": true,
+              "budget_exhausted": false,
+              "elapsed_seconds": 1.421416400000453,
+              "failure_reason": null,
+              "matched_count": 0,
+              "provider": "rss_batch",
+              "retrieval_status": "available",
+              "source_group": "FAST_TRADING",
+              "source_id": "https://seekingalpha.com/feed",
+              "source_tier": "fast",
+              "timed_out": false,
+              "timeout_seconds": 2.3434972999966703
+            },
+            {
+              "attempted": true,
+              "budget_exhausted": false,
+              "elapsed_seconds": 3.385353999969084,
+              "failure_reason": null,
+              "matched_count": 0,
+              "provider": "rss_batch",
+              "retrieval_status": "available",
+              "source_group": "FAST_TRADING",
+              "source_id": "https://www.marketwatch.com/rss/topstories",
+              "source_tier": "fast",
+              "timed_out": false,
+              "timeout_seconds": 4.1064748000353575
+            }
+          ],
+          "sources_skipped_due_to_budget_count": 0,
+          "symbols_by_status": {
+            "no_recent_news": [
+              "KNRX",
+              "LFCR"
+            ]
+          },
+          "symbols_unresolved_at_budget_exhaustion": [],
+          "ticker_token_match_count": 0,
+          "tier_budget_exhausted_by_tier": {
+            "fast": false
+          },
+          "tier_budget_seconds_by_tier": {
+            "fast": 5.2
+          },
+          "tier_elapsed_seconds_by_tier": {
+            "fast": 4.480379400018137
+          },
+          "tier_match_counts": {
+            "fast": 0
+          },
+          "tier_source_counts": {
+            "fast": 8
+          },
+          "total_news_budget_seconds": 8.0,
+          "unique_source_urls_attempted_count": 8,
+          "unique_source_urls_scheduled_count": 8
+        },
+        "refresh_requested_count": 2,
+        "refresh_symbols": [
+          "KNRX",
+          "LFCR"
+        ],
+        "reliability_by_symbol": {
+          "KNRX": null,
+          "LFCR": null
+        },
+        "source_provenance_by_symbol": {
+          "KNRX": [],
+          "LFCR": []
+        },
+        "stale_cache_miss_symbols": [],
+        "velocity_by_symbol": {
+          "KNRX": {
+            "velocity_10m": null,
+            "velocity_30m": null,
+            "velocity_5m": null,
+            "velocity_60m": null
+          },
+          "LFCR": {
+            "velocity_10m": null,
+            "velocity_30m": null,
+            "velocity_5m": null,
+            "velocity_60m": null
+          }
+        }
+      },
+      "freshest_evidence_age_seconds_by_symbol": {
+        "KNRX": null,
+        "LFCR": null
+      },
+      "heat_by_symbol": {
+        "KNRX": null,
+        "LFCR": null
+      },
+      "legacy_news_cache_symbols": [],
+      "match_types_by_symbol": {
+        "KNRX": [],
+        "LFCR": []
+      },
+      "prep_reuse_symbols": [],
+      "prep_stale_symbols": [],
+      "provider_id": "canonical_news_intelligence",
+      "refresh_allowed": true,
+      "refresh_diagnostics": {
+        "classification_authority": "strategy_adapter_not_common_provider",
+        "company_name_match_count": 0,
+        "cross_tier_duplicate_source_urls_avoided": [],
+        "description_summary_match_count": 0,
+        "diagnostics_authority_notes": [
+          "event_and_catalyst_classification_remain_strategy_adapter_authority"
+        ],
+        "diagnostics_mapping_gaps": [],
+        "duplicate_source_fetches_avoided_count": 0,
+        "explicit_unresolved_symbol_count": 2,
+        "extended_budget_exhausted": true,
+        "extended_budget_reserved_seconds": 0.98,
+        "extended_budget_seconds": 2.799937499978114,
+        "extended_fallback_requested": true,
+        "extended_fallback_symbol_count": 2,
+        "extended_fallback_unresolved_symbol_source": "retrieval_policy.metadata",
+        "extended_sources_attempted_count": 8,
+        "extended_tier_elapsed_seconds": 2.8070604999666102,
+        "failure_reason": null,
+        "fast_budget_exhausted": false,
+        "fast_budget_seconds": 1.8199999999999998,
+        "fast_sources_attempted_count": 0,
+        "fast_tier_elapsed_seconds": 0.0,
+        "headline_count": 0,
+        "legacy_batch_fetcher": "src.news.news_fetcher",
+        "max_entries_per_symbol": 5,
+        "news_budget_exhausted": true,
+        "news_elapsed_seconds": 2.807617999962531,
+        "per_source_elapsed_seconds": {
+          "https://feeds.a.dj.com/rss/RSSMarketsMain.xml": 1.4940419999766164,
+          "https://feeds.bbci.co.uk/news/rss.xml": 1.464915300020948,
+          "https://feeds.skynews.com/feeds/rss/world.xml": 1.3097157999873161,
+          "https://fortune.com/rss": 1.9382470999844372,
+          "https://markets.businessinsider.com/rss": 0.0,
+          "https://techcrunch.com/rss": 0.0,
+          "https://venturebeat.com/feed": 0.0,
+          "https://www.bbc.com/news/business/rss.xml": 1.3475738000124693,
+          "https://www.forbes.com/business/feed2": 1.4493263000040315,
+          "https://www.forbes.com/finance/feed2": 1.3375124000012875,
+          "https://www.france24.com/en/rss": 0.8404990999842994,
+          "https://www.investing.com/rss/news.rss": 0.0,
+          "https://www.marketbeat.com/feed": 0.0
+        },
+        "provider_id": "rss_batch",
+        "provider_status": "available",
+        "result_status_counts": {
+          "budget_exhausted": 2
+        },
+        "rss_failure_summary": {},
+        "rss_failures": 0,
+        "rss_sources": 13,
+        "source_diagnostics": [
+          {
+            "attempted": true,
+            "budget_exhausted": false,
+            "elapsed_seconds": 1.3375124000012875,
+            "failure_reason": null,
+            "matched_count": 0,
+            "provider": "rss_batch",
+            "retrieval_status": "available",
+            "source_group": "PREP_EXTENDED",
+            "source_id": "https://www.forbes.com/finance/feed2",
+            "source_tier": "extended",
+            "timed_out": false,
+            "timeout_seconds": 0.6999683000030927
+          },
+          {
+            "attempted": true,
+            "budget_exhausted": false,
+            "elapsed_seconds": 1.4493263000040315,
+            "failure_reason": null,
+            "matched_count": 0,
+            "provider": "rss_batch",
+            "retrieval_status": "available",
+            "source_group": "PREP_EXTENDED",
+            "source_id": "https://www.forbes.com/business/feed2",
+            "source_tier": "extended",
+            "timed_out": false,
+            "timeout_seconds": 0.6999683000030927
+          },
+          {
+            "attempted": true,
+            "budget_exhausted": false,
+            "elapsed_seconds": 1.4940419999766164,
+            "failure_reason": null,
+            "matched_count": 0,
+            "provider": "rss_batch",
+            "retrieval_status": "available",
+            "source_group": "PREP_EXTENDED",
+            "source_id": "https://feeds.a.dj.com/rss/RSSMarketsMain.xml",
+            "source_tier": "extended",
+            "timed_out": false,
+            "timeout_seconds": 0.6999683000030927
+          },
+          {
+            "attempted": true,
+            "budget_exhausted": false,
+            "elapsed_seconds": 1.9382470999844372,
+            "failure_reason": null,
+            "matched_count": 0,
+            "provider": "rss_batch",
+            "retrieval_status": "available",
+            "source_group": "PREP_EXTENDED",
+            "source_id": "https://fortune.com/rss",
+            "source_tier": "extended",
+            "timed_out": false,
+            "timeout_seconds": 0.6999683000030927
+          },
+          {
+            "attempted": false,
+            "budget_exhausted": true,
+            "elapsed_seconds": 0.0,
+            "failure_reason": "deadline_exhausted_before_attempt",
+            "matched_count": 0,
+            "provider": "rss_batch",
+            "retrieval_status": "budget_exhausted",
+            "source_group": "PREP_EXTENDED",
+            "source_id": "https://markets.businessinsider.com/rss",
+            "source_tier": "extended",
+            "timed_out": false,
+            "timeout_seconds": 0.0
+          },
+          {
+            "attempted": false,
+            "budget_exhausted": true,
+            "elapsed_seconds": 0.0,
+            "failure_reason": "deadline_exhausted_before_attempt",
+            "matched_count": 0,
+            "provider": "rss_batch",
+            "retrieval_status": "budget_exhausted",
+            "source_group": "PREP_EXTENDED",
+            "source_id": "https://www.investing.com/rss/news.rss",
+            "source_tier": "extended",
+            "timed_out": false,
+            "timeout_seconds": 0.0
+          },
+          {
+            "attempted": false,
+            "budget_exhausted": true,
+            "elapsed_seconds": 0.0,
+            "failure_reason": "deadline_exhausted_before_attempt",
+            "matched_count": 0,
+            "provider": "rss_batch",
+            "retrieval_status": "budget_exhausted",
+            "source_group": "PREP_EXTENDED",
+            "source_id": "https://www.marketbeat.com/feed",
+            "source_tier": "extended",
+            "timed_out": false,
+            "timeout_seconds": 0.0
+          },
+          {
+            "attempted": false,
+            "budget_exhausted": true,
+            "elapsed_seconds": 0.0,
+            "failure_reason": "deadline_exhausted_before_attempt",
+            "matched_count": 0,
+            "provider": "rss_batch",
+            "retrieval_status": "budget_exhausted",
+            "source_group": "PREP_EXTENDED",
+            "source_id": "https://techcrunch.com/rss",
+            "source_tier": "extended",
+            "timed_out": false,
+            "timeout_seconds": 0.0
+          },
+          {
+            "attempted": false,
+            "budget_exhausted": true,
+            "elapsed_seconds": 0.0,
+            "failure_reason": "deadline_exhausted_before_attempt",
+            "matched_count": 0,
+            "provider": "rss_batch",
+            "retrieval_status": "budget_exhausted",
+            "source_group": "PREP_EXTENDED",
+            "source_id": "https://venturebeat.com/feed",
+            "source_tier": "extended",
+            "timed_out": false,
+            "timeout_seconds": 0.0
+          },
+          {
+            "attempted": true,
+            "budget_exhausted": true,
+            "elapsed_seconds": 1.464915300020948,
+            "failure_reason": "deadline_exhausted",
+            "matched_count": 0,
+            "provider": "rss_batch",
+            "retrieval_status": "budget_exhausted",
+            "source_group": "PREP_EXTENDED",
+            "source_id": "https://feeds.bbci.co.uk/news/rss.xml",
+            "source_tier": "extended",
+            "timed_out": true,
+            "timeout_seconds": 0.4859821999950024
+          },
+          {
+            "attempted": true,
+            "budget_exhausted": true,
+            "elapsed_seconds": 1.3475738000124693,
+            "failure_reason": "deadline_exhausted",
+            "matched_count": 0,
+            "provider": "rss_batch",
+            "retrieval_status": "budget_exhausted",
+            "source_group": "PREP_EXTENDED",
+            "source_id": "https://www.bbc.com/news/business/rss.xml",
+            "source_tier": "extended",
+            "timed_out": true,
+            "timeout_seconds": 0.6702850500005297
+          },
+          {
+            "attempted": true,
+            "budget_exhausted": true,
+            "elapsed_seconds": 1.3097157999873161,
+            "failure_reason": "deadline_exhausted",
+            "matched_count": 0,
+            "provider": "rss_batch",
+            "retrieval_status": "budget_exhausted",
+            "source_group": "PREP_EXTENDED",
+            "source_id": "https://feeds.skynews.com/feeds/rss/world.xml",
+            "source_tier": "extended",
+            "timed_out": true,
+            "timeout_seconds": 0.6513472000078764
+          },
+          {
+            "attempted": true,
+            "budget_exhausted": true,
+            "elapsed_seconds": 0.8404990999842994,
+            "failure_reason": "deadline_exhausted",
+            "matched_count": 0,
+            "provider": "rss_batch",
+            "retrieval_status": "budget_exhausted",
+            "source_group": "PREP_EXTENDED",
+            "source_id": "https://www.france24.com/en/rss",
+            "source_tier": "extended",
+            "timed_out": true,
+            "timeout_seconds": 0.4167297999956645
+          }
+        ],
+        "sources_skipped_due_to_budget_count": 5,
+        "symbols_by_status": {
+          "budget_exhausted": [
+            "KNRX",
+            "LFCR"
+          ]
+        },
+        "symbols_unresolved_at_budget_exhaustion": [
+          "KNRX",
+          "LFCR"
+        ],
+        "ticker_token_match_count": 0,
+        "tier_budget_exhausted_by_tier": {
+          "extended": true
+        },
+        "tier_budget_seconds_by_tier": {
+          "extended": 2.799937499978114
+        },
+        "tier_elapsed_seconds_by_tier": {
+          "extended": 2.8070604999666102
+        },
+        "tier_match_counts": {
+          "extended": 0
+        },
+        "tier_source_counts": {
+          "extended": 13
+        },
+        "total_news_budget_seconds": 2.8,
+        "unique_source_urls_attempted_count": 8,
+        "unique_source_urls_scheduled_count": 13
+      },
+      "refresh_requested_count": 2,
+      "refresh_symbols": [
+        "KNRX",
+        "LFCR"
+      ],
+      "reliability_by_symbol": {
+        "KNRX": null,
+        "LFCR": null
+      },
+      "source_provenance_by_symbol": {
+        "KNRX": [],
+        "LFCR": []
+      },
+      "stale_cache_miss_symbols": [],
+      "velocity_by_symbol": {
+        "KNRX": {
+          "velocity_10m": null,
+          "velocity_30m": null,
+          "velocity_5m": null,
+          "velocity_60m": null
+        },
+        "LFCR": {
+          "velocity_10m": null,
+          "velocity_30m": null,
+          "velocity_5m": null,
+          "velocity_60m": null
+        }
+      }
+    },
+    "news_present_non_qualifying_count": 0,
+    "news_source_mode": "news_intelligence",
+    "no_recent_news_count": 0,
+    "non_qualifying_headline_count": 0,
+    "prep_reuse_symbols": [],
+    "prep_stale_symbols": [],
+    "provider_status": "available",
+    "qualifying_headline_count": 0,
+    "queried_source_count": 21,
+    "queried_source_tiers": {
+      "extended": 13,
+      "fast": 8
+    },
+    "refresh_requested_count": 4,
+    "refresh_symbols": [
+      "KNRX",
+      "LFCR"
+    ],
+    "reliability_by_symbol": {
+      "KNRX": null,
+      "LFCR": null
+    },
+    "result_status_counts": {
+      "budget_exhausted": 2
+    },
+    "rss_failure_reason": null,
+    "rss_failure_summary": {
+      "www.reuters.com": {
+        "HTTP_401": 1
+      }
+    },
+    "rss_failures": 1,
+    "rss_sources": 21,
+    "scanner_news_diagnostics": {
+      "cache_hit_symbols": [],
+      "cache_hits_by_symbol": {},
+      "cache_miss_symbols": [
+        "KNRX",
+        "LFCR"
+      ],
+      "cache_read_failed": false,
+      "cache_state": "miss",
+      "cache_write_failed": false,
+      "company_name_match_count": 0,
+      "confirmed_catalyst_count": 0,
+      "description_summary_match_count": 0,
+      "evidence_count_by_symbol": {
+        "KNRX": 0,
+        "LFCR": 0
+      },
+      "extended_budget_exhausted": true,
+      "extended_budget_reserved_seconds": 2.8,
+      "extended_budget_seconds": 2.799937499978114,
+      "extended_fallback_requested": true,
+      "extended_fallback_symbol_count": 2,
+      "extended_sources_attempted_count": 8,
+      "extended_tier_match_count": 0,
+      "extended_tier_source_count": 13,
+      "fast_budget_exhausted": false,
+      "fast_budget_seconds": 5.2,
+      "fast_sources_attempted_count": 8,
+      "fast_tier_match_count": 0,
+      "fast_tier_source_count": 8,
+      "freshest_evidence_age_seconds_by_symbol": {
+        "KNRX": null,
+        "LFCR": null
+      },
+      "heat_by_symbol": {
+        "KNRX": null,
+        "LFCR": null
+      },
+      "match_types_by_symbol": {
+        "KNRX": [],
+        "LFCR": []
+      },
+      "max_entries_per_symbol": 5,
+      "news_budget_exhausted": true,
+      "news_degraded": true,
+      "news_elapsed_seconds": 7.288395199982915,
+      "news_gate_bypassed": false,
+      "news_intelligence_diagnostics": {
+        "cache_file": "data\\news\\news_cache.json",
+        "cache_first": true,
+        "cache_hit_symbols": [],
+        "cache_hits_by_symbol": {},
+        "cache_miss_symbols": [
+          "KNRX",
+          "LFCR"
+        ],
+        "cache_namespace": "news_intelligence",
+        "cache_read_error": null,
+        "cache_read_failed": false,
+        "cache_write_error": null,
+        "cache_write_failed": false,
+        "cache_write_symbols": [
+          "KNRX",
+          "LFCR"
+        ],
+        "classification_authority": "strategy_adapter_not_common_provider",
+        "evidence_count_by_symbol": {
+          "KNRX": 0,
+          "LFCR": 0
+        },
+        "extended_refresh_news_intelligence_diagnostics": {
+          "cache_file": "data\\news\\news_cache.json",
+          "cache_first": true,
+          "cache_hit_symbols": [],
+          "cache_hits_by_symbol": {},
+          "cache_miss_symbols": [
+            "KNRX",
+            "LFCR"
+          ],
+          "cache_namespace": "news_intelligence",
+          "cache_read_error": null,
+          "cache_read_failed": false,
+          "cache_write_error": null,
+          "cache_write_failed": false,
+          "cache_write_symbols": [
+            "KNRX",
+            "LFCR"
+          ],
+          "classification_authority": "strategy_adapter_not_common_provider",
+          "evidence_count_by_symbol": {
+            "KNRX": 0,
+            "LFCR": 0
+          },
+          "freshest_evidence_age_seconds_by_symbol": {
+            "KNRX": null,
+            "LFCR": null
+          },
+          "heat_by_symbol": {
+            "KNRX": null,
+            "LFCR": null
+          },
+          "legacy_news_cache_symbols": [],
+          "match_types_by_symbol": {
+            "KNRX": [],
+            "LFCR": []
+          },
+          "prep_reuse_symbols": [],
+          "prep_stale_symbols": [],
+          "provider_id": "canonical_news_intelligence",
+          "refresh_allowed": true,
+          "refresh_diagnostics": {
+            "classification_authority": "strategy_adapter_not_common_provider",
+            "company_name_match_count": 0,
+            "cross_tier_duplicate_source_urls_avoided": [],
+            "description_summary_match_count": 0,
+            "diagnostics_authority_notes": [
+              "event_and_catalyst_classification_remain_strategy_adapter_authority"
+            ],
+            "diagnostics_mapping_gaps": [],
+            "duplicate_source_fetches_avoided_count": 0,
+            "explicit_unresolved_symbol_count": 2,
+            "extended_budget_exhausted": true,
+            "extended_budget_reserved_seconds": 0.98,
+            "extended_budget_seconds": 2.799937499978114,
+            "extended_fallback_requested": true,
+            "extended_fallback_symbol_count": 2,
+            "extended_fallback_unresolved_symbol_source": "retrieval_policy.metadata",
+            "extended_sources_attempted_count": 8,
+            "extended_tier_elapsed_seconds": 2.8070604999666102,
+            "failure_reason": null,
+            "fast_budget_exhausted": false,
+            "fast_budget_seconds": 1.8199999999999998,
+            "fast_sources_attempted_count": 0,
+            "fast_tier_elapsed_seconds": 0.0,
+            "headline_count": 0,
+            "legacy_batch_fetcher": "src.news.news_fetcher",
+            "max_entries_per_symbol": 5,
+            "news_budget_exhausted": true,
+            "news_elapsed_seconds": 2.807617999962531,
+            "per_source_elapsed_seconds": {
+              "https://feeds.a.dj.com/rss/RSSMarketsMain.xml": 1.4940419999766164,
+              "https://feeds.bbci.co.uk/news/rss.xml": 1.464915300020948,
+              "https://feeds.skynews.com/feeds/rss/world.xml": 1.3097157999873161,
+              "https://fortune.com/rss": 1.9382470999844372,
+              "https://markets.businessinsider.com/rss": 0.0,
+              "https://techcrunch.com/rss": 0.0,
+              "https://venturebeat.com/feed": 0.0,
+              "https://www.bbc.com/news/business/rss.xml": 1.3475738000124693,
+              "https://www.forbes.com/business/feed2": 1.4493263000040315,
+              "https://www.forbes.com/finance/feed2": 1.3375124000012875,
+              "https://www.france24.com/en/rss": 0.8404990999842994,
+              "https://www.investing.com/rss/news.rss": 0.0,
+              "https://www.marketbeat.com/feed": 0.0
+            },
+            "provider_id": "rss_batch",
+            "provider_status": "available",
+            "result_status_counts": {
+              "budget_exhausted": 2
+            },
+            "rss_failure_summary": {},
+            "rss_failures": 0,
+            "rss_sources": 13,
+            "source_diagnostics": [
+              {
+                "attempted": true,
+                "budget_exhausted": false,
+                "elapsed_seconds": 1.3375124000012875,
+                "failure_reason": null,
+                "matched_count": 0,
+                "provider": "rss_batch",
+                "retrieval_status": "available",
+                "source_group": "PREP_EXTENDED",
+                "source_id": "https://www.forbes.com/finance/feed2",
+                "source_tier": "extended",
+                "timed_out": false,
+                "timeout_seconds": 0.6999683000030927
+              },
+              {
+                "attempted": true,
+                "budget_exhausted": false,
+                "elapsed_seconds": 1.4493263000040315,
+                "failure_reason": null,
+                "matched_count": 0,
+                "provider": "rss_batch",
+                "retrieval_status": "available",
+                "source_group": "PREP_EXTENDED",
+                "source_id": "https://www.forbes.com/business/feed2",
+                "source_tier": "extended",
+                "timed_out": false,
+                "timeout_seconds": 0.6999683000030927
+              },
+              {
+                "attempted": true,
+                "budget_exhausted": false,
+                "elapsed_seconds": 1.4940419999766164,
+                "failure_reason": null,
+                "matched_count": 0,
+                "provider": "rss_batch",
+                "retrieval_status": "available",
+                "source_group": "PREP_EXTENDED",
+                "source_id": "https://feeds.a.dj.com/rss/RSSMarketsMain.xml",
+                "source_tier": "extended",
+                "timed_out": false,
+                "timeout_seconds": 0.6999683000030927
+              },
+              {
+                "attempted": true,
+                "budget_exhausted": false,
+                "elapsed_seconds": 1.9382470999844372,
+                "failure_reason": null,
+                "matched_count": 0,
+                "provider": "rss_batch",
+                "retrieval_status": "available",
+                "source_group": "PREP_EXTENDED",
+                "source_id": "https://fortune.com/rss",
+                "source_tier": "extended",
+                "timed_out": false,
+                "timeout_seconds": 0.6999683000030927
+              },
+              {
+                "attempted": false,
+                "budget_exhausted": true,
+                "elapsed_seconds": 0.0,
+                "failure_reason": "deadline_exhausted_before_attempt",
+                "matched_count": 0,
+                "provider": "rss_batch",
+                "retrieval_status": "budget_exhausted",
+                "source_group": "PREP_EXTENDED",
+                "source_id": "https://markets.businessinsider.com/rss",
+                "source_tier": "extended",
+                "timed_out": false,
+                "timeout_seconds": 0.0
+              },
+              {
+                "attempted": false,
+                "budget_exhausted": true,
+                "elapsed_seconds": 0.0,
+                "failure_reason": "deadline_exhausted_before_attempt",
+                "matched_count": 0,
+                "provider": "rss_batch",
+                "retrieval_status": "budget_exhausted",
+                "source_group": "PREP_EXTENDED",
+                "source_id": "https://www.investing.com/rss/news.rss",
+                "source_tier": "extended",
+                "timed_out": false,
+                "timeout_seconds": 0.0
+              },
+              {
+                "attempted": false,
+                "budget_exhausted": true,
+                "elapsed_seconds": 0.0,
+                "failure_reason": "deadline_exhausted_before_attempt",
+                "matched_count": 0,
+                "provider": "rss_batch",
+                "retrieval_status": "budget_exhausted",
+                "source_group": "PREP_EXTENDED",
+                "source_id": "https://www.marketbeat.com/feed",
+                "source_tier": "extended",
+                "timed_out": false,
+                "timeout_seconds": 0.0
+              },
+              {
+                "attempted": false,
+                "budget_exhausted": true,
+                "elapsed_seconds": 0.0,
+                "failure_reason": "deadline_exhausted_before_attempt",
+                "matched_count": 0,
+                "provider": "rss_batch",
+                "retrieval_status": "budget_exhausted",
+                "source_group": "PREP_EXTENDED",
+                "source_id": "https://techcrunch.com/rss",
+                "source_tier": "extended",
+                "timed_out": false,
+                "timeout_seconds": 0.0
+              },
+              {
+                "attempted": false,
+                "budget_exhausted": true,
+                "elapsed_seconds": 0.0,
+                "failure_reason": "deadline_exhausted_before_attempt",
+                "matched_count": 0,
+                "provider": "rss_batch",
+                "retrieval_status": "budget_exhausted",
+                "source_group": "PREP_EXTENDED",
+                "source_id": "https://venturebeat.com/feed",
+                "source_tier": "extended",
+                "timed_out": false,
+                "timeout_seconds": 0.0
+              },
+              {
+                "attempted": true,
+                "budget_exhausted": true,
+                "elapsed_seconds": 1.464915300020948,
+                "failure_reason": "deadline_exhausted",
+                "matched_count": 0,
+                "provider": "rss_batch",
+                "retrieval_status": "budget_exhausted",
+                "source_group": "PREP_EXTENDED",
+                "source_id": "https://feeds.bbci.co.uk/news/rss.xml",
+                "source_tier": "extended",
+                "timed_out": true,
+                "timeout_seconds": 0.4859821999950024
+              },
+              {
+                "attempted": true,
+                "budget_exhausted": true,
+                "elapsed_seconds": 1.3475738000124693,
+                "failure_reason": "deadline_exhausted",
+                "matched_count": 0,
+                "provider": "rss_batch",
+                "retrieval_status": "budget_exhausted",
+                "source_group": "PREP_EXTENDED",
+                "source_id": "https://www.bbc.com/news/business/rss.xml",
+                "source_tier": "extended",
+                "timed_out": true,
+                "timeout_seconds": 0.6702850500005297
+              },
+              {
+                "attempted": true,
+                "budget_exhausted": true,
+                "elapsed_seconds": 1.3097157999873161,
+                "failure_reason": "deadline_exhausted",
+                "matched_count": 0,
+                "provider": "rss_batch",
+                "retrieval_status": "budget_exhausted",
+                "source_group": "PREP_EXTENDED",
+                "source_id": "https://feeds.skynews.com/feeds/rss/world.xml",
+                "source_tier": "extended",
+                "timed_out": true,
+                "timeout_seconds": 0.6513472000078764
+              },
+              {
+                "attempted": true,
+                "budget_exhausted": true,
+                "elapsed_seconds": 0.8404990999842994,
+                "failure_reason": "deadline_exhausted",
+                "matched_count": 0,
+                "provider": "rss_batch",
+                "retrieval_status": "budget_exhausted",
+                "source_group": "PREP_EXTENDED",
+                "source_id": "https://www.france24.com/en/rss",
+                "source_tier": "extended",
+                "timed_out": true,
+                "timeout_seconds": 0.4167297999956645
+              }
+            ],
+            "sources_skipped_due_to_budget_count": 5,
+            "symbols_by_status": {
+              "budget_exhausted": [
+                "KNRX",
+                "LFCR"
+              ]
+            },
+            "symbols_unresolved_at_budget_exhaustion": [
+              "KNRX",
+              "LFCR"
+            ],
+            "ticker_token_match_count": 0,
+            "tier_budget_exhausted_by_tier": {
+              "extended": true
+            },
+            "tier_budget_seconds_by_tier": {
+              "extended": 2.799937499978114
+            },
+            "tier_elapsed_seconds_by_tier": {
+              "extended": 2.8070604999666102
+            },
+            "tier_match_counts": {
+              "extended": 0
+            },
+            "tier_source_counts": {
+              "extended": 13
+            },
+            "total_news_budget_seconds": 2.8,
+            "unique_source_urls_attempted_count": 8,
+            "unique_source_urls_scheduled_count": 13
+          },
+          "refresh_requested_count": 2,
+          "refresh_symbols": [
+            "KNRX",
+            "LFCR"
+          ],
+          "reliability_by_symbol": {
+            "KNRX": null,
+            "LFCR": null
+          },
+          "source_provenance_by_symbol": {
+            "KNRX": [],
+            "LFCR": []
+          },
+          "stale_cache_miss_symbols": [],
+          "velocity_by_symbol": {
+            "KNRX": {
+              "velocity_10m": null,
+              "velocity_30m": null,
+              "velocity_5m": null,
+              "velocity_60m": null
+            },
+            "LFCR": {
+              "velocity_10m": null,
+              "velocity_30m": null,
+              "velocity_5m": null,
+              "velocity_60m": null
+            }
+          }
+        },
+        "fast_refresh_news_intelligence_diagnostics": {
+          "cache_file": "data\\news\\news_cache.json",
+          "cache_first": true,
+          "cache_hit_symbols": [],
+          "cache_hits_by_symbol": {},
+          "cache_miss_symbols": [
+            "KNRX",
+            "LFCR"
+          ],
+          "cache_namespace": "news_intelligence",
+          "cache_read_error": null,
+          "cache_read_failed": false,
+          "cache_write_error": null,
+          "cache_write_failed": false,
+          "cache_write_symbols": [
+            "KNRX",
+            "LFCR"
+          ],
+          "classification_authority": "strategy_adapter_not_common_provider",
+          "evidence_count_by_symbol": {
+            "KNRX": 0,
+            "LFCR": 0
+          },
+          "freshest_evidence_age_seconds_by_symbol": {
+            "KNRX": null,
+            "LFCR": null
+          },
+          "heat_by_symbol": {
+            "KNRX": null,
+            "LFCR": null
+          },
+          "legacy_news_cache_symbols": [],
+          "match_types_by_symbol": {
+            "KNRX": [],
+            "LFCR": []
+          },
+          "prep_reuse_symbols": [],
+          "prep_stale_symbols": [],
+          "provider_id": "canonical_news_intelligence",
+          "refresh_allowed": true,
+          "refresh_diagnostics": {
+            "classification_authority": "strategy_adapter_not_common_provider",
+            "company_name_match_count": 0,
+            "cross_tier_duplicate_source_urls_avoided": [],
+            "description_summary_match_count": 0,
+            "diagnostics_authority_notes": [
+              "event_and_catalyst_classification_remain_strategy_adapter_authority"
+            ],
+            "diagnostics_mapping_gaps": [],
+            "duplicate_source_fetches_avoided_count": 0,
+            "explicit_unresolved_symbol_count": 2,
+            "extended_budget_exhausted": false,
+            "extended_budget_reserved_seconds": 2.8,
+            "extended_budget_seconds": 0.0,
+            "extended_fallback_requested": false,
+            "extended_fallback_symbol_count": 0,
+            "extended_fallback_unresolved_symbol_source": "retrieval_policy.metadata",
+            "extended_sources_attempted_count": 0,
+            "extended_tier_elapsed_seconds": 0.0,
+            "failure_reason": null,
+            "fast_budget_exhausted": false,
+            "fast_budget_seconds": 5.2,
+            "fast_sources_attempted_count": 8,
+            "fast_tier_elapsed_seconds": 4.480379400018137,
+            "headline_count": 0,
+            "legacy_batch_fetcher": "src.news.news_fetcher",
+            "max_entries_per_symbol": 5,
+            "news_budget_exhausted": false,
+            "news_elapsed_seconds": 4.480777200020384,
+            "per_source_elapsed_seconds": {
+              "http://rss.cnn.com/rss/edition_business.rss": 0.4732384000089951,
+              "https://feeds.businessinsider.com/custom/all": 1.4479855000390671,
+              "https://seekingalpha.com/feed": 1.421416400000453,
+              "https://www.benzinga.com/feed": 1.4004620999912731,
+              "https://www.globenewswire.com/RssFeed/industry/9000-Technology/feedTitle/GlobeNewswire%20-%20Industry%20News%20on%20Technology": 2.9833348999964073,
+              "https://www.globenewswire.com/RssFeed?Category=Finance": 2.819909200014081,
+              "https://www.marketwatch.com/rss/topstories": 3.385353999969084,
+              "https://www.reuters.com/markets/rss": 1.085860599996522
+            },
+            "provider_id": "rss_batch",
+            "provider_status": "partial_request_failure",
+            "result_status_counts": {
+              "no_recent_news": 2
+            },
+            "rss_failure_summary": {
+              "www.reuters.com": {
+                "HTTP_401": 1
+              }
+            },
+            "rss_failures": 1,
+            "rss_sources": 8,
+            "source_diagnostics": [
+              {
+                "attempted": true,
+                "budget_exhausted": false,
+                "elapsed_seconds": 1.085860599996522,
+                "failure_reason": "HTTP_401",
+                "matched_count": 0,
+                "provider": "rss_batch",
+                "retrieval_status": "provider_error",
+                "source_group": "FAST_TRADING",
+                "source_id": "https://www.reuters.com/markets/rss",
+                "source_tier": "fast",
+                "timed_out": false,
+                "timeout_seconds": 2.597801600000821
+              },
+              {
+                "attempted": true,
+                "budget_exhausted": false,
+                "elapsed_seconds": 1.4004620999912731,
+                "failure_reason": null,
+                "matched_count": 0,
+                "provider": "rss_batch",
+                "retrieval_status": "available",
+                "source_group": "FAST_TRADING",
+                "source_id": "https://www.benzinga.com/feed",
+                "source_tier": "fast",
+                "timed_out": false,
+                "timeout_seconds": 2.597801600000821
+              },
+              {
+                "attempted": true,
+                "budget_exhausted": false,
+                "elapsed_seconds": 2.819909200014081,
+                "failure_reason": null,
+                "matched_count": 0,
+                "provider": "rss_batch",
+                "retrieval_status": "available",
+                "source_group": "FAST_TRADING",
+                "source_id": "https://www.globenewswire.com/RssFeed?Category=Finance",
+                "source_tier": "fast",
+                "timed_out": false,
+                "timeout_seconds": 2.597801600000821
+              },
+              {
+                "attempted": true,
+                "budget_exhausted": false,
+                "elapsed_seconds": 1.4479855000390671,
+                "failure_reason": null,
+                "matched_count": 0,
+                "provider": "rss_batch",
+                "retrieval_status": "available",
+                "source_group": "FAST_TRADING",
+                "source_id": "https://feeds.businessinsider.com/custom/all",
+                "source_tier": "fast",
+                "timed_out": false,
+                "timeout_seconds": 3.770634100015741
+              },
+              {
+                "attempted": true,
+                "budget_exhausted": false,
+                "elapsed_seconds": 2.9833348999964073,
+                "failure_reason": null,
+                "matched_count": 0,
+                "provider": "rss_batch",
+                "retrieval_status": "available",
+                "source_group": "FAST_TRADING",
+                "source_id": "https://www.globenewswire.com/RssFeed/industry/9000-Technology/feedTitle/GlobeNewswire%20-%20Industry%20News%20on%20Technology",
+                "source_tier": "fast",
+                "timed_out": false,
+                "timeout_seconds": 2.597801600000821
+              },
+              {
+                "attempted": true,
+                "budget_exhausted": false,
+                "elapsed_seconds": 0.4732384000089951,
+                "failure_reason": null,
+                "matched_count": 0,
+                "provider": "rss_batch",
+                "retrieval_status": "available",
+                "source_group": "FAST_TRADING",
+                "source_id": "http://rss.cnn.com/rss/edition_business.rss",
+                "source_tier": "fast",
+                "timed_out": false,
+                "timeout_seconds": 2.275550000020303
+              },
+              {
+                "attempted": true,
+                "budget_exhausted": false,
+                "elapsed_seconds": 1.421416400000453,
+                "failure_reason": null,
+                "matched_count": 0,
+                "provider": "rss_batch",
+                "retrieval_status": "available",
+                "source_group": "FAST_TRADING",
+                "source_id": "https://seekingalpha.com/feed",
+                "source_tier": "fast",
+                "timed_out": false,
+                "timeout_seconds": 2.3434972999966703
+              },
+              {
+                "attempted": true,
+                "budget_exhausted": false,
+                "elapsed_seconds": 3.385353999969084,
+                "failure_reason": null,
+                "matched_count": 0,
+                "provider": "rss_batch",
+                "retrieval_status": "available",
+                "source_group": "FAST_TRADING",
+                "source_id": "https://www.marketwatch.com/rss/topstories",
+                "source_tier": "fast",
+                "timed_out": false,
+                "timeout_seconds": 4.1064748000353575
+              }
+            ],
+            "sources_skipped_due_to_budget_count": 0,
+            "symbols_by_status": {
+              "no_recent_news": [
+                "KNRX",
+                "LFCR"
+              ]
+            },
+            "symbols_unresolved_at_budget_exhaustion": [],
+            "ticker_token_match_count": 0,
+            "tier_budget_exhausted_by_tier": {
+              "fast": false
+            },
+            "tier_budget_seconds_by_tier": {
+              "fast": 5.2
+            },
+            "tier_elapsed_seconds_by_tier": {
+              "fast": 4.480379400018137
+            },
+            "tier_match_counts": {
+              "fast": 0
+            },
+            "tier_source_counts": {
+              "fast": 8
+            },
+            "total_news_budget_seconds": 8.0,
+            "unique_source_urls_attempted_count": 8,
+            "unique_source_urls_scheduled_count": 8
+          },
+          "refresh_requested_count": 2,
+          "refresh_symbols": [
+            "KNRX",
+            "LFCR"
+          ],
+          "reliability_by_symbol": {
+            "KNRX": null,
+            "LFCR": null
+          },
+          "source_provenance_by_symbol": {
+            "KNRX": [],
+            "LFCR": []
+          },
+          "stale_cache_miss_symbols": [],
+          "velocity_by_symbol": {
+            "KNRX": {
+              "velocity_10m": null,
+              "velocity_30m": null,
+              "velocity_5m": null,
+              "velocity_60m": null
+            },
+            "LFCR": {
+              "velocity_10m": null,
+              "velocity_30m": null,
+              "velocity_5m": null,
+              "velocity_60m": null
+            }
+          }
+        },
+        "freshest_evidence_age_seconds_by_symbol": {
+          "KNRX": null,
+          "LFCR": null
+        },
+        "heat_by_symbol": {
+          "KNRX": null,
+          "LFCR": null
+        },
+        "legacy_news_cache_symbols": [],
+        "match_types_by_symbol": {
+          "KNRX": [],
+          "LFCR": []
+        },
+        "prep_reuse_symbols": [],
+        "prep_stale_symbols": [],
+        "provider_id": "canonical_news_intelligence",
+        "refresh_allowed": true,
+        "refresh_diagnostics": {
+          "classification_authority": "strategy_adapter_not_common_provider",
+          "company_name_match_count": 0,
+          "cross_tier_duplicate_source_urls_avoided": [],
+          "description_summary_match_count": 0,
+          "diagnostics_authority_notes": [
+            "event_and_catalyst_classification_remain_strategy_adapter_authority"
+          ],
+          "diagnostics_mapping_gaps": [],
+          "duplicate_source_fetches_avoided_count": 0,
+          "explicit_unresolved_symbol_count": 2,
+          "extended_budget_exhausted": true,
+          "extended_budget_reserved_seconds": 0.98,
+          "extended_budget_seconds": 2.799937499978114,
+          "extended_fallback_requested": true,
+          "extended_fallback_symbol_count": 2,
+          "extended_fallback_unresolved_symbol_source": "retrieval_policy.metadata",
+          "extended_sources_attempted_count": 8,
+          "extended_tier_elapsed_seconds": 2.8070604999666102,
+          "failure_reason": null,
+          "fast_budget_exhausted": false,
+          "fast_budget_seconds": 1.8199999999999998,
+          "fast_sources_attempted_count": 0,
+          "fast_tier_elapsed_seconds": 0.0,
+          "headline_count": 0,
+          "legacy_batch_fetcher": "src.news.news_fetcher",
+          "max_entries_per_symbol": 5,
+          "news_budget_exhausted": true,
+          "news_elapsed_seconds": 2.807617999962531,
+          "per_source_elapsed_seconds": {
+            "https://feeds.a.dj.com/rss/RSSMarketsMain.xml": 1.4940419999766164,
+            "https://feeds.bbci.co.uk/news/rss.xml": 1.464915300020948,
+            "https://feeds.skynews.com/feeds/rss/world.xml": 1.3097157999873161,
+            "https://fortune.com/rss": 1.9382470999844372,
+            "https://markets.businessinsider.com/rss": 0.0,
+            "https://techcrunch.com/rss": 0.0,
+            "https://venturebeat.com/feed": 0.0,
+            "https://www.bbc.com/news/business/rss.xml": 1.3475738000124693,
+            "https://www.forbes.com/business/feed2": 1.4493263000040315,
+            "https://www.forbes.com/finance/feed2": 1.3375124000012875,
+            "https://www.france24.com/en/rss": 0.8404990999842994,
+            "https://www.investing.com/rss/news.rss": 0.0,
+            "https://www.marketbeat.com/feed": 0.0
+          },
+          "provider_id": "rss_batch",
+          "provider_status": "available",
+          "result_status_counts": {
+            "budget_exhausted": 2
+          },
+          "rss_failure_summary": {},
+          "rss_failures": 0,
+          "rss_sources": 13,
+          "source_diagnostics": [
+            {
+              "attempted": true,
+              "budget_exhausted": false,
+              "elapsed_seconds": 1.3375124000012875,
+              "failure_reason": null,
+              "matched_count": 0,
+              "provider": "rss_batch",
+              "retrieval_status": "available",
+              "source_group": "PREP_EXTENDED",
+              "source_id": "https://www.forbes.com/finance/feed2",
+              "source_tier": "extended",
+              "timed_out": false,
+              "timeout_seconds": 0.6999683000030927
+            },
+            {
+              "attempted": true,
+              "budget_exhausted": false,
+              "elapsed_seconds": 1.4493263000040315,
+              "failure_reason": null,
+              "matched_count": 0,
+              "provider": "rss_batch",
+              "retrieval_status": "available",
+              "source_group": "PREP_EXTENDED",
+              "source_id": "https://www.forbes.com/business/feed2",
+              "source_tier": "extended",
+              "timed_out": false,
+              "timeout_seconds": 0.6999683000030927
+            },
+            {
+              "attempted": true,
+              "budget_exhausted": false,
+              "elapsed_seconds": 1.4940419999766164,
+              "failure_reason": null,
+              "matched_count": 0,
+              "provider": "rss_batch",
+              "retrieval_status": "available",
+              "source_group": "PREP_EXTENDED",
+              "source_id": "https://feeds.a.dj.com/rss/RSSMarketsMain.xml",
+              "source_tier": "extended",
+              "timed_out": false,
+              "timeout_seconds": 0.6999683000030927
+            },
+            {
+              "attempted": true,
+              "budget_exhausted": false,
+              "elapsed_seconds": 1.9382470999844372,
+              "failure_reason": null,
+              "matched_count": 0,
+              "provider": "rss_batch",
+              "retrieval_status": "available",
+              "source_group": "PREP_EXTENDED",
+              "source_id": "https://fortune.com/rss",
+              "source_tier": "extended",
+              "timed_out": false,
+              "timeout_seconds": 0.6999683000030927
+            },
+            {
+              "attempted": false,
+              "budget_exhausted": true,
+              "elapsed_seconds": 0.0,
+              "failure_reason": "deadline_exhausted_before_attempt",
+              "matched_count": 0,
+              "provider": "rss_batch",
+              "retrieval_status": "budget_exhausted",
+              "source_group": "PREP_EXTENDED",
+              "source_id": "https://markets.businessinsider.com/rss",
+              "source_tier": "extended",
+              "timed_out": false,
+              "timeout_seconds": 0.0
+            },
+            {
+              "attempted": false,
+              "budget_exhausted": true,
+              "elapsed_seconds": 0.0,
+              "failure_reason": "deadline_exhausted_before_attempt",
+              "matched_count": 0,
+              "provider": "rss_batch",
+              "retrieval_status": "budget_exhausted",
+              "source_group": "PREP_EXTENDED",
+              "source_id": "https://www.investing.com/rss/news.rss",
+              "source_tier": "extended",
+              "timed_out": false,
+              "timeout_seconds": 0.0
+            },
+            {
+              "attempted": false,
+              "budget_exhausted": true,
+              "elapsed_seconds": 0.0,
+              "failure_reason": "deadline_exhausted_before_attempt",
+              "matched_count": 0,
+              "provider": "rss_batch",
+              "retrieval_status": "budget_exhausted",
+              "source_group": "PREP_EXTENDED",
+              "source_id": "https://www.marketbeat.com/feed",
+              "source_tier": "extended",
+              "timed_out": false,
+              "timeout_seconds": 0.0
+            },
+            {
+              "attempted": false,
+              "budget_exhausted": true,
+              "elapsed_seconds": 0.0,
+              "failure_reason": "deadline_exhausted_before_attempt",
+              "matched_count": 0,
+              "provider": "rss_batch",
+              "retrieval_status": "budget_exhausted",
+              "source_group": "PREP_EXTENDED",
+              "source_id": "https://techcrunch.com/rss",
+              "source_tier": "extended",
+              "timed_out": false,
+              "timeout_seconds": 0.0
+            },
+            {
+              "attempted": false,
+              "budget_exhausted": true,
+              "elapsed_seconds": 0.0,
+              "failure_reason": "deadline_exhausted_before_attempt",
+              "matched_count": 0,
+              "provider": "rss_batch",
+              "retrieval_status": "budget_exhausted",
+              "source_group": "PREP_EXTENDED",
+              "source_id": "https://venturebeat.com/feed",
+              "source_tier": "extended",
+              "timed_out": false,
+              "timeout_seconds": 0.0
+            },
+            {
+              "attempted": true,
+              "budget_exhausted": true,
+              "elapsed_seconds": 1.464915300020948,
+              "failure_reason": "deadline_exhausted",
+              "matched_count": 0,
+              "provider": "rss_batch",
+              "retrieval_status": "budget_exhausted",
+              "source_group": "PREP_EXTENDED",
+              "source_id": "https://feeds.bbci.co.uk/news/rss.xml",
+              "source_tier": "extended",
+              "timed_out": true,
+              "timeout_seconds": 0.4859821999950024
+            },
+            {
+              "attempted": true,
+              "budget_exhausted": true,
+              "elapsed_seconds": 1.3475738000124693,
+              "failure_reason": "deadline_exhausted",
+              "matched_count": 0,
+              "provider": "rss_batch",
+              "retrieval_status": "budget_exhausted",
+              "source_group": "PREP_EXTENDED",
+              "source_id": "https://www.bbc.com/news/business/rss.xml",
+              "source_tier": "extended",
+              "timed_out": true,
+              "timeout_seconds": 0.6702850500005297
+            },
+            {
+              "attempted": true,
+              "budget_exhausted": true,
+              "elapsed_seconds": 1.3097157999873161,
+              "failure_reason": "deadline_exhausted",
+              "matched_count": 0,
+              "provider": "rss_batch",
+              "retrieval_status": "budget_exhausted",
+              "source_group": "PREP_EXTENDED",
+              "source_id": "https://feeds.skynews.com/feeds/rss/world.xml",
+              "source_tier": "extended",
+              "timed_out": true,
+              "timeout_seconds": 0.6513472000078764
+            },
+            {
+              "attempted": true,
+              "budget_exhausted": true,
+              "elapsed_seconds": 0.8404990999842994,
+              "failure_reason": "deadline_exhausted",
+              "matched_count": 0,
+              "provider": "rss_batch",
+              "retrieval_status": "budget_exhausted",
+              "source_group": "PREP_EXTENDED",
+              "source_id": "https://www.france24.com/en/rss",
+              "source_tier": "extended",
+              "timed_out": true,
+              "timeout_seconds": 0.4167297999956645
+            }
+          ],
+          "sources_skipped_due_to_budget_count": 5,
+          "symbols_by_status": {
+            "budget_exhausted": [
+              "KNRX",
+              "LFCR"
+            ]
+          },
+          "symbols_unresolved_at_budget_exhaustion": [
+            "KNRX",
+            "LFCR"
+          ],
+          "ticker_token_match_count": 0,
+          "tier_budget_exhausted_by_tier": {
+            "extended": true
+          },
+          "tier_budget_seconds_by_tier": {
+            "extended": 2.799937499978114
+          },
+          "tier_elapsed_seconds_by_tier": {
+            "extended": 2.8070604999666102
+          },
+          "tier_match_counts": {
+            "extended": 0
+          },
+          "tier_source_counts": {
+            "extended": 13
+          },
+          "total_news_budget_seconds": 2.8,
+          "unique_source_urls_attempted_count": 8,
+          "unique_source_urls_scheduled_count": 13
+        },
+        "refresh_requested_count": 2,
+        "refresh_symbols": [
+          "KNRX",
+          "LFCR"
+        ],
+        "reliability_by_symbol": {
+          "KNRX": null,
+          "LFCR": null
+        },
+        "source_provenance_by_symbol": {
+          "KNRX": [],
+          "LFCR": []
+        },
+        "stale_cache_miss_symbols": [],
+        "velocity_by_symbol": {
+          "KNRX": {
+            "velocity_10m": null,
+            "velocity_30m": null,
+            "velocity_5m": null,
+            "velocity_60m": null
+          },
+          "LFCR": {
+            "velocity_10m": null,
+            "velocity_30m": null,
+            "velocity_5m": null,
+            "velocity_60m": null
+          }
+        }
+      },
+      "news_present_non_qualifying_count": 0,
+      "news_skipped": false,
+      "news_source_mode": "news_intelligence",
+      "no_recent_news_count": 0,
+      "non_qualifying_headline_count": 0,
+      "prep_reuse_symbols": [],
+      "prep_stale_symbols": [],
+      "provider_disabled": false,
+      "provider_request_failure": false,
+      "provider_status": "available",
+      "provider_unavailable": false,
+      "qualifying_headline_count": 0,
+      "queried_source_count": 21,
+      "queried_source_tiers": {
+        "extended": 13,
+        "fast": 8
+      },
+      "refresh_requested_count": 4,
+      "refresh_symbols": [
+        "KNRX",
+        "LFCR"
+      ],
+      "reliability_by_symbol": {
+        "KNRX": null,
+        "LFCR": null
+      },
+      "result_status_counts": {
+        "budget_exhausted": 2
+      },
+      "rss_failure_reason": null,
+      "rss_failure_summary": {
+        "www.reuters.com": {
+          "HTTP_401": 1
+        }
+      },
+      "rss_failures": 1,
+      "rss_sources": 21,
+      "source_provenance_by_symbol": {
+        "KNRX": [],
+        "LFCR": []
+      },
+      "sources_skipped_due_to_budget_count": 5,
+      "stale_cache_miss_symbols": [],
+      "symbols_by_status": {
+        "budget_exhausted": [
+          "KNRX",
+          "LFCR"
+        ]
+      },
+      "symbols_unresolved_at_budget_exhaustion": [
+        "KNRX",
+        "LFCR"
+      ],
+      "ticker_token_match_count": 0,
+      "total_news_budget_seconds": 8.0,
+      "velocity_by_symbol": {
+        "KNRX": {
+          "velocity_10m": null,
+          "velocity_30m": null,
+          "velocity_5m": null,
+          "velocity_60m": null
+        },
+        "LFCR": {
+          "velocity_10m": null,
+          "velocity_30m": null,
+          "velocity_5m": null,
+          "velocity_60m": null
+        }
+      }
+    },
+    "source_provenance_by_symbol": {
+      "KNRX": [],
+      "LFCR": []
+    },
+    "sources_skipped_due_to_budget_count": 5,
+    "stale_cache_miss_symbols": [],
+    "symbols_by_status": {
+      "budget_exhausted": [
+        "KNRX",
+        "LFCR"
+      ]
+    },
+    "symbols_unresolved_at_budget_exhaustion": [
+      "KNRX",
+      "LFCR"
+    ],
+    "ticker_token_match_count": 0,
+    "total_news_budget_seconds": 8.0,
+    "velocity_by_symbol": {
+      "KNRX": {
+        "velocity_10m": null,
+        "velocity_30m": null,
+        "velocity_5m": null,
+        "velocity_60m": null
+      },
+      "LFCR": {
+        "velocity_10m": null,
+        "velocity_30m": null,
+        "velocity_5m": null,
+        "velocity_60m": null
+      }
+    }
+  },
+  "classification": "INSUFFICIENT_EVIDENCE",
+  "execution_gate_artifact": {
+    "api_write_allowed": false,
+    "broker_order_mutation_allowed": false,
+    "execution_enabled": false,
+    "execution_path": "READ_ONLY_ORDER_PATH_DISABLED",
+    "order_attempt_count": 0,
+    "order_submission_enabled": false
+  },
+  "final_audit_cleanup": {
+    "elapsed_seconds": 0.206,
+    "errors": [],
+    "scanner_runtime_reset": true,
+    "shared_manager_after": {
+      "base_client_id": 19282,
+      "connected": false,
+      "connected_client_id": null,
+      "connection_generation": 2,
+      "host": "127.0.0.1",
+      "last_disconnect_reason": "pr1040_observation_cleanup",
+      "last_error": null,
+      "last_reconnect_time": null,
+      "market_data_type": "LIVE",
+      "port": 7497,
+      "readonly_enabled": true,
+      "reconnect_count": 0,
+      "run_mode": "READ_ONLY",
+      "snapshot_timeout_seconds": 5
+    },
+    "shared_manager_before": {
+      "base_client_id": 19282,
+      "connected": true,
+      "connected_client_id": 19282,
+      "connection_generation": 2,
+      "host": "127.0.0.1",
+      "last_disconnect_reason": "market_data_client_disconnect",
+      "last_error": null,
+      "last_reconnect_time": null,
+      "market_data_type": "LIVE",
+      "port": 7497,
+      "readonly_enabled": true,
+      "reconnect_count": 0,
+      "run_mode": "READ_ONLY",
+      "snapshot_timeout_seconds": 5
+    },
+    "shared_manager_connected_after": false,
+    "shared_manager_disconnect_called": true,
+    "shared_manager_present": true,
+    "status": "ok"
+  },
+  "final_verdict": {
+    "BROKER_CONNECTED_RUNTIME_ARTIFACT_CAPTURED": "YES",
+    "EXECUTION_DISABLED": "YES",
+    "READ_ONLY_FULL_STRATEGY_OBSERVATION_CAPTURED": "NO",
+    "TERMINAL_CERTIFICATION": "PENDING_EXTERNAL_PROCESS_EXIT_PROOF",
+    "ZERO_BROKER_ORDER_MUTATIONS": "YES",
+    "blockers": [
+      "Human review required before PAPER decision.",
+      "No Focus M candidates reached real pattern input evaluation.",
+      "PAPER readiness remains blocked after PR1040 adapter output."
+    ],
+    "classification": "INSUFFICIENT_EVIDENCE",
+    "operator_signature": "W01",
+    "paper_readiness_gate": "FAIL",
+    "paper_ready": "NO",
+    "remaining_blockers": [
+      "Human review required before PAPER decision.",
+      "No Focus M candidates reached real pattern input evaluation.",
+      "PAPER readiness remains blocked after PR1040 adapter output."
+    ]
+  },
+  "market_data_observation_diagnostics": {
+    "candidate_count": 2,
+    "dominant_drop_reason": "NONE",
+    "drop_reason_counts": {},
+    "float_discovery": {
+      "float_discovery_cache_hit_count": 0,
+      "float_discovery_failed_count": 0,
+      "float_discovery_pending_count": 0,
+      "float_discovery_requested_count": 0,
+      "float_discovery_same_cycle_rehydrated_count": 1,
+      "float_discovery_success_count": 1,
+      "float_unknown_after_bounded_discovery_count": 0,
+      "max_same_cycle_float_discovery_requests": 15,
+      "symbols_failed_same_cycle_float_discovery": [],
+      "symbols_pending_same_cycle_float_discovery": [],
+      "symbols_rehydrated_from_same_cycle_float_discovery": [
+        "KNRX"
+      ],
+      "symbols_still_dropped_float_unknown": []
+    },
+    "float_discovery_cache_hit_count": 0,
+    "float_discovery_failed_count": 0,
+    "float_discovery_pending_count": 0,
+    "float_discovery_requested_count": 0,
+    "float_discovery_same_cycle_rehydrated_count": 1,
+    "float_discovery_success_count": 1,
+    "float_focus_diagnostics": {
+      "focus_drop_reason_counts": {
+        "DROP_NO_CATALYST": 2
+      },
+      "focus_empty_explanation": "USABLE_MARKET_DATA_BUT_CATALYST_NEWS_FAILURE",
+      "missing_market_data_symbols": [
+        "KNRX"
+      ],
+      "symbols_with_usable_market_data": [
+        "LFCR"
+      ],
+      "usable_market_data_but_catalyst_news_failure_symbols": [
+        "LFCR"
+      ],
+      "usable_market_data_but_over_float_symbols": [],
+      "usable_market_data_but_rvol_failure_symbols": [],
+      "usable_market_data_but_unknown_float_symbols": []
+    },
+    "float_unknown_after_bounded_discovery_count": 0,
+    "focus_m_count": 0,
+    "ibkr_market_data_diagnostic": {
+      "classification": "MARKET_DATA_USABLE",
+      "delayed_data_observed": false,
+      "drop_reason_counts": {},
+      "execution_enabled": false,
+      "float_discovery": {
+        "float_discovery_cache_hit_count": 0,
+        "float_discovery_failed_count": 0,
+        "float_discovery_pending_count": 0,
+        "float_discovery_requested_count": 0,
+        "float_discovery_same_cycle_rehydrated_count": 1,
+        "float_discovery_success_count": 1,
+        "float_unknown_after_bounded_discovery_count": 0,
+        "max_same_cycle_float_discovery_requests": 15,
+        "symbols_failed_same_cycle_float_discovery": [],
+        "symbols_pending_same_cycle_float_discovery": [],
+        "symbols_rehydrated_from_same_cycle_float_discovery": [
+          "KNRX"
+        ],
+        "symbols_still_dropped_float_unknown": []
+      },
+      "float_discovery_cache_hit_count": 0,
+      "float_discovery_failed_count": 0,
+      "float_discovery_pending_count": 0,
+      "float_discovery_requested_count": 0,
+      "float_discovery_same_cycle_rehydrated_count": 1,
+      "float_discovery_success_count": 1,
+      "float_focus_diagnostics": {
+        "focus_drop_reason_counts": {
+          "DROP_NO_CATALYST": 2
+        },
+        "focus_empty_explanation": "USABLE_MARKET_DATA_BUT_CATALYST_NEWS_FAILURE",
+        "missing_market_data_symbols": [
+          "KNRX"
+        ],
+        "symbols_with_usable_market_data": [
+          "LFCR"
+        ],
+        "usable_market_data_but_catalyst_news_failure_symbols": [
+          "LFCR"
+        ],
+        "usable_market_data_but_over_float_symbols": [],
+        "usable_market_data_but_rvol_failure_symbols": [],
+        "usable_market_data_but_unknown_float_symbols": []
+      },
+      "float_unknown_after_bounded_discovery_count": 0,
+      "ibkr_market_data_error_event_count": 0,
+      "ibkr_market_data_error_events": [],
+      "max_same_cycle_float_discovery_requests": 15,
+      "missing_fields_by_symbol": {
+        "KNRX": [
+          "bid",
+          "ask"
+        ]
+      },
+      "not_subscribed_observed": false,
+      "observed_error_codes": [],
+      "observed_error_messages": [],
+      "operator_next_steps": [
+        "Keep PAPER_READY=NO until the full PR1040/PR1045 observation and human review pass.",
+        "Re-run the bounded READ_ONLY adapter and validate the resulting observation input with the PR1039 producer."
+      ],
+      "order_submission_enabled": false,
+      "paper_readiness_gate": "FAIL",
+      "paper_ready": "NO",
+      "probable_causes": [
+        "Required quote fields were present for at least one observed scanner row and no known IBKR market-data error was detected."
+      ],
+      "provider": "IBKR",
+      "read_only_runtime": true,
+      "requested_market_data_type": "LIVE",
+      "required_quote_field_aliases": {
+        "ask": [
+          "ask",
+          "ask_price"
+        ],
+        "bid": [
+          "bid",
+          "bid_price"
+        ],
+        "close": [
+          "close",
+          "previous_close",
+          "prev_close",
+          "prior_close"
+        ],
+        "last": [
+          "last",
+          "last_price",
+          "price",
+          "mark",
+          "market_price"
+        ],
+        "volume": [
+          "volume",
+          "day_volume",
+          "snapshot_volume",
+          "total_volume"
+        ]
+      },
+      "required_quote_fields": [
+        "last",
+        "close",
+        "volume",
+        "bid",
+        "ask"
+      ],
+      "run_mode": "READ_ONLY",
+      "scanner_mode": "LIVE_READONLY",
+      "schema_version": "PR1046.ibkr_market_data_diagnostic.v1",
+      "snapshot_fields_missing": true,
+      "snapshot_timeout_observed": false,
+      "subscription_required_observed": false,
+      "symbols_by_error_code": {},
+      "symbols_failed_same_cycle_float_discovery": [],
+      "symbols_pending_same_cycle_float_discovery": [],
+      "symbols_rehydrated_from_same_cycle_float_discovery": [
+        "KNRX"
+      ],
+      "symbols_still_dropped_float_unknown": [],
+      "symbols_with_all_required_fields": [
+        "LFCR"
+      ],
+      "symbols_with_any_required_field": [
+        "KNRX",
+        "LFCR"
+      ]
+    },
+    "max_same_cycle_float_discovery_requests": 15,
+    "observation_scope": {
+      "evaluated_pattern_symbols": [],
+      "manual_focus_symbols_set": false,
+      "max_observation_seconds": 120.0,
+      "max_observation_symbols": 3,
+      "max_snapshot_failures": 10,
+      "observation_symbols": [],
+      "observed_focus_symbols": [],
+      "scanner_original_requested_top_n": 50,
+      "scanner_request_symbol_cap": 2,
+      "scanner_requested_top_n": 2,
+      "scanner_returned_naturally": true,
+      "scanner_runtime_bound": {
+        "active": true,
+        "budget_seconds": 119.934,
+        "completed_returned_payload": true,
+        "elapsed_seconds": 20.902,
+        "news_reserve_seconds": 8.0,
+        "stop_reason": null,
+        "stop_stage": null,
+        "stopped": false,
+        "upstream_budget_seconds": 111.934
+      },
+      "scanner_runtime_budget_seconds": 120.0,
+      "scanner_runtime_elapsed_seconds": 20.903,
+      "scanner_runtime_news_reserve_seconds": 8.0,
+      "scope_type": "OPERATOR_OBSERVATION_SCOPE_ONLY",
+      "snapshot_failure_count": 0,
+      "stopped_by_max_observation_seconds": false,
+      "stopped_by_max_observation_symbols": false,
+      "stopped_by_max_snapshot_failures": false,
+      "synthetic_trade_intents_set": false
+    },
+    "outcome": "NO_FOCUS_CANDIDATES",
+    "prep_context_watchlist_count": 0,
+    "scanner_runtime_bound": {
+      "active": true,
+      "budget_seconds": 119.934,
+      "completed_returned_payload": true,
+      "elapsed_seconds": 20.902,
+      "news_reserve_seconds": 8.0,
+      "stop_reason": null,
+      "stop_stage": null,
+      "stopped": false,
+      "upstream_budget_seconds": 111.934
+    },
+    "symbols_dropped_missing_price": [],
+    "symbols_failed_same_cycle_float_discovery": [],
+    "symbols_pending_same_cycle_float_discovery": [],
+    "symbols_rehydrated_from_same_cycle_float_discovery": [
+      "KNRX"
+    ],
+    "symbols_still_dropped_float_unknown": [],
+    "symbols_with_float": [
+      "KNRX",
+      "LFCR"
+    ],
+    "symbols_with_reference_only": [],
+    "symbols_with_snapshot_timeout": [],
+    "symbols_with_valid_bid_ask": [
+      "LFCR"
+    ],
+    "symbols_with_valid_last_price": [
+      "KNRX",
+      "LFCR"
+    ],
+    "symbols_with_valid_volume": [
+      "KNRX",
+      "LFCR"
+    ],
+    "watchlist_context_count": 2,
+    "watchlist_k_count": 2
+  },
+  "mutation_attempts": {
+    "cancel": 0,
+    "modify": 0,
+    "place": 0
+  },
+  "operator": "W01",
+  "operator_observation_scope": {
+    "evaluated_pattern_symbols": [],
+    "manual_focus_symbols_set": false,
+    "max_observation_seconds": 120.0,
+    "max_observation_symbols": 3,
+    "max_snapshot_failures": 10,
+    "observation_symbols": [],
+    "observed_focus_symbols": [],
+    "scanner_original_requested_top_n": 50,
+    "scanner_request_symbol_cap": 2,
+    "scanner_requested_top_n": 2,
+    "scanner_returned_naturally": true,
+    "scanner_runtime_bound": {
+      "active": true,
+      "budget_seconds": 119.934,
+      "completed_returned_payload": true,
+      "elapsed_seconds": 20.902,
+      "news_reserve_seconds": 8.0,
+      "stop_reason": null,
+      "stop_stage": null,
+      "stopped": false,
+      "upstream_budget_seconds": 111.934
+    },
+    "scanner_runtime_budget_seconds": 120.0,
+    "scanner_runtime_elapsed_seconds": 20.903,
+    "scanner_runtime_news_reserve_seconds": 8.0,
+    "scope_type": "OPERATOR_OBSERVATION_SCOPE_ONLY",
+    "snapshot_failure_count": 0,
+    "stopped_by_max_observation_seconds": false,
+    "stopped_by_max_observation_symbols": false,
+    "stopped_by_max_snapshot_failures": false,
+    "synthetic_trade_intents_set": false
+  },
+  "pattern_input_artifact": {
+    "data_quality_flags": [
+      "NO_REAL_PATTERN_INPUT_EVIDENCE"
+    ],
+    "freshness_status": "MISSING",
+    "indicator_provenance": {},
+    "input_source": "REAL_RUNTIME_NO_FOCUS_OR_NO_PATTERN_INPUT_ATTEMPT",
+    "liquidity_context": {},
+    "missing_data_action": "BLOCK",
+    "news_context": {},
+    "stale_input_execution": false,
+    "symbol": "NONE",
+    "symbols": [],
+    "timeframe_provenance": {}
+  },
+  "risk_gate_artifact": {
+    "daily_governor_state": "NOT_EVALUATED_NO_TRADE",
+    "position_size_proposed": 0,
+    "risk_approval_source": "NOT_EVALUATED_NO_TRADE",
+    "risk_approved": false,
+    "risk_gate_called": false,
+    "risk_profile": "NONE",
+    "risk_reason": "NO_SETUP_NO_RISK_APPROVAL"
+  },
+  "scanner_cycle_artifact": {
+    "accepted_candidate_count": 2,
+    "candidate_count": 2,
+    "drop_ledger": {},
+    "float_discovery": {
+      "float_discovery_cache_hit_count": 0,
+      "float_discovery_failed_count": 0,
+      "float_discovery_pending_count": 0,
+      "float_discovery_requested_count": 0,
+      "float_discovery_same_cycle_rehydrated_count": 1,
+      "float_discovery_success_count": 1,
+      "float_unknown_after_bounded_discovery_count": 0,
+      "max_same_cycle_float_discovery_requests": 15,
+      "symbols_failed_same_cycle_float_discovery": [],
+      "symbols_pending_same_cycle_float_discovery": [],
+      "symbols_rehydrated_from_same_cycle_float_discovery": [
+        "KNRX"
+      ],
+      "symbols_still_dropped_float_unknown": []
+    },
+    "float_discovery_cache_hit_count": 0,
+    "float_discovery_failed_count": 0,
+    "float_discovery_pending_count": 0,
+    "float_discovery_requested_count": 0,
+    "float_discovery_same_cycle_rehydrated_count": 1,
+    "float_discovery_success_count": 1,
+    "float_unknown_after_bounded_discovery_count": 0,
+    "live_scanner_watchlist_k_symbols": [
+      "KNRX",
+      "LFCR"
+    ],
+    "max_same_cycle_float_discovery_requests": 15,
+    "prep_context_watchlist_symbols": [],
+    "provider_source": "IBKR",
+    "rejected_candidate_count": 0,
+    "restored_watchlist_symbols": [
+      "KNRX",
+      "LFCR"
+    ],
+    "ross_policy_thresholds_used": {
+      "source": "RossPolicy",
+      "threshold_override": false,
+      "validation_override": false
+    },
+    "scanner_contract": {
+      "contract_scope": "LIVE_SCANNER_SELECTION",
+      "contract_valid": true,
+      "focus_m": 0,
+      "focus_subset_of_live_watchlist": true,
+      "live_scanner_watchlist_k_symbols": [
+        "KNRX",
+        "LFCR"
+      ],
+      "prep_context_watchlist_symbols": [],
+      "requested_top_n": 2,
+      "restored_watchlist_count": 2,
+      "restored_watchlist_symbols": [
+        "KNRX",
+        "LFCR"
+      ],
+      "top_n": 2,
+      "top_n_symbols": [
+        "KNRX",
+        "LFCR"
+      ],
+      "watchlist_k": 2
+    },
+    "selection_spec": {
+      "ranking_intent": "ROSS_MOMENTUM_STOCK_SELECTION",
+      "threshold_override": false
+    },
+    "session_classification": "RTH_MID",
+    "symbols_failed_same_cycle_float_discovery": [],
+    "symbols_pending_same_cycle_float_discovery": [],
+    "symbols_rehydrated_from_same_cycle_float_discovery": [
+      "KNRX"
+    ],
+    "symbols_still_dropped_float_unknown": [],
+    "threshold_override": false,
+    "top_n_symbols": [
+      "KNRX",
+      "LFCR"
+    ],
+    "validation_override": false
+  },
+  "scenario_id": "REAL_READ_ONLY_RUNTIME_OBSERVATION_2026-09-28T172949Z0000",
+  "schema_version": "PR1039.controlled_readonly_observation_input.v1",
+  "setup_decision_artifact": {
+    "decision_authority": "NOT_EVALUATED",
+    "decision_path_canonical": false,
+    "decision_reason": "NO_FOCUS_CANDIDATES",
+    "decision_verdict": "NO_TRADE",
+    "detected_setups": [],
+    "entry_model": "NO_ENTRY_NO_TRADE",
+    "fallback_trade_intent": false,
+    "no_setup_reason": "NO_FOCUS_CANDIDATES",
+    "rationale_text": "Real READ_ONLY no-trade observation: NO_FOCUS_CANDIDATES.",
+    "selected_setup": "NONE",
+    "stop_model": "NO_STOP_NO_TRADE",
+    "strategy_decisions": [],
+    "target_model": "NO_TARGET_NO_TRADE"
+  },
+  "shutdown_diagnostics": {
+    "elapsed_seconds": 0.032,
+    "errors": [],
+    "scanner_runtime_reset": true,
+    "shared_manager_after": {
+      "base_client_id": 19282,
+      "connected": false,
+      "connected_client_id": null,
+      "connection_generation": 1,
+      "host": "127.0.0.1",
+      "last_disconnect_reason": "market_data_client_disconnect",
+      "last_error": null,
+      "last_reconnect_time": null,
+      "market_data_type": "LIVE",
+      "port": 7497,
+      "readonly_enabled": true,
+      "reconnect_count": 0,
+      "run_mode": "READ_ONLY",
+      "snapshot_timeout_seconds": 5
+    },
+    "shared_manager_before": {
+      "base_client_id": 19282,
+      "connected": false,
+      "connected_client_id": null,
+      "connection_generation": 1,
+      "host": "127.0.0.1",
+      "last_disconnect_reason": "market_data_client_disconnect",
+      "last_error": null,
+      "last_reconnect_time": null,
+      "market_data_type": "LIVE",
+      "port": 7497,
+      "readonly_enabled": true,
+      "reconnect_count": 0,
+      "run_mode": "READ_ONLY",
+      "snapshot_timeout_seconds": 5
+    },
+    "shared_manager_connected_after": false,
+    "shared_manager_disconnect_called": false,
+    "shared_manager_present": true,
+    "status": "ok"
+  },
+  "watchlist_focus_artifact": {
+    "float_discovery": {
+      "float_discovery_cache_hit_count": 0,
+      "float_discovery_failed_count": 0,
+      "float_discovery_pending_count": 0,
+      "float_discovery_requested_count": 0,
+      "float_discovery_same_cycle_rehydrated_count": 1,
+      "float_discovery_success_count": 1,
+      "float_unknown_after_bounded_discovery_count": 0,
+      "max_same_cycle_float_discovery_requests": 15,
+      "symbols_failed_same_cycle_float_discovery": [],
+      "symbols_pending_same_cycle_float_discovery": [],
+      "symbols_rehydrated_from_same_cycle_float_discovery": [
+        "KNRX"
+      ],
+      "symbols_still_dropped_float_unknown": []
+    },
+    "float_discovery_cache_hit_count": 0,
+    "float_discovery_failed_count": 0,
+    "float_discovery_pending_count": 0,
+    "float_discovery_requested_count": 0,
+    "float_discovery_same_cycle_rehydrated_count": 1,
+    "float_discovery_success_count": 1,
+    "float_focus_diagnostics": {
+      "focus_drop_reason_counts": {
+        "DROP_NO_CATALYST": 2
+      },
+      "focus_empty_explanation": "USABLE_MARKET_DATA_BUT_CATALYST_NEWS_FAILURE",
+      "missing_market_data_symbols": [
+        "KNRX"
+      ],
+      "symbols_with_usable_market_data": [
+        "LFCR"
+      ],
+      "usable_market_data_but_catalyst_news_failure_symbols": [
+        "LFCR"
+      ],
+      "usable_market_data_but_over_float_symbols": [],
+      "usable_market_data_but_rvol_failure_symbols": [],
+      "usable_market_data_but_unknown_float_symbols": []
+    },
+    "float_unknown_after_bounded_discovery_count": 0,
+    "focus_m_symbols": [],
+    "focus_rows": [],
+    "manual_focus_injection": false,
+    "max_same_cycle_float_discovery_requests": 15,
+    "non_focus_execution_ineligible": true,
+    "prep_context_rows": [],
+    "prep_context_watchlist_symbols": [],
+    "restored_watchlist_symbols": [
+      "KNRX",
+      "LFCR"
+    ],
+    "symbols_failed_same_cycle_float_discovery": [],
+    "symbols_pending_same_cycle_float_discovery": [],
+    "symbols_rehydrated_from_same_cycle_float_discovery": [
+      "KNRX"
+    ],
+    "symbols_still_dropped_float_unknown": [],
+    "synthetic_focus": false,
+    "watchlist_context_rows": [
+      {
+        "ask": -1.0,
+        "attention_tier": "T0",
+        "bid": -1.0,
+        "catalyst_type": null,
+        "data_quality_flags": [
+          "MD_STALE",
+          "MD_MISSING_BID",
+          "MD_MISSING_ASK",
+          "SPREAD_UNKNOWN",
+          "PRICE_LOW_DEGRADED",
+          "NEWS_DELAYED"
+        ],
+        "dilution_flag": false,
+        "dollar_volume": 2163682.2,
+        "drop_reason": null,
+        "float_shares": 15644782,
+        "gam_ea_eligible": false,
+        "last_price": 1.22,
+        "news_age_minutes": null,
+        "news_present": false,
+        "pct_change": 301.32,
+        "rvol": 58.75,
+        "scanner_rank": 1,
+        "scanner_score": 100.0,
+        "session": "RTH_MID",
+        "spread": null,
+        "spread_pct": null,
+        "symbol": "KNRX",
+        "velocity_10m": 0,
+        "velocity_30m": 0,
+        "velocity_5m": 0,
+        "volume": 1773510
+      },
+      {
+        "ask": 6.52,
+        "attention_tier": "T0",
+        "bid": 6.51,
+        "catalyst_type": null,
+        "data_quality_flags": [
+          "NEWS_DELAYED"
+        ],
+        "dilution_flag": false,
+        "dollar_volume": 199140.9,
+        "drop_reason": null,
+        "float_shares": 19328908,
+        "gam_ea_eligible": false,
+        "last_price": 6.51,
+        "news_age_minutes": null,
+        "news_present": false,
+        "pct_change": 55.0,
+        "rvol": 38.98,
+        "scanner_rank": 2,
+        "scanner_score": 100.0,
+        "session": "RTH_MID",
+        "spread": 0.01,
+        "spread_pct": 0.0015,
+        "symbol": "LFCR",
+        "velocity_10m": 0,
+        "velocity_30m": 0,
+        "velocity_5m": 0,
+        "volume": 30590
+      }
+    ],
+    "watchlist_context_symbols": [
+      "KNRX",
+      "LFCR"
+    ],
+    "watchlist_k_symbols": [
+      "KNRX",
+      "LFCR"
+    ],
+    "watchlist_rows": [
+      {
+        "adv20_resolved": true,
+        "adv20_source": "INTRADAY_STATS",
+        "ask": -1.0,
+        "avg_volume_20d": 86256,
+        "bid": -1.0,
+        "catalyst_present": false,
+        "catalyst_summary": null,
+        "con_id": 817976192,
+        "context_status": "live_candidate",
+        "data_integrity_flags": [],
+        "data_quality_flags": [
+          "MD_STALE",
+          "MD_MISSING_BID",
+          "MD_MISSING_ASK",
+          "SPREAD_UNKNOWN",
+          "PRICE_LOW_DEGRADED",
+          "NEWS_DELAYED"
+        ],
+        "data_quality_ok": false,
+        "degraded_adv20": false,
+        "degraded_data_profile": "NONE",
+        "degraded_execution_eligibility": false,
+        "degraded_focus_eligibility": false,
+        "degraded_pct_change": false,
+        "degraded_reference": false,
+        "degraded_rvol": false,
+        "degraded_rvol_gate_bypass": false,
+        "dollar_volume": 2163682.2,
+        "drop_reasons": [],
+        "eligibility_reason_codes": [
+          "PRICE_BELOW_LIVE_QUALITY",
+          "CATALYST_DATA_UNAVAILABLE"
+        ],
+        "exchange": "SMART",
+        "execution_eligible": false,
+        "execution_ready": false,
+        "float_asof": "2026-09-28T17:29:53.562084+00:00",
+        "float_cache_hit": false,
+        "float_millions": 15.64,
+        "float_shares": 15644782,
+        "float_source": "YAHOO",
+        "focus_eligible": false,
+        "fresh_news_count": 0,
+        "gap_pct": 301.32,
+        "gap_pct_resolved": 283.77,
+        "gap_source": "SESSION_OPEN_VS_REF",
+        "gate_checks": {
+          "catalyst_ok": false,
+          "focus_bid_ask": true,
+          "focus_dollar_volume": true,
+          "focus_halt": true,
+          "focus_spread": true,
+          "focus_ssr": true,
+          "focus_volume": true,
+          "watch_float": true,
+          "watch_pct_change": true,
+          "watch_price": true,
+          "watch_rvol": true
+        },
+        "halted": null,
+        "hod_pct": null,
+        "ibkr_change_pct": null,
+        "last_price": 1.22,
+        "live_confirmation_pending": false,
+        "live_rvol_deferred": false,
+        "news_asof": "2026-09-28T17:30:10.351316+00:00",
+        "news_count": 0,
+        "news_source_mode": "news_intelligence",
+        "open_relative_pct_change": 283.77,
+        "pct_change": 301.32,
+        "pct_change_degraded": false,
+        "pct_change_execution_usable": true,
+        "pct_change_failure_reason": null,
+        "pct_change_qualification_usable": true,
+        "pct_change_resolved": 301.32,
+        "pct_change_source_quality": "PRIMARY",
+        "pct_change_synthetic": false,
+        "pct_source": "CALC(SESSION_REF)",
+        "phase_volume_ratio": null,
+        "premarket_volume": null,
+        "prep_only": false,
+        "prep_seeded": false,
+        "prev_close": 0.304,
+        "promotion_reason": "LIVE_SCAN",
+        "quote_integrity_state": "VALID",
+        "quote_usability_state": "MOMENTUM_OK",
+        "rank_components": {
+          "dollar_volume": 40.0,
+          "float_priority_boost": 0.0,
+          "pct_change": 90.0,
+          "rvol": 70.0
+        },
+        "rank_score": 100.0,
+        "ref_close_rth": 0.304,
+        "reference_label": "LAST_RTH_CLOSE",
+        "reference_price": 0.304,
+        "reference_quality_tier": "PRIMARY",
+        "reference_resolved": true,
+        "reference_source": "IBKR_PREV_CLOSE",
+        "reference_synthetic": false,
+        "relative_volume": 33.41,
+        "rvol": 58.75,
+        "rvol_degraded": false,
+        "rvol_discovery": 58.75,
+        "rvol_execution_usable": false,
+        "rvol_failure_reason": null,
+        "rvol_phase": 58.75,
+        "rvol_qualification_usable": true,
+        "rvol_status": "RESOLVED",
+        "selection_rationale": {
+          "catalyst": "UNKNOWN",
+          "drop_reasons": [],
+          "failed_gates": [
+            "catalyst_ok"
+          ],
+          "final_decision": "REJECT",
+          "float": "ACCEPTABLE_LOW_FLOAT",
+          "float_reason": "acceptable_low_float",
+          "pct_change": "LIVE_QUALITY",
+          "pct_change_source": "CALC(SESSION_REF)",
+          "pct_change_threshold": 5.0,
+          "pct_change_value": 301.32,
+          "price": "LOW_PRICE_DEGRADED",
+          "price_reason": "below_live_quality_price",
+          "rvol": "LIVE_QUALITY",
+          "rvol_session_tier": "RTH_MID",
+          "rvol_threshold": 1.0,
+          "rvol_value": 58.75,
+          "session": "RTH_MID",
+          "spread_liquidity": "OK",
+          "stage": "WATCHLIST"
+        },
+        "session_label": "RTH_MID",
+        "session_phase": null,
+        "spread": null,
+        "spread_pct": null,
+        "ssr": null,
+        "stale_news_count": 0,
+        "symbol": "KNRX",
+        "timestamp_utc": "2026-09-28T17:29:49.470327+00:00",
+        "top_news_age_hours": null,
+        "top_news_catalyst_tag": null,
+        "top_news_title": null,
+        "volume": 1773510,
+        "watchlist_eligible": true,
+        "watchlist_source": "LIVE_SCAN"
+      },
+      {
+        "adv20_resolved": true,
+        "adv20_source": "INTRADAY_STATS",
+        "ask": 6.52,
+        "avg_volume_20d": 2242,
+        "bid": 6.51,
+        "catalyst_present": false,
+        "catalyst_summary": null,
+        "con_id": 4814301,
+        "context_status": "live_candidate",
+        "data_integrity_flags": [],
+        "data_quality_flags": [
+          "NEWS_DELAYED"
+        ],
+        "data_quality_ok": false,
+        "degraded_adv20": false,
+        "degraded_data_profile": "NONE",
+        "degraded_execution_eligibility": false,
+        "degraded_focus_eligibility": false,
+        "degraded_pct_change": false,
+        "degraded_reference": false,
+        "degraded_rvol": false,
+        "degraded_rvol_gate_bypass": false,
+        "dollar_volume": 199140.9,
+        "drop_reasons": [],
+        "eligibility_reason_codes": [
+          "CATALYST_DATA_UNAVAILABLE"
+        ],
+        "exchange": "SMART",
+        "execution_eligible": false,
+        "execution_ready": false,
+        "float_asof": "2026-09-28T17:29:53.964374+00:00",
+        "float_cache_hit": false,
+        "float_millions": 19.33,
+        "float_shares": 19328908,
+        "float_source": "YAHOO",
+        "focus_eligible": false,
+        "fresh_news_count": 0,
+        "gap_pct": 55.0,
+        "gap_pct_resolved": -0.15,
+        "gap_source": "SESSION_OPEN_VS_REF",
+        "gate_checks": {
+          "catalyst_ok": false,
+          "focus_bid_ask": true,
+          "focus_dollar_volume": true,
+          "focus_halt": true,
+          "focus_spread": true,
+          "focus_ssr": true,
+          "focus_volume": false,
+          "watch_float": true,
+          "watch_pct_change": true,
+          "watch_price": true,
+          "watch_rvol": true
+        },
+        "halted": null,
+        "hod_pct": null,
+        "ibkr_change_pct": null,
+        "last_price": 6.51,
+        "live_confirmation_pending": false,
+        "live_rvol_deferred": false,
+        "news_asof": "2026-09-28T17:30:10.354183+00:00",
+        "news_count": 0,
+        "news_source_mode": "news_intelligence",
+        "open_relative_pct_change": -0.15,
+        "pct_change": 55.0,
+        "pct_change_degraded": false,
+        "pct_change_execution_usable": true,
+        "pct_change_failure_reason": null,
+        "pct_change_qualification_usable": true,
+        "pct_change_resolved": 55.0,
+        "pct_change_source_quality": "PRIMARY",
+        "pct_change_synthetic": false,
+        "pct_source": "CALC(SESSION_REF)",
+        "phase_volume_ratio": null,
+        "premarket_volume": null,
+        "prep_only": false,
+        "prep_seeded": false,
+        "prev_close": 4.2,
+        "promotion_reason": "LIVE_SCAN",
+        "quote_integrity_state": "VALID",
+        "quote_usability_state": "EXECUTION_OK",
+        "rank_components": {
+          "dollar_volume": 3.98,
+          "float_priority_boost": 0.0,
+          "pct_change": 90.0,
+          "rvol": 70.0
+        },
+        "rank_score": 100.0,
+        "ref_close_rth": 4.2,
+        "reference_label": "LAST_RTH_CLOSE",
+        "reference_price": 4.2,
+        "reference_quality_tier": "PRIMARY",
+        "reference_resolved": true,
+        "reference_source": "IBKR_PREV_CLOSE",
+        "reference_synthetic": false,
+        "relative_volume": 22.17,
+        "rvol": 38.98,
+        "rvol_degraded": false,
+        "rvol_discovery": 38.98,
+        "rvol_execution_usable": false,
+        "rvol_failure_reason": null,
+        "rvol_phase": 38.98,
+        "rvol_qualification_usable": true,
+        "rvol_status": "RESOLVED",
+        "selection_rationale": {
+          "catalyst": "UNKNOWN",
+          "drop_reasons": [],
+          "failed_gates": [
+            "focus_volume",
+            "catalyst_ok"
+          ],
+          "final_decision": "REJECT",
+          "float": "ACCEPTABLE_LOW_FLOAT",
+          "float_reason": "acceptable_low_float",
+          "pct_change": "LIVE_QUALITY",
+          "pct_change_source": "CALC(SESSION_REF)",
+          "pct_change_threshold": 5.0,
+          "pct_change_value": 55.0,
+          "price": "PREFERRED_SWEET_SPOT",
+          "price_reason": "preferred_price_sweet_spot",
+          "rvol": "LIVE_QUALITY",
+          "rvol_session_tier": "RTH_MID",
+          "rvol_threshold": 1.0,
+          "rvol_value": 38.98,
+          "session": "RTH_MID",
+          "spread_liquidity": "OK",
+          "stage": "WATCHLIST"
+        },
+        "session_label": "RTH_MID",
+        "session_phase": null,
+        "spread": 0.01,
+        "spread_pct": 0.0015,
+        "ssr": null,
+        "stale_news_count": 0,
+        "symbol": "LFCR",
+        "timestamp_utc": "2026-09-28T17:29:49.470327+00:00",
+        "top_news_age_hours": null,
+        "top_news_catalyst_tag": null,
+        "top_news_title": null,
+        "volume": 30590,
+        "watchlist_eligible": true,
+        "watchlist_source": "LIVE_SCAN"
+      }
+    ]
+  }
+}

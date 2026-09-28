@@ -1,0 +1,24 @@
+...................................F.................................... [ 61%]
+.............................................                            [100%][FLOAT][DISCOVERY] symbol=TSLA provider=YAHOO result=SUCCESS value=2819186930
+[FLOAT][CACHE_WRITE] symbol=TSLA path=C:\Users\nelzo\.codex\worktrees\w01-consolidation\ibkr-trading-system\data\reference\float_cache.json source=YAHOO value=2819186930
+[FLOAT][DISCOVERY_WORKER] symbol=TSLA provider=YAHOO result=SUCCESS value=2819186930
+[FLOAT][DISCOVERY] symbol=META provider=YAHOO result=SUCCESS value=2201809630
+[FLOAT][CACHE_WRITE] symbol=META path=C:\Users\nelzo\.codex\worktrees\w01-consolidation\ibkr-trading-system\data\reference\float_cache.json source=YAHOO value=2201809630
+[FLOAT][DISCOVERY_WORKER] symbol=META provider=YAHOO result=SUCCESS value=2201809630
+
+================================== FAILURES ===================================
+_ test_pr1065_architecture_document_records_source_group_boundary_and_safety __
+
+    def test_pr1065_architecture_document_records_source_group_boundary_and_safety() -> None:
+        text = DOC_PATH.read_text(encoding="utf-8")
+    
+        assert "src/news/source_groups.py" in text
+        assert "src/news/rss_registry.py" in text
+        assert "VERIFIED_RSS_LEGACY" in text
+>       assert "active Ross scanner path" in text
+E       AssertionError: assert 'active Ross scanner path' in '# News Intelligence Contract\n\n## Purpose\n\nThis document defines the strategy-agnostic News Intelligence contract ...ifier. Catalyst eligibility remains strategy policy. See W01_OWNERSHIP.md for removals and compatibility conditions.\n'
+
+tests\test_pr1065_news_source_groups.py:146: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_pr1065_news_source_groups.py::test_pr1065_architecture_document_records_source_group_boundary_and_safety
+1 failed, 116 passed in 12.10s

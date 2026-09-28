@@ -1,0 +1,13 @@
+{
+  "changed_sources": [
+    "src/news/evidence_store.py",
+    "src/news/prep_adapter.py",
+    "tests/test_w01_ownership_boundaries.py"
+  ],
+  "reason": "Preserve prep summary and issuer metadata through canonical evidence projection",
+  "targeted_result": "75 passed in 4.47s",
+  "required_final_full_validation": "PR CI on exact final head",
+  "formatting_only_sources": [
+    "src/news/issuer_relevance.py"
+  ]
+}

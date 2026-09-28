@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from src.scanner.session_pct_change import resolve_market_session_context
+from src.market_data.session_pct_change import resolve_market_session_context
 
 
 def test_resolve_market_session_phase_rth_open_mid_late() -> None:

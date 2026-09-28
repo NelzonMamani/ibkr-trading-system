@@ -7,7 +7,7 @@ import os
 from dataclasses import dataclass
 from typing import Any, List
 
-from src.scanner.session_pct_change import normalize_session_label
+from src.market_data.session_pct_change import normalize_session_label
 
 from src.strategies.ross_momentum.patterns.pattern_evaluator import PatternEvaluationSummary
 from src.strategies.ross_momentum.patterns.pattern_evaluator import PatternEvaluator

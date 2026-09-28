@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import calendar
 import importlib
 import importlib.util
 import logging
@@ -235,7 +236,7 @@ def symbol_relevance_match(
     return None
 
 
-def _entry_timestamp(entry: Any) -> float:
+def _entry_timestamp(entry: Any) -> float | None:
     published = getattr(entry, "published_parsed", None)
     updated = getattr(entry, "updated_parsed", None)
     if isinstance(entry, Mapping):
@@ -243,8 +244,11 @@ def _entry_timestamp(entry: Any) -> float:
         updated = entry.get("updated_parsed", updated)
     for ts_struct in (published, updated):
         if ts_struct:
-            return time.mktime(ts_struct)
-    return time.time()
+            try:
+                return float(calendar.timegm(ts_struct))
+            except (TypeError, ValueError, OverflowError):
+                continue
+    return None
 
 
 def _entry_value(entry: Any, key: str) -> Any:
@@ -620,6 +624,9 @@ def _fetch_headlines_from_sources(
             if not title:
                 continue
             ts = _entry_timestamp(entry)
+            if ts is None or ts > now:
+                logging.info("[NEWS][TIME_REJECT] source=%s reason=missing_or_future_publication_time", url)
+                continue
             if ts < min_ts:
                 continue
             summary_text = _entry_summary(entry)

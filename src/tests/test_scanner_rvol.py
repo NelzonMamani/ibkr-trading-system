@@ -1,4 +1,4 @@
-from src.scanner.session_pct_change import compute_scanner_rvol
+from src.market_data.session_pct_change import compute_scanner_rvol
 
 
 def test_compute_scanner_rvol_basic_ratio() -> None:

@@ -1,0 +1,44 @@
+..................F...........F......                                    [100%]
+================================== FAILURES ===================================
+_ test_pr1065_architecture_document_records_source_group_boundary_and_safety __
+
+    def test_pr1065_architecture_document_records_source_group_boundary_and_safety() -> None:
+        text = DOC_PATH.read_text(encoding="utf-8")
+    
+        assert "src/news/source_groups.py" in text
+        assert "src/news/rss_registry.py" in text
+        assert "VERIFIED_RSS_LEGACY" in text
+>       assert "active Ross scanner path" in text
+E       AssertionError: assert 'active Ross scanner path' in '# News Intelligence Contract\n\n## Purpose\n\nThis document defines the strategy-agnostic News Intelligence contract ...ifier. Catalyst eligibility remains strategy policy. See W01_OWNERSHIP.md for removals and compatibility conditions.\n'
+
+tests\test_pr1065_news_source_groups.py:146: AssertionError
+________________ test_snapshot_interface_normalization_wrapper ________________
+
+    def test_snapshot_interface_normalization_wrapper() -> None:
+        client = IbkrClient.__new__(IbkrClient)
+    
+        def fake_market_snapshot(symbol: str) -> MarketSnapshot:
+            return MarketSnapshot(
+                symbol=symbol,
+                bid=10.0,
+                ask=10.1,
+                last=10.05,
+                volume=12345,
+                asof_utc=datetime.now(timezone.utc),
+                market_data_type="LIVE",
+                source="IBKR",
+            )
+    
+        client.get_market_snapshot = fake_market_snapshot  # type: ignore[assignment]
+        raw = client.snapshot_stock("AAPL")
+        assert raw.symbol == "AAPL"
+        assert raw.last == 10.05
+>       assert raw.close == 10.05
+E       AssertionError: assert None == 10.05
+E        +  where None = MarketDataSnapshot(symbol='AAPL', bid=10.0, ask=10.1, last=10.05, bid_size=None, ask_size=None, last_size=None, volume...d_availability={}, field_received_at_utc={}, missing_fields_observed_at_utc={}, broker_errors=[], snapshot_attempts=[]).close
+
+src\tests\test_live_readiness_closure.py:32: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_pr1065_news_source_groups.py::test_pr1065_architecture_document_records_source_group_boundary_and_safety
+FAILED src/tests/test_live_readiness_closure.py::test_snapshot_interface_normalization_wrapper
+2 failed, 35 passed in 4.92s

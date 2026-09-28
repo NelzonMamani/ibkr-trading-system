@@ -6,10 +6,10 @@ from typing import Any, Sequence
 
 from src.adapters.brokers.ibkr.ibkr_connection_manager import get_shared_ibkr_connection_manager
 from src.config.config_resolver import ConfigResolutionError, get_config
-from src.core.managers.market_data_snapshot_manager import MarketDataSnapshotManager
+from src.market_data.market_data_snapshot_manager import MarketDataSnapshotManager
 from src.models.data_models import PatternResult
 from src.risk.risk_engine import RiskEngine
-from src.scanner.session_pct_change import resolve_session_diagnostics
+from src.market_data.session_pct_change import resolve_session_diagnostics
 from src.strategies.common.candles.candle_types import Candle
 from src.strategies.ross_momentum.patterns.pattern_evaluator import PatternEvaluator
 from src.strategies.ross_momentum.patterns.pattern_inputs import IndicatorSet, LevelSet, LiquidityContext, PatternInputs

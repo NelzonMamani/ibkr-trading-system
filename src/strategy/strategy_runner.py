@@ -61,7 +61,7 @@ from src.core.active_trade_registry import ActiveTrade
 from src.signals.signal_event import SignalEvent
 from src.regime.contracts import RegimePolicyDecision
 from src.config.config_resolver import get_config
-from src.scanner.session_pct_change import canonical_session_label
+from src.market_data.session_pct_change import canonical_session_label
 from src.strategies.ross_momentum.policy import (
     log_fallback_intent_blocked,
     log_no_setup_no_trade,

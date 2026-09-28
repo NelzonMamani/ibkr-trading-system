@@ -15,9 +15,8 @@ from src.config.config_resolver import set_config_overrides
 from src.core.active_trade_registry import ActiveTradeRegistry
 from src.core.event_collector import EventCollector
 from src.execution.execution_engine import ExecutionEngine
-from src.models.data_models import TradeIntent, TradeRecord
+from src.models.data_models import ScannerCandidate, TradeIntent, TradeRecord
 from src.risk.risk_engine import RiskEngine
-from src.scanner.scanner import Scanner
 from src.storage.storage_engine import StorageEngine
 
 
@@ -40,7 +39,6 @@ def main() -> int:
     try:
         trade_registry = ActiveTradeRegistry()
         events = EventCollector()
-        scanner = Scanner(event_collector=events)
         risk_engine = RiskEngine(trade_registry=trade_registry, event_collector=events)
         execution_engine = ExecutionEngine(
             trade_registry=trade_registry,
@@ -48,7 +46,11 @@ def main() -> int:
         )
         storage_engine = StorageEngine()
 
-        candidates = scanner.run_scan_cycle()
+        # Explicit offline harness input: never discover live or fallback candidates.
+        candidates = [ScannerCandidate(
+            symbol="AAPL", price=123.45, gap_percent=0.0, rvol=0.0,
+            float_millions=0.0, rationale="Offline paper harness fixture", session="SIM",
+        )]
         symbol = candidates[0].symbol if candidates else "AAPL"
 
         for session_label, tick in SCENARIOS:

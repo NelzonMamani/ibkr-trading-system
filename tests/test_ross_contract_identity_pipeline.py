@@ -8,7 +8,7 @@ from ibapi.contract import Contract, ContractDetails
 
 from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
 from src.market_data.market_snapshot_enricher import MarketSnapshotEnricher
-from src.scanner.candidate_identity import CandidateIdentity, bridge_identity_keys
+from src.market_data.candidate_identity import CandidateIdentity, bridge_identity_keys
 from src.scanner import scanner_runner
 from src.scanner.scanner_runner import (
     GateThresholds,
@@ -300,7 +300,7 @@ def test_non_operational_backfill_marker_is_applied_when_qualification_dead() ->
 
 
 def test_reference_resolver_reads_persistent_cache_on_subsequent_attempts(tmp_path):
-    from src.scanner.reference_resolver import CanonicalReferenceResolver, PersistentReferenceCache
+    from src.market_data.reference_resolver import CanonicalReferenceResolver, PersistentReferenceCache
 
     provider = DummyProvider()
     cache = PersistentReferenceCache(tmp_path / 'reference_cache.json')
@@ -348,7 +348,7 @@ def test_reference_resolver_reads_persistent_cache_on_subsequent_attempts(tmp_pa
 
 
 def test_reference_resolver_exposes_explicit_failure_reasons_when_history_unavailable(tmp_path):
-    from src.scanner.reference_resolver import CanonicalReferenceResolver, PersistentReferenceCache
+    from src.market_data.reference_resolver import CanonicalReferenceResolver, PersistentReferenceCache
 
     class EmptyProvider(DummyProvider):
         def get_intraday_stats(self, symbol: str):
@@ -382,7 +382,7 @@ def test_reference_resolver_exposes_explicit_failure_reasons_when_history_unavai
 
 
 def test_reference_resolver_rejects_symbol_alias_cycle_cache_hits_for_conid_identities():
-    from src.scanner.reference_resolver import CanonicalReferenceResolver
+    from src.market_data.reference_resolver import CanonicalReferenceResolver
 
     resolver = CanonicalReferenceResolver()
     identity = CandidateIdentity.from_mapping({"symbol": "ZENA", "conId": 722705694, "exchange": "SMART", "currency": "USD"})
@@ -394,7 +394,7 @@ def test_reference_resolver_rejects_symbol_alias_cycle_cache_hits_for_conid_iden
 
 
 def test_reference_resolver_rejects_cross_conid_cycle_cache_reuse():
-    from src.scanner.reference_resolver import CanonicalReferenceResolver
+    from src.market_data.reference_resolver import CanonicalReferenceResolver
 
     resolver = CanonicalReferenceResolver()
     identity = CandidateIdentity.from_mapping({"symbol": "PDYN", "conId": 111, "exchange": "SMART", "currency": "USD"})
@@ -404,7 +404,7 @@ def test_reference_resolver_rejects_cross_conid_cycle_cache_reuse():
 
 
 def test_persistent_cache_writes_only_conid_keys_for_conid_backed_identities(tmp_path):
-    from src.scanner.reference_resolver import CanonicalReferenceResolver, PersistentReferenceCache
+    from src.market_data.reference_resolver import CanonicalReferenceResolver, PersistentReferenceCache
 
     provider = DummyProvider()
     cache = PersistentReferenceCache(tmp_path / 'reference_cache.json')

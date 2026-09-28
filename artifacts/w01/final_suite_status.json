@@ -1,0 +1,19 @@
+{
+  "started_at": "2026-09-28T17:47:20.983604+00:00",
+  "interpreter": "C:\\tmp\\pr1091-cert-env-20260923\\Scripts\\python.exe",
+  "base_commit": "238d99639a6d305969d973d8212741b84e12bc42",
+  "source_manifest_sha256": "59291c852d508d7f0b2ee953d10a43b08a7d35825731d4110771c79773893883",
+  "command": [
+    "C:\\tmp\\pr1091-cert-env-20260923\\Scripts\\python.exe",
+    "-m",
+    "pytest",
+    "-q"
+  ],
+  "supervisor_pid": 12192,
+  "compile_exit_code": 0,
+  "pytest_pid": 31028,
+  "exit_code": 0,
+  "completed_at": "2026-09-28T17:52:14.048718+00:00",
+  "log_sha256": "759c51be4ea829f3eadf9765b994a268c5b16603a653dad3a484206a3ea63603",
+  "source_changes_during_tests": []
+}

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from src.scanner.candidate_identity import CandidateIdentity
+from src.market_data.candidate_identity import CandidateIdentity
 from src.scanner.providers.ibkr_provider import IbkrScannerProvider
 
 

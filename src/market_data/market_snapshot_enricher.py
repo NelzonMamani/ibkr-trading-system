@@ -6,7 +6,7 @@ from typing import Any, Dict, Iterable, Optional
 
 from src.runtime.async_runtime_bootstrap import safe_import_ib_insync
 from src.ibkr.contract_qualification import qualify_contracts_resilient
-from src.scanner.candidate_identity import CandidateIdentity
+from src.market_data.candidate_identity import CandidateIdentity
 
 
 def _safe_float(value: Any) -> Optional[float]:

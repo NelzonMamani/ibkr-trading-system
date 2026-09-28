@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from dataclasses import asdict, dataclass, fields, replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 from urllib.parse import urlparse
@@ -13,6 +14,7 @@ from src.news.news_fetcher import Headline
 from src.news.news_heat import compute_news_heat_score
 from src.news.news_intelligence_contract import (
     CacheState,
+    NewsBatchResult,
     NewsCandidate,
     NewsEvidence,
     NewsEvidenceSummary,
@@ -20,6 +22,7 @@ from src.news.news_intelligence_contract import (
     RetrievalStatus,
 )
 from src.news.news_normalizer import normalize_headlines
+from src.news.issuer_relevance import evidence_issuer_relevance_verified
 from src.prep.premarket_prep_artifact import load_canonical_premarket_prep_artifact
 
 
@@ -134,7 +137,19 @@ class CanonicalNewsEvidenceStore:
                 if prep_evidence:
                     diagnostics["prep_reuse_symbols"].append(symbol)
 
-            deduped = dedupe_evidence(evidence, max_items=evidence_max_entries(request))
+            accepted = [item for item in evidence if evidence_issuer_relevance_verified(
+                symbol, item, NewsBatchResult(candidates=(candidate,))
+            )]
+            if len(accepted) != len(evidence):
+                diagnostics.setdefault("issuer_relevance_rejected_by_symbol", {})[symbol] = len(evidence) - len(accepted)
+                # Old cohort metrics may include rejected articles; recompute from facts.
+                accepted = list(enrich_evidence_metrics(tuple(replace(
+                    item, velocity_5m=None, velocity_10m=None, velocity_30m=None,
+                    velocity_60m=None, heat_score=None, hotness_score=None,
+                    source_credibility_score=None, source_reliability_score=None,
+                    independent_source_count=None,
+                ) for item in accepted), now_ts=now.timestamp()))
+            deduped = dedupe_evidence(accepted, max_items=evidence_max_entries(request))
             evidence_by_symbol[symbol] = tuple(deduped)
             fresh_count = sum(1 for item in deduped if item.stale is False)
             stale_count = sum(1 for item in deduped if item.stale is True)
@@ -382,9 +397,8 @@ def evidence_from_prep_entry(
             continue
         published = _parse_datetime(item.get("published_at"))
         age_hours = _safe_float(item.get("age_hours"), None)
-        if published is None and age_hours is not None:
-            published = datetime.fromtimestamp(now.timestamp() - max(0.0, age_hours) * 3600.0, tz=timezone.utc)
-        published = published or news_asof or now
+        if published is None and age_hours is not None and math.isfinite(age_hours) and age_hours >= 0 and news_asof is not None:
+            published = news_asof - timedelta(hours=max(0.0, age_hours))
         tag = str(item.get("catalyst_tag") or "").strip().lower()
         event_class = None if not tag else tag
         is_generic = tag in {"", "generic", "none"}
@@ -402,8 +416,8 @@ def evidence_from_prep_entry(
                 NewsEvidence(
                     symbol=candidate.normalized_symbol,
                     evidence_id=evidence_id,
-                    company_name=candidate.company_name or entry.get("company_name"),
-                    aliases=tuple(candidate.aliases or ()),
+                    company_name=candidate.company_name or entry.get("company_name") or item.get("company_name"),
+                    aliases=tuple(candidate.aliases or item.get("aliases") or ()),
                     match_type=str(item.get("match_type") or "prep_context"),
                     matched_field=str(item.get("matched_field") or "news_context"),
                     headline=title,
@@ -446,10 +460,10 @@ def refresh_evidence_age(
     cache_state: CacheState | None = None,
 ) -> NewsEvidence:
     now = now or datetime.now(timezone.utc)
-    basis = evidence.published_at or evidence.fetched_at or evidence.first_seen_at
-    age_seconds = evidence.age_seconds
-    if basis is not None:
-        age_seconds = max(0.0, (now - basis.astimezone(timezone.utc)).total_seconds())
+    basis = evidence.published_at
+    age_seconds = None
+    if basis is not None and basis <= now:
+        age_seconds = (now - basis.astimezone(timezone.utc)).total_seconds()
     freshness_seconds = evidence_freshness_seconds(request)
     stale = None
     if age_seconds is not None:
@@ -472,7 +486,7 @@ def enrich_evidence_metrics(
         Headline(
             title=str(item.headline or ""),
             source=str(item.observed_source or item.original_source or item.source_domain or ""),
-            published_ts=(item.published_at.timestamp() if item.published_at is not None else now_ts),
+            published_ts=item.published_at.timestamp(),
             url=str(item.url or ""),
             summary=str(item.summary or ""),
             source_tier=str(item.source_tier or ""),
@@ -480,7 +494,7 @@ def enrich_evidence_metrics(
             matched_field=str(item.matched_field or ""),
         )
         for item in evidence
-        if item.headline
+        if item.headline and item.published_at is not None and item.published_at.timestamp() <= now_ts
     ]
     metrics = normalize_headlines(headlines, now_ts=now_ts)
     heat_score = compute_news_heat_score(metrics)
@@ -571,8 +585,8 @@ def _legacy_news_cache_rows(payload: Mapping[str, Any]) -> dict[str, list[Mappin
             published = _parse_datetime(item.get("published_at"))
             if published is None:
                 age_hours = _safe_float(item.get("age_hours"), None)
-                if age_hours is not None:
-                    published = datetime.fromtimestamp(now.timestamp() - max(0.0, age_hours) * 3600.0, tz=timezone.utc)
+                if age_hours is not None and math.isfinite(age_hours) and age_hours >= 0 and (anchor := _parse_datetime(fetched_at)) is not None:
+                    published = anchor - timedelta(hours=max(0.0, age_hours))
             tag = str(item.get("catalyst_tag") or "").strip().lower()
             url = str(item.get("url") or "")
             source = str(item.get("source") or result.get("source_mode") or "legacy_news_cache")
@@ -587,9 +601,9 @@ def _legacy_news_cache_rows(payload: Mapping[str, Any]) -> dict[str, list[Mappin
                     "is_generic": tag in {"", "generic", "none"},
                     "is_qualifying_event_class": False,
                     "dilution_or_offering": tag == "offering",
-                    "published_at": (published or now).isoformat(),
+                    "published_at": published.isoformat() if published is not None else None,
                     "fetched_at": fetched_at,
-                    "first_seen_at": (published or now).isoformat(),
+                    "first_seen_at": published.isoformat() if published is not None else None,
                     "original_source": source,
                     "observed_source": source,
                     "source_domain": _domain(url),

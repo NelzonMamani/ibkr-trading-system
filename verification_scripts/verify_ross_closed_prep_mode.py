@@ -21,7 +21,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from src.scanner.session_pct_change import (
+from src.market_data.session_pct_change import (
     compute_session_aligned_pct_change,
     compute_session_relative_volume_with_provenance,
     resolve_session_diagnostics,

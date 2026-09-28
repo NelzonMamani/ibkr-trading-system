@@ -8,7 +8,7 @@ if __package__ in {None, ""}:
     if str(repo_root) not in sys.path:
         sys.path.insert(0, str(repo_root))
 
-from src.data.fundamentals.float_provider import FloatProvider
+from src.market_data.float_provider import FloatProvider
 
 
 def _fmt(value: int | None) -> str:

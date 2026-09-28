@@ -1,0 +1,26 @@
+[
+  {
+    "ProcessId": 7692,
+    "ParentProcessId": 6312,
+    "CreationDate": "2026-09-28T18:47:20.419601+01:00",
+    "CommandLine": "\"C:\\tmp\\pr1091-cert-env-20260923\\Scripts\\python.exe\" artifacts/w01/run_final_suite.py"
+  },
+  {
+    "ProcessId": 12192,
+    "ParentProcessId": 7692,
+    "CreationDate": "2026-09-28T18:47:20.44265+01:00",
+    "CommandLine": "\"C:\\tmp\\pr1091-cert-env-20260923\\Scripts\\python.exe\" artifacts/w01/run_final_suite.py"
+  },
+  {
+    "ProcessId": 31028,
+    "ParentProcessId": 12192,
+    "CreationDate": "2026-09-28T18:47:23.282437+01:00",
+    "CommandLine": "C:\\tmp\\pr1091-cert-env-20260923\\Scripts\\python.exe -m pytest -q"
+  },
+  {
+    "ProcessId": 1508,
+    "ParentProcessId": 31028,
+    "CreationDate": "2026-09-28T18:47:23.312407+01:00",
+    "CommandLine": "C:\\tmp\\pr1091-cert-env-20260923\\Scripts\\python.exe -m pytest -q"
+  }
+]

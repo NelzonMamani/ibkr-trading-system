@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
 from src.domain.market_snapshot import MarketSnapshot
-from src.scanner.session_pct_change import resolve_session_diagnostics
+from src.market_data.session_pct_change import resolve_session_diagnostics
 from src.cli.ibkr_scanner_diagnostics import run_diagnostics
 from src.cli.live_readiness_check import main as readiness_main
 from src.cli.test_trade_pipeline import run_pipeline
@@ -29,7 +29,7 @@ def test_snapshot_interface_normalization_wrapper() -> None:
     raw = client.snapshot_stock("AAPL")
     assert raw.symbol == "AAPL"
     assert raw.last == 10.05
-    assert raw.close == 10.05
+    assert raw.close is None  # Missing broker close must not be manufactured from last.
     assert raw.volume == 12345
     assert raw.spread is not None
     assert round(raw.spread, 2) == 0.10

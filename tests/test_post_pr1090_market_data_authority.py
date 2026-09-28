@@ -246,7 +246,7 @@ def test_sdk_broker_error_retains_request_symbol_and_timestamp():
 ])
 def test_focus_snapshot_translation_preserves_broker_authority(returned, confirmed, expected):
     from dataclasses import replace
-    from src.core.managers.market_data_snapshot_manager import MarketDataSnapshotManager
+    from src.market_data.market_data_snapshot_manager import MarketDataSnapshotManager
     raw = client_for(OfflineInsync(lambda ib, tick: sdk_fields(ib))).snapshot_stock(contract())
     raw = replace(raw, returned_market_data_type=returned, market_data_type_confirmed=confirmed)
     manager = MarketDataSnapshotManager(SimpleNamespace(snapshot_stock=lambda symbol: raw))
@@ -269,7 +269,7 @@ def test_focus_snapshot_translation_preserves_broker_authority(returned, confirm
 
 
 def test_focus_snapshot_translation_does_not_invent_missing_timestamps(native, monkeypatch):
-    from src.core.managers.market_data_snapshot_manager import MarketDataSnapshotManager
+    from src.market_data.market_data_snapshot_manager import MarketDataSnapshotManager
     monkeypatch.setattr(native, "resolve_contract", lambda symbol: SimpleNamespace(contract=contract()))
     snapshot, quality = MarketDataSnapshotManager(native).get_snapshot("AEMD")
     assert snapshot.market_data_type == snapshot.returned_market_data_type == "UNKNOWN"

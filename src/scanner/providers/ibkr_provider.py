@@ -16,9 +16,9 @@ from src.adapters.brokers.ibkr.ibkr_connection_manager import (
     get_shared_ibkr_connection_manager,
 )
 from src.ibkr.market_data_client import MarketDataClient
-from src.data.fundamentals.float_provider import FloatProvider
+from src.market_data.float_provider import FloatProvider
 from src.scanner.scanner_contract import ScannerRequest
-from src.scanner.candidate_identity import CandidateIdentity
+from src.market_data.candidate_identity import CandidateIdentity
 
 from .base import IntradayStats, ProviderConnectionError, QuoteData, ScannerDataProvider
 

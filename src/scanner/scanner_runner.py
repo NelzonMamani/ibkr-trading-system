@@ -29,7 +29,7 @@ from src.config.runtime_config import (
     get_watchlist_print_every_n_cycles,
 )
 from src.core.event_collector import EventCollector
-from src.data.float_discovery_worker import get_float_discovery_worker
+from src.market_data.float_discovery_worker import get_float_discovery_worker
 from src.news.batch_rss_adapter import BatchRssNewsIntelligenceProvider
 from src.news.news_fetcher import Headline, RssFailureSummary, fetch_fast_headlines_for_symbols, fetch_headlines_for_symbols, symbol_relevance_match
 from src.news.news_intelligence_contract import (
@@ -41,6 +41,7 @@ from src.news.news_intelligence_contract import (
     RetrievalPolicy,
 )
 from src.news.news_intelligence_service import CanonicalNewsIntelligenceService
+from src.news.issuer_relevance import evidence_issuer_relevance_verified as _evidence_issuer_relevance_verified
 from src.news.news_heat import compute_news_heat_score
 from src.news.news_normalizer import normalize_headlines
 from src.news.rss_batch_runtime import (
@@ -83,15 +84,15 @@ from src.scanner.providers.factory import build_provider
 from src.scanner.providers.mock_provider import MockScannerProvider
 from src.scanner.ranking_registry import resolve_watchlist_selector
 from src.scanner.result_models import CandidateMetrics, ScannerResult
-from src.scanner.reference_resolver import CanonicalReferenceResolver, resolve_reference_bundle
+from src.market_data.reference_resolver import CanonicalReferenceResolver, resolve_reference_bundle
 from src.market_data.market_snapshot_enricher import MarketSnapshotEnricher
-from src.scanner.candidate_identity import CandidateIdentity
+from src.market_data.candidate_identity import CandidateIdentity
 
-from src.scanner.market_metrics_context import (
+from src.market_data.market_metrics_context import (
     build_market_metrics_context,
     log_market_metrics_context,
 )
-from src.scanner.session_pct_change import (
+from src.market_data.session_pct_change import (
     canonical_session_label,
     normalize_session_label,
     resolve_market_session_context,
@@ -2633,88 +2634,6 @@ def _parse_utc_datetime(raw: Any) -> Optional[datetime]:
     return parsed.astimezone(timezone.utc)
 
 
-def _prep_news_context_from_entry(entry: Dict[str, Any]) -> Dict[str, Any]:
-    news_items = [item for item in list(entry.get("news_context") or []) if isinstance(item, dict)]
-    if not news_items:
-        return {}
-    max_age_hours = float(get_config("NEWS_MAX_AGE_HOURS"))
-    now = datetime.now(timezone.utc)
-    news_asof = _parse_utc_datetime(entry.get("news_asof"))
-    asof_fresh = news_asof is not None and (now - news_asof).total_seconds() <= max_age_hours * 3600
-
-    def _item_age_hours(item: Dict[str, Any]) -> Optional[float]:
-        age = _safe_float(item.get("age_hours"), None)
-        if age is not None:
-            return age
-        published = _parse_utc_datetime(item.get("published_at"))
-        if published is None:
-            return None
-        return max((now - published).total_seconds(), 0.0) / 3600.0
-
-    item_ages = [_item_age_hours(item) for item in news_items]
-    fresh_items = [
-        item
-        for item, age in zip(news_items, item_ages)
-        if str(item.get("freshness") or "").lower() == "fresh"
-        or (age is not None and age <= max_age_hours)
-    ]
-    top_item = (fresh_items or news_items)[0]
-    top_age = _item_age_hours(top_item)
-    title = str(top_item.get("title") or "")
-    catalyst_type = _prep_tag_to_catalyst_type(top_item.get("catalyst_tag"))
-    dilution_flag = _detect_dilution([title]) or str(top_item.get("catalyst_tag") or "").lower() == "offering"
-    fresh_news_count = len(fresh_items) if asof_fresh else 0
-    status = "catalyst_confirmed"
-    if not asof_fresh or fresh_news_count == 0:
-        status = "stale_news"
-    elif not catalyst_type or dilution_flag:
-        status = "news_present_non_qualifying"
-    ross_catalyst_valid = status == "catalyst_confirmed"
-    news_age_minutes = int(round((top_age or 0.0) * 60.0)) if top_age is not None else None
-    return {
-        "news_present": True,
-        "news_available": True,
-        "first_seen_ts": None,
-        "news_age_minutes": news_age_minutes,
-        "velocity_5m": 0,
-        "velocity_10m": 0,
-        "velocity_30m": 0,
-        "attention_tier": "T0",
-        "top_domains": [],
-        "top_links": [str(top_item.get("url") or "")] if top_item.get("url") else [],
-        "catalyst_type": catalyst_type,
-        "dilution_flag": dilution_flag,
-        "gam_ea_eligible": ross_catalyst_valid,
-        "ross_catalyst_valid": ross_catalyst_valid,
-        "ross_catalyst_notes": "Catalyst present" if ross_catalyst_valid else status,
-        "news_count": len(news_items),
-        "fresh_news_count": fresh_news_count,
-        "stale_news_count": max(len(news_items) - fresh_news_count, 0),
-        "top_news_title": title or None,
-        "top_news_age_hours": round(top_age, 3) if top_age is not None else None,
-        "top_news_catalyst_tag": catalyst_type or str(top_item.get("catalyst_tag") or "generic"),
-        "news_source_mode": "prep_cache",
-        "news_asof": entry.get("news_asof"),
-        "news_provider_status": "prep_cache",
-        "news_diagnostic_status": status,
-    }
-
-
-def _prep_news_contexts_for_symbols(
-    symbols: Iterable[str],
-    prep_candidates: Dict[str, Dict[str, Any]],
-) -> Dict[str, Dict[str, Any]]:
-    result: Dict[str, Dict[str, Any]] = {}
-    for symbol in _dedupe_sorted_symbols(symbols):
-        prep_entry = prep_candidates.get(symbol)
-        if not prep_entry:
-            continue
-        context = _prep_news_context_from_entry(prep_entry)
-        if context:
-            result[symbol] = context
-    return result
-
-
 def _merge_news_contexts(
     base: Dict[str, Dict[str, Any]],
     preferred: Dict[str, Dict[str, Any]],
@@ -3162,34 +3081,6 @@ def _empty_news_context_from_summary(
         "velocity_60m": 0,
     }
 
-
-def _evidence_issuer_relevance_verified(
-    symbol: str, item: NewsEvidence, result: NewsBatchResult
-) -> bool:
-    # Recheck text-derived RSS evidence at the strategy boundary, including
-    # persisted entries written before the matcher was hardened. A cached
-    # ticker_token/classification field is not proof of issuer identity.
-    if item.provider not in {"rss_batch", "prep_cache", "legacy_news_provider_cache"} and item.match_type not in {
-        "ticker_token", "company_name", "prep_context"
-    }:
-        return True
-    candidate = next((row for row in result.candidates if row.normalized_symbol == symbol), None)
-    metadata = dict(candidate.metadata) if candidate is not None else {}
-    metadata["company_name"] = (
-        item.company_name
-        or (candidate.company_name if candidate is not None else None)
-        or metadata.get("company_name")
-    )
-    metadata["aliases"] = (
-        metadata.get("aliases") or (),
-        metadata.get("company_aliases") or (),
-        metadata.get("issuer_aliases") or (),
-        tuple(item.aliases),
-        tuple(candidate.aliases) if candidate is not None else (),
-    )
-    return symbol_relevance_match(
-        symbol, title=str(item.headline or ""), summary=str(item.summary or ""), metadata=metadata
-    ) is not None
 
 
 def _ross_news_context_from_evidence(

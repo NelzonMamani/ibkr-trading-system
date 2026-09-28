@@ -7,7 +7,7 @@ from typing import Dict, Any
 def verify_session_detection() -> Dict[str, Any]:
     out: Dict[str, Any] = {"status": "PASS", "details": {}}
     try:
-        from src.scanner.session_pct_change import resolve_market_session_label  # type: ignore
+        from src.market_data.session_pct_change import resolve_market_session_label  # type: ignore
 
         now = datetime.now(timezone.utc)
         session = resolve_market_session_label()

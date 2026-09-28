@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from src.scanner.scanner_runner import run_scanner_cycle
-from src.scanner.session_pct_change import resolve_session_diagnostics
+from src.market_data.session_pct_change import resolve_session_diagnostics
 
 
 class _ZeroProvider:

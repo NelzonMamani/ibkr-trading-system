@@ -1,4 +1,4 @@
-from src.scanner.session_pct_change import (
+from src.market_data.session_pct_change import (
     compute_session_aligned_pct_change,
     compute_session_relative_volume_with_provenance,
 )

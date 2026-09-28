@@ -10,7 +10,7 @@ from src.domain.market_snapshot import MarketSnapshot
 from src.models.data_models import TradeIntent as ModelTradeIntent
 from src.regime.contracts import RegimeLabel, RegimeSnapshot
 from src.scanner.result_models import CandidateMetrics
-from src.scanner.session_pct_change import normalize_session_label
+from src.market_data.session_pct_change import normalize_session_label
 from src.strategies.mean_reversion.mean_reversion_strategy_policy import (
     MarketRegimeFacts,
     PolicyDecision,

@@ -1,0 +1,101 @@
+{
+  "candidate_source": "observation.json:scanner_cycle_artifact.top_n_symbols",
+  "completed_at": "2026-09-28T17:32:33.906282+00:00",
+  "disconnected": true,
+  "error": "AttributeError: 'ContractDetails' object has no attribute 'conId'",
+  "independent_final_broker_audit": {
+    "disconnected": true,
+    "mutation_attempts": {
+      "cancel": 0,
+      "modify": 0,
+      "place": 0
+    },
+    "open_orders_count": 0,
+    "query_completed": true
+  },
+  "mutation_attempts": {
+    "cancel": 0,
+    "modify": 0,
+    "place": 0
+  },
+  "paper_identity_verified": true,
+  "process_inventory_after": {
+    "completed": true,
+    "runtimes": []
+  },
+  "rows": {
+    "KNRX": {
+      "bars": {},
+      "quote": {
+        "ask": null,
+        "ask_size": 0.0,
+        "bid": null,
+        "bid_size": 0.0,
+        "broker_errors": [],
+        "change_percent": null,
+        "close": 0.304,
+        "completion_reason": "snapshot_end",
+        "data_quality_flags": [
+          "MD_MISSING_BID",
+          "MD_MISSING_ASK"
+        ],
+        "field_availability": {
+          "ask": false,
+          "bid": false,
+          "close": true,
+          "high": true,
+          "last": true,
+          "low": true,
+          "open": true,
+          "volume": true
+        },
+        "field_received_at_utc": {
+          "ask": "2026-09-28T17:32:32.691898+00:00",
+          "ask_size": "2026-09-28T17:32:32.691906+00:00",
+          "bid": "2026-09-28T17:32:32.691843+00:00",
+          "bid_size": "2026-09-28T17:32:32.691877+00:00",
+          "close": "2026-09-28T17:32:32.691631+00:00",
+          "high": "2026-09-28T17:32:32.691538+00:00",
+          "last": "2026-09-28T17:32:32.690975+00:00",
+          "last_size": "2026-09-28T17:32:32.691011+00:00",
+          "low": "2026-09-28T17:32:32.691604+00:00",
+          "market_timestamp": "2026-09-28T17:32:32.690694+00:00",
+          "open": "2026-09-28T17:32:32.691651+00:00",
+          "volume": "2026-09-28T17:32:32.691467+00:00"
+        },
+        "high": 1.52,
+        "last": 1.22,
+        "last_size": 0.0,
+        "low": 0.319,
+        "market_data_type_confirmation_source": "IBKR_MARKET_DATA_TYPE_CALLBACK",
+        "market_data_type_confirmed": true,
+        "market_data_type_received_at_utc": "2026-09-28T17:32:32.689630+00:00",
+        "missing_fields_observed_at_utc": {
+          "ask": "2026-09-28T17:32:32.691999+00:00",
+          "bid": "2026-09-28T17:32:32.691999+00:00"
+        },
+        "open": 0.3179,
+        "received_at_utc": "2026-09-28T17:32:32.691906+00:00",
+        "request_completed_at_utc": "2026-09-28T17:32:32.691999+00:00",
+        "request_id": 2,
+        "request_started_at_utc": "2026-09-28T17:32:32.569221+00:00",
+        "requested_market_data_type": "LIVE",
+        "returned_market_data_type": "LIVE",
+        "snapshot_attempts": [],
+        "snapshot_complete": true,
+        "snapshot_completed_at_utc": "2026-09-28T17:32:32.691930+00:00",
+        "spread": null,
+        "symbol": "KNRX",
+        "timestamp_source": "LAST_TRADE",
+        "timestamp_utc": "2026-09-28T15:53:45+00:00",
+        "volume": 1773510.0,
+        "vwap": null
+      }
+    }
+  },
+  "started_at": "2026-09-28T17:32:31.600566+00:00",
+  "symbols": [
+    "KNRX",
+    "LFCR"
+  ]
+}

@@ -1,0 +1,37 @@
+[
+  {
+    "module": "src.market_data.session_pct_change",
+    "exit_code": 0,
+    "error": ""
+  },
+  {
+    "module": "src.market_data.reference_resolver",
+    "exit_code": 0,
+    "error": ""
+  },
+  {
+    "module": "src.market_data.float_provider",
+    "exit_code": 0,
+    "error": ""
+  },
+  {
+    "module": "src.news.prep_adapter",
+    "exit_code": 0,
+    "error": ""
+  },
+  {
+    "module": "src.prep.premarket_prep",
+    "exit_code": 0,
+    "error": ""
+  },
+  {
+    "module": "src.scanner.scanner_main",
+    "exit_code": 0,
+    "error": ""
+  },
+  {
+    "module": "src.core.orchestrator",
+    "exit_code": 0,
+    "error": ""
+  }
+]

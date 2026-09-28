@@ -14,7 +14,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from src.config.runtime_config import resolve_ibkr_connection
 from src.scanner import scanner_runner
-from src.scanner.candidate_identity import CandidateIdentity
+from src.market_data.candidate_identity import CandidateIdentity
 from src.scanner.providers.base import IntradayStats, QuoteData, ScannerDataProvider
 from src.scanner.providers.ibkr_provider import IbkrScannerProvider
 

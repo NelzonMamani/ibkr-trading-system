@@ -2,7 +2,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.core_engine.state import SessionState, resolve_session_state
-from src.scanner.session_pct_change import resolve_market_session_context
+from src.market_data.session_pct_change import resolve_market_session_context
 
 
 def _ny_dt(hour: int, minute: int) -> datetime:

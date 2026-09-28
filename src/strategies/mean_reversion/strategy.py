@@ -8,7 +8,7 @@ from typing import List
 from src.config.runtime_config import RunMode
 from src.domain.market_snapshot import MarketSnapshot
 from src.models.data_models import PatternResult, TradeIntent
-from src.scanner.session_pct_change import normalize_session_label
+from src.market_data.session_pct_change import normalize_session_label
 from src.strategy.base_strategy import BaseStrategy
 from src.strategies.mean_reversion.adapters import (
     build_market_regime_facts,
