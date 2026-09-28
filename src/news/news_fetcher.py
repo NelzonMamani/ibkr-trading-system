@@ -356,10 +356,14 @@ def _budget_summary_kwargs(
     total_news_budget_seconds: float | None,
     stage_started_at_s: float,
     stage_deadline_s: float | None,
-    news_budget_exhausted: bool = False,
+    news_budget_exhausted: bool | None = None,
 ) -> Dict[str, Any]:
     remaining = _budget_remaining_seconds(stage_deadline_s)
-    exhausted = bool(news_budget_exhausted or (remaining is not None and remaining <= 0.0))
+    # Explicit coordinator outcomes describe unfinished work, not reporting lag.
+    exhausted = (
+        bool(remaining is not None and remaining <= 0.0)
+        if news_budget_exhausted is None else bool(news_budget_exhausted)
+    )
     return {
         "total_news_budget_seconds": float(total_news_budget_seconds or 0.0),
         "news_elapsed_seconds": _budget_elapsed_seconds(stage_started_at_s),
@@ -373,7 +377,7 @@ def _tier_budget_summary_kwargs(
     tier_budget_seconds: float | None,
     tier_started_at_s: float | None,
     tier_deadline_s: float | None,
-    tier_budget_exhausted: bool = False,
+    tier_budget_exhausted: bool | None = None,
 ) -> Dict[str, Any]:
     normalized_budget = _normalize_budget_seconds(tier_budget_seconds)
     started_at_s = float(tier_started_at_s) if tier_started_at_s is not None else None
@@ -383,7 +387,10 @@ def _tier_budget_summary_kwargs(
     if normalized_budget is None and deadline_s is not None and started_at_s is not None:
         normalized_budget = max(0.0, deadline_s - started_at_s)
     remaining = _budget_remaining_seconds(deadline_s)
-    exhausted = bool(tier_budget_exhausted or (remaining is not None and remaining <= 0.0))
+    exhausted = (
+        bool(remaining is not None and remaining <= 0.0)
+        if tier_budget_exhausted is None else bool(tier_budget_exhausted)
+    )
     elapsed = _budget_elapsed_seconds(started_at_s) if started_at_s is not None else 0.0
     budget_value = float(normalized_budget or 0.0)
     tier = str(source_tier or "unknown")
@@ -717,7 +724,10 @@ def _fetch_headlines_from_sources(
         try:
             while pending or next_source_index < len(unique_sources):
                 wave_timeout_s: float | None = None
-                while next_source_index < len(unique_sources) and len(pending) < worker_count:
+                while (
+                    next_source_index < len(unique_sources) and len(pending) < worker_count
+                    and not news_budget_exhausted and not tier_budget_exhausted
+                ):
                     if all(len(items) >= max_entries for items in headlines.values()):
                         break
                     remaining_budget_s = _budget_remaining_seconds(deadline_s)
@@ -741,23 +751,30 @@ def _fetch_headlines_from_sources(
                     pending[executor.submit(fetch_one, url, timeout_s)] = (url, timeout_s, time.monotonic())
                 if not pending:
                     break
-                remaining_budget_s = _budget_remaining_seconds(deadline_s)
-                remaining_tier_s = _budget_remaining_seconds(tier_deadline)
-                if remaining_budget_s is not None and remaining_budget_s <= 0.0:
-                    news_budget_exhausted = True
-                    tier_budget_exhausted = tier_budget_exhausted or (remaining_tier_s is not None and remaining_tier_s <= 0.0)
-                    record_budget_skipped_sources()
-                    break
-                if remaining_tier_s is not None and remaining_tier_s <= 0.0:
-                    tier_budget_exhausted = True
-                    record_budget_skipped_sources()
-                    break
-                wait_timeout = SOURCE_WAIT_POLL_SECONDS
-                if remaining_budget_s is not None:
-                    wait_timeout = min(wait_timeout, remaining_budget_s)
-                if remaining_tier_s is not None:
-                    wait_timeout = min(wait_timeout, remaining_tier_s)
-                done, _ = wait(tuple(pending.keys()), timeout=max(0.001, wait_timeout), return_when=FIRST_COMPLETED)
+                # Drain completed work without waiting, including completions that
+                # FIRST_COMPLETED omitted or that arrived while processing a peer.
+                done = {future for future in pending if future.done()}
+                if not done:
+                    remaining_budget_s = _budget_remaining_seconds(deadline_s)
+                    remaining_tier_s = _budget_remaining_seconds(tier_deadline)
+                    if remaining_budget_s is not None and remaining_budget_s <= 0.0:
+                        news_budget_exhausted = True
+                        tier_budget_exhausted = tier_budget_exhausted or (remaining_tier_s is not None and remaining_tier_s <= 0.0)
+                        record_budget_skipped_sources()
+                        break
+                    if remaining_tier_s is not None and remaining_tier_s <= 0.0:
+                        tier_budget_exhausted = True
+                        record_budget_skipped_sources()
+                        break
+                    if news_budget_exhausted or tier_budget_exhausted:
+                        break
+                    wait_timeout = SOURCE_WAIT_POLL_SECONDS
+                    if remaining_budget_s is not None:
+                        wait_timeout = min(wait_timeout, remaining_budget_s)
+                    if remaining_tier_s is not None:
+                        wait_timeout = min(wait_timeout, remaining_tier_s)
+                    done, _ = wait(tuple(pending.keys()), timeout=max(0.001, wait_timeout), return_when=FIRST_COMPLETED)
+                    done.update(future for future in pending if future.done())
                 if not done:
                     continue
                 for future in done:
@@ -771,13 +788,20 @@ def _fetch_headlines_from_sources(
                         news_budget_exhausted = news_budget_exhausted or stage_expired
                         tier_budget_exhausted = tier_budget_exhausted or tier_expired
                         record_budget_skipped_sources()
-                        # Late evidence is discarded, but an observed transport error
-                        # remains a fact alongside the exhausted local budget.
-                        if result.get("error") is None:
-                            continue
                     url, timeout_s, submitted_s = pending.pop(future)
                     elapsed = float(result.get("elapsed_seconds") or _budget_elapsed_seconds(submitted_s))
                     error = result.get("error")
+                    # Late evidence is discarded, but an observed transport error
+                    # remains a fact alongside the exhausted local budget.
+                    if (stage_expired or tier_expired) and error is None:
+                        source_diagnostics.append(
+                            source_diag(
+                                url, retrieval_status="budget_exhausted", attempted=True,
+                                failure_reason="deadline_exhausted", elapsed_seconds=elapsed,
+                                timeout_seconds=timeout_s, budget_exhausted=True,
+                            )
+                        )
+                        continue
                     if error is not None:
                         code = _failure_code(error if isinstance(error, Exception) else None)
                         failures += 1
@@ -822,8 +846,6 @@ def _fetch_headlines_from_sources(
                             timeout_seconds=timeout_s,
                         )
                     )
-                if news_budget_exhausted or tier_budget_exhausted:
-                    break
                 if all(len(items) >= max_entries for items in headlines.values()):
                     break
         finally:

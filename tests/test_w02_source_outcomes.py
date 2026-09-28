@@ -1,12 +1,13 @@
 """Offline W02 source-outcome verification; no HTTP or broker access."""
 from concurrent.futures import Future
 from types import SimpleNamespace
+import json
 import time
 
 import pytest
 import requests
 
-from src.news import news_fetcher
+from src.news import batch_rss_adapter, news_fetcher
 from src.news.batch_rss_adapter import BatchRssNewsIntelligenceProvider
 from src.news.evidence_store import CanonicalNewsEvidenceStore
 from src.news.news_intelligence_contract import NewsCandidate, NewsRequest, RetrievalPolicy
@@ -124,9 +125,10 @@ def test_completed_future_is_accepted_only_before_applicable_deadline(
         assert source["retrieval_status"] == "available"
         assert source["matched_count"] == 1
         assert source["budget_exhausted"] is False
-        if not coordinator_lag:
-            assert summary.news_budget_exhausted is False
-            assert summary.tier_budget_exhausted is False
+        assert summary.news_budget_exhausted is False
+        assert summary.tier_budget_exhausted is False
+        assert summary.tier_budget_exhausted_by_tier == {"extended": False}
+        assert summary.news_elapsed_seconds == pytest.approx(1.0 + completion_offset + coordinator_lag)
     else:
         assert headlines["W02X"] == []
         assert source["retrieval_status"] == "budget_exhausted"
@@ -213,3 +215,161 @@ def test_late_observed_transport_failure_retains_error_and_budget_facts(
     assert result.diagnostics.timeout_count == int(failure_code == "READTIMEOUT")
     assert result.diagnostics.diagnostics["rss_failures"] == 1
     assert result.summary_for_symbol("W02X").retrieval_unavailable is True
+
+
+@pytest.mark.parametrize("deadline_kind", ["stage", "tier"])
+@pytest.mark.parametrize("remaining_work", ["completed", "pending", "unattempted"])
+@pytest.mark.parametrize("completion_phase", ["wait", "empty-done", "processing"])
+def test_coordinator_drains_in_time_completions_before_expiring_remaining_work(
+    monkeypatch, deadline_kind, remaining_work, completion_phase,
+):
+    clock = [100.0]
+    work = {}
+    waits = []
+    monkeypatch.setattr(news_fetcher.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(news_fetcher, "feedparser", object())
+    monkeypatch.setattr(news_fetcher, "DEFAULT_RSS_FETCH_WORKERS", 2)
+
+    class Executor:
+        def __init__(self, **kwargs): pass
+        def submit(self, function, *args):
+            future = Future()
+            future.set_running_or_notify_cancel()
+            work[future] = (function, args)
+            return future
+        def shutdown(self, **kwargs): pass
+
+    monkeypatch.setattr(news_fetcher, "ThreadPoolExecutor", Executor)
+    monkeypatch.setattr(news_fetcher, "_fetch_feed", lambda url, timeout: SimpleNamespace(
+        feed={"title": "Controlled source"}, entries=[SimpleNamespace(
+            title=f"W02X update {url}", link=url,
+            published_parsed=time.gmtime(time.time() - 60),
+        )],
+    ))
+
+    def finish(future):
+        function, args = work[future]
+        future.set_result(function(*args))
+
+    def first_completed(futures, timeout, return_when):
+        waits.append(timeout)
+        assert len(waits) == 1  # Draining completed work must not wait again.
+        clock[0] = 100.998
+        finish(futures[0])
+        if completion_phase in {"wait", "empty-done"}:
+            clock[0] = 100.999
+            if remaining_work != "pending":
+                finish(futures[1])
+            clock[0] = 101.001
+        # FIRST_COMPLETED need not contain every completion now observable.
+        return (set() if completion_phase == "empty-done" else {futures[0]}), set(futures[1:])
+
+    clean_text = news_fetcher._clean_text
+    def delayed_processing(value):
+        if completion_phase == "processing" and clock[0] < 101.0:
+            clock[0] = 100.999
+            if remaining_work != "pending":
+                finish(next(future for future in work if not future.done()))
+            clock[0] = 101.001
+        return clean_text(value)
+
+    monkeypatch.setattr(news_fetcher, "wait", first_completed)
+    monkeypatch.setattr(news_fetcher, "_clean_text", delayed_processing)
+    stage_budget = 1.0 if deadline_kind == "stage" else 3.0
+    tier_budget = 1.0 if deadline_kind == "tier" else 3.0
+    sources = ["rss://first", "rss://second"]
+    if remaining_work == "unattempted":
+        sources.append("rss://third")
+    rows, summary = news_fetcher.fetch_headlines_for_symbols(
+        ["W02X"], sources, source_tier="extended",
+        total_news_budget_seconds=stage_budget, stage_started_at_s=100.0,
+        stage_deadline_s=100.0 + stage_budget,
+        tier_budget_seconds=tier_budget, tier_started_at_s=100.0,
+        tier_deadline_s=100.0 + tier_budget,
+    )
+
+    expected_count = 1 if remaining_work == "pending" else 2
+    assert len(rows["W02X"]) == expected_count
+    by_source = {item["source_url"]: item for item in summary.source_diagnostics}
+    assert by_source["rss://first"]["retrieval_status"] == "available"
+    assert by_source["rss://second"]["retrieval_status"] == (
+        "budget_exhausted" if remaining_work == "pending" else "available"
+    )
+    exhausted = remaining_work != "completed"
+    assert summary.news_budget_exhausted is (exhausted and deadline_kind == "stage")
+    assert summary.tier_budget_exhausted is (exhausted and deadline_kind == "tier")
+    assert summary.tier_budget_exhausted_by_tier == {"extended": exhausted and deadline_kind == "tier"}
+    assert summary.sources_attempted_count == 2
+    assert summary.sources_skipped_due_to_budget_count == int(remaining_work == "unattempted")
+    if remaining_work == "unattempted":
+        assert by_source["rss://third"]["attempted"] is False
+        assert by_source["rss://third"]["budget_exhausted"] is True
+    assert summary.news_elapsed_seconds == pytest.approx(1.001)
+    assert summary.failure_count == 0
+
+
+@pytest.mark.parametrize("deadline_kind", ["stage", "tier"])
+@pytest.mark.parametrize("has_evidence", [False, True], ids=["empty-feed", "matched-feed"])
+def test_in_time_public_retrieval_survives_late_coordinator_and_cache_restart(
+    monkeypatch, tmp_path, deadline_kind, has_evidence,
+):
+    clock = [100.0]
+    work = {}
+    fetch_calls = []
+    monkeypatch.setattr(news_fetcher.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(news_fetcher, "feedparser", object())
+    monkeypatch.setattr(batch_rss_adapter, "get_source_group_urls", lambda group: ("rss://controlled",))
+
+    class Executor:
+        def __init__(self, **kwargs): pass
+        def submit(self, function, *args):
+            future = Future()
+            future.set_running_or_notify_cancel()
+            work[future] = (function, args)
+            return future
+        def shutdown(self, **kwargs): pass
+
+    monkeypatch.setattr(news_fetcher, "ThreadPoolExecutor", Executor)
+    feed = SimpleNamespace(feed={"title": "Controlled source"}, entries=[SimpleNamespace(
+        title="W02X company update", link="https://news.example/w02x",
+        published_parsed=time.gmtime(time.time() - 60),
+    )] if has_evidence else [])
+    monkeypatch.setattr(news_fetcher, "_fetch_feed", lambda *args: feed)
+    def completed_before_deadline(futures, timeout, return_when):
+        clock[0] = 100.999
+        for future in futures:
+            function, args = work.pop(future)
+            future.set_result(function(*args))
+        clock[0] = 101.001
+        return set(futures), set()
+    monkeypatch.setattr(news_fetcher, "wait", completed_before_deadline)
+    def actual_fetcher(*args, **kwargs):
+        fetch_calls.append(args[1])
+        return news_fetcher.fetch_headlines_for_symbols(*args, **kwargs)
+
+    provider = BatchRssNewsIntelligenceProvider(extended_fetcher=actual_fetcher)
+    path = tmp_path / "cache.json"
+    def service():
+        return CanonicalNewsIntelligenceService(
+            evidence_store=CanonicalNewsEvidenceStore(path, prep_artifact_loader=lambda: {}),
+            retrieval_provider=provider,
+        )
+    policy = RetrievalPolicy(
+        source_groups=("PREP_EXTENDED",), refresh_interval_seconds=1800,
+        total_budget_seconds=1.0 if deadline_kind == "stage" else 3.0,
+        tier_budgets={"extended": 1.0},
+    )
+    instance = service()
+    for reader in (instance, instance, service()):
+        result = reader.get_news([NewsCandidate("W02X")], NewsRequest(freshness_seconds=3600), policy)
+        summary = result.summary_for_symbol("W02X")
+        assert summary.retrieval_unavailable is False
+        assert summary.retrieval_status == "available"
+        assert summary.budget_exhausted is False
+        assert result.diagnostics.budget_exhausted is False
+        assert result.diagnostics.unresolved_symbols == ()
+        assert len(result.evidence_for_symbol("W02X")) == int(has_evidence)
+    assert len(fetch_calls) == 1
+    saved = json.loads(path.read_text())["news_intelligence"]["symbols"]["W02X"]["last_retrieval"]
+    assert saved["retrieval_status"] == "available"
+    assert saved["budget_exhausted"] is False

@@ -15,6 +15,9 @@ artifacts/w02/full_suite_network_audit.json
 artifacts/w02/guard_collection_combined_targeted.log
 artifacts/w02/guard_collection_combined_targeted_status.json
 artifacts/w02/guard_collection_targeted_network_audit.json
+artifacts/w02/late_coordinator_affected.log
+artifacts/w02/late_coordinator_after.log
+artifacts/w02/late_coordinator_before.log
 artifacts/w02/late_deadline_affected.log
 artifacts/w02/late_deadline_after.log
 artifacts/w02/late_deadline_before.log
@@ -40,6 +43,10 @@ artifacts/w02/review_p2_provider_status_before.log
 artifacts/w02/review_p2_provider_status_targeted.log
 artifacts/w02/review_source_changes.json
 artifacts/w02/review_targeted_network_audit.json
+artifacts/w02/review_timing_combined_targeted.log
+artifacts/w02/review_timing_combined_targeted_status.json
+artifacts/w02/review_timing_network_audit.json
+artifacts/w02/review_timing_source_changes.json
 artifacts/w02/run_final_suite.py
 artifacts/w02/source_evidence_matrix.csv
 artifacts/w02/source_evidence_matrix.json
