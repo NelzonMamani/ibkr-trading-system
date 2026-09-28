@@ -75,3 +75,6 @@ Follow-up validation: 97 targeted tests passed, covering the five-item dilution 
 
 
 Second exact-head review identified an injected-store compatibility regression: legacy stores implement write(evidence, request). Acquisition persistence now uses an optional write_with_retrieval_metadata capability; legacy injected stores retain the original call and conservatively refresh without acquisition metadata. Existing diagnostics tests are unchanged. The expanded follow-up run passed 108 tests, including all post-PR1090 news diagnostics. See review_injection_compatibility.log and review_injection_source_hashes.json.
+
+
+Third-head CI passed. Review found two additional migration cases: inherited metadata writers with legacy subclass overrides, and old root-level cache rows duplicating canonical article IDs. The optional writer now preserves an overridden two-argument write seam, and deduplication also recognizes stable symbol/headline/source/URL identity (publication time distinguishes URL-less repeats; URL case is retained). New regressions cover legacy-cache dilution survival, subclass override dispatch, and distinct URL/publication preservation. 111 affected regressions plus 7 bounded-retrieval and 14 remaining direct-consumer tests passed (132 total).

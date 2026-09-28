@@ -234,3 +234,55 @@ def test_explicit_refresh_still_overrides_acquisition_cadence(tmp_path):
     service.get_news([NewsCandidate("EGG")], NewsRequest(), RetrievalPolicy(
         refresh_interval_seconds=1800, metadata={"refresh_symbols": ["EGG"]}))
     assert retrieval.calls == 1
+
+
+def test_legacy_cache_copy_cannot_evict_distinct_offering(tmp_path):
+    now = datetime.now(timezone.utc)
+    evidence = tuple(NewsEvidence(
+        symbol="EGG", evidence_id=f"rss-batch:EGG:{index}",
+        headline="EGG announces offering" if index == 4 else f"EGG wins contract {index}",
+        published_at=now - timedelta(minutes=index), fetched_at=now, stale=False,
+        provider="rss_batch", observed_source="Example News", url=f"https://example.test/{index}",
+    ) for index in range(5))
+    path = tmp_path / "cache.json"
+    path.write_text(json.dumps({"symbols": {"EGG": {"fetched_at": now.isoformat(), "news_context": [
+        {"title": row.headline, "source": row.observed_source, "url": row.url,
+         "published_at": row.published_at.isoformat()} for row in evidence
+    ]}}}))
+    store = CanonicalNewsEvidenceStore(path, prep_artifact_loader=lambda: {})
+    store.write({"EGG": evidence})
+    restored = store.read([NewsCandidate("EGG")]).evidence_by_symbol["EGG"]
+    assert len(restored) == 5
+    assert {row.headline for row in restored} == {row.headline for row in evidence}
+    from src.scanner.scanner_runner import _ross_news_context_from_evidence
+    context = _ross_news_context_from_evidence("EGG", restored, None, NewsBatchResult(candidates=(NewsCandidate("EGG"),)))
+    assert context["dilution_flag"] is True
+    assert context["ross_catalyst_valid"] is False
+
+
+def test_inherited_metadata_writer_preserves_legacy_subclass_override(tmp_path):
+    class LegacyStore(CanonicalNewsEvidenceStore):
+        writes = 0
+        def write(self, evidence, request):
+            self.writes += 1
+            return {"cache_write_failed": False}
+    class Retrieval:
+        def get_news(self, *args):
+            return NewsBatchResult(evidence_by_symbol={"EGG": ()})
+    store = LegacyStore(tmp_path / "cache.json", prep_artifact_loader=lambda: {})
+    service = CanonicalNewsIntelligenceService(evidence_store=store, retrieval_provider=Retrieval())
+    result = service.get_news([NewsCandidate("EGG")], NewsRequest(), RetrievalPolicy(refresh_interval_seconds=1800))
+    assert store.writes == 1
+    assert result.evidence_by_symbol == {"EGG": ()}
+
+
+def test_article_identity_preserves_distinct_urls_and_publication_times():
+    from dataclasses import replace
+    from src.news.evidence_store import dedupe_evidence
+    now = datetime.now(timezone.utc)
+    row = NewsEvidence(symbol="EGG", headline="EGG reports earnings", observed_source="News", published_at=now)
+    rows = [replace(row, evidence_id="a", url="https://example.test/A"),
+            replace(row, evidence_id="b", url="https://example.test/a"),
+            replace(row, evidence_id="c"),
+            replace(row, evidence_id="d", published_at=now - timedelta(days=1))]
+    assert len(dedupe_evidence(rows, max_items=5)) == 4

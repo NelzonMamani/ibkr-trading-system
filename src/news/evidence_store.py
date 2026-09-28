@@ -272,6 +272,10 @@ class CanonicalNewsEvidenceStore:
         retrieval_by_symbol: Mapping[str, Mapping[str, Any]],
     ) -> dict[str, Any]:
         """Optional acquisition persistence capability beyond the legacy write seam."""
+        if type(self).write is not CanonicalNewsEvidenceStore.write:
+            # An inherited capability must not change a subclass's legacy seam.
+            # Custom stores can override this capability to persist acquisition data.
+            return self.write(evidence_by_symbol, request)
         return self.write(evidence_by_symbol, request, retrieval_by_symbol=retrieval_by_symbol)
 
     def _load_cache_payload(self, diagnostics: dict[str, Any]) -> dict[str, Any]:
@@ -548,6 +552,7 @@ def enrich_evidence_metrics(
 
 def dedupe_evidence(evidence: Sequence[NewsEvidence], *, max_items: int) -> list[NewsEvidence]:
     seen: set[str] = set()
+    seen_articles: set[tuple[str, ...]] = set()
     ordered = sorted(
         evidence,
         key=lambda item: (
@@ -565,9 +570,19 @@ def dedupe_evidence(evidence: Sequence[NewsEvidence], *, max_items: int) -> list
             item.observed_source or item.original_source or "",
             item.url or "",
         )
-        if key in seen:
+        # Persistence formats use different ID prefixes for the same article.
+        # Keep URL case intact; without a URL, publication time distinguishes repeats.
+        article = (
+            item.normalized_symbol,
+            " ".join(str(item.headline or "").split()).casefold(),
+            str(item.observed_source or item.original_source or "").strip().casefold(),
+            str(item.url or "").strip(),
+            "" if item.url else (item.published_at.isoformat() if item.published_at else ""),
+        )
+        if key in seen or article in seen_articles:
             continue
         seen.add(key)
+        seen_articles.add(article)
         result.append(item)
         if len(result) >= max(1, int(max_items or 1)):
             break
