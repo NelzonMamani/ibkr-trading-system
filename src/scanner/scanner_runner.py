@@ -3019,9 +3019,9 @@ def _news_retrieval_state_for_symbol(
     if summary is not None:
         if summary.retrieval_unavailable or summary.provider_status in {"provider_unavailable", "provider_request_failure"}:
             return True, summary.budget_exhausted or summary.retrieval_status == "budget_exhausted"
-        if summary.provider_available is True or summary.retrieval_status in {"available", "partial", "cache_hit"}:
+        if summary.retrieval_status in {"available", "partial", "cache_hit"}:
             return False, False
-        # An optional/default summary is not proof of successful retrieval.
+        # Reachability or an optional/default summary does not prove completion.
         # Retain explicit failure facts for this symbol without affecting a
         # different symbol whose summary reports a definite successful outcome.
     diagnostics = result.diagnostics
@@ -3043,7 +3043,7 @@ def _news_provider_status_for_symbol(
         return result.diagnostics.provider_status or "cache_miss"
     if summary.provider_status:
         return summary.provider_status
-    if summary.retrieval_unavailable:
+    if summary.provider_available is False:
         return "provider_unavailable"
     return "available" if summary.provider_available is True else "unknown"
 

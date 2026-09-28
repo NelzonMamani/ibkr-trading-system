@@ -29,6 +29,13 @@ artifacts/w02/recorded_timing_deadline_before_scoped_status.log
 artifacts/w02/recorded_timing_diagnosis.json
 artifacts/w02/review_combined_targeted.log
 artifacts/w02/review_combined_targeted_status.json
+artifacts/w02/review_p1_combined_targeted.log
+artifacts/w02/review_p1_combined_targeted_status.json
+artifacts/w02/review_p1_network_audit.json
+artifacts/w02/review_p1_outcome_variants_before.log
+artifacts/w02/review_p1_reachability_before.log
+artifacts/w02/review_p1_reachability_targeted.log
+artifacts/w02/review_p1_source_changes.json
 artifacts/w02/review_p2_provider_status_before.log
 artifacts/w02/review_p2_provider_status_targeted.log
 artifacts/w02/review_source_changes.json

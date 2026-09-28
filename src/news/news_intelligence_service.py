@@ -294,16 +294,23 @@ def _symbols_without_fresh_evidence(
 def _refresh_symbol_outcome(symbol: str, result: NewsBatchResult) -> NewsEvidenceSummary | RetrievalDiagnostics:
     """Use the same per-symbol outcome for persistence, summaries and aggregation."""
     summary = result.summary_for_symbol(symbol)
+    if summary is not None and summary.retrieval_status == "budget_exhausted" and not summary.budget_exhausted:
+        summary = replace(summary, budget_exhausted=True)
+    if summary is not None and summary.provider_status in {"provider_unavailable", "provider_request_failure"}:
+        status = summary.retrieval_status
+        if status not in {"unavailable", "timeout", "budget_exhausted", "provider_error"}:
+            status = "provider_error" if summary.provider_status == "provider_request_failure" else "unavailable"
+        return replace(summary, provider_available=False, retrieval_status=status)
     if summary is not None and (
-        summary.provider_available is not None
+        summary.provider_available is False
         or summary.budget_exhausted
         or summary.retrieval_status not in {"unknown", "not_requested"}
     ):
         return summary
-    if summary is not None and summary.provider_status in {"provider_unavailable", "provider_request_failure"}:
-        return replace(summary, provider_available=False,
-                       retrieval_status="provider_error" if summary.provider_status == "provider_request_failure" else "unavailable")
+    # A reachable provider does not prove completed per-symbol retrieval.
     diagnostics = result.diagnostics
+    if diagnostics.retrieval_status == "budget_exhausted" and not diagnostics.budget_exhausted:
+        diagnostics = replace(diagnostics, budget_exhausted=True)
     if diagnostics.unresolved_symbols:
         unresolved = symbol in diagnostics.unresolved_symbols
         exhausted = unresolved and diagnostics.budget_exhausted
@@ -507,8 +514,13 @@ def _combined_diagnostics(
     }
     provider_status = _provider_status(refresh_result, cache_diagnostics)
     provider_available = _provider_available(refresh_result, cache_diagnostics)
-    budget_exhausted = bool(refresh_diag.budget_exhausted) if refresh_diag is not None else False
+    known_budget_symbols = tuple(symbol for symbol in symbols if summaries[symbol].budget_exhausted)
+    budget_exhausted = bool(known_budget_symbols) or bool(
+        refresh_diag is not None
+        and (refresh_diag.budget_exhausted or refresh_diag.retrieval_status == "budget_exhausted")
+    )
     unresolved_symbols = refresh_diag.unresolved_symbols if refresh_diag is not None else ()
+    unresolved_symbols = tuple(dict.fromkeys((*unresolved_symbols, *known_budget_symbols)))
     if cadence_hits:
         # Batch facts must agree with the effective per-symbol acquisition outcomes,
         # including negative cache hits and batches mixing cached and fresh retrievals.
