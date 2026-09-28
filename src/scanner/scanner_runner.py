@@ -8,6 +8,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 from pathlib import Path
 import sys
 import time
@@ -30,7 +31,7 @@ from src.config.runtime_config import (
 from src.core.event_collector import EventCollector
 from src.data.float_discovery_worker import get_float_discovery_worker
 from src.news.batch_rss_adapter import BatchRssNewsIntelligenceProvider
-from src.news.news_fetcher import Headline, RssFailureSummary, fetch_fast_headlines_for_symbols, fetch_headlines_for_symbols
+from src.news.news_fetcher import Headline, RssFailureSummary, fetch_fast_headlines_for_symbols, fetch_headlines_for_symbols, symbol_relevance_match
 from src.news.news_intelligence_contract import (
     NewsBatchResult,
     NewsCandidate,
@@ -2437,6 +2438,26 @@ def _focus_volume_threshold_for_session(session: str, thresholds: GateThresholds
     return float(thresholds.focus_volume_min), "policy.min_volume"
 
 
+def _focus_summary_counts(
+    watchlist: Iterable[Dict[str, Any]], focus: Iterable[Dict[str, Any]]
+) -> Dict[str, int]:
+    rows = list(watchlist)
+    accepted_symbols = {str(row.get("symbol")) for row in focus}
+    accepted = sum(str(row.get("symbol")) in accepted_symbols for row in rows)
+    rejected = sum(
+        str(row.get("symbol")) not in accepted_symbols
+        and bool(row.get("focus_drop_reason"))
+        and row.get("focus_drop_reason") != "SOFT_FAIL_VOLUME"
+        for row in rows
+    )
+    return {
+        "evaluated": len(rows),
+        "accepted": accepted,
+        "rejected": rejected,
+        "ranked_out": len(rows) - accepted - rejected,
+    }
+
+
 def _bounded_pass_focus_candidates(
     candidates: list[Dict[str, Any]],
     *,
@@ -2494,7 +2515,9 @@ def _detect_catalyst_type(titles: Iterable[str]) -> Optional[str]:
     for title in titles:
         lowered = title.lower()
         for keyword, label in CATALYST_KEYWORDS.items():
-            if keyword in lowered:
+            # Abbreviations such as AI and EV are event terms, not substrings
+            # of unrelated words (waits, Malaysia, revenue, preview).
+            if re.search(rf"(?<![a-z0-9]){re.escape(keyword)}(?![a-z0-9])", lowered):
                 return label
     return None
 
@@ -3125,12 +3148,51 @@ def _empty_news_context_from_summary(
     }
 
 
+def _evidence_issuer_relevance_verified(
+    symbol: str, item: NewsEvidence, result: NewsBatchResult
+) -> bool:
+    # Recheck text-derived RSS evidence at the strategy boundary, including
+    # persisted entries written before the matcher was hardened. A cached
+    # ticker_token/classification field is not proof of issuer identity.
+    if item.provider not in {"rss_batch", "prep_cache", "legacy_news_provider_cache"} and item.match_type not in {
+        "ticker_token", "company_name", "prep_context"
+    }:
+        return True
+    candidate = next((row for row in result.candidates if row.normalized_symbol == symbol), None)
+    metadata = dict(candidate.metadata) if candidate is not None else {}
+    metadata["company_name"] = (
+        item.company_name
+        or (candidate.company_name if candidate is not None else None)
+        or metadata.get("company_name")
+    )
+    metadata["aliases"] = (
+        metadata.get("aliases") or (),
+        metadata.get("company_aliases") or (),
+        metadata.get("issuer_aliases") or (),
+        tuple(item.aliases),
+        tuple(candidate.aliases) if candidate is not None else (),
+    )
+    return symbol_relevance_match(
+        symbol, title=str(item.headline or ""), summary=str(item.summary or ""), metadata=metadata
+    ) is not None
+
+
 def _ross_news_context_from_evidence(
     symbol: str,
     evidence: tuple[NewsEvidence, ...],
     summary: NewsEvidenceSummary | None,
     result: NewsBatchResult,
 ) -> Dict[str, Any]:
+    accepted_evidence = []
+    for item in evidence:
+        if _evidence_issuer_relevance_verified(symbol, item, result):
+            accepted_evidence.append(item)
+        else:
+            print(
+                "[NEWS][RELEVANCE_REJECT] "
+                f"symbol={symbol} evidence_id={item.evidence_id} reason=issuer_match_unverified"
+            )
+    evidence = tuple(accepted_evidence)
     if not evidence:
         return _empty_news_context_from_summary(symbol, summary, result)
 
@@ -6417,10 +6479,10 @@ def run_scanner_cycle(
                 ]
                 focus_contexts = eligible[: min(5, len(eligible))]
                 print(f"[FOCUS][FORCED_PROMOTION_PREMARKET] count={len(focus_contexts)}")
+        focus_summary = _focus_summary_counts(watchlist_contexts, focus_contexts)
         print(
             "[ROSS][FOCUS][SUMMARY] "
-            f"evaluated={len(watchlist_contexts)} accepted={len(focus_contexts)} "
-            f"rejected={sum(1 for context in watchlist_contexts if context.get('focus_drop_reason'))}"
+            + " ".join(f"{key}={value}" for key, value in focus_summary.items())
         )
         deep_rows = _build_deep_rows(focus_contexts, news_by_symbol)
 
