@@ -1,0 +1,42 @@
+{
+  "started_at": "2026-09-28T22:06:46.164432+00:00",
+  "command": [
+    "C:\\tmp\\pr1091-cert-env-20260923\\Scripts\\python.exe",
+    "-m",
+    "pytest",
+    "-p",
+    "scripts.diagnostics.w02_offline_guard",
+    "--w02-network-audit=artifacts/w03/affected_network_audit.json",
+    "-q",
+    "tests/test_w02_news_deadlines.py",
+    "tests/test_w02_news_consumer_acceptance.py",
+    "tests/test_w02_source_outcomes.py",
+    "tests/test_pr1064_news_intelligence_contract.py",
+    "tests/test_pr1065_news_source_groups.py",
+    "tests/test_pr1067_batch_rss_adapter.py",
+    "tests/test_pr1069_news_intelligence_completion.py",
+    "tests/test_pr1072_bounded_news_retrieval.py",
+    "tests/test_pr1079_globenewswire_positive_control.py",
+    "tests/test_pr1086_news_runtime_reliability.py",
+    "tests/test_post_pr1090_news_diagnostics.py",
+    "tests/test_pr1091_catalyst_evidence_repair.py",
+    "tests/test_pr1091_review_followup.py",
+    "tests/test_pr1091_console_reporting.py",
+    "tests/test_ross_pr1028_autonomous_scanner_catalyst_certification.py",
+    "tests/test_ross_pr1051_readonly_catalyst_wiring.py",
+    "tests/test_ross_pr1057_catalyst_retrieval.py",
+    "tests/test_ross_pr1059_news_budget.py",
+    "tests/test_ross_pr1061_tier_news_budget.py",
+    "tests/test_w01_ownership_boundaries.py",
+    "tests/test_w03_cache_contract.py",
+    "tests/test_w03_news_lifecycle.py",
+    "tests/test_w03_standalone_lookup.py"
+  ],
+  "interpreter": "C:\\tmp\\pr1091-cert-env-20260923\\Scripts\\python.exe",
+  "exit_code": 0,
+  "completed_at": "2026-09-28T22:07:23.767093+00:00",
+  "source_changes": [
+    "scripts/diagnostics/w03_news_acceptance.py"
+  ],
+  "log_sha256": "0c756364314be92929136865e386d029319500df57fd47f5ba616fb539d4dbc4"
+}

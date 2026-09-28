@@ -36,6 +36,7 @@ from src.news.rss_batch_runtime import (
     stage_remaining_seconds,
 )
 from src.news.source_groups import SourceGroupId, get_source_group_urls
+from src.news.rss_lifecycle import RssFetchLifecycle
 
 
 DEFAULT_SOURCE_GROUPS: tuple[str, ...] = ("FAST_TRADING", "PREP_EXTENDED")
@@ -52,7 +53,8 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
 
     provider_id = "rss_batch"
 
-    def __init__(self, *, fast_fetcher=None, extended_fetcher=None) -> None:
+    def __init__(self, *, fast_fetcher=None, extended_fetcher=None, lifecycle: RssFetchLifecycle | None = None) -> None:
+        self._lifecycle = lifecycle
         self._fast_fetcher = fast_fetcher or fetch_fast_headlines_for_symbols
         self._extended_fetcher = extended_fetcher or fetch_headlines_for_symbols
 
@@ -107,6 +109,7 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
         fast_deadline_s = min(stage_deadline_s, stage_started_at_s + fast_budget_seconds)
         symbol_metadata = _metadata_by_symbol(ordered_candidates)
 
+        lifecycle_kwargs = {"lifecycle": self._lifecycle} if self._lifecycle is not None else {}
         fast_fetched = bool(fast_sources)
         extended_fetched = False
         if fast_sources:
@@ -123,6 +126,7 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
                 tier_budget_seconds=fast_budget_seconds,
                 tier_started_at_s=stage_started_at_s,
                 tier_deadline_s=fast_deadline_s,
+                **lifecycle_kwargs,
             )
         else:
             headlines_by_symbol = {symbol: [] for symbol in symbols}
@@ -185,6 +189,7 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
                     tier_budget_seconds=extended_budget_seconds,
                     tier_started_at_s=extended_started_at_s,
                     tier_deadline_s=min(stage_deadline_s, extended_started_at_s + extended_budget_seconds),
+                    **lifecycle_kwargs,
                 )
                 extended_fetched = True
                 extended_budget_exhausted = bool(
@@ -305,6 +310,13 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
         tier_attempt_counts = dict(getattr(summary, "tier_sources_attempted_counts", {}) or {})
         source_diag_objects = _source_diagnostics_from_summary(summary)
         source_diag_payload = [dict(getattr(item, "__dict__", {})) for item in source_diag_objects]
+        if self._lifecycle is None:
+            # Keep existing scanner diagnostic payloads unchanged. Research opts
+            # into the extra fields, including explicit unknown measurements.
+            for row in source_diag_payload:
+                for key in ("request_elapsed_seconds", "parse_elapsed_seconds", "http_status",
+                            "response_closed", "feed_item_count", "elapsed_kind", "worker_completed"):
+                    row.pop(key, None)
         tier_elapsed_by_tier = dict(getattr(summary, "tier_elapsed_seconds_by_tier", {}) or {})
         tier_budget_by_tier = dict(getattr(summary, "tier_budget_seconds_by_tier", {}) or {})
         tier_exhausted_by_tier = dict(getattr(summary, "tier_budget_exhausted_by_tier", {}) or {})
@@ -487,6 +499,13 @@ def _source_diagnostics_from_summary(summary: RssFailureSummary) -> tuple[Source
                 timeout_seconds=item.get("timeout_seconds"),
                 timed_out=bool(item.get("timed_out", False)),
                 budget_exhausted=bool(item.get("budget_exhausted", False)),
+                request_elapsed_seconds=item.get("request_elapsed_seconds"),
+                parse_elapsed_seconds=item.get("parse_elapsed_seconds"),
+                http_status=item.get("http_status"),
+                response_closed=item.get("response_closed"),
+                feed_item_count=item.get("feed_item_count"),
+                elapsed_kind=item.get("elapsed_kind"),
+                worker_completed=item.get("worker_completed"),
             )
         )
     return tuple(rows)

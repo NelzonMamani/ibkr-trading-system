@@ -1,0 +1,118 @@
+{
+  "operational_files_before": {
+    "data/news/news_cache.json": "adb8e35abda1f6c4511dfbac7b4fe8676cce4ec9efafbb9d88b80a638fdfcd88",
+    "data/prep/premarket_prep.json": "2b5ac35b95ffcd366a0eb7d6239a7b6c687bc34f6c2b30ee5e6b45ac6ef89a37"
+  },
+  "started_at": "2026-09-28T22:11:13.254907+00:00",
+  "interpreter": "C:\\tmp\\pr1091-cert-env-20260923\\Scripts\\python.exe",
+  "base_commit": "a3ece50407869a203e93fee83064d9eb90daf29d",
+  "source_manifest_sha256": "f6c37055b0a53269ebd3eb54e7261ed4aacaa9ad684fe9884d0f5a33cff0361f",
+  "command": [
+    "C:\\tmp\\pr1091-cert-env-20260923\\Scripts\\python.exe",
+    "-m",
+    "pytest",
+    "-p",
+    "scripts.diagnostics.w02_offline_guard",
+    "--w02-network-audit=artifacts/w03/full_suite_network_audit.json",
+    "-q"
+  ],
+  "supervisor_pid": 1508,
+  "compile_exit_code": 0,
+  "pytest_pid": 16824,
+  "exit_code": 0,
+  "operational_files_after": {
+    "data/news/news_cache.json": "adb8e35abda1f6c4511dfbac7b4fe8676cce4ec9efafbb9d88b80a638fdfcd88",
+    "data/prep/premarket_prep.json": "2b5ac35b95ffcd366a0eb7d6239a7b6c687bc34f6c2b30ee5e6b45ac6ef89a37"
+  },
+  "operational_files_unchanged": true,
+  "network_audit": {
+    "guard": "external/broker sockets blocked; stdlib private socketpair self-pipes allowed",
+    "attempts": [
+      {
+        "test": "tests/metadata/test_m3_mode_semantics_verifier.py::test_m3_mode_semantics_verifier",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/metadata/test_m3_mode_semantics_verifier.py::test_m3_mode_semantics_verifier",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/metadata/test_m3_mode_semantics_verifier.py::test_m3_mode_semantics_verifier",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/metadata/test_m3_mode_semantics_verifier.py::test_m3_mode_semantics_verifier",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_ross_pr1028_autonomous_scanner_catalyst_certification.py::test_pr1028_hard_scanner_rejections_do_not_enter_watchlist_or_focus",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_ross_pr1028_autonomous_scanner_catalyst_certification.py::test_pr1028_hard_scanner_rejections_do_not_enter_watchlist_or_focus",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_ross_pr1028_autonomous_scanner_catalyst_certification.py::test_pr1028_hard_scanner_rejections_do_not_enter_watchlist_or_focus",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_ross_pr1028_autonomous_scanner_catalyst_certification.py::test_pr1028_hard_scanner_rejections_do_not_enter_watchlist_or_focus",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_ross_pr3_watchlist_focus_proof.py::test_empty_watchlist_and_focus_are_valid_when_no_symbol_qualifies",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_ross_pr3_watchlist_focus_proof.py::test_empty_watchlist_and_focus_are_valid_when_no_symbol_qualifies",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_ross_pr3_watchlist_focus_proof.py::test_candidate_rationale_exposes_compact_classifications",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_ross_pr3_watchlist_focus_proof.py::test_candidate_rationale_exposes_compact_classifications",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_ross_pr3_watchlist_focus_proof.py::test_hard_rejections_cannot_enter_focus_m[DROP_PRICE_RANGE-context_overrides0-policy_overrides0-DROP_PRICE_RANGE]",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_ross_pr3_watchlist_focus_proof.py::test_hard_rejections_cannot_enter_focus_m[DROP_PRICE_RANGE-context_overrides0-policy_overrides0-DROP_PRICE_RANGE]",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_ross_pr3_watchlist_focus_proof.py::test_hard_rejections_cannot_enter_focus_m[DROP_NO_CATALYST-context_overrides3-policy_overrides3-DROP_NO_CATALYST]",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_ross_pr3_watchlist_focus_proof.py::test_hard_rejections_cannot_enter_focus_m[DROP_NO_CATALYST-context_overrides3-policy_overrides3-DROP_NO_CATALYST]",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_ross_pre_activation_runtime.py::test_registry_marks_session_incompatible_patterns_as_skipped",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_ross_pre_activation_runtime.py::test_registry_marks_session_incompatible_patterns_as_skipped",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_ross_pre_activation_runtime.py::test_pattern_inputs_normalize_level_aliases",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_ross_pre_activation_runtime.py::test_pattern_inputs_normalize_level_aliases",
+        "outcome": "blocked_before_connection"
+      }
+    ],
+    "stdlib_socketpair_connections": 26,
+    "exit_status": 0
+  },
+  "completed_at": "2026-09-28T22:16:39.464835+00:00",
+  "log_sha256": "d74e002d5b5775e1721bf42952d7a47b94cde83b4521334a8a9206fb3cdfa76a",
+  "source_changes_during_tests": []
+}

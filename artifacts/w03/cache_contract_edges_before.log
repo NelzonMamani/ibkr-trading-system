@@ -1,0 +1,247 @@
+F...                                                                     [100%]
+================================== FAILURES ===================================
+____ test_matching_cache_only_without_cadence_retains_acquisition_outcome _____
+
+tmp_path = WindowsPath('C:/Users/nelzo/AppData/Local/Temp/pytest-of-nelzo/pytest-323/test_matching_cache_only_witho0')
+
+    def test_matching_cache_only_without_cadence_retains_acquisition_outcome(tmp_path):
+        provider = Provider()
+        path = tmp_path / "news.json"
+        service(path, provider).get_news([CANDIDATE], REQUEST, POLICY)
+        result = service(path, provider).get_news([CANDIDATE], REQUEST, replace(
+            POLICY, refresh_interval_seconds=None, network_allowed=False, refresh_mode="cache_only"))
+        assert len(provider.calls) == 1
+        assert result.summary_for_symbol("ACME").retrieval_status == "available"
+        assert result.diagnostics.provider_available is True
+>       assert result.diagnostics.retrieval_status == "available"
+E       AssertionError: assert 'not_requested' == 'available'
+E         
+E         - available
+E         + not_requested
+
+tests\test_w03_cache_contract.py:190: AssertionError
+---------------------------- Captured stdout setup ----------------------------
+[CONFIG][RESOLVE] key=RUN_MODE source=DEFAULT value='LIVE'
+[CONFIG][RESOLVE] key=EVENT_REPLAY_MODE source=DEFAULT value='CYCLE'
+[CONFIG][RESOLVE] key=AUTONOMOUS_CERTIFICATION_ENABLED source=DEFAULT value=True
+[CONFIG][RESOLVE] key=EXECUTION_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=FORCE_EXECUTION_ON_TRADE_READY source=DEFAULT value=True
+[CONFIG][RESOLVE] key=FORCE_RISK_APPROVAL_FOR_TRADE_READY source=DEFAULT value=True
+[CONFIG][RESOLVE] key=FORCE_CLEAN_START source=DEFAULT value=False
+[CONFIG][RESOLVE] key=CLEAN_START_TIMEOUT_SECONDS source=DEFAULT value=120
+[CONFIG][RESOLVE] key=PREMARKET_MIN_VOLUME source=DEFAULT value=2000
+[CONFIG][RESOLVE] key=RTH_MIN_VOLUME source=DEFAULT value=10000
+[CONFIG][RESOLVE] key=RISK_PROFILE source=DEFAULT value='NORMAL'
+[CONFIG][RESOLVE] key=RISK_ACCOUNT_EQUITY source=DEFAULT value=100000.0
+[CONFIG][RESOLVE] key=IBKR_READONLY_ENABLED source=DEFAULT value=True
+[CONFIG][RESOLVE] key=IBKR_API_WRITE_ALLOWED source=DEFAULT value=True
+[CONFIG][RESOLVE] key=INTENT_DEDUP_SELFTEST_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=LEARNING_ENABLED source=DEFAULT value=True
+[CONFIG][RESOLVE] key=LEARNING_LIVE_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_LAYER_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_POLICY_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_MIN_CONFIDENCE_TO_APPLY source=DEFAULT value=0.65
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_STRATEGY_WEIGHTING_MODE source=DEFAULT value='OFF'
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_MAX_RISK_MULTIPLIER source=DEFAULT value=1.0
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_MIN_RISK_MULTIPLIER source=DEFAULT value=0.25
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_ALLOWED_SESSIONS source=DEFAULT value=['RTH']
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_FEATURE_SET source=DEFAULT value='BASIC'
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_BASELINE_WINDOW source=DEFAULT value=60
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_EWMA_ALPHA source=DEFAULT value=0.2
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_LOG_LEVEL source=DEFAULT value='INFO'
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_ALLOWED_RISK_MULTIPLIERS source=DEFAULT value=[0.0, 0.25, 0.5, 0.75, 1.0]
+[CONFIG][RESOLVE] key=ADAPTIVE_REGIME_ALLOWED_STRATEGY_WEIGHTS source=DEFAULT value=[0.0, 0.25, 0.5, 0.75, 1.0]
+[CONFIG][RESOLVE] key=IBKR_HOST source=DEFAULT value='127.0.0.1'
+[CONFIG][RESOLVE] key=IBKR_PORT source=DEFAULT value=7497
+[CONFIG][RESOLVE] key=IBKR_CLIENT_ID source=DEFAULT value=7
+[CONFIG][RESOLVE] key=IBKR_MARKET_DATA_TYPE source=DEFAULT value='DELAYED'
+[CONFIG][RESOLVE] key=IBKR_SNAPSHOT_TIMEOUT_SECONDS source=DEFAULT value=5
+[CONFIG][RESOLVE] key=IBKR_SNAPSHOT_MAX_AGE_SECONDS source=DEFAULT value=15
+[CONFIG][RESOLVE] key=IBKR_MAX_SYMBOLS_PER_CYCLE source=ENV value=50
+[CONFIG][RESOLVE] key=IBKR_FALLBACK_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=IBKR_FALLBACK_SOURCE source=DEFAULT value='STATIC'
+[CONFIG][RESOLVE] key=IBKR_AUTO_LOCKDOWN_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=DEBUG_MARKET_DATA source=DEFAULT value=False
+[CONFIG][RESOLVE] key=DEBUG_SCANNER source=DEFAULT value=False
+[CONFIG][RESOLVE] key=IBKR_DEFAULT_EXCHANGE source=DEFAULT value='SMART'
+[CONFIG][RESOLVE] key=IBKR_DEFAULT_CURRENCY source=DEFAULT value='USD'
+[CONFIG][RESOLVE] key=IBKR_ORDER_TRANSLATION_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=IBKR_ORDER_SUBMISSION_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=LIVE_EXECUTION_PROBE_MODE source=DEFAULT value=True
+[CONFIG][RESOLVE] key=PROBE_SYMBOLS source=DEFAULT value=['UGRO']
+[CONFIG][RESOLVE] key=PROBE_ORDER_SIZE source=DEFAULT value=1
+[CONFIG][RESOLVE] key=PROBE_HOLD_SECONDS source=DEFAULT value=60
+[CONFIG][RESOLVE] key=IBKR_KILL_SWITCH source=DEFAULT value=True
+[CONFIG][RESOLVE] key=IBKR_MAX_ORDERS_PER_RUN source=DEFAULT value=1
+[CONFIG][RESOLVE] key=IBKR_SUBMIT_ONLY_SYMBOL source=DEFAULT value=None
+[CONFIG][RESOLVE] key=IBKR_PAPER_ONLY_ENFORCED source=DEFAULT value=True
+[CONFIG][RESOLVE] key=IBKR_PAPER_HOST source=DEFAULT value='127.0.0.1'
+[CONFIG][RESOLVE] key=IBKR_PAPER_PORT source=DEFAULT value=7497
+[CONFIG][RESOLVE] key=IBKR_LIVE_PORT source=DEFAULT value=7496
+[CONFIG][RESOLVE] key=IBKR_ACK_TIMEOUT_SECONDS source=DEFAULT value=10
+[CONFIG][RESOLVE] key=IBKR_CLIENT_ID_ORDER_SUBMIT source=DEFAULT value=9012
+[CONFIG][RESOLVE] key=IBKR_GUARD_PERSIST_PATH source=DEFAULT value='runtime/submission_guard.json'
+[CONFIG][RESOLVE] key=DAILY_LOSS_WARNING_LIMIT source=DEFAULT value=5.0
+[CONFIG][RESOLVE] key=DAILY_LOSS_HARD_LIMIT source=DEFAULT value=10.0
+[CONFIG][RESOLVE] key=DAILY_RISK_GOVERNOR_ENABLED source=DEFAULT value=True
+[CONFIG][RESOLVE] key=DAILY_RISK_TIMEZONE source=DEFAULT value='America/New_York'
+[CONFIG][RESOLVE] key=DAILY_RISK_MAX_LOSS_AMOUNT source=DEFAULT value=10.0
+[CONFIG][RESOLVE] key=DAILY_RISK_MAX_LOSS_PCT source=DEFAULT value=0.0
+[CONFIG][RESOLVE] key=DAILY_RISK_MAX_DRAWDOWN_AMOUNT source=DEFAULT value=0.0
+[CONFIG][RESOLVE] key=DAILY_RISK_MAX_DRAWDOWN_PCT source=DEFAULT value=0.0
+[CONFIG][RESOLVE] key=DAILY_RISK_INCLUDE_UNREALIZED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=DAILY_RISK_MAX_TRADES source=DEFAULT value=0
+[CONFIG][RESOLVE] key=DAILY_RISK_MAX_LOSING_TRADES source=DEFAULT value=0
+[CONFIG][RESOLVE] key=DAILY_RISK_MAX_CONSECUTIVE_LOSSES source=DEFAULT value=0
+[CONFIG][RESOLVE] key=DAILY_RISK_EXISTING_POSITION_POLICY source=DEFAULT value='MANAGED_ONLY'
+[CONFIG][RESOLVE] key=DAILY_RISK_LIVE_FAIL_CLOSED source=DEFAULT value=True
+[CONFIG][RESOLVE] key=DAILY_RISK_MANUAL_HALT source=DEFAULT value=False
+[CONFIG][RESOLVE] key=DAILY_RISK_RESET_TIME_LOCAL source=DEFAULT value='00:00'
+[CONFIG][RESOLVE] key=SCANNER_MODE source=DEFAULT value='TEACHING'
+[CONFIG][RESOLVE] key=SCANNER_SYMBOLS source=DEFAULT value=[]
+[CONFIG][RESOLVE] key=SCANNER_DEFAULT_SYMBOLS source=DEFAULT value=['AAPL', 'TSLA', 'NVDA', 'AMD', 'SPY']
+[CONFIG][RESOLVE] key=SCANNER_DATA_SOURCE source=DEFAULT value='AUTO'
+[CONFIG][RESOLVE] key=HISTORICAL_ENRICH_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=SCANNER_TOP_GAINERS_COUNT source=DEFAULT value=50
+[CONFIG][RESOLVE] key=SCANNER_TEACHING_SYMBOL_CAP source=DEFAULT value=0
+[CONFIG][RESOLVE] key=TOPN_REFRESH_SECONDS source=DEFAULT value=300
+[CONFIG][RESOLVE] key=WATCHLIST_REFRESH_SECONDS source=DEFAULT value=60
+[CONFIG][RESOLVE] key=FOCUS_REFRESH_SECONDS source=DEFAULT value=10
+[CONFIG][RESOLVE] key=MANUAL_FOCUS_ENABLED source=DEFAULT value=None
+[CONFIG][RESOLVE] key=PREP_REFRESH_CLOSED_MIN_SECONDS source=DEFAULT value=7200
+[CONFIG][RESOLVE] key=PREP_REFRESH_CLOSED_MAX_SECONDS source=DEFAULT value=21600
+[CONFIG][RESOLVE] key=PREP_REFRESH_PRE_MIN_SECONDS source=DEFAULT value=900
+[CONFIG][RESOLVE] key=PREP_REFRESH_PRE_MAX_SECONDS source=DEFAULT value=1800
+[CONFIG][RESOLVE] key=PREP_REFRESH_REG_MIN_SECONDS source=DEFAULT value=1800
+[CONFIG][RESOLVE] key=PREP_REFRESH_REG_MAX_SECONDS source=DEFAULT value=3600
+[CONFIG][RESOLVE] key=PREP_REFRESH_AH_MIN_SECONDS source=DEFAULT value=3600
+[CONFIG][RESOLVE] key=PREP_REFRESH_AH_MAX_SECONDS source=DEFAULT value=10800
+[CONFIG][RESOLVE] key=POSITION_MANAGEMENT_TICK_SECONDS source=DEFAULT value=1
+[CONFIG][RESOLVE] key=FOCUS_MAX_SYMBOLS_PER_STRATEGY source=DEFAULT value=5
+[CONFIG][RESOLVE] key=WATCHLIST_MAX_SYMBOLS_PER_STRATEGY source=DEFAULT value=15
+[CONFIG][RESOLVE] key=TOPN_MAX_SYMBOLS_PER_STRATEGY source=DEFAULT value=50
+[CONFIG][RESOLVE] key=SCANNER_WATCHLIST_LIMIT source=DEFAULT value=15
+[CONFIG][RESOLVE] key=WATCHLIST_PRINT_EVERY_N_CYCLES source=DEFAULT value=20
+[CONFIG][RESOLVE] key=SCANNER_SESSION_WINDOWS_UTC source=DEFAULT value={'PRE_START': 12.0, 'RTH_START': 14.0, 'AFT_START': 21.5, 'AFT_END': 23.0}
+[CONFIG][RESOLVE] key=SCANNER_MOCK_SEED source=DEFAULT value=42
+[CONFIG][RESOLVE] key=SCANNER_MOCK_SYMBOLS_FILE source=DEFAULT value='src/scanner/mock_universe.txt'
+[CONFIG][RESOLVE] key=SCANNER_FLOAT_CACHE_FILE source=DEFAULT value='data/reference/float_cache.json'
+[CONFIG][RESOLVE] key=SCANNER_VERSION source=DEFAULT value='v2026-01-04-11'
+[CONFIG][RESOLVE] key=SCANNER_GIT_SHA source=DEFAULT value=''
+[CONFIG][RESOLVE] key=SHOW_URLS source=DEFAULT value=True
+[CONFIG][RESOLVE] key=DISABLE_OSC8 source=DEFAULT value=False
+[CONFIG][RESOLVE] key=ROSS_MIN_PCT_CHANGE source=DEFAULT value=10.0
+[CONFIG][RESOLVE] key=ROSS_MIN_PRICE source=DEFAULT value=1.0
+[CONFIG][RESOLVE] key=ROSS_MAX_PRICE source=DEFAULT value=20.0
+[CONFIG][RESOLVE] key=ROSS_MAX_FLOAT source=DEFAULT value=20000000
+[CONFIG][RESOLVE] key=ROSS_MIN_RVOL source=DEFAULT value=2.0
+[CONFIG][RESOLVE] key=ROSS_PCT_CHANGE_MIN source=DEFAULT value=3.0
+[CONFIG][RESOLVE] key=ROSS_RVOL_MIN source=DEFAULT value=0.5
+[CONFIG][RESOLVE] key=WATCHLIST_RVOL_MIN source=DEFAULT value=None
+[CONFIG][RESOLVE] key=FOCUS_RVOL_MIN source=DEFAULT value=None
+[CONFIG][RESOLVE] key=FORCE_DEBUG_TRADES source=DEFAULT value=False
+[CONFIG][RESOLVE] key=ROSS_VALIDATION_OVERRIDE_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=FORCE_PREMARKET_TRIGGER source=DEFAULT value=False
+[CONFIG][RESOLVE] key=MAX_SPREAD_PCT source=DEFAULT value=None
+[CONFIG][RESOLVE] key=ALLOW_UNKNOWN_FLOAT source=DEFAULT value=False
+[CONFIG][RESOLVE] key=ROSS_MIN_VOLUME source=DEFAULT value=1000000
+[CONFIG][RESOLVE] key=ROSS_MIN_PREMARKET_VOLUME source=DEFAULT value=100000
+[CONFIG][RESOLVE] key=ROSS_REQUIRE_NEWS source=DEFAULT value=True
+[CONFIG][RESOLVE] key=NEWS_MAX_AGE_SECONDS source=DEFAULT value=3600
+[CONFIG][RESOLVE] key=NEWS_MIN_VELOCITY_10M source=DEFAULT value=1
+[CONFIG][RESOLVE] key=NEWS_MIN_REGIONS source=DEFAULT value=1
+[CONFIG][RESOLVE] key=NEWS_CACHE_FILE source=DEFAULT value='data/news/news_cache.json'
+[CONFIG][RESOLVE] key=NEWS_MAX_AGE_HOURS source=DEFAULT value=6.0
+[CONFIG][RESOLVE] key=NEWS_REFRESH_SECONDS_PREP source=DEFAULT value=1800
+[CONFIG][RESOLVE] key=NEWS_REFRESH_SECONDS_PRE source=DEFAULT value=300
+[CONFIG][RESOLVE] key=NEWS_REFRESH_SECONDS_RTH source=DEFAULT value=120
+[CONFIG][RESOLVE] key=NEWS_ENABLED source=OVERRIDE value=True
+[CONFIG][RESOLVE] key=NEWS_LOOKBACK_HOURS source=DEFAULT value=6.0
+[CONFIG][RESOLVE] key=NEWS_MAX_ENTRIES_PER_SYMBOL source=DEFAULT value=5
+[CONFIG][RESOLVE] key=NEWS_REQUEST_TIMEOUT_S source=DEFAULT value=5
+[CONFIG][RESOLVE] key=NEWS_TOTAL_BUDGET_S source=DEFAULT value=8.0
+[CONFIG][RESOLVE] key=NEWS_EXTENDED_TIER_RESERVE_FRACTION source=DEFAULT value=0.35
+[CONFIG][RESOLVE] key=VERIFIED_RSS_PATH source=DEFAULT value='verified_rss.txt'
+[CONFIG][RESOLVE] key=NEWS_REFRESH_SECONDS source=DEFAULT value=90
+[CONFIG][RESOLVE] key=NEWS_MAX_ITEMS_PER_FEED source=DEFAULT value=75
+[CONFIG][RESOLVE] key=NEWS_MAX_TOP_HEADLINES source=DEFAULT value=5
+[CONFIG][RESOLVE] key=NEWS_DEBUG source=DEFAULT value=False
+[CONFIG][RESOLVE] key=CYCLE_SLEEP_SECONDS source=DEFAULT value=3
+[CONFIG][RESOLVE] key=ACTIVE_SESSIONS source=DEFAULT value=['PRE', 'RTH', 'AH']
+[CONFIG][RESOLVE] key=SESSION_PHASE_OVERRIDE source=DEFAULT value=None
+[CONFIG][RESOLVE] key=MARKET_HOLIDAYS source=DEFAULT value=set()
+[CONFIG][RESOLVE] key=MARKET_HALF_DAYS source=DEFAULT value=set()
+[CONFIG][RESOLVE] key=MARKET_EARLY_CLOSE_TIME source=DEFAULT value=datetime.time(13, 0)
+[CONFIG][RESOLVE] key=MARKET_SESSION_WINDOWS_LOCAL source=DEFAULT value={'PRE_START': datetime.time(4, 0), 'REGULAR_START': datetime.time(9, 30), 'REGULAR_END': datetime.time(16, 0), 'AFTER_END': datetime.time(20, 0)}
+[CONFIG][RESOLVE] key=PERSISTENCE_ENABLED source=DEFAULT value=True
+[CONFIG][RESOLVE] key=PERSISTENCE_BACKEND source=DEFAULT value='sqlite'
+[CONFIG][RESOLVE] key=PERSISTENCE_SQLITE_PATH source=DEFAULT value='data/ibkr_system.db'
+[CONFIG][RESOLVE] key=PERSISTENCE_JSONL_MIRROR_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=AUDIT_HASH_CHAIN_ENABLED source=DEFAULT value=True
+[CONFIG][RESOLVE] key=AUDIT_VERIFY_ON_START source=DEFAULT value=False
+[CONFIG][RESOLVE] key=PERSIST_FLUSH_EACH_CYCLE source=DEFAULT value=True
+[CONFIG][RESOLVE] key=APP_VERSION source=DEFAULT value='UNKNOWN'
+[CONFIG][RESOLVE] key=GIT_SHA source=DEFAULT value=None
+[CONFIG][RESOLVE] key=RISK_STRATEGY_LIMITS source=DEFAULT value={'SCALPER': {'max_trades': 2}, 'MOMENTUM': {'max_trades': 1}}
+[CONFIG][RESOLVE] key=STRATEGY_CAPITAL_ALLOCATIONS source=DEFAULT value={}
+[CONFIG][RESOLVE] key=STRATEGY_CAPITAL_DEFAULT_ALLOCATION_PCT source=DEFAULT value=0.5
+[CONFIG][RESOLVE] key=RISK_MAX_POSITION_SIZE source=DEFAULT value=1
+[CONFIG][RESOLVE] key=RISK_MAX_OPEN_POSITIONS source=DEFAULT value=5
+[CONFIG][RESOLVE] key=RISK_MAX_TOTAL_EXPOSURE_PCT source=DEFAULT value=15.0
+[CONFIG][RESOLVE] key=LIFECYCLE_MAX_PORTFOLIO_EXPOSURE source=DEFAULT value=5000.0
+[CONFIG][RESOLVE] key=LIFECYCLE_MAX_POSITION_EXPOSURE source=DEFAULT value=1500.0
+[CONFIG][RESOLVE] key=LIFECYCLE_MAX_POSITIONS source=DEFAULT value=5
+[CONFIG][RESOLVE] key=LIFECYCLE_MANUAL_KILL_SWITCH source=DEFAULT value=False
+[CONFIG][RESOLVE] key=RISK_CONFIDENCE_LOW_THRESHOLD source=DEFAULT value=0.75
+[CONFIG][RESOLVE] key=RISK_CONFIDENCE_MEDIUM_THRESHOLD source=DEFAULT value=0.5
+[CONFIG][RESOLVE] key=EXECUTION_MAX_ATTEMPTS_BY_TRADER source=DEFAULT value={'SCALPER': 2, 'MOMENTUM': 3, 'DEFAULT': 1}
+[CONFIG][RESOLVE] key=ROSS_RISK_MIN_GAP source=DEFAULT value=4.0
+[CONFIG][RESOLVE] key=ROSS_RISK_MAX_GAP source=DEFAULT value=20.0
+[CONFIG][RESOLVE] key=ROSS_RISK_FLOAT_CEILING source=DEFAULT value=100.0
+[CONFIG][RESOLVE] key=ROSS_RISK_RVOL_FLOOR source=DEFAULT value=2.0
+[CONFIG][RESOLVE] key=ROSS_RISK_CONFIDENCE_FLOOR source=DEFAULT value=0.6
+[CONFIG][RESOLVE] key=ROSS_RISK_COOLDOWN_TICKS source=DEFAULT value=5
+[CONFIG][RESOLVE] key=ROSS_RISK_MAX_ATTEMPTS_PER_SYMBOL source=DEFAULT value=2
+[CONFIG][RESOLVE] key=MIN_HOLD_TICKS source=DEFAULT value=2
+[CONFIG][RESOLVE] key=MAX_HOLD_TICKS source=DEFAULT value=10
+[CONFIG][RESOLVE] key=ROSS_ENABLE_ADDITIONAL_HEURISTIC_PATTERNS source=DEFAULT value=False
+[CONFIG][RESOLVE] key=ROSS_MOMENTUM_STRATEGY_ENABLED source=DEFAULT value=True
+[CONFIG][RESOLVE] key=STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=MEAN_REVERSION_STRATEGY_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=LONG_HORIZON_VALUE_STRATEGY_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=E22_STRATEGY_SCALABILITY_ENABLED source=DEFAULT value=False
+[CONFIG][RESOLVE] key=E22_MAX_STRATEGIES_PER_CYCLE source=DEFAULT value=20
+[CONFIG][RESOLVE] key=E22_MAX_INTENTS_PER_CYCLE source=DEFAULT value=200
+[CONFIG][RESOLVE] key=E22_MAX_POSITIONS_PER_CYCLE source=DEFAULT value=50
+[CONFIG][RESOLVE] key=E22_SYMBOL_EXCLUSIVITY source=DEFAULT value=True
+[CONFIG][RESOLVE] key=E22_STRATEGY_PRIORITY source=DEFAULT value={}
+[CONFIG][RESOLVE] key=E22_STRATEGY_MAX_INTENTS source=DEFAULT value={}
+[CONFIG][RESOLVE] key=SELECTED_STRATEGY source=DEFAULT value=''
+[CONFIG][RESOLVE] key=STRATEGY_POLICY_V2_ENABLED source=DEFAULT value=True
+[CONFIG][RESOLVE] key=STRATEGY_POLICY_V2_STRATEGIES source=DEFAULT value={'ross_momentum': True}
+[CONFIG][RESOLVE] key=ENABLED_STRATEGIES source=DEFAULT value={'GapAndGoStrategy': True, 'MomentumContinuationStrategy': True, 'EventEarningsReactionStrategy': False, 'EventNewsShockContinuationStrategy': False, 'VolatilityContractionBreakoutStrategy': False, 'VolatilityCarryRiskPremiumStrategy': False, 'PairsDivergenceReversionStrategy': False, 'CrossSectionalRelativeStrengthRotationStrategy': False, 'TimeBasedSeasonalityStrategy': False, 'TrendFollowingClassicStrategy': False, 'LongHorizonQualityCompounderStrategy': False, 'RegimeAdaptiveMetaAllocatorStrategy': False, 'OpeningDriveStrategy': False, 'VwapReclaimStrategy': False, 'PowerHourStrategy': False, 'VolatilityExpansionStrategy': False, 'RangeBoundFadeStrategy': False, 'SupportResistanceChannelStrategy': False}
+[CONFIG][RESOLVE] key=IBKR_TRANSLATION_TEST_SYMBOL source=DEFAULT value=''
+[CONFIG][RESOLVE] key=IBKR_TRANSLATION_TEST_DIRECTION source=DEFAULT value='LONG'
+[CONFIG][RESOLVE] key=IBKR_TRANSLATION_TEST_ORDER_TYPE source=DEFAULT value='MKT'
+[CONFIG][RESOLVE] key=IBKR_TRANSLATION_TEST_QUANTITY source=DEFAULT value=1
+[CONFIG][RESOLVE] key=IBKR_TRANSLATION_TEST_LIMIT_PRICE source=DEFAULT value=None
+[CONFIG][RESOLVE] key=IBKR_TRANSLATION_TEST_TIF source=DEFAULT value='DAY'
+[CONFIG][RESOLVE] key=IBKR_TRANSLATION_TEST_CLIENT_ORDER_ID source=DEFAULT value='dry-run-ibkr-translation'
+[CONFIG][RESOLVE] key=IBKR_TRANSLATION_TEST_STRATEGY_NAME source=DEFAULT value='DRY_RUN'
+[CONFIG][RESOLVE] key=IBKR_TRANSLATION_TEST_TRADER_TYPE source=DEFAULT value='MANUAL'
+[CONFIG][RESOLVE] key=IBKR_SMOKE_SYMBOL source=DEFAULT value=''
+[CONFIG][RESOLVE] key=FUTURE_NEWS_SENTIMENT_MODEL source=DEFAULT value='PLACEHOLDER'
+[CONFIG][RESOLVE] key=FUTURE_EXECUTION_RATE_LIMIT source=DEFAULT value=0
+[CONFIG][RESOLVE] key=FUTURE_STORAGE_RETENTION_DAYS source=DEFAULT value=0
+[CONFIG] Loaded 216 variables
+[CONFIG] HARD enforced: 52
+[CONFIG] Optional: 163
+[CONFIG] Scanner symbol cap: 50 (source=DEFAULT)
+[CONFIG] Market data snapshot cap: 50 (source=ENV)
+[CONFIG] No ambiguous defaults detected
+---------------------------- Captured stdout call -----------------------------
+[NEWS][RETRIEVAL_DIAGNOSTICS] {"budget_exhausted":false,"cache":{"cache_hit_symbols":[],"cache_miss_symbols":["ACME"],"cache_read_error":null,"cache_read_failed":false,"cache_write_error":null,"cache_write_failed":false,"cadence_cache_hit_symbols":[],"prep_read_error":null,"prep_read_failed":false,"prep_reuse_symbols":[],"prep_stale_symbols":[],"read_attempted":true,"read_skipped":false,"stale_cache_miss_symbols":[],"state":"miss","write_attempted":true},"completed_at_utc":"2026-09-28T20:00:00+00:00","elapsed_seconds":0.25,"network_allowed":true,"provider_available":true,"provider_failure_reason":null,"provider_invoked":true,"provider_status":"ok","refresh_allowed":true,"refresh_symbols":["ACME"],"request_mode":"incremental","retrieval_status":"available","schema":"news.retrieval_diagnostics.v1","source_groups":["FAST_TRADING"],"sources":[{"attempted":true,"budget_exhausted":false,"elapsed_seconds":0.25,"failure_code":null,"http_status":null,"matched_count":0,"provider":null,"source":"https://example.test/feed","source_group":null,"source_tier":null,"status":"available","timed_out":false,"timeout_seconds":null}],"sources_attempted":1,"sources_skipped_due_to_budget":0,"started_at_utc":"2026-09-28T20:00:00+00:00","summaries":{"ACME":{"budget_exhausted":false,"cache_state":"miss","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"no_recent_news","provider_available":true,"provider_status":"ok","retrieval_status":"available","retrieval_unavailable":false,"stale_evidence_count":0,"unavailability_reasons":[]}},"symbols":["ACME"],"tier_budget_seconds":{"extended_budget_reserved_seconds":null,"extended_budget_seconds":null,"fast_budget_seconds":null},"total_budget_seconds":null,"unresolved_symbols":[]}
+[NEWS][RETRIEVAL_DIAGNOSTICS] {"budget_exhausted":false,"cache":{"cache_hit_symbols":[],"cache_miss_symbols":["ACME"],"cache_read_error":null,"cache_read_failed":false,"cache_write_error":null,"cache_write_failed":false,"cadence_cache_hit_symbols":[],"prep_read_error":null,"prep_read_failed":false,"prep_reuse_symbols":[],"prep_stale_symbols":[],"read_attempted":true,"read_skipped":false,"stale_cache_miss_symbols":[],"state":"miss","write_attempted":false},"completed_at_utc":"2026-09-28T20:00:00+00:00","elapsed_seconds":0.0,"network_allowed":false,"provider_available":true,"provider_failure_reason":null,"provider_invoked":false,"provider_status":"cache_miss","refresh_allowed":false,"refresh_symbols":["ACME"],"request_mode":"cache_only","retrieval_status":"not_requested","schema":"news.retrieval_diagnostics.v1","source_groups":[],"sources":[],"sources_attempted":0,"sources_skipped_due_to_budget":0,"started_at_utc":"2026-09-28T20:00:00+00:00","summaries":{"ACME":{"budget_exhausted":false,"cache_state":"miss","evidence_count":0,"fresh_evidence_count":0,"objective_news_status":"no_recent_news","provider_available":true,"provider_status":"ok","retrieval_status":"available","retrieval_unavailable":false,"stale_evidence_count":0,"unavailability_reasons":[]}},"symbols":["ACME"],"tier_budget_seconds":{"extended_budget_reserved_seconds":null,"extended_budget_seconds":null,"fast_budget_seconds":null},"total_budget_seconds":30,"unresolved_symbols":[]}
+=========================== short test summary info ===========================
+FAILED tests/test_w03_cache_contract.py::test_matching_cache_only_without_cadence_retains_acquisition_outcome
+1 failed, 3 passed, 16 deselected in 5.79s

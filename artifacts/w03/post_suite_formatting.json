@@ -1,0 +1,8 @@
+{
+  "path": "tests/test_w03_standalone_lookup.py",
+  "reason": "Remove one trailing empty line found by staged git diff --check; no executable change",
+  "before_sha256": "af7b383e5e2196a847c99889042e0987e206d4779385c82d16d44091589f7279",
+  "after_sha256": "13670c1f48dc7187605c68ac1fb544a0d5210a3ec1b542655e4902e002d87e55",
+  "only_trailing_whitespace_changed": true,
+  "verification": "Existing local full suite retained; final-head CI will cover the committed file."
+}

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Sequence
 
 from src.config.config_resolver import get_config
 from src.news.news_intelligence_contract import NewsCandidate, NewsRequest, RetrievalPolicy
@@ -45,16 +45,25 @@ class NewsProvider:
     def cache_file(self):
         return self.service.evidence_store.cache_path
 
-    def get_news(self, symbol: str) -> NewsResult:
-        normalized = str(symbol or "").strip().upper()
+    def get_news(self, symbol: str | NewsCandidate) -> NewsResult:
+        normalized = symbol.normalized_symbol if isinstance(symbol, NewsCandidate) else str(symbol or "").strip().upper()
         if not normalized:
             return NewsResult("", datetime.now(timezone.utc).isoformat(), "invalid")
-        return self.get_news_batch([normalized])[normalized]
+        return self.get_news_batch([symbol])[normalized]
 
-    def get_news_batch(self, symbols: list[str]) -> dict[str, NewsResult]:
-        candidates = tuple(NewsCandidate(symbol=s) for s in dict.fromkeys(
-            str(value or "").strip().upper() for value in symbols
-        ) if s)
+    def get_news_batch(self, symbols: Sequence[str | NewsCandidate]) -> dict[str, NewsResult]:
+        by_symbol: dict[str, NewsCandidate] = {}
+        supplied_candidates: set[str] = set()
+        for value in symbols:
+            candidate = value if isinstance(value, NewsCandidate) else NewsCandidate(str(value or "").strip().upper())
+            symbol = candidate.normalized_symbol
+            if not symbol:
+                continue
+            if symbol not in by_symbol or (isinstance(value, NewsCandidate) and symbol not in supplied_candidates):
+                by_symbol[symbol] = candidate
+            if isinstance(value, NewsCandidate):
+                supplied_candidates.add(symbol)
+        candidates = tuple(by_symbol.values())
         if not candidates:
             return {}
         enabled = bool(get_config("NEWS_ENABLED"))

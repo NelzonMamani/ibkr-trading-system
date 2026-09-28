@@ -1,0 +1,35 @@
+F                                                                        [100%]
+================================== FAILURES ===================================
+_ test_in_time_parsed_feed_is_returned_while_owned_response_close_is_pending __
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000024553A03230>
+
+    def test_in_time_parsed_feed_is_returned_while_owned_response_close_is_pending(monkeypatch):
+        closing = threading.Event()
+        release_close = threading.Event()
+        class Response:
+            status_code = 200
+            text = "offline parsed feed"
+            def raise_for_status(self): pass
+            def close(self):
+                closing.set()
+                assert release_close.wait(3), "test must release owned response close"
+        monkeypatch.setattr(news_fetcher, "requests", SimpleNamespace(get=lambda *args, **kwargs: Response()))
+        monkeypatch.setattr(news_fetcher, "feedparser", SimpleNamespace(parse=lambda text: feed()))
+        lifecycle = RssFetchLifecycle()
+        try:
+            rows, summary = news_fetcher.fetch_fast_headlines_for_symbols(
+                ["W03X"], ["https://news.example/rss"], total_news_budget_seconds=0.2,
+                lifecycle=lifecycle,
+            )
+            assert closing.wait(1)
+>           assert [item.title for item in rows["W03X"]] == ["W03X and W03Y company update"]
+E           AssertionError: assert [] == ['W03X and W0...mpany update']
+E             
+E             Right contains one more item: 'W03X and W03Y company update'
+E             Use -v to get more diff
+
+tests\test_w03_news_lifecycle.py:277: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_w03_news_lifecycle.py::test_in_time_parsed_feed_is_returned_while_owned_response_close_is_pending
+1 failed, 10 deselected in 1.27s

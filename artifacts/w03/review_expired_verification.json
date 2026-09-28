@@ -1,0 +1,60 @@
+{
+  "reviewed_prior_head": "0de2e8b3be49160e339bd923ad97567589f024ae",
+  "finding": "Expired compatible research acquisitions were incorrectly treated as complete coverage when retrieval was disabled or scoped to a peer.",
+  "before_result": "4 failed, 21 deselected in 5.14s",
+  "focused_after_result": "4 passed, 21 deselected in 5.59s",
+  "affected_result": "204 passed in 22.08s",
+  "network_audit": {
+    "guard": "external/broker sockets blocked; stdlib private socketpair self-pipes allowed",
+    "attempts": [],
+    "stdlib_socketpair_connections": 1,
+    "exit_status": 0
+  },
+  "source_changes_since_local_full": [
+    {
+      "path": "src/news/news_intelligence_service.py",
+      "before": "41c51357b65ab44982f961f3ad25661f25ff5a0910d6fc984b8e25c58e1eee0f",
+      "after": "59edea96eaf59088b7e82688831a1f4f820ade36e797f13bf4ffcd141a2fe088"
+    },
+    {
+      "path": "tests/test_w03_cache_contract.py",
+      "before": "a4c586c93ebe99dfb8e6b4469d58758c68c27425e301b77855d2b6794c98d1b4",
+      "after": "8eb59a13c5c9ceade3c83d1e37d3414aac8a54861e5801d0cbb413e1d574e8ba"
+    },
+    {
+      "path": "tests/test_w03_standalone_lookup.py",
+      "before": "af7b383e5e2196a847c99889042e0987e206d4779385c82d16d44091589f7279",
+      "after": "13670c1f48dc7187605c68ac1fb544a0d5210a3ec1b542655e4902e002d87e55"
+    }
+  ],
+  "manifest_sha256": "f5c04dc31188541a1faaf841327fdb5deee0fb1ff40663037d77e9d154d3a812",
+  "independent_peer_review": "No concrete blocker; expiry independent of explicit scope, prior evidence/history and nonresearch/None cadence preserved",
+  "local_full_suite_repeated": false,
+  "live_provider_session_repeated": false,
+  "initial_ci": {
+    "head": "0de2e8b3be49160e339bd923ad97567589f024ae",
+    "run_id": 36491794064,
+    "job_id": 109161897514,
+    "result": "2180 passed, 1 skipped in 193.30s",
+    "log_path": "output/w03/initial_ci_job.log",
+    "log_sha256": "05dada2d53f2d085a46b661e6d904731c330972def1c7feb4a31042c3a81091e"
+  },
+  "affected_command": [
+    "C:\\tmp\\pr1091-cert-env-20260923\\Scripts\\python.exe",
+    "-m",
+    "pytest",
+    "-p",
+    "scripts.diagnostics.w02_offline_guard",
+    "--w02-network-audit=artifacts/w03/review_expired_affected_network_audit.json",
+    "-q",
+    "tests/test_w03_cache_contract.py",
+    "tests/test_w03_standalone_lookup.py",
+    "tests/test_w03_news_lifecycle.py",
+    "tests/test_pr1064_news_intelligence_contract.py",
+    "tests/test_pr1069_news_intelligence_completion.py",
+    "tests/test_pr1086_news_runtime_reliability.py",
+    "tests/test_post_pr1090_news_diagnostics.py",
+    "tests/test_w02_news_consumer_acceptance.py",
+    "tests/test_w01_ownership_boundaries.py"
+  ]
+}

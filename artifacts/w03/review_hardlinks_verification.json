@@ -1,0 +1,51 @@
+{
+  "prior_head": "7d595c343962062b03b6df18903da08034a5cb16",
+  "finding": "Existing hard-link cache aliases can have different resolved paths but the same file identity.",
+  "before_result": "2 failed, 36 deselected in 3.82s",
+  "affected_result": "38 passed in 5.82s",
+  "affected_command": [
+    "C:\\tmp\\pr1091-cert-env-20260923\\Scripts\\python.exe",
+    "-m",
+    "pytest",
+    "-p",
+    "scripts.diagnostics.w02_offline_guard",
+    "--w02-network-audit=artifacts/w03/review_hardlinks_after_network_audit.json",
+    "-q",
+    "tests/test_w03_standalone_lookup.py"
+  ],
+  "tested_hashes": {
+    "scripts/verify_news_discovery.py": "2765c9b874e8751a3583010b336649e4d8a9d3f2d7972a83b1d6ef256797ccc3",
+    "tests/test_w03_standalone_lookup.py": "cd4feb7948780e6feda5de6ad064cb0a68f0e9cf86ecd2ef81b5a1ccbf3050a2"
+  },
+  "source_changes_since_prior_review": [
+    {
+      "path": "scripts/verify_news_discovery.py",
+      "before": "2fa0a3307bdb8106c6ef60089b1b7f01a1dfa7183a0cae6fbab7d0c49886e0c2",
+      "after": "2765c9b874e8751a3583010b336649e4d8a9d3f2d7972a83b1d6ef256797ccc3"
+    },
+    {
+      "path": "tests/test_w03_standalone_lookup.py",
+      "before": "a66f89eec88054945d0d8dc607e3b4c8fb3ba7f94026c6622bd18d374ccab6b6",
+      "after": "cd4feb7948780e6feda5de6ad064cb0a68f0e9cf86ecd2ef81b5a1ccbf3050a2"
+    }
+  ],
+  "manifest_sha256": "b10cf41e9e5789b21dff8b9cfe361efafaf410f666532c95ef683006dbb8a5d2",
+  "network_audit": {
+    "guard": "external/broker sockets blocked; stdlib private socketpair self-pipes allowed",
+    "attempts": [],
+    "stdlib_socketpair_connections": 1,
+    "exit_status": 0
+  },
+  "log_sha256": "7b40eec446a0ddd06b81e30a82929ee557ffdf655df1467cba58174408ee35e3",
+  "independent_peer_review": "No concrete blocker; resolved paths and samefile checked before worker; other filesystem errors fail validation, exclusive temporary output preserved.",
+  "prior_ci": {
+    "head": "7d595c343962062b03b6df18903da08034a5cb16",
+    "run_id": 36493888808,
+    "job_id": 109168797133,
+    "result": "2189 passed, 1 skipped in 216.43s",
+    "log_path": "output/w03/path_repair_ci_job.log",
+    "log_sha256": "88f323f0d6baaff4b4b70fedfc88f462fb626fdba66aa627305d35f65b0a42a5"
+  },
+  "local_full_suite_repeated": false,
+  "live_provider_session_repeated": false
+}

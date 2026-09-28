@@ -133,6 +133,13 @@ class SourceDiagnostic:
     timeout_seconds: float | None = None
     timed_out: bool = False
     budget_exhausted: bool = False
+    request_elapsed_seconds: float | None = None
+    parse_elapsed_seconds: float | None = None
+    http_status: int | None = None
+    response_closed: bool | None = None
+    feed_item_count: int | None = None
+    elapsed_kind: str | None = None
+    worker_completed: bool | None = None
 
 
 @dataclass(frozen=True)

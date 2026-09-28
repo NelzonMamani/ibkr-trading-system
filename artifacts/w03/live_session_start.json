@@ -1,0 +1,7 @@
+{
+  "started_at": "2026-09-28T22:08:10.670760+00:00",
+  "wall_limit_seconds": 600,
+  "purpose": "One publisher verification plus one canonical live batch plus cached public single-symbol command",
+  "provider_batch_count_planned": 1,
+  "extra_uncached_single_planned": false
+}

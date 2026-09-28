@@ -5,12 +5,15 @@ import importlib
 import importlib.util
 import logging
 import re
+import threading
 import time
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
 from math import ceil
 from typing import Any, Dict, Iterable, List, Mapping
 from urllib.parse import urlparse
+
+from src.news.rss_lifecycle import RssFetchLifecycle, capture_source_timing, current_source_timing
 
 if importlib.util.find_spec("feedparser"):
     feedparser = importlib.import_module("feedparser")  # type: ignore
@@ -280,9 +283,40 @@ def _fetch_feed(url: str, timeout_s: float) -> object | None:
         return None
     if requests is None:
         return feedparser.parse(url)
-    response = requests.get(url, timeout=timeout_s)
-    response.raise_for_status()
-    return feedparser.parse(response.text)
+    timing = current_source_timing()
+    if timing is None:
+        response = requests.get(url, timeout=timeout_s)
+        response.raise_for_status()
+        return feedparser.parse(response.text)
+    response = None
+    try:
+        requested_at_s = time.monotonic()
+        try:
+            response = requests.get(url, timeout=timeout_s)
+        finally:
+            timing["request_elapsed_seconds"] = max(0.0, time.monotonic() - requested_at_s)
+        timing["http_status"] = getattr(response, "status_code", None)
+        response.raise_for_status()
+        text = response.text
+        parse_started_at_s = time.monotonic()
+        try:
+            feed = feedparser.parse(text)
+        finally:
+            completed_at_s = time.monotonic()
+            timing["_completed_at_s"] = completed_at_s
+            timing["parse_elapsed_seconds"] = max(0.0, completed_at_s - parse_started_at_s)
+        # Capture the retrieval completion before optional reporting/cleanup.
+        entries = getattr(feed, "entries", None)
+        if entries is not None and hasattr(entries, "__len__"):
+            timing["feed_item_count"] = len(entries)
+        return feed
+    except Exception:
+        timing.setdefault("_completed_at_s", time.monotonic())
+        raise
+    finally:
+        # The owned worker closes this response after publishing its Future.
+        # Slow cleanup must not hide an already completed in-budget parse.
+        timing["_response"] = response
 
 
 def _domain_for_url(url: str) -> str:
@@ -457,6 +491,7 @@ def _fetch_headlines_from_sources(
     tier_budget_seconds: float | None = None,
     tier_started_at_s: float | None = None,
     tier_deadline_s: float | None = None,
+    lifecycle: RssFetchLifecycle | None = None,
 ) -> tuple[Dict[str, List[Headline]], RssFailureSummary]:
     budget_seconds = _normalize_budget_seconds(total_news_budget_seconds)
     started_at_s = time.monotonic() if stage_started_at_s is None else float(stage_started_at_s)
@@ -561,8 +596,15 @@ def _fetch_headlines_from_sources(
         timeout_seconds: float | None = None,
         timed_out: bool = False,
         budget_exhausted: bool = False,
+        request_elapsed_seconds: float | None = None,
+        parse_elapsed_seconds: float | None = None,
+        http_status: int | None = None,
+        response_closed: bool | None = None,
+        feed_item_count: int | None = None,
+        elapsed_kind: str | None = None,
+        worker_completed: bool | None = None,
     ) -> Mapping[str, Any]:
-        return {
+        row = {
             "source_id": url,
             "source_url": url,
             "source_domain": _domain_for_url(url),
@@ -578,6 +620,15 @@ def _fetch_headlines_from_sources(
             "timed_out": bool(timed_out),
             "budget_exhausted": bool(budget_exhausted),
         }
+        if lifecycle is not None:
+            row.update(
+                request_elapsed_seconds=request_elapsed_seconds,
+                parse_elapsed_seconds=parse_elapsed_seconds,
+                http_status=http_status, response_closed=response_closed,
+                feed_item_count=feed_item_count, elapsed_kind=elapsed_kind,
+                worker_completed=worker_completed,
+            )
+        return row
 
     def per_source_timeout_seconds(remaining_source_count: int) -> float:
         timeout_s = configured_timeout_s
@@ -595,29 +646,55 @@ def _fetch_headlines_from_sources(
             timeout_s = min(timeout_s, max(MIN_SOURCE_TIMEOUT_SECONDS, remaining_tier_s / waves_remaining))
         return max(0.001, timeout_s)
 
-    def fetch_one(url: str, timeout_s: float) -> Mapping[str, Any]:
+    def fetch_one(url: str, timeout_s: float, attempt_id: int | None, callback_ready: threading.Event | None) -> Mapping[str, Any]:
         source_started_s = time.monotonic()
-        try:
-            feed = _fetch_feed(url, timeout_s)
-            completed_at_s = time.monotonic()
-            return {
-                "url": url,
-                "feed": feed,
-                "error": None,
+        if lifecycle is not None:
+            lifecycle.source_started(attempt_id, source_started_s)
+        with capture_source_timing(lifecycle is not None) as timing:
+            error = None
+            feed = None
+            try:
+                feed = _fetch_feed(url, timeout_s)
+            except Exception as exc:  # exercised through synthetic transport failures
+                error = exc
+            completed_at_s = timing.get("_completed_at_s")
+            if completed_at_s is None:
+                completed_at_s = time.monotonic()
+            result = {
+                "url": url, "feed": feed, "error": error,
                 "elapsed_seconds": max(0.0, completed_at_s - source_started_s),
-                "completed_at_s": completed_at_s,
-                "timeout_seconds": timeout_s,
+                "completed_at_s": completed_at_s, "timeout_seconds": timeout_s,
+                "_response": timing.get("_response"),
+                **{key: timing.get(key) for key in (
+                    "request_elapsed_seconds", "parse_elapsed_seconds", "http_status",
+                    "response_closed", "feed_item_count", "cleanup_error",
+                )},
             }
-        except Exception as exc:  # pragma: no cover - exercised through tests with synthetic exceptions
-            completed_at_s = time.monotonic()
-            return {
-                "url": url,
-                "feed": None,
-                "error": exc,
-                "elapsed_seconds": max(0.0, completed_at_s - source_started_s),
-                "completed_at_s": completed_at_s,
-                "timeout_seconds": timeout_s,
-            }
+        if lifecycle is not None:
+            observation = {key: value for key, value in result.items() if key not in {"feed", "error", "url", "_response"}}
+            observation["failure_reason"] = _failure_code(error) if error is not None else None
+            lifecycle.source_completed(attempt_id, observation)
+            if result["_response"] is not None:
+                # Registration happens immediately after submit. Holding the
+                # worker here ensures close runs in its done callback, never as
+                # a late-registered synchronous callback on the coordinator.
+                callback_ready.wait()
+        return result
+
+    def close_source_response(future: Any, attempt_id: int) -> None:
+        if future.cancelled():
+            return
+        result = future.result()
+        close = getattr(result.pop("_response", None), "close", None)
+        updates: dict[str, Any] = {}
+        if callable(close):
+            try:
+                close()
+                updates["response_closed"] = True
+            except Exception as exc:
+                updates.update(response_closed=False, cleanup_error=type(exc).__name__)
+        result.update(updates)
+        lifecycle.source_cleanup_completed(attempt_id, updates)
 
     def process_feed(url: str, feed: Any) -> int:
         nonlocal ticker_token_matches, company_name_matches, description_summary_matches, tier_matches
@@ -697,7 +774,9 @@ def _fetch_headlines_from_sources(
     if unique_sources:
         worker_count = max(1, min(DEFAULT_RSS_FETCH_WORKERS, len(unique_sources)))
         executor = ThreadPoolExecutor(max_workers=worker_count, thread_name_prefix="news-rss")
-        pending: dict[Any, tuple[str, float, float]] = {}
+        if lifecycle is not None:
+            lifecycle.register_executor(executor)
+        pending: dict[Any, tuple[str, float, float, int | None]] = {}
         next_source_index = 0
         skipped_sources_recorded = False
 
@@ -748,7 +827,17 @@ def _fetch_headlines_from_sources(
                     url = unique_sources[next_source_index]
                     next_source_index += 1
                     sources_attempted += 1
-                    pending[executor.submit(fetch_one, url, timeout_s)] = (url, timeout_s, time.monotonic())
+                    submitted_s = time.monotonic()
+                    attempt_id = lifecycle.source_submitted(url, source_tier, submitted_s) if lifecycle is not None else None
+                    callback_ready = threading.Event() if lifecycle is not None else None
+                    future = executor.submit(fetch_one, url, timeout_s, attempt_id, callback_ready)
+                    if lifecycle is not None:
+                        try:
+                            lifecycle.register_future(attempt_id, future)
+                            future.add_done_callback(lambda done, index=attempt_id: close_source_response(done, index))
+                        finally:
+                            callback_ready.set()
+                    pending[future] = (url, timeout_s, submitted_s, attempt_id)
                 if not pending:
                     break
                 # Drain completed work without waiting, including completions that
@@ -788,8 +877,14 @@ def _fetch_headlines_from_sources(
                         news_budget_exhausted = news_budget_exhausted or stage_expired
                         tier_budget_exhausted = tier_budget_exhausted or tier_expired
                         record_budget_skipped_sources()
-                    url, timeout_s, submitted_s = pending.pop(future)
-                    elapsed = float(result.get("elapsed_seconds") or _budget_elapsed_seconds(submitted_s))
+                    url, timeout_s, submitted_s, _ = pending.pop(future)
+                    measured_elapsed = result.get("elapsed_seconds")
+                    elapsed = float(measured_elapsed) if measured_elapsed is not None else _budget_elapsed_seconds(submitted_s)
+                    measurements = {key: result.get(key) for key in (
+                        "request_elapsed_seconds", "parse_elapsed_seconds", "http_status",
+                        "response_closed", "feed_item_count",
+                    )}
+                    measurements.update(elapsed_kind="worker_fetch_parse", worker_completed=True)
                     error = result.get("error")
                     # Late evidence is discarded, but an observed transport error
                     # remains a fact alongside the exhausted local budget.
@@ -799,6 +894,7 @@ def _fetch_headlines_from_sources(
                                 url, retrieval_status="budget_exhausted", attempted=True,
                                 failure_reason="deadline_exhausted", elapsed_seconds=elapsed,
                                 timeout_seconds=timeout_s, budget_exhausted=True,
+                                **measurements,
                             )
                         )
                         continue
@@ -816,6 +912,7 @@ def _fetch_headlines_from_sources(
                                 timeout_seconds=timeout_s,
                                 timed_out="TIMEOUT" in code or code.endswith("TIMEOUT"),
                                 budget_exhausted=stage_expired or tier_expired,
+                                **measurements,
                             )
                         )
                         continue
@@ -832,6 +929,7 @@ def _fetch_headlines_from_sources(
                                 failure_reason=code,
                                 elapsed_seconds=elapsed,
                                 timeout_seconds=timeout_s,
+                                **measurements,
                             )
                         )
                         continue
@@ -844,14 +942,24 @@ def _fetch_headlines_from_sources(
                             matched_count=matched_count,
                             elapsed_seconds=elapsed,
                             timeout_seconds=timeout_s,
+                            **measurements,
                         )
                     )
                 if all(len(items) >= max_entries for items in headlines.values()):
                     break
         finally:
+            if lifecycle is not None and not skipped_sources_recorded and all(len(items) >= max_entries for items in headlines.values()):
+                for url in unique_sources[next_source_index:]:
+                    source_diagnostics.append(source_diag(
+                        url, retrieval_status="not_requested", attempted=False,
+                        failure_reason="result_limit_reached", elapsed_seconds=0.0,
+                        timeout_seconds=0.0,
+                    ))
             pending_cancelled_for_budget = bool(news_budget_exhausted or tier_budget_exhausted)
-            for future, (url, timeout_s, submitted_s) in list(pending.items()):
-                future.cancel()
+            for future, (url, timeout_s, submitted_s, attempt_id) in list(pending.items()):
+                cancelled = future.cancel()
+                if lifecycle is not None:
+                    lifecycle.cancellation_requested(attempt_id, cancelled)
                 elapsed = _budget_elapsed_seconds(submitted_s)
                 source_diagnostics.append(
                     source_diag(
@@ -865,6 +973,8 @@ def _fetch_headlines_from_sources(
                         # Running requests can still complete after this local deadline.
                         timed_out=False,
                         budget_exhausted=pending_cancelled_for_budget,
+                        elapsed_kind="since_submission",
+                        worker_completed=bool(future.done() and not future.cancelled()),
                     )
                 )
             executor.shutdown(wait=False, cancel_futures=True)
@@ -910,6 +1020,7 @@ def fetch_headlines_for_symbols(
     tier_budget_seconds: float | None = None,
     tier_started_at_s: float | None = None,
     tier_deadline_s: float | None = None,
+    lifecycle: RssFetchLifecycle | None = None,
 ) -> tuple[Dict[str, List[Headline]], RssFailureSummary]:
     return _fetch_headlines_from_sources(
         symbols,
@@ -925,6 +1036,7 @@ def fetch_headlines_for_symbols(
         tier_budget_seconds=tier_budget_seconds,
         tier_started_at_s=tier_started_at_s,
         tier_deadline_s=tier_deadline_s,
+        lifecycle=lifecycle,
     )
 
 
@@ -942,6 +1054,7 @@ def fetch_fast_headlines_for_symbols(
     tier_budget_seconds: float | None = None,
     tier_started_at_s: float | None = None,
     tier_deadline_s: float | None = None,
+    lifecycle: RssFetchLifecycle | None = None,
 ) -> tuple[Dict[str, List[Headline]], RssFailureSummary]:
     return _fetch_headlines_from_sources(
         symbols,
@@ -957,4 +1070,5 @@ def fetch_fast_headlines_for_symbols(
         tier_budget_seconds=tier_budget_seconds,
         tier_started_at_s=tier_started_at_s,
         tier_deadline_s=tier_deadline_s,
+        lifecycle=lifecycle,
     )
