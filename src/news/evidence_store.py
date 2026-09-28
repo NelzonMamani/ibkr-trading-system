@@ -558,6 +558,7 @@ def dedupe_evidence(evidence: Sequence[NewsEvidence], *, max_items: int) -> list
         key=lambda item: (
             item.stale is True,
             -(item.published_at.timestamp() if item.published_at else 0.0),
+            item.provider in {"prep_cache", "legacy_news_provider_cache"},
             str(item.evidence_id or ""),
         ),
     )

@@ -254,6 +254,8 @@ def test_legacy_cache_copy_cannot_evict_distinct_offering(tmp_path):
     restored = store.read([NewsCandidate("EGG")]).evidence_by_symbol["EGG"]
     assert len(restored) == 5
     assert {row.headline for row in restored} == {row.headline for row in evidence}
+    # Canonical rows retain their richer summary/provenance over legacy copies.
+    assert {row.evidence_id for row in restored} == {row.evidence_id for row in evidence}
     from src.scanner.scanner_runner import _ross_news_context_from_evidence
     context = _ross_news_context_from_evidence("EGG", restored, None, NewsBatchResult(candidates=(NewsCandidate("EGG"),)))
     assert context["dilution_flag"] is True

@@ -78,3 +78,5 @@ Second exact-head review identified an injected-store compatibility regression: 
 
 
 Third-head CI passed. Review found two additional migration cases: inherited metadata writers with legacy subclass overrides, and old root-level cache rows duplicating canonical article IDs. The optional writer now preserves an overridden two-argument write seam, and deduplication also recognizes stable symbol/headline/source/URL identity (publication time distinguishes URL-less repeats; URL case is retained). New regressions cover legacy-cache dilution survival, subclass override dispatch, and distinct URL/publication preservation. 111 affected regressions plus 7 bounded-retrieval and 14 remaining direct-consumer tests passed (132 total).
+
+Canonical rows take precedence over legacy/prep projections at the same publication time during deduplication, preserving richer summary and provenance. The combined 132-test affected/direct-consumer run passed with an explicit canonical-identity assertion (review_canonical_precedence.log).
