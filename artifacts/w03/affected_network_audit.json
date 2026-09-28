@@ -1,0 +1,23 @@
+{
+  "guard": "external/broker sockets blocked; stdlib private socketpair self-pipes allowed",
+  "attempts": [
+    {
+      "test": "tests/test_ross_pr1028_autonomous_scanner_catalyst_certification.py::test_pr1028_hard_scanner_rejections_do_not_enter_watchlist_or_focus",
+      "outcome": "blocked_before_connection"
+    },
+    {
+      "test": "tests/test_ross_pr1028_autonomous_scanner_catalyst_certification.py::test_pr1028_hard_scanner_rejections_do_not_enter_watchlist_or_focus",
+      "outcome": "blocked_before_connection"
+    },
+    {
+      "test": "tests/test_ross_pr1028_autonomous_scanner_catalyst_certification.py::test_pr1028_hard_scanner_rejections_do_not_enter_watchlist_or_focus",
+      "outcome": "blocked_before_connection"
+    },
+    {
+      "test": "tests/test_ross_pr1028_autonomous_scanner_catalyst_certification.py::test_pr1028_hard_scanner_rejections_do_not_enter_watchlist_or_focus",
+      "outcome": "blocked_before_connection"
+    }
+  ],
+  "stdlib_socketpair_connections": 2,
+  "exit_status": 0
+}

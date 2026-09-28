@@ -1,0 +1,29 @@
+Standalone news research | lookback=24h | groups=FAST_TRADING,PREP_EXTENDED
+Cache=refresh | budget=30s | request timeout=5s
+IRON: retrieval_partial | coverage=partial | provider_refresh | 0 article(s)
+MSFT: retrieval_partial | coverage=partial | provider_refresh | 0 article(s)
+LFCR: retrieval_partial | coverage=partial | provider_refresh | 0 article(s)
+Source outcomes (current retrieval; cached details are retained per symbol):
+  https://www.globenewswire.com/RssFeed/industry/9000-Technology/feedTitle/GlobeNewswire%20-%20Industry%20News%20on%20Technology: available | request=2.687444100040011s parse=0.12719999998807907s | timeout=False budget=False
+  https://www.globenewswire.com/RssFeed?Category=Finance: available | request=2.9199643999454565s parse=0.10746769997058436s | timeout=False budget=False
+  https://www.reuters.com/markets/rss: provider_error | request=3.3923349999822676s parse=Nones | timeout=False budget=False
+  https://www.benzinga.com/feed: available | request=3.3834459999925457s parse=1.21269689995097s | timeout=False budget=False
+  http://rss.cnn.com/rss/edition_business.rss: available | request=0.2827551999944262s parse=0.043130200006999075s | timeout=False budget=False
+  https://feeds.businessinsider.com/custom/all: available | request=2.742385199991986s parse=0.5254911999800242s | timeout=False budget=False
+  https://seekingalpha.com/feed: available | request=3.383799699950032s parse=0.06915310001932085s | timeout=False budget=False
+  https://www.marketwatch.com/rss/topstories: available | request=6.227443699957803s parse=0.01767100003780797s | timeout=False budget=False
+  https://feeds.a.dj.com/rss/RSSMarketsMain.xml: available | request=1.1877817999920808s parse=0.019670200010295957s | timeout=False budget=False
+  https://www.forbes.com/finance/feed2: available | request=1.2031113000120968s parse=0.002057500008959323s | timeout=False budget=False
+  https://www.forbes.com/business/feed2: available | request=1.2358176999841817s parse=0.04060810001101345s | timeout=False budget=False
+  https://fortune.com/rss: available | request=1.6832278000074439s parse=0.23508710000896826s | timeout=False budget=False
+  https://feeds.bbci.co.uk/news/rss.xml: available | request=2.1298762999940664s parse=0.06770829996094108s | timeout=False budget=False
+  https://feeds.skynews.com/feeds/rss/world.xml: available | request=2.344920900010038s parse=0.037504499952774495s | timeout=False budget=False
+  https://www.france24.com/en/rss: provider_error | request=2.301541000022553s parse=Nones | timeout=False budget=False
+  https://www.bbc.com/news/business/rss.xml: available | request=4.717214600008447s parse=0.10518799995770678s | timeout=False budget=False
+  https://www.investing.com/rss/news.rss: available | request=2.466924400010612s parse=0.018608500016853213s | timeout=False budget=False
+  https://www.marketbeat.com/feed: available | request=2.691625199979171s parse=0.1819666000083089s | timeout=False budget=False
+  https://markets.businessinsider.com/rss: available | request=4.983441200049128s parse=0.29586570005631074s | timeout=False budget=False
+  https://venturebeat.com/feed: provider_error | request=2.5320482999668457s parse=Nones | timeout=False budget=False
+  https://techcrunch.com/rss: available | request=2.7250459999777377s parse=0.03629479999653995s | timeout=False budget=False
+Elapsed=18.093s | cleanup_complete=True
+Research evidence only; strategy freshness and catalyst qualification remain separate.

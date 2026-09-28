@@ -1,0 +1,9 @@
+{
+  "live_to_final_source_changes": [],
+  "affected_to_final_source_changes": [
+    "scripts/diagnostics/w03_news_acceptance.py"
+  ],
+  "affected_change_explanation": "Only the diagnostic acceptance script was hardened after affected tests began. Production and test Python files were frozen; final full suite snapshot includes diagnostic safeguards.",
+  "live_manifest_sha256": "12c052543ba2436c75393c475afab59e5e56f821d6510a70a323b3aefb4366ff",
+  "final_manifest_sha256": "f6c37055b0a53269ebd3eb54e7261ed4aacaa9ad684fe9884d0f5a33cff0361f"
+}

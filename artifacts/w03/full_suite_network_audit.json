@@ -1,0 +1,87 @@
+{
+  "guard": "external/broker sockets blocked; stdlib private socketpair self-pipes allowed",
+  "attempts": [
+    {
+      "test": "tests/metadata/test_m3_mode_semantics_verifier.py::test_m3_mode_semantics_verifier",
+      "outcome": "blocked_before_connection"
+    },
+    {
+      "test": "tests/metadata/test_m3_mode_semantics_verifier.py::test_m3_mode_semantics_verifier",
+      "outcome": "blocked_before_connection"
+    },
+    {
+      "test": "tests/metadata/test_m3_mode_semantics_verifier.py::test_m3_mode_semantics_verifier",
+      "outcome": "blocked_before_connection"
+    },
+    {
+      "test": "tests/metadata/test_m3_mode_semantics_verifier.py::test_m3_mode_semantics_verifier",
+      "outcome": "blocked_before_connection"
+    },
+    {
+      "test": "tests/test_ross_pr1028_autonomous_scanner_catalyst_certification.py::test_pr1028_hard_scanner_rejections_do_not_enter_watchlist_or_focus",
+      "outcome": "blocked_before_connection"
+    },
+    {
+      "test": "tests/test_ross_pr1028_autonomous_scanner_catalyst_certification.py::test_pr1028_hard_scanner_rejections_do_not_enter_watchlist_or_focus",
+      "outcome": "blocked_before_connection"
+    },
+    {
+      "test": "tests/test_ross_pr1028_autonomous_scanner_catalyst_certification.py::test_pr1028_hard_scanner_rejections_do_not_enter_watchlist_or_focus",
+      "outcome": "blocked_before_connection"
+    },
+    {
+      "test": "tests/test_ross_pr1028_autonomous_scanner_catalyst_certification.py::test_pr1028_hard_scanner_rejections_do_not_enter_watchlist_or_focus",
+      "outcome": "blocked_before_connection"
+    },
+    {
+      "test": "tests/test_ross_pr3_watchlist_focus_proof.py::test_empty_watchlist_and_focus_are_valid_when_no_symbol_qualifies",
+      "outcome": "blocked_before_connection"
+    },
+    {
+      "test": "tests/test_ross_pr3_watchlist_focus_proof.py::test_empty_watchlist_and_focus_are_valid_when_no_symbol_qualifies",
+      "outcome": "blocked_before_connection"
+    },
+    {
+      "test": "tests/test_ross_pr3_watchlist_focus_proof.py::test_candidate_rationale_exposes_compact_classifications",
+      "outcome": "blocked_before_connection"
+    },
+    {
+      "test": "tests/test_ross_pr3_watchlist_focus_proof.py::test_candidate_rationale_exposes_compact_classifications",
+      "outcome": "blocked_before_connection"
+    },
+    {
+      "test": "tests/test_ross_pr3_watchlist_focus_proof.py::test_hard_rejections_cannot_enter_focus_m[DROP_PRICE_RANGE-context_overrides0-policy_overrides0-DROP_PRICE_RANGE]",
+      "outcome": "blocked_before_connection"
+    },
+    {
+      "test": "tests/test_ross_pr3_watchlist_focus_proof.py::test_hard_rejections_cannot_enter_focus_m[DROP_PRICE_RANGE-context_overrides0-policy_overrides0-DROP_PRICE_RANGE]",
+      "outcome": "blocked_before_connection"
+    },
+    {
+      "test": "tests/test_ross_pr3_watchlist_focus_proof.py::test_hard_rejections_cannot_enter_focus_m[DROP_NO_CATALYST-context_overrides3-policy_overrides3-DROP_NO_CATALYST]",
+      "outcome": "blocked_before_connection"
+    },
+    {
+      "test": "tests/test_ross_pr3_watchlist_focus_proof.py::test_hard_rejections_cannot_enter_focus_m[DROP_NO_CATALYST-context_overrides3-policy_overrides3-DROP_NO_CATALYST]",
+      "outcome": "blocked_before_connection"
+    },
+    {
+      "test": "tests/test_ross_pre_activation_runtime.py::test_registry_marks_session_incompatible_patterns_as_skipped",
+      "outcome": "blocked_before_connection"
+    },
+    {
+      "test": "tests/test_ross_pre_activation_runtime.py::test_registry_marks_session_incompatible_patterns_as_skipped",
+      "outcome": "blocked_before_connection"
+    },
+    {
+      "test": "tests/test_ross_pre_activation_runtime.py::test_pattern_inputs_normalize_level_aliases",
+      "outcome": "blocked_before_connection"
+    },
+    {
+      "test": "tests/test_ross_pre_activation_runtime.py::test_pattern_inputs_normalize_level_aliases",
+      "outcome": "blocked_before_connection"
+    }
+  ],
+  "stdlib_socketpair_connections": 26,
+  "exit_status": 0
+}

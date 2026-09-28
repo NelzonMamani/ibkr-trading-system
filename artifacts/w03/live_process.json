@@ -1,0 +1,16 @@
+{
+  "started_at": "2026-09-28T22:08:34.769141+00:00",
+  "command": [
+    "C:\\tmp\\pr1091-cert-env-20260923\\Scripts\\python.exe",
+    "C:\\Users\\nelzo\\.codex\\worktrees\\w01-consolidation\\ibkr-trading-system\\scripts\\diagnostics\\w03_news_acceptance.py",
+    "--worker"
+  ],
+  "wall_limit_seconds": 90,
+  "interpreter": "C:\\tmp\\pr1091-cert-env-20260923\\Scripts\\python.exe",
+  "worker_pid": 29112,
+  "terminated_at_wall_limit": false,
+  "exit_code": 0,
+  "exit_confirmed": true,
+  "elapsed_seconds": 21.406600399990566,
+  "completed_at": "2026-09-28T22:08:56.175742+00:00"
+}

@@ -1,0 +1,33 @@
+{
+  "started_at": "2026-09-28T22:08:10.670760+00:00",
+  "wall_limit_seconds": 600,
+  "purpose": "One publisher verification plus one canonical live batch plus cached public single-symbol command",
+  "provider_batch_count_planned": 1,
+  "extra_uncached_single_planned": false,
+  "completed_at": "2026-09-28T22:10:44.211693+00:00",
+  "total_wall_seconds": 153.540933,
+  "provider_batch_count": 1,
+  "extra_uncached_single_count": 0,
+  "publisher_http_requests": 1,
+  "web_open_attempts": 1,
+  "web_search_queries": 1,
+  "cached_single_exit_code": 0,
+  "cached_single_cleanup": {
+    "submitted_count": 0,
+    "completed_count": 0,
+    "cancelled_count": 0,
+    "unfinished_count": 0,
+    "running_count": 0,
+    "cancellation_requested_count": 0,
+    "cancellation_succeeded_count": 0,
+    "worker_count": 0,
+    "alive_worker_count": 0,
+    "cleanup_complete": true,
+    "response_cleanup_failures_count": 0,
+    "cleanup_elapsed_seconds": 3.419996937736869e-05,
+    "sources": []
+  },
+  "cached_single_network_allowed": false,
+  "cached_single_refresh_allowed": false,
+  "within_limit": true
+}

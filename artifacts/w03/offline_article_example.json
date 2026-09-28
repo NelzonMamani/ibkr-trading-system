@@ -1,0 +1,150 @@
+{
+  "schema_version": "w03.offline_article_example.v1",
+  "kind": "offline_replay",
+  "live_discovery": false,
+  "description": "Existing W02 captured IRON article replayed through the public standalone helper and canonical RSS/service/store using the original publication timestamp and a controlled current time. All source responses are fixtures; this is not W03 live discovery.",
+  "started_at_real_utc": "2026-09-28T22:13:27.120901+00:00",
+  "completed_at_real_utc": "2026-09-28T22:13:31.851025+00:00",
+  "git_head": "a3ece50407869a203e93fee83064d9eb90daf29d",
+  "interpreter": "C:\\tmp\\pr1091-cert-env-20260923\\Scripts\\python.exe",
+  "source_hashes": {
+    "tests/test_w03_standalone_lookup.py": "af7b383e5e2196a847c99889042e0987e206d4779385c82d16d44091589f7279",
+    "src/news/standalone_lookup.py": "906fd8389a04db21c82da35c8509f7cb653863fe16cb148636e57eaeb3cab656",
+    "src/news/news_intelligence_service.py": "41c51357b65ab44982f961f3ad25661f25ff5a0910d6fc984b8e25c58e1eee0f",
+    "src/news/evidence_store.py": "be7127846656f2228f3c4f9b3c8745306dc52053033f04306e099b7fe75686aa",
+    "src/news/batch_rss_adapter.py": "4e976b0d502480d8d3ce87e03c8434e73bc0021bdcbce256d1058d4f54805d07",
+    "src/news/news_fetcher.py": "7f6c14ce2a4163cdd9a03af2d277e4dd17a4f8466f4b2ebe37ff41319773b15f"
+  },
+  "fixture": {
+    "path": "tests/fixtures/w02_captured_issuer_news.json",
+    "sha256": "2c5244b7705edde135accd37e8ec970bf42984c028e6856293f611fe6e021884",
+    "original_published_at": "2026-09-28T19:02:00+00:00",
+    "controlled_initial_age_hours": 18
+  },
+  "cache_path": "output/w03/offline_example/research.json",
+  "prep_loader": "empty fixture; no operational prep read",
+  "fixture_source_urls": [
+    "https://www.globenewswire.com/RssFeed?Category=Finance",
+    "https://example.test/second-feed"
+  ],
+  "steps": [
+    {
+      "step": "cold_24h",
+      "kind": "offline_replay",
+      "controlled_now": "2026-09-29T13:02:00+00:00",
+      "lookback_hours": 24.0,
+      "cache_mode": "use",
+      "canonical_service_calls": 1,
+      "fixture_source_fetch_calls": 2,
+      "fixture_source_fetch_calls_cumulative": 2,
+      "outcome": "matched",
+      "coverage_status": "complete",
+      "provenance": "provider_refresh",
+      "cache_profile_compatible": false,
+      "current_retrieval_article_count": 1,
+      "reused_article_count": 0,
+      "excluded_evidence": {},
+      "articles": [
+        {
+          "evidence_id": "rss-batch:IRON:5fa58ee1e1823d9e",
+          "headline": "Disc Medicine Investor News: If You Have Suffered Losses in Disc Medicine, Inc. (NASDAQ: IRON), You Are Encouraged to Contact The Rosen Law Firm About Your Rights",
+          "publisher": "GlobeNewswire Finance",
+          "url": "https://www.globenewswire.com/news-release/2026/09/28/3370223/673/en/disc-medicine-investor-news-if-you-have-suffered-losses-in-disc-medicine-inc-nasdaq-iron-you-are-encouraged-to-contact-the-rosen-law-firm-about-your-rights.html",
+          "published_at": "2026-09-28T19:02:00+00:00",
+          "age_seconds": 64800.0,
+          "match_type": "ticker_token",
+          "matched_field": "title",
+          "acquisition_origin": "current_retrieval"
+        }
+      ],
+      "cleanup": {
+        "cleanup_complete": null,
+        "reason": "injected_service_without_lifecycle"
+      }
+    },
+    {
+      "step": "warm_24h_after_60s",
+      "kind": "cached_reuse_of_offline_replay",
+      "controlled_now": "2026-09-29T13:03:00+00:00",
+      "lookback_hours": 24.0,
+      "cache_mode": "use",
+      "canonical_service_calls": 1,
+      "fixture_source_fetch_calls": 0,
+      "fixture_source_fetch_calls_cumulative": 2,
+      "outcome": "matched",
+      "coverage_status": "complete",
+      "provenance": "cached_acquisition",
+      "cache_profile_compatible": true,
+      "current_retrieval_article_count": 0,
+      "reused_article_count": 1,
+      "excluded_evidence": {},
+      "articles": [
+        {
+          "evidence_id": "rss-batch:IRON:5fa58ee1e1823d9e",
+          "headline": "Disc Medicine Investor News: If You Have Suffered Losses in Disc Medicine, Inc. (NASDAQ: IRON), You Are Encouraged to Contact The Rosen Law Firm About Your Rights",
+          "publisher": "GlobeNewswire Finance",
+          "url": "https://www.globenewswire.com/news-release/2026/09/28/3370223/673/en/disc-medicine-investor-news-if-you-have-suffered-losses-in-disc-medicine-inc-nasdaq-iron-you-are-encouraged-to-contact-the-rosen-law-firm-about-your-rights.html",
+          "published_at": "2026-09-28T19:02:00+00:00",
+          "age_seconds": 64860.0,
+          "match_type": "ticker_token",
+          "matched_field": "title",
+          "acquisition_origin": "cache_or_prep"
+        }
+      ],
+      "cleanup": {
+        "cleanup_complete": null,
+        "reason": "injected_service_without_lifecycle"
+      }
+    },
+    {
+      "step": "cache_only_6h",
+      "kind": "cached_reuse_of_offline_replay",
+      "controlled_now": "2026-09-29T13:03:00+00:00",
+      "lookback_hours": 6,
+      "cache_mode": "only",
+      "canonical_service_calls": 1,
+      "fixture_source_fetch_calls": 0,
+      "fixture_source_fetch_calls_cumulative": 2,
+      "outcome": "coverage_unknown",
+      "coverage_status": "unknown",
+      "provenance": "cached_acquisition",
+      "cache_profile_compatible": false,
+      "current_retrieval_article_count": 0,
+      "reused_article_count": 0,
+      "excluded_evidence": {
+        "outside_requested_lookback": 1
+      },
+      "articles": [],
+      "cleanup": {
+        "cleanup_complete": null,
+        "reason": "injected_service_without_lifecycle"
+      }
+    }
+  ],
+  "network_guard": {
+    "blocked_apis": [
+      "socket.socket.connect",
+      "socket.socket.connect_ex",
+      "socket.create_connection"
+    ],
+    "attempts": [],
+    "real_network_connections": 0
+  },
+  "operational_hashes_before": {
+    "data/news/news_cache.json": "adb8e35abda1f6c4511dfbac7b4fe8676cce4ec9efafbb9d88b80a638fdfcd88",
+    "data/prep/premarket_prep.json": "2b5ac35b95ffcd366a0eb7d6239a7b6c687bc34f6c2b30ee5e6b45ac6ef89a37"
+  },
+  "operational_hashes_after": {
+    "data/news/news_cache.json": "adb8e35abda1f6c4511dfbac7b4fe8676cce4ec9efafbb9d88b80a638fdfcd88",
+    "data/prep/premarket_prep.json": "2b5ac35b95ffcd366a0eb7d6239a7b6c687bc34f6c2b30ee5e6b45ac6ef89a37"
+  },
+  "operational_files_unchanged": true,
+  "executed_script": {
+    "path": "output/w03/offline_example/capture_offline_example.txt",
+    "sha256": "7cd6ff8d7184c095a9d24c4fc824746eb617da8a9aaf92594388bc5c9d5b99f0"
+  },
+  "command": [
+    "C:\\tmp\\pr1091-cert-env-20260923\\Scripts\\python.exe",
+    "output/w03/offline_example/capture_offline_example.txt"
+  ]
+}

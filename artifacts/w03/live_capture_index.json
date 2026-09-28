@@ -1,0 +1,233 @@
+[
+  {
+    "url": "https://www.globenewswire.com/RssFeed/industry/9000-Technology/feedTitle/GlobeNewswire%20-%20Industry%20News%20on%20Technology",
+    "started_at": "2026-09-28T22:08:37.480483+00:00",
+    "timeout_seconds": 5.0,
+    "status_code": 200,
+    "content_type": "application/rss+xml; charset=utf-8",
+    "request_elapsed_seconds": 2.6874279999756254,
+    "body_file": "output\\w03\\live\\source-00.xml",
+    "body_sha256": "6561a1ed28d5501a9823cf64c86ce6edd4a784da11e605b64af5b9fcba333e20",
+    "body_bytes": 33358
+  },
+  {
+    "url": "https://www.globenewswire.com/RssFeed?Category=Finance",
+    "started_at": "2026-09-28T22:08:37.479172+00:00",
+    "timeout_seconds": 5.0,
+    "status_code": 200,
+    "content_type": "application/rss+xml; charset=utf-8",
+    "request_elapsed_seconds": 2.9199415000039153,
+    "body_file": "output\\w03\\live\\source-01.xml",
+    "body_sha256": "e28f7f2d92b999230cb3299d44b08931bc0bd09ff438181614661686891868f8",
+    "body_bytes": 38796
+  },
+  {
+    "url": "https://www.benzinga.com/feed",
+    "started_at": "2026-09-28T22:08:37.477804+00:00",
+    "timeout_seconds": 5.0,
+    "status_code": 200,
+    "content_type": "application/xml; charset=utf-8",
+    "request_elapsed_seconds": 3.3834297000430524,
+    "body_file": "output\\w03\\live\\source-02.xml",
+    "body_sha256": "dc69872139b036d0511cca0c1289cfb845abce555b1e4e42891199ed32147fed",
+    "body_bytes": 301133
+  },
+  {
+    "url": "https://www.reuters.com/markets/rss",
+    "started_at": "2026-09-28T22:08:37.481324+00:00",
+    "timeout_seconds": 5.0,
+    "status_code": 401,
+    "content_type": "text/html;charset=utf-8",
+    "request_elapsed_seconds": 3.3923267999780364,
+    "body_file": "output\\w03\\live\\source-03.xml",
+    "body_sha256": "8c9bc3560bce842a1255c46faf97a67da5707f0175448c35fe822dfda63a7b64",
+    "body_bytes": 771
+  },
+  {
+    "url": "http://rss.cnn.com/rss/edition_business.rss",
+    "started_at": "2026-09-28T22:08:42.247872+00:00",
+    "timeout_seconds": 5.0,
+    "status_code": 200,
+    "content_type": "text/xml; charset=utf-8",
+    "request_elapsed_seconds": 0.28274390002479777,
+    "body_file": "output\\w03\\live\\source-04.xml",
+    "body_sha256": "8dd47037c53ed3aef23ed2394aafaadb15bdd515898af795f0b84f779fde9248",
+    "body_bytes": 14282
+  },
+  {
+    "url": "https://feeds.businessinsider.com/custom/all",
+    "started_at": "2026-09-28T22:08:40.564295+00:00",
+    "timeout_seconds": 5.0,
+    "status_code": 200,
+    "content_type": "application/atom+xml",
+    "request_elapsed_seconds": 2.7423716000048444,
+    "body_file": "output\\w03\\live\\source-05.xml",
+    "body_sha256": "93a3da1765ec540896d6f96257ac4b39d5346f1c955c4722fb14fe413d30c165",
+    "body_bytes": 177300
+  },
+  {
+    "url": "https://seekingalpha.com/feed",
+    "started_at": "2026-09-28T22:08:40.883255+00:00",
+    "timeout_seconds": 5.0,
+    "status_code": 200,
+    "content_type": "application/xml; charset=utf-8",
+    "request_elapsed_seconds": 3.383786999969743,
+    "body_file": "output\\w03\\live\\source-06.xml",
+    "body_sha256": "a8233305e68c955d9f94b9444b9746e7e0d8f11ea9a0fb5165c8640ae3859675",
+    "body_bytes": 29862
+  },
+  {
+    "url": "https://www.marketwatch.com/rss/topstories",
+    "started_at": "2026-09-28T22:08:40.331243+00:00",
+    "timeout_seconds": 5.0,
+    "status_code": 200,
+    "content_type": "application/xml; charset=utf-8",
+    "request_elapsed_seconds": 6.227434900007211,
+    "body_file": "output\\w03\\live\\source-07.xml",
+    "body_sha256": "9d73062bb7b40981127e21c679e9c7c70bb460cbb15689ea0e5a19f4ece1a37b",
+    "body_bytes": 8101
+  },
+  {
+    "url": "https://feeds.a.dj.com/rss/RSSMarketsMain.xml",
+    "started_at": "2026-09-28T22:08:46.582598+00:00",
+    "timeout_seconds": 5.0,
+    "status_code": 200,
+    "content_type": "application/rss+xml;charset=UTF-8",
+    "request_elapsed_seconds": 1.1877746999962255,
+    "body_file": "output\\w03\\live\\source-08.xml",
+    "body_sha256": "02b06b556a266f5760c0f31a693bd1912c8b1f9469ce52168647e43f68b3a523",
+    "body_bytes": 12752
+  },
+  {
+    "url": "https://www.forbes.com/finance/feed2",
+    "started_at": "2026-09-28T22:08:46.591894+00:00",
+    "timeout_seconds": 5.0,
+    "status_code": 200,
+    "content_type": "text/xml; charset=utf-8",
+    "request_elapsed_seconds": 1.2031045999610797,
+    "body_file": "output\\w03\\live\\source-09.xml",
+    "body_sha256": "32cd51784d6ba97eae9e7b41068e9ed01d361c4bf194c3ed568980ce0f9a6ac3",
+    "body_bytes": 638
+  },
+  {
+    "url": "https://www.forbes.com/business/feed2",
+    "started_at": "2026-09-28T22:08:46.590265+00:00",
+    "timeout_seconds": 5.0,
+    "status_code": 200,
+    "content_type": "text/xml; charset=utf-8",
+    "request_elapsed_seconds": 1.235810499987565,
+    "body_file": "output\\w03\\live\\source-10.xml",
+    "body_sha256": "e163a82a8b9d8924175b7652571b48f22c3266bf634b81314d9ea593657b1bee",
+    "body_bytes": 49936
+  },
+  {
+    "url": "https://fortune.com/rss",
+    "started_at": "2026-09-28T22:08:46.588762+00:00",
+    "timeout_seconds": 5.0,
+    "status_code": 200,
+    "content_type": "application/xml; charset=UTF-8",
+    "request_elapsed_seconds": 1.6832158000324853,
+    "body_file": "output\\w03\\live\\source-11.xml",
+    "body_sha256": "be96210f4c1eec466b7d85a6e1fa8a4f555cd822ed20d2f4d05552e9a353bf47",
+    "body_bytes": 111402
+  },
+  {
+    "url": "https://feeds.bbci.co.uk/news/rss.xml",
+    "started_at": "2026-09-28T22:08:47.793305+00:00",
+    "timeout_seconds": 5.0,
+    "status_code": 200,
+    "content_type": "text/xml; charset=utf-8",
+    "request_elapsed_seconds": 2.1298645999631844,
+    "body_file": "output\\w03\\live\\source-12.xml",
+    "body_sha256": "d258347ece6cb00abe16a308f0b6a2041b862b7db260f12f5c5765d05f4ee3fb",
+    "body_bytes": 26110
+  },
+  {
+    "url": "https://feeds.skynews.com/feeds/rss/world.xml",
+    "started_at": "2026-09-28T22:08:47.876267+00:00",
+    "timeout_seconds": 5.0,
+    "status_code": 200,
+    "content_type": "application/xml; charset=utf-8",
+    "request_elapsed_seconds": 2.3449130000080913,
+    "body_file": "output\\w03\\live\\source-13.xml",
+    "body_sha256": "69b2d35cf0b4d4ba0e76a23a1bffdb7580b5f8276c71a0a70b20c443e397399f",
+    "body_bytes": 12780
+  },
+  {
+    "url": "https://www.france24.com/en/rss",
+    "started_at": "2026-09-28T22:08:48.569458+00:00",
+    "timeout_seconds": 5.0,
+    "status_code": 403,
+    "content_type": "text/html",
+    "request_elapsed_seconds": 2.3015300999977626,
+    "body_file": "output\\w03\\live\\source-14.xml",
+    "body_sha256": "103554725d2871bdf92690aa92bf97f9a46197974306cd2b144fe83ccc4e5e0f",
+    "body_bytes": 641
+  },
+  {
+    "url": "https://www.bbc.com/news/business/rss.xml",
+    "started_at": "2026-09-28T22:08:47.798333+00:00",
+    "timeout_seconds": 5.0,
+    "status_code": 200,
+    "content_type": "text/xml; charset=utf-8",
+    "request_elapsed_seconds": 4.717206200002693,
+    "body_file": "output\\w03\\live\\source-15.xml",
+    "body_sha256": "11bf9ce85dcf1ccc6fc31867e97c338474dc3de7c7d9116b77811e60c3bbb2d0",
+    "body_bytes": 37270
+  },
+  {
+    "url": "https://www.investing.com/rss/news.rss",
+    "started_at": "2026-09-28T22:08:50.265830+00:00",
+    "timeout_seconds": 5.0,
+    "status_code": 200,
+    "content_type": "application/rss+xml",
+    "request_elapsed_seconds": 2.4669120000326075,
+    "body_file": "output\\w03\\live\\source-16.xml",
+    "body_sha256": "bd8a400cf2c18017131596c83f40bbd215b62b6cb098fd9e225698c27bb031e7",
+    "body_bytes": 4920
+  },
+  {
+    "url": "https://www.marketbeat.com/feed",
+    "started_at": "2026-09-28T22:08:50.871865+00:00",
+    "timeout_seconds": 5.0,
+    "status_code": 200,
+    "content_type": "text/xml; charset=utf-8",
+    "request_elapsed_seconds": 2.691613100003451,
+    "body_file": "output\\w03\\live\\source-17.xml",
+    "body_sha256": "d9a322cb1d645178842b77c32492e16cd7120a052443fe406c3d775af7fe818b",
+    "body_bytes": 60535
+  },
+  {
+    "url": "https://markets.businessinsider.com/rss",
+    "started_at": "2026-09-28T22:08:50.015195+00:00",
+    "timeout_seconds": 5.0,
+    "status_code": 200,
+    "content_type": "application/atom+xml",
+    "request_elapsed_seconds": 4.983433199988212,
+    "body_file": "output\\w03\\live\\source-18.xml",
+    "body_sha256": "93a3da1765ec540896d6f96257ac4b39d5346f1c955c4722fb14fe413d30c165",
+    "body_bytes": 177300
+  },
+  {
+    "url": "https://venturebeat.com/feed",
+    "started_at": "2026-09-28T22:08:52.764498+00:00",
+    "timeout_seconds": 5.0,
+    "status_code": 429,
+    "content_type": "text/html; charset=utf-8",
+    "request_elapsed_seconds": 2.5320388000109233,
+    "body_file": "output\\w03\\live\\source-19.xml",
+    "body_sha256": "d1fe60d9a85c0117d69f7c3ec876ad52acfa42142117c668fa3f57477e9f7859",
+    "body_bytes": 33949
+  },
+  {
+    "url": "https://techcrunch.com/rss",
+    "started_at": "2026-09-28T22:08:52.646228+00:00",
+    "timeout_seconds": 5.0,
+    "status_code": 200,
+    "content_type": "application/rss+xml; charset=UTF-8",
+    "request_elapsed_seconds": 2.725035800016485,
+    "body_file": "output\\w03\\live\\source-20.xml",
+    "body_sha256": "be23c88028340ddd62b8f6ec93a00e5df3f312445ff50bd1e72762e0c7eae267",
+    "body_bytes": 18177
+  }
+]

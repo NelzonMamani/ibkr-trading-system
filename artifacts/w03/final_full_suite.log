@@ -1,0 +1,89 @@
+........................................................................ [  3%]
+........................................................................ [  6%]
+........................................................................ [  9%]
+........................................................................ [ 13%]
+........................................................................ [ 16%]
+........................................................................ [ 19%]
+........................................................................ [ 23%]
+........................................................................ [ 26%]
+........................................................................ [ 29%]
+........................................................................ [ 33%]
+........................................................................ [ 36%]
+........................................................................ [ 39%]
+........................................................................ [ 42%]
+........................................................................ [ 46%]
+........................................................................ [ 49%]
+........................................................................ [ 52%]
+........................................................................ [ 56%]
+........................................................................ [ 59%]
+........................................................................ [ 62%]
+........................................................................ [ 66%]
+........................................................................ [ 69%]
+........................................................................ [ 72%]
+........................................................................ [ 75%]
+........................................................................ [ 79%]
+........................................................................ [ 82%]
+........................................................................ [ 85%]
+........................................................................ [ 89%]
+.........s.............................................................. [ 92%]
+........................................................................ [ 95%]
+........................................................................ [ 99%]
+.....................                                                    [100%]
+============================== warnings summary ===============================
+tests/smoke/test_orchestrator_cycle.py: 1 warning
+tests/test_core_orchestrator_live_execution_guards.py: 4 warnings
+tests/test_env_resolution_runtime_authority.py: 2 warnings
+tests/test_epoch12_recovery_housekeeping.py: 1 warning
+tests/test_market_data_validation.py: 4 warnings
+tests/test_mode_drift_guard.py: 2 warnings
+tests/test_orchestrator_shutdown.py: 8 warnings
+tests/test_p01_make_it_trade_layer.py: 4 warnings
+tests/test_p1_position_lifecycle_completion.py: 1 warning
+tests/test_p2_stop_loss_authority.py: 1 warning
+tests/test_paper_micro_runtime_guards.py: 6 warnings
+tests/test_position_lifecycle_persistence.py: 1 warning
+tests/test_position_truth_authority.py: 2 warnings
+tests/test_pr1082_rth_watchlist_continuity.py: 82 warnings
+tests/test_pr1082_trigger_to_intent_terminal_semantics.py: 2 warnings
+tests/test_pr174_final_bridge_fix_block.py: 2 warnings
+tests/test_regime_orchestrator_integration.py: 2 warnings
+tests/test_regime_storage.py: 1 warning
+tests/test_ross_runtime_verification_pipeline.py: 18 warnings
+tests/test_storage_recovery.py: 1 warning
+tests/test_traceability.py: 8 warnings
+tests/test_trade_lifecycle_engine.py: 14 warnings
+  C:\Users\nelzo\.codex\worktrees\w01-consolidation\ibkr-trading-system\src\config\config_resolver.py:719: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "resolved_at": datetime.utcnow().isoformat(),
+
+tests/test_epoch12_recovery_housekeeping.py::test_epoch12_db_backup_and_reset_determinism
+tests/test_epoch12_recovery_housekeeping.py::test_epoch12_db_backup_and_reset_determinism
+tests/test_epoch12_recovery_housekeeping.py::test_epoch12_db_backup_and_reset_determinism
+  C:\Users\nelzo\.codex\worktrees\w01-consolidation\ibkr-trading-system\src\storage\db_admin.py:47: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "timestamp_utc": datetime.utcnow().isoformat(),
+
+tests/test_epoch12_recovery_housekeeping.py::test_epoch12_stop_controller_enforcement
+tests/test_epoch3_risk_execution.py::test_execution_blocks_when_breaker_tripped
+tests/test_stop_controller.py::test_circuit_breakers_latch_and_require_reset
+  C:\Users\nelzo\.codex\worktrees\w01-consolidation\ibkr-trading-system\src\core\stop_controller.py:107: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    tripped_at=datetime.utcnow().isoformat(),
+
+tests/test_epoch15_17_safety_cluster.py: 1 warning
+tests/test_faults.py: 6 warnings
+tests/test_pr1082_rth_watchlist_continuity.py: 25 warnings
+  <string>:8: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+
+tests/test_ibkr_readonly.py::test_market_snapshot_dataclass
+  C:\Users\nelzo\.codex\worktrees\w01-consolidation\ibkr-trading-system\tests\test_ibkr_readonly.py:56: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    snapshot_time = datetime.datetime.utcnow()
+
+tests/test_liquidity_execution.py::test_deterministic_liquidity_outcomes_and_replay
+tests/test_liquidity_execution.py::test_deterministic_liquidity_outcomes_and_replay
+tests/test_trade_exit_engine.py::test_trade_exit_engine_enforces_tick_based_exit_window
+tests/test_trade_exit_engine.py::test_exit_signal_honoured_after_minimum_hold
+tests/test_trade_exit_engine.py::test_stop_loss_exit_triggers_even_before_minimum_hold
+tests/test_trade_exit_engine.py::test_take_profit_exit_triggers_when_threshold_hit
+  C:\Users\nelzo\.codex\worktrees\w01-consolidation\ibkr-trading-system\src\execution\trade_exit_engine.py:492: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    timestamp=datetime.utcnow(),
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+2180 passed, 1 skipped, 212 warnings in 323.22s (0:05:23)
