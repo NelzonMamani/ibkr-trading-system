@@ -1,0 +1,59 @@
+{
+  "prior_head": "8e5f0da2ae0594eb3aab2489789911f43df45e7b",
+  "findings": [
+    "Cache file could alias candidate/prep input, independently of JSON output",
+    "Fixed .writing sibling could overwrite and move an existing input file"
+  ],
+  "before_results": [
+    "4 failed, 31 deselected in 3.78s",
+    "1 failed, 35 deselected in 3.75s"
+  ],
+  "intermediate_result": "35 passed in 7.83s; subsequent EOF-only cleanup recorded by tested/final source hashes",
+  "final_affected_result": "36 passed in 7.16s",
+  "affected_command": [
+    "C:\\tmp\\pr1091-cert-env-20260923\\Scripts\\python.exe",
+    "-m",
+    "pytest",
+    "-p",
+    "scripts.diagnostics.w02_offline_guard",
+    "--w02-network-audit=artifacts/w03/review_paths_final_network_audit.json",
+    "-q",
+    "tests/test_w03_standalone_lookup.py"
+  ],
+  "tested_hashes": {
+    "scripts/verify_news_discovery.py": "2fa0a3307bdb8106c6ef60089b1b7f01a1dfa7183a0cae6fbab7d0c49886e0c2",
+    "tests/test_w03_standalone_lookup.py": "a66f89eec88054945d0d8dc607e3b4c8fb3ba7f94026c6622bd18d374ccab6b6"
+  },
+  "source_changes_since_prior_review": [
+    {
+      "path": "scripts/verify_news_discovery.py",
+      "before": "7cf42afca1497ed53cefb79bb3b227c230e83decffac36c2aa7ee5db60e1271d",
+      "after": "2fa0a3307bdb8106c6ef60089b1b7f01a1dfa7183a0cae6fbab7d0c49886e0c2"
+    },
+    {
+      "path": "tests/test_w03_standalone_lookup.py",
+      "before": "13670c1f48dc7187605c68ac1fb544a0d5210a3ec1b542655e4902e002d87e55",
+      "after": "a66f89eec88054945d0d8dc607e3b4c8fb3ba7f94026c6622bd18d374ccab6b6"
+    }
+  ],
+  "manifest_sha256": "a0a92ce6f1738e95bae3b70e2c89de703a6f42122cb20421952b264dcce881e8",
+  "network_audit": {
+    "guard": "external/broker sockets blocked; stdlib private socketpair self-pipes allowed",
+    "attempts": [],
+    "stdlib_socketpair_connections": 1,
+    "exit_status": 0
+  },
+  "log_sha256": "ccc1964ce2914080a832be90716d144d683cf81ba71253bdf635af6903cac4e1",
+  "independent_peer_review": "No concrete preservation/regression blocker; exclusive temporary file closes before Windows-safe replacement and only its owned path is cleaned up.",
+  "prior_remote_gates": {
+    "head": "8e5f0da2ae0594eb3aab2489789911f43df45e7b",
+    "run_id": 36492822567,
+    "job_id": 109165193432,
+    "result": "2184 passed, 1 skipped in 189.65s",
+    "log_path": "output/w03/review_expired_ci_job.log",
+    "log_sha256": "baa75fd407a9a2b97c311d803245744d7c635fc8a98da0e7022841d212b23447",
+    "review_status": "Completed with subsequent P2 cache/input path collision finding; not merged"
+  },
+  "local_full_suite_repeated": false,
+  "live_provider_session_repeated": false
+}

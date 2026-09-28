@@ -423,3 +423,55 @@ def test_cached_article_is_not_claimed_as_current_discovery_after_explicit_refre
     assert symbol["current_retrieval_article_count"] == 0
     assert symbol["provenance"] == "provider_refresh"
     assert symbol["coverage_status"] == ("unavailable" if failed_refresh else "complete")
+
+
+@pytest.mark.parametrize("protected_input", ["candidates", "prep"])
+@pytest.mark.parametrize("with_json_output", [False, True], ids=["no-json-output", "separate-json-output"])
+def test_cli_rejects_cache_overwriting_candidate_or_prep_input(monkeypatch, tmp_path, protected_input, with_json_output, capsys):
+    from scripts import verify_news_discovery as command
+    target = tmp_path / (protected_input + ".json")
+    payload = ([{"symbol": "IRON", "company_name": CAPTURE["company_name"]}] if protected_input == "candidates"
+               else {"symbols": [{"symbol": "IRON", "news_context": []}], "generated_at": CAPTURE["published_at"]})
+    target.write_text(json.dumps(payload), encoding="utf-8")
+    original = target.read_bytes()
+    # Different spelling, same resolved path: aliases must not bypass protection.
+    alias_directory = tmp_path / "nested"
+    alias_directory.mkdir()
+    cache_alias = alias_directory / ".." / target.name
+    option = "--candidates-file" if protected_input == "candidates" else "--prep-file"
+    arguments = ["IRON", option, str(target), "--cache-file", str(cache_alias), "--cache-mode", "refresh", "--format", "json"]
+    output_path = tmp_path / "separate-result.json"
+    if with_json_output:
+        arguments += ["--json-output", str(output_path)]
+    worker_calls = []
+
+    def no_worker(*args):
+        worker_calls.append(args)
+        pytest.fail("Cache/input path collision reached the worker before validation")
+
+    monkeypatch.setattr(command, "run_supervised", no_worker)
+    try:
+        with pytest.raises(SystemExit) as raised:
+            command.main(arguments)
+        assert raised.value.code == 2
+        assert worker_calls == []
+        error = capsys.readouterr().err
+        assert "--cache-file must be different from prep and candidate input files" in error
+
+    finally:
+        assert target.read_bytes() == original
+        assert not output_path.exists()
+
+def test_json_writer_preserves_existing_fixed_temporary_sibling(tmp_path):
+    from scripts import verify_news_discovery as command
+    output_path = tmp_path / "lookup-result.json"
+    existing_input = output_path.with_name(output_path.name + ".writing")
+    original = json.dumps({"candidates": [{"symbol": "IRON", "company_name": CAPTURE["company_name"]}]}).encode("utf-8")
+    existing_input.write_bytes(original)
+    payload = {"ok": True, "symbols": {"IRON": {"articles": []}}}
+
+    command._write_result(output_path, payload)
+
+    assert json.loads(output_path.read_text(encoding="utf-8")) == payload
+    assert existing_input.is_file(), "Result writing must not move an unrelated sibling input"
+    assert existing_input.read_bytes() == original

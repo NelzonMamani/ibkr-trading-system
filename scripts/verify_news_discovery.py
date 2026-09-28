@@ -96,9 +96,11 @@ def _inputs(args):
         cache_mode=args.cache_mode, cache_file=args.cache_file.resolve(),
         prep_file=args.prep_file.resolve() if args.prep_file else None,
     ).validated()
+    input_paths = {path.resolve() for path in (args.prep_file, args.candidates_file) if path}
+    if settings.cache_file in input_paths:
+        raise ValueError("--cache-file must be different from prep and candidate input files")
     if args.json_output:
-        protected = {settings.cache_file.resolve()}
-        protected.update(path.resolve() for path in (args.prep_file, args.candidates_file) if path)
+        protected = input_paths | {settings.cache_file}
         if args.json_output.resolve() in protected:
             raise ValueError("--json-output must be different from cache, prep and candidate input files")
     return candidates, settings
@@ -106,9 +108,16 @@ def _inputs(args):
 
 def _write_result(path: Path, result):
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".writing")
-    temporary.write_text(json.dumps(jsonable(result), indent=2, allow_nan=False) + "\n", encoding="utf-8")
-    temporary.replace(path)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent,
+                                         prefix=path.name + ".", suffix=".writing", delete=False) as stream:
+            temporary = Path(stream.name)
+            stream.write(json.dumps(jsonable(result), indent=2, allow_nan=False) + "\n")
+        temporary.replace(path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def _source_identity():
