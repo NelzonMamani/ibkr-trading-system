@@ -9,7 +9,7 @@ def evidence_issuer_relevance_verified(
     # Recheck text-derived RSS evidence at every consumer boundary, including
     # persisted entries written before the matcher was hardened. A cached
     # ticker_token/classification field is not proof of issuer identity.
-    if item.provider not in {"rss_batch", "prep_cache", "legacy_news_provider_cache"} and item.match_type not in {
+    if item.provider not in {"rss_batch", "massive_ticker_news", "prep_cache", "legacy_news_provider_cache"} and item.match_type not in {
         "ticker_token", "company_name", "prep_context"
     }:
         return True

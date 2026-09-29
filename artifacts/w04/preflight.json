@@ -1,0 +1,46 @@
+{
+  "recorded_at": "2026-09-29T06:25:58.699455+00:00",
+  "worktree": "C:\\Users\\nelzo\\.codex\\worktrees\\w01-consolidation\\ibkr-trading-system",
+  "branch": "codex/w04-historical-news",
+  "base": "630660201abb4374cf09c233d601734f8258ebef",
+  "verified_main": "630660201abb4374cf09c233d601734f8258ebef",
+  "newer_main_changes": false,
+  "interpreter": "C:\\tmp\\pr1091-cert-env-20260923\\Scripts\\python.exe",
+  "python": "3.13.3 (tags/v3.13.3:6280bb5, Apr  8 2025, 14:47:33) [MSC v.1943 64 bit (AMD64)]",
+  "dependencies": {
+    "requests": "2.34.2",
+    "feedparser": "6.0.14",
+    "pytest": "9.1.1"
+  },
+  "original_head": "3c24ae553d449965e6c68ab1e5489cd722826f85",
+  "original_tracked_hashes": {
+    "TRADING_OS_MASTER_CATALOGUE/03_STRATEGIES/04_STRATEGY_CERTIFICATION_AND_GOVERNANCE/STRATEGY_AUDIT_MATRIX_V2.md": "24170e8fbbd5e78fb095beeb1c77e71b49d9672515ee2334525b09093dce13d3",
+    "TRADING_OS_MASTER_CATALOGUE/03_STRATEGIES/STRATEGY_CERTIFICATION_REPORT.md": "217f81a6b386dc21f3ff78f5306c382782a7ee6e8b47640b35124d2755316210",
+    "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M5_VERIFICATION_AUTHORITY/M5_EVIDENCE_INDEX.json": "482f5dae4f05b9d391536e13e3c59e6e61b1139a76021b1e300c87fa4d7b8f07",
+    "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M6_DATA_LIFECYCLE_GOVERNANCE/M6_EVIDENCE_INDEX.json": "f6466de93f4310269f0e12794b556aaf7ffe7c4337899c535929b27331da865a",
+    "artifacts/certification/pr1040/real_runtime_observation/real_runtime_observation.json": "39080b2c1a928fd42377509b2bc37c1e862568e8737dea07d203372d46ea664b",
+    "src/directory_tree_report.txt": "2a0505bbc268d32d74e158aee7f1808d4012179cabb479fd6e9b7c5a5453572a"
+  },
+  "operational_hashes": {
+    "data/news/news_cache.json": "adb8e35abda1f6c4511dfbac7b4fe8676cce4ec9efafbb9d88b80a638fdfcd88",
+    "data/prep/premarket_prep.json": "2b5ac35b95ffcd366a0eb7d6239a7b6c687bc34f6c2b30ee5e6b45ac6ef89a37"
+  },
+  "python_processes_on_recovery": 0,
+  "credentials": {
+    "MASSIVE_API_KEY": {
+      "process_present": false,
+      "user_present": false,
+      "machine_present": false
+    },
+    "POLYGON_API_KEY": {
+      "process_present": false,
+      "user_present": false,
+      "machine_present": false
+    }
+  },
+  "credential_scope": "Process/User/Machine environment and both repository roots inspected; presence only",
+  "api_requests": 0,
+  "live_acceptance": "pending_missing_authorized_credential",
+  "baseline_suite_repeated": false,
+  "agents_files_found": []
+}

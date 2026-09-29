@@ -34,7 +34,13 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--company-name", help="Issuer name for a single-symbol query")
     parser.add_argument("--alias", action="append", default=[], help="Issuer alias for a single symbol; repeatable")
     parser.add_argument("--lookback-hours", type=float, default=24.0)
-    parser.add_argument("--source-groups", nargs="+", default=["FAST_TRADING", "PREP_EXTENDED"])
+    parser.add_argument("--provider", choices=("rss", "massive"), default="rss")
+    parser.add_argument("--published-after", help="Inclusive historical UTC start; pair with --published-before (Massive only)")
+    parser.add_argument("--published-before", help="Inclusive historical UTC end; pair with --published-after (Massive only)")
+    parser.add_argument("--massive-page-size", type=int, default=100)
+    parser.add_argument("--massive-max-pages-per-symbol", type=int, default=2)
+    parser.add_argument("--massive-max-requests", type=int, default=5)
+    parser.add_argument("--source-groups", nargs="+", default=None)
     parser.add_argument("--cache-mode", choices=("use", "refresh", "only", "off"), default="use")
     parser.add_argument("--cache-file", type=Path, default=LookupSettings().cache_file)
     parser.add_argument("--prep-file", type=Path, help="Optional explicit prep artifact; default does not read operational prep")
@@ -98,11 +104,21 @@ def _inputs(args):
         candidate = candidates[0]
         candidates = (replace(candidate, company_name=args.company_name or candidate.company_name,
                               aliases=tuple(dict.fromkeys((*candidate.aliases, *args.alias)))),)
+    groups = tuple(part for group in (args.source_groups or []) for part in group.split(","))
+    if args.provider == "massive":
+        if groups and tuple(dict.fromkeys(group.strip().upper() for group in groups)) != ("MASSIVE_TICKER_NEWS",):
+            raise ValueError("--provider massive uses only MASSIVE_TICKER_NEWS; omit RSS --source-groups")
+        groups = ("MASSIVE_TICKER_NEWS",)
+    elif not groups:
+        groups = LookupSettings().source_groups
     settings = LookupSettings(
         lookback_hours=args.lookback_hours, budget_seconds=args.budget_seconds,
         request_timeout_seconds=args.request_timeout_seconds, cleanup_seconds=args.cleanup_seconds,
         refresh_interval_seconds=args.refresh_interval_seconds, max_items=args.max_items,
-        source_groups=tuple(part for group in args.source_groups for part in group.split(",")),
+        source_groups=groups, provider=args.provider,
+        published_after=args.published_after, published_before=args.published_before,
+        massive_page_size=args.massive_page_size, massive_max_pages_per_symbol=args.massive_max_pages_per_symbol,
+        massive_max_requests=args.massive_max_requests,
         cache_mode=args.cache_mode, cache_file=args.cache_file.resolve(),
         prep_file=args.prep_file.resolve() if args.prep_file else None,
     ).validated()
@@ -168,8 +184,12 @@ def _worker(config_path: Path) -> int:
         _write_result(output_path, result)
         return 0
     except Exception as exc:
+        # Historical-provider exceptions may contain request/header details.
+        # Publish only the type here; safe per-source reasons belong in outcomes.
+        error = (f"{type(exc).__name__}: historical news lookup failed" if config.get("settings", {}).get("provider") == "massive"
+                 else f"{type(exc).__name__}: {exc}")
         _write_result(output_path, {"schema_version": "news.standalone_lookup.v1", "ok": False,
-                                   "error": f"{type(exc).__name__}: {exc}", "runtime": identity})
+                                   "error": error, "runtime": identity})
         return 1
 
 

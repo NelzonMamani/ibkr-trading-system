@@ -1,0 +1,6 @@
+{
+  "guard": "external/broker sockets blocked; stdlib private socketpair self-pipes allowed",
+  "attempts": [],
+  "stdlib_socketpair_connections": 1,
+  "exit_status": 0
+}

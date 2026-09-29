@@ -72,6 +72,18 @@ def evidence_cache_path() -> Path:
     return Path(str(get_config("NEWS_CACHE_FILE")))
 
 
+def evidence_in_query_window(evidence: NewsEvidence, request: NewsRequest | None, *, now: datetime) -> bool:
+    """Filter explicit history before result caps, without making history fresh."""
+    if request is None or request.query_start_utc is None:
+        return True
+    published = evidence.published_at
+    return bool(
+        published is not None and published.tzinfo is not None and published.utcoffset() is not None
+        and request.query_start_utc <= published <= request.query_end_utc
+        and published <= now
+    )
+
+
 class CanonicalNewsEvidenceStore:
     """Canonical objective evidence view over existing prep/news cache files."""
 
@@ -144,11 +156,14 @@ class CanonicalNewsEvidenceStore:
                 if prep_evidence:
                     diagnostics["prep_reuse_symbols"].append(symbol)
 
-            accepted = [item for item in evidence if evidence_issuer_relevance_verified(
+            in_window = [item for item in evidence if evidence_in_query_window(item, request, now=now)]
+            if len(in_window) != len(evidence):
+                diagnostics.setdefault("query_window_rejected_by_symbol", {})[symbol] = len(evidence) - len(in_window)
+            accepted = [item for item in in_window if evidence_issuer_relevance_verified(
                 symbol, item, NewsBatchResult(candidates=(candidate,))
             )]
-            if len(accepted) != len(evidence):
-                diagnostics.setdefault("issuer_relevance_rejected_by_symbol", {})[symbol] = len(evidence) - len(accepted)
+            if len(accepted) != len(in_window):
+                diagnostics.setdefault("issuer_relevance_rejected_by_symbol", {})[symbol] = len(in_window) - len(accepted)
                 # Old cohort metrics may include rejected articles; recompute from facts.
                 accepted = list(enrich_evidence_metrics(tuple(replace(
                     item, velocity_5m=None, velocity_10m=None, velocity_30m=None,
@@ -242,6 +257,10 @@ class CanonicalNewsEvidenceStore:
                 for item in evidence
                 if isinstance(item, NewsEvidence)
             ]
+            if request is not None and request.query_start_utc is not None:
+                existing = [item for item in existing if evidence_in_query_window(item, request, now=now)]
+                incoming = [refresh_evidence_age(item, request=request, now=now) for item in incoming
+                            if evidence_in_query_window(item, request, now=now)]
             merged = dedupe_evidence(existing + incoming, max_items=max_items)
             previous = symbols_payload.get(symbol) or {}
             bucket = {"updated_at": now.isoformat(),
