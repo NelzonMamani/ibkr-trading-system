@@ -1,0 +1,19 @@
+..............................F......                                    [100%]
+================================== FAILURES ===================================
+______________ test_secret_echo_fields_are_redacted_or_rejected _______________
+
+    def test_secret_echo_fields_are_redacted_or_rejected():
+        transport = Transport(page(article(SECRET, title="Disc Medicine " + SECRET),
+                                   article("url", article_url="https://publisher.example/"+SECRET),
+                                   article("query", article_url="https://publisher.example/a?apiKey=x")))
+        result, _ = invoke(transport)
+        serialized = json.dumps(asdict(result), default=str)
+        assert SECRET not in serialized and "apiKey=" not in serialized
+>       assert result.evidence_for_symbol("IRON")[0].reference_id == "[REDACTED]"
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       IndexError: tuple index out of range
+
+tests\test_w04_massive_provider.py:254: IndexError
+=========================== short test summary info ===========================
+FAILED tests/test_w04_massive_provider.py::test_secret_echo_fields_are_redacted_or_rejected
+1 failed, 36 passed in 1.71s

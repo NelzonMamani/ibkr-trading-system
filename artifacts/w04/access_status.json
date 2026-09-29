@@ -1,0 +1,48 @@
+{
+  "checked_at": "2026-09-29",
+  "provider": "massive_ticker_news",
+  "credential_configured": false,
+  "provider_api_requests": 0,
+  "live_acceptance": "pending_missing_authorized_credential",
+  "known_iron_target_coverage": "not_tested",
+  "retrieval_window": {
+    "start_utc": "2026-09-27T22:08:37.432754Z",
+    "end_utc": "2026-09-28T22:08:37.432754Z",
+    "basis": "W03 recorded batch started_at minus its requested 24 hours"
+  },
+  "known_target_publication_utc": "2026-09-28T19:02:00Z",
+  "target_url_injected": false,
+  "cache_seeded": false,
+  "live_payloads_published": false,
+  "offline_fixture_kind": "synthetic deterministic tests, not Massive live discovery",
+  "broker_connected": false,
+  "trading_runtime_started": false,
+  "PAPER_READY": "NO",
+  "PAPER_READINESS_GATE": "FAIL",
+  "supported_command_captures": {
+    "single": {
+      "ok": true,
+      "exit_code": 0,
+      "requests_attempted": 0,
+      "cleanup_complete": true,
+      "source_hashes_unchanged": true,
+      "wall_seconds": 1.2395586000056937,
+      "outcomes": {
+        "IRON": "missing_credential"
+      }
+    },
+    "batch": {
+      "ok": true,
+      "exit_code": 0,
+      "requests_attempted": 0,
+      "cleanup_complete": true,
+      "source_hashes_unchanged": true,
+      "wall_seconds": 2.04253430000972,
+      "outcomes": {
+        "IRON": "missing_credential",
+        "MSFT": "missing_credential",
+        "LFCR": "missing_credential"
+      }
+    }
+  }
+}

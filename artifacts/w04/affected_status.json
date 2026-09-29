@@ -1,0 +1,80 @@
+{
+  "operational_files_before": {
+    "data/news/news_cache.json": "adb8e35abda1f6c4511dfbac7b4fe8676cce4ec9efafbb9d88b80a638fdfcd88",
+    "data/prep/premarket_prep.json": "2b5ac35b95ffcd366a0eb7d6239a7b6c687bc34f6c2b30ee5e6b45ac6ef89a37"
+  },
+  "started_at": "2026-09-29T06:40:57.234307+00:00",
+  "interpreter": "C:\\tmp\\pr1091-cert-env-20260923\\Scripts\\python.exe",
+  "base_commit": "630660201abb4374cf09c233d601734f8258ebef",
+  "source_manifest_sha256": "cc636db36bb1158c63070b9895a64512ac19a944b8a90c9e6e1e6ff04dfb6075",
+  "command": [
+    "C:\\tmp\\pr1091-cert-env-20260923\\Scripts\\python.exe",
+    "-m",
+    "pytest",
+    "-p",
+    "scripts.diagnostics.w02_offline_guard",
+    "--w02-network-audit=artifacts/w04/affected_network_audit.json",
+    "-q",
+    "tests/test_w02_news_deadlines.py",
+    "tests/test_w02_news_consumer_acceptance.py",
+    "tests/test_w02_source_outcomes.py",
+    "tests/test_pr1064_news_intelligence_contract.py",
+    "tests/test_pr1065_news_source_groups.py",
+    "tests/test_pr1067_batch_rss_adapter.py",
+    "tests/test_pr1069_news_intelligence_completion.py",
+    "tests/test_pr1072_bounded_news_retrieval.py",
+    "tests/test_pr1079_globenewswire_positive_control.py",
+    "tests/test_pr1086_news_runtime_reliability.py",
+    "tests/test_post_pr1090_news_diagnostics.py",
+    "tests/test_pr1091_catalyst_evidence_repair.py",
+    "tests/test_pr1091_review_followup.py",
+    "tests/test_pr1091_console_reporting.py",
+    "tests/test_ross_pr1028_autonomous_scanner_catalyst_certification.py",
+    "tests/test_ross_pr1051_readonly_catalyst_wiring.py",
+    "tests/test_ross_pr1057_catalyst_retrieval.py",
+    "tests/test_ross_pr1059_news_budget.py",
+    "tests/test_ross_pr1061_tier_news_budget.py",
+    "tests/test_w01_ownership_boundaries.py",
+    "tests/test_w03_cache_contract.py",
+    "tests/test_w03_news_lifecycle.py",
+    "tests/test_w03_standalone_lookup.py",
+    "tests/test_w04_massive_provider.py",
+    "tests/test_w04_canonical_history.py",
+    "tests/test_w04_standalone_history.py"
+  ],
+  "supervisor_pid": 40560,
+  "compile_exit_code": 0,
+  "pytest_pid": 14768,
+  "exit_code": 0,
+  "operational_files_after": {
+    "data/news/news_cache.json": "adb8e35abda1f6c4511dfbac7b4fe8676cce4ec9efafbb9d88b80a638fdfcd88",
+    "data/prep/premarket_prep.json": "2b5ac35b95ffcd366a0eb7d6239a7b6c687bc34f6c2b30ee5e6b45ac6ef89a37"
+  },
+  "operational_files_unchanged": true,
+  "network_audit": {
+    "guard": "external/broker sockets blocked; stdlib private socketpair self-pipes allowed",
+    "attempts": [
+      {
+        "test": "tests/test_ross_pr1028_autonomous_scanner_catalyst_certification.py::test_pr1028_hard_scanner_rejections_do_not_enter_watchlist_or_focus",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_ross_pr1028_autonomous_scanner_catalyst_certification.py::test_pr1028_hard_scanner_rejections_do_not_enter_watchlist_or_focus",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_ross_pr1028_autonomous_scanner_catalyst_certification.py::test_pr1028_hard_scanner_rejections_do_not_enter_watchlist_or_focus",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_ross_pr1028_autonomous_scanner_catalyst_certification.py::test_pr1028_hard_scanner_rejections_do_not_enter_watchlist_or_focus",
+        "outcome": "blocked_before_connection"
+      }
+    ],
+    "stdlib_socketpair_connections": 2,
+    "exit_status": 0
+  },
+  "completed_at": "2026-09-29T06:41:30.514314+00:00",
+  "log_sha256": "d399a704c57a8a9adf1098fc0b8f8c2ebec2a0f01d3b42c9d3435eafa1bb67d8",
+  "source_changes_during_tests": []
+}

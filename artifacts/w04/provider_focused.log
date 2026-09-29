@@ -1,0 +1,100 @@
+.....................................FFFF....                            [100%]
+================================== FAILURES ===================================
+_ test_at_or_after_deadline_retains_observed_failure_and_timeout[1.0-HTTP_401] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000002AEAAF37000>
+failure = 'HTTP_401', completion = 1.0
+
+    @pytest.mark.parametrize("failure", ["HTTP_401", "request_timeout"])
+    @pytest.mark.parametrize("completion", [1.0, 1.1])
+    def test_at_or_after_deadline_retains_observed_failure_and_timeout(monkeypatch, failure, completion):
+        clock = [0.0]
+        monkeypatch.setattr(adapter, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+        def transport(*args, **kwargs):
+            clock[0] = completion
+            if failure == "request_timeout":
+                raise requests.exceptions.ReadTimeout(SECRET)
+            return Response(status=401)
+        result, _ = invoke(transport, policy=replace(POLICY, total_budget_seconds=1))
+        row = result.diagnostics.source_diagnostics[0]
+>       assert row.budget_exhausted and row.worker_completed and row.failure_reason == failure
+E       AssertionError: assert (True and False)
+E        +  where True = SourceDiagnostic(source_id='massive:IRON:page:1', provider='massive_ticker_news', source_group='MASSIVE_TICKER_NEWS', ... http_status=None, response_closed=None, feed_item_count=None, elapsed_kind='since_submission', worker_completed=False).budget_exhausted
+E        +  and   False = SourceDiagnostic(source_id='massive:IRON:page:1', provider='massive_ticker_news', source_group='MASSIVE_TICKER_NEWS', ... http_status=None, response_closed=None, feed_item_count=None, elapsed_kind='since_submission', worker_completed=False).worker_completed
+
+tests\test_w04_massive_provider.py:369: AssertionError
+_ test_at_or_after_deadline_retains_observed_failure_and_timeout[1.0-request_timeout] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000002AEAAFA6EB0>
+failure = 'request_timeout', completion = 1.0
+
+    @pytest.mark.parametrize("failure", ["HTTP_401", "request_timeout"])
+    @pytest.mark.parametrize("completion", [1.0, 1.1])
+    def test_at_or_after_deadline_retains_observed_failure_and_timeout(monkeypatch, failure, completion):
+        clock = [0.0]
+        monkeypatch.setattr(adapter, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+        def transport(*args, **kwargs):
+            clock[0] = completion
+            if failure == "request_timeout":
+                raise requests.exceptions.ReadTimeout(SECRET)
+            return Response(status=401)
+        result, _ = invoke(transport, policy=replace(POLICY, total_budget_seconds=1))
+        row = result.diagnostics.source_diagnostics[0]
+>       assert row.budget_exhausted and row.worker_completed and row.failure_reason == failure
+E       AssertionError: assert (True and False)
+E        +  where True = SourceDiagnostic(source_id='massive:IRON:page:1', provider='massive_ticker_news', source_group='MASSIVE_TICKER_NEWS', ... http_status=None, response_closed=None, feed_item_count=None, elapsed_kind='since_submission', worker_completed=False).budget_exhausted
+E        +  and   False = SourceDiagnostic(source_id='massive:IRON:page:1', provider='massive_ticker_news', source_group='MASSIVE_TICKER_NEWS', ... http_status=None, response_closed=None, feed_item_count=None, elapsed_kind='since_submission', worker_completed=False).worker_completed
+
+tests\test_w04_massive_provider.py:369: AssertionError
+_ test_at_or_after_deadline_retains_observed_failure_and_timeout[1.1-HTTP_401] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000002AEAAFA6C10>
+failure = 'HTTP_401', completion = 1.1
+
+    @pytest.mark.parametrize("failure", ["HTTP_401", "request_timeout"])
+    @pytest.mark.parametrize("completion", [1.0, 1.1])
+    def test_at_or_after_deadline_retains_observed_failure_and_timeout(monkeypatch, failure, completion):
+        clock = [0.0]
+        monkeypatch.setattr(adapter, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+        def transport(*args, **kwargs):
+            clock[0] = completion
+            if failure == "request_timeout":
+                raise requests.exceptions.ReadTimeout(SECRET)
+            return Response(status=401)
+        result, _ = invoke(transport, policy=replace(POLICY, total_budget_seconds=1))
+        row = result.diagnostics.source_diagnostics[0]
+>       assert row.budget_exhausted and row.worker_completed and row.failure_reason == failure
+E       AssertionError: assert (True and False)
+E        +  where True = SourceDiagnostic(source_id='massive:IRON:page:1', provider='massive_ticker_news', source_group='MASSIVE_TICKER_NEWS', ... http_status=None, response_closed=None, feed_item_count=None, elapsed_kind='since_submission', worker_completed=False).budget_exhausted
+E        +  and   False = SourceDiagnostic(source_id='massive:IRON:page:1', provider='massive_ticker_news', source_group='MASSIVE_TICKER_NEWS', ... http_status=None, response_closed=None, feed_item_count=None, elapsed_kind='since_submission', worker_completed=False).worker_completed
+
+tests\test_w04_massive_provider.py:369: AssertionError
+_ test_at_or_after_deadline_retains_observed_failure_and_timeout[1.1-request_timeout] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000002AEAAFA6BA0>
+failure = 'request_timeout', completion = 1.1
+
+    @pytest.mark.parametrize("failure", ["HTTP_401", "request_timeout"])
+    @pytest.mark.parametrize("completion", [1.0, 1.1])
+    def test_at_or_after_deadline_retains_observed_failure_and_timeout(monkeypatch, failure, completion):
+        clock = [0.0]
+        monkeypatch.setattr(adapter, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+        def transport(*args, **kwargs):
+            clock[0] = completion
+            if failure == "request_timeout":
+                raise requests.exceptions.ReadTimeout(SECRET)
+            return Response(status=401)
+        result, _ = invoke(transport, policy=replace(POLICY, total_budget_seconds=1))
+        row = result.diagnostics.source_diagnostics[0]
+>       assert row.budget_exhausted and row.worker_completed and row.failure_reason == failure
+E       AssertionError: assert (True and False)
+E        +  where True = SourceDiagnostic(source_id='massive:IRON:page:1', provider='massive_ticker_news', source_group='MASSIVE_TICKER_NEWS', ... http_status=None, response_closed=None, feed_item_count=None, elapsed_kind='since_submission', worker_completed=False).budget_exhausted
+E        +  and   False = SourceDiagnostic(source_id='massive:IRON:page:1', provider='massive_ticker_news', source_group='MASSIVE_TICKER_NEWS', ... http_status=None, response_closed=None, feed_item_count=None, elapsed_kind='since_submission', worker_completed=False).worker_completed
+
+tests\test_w04_massive_provider.py:369: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_w04_massive_provider.py::test_at_or_after_deadline_retains_observed_failure_and_timeout[1.0-HTTP_401]
+FAILED tests/test_w04_massive_provider.py::test_at_or_after_deadline_retains_observed_failure_and_timeout[1.0-request_timeout]
+FAILED tests/test_w04_massive_provider.py::test_at_or_after_deadline_retains_observed_failure_and_timeout[1.1-HTTP_401]
+FAILED tests/test_w04_massive_provider.py::test_at_or_after_deadline_retains_observed_failure_and_timeout[1.1-request_timeout]
+4 failed, 41 passed in 1.96s

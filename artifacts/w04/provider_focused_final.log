@@ -1,0 +1,18 @@
+.............................................F                           [100%]
+================================== FAILURES ===================================
+_____ test_candidate_aliases_only_and_metadata_aliases_are_both_retained ______
+
+    def test_candidate_aliases_only_and_metadata_aliases_are_both_retained():
+        candidate = NewsCandidate("IRON", aliases=("Disc Medicine",), metadata={"aliases": ["Legacy Company"]})
+        result, _ = invoke(Transport(page(article(), article("legacy", title="Legacy Company news"))), [candidate])
+>       assert {item.reference_id for item in result.evidence_for_symbol("IRON")} == {"a", "legacy"}
+E       AssertionError: assert {'a'} == {'a', 'legacy'}
+E         
+E         Extra items in the right set:
+E         'legacy'
+E         Use -v to get more diff
+
+tests\test_w04_massive_provider.py:424: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_w04_massive_provider.py::test_candidate_aliases_only_and_metadata_aliases_are_both_retained
+1 failed, 45 passed in 1.79s

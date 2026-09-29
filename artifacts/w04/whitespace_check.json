@@ -1,0 +1,13 @@
+{
+  "source_and_documentation_check": "pass",
+  "command": [
+    "git",
+    "diff",
+    "--cached",
+    "--check",
+    "--",
+    ".",
+    ":(exclude)artifacts/w04/*.log"
+  ],
+  "raw_log_exception": "provider_focused_final.log:10 contains pytest-rendered trailing spaces; preserved unchanged as original development evidence, not executable source."
+}
