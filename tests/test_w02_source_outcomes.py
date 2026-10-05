@@ -41,6 +41,8 @@ def test_local_deadline_is_not_an_observed_http_timeout(monkeypatch, tmp_path):
         request_timeout_seconds=5, fallback_mode="none", metadata={"refresh_symbols": ["KNRX"]}))
     source = result.diagnostics.source_diagnostics[0]
     assert source.attempted is True
+    assert source.worker_completed is False
+    assert source.feed_item_count is None
     assert source.budget_exhausted is True
     assert source.failure_reason == "deadline_exhausted"
     assert source.timed_out is False  # No HTTP exception was observed.
@@ -120,6 +122,8 @@ def test_completed_future_is_accepted_only_before_applicable_deadline(
     assert source["attempted"] is True
     assert source["timed_out"] is False
     assert summary.failure_count == 0
+    assert source["worker_completed"] is True
+    assert source["feed_item_count"] == 1
     if completion_offset < 0:
         assert [item.title for item in headlines["W02X"]] == ["W02X wins contract"]
         assert source["retrieval_status"] == "available"
