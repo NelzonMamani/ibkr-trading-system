@@ -2002,10 +2002,28 @@ def _seed_watchlist_from_prep(
     return watchlist_contexts, prep_seeded_count, prep_invalidated_count
 
 
+def _stale_market_data_drop(context: Dict[str, Any]) -> Optional[str]:
+    # Consume the provider's freshness decision; receipt/scan time cannot
+    # turn a stale last trade into fresh market evidence.
+    if "MD_STALE" not in (context.get("data_quality_flags") or ()):
+        return None
+    context["watchlist_eligible"] = False
+    context["focus_eligible"] = False
+    context["execution_eligible"] = False
+    context["execution_ready"] = False
+    reasons = context.setdefault("eligibility_reason_codes", [])
+    if "MD_STALE" not in reasons:
+        reasons.append("MD_STALE")
+    return "DROP_STALE_MARKET_DATA"
+
+
 def _evaluate_watchlist_gates(
     context: Dict[str, Any],
     thresholds: GateThresholds,
 ) -> Optional[str]:
+    stale_drop = _stale_market_data_drop(context)
+    if stale_drop:
+        return stale_drop
     float_drop = _evaluate_float_gate(context, thresholds)
     if float_drop:
         return float_drop
@@ -2199,6 +2217,8 @@ def _forced_premarket_focus_eligible(
     session = normalize_session_label(session_label or str(context.get("session") or ""))
     if session not in {"PRE", "PREMARKET"}:
         return False
+    if _stale_market_data_drop(context):
+        return False
     if context.get("focus_drop_reason") or context.get("drop_reason"):
         return False
     if not _price_gate_check_ok(context, thresholds):
@@ -2225,6 +2245,9 @@ def _evaluate_focus_gates(
     context: Dict[str, Any],
     thresholds: GateThresholds,
 ) -> Optional[str]:
+    stale_drop = _stale_market_data_drop(context)
+    if stale_drop:
+        return stale_drop
     price = _safe_float(context.get("last_price"), None)
     volume = _safe_float(context.get("volume"), None)
     premarket_volume = _safe_float(context.get("premarket_volume"), None)
