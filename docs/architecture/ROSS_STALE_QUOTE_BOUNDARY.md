@@ -20,3 +20,5 @@ PAPER_READINESS_GATE=FAIL
 Registered Ross selection receives only non-stale metrics, including the weekend session normalization path. Stale metrics remain in diagnostic output. The production selector regression uses a synthetic qualifying canonical catalyst result (no provider calls) and proves rejection with and without prep; the existing unavailable-catalyst control remains fail-closed. Before the selector repair: 2 failed / 2 passed.
 
 Prep-only synthesized contexts preserve persisted quality flags before admission checks. A current fresh context retains its own quality authority instead of inheriting obsolete prep flags. Regressions prove stale prep exclusion, non-stale flag preservation, unchanged input artifacts and fresh-current precedence.
+
+Late optional-data backfill checks the retained stale flag before clearing any missing-data drop. This covers early price-gate exits: real QuoteData fixtures with missing last/bid/ask cannot be restored by registered selection, fallback or prep. Four new failing-before cases cover selector/prep combinations.

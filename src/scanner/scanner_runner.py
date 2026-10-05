@@ -6191,6 +6191,10 @@ def run_scanner_cycle(
                 symbol = context.get("symbol")
                 if not symbol or symbol in existing:
                     continue
+                stale_reason = _stale_market_data_drop(context)
+                if stale_reason:
+                    drop_ledger[symbol] = stale_reason
+                    continue
                 drop_reason = drop_ledger.get(symbol)
                 if drop_reason and not drop_reason.startswith("DROP_MISSING_"):
                     continue

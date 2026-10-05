@@ -613,8 +613,15 @@ def test_pr1050_readonly_adapter_propagates_proof_and_keeps_paper_gate_closed() 
 
 @pytest.mark.parametrize("with_prep", [False, True])
 @pytest.mark.parametrize("registered_selector", [False, True])
-def test_stale_quote_excluded_from_premarket_underflow_and_seed_paths(monkeypatch, tmp_path, with_prep, registered_selector):
+@pytest.mark.parametrize("missing_price", [False, True])
+def test_stale_quote_excluded_from_premarket_underflow_and_seed_paths(monkeypatch, tmp_path, with_prep, registered_selector, missing_price):
     _configure_readonly(news_enabled=registered_selector)
+    if missing_price:
+        original_quote = _ControlledRuntimeProvider.get_quote
+        def get_quote(provider, symbol):
+            quote = original_quote(provider, symbol)
+            return replace(quote, last=None, bid=None, ask=None) if symbol == "STALE" else quote
+        monkeypatch.setattr(_ControlledRuntimeProvider, "get_quote", get_quote)
     if registered_selector:
         # Synthetic canonical consumer result; no provider request or natural evidence.
         monkeypatch.setattr(scanner_runner, "_enrich_news_context",
@@ -637,7 +644,7 @@ def test_stale_quote_excluded_from_premarket_underflow_and_seed_paths(monkeypatc
             _ross_row("STALE", float_shares=8_000_000, data_quality_flags=["MD_STALE"]),
             _ross_row("FRESH", float_shares=8_000_000)]),
         forced_session_label="PRE", forced_session_source="OFFLINE_STALE_BOUNDARY_TEST")
-    assert payload["drop_ledger"]["STALE"] == "DROP_STALE_MARKET_DATA"
     assert "STALE" not in payload["watchlist_k_symbols"]
+    assert payload["drop_ledger"]["STALE"] == "DROP_STALE_MARKET_DATA"
     assert "FRESH" in payload["watchlist_k_symbols"]
     assert "STALE" not in payload["focus_m_symbols"]
