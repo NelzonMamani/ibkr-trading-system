@@ -58,6 +58,46 @@ def _symbols(values: Any) -> list[str]:
     return [_label(str(value).strip().upper()) or "unknown" for value in (values or ())]
 
 
+
+def _identity_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, (str, int)) or isinstance(value, bool):
+        return "REDACTED"
+    text = str(value)
+    if len(text) > 240 or any(ord(char) < 32 for char in text) or "://" in text:
+        return "REDACTED"
+    return "REDACTED" if _ACCOUNT.fullmatch(text) else text
+
+
+def _candidate_identity(candidate: Any) -> Mapping[str, Any]:
+    # Use exactly the RSS adapter's metadata precedence and matching normalizer.
+    from src.news.batch_rss_adapter import _metadata_by_symbol
+    from src.news.news_fetcher import company_aliases_for_symbol
+
+    metadata = candidate.metadata or {}
+    effective = _metadata_by_symbol((candidate,))[candidate.normalized_symbol]
+    return {
+        "symbol": _identity_text(candidate.symbol),
+        "company_name": _identity_text(candidate.company_name),
+        "aliases": [_identity_text(value) for value in candidate.aliases],
+        "exchange": _identity_text(candidate.exchange),
+        "market": _identity_text(candidate.market),
+        "region": _identity_text(candidate.region),
+        "issuer_identifiers": {
+            key: _identity_text(metadata[key])
+            for key in ("con_id", "conId", "isin", "cik", "figi", "lei",
+                        "primary_exchange", "primaryExchange", "local_symbol", "localSymbol")
+            if key in metadata
+        },
+        "effective_rss_matching_identity": {
+            "symbol": _label(candidate.normalized_symbol),
+            "company_aliases": [_identity_text(value) for value in
+                                company_aliases_for_symbol(candidate.normalized_symbol, effective)],
+        },
+    }
+
+
 def emit_retrieval_diagnostics(
     result: NewsBatchResult,
     *,
@@ -76,6 +116,7 @@ def emit_retrieval_diagnostics(
         "started_at_utc": result.started_at.isoformat() if result.started_at else None,
         "completed_at_utc": result.completed_at.isoformat() if result.completed_at else None,
         "symbols": _symbols(result.symbols),
+        "candidate_identities": [_candidate_identity(candidate) for candidate in result.candidates],
         "provider_invoked": provider_invoked,
         "provider_failure_reason": _failure(refresh.get("failure_reason", details.get("failure_reason"))),
         "refresh_allowed": bool(details.get("refresh_allowed", False)),
@@ -124,8 +165,15 @@ def emit_retrieval_diagnostics(
                 "attempted": item.attempted,
                 "matched_count": item.matched_count,
                 "failure_code": _failure(item.failure_reason),
-                "http_status": int(str(item.failure_reason)[5:])
-                if re.fullmatch(r"HTTP_[0-9]{3}", str(item.failure_reason)) else None,
+                "http_status": item.http_status if item.http_status is not None else (
+                    int(str(item.failure_reason)[5:])
+                    if re.fullmatch(r"HTTP_[0-9]{3}", str(item.failure_reason)) else None),
+                "feed_item_count": _number(item.feed_item_count),
+                "worker_completed": item.worker_completed,
+                "request_elapsed_seconds": _number(item.request_elapsed_seconds),
+                "parse_elapsed_seconds": _number(item.parse_elapsed_seconds),
+                "response_closed": item.response_closed,
+                "elapsed_kind": _label(item.elapsed_kind),
                 "elapsed_seconds": _number(item.elapsed_seconds),
                 "timeout_seconds": _number(item.timeout_seconds),
                 "timed_out": item.timed_out,

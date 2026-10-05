@@ -620,14 +620,13 @@ def _fetch_headlines_from_sources(
             "timed_out": bool(timed_out),
             "budget_exhausted": bool(budget_exhausted),
         }
-        if lifecycle is not None:
-            row.update(
-                request_elapsed_seconds=request_elapsed_seconds,
-                parse_elapsed_seconds=parse_elapsed_seconds,
-                http_status=http_status, response_closed=response_closed,
-                feed_item_count=feed_item_count, elapsed_kind=elapsed_kind,
-                worker_completed=worker_completed,
-            )
+        row.update(
+            request_elapsed_seconds=request_elapsed_seconds,
+            parse_elapsed_seconds=parse_elapsed_seconds,
+            http_status=http_status, response_closed=response_closed,
+            feed_item_count=feed_item_count, elapsed_kind=elapsed_kind,
+            worker_completed=worker_completed,
+        )
         return row
 
     def per_source_timeout_seconds(remaining_source_count: int) -> float:
@@ -660,6 +659,11 @@ def _fetch_headlines_from_sources(
             completed_at_s = timing.get("_completed_at_s")
             if completed_at_s is None:
                 completed_at_s = time.monotonic()
+            # Count the parsed feed, independently of publication/relevance filtering.
+            # Ordinary retrieval has no lifecycle timing collector; unknown stays None.
+            entries = getattr(feed, "entries", None)
+            if entries is not None and hasattr(entries, "__len__"):
+                timing.setdefault("feed_item_count", len(entries))
             result = {
                 "url": url, "feed": feed, "error": error,
                 "elapsed_seconds": max(0.0, completed_at_s - source_started_s),
