@@ -695,3 +695,39 @@ def test_pr1075_pr1040_focus_symbols_are_not_promoted_from_prep_context_rows() -
     assert spec["watchlist_focus_artifact"]["focus_m_symbols"] == []
     assert spec["pattern_input_artifact"]["input_source"] == "REAL_RUNTIME_NO_FOCUS_OR_NO_PATTERN_INPUT_ATTEMPT"
     assert spec["setup_decision_artifact"]["decision_reason"] == "NO_FOCUS_CANDIDATES"
+
+
+@pytest.mark.parametrize("with_metadata", [True, False])
+def test_observation_preserves_all_candidate_quote_evidence_without_fabrication(with_metadata):
+    from copy import deepcopy
+    from src.scanner.scanner_runner import _observed_market_data_summary
+    context = {"symbol": "REJECTED", "data_quality_flags": ["MD_STALE"],
+               "returned_market_data_type": "LIVE", "market_data_type_confirmed": with_metadata}
+    if with_metadata:
+        context.update(quote_timestamp_utc="2026-10-05T18:00:00+00:00",
+            quote_timestamp_source="LAST_TRADE", quote_received_at_utc="2026-10-05T18:01:00+00:00",
+            market_data_type_received_at_utc="2026-10-05T18:00:59+00:00", quote_request_id=42,
+            snapshot_complete=True, snapshot_evidence={"completion_reason": "snapshot_end"})
+    payload = _scanner_payload()
+    observations = _observed_market_data_summary([context])
+    payload["diagnostics"]["market_data_observations"] = observations
+    payload["drop_ledger"]["REJECTED"] = "DROP_STALE_MARKET_DATA"
+    before = deepcopy(payload)
+    result = pr1040.build_pr1039_observation_input(_evidence(scanner=payload))
+    saved = result["market_data_observation_diagnostics"]["market_data_observations"]
+    assert saved == observations
+    assert payload == before
+    row = saved["by_symbol"]["REJECTED"]
+    assert row["data_quality_flags"] == ["MD_STALE"]
+    assert row["quote_timestamp_utc"] == context.get("quote_timestamp_utc")
+    assert row["quote_received_at_utc"] == context.get("quote_received_at_utc")
+    assert row["confirmed"] is with_metadata
+    if not with_metadata:
+        assert row["returned"] == "UNKNOWN"
+        assert row["request_id"] is None
+        assert row["snapshot_complete"] is False
+
+
+def test_observation_missing_quote_diagnostics_stays_empty():
+    result = pr1040.build_pr1039_observation_input(_evidence())
+    assert result["market_data_observation_diagnostics"]["market_data_observations"] == {}

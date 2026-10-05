@@ -10,6 +10,7 @@ from typing import Optional
 import requests
 from bs4 import BeautifulSoup
 
+from src.config.config_resolver import get_config
 from src.config.runtime_config import get_persistence_sqlite_path
 
 try:
@@ -41,12 +42,12 @@ class FloatProvider:
 
     def __init__(
         self,
-        cache_path: str | Path = "data/reference/float_cache.json",
+        cache_path: str | Path | None = None,
         ttl_days: int = 7,
         sqlite_path: str | None = None,
     ) -> None:
 
-        self.cache_path = Path(cache_path)
+        self.cache_path = Path(get_config("SCANNER_FLOAT_CACHE_FILE") if cache_path is None else cache_path)
         print(f"[FLOAT][CACHE_PATH] path={self.cache_path.resolve()}")
         self.ttl = timedelta(days=max(int(ttl_days), 1))
 

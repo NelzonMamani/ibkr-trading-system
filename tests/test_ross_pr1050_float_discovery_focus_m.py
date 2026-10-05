@@ -648,3 +648,10 @@ def test_stale_quote_excluded_from_premarket_underflow_and_seed_paths(monkeypatc
     assert payload["drop_ledger"]["STALE"] == "DROP_STALE_MARKET_DATA"
     assert "FRESH" in payload["watchlist_k_symbols"]
     assert "STALE" not in payload["focus_m_symbols"]
+
+
+@pytest.fixture(autouse=True)
+def isolate_persistence_directory(monkeypatch, tmp_path):
+    # Provider/reference fallbacks use relative operational defaults unless configured.
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PERSISTENCE_SQLITE_PATH", str(tmp_path / "runtime.sqlite3"))

@@ -41,6 +41,7 @@ def test_scanner_reports_returned_type_instead_of_request(requested, returned):
         "quote_timestamp_utc": None, "quote_timestamp_source": "UNKNOWN",
         "quote_received_at_utc": "2026-09-18T07:31:00+00:00",
         "snapshot_evidence": quote.snapshot_evidence,
+        "data_quality_flags": [],
         "supplemented_fields": {}, "combined_data_type": returned,
     }
     assert context["quote_timestamp_utc"] is None
