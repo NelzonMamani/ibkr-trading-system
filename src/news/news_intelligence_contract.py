@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Literal, Mapping, Protocol, Sequence, runtime_checkable
 
 
@@ -88,6 +88,20 @@ class NewsRequest:
     session_phase: str | None = None
     audit_reason: str | None = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    # Explicit historical publication bounds; acquisition and freshness still use real time.
+    query_start_utc: datetime | None = None
+    query_end_utc: datetime | None = None
+
+    def __post_init__(self) -> None:
+        if self.query_start_utc is None and self.query_end_utc is None:
+            return
+        for name in ("query_start_utc", "query_end_utc"):
+            value = getattr(self, name)
+            if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
+                raise ValueError("query_start_utc and query_end_utc must both be timezone-aware datetimes")
+            object.__setattr__(self, name, value.astimezone(timezone.utc))
+        if self.query_start_utc >= self.query_end_utc:
+            raise ValueError("query_start_utc must precede query_end_utc")
 
 
 @dataclass(frozen=True)

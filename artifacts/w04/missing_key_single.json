@@ -1,0 +1,675 @@
+{
+  "schema_version": "news.standalone_lookup.v1",
+  "ok": true,
+  "profile": "standalone_research_v1",
+  "provider": "massive",
+  "candidates": [
+    {
+      "symbol": "IRON",
+      "company_name": "Disc Medicine, Inc.",
+      "aliases": [
+        "Disc Medicine"
+      ],
+      "exchange": null,
+      "market": null,
+      "region": null,
+      "priority_rank": null,
+      "session": null,
+      "price": null,
+      "gap_pct": null,
+      "percentage_move": null,
+      "float_shares": null,
+      "absolute_share_volume": null,
+      "relative_volume_rvol": null,
+      "metadata": {}
+    }
+  ],
+  "settings": {
+    "lookback_hours": 24.0,
+    "budget_seconds": 30.0,
+    "request_timeout_seconds": 5.0,
+    "cleanup_seconds": 10.0,
+    "refresh_interval_seconds": 300.0,
+    "max_items": 20,
+    "source_groups": [
+      "MASSIVE_TICKER_NEWS"
+    ],
+    "cache_mode": "off",
+    "cache_file": "C:\\Users\\nelzo\\.codex\\worktrees\\w01-consolidation\\ibkr-trading-system\\output\\news_lookup\\news_cache.json",
+    "prep_file": null,
+    "provider": "massive",
+    "published_after": "2026-09-27T22:08:37.432754+00:00",
+    "published_before": "2026-09-28T22:08:37.432754+00:00",
+    "massive_page_size": 100,
+    "massive_max_pages_per_symbol": 2,
+    "massive_max_requests": 5
+  },
+  "request": {
+    "strategy_id": "standalone_research_v1",
+    "event_classes": [],
+    "lookback_seconds": 86400.0,
+    "freshness_seconds": 86400.0,
+    "include_generic_news": true,
+    "need_heat": false,
+    "need_velocity": false,
+    "need_reliability": false,
+    "max_evidence_per_symbol": 20,
+    "session_phase": null,
+    "audit_reason": "standalone_news_research",
+    "metadata": {
+      "research_only": true
+    },
+    "query_start_utc": "2026-09-27T22:08:37.432754+00:00",
+    "query_end_utc": "2026-09-28T22:08:37.432754+00:00"
+  },
+  "retrieval_policy": {
+    "source_groups": [
+      "MASSIVE_TICKER_NEWS"
+    ],
+    "provider_groups": [
+      "massive_ticker_news"
+    ],
+    "allow_cache_read": false,
+    "allow_cache_write": false,
+    "refresh_mode": "force_refresh",
+    "network_allowed": true,
+    "total_budget_seconds": 30.0,
+    "tier_budgets": {},
+    "extended_reserve_fraction": 0.35,
+    "max_sources": null,
+    "max_items_per_source": null,
+    "request_timeout_seconds": 5.0,
+    "timeout_policy": "clamp_to_remaining_budget",
+    "fallback_mode": "none",
+    "metadata": {
+      "require_compatible_acquisition": true,
+      "research_profile": "standalone_research_v1",
+      "massive_page_size": 100,
+      "massive_max_pages_per_symbol": 2,
+      "massive_max_requests": 5,
+      "massive_requests_per_minute": 5
+    },
+    "refresh_interval_seconds": 300.0
+  },
+  "started_at": "2026-09-29T06:40:52.594033+00:00",
+  "completed_at": "2026-09-29T06:40:52.595353+00:00",
+  "symbols": {
+    "IRON": {
+      "articles": [],
+      "outcome": "retrieval_unavailable",
+      "coverage_status": "unavailable",
+      "retrieval_status": "unavailable",
+      "provider_status": "missing_credential",
+      "provider_available": false,
+      "budget_exhausted": false,
+      "cache_state": "miss",
+      "provenance": "provider_refresh",
+      "current_retrieval_article_count": 0,
+      "reused_article_count": 0,
+      "acquisition_completed_at": "2026-09-29T06:40:52.594442+00:00",
+      "acquisition_profile": {
+        "schema": "news.acquisition_profile.v1",
+        "request": {
+          "lookback_seconds": 86400.0,
+          "freshness_seconds": 86400.0,
+          "max_evidence_per_symbol": 20,
+          "event_classes": [],
+          "include_generic_news": true,
+          "need_heat": false,
+          "need_velocity": false,
+          "need_reliability": false,
+          "query_start_utc": "2026-09-27T22:08:37.432754+00:00",
+          "query_end_utc": "2026-09-28T22:08:37.432754+00:00"
+        },
+        "retrieval": {
+          "source_groups": [
+            "MASSIVE_TICKER_NEWS"
+          ],
+          "source_urls_by_group": {},
+          "provider_groups": [
+            "massive_ticker_news"
+          ],
+          "total_budget_seconds": 30.0,
+          "tier_budgets": {},
+          "extended_reserve_fraction": 0.35,
+          "request_timeout_seconds": 5.0,
+          "timeout_policy": "clamp_to_remaining_budget",
+          "max_sources": null,
+          "max_items_per_source": null,
+          "fallback_mode": "none",
+          "provider_id": "massive_ticker_news",
+          "provider_settings": {
+            "massive_page_size": 100,
+            "massive_max_pages_per_symbol": 2,
+            "massive_max_requests": 5,
+            "massive_requests_per_minute": 5
+          }
+        },
+        "issuer": {
+          "symbol": "IRON",
+          "company_name": "Disc Medicine, Inc.",
+          "aliases": [
+            "Disc Medicine"
+          ],
+          "exchange": null,
+          "market": null,
+          "region": null,
+          "metadata": {}
+        },
+        "fingerprint": "fc21704f82987b03b7e9a4ea5517e5994c6a1d65d5d797e53409e3846e293fae"
+      },
+      "cache_profile_compatible": false,
+      "sources": [
+        {
+          "source_id": "massive:IRON:page:1",
+          "provider": "massive_ticker_news",
+          "source_group": "MASSIVE_TICKER_NEWS",
+          "source_tier": "historical",
+          "retrieval_status": "not_requested",
+          "attempted": false,
+          "matched_count": 0,
+          "failure_reason": "missing_credential",
+          "elapsed_seconds": null,
+          "timeout_seconds": null,
+          "timed_out": false,
+          "budget_exhausted": false,
+          "request_elapsed_seconds": null,
+          "parse_elapsed_seconds": null,
+          "http_status": null,
+          "response_closed": null,
+          "feed_item_count": null,
+          "elapsed_kind": null,
+          "worker_completed": null,
+          "origin": "current_retrieval"
+        }
+      ],
+      "excluded_evidence": {},
+      "research_only": true,
+      "provider_details": {
+        "source_diagnostics": [
+          {
+            "source_id": "massive:IRON:page:1",
+            "provider": "massive_ticker_news",
+            "source_group": "MASSIVE_TICKER_NEWS",
+            "source_tier": "historical",
+            "retrieval_status": "not_requested",
+            "attempted": false,
+            "matched_count": 0,
+            "failure_reason": "missing_credential",
+            "elapsed_seconds": null,
+            "timeout_seconds": null,
+            "timed_out": false,
+            "budget_exhausted": false,
+            "request_elapsed_seconds": null,
+            "parse_elapsed_seconds": null,
+            "http_status": null,
+            "response_closed": null,
+            "feed_item_count": null,
+            "elapsed_kind": null,
+            "worker_completed": null
+          }
+        ],
+        "query_start_utc": "2026-09-27T22:08:37.432754+00:00",
+        "query_end_utc": "2026-09-28T22:08:37.432754+00:00",
+        "pages_attempted": 0,
+        "returned_article_count": 0,
+        "accepted_article_count": 0,
+        "duplicate_article_count": 0,
+        "retained_article_count": 0,
+        "accepted_before_cap_count": 0,
+        "result_truncated": false,
+        "rejected_article_counts": {},
+        "complete": false,
+        "failure_reason": "missing_credential",
+        "cooldown_persisted": null,
+        "objective_news_status": "missing_credential",
+        "classification_authority": "strategy_adapter_not_common_provider"
+      }
+    }
+  },
+  "selected_sources": [
+    {
+      "source_id": "massive_ticker_news",
+      "source_group": "MASSIVE_TICKER_NEWS",
+      "source_url": "https://api.massive.com/v2/reference/news"
+    }
+  ],
+  "selected_source_groups": [
+    "MASSIVE_TICKER_NEWS"
+  ],
+  "queried_source_groups": [],
+  "diagnostics": {
+    "retrieval_status": "unavailable",
+    "provider_status": "missing_credential",
+    "provider_available": false,
+    "cache_state": "not_checked",
+    "source_groups_queried": [],
+    "provider_groups_queried": [
+      "canonical_news_intelligence"
+    ],
+    "sources_queried": [],
+    "source_diagnostics": [
+      {
+        "source_id": "massive:IRON:page:1",
+        "provider": "massive_ticker_news",
+        "source_group": "MASSIVE_TICKER_NEWS",
+        "source_tier": "historical",
+        "retrieval_status": "not_requested",
+        "attempted": false,
+        "matched_count": 0,
+        "failure_reason": "missing_credential",
+        "elapsed_seconds": null,
+        "timeout_seconds": null,
+        "timed_out": false,
+        "budget_exhausted": false,
+        "request_elapsed_seconds": null,
+        "parse_elapsed_seconds": null,
+        "http_status": null,
+        "response_closed": null,
+        "feed_item_count": null,
+        "elapsed_kind": null,
+        "worker_completed": null
+      }
+    ],
+    "source_failures": {
+      "massive:IRON:page:1": "missing_credential"
+    },
+    "sources_attempted_count": 0,
+    "sources_skipped_due_to_budget_count": 0,
+    "elapsed_seconds": 0.00010139995720237494,
+    "total_budget_seconds": 30.0,
+    "budget_exhausted": false,
+    "timeout_count": 0,
+    "unresolved_symbols": [
+      "IRON"
+    ],
+    "diagnostics": {
+      "provider_id": "canonical_news_intelligence",
+      "cache_first": true,
+      "cache_file": null,
+      "cache_namespace": null,
+      "cache_hits_by_symbol": {},
+      "cache_hit_symbols": [],
+      "cadence_cache_hit_symbols": [],
+      "last_retrieval_by_symbol": {
+        "IRON": {
+          "completed_at": "2026-09-29T06:40:52.594442+00:00",
+          "retrieval_status": "unavailable",
+          "provider_status": "missing_credential",
+          "provider_available": false,
+          "budget_exhausted": false,
+          "acquisition_profile": {
+            "schema": "news.acquisition_profile.v1",
+            "request": {
+              "lookback_seconds": 86400.0,
+              "freshness_seconds": 86400.0,
+              "max_evidence_per_symbol": 20,
+              "event_classes": [],
+              "include_generic_news": true,
+              "need_heat": false,
+              "need_velocity": false,
+              "need_reliability": false,
+              "query_start_utc": "2026-09-27T22:08:37.432754+00:00",
+              "query_end_utc": "2026-09-28T22:08:37.432754+00:00"
+            },
+            "retrieval": {
+              "source_groups": [
+                "MASSIVE_TICKER_NEWS"
+              ],
+              "source_urls_by_group": {},
+              "provider_groups": [
+                "massive_ticker_news"
+              ],
+              "total_budget_seconds": 30.0,
+              "tier_budgets": {},
+              "extended_reserve_fraction": 0.35,
+              "request_timeout_seconds": 5.0,
+              "timeout_policy": "clamp_to_remaining_budget",
+              "max_sources": null,
+              "max_items_per_source": null,
+              "fallback_mode": "none",
+              "provider_id": "massive_ticker_news",
+              "provider_settings": {
+                "massive_page_size": 100,
+                "massive_max_pages_per_symbol": 2,
+                "massive_max_requests": 5,
+                "massive_requests_per_minute": 5
+              }
+            },
+            "issuer": {
+              "symbol": "IRON",
+              "company_name": "Disc Medicine, Inc.",
+              "aliases": [
+                "Disc Medicine"
+              ],
+              "exchange": null,
+              "market": null,
+              "region": null,
+              "metadata": {}
+            },
+            "fingerprint": "fc21704f82987b03b7e9a4ea5517e5994c6a1d65d5d797e53409e3846e293fae"
+          },
+          "coverage": {
+            "retrieval_status": "unavailable",
+            "provider_status": "missing_credential",
+            "provider_available": false,
+            "cache_state": "not_checked",
+            "source_groups_queried": [],
+            "provider_groups_queried": [],
+            "sources_queried": [],
+            "source_diagnostics": [
+              {
+                "source_id": "massive:IRON:page:1",
+                "provider": "massive_ticker_news",
+                "source_group": "MASSIVE_TICKER_NEWS",
+                "source_tier": "historical",
+                "retrieval_status": "not_requested",
+                "attempted": false,
+                "matched_count": 0,
+                "failure_reason": "missing_credential",
+                "elapsed_seconds": null,
+                "timeout_seconds": null,
+                "timed_out": false,
+                "budget_exhausted": false,
+                "request_elapsed_seconds": null,
+                "parse_elapsed_seconds": null,
+                "http_status": null,
+                "response_closed": null,
+                "feed_item_count": null,
+                "elapsed_kind": null,
+                "worker_completed": null
+              }
+            ],
+            "source_failures": {
+              "massive:IRON:page:1": "missing_credential"
+            },
+            "sources_attempted_count": 0,
+            "sources_skipped_due_to_budget_count": 0,
+            "elapsed_seconds": 0.00010139995720237494,
+            "total_budget_seconds": 30.0,
+            "budget_exhausted": false,
+            "timeout_count": 0,
+            "unresolved_symbols": [
+              "IRON"
+            ],
+            "diagnostics": {
+              "provider_id": "massive_ticker_news",
+              "endpoint": "https://api.massive.com/v2/reference/news",
+              "query_start_utc": "2026-09-27T22:08:37.432754+00:00",
+              "query_end_utc": "2026-09-28T22:08:37.432754+00:00",
+              "requests_attempted": 0,
+              "max_requests": 5,
+              "max_pages_per_symbol": 2,
+              "page_size": 100,
+              "requests_per_minute": 5,
+              "automatic_retries": 0,
+              "rate_scope": "shared_local_user_all_massive_keys",
+              "external_account_usage_observable": false,
+              "provider_updates": "hourly",
+              "provider_details_by_symbol": {
+                "IRON": {
+                  "source_diagnostics": [
+                    {
+                      "source_id": "massive:IRON:page:1",
+                      "provider": "massive_ticker_news",
+                      "source_group": "MASSIVE_TICKER_NEWS",
+                      "source_tier": "historical",
+                      "retrieval_status": "not_requested",
+                      "attempted": false,
+                      "matched_count": 0,
+                      "failure_reason": "missing_credential",
+                      "elapsed_seconds": null,
+                      "timeout_seconds": null,
+                      "timed_out": false,
+                      "budget_exhausted": false,
+                      "request_elapsed_seconds": null,
+                      "parse_elapsed_seconds": null,
+                      "http_status": null,
+                      "response_closed": null,
+                      "feed_item_count": null,
+                      "elapsed_kind": null,
+                      "worker_completed": null
+                    }
+                  ],
+                  "query_start_utc": "2026-09-27T22:08:37.432754+00:00",
+                  "query_end_utc": "2026-09-28T22:08:37.432754+00:00",
+                  "pages_attempted": 0,
+                  "returned_article_count": 0,
+                  "accepted_article_count": 0,
+                  "duplicate_article_count": 0,
+                  "retained_article_count": 0,
+                  "accepted_before_cap_count": 0,
+                  "result_truncated": false,
+                  "rejected_article_counts": {},
+                  "complete": false,
+                  "failure_reason": "missing_credential",
+                  "cooldown_persisted": null,
+                  "objective_news_status": "missing_credential",
+                  "classification_authority": "strategy_adapter_not_common_provider"
+                }
+              }
+            }
+          },
+          "provider_details": {
+            "source_diagnostics": [
+              {
+                "source_id": "massive:IRON:page:1",
+                "provider": "massive_ticker_news",
+                "source_group": "MASSIVE_TICKER_NEWS",
+                "source_tier": "historical",
+                "retrieval_status": "not_requested",
+                "attempted": false,
+                "matched_count": 0,
+                "failure_reason": "missing_credential",
+                "elapsed_seconds": null,
+                "timeout_seconds": null,
+                "timed_out": false,
+                "budget_exhausted": false,
+                "request_elapsed_seconds": null,
+                "parse_elapsed_seconds": null,
+                "http_status": null,
+                "response_closed": null,
+                "feed_item_count": null,
+                "elapsed_kind": null,
+                "worker_completed": null
+              }
+            ],
+            "query_start_utc": "2026-09-27T22:08:37.432754+00:00",
+            "query_end_utc": "2026-09-28T22:08:37.432754+00:00",
+            "pages_attempted": 0,
+            "returned_article_count": 0,
+            "accepted_article_count": 0,
+            "duplicate_article_count": 0,
+            "retained_article_count": 0,
+            "accepted_before_cap_count": 0,
+            "result_truncated": false,
+            "rejected_article_counts": {},
+            "complete": false,
+            "failure_reason": "missing_credential",
+            "cooldown_persisted": null,
+            "objective_news_status": "missing_credential",
+            "classification_authority": "strategy_adapter_not_common_provider"
+          }
+        }
+      },
+      "refresh_interval_seconds": 300.0,
+      "stale_cache_miss_symbols": [],
+      "cache_miss_symbols": [
+        "IRON"
+      ],
+      "prep_reuse_symbols": [],
+      "prep_stale_symbols": [],
+      "legacy_news_cache_symbols": [],
+      "refresh_requested_count": 1,
+      "refresh_symbols": [
+        "IRON"
+      ],
+      "refresh_allowed": true,
+      "cache_read_failed": false,
+      "cache_read_error": null,
+      "cache_write_failed": false,
+      "cache_write_error": null,
+      "cache_write_symbols": [],
+      "evidence_count_by_symbol": {
+        "IRON": 0
+      },
+      "freshest_evidence_age_seconds_by_symbol": {
+        "IRON": null
+      },
+      "source_provenance_by_symbol": {
+        "IRON": []
+      },
+      "match_types_by_symbol": {
+        "IRON": []
+      },
+      "reliability_by_symbol": {
+        "IRON": null
+      },
+      "heat_by_symbol": {
+        "IRON": null
+      },
+      "velocity_by_symbol": {
+        "IRON": {
+          "velocity_5m": null,
+          "velocity_10m": null,
+          "velocity_30m": null,
+          "velocity_60m": null
+        }
+      },
+      "refresh_diagnostics": {
+        "provider_id": "massive_ticker_news",
+        "endpoint": "https://api.massive.com/v2/reference/news",
+        "query_start_utc": "2026-09-27T22:08:37.432754+00:00",
+        "query_end_utc": "2026-09-28T22:08:37.432754+00:00",
+        "requests_attempted": 0,
+        "max_requests": 5,
+        "max_pages_per_symbol": 2,
+        "page_size": 100,
+        "requests_per_minute": 5,
+        "automatic_retries": 0,
+        "rate_scope": "shared_local_user_all_massive_keys",
+        "external_account_usage_observable": false,
+        "provider_updates": "hourly",
+        "provider_details_by_symbol": {
+          "IRON": {
+            "source_diagnostics": [
+              {
+                "source_id": "massive:IRON:page:1",
+                "provider": "massive_ticker_news",
+                "source_group": "MASSIVE_TICKER_NEWS",
+                "source_tier": "historical",
+                "retrieval_status": "not_requested",
+                "attempted": false,
+                "matched_count": 0,
+                "failure_reason": "missing_credential",
+                "elapsed_seconds": null,
+                "timeout_seconds": null,
+                "timed_out": false,
+                "budget_exhausted": false,
+                "request_elapsed_seconds": null,
+                "parse_elapsed_seconds": null,
+                "http_status": null,
+                "response_closed": null,
+                "feed_item_count": null,
+                "elapsed_kind": null,
+                "worker_completed": null
+              }
+            ],
+            "query_start_utc": "2026-09-27T22:08:37.432754+00:00",
+            "query_end_utc": "2026-09-28T22:08:37.432754+00:00",
+            "pages_attempted": 0,
+            "returned_article_count": 0,
+            "accepted_article_count": 0,
+            "duplicate_article_count": 0,
+            "retained_article_count": 0,
+            "accepted_before_cap_count": 0,
+            "result_truncated": false,
+            "rejected_article_counts": {},
+            "complete": false,
+            "failure_reason": "missing_credential",
+            "cooldown_persisted": null,
+            "objective_news_status": "missing_credential",
+            "classification_authority": "strategy_adapter_not_common_provider"
+          }
+        }
+      },
+      "classification_authority": "strategy_adapter_not_common_provider",
+      "acquisition_profile_compatible_by_symbol": {
+        "IRON": false
+      },
+      "acquisition_profile_mismatch_symbols": [
+        "IRON"
+      ],
+      "acquisition_coverage_unknown_symbols": [],
+      "acquisition_cache_hit_symbols": [],
+      "retrieved_evidence_ids_by_symbol": {
+        "IRON": []
+      }
+    }
+  },
+  "timing": {
+    "service_elapsed_seconds": 0.001321400050073862,
+    "retrieval_elapsed_seconds": 0.3776052999892272,
+    "total_elapsed_seconds": 0.3829995999694802,
+    "command_wall_elapsed_seconds": 1.2395616000285372
+  },
+  "cleanup": {
+    "submitted_count": 0,
+    "completed_count": 0,
+    "cancelled_count": 0,
+    "unfinished_count": 0,
+    "running_count": 0,
+    "cancellation_requested_count": 0,
+    "cancellation_succeeded_count": 0,
+    "worker_count": 0,
+    "alive_worker_count": 0,
+    "cleanup_complete": true,
+    "response_cleanup_failures_count": 0,
+    "cleanup_elapsed_seconds": 1.7599959392100573e-05,
+    "sources": []
+  },
+  "research_results_are_trading_catalysts": false,
+  "runtime": {
+    "git_head": "630660201abb4374cf09c233d601734f8258ebef",
+    "git_dirty": true,
+    "source_hashes": {
+      "src/news/__init__.py": "a33b35e02d20bb1e840a024557721c617eb402f976567a6247ea00de97dea6fb",
+      "src/news/batch_rss_adapter.py": "4e976b0d502480d8d3ce87e03c8434e73bc0021bdcbce256d1058d4f54805d07",
+      "src/news/evidence_store.py": "23d2e2a14ed14a30e50e4aa0d4f6bdfc710226cb495d4fcff163fe1a91492f97",
+      "src/news/issuer_relevance.py": "de869789fe067b07d80ca2d0d5797f45776a8b02cfc9e7f471b6f3cfc91caf72",
+      "src/news/massive_news_adapter.py": "d6915442399faca9247992006861b391b98687252528a77b904c8c171130045b",
+      "src/news/massive_rate_limit.py": "6740404f774e24d074b6a3eff859647bf44a61dda99537e3617bca3f7252e65e",
+      "src/news/news_fetcher.py": "7f6c14ce2a4163cdd9a03af2d277e4dd17a4f8466f4b2ebe37ff41319773b15f",
+      "src/news/news_heat.py": "cddf4c2e0a052faf46183b9b39fceb8071e6395fb862457b3270bd670dce291f",
+      "src/news/news_intelligence_contract.py": "a8cd48b079917fbb10c03a1ca9aed73ccb1a28ec60afd0abf8f7e98afcf7c9ce",
+      "src/news/news_intelligence_service.py": "4b253298ea9dfa12236fa253beb09fa92a0cf1aaa82f4e54bd82939376173653",
+      "src/news/news_normalizer.py": "39530d7fe6f9ec4d05b9ee50db80d19a3f506930cdf4295490be400a7bba8857",
+      "src/news/prep_adapter.py": "be3563b52658058cbfa5c7f77f32d3bc89faa0451f328fcc9944a045b60ef929",
+      "src/news/retrieval_diagnostics.py": "28bc08469991ff94f4f3809a13ab8f576d431cfb6f6d786302d2ba5652c73dc1",
+      "src/news/rss_batch_runtime.py": "cd997624bb9cd92a5319745655919200d633c38a5483aa62416c9008b3f97231",
+      "src/news/rss_lifecycle.py": "51f43a412fa92ef6c7f25092cf3d84c4ec27222146d6570a53c10b29347581ec",
+      "src/news/rss_registry.py": "d2ac0f929b9328ee16701e4a21c98091397a89005ced3f43b39181f8a90bebd9",
+      "src/news/source_groups.py": "77d3642f9e987a34b647ff4307e794d71849bb4d1bdd7bbf2015dcaa08c33ab8",
+      "src/news/standalone_lookup.py": "dbc4b2e5993fd2c6879e5d7c135c4db2d4af453e4e7d8c49048a17adaa6eeb9d",
+      "src/news/verified_sources.py": "8404dbff28281013baf1501b8c1b51ea0809d395013be9c463756ccbc4edbe55",
+      "scripts/verify_news_discovery.py": "52fda31c25022997ae1781b1f7e168efe05424fbb926f601007befd8281f5c50",
+      "scripts/verify_news_provider_batch.py": "0684c10617ab246a6fbf78230a7e63482f120c8d85702632681db81be6d31243"
+    },
+    "interpreter": "C:\\tmp\\pr1091-cert-env-20260923\\Scripts\\python.exe",
+    "python_version": "3.13.3 (tags/v3.13.3:6280bb5, Apr  8 2025, 14:47:33) [MSC v.1943 64 bit (AMD64)]",
+    "dependencies": {
+      "requests": "2.34.2",
+      "feedparser": "6.0.14"
+    },
+    "source_hashes_unchanged": true
+  },
+  "worker_stage": "cleanup_wait_complete",
+  "process": {
+    "exit_code": 0,
+    "exit_confirmed": true,
+    "wall_limit_seconds": 50.0,
+    "termination_allowance_seconds": 5.0,
+    "terminated_at_wall_limit": false,
+    "wall_elapsed_seconds": 1.2395586000056937
+  }
+}

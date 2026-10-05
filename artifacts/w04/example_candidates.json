@@ -1,0 +1,61 @@
+{
+  "candidates": [
+    {
+      "symbol": "IRON",
+      "company_name": "Disc Medicine, Inc.",
+      "aliases": [
+        "Disc Medicine"
+      ],
+      "exchange": "NASDAQ",
+      "market": null,
+      "region": null,
+      "priority_rank": null,
+      "session": null,
+      "price": null,
+      "gap_pct": null,
+      "percentage_move": null,
+      "float_shares": null,
+      "absolute_share_volume": null,
+      "relative_volume_rvol": null,
+      "metadata": {}
+    },
+    {
+      "symbol": "MSFT",
+      "company_name": "Microsoft Corporation",
+      "aliases": [
+        "Microsoft"
+      ],
+      "exchange": "NASDAQ",
+      "market": null,
+      "region": null,
+      "priority_rank": null,
+      "session": null,
+      "price": null,
+      "gap_pct": null,
+      "percentage_move": null,
+      "float_shares": null,
+      "absolute_share_volume": null,
+      "relative_volume_rvol": null,
+      "metadata": {}
+    },
+    {
+      "symbol": "LFCR",
+      "company_name": "Lifecore Biomedical, Inc.",
+      "aliases": [
+        "Lifecore Biomedical"
+      ],
+      "exchange": "NASDAQ",
+      "market": null,
+      "region": null,
+      "priority_rank": null,
+      "session": null,
+      "price": null,
+      "gap_pct": null,
+      "percentage_move": null,
+      "float_shares": null,
+      "absolute_share_volume": null,
+      "relative_volume_rvol": null,
+      "metadata": {}
+    }
+  ]
+}

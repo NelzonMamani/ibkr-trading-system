@@ -1,0 +1,198 @@
+{
+  "operational_files_before": {
+    "data/news/news_cache.json": "adb8e35abda1f6c4511dfbac7b4fe8676cce4ec9efafbb9d88b80a638fdfcd88",
+    "data/prep/premarket_prep.json": "2b5ac35b95ffcd366a0eb7d6239a7b6c687bc34f6c2b30ee5e6b45ac6ef89a37"
+  },
+  "started_at": "2026-09-29T06:41:57.549280+00:00",
+  "interpreter": "C:\\tmp\\pr1091-cert-env-20260923\\Scripts\\python.exe",
+  "base_commit": "630660201abb4374cf09c233d601734f8258ebef",
+  "source_manifest_sha256": "cc636db36bb1158c63070b9895a64512ac19a944b8a90c9e6e1e6ff04dfb6075",
+  "command": [
+    "C:\\tmp\\pr1091-cert-env-20260923\\Scripts\\python.exe",
+    "-m",
+    "pytest",
+    "-p",
+    "scripts.diagnostics.w02_offline_guard",
+    "--w02-network-audit=artifacts/w04/full_network_audit.json",
+    "-q"
+  ],
+  "supervisor_pid": 40856,
+  "compile_exit_code": 0,
+  "pytest_pid": 46232,
+  "exit_code": 0,
+  "operational_files_after": {
+    "data/news/news_cache.json": "3e5acf550de984b846863427ceb7c303e407178aea8939951e031680f9a06e30",
+    "data/prep/premarket_prep.json": "2b5ac35b95ffcd366a0eb7d6239a7b6c687bc34f6c2b30ee5e6b45ac6ef89a37"
+  },
+  "operational_files_unchanged": false,
+  "network_audit": {
+    "guard": "external/broker sockets blocked; stdlib private socketpair self-pipes allowed",
+    "attempts": [
+      {
+        "test": "tests/metadata/test_m3_mode_semantics_verifier.py::test_m3_mode_semantics_verifier",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/metadata/test_m3_mode_semantics_verifier.py::test_m3_mode_semantics_verifier",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/metadata/test_m9_signal_semantics_registry_verifier.py::test_missing_required_field_is_reported",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/metadata/test_m9_signal_semantics_registry_verifier.py::test_missing_required_field_is_reported",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_ross_pr1028_autonomous_scanner_catalyst_certification.py::test_pr1028_hard_scanner_rejections_do_not_enter_watchlist_or_focus",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_ross_pr1028_autonomous_scanner_catalyst_certification.py::test_pr1028_hard_scanner_rejections_do_not_enter_watchlist_or_focus",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_ross_pr1028_autonomous_scanner_catalyst_certification.py::test_pr1028_hard_scanner_rejections_do_not_enter_watchlist_or_focus",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_ross_pr1028_autonomous_scanner_catalyst_certification.py::test_pr1028_hard_scanner_rejections_do_not_enter_watchlist_or_focus",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_ross_pr3_watchlist_focus_proof.py::test_candidate_rationale_exposes_compact_classifications",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_ross_pr3_watchlist_focus_proof.py::test_candidate_rationale_exposes_compact_classifications",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_ross_pr3_watchlist_focus_proof.py::test_price_rejected_symbol_cannot_leak_through_selector_into_watchlist",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_ross_pr3_watchlist_focus_proof.py::test_price_rejected_symbol_cannot_leak_through_selector_into_watchlist",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_ross_pr3_watchlist_focus_proof.py::test_hard_rejections_cannot_enter_focus_m[DROP_LOW_RVOL-context_overrides4-policy_overrides4-DROP_RVOL_FOCUS]",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_ross_pr3_watchlist_focus_proof.py::test_hard_rejections_cannot_enter_focus_m[DROP_LOW_RVOL-context_overrides4-policy_overrides4-DROP_RVOL_FOCUS]",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_ross_pr3_watchlist_focus_proof.py::test_session_thresholds_preserve_rvol_and_pct_policy[PRE-2.0-5.0-5.0]",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_ross_pr3_watchlist_focus_proof.py::test_session_thresholds_preserve_rvol_and_pct_policy[PRE-2.0-5.0-5.0]",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_ross_pre_activation_runtime.py::test_registry_marks_session_incompatible_patterns_as_skipped",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_ross_pre_activation_runtime.py::test_registry_marks_session_incompatible_patterns_as_skipped",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_ross_pre_activation_runtime.py::test_pattern_inputs_normalize_level_aliases",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_ross_pre_activation_runtime.py::test_pattern_inputs_normalize_level_aliases",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_traceability.py::test_connectivity_halt_not_suppressed_by_prior_halt",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_traceability.py::test_connectivity_halt_not_suppressed_by_prior_halt",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_traceability.py::test_connectivity_halt_not_suppressed_by_prior_halt",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_traceability.py::test_connectivity_halt_not_suppressed_by_prior_halt",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_traceability.py::test_connectivity_halt_not_suppressed_by_prior_halt",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_traceability.py::test_connectivity_halt_not_suppressed_by_prior_halt",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_traceability.py::test_connectivity_halt_not_suppressed_by_prior_halt",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_traceability.py::test_connectivity_halt_not_suppressed_by_prior_halt",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_traceability.py::test_connectivity_halt_not_suppressed_by_prior_halt",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_traceability.py::test_connectivity_halt_not_suppressed_by_prior_halt",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_traceability.py::test_connectivity_halt_not_suppressed_by_prior_halt",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_traceability.py::test_connectivity_halt_not_suppressed_by_prior_halt",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_traceability.py::test_connectivity_halt_not_suppressed_by_prior_halt",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_traceability.py::test_connectivity_halt_not_suppressed_by_prior_halt",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_traceability.py::test_connectivity_halt_not_suppressed_by_prior_halt",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_traceability.py::test_connectivity_halt_not_suppressed_by_prior_halt",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_traceability.py::test_connectivity_halt_not_suppressed_by_prior_halt",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_traceability.py::test_connectivity_halt_not_suppressed_by_prior_halt",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_traceability.py::test_connectivity_halt_not_suppressed_by_prior_halt",
+        "outcome": "blocked_before_connection"
+      },
+      {
+        "test": "tests/test_traceability.py::test_connectivity_halt_not_suppressed_by_prior_halt",
+        "outcome": "blocked_before_connection"
+      }
+    ],
+    "stdlib_socketpair_connections": 26,
+    "exit_status": 0
+  },
+  "completed_at": "2026-09-29T06:46:58.260041+00:00",
+  "log_sha256": "59223e09a9e177090d1eb006c021d763b189d80fa2ea2156ca56ba46cc6a4fab",
+  "source_changes_during_tests": []
+}

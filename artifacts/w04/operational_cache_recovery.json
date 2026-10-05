@@ -1,0 +1,14 @@
+{
+  "file": "data/news/news_cache.json",
+  "before_suite_sha256": "adb8e35abda1f6c4511dfbac7b4fe8676cce4ec9efafbb9d88b80a638fdfcd88",
+  "generated_after_suite_sha256": "3e5acf550de984b846863427ceb7c303e407178aea8939951e031680f9a06e30",
+  "restored_sha256": "adb8e35abda1f6c4511dfbac7b4fe8676cce4ec9efafbb9d88b80a638fdfcd88",
+  "restored_bytes": 421,
+  "generated_file_preserved": "output/w04/full_suite_generated_news_cache.json",
+  "recovered_original_file": "output/w04/recovered_original_news_cache.json",
+  "method": "Retained unchanged original KNRX/LFCR buckets, canonical sorted indent-2 CRLF serialization, enumerated the namespace timestamp immediately before the unchanged bucket timestamp; accepted only the byte sequence matching the preflight and W02/W03 SHA-256.",
+  "recovered_namespace_updated_at": "2026-09-28T17:30:10.342801+00:00",
+  "test_write": "Existing full-suite consumer test refresh recorded empty unavailable acquisitions for AAPL/AMD/MSFT/NVDA/TSLA; all connections blocked. No W04 CLI cache write (cache-mode off).",
+  "source_changed": false,
+  "baseline_or_full_suite_repeated": false
+}

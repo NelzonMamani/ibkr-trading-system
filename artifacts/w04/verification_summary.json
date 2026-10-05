@@ -1,0 +1,60 @@
+{
+  "baseline": "630660201abb4374cf09c233d601734f8258ebef",
+  "source_manifest": "affected_source_hashes.json",
+  "source_manifest_sha256": "cc636db36bb1158c63070b9895a64512ac19a944b8a90c9e6e1e6ff04dfb6075",
+  "new_test_cases": {
+    "provider_rate_lifecycle": 46,
+    "canonical_history": 15,
+    "standalone_interface": 21
+  },
+  "combined_affected": {
+    "passed": 461,
+    "elapsed_seconds": 28.85,
+    "modules": 26,
+    "exit_code": 0
+  },
+  "peer_review": "peer_review.md",
+  "preserved_contracts": [
+    "RSS default and ordered memberships",
+    "W01 ownership",
+    "W02 deadlines and availability",
+    "W03 CLI supervision and cache compatibility",
+    "preparation API shapes",
+    "scanner settings",
+    "Ross conservative issuer matcher",
+    "Ross five pillars and fail-closed catalyst",
+    "absolute volume distinct from RVOL"
+  ],
+  "provider_api_requests": 0,
+  "live_acceptance": "pending_missing_authorized_credential",
+  "known_iron_target": "not_tested_with_massive",
+  "local_full_suite": {
+    "passed": 2273,
+    "skipped": 1,
+    "warnings": 212,
+    "seconds": 295.63,
+    "exit_code": 0,
+    "source_manifest_sha256": "cc636db36bb1158c63070b9895a64512ac19a944b8a90c9e6e1e6ff04dfb6075",
+    "log_sha256": "59223e09a9e177090d1eb006c021d763b189d80fa2ea2156ca56ba46cc6a4fab",
+    "source_changes": [],
+    "blocked_connection_attempts": 40,
+    "allowed_stdlib_socketpairs": 26,
+    "generated_catalogue_patch_sha256": "c50a4822916af5504ed461534c645d3a98d0a510b1119ec4d01296b9b2f6ea81",
+    "generated_catalogue_paths_restored": [
+      "TRADING_OS_MASTER_CATALOGUE/03_STRATEGIES/04_STRATEGY_CERTIFICATION_AND_GOVERNANCE/STRATEGY_AUDIT_MATRIX_V2.md",
+      "TRADING_OS_MASTER_CATALOGUE/03_STRATEGIES/STRATEGY_CERTIFICATION_REPORT.md",
+      "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M5_VERIFICATION_AUTHORITY/M5_EVIDENCE_INDEX.json",
+      "TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/M6_DATA_LIFECYCLE_GOVERNANCE/M6_EVIDENCE_INDEX.json"
+    ],
+    "news_cache_write_detected": true,
+    "news_cache_recovery": "restored_exact_preflight_bytes_see_operational_cache_recovery.json"
+  },
+  "required_final_gates": [
+    "full pytest CI at final head",
+    "completed exact-head review",
+    "zero unresolved review findings",
+    "branch up to date with main"
+  ],
+  "PAPER_READY": "NO",
+  "PAPER_READINESS_GATE": "FAIL"
+}

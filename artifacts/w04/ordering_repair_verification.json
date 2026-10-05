@@ -1,0 +1,74 @@
+{
+  "checkpoint_head": "13328000e844f4264ce03f25dd0a3bfe098241b0",
+  "interpreter": "C:\\tmp\\pr1091-cert-env-20260923\\Scripts\\python.exe",
+  "production_changes": [
+    "Massive order desc",
+    "fixed Massive-only publication_order=published_utc_desc_v1"
+  ],
+  "regression_before": {
+    "failed": 4,
+    "passed": 1,
+    "exit_code": 1,
+    "log": "output\\w04\\2026-10-05\\old_order_regression.log"
+  },
+  "affected": {
+    "modules": [
+      "tests/test_w04_massive_provider.py",
+      "tests/test_w04_canonical_history.py",
+      "tests/test_w04_standalone_history.py",
+      "tests/test_w03_cache_contract.py",
+      "tests/test_w03_standalone_lookup.py",
+      "tests/test_pr1069_news_intelligence_completion.py"
+    ],
+    "passed": 155,
+    "failed": 1,
+    "failure": "Existing profile whitelist expectation needed new fixed discriminator",
+    "log": "output\\w04\\2026-10-05\\repair_affected.log"
+  },
+  "final_canonical_module": {
+    "passed": 17,
+    "failed": 0,
+    "log": "output\\w04\\2026-10-05\\repair_final.log"
+  },
+  "final_unique_affected_passed": 156,
+  "full_local_suite_repeated": false,
+  "rss_old_and_new_profiles_byte_equivalent": true,
+  "rss_fingerprints": [
+    "9987af9de509e78a39f3f9873c3b635dff990723ed841f6154a7b8472b799204",
+    "f7d2942cc7223aa63a5afa0f5f9e731585505a22b989f4b7ee16273f7fd75c0b"
+  ],
+  "protected_operational_and_original_edits_unchanged": true,
+  "live_acceptance": "pending_missing_authorized_credential",
+  "source_hashes": {
+    "docs/architecture/W04_HISTORICAL_NEWS.md": "12cae2a26a0ba24de199831978aef610590f3989f413aca94a6cb774f4e5e587",
+    "src/news/massive_news_adapter.py": "7b80e5d4e0ecea4fc500a4febca97ebee5c7fdcd1002761505519c397ca9a78c",
+    "src/news/news_intelligence_service.py": "cc6baa5ccfb51ca01a8388dee0116334b8a2a15518fb49ae854df0f837dc71b9",
+    "tests/test_w04_canonical_history.py": "60342deced2d2cae03a5c2a50b1665022e309c6d82a316e31982b3bffc8ca684",
+    "tests/test_w04_massive_provider.py": "4ef6f74976f794a42f5f53044a72d56514641fb2ca7190de722b4ef005090f1d"
+  },
+  "logs": {
+    "output\\w04\\2026-10-05\\old_order_regression.log": "0f2e6a631fe4df9f6b84c7a17bcff6f93eaa1d250c684ceda6f3d69f9038008c",
+    "output\\w04\\2026-10-05\\repair_affected.log": "863f4f05b3e3b1c9e4e4039c8053a07e74fe5e06b4ecc6e94172fcc1e4728593",
+    "output\\w04\\2026-10-05\\repair_final.log": "b70f6619a6d674ad62a027841f6e971e2c661958f141815c953b0c7c820e8394"
+  },
+  "network_audits": {
+    "old_order_network.json": {
+      "guard": "external/broker sockets blocked; stdlib private socketpair self-pipes allowed",
+      "attempts": [],
+      "stdlib_socketpair_connections": 1,
+      "exit_status": 1
+    },
+    "repair_final_network.json": {
+      "guard": "external/broker sockets blocked; stdlib private socketpair self-pipes allowed",
+      "attempts": [],
+      "stdlib_socketpair_connections": 1,
+      "exit_status": 0
+    },
+    "repair_network.json": {
+      "guard": "external/broker sockets blocked; stdlib private socketpair self-pipes allowed",
+      "attempts": [],
+      "stdlib_socketpair_connections": 1,
+      "exit_status": 1
+    }
+  }
+}

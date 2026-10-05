@@ -18,7 +18,9 @@ from src.news.evidence_store import (
     dedupe_evidence,
     evidence_max_entries,
     evidence_freshness_seconds,
+    evidence_in_query_window,
     normalize_symbol,
+    refresh_evidence_age,
     summarize_news_evidence,
 )
 from src.news.source_groups import get_source_group_urls
@@ -60,8 +62,9 @@ def _json_value(value: Any) -> Any:
     return str(value)
 
 
-def _acquisition_profile(candidate: NewsCandidate, request: NewsRequest, policy: RetrievalPolicy) -> dict[str, Any]:
-    groups = _source_groups_for_policy(policy)
+def _acquisition_profile(candidate: NewsCandidate, request: NewsRequest, policy: RetrievalPolicy,
+                         *, provider_id: str = "rss_batch") -> dict[str, Any]:
+    groups = _source_groups_for_policy(policy) if provider_id == "rss_batch" else policy.source_groups
     profile = _json_value({
         "schema": "news.acquisition_profile.v1",
         "request": {
@@ -75,7 +78,7 @@ def _acquisition_profile(candidate: NewsCandidate, request: NewsRequest, policy:
         },
         "retrieval": {
             "source_groups": groups,
-            "source_urls_by_group": {group: get_source_group_urls(group) for group in groups},
+            "source_urls_by_group": {group: get_source_group_urls(group) for group in groups} if provider_id == "rss_batch" else {},
             "provider_groups": policy.provider_groups,
             "total_budget_seconds": _total_budget_seconds(policy),
             "tier_budgets": policy.tier_budgets,
@@ -91,6 +94,20 @@ def _acquisition_profile(candidate: NewsCandidate, request: NewsRequest, policy:
             "market": candidate.market, "region": candidate.region, "metadata": candidate.metadata,
         },
     })
+    if request.query_start_utc is not None:
+        profile["request"].update(query_start_utc=request.query_start_utc.isoformat(),
+                                  query_end_utc=request.query_end_utc.isoformat())
+    # Keep existing RSS fingerprints stable; its provider identity is implicit in v1.
+    if provider_id != "rss_batch":
+        profile["retrieval"]["provider_id"] = provider_id
+    if provider_id == "massive_ticker_news":
+        profile["retrieval"]["provider_settings"] = {
+            key: _json_value(policy.metadata.get(key, default)) for key, default in (
+                ("massive_page_size", 100), ("massive_max_pages_per_symbol", 2),
+                ("massive_max_requests", 5), ("massive_requests_per_minute", 5),
+            )
+        }
+        profile["retrieval"]["provider_settings"]["publication_order"] = "published_utc_desc_v1"
     profile["fingerprint"] = hashlib.sha256(json.dumps(profile, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     return profile
 
@@ -151,7 +168,10 @@ class CanonicalNewsIntelligenceService(NewsIntelligenceProvider):
             "cache_read_skipped": True,
         }
         require_compatible = bool(retrieval_policy.metadata.get("require_compatible_acquisition"))
-        profiles = ({candidate.normalized_symbol: _acquisition_profile(candidate, request, retrieval_policy)
+        acquisition_provider_id = (getattr(self.retrieval_provider, "provider_id", None)
+                                   or next(iter(retrieval_policy.provider_groups), "rss_batch"))
+        profiles = ({candidate.normalized_symbol: _acquisition_profile(
+                         candidate, request, retrieval_policy, provider_id=acquisition_provider_id)
                      for candidate in ordered_candidates} if require_compatible else {})
         previous_retrievals = cache_diagnostics.get("last_retrieval_by_symbol", {})
         compatible = {symbol: previous_retrievals.get(symbol, {}).get("acquisition_profile") == profile
@@ -221,6 +241,10 @@ class CanonicalNewsIntelligenceService(NewsIntelligenceProvider):
                     }
                     if require_compatible:
                         retrieval_by_symbol[symbol].update(acquisition_profile=profiles[symbol], coverage=coverage)
+                        if acquisition_provider_id == "massive_ticker_news":
+                            provider_summary = refresh_result.summary_for_symbol(symbol)
+                            retrieval_by_symbol[symbol]["provider_details"] = (
+                                _json_value(provider_summary.diagnostics) if provider_summary is not None else {})
             if retrieval_policy.allow_cache_write:
                 # Persist acquisition outcomes even when the provider returns no articles.
                 retrieved = {symbol: tuple(refresh_result.evidence_by_symbol.get(symbol, ()))
@@ -251,6 +275,9 @@ class CanonicalNewsIntelligenceService(NewsIntelligenceProvider):
             items = list(cached_evidence.get(symbol, ()))
             if refresh_result is not None:
                 items.extend(refresh_result.evidence_by_symbol.get(symbol, ()))
+            if request.query_start_utc is not None:
+                items = [refresh_evidence_age(item, request=request, now=started_at) for item in items
+                         if evidence_in_query_window(item, request, now=started_at)]
             merged = tuple(dedupe_evidence(items, max_items=evidence_max_entries(request)))
             combined_evidence[symbol] = merged
             cached_retrieval = (cache_diagnostics.get("last_retrieval_by_symbol", {}).get(symbol, {})
@@ -290,6 +317,11 @@ class CanonicalNewsIntelligenceService(NewsIntelligenceProvider):
                         **summaries[symbol].diagnostics, "objective_news_status": "coverage_unknown",
                         "last_retrieval": dict(previous_retrievals.get(symbol, {})),
                     })
+            if require_compatible and acquisition_provider_id == "massive_ticker_news":
+                summaries[symbol] = replace(summaries[symbol], diagnostics={
+                    **summaries[symbol].diagnostics,
+                    "provider_details": dict(summaries[symbol].diagnostics["last_retrieval"].get("provider_details", {})),
+                })
 
         diagnostics = _combined_diagnostics(
             symbols=symbols,
