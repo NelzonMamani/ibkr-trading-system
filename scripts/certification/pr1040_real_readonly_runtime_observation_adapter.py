@@ -1326,6 +1326,7 @@ def _market_data_observation_diagnostics(evidence: RuntimeObservationEvidence) -
         "observation_scope": _operator_observation_scope(evidence),
         "ibkr_market_data_diagnostic": ibkr_diagnostic,
         "scanner_runtime_bound": _json_safe(_nested_mapping(payload, "diagnostics", "scanner_runtime_bound")),
+        "market_data_observations": _json_safe(_nested_mapping(payload, "diagnostics", "market_data_observations")),
         "outcome": _market_data_observation_outcome(evidence),
     }
 

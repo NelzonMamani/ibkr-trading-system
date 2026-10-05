@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from src.scanner.providers.ibkr_provider import IbkrScannerProvider, _parse_shares_value
 
 
@@ -136,3 +138,10 @@ def test_get_float_uses_cached_last_known_good_when_live_sources_fail(monkeypatc
     value = provider.get_float("PRSO")
     assert value == 6_600_000
     assert provider.last_float_source == "DB_LAST_KNOWN_GOOD"
+
+
+@pytest.fixture(autouse=True)
+def isolate_persistence_directory(monkeypatch, tmp_path):
+    # Provider/reference fallbacks use relative operational defaults unless configured.
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PERSISTENCE_SQLITE_PATH", str(tmp_path / "runtime.sqlite3"))

@@ -6,6 +6,7 @@ from pathlib import Path
 from queue import Empty, Queue
 from typing import Optional
 
+from src.config.runtime_config import get_persistence_sqlite_path
 from src.market_data.float_provider import FloatProvider
 
 
@@ -22,9 +23,9 @@ class FloatDiscoveryResult:
 class FloatDiscoveryWorker:
     """Background float discovery queue that never blocks scanner cycles."""
 
-    def __init__(self, cache_path: str | Path, ttl_days: int = 7) -> None:
+    def __init__(self, cache_path: str | Path, ttl_days: int = 7, sqlite_path: str | None = None) -> None:
         self._cache_path = Path(cache_path)
-        self._provider = FloatProvider(cache_path=self._cache_path, ttl_days=ttl_days)
+        self._provider = FloatProvider(cache_path=self._cache_path, ttl_days=ttl_days, sqlite_path=sqlite_path)
         self._queue: Queue[str] = Queue()
         self._queued: set[str] = set()
         self._lock = threading.Lock()
@@ -95,14 +96,16 @@ class FloatDiscoveryWorker:
             )
 
 
-_WORKERS: dict[str, FloatDiscoveryWorker] = {}
+_WORKERS: dict[tuple[str, str], FloatDiscoveryWorker] = {}
 
 
 def get_float_discovery_worker(cache_path: str | Path) -> FloatDiscoveryWorker:
-    resolved = str(Path(cache_path))
+    cache_path = Path(cache_path).resolve()
+    sqlite_path = str(Path(get_persistence_sqlite_path()).resolve())
+    resolved = (str(cache_path), sqlite_path)
     worker = _WORKERS.get(resolved)
     if worker is None:
-        worker = FloatDiscoveryWorker(cache_path=cache_path)
+        worker = FloatDiscoveryWorker(cache_path=cache_path, sqlite_path=sqlite_path)
         _WORKERS[resolved] = worker
     worker.ensure_started()
     return worker

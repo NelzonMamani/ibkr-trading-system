@@ -795,7 +795,7 @@ def _load_float_cache(path: Path) -> Dict[str, Dict[str, Any]]:
 
 
 def _resolve_float_cache_path() -> Path:
-    path = Path("data/reference/float_cache.json")
+    path = Path(get_config("SCANNER_FLOAT_CACHE_FILE"))
     print(f"[FLOAT][CACHE_PATH] path={path.resolve()}")
     return path
 
@@ -897,13 +897,14 @@ def _refresh_float_cache_from_disk_if_changed(
 ) -> bool:
     global _FLOAT_CACHE_STATE
     file_mtime_ns = _float_cache_mtime_ns(cache_path)
-    if file_mtime_ns is None or _FLOAT_CACHE_STATE.get("mtime_ns") == file_mtime_ns:
+    path_key = str(cache_path.resolve())
+    if _FLOAT_CACHE_STATE.get("path") == path_key and _FLOAT_CACHE_STATE.get("mtime_ns") == file_mtime_ns:
         return False
 
     refreshed = _load_float_cache(cache_path)
     float_cache.clear()
     float_cache.update(refreshed)
-    _FLOAT_CACHE_STATE = {"mtime_ns": file_mtime_ns, "data": float_cache}
+    _FLOAT_CACHE_STATE = {"path": path_key, "mtime_ns": file_mtime_ns, "data": float_cache}
     print(
         "[FLOAT][CACHE_REFRESH] "
         f"path={cache_path.resolve()} entries={len(float_cache)} reason=same_cycle_cache_change"
@@ -1173,8 +1174,9 @@ def _bootstrap_float_cache(
         except Exception:
             file_mtime_ns = None
 
-    if _FLOAT_CACHE_STATE.get("mtime_ns") != file_mtime_ns:
-        _FLOAT_CACHE_STATE = {"mtime_ns": file_mtime_ns, "data": _load_float_cache(cache_path)}
+    path_key = str(cache_path.resolve())
+    if _FLOAT_CACHE_STATE.get("path") != path_key or _FLOAT_CACHE_STATE.get("mtime_ns") != file_mtime_ns:
+        _FLOAT_CACHE_STATE = {"path": path_key, "mtime_ns": file_mtime_ns, "data": _load_float_cache(cache_path)}
 
     float_cache: Dict[str, Dict[str, Any]] = _FLOAT_CACHE_STATE.get("data", {})
     worker = get_float_discovery_worker(cache_path)
@@ -4503,6 +4505,7 @@ def _observed_market_data_summary(contexts) -> dict[str, Any]:
             "quote_timestamp_source": context.get("quote_timestamp_source", "UNKNOWN"),
             "quote_received_at_utc": context.get("quote_received_at_utc"),
             "snapshot_evidence": context.get("snapshot_evidence", {}),
+            "data_quality_flags": list(context.get("data_quality_flags") or []),
             "supplemented_fields": supplements,
             "combined_data_type": "UNKNOWN" if supplements else returned,
         }
