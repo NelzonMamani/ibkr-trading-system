@@ -16,3 +16,5 @@ Private task logs and credential/provider handoff remain under `output/w04/2026-
 
 PAPER_READY=NO
 PAPER_READINESS_GATE=FAIL
+
+Registered Ross selection receives only non-stale metrics, including the weekend session normalization path. Stale metrics remain in diagnostic output. The production selector regression uses a synthetic qualifying canonical catalyst result (no provider calls) and proves rejection with and without prep; the existing unavailable-catalyst control remains fail-closed. Before the selector repair: 2 failed / 2 passed.

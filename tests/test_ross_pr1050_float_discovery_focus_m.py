@@ -612,11 +612,21 @@ def test_pr1050_readonly_adapter_propagates_proof_and_keeps_paper_gate_closed() 
 
 
 @pytest.mark.parametrize("with_prep", [False, True])
-def test_stale_quote_excluded_from_premarket_underflow_and_seed_paths(monkeypatch, tmp_path, with_prep):
-    _configure_readonly(news_enabled=False)
+@pytest.mark.parametrize("registered_selector", [False, True])
+def test_stale_quote_excluded_from_premarket_underflow_and_seed_paths(monkeypatch, tmp_path, with_prep, registered_selector):
+    _configure_readonly(news_enabled=registered_selector)
+    if registered_selector:
+        # Synthetic canonical consumer result; no provider request or natural evidence.
+        monkeypatch.setattr(scanner_runner, "_enrich_news_context",
+            lambda symbols, *_args, **_kwargs: (
+                {symbol: {"ross_catalyst_valid": True, "news_available": True,
+                          "catalyst_type": "earnings", "news_age_minutes": 1}
+                 for symbol in symbols},
+                scanner_runner.NewsDiagnostics(True, False, None, 0, 0, {})))
     _install_discovery_worker(monkeypatch, tmp_path, {"STALE": 8_000_000, "FRESH": 8_000_000})
     monkeypatch.setattr(scanner_runner, "_utc_now", lambda: datetime(2026, 10, 5, 12, tzinfo=timezone.utc))
-    monkeypatch.setattr(scanner_runner, "resolve_watchlist_selector", lambda *_: None)
+    if not registered_selector:
+        monkeypatch.setattr(scanner_runner, "resolve_watchlist_selector", lambda *_: None)
     monkeypatch.setattr(scanner_runner, "_load_premarket_prep_candidates",
                         lambda: {"STALE": {"persisted_rvol": 10.0}} if with_prep else {})
     policy = _policy(require_catalyst=True)

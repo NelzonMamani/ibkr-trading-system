@@ -5986,11 +5986,16 @@ def run_scanner_cycle(
             f"session={normalize_session_label(session_label)} gated_survivors={len(ranked)} k={watchlist_limit}"
         )
         if selector is not None:
-            selection_metrics = candidate_metrics_for_ranking
+            # Keep stale rows in diagnostic metrics, but never offer them to selection.
+            selection_metrics = [
+                metric for metric in candidate_metrics_for_ranking
+                if drop_ledger.get(metric.symbol) != "DROP_STALE_MARKET_DATA"
+                and _stale_market_data_drop(context_by_symbol.get(metric.symbol, {})) is None
+            ]
             if session_label == "WEEKEND" and run_mode != RunMode.LIVE:
                 selection_metrics = [
                     replace(metric, session_label=None)
-                    for metric in candidate_metrics_for_ranking
+                    for metric in selection_metrics
                 ]
             selected_metrics = selector(selection_metrics, resolved_policy)
             selected_symbols = [metric.symbol for metric in selected_metrics]
