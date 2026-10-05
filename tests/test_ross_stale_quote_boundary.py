@@ -1,0 +1,103 @@
+"""Offline consumer regressions; fixtures are not natural Ross observations."""
+from copy import deepcopy
+
+import pytest
+
+from src.config.config_resolver import set_config_overrides
+from src.scanner import scanner_runner as scanner
+from src.strategies.ross_momentum.strategy_policy import RossMomentumPolicy
+
+
+@pytest.fixture
+def thresholds():
+    set_config_overrides({"RUN_MODE": "READ_ONLY"})
+    policy = RossMomentumPolicy().stock_selection
+    result = scanner._gate_thresholds(policy, scanner._resolve_runtime_thresholds(policy))
+    yield result
+    set_config_overrides(None)
+
+
+def context():
+    return {"symbol": "FIXTURE", "session": "RTH_OPEN", "last_price": 6.0,
+            "bid": 5.99, "ask": 6.01, "spread_pct": 0.0034,
+            "pct_change": 15.0, "float_shares": 8_000_000,
+            "rvol": 10.0, "rvol_discovery": 10.0, "rvol_phase": 10.0,
+            "volume": 2_000_000, "premarket_volume": 2_000_000,
+            "dollar_volume": 12_000_000, "catalyst_present": True,
+            "catalyst_status": "CONFIRMED", "data_quality_flags": ["MD_STALE"],
+            "requested_market_data_type": "DELAYED", "returned_market_data_type": "LIVE",
+            "market_data_type_confirmed": True,
+            "quote_timestamp_utc": "2026-09-28T13:00:00+00:00",
+            "quote_timestamp_source": "LAST_TRADE", "quote_received_at_utc": "2026-09-28T17:30:00+00:00",
+            "watchlist_eligible": True, "focus_eligible": True, "execution_eligible": True}
+
+
+@pytest.mark.parametrize("gate", [scanner._evaluate_watchlist_gates, scanner._evaluate_focus_gates])
+def test_stale_broker_quote_cannot_pass_consumer_gates(gate, thresholds):
+    row = context()
+    before = deepcopy(row)
+    assert gate(row, thresholds) == "DROP_STALE_MARKET_DATA"
+    assert row["focus_eligible"] is False
+    assert row["execution_eligible"] is False
+    for key in ("quote_timestamp_utc", "quote_received_at_utc", "quote_timestamp_source",
+                "requested_market_data_type", "returned_market_data_type", "data_quality_flags",
+                "catalyst_status", "volume", "rvol"):
+        assert row[key] == before[key]
+
+
+def test_forced_premarket_path_cannot_reintroduce_stale_quote(thresholds):
+    row = context()
+    row["session"] = "PRE"
+    assert scanner._forced_premarket_focus_eligible(row, thresholds, session_label="PRE") is False
+
+
+def test_non_stale_quote_retains_pillars_and_fail_closed_catalyst(thresholds):
+    row = context()
+    row["data_quality_flags"] = []
+    assert scanner._evaluate_watchlist_gates(row, thresholds) is None
+    assert scanner._evaluate_focus_gates(row, thresholds) is None
+    row["catalyst_present"] = False
+    row["catalyst_status"] = "DATA_UNAVAILABLE"
+    assert scanner._evaluate_focus_gates(row, thresholds) == "DROP_NO_CATALYST"
+
+
+@pytest.mark.parametrize("has_context", [False, True])
+def test_prep_seed_cannot_reintroduce_stale_drop(has_context):
+    row = context()
+    rows, seeded, invalidated = scanner._seed_watchlist_from_prep(
+        session_label="PRE", watchlist_contexts=[],
+        context_by_symbol={"FIXTURE": row} if has_context else {},
+        candidates=[], drop_ledger={"FIXTURE": "DROP_STALE_MARKET_DATA"},
+        watchlist_limit=5, prep_candidates={"FIXTURE": {"persisted_rvol": 10.0}})
+    assert rows == []
+    assert seeded == 0 and invalidated == 1
+
+
+@pytest.mark.parametrize("stale", [False, True])
+def test_prep_only_seed_preserves_quality_authority(stale):
+    flags = ["HISTORICAL_PREP", *( ["MD_STALE"] if stale else [])]
+    entry = {"persisted_rvol": 10.0, "data_quality_flags": flags}
+    original = deepcopy(entry)
+    rows, seeded, invalidated = scanner._seed_watchlist_from_prep(
+        session_label="PRE", watchlist_contexts=[], context_by_symbol={},
+        candidates=[], drop_ledger={}, watchlist_limit=5,
+        prep_candidates={"FIXTURE": entry})
+    assert entry == original
+    assert seeded == (0 if stale else 1)
+    assert invalidated == (1 if stale else 0)
+    if stale:
+        assert rows == []
+    else:
+        assert rows[0]["data_quality_flags"] == ["HISTORICAL_PREP", "PREP_WATCHLIST_SEEDED"]
+
+
+def test_current_fresh_context_supersedes_stale_prep_flags():
+    row = context()
+    row["data_quality_flags"] = []
+    rows, seeded, invalidated = scanner._seed_watchlist_from_prep(
+        session_label="PRE", watchlist_contexts=[], context_by_symbol={"FIXTURE": row},
+        candidates=[row], drop_ledger={}, watchlist_limit=5,
+        prep_candidates={"FIXTURE": {"data_quality_flags": ["MD_STALE"]}})
+    assert rows == [row]
+    assert seeded == 1 and invalidated == 0
+    assert row["data_quality_flags"] == []

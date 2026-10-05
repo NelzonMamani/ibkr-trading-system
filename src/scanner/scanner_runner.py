@@ -1982,10 +1982,12 @@ def _seed_watchlist_from_prep(
                 "avg_volume_20d": None,
                 "reference_label": prep_entry.get("persisted_reference_label"),
                 "prep_only": False,
-                "data_quality_flags": ["PREP_WATCHLIST_SEEDED"],
+                "data_quality_flags": list(dict.fromkeys([
+                    *(prep_entry.get("data_quality_flags") or []), "PREP_WATCHLIST_SEEDED"
+                ])),
             }
-        drop_reason = drop_ledger.get(symbol)
-        if drop_reason in {"DROP_QUOTE_UNAVAILABLE", "DROP_MD_CONFLICT", "DROP_UNSUBSCRIBED_MARKET_DATA"}:
+        drop_reason = _stale_market_data_drop(context) or drop_ledger.get(symbol)
+        if drop_reason in {"DROP_QUOTE_UNAVAILABLE", "DROP_MD_CONFLICT", "DROP_UNSUBSCRIBED_MARKET_DATA", "DROP_STALE_MARKET_DATA"}:
             prep_invalidated_count += 1
             print(f"[PREP][INVALIDATE] symbol={symbol} reason={drop_reason}")
             continue
@@ -2002,10 +2004,28 @@ def _seed_watchlist_from_prep(
     return watchlist_contexts, prep_seeded_count, prep_invalidated_count
 
 
+def _stale_market_data_drop(context: Dict[str, Any]) -> Optional[str]:
+    # Consume the provider's freshness decision; receipt/scan time cannot
+    # turn a stale last trade into fresh market evidence.
+    if "MD_STALE" not in (context.get("data_quality_flags") or ()):
+        return None
+    context["watchlist_eligible"] = False
+    context["focus_eligible"] = False
+    context["execution_eligible"] = False
+    context["execution_ready"] = False
+    reasons = context.setdefault("eligibility_reason_codes", [])
+    if "MD_STALE" not in reasons:
+        reasons.append("MD_STALE")
+    return "DROP_STALE_MARKET_DATA"
+
+
 def _evaluate_watchlist_gates(
     context: Dict[str, Any],
     thresholds: GateThresholds,
 ) -> Optional[str]:
+    stale_drop = _stale_market_data_drop(context)
+    if stale_drop:
+        return stale_drop
     float_drop = _evaluate_float_gate(context, thresholds)
     if float_drop:
         return float_drop
@@ -2199,6 +2219,8 @@ def _forced_premarket_focus_eligible(
     session = normalize_session_label(session_label or str(context.get("session") or ""))
     if session not in {"PRE", "PREMARKET"}:
         return False
+    if _stale_market_data_drop(context):
+        return False
     if context.get("focus_drop_reason") or context.get("drop_reason"):
         return False
     if not _price_gate_check_ok(context, thresholds):
@@ -2225,6 +2247,9 @@ def _evaluate_focus_gates(
     context: Dict[str, Any],
     thresholds: GateThresholds,
 ) -> Optional[str]:
+    stale_drop = _stale_market_data_drop(context)
+    if stale_drop:
+        return stale_drop
     price = _safe_float(context.get("last_price"), None)
     volume = _safe_float(context.get("volume"), None)
     premarket_volume = _safe_float(context.get("premarket_volume"), None)
@@ -5963,11 +5988,16 @@ def run_scanner_cycle(
             f"session={normalize_session_label(session_label)} gated_survivors={len(ranked)} k={watchlist_limit}"
         )
         if selector is not None:
-            selection_metrics = candidate_metrics_for_ranking
+            # Keep stale rows in diagnostic metrics, but never offer them to selection.
+            selection_metrics = [
+                metric for metric in candidate_metrics_for_ranking
+                if drop_ledger.get(metric.symbol) != "DROP_STALE_MARKET_DATA"
+                and _stale_market_data_drop(context_by_symbol.get(metric.symbol, {})) is None
+            ]
             if session_label == "WEEKEND" and run_mode != RunMode.LIVE:
                 selection_metrics = [
                     replace(metric, session_label=None)
-                    for metric in candidate_metrics_for_ranking
+                    for metric in selection_metrics
                 ]
             selected_metrics = selector(selection_metrics, resolved_policy)
             selected_symbols = [metric.symbol for metric in selected_metrics]
@@ -6017,6 +6047,8 @@ def run_scanner_cycle(
                     if context.get("symbol")
                     and context.get("pct_change") is not None
                     and not _is_etf_context(context)
+                    and drop_ledger.get(context["symbol"]) != "DROP_STALE_MARKET_DATA"
+                    and _stale_market_data_drop(context) is None
                 ],
                 key=lambda row: (_safe_float(row.get("pct_change"), 0.0) or 0.0),
                 reverse=True,
@@ -6059,7 +6091,8 @@ def run_scanner_cycle(
                 "selector_underflow=True reason=EMPTY_SELECTION_WITH_SURVIVORS"
             )
         if explicit_mock and not watchlist_contexts:
-            fallback_source = ranked or evaluated_contexts
+            fallback_source = [context for context in (ranked or evaluated_contexts)
+                               if _stale_market_data_drop(context) is None]
             fallback_size = watchlist_limit if watchlist_limit > 0 else min(5, len(fallback_source))
             watchlist_contexts = list(fallback_source[:fallback_size])
             print(
@@ -6157,6 +6190,10 @@ def run_scanner_cycle(
             for context in ranked_all:
                 symbol = context.get("symbol")
                 if not symbol or symbol in existing:
+                    continue
+                stale_reason = _stale_market_data_drop(context)
+                if stale_reason:
+                    drop_ledger[symbol] = stale_reason
                     continue
                 drop_reason = drop_ledger.get(symbol)
                 if drop_reason and not drop_reason.startswith("DROP_MISSING_"):

@@ -609,3 +609,42 @@ def test_pr1050_readonly_adapter_propagates_proof_and_keeps_paper_gate_closed() 
     assert ibkr["float_discovery"] == proof
     assert ibkr["paper_ready"] == "NO"
     assert ibkr["paper_readiness_gate"] == "FAIL"
+
+
+@pytest.mark.parametrize("with_prep", [False, True])
+@pytest.mark.parametrize("registered_selector", [False, True])
+@pytest.mark.parametrize("missing_price", [False, True])
+def test_stale_quote_excluded_from_premarket_underflow_and_seed_paths(monkeypatch, tmp_path, with_prep, registered_selector, missing_price):
+    _configure_readonly(news_enabled=registered_selector)
+    if missing_price:
+        original_quote = _ControlledRuntimeProvider.get_quote
+        def get_quote(provider, symbol):
+            quote = original_quote(provider, symbol)
+            return replace(quote, last=None, bid=None, ask=None) if symbol == "STALE" else quote
+        monkeypatch.setattr(_ControlledRuntimeProvider, "get_quote", get_quote)
+    if registered_selector:
+        # Synthetic canonical consumer result; no provider request or natural evidence.
+        monkeypatch.setattr(scanner_runner, "_enrich_news_context",
+            lambda symbols, *_args, **_kwargs: (
+                {symbol: {"ross_catalyst_valid": True, "news_available": True,
+                          "catalyst_type": "earnings", "news_age_minutes": 1}
+                 for symbol in symbols},
+                scanner_runner.NewsDiagnostics(True, False, None, 0, 0, {})))
+    _install_discovery_worker(monkeypatch, tmp_path, {"STALE": 8_000_000, "FRESH": 8_000_000})
+    monkeypatch.setattr(scanner_runner, "_utc_now", lambda: datetime(2026, 10, 5, 12, tzinfo=timezone.utc))
+    if not registered_selector:
+        monkeypatch.setattr(scanner_runner, "resolve_watchlist_selector", lambda *_: None)
+    monkeypatch.setattr(scanner_runner, "_load_premarket_prep_candidates",
+                        lambda: {"STALE": {"persisted_rvol": 10.0}} if with_prep else {})
+    policy = _policy(require_catalyst=True)
+    payload = scanner_runner.run_scanner_cycle(
+        mode="READONLY", policy=policy,
+        scanner_request=scanner_request_from_policy(policy, strategy_name="ross_momentum"),
+        provider=_ControlledRuntimeProvider([
+            _ross_row("STALE", float_shares=8_000_000, data_quality_flags=["MD_STALE"]),
+            _ross_row("FRESH", float_shares=8_000_000)]),
+        forced_session_label="PRE", forced_session_source="OFFLINE_STALE_BOUNDARY_TEST")
+    assert "STALE" not in payload["watchlist_k_symbols"]
+    assert payload["drop_ledger"]["STALE"] == "DROP_STALE_MARKET_DATA"
+    assert "FRESH" in payload["watchlist_k_symbols"]
+    assert "STALE" not in payload["focus_m_symbols"]
