@@ -12,3 +12,5 @@ MI's saved RSS evidence shows cache miss, no prep reuse, zero retained matches, 
 
 PAPER_READY=NO
 PAPER_READINESS_GATE=FAIL
+
+Multiple FloatProvider instances in the single runtime merge the latest disk state under a shared per-path lock and publish JSON atomically. Sequential stale instances and concurrent worker/provider discoveries retain each other’s records. This is in-process coordination, not a claim of cross-process file locking; the operational preflight still excludes competing runtimes.

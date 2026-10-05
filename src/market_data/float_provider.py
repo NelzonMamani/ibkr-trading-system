@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
+import tempfile
+import threading
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -17,6 +20,15 @@ try:
     import yfinance as yf
 except Exception:
     yf = None
+
+
+_CACHE_LOCKS: dict[str, threading.RLock] = {}
+_CACHE_LOCKS_GUARD = threading.Lock()
+
+
+def _cache_lock(path: Path):
+    with _CACHE_LOCKS_GUARD:
+        return _CACHE_LOCKS.setdefault(os.path.normcase(str(path.resolve())), threading.RLock())
 
 
 @dataclass(frozen=True)
@@ -47,7 +59,7 @@ class FloatProvider:
         sqlite_path: str | None = None,
     ) -> None:
 
-        self.cache_path = Path(get_config("SCANNER_FLOAT_CACHE_FILE") if cache_path is None else cache_path)
+        self.cache_path = Path(get_config("SCANNER_FLOAT_CACHE_FILE") if cache_path is None else cache_path).resolve()
         print(f"[FLOAT][CACHE_PATH] path={self.cache_path.resolve()}")
         self.ttl = timedelta(days=max(int(ttl_days), 1))
 
@@ -248,18 +260,28 @@ class FloatProvider:
 
     def _write_cache_entry(self, symbol: str, value: int, source: str) -> None:
 
-        self.cache_path.parent.mkdir(parents=True, exist_ok=True)
-
-        self._cache[symbol] = {
-            "float": int(value),
-            "source": source,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
-
-        self.cache_path.write_text(
-            json.dumps(self._cache, indent=2, sort_keys=True),
-            encoding="utf-8",
-        )
+        # Providers and discovery workers share one file within the runtime.
+        # Merge from disk under a per-path lock; publish atomically for readers.
+        with _cache_lock(self.cache_path):
+            self.cache_path.parent.mkdir(parents=True, exist_ok=True)
+            current = self._load_cache()
+            current[symbol] = {
+                "float": int(value),
+                "source": source,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+            temporary = None
+            try:
+                with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8",
+                        dir=self.cache_path.parent, prefix=self.cache_path.name + ".",
+                        suffix=".tmp", delete=False) as handle:
+                    temporary = Path(handle.name)
+                    json.dump(current, handle, indent=2, sort_keys=True)
+                os.replace(temporary, self.cache_path)
+                self._cache = current
+            finally:
+                if temporary is not None:
+                    temporary.unlink(missing_ok=True)
         print(
             "[FLOAT][CACHE_WRITE] "
             f"symbol={symbol} path={self.cache_path.resolve()} source={source} value={int(value)}"
