@@ -1984,8 +1984,8 @@ def _seed_watchlist_from_prep(
                 "prep_only": False,
                 "data_quality_flags": ["PREP_WATCHLIST_SEEDED"],
             }
-        drop_reason = drop_ledger.get(symbol)
-        if drop_reason in {"DROP_QUOTE_UNAVAILABLE", "DROP_MD_CONFLICT", "DROP_UNSUBSCRIBED_MARKET_DATA"}:
+        drop_reason = _stale_market_data_drop(context) or drop_ledger.get(symbol)
+        if drop_reason in {"DROP_QUOTE_UNAVAILABLE", "DROP_MD_CONFLICT", "DROP_UNSUBSCRIBED_MARKET_DATA", "DROP_STALE_MARKET_DATA"}:
             prep_invalidated_count += 1
             print(f"[PREP][INVALIDATE] symbol={symbol} reason={drop_reason}")
             continue
@@ -6040,6 +6040,8 @@ def run_scanner_cycle(
                     if context.get("symbol")
                     and context.get("pct_change") is not None
                     and not _is_etf_context(context)
+                    and drop_ledger.get(context["symbol"]) != "DROP_STALE_MARKET_DATA"
+                    and _stale_market_data_drop(context) is None
                 ],
                 key=lambda row: (_safe_float(row.get("pct_change"), 0.0) or 0.0),
                 reverse=True,
@@ -6082,7 +6084,8 @@ def run_scanner_cycle(
                 "selector_underflow=True reason=EMPTY_SELECTION_WITH_SURVIVORS"
             )
         if explicit_mock and not watchlist_contexts:
-            fallback_source = ranked or evaluated_contexts
+            fallback_source = [context for context in (ranked or evaluated_contexts)
+                               if _stale_market_data_drop(context) is None]
             fallback_size = watchlist_limit if watchlist_limit > 0 else min(5, len(fallback_source))
             watchlist_contexts = list(fallback_source[:fallback_size])
             print(

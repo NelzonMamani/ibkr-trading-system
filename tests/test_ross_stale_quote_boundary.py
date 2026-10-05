@@ -59,3 +59,15 @@ def test_non_stale_quote_retains_pillars_and_fail_closed_catalyst(thresholds):
     row["catalyst_present"] = False
     row["catalyst_status"] = "DATA_UNAVAILABLE"
     assert scanner._evaluate_focus_gates(row, thresholds) == "DROP_NO_CATALYST"
+
+
+@pytest.mark.parametrize("has_context", [False, True])
+def test_prep_seed_cannot_reintroduce_stale_drop(has_context):
+    row = context()
+    rows, seeded, invalidated = scanner._seed_watchlist_from_prep(
+        session_label="PRE", watchlist_contexts=[],
+        context_by_symbol={"FIXTURE": row} if has_context else {},
+        candidates=[], drop_ledger={"FIXTURE": "DROP_STALE_MARKET_DATA"},
+        watchlist_limit=5, prep_candidates={"FIXTURE": {"persisted_rvol": 10.0}})
+    assert rows == []
+    assert seeded == 0 and invalidated == 1
