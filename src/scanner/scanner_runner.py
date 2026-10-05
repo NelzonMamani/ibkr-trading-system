@@ -1982,7 +1982,9 @@ def _seed_watchlist_from_prep(
                 "avg_volume_20d": None,
                 "reference_label": prep_entry.get("persisted_reference_label"),
                 "prep_only": False,
-                "data_quality_flags": ["PREP_WATCHLIST_SEEDED"],
+                "data_quality_flags": list(dict.fromkeys([
+                    *(prep_entry.get("data_quality_flags") or []), "PREP_WATCHLIST_SEEDED"
+                ])),
             }
         drop_reason = _stale_market_data_drop(context) or drop_ledger.get(symbol)
         if drop_reason in {"DROP_QUOTE_UNAVAILABLE", "DROP_MD_CONFLICT", "DROP_UNSUBSCRIBED_MARKET_DATA", "DROP_STALE_MARKET_DATA"}:

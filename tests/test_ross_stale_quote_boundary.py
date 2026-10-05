@@ -71,3 +71,33 @@ def test_prep_seed_cannot_reintroduce_stale_drop(has_context):
         watchlist_limit=5, prep_candidates={"FIXTURE": {"persisted_rvol": 10.0}})
     assert rows == []
     assert seeded == 0 and invalidated == 1
+
+
+@pytest.mark.parametrize("stale", [False, True])
+def test_prep_only_seed_preserves_quality_authority(stale):
+    flags = ["HISTORICAL_PREP", *( ["MD_STALE"] if stale else [])]
+    entry = {"persisted_rvol": 10.0, "data_quality_flags": flags}
+    original = deepcopy(entry)
+    rows, seeded, invalidated = scanner._seed_watchlist_from_prep(
+        session_label="PRE", watchlist_contexts=[], context_by_symbol={},
+        candidates=[], drop_ledger={}, watchlist_limit=5,
+        prep_candidates={"FIXTURE": entry})
+    assert entry == original
+    assert seeded == (0 if stale else 1)
+    assert invalidated == (1 if stale else 0)
+    if stale:
+        assert rows == []
+    else:
+        assert rows[0]["data_quality_flags"] == ["HISTORICAL_PREP", "PREP_WATCHLIST_SEEDED"]
+
+
+def test_current_fresh_context_supersedes_stale_prep_flags():
+    row = context()
+    row["data_quality_flags"] = []
+    rows, seeded, invalidated = scanner._seed_watchlist_from_prep(
+        session_label="PRE", watchlist_contexts=[], context_by_symbol={"FIXTURE": row},
+        candidates=[row], drop_ledger={}, watchlist_limit=5,
+        prep_candidates={"FIXTURE": {"data_quality_flags": ["MD_STALE"]}})
+    assert rows == [row]
+    assert seeded == 1 and invalidated == 0
+    assert row["data_quality_flags"] == []
