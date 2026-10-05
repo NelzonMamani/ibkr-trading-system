@@ -323,7 +323,7 @@ class MassiveNewsIntelligenceProvider:
                 source_id = f"massive:{symbol}:page:{page}"
                 url = state["next"]
                 params = ({"ticker": symbol, "published_utc.gte": start.isoformat(), "published_utc.lte": end.isoformat(),
-                           "sort": "published_utc", "order": "asc", "limit": page_size} if page == 1 else None)
+                           "sort": "published_utc", "order": "desc", "limit": page_size} if page == 1 else None)
                 submitted = time.monotonic()
                 index = self.lifecycle.source_submitted(source_id, "historical", submitted)
                 observation = {"attempted": False, "submitted_at_s": submitted}

@@ -186,6 +186,7 @@ def test_profile_records_only_provider_setting_whitelist_and_retains_rss_shape()
     assert profile["retrieval"]["provider_settings"] == {
         "massive_page_size": 100, "massive_max_pages_per_symbol": 2,
         "massive_max_requests": 5, "massive_requests_per_minute": 5,
+        "publication_order": "published_utc_desc_v1",
     }
     assert profile["request"]["query_start_utc"] == START.isoformat()
     assert "must-not-persist" not in json.dumps(profile)
@@ -210,3 +211,38 @@ def test_provider_ticker_association_does_not_bypass_persisted_text_relevance(tm
     read = store.read([candidate], REQUEST)
     assert read.evidence_by_symbol[candidate.symbol] == ()
     assert read.diagnostics["issuer_relevance_rejected_by_symbol"] == {candidate.symbol: 1}
+
+
+@pytest.mark.parametrize("mode", ["use", "only"])
+def test_old_massive_ordering_profile_cannot_claim_compatible_coverage(tmp_path, mode):
+    import hashlib
+    path = tmp_path / "canonical.json"
+    expected = article(START + timedelta(hours=1))
+    provider = Provider((expected,))
+    current = service(path, provider)
+    current.get_news([CANDIDATE], REQUEST, POLICY)
+    saved = json.loads(path.read_text())
+    acquisition = saved["news_intelligence"]["symbols"]["ACME"]["last_retrieval"]["acquisition_profile"]
+    acquisition["retrieval"]["provider_settings"].pop("publication_order", None)
+    acquisition.pop("fingerprint")
+    acquisition["fingerprint"] = hashlib.sha256(json.dumps(acquisition, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    path.write_text(json.dumps(saved))
+    old_bytes = path.read_bytes()
+    provider.calls.clear()
+    policy = POLICY if mode == "use" else replace(POLICY, refresh_mode="cache_only", network_allowed=False)
+    result = current.get_news([CANDIDATE], REQUEST, policy)
+    diagnostics = result.diagnostics.diagnostics
+    assert diagnostics["acquisition_profile_mismatch_symbols"] == ["ACME"]
+    if mode == "only":
+        assert provider.calls == []
+        assert diagnostics["acquisition_coverage_unknown_symbols"] == ["ACME"]
+        assert result.summary_for_symbol("ACME").retrieval_status == "unknown"
+        assert path.read_bytes() == old_bytes
+    else:
+        assert len(provider.calls) == 1
+        assert diagnostics["acquisition_coverage_unknown_symbols"] == []
+        warm = service(path, provider).get_news([CANDIDATE], REQUEST, POLICY)
+        assert len(provider.calls) == 1
+        assert warm.diagnostics.diagnostics["acquisition_profile_compatible_by_symbol"] == {"ACME": True}
+        assert warm.evidence_for_symbol("ACME")[0].published_at == expected.published_at
+    assert result.evidence_for_symbol("ACME")[0].published_at == expected.published_at

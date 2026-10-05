@@ -107,6 +107,7 @@ def _acquisition_profile(candidate: NewsCandidate, request: NewsRequest, policy:
                 ("massive_max_requests", 5), ("massive_requests_per_minute", 5),
             )
         }
+        profile["retrieval"]["provider_settings"]["publication_order"] = "published_utc_desc_v1"
     profile["fingerprint"] = hashlib.sha256(json.dumps(profile, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     return profile
 

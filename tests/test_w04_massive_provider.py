@@ -422,3 +422,59 @@ def test_candidate_aliases_only_and_metadata_aliases_are_both_retained():
     candidate = NewsCandidate("IRON", aliases=("Disc Medicine",), metadata={"aliases": ["Legacy Medicine"]})
     result, _ = invoke(Transport(page(article(), article("legacy", title="Legacy Medicine news"))), [candidate])
     assert {item.reference_id for item in result.evidence_for_symbol("IRON")} == {"a", "legacy"}
+
+
+class OrderedCorpusTransport:
+    """A cursor carries the initial sort; pages reflect the requested order."""
+    def __init__(self, rows):
+        self.rows = rows
+        self.calls = []
+
+    def __call__(self, url, **kwargs):
+        from urllib.parse import parse_qs, urlsplit
+        self.calls.append((url, kwargs))
+        params = kwargs["params"]
+        if params is not None:
+            assert params["sort"] == "published_utc"
+            order, offset, size = params["order"], 0, params["limit"]
+        else:
+            order, offset, size = parse_qs(urlsplit(url).query)["cursor"][0].split("_")
+            offset, size = int(offset), int(size)
+        rows = sorted(self.rows, key=lambda row: row["published_utc"], reverse=order == "desc")
+        end = offset + size
+        return page(*rows[offset:end], next_url=(ENDPOINT + f"?cursor={order}_{end}_{size}" if end < len(rows) else None))
+
+
+def test_ordered_corpus_retains_newest_unique_articles_before_page_cap():
+    rows = [article(str(n), published=NOW-timedelta(minutes=n)) for n in range(1, 8)]
+    transport = OrderedCorpusTransport(rows)
+    result, _ = invoke(transport, request=replace(REQUEST, max_evidence_per_symbol=2),
+                       policy=replace(POLICY, metadata={"massive_page_size": 3}))
+    assert [item.reference_id for item in result.evidence_for_symbol("IRON")] == ["1", "2"]
+    assert len(transport.calls) == 1
+    details = result.summary_for_symbol("IRON").diagnostics
+    assert details["result_truncated"] is True
+    assert details["failure_reason"] == "result_limit_reached"
+
+
+@pytest.mark.parametrize("further_page", [False, True])
+def test_ordered_corpus_duplicate_and_rejection_leave_room_and_exact_cap(further_page):
+    newest = article("newest", published=NOW-timedelta(minutes=1))
+    rows = [newest, dict(newest),
+            article("rejected", title="Iron ore prices rise", published=NOW-timedelta(minutes=2)),
+            article("second", published=NOW-timedelta(minutes=3))]
+    if further_page:
+        rows.append(article("older", published=NOW-timedelta(minutes=4)))
+    transport = OrderedCorpusTransport(rows)
+    result, _ = invoke(transport, request=replace(REQUEST, max_evidence_per_symbol=2),
+                       policy=replace(POLICY, metadata={"massive_page_size": 2}))
+    assert [item.reference_id for item in result.evidence_for_symbol("IRON")] == ["newest", "second"]
+    assert len(transport.calls) == 2
+    details = result.summary_for_symbol("IRON").diagnostics
+    assert details["returned_article_count"] == 4
+    assert details["accepted_article_count"] == 3
+    assert details["duplicate_article_count"] == 1
+    assert details["rejected_article_counts"] == {"issuer_relevance_rejected": 1}
+    assert details["result_truncated"] is further_page
+    assert details["complete"] is not further_page
+    assert result.summary_for_symbol("IRON").retrieval_status == ("partial" if further_page else "available")
