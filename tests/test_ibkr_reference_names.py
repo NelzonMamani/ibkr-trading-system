@@ -209,8 +209,8 @@ def test_active_known_order_warning_does_not_poison_reference(monkeypatch, code)
     assert client.get_contract_reference_metadata(contract())["longName"] == "One Industrial Inc"
 
 
-@pytest.mark.parametrize("code", [201, 202])
-def test_active_order_rejection_does_not_complete_contract(monkeypatch, code):
+@pytest.mark.parametrize("code", [201, 202, 399])
+def test_active_order_callback_does_not_complete_contract(monkeypatch, code):
     import threading
     client, calls = setup_client(monkeypatch)
     original = client.reqContractDetails

@@ -43,7 +43,7 @@ def _market_data_type_code(market_data_type: str) -> int:
 class IbkrClient(EWrapper, EClient):
     MAX_CLIENT_ID_RETRIES = 10
     NON_REJECTING_ORDER_WARNING_CODES = {2109}
-    ORDER_REJECTION_OR_CANCELLATION_CODES = {201, 202}
+    ORDER_ONLY_CALLBACK_CODES = {201, 202, 399}
 
     """
     Thin wrapper around ibapi for read-only operations.
@@ -1074,7 +1074,7 @@ class IbkrClient(EWrapper, EClient):
         )
         is_order_only_callback = (
             is_non_rejecting_order_warning or fractional_unsupported_warning
-            or (errorCode in self.ORDER_REJECTION_OR_CANCELLATION_CODES
+            or (errorCode in self.ORDER_ONLY_CALLBACK_CODES
                 and reqId in self._order_status_events)
         )
         if (request_type_by_req_id.get(reqId) == "CONTRACT_DETAILS"
