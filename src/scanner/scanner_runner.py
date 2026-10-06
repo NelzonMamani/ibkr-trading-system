@@ -2687,6 +2687,16 @@ def _metadata_value_from_context(context: Dict[str, Any], key: str) -> Any:
     return None
 
 
+def _news_alias_values(value: Any) -> tuple[str, ...]:
+    if isinstance(value, str):
+        return (value,) if value.strip() else ()
+    if isinstance(value, (set, frozenset)):
+        return tuple(sorted(item for item in value if isinstance(item, str) and item.strip()))
+    if isinstance(value, (list, tuple)):
+        return tuple(item for item in value if isinstance(item, str) and item.strip())
+    return ()
+
+
 def _news_symbol_metadata_for_contexts(contexts: Iterable[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
     metadata_keys = (
         "company_name",
@@ -2718,6 +2728,12 @@ def _news_symbol_metadata_for_contexts(contexts: Iterable[Dict[str, Any]]) -> Di
             for key in metadata_keys
             if _metadata_value_from_context(context, key)
         }
+        if context.get("con_id_is_synthetic"):
+            values.pop("con_id", None)
+            values.pop("conId", None)
+        for key in ("aliases", "alias", "company_aliases", "issuer_aliases"):
+            if key in values:
+                values[key] = _news_alias_values(values[key])
         for key in ("con_id", "conId"):
             if key in values:
                 value = values[key]
@@ -2885,14 +2901,10 @@ def _news_candidates_for_symbols(
     candidates: list[NewsCandidate] = []
     for symbol in _dedupe_sorted_symbols(symbols):
         metadata = dict(metadata_by_symbol.get(symbol, {}) or {})
-        aliases_raw = metadata.get("aliases") or metadata.get("alias") or metadata.get("company_aliases") or metadata.get("issuer_aliases") or ()
-        if isinstance(aliases_raw, str):
-            aliases = (aliases_raw,)
-        else:
-            try:
-                aliases = tuple(item for item in aliases_raw if isinstance(item, str) and item.strip()) if isinstance(aliases_raw, (list, tuple)) else ()
-            except TypeError:
-                aliases = ()
+        for key in ("aliases", "alias", "company_aliases", "issuer_aliases"):
+            if key in metadata:
+                metadata[key] = _news_alias_values(metadata[key])
+        aliases = metadata.get("aliases") or metadata.get("alias") or metadata.get("company_aliases") or metadata.get("issuer_aliases") or ()
         company_name = _first_metadata_value(
             metadata,
             (
@@ -4365,7 +4377,8 @@ def _build_symbol_context(
 
     qualified_identity = reference_snapshot.get("qualified_identity") or reference_snapshot.get("identity")
     con_id = getattr(qualified_identity, "con_id", None) or scan_detail.get("conId")
-    if con_id in {None, 0, "0"} and getattr(provider, "source_name", "") != "IBKR":
+    con_id_is_synthetic = con_id in {None, 0, "0"} and getattr(provider, "source_name", "") != "IBKR"
+    if con_id_is_synthetic:
         con_id = abs(hash(symbol)) % 10_000_000 + 1
     exchange = getattr(qualified_identity, "exchange", None) or scan_detail.get("exchange") or scan_detail.get("primaryExchange")
     primary_exchange = getattr(qualified_identity, "primary_exchange", None) or scan_detail.get("primaryExchange")
@@ -4376,6 +4389,7 @@ def _build_symbol_context(
         "session": session_label,
         "calendar_session": calendar_session,
         "con_id": con_id,
+        "con_id_is_synthetic": con_id_is_synthetic,
         "exchange": exchange,
         "primary_exchange": primary_exchange,
         "trading_class": trading_class,

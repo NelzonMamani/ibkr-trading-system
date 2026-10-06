@@ -97,3 +97,25 @@ def test_handoff_identity_change_invalidates_compatible_acquisition_only(tmp_pat
     service.get_news(new, NewsRequest(), policy)
     service.get_news(new, NewsRequest(), policy)
     assert provider.calls == 2
+
+
+def test_generated_scanner_id_is_not_news_identity(monkeypatch):
+    provider = _BaseProvider(close=100)
+    rows = []
+    for surrogate in (111, 999):
+        monkeypatch.setattr(scanner, "hash", lambda symbol, value=surrogate: value, raising=False)
+        rows.append(scanner._build_symbol_context(provider, "MOCKX", "RTH_MID", float_cache={}))
+    assert rows[0]["con_id"] != rows[1]["con_id"]
+    first, second = candidates([rows[0]])[0], candidates([rows[1]])[0]
+    assert "con_id" not in first.metadata and "conId" not in first.metadata
+    assert first == second
+    assert scanner._evidence_signature((), None, candidate=first) == scanner._evidence_signature((), None, candidate=second)
+
+
+def test_set_aliases_survive_handoff_and_direct_candidate_calls():
+    context = {"symbol": "ONE", "aliases": {"One Research", "One Industrial", 123}}
+    for candidate in (candidates([context])[0], scanner._news_candidates_for_symbols(["ONE"], {"ONE": {"aliases": context["aliases"]}})[0]):
+        assert candidate.aliases == ("One Industrial", "One Research")
+        assert candidate.metadata["aliases"] == candidate.aliases
+        effective = _metadata_by_symbol((candidate,))
+        assert company_aliases_for_symbol("ONE", effective["ONE"]) == ("ONE INDUSTRIAL", "ONE RESEARCH")

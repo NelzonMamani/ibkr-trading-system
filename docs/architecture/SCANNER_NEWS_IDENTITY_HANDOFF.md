@@ -47,3 +47,10 @@ context signatures and compatible acquisition cold/cache-only/refresh/warm reuse
 
 PAPER_READY=NO
 PAPER_READINESS_GATE=FAIL
+
+Review repair: the non-IBKR scanner's existing generated fallback con_id remains
+available for its legacy scanner behavior, but is explicitly marked synthetic and
+excluded from news identity. Regression varies the generated value and proves
+news candidates/signatures stay identical. Supplied set/frozenset aliases are
+retained as deterministically sorted tuples; invalid non-string members are not
+turned into issuer names. Lists/tuples retain order. No new identity is acquired.
