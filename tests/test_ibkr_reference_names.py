@@ -47,8 +47,7 @@ def setup_client(monkeypatch, mode="ok"):
         client.contractDetails(req_id, detail)
         if mode == "ambiguous": client.contractDetails(req_id, detail)
         if mode == "error":
-            client._errors[req_id] = (200, "synthetic failure")
-            client._contract_events[req_id].set()
+            client.error(req_id, 200, "synthetic failure")
         else:
             client.contractDetailsEnd(req_id)
     monkeypatch.setattr(client, "reqContractDetails", request)
@@ -175,4 +174,21 @@ def test_late_end_is_unavailable_even_if_waiter_awakes(monkeypatch):
     client.qualifyContracts(contract())
     state = client._request_context_by_req_id[calls[0][0]]
     state["reference_deadline"] = state["reference_response"][0] - 0.001
+    assert client.get_contract_reference_metadata(contract()) == {}
+
+
+def test_old_and_post_completion_order_errors_do_not_poison_name(monkeypatch):
+    client, calls = setup_client(monkeypatch)
+    client.error(1, 2109, "earlier unrelated order warning")
+    client.qualifyContracts(contract())
+    assert calls[0][0] == 1
+    assert client.get_contract_reference_metadata(contract())["longName"] == "One Industrial Inc"
+    client.error(1, 201, "later unrelated order error")
+    assert client.get_contract_reference_metadata(contract())["longName"] == "One Industrial Inc"
+
+
+def test_active_contract_error_stays_ineligible_even_with_end_callback(monkeypatch):
+    client, calls = setup_client(monkeypatch, "error")
+    client.qualifyContracts(contract())
+    client.contractDetailsEnd(calls[0][0])
     assert client.get_contract_reference_metadata(contract()) == {}

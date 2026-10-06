@@ -385,7 +385,7 @@ class IbkrScannerProvider(ScannerDataProvider):
 
     def _retain_qualified_company_name(self, symbol: str) -> None:
         """Enrich existing scan metadata from this adapter's completed response."""
-        detail = ((self.last_scan_details or {}).get("symbol_details") or {}).get(symbol.upper())
+        detail = ((getattr(self, "last_scan_details", None) or {}).get("symbol_details") or {}).get(symbol.upper())
         if not isinstance(detail, dict):
             return
         if any(isinstance(detail.get(key), str) and detail[key].strip()

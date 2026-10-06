@@ -520,7 +520,7 @@ class IbkrClient(EWrapper, EClient):
                 continue
             # The latest attempt is authoritative even when it failed or timed out.
             response = context.get("reference_response")
-            if not response or req_id in self._errors:
+            if not response or context.get("reference_error"):
                 return {}
             completed, rows = response
             if completed > context.get("reference_deadline", float("-inf")) or len(rows) != 1:
@@ -1032,6 +1032,11 @@ class IbkrClient(EWrapper, EClient):
         request_type_by_req_id = getattr(self, "_request_type_by_req_id", {})
         context = getattr(self, "_request_context_by_req_id", {}).get(reqId, {})
         request_type = request_type_by_req_id.get(reqId) or context.get("request_type")
+        if (request_type_by_req_id.get(reqId) == "CONTRACT_DETAILS"
+                and "reference_deadline" in context and "reference_response" not in context):
+            # Numeric order IDs share the legacy error map. Only errors arriving
+            # during this contract request may disqualify its reference response.
+            context["reference_error"] = (errorCode, errorString)
         ticker = self._ticker_by_req_id.get(reqId)
         event = sanitize({
             "timestamp_utc": timestamp_utc,
