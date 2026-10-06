@@ -43,7 +43,8 @@ def test_empty_result_retains_supplied_and_effective_identity_without_extra_meta
     first, missing = payload["candidate_identities"]
     assert first["company_name"] == "Supplied Issuer Inc"
     assert first["aliases"] == ["Original Alias"]
-    assert first["issuer_identifiers"] == {"con_id": "123"}
+    assert first["issuer_identifiers"] == {}
+    assert first["security_identifiers"] == {"con_id": 123}
     assert first["effective_rss_matching_identity"] == {"symbol": "SYNX", "company_aliases": ["EFFECTIVE ISSUER", "EFFECTIVE ALIAS"]}
     assert missing["company_name"] is None
     assert missing["aliases"] == []
