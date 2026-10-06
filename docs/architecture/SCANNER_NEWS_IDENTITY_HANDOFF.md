@@ -54,3 +54,31 @@ excluded from news identity. Regression varies the generated value and proves
 news candidates/signatures stay identical. Supplied set/frozenset aliases are
 retained as deterministically sorted tuples; invalid non-string members are not
 turned into issuer names. Lists/tuples retain order. No new identity is acquired.
+
+
+## Completed qualification response reuse
+
+The managed scanner qualifies its quote contract through MarketDataClient and
+IbkrClient before building the symbol context. That existing request returns
+ContractDetails but previously discarded longName at the provider boundary.
+The adapter now retains a bounded, connection-scoped completion record alongside
+its existing request context. A read-only accessor requires a genuine end callback
+within the existing deadline, no request error, exactly one response, and agreement
+with the caller's positive conId and supplied contract attributes. SMART is routing,
+not a listing exchange. Names are retained verbatim; aliases are not invented.
+
+The provider reads this metadata against the original scanner identity, not the
+legacy qualifier's first selected contract, and fills only missing names in its
+existing scan details. Supplied names remain authoritative. No additional request,
+connection, persistent cache, budget, scheduling or provider-selection change is
+introduced. Late rows cannot alter the completed response. Disconnect invalidates
+reuse. Failed/latest attempts, missing names, ambiguous responses and mismatches
+remain unavailable. Direct clients without the accessor retain existing behavior.
+
+The resulting longName follows the established symbol context -> NewsCandidate ->
+RSS matching path. Name availability is not article evidence: mandatory catalyst,
+publication freshness, source groups and all Ross thresholds remain unchanged.
+The private October 6 reference-only diagnostic established current names for two
+retained securities; it cannot establish what the earlier natural response held
+or whether RSS covers either issuer. Its original exit code and reconciliation
+representation defect are preserved in private evidence, not rewritten.

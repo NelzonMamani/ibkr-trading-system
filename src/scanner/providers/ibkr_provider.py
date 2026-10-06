@@ -277,6 +277,7 @@ class IbkrScannerProvider(ScannerDataProvider):
 
     def get_quote(self, symbol: str) -> QuoteData:
         contract = self._qualified_contract_for_symbol(symbol)
+        self._retain_qualified_company_name(symbol)
         print(
             "[IBKR][PROVIDER][QUOTE] "
             f"symbol={symbol} contract_symbol={getattr(contract, 'symbol', None) if contract is not None else None} "
@@ -381,6 +382,28 @@ class IbkrScannerProvider(ScannerDataProvider):
         if identity.local_symbol:
             contract.localSymbol = identity.local_symbol
         return contract
+
+    def _retain_qualified_company_name(self, symbol: str) -> None:
+        """Enrich existing scan metadata from this adapter's completed response."""
+        detail = ((self.last_scan_details or {}).get("symbol_details") or {}).get(symbol.upper())
+        if not isinstance(detail, dict):
+            return
+        if any(isinstance(detail.get(key), str) and detail[key].strip()
+               for key in ("longName", "long_name", "company_name", "name")):
+            return
+        # Validate against the original scan identity, not qualification's first
+        # row (which may have overwritten the temporary contract's conId).
+        con_id = detail.get("conId", detail.get("con_id"))
+        if type(con_id) is not int or con_id <= 0:
+            return
+        reader = getattr(self.market_data_client, "get_contract_reference_metadata", None)
+        if not callable(reader):
+            return
+        identity = CandidateIdentity.from_mapping({**detail, "symbol": symbol.upper()})
+        metadata = reader(self._contract_from_candidate_identity(identity))
+        if metadata.get("conId") == con_id and metadata.get("longName"):
+            detail["longName"] = metadata["longName"]
+            detail["company_name_reference"] = metadata
 
     def _qualified_contract_for_symbol(self, symbol: str):
         detail = ((self.last_scan_details or {}).get("symbol_details") or {}).get(symbol.upper(), {})

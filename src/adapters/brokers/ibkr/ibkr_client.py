@@ -199,6 +199,9 @@ class IbkrClient(EWrapper, EClient):
     def disconnect(self) -> None:  # type: ignore[override]
         print(f"[IBKR] Disconnecting client_id={self.client_id}")
         self._stop_event.set()
+        for context in self._request_context_by_req_id.values():
+            context.pop("reference_response", None)
+            context.pop("reference_deadline", None)
         try:
             super().disconnect()
         finally:
@@ -484,6 +487,9 @@ class IbkrClient(EWrapper, EClient):
         self._contract_events[req_id] = event
         self._contract_details[req_id] = []
         self._register_request(req_id, "CONTRACT_DETAILS", contract)
+        self._request_context_by_req_id[req_id]["reference_deadline"] = (
+            time.monotonic() + self.snapshot_timeout_seconds
+        )
 
         self.reqContractDetails(req_id, contract)
 
@@ -499,6 +505,41 @@ class IbkrClient(EWrapper, EClient):
             f"[IBKR] Resolved contract symbol={symbol} req_id={req_id} conId={resolved.contract.conId}"
         )
         return resolved
+
+    def get_contract_reference_metadata(self, contract) -> dict:
+        """Reuse completed qualification evidence; never request or reconnect.
+
+        Qualification's first-row choice is not name authority. Require a single
+        response matching the caller's retained positive security identity.
+        """
+        con_id = getattr(contract, "conId", None)
+        if type(con_id) is not int or con_id <= 0 or not self.is_connected():
+            return {}
+        for req_id, context in reversed(tuple(self._request_context_by_req_id.items())):
+            if context.get("request_type") != "CONTRACT_DETAILS" or context.get("symbol") != getattr(contract, "symbol", None):
+                continue
+            # The latest attempt is authoritative even when it failed or timed out.
+            response = context.get("reference_response")
+            if not response or req_id in self._errors:
+                return {}
+            completed, rows = response
+            if completed > context.get("reference_deadline", float("-inf")) or len(rows) != 1:
+                return {}
+            row = rows[0]
+            if type(row.get("conId")) is not int or row["conId"] != con_id:
+                return {}
+            for field in ("symbol", "secType", "currency", "primaryExchange", "localSymbol", "tradingClass", "exchange"):
+                expected = getattr(contract, field, None)
+                if field == "exchange" and expected == "SMART":
+                    continue  # SMART is a routing instruction, not a listing venue.
+                if expected and row.get(field) != expected:
+                    return {}
+            name = row.get("longName")
+            if not isinstance(name, str) or not name.strip():
+                return {}
+            return {"longName": name, "conId": con_id, "request_id": req_id,
+                    "source": "IBKR_CONTRACT_DETAILS", "completed_at_utc": context["reference_completed_at_utc"]}
+        return {}
 
     def qualifyContracts(self, *contracts):
         """
@@ -694,6 +735,16 @@ class IbkrClient(EWrapper, EClient):
         self._contract_details.setdefault(reqId, []).append(contractDetails)
 
     def contractDetailsEnd(self, reqId: int):  # type: ignore[override]
+        context = getattr(self, "_request_context_by_req_id", {}).get(reqId, {})
+        if "reference_deadline" in context and "reference_response" not in context:
+            # Freeze only fields received by the genuine end callback. Late rows
+            # cannot be promoted; error wakeups are not successful completion.
+            rows = tuple({**{field: getattr(detail.contract, field, None) for field in
+                         ("conId", "symbol", "secType", "currency", "exchange", "primaryExchange", "localSymbol", "tradingClass")},
+                         "longName": getattr(detail, "longName", None)}
+                         for detail in self._contract_details.get(reqId, ()))
+            context["reference_completed_at_utc"] = datetime.now(timezone.utc).isoformat()
+            context["reference_response"] = (time.monotonic(), rows)
         event = self._contract_events.get(reqId)
         if event:
             event.set()
