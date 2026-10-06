@@ -43,6 +43,7 @@ def _market_data_type_code(market_data_type: str) -> int:
 class IbkrClient(EWrapper, EClient):
     MAX_CLIENT_ID_RETRIES = 10
     NON_REJECTING_ORDER_WARNING_CODES = {2109}
+    ORDER_REJECTION_OR_CANCELLATION_CODES = {201, 202}
 
     """
     Thin wrapper around ibapi for read-only operations.
@@ -199,11 +200,15 @@ class IbkrClient(EWrapper, EClient):
     def disconnect(self) -> None:  # type: ignore[override]
         print(f"[IBKR] Disconnecting client_id={self.client_id}")
         self._stop_event.set()
-        for context in self._request_context_by_req_id.values():
-            context.pop("reference_response", None)
-            context.pop("reference_deadline", None)
         try:
-            super().disconnect()
+            try:
+                with self._lock:
+                    for context in self._request_context_by_req_id.values():
+                        context.pop("reference_response", None)
+                        context.pop("reference_deadline", None)
+            finally:
+                # Metadata cleanup must never prevent socket disconnection.
+                super().disconnect()
         finally:
             thread = self._thread
             if thread and thread.is_alive():
@@ -1060,11 +1065,16 @@ class IbkrClient(EWrapper, EClient):
         is_non_rejecting_order_warning = (
             errorCode in self.NON_REJECTING_ORDER_WARNING_CODES and reqId in self._order_status_events
         )
+        is_order_only_callback = (
+            is_non_rejecting_order_warning or fractional_unsupported_warning
+            or (errorCode in self.ORDER_REJECTION_OR_CANCELLATION_CODES
+                and reqId in self._order_status_events)
+        )
         if (request_type_by_req_id.get(reqId) == "CONTRACT_DETAILS"
                 and "reference_deadline" in context and "reference_response" not in context
-                and not is_non_rejecting_order_warning and not fractional_unsupported_warning):
+                and not is_order_only_callback):
             # Numeric order IDs share the legacy error map. Exclude known order
-            # warnings; only this active attempt can disqualify its response.
+            # callbacks; only this active attempt can disqualify its response.
             context["reference_error"] = (errorCode, errorString)
         if reqId >= 0:
             self._errors[reqId] = (errorCode, errorString)
@@ -1086,8 +1096,7 @@ class IbkrClient(EWrapper, EClient):
                         "broker_error_message": errorString,
                     }
                     self._order_status_events[reqId].set()
-            if (reqId in self._contract_events
-                    and not is_non_rejecting_order_warning and not fractional_unsupported_warning):
+            if reqId in self._contract_events and not is_order_only_callback:
                 self._contract_events[reqId].set()
             if reqId in self._market_events:
                 self._market_events[reqId].set()

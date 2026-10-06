@@ -207,3 +207,49 @@ def test_active_known_order_warning_does_not_poison_reference(monkeypatch, code)
     monkeypatch.setattr(client, "reqContractDetails", request)
     client.qualifyContracts(contract())
     assert client.get_contract_reference_metadata(contract())["longName"] == "One Industrial Inc"
+
+
+@pytest.mark.parametrize("code", [201, 202])
+def test_active_order_rejection_does_not_complete_contract(monkeypatch, code):
+    import threading
+    client, calls = setup_client(monkeypatch)
+    original = client.reqContractDetails
+    def request(req_id, requested):
+        client._order_status_events[req_id] = threading.Event()
+        client.error(req_id, code, "order-only rejection/cancellation")
+        assert client._order_status_events[req_id].is_set()
+        assert client._order_errors[req_id][0] == code
+        assert not client._contract_events[req_id].is_set()
+        original(req_id, requested)
+    monkeypatch.setattr(client, "reqContractDetails", request)
+    client.qualifyContracts(contract())
+    assert client.get_contract_reference_metadata(contract())["longName"] == "One Industrial Inc"
+
+
+def test_disconnect_synchronizes_context_invalidation_and_always_closes(monkeypatch):
+    from ibapi.client import EClient
+    client, calls = setup_client(monkeypatch)
+    client.qualifyContracts(contract())
+    closed = []
+    class CheckedContext(dict):
+        def pop(self, key, *args):
+            assert client._lock.locked(), "invalidation races request registration"
+            return super().pop(key, *args)
+    client._request_context_by_req_id = {k: CheckedContext(v) for k,v in client._request_context_by_req_id.items()}
+    monkeypatch.setattr(EClient, "disconnect", lambda self: closed.append(True))
+    client.disconnect()
+    assert closed == [True]
+    assert client.get_contract_reference_metadata(contract()) == {}
+
+
+def test_disconnect_still_closes_if_metadata_invalidation_raises(monkeypatch):
+    from ibapi.client import EClient
+    client, calls = setup_client(monkeypatch)
+    class BrokenContext(dict):
+        def pop(self, *args): raise RuntimeError("synthetic invalidation failure")
+    client._request_context_by_req_id[1] = BrokenContext()
+    closed = []
+    monkeypatch.setattr(EClient, "disconnect", lambda self: closed.append(True))
+    with pytest.raises(RuntimeError, match="synthetic invalidation"):
+        client.disconnect()
+    assert closed == [True]
