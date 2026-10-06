@@ -253,3 +253,27 @@ def test_disconnect_still_closes_if_metadata_invalidation_raises(monkeypatch):
     with pytest.raises(RuntimeError, match="synthetic invalidation"):
         client.disconnect()
     assert closed == [True]
+
+
+
+def test_disconnect_between_registration_and_dispatch_cannot_rearm_name(monkeypatch):
+    client, calls = setup_client(monkeypatch)
+    register = client._register_request
+    def register_then_disconnect(*args, **kwargs):
+        register(*args, **kwargs)
+        client.disconnect()
+    monkeypatch.setattr(client, "_register_request", register_then_disconnect)
+    client.qualifyContracts(contract())
+    # Model reconnection without permitting stale metadata to regain eligibility.
+    client._stop_event.clear()
+    assert client.get_contract_reference_metadata(contract()) == {}
+    assert calls == []
+
+
+def test_qualification_after_disconnect_does_not_register_eligible_work(monkeypatch):
+    client, calls = setup_client(monkeypatch)
+    client.disconnect()
+    client.qualifyContracts(contract())
+    client._stop_event.clear()
+    assert calls == []
+    assert client.get_contract_reference_metadata(contract()) == {}

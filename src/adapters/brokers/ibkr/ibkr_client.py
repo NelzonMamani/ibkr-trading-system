@@ -262,6 +262,8 @@ class IbkrClient(EWrapper, EClient):
         if not hasattr(self, "_request_type_by_req_id"):
             self._request_type_by_req_id = {}
         with self._lock:
+            if request_type == "CONTRACT_DETAILS" and self._stop_event.is_set():
+                raise RuntimeError("Contract resolution stopped during disconnect.")
             self._request_type_by_req_id[req_id] = request_type
             if not hasattr(self, "_request_context_by_req_id"):
                 self._request_context_by_req_id = {}
@@ -270,6 +272,12 @@ class IbkrClient(EWrapper, EClient):
                 "symbol": getattr(contract, "symbol", None),
                 "con_id": getattr(contract, "conId", None),
             }
+            if request_type == "CONTRACT_DETAILS":
+                # Register eligibility atomically with the context that disconnect
+                # invalidates under this same lock. Never re-arm it after cleanup.
+                self._request_context_by_req_id[req_id]["reference_deadline"] = (
+                    time.monotonic() + self.snapshot_timeout_seconds
+                )
             # Retain bounded context for broker errors arriving after cleanup.
             if len(self._request_context_by_req_id) > 1024:
                 self._request_context_by_req_id.pop(next(iter(self._request_context_by_req_id)))
@@ -492,9 +500,8 @@ class IbkrClient(EWrapper, EClient):
         self._contract_events[req_id] = event
         self._contract_details[req_id] = []
         self._register_request(req_id, "CONTRACT_DETAILS", contract)
-        self._request_context_by_req_id[req_id]["reference_deadline"] = (
-            time.monotonic() + self.snapshot_timeout_seconds
-        )
+        if self._stop_event.is_set():
+            raise RuntimeError("Contract resolution stopped during disconnect.")
 
         self.reqContractDetails(req_id, contract)
 
