@@ -277,3 +277,30 @@ def test_qualification_after_disconnect_does_not_register_eligible_work(monkeypa
     client._stop_event.clear()
     assert calls == []
     assert client.get_contract_reference_metadata(contract()) == {}
+
+
+@pytest.mark.parametrize("next_name", [None, "One Renamed Industries"])
+def test_provider_revalidates_its_own_prior_name(monkeypatch, next_name):
+    client, calls = setup_client(monkeypatch)
+    md = MarketDataClient(connection_manager=SimpleNamespace(get_client=lambda: client), allow_direct_connection=False)
+    monkeypatch.setattr(md, "snapshot_stock", DummyMarketDataClient().snapshot_stock)
+    provider = IbkrScannerProvider(market_data_client=md)
+    provider.last_scan_details = {"symbol_details": {"ONE": {"conId": 123, "currency": "USD"}}}
+    provider.get_quote("ONE")
+    assert provider.last_scan_details["symbol_details"]["ONE"]["longName"] == "One Industrial Inc"
+    def next_request(req_id, requested):
+        calls.append((req_id, requested))
+        if next_name is None:
+            client.error(req_id, 200, "current qualification unavailable")
+            return
+        detail = ContractDetails()
+        detail.contract, detail.longName = contract(), next_name
+        client.contractDetails(req_id, detail)
+        client.contractDetailsEnd(req_id)
+    monkeypatch.setattr(client, "reqContractDetails", next_request)
+    provider.get_quote("ONE")
+    detail = provider.last_scan_details["symbol_details"]["ONE"]
+    assert detail.get("longName") == next_name
+    if next_name is None:
+        assert "company_name_reference" not in detail
+    assert len(calls) == 2

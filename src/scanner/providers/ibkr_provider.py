@@ -388,6 +388,11 @@ class IbkrScannerProvider(ScannerDataProvider):
         detail = ((getattr(self, "last_scan_details", None) or {}).get("symbol_details") or {}).get(symbol.upper())
         if not isinstance(detail, dict):
             return
+        previous = detail.pop("company_name_reference", None)
+        if isinstance(previous, dict) and detail.get("longName") == previous.get("longName"):
+            # This name came from our earlier qualification, not the scanner.
+            # The latest attempt must validate it again or leave it unavailable.
+            detail.pop("longName", None)
         if any(isinstance(detail.get(key), str) and detail[key].strip()
                for key in ("longName", "long_name", "company_name", "name")):
             return
