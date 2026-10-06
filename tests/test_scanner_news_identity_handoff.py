@@ -119,3 +119,12 @@ def test_set_aliases_survive_handoff_and_direct_candidate_calls():
         assert candidate.metadata["aliases"] == candidate.aliases
         effective = _metadata_by_symbol((candidate,))
         assert company_aliases_for_symbol("ONE", effective["ONE"]) == ("ONE INDUSTRIAL", "ONE RESEARCH")
+
+
+@pytest.mark.parametrize("value", [0, -1, True, 1.5, "123", None])
+def test_direct_diagnostics_omit_invalid_security_ids(capsys, value):
+    from src.news.news_intelligence_contract import NewsCandidate
+    emit_retrieval_diagnostics(NewsBatchResult(candidates=(NewsCandidate("ONE", metadata={"con_id": value, "conId": value}),)), provider_invoked=False)
+    line = [x for x in capsys.readouterr().out.splitlines() if x.startswith("[NEWS][RETRIEVAL_DIAGNOSTICS]")][-1]
+    identity = json.loads(line.split(" ", 1)[1])["candidate_identities"][0]
+    assert identity["security_identifiers"] == {}

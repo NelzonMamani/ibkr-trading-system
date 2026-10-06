@@ -90,11 +90,13 @@ def _candidate_identity(candidate: Any) -> Mapping[str, Any]:
             if key in metadata
         },
         "security_identifiers": {
-            key: (metadata[key] if isinstance(metadata[key], int) and not isinstance(metadata[key], bool) else None)
-                  if key in {"con_id", "conId"} else _identity_text(metadata[key])
+            key: metadata[key] if key in {"con_id", "conId"} else _identity_text(metadata[key])
             for key in ("con_id", "conId", "isin", "figi", "primary_exchange", "primaryExchange",
                         "local_symbol", "localSymbol", "trading_class", "tradingClass", "currency", "instrument_type", "secType")
-            if key in metadata
+            if key in metadata and (
+                key not in {"con_id", "conId"}
+                or (isinstance(metadata[key], int) and not isinstance(metadata[key], bool) and metadata[key] > 0)
+            )
         },
         "effective_rss_matching_identity": {
             "symbol": _label(candidate.normalized_symbol),
