@@ -43,6 +43,7 @@ def _market_data_type_code(market_data_type: str) -> int:
 class IbkrClient(EWrapper, EClient):
     MAX_CLIENT_ID_RETRIES = 10
     NON_REJECTING_ORDER_WARNING_CODES = {2109}
+    ORDER_ONLY_CALLBACK_CODES = {201, 202, 399}
 
     """
     Thin wrapper around ibapi for read-only operations.
@@ -200,7 +201,14 @@ class IbkrClient(EWrapper, EClient):
         print(f"[IBKR] Disconnecting client_id={self.client_id}")
         self._stop_event.set()
         try:
-            super().disconnect()
+            try:
+                with self._lock:
+                    for context in self._request_context_by_req_id.values():
+                        context.pop("reference_response", None)
+                        context.pop("reference_deadline", None)
+            finally:
+                # Metadata cleanup must never prevent socket disconnection.
+                super().disconnect()
         finally:
             thread = self._thread
             if thread and thread.is_alive():
@@ -254,6 +262,8 @@ class IbkrClient(EWrapper, EClient):
         if not hasattr(self, "_request_type_by_req_id"):
             self._request_type_by_req_id = {}
         with self._lock:
+            if request_type == "CONTRACT_DETAILS" and self._stop_event.is_set():
+                raise RuntimeError("Contract resolution stopped during disconnect.")
             self._request_type_by_req_id[req_id] = request_type
             if not hasattr(self, "_request_context_by_req_id"):
                 self._request_context_by_req_id = {}
@@ -262,6 +272,12 @@ class IbkrClient(EWrapper, EClient):
                 "symbol": getattr(contract, "symbol", None),
                 "con_id": getattr(contract, "conId", None),
             }
+            if request_type == "CONTRACT_DETAILS":
+                # Register eligibility atomically with the context that disconnect
+                # invalidates under this same lock. Never re-arm it after cleanup.
+                self._request_context_by_req_id[req_id]["reference_deadline"] = (
+                    time.monotonic() + self.snapshot_timeout_seconds
+                )
             # Retain bounded context for broker errors arriving after cleanup.
             if len(self._request_context_by_req_id) > 1024:
                 self._request_context_by_req_id.pop(next(iter(self._request_context_by_req_id)))
@@ -484,6 +500,8 @@ class IbkrClient(EWrapper, EClient):
         self._contract_events[req_id] = event
         self._contract_details[req_id] = []
         self._register_request(req_id, "CONTRACT_DETAILS", contract)
+        if self._stop_event.is_set():
+            raise RuntimeError("Contract resolution stopped during disconnect.")
 
         self.reqContractDetails(req_id, contract)
 
@@ -499,6 +517,41 @@ class IbkrClient(EWrapper, EClient):
             f"[IBKR] Resolved contract symbol={symbol} req_id={req_id} conId={resolved.contract.conId}"
         )
         return resolved
+
+    def get_contract_reference_metadata(self, contract) -> dict:
+        """Reuse completed qualification evidence; never request or reconnect.
+
+        Qualification's first-row choice is not name authority. Require a single
+        response matching the caller's retained positive security identity.
+        """
+        con_id = getattr(contract, "conId", None)
+        if type(con_id) is not int or con_id <= 0 or not self.is_connected():
+            return {}
+        for req_id, context in reversed(tuple(self._request_context_by_req_id.items())):
+            if context.get("request_type") != "CONTRACT_DETAILS" or context.get("symbol") != getattr(contract, "symbol", None):
+                continue
+            # The latest attempt is authoritative even when it failed or timed out.
+            response = context.get("reference_response")
+            if not response or context.get("reference_error"):
+                return {}
+            completed, rows = response
+            if completed > context.get("reference_deadline", float("-inf")) or len(rows) != 1:
+                return {}
+            row = rows[0]
+            if type(row.get("conId")) is not int or row["conId"] != con_id:
+                return {}
+            for field in ("symbol", "secType", "currency", "primaryExchange", "localSymbol", "tradingClass", "exchange"):
+                expected = getattr(contract, field, None)
+                if field == "exchange" and expected == "SMART":
+                    continue  # SMART is a routing instruction, not a listing venue.
+                if expected and row.get(field) != expected:
+                    return {}
+            name = row.get("longName")
+            if not isinstance(name, str) or not name.strip():
+                return {}
+            return {"longName": name, "conId": con_id, "request_id": req_id,
+                    "source": "IBKR_CONTRACT_DETAILS", "completed_at_utc": context["reference_completed_at_utc"]}
+        return {}
 
     def qualifyContracts(self, *contracts):
         """
@@ -694,6 +747,16 @@ class IbkrClient(EWrapper, EClient):
         self._contract_details.setdefault(reqId, []).append(contractDetails)
 
     def contractDetailsEnd(self, reqId: int):  # type: ignore[override]
+        context = getattr(self, "_request_context_by_req_id", {}).get(reqId, {})
+        if "reference_deadline" in context and "reference_response" not in context:
+            # Freeze only fields received by the genuine end callback. Late rows
+            # cannot be promoted; error wakeups are not successful completion.
+            rows = tuple({**{field: getattr(detail.contract, field, None) for field in
+                         ("conId", "symbol", "secType", "currency", "exchange", "primaryExchange", "localSymbol", "tradingClass")},
+                         "longName": getattr(detail, "longName", None)}
+                         for detail in self._contract_details.get(reqId, ()))
+            context["reference_completed_at_utc"] = datetime.now(timezone.utc).isoformat()
+            context["reference_response"] = (time.monotonic(), rows)
         event = self._contract_events.get(reqId)
         if event:
             event.set()
@@ -1009,6 +1072,17 @@ class IbkrClient(EWrapper, EClient):
         is_non_rejecting_order_warning = (
             errorCode in self.NON_REJECTING_ORDER_WARNING_CODES and reqId in self._order_status_events
         )
+        is_order_only_callback = (
+            is_non_rejecting_order_warning or fractional_unsupported_warning
+            or (errorCode in self.ORDER_ONLY_CALLBACK_CODES
+                and reqId in self._order_status_events)
+        )
+        if (request_type_by_req_id.get(reqId) == "CONTRACT_DETAILS"
+                and "reference_deadline" in context and "reference_response" not in context
+                and not is_order_only_callback):
+            # Numeric order IDs share the legacy error map. Exclude known order
+            # callbacks; only this active attempt can disqualify its response.
+            context["reference_error"] = (errorCode, errorString)
         if reqId >= 0:
             self._errors[reqId] = (errorCode, errorString)
             if reqId in self._order_status_events:
@@ -1029,7 +1103,7 @@ class IbkrClient(EWrapper, EClient):
                         "broker_error_message": errorString,
                     }
                     self._order_status_events[reqId].set()
-            if reqId in self._contract_events:
+            if reqId in self._contract_events and not is_order_only_callback:
                 self._contract_events[reqId].set()
             if reqId in self._market_events:
                 self._market_events[reqId].set()

@@ -475,6 +475,11 @@ class MarketDataClient:
             f"CONTRACT_QUALIFY_FAILED symbol={contract.symbol} error=NO_QUALIFIED_CONTRACT"
         )
 
+    def get_contract_reference_metadata(self, contract) -> dict:
+        """Read existing adapter evidence without connecting or issuing requests."""
+        reader = getattr(self.ib, "get_contract_reference_metadata", None)
+        return reader(contract) if callable(reader) else {}
+
     def qualifyContracts(self, *contracts):
         """
         Compatibility wrapper for ib_insync-style APIs used by the

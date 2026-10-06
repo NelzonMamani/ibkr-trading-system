@@ -1,0 +1,306 @@
+"""Managed qualification response reuse; all broker callbacks are synthetic."""
+from types import SimpleNamespace
+import pytest
+from ibapi.contract import Contract, ContractDetails
+from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
+from src.ibkr.market_data_client import MarketDataClient
+from src.scanner.providers.ibkr_provider import IbkrScannerProvider
+from src.config.config_resolver import set_config_overrides
+from src.scanner import scanner_runner as scanner
+from src.news.batch_rss_adapter import _metadata_by_symbol
+from src.news.news_fetcher import company_aliases_for_symbol
+from test_ibkr_provider_contract_pipeline import DummyMarketDataClient
+from test_scanner_pct_change_fallback import _BaseProvider
+
+
+@pytest.fixture(autouse=True)
+def isolated(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    set_config_overrides({"RUN_MODE": "READ_ONLY", "SCANNER_FLOAT_CACHE_FILE": str(tmp_path / "float.json"),
+        "NEWS_CACHE_FILE": str(tmp_path / "news.json"), "PERSISTENCE_SQLITE_PATH": str(tmp_path / "runtime.sqlite3")})
+    yield
+    set_config_overrides(None)
+
+
+def contract(symbol="ONE", con_id=123):
+    c = Contract()
+    c.symbol, c.conId, c.secType, c.currency = symbol, con_id, "STK", "USD"
+    c.exchange, c.primaryExchange, c.localSymbol, c.tradingClass = "SMART", "NASDAQ", symbol, "SCM"
+    return c
+
+
+def setup_client(monkeypatch, mode="ok"):
+    client = IbkrClient("127.0.0.1", 7497, 999, 0.001 if mode == "timeout" else 5, "LIVE", True)
+    monkeypatch.setattr(client, "is_connected", lambda: True)
+    monkeypatch.setattr(client, "isConnected", lambda: True)
+    calls = []
+    def request(req_id, requested):
+        calls.append((req_id, requested))
+        if mode == "timeout":
+            return
+        detail = ContractDetails()
+        detail.contract = contract(requested.symbol, 123 if requested.symbol == "ONE" else 456)
+        detail.longName = "One Industrial Inc" if requested.symbol == "ONE" else "Two Medical Ltd"
+        if mode == "missing": detail.longName = ""
+        if mode == "mismatch": detail.contract.conId = 999
+        if mode == "currency": detail.contract.currency = "CAD"
+        client.contractDetails(req_id, detail)
+        if mode == "ambiguous": client.contractDetails(req_id, detail)
+        if mode == "error":
+            client.error(req_id, 200, "synthetic failure")
+        else:
+            client.contractDetailsEnd(req_id)
+    monkeypatch.setattr(client, "reqContractDetails", request)
+    return client, calls
+
+
+def test_real_managed_provider_to_rss_reuses_qualification(monkeypatch):
+    client, calls = setup_client(monkeypatch)
+    md = MarketDataClient(connection_manager=SimpleNamespace(get_client=lambda: client), allow_direct_connection=False)
+    dummy = DummyMarketDataClient()
+    monkeypatch.setattr(md, "snapshot_stock", dummy.snapshot_stock)
+    monkeypatch.setattr(md, "daily_bars_from_history", lambda *args, **kwargs: [])
+    provider = IbkrScannerProvider(market_data_client=md)
+    provider.last_scan_details = {"symbol_details": {s: {"conId": i, "exchange": "SMART", "primaryExchange": "NASDAQ", "currency": "USD"} for s, i in (("ONE",123),("TWO",456))}}
+    monkeypatch.setattr(provider, "get_previous_rth_close", lambda identity: 10.0)
+    monkeypatch.setattr(provider, "get_average_daily_volume", lambda identity, window: (100000, 20))
+    base = _BaseProvider(close=10)
+    for name in ("get_intraday_stats", "get_float", "get_daily_bars", "get_prev_close"):
+        monkeypatch.setattr(provider, name, getattr(base, name))
+    rows = [scanner._build_symbol_context(provider, s, "RTH_MID", float_cache={}) for s in ("ONE", "TWO")]
+    candidates = scanner._news_candidates_for_symbols(["ONE", "TWO"], scanner._news_symbol_metadata_for_contexts(rows))
+    assert [c.company_name for c in candidates] == ["One Industrial Inc", "Two Medical Ltd"]
+    effective = _metadata_by_symbol(candidates)
+    assert company_aliases_for_symbol("ONE", effective["ONE"]) == ("ONE INDUSTRIAL",)
+    assert company_aliases_for_symbol("TWO", effective["TWO"]) == ("TWO MEDICAL",)
+    assert all(c.aliases == () for c in candidates)
+    request_count = len(calls)
+    for _ in range(2):
+        assert md.get_contract_reference_metadata(contract())["longName"] == "One Industrial Inc"
+    assert len(calls) == request_count
+    from src.news.news_intelligence_contract import NewsBatchResult
+    for candidate in candidates:
+        context = scanner._ross_news_context_from_evidence(candidate.symbol, (), None, NewsBatchResult(candidates=(candidate,)))
+        assert context["ross_catalyst_valid"] is False
+
+
+@pytest.mark.parametrize("mode", ["missing", "mismatch", "currency", "ambiguous", "error", "timeout"])
+def test_unavailable_names_are_not_promoted(monkeypatch, mode):
+    client, calls = setup_client(monkeypatch, mode)
+    client.qualifyContracts(contract())
+    assert client.get_contract_reference_metadata(contract()) == {}
+    assert len(calls) == 1
+
+
+def test_late_completion_and_disconnect_cannot_supply_name(monkeypatch):
+    client, calls = setup_client(monkeypatch, "timeout")
+    client.qualifyContracts(contract())
+    req_id = calls[0][0]
+    detail = ContractDetails()
+    detail.contract, detail.longName = contract(), "Too Late Inc"
+    client.contractDetails(req_id, detail)
+    client.contractDetailsEnd(req_id)
+    assert client.get_contract_reference_metadata(contract()) == {}
+    client.disconnect()
+    assert client.get_contract_reference_metadata(contract()) == {}
+
+
+def test_metadata_read_does_not_connect(monkeypatch):
+    def forbidden(): raise AssertionError("metadata read connected")
+    md = MarketDataClient(connection_manager=SimpleNamespace(get_client=forbidden), allow_direct_connection=False)
+    assert md.get_contract_reference_metadata(contract()) == {}
+
+
+def test_existing_name_is_preserved_and_no_lookup_is_added(monkeypatch):
+    dummy = DummyMarketDataClient()
+    def forbidden(*args): raise AssertionError("unnecessary name lookup")
+    dummy.get_contract_reference_metadata = forbidden
+    provider = IbkrScannerProvider(market_data_client=dummy)
+    provider.last_scan_details = {"symbol_details": {"ONE": {"conId": 123, "longName": "Already Supplied Inc"}}}
+    provider.get_quote("ONE")
+    assert provider.last_scan_details["symbol_details"]["ONE"]["longName"] == "Already Supplied Inc"
+
+
+@pytest.mark.parametrize("mode", ["missing", "mismatch", "ambiguous", "error", "timeout"])
+def test_provider_missing_name_stays_missing(monkeypatch, mode):
+    client, calls = setup_client(monkeypatch, mode)
+    md = MarketDataClient(connection_manager=SimpleNamespace(get_client=lambda: client), allow_direct_connection=False)
+    monkeypatch.setattr(md, "snapshot_stock", DummyMarketDataClient().snapshot_stock)
+    provider = IbkrScannerProvider(market_data_client=md)
+    provider.last_scan_details = {"symbol_details": {"ONE": {"conId": 123, "currency": "USD"}}}
+    provider.get_quote("ONE")
+    assert "longName" not in provider.last_scan_details["symbol_details"]["ONE"]
+    assert len(calls) == 1
+
+
+def test_completion_boundary_is_frozen_and_new_failure_supersedes_success(monkeypatch):
+    client, calls = setup_client(monkeypatch)
+    client.qualifyContracts(contract())
+    req_id = calls[0][0]
+    assert client.get_contract_reference_metadata(contract())["longName"] == "One Industrial Inc"
+    late = ContractDetails()
+    late.contract, late.longName = contract("TWO", 456), "Wrong Late Name"
+    client.contractDetails(req_id, late)
+    client.contractDetailsEnd(req_id)
+    assert client.get_contract_reference_metadata(contract())["longName"] == "One Industrial Inc"
+    client.snapshot_timeout_seconds = 0.001
+    monkeypatch.setattr(client, "reqContractDetails", lambda *args: None)
+    client.qualifyContracts(contract())
+    assert client.get_contract_reference_metadata(contract()) == {}
+
+
+def test_disconnect_invalidates_completed_name(monkeypatch):
+    client, calls = setup_client(monkeypatch)
+    client.qualifyContracts(contract())
+    assert client.get_contract_reference_metadata(contract())
+    client.disconnect()
+    # Even a reconnect cannot resurrect the previous connection's response.
+    assert client.get_contract_reference_metadata(contract()) == {}
+
+
+def test_one_quote_qualification_is_the_only_name_request(monkeypatch):
+    client, calls = setup_client(monkeypatch)
+    md = MarketDataClient(connection_manager=SimpleNamespace(get_client=lambda: client), allow_direct_connection=False)
+    monkeypatch.setattr(md, "snapshot_stock", DummyMarketDataClient().snapshot_stock)
+    provider = IbkrScannerProvider(market_data_client=md)
+    provider.last_scan_details = {"symbol_details": {"ONE": {"conId": 123, "currency": "USD"}}}
+    provider.get_quote("ONE")
+    assert provider.last_scan_details["symbol_details"]["ONE"]["longName"] == "One Industrial Inc"
+    assert len(calls) == 1
+
+
+def test_late_end_is_unavailable_even_if_waiter_awakes(monkeypatch):
+    client, calls = setup_client(monkeypatch)
+    client.qualifyContracts(contract())
+    state = client._request_context_by_req_id[calls[0][0]]
+    state["reference_deadline"] = state["reference_response"][0] - 0.001
+    assert client.get_contract_reference_metadata(contract()) == {}
+
+
+def test_old_and_post_completion_order_errors_do_not_poison_name(monkeypatch):
+    client, calls = setup_client(monkeypatch)
+    client.error(1, 2109, "earlier unrelated order warning")
+    client.qualifyContracts(contract())
+    assert calls[0][0] == 1
+    assert client.get_contract_reference_metadata(contract())["longName"] == "One Industrial Inc"
+    client.error(1, 201, "later unrelated order error")
+    assert client.get_contract_reference_metadata(contract())["longName"] == "One Industrial Inc"
+
+
+def test_active_contract_error_stays_ineligible_even_with_end_callback(monkeypatch):
+    client, calls = setup_client(monkeypatch, "error")
+    client.qualifyContracts(contract())
+    client.contractDetailsEnd(calls[0][0])
+    assert client.get_contract_reference_metadata(contract()) == {}
+
+
+@pytest.mark.parametrize("code", [2109, 2176])
+def test_active_known_order_warning_does_not_poison_reference(monkeypatch, code):
+    import threading
+    client, calls = setup_client(monkeypatch)
+    original = client.reqContractDetails
+    def request(req_id, requested):
+        client._order_status_events[req_id] = threading.Event()
+        client.error(req_id, code, "known non-rejecting order warning")
+        assert not client._contract_events[req_id].is_set()
+        original(req_id, requested)
+    monkeypatch.setattr(client, "reqContractDetails", request)
+    client.qualifyContracts(contract())
+    assert client.get_contract_reference_metadata(contract())["longName"] == "One Industrial Inc"
+
+
+@pytest.mark.parametrize("code", [201, 202, 399])
+def test_active_order_callback_does_not_complete_contract(monkeypatch, code):
+    import threading
+    client, calls = setup_client(monkeypatch)
+    original = client.reqContractDetails
+    def request(req_id, requested):
+        client._order_status_events[req_id] = threading.Event()
+        client.error(req_id, code, "order-only rejection/cancellation")
+        assert client._order_status_events[req_id].is_set()
+        assert client._order_errors[req_id][0] == code
+        assert not client._contract_events[req_id].is_set()
+        original(req_id, requested)
+    monkeypatch.setattr(client, "reqContractDetails", request)
+    client.qualifyContracts(contract())
+    assert client.get_contract_reference_metadata(contract())["longName"] == "One Industrial Inc"
+
+
+def test_disconnect_synchronizes_context_invalidation_and_always_closes(monkeypatch):
+    from ibapi.client import EClient
+    client, calls = setup_client(monkeypatch)
+    client.qualifyContracts(contract())
+    closed = []
+    class CheckedContext(dict):
+        def pop(self, key, *args):
+            assert client._lock.locked(), "invalidation races request registration"
+            return super().pop(key, *args)
+    client._request_context_by_req_id = {k: CheckedContext(v) for k,v in client._request_context_by_req_id.items()}
+    monkeypatch.setattr(EClient, "disconnect", lambda self: closed.append(True))
+    client.disconnect()
+    assert closed == [True]
+    assert client.get_contract_reference_metadata(contract()) == {}
+
+
+def test_disconnect_still_closes_if_metadata_invalidation_raises(monkeypatch):
+    from ibapi.client import EClient
+    client, calls = setup_client(monkeypatch)
+    class BrokenContext(dict):
+        def pop(self, *args): raise RuntimeError("synthetic invalidation failure")
+    client._request_context_by_req_id[1] = BrokenContext()
+    closed = []
+    monkeypatch.setattr(EClient, "disconnect", lambda self: closed.append(True))
+    with pytest.raises(RuntimeError, match="synthetic invalidation"):
+        client.disconnect()
+    assert closed == [True]
+
+
+
+def test_disconnect_between_registration_and_dispatch_cannot_rearm_name(monkeypatch):
+    client, calls = setup_client(monkeypatch)
+    register = client._register_request
+    def register_then_disconnect(*args, **kwargs):
+        register(*args, **kwargs)
+        client.disconnect()
+    monkeypatch.setattr(client, "_register_request", register_then_disconnect)
+    client.qualifyContracts(contract())
+    # Model reconnection without permitting stale metadata to regain eligibility.
+    client._stop_event.clear()
+    assert client.get_contract_reference_metadata(contract()) == {}
+    assert calls == []
+
+
+def test_qualification_after_disconnect_does_not_register_eligible_work(monkeypatch):
+    client, calls = setup_client(monkeypatch)
+    client.disconnect()
+    client.qualifyContracts(contract())
+    client._stop_event.clear()
+    assert calls == []
+    assert client.get_contract_reference_metadata(contract()) == {}
+
+
+@pytest.mark.parametrize("next_name", [None, "One Renamed Industries"])
+def test_provider_revalidates_its_own_prior_name(monkeypatch, next_name):
+    client, calls = setup_client(monkeypatch)
+    md = MarketDataClient(connection_manager=SimpleNamespace(get_client=lambda: client), allow_direct_connection=False)
+    monkeypatch.setattr(md, "snapshot_stock", DummyMarketDataClient().snapshot_stock)
+    provider = IbkrScannerProvider(market_data_client=md)
+    provider.last_scan_details = {"symbol_details": {"ONE": {"conId": 123, "currency": "USD"}}}
+    provider.get_quote("ONE")
+    assert provider.last_scan_details["symbol_details"]["ONE"]["longName"] == "One Industrial Inc"
+    def next_request(req_id, requested):
+        calls.append((req_id, requested))
+        if next_name is None:
+            client.error(req_id, 200, "current qualification unavailable")
+            return
+        detail = ContractDetails()
+        detail.contract, detail.longName = contract(), next_name
+        client.contractDetails(req_id, detail)
+        client.contractDetailsEnd(req_id)
+    monkeypatch.setattr(client, "reqContractDetails", next_request)
+    provider.get_quote("ONE")
+    detail = provider.last_scan_details["symbol_details"]["ONE"]
+    assert detail.get("longName") == next_name
+    if next_name is None:
+        assert "company_name_reference" not in detail
+    assert len(calls) == 2
