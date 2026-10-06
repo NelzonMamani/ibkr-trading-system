@@ -1032,11 +1032,6 @@ class IbkrClient(EWrapper, EClient):
         request_type_by_req_id = getattr(self, "_request_type_by_req_id", {})
         context = getattr(self, "_request_context_by_req_id", {}).get(reqId, {})
         request_type = request_type_by_req_id.get(reqId) or context.get("request_type")
-        if (request_type_by_req_id.get(reqId) == "CONTRACT_DETAILS"
-                and "reference_deadline" in context and "reference_response" not in context):
-            # Numeric order IDs share the legacy error map. Only errors arriving
-            # during this contract request may disqualify its reference response.
-            context["reference_error"] = (errorCode, errorString)
         ticker = self._ticker_by_req_id.get(reqId)
         event = sanitize({
             "timestamp_utc": timestamp_utc,
@@ -1065,6 +1060,12 @@ class IbkrClient(EWrapper, EClient):
         is_non_rejecting_order_warning = (
             errorCode in self.NON_REJECTING_ORDER_WARNING_CODES and reqId in self._order_status_events
         )
+        if (request_type_by_req_id.get(reqId) == "CONTRACT_DETAILS"
+                and "reference_deadline" in context and "reference_response" not in context
+                and not is_non_rejecting_order_warning and not fractional_unsupported_warning):
+            # Numeric order IDs share the legacy error map. Exclude known order
+            # warnings; only this active attempt can disqualify its response.
+            context["reference_error"] = (errorCode, errorString)
         if reqId >= 0:
             self._errors[reqId] = (errorCode, errorString)
             if reqId in self._order_status_events:
@@ -1085,7 +1086,8 @@ class IbkrClient(EWrapper, EClient):
                         "broker_error_message": errorString,
                     }
                     self._order_status_events[reqId].set()
-            if reqId in self._contract_events:
+            if (reqId in self._contract_events
+                    and not is_non_rejecting_order_warning and not fractional_unsupported_warning):
                 self._contract_events[reqId].set()
             if reqId in self._market_events:
                 self._market_events[reqId].set()

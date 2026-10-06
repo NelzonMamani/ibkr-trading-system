@@ -192,3 +192,18 @@ def test_active_contract_error_stays_ineligible_even_with_end_callback(monkeypat
     client.qualifyContracts(contract())
     client.contractDetailsEnd(calls[0][0])
     assert client.get_contract_reference_metadata(contract()) == {}
+
+
+@pytest.mark.parametrize("code", [2109, 2176])
+def test_active_known_order_warning_does_not_poison_reference(monkeypatch, code):
+    import threading
+    client, calls = setup_client(monkeypatch)
+    original = client.reqContractDetails
+    def request(req_id, requested):
+        client._order_status_events[req_id] = threading.Event()
+        client.error(req_id, code, "known non-rejecting order warning")
+        assert not client._contract_events[req_id].is_set()
+        original(req_id, requested)
+    monkeypatch.setattr(client, "reqContractDetails", request)
+    client.qualifyContracts(contract())
+    assert client.get_contract_reference_metadata(contract())["longName"] == "One Industrial Inc"
