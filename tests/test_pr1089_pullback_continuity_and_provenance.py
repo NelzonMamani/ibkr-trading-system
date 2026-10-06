@@ -167,10 +167,12 @@ def test_armed_pullback_real_strategy_delayed_outcome(monkeypatch, tmp_path, fam
     if invalidated:
         assert intents == []
     else:
-        assert len(intents) == 1
-        assert intents[0].setup_family_id == family
-        assert intents[0].trigger_ready
-        assert not getattr(intents[0], "synthetic_forced_intent", False)
+        # Trigger continuity is independent of target-model availability.
+        assert intents == []
+        terminal = strategy.last_symbol_terminal_outcomes["UPC"]
+        assert terminal["trigger_ready_now"]
+        assert terminal["selected_setup_family"] == family
+        assert terminal["reason"] == "missing_target"
     assert calls == []
 
 

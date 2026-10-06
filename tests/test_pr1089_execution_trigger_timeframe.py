@@ -68,8 +68,8 @@ def test_intraminute_execution_break_fires_from_real_strategy(monkeypatch, tmp_p
     assert result.detected
     assert result.setup_metadata["breakout_volume_confirmed"] is not True
     strategy, intents, triggers = run_strategy(monkeypatch, tmp_path, family, data)
-    assert len(intents) == 1
-    assert intents[0].setup_family_id == family
+    assert intents == []
+    assert strategy.last_symbol_terminal_outcomes["UPC"]["reason"] == "missing_target"
     trigger = next(t for t in triggers if t["setup_family_id"] == family)
     assert trigger["trigger_ready_now"]
     assert trigger["trigger_price_reference"] == result.trigger_level
@@ -124,8 +124,9 @@ def test_execution_evidence_fails_closed(monkeypatch, tmp_path, family, failure)
 @pytest.mark.parametrize("family", ["THREE_BAR_PULLBACK", "SECOND_PULLBACK"])
 def test_steady_session_uses_actual_one_minute_stream(monkeypatch, tmp_path, family):
     _, data = streams(family, primary_fire=True, execution_fire=False)
-    _, intents, triggers = run_strategy(monkeypatch, tmp_path, family, data, session="RTH_MID")
-    assert len(intents) == 1
+    strategy, intents, triggers = run_strategy(monkeypatch, tmp_path, family, data, session="RTH_MID")
+    assert intents == []
+    assert strategy.last_symbol_terminal_outcomes["UPC"]["reason"] == "missing_target"
     evidence = next(t for t in triggers if t["setup_family_id"] == family)["execution_stream"]
     assert evidence["execution_trigger_timeframe"] == "1m"
     assert evidence["volume_confirmation_timeframe"] == "1m"
@@ -169,7 +170,9 @@ def test_missing_execution_stream_preserves_other_symbol(monkeypatch, tmp_path):
         session_label="RTH_OPEN", session_phase="RTH_OPEN",
         timestamp_utc="mixed-cycle", mode=RunMode.READ_ONLY,
     )
-    assert [i.symbol for i in intents] == ["AAA"]
+    assert intents == []
+    assert strategy.last_symbol_terminal_outcomes["AAA"]["trigger_ready_now"]
+    assert strategy.last_symbol_terminal_outcomes["AAA"]["reason"] == "missing_target"
     assert strategy.last_symbol_terminal_outcomes["BBB"]["intent_emitted"] is False
 
 
@@ -186,8 +189,9 @@ def test_primary_history_does_not_consume_execution_entry(monkeypatch, tmp_path,
     rows = [(level - .05, level - .01, low, level - .04, 100)] * 37
     rows[-1] = (level - .04, level + .06, low, level + .04, 200)
     data["10s"] = _candles(rows, end=primary[-1].timestamp, step_seconds=10)
-    _, intents, _ = run_strategy(monkeypatch, tmp_path, family, data)
-    assert len(intents) == 1
+    strategy, intents, _ = run_strategy(monkeypatch, tmp_path, family, data)
+    assert intents == []
+    assert strategy.last_symbol_terminal_outcomes["UPC"]["reason"] == "missing_target"
 
 
 @pytest.mark.parametrize("failure,reason", [

@@ -77,3 +77,24 @@ def evaluate_flat_top_breakout_trigger(pattern_result, inputs):
         "invalidation_price_reference": invalidation_level,
         "trigger_quality_flags": flags,
     }
+
+
+def evaluate_consolidation_breakout_trigger(pattern_result, inputs):
+    """Existing range break plus same-stream volume confirmation; no RVOL substitute."""
+    out = evaluate_flat_top_breakout_trigger(pattern_result, inputs)
+    if not out.get("trigger_ready_now"):
+        return out
+    candles = list((inputs or {}).get("candles") or [])
+    def volume(candle):
+        return _safe_float(candle.get("volume") if isinstance(candle, dict) else getattr(candle, "volume", None))
+    values = [volume(candle) for candle in candles[-5:]]
+    # The detector's last-volume >= mean(last five) law is equivalent to
+    # last-volume >= mean(previous four); keep evidence in the execution stream.
+    confirmed = len(values) == 5 and all(v is not None and v > 0 for v in values)
+    if confirmed:
+        confirmed = values[-1] >= sum(values[:-1]) / 4
+    if not confirmed:
+        return {**out, "trigger_state": "BLOCKED", "trigger_ready_now": False,
+                "trigger_reason": "breakout_volume_unconfirmed",
+                "trigger_quality_flags": ["BLOCKED", "BREAKOUT_VOLUME_UNCONFIRMED"]}
+    return {**out, "trigger_reason": "consolidation_breakout_confirmed"}

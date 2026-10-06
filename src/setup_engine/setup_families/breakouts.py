@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from statistics import mean
 from typing import List
 
@@ -70,7 +71,7 @@ class ConsolidationBreakoutPattern(PatternBase):
             "Tight consolidation followed by breakout.\n"
             f"Range high={range_high:.2f}, range width={range_width:.4f}."
         )
-        return self._detected(
+        result = self._detected(
             inputs,
             direction=Direction.LONG,
             confidence=confidence,
@@ -79,4 +80,11 @@ class ConsolidationBreakoutPattern(PatternBase):
             stop_suggestion="Below consolidation low",
             target_suggestion="Range expansion",
             setup_quality_tags=tags,
+        )
+
+        return replace(
+            result, setup_family_id="CONSOLIDATION_BREAKOUT",
+            trigger_type="RANGE_BREAK", trigger_level=float(range_high),
+            stop_level=float(range_low), invalidation_level=float(range_low),
+            setup_metadata={"breakout_volume_confirmed": volume_ok},
         )

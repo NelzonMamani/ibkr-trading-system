@@ -96,10 +96,12 @@ def test_real_setup_engine_setup_triggers_when_no_patterns(monkeypatch, tmp_path
         session_phase="PRE",
     )
 
-    assert intents
+    assert intents == []
+    assert strategy.last_symbol_terminal_outcomes["TEST"]["reason"] == "missing_selected_setup_contract"
+    assert strategy.last_symbol_terminal_outcomes["TEST"]["trigger_ready_now"] is True
     out = capsys.readouterr().out
     assert "[ROSS][SETUP_RESULT] symbol=TEST source=setup_engine" in out
-    assert "[ROSS][INTENT_GENERATED] symbol=TEST" in out
+    assert "[ROSS][INTENT_GENERATED] symbol=TEST" not in out
 
 
 def test_setup_engine_hod_break_produces_trigger(monkeypatch, tmp_path) -> None:
@@ -114,12 +116,9 @@ def test_setup_engine_hod_break_produces_trigger(monkeypatch, tmp_path) -> None:
         session_phase="PRE",
     )
 
-    assert intents
-    assert intents[0].pattern_name.endswith("HOD_BREAK") or intents[0].pattern_name.endswith("RANGE_BREAKOUT") or intents[0].pattern_name.endswith("PREMARKET_HIGH_BREAK")
-    assert intents[0].trigger_ready is True
-    assert intents[0].trigger_id.endswith(":TRIGGER") or bool(intents[0].trigger_id)
-    assert intents[0].entry_price is not None
-    assert intents[0].stop_loss_price is not None
+    assert intents == []
+    assert strategy.last_symbol_terminal_outcomes["TEST"]["reason"] == "missing_selected_setup_contract"
+    assert strategy.last_symbol_terminal_outcomes["TEST"]["trigger_ready_now"] is True
 
 
 def test_no_synthetic_lightweight_setup_detector_available(monkeypatch, tmp_path) -> None:
@@ -127,7 +126,7 @@ def test_no_synthetic_lightweight_setup_detector_available(monkeypatch, tmp_path
     assert not hasattr(strategy, "_detect_lightweight_setups")
 
 
-def test_pipeline_not_blocked_by_missing_patterns(monkeypatch, tmp_path) -> None:
+def test_pipeline_reports_missing_selected_contract(monkeypatch, tmp_path) -> None:
     strategy = _base_strategy(monkeypatch, tmp_path, _hod_break_bars())
 
     intents = strategy.process_watchlist(
@@ -139,8 +138,9 @@ def test_pipeline_not_blocked_by_missing_patterns(monkeypatch, tmp_path) -> None
         session_phase="PRE",
     )
 
-    assert intents
-    assert intents[0].decision in {"TRADE_READY", "ARMED_WAITING_TRIGGER", "TRIGGER_FIRED_INTENT_EMITTED"}
+    assert intents == []
+    assert strategy.last_symbol_terminal_outcomes["TEST"]["reason"] == "missing_selected_setup_contract"
+    assert strategy.last_symbol_terminal_outcomes["TEST"]["trigger_ready_now"] is True
 
 
 def test_logs_untrusted_fallback_selection(monkeypatch, tmp_path, capsys) -> None:

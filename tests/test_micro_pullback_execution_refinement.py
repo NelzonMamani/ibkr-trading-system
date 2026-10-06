@@ -144,6 +144,8 @@ def test_strategy_execution_refinement_is_carried_to_intent() -> None:
         entry=10.2,
         stop=10.05,
         execution_refinement_mode="FAST_MICRO_PULLBACK",
+        target_model="Prior high / HOD",
+        setup_rationale="Offline micro-pullback structure fixture",
     )
     assert intent is not None
     assert intent.execution_refinement_mode == "FAST_MICRO_PULLBACK"
