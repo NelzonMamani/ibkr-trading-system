@@ -31,6 +31,8 @@ from src.strategies.ross_momentum.policy import (
     log_validation_override_active,
     synthetic_intent_allowed,
 )
+from src.strategies.ross_momentum.decision_policy import _target_model_from_setup
+from src.strategies.ross_momentum.patterns.setup_fidelity import is_tradeable_entry_candidate
 from src.strategies.ross_momentum.patterns.pattern_registry import RossPatternRegistry, resolve_trace_setup_family
 from src.strategies.ross_momentum.patterns.pattern_trace import (
     RossPatternFailureTraceCollector,
@@ -60,6 +62,7 @@ class RossMomentumStrategyV1(BaseStrategy):
     trader_type = "MOMENTUM"
     _SETUP_FAMILY_ALIASES: dict[str, str] = {
         "P_GAP_GO": "GAP_GO",
+        "P_CONSOLIDATION_BREAK": "CONSOLIDATION_BREAKOUT",
         "P_PREMKT_BREAK": "PREMARKET_HIGH_BREAK",
         "P_PREMARKET_HIGH_BREAK": "PREMARKET_HIGH_BREAK",
         "P_HOD_BREAK": "HOD_BREAK",
@@ -98,6 +101,8 @@ class RossMomentumStrategyV1(BaseStrategy):
         "MICRO_PULLBACK",
         "CUP_HANDLE",
         "FLAT_TOP_BREAKOUT",
+        "CONSOLIDATION_BREAKOUT",
+        "BULL_FLAG",
         "PARABOLIC_EXHAUSTION",
     )
 
@@ -1131,6 +1136,12 @@ class RossMomentumStrategyV1(BaseStrategy):
                 existing_triggers=trigger_candidates,
             )
             if pattern_trigger_setups:
+                # A detector's explicit structure supersedes contextual setup guesses.
+                canonical_families = {s["setup_family_id"] for s in pattern_trigger_setups}
+                trigger_candidates = [
+                    trigger for trigger in trigger_candidates
+                    if self._normalize_setup_family_id(trigger.get("setup_family_id")) not in canonical_families
+                ]
                 execution_timeframe = inputs.execution_refinement_timeframe
                 execution_candles = list(inputs.timeframe_candles.get(execution_timeframe) or [])
                 for setup in pattern_trigger_setups:
@@ -1475,6 +1486,25 @@ class RossMomentumStrategyV1(BaseStrategy):
                 best_pattern, inputs, selected_trigger=selected_trigger,
                 rejection_reasons=structure_rejection_reasons,
             )
+            selected_contract = next(
+                (result for result in results
+                 if self._pattern_result_value(result, "setup_id", "pattern_id") == best_pattern.pattern_id
+                 and bool(self._pattern_result_value(result, "detected"))),
+                None,
+            )
+            target_model = _target_model_from_setup(selected_contract)
+            contract_reason = None
+            if selected_contract is None:
+                contract_reason = "missing_selected_setup_contract"
+            else:
+                entry_ok, entry_reason = is_tradeable_entry_candidate(selected_contract)
+                if not entry_ok:
+                    contract_reason = entry_reason
+                elif target_model is None:
+                    contract_reason = "missing_target"
+            if trade and contract_reason:
+                structure_rejection_reasons.append(contract_reason)
+                trade = None
             if not trade:
                 structure_reason = structure_rejection_reasons[0] if structure_rejection_reasons else ""
                 print(f"[TRADE_INTENT][SKIP] symbol={symbol} reason={structure_reason}")
@@ -1664,6 +1694,8 @@ class RossMomentumStrategyV1(BaseStrategy):
                 entry=entry,
                 stop=stop,
                 execution_refinement_mode=execution_refinement_mode,
+                target_model=target_model,
+                setup_rationale=selected_contract.rationale_text,
             )
             print(f"[ROSS][INTENT_GUARD] symbol={symbol} trigger_ready={trigger_ready}")
             if trigger_ready and intent is None:
@@ -2053,6 +2085,8 @@ class RossMomentumStrategyV1(BaseStrategy):
             "P_FIRST_PULLBACK": "FIRST_PULLBACK",
             "P_MICRO_PULLBACK": "MICRO_PULLBACK",
             "P_BULL_FLAG": "BULL_FLAG",
+            "P_FLAT_TOP_BREAKOUT": "FLAT_TOP_BREAKOUT",
+            "P_CONSOLIDATION_BREAK": "CONSOLIDATION_BREAKOUT",
             "P_CUP_HANDLE": "CUP_HANDLE",
             "P_MOMENTUM_RECLAIM": "MOMENTUM_RECLAIM",
             "P_RANGE_BREAKOUT": "RANGE_BREAK",
@@ -2119,12 +2153,11 @@ class RossMomentumStrategyV1(BaseStrategy):
         symbol: str,
         existing_triggers: list[dict] | None,
     ) -> list[dict]:
-        existing_families = {
-            self._normalize_setup_family_id(trigger.get("setup_family_id"))
-            for trigger in (existing_triggers or [])
-            if isinstance(trigger, dict)
+        supported_pattern_families = {
+            "THREE_BAR_PULLBACK", "SECOND_PULLBACK", "MICRO_PULLBACK",
+            "BULL_FLAG", "FLAT_TOP_BREAKOUT", "CONSOLIDATION_BREAKOUT",
+            "OPENING_RANGE_BREAKOUT", "PREMARKET_HIGH_BREAK",
         }
-        supported_pattern_families = {"THREE_BAR_PULLBACK", "SECOND_PULLBACK"}
         authority_statuses = {SetupImplementationStatus.TRADE_READY, SetupImplementationStatus.PROBATIONARY}
         candidates: list[dict] = []
         for result in list(pattern_results or []):
@@ -2136,9 +2169,9 @@ class RossMomentumStrategyV1(BaseStrategy):
             if not family or family.startswith("P_"):
                 family = self._setup_family_from_pattern_id(pattern_id)
             family = self._normalize_setup_family_id(family)
-            if family not in supported_pattern_families or family in existing_families:
+            if family not in supported_pattern_families:
                 continue
-            spec = CANONICAL_SETUP_REGISTRY.get(family)
+            spec = CANONICAL_SETUP_REGISTRY.get("ORB" if family == "OPENING_RANGE_BREAKOUT" else family)
             if spec is None or spec.status not in authority_statuses:
                 print(
                     "[ROSS][CANONICAL_PATTERN_TRIGGER][SKIP] "
@@ -2189,7 +2222,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 "confidence": confidence,
                 "quality_flags": list(dict.fromkeys([*quality_flags, "CANONICAL_PATTERN_TRIGGER_AUTHORITY"])),
                 "blocking_flags": blocking_flags,
-                "invalidation_anchor": "pullback_low",
+                "invalidation_anchor": ("pullback_low" if "PULLBACK" in family else "STRUCTURE"),
                 "invalidation_level": invalidation_level,
                 "stop_level": stop_level,
                 "required_trigger_types": [trigger_type],
@@ -2205,7 +2238,6 @@ class RossMomentumStrategyV1(BaseStrategy):
                 f"trigger_type={trigger_type} trigger_level={trigger_level} invalidation_level={invalidation_level}"
             )
             candidates.append(candidate)
-            existing_families.add(family)
         return candidates
 
     @classmethod
@@ -2448,7 +2480,9 @@ class RossMomentumStrategyV1(BaseStrategy):
         entry = trigger_payload.get("trigger_price_reference")
         if entry is None:
             entry = trigger_payload.get("trigger_level")
-        stop = trigger_payload.get("invalidation_price_reference")
+        stop = trigger_payload.get("stop_price_reference")
+        if stop is None:
+            stop = trigger_payload.get("invalidation_price_reference")
         if stop is None:
             stop = trigger_payload.get("invalidation_level")
         if stop is None:
@@ -2589,14 +2623,19 @@ class RossMomentumStrategyV1(BaseStrategy):
         entry: float,
         stop: float,
         execution_refinement_mode: str = "NONE",
+        target_model: str | None = None,
+        setup_rationale: str | None = None,
     ) -> TradeIntent | None:
+        if not str(target_model or "").strip() or not str(setup_rationale or "").strip():
+            return None
         if str(setup_family or "").upper() == "GAP_GO" and trigger_ready:
             intent = TradeIntent(
                 symbol=symbol,
                 direction="LONG",
                 strategy_name="RossMomentumStrategyV1",
                 confidence=float(getattr(best_pattern, "confidence", 0.0) or 0.0),
-                rationale="GAP_GO_TRIGGER",
+                rationale=setup_rationale,
+                target_model=target_model,
                 trader_type=self.trader_type,
                 stop_loss_price=stop,
                 invalidation_level=stop,
@@ -2618,12 +2657,13 @@ class RossMomentumStrategyV1(BaseStrategy):
             direction="LONG",
             strategy_name=self.name,
             confidence=float(getattr(best_pattern, "confidence", 0.0) or 0.0),
-            rationale=f"pattern_detected={best_pattern.pattern_id} | entry={entry:.4f} | stop={stop:.4f}",
+            rationale=f"{setup_rationale} | pattern_detected={best_pattern.pattern_id} | entry={entry:.4f} | stop={stop:.4f}",
+            target_model=target_model,
             trader_type=self.trader_type,
             stop_loss_price=stop,
             invalidation_level=stop,
             pattern_name=best_pattern.pattern_id,
-            setup_family_id=self._setup_family_from_pattern_id(best_pattern.pattern_id),
+            setup_family_id=setup_family,
             trigger_id=str(trigger_id or "UNKNOWN"),
             execution_refinement_mode=execution_refinement_mode,
         )

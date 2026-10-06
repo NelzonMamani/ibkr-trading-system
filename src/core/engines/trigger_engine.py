@@ -134,12 +134,15 @@ class TriggerEngine:
                 "trigger_reason": trigger_reason,
                 "trigger_price_reference": trigger_price_reference,
                 "invalidation_price_reference": invalidation_price_reference,
+                "stop_price_reference": self._safe_float(setup.get("stop_level")),
                 "execution_refinement_mode": execution_refinement_mode,
                 "stop_anchor_type": str(setup.get("invalidation_anchor") or "STRUCTURE"),
                 "trigger_quality_flags": sorted(set(quality_flags + [*setup.get("quality_flags", [])])),
             }
             if isinstance(resolved_trigger, dict) and "execution_stream" in resolved_trigger:
                 output["execution_stream"] = resolved_trigger["execution_stream"]
+            if "execution_stream" not in output and isinstance(setup.get("execution_stream"), dict):
+                output["execution_stream"] = dict(setup["execution_stream"])
             outputs.append(output)
 
         print(
@@ -220,6 +223,10 @@ class TriggerEngine:
             str(setup.get("setup_family_id") or "").upper() in {"THREE_BAR_PULLBACK", "SECOND_PULLBACK"}
             and "execution_stream" in setup
         )
+        stream = setup.get("execution_stream")
+        if isinstance(stream, dict) and stream.get("stream_provenance") not in {"PRESENT", "COMPUTED"}:
+            reason = "execution_stream_" + str(stream.get("stream_provenance") or "MISSING").lower()
+            return False, reason, ["BLOCKED", "EXECUTION_STREAM_UNAVAILABLE"], {"execution_stream": stream}
         if last_close is None and not execution_stream_pullback:
             flags.append("MISSING_LAST_CLOSE")
             return False, "last_close_missing", flags, None

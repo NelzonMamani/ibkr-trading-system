@@ -71,11 +71,12 @@ def test_pre_candidate_pre_activation_is_observable_and_can_promote_breakout_tri
     )
 
     out = capsys.readouterr().out
-    assert intents
-    assert intents[0].trigger_ready is True
+    assert intents == []
+    assert strategy.last_symbol_terminal_outcomes["PREX"]["reason"] == "missing_selected_setup_contract"
+    assert strategy.last_symbol_terminal_outcomes["PREX"]["trigger_ready_now"] is True
     assert "[ROSS][PRE_ACTIVATION] symbol=PREX" in out
     assert "[ROSS][PRE_TRIGGER_PROMOTION] symbol=PREX reason=PRE_ACTIVATION_BREAKOUT" in out
-    assert "[ROSS][INTENT_GENERATED] symbol=PREX" in out
+    assert "[ROSS][INTENT_GENERATED] symbol=PREX" not in out
 
 
 def test_registry_marks_session_incompatible_patterns_as_skipped(monkeypatch) -> None:

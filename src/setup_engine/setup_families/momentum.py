@@ -88,7 +88,7 @@ class MicroPullbackPattern(PatternBase):
             "Impulse, controlled 1-3 bar pullback, and continuation close back through pullback highs.\n"
             f"Impulse gain={impulse_gain:.2f}, pullback depth={depth:.2%}, close={trigger.close:.2f}, EMA9={ema9:.2f}."
         )
-        return self._detected(
+        result = self._detected(
             inputs,
             direction=Direction.LONG,
             confidence=confidence,
@@ -97,6 +97,12 @@ class MicroPullbackPattern(PatternBase):
             stop_suggestion="Below pullback low",
             target_suggestion="Prior high / HOD",
             setup_quality_tags=tags,
+        )
+
+        return replace(
+            result, setup_family_id="MICRO_PULLBACK",
+            trigger_level=float(pullback_high), stop_level=float(pullback_low),
+            invalidation_level=float(pullback_low),
         )
 
 

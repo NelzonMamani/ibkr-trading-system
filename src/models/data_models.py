@@ -128,6 +128,7 @@ class TradeIntent:
     setup_family_id: Optional[str] = None
     trigger_id: Optional[str] = None
     execution_refinement_mode: Optional[str] = None
+    target_model: Optional[str] = None  # Descriptive setup target, not a broker limit price.
 
     def __post_init__(self) -> None:
         if not self.symbol:

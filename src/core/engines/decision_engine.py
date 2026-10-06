@@ -13,6 +13,7 @@ class DecisionEngine:
 
     _SETUP_FAMILY_ALIASES: dict[str, str] = {
         "P_GAP_GO": "GAP_GO",
+        "P_CONSOLIDATION_BREAK": "CONSOLIDATION_BREAKOUT",
         **_PREMARKET_HIGH_BREAK_ALIASES,
         "P_HOD_BREAK": "HOD_BREAK",
         "P_FIRST_PULLBACK": "FIRST_PULLBACK",

@@ -182,7 +182,9 @@ def _inputs(state: str = "ready", *, now: datetime | None = None, omit_timeframe
 def _detected_three(state: str = "ready") -> PatternResult:
     result = ThreeBarPullbackPattern().evaluate(_inputs(state))
     assert result.detected is True
-    return result
+    # Explicit offline target for downstream intent/capacity fixtures.
+    # The production detector itself currently supplies no target model.
+    return replace(result, target_suggestion="OFFLINE_FIXTURE_TARGET")
 
 def _detected_pullback(pattern_id: str = "P_THREE_BAR_PULLBACK") -> PatternResult:
     setup_family_id = "THREE_BAR_PULLBACK" if pattern_id == "P_THREE_BAR_PULLBACK" else "SECOND_PULLBACK"
@@ -543,7 +545,7 @@ def test_canonical_pattern_adapter_rejects_incomplete_trigger_contract() -> None
 
     assert strategy._canonical_pattern_trigger_candidates([result], symbol="UPC", existing_triggers=[]) == []
 
-def test_natural_three_bar_pullback_ready_trigger_reaches_readonly_intent(monkeypatch: pytest.MonkeyPatch, tmp_path, capsys) -> None:
+def test_offline_three_bar_pullback_supplied_target_reaches_readonly_intent(monkeypatch: pytest.MonkeyPatch, tmp_path, capsys) -> None:
     strategy = _base_strategy(monkeypatch, tmp_path, state="ready")
     strategy._pattern_registry = FakeRegistry([_detected_three("ready")])
 
@@ -887,7 +889,7 @@ def test_trade_structure_block_preserves_fired_trigger(
         payload = dict(selected_trigger)
         payload.update(
             trigger_price_reference=entry, trigger_level=entry,
-            invalidation_price_reference=stop, invalidation_level=stop, stop_level=stop,
+            invalidation_price_reference=stop, invalidation_level=stop, stop_level=stop, stop_price_reference=stop,
         )
         return build_trade(pattern, inputs, selected_trigger=payload, rejection_reasons=rejection_reasons)
 
@@ -939,7 +941,7 @@ def test_trade_structure_mixed_cycle_preserves_valid_intent_without_broker_mutat
         assert selected_trigger["trigger_ready_now"] is True
         payload = dict(selected_trigger)
         if inputs.symbol == "BBB":
-            payload.update(invalidation_price_reference=20.0, invalidation_level=20.0, stop_level=20.0)
+            payload.update(stop_price_reference=20.0, invalidation_price_reference=20.0, invalidation_level=20.0, stop_level=20.0)
         return build_trade(pattern, inputs, selected_trigger=payload, rejection_reasons=rejection_reasons)
 
     monkeypatch.setattr(strategy, "_build_trade_from_pattern", _build_with_invalid_b)

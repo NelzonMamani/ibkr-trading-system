@@ -154,7 +154,7 @@ def test_pattern_registry_or_setup_engine_produces_setup(monkeypatch, tmp_path, 
     assert "[ROSS][SETUP] symbol=TEST source=setup_engine" in out
 
 
-def test_trigger_fired_generates_trade_intent(monkeypatch, tmp_path, capsys) -> None:
+def test_trigger_without_selected_contract_blocks_trade_intent(monkeypatch, tmp_path, capsys) -> None:
     strategy = _base_strategy(monkeypatch, tmp_path)
 
     intents = strategy.process_watchlist(
@@ -167,10 +167,10 @@ def test_trigger_fired_generates_trade_intent(monkeypatch, tmp_path, capsys) -> 
     )
 
     out = capsys.readouterr().out
-    assert intents
-    assert intents[0].trigger_ready is True
-    assert "TRADE_INTENT symbol=TEST" in out
-    assert "[ROSS][INTENT_GENERATED] symbol=TEST" in out
+    assert intents == []
+    assert strategy.last_symbol_terminal_outcomes["TEST"]["reason"] == "missing_selected_setup_contract"
+    assert strategy.last_symbol_terminal_outcomes["TEST"]["trigger_ready_now"] is True
+    assert "[ROSS][INTENT_GENERATED] symbol=TEST" not in out
 
 
 def test_no_silent_drop_after_context(monkeypatch, tmp_path, capsys) -> None:
@@ -191,8 +191,10 @@ def test_no_silent_drop_after_context(monkeypatch, tmp_path, capsys) -> None:
     out = capsys.readouterr().out
     assert "[ROSS][EVAL_CONTEXT] symbol=TEST" in out
     assert "[ROSS][SETUP] symbol=TEST source=setup_engine" in out
-    assert "[ROSS][INTENT_GENERATED] symbol=TEST" in out
-    assert intents
+    assert "[ROSS][INTENT_GENERATED] symbol=TEST" not in out
+    assert intents == []
+    assert strategy.last_symbol_terminal_outcomes["TEST"]["reason"] == "missing_selected_setup_contract"
+    assert strategy.last_symbol_terminal_outcomes["TEST"]["trigger_ready_now"] is True
 
 
 def test_data_block_does_not_force_intent(monkeypatch, tmp_path, capsys) -> None:
