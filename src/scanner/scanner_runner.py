@@ -1758,10 +1758,10 @@ def _focus_gate_checks(
     volume_ok = volume is not None and volume > 0
     if session in {"PRE", "OVN"}:
         volume_ok = volume is not None and volume >= thresholds.min_premarket_volume
-    elif session == "RTH_OPEN":
-        volume_ok = volume is not None and volume >= thresholds.focus_volume_min_early_rth
     else:
-        volume_ok = volume is not None and volume >= thresholds.focus_volume_min
+        # Diagnostic checks must use the same session floor as the focus evaluator.
+        volume_threshold, _ = _focus_volume_threshold_for_session(session, thresholds)
+        volume_ok = volume is not None and volume >= volume_threshold
 
     dollar_volume_ok = True
     if thresholds.min_dollar_volume is not None:
@@ -2703,6 +2703,10 @@ def _news_symbol_metadata_for_contexts(contexts: Iterable[Dict[str, Any]]) -> Di
         "contractDescription",
         "description",
         "name",
+        "aliases", "alias", "company_aliases", "issuer_aliases",
+        "exchange", "primary_exchange", "primaryExchange", "local_symbol", "localSymbol",
+        "trading_class", "tradingClass", "currency", "instrument_type", "secType",
+        "con_id", "conId", "isin", "figi", "cik", "lei",
     )
     metadata_by_symbol: Dict[str, Dict[str, Any]] = {}
     for context in contexts:
@@ -2714,6 +2718,15 @@ def _news_symbol_metadata_for_contexts(contexts: Iterable[Dict[str, Any]]) -> Di
             for key in metadata_keys
             if _metadata_value_from_context(context, key)
         }
+        for key in ("con_id", "conId"):
+            if key in values:
+                value = values[key]
+                if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+                    continue
+                if isinstance(value, str) and value.isascii() and value.isdigit() and int(value) > 0:
+                    values[key] = int(value)
+                else:
+                    values.pop(key)
         if values:
             metadata_by_symbol[symbol] = values
     return metadata_by_symbol
@@ -2872,12 +2885,12 @@ def _news_candidates_for_symbols(
     candidates: list[NewsCandidate] = []
     for symbol in _dedupe_sorted_symbols(symbols):
         metadata = dict(metadata_by_symbol.get(symbol, {}) or {})
-        aliases_raw = metadata.get("aliases") or metadata.get("alias") or ()
+        aliases_raw = metadata.get("aliases") or metadata.get("alias") or metadata.get("company_aliases") or metadata.get("issuer_aliases") or ()
         if isinstance(aliases_raw, str):
             aliases = (aliases_raw,)
         else:
             try:
-                aliases = tuple(str(item) for item in aliases_raw if item)
+                aliases = tuple(item for item in aliases_raw if isinstance(item, str) and item.strip()) if isinstance(aliases_raw, (list, tuple)) else ()
             except TypeError:
                 aliases = ()
         company_name = _first_metadata_value(
@@ -2904,6 +2917,7 @@ def _news_candidates_for_symbols(
                 symbol=symbol,
                 company_name=company_name,
                 aliases=aliases,
+                exchange=_first_metadata_value(metadata, ("exchange", "primary_exchange", "primaryExchange")),
                 price=_safe_float(metadata.get("last_price"), None),
                 gap_pct=_safe_float(metadata.get("gap_pct") or metadata.get("pct_change"), None),
                 percentage_move=_safe_float(metadata.get("pct_change"), None),
@@ -4366,6 +4380,10 @@ def _build_symbol_context(
         "primary_exchange": primary_exchange,
         "trading_class": trading_class,
         "local_symbol": local_symbol,
+        # Preserve only supplied identity facts; security IDs are not issuer names.
+        **{key: scan_detail[key] for key in (
+            "aliases", "alias", "company_aliases", "issuer_aliases", "isin", "figi", "cik", "lei",
+        ) if key in scan_detail},
         "company_name": scan_detail.get("company_name") or scan_detail.get("companyName"),
         "issuer_name": scan_detail.get("issuer_name") or scan_detail.get("issuerName"),
         "security_name": scan_detail.get("security_name") or scan_detail.get("securityName"),
