@@ -805,7 +805,7 @@ def test_late_milestone_fill_prevents_unsent_retry_or_retries_failed_cancel(disp
         assert calls==[]
 
 
-@pytest.mark.parametrize("liquidity",[0,2])
+@pytest.mark.parametrize("liquidity",[0,2,"expired","retry"])
 def test_completed_sim_partial_attempt_reconciles_without_future_callbacks(monkeypatch,liquidity):
     from types import SimpleNamespace
     from datetime import datetime,timezone
@@ -831,13 +831,19 @@ def test_completed_sim_partial_attempt_reconciles_without_future_callbacks(monke
             order_type="MKT",trader_type="MOMENTUM",strategy_name="RossMomentumStrategyV1",stop_loss_price=1.,relationship_context=context)
         # Use the real deterministic liquidity implementation, with its gateway accepted.
         broker=engine._provider.broker if hasattr(engine._provider,"broker") else engine._provider._broker
-        monkeypatch.setattr(broker,"place_order",lambda req: broker._execute_liquidity(req,0))
+        if isinstance(liquidity,str):
+            request=__import__('dataclasses').replace(request,attempt_number=99 if liquidity=="expired" else 1)
+            monkeypatch.setattr(broker,"place_order",lambda req: broker._on_soft_reject(req,0))
+        else:
+            monkeypatch.setattr(broker,"place_order",lambda req: broker._execute_liquidity(req,0))
         releases=[]
         engine._release_capital_for_order=lambda *a,**kw: releases.append("capital")
         engine._release_strategy_allocation_for_order=lambda *a,**kw: releases.append("strategy")
         result=engine._route_order(request)
-        assert result.status==("SIMULATED" if liquidity else "NOT_FILLED")
-        assert result.filled_quantity==liquidity and result.remaining_quantity==5-liquidity
+        expected_status={"expired":"EXPIRED","retry":"RETRY_SCHEDULED"}.get(liquidity,"SIMULATED" if liquidity else "NOT_FILLED")
+        expected_filled=liquidity if isinstance(liquidity,int) else 0
+        assert result.status==expected_status
+        assert result.filled_quantity==expected_filled and result.remaining_quantity==5-expected_filled
         harness=SimpleNamespace(run_mode=RunMode.SIM,trade_management_engine=manager,
             trade_registry=engine.trade_registry,execution_engine=engine)
         CoreOrchestrator._apply_execution_results_to_trade_management(harness,[result])
@@ -845,7 +851,7 @@ def test_completed_sim_partial_attempt_reconciles_without_future_callbacks(monke
         plan=manager._relationship_plans["partial-sim"]
         assert plan.entry_terminal and plan.reconciled
         assert sorted(releases)==["capital","strategy"]
-        if liquidity:
+        if expected_filled:
             assert plan.e0>plan.original_stop
             assert milestone_for_plan(manager,plan).quantity==1
         else:

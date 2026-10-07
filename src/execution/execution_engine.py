@@ -1391,7 +1391,11 @@ class ExecutionEngine:
                 attempt_number=request.attempt_number,
                 client_order_id=request.client_order_id,
             )
-        if context and not getattr(result, "ibkr_order_id", None) and str(result.status).upper() in {"FAILED", "BLOCKED", "EXPIRED", "RETRY_SCHEDULED"}:
+        from src.brokers.sim_broker import SimBroker
+        deterministic_result = (isinstance(self._provider, PaperExecutionProvider)
+            and isinstance(self._provider.broker, SimBroker)
+            and str(result.status).upper() in {"SIMULATED", "NOT_FILLED", "EXPIRED", "REJECTED", "BLOCKED", "FAILED", "RETRY_SCHEDULED"})
+        if context and not deterministic_result and not getattr(result, "ibkr_order_id", None) and str(result.status).upper() in {"FAILED", "BLOCKED", "EXPIRED", "RETRY_SCHEDULED"}:
             order = plan.orders[request.client_order_id]
             order["submission_uncertain_at"] = datetime.now(timezone.utc).isoformat()
             order["provider_status"] = result.status
@@ -1438,6 +1442,8 @@ class ExecutionEngine:
         else:
             print("[EXECUTION] LIVE broker order routed.")
         retry_enqueued = self._schedule_retry(request, result)
+        if context and deterministic_result and not retry_enqueued:
+            result.relationship_context = {**context, "deterministic_attempt_terminal": True}
         self._release_capital_for_terminal_result(
             request,
             result,
