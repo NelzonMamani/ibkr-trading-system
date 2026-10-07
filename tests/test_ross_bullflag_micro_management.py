@@ -356,7 +356,7 @@ def test_cached_late_fills_resize_one_stop_and_one_registry_position(monkeypatch
         order_type="MKT",trader_type="SCALPER",strategy_name="RossMomentumStrategyV1",stop_loss_price=9.,relationship_context=context)
     plan=manager._relationship_plans["r"];plan.orders["entry"].update(request=asdict(request),broker_order_id="17")
     provider=_ProviderStub();facts={"status":"Submitted","filled":1,"remaining":4,"avgFillPrice":10.}
-    provider.cached_order_update=lambda order_id: dict(facts)
+    provider.cached_order_update=lambda order_id: dict(facts) if str(order_id)=="17" else {}
     engine=ExecutionEngine.__new__(ExecutionEngine)
     engine.relationship_manager=manager;engine._provider=provider;engine.run_mode=RunMode.PAPER
     engine.post_fill_lifecycle=PostFillLifecycleEngine("PAPER",execution_provider=provider)
@@ -794,7 +794,8 @@ def test_late_milestone_fill_prevents_unsent_retry_or_retries_failed_cancel(disp
         assert calls==[]
 
 
-def test_completed_sim_partial_attempt_reconciles_without_future_callbacks(monkeypatch):
+@pytest.mark.parametrize("liquidity",[0,2])
+def test_completed_sim_partial_attempt_reconciles_without_future_callbacks(monkeypatch,liquidity):
     from types import SimpleNamespace
     from datetime import datetime,timezone
     from src.execution.execution_engine import ExecutionEngine
@@ -812,7 +813,7 @@ def test_completed_sim_partial_attempt_reconciles_without_future_callbacks(monke
     try:
         manager=TradeManagementEngine();engine=ExecutionEngine()
         engine.relationship_manager=manager
-        monkeypatch.setattr(LiquidityEngine,"available_liquidity",lambda **kw: 2)
+        monkeypatch.setattr(LiquidityEngine,"available_liquidity",lambda **kw: liquidity)
         context={"relationship_id":"partial-sim","action":"ENTRY","security_id":"conId:123",
             "parent_id":"p","child_id":"c","profile":"BULL_FLAG_MICRO_2R_V1"}
         request=BrokerOrderRequest(client_order_id="sim-entry",symbol="FIXTURE",direction="LONG",quantity=5,
@@ -824,18 +825,72 @@ def test_completed_sim_partial_attempt_reconciles_without_future_callbacks(monke
         engine._release_capital_for_order=lambda *a,**kw: releases.append("capital")
         engine._release_strategy_allocation_for_order=lambda *a,**kw: releases.append("strategy")
         result=engine._route_order(request)
-        assert result.status=="SIMULATED" and result.filled_quantity==2 and result.remaining_quantity==3
+        assert result.status==("SIMULATED" if liquidity else "NOT_FILLED")
+        assert result.filled_quantity==liquidity and result.remaining_quantity==5-liquidity
         harness=SimpleNamespace(run_mode=RunMode.SIM,trade_management_engine=manager,
             trade_registry=engine.trade_registry,execution_engine=engine)
         CoreOrchestrator._apply_execution_results_to_trade_management(harness,[result])
         CoreOrchestrator._resolve_position_truth_cycle(harness,as_of=datetime.now(timezone.utc))
         plan=manager._relationship_plans["partial-sim"]
-        assert plan.entry_terminal and plan.reconciled and plan.e0>plan.original_stop
+        assert plan.entry_terminal and plan.reconciled
         assert sorted(releases)==["capital","strategy"]
-        assert milestone_for_plan(manager,plan).quantity==1
+        if liquidity:
+            assert plan.e0>plan.original_stop
+            assert milestone_for_plan(manager,plan).quantity==1
+        else:
+            assert plan.e0 is None and manager.snapshot_positions()=={}
     finally: set_config_overrides(None)
 
 
 def milestone_for_plan(manager,plan):
     position=manager.snapshot_positions()[plan.symbol];position.current_price=plan.milestone_price
     return manager._relationship_milestone(position)
+
+
+def test_protective_stop_callbacks_close_all_canonical_accounting_once():
+    from types import SimpleNamespace
+    from src.execution.execution_engine import ExecutionEngine
+    from src.core.orchestrator import CoreOrchestrator
+    from src.core.active_trade_registry import ActiveTrade
+    from src.brokers.base_broker import BrokerOrderRequest
+    from src.config.config_resolver import set_config_overrides
+    set_config_overrides({"RUN_MODE":"PAPER","RUN_MODE_EFFECTIVE":"PAPER","EXECUTION_ENABLED":True,
+        "EXECUTION_ENABLED_EFFECTIVE":True,"IBKR_READONLY_ENABLED":False})
+    try:
+        manager,_=opened(4);plan=manager._relationship_plans["r"]
+        engine=ExecutionEngine();engine.relationship_manager=manager
+        request=BrokerOrderRequest(client_order_id="entry",symbol="FIXTURE",direction="LONG",quantity=4,
+            order_type="MKT",trader_type="MOMENTUM",strategy_name="RossMomentumStrategyV1",stop_loss_price=9.,
+            relationship_context={"relationship_id":"r","action":"ENTRY"})
+        plan.orders["entry"]["request"]=asdict(request)
+        engine.post_fill_lifecycle.activate_trade_management_after_fill(trade_id="entry",symbol="FIXTURE",side="LONG",
+            filled_qty=4,avg_fill_price=10.,strategy_id="RossMomentumStrategyV1",stop_loss_price=9.,preserve_selected_protection=True)
+        life=engine.post_fill_lifecycle.get_trade("entry")
+        plan.protection_trade_id="entry";plan.protection_broker_order_id=life.stop.broker_order_id
+        engine.trade_registry.register_trade(ActiveTrade(symbol="FIXTURE",trader_type="MOMENTUM",entry_tick=0,
+            entry_price=10.,direction="LONG",quantity=4,strategy_name="RossMomentumStrategyV1",stop_loss_price=9.))
+        engine._convert_capital_for_fill(request,filled_quantity=4,fill_price=10.)
+        engine._convert_strategy_allocation_for_fill(request,filled_quantity=4,fill_price=10.)
+        facts={"status":"Submitted","filled":1,"remaining":3,"avgFillPrice":9.}
+        engine._provider.cached_order_update=lambda order_id: dict(facts) if str(order_id)=="17" else {} if str(order_id)==str(plan.protection_broker_order_id) else {}
+        modifications=[];engine._provider.modify_stop_order=lambda **kw: modifications.append(kw)
+        manager._stop_update_callback=engine.post_fill_lifecycle.replace_stop
+        def drain():
+            result=engine.collect_relationship_updates()
+            CoreOrchestrator._apply_execution_results_to_trade_management(SimpleNamespace(trade_management_engine=manager),result)
+            return result
+        assert len(drain())==1
+        assert manager.snapshot_positions()["FIXTURE"].quantity==3
+        assert engine.trade_registry.snapshot()[0].quantity==3 and life.filled_qty==3
+        assert engine.capital_authority.symbol_exposure("FIXTURE")==pytest.approx(30.)
+        assert modifications==[] and not plan.milestone_consumed
+        assert drain()==[]
+        facts.update(status="Filled",filled=4,remaining=0)
+        assert len(drain())==1
+        assert manager.snapshot_positions()=={} and engine.trade_registry.snapshot()==[]
+        assert engine.capital_authority.symbol_exposure("FIXTURE")==pytest.approx(0.)
+        assert engine.strategy_allocation_authority.strategy_used_exposure("RossMomentumStrategyV1")==pytest.approx(0.)
+        assert life.filled_qty==0 and life.state.value=="EXITED" and plan.pending_stop_cancel is None
+        assert drain()==[]
+        assert manager.reconcile_relationship("r",confirmed_quantity=0,pending_orders={},complete=True)
+    finally: set_config_overrides(None)

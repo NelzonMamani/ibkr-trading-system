@@ -479,7 +479,8 @@ class TradeManagementEngine:
                 price=delta_price, exec_id=f"{relationship_id}:{order_id}:{total}",
                 strategy_name="RossMomentumStrategyV1", setup_family="BULL_FLAG",
                 stop_loss_price=plan.original_stop, reference_order_id=plan.initial_order_id,
-                target_model="BULL_FLAG_MICRO_2R_V1")
+                target_model="BULL_FLAG_MICRO_2R_V1",
+                apply_partial_management=not bool(order.get("request", {}).get("relationship_context", {}).get("protective_stop_fill")))
             if position is not None:
                 position.relationship_id = relationship_id
                 position.reference_order_id = plan.protection_trade_id or plan.initial_order_id
@@ -574,6 +575,7 @@ class TradeManagementEngine:
         stop_loss_price: float | None = None, take_profit_price: float | None = None,
         reference_order_id: str | None = None,
         target_model: str | None = None,
+        apply_partial_management: bool = True,
     ) -> PositionState | None:
         normalized = str(symbol or "").upper()
         if not normalized or shares == 0 or price <= 0:
@@ -642,13 +644,14 @@ class TradeManagementEngine:
                 self._pending_exit.discard(normalized)
                 print(f"[POSITION][CLOSED] symbol={normalized}")
                 return None
-            position.partial_taken = True
             position.current_price = float(price)
-            self._apply_authorized_stop_update(
-                position,
-                proposed_stop_price=max(position.stop_loss_price, position.break_even_price),
-                reason="confirmed_partial_break_even",
-            )
+            if apply_partial_management:
+                position.partial_taken = True
+                self._apply_authorized_stop_update(
+                    position,
+                    proposed_stop_price=max(position.stop_loss_price, position.break_even_price),
+                    reason="confirmed_partial_break_even",
+                )
             position.exit_stage = "PARTIAL"
             print(f"[POSITION][PARTIAL_EXIT] symbol={normalized} qty_remaining={position.quantity}")
 

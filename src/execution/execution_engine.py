@@ -5,6 +5,7 @@ Execution engine that routes through a broker adapter with deterministic retry s
 import hashlib
 import os
 import time
+import math
 import uuid
 from datetime import datetime, timezone
 from typing import List, Optional
@@ -1699,8 +1700,12 @@ class ExecutionEngine:
         if direction_upper == "SELL" and plan is not None and existing_protection is not None:
             self.post_fill_lifecycle.record_exit_fill(trade_id=protection_id, fill_price=fill_price,
                 fill_time=datetime.now(timezone.utc).isoformat(), actual_qty=filled_quantity,
-                exit_order_id=request.client_order_id, reason="relationship_reduction")
-            if existing_protection.filled_qty > 0:
+                exit_order_id=request.client_order_id,
+                reason="STOP_LOSS" if context.get("protective_stop_fill") else "relationship_reduction")
+            if context.get("protective_stop_fill"):
+                # This stop is already executing; do not resize/cancel its own fill.
+                existing_protection.stop.status = str(result.status)
+            elif existing_protection.filled_qty > 0:
                 resized = self.post_fill_lifecycle.update_selected_exposure(trade_id=protection_id,
                     filled_qty=existing_protection.filled_qty, avg_fill_price=existing_protection.avg_fill_price)
                 self._failsafe_block_new_entries = self._failsafe_block_new_entries or not resized["success"]
@@ -1768,6 +1773,35 @@ class ExecutionEngine:
                 )
             self._record_order_stage(request.client_order_id, "EXIT")
 
+    def _retain_relationship_stop_fill(self, plan, reader) -> None:
+        """Project known protection callbacks into the existing cumulative fill route."""
+        broker_id = plan.protection_broker_order_id
+        if not broker_id:
+            return
+        facts = reader(broker_id)
+        if not facts or "filled" not in facts or "remaining" not in facts:
+            return
+        filled, remaining = int(facts["filled"]), int(facts["remaining"])
+        price = self._float_or_none(facts.get("avgFillPrice"))
+        if filled <= 0 or remaining < 0 or price is None or not math.isfinite(price) or price <= 0:
+            return
+        order_id = f"{plan.relationship_id}:stop:{broker_id}"
+        if order_id not in plan.orders:
+            from dataclasses import asdict
+            initial = plan.orders[plan.initial_order_id].get("request", {})
+            context = {"relationship_id": plan.relationship_id, "action": "EXIT", "protective_stop_fill": True}
+            request = BrokerOrderRequest(client_order_id=order_id, symbol=plan.symbol, direction="SELL",
+                quantity=filled + remaining, order_type="STP", trader_type=initial.get("trader_type"),
+                strategy_name=initial.get("strategy_name"), relationship_context=context)
+            plan.orders[order_id] = {"action": "EXIT", "requested": filled + remaining,
+                "filled": 0, "notional": 0.0, "terminal": False,
+                "broker_order_id": str(broker_id), "request": asdict(request)}
+        else:
+            # A still-working stop may have been resized for confirmed additions.
+            order = plan.orders[order_id]
+            order["requested"] = max(order["requested"], filled + remaining)
+        self.relationship_manager._save_relationship_state()
+
     def collect_relationship_updates(self) -> list[ExecutionResult]:
         """Drain existing client callback facts on the execution thread; no requests."""
         manager = getattr(self, "relationship_manager", None)
@@ -1785,6 +1819,7 @@ class ExecutionEngine:
             return []
         results = []
         for plan in manager._relationship_plans.values():
+            self._retain_relationship_stop_fill(plan, reader)
             for order_id, order in plan.orders.items():
                 if order.get("release_reservation") and order.get("request"):
                     request = BrokerOrderRequest(**order["request"])

@@ -2840,7 +2840,7 @@ class CoreOrchestrator:
                         cumulative_quantity=int(getattr(result, "filled_quantity", 0) or 0),
                         average_price=getattr(result, "average_fill_price", None) or getattr(result, "entry_price", None),
                         terminal=(status in {"FILLED", "CANCELLED", "CANCELED", "REJECTED", "INACTIVE"}
-                            or (status == "SIMULATED" and not bool(getattr(result, "retry_scheduled", False)))), status=status)
+                            or (status in {"SIMULATED", "NOT_FILLED"} and not bool(getattr(result, "retry_scheduled", False)))), status=status)
                 continue
             filled_qty = int(getattr(result, "filled_quantity", 0) or 0)
             if filled_qty <= 0:
