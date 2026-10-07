@@ -522,6 +522,11 @@ class RiskEngine:
         execution_enabled = bool(get_config("EXECUTION_ENABLED_EFFECTIVE"))
         decision_id = getattr(trade_intent, "decision_id", None)
         risk_profile = self._resolve_risk_profile()
+        relationship_manager = getattr(self, "relationship_manager", None)
+        existing_relationship_trade = self.trade_registry.get_trade(trade_intent.symbol, trade_intent.trader_type)
+        relationship_scaling = bool(relationship_manager and relationship_manager.is_relationship_add(trade_intent)
+            and existing_relationship_trade and existing_relationship_trade.strategy_name == trade_intent.strategy_name
+            and existing_relationship_trade.quantity == relationship_manager.snapshot_positions()[trade_intent.symbol].quantity)
         session_label, active_sessions, session_blocked = self._session_gate(run_mode)
         open_positions = self.trade_registry.count_active()
         max_open_positions = int(get_config("RISK_MAX_OPEN_POSITIONS"))
@@ -818,7 +823,7 @@ class RiskEngine:
                 timestamp=timestamp,
             )
             return self._finalize_decision(decision, decision_id)
-        if open_positions >= max_open_positions:
+        if open_positions >= max_open_positions and not relationship_scaling:
             rationale = "Max open positions reached; blocking intent."
             decision = RiskDecision(
                 symbol=trade_intent.symbol,
@@ -1081,7 +1086,7 @@ class RiskEngine:
         strategy_limit = self.strategy_limits.get(trader_type)
         if strategy_limit:
             max_trades = strategy_limit.get("max_trades", 0)
-            if current_active >= max_trades:
+            if current_active >= max_trades and not relationship_scaling:
                 print(
                     f"[RISK:STRATEGY] {trader_type} active={current_active} max={max_trades} "
                     "→ BLOCKED (limit reached)"
@@ -1288,7 +1293,8 @@ class RiskEngine:
         if context:
             manager = getattr(self, "relationship_manager", None)
             quantity = (manager.risk_quantity(trade_intent, quantity_cap=max_position_size,
-                         value_cap=max_position_value) if manager is not None else 0)
+                         value_cap=max_position_value, risk_cap=max_risk_per_trade, max_adds=risk_profile.max_adds,
+                         incremental_value_cap=max(0.0, total_exposure_limit - total_exposure)) if manager is not None else 0)
             if quantity <= 0:
                 decision.allowed = False
                 decision.execution_blocked = True

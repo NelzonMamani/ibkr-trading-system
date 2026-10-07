@@ -523,3 +523,76 @@ def test_provider_failure_retains_context_then_releases_only_reconciled_reservat
         assert engine.collect_relationship_updates()==[]
         assert len(releases)==2
     finally: set_config_overrides(None)
+
+
+def test_composed_route_never_falls_back_to_unpaired_standalone_breakout():
+    from dataclasses import replace
+    from datetime import datetime,timezone,timedelta
+    from test_bull_flag_pipeline_end_to_end import _inputs
+    from src.setup_engine.setup_families.bull_flag import BullFlagPattern
+    base=_inputs();start=datetime(2026,9,16,14,27,tzinfo=timezone.utc)
+    bars=[replace(c,timestamp=start+timedelta(minutes=i)) for i,c in enumerate(base.candles)]
+    inputs=replace(base,candles=bars,session_label="RTH_OPEN",timeframe_candles={"1m":bars},timeframe_provenance={"1m":"PRESENT"})
+    pattern=BullFlagPattern();assert pattern.evaluate(inputs).detected
+    assert not TradeManagementEngine().compose_bull_flag(pattern,inputs,security_id="conId:1",now=start+timedelta(minutes=10)).detected
+    assert not TradeManagementEngine().compose_bull_flag(pattern,inputs,security_id="",now=start+timedelta(minutes=10)).detected
+
+
+def test_failed_cancel_is_retryable_without_duplicate_exit():
+    from src.strategies.ross_momentum.exit_intelligence import ExitDecision
+    manager,_=opened(8);reduction=milestone(manager);order=manager._relationship_plans["r"].orders[reduction.management_action_id]
+    order["broker_order_id"]="offline-reduce"
+    calls=[]
+    def cancel(**kw):
+        calls.append(kw)
+        if len(calls)==1: raise RuntimeError("offline disconnected")
+        return {"status":"PendingCancel"}
+    manager._cancel_order_callback=cancel
+    position=manager.snapshot_positions()["FIXTURE"];failure=ExitDecision(action="EXIT_MARKET",reason="STOP_LOSS_BREAK")
+    assert manager._apply_exit_decision(position,failure) is None
+    assert not order.get("cancel_requested")
+    assert manager._apply_exit_decision(position,failure) is None
+    assert order["cancel_requested"] and not order["terminal"]
+    assert manager._apply_exit_decision(position,failure) is None
+    assert len(calls)==2
+
+
+def test_real_risk_scales_existing_relationship_without_counting_new_trade(monkeypatch):
+    from src.config.config_resolver import set_config_overrides
+    from src.risk.risk_engine import RiskEngine
+    from src.models.data_models import TradeIntent
+    from src.core.active_trade_registry import ActiveTrade
+    manager,_=opened(8)
+    monkeypatch.setenv("TRADING_DEFAULT_CAPITAL","10000")
+    set_config_overrides({"RUN_MODE":"SIM","RUN_MODE_EFFECTIVE":"SIM","EXECUTION_ENABLED":True,
+        "EXECUTION_ENABLED_EFFECTIVE":True,"IBKR_READONLY":False,"RISK_MAX_OPEN_POSITIONS":1})
+    try:
+        risk=RiskEngine();risk.relationship_manager=manager
+        # Isolated enlarged size only: production one-share default is untouched.
+        monkeypatch.setattr(risk,"_resolve_profile_size",lambda _:16)
+        risk.trade_registry.register_trade(ActiveTrade(symbol="FIXTURE",trader_type="MOMENTUM",entry_tick=1,
+            entry_price=10.,direction="LONG",quantity=8,strategy_name="RossMomentumStrategyV1",stop_loss_price=9.))
+        intent=TradeIntent(symbol="FIXTURE",direction="LONG",strategy_name="RossMomentumStrategyV1",confidence=.8,
+            rationale="synthetic fresh-child add",trader_type="MOMENTUM",decision_id="offline-add",
+            stop_loss_price=9.,gap_percent=9.2,rvol=10.,float_millions=8.,
+            relationship_context={"profile":"BULL_FLAG_MICRO_2R_V1","relationship_id":"r","action":"ADD",
+                "parent_id":"p","child_id":"fresh","security_id":"conId:123"})
+        intent.quantity=2
+        intent.entry_price=10.5
+        decision=risk.evaluate_trade_intent(intent)
+        assert decision.allowed, (decision.reason_code,decision.rationale)
+        assert decision.max_position_size==2
+        manager._relationship_plans["r"].add_count=2 # existing NORMAL profile is stricter than the relationship maximum of 3
+        assert not risk.evaluate_trade_intent(intent).allowed
+    finally: set_config_overrides(None)
+
+
+def test_add_risk_uses_aggregate_confirmed_exposure_and_existing_profile_limits():
+    from types import SimpleNamespace
+    manager,_=opened(8)
+    intent=SimpleNamespace(symbol="FIXTURE",entry_price=10.5,quantity=2,relationship_context={"profile":"BULL_FLAG_MICRO_2R_V1",
+        "action":"ADD","relationship_id":"r","parent_id":"p","child_id":"fresh","security_id":"conId:123"})
+    assert manager.risk_quantity(intent,quantity_cap=16,value_cap=1000,risk_cap=8)==0
+    assert manager.risk_quantity(intent,quantity_cap=16,value_cap=1000,risk_cap=10)==1
+    assert manager.risk_quantity(intent,quantity_cap=16,value_cap=1000,risk_cap=11)==2
+    assert manager.risk_quantity(intent,quantity_cap=16,value_cap=1000,risk_cap=11,incremental_value_cap=10)==0

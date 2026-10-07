@@ -186,9 +186,8 @@ class TradeManagementEngine:
         from src.setup_engine.setup_families.micro_pullback import MicroPullbackPattern
         from src.strategies.ross_momentum.patterns.setup_fidelity import blocking_input_reason
         from src.strategies.ross_momentum.strategy_policy import BULL_FLAG_MICRO_MANAGEMENT_PROFILE
-        standalone = pattern.evaluate(inputs)
         if not security_id:
-            return standalone
+            return pattern._rejected("relationship_security_unavailable", inputs)
         from src.core.engines.execution_mode_engine import ExecutionModeEngine
         block = ExecutionModeEngine().ross_exposure_block_reason(session_label=inputs.session_label,
             rvol=inputs.liquidity_context.rvol, spread=inputs.liquidity_context.spread)
@@ -241,7 +240,7 @@ class TradeManagementEngine:
             self._parents[key] = parent
             self._save_relationship_state()
         if parent is None:
-            return standalone
+            return pattern._rejected("relationship_parent_unavailable", inputs)
         if (inputs.timeframe_provenance.get(refinement) != "PRESENT"
                 or not closed(streams.get(refinement), refinement)
                 or blocking_input_reason(inputs, "P_MICRO_PULLBACK")
@@ -300,7 +299,17 @@ class TradeManagementEngine:
         self._save_relationship_state()
         return True
 
-    def risk_quantity(self, intent, *, quantity_cap: int, value_cap: float) -> int:
+    def is_relationship_add(self, intent) -> bool:
+        context = getattr(intent, "relationship_context", None) or {}
+        plan = self._relationship_plans.get(context.get("relationship_id"))
+        position = self._positions.get(intent.symbol)
+        return bool(context.get("profile") == "BULL_FLAG_MICRO_2R_V1" and context.get("action") == "ADD"
+            and plan and position and position.quantity > 0 and position.relationship_id == plan.relationship_id
+            and (plan.symbol, plan.security_id, plan.parent_id) == (intent.symbol, context.get("security_id"), context.get("parent_id")))
+
+    def risk_quantity(self, intent, *, quantity_cap: int, value_cap: float,
+                      risk_cap: float | None = None, max_adds: int | None = None,
+                      incremental_value_cap: float | None = None) -> int:
         context = intent.relationship_context
         if context.get("profile") != "BULL_FLAG_MICRO_2R_V1" or context.get("warning"):
             return 0
@@ -316,10 +325,25 @@ class TradeManagementEngine:
             return 0
         requested = int(getattr(intent, "quantity", 1) or 0)
         if context["action"] == "ADD":
+            if not self.is_relationship_add(intent):
+                return 0
+            if max_adds is not None and self._relationship_plans[context["relationship_id"]].add_count >= max_adds:
+                return 0
             requested = min(requested, self.relationship_add_quantity(context["relationship_id"],
                 price=price, warning=False, parent_valid=True, child_id=context["child_id"]))
         elif confirmed:
             return 0
+        if incremental_value_cap is not None:
+            requested = min(requested, max(0, int(incremental_value_cap // price)))
+        if risk_cap is not None:
+            stop = float(position.stop_loss_price if position else intent.stop_loss_price)
+            if not math.isfinite(stop) or stop <= 0:
+                return 0
+            existing_risk = max(0.0, position.entry_price - stop) * confirmed if position else 0.0
+            incremental_risk = max(0.0, price - stop)
+            if risk_cap < existing_risk or incremental_risk <= 0:
+                return 0
+            requested = min(requested, int((risk_cap - existing_risk) // incremental_risk))
         return max(0, min(requested, quantity_cap - confirmed - pending,
                           int(value_cap // price) - confirmed - pending))
 
@@ -822,7 +846,14 @@ class TradeManagementEngine:
                     if order["action"] != "EXIT" and not order.get("cancel_requested") and order.get("broker_order_id") and self._cancel_order_callback:
                         order["cancel_requested"] = True
                         self._save_relationship_state()
-                        self._cancel_order_callback(broker_order_id=order["broker_order_id"])
+                        try:
+                            self._cancel_order_callback(broker_order_id=order["broker_order_id"])
+                        except Exception as exc:
+                            # Cancel is idempotent, but dispatch failure is not
+                            # terminal proof. Keep the reservation and retry later.
+                            order["cancel_requested"] = False
+                            order["cancel_error"] = type(exc).__name__
+                            self._save_relationship_state()
                 return None
             if not plan.reconciled:
                 return None
