@@ -2970,6 +2970,10 @@ class CoreOrchestrator:
             return self._latest_position_truth_verdict
 
         broker_required = self.run_mode in {RunMode.PAPER, RunMode.LIVE, RunMode.READ_ONLY}
+        relationship_manager = getattr(self, "trade_management_engine", None)
+        if relationship_manager is not None and relationship_manager._relationship_plans:
+            self.execution_engine.refresh_relationship_order_snapshot()
+            as_of = max(as_of, datetime.now(timezone.utc))
         broker_positions = collect_broker_position_snapshot(
             self.connection_manager.optional_client,
             as_of=as_of,

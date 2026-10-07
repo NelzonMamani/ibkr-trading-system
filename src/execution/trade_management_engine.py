@@ -63,6 +63,7 @@ class BullFlagMicroPlan:
     milestone_consumed: bool = False
     protection_trade_id: str | None = None
     protection_broker_order_id: str | None = None
+    pending_stop_cancel: str | None = None
     add_count: int = 0
     consumed_children: list[str] = field(default_factory=list)
     orders: dict = field(default_factory=dict)
@@ -452,11 +453,16 @@ class TradeManagementEngine:
         plan = self._relationship_plans[relationship_id]
         order = plan.orders[order_id]
         total = int(cumulative_quantity)
+        if order["terminal"] and not terminal and 0 <= total <= order["filled"]:
+            return  # late nonterminal snapshots cannot reopen confirmed terminal truth
         if total < order["filled"] or total > order["requested"]:
             plan.paused = True
             self._save_relationship_state()
             return
         delta = total - order["filled"]
+        if order["terminal"] and not terminal:
+            terminal = True  # late fill facts still count; terminal state is monotonic
+            status = order.get("status", status)
         if delta:
             if average_price is None or not math.isfinite(average_price) or average_price <= 0:
                 plan.paused = True

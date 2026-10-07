@@ -222,6 +222,8 @@ class ExecutionEngine:
         if self._provider is not None:
             try:
                 broker_orders = list(self._provider.get_open_orders() or [])
+                self._relationship_open_orders = broker_orders
+                self._relationship_orders_asof = datetime.now(timezone.utc)
             except Exception as exc:
                 if self.run_mode == RunMode.LIVE:
                     self._mark_capital_recovery_failed(f"CAPITAL_OPEN_ORDER_RECOVERY_FAILED:{exc}")
@@ -580,6 +582,39 @@ class ExecutionEngine:
             return float(value)
         except (TypeError, ValueError):
             return None
+
+    def refresh_relationship_order_snapshot(self) -> None:
+        """Reuse fresh canonical orders, refreshing expired active-plan evidence."""
+        manager = getattr(self, "relationship_manager", None)
+        if manager is None or not manager._relationship_plans or self._provider is None:
+            return
+        plans = list(manager._relationship_plans.values())
+        if not manager.snapshot_positions() and not any(p.pending_stop_cancel or any(not o["terminal"] for o in p.orders.values()) for p in plans):
+            return
+        from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
+        now = datetime.now(timezone.utc)
+        stamp = getattr(self, "_relationship_orders_asof", None)
+        if stamp and 0 <= (now - stamp).total_seconds() <= get_ibkr_snapshot_max_age_seconds() and not any(p.pending_stop_cancel for p in plans):
+            return
+        self._relationship_orders_asof = None
+        try:
+            orders = list(self._provider.get_open_orders() or [])
+        except Exception:
+            return  # stale evidence cannot reconcile a restored plan
+        self._relationship_open_orders = orders
+        self._relationship_orders_asof = datetime.now(timezone.utc)
+        def read(row, key):
+            return row.get(key) if isinstance(row, dict) else getattr(row, key, None)
+        active_ids = {str(read(o, "order_id")) for o in orders
+                      if str(read(o, "status") or "").upper() not in {"CANCELLED", "CANCELED", "FILLED", "INACTIVE"}}
+        cleaned = False
+        for plan in plans:
+            if plan.pending_stop_cancel and plan.pending_stop_cancel not in active_ids:
+                plan.pending_stop_cancel = None
+                cleaned = True
+        if cleaned:
+            manager._save_relationship_state()
+            self._run_protection_reconciliation(open_orders=orders, reason="relationship_stop_cleanup")
 
     def _run_protection_reconciliation(self, *, open_orders: list[object] | None = None, reason: str = "runtime") -> None:
         if self._provider is None:
@@ -1642,8 +1677,17 @@ class ExecutionEngine:
                     filled_qty=existing_protection.filled_qty, avg_fill_price=existing_protection.avg_fill_price)
                 self._failsafe_block_new_entries = self._failsafe_block_new_entries or not resized["success"]
             elif existing_protection.stop and existing_protection.stop.broker_order_id and self._provider is not None:
-                cancelled = self._provider.cancel_order(broker_order_id=existing_protection.stop.broker_order_id)
-                existing_protection.stop.status = str(cancelled.get("status") or "UNKNOWN")
+                plan.pending_stop_cancel = str(existing_protection.stop.broker_order_id)
+                manager._save_relationship_state()
+                try:
+                    cancelled = self._provider.cancel_order(broker_order_id=plan.pending_stop_cancel)
+                    existing_protection.stop.status = str(cancelled.get("status") or "UNKNOWN")
+                except Exception:
+                    existing_protection.stop.status = "CANCEL_UNCONFIRMED"
+                    existing_protection.failure_flags.append("STOP_CANCEL_UNCONFIRMED")
+                    self._failsafe_block_new_entries = True
+                # Cleanup failure must never discard a confirmed exit fill.
+
 
         if plan is not None:
             # One registry projection from confirmed aggregate protection. Broker
@@ -1700,7 +1744,15 @@ class ExecutionEngine:
         """Drain existing client callback facts on the execution thread; no requests."""
         manager = getattr(self, "relationship_manager", None)
         reader = getattr(self._provider, "cached_order_update", None)
-        if manager is None or not callable(reader):
+        if manager is None:
+            return []
+        for plan in manager._relationship_plans.values():
+            if plan.pending_stop_cancel and self._provider is not None:
+                try:
+                    self._provider.cancel_order(broker_order_id=plan.pending_stop_cancel)
+                except Exception:
+                    self._failsafe_block_new_entries = True
+        if not callable(reader):
             return []
         results = []
         for plan in manager._relationship_plans.values():

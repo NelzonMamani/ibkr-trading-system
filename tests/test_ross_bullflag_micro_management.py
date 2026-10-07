@@ -401,6 +401,28 @@ def test_cached_late_fills_resize_one_stop_and_one_registry_position(monkeypatch
     engine._record_fill_and_position(sell,fill)
     CoreOrchestrator._apply_execution_results_to_trade_management(harness,[fill])
     assert [(t.trader_type,t.quantity) for t in engine.trade_registry.snapshot()]==[("SCALPER",2)]
+    manager.reconcile_relationship("r",confirmed_quantity=2,pending_orders={},complete=True)
+    closing=manager._emit_exit_intent(manager.snapshot_positions()["FIXTURE"],qty=2,rationale="STOP_LOSS_BREAK",exit_type="STOP",stage="FINAL")
+    close_request=BrokerOrderRequest(**{**asdict(sell),"client_order_id":closing.management_action_id})
+    def cancel_failure(**kw): raise RuntimeError("offline stop cancel failed")
+    provider.cancel_order=cancel_failure
+    close_fill=ExecutionResult(symbol="FIXTURE",trader_type="MANUAL",attempted=True,status="Filled",rationale="offline",
+        filled_quantity=2,remaining_quantity=0,average_fill_price=12.)
+    engine._record_fill_and_position(close_request,close_fill)
+    CoreOrchestrator._apply_execution_results_to_trade_management(harness,[close_fill])
+    assert engine.trade_registry.snapshot()==[]
+    assert manager.snapshot_positions()=={}
+    assert engine._failsafe_block_new_entries
+    assert plan.pending_stop_cancel
+    cleanup_calls=[]
+    provider.cancel_order=lambda **kw: cleanup_calls.append(kw) or {"status":"PendingCancel"}
+    provider.get_open_orders=lambda: []
+    assert engine.collect_relationship_updates()==[]
+    assert len(cleanup_calls)==1 and plan.pending_stop_cancel
+    engine.refresh_relationship_order_snapshot()
+    assert plan.pending_stop_cancel is None
+    assert not engine._failsafe_block_new_entries
+    assert manager.snapshot_positions()=={} and engine.trade_registry.snapshot()==[]
 
 
 def test_new_child_can_reenter_only_after_flat_and_same_child_stays_consumed():
@@ -596,3 +618,45 @@ def test_add_risk_uses_aggregate_confirmed_exposure_and_existing_profile_limits(
     assert manager.risk_quantity(intent,quantity_cap=16,value_cap=1000,risk_cap=10)==1
     assert manager.risk_quantity(intent,quantity_cap=16,value_cap=1000,risk_cap=11)==2
     assert manager.risk_quantity(intent,quantity_cap=16,value_cap=1000,risk_cap=11,incremental_value_cap=10)==0
+
+
+@pytest.mark.parametrize("late_quantity",[1,8])
+def test_late_nonterminal_status_cannot_reopen_reconciled_entry(late_quantity):
+    manager,_=opened(8);plan=manager._relationship_plans["r"]
+    manager.on_relationship_order_update(relationship_id="r",order_id="entry",cumulative_quantity=late_quantity,
+        average_price=10.,terminal=False,status="Submitted")
+    assert plan.entry_terminal and plan.orders["entry"]["terminal"] and plan.reconciled
+    assert milestone(manager).quantity==4
+
+
+def test_capital_recovery_reuses_order_snapshot_and_refreshes_expiry_without_new_trade():
+    from types import SimpleNamespace
+    from datetime import datetime,timezone,timedelta
+    from src.execution.execution_engine import ExecutionEngine
+    from src.execution.startup_recovery_authority import RecoveryState
+    from src.execution.post_fill_lifecycle_engine import PostFillLifecycleEngine
+    from src.core.orchestrator import CoreOrchestrator
+    from src.core.active_trade_registry import ActiveTradeRegistry,ActiveTrade
+    from src.config.runtime_config import RunMode
+    manager,_=opened(8);manager._relationship_plans["r"].reconciled=False
+    engine=ExecutionEngine.__new__(ExecutionEngine);engine.relationship_manager=manager
+    engine.run_mode=RunMode.PAPER;engine.startup_recovery_state=RecoveryState.RECOVERY_COMPLETE
+    engine._trade_lifecycle_engine=None;engine.post_fill_lifecycle=PostFillLifecycleEngine("READ_ONLY")
+    engine.strategy_allocation_authority=SimpleNamespace(recover_from_lifecycle=lambda _:None)
+    engine.capital_authority=SimpleNamespace(recover_from_lifecycle=lambda _:None,recover_from_open_orders=lambda _:None)
+    calls=[]
+    def orders(): calls.append(1); return []
+    engine._provider=SimpleNamespace(get_open_orders=orders)
+    engine._recover_capital_state()
+    assert engine._relationship_open_orders==[] and engine._relationship_orders_asof is not None
+    assert len(calls)==1
+    registry=ActiveTradeRegistry();registry.register_trade(ActiveTrade(symbol="FIXTURE",trader_type="MOMENTUM",entry_tick=1,
+        entry_price=10.,quantity=8,direction="LONG",strategy_name="RossMomentumStrategyV1",stop_loss_price=9.))
+    client=SimpleNamespace(positions=lambda:[SimpleNamespace(symbol="FIXTURE",quantity=8,con_id=123,avg_cost=10.)])
+    harness=SimpleNamespace(run_mode=RunMode.PAPER,trade_management_engine=manager,execution_engine=engine,
+        trade_registry=registry,connection_manager=SimpleNamespace(optional_client=client))
+    CoreOrchestrator._resolve_position_truth_cycle(harness,as_of=datetime.now(timezone.utc))
+    assert manager._relationship_plans["r"].reconciled and len(calls)==1
+    engine._relationship_orders_asof-=timedelta(days=1)
+    CoreOrchestrator._resolve_position_truth_cycle(harness,as_of=datetime.now(timezone.utc))
+    assert manager._relationship_plans["r"].reconciled and len(calls)==2
