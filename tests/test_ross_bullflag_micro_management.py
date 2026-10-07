@@ -872,7 +872,7 @@ def test_protective_stop_callbacks_close_all_canonical_accounting_once():
         engine._convert_capital_for_fill(request,filled_quantity=4,fill_price=10.)
         engine._convert_strategy_allocation_for_fill(request,filled_quantity=4,fill_price=10.)
         facts={"status":"Submitted","filled":1,"remaining":3,"avgFillPrice":9.}
-        engine._provider.cached_order_update=lambda order_id: dict(facts) if str(order_id)=="17" else {} if str(order_id)==str(plan.protection_broker_order_id) else {}
+        engine._provider.cached_order_update=lambda order_id: dict(facts) if str(order_id)==str(plan.protection_broker_order_id) else {}
         modifications=[];engine._provider.modify_stop_order=lambda **kw: modifications.append(kw)
         manager._stop_update_callback=engine.post_fill_lifecycle.replace_stop
         def drain():
@@ -894,3 +894,51 @@ def test_protective_stop_callbacks_close_all_canonical_accounting_once():
         assert drain()==[]
         assert manager.reconcile_relationship("r",confirmed_quantity=0,pending_orders={},complete=True)
     finally: set_config_overrides(None)
+
+
+def test_failed_stop_resize_blocks_exits_until_exact_quantity_confirmation():
+    from types import SimpleNamespace
+    from src.execution.execution_engine import ExecutionEngine
+    from src.execution.post_fill_lifecycle_engine import PostFillLifecycleEngine
+    from src.core.active_trade_registry import ActiveTradeRegistry
+    from src.core.orchestrator import CoreOrchestrator
+    from src.brokers.base_broker import BrokerOrderRequest
+    from src.models.execution_result import ExecutionResult
+    from src.config.runtime_config import RunMode
+    from test_post_fill_lifecycle_engine_v1 import _ProviderStub
+    manager,store=opened(8);plan=manager._relationship_plans["r"]
+    provider=_ProviderStub();engine=ExecutionEngine.__new__(ExecutionEngine)
+    engine.relationship_manager=manager;engine._provider=provider;engine.run_mode=RunMode.PAPER
+    engine.post_fill_lifecycle=PostFillLifecycleEngine("PAPER",execution_provider=provider)
+    engine.post_fill_lifecycle.activate_trade_management_after_fill(trade_id="entry",symbol="FIXTURE",side="LONG",
+        filled_qty=8,avg_fill_price=10.,strategy_id="RossMomentumStrategyV1",stop_loss_price=9.,preserve_selected_protection=True)
+    plan.protection_trade_id="entry";plan.protection_broker_order_id="STOP-1"
+    engine.trade_registry=ActiveTradeRegistry();engine.position_records={};engine._failsafe_block_new_entries=False
+    engine._record_order_stage=lambda *a,**kw: None;engine._execution_log=lambda *a,**kw: None
+    engine.strategy_allocation_authority=SimpleNamespace(release_exposure=lambda **kw: None)
+    engine.capital_authority=SimpleNamespace(release_exposure=lambda **kw: None)
+    reduction=milestone(manager)
+    request=BrokerOrderRequest(client_order_id=reduction.management_action_id,symbol="FIXTURE",direction="SELL",quantity=4,
+        order_type="MKT",trader_type="MOMENTUM",strategy_name="RossMomentumStrategyV1",relationship_context={"relationship_id":"r","action":"REDUCE"})
+    provider.modify_stop_order=lambda **kw: {"status":"Rejected"}
+    result=ExecutionResult(symbol="FIXTURE",trader_type="MOMENTUM",attempted=True,status="Filled",rationale="offline",
+        filled_quantity=4,remaining_quantity=0,average_fill_price=12.)
+    engine._record_fill_and_position(request,result)
+    CoreOrchestrator._apply_execution_results_to_trade_management(SimpleNamespace(trade_management_engine=manager),[result])
+    assert not manager.reconcile_relationship("r",confirmed_quantity=4,pending_orders={},complete=True)
+    assert manager._emit_exit_intent(manager.snapshot_positions()["FIXTURE"],qty=4,rationale="STOP_LOSS_BREAK",exit_type="STOP",stage="FINAL") is None
+    restored=TradeManagementEngine(persistence_adapter=store);restored.restore_relationship_state()
+    assert restored._relationship_plans["r"].pending_stop_resize
+    provider.modify_stop_order=lambda **kw: {"status":"Submitted"}
+    engine.collect_relationship_updates()
+    assert plan.pending_stop_resize
+    from src.execution.execution_providers import OrderSnapshot
+    def snapshot(qty): return [OrderSnapshot(order_id="STOP-1",symbol="FIXTURE",status="Submitted",order_type="STP",
+        metadata={"quantity":qty,"side":"SELL","stop_price":9.})]
+    engine._run_protection_reconciliation(open_orders=snapshot(8),reason="offline_still_oversized")
+    assert plan.pending_stop_resize and engine._failsafe_block_new_entries
+    provider.get_open_orders=lambda: snapshot(4)
+    engine.refresh_relationship_order_snapshot()
+    assert not plan.pending_stop_resize and not engine._failsafe_block_new_entries
+    assert manager.reconcile_relationship("r",confirmed_quantity=4,pending_orders={},complete=True)
+    assert manager._emit_exit_intent(manager.snapshot_positions()["FIXTURE"],qty=4,rationale="STOP_LOSS_BREAK",exit_type="STOP",stage="FINAL").quantity==4

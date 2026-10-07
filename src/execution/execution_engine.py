@@ -595,7 +595,7 @@ class ExecutionEngine:
         from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
         now = datetime.now(timezone.utc)
         stamp = getattr(self, "_relationship_orders_asof", None)
-        if stamp and 0 <= (now - stamp).total_seconds() <= get_ibkr_snapshot_max_age_seconds() and not any(p.pending_stop_cancel for p in plans):
+        if stamp and 0 <= (now - stamp).total_seconds() <= get_ibkr_snapshot_max_age_seconds() and not any(p.pending_stop_cancel or p.pending_stop_resize for p in plans):
             return
         self._relationship_orders_asof = None
         try:
@@ -608,7 +608,7 @@ class ExecutionEngine:
             return row.get(key) if isinstance(row, dict) else getattr(row, key, None)
         active_ids = {str(read(o, "order_id")) for o in orders
                       if str(read(o, "status") or "").upper() not in {"CANCELLED", "CANCELED", "FILLED", "INACTIVE"}}
-        cleaned = False
+        cleaned = self._confirm_relationship_stop_resizes(orders)
         for plan in plans:
             if plan.pending_stop_cancel and plan.pending_stop_cancel not in active_ids:
                 plan.pending_stop_cancel = None
@@ -616,6 +616,37 @@ class ExecutionEngine:
         if cleaned:
             manager._save_relationship_state()
             self._run_protection_reconciliation(open_orders=orders, reason="relationship_stop_cleanup")
+
+    def _confirm_relationship_stop_resizes(self, orders: list[object]) -> bool:
+        manager = getattr(self, "relationship_manager", None)
+        if manager is None:
+            return False
+        changed = False
+        def read(row, key):
+            return row.get(key) if isinstance(row, dict) else getattr(row, key, None)
+        for plan in manager._relationship_plans.values():
+            if not plan.pending_stop_resize:
+                continue
+            life = self.post_fill_lifecycle.get_trade(plan.protection_trade_id or plan.initial_order_id)
+            if life is None or life.stop is None:
+                continue
+            matches = [o for o in orders if str(read(o, "order_id")) == str(life.stop.broker_order_id)
+                       and str(read(o, "symbol") or "").upper() == plan.symbol
+                       and str(read(o, "status") or "").upper() in {"SUBMITTED", "PRESUBMITTED"}]
+            if len(matches) != 1:
+                continue
+            metadata = read(matches[0], "metadata") or {}
+            quantity = self._float_or_none(metadata.get("quantity"))
+            price = self._float_or_none(metadata.get("stop_price"))
+            stop_filled = plan.orders.get(f"{plan.relationship_id}:stop:{life.stop.broker_order_id}", {}).get("filled", 0)
+            if (quantity is not None and quantity - stop_filled == life.filled_qty
+                    and str(metadata.get("side") or "").upper() == "SELL"
+                    and price is not None and price >= life.stop.trigger_price):
+                plan.pending_stop_resize = False
+                life.stop.quantity = int(quantity)
+                changed = True
+                manager._save_relationship_state()
+        return changed
 
     def _run_protection_reconciliation(self, *, open_orders: list[object] | None = None, reason: str = "runtime") -> None:
         if self._provider is None:
@@ -628,7 +659,10 @@ class ExecutionEngine:
         self._relationship_open_orders = broker_orders
         self._relationship_orders_asof = datetime.now(timezone.utc)
         summary = self.post_fill_lifecycle.reconcile_orders(broker_orders, repair=True)
-        self._failsafe_block_new_entries = bool(summary.get("block_new_entries", False))
+        self._confirm_relationship_stop_resizes(broker_orders)
+        manager = getattr(self, "relationship_manager", None)
+        unresolved = any(p.pending_stop_resize or p.pending_stop_cancel for p in manager._relationship_plans.values()) if manager else False
+        self._failsafe_block_new_entries = bool(summary.get("block_new_entries", False)) or unresolved
         print(
             "[LIFECYCLE][RECONCILIATION][SUMMARY] "
             f"stage={reason} findings={len(summary.get('findings', []))} repaired={summary.get('repaired', 0)} "
@@ -1323,7 +1357,7 @@ class ExecutionEngine:
             manager = getattr(self, "relationship_manager", None)
             plan = manager._relationship_plans.get(context.get("relationship_id")) if manager else None
             if (plan is None or request.client_order_id not in plan.orders
-                    or plan.orders[request.client_order_id]["terminal"]):
+                    or plan.orders[request.client_order_id]["terminal"] or plan.pending_stop_resize):
                 return ExecutionResult(symbol=request.symbol, trader_type=request.trader_type or "UNKNOWN",
                     attempted=False, status="BLOCKED", rationale="RELATIONSHIP_ORDER_NOT_RESERVED")
             plan.orders[request.client_order_id]["request"] = asdict(request)
@@ -1677,6 +1711,9 @@ class ExecutionEngine:
             protection_result = self.post_fill_lifecycle.update_selected_exposure(
                 trade_id=protection_id, filled_qty=total, avg_fill_price=average)
             protection_id = protection_result.get("reopened_trade_id", protection_id)
+            if not protection_result["success"]:
+                plan.pending_stop_resize = True
+                manager._save_relationship_state()
             self._failsafe_block_new_entries = self._failsafe_block_new_entries or not protection_result["success"]
             self.position_records[request.client_order_id]["lifecycle"] = protection_result
         elif direction_upper in {"LONG", "BUY"}:
@@ -1705,11 +1742,17 @@ class ExecutionEngine:
             if context.get("protective_stop_fill"):
                 # This stop is already executing; do not resize/cancel its own fill.
                 existing_protection.stop.status = str(result.status)
+                if existing_protection.filled_qty == 0:
+                    plan.pending_stop_resize = False
             elif existing_protection.filled_qty > 0:
                 resized = self.post_fill_lifecycle.update_selected_exposure(trade_id=protection_id,
                     filled_qty=existing_protection.filled_qty, avg_fill_price=existing_protection.avg_fill_price)
+                if not resized["success"]:
+                    plan.pending_stop_resize = True
+                    manager._save_relationship_state()
                 self._failsafe_block_new_entries = self._failsafe_block_new_entries or not resized["success"]
             elif existing_protection.stop and existing_protection.stop.broker_order_id and self._provider is not None:
+                plan.pending_stop_resize = False
                 plan.pending_stop_cancel = str(existing_protection.stop.broker_order_id)
                 manager._save_relationship_state()
                 try:
@@ -1810,6 +1853,12 @@ class ExecutionEngine:
             return []
         for plan in manager._relationship_plans.values():
             manager.cancel_excess_milestone_orders(plan)
+            if plan.pending_stop_resize:
+                life = self.post_fill_lifecycle.get_trade(plan.protection_trade_id or plan.initial_order_id)
+                if life is not None and life.filled_qty > 0:
+                    self.post_fill_lifecycle.update_selected_exposure(trade_id=life.trade_id,
+                        filled_qty=life.filled_qty, avg_fill_price=life.avg_fill_price)
+                self._failsafe_block_new_entries = True  # response alone is not quantity confirmation
             if plan.pending_stop_cancel and self._provider is not None:
                 try:
                     self._provider.cancel_order(broker_order_id=plan.pending_stop_cancel)

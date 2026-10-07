@@ -64,6 +64,7 @@ class BullFlagMicroPlan:
     protection_trade_id: str | None = None
     protection_broker_order_id: str | None = None
     pending_stop_cancel: str | None = None
+    pending_stop_resize: bool = False
     add_count: int = 0
     consumed_children: list[str] = field(default_factory=list)
     orders: dict = field(default_factory=dict)
@@ -382,7 +383,7 @@ class TradeManagementEngine:
                 continue
             matches = [trade for trade in lifecycle._trades.values()
                        if trade.symbol == plan.symbol and trade.filled_qty == position.quantity
-                       and trade.stop is not None and trade.stop.quantity == position.quantity
+                       and trade.stop is not None and (trade.stop.quantity == position.quantity or plan.pending_stop_resize)
                        and plan.protection_broker_order_id
                        and str(trade.stop.broker_order_id) == plan.protection_broker_order_id
                        and trade.stop.trigger_price >= plan.original_stop and trade.target is None]
@@ -442,7 +443,8 @@ class TradeManagementEngine:
         local_qty = position.quantity if position and position.relationship_id == relationship_id else 0
         expected_pending = {key: max(0, order["requested"] - order["filled"])
                             for key, order in plan.orders.items() if not order["terminal"]}
-        plan.reconciled = bool(complete and confirmed_quantity == local_qty and expected_pending == pending_orders)
+        plan.reconciled = bool(complete and not plan.pending_stop_resize and not plan.pending_stop_cancel
+                               and confirmed_quantity == local_qty and expected_pending == pending_orders)
         plan.freeze()
         self._save_relationship_state()
         return plan.reconciled
@@ -534,7 +536,7 @@ class TradeManagementEngine:
         from src.strategies.ross_momentum.strategy_policy import POLICY_V2
         plan = self._relationship_plans[relationship_id]
         position = self._positions.get(plan.symbol)
-        if (position is None or not plan.reconciled or plan.paused or plan.e0 is None or warning
+        if (position is None or not plan.reconciled or plan.paused or plan.pending_stop_resize or plan.e0 is None or warning
                 or not parent_valid or child_id in plan.consumed_children
                 or plan.add_count >= POLICY_V2.position_management.max_adds_per_position
                 or any(not order["terminal"] for order in plan.orders.values())
@@ -544,7 +546,7 @@ class TradeManagementEngine:
 
     def _relationship_milestone(self, position: PositionState) -> TradeIntent | None:
         plan = self._relationship_plans[position.relationship_id]
-        if not plan.reconciled or plan.paused or plan.milestone_price is None or plan.milestone_consumed:
+        if not plan.reconciled or plan.paused or plan.pending_stop_resize or plan.milestone_price is None or plan.milestone_consumed:
             return None
         if any(not order["terminal"] for order in plan.orders.values()):
             return None
@@ -890,7 +892,7 @@ class TradeManagementEngine:
                             order["cancel_error"] = type(exc).__name__
                             self._save_relationship_state()
                 return None
-            if not plan.reconciled:
+            if not plan.reconciled or plan.pending_stop_resize:
                 return None
             action_id = f"{plan.relationship_id}:exit:{len(plan.orders)}"
             plan.orders[action_id] = {"action": "EXIT", "requested": qty, "filled": 0, "notional": 0.0, "terminal": False}
