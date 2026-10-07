@@ -368,9 +368,19 @@ def test_cached_late_fills_resize_one_stop_and_one_registry_position(monkeypatch
     engine._record_order_stage=lambda *a,**kw: None
     engine._execution_log=lambda *a,**kw: None
     harness=SimpleNamespace(trade_management_engine=manager)
+    def confirm_resize():
+        # Synthetic broker confirmation is separate from the modify response.
+        from src.execution.execution_providers import OrderSnapshot
+        life=engine.post_fill_lifecycle.get_trade(plan.protection_trade_id or plan.initial_order_id)
+        if plan.pending_stop_resize:
+            assert life is not None and life.stop is not None
+            engine._confirm_relationship_stop_resizes([OrderSnapshot(order_id=life.stop.broker_order_id,
+                symbol="FIXTURE",status="Submitted",order_type="STP",metadata={"side":"SELL",
+                "quantity":life.stop.quantity,"stop_price":life.stop.trigger_price})])
     def drain():
         results=engine.collect_relationship_updates()
         CoreOrchestrator._apply_execution_results_to_trade_management(harness,results)
+        confirm_resize()
         return results
     assert len(drain())==1
     assert plan.e0 is None and manager.snapshot_positions()["FIXTURE"].quantity==1
@@ -412,6 +422,7 @@ def test_cached_late_fills_resize_one_stop_and_one_registry_position(monkeypatch
         filled_quantity=2,remaining_quantity=0,average_fill_price=13.)
     engine._record_fill_and_position(sell,fill)
     CoreOrchestrator._apply_execution_results_to_trade_management(harness,[fill])
+    confirm_resize()
     assert [(t.trader_type,t.quantity) for t in engine.trade_registry.snapshot()]==[("SCALPER",2)]
     assert [r["strategy_id"] for r in releases]==["RossMomentumStrategyV1"]*2
     assert [r["price"] for r in releases]==pytest.approx([10.3,10.3])
@@ -896,7 +907,8 @@ def test_protective_stop_callbacks_close_all_canonical_accounting_once():
     finally: set_config_overrides(None)
 
 
-def test_failed_stop_resize_blocks_exits_until_exact_quantity_confirmation():
+@pytest.mark.parametrize("resize_status",["Rejected","Submitted"])
+def test_failed_stop_resize_blocks_exits_until_exact_quantity_confirmation(resize_status):
     from types import SimpleNamespace
     from src.execution.execution_engine import ExecutionEngine
     from src.execution.post_fill_lifecycle_engine import PostFillLifecycleEngine
@@ -920,7 +932,7 @@ def test_failed_stop_resize_blocks_exits_until_exact_quantity_confirmation():
     reduction=milestone(manager)
     request=BrokerOrderRequest(client_order_id=reduction.management_action_id,symbol="FIXTURE",direction="SELL",quantity=4,
         order_type="MKT",trader_type="MOMENTUM",strategy_name="RossMomentumStrategyV1",relationship_context={"relationship_id":"r","action":"REDUCE"})
-    provider.modify_stop_order=lambda **kw: {"status":"Rejected"}
+    provider.modify_stop_order=lambda **kw: {"status":resize_status}
     result=ExecutionResult(symbol="FIXTURE",trader_type="MOMENTUM",attempted=True,status="Filled",rationale="offline",
         filled_quantity=4,remaining_quantity=0,average_fill_price=12.)
     engine._record_fill_and_position(request,result)

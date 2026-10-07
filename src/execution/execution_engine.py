@@ -1708,13 +1708,15 @@ class ExecutionEngine:
         if direction_upper in {"LONG", "BUY"} and existing_protection is not None:
             total = existing_protection.filled_qty + filled_quantity
             average = (existing_protection.filled_qty * existing_protection.avg_fill_price + filled_quantity * fill_price) / total
+            plan.pending_stop_resize = plan.pending_stop_resize or self.run_mode in {RunMode.PAPER, RunMode.LIVE}
+            manager._save_relationship_state()  # dispatch is not quantity confirmation
             protection_result = self.post_fill_lifecycle.update_selected_exposure(
                 trade_id=protection_id, filled_qty=total, avg_fill_price=average)
             protection_id = protection_result.get("reopened_trade_id", protection_id)
             if not protection_result["success"]:
                 plan.pending_stop_resize = True
                 manager._save_relationship_state()
-            self._failsafe_block_new_entries = self._failsafe_block_new_entries or not protection_result["success"]
+            self._failsafe_block_new_entries = self._failsafe_block_new_entries or plan.pending_stop_resize or not protection_result["success"]
             self.position_records[request.client_order_id]["lifecycle"] = protection_result
         elif direction_upper in {"LONG", "BUY"}:
             protection_result = self.post_fill_lifecycle.activate_trade_management_after_fill(
@@ -1745,12 +1747,14 @@ class ExecutionEngine:
                 if existing_protection.filled_qty == 0:
                     plan.pending_stop_resize = False
             elif existing_protection.filled_qty > 0:
+                plan.pending_stop_resize = plan.pending_stop_resize or self.run_mode in {RunMode.PAPER, RunMode.LIVE}
+                manager._save_relationship_state()
                 resized = self.post_fill_lifecycle.update_selected_exposure(trade_id=protection_id,
                     filled_qty=existing_protection.filled_qty, avg_fill_price=existing_protection.avg_fill_price)
                 if not resized["success"]:
                     plan.pending_stop_resize = True
                     manager._save_relationship_state()
-                self._failsafe_block_new_entries = self._failsafe_block_new_entries or not resized["success"]
+                self._failsafe_block_new_entries = self._failsafe_block_new_entries or plan.pending_stop_resize or not resized["success"]
             elif existing_protection.stop and existing_protection.stop.broker_order_id and self._provider is not None:
                 plan.pending_stop_resize = False
                 plan.pending_stop_cancel = str(existing_protection.stop.broker_order_id)
