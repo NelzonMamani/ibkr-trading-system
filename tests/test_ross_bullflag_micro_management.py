@@ -138,7 +138,7 @@ def test_real_registry_child_trigger_to_production_intent(monkeypatch, tmp_path)
         artifact=build_decision_artifact(strategy_name=strategy.name,run_mode="SIM",session_phase="RTH_OPEN",
             intents=[intent],source="offline-production-route",created_at=end.isoformat())
         intent.decision_id=artifact.decision_id
-        set_config_overrides({"RUN_MODE":"SIM","RUN_MODE_EFFECTIVE":"SIM","EXECUTION_ENABLED":True,
+        set_config_overrides({"RUN_MODE":"PAPER","RUN_MODE_EFFECTIVE":"PAPER","EXECUTION_ENABLED":True,
             "EXECUTION_ENABLED_EFFECTIVE":True,"IBKR_READONLY":False})
         risk=RiskEngine();risk.relationship_manager=manager
         decision=risk.evaluate_trade_intent(intent)
@@ -396,26 +396,40 @@ def test_cached_late_fills_resize_one_stop_and_one_registry_position(monkeypatch
     sell=BrokerOrderRequest(client_order_id=reduction.management_action_id,symbol="FIXTURE",direction="SELL",quantity=2,
         order_type="MKT",trader_type="MANUAL",strategy_name="TRADE_MANAGEMENT",relationship_context=sell_context)
     from src.models.execution_result import ExecutionResult
+    from src.core.capital_management_authority import CapitalManagementAuthority
+    from src.core.strategy_capital_allocation_authority import StrategyCapitalAllocationAuthority
+    allocation=StrategyCapitalAllocationAuthority();capital=CapitalManagementAuthority()
+    for authority in (allocation,capital):
+        authority.convert_reservation_to_exposure(decision_id=None,order_id="entry",symbol="FIXTURE",
+            strategy_id="RossMomentumStrategyV1",fill_quantity=4,fill_price=10.3,trade_id="entry")
     releases=[]
-    engine.strategy_allocation_authority=SimpleNamespace(release_exposure=lambda **kw: releases.append(kw))
-    engine.capital_authority=SimpleNamespace(release_exposure=lambda **kw: releases.append(kw))
+    def release(authority, **kw):
+        releases.append(kw)
+        return authority.release_exposure(**kw)
+    engine.strategy_allocation_authority=SimpleNamespace(release_exposure=lambda **kw: release(allocation,**kw))
+    engine.capital_authority=SimpleNamespace(release_exposure=lambda **kw: release(capital,**kw))
     fill=ExecutionResult(symbol="FIXTURE",trader_type="MANUAL",attempted=True,status="Filled",rationale="offline",
         filled_quantity=2,remaining_quantity=0,average_fill_price=13.)
     engine._record_fill_and_position(sell,fill)
     CoreOrchestrator._apply_execution_results_to_trade_management(harness,[fill])
     assert [(t.trader_type,t.quantity) for t in engine.trade_registry.snapshot()]==[("SCALPER",2)]
     assert [r["strategy_id"] for r in releases]==["RossMomentumStrategyV1"]*2
+    assert [r["price"] for r in releases]==pytest.approx([10.3,10.3])
+    assert allocation.strategy_used_exposure("RossMomentumStrategyV1")==pytest.approx(20.6)
+    assert capital.symbol_exposure("FIXTURE")==pytest.approx(20.6)
     manager.reconcile_relationship("r",confirmed_quantity=2,pending_orders={},complete=True)
     closing=manager._emit_exit_intent(manager.snapshot_positions()["FIXTURE"],qty=2,rationale="STOP_LOSS_BREAK",exit_type="STOP",stage="FINAL")
     close_request=BrokerOrderRequest(**{**asdict(sell),"client_order_id":closing.management_action_id})
     def cancel_failure(**kw): raise RuntimeError("offline stop cancel failed")
     provider.cancel_order=cancel_failure
     close_fill=ExecutionResult(symbol="FIXTURE",trader_type="MANUAL",attempted=True,status="Filled",rationale="offline",
-        filled_quantity=2,remaining_quantity=0,average_fill_price=12.)
+        filled_quantity=2,remaining_quantity=0,average_fill_price=9.)
     engine._record_fill_and_position(close_request,close_fill)
     CoreOrchestrator._apply_execution_results_to_trade_management(harness,[close_fill])
     assert engine.trade_registry.snapshot()==[]
     assert manager.snapshot_positions()=={}
+    assert allocation.strategy_used_exposure("RossMomentumStrategyV1")==pytest.approx(0.)
+    assert capital.symbol_exposure("FIXTURE")==pytest.approx(0.)
     assert engine._failsafe_block_new_entries
     assert plan.pending_stop_cancel
     cleanup_calls=[]
@@ -609,7 +623,7 @@ def test_real_risk_scales_existing_relationship_without_counting_new_trade(monke
     from src.core.active_trade_registry import ActiveTrade
     manager,_=opened(8)
     monkeypatch.setenv("TRADING_DEFAULT_CAPITAL","10000")
-    set_config_overrides({"RUN_MODE":"SIM","RUN_MODE_EFFECTIVE":"SIM","EXECUTION_ENABLED":True,
+    set_config_overrides({"RUN_MODE":"PAPER","RUN_MODE_EFFECTIVE":"PAPER","EXECUTION_ENABLED":True,
         "EXECUTION_ENABLED_EFFECTIVE":True,"IBKR_READONLY":False,"RISK_MAX_OPEN_POSITIONS":1})
     try:
         risk=RiskEngine();risk.relationship_manager=manager
@@ -729,7 +743,8 @@ def test_late_milestone_attempt_fill_cancels_oversized_retry_and_counts_once():
     assert restored._relationship_plans["r"].milestone_consumed
 
 
-def test_terminal_unchanged_partial_callback_releases_residual_reservations():
+@pytest.mark.parametrize("terminal_status",["Cancelled","Inactive"])
+def test_terminal_unchanged_partial_callback_releases_residual_reservations(terminal_status):
     from types import SimpleNamespace
     from src.execution.execution_engine import ExecutionEngine
     from src.brokers.base_broker import BrokerOrderRequest
@@ -740,7 +755,7 @@ def test_terminal_unchanged_partial_callback_releases_residual_reservations():
         order_type="MKT",strategy_name="RossMomentumStrategyV1",relationship_context={"relationship_id":"r"})
     plan.orders["entry"]["request"]=asdict(request)
     engine=ExecutionEngine.__new__(ExecutionEngine);engine.relationship_manager=manager;engine.position_records={}
-    engine._provider=SimpleNamespace(cached_order_update=lambda _: {"status":"Cancelled","filled":2,"remaining":3,"avgFillPrice":10.})
+    engine._provider=SimpleNamespace(cached_order_update=lambda _: {"status":terminal_status,"filled":2,"remaining":3,"avgFillPrice":10.})
     engine._capital_decisions_by_order_id={"entry":"capital"}
     engine._strategy_allocation_decisions_by_order_id={"entry":"strategy"}
     released=[]
@@ -777,3 +792,50 @@ def test_late_milestone_fill_prevents_unsent_retry_or_retries_failed_cancel(disp
     else:
         assert order["terminal"] and order["status"]=="SUPERSEDED_BEFORE_DISPATCH"
         assert calls==[]
+
+
+def test_completed_sim_partial_attempt_reconciles_without_future_callbacks(monkeypatch):
+    from types import SimpleNamespace
+    from datetime import datetime,timezone
+    from src.execution.execution_engine import ExecutionEngine
+    from src.core.orchestrator import CoreOrchestrator
+    from src.core.active_trade_registry import ActiveTradeRegistry
+    from src.brokers.sim_broker import SimBroker
+    from src.brokers.base_broker import BrokerOrderRequest
+    from src.execution.liquidity_engine import LiquidityEngine
+    from src.config.runtime_config import RunMode
+    from src.models.data_models import RiskDecision
+    from src.sim.price_feed import DeterministicPriceFeed
+    from src.config.config_resolver import set_config_overrides
+    set_config_overrides({"RUN_MODE":"PAPER","RUN_MODE_EFFECTIVE":"PAPER","EXECUTION_ENABLED":True,
+        "EXECUTION_ENABLED_EFFECTIVE":True,"IBKR_READONLY_ENABLED":False})
+    try:
+        manager=TradeManagementEngine();engine=ExecutionEngine()
+        engine.relationship_manager=manager
+        monkeypatch.setattr(LiquidityEngine,"available_liquidity",lambda **kw: 2)
+        context={"relationship_id":"partial-sim","action":"ENTRY","security_id":"conId:123",
+            "parent_id":"p","child_id":"c","profile":"BULL_FLAG_MICRO_2R_V1"}
+        request=BrokerOrderRequest(client_order_id="sim-entry",symbol="FIXTURE",direction="LONG",quantity=5,
+            order_type="MKT",trader_type="MOMENTUM",strategy_name="RossMomentumStrategyV1",stop_loss_price=1.,relationship_context=context)
+        # Use the real deterministic liquidity implementation, with its gateway accepted.
+        broker=engine._provider.broker if hasattr(engine._provider,"broker") else engine._provider._broker
+        monkeypatch.setattr(broker,"place_order",lambda req: broker._execute_liquidity(req,0))
+        releases=[]
+        engine._release_capital_for_order=lambda *a,**kw: releases.append("capital")
+        engine._release_strategy_allocation_for_order=lambda *a,**kw: releases.append("strategy")
+        result=engine._route_order(request)
+        assert result.status=="SIMULATED" and result.filled_quantity==2 and result.remaining_quantity==3
+        harness=SimpleNamespace(run_mode=RunMode.SIM,trade_management_engine=manager,
+            trade_registry=engine.trade_registry,execution_engine=engine)
+        CoreOrchestrator._apply_execution_results_to_trade_management(harness,[result])
+        CoreOrchestrator._resolve_position_truth_cycle(harness,as_of=datetime.now(timezone.utc))
+        plan=manager._relationship_plans["partial-sim"]
+        assert plan.entry_terminal and plan.reconciled and plan.e0>plan.original_stop
+        assert sorted(releases)==["capital","strategy"]
+        assert milestone_for_plan(manager,plan).quantity==1
+    finally: set_config_overrides(None)
+
+
+def milestone_for_plan(manager,plan):
+    position=manager.snapshot_positions()[plan.symbol];position.current_price=plan.milestone_price
+    return manager._relationship_milestone(position)

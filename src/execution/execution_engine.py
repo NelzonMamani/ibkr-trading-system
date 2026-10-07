@@ -1618,16 +1618,23 @@ class ExecutionEngine:
         elif direction_upper == "SELL":
             entry_request = plan.orders.get(plan.initial_order_id, {}).get("request", {}) if plan else {}
             owner_strategy = entry_request.get("strategy_name") or request.strategy_name
+            release_price = fill_price
+            if plan is not None:
+                lifecycle = self.post_fill_lifecycle.get_trade(plan.protection_trade_id or plan.initial_order_id)
+                position = manager.snapshot_positions().get(plan.symbol)
+                # Exposure is entry cost, not exit proceeds; PnL retains fill_price.
+                release_price = float(lifecycle.avg_fill_price if lifecycle is not None
+                                      else position.entry_price if position is not None else 0.0)
             self.strategy_allocation_authority.release_exposure(
                 strategy_id=owner_strategy or "UNKNOWN",
                 quantity=filled_quantity,
-                price=fill_price,
+                price=release_price,
                 reason="EXIT_FILL",
             )
             self.capital_authority.release_exposure(
                 symbol=request.symbol,
                 quantity=filled_quantity,
-                price=fill_price,
+                price=release_price,
                 strategy_id=owner_strategy,
                 reason="EXIT_FILL",
             )
@@ -1937,7 +1944,9 @@ class ExecutionEngine:
         if int(getattr(result, "filled_quantity", 0) or 0) > 0 and not request.relationship_context:
             return
         status = str(getattr(result, "status", "") or "").upper()
-        if status in {"BLOCKED", "FAILED", "REJECTED", "CANCELLED", "CANCELED", "EXPIRED", "NOT_FILLED", "TIMED_OUT"}:
+        if (status in {"BLOCKED", "FAILED", "REJECTED", "CANCELLED", "CANCELED", "EXPIRED", "NOT_FILLED", "TIMED_OUT"}
+                or (request.relationship_context and (status == "INACTIVE"
+                    or (status == "SIMULATED" and not bool(getattr(result, "retry_scheduled", False)))))):
             self._release_strategy_allocation_for_order(request, reason=f"ORDER_{status}")
 
     def _release_capital_for_order(self, request: BrokerOrderRequest, *, reason: str) -> None:
@@ -1965,7 +1974,9 @@ class ExecutionEngine:
         if int(getattr(result, "filled_quantity", 0) or 0) > 0 and not request.relationship_context:
             return
         status = str(getattr(result, "status", "") or "").upper()
-        if status in {"BLOCKED", "FAILED", "REJECTED", "CANCELLED", "CANCELED", "EXPIRED", "NOT_FILLED", "TIMED_OUT"}:
+        if (status in {"BLOCKED", "FAILED", "REJECTED", "CANCELLED", "CANCELED", "EXPIRED", "NOT_FILLED", "TIMED_OUT"}
+                or (request.relationship_context and (status == "INACTIVE"
+                    or (status == "SIMULATED" and not bool(getattr(result, "retry_scheduled", False)))))):
             self._release_capital_for_order(request, reason=f"ORDER_{status}")
 
     def _convert_capital_for_fill(
