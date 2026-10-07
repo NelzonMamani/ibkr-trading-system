@@ -18,6 +18,14 @@ def _read(item, field: str):
 
 def evaluate_bull_flag_trigger(payload, values):
     data = payload if isinstance(payload, dict) else {}
+    if (data.get("setup_metadata") or {}).get("relationship"):
+        from src.strategies.common.triggers.trigger_micro_pullback import evaluate_micro_pullback_trigger
+        from datetime import datetime
+        child_time = datetime.fromisoformat(data["setup_metadata"]["relationship"]["child_timestamp"])
+        closed = [c for c in (values.get("candles") or [])
+                  if isinstance(_read(c, "timestamp"), datetime) and _read(c, "timestamp").tzinfo
+                  and _read(c, "timestamp") <= child_time]
+        return evaluate_micro_pullback_trigger(data, {**values, "candles": closed})
     levels = values if isinstance(values, dict) else {}
     candles = list(levels.get("candles") or [])
 

@@ -1164,3 +1164,8 @@ def stock_selection_policy_for_session_phase(
 # Float sourcing law: Float may be sourced from non-IBKR providers (Yahoo Finance, Finviz, optional Nasdaq fallback) with provenance and caching; cached external float is accepted authority when fresh under configured rules.
 
 # Closed-session prep law: Closed/AH/OVN/weekend prep may persist ranking/context metrics and hydrate float/news/reference data for next session; prep metrics are context only, not live-RTH trigger authority.
+
+
+# Explicit project choice, approved 2026-10-07 for the Bull Flag/child
+# Micro Pullback relationship. Not a default for other Ross setups.
+BULL_FLAG_MICRO_MANAGEMENT_PROFILE = "BULL_FLAG_MICRO_2R_V1"

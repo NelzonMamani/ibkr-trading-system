@@ -75,14 +75,14 @@ class RossExitIntelligence:
         if macd_value is not None and float(macd_value) < 0:
             return ExitDecision(action="EXIT_MARKET", reason="MACD_INVALID")
 
-        first_target_price = float(trade.first_target_price)
+        first_target_price = float(trade.first_target_price) if trade.first_target_price is not None else None
         hod_price_raw = state.get("hod_price")
-        if hod_price_raw is not None:
+        if hod_price_raw is not None and first_target_price is not None:
             hod_price = float(hod_price_raw)
             if trade.entry_price < hod_price <= first_target_price:
                 first_target_price = hod_price
 
-        if current_price >= first_target_price:
+        if first_target_price is not None and current_price >= first_target_price:
             if (not bool(trade.partial_taken)) and int(trade.quantity) > 1:
                 return ExitDecision(
                     action="SCALE_OUT",

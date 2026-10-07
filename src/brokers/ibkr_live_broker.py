@@ -302,7 +302,7 @@ class IbkrLiveBroker(BaseBroker):
                         pattern_name=pattern_name,
                         strategy_name=request.strategy_name,
                     )
-                if resolved_take_profit is None:
+                if resolved_take_profit is None and not request.relationship_context:
                     resolved_take_profit = compute_take_profit_price(
                         entry_price,
                         resolved_stop_loss,
@@ -332,12 +332,12 @@ class IbkrLiveBroker(BaseBroker):
                         "strategy_name": request.strategy_name or "UNKNOWN",
                         "pattern_name": pattern_name,
                         "stop_loss_price": float(resolved_stop_loss),
-                        "take_profit_price": float(resolved_take_profit),
+                        "take_profit_price": float(resolved_take_profit) if resolved_take_profit is not None else None,
                         "rationale": "Protective stop assigned immediately upon fill.",
                         "tick": request.created_tick or 0,
                     },
                 )
-                self.trade_registry.register_trade(active_trade)
+                self.trade_registry.register_trade(active_trade) if not request.relationship_context else None
                 if active_trade.state_history:
                     last_transition = active_trade.state_history[-1]
                     if last_transition.get("to") == "OPEN":
@@ -371,7 +371,7 @@ class IbkrLiveBroker(BaseBroker):
                         "direction": request.direction,
                         "quantity": filled_quantity,
                         "stop_loss_price": float(resolved_stop_loss),
-                        "take_profit_price": float(resolved_take_profit),
+                        "take_profit_price": float(resolved_take_profit) if resolved_take_profit is not None else None,
                         "requested_quantity": request.quantity,
                         "filled_quantity": filled_quantity,
                         "remaining_quantity": remaining_quantity,

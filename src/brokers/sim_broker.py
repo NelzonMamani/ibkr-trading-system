@@ -406,7 +406,7 @@ class SimBroker(BaseBroker):
                 strategy_name=request.strategy_name,
             )
         resolved_take_profit = request.take_profit_price
-        if resolved_take_profit is None:
+        if resolved_take_profit is None and not request.relationship_context:
             resolved_take_profit = compute_take_profit_price(
                 registry_entry_price,
                 resolved_stop_loss,
@@ -436,12 +436,12 @@ class SimBroker(BaseBroker):
                 "strategy_name": request.strategy_name,
                 "pattern_name": pattern_name,
                 "stop_loss_price": float(resolved_stop_loss),
-                "take_profit_price": float(resolved_take_profit),
+                "take_profit_price": float(resolved_take_profit) if resolved_take_profit is not None else None,
                 "rationale": "Protective stop assigned immediately upon fill.",
                 "tick": tick,
             },
         )
-        self.trade_registry.register_trade(active_trade)
+        self.trade_registry.register_trade(active_trade) if not request.relationship_context else None
         if active_trade.state_history:
             last_transition = active_trade.state_history[-1]
             if last_transition.get("to") == "OPEN":
@@ -475,7 +475,7 @@ class SimBroker(BaseBroker):
                 "direction": request.direction,
                 "quantity": filled_quantity,
                 "stop_loss_price": float(resolved_stop_loss),
-                "take_profit_price": float(resolved_take_profit),
+                "take_profit_price": float(resolved_take_profit) if resolved_take_profit is not None else None,
                 "requested_quantity": requested_quantity,
                 "filled_quantity": filled_quantity,
                 "remaining_quantity": remaining_quantity,

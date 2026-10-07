@@ -20,6 +20,7 @@ class NormalizedBrokerPosition:
     market_value: float | None
     source: str
     as_of: datetime
+    con_id: int | None = None
 
     def to_log_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -165,6 +166,7 @@ def collect_broker_position_snapshot(
             market_value=_optional_float(_read_value(row, "marketValue", _read_value(row, "market_value"))),
             source="ibkr.positions",
             as_of=as_of,
+            con_id=_read_value(row, "con_id", _read_value(row, "conId", _read_value(_read_value(row, "contract"), "conId"))),
         )
 
     print(f"[POSITION][BROKER_SNAPSHOT][RESULT] count={len(broker_positions)}")

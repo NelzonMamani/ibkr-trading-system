@@ -27,6 +27,10 @@ class BrokerOrderRequest:
     pattern_name: Optional[str] = None
     invalidation_level: Optional[float] = None
     next_retry_tick: Optional[int] = None
+    setup_family_id: Optional[str] = None
+    trigger_id: Optional[str] = None
+    target_model: Optional[str] = None
+    relationship_context: Optional[dict] = None
 
 
 @runtime_checkable

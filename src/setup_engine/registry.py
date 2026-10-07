@@ -11,7 +11,8 @@ from src.setup_engine.setup_families.breakouts import (
     OpeningRangeBreakoutPattern,
     PremarketHighBreakPattern,
 )
-from src.setup_engine.setup_families.momentum import BullFlagPattern, MicroPullbackPattern
+from src.setup_engine.setup_families.bull_flag import BullFlagPattern
+from src.setup_engine.setup_families.micro_pullback import MicroPullbackPattern
 from src.setup_engine.setup_families.pullbacks import (
     AscendingTriangleBreakoutPattern,
     EmaPullbackPattern,

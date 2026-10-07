@@ -174,7 +174,7 @@ PROTECTIVE_STOP_PLACED_SCHEMA = {
     "strategy_name": (str, type(None)),
     "pattern_name": (str, type(None)),
     "stop_loss_price": float,
-    "take_profit_price": float,
+    "take_profit_price": (float, type(None)),
     "rationale": str,
     "tick": int,
 }

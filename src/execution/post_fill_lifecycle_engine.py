@@ -95,6 +95,10 @@ class ManagedTradeLifecycle:
     last_recovery_status: str | None = None
     failure_flags: list[str] = field(default_factory=list)
     take_profit_events: list[dict[str, Any]] = field(default_factory=list)
+    selected_stop_price: float | None = None
+    selected_target_price: float | None = None
+    target_model: str | None = None
+    preserve_selected_protection: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -634,10 +638,63 @@ class PostFillLifecycleEngine:
             return "BROKER_EXTERNAL"
         return "UNKNOWN"
 
-    def _compute_stop_target(self, trade: ManagedTradeLifecycle) -> tuple[float, TakeProfitDecision]:
+    def update_selected_exposure(self, *, trade_id: str, filled_qty: int, avg_fill_price: float) -> dict:
+        """Resize the existing selected stop for confirmed aggregate fill exposure."""
+        trade = self._trades[trade_id]
+        if not trade.preserve_selected_protection or trade.stop is None or filled_qty <= 0:
+            return {"success": False, "reason": "selected_protection_unavailable"}
+        if trade.state == PositionLifecycleState.EXITED:
+            # A late genuine fill opens new exposure, not the historical closed
+            # lifecycle. Install a new stop through the same activation owner.
+            from uuid import uuid4
+            reopened_id = f"{trade_id}:late:{uuid4().hex[:12]}"
+            result = self.activate_trade_management_after_fill(trade_id=reopened_id,
+                symbol=trade.symbol, side=trade.side, filled_qty=filled_qty, avg_fill_price=avg_fill_price,
+                strategy_id=trade.strategy_id, session_label=trade.session_label,
+                stop_loss_price=trade.selected_stop_price, take_profit_price=None,
+                preserve_selected_protection=True, target_model=trade.target_model)
+            return {**result, "reopened_trade_id": reopened_id}
+        trade.filled_qty = int(filled_qty)  # fill truth survives a protection failure
+        trade.avg_fill_price = float(avg_fill_price)
+        try:
+            if self.execution_provider is not None and self.run_mode in {"PAPER", "LIVE"}:
+                response = self.execution_provider.modify_stop_order(
+                    broker_order_id=trade.stop.broker_order_id, symbol=trade.symbol, side=trade.stop.side,
+                    quantity=trade.filled_qty, new_stop_price=trade.stop.trigger_price, trade_id=trade.trade_id)
+                if isinstance(response, dict) and str(response.get("status", "")).upper() in {"REJECTED", "FAILED", "CANCELLED"}:
+                    raise RuntimeError("selected_stop_resize_rejected")
+            trade.stop.quantity = trade.filled_qty
+            trade.last_update_ts = self._ts()
+            return {"success": True, "quantity": trade.filled_qty, "stop_price": trade.stop.trigger_price}
+        except Exception as exc:
+            trade.failure_flags.append("SELECTED_STOP_RESIZE_FAILED")
+            return {"success": False, "reason": str(exc), "quantity": trade.filled_qty}
+
+    def _compute_stop_target(self, trade: ManagedTradeLifecycle) -> tuple[float, TakeProfitDecision | None]:
         side_u = str(trade.side).upper()
         if side_u not in {"LONG", "BUY"}:
             raise ValueError("post-fill v1 supports long-side lifecycle hardening")
+        if trade.preserve_selected_protection:
+            stop = trade.selected_stop_price
+            if stop is None or not math.isfinite(stop):
+                raise ValueError("selected_structural_stop_unavailable")
+            validate_stop_price(side=trade.side, stop_price=stop, entry_price=trade.avg_fill_price)
+            if trade.selected_target_price is None:
+                # A descriptive target is not permission to install a numeric one.
+                return stop, None
+            if not math.isfinite(trade.selected_target_price) or trade.selected_target_price <= trade.avg_fill_price:
+                trade.failure_flags.append("SELECTED_TARGET_INVALID")
+                return stop, None
+            target = self.take_profit_authority.create_target(
+                trade_id=trade.trade_id, symbol=trade.symbol, side=trade.side,
+                target_price=trade.selected_target_price,
+                live_position_quantity=trade.filled_qty, source_strategy=trade.strategy_id,
+                target_type=TakeProfitTargetType.FIXED_PRICE, target_stage="FULL",
+                rationale="risk-approved selected target")
+            if not target.accepted:
+                trade.failure_flags.append("SELECTED_TARGET_REJECTED")
+                return stop, None
+            return stop, target
         stop = trade.avg_fill_price * (1.0 - self.policy.default_stop_pct)
         target_decision = self.take_profit_authority.create_fixed_percent_target(
             trade_id=trade.trade_id,
@@ -676,6 +733,10 @@ class PostFillLifecycleEngine:
         strategy_id: str,
         session_label: str = "runtime",
         intended_qty: int | None = None,
+        stop_loss_price: float | None = None,
+        take_profit_price: float | None = None,
+        preserve_selected_protection: bool = False,
+        target_model: str | None = None,
     ) -> dict[str, Any]:
         side_u = str(side).upper()
         if side_u in {"SHORT", "SELL"}:
@@ -692,6 +753,10 @@ class PostFillLifecycleEngine:
             run_mode=self.run_mode,
             session_label=session_label,
             intended_qty=int(intended_qty or filled_qty),
+            target_model=target_model,
+            selected_stop_price=stop_loss_price,
+            selected_target_price=take_profit_price,
+            preserve_selected_protection=preserve_selected_protection,
             filled_qty=int(filled_qty),
             avg_fill_price=float(avg_fill_price),
             state=PositionLifecycleState.FILLED_UNPROTECTED,
@@ -731,11 +796,12 @@ class PostFillLifecycleEngine:
             target_decision: TakeProfitDecision | None = None
             try:
                 stop, target_decision = self._compute_stop_target(trade)
-                self._record_take_profit_event(
-                    trade,
-                    target_decision.lifecycle_event,
-                    target_decision.to_audit_payload(),
-                )
+                if target_decision is not None:
+                    self._record_take_profit_event(
+                        trade,
+                        target_decision.lifecycle_event,
+                        target_decision.to_audit_payload(),
+                    )
                 validate_stop_price(side=side, stop_price=stop, entry_price=float(avg_fill_price))
                 pending_stop_intent = f"stop-submit:{trade.trade_id}:{attempt}"
                 trade.stop = ProtectionOrderMeta(
@@ -750,18 +816,19 @@ class PostFillLifecycleEngine:
                     pending_intent_id=pending_stop_intent,
                     quantity=trade.filled_qty,
                 )
-                trade.target = ProtectionOrderMeta(
-                    order_type="LIMIT",
-                    side="SELL",
-                    trigger_price=float(target_decision.target_price or 0.0),
-                    status="PENDING_SUBMIT",
-                    quantity=target_decision.target_quantity,
-                    target_id=target_decision.target_id,
-                    target_type=target_decision.target_type,
-                    target_stage=target_decision.target_stage,
-                    source_strategy=target_decision.source_strategy,
-                    rationale=target_decision.rationale,
-                )
+                if target_decision is not None:
+                    trade.target = ProtectionOrderMeta(
+                        order_type="LIMIT",
+                        side="SELL",
+                        trigger_price=float(target_decision.target_price or 0.0),
+                        status="PENDING_SUBMIT",
+                        quantity=target_decision.target_quantity,
+                        target_id=target_decision.target_id,
+                        target_type=target_decision.target_type,
+                        target_stage=target_decision.target_stage,
+                        source_strategy=target_decision.source_strategy,
+                        rationale=target_decision.rationale,
+                    )
                 self._record_stop_event(
                     trade,
                     StopAuditEventType.STOP_SUBMITTED,
@@ -776,7 +843,7 @@ class PostFillLifecycleEngine:
                 )
                 print(
                     "[LIFECYCLE][ORDER_INSTALL][TARGET] "
-                    f"trade_id={trade.trade_id} symbol={trade.symbol} target={trade.target.trigger_price:.4f}"
+                    f"trade_id={trade.trade_id} symbol={trade.symbol} target={trade.target.trigger_price if trade.target else None}"
                 )
                 print(
                     "[LIFECYCLE][ORDER_LINKAGE] "
@@ -791,31 +858,33 @@ class PostFillLifecycleEngine:
                         trade_id=trade.trade_id,
                         parent_order_id=trade.trade_id,
                     )
-                    target_result = self.execution_provider.place_target_order(
-                        symbol=trade.symbol,
-                        side=trade.target.side,
-                        quantity=trade.target.quantity or trade.filled_qty,
-                        limit_price=trade.target.trigger_price,
-                        trade_id=trade.trade_id,
-                        parent_order_id=trade.trade_id,
-                    )
                     trade.stop.broker_order_id = str(stop_result.get("broker_order_id"))
-                    trade.target.broker_order_id = str(target_result.get("broker_order_id"))
                     trade.stop.status = str(stop_result.get("status") or "Submitted")
-                    trade.target.status = str(target_result.get("status") or "Submitted")
-                    if trade.target.target_id:
-                        submitted = self.take_profit_authority.mark_submitted(
-                            target_id=trade.target.target_id,
-                            broker_order_id=trade.target.broker_order_id,
+                    if trade.target is not None:
+                        target_result = self.execution_provider.place_target_order(
+                            symbol=trade.symbol,
+                            side=trade.target.side,
+                            quantity=trade.target.quantity or trade.filled_qty,
+                            limit_price=trade.target.trigger_price,
+                            trade_id=trade.trade_id,
+                            parent_order_id=trade.trade_id,
                         )
-                        self._record_take_profit_event(
-                            trade,
-                            submitted.lifecycle_event,
-                            submitted.to_audit_payload(),
-                        )
+                        trade.target.broker_order_id = str(target_result.get("broker_order_id"))
+                        trade.target.status = str(target_result.get("status") or "Submitted")
+                        if trade.target.target_id:
+                            submitted = self.take_profit_authority.mark_submitted(
+                                target_id=trade.target.target_id,
+                                broker_order_id=trade.target.broker_order_id,
+                            )
+                            self._record_take_profit_event(
+                                trade,
+                                submitted.lifecycle_event,
+                                submitted.to_audit_payload(),
+                            )
                 else:
                     trade.stop.status = "REGISTERED"
-                    trade.target.status = "REGISTERED"
+                    if trade.target is not None:
+                        trade.target.status = "REGISTERED"
                 self._record_stop_event(
                     trade,
                     StopAuditEventType.STOP_ACKNOWLEDGED,
@@ -826,7 +895,8 @@ class PostFillLifecycleEngine:
                     reason="protective_stop_acknowledged",
                 )
                 self._transition(trade, PositionLifecycleState.PROTECTED, "stop_installed")
-                self._transition(trade, PositionLifecycleState.TARGET_ACTIVE, "target_registered")
+                if trade.target is not None:
+                    self._transition(trade, PositionLifecycleState.TARGET_ACTIVE, "target_registered")
                 self._transition(trade, PositionLifecycleState.TRAILING_ELIGIBLE, "baseline_trailing_ready")
                 installed = True
                 failure_reason = None
@@ -1023,22 +1093,24 @@ class PostFillLifecycleEngine:
         except StopAuthorityError as exc:
             return {"allowed": False, "reason_code": exc.reason_code, "reason": str(exc)}
 
-        trade.stop.trigger_price = float(new_stop_price)
-        trade.stop.status = "REPLACED"
-        trade.last_update_ts = self._ts()
         if (
             self.execution_provider is not None
             and self.run_mode in {"PAPER", "LIVE"}
             and trade.stop.broker_order_id
         ):
-            self.execution_provider.modify_stop_order(
+            result = self.execution_provider.modify_stop_order(
                 broker_order_id=trade.stop.broker_order_id,
                 symbol=trade.symbol,
                 side=trade.stop.side,
                 quantity=trade.filled_qty,
-                new_stop_price=trade.stop.trigger_price,
+                new_stop_price=float(new_stop_price),
                 trade_id=trade.trade_id,
             )
+            if not isinstance(result, dict) or str(result.get("status", "")).upper() in {"REJECTED", "FAILED", "CANCELLED", "CANCELED", "UNKNOWN", ""}:
+                return {"allowed": False, "reason_code": "STOP_MODIFICATION_UNCONFIRMED"}
+        trade.stop.trigger_price = float(new_stop_price)
+        trade.stop.status = "REPLACED"
+        trade.last_update_ts = self._ts()
         event_type = (
             StopAuditEventType.STOP_TIGHTENED
             if decision["tightening"]

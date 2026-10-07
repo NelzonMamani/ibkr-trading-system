@@ -582,7 +582,19 @@ class CoreOrchestrator:
         )
         self.execution_enabled = self.execution_engine.execution_enabled
         self.position_management_engine = PositionManagementEngine()
-        self.trade_management_engine = TradeManagementEngine(price_lookup=lambda symbol: float(self.price_feed.get_price(symbol)))
+        self.trade_management_engine = TradeManagementEngine(
+            price_lookup=lambda symbol: float(self.price_feed.get_price(symbol)),
+            stop_update_callback=lambda **kwargs: self.execution_engine.post_fill_lifecycle.replace_stop(**kwargs),
+            cancel_order_callback=lambda **kwargs: self.execution_engine._provider.cancel_order(**kwargs),
+            persistence_adapter=self.storage_engine, state_namespace=self.run_mode.value,
+        )
+        self.trade_management_engine.restore_relationship_state()
+        self.trade_management_engine.bind_recovered_protection(self.execution_engine.post_fill_lifecycle)
+        self.risk_engine.relationship_manager = self.trade_management_engine
+        self.execution_engine.relationship_manager = self.trade_management_engine
+        for strategy in getattr(self.strategy_runner, "strategies", []):
+            if getattr(strategy, "name", "") == "RossMomentumStrategyV1":
+                strategy.relationship_manager = self.trade_management_engine
         self.risk_engine.set_trade_lifecycle_engine(self.trade_lifecycle_engine)
         self._broker_position_adapter = BrokerPositionSnapshotAdapter()
         self.trade_exit_engine = TradeExitEngine(
@@ -2817,6 +2829,20 @@ class CoreOrchestrator:
 
     def _apply_execution_results_to_trade_management(self, execution_output: list[ExecutionResult]) -> None:
         for result in execution_output:
+            context = getattr(result, "relationship_context", None) or {}
+            if context:
+                order_id = str(getattr(result, "client_order_id", "") or "")
+                plan = self.trade_management_engine._relationship_plans.get(context.get("relationship_id"))
+                if plan is not None and order_id in plan.orders:
+                    status = str(getattr(result, "status", "") or "").upper()
+                    self.trade_management_engine.on_relationship_order_update(
+                        relationship_id=plan.relationship_id, order_id=order_id,
+                        cumulative_quantity=int(getattr(result, "filled_quantity", 0) or 0),
+                        average_price=getattr(result, "average_fill_price", None) or getattr(result, "entry_price", None),
+                        terminal=(bool(context.get("deterministic_attempt_terminal"))
+                            or status in {"FILLED", "CANCELLED", "CANCELED", "REJECTED", "INACTIVE"}
+                            or (status in {"SIMULATED", "NOT_FILLED"} and not bool(getattr(result, "retry_scheduled", False)))), status=status)
+                continue
             filled_qty = int(getattr(result, "filled_quantity", 0) or 0)
             if filled_qty <= 0:
                 continue
@@ -2842,10 +2868,17 @@ class CoreOrchestrator:
                 shares=signed_shares,
                 price=entry_price,
                 exec_id=exec_id,
+                strategy_name=getattr(result, "strategy_name", None),
+                setup_family=getattr(result, "setup_family_id", None),
+                stop_loss_price=getattr(result, "stop_loss_price", None),
+                take_profit_price=getattr(result, "take_profit_price", None),
+                reference_order_id=getattr(result, "client_order_id", None),
+                target_model=getattr(result, "target_model", None),
             )
 
     def _run_trade_management_engine(self, execution_output: list[ExecutionResult]) -> list[object]:
         self._apply_execution_results_to_trade_management(execution_output)
+        self._apply_execution_results_to_trade_management(self.execution_engine.collect_relationship_updates())
         market_state = self._build_trade_management_market_state()
         intents = self.trade_management_engine.evaluate_cycle(market_state)
         for intent in intents:
@@ -2914,11 +2947,33 @@ class CoreOrchestrator:
         print("[POSITION][TRUTH][START]")
         if self.run_mode == RunMode.SIM:
             print(f"[POSITION][TRUTH][SKIP] run_mode={self.run_mode.value}")
+            manager = getattr(self, "trade_management_engine", None)
+            if manager is not None:
+                confirmed = collect_system_position_snapshot(self.trade_registry.snapshot(), as_of=as_of)
+                records = self.execution_engine.position_records
+                for plan in manager._relationship_plans.values():
+                    pending = {}
+                    complete = True
+                    for order_id, order in plan.orders.items():
+                        if order["terminal"]:
+                            continue
+                        record = records.get(order_id)
+                        if record is None or "remaining_qty" not in record:
+                            complete = False
+                        else:
+                            pending[order_id] = int(record["remaining_qty"])
+                    manager.reconcile_relationship(plan.relationship_id,
+                        confirmed_quantity=confirmed[plan.symbol].quantity if plan.symbol in confirmed else 0,
+                        pending_orders=pending, complete=complete)
             self._latest_position_truth_snapshot = empty_position_truth_snapshot(as_of=as_of)
             self._latest_position_truth_verdict = healthy_position_truth_verdict()
             return self._latest_position_truth_verdict
 
         broker_required = self.run_mode in {RunMode.PAPER, RunMode.LIVE, RunMode.READ_ONLY}
+        relationship_manager = getattr(self, "trade_management_engine", None)
+        if relationship_manager is not None and relationship_manager._relationship_plans:
+            self.execution_engine.refresh_relationship_order_snapshot()
+            as_of = max(as_of, datetime.now(timezone.utc))
         broker_positions = collect_broker_position_snapshot(
             self.connection_manager.optional_client,
             as_of=as_of,
@@ -2939,6 +2994,16 @@ class CoreOrchestrator:
         )
         self._latest_position_truth_snapshot = snapshot
         self._latest_position_truth_verdict = verdict
+        manager = getattr(self, "trade_management_engine", None)
+        order_time = getattr(self.execution_engine, "_relationship_orders_asof", None)
+        if manager is not None:
+            # Reuse prior canonical order query, but only within the current position snapshot.
+            from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
+            coherent = bool(order_time and 0 <= (snapshot.as_of - order_time).total_seconds() <= get_ibkr_snapshot_max_age_seconds())
+            manager.reconcile_broker_snapshot(positions=snapshot.broker_positions,
+                open_orders=getattr(self.execution_engine, "_relationship_open_orders", []),
+                complete=verdict.healthy and coherent, as_of=snapshot.as_of, orders_as_of=order_time)
+
         print(
             "[POSITION][TRUTH][VERDICT] "
             f"healthy={verdict.healthy} block_new_entries={verdict.block_new_entries} "
@@ -5408,10 +5473,11 @@ class CoreOrchestrator:
                                 execution_result=result,
                                 session_phase=session_phase,
                             )
-                            managed_position = self.position_management_engine.manage_position(
-                                managed_position,
-                                position_market_state,
-                            )
+                            if not getattr(result, "relationship_context", None):
+                                managed_position = self.position_management_engine.manage_position(
+                                    managed_position,
+                                    position_market_state,
+                                )
                             print(
                                 "[POSITION][MANAGER] "
                                 f"symbol={managed_position.symbol} qty={managed_position.quantity} "

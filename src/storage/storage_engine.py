@@ -305,6 +305,26 @@ class StorageEngine:
             ),
         )
 
+    def store_management_state(self, state_id: str, payload: dict[str, Any]) -> None:
+        """Durable pre-dispatch state in the existing lifecycle store and run."""
+        if not self.enabled or self.backend != "sqlite" or not self._store:
+            raise RuntimeError("management_state_persistence_unavailable")
+        self.store_lifecycle_transition({
+            "transition_id": state_id, "run_id": self.run_id,
+            "strategy_owner": "RossMomentumStrategyV1", "intent": "RELATIONSHIP_STATE",
+            "reason_code": "BULL_FLAG_MICRO_2R_V1", "reason": json.dumps(payload, default=str, sort_keys=True),
+            "transition_seq": 0, "timestamp": now_iso(),
+        })
+        self._store.connection.commit()
+
+    def fetch_management_state(self, state_id: str) -> dict[str, Any] | None:
+        if not self.enabled or self.backend != "sqlite" or not self._store:
+            return None
+        row = self._store.connection.execute(
+            "SELECT reason FROM position_lifecycle_transitions WHERE transition_id = ?", (state_id,)
+        ).fetchone()
+        return json.loads(row[0]) if row else None
+
     def store_lifecycle_transition(self, transition: dict[str, Any]) -> None:
         if not self.enabled or self.backend != "sqlite" or not self._store:
             return

@@ -522,6 +522,11 @@ class RiskEngine:
         execution_enabled = bool(get_config("EXECUTION_ENABLED_EFFECTIVE"))
         decision_id = getattr(trade_intent, "decision_id", None)
         risk_profile = self._resolve_risk_profile()
+        relationship_manager = getattr(self, "relationship_manager", None)
+        existing_relationship_trade = self.trade_registry.get_trade(trade_intent.symbol, trade_intent.trader_type)
+        relationship_scaling = bool(relationship_manager and relationship_manager.is_relationship_add(trade_intent)
+            and existing_relationship_trade and existing_relationship_trade.strategy_name == trade_intent.strategy_name
+            and existing_relationship_trade.quantity == relationship_manager.snapshot_positions()[trade_intent.symbol].quantity)
         session_label, active_sessions, session_blocked = self._session_gate(run_mode)
         open_positions = self.trade_registry.count_active()
         max_open_positions = int(get_config("RISK_MAX_OPEN_POSITIONS"))
@@ -695,7 +700,7 @@ class RiskEngine:
             )
             return self._finalize_decision(decision, decision_id)
 
-        if getattr(trade_intent, "force_execute", False):
+        if getattr(trade_intent, "force_execute", False) and not getattr(trade_intent, "relationship_context", None):
             print(f"[RISK][BYPASS] symbol={trade_intent.symbol}")
             decision = RiskDecision(
                 symbol=trade_intent.symbol,
@@ -709,6 +714,11 @@ class RiskEngine:
                 stop_loss_price=trade_intent.stop_loss_price,
                 take_profit_price=trade_intent.take_profit_price,
                 pattern_name=getattr(trade_intent, "pattern_name", None),
+                target_model=getattr(trade_intent, "target_model", None),
+                relationship_context=getattr(trade_intent, "relationship_context", None),
+                setup_family_id=getattr(trade_intent, "setup_family_id", None),
+                trigger_id=getattr(trade_intent, "trigger_id", None),
+                execution_refinement_mode=getattr(trade_intent, "execution_refinement_mode", None),
                 invalidation_level=getattr(trade_intent, "invalidation_level", None),
                 overall_action="ALLOW",
                 decision_code="APPROVE",
@@ -730,6 +740,11 @@ class RiskEngine:
                 trader_type=trade_intent.trader_type,
                 strategy_name=trade_intent.strategy_name,
                 direction=trade_intent.direction,
+                target_model=getattr(trade_intent, "target_model", None),
+                relationship_context=getattr(trade_intent, "relationship_context", None),
+                setup_family_id=getattr(trade_intent, "setup_family_id", None),
+                trigger_id=getattr(trade_intent, "trigger_id", None),
+                execution_refinement_mode=getattr(trade_intent, "execution_refinement_mode", None),
                 reason_code=DECISION_ARTIFACT_MISSING,
                 overall_action="BLOCK",
                 decision_code="REJECT",
@@ -808,7 +823,7 @@ class RiskEngine:
                 timestamp=timestamp,
             )
             return self._finalize_decision(decision, decision_id)
-        if open_positions >= max_open_positions:
+        if open_positions >= max_open_positions and not relationship_scaling:
             rationale = "Max open positions reached; blocking intent."
             decision = RiskDecision(
                 symbol=trade_intent.symbol,
@@ -1071,7 +1086,7 @@ class RiskEngine:
         strategy_limit = self.strategy_limits.get(trader_type)
         if strategy_limit:
             max_trades = strategy_limit.get("max_trades", 0)
-            if current_active >= max_trades:
+            if current_active >= max_trades and not relationship_scaling:
                 print(
                     f"[RISK:STRATEGY] {trader_type} active={current_active} max={max_trades} "
                     "→ BLOCKED (limit reached)"
@@ -1254,6 +1269,11 @@ class RiskEngine:
             stop_loss_price=resolved_stop_loss,
             take_profit_price=getattr(trade_intent, "take_profit_price", None),
             pattern_name=getattr(trade_intent, "pattern_name", None),
+            target_model=getattr(trade_intent, "target_model", None),
+            relationship_context=getattr(trade_intent, "relationship_context", None),
+            setup_family_id=getattr(trade_intent, "setup_family_id", None),
+            trigger_id=getattr(trade_intent, "trigger_id", None),
+            execution_refinement_mode=getattr(trade_intent, "execution_refinement_mode", None),
             invalidation_level=getattr(trade_intent, "invalidation_level", None),
             overall_action="ALLOW" if allowed else "BLOCK",
             decision_code="APPROVE" if allowed else "REJECT",
@@ -1269,6 +1289,22 @@ class RiskEngine:
             f"entry_price={entry_price} available_capital={available_capital} "
             f"max_position_value={round(max_position_value, 2)} approved_quantity={max_position_size}"
         )
+        context = getattr(trade_intent, "relationship_context", None)
+        if context:
+            manager = getattr(self, "relationship_manager", None)
+            quantity = (manager.risk_quantity(trade_intent, quantity_cap=max_position_size,
+                         value_cap=max_position_value, risk_cap=max_risk_per_trade, max_adds=risk_profile.max_adds,
+                         incremental_value_cap=max(0.0, total_exposure_limit - total_exposure)) if manager is not None else 0)
+            if quantity <= 0:
+                decision.allowed = False
+                decision.execution_blocked = True
+                decision.max_position_size = 0
+                decision.overall_action = "BLOCK"
+                decision.decision_code = "REJECT"
+                decision.reason_code = "RELATIONSHIP_AGGREGATE_RISK_BLOCK"
+                decision.risk_reasons.append(decision.reason_code)
+            else:
+                decision.max_position_size = quantity
         if applied_multiplier is not None:
             decision.risk_reasons.append(
                 f"REGIME_RISK_MULTIPLIER:{applied_multiplier:.2f}"

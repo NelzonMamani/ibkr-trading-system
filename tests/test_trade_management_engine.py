@@ -33,7 +33,11 @@ def test_target_hit_takes_partial_and_moves_stop_to_breakeven() -> None:
     assert intents[0].rationale == "TARGET_HIT"
     assert intents[0].exit_type == "TARGET"
     position = engine.snapshot_positions()["ABCD"]
+    assert position.partial_taken is False
+    assert position.quantity == 100
+    engine.on_exec_details(symbol="ABCD", shares=-50, price=10.5, exec_id="E-partial")
     assert position.partial_taken is True
+    assert position.quantity == 50
     assert position.stop_loss_price >= position.break_even_price
 
 
