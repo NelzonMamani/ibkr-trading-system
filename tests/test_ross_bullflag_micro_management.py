@@ -162,7 +162,10 @@ def test_real_registry_child_trigger_to_production_intent(monkeypatch, tmp_path)
         assert result.filled_quantity==1, (result.status,result.rationale)
         CoreOrchestrator._apply_execution_results_to_trade_management(SimpleNamespace(trade_management_engine=manager),[result])
         plan=manager._relationship_plans[intent.relationship_context["relationship_id"]]
-        assert manager.reconcile_relationship(plan.relationship_id,confirmed_quantity=1,pending_orders={},complete=True)
+        sim_harness=SimpleNamespace(run_mode=__import__('src.config.runtime_config',fromlist=['RunMode']).RunMode.SIM,
+            trade_management_engine=manager,trade_registry=engine.trade_registry,execution_engine=engine)
+        CoreOrchestrator._resolve_position_truth_cycle(sim_harness,as_of=end)
+        assert plan.reconciled
         assert plan.e0==pytest.approx(float(result.average_fill_price or result.entry_price))
         assert plan.original_stop==intent.stop_loss_price
         protection=engine.post_fill_lifecycle.get_trade(plan.initial_order_id)
@@ -386,6 +389,18 @@ def test_cached_late_fills_resize_one_stop_and_one_registry_position(monkeypatch
     facts.update(status="FILLED")
     assert drain()==[]
     assert len(provider.modify_calls)==1
+    reduction=milestone(manager,13.)
+    sell_context={"profile":"BULL_FLAG_MICRO_2R_V1","relationship_id":"r","action":"REDUCE"}
+    sell=BrokerOrderRequest(client_order_id=reduction.management_action_id,symbol="FIXTURE",direction="SELL",quantity=2,
+        order_type="MKT",trader_type="MANUAL",strategy_name="RossMomentumStrategyV1",relationship_context=sell_context)
+    from src.models.execution_result import ExecutionResult
+    engine.strategy_allocation_authority=SimpleNamespace(release_exposure=lambda **kw: None)
+    engine.capital_authority=SimpleNamespace(release_exposure=lambda **kw: None)
+    fill=ExecutionResult(symbol="FIXTURE",trader_type="MANUAL",attempted=True,status="Filled",rationale="offline",
+        filled_quantity=2,remaining_quantity=0,average_fill_price=13.)
+    engine._record_fill_and_position(sell,fill)
+    CoreOrchestrator._apply_execution_results_to_trade_management(harness,[fill])
+    assert [(t.trader_type,t.quantity) for t in engine.trade_registry.snapshot()]==[("SCALPER",2)]
 
 
 def test_new_child_can_reenter_only_after_flat_and_same_child_stays_consumed():
@@ -448,3 +463,63 @@ def test_consumed_profit_milestone_survives_fresh_add():
     manager.reconcile_relationship("r",confirmed_quantity=10,pending_orders={},complete=True)
     assert plan.milestone_consumed and plan.milestone_price==12.
     assert milestone(manager,14.) is None
+
+
+def test_uncertain_submission_reservation_clears_only_after_fresh_matching_truth():
+    from datetime import datetime,timezone,timedelta
+    manager,_=opened(8);plan=manager._relationship_plans["r"]
+    manager.register_relationship_order(relationship_id="r",symbol="FIXTURE",security_id="conId:123",parent_id="p",
+        child_id="add-child",order_id="failed-add",quantity=2,stop=9.,action="ADD")
+    now=datetime(2026,9,16,15,tzinfo=timezone.utc)
+    plan.orders["failed-add"].update(submission_uncertain_at=now.isoformat())
+    def reconcile(qty,clock):
+        manager.reconcile_broker_snapshot(positions={"FIXTURE":{"quantity":qty,"con_id":123}},
+            open_orders=[],complete=True,as_of=clock,orders_as_of=clock)
+    reconcile(8,now-timedelta(seconds=1))
+    assert not plan.orders["failed-add"]["terminal"]
+    reconcile(10,now+timedelta(seconds=1))
+    assert not plan.orders["failed-add"]["terminal"]
+    reconcile(8,now+timedelta(seconds=2))
+    assert plan.orders["failed-add"]["terminal"] and plan.reconciled
+    assert manager._emit_exit_intent(manager.snapshot_positions()["FIXTURE"],qty=8,
+        rationale="STOP_LOSS_BREAK",exit_type="STOP",stage="FINAL").quantity==8
+
+
+@pytest.mark.parametrize("raises",[True,False])
+def test_provider_failure_retains_context_then_releases_only_reconciled_reservation(raises):
+    from types import SimpleNamespace
+    from datetime import datetime,timezone,timedelta
+    from src.config.config_resolver import set_config_overrides
+    from src.execution.execution_engine import ExecutionEngine
+    from src.models.execution_result import ExecutionResult
+    from src.brokers.base_broker import BrokerOrderRequest
+    from src.core.orchestrator import CoreOrchestrator
+    manager,_=opened(8)
+    set_config_overrides({"RUN_MODE":"PAPER","RUN_MODE_EFFECTIVE":"PAPER","EXECUTION_ENABLED":True,
+        "EXECUTION_ENABLED_EFFECTIVE":True,"IBKR_READONLY_ENABLED":False})
+    try:
+        engine=ExecutionEngine();engine.relationship_manager=manager
+        def fail(request):
+            if raises: raise RuntimeError("offline ambiguous dispatch")
+            return ExecutionResult(symbol="FIXTURE",trader_type="MOMENTUM",attempted=False,status="FAILED",rationale="offline failure")
+        engine._provider=SimpleNamespace(place_order=fail,is_live=lambda:False,name=lambda:"offline-double",cached_order_update=lambda _: {})
+        releases=[]
+        engine._release_capital_for_order=lambda *a,**kw: releases.append("capital")
+        engine._release_strategy_allocation_for_order=lambda *a,**kw: releases.append("allocation")
+        context={"profile":"BULL_FLAG_MICRO_2R_V1","relationship_id":"r","action":"ADD","security_id":"conId:123","parent_id":"p","child_id":"new"}
+        request=BrokerOrderRequest(client_order_id="failed-add",symbol="FIXTURE",direction="LONG",quantity=2,
+            order_type="MKT",trader_type="MOMENTUM",strategy_name="RossMomentumStrategyV1",stop_loss_price=9.,relationship_context=context)
+        result=engine._route_order(request)
+        assert result.status=="SUBMISSION_UNKNOWN" and result.relationship_context==context
+        assert releases==[]
+        CoreOrchestrator._apply_execution_results_to_trade_management(SimpleNamespace(trade_management_engine=manager),[result])
+        plan=manager._relationship_plans["r"];assert not plan.orders["failed-add"]["terminal"]
+        now=datetime.now(timezone.utc)+timedelta(seconds=1)
+        manager.reconcile_broker_snapshot(positions={"FIXTURE":{"quantity":8,"con_id":123}},open_orders=[],
+            complete=True,as_of=now,orders_as_of=now)
+        assert plan.orders["failed-add"]["terminal"]
+        assert engine.collect_relationship_updates()==[]
+        assert releases==["allocation","capital"]
+        assert engine.collect_relationship_updates()==[]
+        assert len(releases)==2
+    finally: set_config_overrides(None)

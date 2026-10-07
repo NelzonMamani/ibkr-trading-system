@@ -374,7 +374,7 @@ class TradeManagementEngine:
         self._save_relationship_state()
 
     def reconcile_broker_snapshot(self, *, positions: dict, open_orders: list,
-                                  complete: bool, as_of: datetime) -> None:
+                                  complete: bool, as_of: datetime, orders_as_of: datetime | None = None) -> None:
         """Consume an existing coherent broker snapshot; never perform broker I/O."""
         def read(item, key, default=None):
             return item.get(key, default) if isinstance(item, dict) else getattr(item, key, default)
@@ -397,6 +397,16 @@ class TradeManagementEngine:
             quantity = int(read(broker, "quantity", 0)) if broker is not None else 0
             con_id = read(broker, "con_id") if broker is not None else None
             same_security = broker is None or (type(con_id) is int and con_id > 0 and plan.security_id == f"conId:{con_id}")
+            position = self._positions.get(plan.symbol)
+            local_qty = position.quantity if position and position.relationship_id == plan.relationship_id else 0
+            if complete and not unknown and same_security and quantity == local_qty:
+                for order_id, order in plan.orders.items():
+                    uncertain_at = order.get("submission_uncertain_at")
+                    if uncertain_at and not order["terminal"] and order_id not in observed and orders_as_of is not None:
+                        failed_at = datetime.fromisoformat(uncertain_at)
+                        if as_of >= failed_at and orders_as_of >= failed_at:
+                            order.update(terminal=True, status="RECONCILED_ABSENT", release_reservation=True)
+                            self._pending_exit.discard(plan.symbol)
             self.reconcile_relationship(plan.relationship_id, confirmed_quantity=quantity,
                 pending_orders=observed, complete=complete and not unknown and same_security)
 

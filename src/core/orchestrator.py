@@ -2947,6 +2947,24 @@ class CoreOrchestrator:
         print("[POSITION][TRUTH][START]")
         if self.run_mode == RunMode.SIM:
             print(f"[POSITION][TRUTH][SKIP] run_mode={self.run_mode.value}")
+            manager = getattr(self, "trade_management_engine", None)
+            if manager is not None:
+                confirmed = collect_system_position_snapshot(self.trade_registry.snapshot(), as_of=as_of)
+                records = self.execution_engine.position_records
+                for plan in manager._relationship_plans.values():
+                    pending = {}
+                    complete = True
+                    for order_id, order in plan.orders.items():
+                        if order["terminal"]:
+                            continue
+                        record = records.get(order_id)
+                        if record is None or "remaining_qty" not in record:
+                            complete = False
+                        else:
+                            pending[order_id] = int(record["remaining_qty"])
+                    manager.reconcile_relationship(plan.relationship_id,
+                        confirmed_quantity=confirmed[plan.symbol].quantity if plan.symbol in confirmed else 0,
+                        pending_orders=pending, complete=complete)
             self._latest_position_truth_snapshot = empty_position_truth_snapshot(as_of=as_of)
             self._latest_position_truth_verdict = healthy_position_truth_verdict()
             return self._latest_position_truth_verdict
@@ -2980,7 +2998,7 @@ class CoreOrchestrator:
             coherent = bool(order_time and 0 <= (snapshot.as_of - order_time).total_seconds() <= get_ibkr_snapshot_max_age_seconds())
             manager.reconcile_broker_snapshot(positions=snapshot.broker_positions,
                 open_orders=getattr(self.execution_engine, "_relationship_open_orders", []),
-                complete=verdict.healthy and coherent, as_of=snapshot.as_of)
+                complete=verdict.healthy and coherent, as_of=snapshot.as_of, orders_as_of=order_time)
 
         print(
             "[POSITION][TRUTH][VERDICT] "

@@ -1279,13 +1279,18 @@ class ExecutionEngine:
         try:
             result = self._provider.place_order(request)
         except Exception as exc:
-            self._release_strategy_allocation_for_order(request, reason="ENTRY_SUBMISSION_FAILURE")
-            self._release_capital_for_order(request, reason="ENTRY_SUBMISSION_FAILURE")
+            if context:
+                plan.orders[request.client_order_id]["submission_uncertain_at"] = datetime.now(timezone.utc).isoformat()
+                manager._save_relationship_state()
+            else:
+                self._release_strategy_allocation_for_order(request, reason="ENTRY_SUBMISSION_FAILURE")
+                self._release_capital_for_order(request, reason="ENTRY_SUBMISSION_FAILURE")
             return ExecutionResult(
                 symbol=request.symbol,
                 trader_type=request.trader_type or "UNKNOWN",
                 attempted=False,
-                status="FAILED",
+                status="SUBMISSION_UNKNOWN" if context else "FAILED",
+                relationship_context=request.relationship_context,
                 rationale=f"ENTRY_SUBMISSION_FAILURE:{exc}",
                 direction=request.direction,
                 quantity=request.quantity,
@@ -1300,6 +1305,14 @@ class ExecutionEngine:
                 attempt_number=request.attempt_number,
                 client_order_id=request.client_order_id,
             )
+        if context and not getattr(result, "ibkr_order_id", None) and str(result.status).upper() in {"FAILED", "BLOCKED", "EXPIRED", "RETRY_SCHEDULED"}:
+            order = plan.orders[request.client_order_id]
+            order["submission_uncertain_at"] = datetime.now(timezone.utc).isoformat()
+            order["provider_status"] = result.status
+            manager._save_relationship_state()
+            result.status = "SUBMISSION_UNKNOWN"
+            self._record_fill_and_position(request, result)
+            return result
         if str(getattr(result, "status", "") or "") in self.VALID_IBKR_STATUSES:
             print(
                 f"[EXECUTION] SUBMITTED symbol={request.symbol} qty={request.quantity} "
@@ -1588,6 +1601,7 @@ class ExecutionEngine:
             "order_type": request.order_type,
             "strategy_name": request.strategy_name,
             "filled_qty": cumulative_quantity,
+            "remaining_qty": remaining_quantity,
             "entry_price": cumulative_price,
             "timestamp": time.time(),
         }
@@ -1640,8 +1654,20 @@ class ExecutionEngine:
                 plan.protection_trade_id = protection_id
                 plan.protection_broker_order_id = str(protected.stop.broker_order_id or "") or None
                 manager._save_relationship_state()
-            trader_type = request.trader_type or "UNKNOWN"
+            initial_request = plan.orders[plan.initial_order_id].get("request", {})
+            trader_type = initial_request.get("trader_type") or request.trader_type or "UNKNOWN"
             registered = self.trade_registry.get_trade(request.symbol, trader_type)
+            if registered is None:
+                candidates = [t for t in self.trade_registry.snapshot() if t.symbol == request.symbol
+                              and ("ROSS" in t.strategy_name.upper() or t.strategy_name == "RECOVERY")]
+                if len(candidates) == 1:
+                    registered = candidates[0]
+                    trader_type = registered.trader_type
+                elif candidates:
+                    self._failsafe_block_new_entries = True
+                    plan.paused = True
+                    manager._save_relationship_state()
+                    return
             if protected is not None and protected.filled_qty > 0:
                 if registered is None:
                     self.trade_registry.register_trade(ActiveTrade(symbol=request.symbol, trader_type=trader_type,
@@ -1679,6 +1705,12 @@ class ExecutionEngine:
         results = []
         for plan in manager._relationship_plans.values():
             for order_id, order in plan.orders.items():
+                if order.get("release_reservation") and order.get("request"):
+                    request = BrokerOrderRequest(**order["request"])
+                    self._release_strategy_allocation_for_order(request, reason="SUBMISSION_RECONCILED_ABSENT")
+                    self._release_capital_for_order(request, reason="SUBMISSION_RECONCILED_ABSENT")
+                    order["release_reservation"] = False
+                    manager._save_relationship_state()
                 if not order.get("broker_order_id") or not order.get("request"):
                     continue
                 facts = reader(order["broker_order_id"])
