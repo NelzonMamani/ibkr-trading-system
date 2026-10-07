@@ -363,6 +363,8 @@ def test_cached_late_fills_resize_one_stop_and_one_registry_position(monkeypatch
     engine.trade_registry=ActiveTradeRegistry();engine.position_records={};engine._failsafe_block_new_entries=False
     engine._convert_strategy_allocation_for_fill=lambda *a,**kw: None
     engine._convert_capital_for_fill=lambda *a,**kw: None
+    engine._capital_decisions_by_order_id={}
+    engine._strategy_allocation_decisions_by_order_id={}
     engine._record_order_stage=lambda *a,**kw: None
     engine._execution_log=lambda *a,**kw: None
     harness=SimpleNamespace(trade_management_engine=manager)
@@ -392,15 +394,17 @@ def test_cached_late_fills_resize_one_stop_and_one_registry_position(monkeypatch
     reduction=milestone(manager,13.)
     sell_context={"profile":"BULL_FLAG_MICRO_2R_V1","relationship_id":"r","action":"REDUCE"}
     sell=BrokerOrderRequest(client_order_id=reduction.management_action_id,symbol="FIXTURE",direction="SELL",quantity=2,
-        order_type="MKT",trader_type="MANUAL",strategy_name="RossMomentumStrategyV1",relationship_context=sell_context)
+        order_type="MKT",trader_type="MANUAL",strategy_name="TRADE_MANAGEMENT",relationship_context=sell_context)
     from src.models.execution_result import ExecutionResult
-    engine.strategy_allocation_authority=SimpleNamespace(release_exposure=lambda **kw: None)
-    engine.capital_authority=SimpleNamespace(release_exposure=lambda **kw: None)
+    releases=[]
+    engine.strategy_allocation_authority=SimpleNamespace(release_exposure=lambda **kw: releases.append(kw))
+    engine.capital_authority=SimpleNamespace(release_exposure=lambda **kw: releases.append(kw))
     fill=ExecutionResult(symbol="FIXTURE",trader_type="MANUAL",attempted=True,status="Filled",rationale="offline",
         filled_quantity=2,remaining_quantity=0,average_fill_price=13.)
     engine._record_fill_and_position(sell,fill)
     CoreOrchestrator._apply_execution_results_to_trade_management(harness,[fill])
     assert [(t.trader_type,t.quantity) for t in engine.trade_registry.snapshot()]==[("SCALPER",2)]
+    assert [r["strategy_id"] for r in releases]==["RossMomentumStrategyV1"]*2
     manager.reconcile_relationship("r",confirmed_quantity=2,pending_orders={},complete=True)
     closing=manager._emit_exit_intent(manager.snapshot_positions()["FIXTURE"],qty=2,rationale="STOP_LOSS_BREAK",exit_type="STOP",stage="FINAL")
     close_request=BrokerOrderRequest(**{**asdict(sell),"client_order_id":closing.management_action_id})
@@ -696,3 +700,80 @@ def test_definitive_predispatch_block_releases_only_unsubmitted_milestone():
         retry=milestone(manager)
         assert retry.quantity==4 and retry.management_action_id!=intent.management_action_id
     finally: set_config_overrides(None)
+
+
+def test_late_milestone_attempt_fill_cancels_oversized_retry_and_counts_once():
+    manager,store=opened(8);first=milestone(manager);plan=manager._relationship_plans["r"]
+    manager.on_relationship_order_update(relationship_id="r",order_id=first.management_action_id,
+        cumulative_quantity=1,average_price=12.,terminal=True,status="Cancelled")
+    manager.reconcile_relationship("r",confirmed_quantity=7,pending_orders={},complete=True)
+    retry=milestone(manager);assert retry.quantity==3
+    plan.orders[retry.management_action_id].update(broker_order_id="retry",request={"sent":True})
+    calls=[];manager._cancel_order_callback=lambda **kw: calls.append(kw)
+    manager.on_relationship_order_update(relationship_id="r",order_id=first.management_action_id,
+        cumulative_quantity=2,average_price=12.,terminal=False,status="Submitted")
+    assert plan.milestone_filled==2
+    assert calls==[{"broker_order_id":"retry"}]
+    assert not plan.orders[retry.management_action_id]["terminal"]
+    manager.on_relationship_order_update(relationship_id="r",order_id=first.management_action_id,
+        cumulative_quantity=2,average_price=12.,terminal=False,status="Submitted")
+    assert len(calls)==1 and plan.milestone_filled==2
+    manager.on_relationship_order_update(relationship_id="r",order_id=retry.management_action_id,
+        cumulative_quantity=1,average_price=12.,terminal=True,status="Cancelled")
+    assert plan.milestone_filled==3
+    restored=TradeManagementEngine(persistence_adapter=store);restored.restore_relationship_state()
+    assert restored.reconcile_relationship("r",confirmed_quantity=5,pending_orders={},complete=True)
+    final=milestone(restored);assert final.quantity==1
+    restored.on_relationship_order_update(relationship_id="r",order_id=final.management_action_id,
+        cumulative_quantity=1,average_price=12.,terminal=True,status="Filled")
+    assert restored._relationship_plans["r"].milestone_consumed
+
+
+def test_terminal_unchanged_partial_callback_releases_residual_reservations():
+    from types import SimpleNamespace
+    from src.execution.execution_engine import ExecutionEngine
+    from src.brokers.base_broker import BrokerOrderRequest
+    from src.core.orchestrator import CoreOrchestrator
+    manager,_=opened(2);plan=manager._relationship_plans["r"]
+    plan.orders["entry"].update(terminal=False,status="SUBMITTED",requested=5,broker_order_id="17")
+    request=BrokerOrderRequest(client_order_id="entry",symbol="FIXTURE",direction="LONG",quantity=5,
+        order_type="MKT",strategy_name="RossMomentumStrategyV1",relationship_context={"relationship_id":"r"})
+    plan.orders["entry"]["request"]=asdict(request)
+    engine=ExecutionEngine.__new__(ExecutionEngine);engine.relationship_manager=manager;engine.position_records={}
+    engine._provider=SimpleNamespace(cached_order_update=lambda _: {"status":"Cancelled","filled":2,"remaining":3,"avgFillPrice":10.})
+    engine._capital_decisions_by_order_id={"entry":"capital"}
+    engine._strategy_allocation_decisions_by_order_id={"entry":"strategy"}
+    released=[]
+    engine.capital_authority=SimpleNamespace(release_reservation=lambda **kw: released.append(kw["decision_id"]))
+    engine.strategy_allocation_authority=SimpleNamespace(release_reservation=lambda **kw: released.append(kw["decision_id"]))
+    results=engine.collect_relationship_updates()
+    CoreOrchestrator._apply_execution_results_to_trade_management(SimpleNamespace(trade_management_engine=manager),results)
+    assert sorted(released)==["capital","strategy"]
+    assert manager.snapshot_positions()["FIXTURE"].quantity==2
+    assert engine.collect_relationship_updates()==[] and len(released)==2
+
+
+@pytest.mark.parametrize("dispatched",[False,True])
+def test_late_milestone_fill_prevents_unsent_retry_or_retries_failed_cancel(dispatched):
+    manager,_=opened(8);first=milestone(manager);plan=manager._relationship_plans["r"]
+    manager.on_relationship_order_update(relationship_id="r",order_id=first.management_action_id,
+        cumulative_quantity=1,average_price=12.,terminal=True,status="Cancelled")
+    manager.reconcile_relationship("r",confirmed_quantity=7,pending_orders={},complete=True)
+    retry=milestone(manager);order=plan.orders[retry.management_action_id]
+    calls=[]
+    def cancel(**kw):
+        calls.append(kw)
+        if len(calls)==1: raise RuntimeError("offline failed cancel")
+    manager._cancel_order_callback=cancel
+    if dispatched: order.update(request={"sent":True},broker_order_id="retry")
+    manager.on_relationship_order_update(relationship_id="r",order_id=first.management_action_id,
+        cumulative_quantity=4,average_price=12.,terminal=True,status="Cancelled")
+    assert plan.milestone_consumed and plan.milestone_filled==4
+    if dispatched:
+        assert not order["terminal"] and not order["cancel_requested"]
+        manager.cancel_excess_milestone_orders(plan)
+        manager.cancel_excess_milestone_orders(plan)
+        assert len(calls)==2 and order["cancel_requested"] and not order["terminal"]
+    else:
+        assert order["terminal"] and order["status"]=="SUPERSEDED_BEFORE_DISPATCH"
+        assert calls==[]

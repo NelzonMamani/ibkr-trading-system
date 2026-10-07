@@ -1321,7 +1321,8 @@ class ExecutionEngine:
             from dataclasses import asdict
             manager = getattr(self, "relationship_manager", None)
             plan = manager._relationship_plans.get(context.get("relationship_id")) if manager else None
-            if plan is None or request.client_order_id not in plan.orders:
+            if (plan is None or request.client_order_id not in plan.orders
+                    or plan.orders[request.client_order_id]["terminal"]):
                 return ExecutionResult(symbol=request.symbol, trader_type=request.trader_type or "UNKNOWN",
                     attempted=False, status="BLOCKED", rationale="RELATIONSHIP_ORDER_NOT_RESERVED")
             plan.orders[request.client_order_id]["request"] = asdict(request)
@@ -1615,8 +1616,10 @@ class ExecutionEngine:
             self._convert_strategy_allocation_for_fill(request, filled_quantity=filled_quantity, fill_price=fill_price)
             self._convert_capital_for_fill(request, filled_quantity=filled_quantity, fill_price=fill_price)
         elif direction_upper == "SELL":
+            entry_request = plan.orders.get(plan.initial_order_id, {}).get("request", {}) if plan else {}
+            owner_strategy = entry_request.get("strategy_name") or request.strategy_name
             self.strategy_allocation_authority.release_exposure(
-                strategy_id=request.strategy_name or "UNKNOWN",
+                strategy_id=owner_strategy or "UNKNOWN",
                 quantity=filled_quantity,
                 price=fill_price,
                 reason="EXIT_FILL",
@@ -1625,7 +1628,7 @@ class ExecutionEngine:
                 symbol=request.symbol,
                 quantity=filled_quantity,
                 price=fill_price,
-                strategy_id=request.strategy_name,
+                strategy_id=owner_strategy,
                 reason="EXIT_FILL",
             )
         print(
@@ -1765,6 +1768,7 @@ class ExecutionEngine:
         if manager is None:
             return []
         for plan in manager._relationship_plans.values():
+            manager.cancel_excess_milestone_orders(plan)
             if plan.pending_stop_cancel and self._provider is not None:
                 try:
                     self._provider.cancel_order(broker_order_id=plan.pending_stop_cancel)
@@ -1797,6 +1801,8 @@ class ExecutionEngine:
                     filled_quantity=total, remaining_quantity=int(facts["remaining"]),
                     average_fill_price=facts.get("avgFillPrice"), relationship_context=request.relationship_context)
                 self._record_fill_and_position(request, result)
+                self._release_strategy_allocation_for_terminal_result(request, result)
+                self._release_capital_for_terminal_result(request, result)
                 results.append(result)
         return results
 
@@ -1928,7 +1934,7 @@ class ExecutionEngine:
         if bool(getattr(result, "retry_scheduled", False)) and not retry_enqueued:
             self._release_strategy_allocation_for_order(request, reason="RETRY_NOT_SCHEDULED")
             return
-        if int(getattr(result, "filled_quantity", 0) or 0) > 0:
+        if int(getattr(result, "filled_quantity", 0) or 0) > 0 and not request.relationship_context:
             return
         status = str(getattr(result, "status", "") or "").upper()
         if status in {"BLOCKED", "FAILED", "REJECTED", "CANCELLED", "CANCELED", "EXPIRED", "NOT_FILLED", "TIMED_OUT"}:
@@ -1956,7 +1962,7 @@ class ExecutionEngine:
         if bool(getattr(result, "retry_scheduled", False)) and not retry_enqueued:
             self._release_capital_for_order(request, reason="RETRY_NOT_SCHEDULED")
             return
-        if int(getattr(result, "filled_quantity", 0) or 0) > 0:
+        if int(getattr(result, "filled_quantity", 0) or 0) > 0 and not request.relationship_context:
             return
         status = str(getattr(result, "status", "") or "").upper()
         if status in {"BLOCKED", "FAILED", "REJECTED", "CANCELLED", "CANCELED", "EXPIRED", "NOT_FILLED", "TIMED_OUT"}:

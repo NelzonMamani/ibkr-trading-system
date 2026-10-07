@@ -488,7 +488,7 @@ class TradeManagementEngine:
             order["filled"], order["notional"] = total, notional
             if order_id == plan.initial_order_id:
                 plan.entry_quantity, plan.entry_notional = total, notional
-            if order_id == plan.milestone_order_id:
+            if order["action"] == "REDUCE":
                 plan.milestone_filled += delta
                 plan.milestone_consumed = plan.milestone_filled >= int(plan.milestone_quantity or 0)
         order["terminal"] = bool(terminal)
@@ -502,6 +502,31 @@ class TradeManagementEngine:
         # Every changed order requires fresh reconciliation before exposure or milestone.
         plan.reconciled = False
         self._save_relationship_state()
+        self.cancel_excess_milestone_orders(plan)
+
+    def cancel_excess_milestone_orders(self, plan: BullFlagMicroPlan) -> None:
+        """Cancel oversized retries after late fills; never presume cancellation filled."""
+        if plan.milestone_quantity is None:
+            return
+        allowance = max(0, plan.milestone_quantity - plan.milestone_filled)
+        for order in plan.orders.values():
+            if order["action"] != "REDUCE" or order["terminal"]:
+                continue
+            remaining = max(0, order["requested"] - order["filled"])
+            if remaining <= allowance:
+                allowance -= remaining
+                continue
+            if not order.get("request") and not order.get("broker_order_id"):
+                order.update(terminal=True, status="SUPERSEDED_BEFORE_DISPATCH")
+            elif order.get("broker_order_id") and not order.get("cancel_requested") and self._cancel_order_callback:
+                order["cancel_requested"] = True
+                self._save_relationship_state()
+                try:
+                    self._cancel_order_callback(broker_order_id=order["broker_order_id"])
+                except Exception as exc:
+                    order["cancel_requested"] = False
+                    order["cancel_error"] = type(exc).__name__
+            self._save_relationship_state()
 
     def relationship_add_quantity(self, relationship_id: str, *, price: float,
                                   warning: bool, parent_valid: bool, child_id: str) -> int:
