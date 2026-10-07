@@ -233,7 +233,9 @@ class RossPatternRegistry:
                 continue
             try:
                 result = apply_detected_setup_fidelity(
-                    pattern.evaluate(inputs),
+                    ((trace_context or {}).get("bull_flag_composer")(pattern, inputs)
+                     if pattern_id == "P_BULL_FLAG" and callable((trace_context or {}).get("bull_flag_composer"))
+                     else pattern.evaluate(inputs)),
                     inputs,
                     pattern_id=pattern_id,
                 )

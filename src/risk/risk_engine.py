@@ -695,7 +695,7 @@ class RiskEngine:
             )
             return self._finalize_decision(decision, decision_id)
 
-        if getattr(trade_intent, "force_execute", False):
+        if getattr(trade_intent, "force_execute", False) and not getattr(trade_intent, "relationship_context", None):
             print(f"[RISK][BYPASS] symbol={trade_intent.symbol}")
             decision = RiskDecision(
                 symbol=trade_intent.symbol,
@@ -709,6 +709,11 @@ class RiskEngine:
                 stop_loss_price=trade_intent.stop_loss_price,
                 take_profit_price=trade_intent.take_profit_price,
                 pattern_name=getattr(trade_intent, "pattern_name", None),
+                target_model=getattr(trade_intent, "target_model", None),
+                relationship_context=getattr(trade_intent, "relationship_context", None),
+                setup_family_id=getattr(trade_intent, "setup_family_id", None),
+                trigger_id=getattr(trade_intent, "trigger_id", None),
+                execution_refinement_mode=getattr(trade_intent, "execution_refinement_mode", None),
                 invalidation_level=getattr(trade_intent, "invalidation_level", None),
                 overall_action="ALLOW",
                 decision_code="APPROVE",
@@ -730,6 +735,11 @@ class RiskEngine:
                 trader_type=trade_intent.trader_type,
                 strategy_name=trade_intent.strategy_name,
                 direction=trade_intent.direction,
+                target_model=getattr(trade_intent, "target_model", None),
+                relationship_context=getattr(trade_intent, "relationship_context", None),
+                setup_family_id=getattr(trade_intent, "setup_family_id", None),
+                trigger_id=getattr(trade_intent, "trigger_id", None),
+                execution_refinement_mode=getattr(trade_intent, "execution_refinement_mode", None),
                 reason_code=DECISION_ARTIFACT_MISSING,
                 overall_action="BLOCK",
                 decision_code="REJECT",
@@ -1254,6 +1264,11 @@ class RiskEngine:
             stop_loss_price=resolved_stop_loss,
             take_profit_price=getattr(trade_intent, "take_profit_price", None),
             pattern_name=getattr(trade_intent, "pattern_name", None),
+            target_model=getattr(trade_intent, "target_model", None),
+            relationship_context=getattr(trade_intent, "relationship_context", None),
+            setup_family_id=getattr(trade_intent, "setup_family_id", None),
+            trigger_id=getattr(trade_intent, "trigger_id", None),
+            execution_refinement_mode=getattr(trade_intent, "execution_refinement_mode", None),
             invalidation_level=getattr(trade_intent, "invalidation_level", None),
             overall_action="ALLOW" if allowed else "BLOCK",
             decision_code="APPROVE" if allowed else "REJECT",
@@ -1269,6 +1284,21 @@ class RiskEngine:
             f"entry_price={entry_price} available_capital={available_capital} "
             f"max_position_value={round(max_position_value, 2)} approved_quantity={max_position_size}"
         )
+        context = getattr(trade_intent, "relationship_context", None)
+        if context:
+            manager = getattr(self, "relationship_manager", None)
+            quantity = (manager.risk_quantity(trade_intent, quantity_cap=max_position_size,
+                         value_cap=max_position_value) if manager is not None else 0)
+            if quantity <= 0:
+                decision.allowed = False
+                decision.execution_blocked = True
+                decision.max_position_size = 0
+                decision.overall_action = "BLOCK"
+                decision.decision_code = "REJECT"
+                decision.reason_code = "RELATIONSHIP_AGGREGATE_RISK_BLOCK"
+                decision.risk_reasons.append(decision.reason_code)
+            else:
+                decision.max_position_size = quantity
         if applied_multiplier is not None:
             decision.risk_reasons.append(
                 f"REGIME_RISK_MULTIPLIER:{applied_multiplier:.2f}"

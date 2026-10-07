@@ -589,6 +589,8 @@ class ExecutionEngine:
         except Exception as exc:
             print(f"[LIFECYCLE][RECONCILIATION][ERROR] stage=fetch_open_orders reason={exc}")
             return
+        self._relationship_open_orders = broker_orders
+        self._relationship_orders_asof = datetime.now(timezone.utc)
         summary = self.post_fill_lifecycle.reconcile_orders(broker_orders, repair=True)
         self._failsafe_block_new_entries = bool(summary.get("block_new_entries", False))
         print(
@@ -635,6 +637,12 @@ class ExecutionEngine:
         action = str(getattr(intent, "action", "") or "").upper()
         if action not in {"EXIT", "ADD"}:
             return None
+        strategy = str(getattr(intent, "strategy_name", "") or "").upper()
+        if action == "ADD" and "ROSS" in strategy:
+            # Ross exposure must arrive as an actual RiskDecision, never a
+            # management label converted into permission and a synthetic stop.
+            print("[EXECUTION][BLOCK] reason=ROSS_ADD_REQUIRES_RISK_DECISION")
+            return None
         symbol = str(getattr(intent, "symbol", "") or "").upper()
         quantity = int(getattr(intent, "quantity", 0) or 0)
         if not symbol or quantity <= 0:
@@ -659,6 +667,9 @@ class ExecutionEngine:
             reason_code=f"TRADE_MANAGEMENT_{action}",
             decision_id=decision_id,
             intent_id=f"{decision_id}:{datetime.now(timezone.utc).isoformat()}",
+            relationship_context=({"relationship_id": intent.relationship_id,
+                "management_action_id": intent.management_action_id, "action": "REDUCE"}
+                if getattr(intent, "relationship_id", None) else None),
         )
 
     def execute_trade(self, risk_decision: Optional[RiskDecision]) -> ExecutionResult:
@@ -911,6 +922,7 @@ class ExecutionEngine:
             duplicate is not None
             and direction in {"LONG", "BUY"}
             and reason_code != "TRADE_MANAGEMENT_ADD"
+            and (getattr(risk_decision, "relationship_context", None) or {}).get("action") != "ADD"
         ):
             return self._blocked_execution_from_risk_decision(
                 risk_decision,
@@ -1142,6 +1154,9 @@ class ExecutionEngine:
         requested_quantity = self._clamp_order_quantity(raw_quantity, symbol=risk_decision.symbol)
         print(f"[EXECUTION][SIZE_ACCEPT] symbol={risk_decision.symbol} approved_quantity={requested_quantity}")
         client_order_id = f"{risk_decision.decision_id}-{uuid.uuid4().hex[:8]}"
+        context = getattr(risk_decision, "relationship_context", None) or {}
+        if context.get("management_action_id"):
+            client_order_id = context["management_action_id"]
         print(
             "[ORDER][BUILD] "
             f"symbol={risk_decision.symbol} order_type=MKT qty={requested_quantity} side=BUY"
@@ -1161,6 +1176,10 @@ class ExecutionEngine:
             pattern_name=getattr(risk_decision, "pattern_name", None),
             invalidation_level=getattr(risk_decision, "invalidation_level", None),
             next_retry_tick=None,
+            setup_family_id=getattr(risk_decision, "setup_family_id", None),
+            trigger_id=getattr(risk_decision, "trigger_id", None),
+            target_model=getattr(risk_decision, "target_model", None),
+            relationship_context=getattr(risk_decision, "relationship_context", None),
         )
         capital_decision = getattr(risk_decision, "capital_decision", None)
         if isinstance(capital_decision, CapitalDecision):
@@ -1238,6 +1257,25 @@ class ExecutionEngine:
         print(
             f"[ORDER_SUBMITTED] symbol={request.symbol} qty={request.quantity} type={request.order_type}"
         )
+        context = request.relationship_context or {}
+        if context and context.get("action") in {"ENTRY", "REENTRY", "ADD"}:
+            manager = getattr(self, "relationship_manager", None)
+            if manager is None or not manager.register_relationship_order(
+                relationship_id=context["relationship_id"], symbol=request.symbol,
+                security_id=context["security_id"], parent_id=context["parent_id"], child_id=context["child_id"],
+                order_id=request.client_order_id, quantity=request.quantity, stop=request.stop_loss_price,
+                action=context["action"]):
+                return ExecutionResult(symbol=request.symbol, trader_type=request.trader_type or "UNKNOWN",
+                    attempted=False, status="BLOCKED", rationale="RELATIONSHIP_RESERVATION_BLOCK")
+        if context:
+            from dataclasses import asdict
+            manager = getattr(self, "relationship_manager", None)
+            plan = manager._relationship_plans.get(context.get("relationship_id")) if manager else None
+            if plan is None or request.client_order_id not in plan.orders:
+                return ExecutionResult(symbol=request.symbol, trader_type=request.trader_type or "UNKNOWN",
+                    attempted=False, status="BLOCKED", rationale="RELATIONSHIP_ORDER_NOT_RESERVED")
+            plan.orders[request.client_order_id]["request"] = asdict(request)
+            manager._save_relationship_state()
         try:
             result = self._provider.place_order(request)
         except Exception as exc:
@@ -1466,9 +1504,35 @@ class ExecutionEngine:
         return result
 
     def _record_fill_and_position(self, request: BrokerOrderRequest, result: ExecutionResult) -> None:
+        # The broker callback carries fill facts; protection belongs to the
+        # risk-approved request and must survive into recurring management.
+        result.stop_loss_price = request.stop_loss_price
+        result.take_profit_price = request.take_profit_price
+        result.strategy_name = request.strategy_name
+        result.setup_family_id = request.setup_family_id
+        result.trigger_id = request.trigger_id
+        result.target_model = request.target_model
+        result.relationship_context = request.relationship_context
+        result.client_order_id = request.client_order_id
+        context = request.relationship_context or {}
+        manager = getattr(self, "relationship_manager", None)
+        plan = manager._relationship_plans.get(context.get("relationship_id")) if manager else None
+        stored_order = plan.orders.get(request.client_order_id) if plan else None
+        if stored_order is not None and getattr(result, "ibkr_order_id", None) is not None:
+            stored_order["broker_order_id"] = str(result.ibkr_order_id)
+            manager._save_relationship_state()
         filled_quantity = int(getattr(result, "filled_quantity", 0) or 0)
         if filled_quantity <= 0:
             return
+        cumulative_quantity = filled_quantity
+        previous = self.position_records.get(request.client_order_id, {})
+        if not previous and stored_order is not None and stored_order["filled"]:
+            previous = {"filled_qty": stored_order["filled"], "entry_price": stored_order["notional"] / stored_order["filled"]}
+
+        if request.relationship_context:
+            filled_quantity -= int(previous.get("filled_qty", 0))
+            if filled_quantity <= 0:
+                return
         remaining_quantity = int(getattr(result, "remaining_quantity", 0) or 0)
         fill_track_status = "PARTIAL_FILL" if remaining_quantity > 0 else "Filled"
         ibkr_order_id = getattr(result, "ibkr_order_id", None)
@@ -1481,6 +1545,9 @@ class ExecutionEngine:
         entry_price = getattr(result, "entry_price", None) or getattr(result, "average_fill_price", None)
         direction_upper = str(request.direction).upper()
         fill_price = self._float_or_none(entry_price) or 0.0
+        cumulative_price = fill_price
+        if request.relationship_context and int(previous.get("filled_qty", 0)):
+            fill_price = (cumulative_quantity * fill_price - int(previous["filled_qty"]) * float(previous["entry_price"])) / filled_quantity
         if direction_upper in {"LONG", "BUY", "SHORT"}:
             self._convert_strategy_allocation_for_fill(request, filled_quantity=filled_quantity, fill_price=fill_price)
             self._convert_capital_for_fill(request, filled_quantity=filled_quantity, fill_price=fill_price)
@@ -1520,13 +1587,25 @@ class ExecutionEngine:
             "direction": str(request.direction).upper(),
             "order_type": request.order_type,
             "strategy_name": request.strategy_name,
-            "filled_qty": filled_quantity,
-            "entry_price": entry_price,
+            "filled_qty": cumulative_quantity,
+            "entry_price": cumulative_price,
             "timestamp": time.time(),
         }
-        if direction_upper in {"LONG", "BUY"}:
+        context = request.relationship_context or {}
+        manager = getattr(self, "relationship_manager", None)
+        plan = manager._relationship_plans.get(context.get("relationship_id")) if manager else None
+        protection_id = (plan.protection_trade_id or plan.initial_order_id) if plan else request.client_order_id
+        existing_protection = self.post_fill_lifecycle.get_trade(protection_id) if plan else None
+        if direction_upper in {"LONG", "BUY"} and existing_protection is not None:
+            total = existing_protection.filled_qty + filled_quantity
+            average = (existing_protection.filled_qty * existing_protection.avg_fill_price + filled_quantity * fill_price) / total
+            protection_result = self.post_fill_lifecycle.update_selected_exposure(
+                trade_id=protection_id, filled_qty=total, avg_fill_price=average)
+            self._failsafe_block_new_entries = self._failsafe_block_new_entries or not protection_result["success"]
+            self.position_records[request.client_order_id]["lifecycle"] = protection_result
+        elif direction_upper in {"LONG", "BUY"}:
             protection_result = self.post_fill_lifecycle.activate_trade_management_after_fill(
-                trade_id=request.client_order_id,
+                trade_id=protection_id,
                 symbol=request.symbol,
                 side=request.direction,
                 filled_qty=filled_quantity,
@@ -1534,8 +1613,48 @@ class ExecutionEngine:
                 strategy_id=request.strategy_name or "UNKNOWN",
                 intended_qty=request.quantity,
                 session_label=self.run_mode.value,
+                stop_loss_price=request.stop_loss_price,
+                take_profit_price=request.take_profit_price,
+                preserve_selected_protection="ROSS" in str(request.strategy_name or "").upper(),
+                target_model=request.target_model,
             )
             self.position_records[request.client_order_id]["lifecycle"] = protection_result
+        if direction_upper == "SELL" and plan is not None and existing_protection is not None:
+            self.post_fill_lifecycle.record_exit_fill(trade_id=protection_id, fill_price=fill_price,
+                fill_time=datetime.now(timezone.utc).isoformat(), actual_qty=filled_quantity,
+                exit_order_id=request.client_order_id, reason="relationship_reduction")
+            if existing_protection.filled_qty > 0:
+                resized = self.post_fill_lifecycle.update_selected_exposure(trade_id=protection_id,
+                    filled_qty=existing_protection.filled_qty, avg_fill_price=existing_protection.avg_fill_price)
+                self._failsafe_block_new_entries = self._failsafe_block_new_entries or not resized["success"]
+            elif existing_protection.stop and existing_protection.stop.broker_order_id and self._provider is not None:
+                cancelled = self._provider.cancel_order(broker_order_id=existing_protection.stop.broker_order_id)
+                existing_protection.stop.status = str(cancelled.get("status") or "UNKNOWN")
+
+        if plan is not None:
+            # One registry projection from confirmed aggregate protection. Broker
+            # adapters deliberately do not independently register these fills.
+            from src.core.active_trade_registry import ActiveTrade
+            protected = self.post_fill_lifecycle.get_trade(protection_id)
+            if protected is not None and protected.stop is not None:
+                plan.protection_trade_id = protection_id
+                plan.protection_broker_order_id = str(protected.stop.broker_order_id or "") or None
+                manager._save_relationship_state()
+            trader_type = request.trader_type or "UNKNOWN"
+            registered = self.trade_registry.get_trade(request.symbol, trader_type)
+            if protected is not None and protected.filled_qty > 0:
+                if registered is None:
+                    self.trade_registry.register_trade(ActiveTrade(symbol=request.symbol, trader_type=trader_type,
+                        entry_tick=request.created_tick or 0, entry_price=protected.avg_fill_price,
+                        direction="LONG", quantity=protected.filled_qty, strategy_name=protected.strategy_id,
+                        stop_loss_price=protected.stop.trigger_price if protected.stop else plan.original_stop))
+                else:
+                    registered.quantity = protected.filled_qty
+                    registered.entry_price = protected.avg_fill_price
+                    registered.take_profit_price = None
+            elif registered is not None:
+                self.trade_registry.unregister_trade(request.symbol, trader_type)
+
         if direction_upper in {"SHORT", "SELL"}:
             print(
                 f"[ORDER][EXIT] order_id={request.client_order_id} symbol={request.symbol} qty={filled_quantity}"
@@ -1550,6 +1669,34 @@ class ExecutionEngine:
                     f"order_id={request.client_order_id}"
                 )
             self._record_order_stage(request.client_order_id, "EXIT")
+
+    def collect_relationship_updates(self) -> list[ExecutionResult]:
+        """Drain existing client callback facts on the execution thread; no requests."""
+        manager = getattr(self, "relationship_manager", None)
+        reader = getattr(self._provider, "cached_order_update", None)
+        if manager is None or not callable(reader):
+            return []
+        results = []
+        for plan in manager._relationship_plans.values():
+            for order_id, order in plan.orders.items():
+                if not order.get("broker_order_id") or not order.get("request"):
+                    continue
+                facts = reader(order["broker_order_id"])
+                if not facts or "filled" not in facts or "remaining" not in facts:
+                    continue
+                total = int(facts["filled"])
+                status = str(facts.get("status") or "").upper()
+                if total == order["filled"] and status == order.get("status"):
+                    continue
+                request = BrokerOrderRequest(**order["request"])
+                result = ExecutionResult(symbol=plan.symbol, trader_type=request.trader_type or "UNKNOWN",
+                    attempted=True, status=status, rationale="CACHED_BROKER_CALLBACK",
+                    client_order_id=order_id, ibkr_order_id=order["broker_order_id"], direction=request.direction,
+                    filled_quantity=total, remaining_quantity=int(facts["remaining"]),
+                    average_fill_price=facts.get("avgFillPrice"), relationship_context=request.relationship_context)
+                self._record_fill_and_position(request, result)
+                results.append(result)
+        return results
 
     def _get_open_trades_for_symbol(self, symbol: str) -> list[str]:
         return self.post_fill_lifecycle._get_open_trades_for_symbol(symbol)
@@ -1884,6 +2031,8 @@ class ExecutionEngine:
         )
 
     def _schedule_retry(self, request: BrokerOrderRequest, result: ExecutionResult) -> bool:
+        if request.relationship_context:
+            return False  # reconciliation owns any remaining logical action
         if not self.execution_enabled:
             return False
         if not getattr(result, "retry_scheduled", False) or result.next_retry_tick is None:
@@ -1913,6 +2062,10 @@ class ExecutionEngine:
             pattern_name=request.pattern_name,
             invalidation_level=request.invalidation_level,
             next_retry_tick=result.next_retry_tick,
+            setup_family_id=request.setup_family_id,
+            trigger_id=request.trigger_id,
+            target_model=request.target_model,
+            relationship_context=request.relationship_context,
         )
         self.pending_book.add(scheduled_request)
         print(

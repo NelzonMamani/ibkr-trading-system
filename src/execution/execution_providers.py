@@ -269,6 +269,12 @@ class IbkrExecutionProvider(ExecutionProvider):
     def is_live(self) -> bool:
         return True
 
+    def cached_order_update(self, broker_order_id: str) -> dict:
+        client = self.broker.connection_manager.optional_client
+        if client is None:
+            return {}
+        return client.cached_order_status(int(broker_order_id))
+
     def place_order(self, request: BrokerOrderRequest) -> ExecutionResult:
         if self.run_mode == RunMode.READ_ONLY:
             return ExecutionResult(

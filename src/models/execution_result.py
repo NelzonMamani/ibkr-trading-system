@@ -49,6 +49,11 @@ class ExecutionResult:
     ask_price: Optional[Decimal] = None
     reference_price: Optional[Decimal] = None
     execution_price: Optional[Decimal] = None
+    strategy_name: Optional[str] = None
+    setup_family_id: Optional[str] = None
+    trigger_id: Optional[str] = None
+    target_model: Optional[str] = None
+    relationship_context: Optional[dict] = None
 
     def __post_init__(self) -> None:
         self.entry_price = self._maybe_quantize(self.entry_price)

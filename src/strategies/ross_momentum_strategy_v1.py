@@ -7,6 +7,7 @@ Consumes SignalEvent(s) and emits TradeIntent(s) using teaching-safe rules.
 from __future__ import annotations
 
 import json
+from datetime import timezone
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from src.config.config_resolver import ConfigResolutionError, get_config
@@ -1004,6 +1005,14 @@ class RossMomentumStrategyV1(BaseStrategy):
                 "input_summary": input_summary.to_dict(),
                 "pattern_inputs": {"levels": levels, "structure": structure, "setups": setups, "triggers": trigger_candidates},
             }
+            relationship_manager = getattr(self, "relationship_manager", None)
+            if relationship_manager is not None:
+                from src.strategies.ross_momentum.patterns import pattern_trace as runtime_trace
+                raw_conid = (row.get("conId", row.get("con_id")) if isinstance(row, dict)
+                             else getattr(row, "conId", getattr(row, "con_id", None)))
+                security_id = f"conId:{raw_conid}" if isinstance(raw_conid, int) and not isinstance(raw_conid, bool) and raw_conid > 0 else ""
+                registry_context["bull_flag_composer"] = lambda pattern, pattern_inputs: relationship_manager.compose_bull_flag(
+                    pattern, pattern_inputs, security_id=security_id, now=runtime_trace.datetime.now(timezone.utc))
             registry_pattern_ids = self._pattern_registry.pattern_ids
             print(
                 f"[PATTERN_INPUT_READY] symbol={symbol} candles={len(inputs.candles)} "
@@ -1702,6 +1711,11 @@ class RossMomentumStrategyV1(BaseStrategy):
                 raise RuntimeError("CRITICAL: TRIGGER_FIRED_NO_INTENT")
             if gap_go_trigger_fired and not intent:
                 raise RuntimeError("CRITICAL: TRIGGER_FIRED_NO_INTENT")
+            intent.relationship_context = dict((getattr(selected_contract, "setup_metadata", {}) or {}).get("relationship") or {})
+            if intent.relationship_context:
+                intent.relationship_context["warning"] = bool(
+                    {str(flag).upper() for flag in getattr(selected_contract, "risk_flags", [])}
+                    & {"RISK_OFF", "CAUTION", "EXIT_SIGNAL"})
             intent.entry_price = entry
             intent.has_valid_pattern = bool(getattr(best_pattern, "detected", False))
             intent.confirmation_passed = confirmation_passed
@@ -1843,6 +1857,11 @@ class RossMomentumStrategyV1(BaseStrategy):
             position_size = base_size * size_multiplier
             setattr(intent, "position_size", position_size)
             setattr(intent, "quantity", max(1, int(round(position_size))))
+            relationship_context = getattr(intent, "relationship_context", None)
+            if relationship_context:
+                manager = getattr(self, "relationship_manager", None)
+                if manager is None or not manager.prepare_relationship_intent(intent, relationship_context):
+                    continue
             _terminal(
                 symbol,
                 TERMINAL_CATEGORY["INTENT_CREATED"],
@@ -2065,6 +2084,8 @@ class RossMomentumStrategyV1(BaseStrategy):
         intent.timestamp_utc = str(timestamp_utc)
         intent.stop_loss_price = getattr(intent, "stop_loss_price", None)
         intent.take_profit_price = getattr(intent, "take_profit_price", None)
+        if getattr(intent, "relationship_context", None) and intent.gap_percent is None:
+            intent.gap_percent = self._safe_float(getattr(ctx, "gap_pct", None))
         if getattr(intent, "float_millions", None) is None:
             intent.float_millions = self._safe_float(getattr(ctx, "float_millions", None))
         if getattr(intent, "rvol", None) is None:

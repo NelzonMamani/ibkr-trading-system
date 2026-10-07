@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
+import math
 
 
 @dataclass(frozen=True)
@@ -95,8 +96,34 @@ class ExecutionModeEngine:
 
         return intent
 
+    def ross_exposure_block_reason(self, *, session_label, rvol, spread) -> str | None:
+        raw_session = str(session_label or "").strip().upper()
+        if raw_session not in self._SESSION_ALIAS or not raw_session:
+            return "ROSS_SESSION_UNKNOWN"
+        if self.normalize_session(raw_session) == "AH":
+            return "ROSS_AH_BLOCKED"
+        if rvol is None or spread is None:
+            return "ROSS_EXECUTION_CONTEXT_INCOMPLETE"
+        if any(value is None or not math.isfinite(value) or value < 0
+               for value in (self._as_float(rvol), self._as_float(spread))):
+            return "ROSS_EXECUTION_CONTEXT_INVALID"
+        return None
+
     def apply(self, intent: Any, context: Any) -> Any:
         session_label = getattr(context, "session", None) or getattr(context, "session_context", None)
+        is_ross = self._is_ross_strategy(intent, context)
+        action = str(getattr(intent, "action", "ENTRY") or "ENTRY").upper()
+        # Capability selection must never grant Ross exposure permission.
+        # Protective reductions/exits are not new entries and remain separate.
+        if is_ross and action not in {"EXIT", "REDUCE", "PARTIAL_EXIT", "STOP_ADJUST"}:
+            reason = self.ross_exposure_block_reason(session_label=session_label,
+                rvol=getattr(context, "rvol", None), spread=getattr(context, "spread", None))
+            if reason:
+                intent.execution_mode = "REJECTED"
+                intent.execution_block_reason = reason
+                return intent
+        if is_ross and action in {"EXIT", "REDUCE", "PARTIAL_EXIT", "STOP_ADJUST"}:
+            return intent
         session = self.normalize_session(session_label)
         config = EXECUTION_MODES[session]
 

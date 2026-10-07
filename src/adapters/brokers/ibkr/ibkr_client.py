@@ -146,6 +146,10 @@ class IbkrClient(EWrapper, EClient):
         if not hasattr(self, "_order_state_registry") or self._order_state_registry is None:
             self._order_state_registry = {}
 
+    def cached_order_status(self, order_id: int) -> dict:
+        """Read callback-owned facts only; does not request data or connect."""
+        return dict(self._order_status.get(int(order_id), {}))
+
     def register_execution_callback(self, callback, *, internal_reconciliation=False) -> None:
         if callback is None:
             return

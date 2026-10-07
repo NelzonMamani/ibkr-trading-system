@@ -128,6 +128,7 @@ class TradeIntent:
     setup_family_id: Optional[str] = None
     trigger_id: Optional[str] = None
     execution_refinement_mode: Optional[str] = None
+    relationship_context: Optional[dict] = None
     target_model: Optional[str] = None  # Descriptive setup target, not a broker limit price.
 
     def __post_init__(self) -> None:
@@ -204,6 +205,8 @@ class RiskDecision:
     setup_family_id: Optional[str] = None
     trigger_id: Optional[str] = None
     execution_refinement_mode: Optional[str] = None
+    relationship_context: Optional[dict] = None
+    target_model: Optional[str] = None
 
 
 @dataclass
@@ -252,6 +255,8 @@ class ExecutionResult:
     setup_family_id: Optional[str] = None
     trigger_id: Optional[str] = None
     execution_refinement_mode: Optional[str] = None
+    relationship_context: Optional[dict] = None
+    target_model: Optional[str] = None
 
 
 @dataclass
