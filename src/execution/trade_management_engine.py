@@ -482,6 +482,7 @@ class TradeManagementEngine:
                 target_model="BULL_FLAG_MICRO_2R_V1")
             if position is not None:
                 position.relationship_id = relationship_id
+                position.reference_order_id = plan.protection_trade_id or plan.initial_order_id
                 position.first_target_price = None  # only the frozen milestone owns profit-taking
                 position.second_target_price = None
             order["filled"], order["notional"] = total, notional

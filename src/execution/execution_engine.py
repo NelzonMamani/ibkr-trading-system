@@ -708,6 +708,21 @@ class ExecutionEngine:
         )
 
     def execute_trade(self, risk_decision: Optional[RiskDecision]) -> ExecutionResult:
+        result = self._execute_trade(risk_decision)
+        context = getattr(risk_decision, "relationship_context", None) or {}
+        manager = getattr(self, "relationship_manager", None)
+        plan = manager._relationship_plans.get(context.get("relationship_id")) if manager else None
+        action_id = context.get("management_action_id")
+        order = plan.orders.get(action_id) if plan and action_id else None
+        if order is not None and not order.get("request") and not order.get("broker_order_id") and not result.attempted:
+            # Definitive pre-dispatch rejection is distinct from uncertain submit.
+            result.relationship_context = {**context, "pre_dispatch_blocked": True}
+            result.client_order_id = action_id
+            manager.on_relationship_order_update(relationship_id=plan.relationship_id, order_id=action_id,
+                cumulative_quantity=order["filled"], average_price=None, terminal=True, status="PRE_DISPATCH_BLOCKED")
+        return result
+
+    def _execute_trade(self, risk_decision: Optional[RiskDecision]) -> ExecutionResult:
         """
         Convert a risk decision into a broker request and route through the broker adapter.
         """
@@ -1650,6 +1665,7 @@ class ExecutionEngine:
             average = (existing_protection.filled_qty * existing_protection.avg_fill_price + filled_quantity * fill_price) / total
             protection_result = self.post_fill_lifecycle.update_selected_exposure(
                 trade_id=protection_id, filled_qty=total, avg_fill_price=average)
+            protection_id = protection_result.get("reopened_trade_id", protection_id)
             self._failsafe_block_new_entries = self._failsafe_block_new_entries or not protection_result["success"]
             self.position_records[request.client_order_id]["lifecycle"] = protection_result
         elif direction_upper in {"LONG", "BUY"}:
@@ -1668,6 +1684,8 @@ class ExecutionEngine:
                 target_model=request.target_model,
             )
             self.position_records[request.client_order_id]["lifecycle"] = protection_result
+            if plan is not None and not protection_result["success"]:
+                self._failsafe_block_new_entries = True
         if direction_upper == "SELL" and plan is not None and existing_protection is not None:
             self.post_fill_lifecycle.record_exit_fill(trade_id=protection_id, fill_price=fill_price,
                 fill_time=datetime.now(timezone.utc).isoformat(), actual_qty=filled_quantity,

@@ -643,6 +643,17 @@ class PostFillLifecycleEngine:
         trade = self._trades[trade_id]
         if not trade.preserve_selected_protection or trade.stop is None or filled_qty <= 0:
             return {"success": False, "reason": "selected_protection_unavailable"}
+        if trade.state == PositionLifecycleState.EXITED:
+            # A late genuine fill opens new exposure, not the historical closed
+            # lifecycle. Install a new stop through the same activation owner.
+            from uuid import uuid4
+            reopened_id = f"{trade_id}:late:{uuid4().hex[:12]}"
+            result = self.activate_trade_management_after_fill(trade_id=reopened_id,
+                symbol=trade.symbol, side=trade.side, filled_qty=filled_qty, avg_fill_price=avg_fill_price,
+                strategy_id=trade.strategy_id, session_label=trade.session_label,
+                stop_loss_price=trade.selected_stop_price, take_profit_price=None,
+                preserve_selected_protection=True, target_model=trade.target_model)
+            return {**result, "reopened_trade_id": reopened_id}
         trade.filled_qty = int(filled_qty)  # fill truth survives a protection failure
         trade.avg_fill_price = float(avg_fill_price)
         try:

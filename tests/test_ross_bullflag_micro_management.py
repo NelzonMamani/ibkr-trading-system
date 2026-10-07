@@ -350,12 +350,12 @@ def test_cached_late_fills_resize_one_stop_and_one_registry_position(monkeypatch
     from test_post_fill_lifecycle_engine_v1 import _ProviderStub
     manager=TradeManagementEngine(persistence_adapter=MemoryStorage())
     manager.register_relationship_order(relationship_id="r",symbol="FIXTURE",security_id="conId:123",
-        parent_id="p",child_id="c",order_id="entry",quantity=4,stop=9.)
+        parent_id="p",child_id="c",order_id="entry",quantity=5,stop=9.)
     context={"profile":"BULL_FLAG_MICRO_2R_V1","relationship_id":"r","action":"ENTRY"}
-    request=BrokerOrderRequest(client_order_id="entry",symbol="FIXTURE",direction="LONG",quantity=4,
+    request=BrokerOrderRequest(client_order_id="entry",symbol="FIXTURE",direction="LONG",quantity=5,
         order_type="MKT",trader_type="SCALPER",strategy_name="RossMomentumStrategyV1",stop_loss_price=9.,relationship_context=context)
     plan=manager._relationship_plans["r"];plan.orders["entry"].update(request=asdict(request),broker_order_id="17")
-    provider=_ProviderStub();facts={"status":"Submitted","filled":1,"remaining":3,"avgFillPrice":10.}
+    provider=_ProviderStub();facts={"status":"Submitted","filled":1,"remaining":4,"avgFillPrice":10.}
     provider.cached_order_update=lambda order_id: dict(facts)
     engine=ExecutionEngine.__new__(ExecutionEngine)
     engine.relationship_manager=manager;engine._provider=provider;engine.run_mode=RunMode.PAPER
@@ -374,7 +374,7 @@ def test_cached_late_fills_resize_one_stop_and_one_registry_position(monkeypatch
     assert plan.e0 is None and manager.snapshot_positions()["FIXTURE"].quantity==1
     assert engine.post_fill_lifecycle.get_trade("entry").stop.quantity==1
     assert drain()==[]
-    facts.update(status="Filled",filled=4,remaining=0,avgFillPrice=10.3)
+    facts.update(status="Cancelled",filled=4,remaining=1,avgFillPrice=10.3)
     assert len(drain())==1
     assert manager.snapshot_positions()["FIXTURE"].quantity==4
     assert len(provider.stop_calls)==1 and len(provider.modify_calls)==1
@@ -386,7 +386,7 @@ def test_cached_late_fills_resize_one_stop_and_one_registry_position(monkeypatch
     assert manager.reconcile_relationship("r",confirmed_quantity=4,pending_orders={},complete=True)
     assert plan.e0==10.3 and plan.milestone_price==pytest.approx(12.9)
     engine.position_records.clear() # cumulative replay after memory reset must not resize again
-    facts.update(status="FILLED")
+    facts.update(status="CANCELLED")
     assert drain()==[]
     assert len(provider.modify_calls)==1
     reduction=milestone(manager,13.)
@@ -423,6 +423,25 @@ def test_cached_late_fills_resize_one_stop_and_one_registry_position(monkeypatch
     assert plan.pending_stop_cancel is None
     assert not engine._failsafe_block_new_entries
     assert manager.snapshot_positions()=={} and engine.trade_registry.snapshot()==[]
+
+    old_protection=engine.post_fill_lifecycle.get_trade(plan.protection_trade_id)
+    def fresh_stop(**kw):
+        provider.stop_calls.append(kw)
+        return {"broker_order_id":"STOP-REOPENED","status":"Submitted"}
+    provider.place_stop_order=fresh_stop
+    facts.update(status="Cancelled",filled=5,remaining=0,avgFillPrice=10.34)
+    assert len(drain())==1
+    reopened=engine.post_fill_lifecycle.get_trade(plan.protection_trade_id)
+    assert reopened is not old_protection
+    assert old_protection.filled_qty==0 and old_protection.state.value=="EXITED"
+    assert reopened.filled_qty==1 and reopened.stop.quantity==1
+    assert reopened.stop.broker_order_id=="STOP-REOPENED"
+    assert reopened.state.value!="EXITED" and reopened.target is None
+    assert len(provider.stop_calls)==2
+    assert manager.snapshot_positions()["FIXTURE"].quantity==1
+    assert manager.snapshot_positions()["FIXTURE"].reference_order_id==reopened.trade_id
+    assert plan.e0==10.3 and plan.milestone_price==pytest.approx(12.9)
+    assert drain()==[]
 
 
 def test_new_child_can_reenter_only_after_flat_and_same_child_stays_consumed():
@@ -660,3 +679,20 @@ def test_capital_recovery_reuses_order_snapshot_and_refreshes_expiry_without_new
     engine._relationship_orders_asof-=timedelta(days=1)
     CoreOrchestrator._resolve_position_truth_cycle(harness,as_of=datetime.now(timezone.utc))
     assert manager._relationship_plans["r"].reconciled and len(calls)==2
+
+
+def test_definitive_predispatch_block_releases_only_unsubmitted_milestone():
+    from src.execution.execution_engine import ExecutionEngine
+    from src.config.config_resolver import set_config_overrides
+    manager,_=opened(8);intent=milestone(manager);plan=manager._relationship_plans["r"]
+    set_config_overrides({"RUN_MODE":"READ_ONLY","RUN_MODE_EFFECTIVE":"READ_ONLY","EXECUTION_ENABLED":False,"EXECUTION_ENABLED_EFFECTIVE":False})
+    try:
+        engine=ExecutionEngine();engine.relationship_manager=manager
+        result=engine.execute_trade(engine._risk_decision_from_intent(intent))
+        assert not result.attempted
+        assert plan.orders[intent.management_action_id]["terminal"]
+        assert plan.milestone_filled==0 and not plan.milestone_consumed
+        assert manager.reconcile_relationship("r",confirmed_quantity=8,pending_orders={},complete=True)
+        retry=milestone(manager)
+        assert retry.quantity==4 and retry.management_action_id!=intent.management_action_id
+    finally: set_config_overrides(None)
