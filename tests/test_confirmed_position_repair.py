@@ -429,3 +429,63 @@ def test_request_order_allocation_is_unique_under_concurrency(client):
         t.join(3)
         assert not t.is_alive()
     assert len(results)==40 and len(set(results))==40
+
+
+def _raw_request(client, method, req):
+    contract=NS(symbol='AAPL',secType='STK',exchange='SMART',currency='USD',conId=1)
+    if method=='reqMktData':
+        client.reqMktData(req,contract,'',True,False,[])
+    else:
+        client.reqHistoricalData(req,contract,'','1 D','1 min','TRADES',1,1,False,[])
+
+
+@pytest.mark.parametrize('method', ['reqMktData','reqHistoricalData'])
+def test_raw_request_ids_advance_shared_order_boundary(client, monkeypatch, method):
+    from ibapi.client import EClient
+    sent=[]
+    monkeypatch.setattr(EClient,method,lambda *args,**kwargs:sent.append(args[1]))
+    client.nextValidId(100)
+    _raw_request(client,method,100)
+    order=client.reserve_order_id()
+    assert sent==[100] and order>100
+    client.error(order,103,'test duplicate order')
+    event=(client._market_events if method=='reqMktData' else client._historical_events)[100]
+    assert not event.is_set()
+    assert client._order_errors[order][0]==103 and client._order_status_events[order].is_set()
+
+
+@pytest.mark.parametrize('method', ['reqMktData','reqHistoricalData'])
+def test_raw_request_cannot_claim_reserved_order_id(client, monkeypatch, method):
+    from ibapi.client import EClient
+    monkeypatch.setattr(EClient,method,lambda *args,**kwargs:pytest.fail('ambiguous request dispatched'))
+    client.nextValidId(100)
+    order=client.reserve_order_id()
+    with pytest.raises(RuntimeError,match='already reserved for an order'):
+        _raw_request(client,method,order)
+    assert order not in client._market_events and order not in client._historical_events
+    assert order not in client._request_type_by_req_id
+    client.error(order,103,'test order rejected')
+    assert client._order_status_events[order].is_set()
+
+
+def test_explicit_request_registration_and_order_reservation_share_lock(client):
+    client.nextValidId(100)
+    barrier=threading.Barrier(2)
+    result={}
+    def request():
+        barrier.wait(timeout=2)
+        try:
+            client._register_request(100,'HISTORICAL_DATA')
+            result['request']=100
+        except RuntimeError:
+            result['request_rejected']=True
+    def order():
+        barrier.wait(timeout=2)
+        result['order']=client.reserve_order_id()
+    threads=[threading.Thread(target=request),threading.Thread(target=order)]
+    for t in threads:t.start()
+    for t in threads:
+        t.join(3)
+        assert not t.is_alive()
+    assert result['order'] != result.get('request')
+    assert (result['order']==100 and result.get('request_rejected')) or result['order']>100

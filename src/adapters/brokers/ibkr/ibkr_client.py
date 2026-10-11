@@ -281,6 +281,12 @@ class IbkrClient(EWrapper, EClient):
         if not hasattr(self, "_request_type_by_req_id"):
             self._request_type_by_req_id = {}
         with self._lock:
+            if (req_id in self._order_status_events or req_id in self._order_state_registry
+                    or req_id == self._last_reserved_order_id):
+                raise RuntimeError("Request ID is already reserved for an order.")
+            # Raw compatibility calls may supply their own positive request ID.
+            # Registration must reserve that ID before a concurrent order can.
+            self._req_id = max(self._req_id, req_id)
             if request_type == "CONTRACT_DETAILS" and self._stop_event.is_set():
                 raise RuntimeError("Contract resolution stopped during disconnect.")
             self._request_type_by_req_id[req_id] = request_type
@@ -364,6 +370,7 @@ class IbkrClient(EWrapper, EClient):
             self._next_valid_order_id = int(order_id) + 1
             self._next_order_id = self._next_valid_order_id
             self._last_reserved_order_id = int(order_id)
+            self._order_status_events.setdefault(order_id, threading.Event())
             self._persist_last_reserved_order_id(int(order_id))
             print(f"[IBKR][ORDER_ID_SOURCE] source=IBKR_NEXT_VALID_ID order_id={order_id}")
             print(f"[IBKR][ORDER_ID_SEQUENCE] reserved={order_id} next={self._next_valid_order_id}")
@@ -744,13 +751,13 @@ class IbkrClient(EWrapper, EClient):
 
         if args and isinstance(args[0], int):
             req_id = int(args[0])
-            if len(args) >= 2 and not isinstance(args[1], int):
-                contract = args[1]
+            contract = args[1] if len(args) >= 2 else kwargs.get("contract")
+            self._register_request(req_id, "MARKET_DATA", contract)
+            if contract is not None and not isinstance(contract, int):
                 self._req_id_by_contract_key[self._contract_key(contract)] = req_id
                 self._ticker_by_req_id.setdefault(req_id, self._build_ticker(contract)).reqId = req_id
             self._market_events.setdefault(req_id, threading.Event())
             self._market_data.setdefault(req_id, {"bid": None, "ask": None, "last": None, "volume": None})
-            self._register_request(req_id, "MARKET_DATA", contract)
             self._active_market_req_ids.add(req_id)
             return super().reqMktData(*args, **kwargs)
 
@@ -847,10 +854,10 @@ class IbkrClient(EWrapper, EClient):
 
         if args and isinstance(args[0], int):
             req_id = int(args[0])
-            self._historical_events.setdefault(req_id, threading.Event())
-            self._historical_data.setdefault(req_id, [])
             contract = args[1] if len(args) > 1 else kwargs.get("contract")
             self._register_request(req_id, "HISTORICAL_DATA", contract)
+            self._historical_events.setdefault(req_id, threading.Event())
+            self._historical_data.setdefault(req_id, [])
             return super().reqHistoricalData(*args, **kwargs)
 
         raise TypeError(
