@@ -700,9 +700,10 @@ def test_capital_recovery_reuses_order_snapshot_and_refreshes_expiry_without_new
     assert len(calls)==1
     registry=ActiveTradeRegistry();registry.register_trade(ActiveTrade(symbol="FIXTURE",trader_type="MOMENTUM",entry_tick=1,
         entry_price=10.,quantity=8,direction="LONG",strategy_name="RossMomentumStrategyV1",stop_loss_price=9.))
-    client=SimpleNamespace(positions=lambda:[SimpleNamespace(symbol="FIXTURE",quantity=8,con_id=123,avg_cost=10.)])
+    from src.ibkr.position_snapshot import BrokerPositionResult
+    client=SimpleNamespace(position_snapshot=lambda:BrokerPositionResult((SimpleNamespace(symbol="FIXTURE",quantity=8,con_id=123,avg_cost=10.,account="TEST"),),"COMPLETE","TEST",datetime.now(timezone.utc)))
     harness=SimpleNamespace(run_mode=RunMode.PAPER,trade_management_engine=manager,execution_engine=engine,
-        trade_registry=registry,connection_manager=SimpleNamespace(optional_client=client))
+        trade_registry=registry,connection_manager=SimpleNamespace(get_ibkr_client=lambda **_:client))
     CoreOrchestrator._resolve_position_truth_cycle(harness,as_of=datetime.now(timezone.utc))
     assert manager._relationship_plans["r"].reconciled and len(calls)==1
     engine._relationship_orders_asof-=timedelta(days=1)

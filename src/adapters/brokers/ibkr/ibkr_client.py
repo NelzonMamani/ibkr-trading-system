@@ -15,6 +15,7 @@ from ibapi.contract import Contract, ContractDetails
 from ibapi.order import Order
 from ibapi.wrapper import EWrapper
 
+from src.ibkr.position_snapshot import BrokerPositionResult
 from src.domain.market_snapshot import MarketSnapshot
 from src.ibkr.market_data_client import (
     MarketDataSnapshot,
@@ -115,6 +116,9 @@ class IbkrClient(EWrapper, EClient):
         self._executions_event = threading.Event()
         self._positions_snapshot: Dict[str, object] = {}
         self._positions_event = threading.Event()
+        self._position_queries: dict[int, dict] = {}
+        self._position_connection_epoch = 0
+        self._position_transport_available = False
         self._open_order_count = 0
         self._order_status_count = 0
         self._exec_details_count = 0
@@ -204,6 +208,7 @@ class IbkrClient(EWrapper, EClient):
     def disconnect(self) -> None:  # type: ignore[override]
         print(f"[IBKR] Disconnecting client_id={self.client_id}")
         self._stop_event.set()
+        self._invalidate_position_queries()
         try:
             try:
                 with self._lock:
@@ -446,14 +451,102 @@ class IbkrClient(EWrapper, EClient):
         self._executions_event.wait(timeout=timeout_seconds or self.snapshot_timeout_seconds)
         return list(self._executions_snapshot)
 
+    def position_snapshot(self, timeout_seconds: Optional[float] = None) -> BrokerPositionResult:
+        # The legacy reqPositions stream has no correlation token. Never cancel or
+        # reassign its subscription here. reqPositionsMulti has request-scoped end
+        # markers and cancellation, on the SAME canonical socket/account authority.
+        with self._lock:
+            accounts = tuple(self._managed_accounts)
+            if not self.is_connected() or self._stop_event.is_set() or not self._position_transport_available:
+                return BrokerPositionResult(status="DISCONNECTED")
+            if len(accounts) != 1 or not accounts[0]:
+                return BrokerPositionResult(status="ACCOUNT_SCOPE_UNAVAILABLE")
+            epoch = self._position_connection_epoch
+        req_id = self._next_req_id()
+        timeout = self.snapshot_timeout_seconds if timeout_seconds is None else timeout_seconds
+        context = {"account": accounts[0], "rows": {}, "event": threading.Event(),
+                   "status": "PARTIAL", "completed_at": None, "epoch": epoch,
+                   "deadline": time.monotonic() + max(0, timeout)}
+        with self._lock:
+            if (epoch != self._position_connection_epoch or not self.is_connected()
+                    or self._stop_event.is_set() or not self._position_transport_available):
+                return BrokerPositionResult(status="DISCONNECTED")
+            self._position_queries[req_id] = context
+        try:
+            self.reqPositionsMulti(req_id, accounts[0], "")
+            context["event"].wait(timeout=max(0, timeout))
+            with self._lock:
+                if epoch != self._position_connection_epoch or not self.is_connected():
+                    context["status"] = "DISCONNECTED"
+                elif tuple(self._managed_accounts) != accounts:
+                    context["status"] = "WRONG_ACCOUNT"
+                elif context["status"] == "PARTIAL":
+                    context["status"] = "TIMEOUT"
+                elif context["status"] == "COMPLETE":
+                    from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
+                    age = (datetime.now(timezone.utc) - context["completed_at"]).total_seconds()
+                    if not 0 <= age <= get_ibkr_snapshot_max_age_seconds():
+                        context["status"] = "STALE"
+                return BrokerPositionResult(tuple(context["rows"].values()), context["status"],
+                                            context["account"], context["completed_at"])
+        except Exception:
+            return BrokerPositionResult(status="FAILED", account=accounts[0])
+        finally:
+            # Retire before cancellation: even synchronous/late callbacks cannot
+            # mutate returned evidence or complete another query.
+            with self._lock:
+                self._position_queries.pop(req_id, None)
+            try:
+                self.cancelPositionsMulti(req_id)
+            except Exception:
+                pass
+
     def positions(self, timeout_seconds: Optional[int] = None) -> list[object]:
-        if not self.is_connected():
-            return list(self._positions_snapshot.values())
-        self._positions_event.clear()
-        self._positions_snapshot = {}
-        self.reqPositions()
-        self._positions_event.wait(timeout=timeout_seconds or self.snapshot_timeout_seconds)
-        return list(self._positions_snapshot.values())
+        result = self.position_snapshot(timeout_seconds)
+        if result.status != "COMPLETE":
+            raise RuntimeError(f"Broker position truth unavailable: {result.status}")
+        return list(result.rows)
+
+    def _invalidate_position_queries(self) -> None:
+        with self._lock:
+            self._position_connection_epoch += 1
+            self._position_transport_available = False
+            self._managed_accounts = []
+            for context in self._position_queries.values():
+                context["status"] = "DISCONNECTED"
+                context["event"].set()
+
+    def positionMulti(self, reqId, account, modelCode, contract, pos, avgCost):
+        with self._lock:
+            context = self._position_queries.get(reqId)
+            if context is None or context["status"] != "PARTIAL":
+                return
+            if account != context["account"] or modelCode:
+                context["status"] = "WRONG_ACCOUNT"
+                context["event"].set()
+                return
+            symbol = str(getattr(contract, "symbol", "") or "").strip().upper()
+            if not symbol:
+                context["status"] = "FAILED"
+                context["event"].set()
+                return
+            context["rows"][(account, getattr(contract, "conId", 0), symbol)] = SimpleNamespace(
+                account=account, contract=contract, symbol=symbol, position=pos, avgCost=avgCost)
+
+    def positionMultiEnd(self, reqId):
+        with self._lock:
+            context = self._position_queries.get(reqId)
+            if context is None or context["status"] != "PARTIAL":
+                return
+            if (context["epoch"] != self._position_connection_epoch or not self.is_connected()
+                    or self._stop_event.is_set()):
+                context["status"] = "DISCONNECTED"
+            elif time.monotonic() > context["deadline"]:
+                context["status"] = "TIMEOUT"
+            else:
+                context["status"] = "COMPLETE"
+                context["completed_at"] = datetime.now(timezone.utc)
+            context["event"].set()
 
 
     def get_account_summary(self, timeout_seconds: Optional[int] = None) -> Dict[str, str]:
@@ -1144,11 +1237,18 @@ class IbkrClient(EWrapper, EClient):
         print(message)
         if errorCode == 326:
             print("[IBKR][CONNECT_FAIL] code=326 client id already in use")
+        with self._lock:
+            context = self._position_queries.get(reqId)
+            if context is not None:
+                context["status"] = "FAILED"
+                context["event"].set()
         if errorCode in (1100, 1300):  # connection/pacing
+            self._invalidate_position_queries()
             self._last_disconnect_reason = f"code={errorCode} msg={errorString}"
             self._connection_event.clear()
 
     def nextValidId(self, orderId: int):  # type: ignore[override]
+        self._position_transport_available = True
         broker_next = int(orderId)
         chosen = broker_next
         if self._last_reserved_order_id is not None and broker_next <= int(self._last_reserved_order_id):
@@ -1386,6 +1486,7 @@ class IbkrClient(EWrapper, EClient):
         self._emit_execution_callback({"event_type": "positionEnd"})
 
     def connectionClosed(self):  # type: ignore[override]
+        self._invalidate_position_queries()
         self._last_disconnect_reason = "connectionClosed"
         self._connection_event.clear()
         print("[IBKR] Connection closed by broker.")

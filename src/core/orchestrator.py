@@ -2975,7 +2975,7 @@ class CoreOrchestrator:
             self.execution_engine.refresh_relationship_order_snapshot()
             as_of = max(as_of, datetime.now(timezone.utc))
         broker_positions = collect_broker_position_snapshot(
-            self.connection_manager.optional_client,
+            self.connection_manager.get_ibkr_client(ensure_connected=False),
             as_of=as_of,
             config=PositionTruthConfig(
                 broker_required=broker_required,
@@ -2992,6 +2992,10 @@ class CoreOrchestrator:
             as_of=as_of,
             live_broker_mode=broker_required,
         )
+        if snapshot.snapshot_status == "UNKNOWN":
+            previous = getattr(self, "_latest_position_truth_snapshot", None)
+            if previous is not None:
+                snapshot.broker_positions = previous.broker_positions
         self._latest_position_truth_snapshot = snapshot
         self._latest_position_truth_verdict = verdict
         manager = getattr(self, "trade_management_engine", None)
