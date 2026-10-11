@@ -294,6 +294,10 @@ def get_shared_ibkr_connection_manager(
                     run_mode="TEST",
                 )
 
+            @property
+            def existing_client(self) -> DummyIBKRClient:
+                return self._client
+
             def get_client(self) -> DummyIBKRClient:
                 return self._client
 

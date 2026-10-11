@@ -267,7 +267,14 @@ class IbkrClient(EWrapper, EClient):
     # --- Request/response helpers ---
     def _next_req_id(self) -> int:
         with self._lock:
-            self._req_id += 1
+            # IBKR errors carry one numeric ID for both requests and orders.
+            # Allocate both through the existing authorities under this lock,
+            # always above IDs already reserved by either side. Positive gaps in
+            # order IDs are legal; no guessed error-code ownership is needed.
+            self._req_id = max(self._req_id, self._last_reserved_order_id or 0,
+                               self._next_valid_order_id or 0,
+                               max(self._order_status_events, default=0),
+                               max(self._order_state_registry, default=0)) + 1
             return self._req_id
 
     def _register_request(self, req_id: int, request_type: str, contract=None) -> None:
@@ -352,7 +359,8 @@ class IbkrClient(EWrapper, EClient):
             if self._next_valid_order_id is None:
                 print("[CRITICAL] IBKR_NEXT_VALID_ID_NOT_READY")
                 raise RuntimeError("IBKR order id not yet initialized.")
-            order_id = int(self._next_valid_order_id)
+            order_id = max(int(self._next_valid_order_id), self._req_id + 1,
+                           (self._last_reserved_order_id or 0) + 1)
             self._next_valid_order_id = int(order_id) + 1
             self._next_order_id = self._next_valid_order_id
             self._last_reserved_order_id = int(order_id)
@@ -1197,8 +1205,7 @@ class IbkrClient(EWrapper, EClient):
             context["reference_error"] = (errorCode, errorString)
         if reqId >= 0:
             self._errors[reqId] = (errorCode, errorString)
-            if (reqId in self._order_status_events
-                    and (request_type != "POSITIONS_MULTI" or is_order_only_callback)):
+            if reqId in self._order_status_events:
                 existing = self._order_status.get(reqId, {})
                 if is_non_rejecting_order_warning:
                     self._order_warnings[reqId] = (errorCode, errorString)

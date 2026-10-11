@@ -288,18 +288,21 @@ def test_invalid_query_quantity_never_complete(client, quantity):
     assert client.position_snapshot().status == 'FAILED'
 
 
-@pytest.mark.parametrize('code', [201, 321])
+@pytest.mark.parametrize('code', [103, 201, 321])
 def test_position_query_errors_do_not_compete_with_order_callback_owner(client, code):
+    client.nextValidId(1)
+    order_id = client.reserve_order_id()
+    client._order_status_events[order_id] = threading.Event()
+    client._order_status[order_id] = {'status': 'Submitted'}
     def request(req, *args):
-        client._order_status_events[req] = threading.Event()
-        client._order_status[req] = {'status': 'Submitted'}
-        client.error(req, code, 'test id collision')
+        assert req != order_id
+        client.error(req if code == 321 else order_id, code, 'test rejection')
         client.positionMultiEnd(req)
     client.reqPositionsMulti = request
     result = client.position_snapshot()
-    assert result.status == ('COMPLETE' if code == 201 else 'FAILED')
-    order_id = client._req_id
-    assert bool(client._order_errors.get(order_id)) == (code == 201)
+    assert result.status == ('FAILED' if code == 321 else 'COMPLETE')
+    assert bool(client._order_errors.get(order_id)) == (code != 321)
+    assert client._order_status_events[order_id].is_set() == (code != 321)
     assert client._order_status[order_id]['status'] == 'Submitted'
 
 
@@ -366,3 +369,63 @@ def test_unknown_position_truth_keeps_recovery_plan_blocked():
     assert plan.manual_required_count == 1 and plan.auto_actions_count == 0
     assert 'blocked=True' in plan.summary
     assert plan.actions[0].action_type == 'FLAG_POSITION_TRUTH_UNAVAILABLE'
+
+
+def test_request_order_ids_are_disjoint_even_after_query_retirement(client):
+    client.nextValidId(100)
+    order = client.reserve_order_id()
+    client._order_status_events[order] = threading.Event()
+    issued = []
+    def request(req, *args):
+        issued.append(req)
+        during = client.reserve_order_id()
+        assert during != req and during > order
+        client._order_status_events[during] = threading.Event()
+        # An arbitrary order error reaches its existing owner even while the
+        # position query is active; no code whitelist or broker submission.
+        client.error(during, 103, 'test duplicate order id')
+        assert client._order_errors[during][0] == 103
+        assert client._order_status_events[during].is_set()
+        client.positionMultiEnd(req)
+    client.reqPositionsMulti = request
+    assert client.position_snapshot().status == 'COMPLETE'
+    after = client.reserve_order_id()
+    assert after > issued[-1] and after not in issued
+    req_after = client._next_req_id()
+    assert req_after > after and req_after not in client._order_status_events
+
+
+@pytest.mark.parametrize('mode', [RunMode.READ_ONLY, RunMode.PAPER])
+def test_manager_exposes_existing_test_client_and_truth_is_unknown(mode):
+    from src.core.managers.connection_manager import ConnectionManager
+    manager=ConnectionManager(mode)
+    manager.connect()  # supported TEST factory; no socket or broker connection
+    client=manager.get_ibkr_client(ensure_connected=False)
+    assert client is manager._ibkr_connection_manager.get_client()
+    o=CoreOrchestrator.__new__(CoreOrchestrator)
+    o.run_mode=mode
+    o.connection_manager=manager
+    o.trade_registry=NS(snapshot=lambda:[])
+    o.execution_engine=NS(_relationship_orders_asof=None)
+    o.trade_management_engine=None
+    o._latest_position_truth_snapshot=None
+    o._degraded=False
+    v=o._resolve_position_truth_cycle(as_of=datetime.now(timezone.utc))
+    assert not v.healthy and v.block_new_entries
+    assert o._latest_position_truth_snapshot.snapshot_status == 'UNKNOWN'
+
+
+def test_request_order_allocation_is_unique_under_concurrency(client):
+    client.nextValidId(1)
+    barrier=threading.Barrier(2)
+    results=[]
+    def allocate(method):
+        barrier.wait(timeout=2)
+        results.extend(method() for _ in range(20))
+    threads=[threading.Thread(target=allocate,args=(method,))
+             for method in (client._next_req_id,client.reserve_order_id)]
+    for t in threads:t.start()
+    for t in threads:
+        t.join(3)
+        assert not t.is_alive()
+    assert len(results)==40 and len(set(results))==40
