@@ -269,3 +269,100 @@ def test_collection_expiring_before_reconciliation_blocks(client):
     collection.completed_at -= timedelta(seconds=100)
     snapshot, v = verdict(collection)
     assert snapshot.snapshot_status == 'UNKNOWN' and v.block_new_entries
+
+
+def test_query_error_not_downgraded_to_unknown_market_warning(client):
+    def request(req, *args):
+        client.error(req, 300, 'test missing request')
+        client.positionMultiEnd(req)
+    client.reqPositionsMulti = request
+    assert client.position_snapshot().status == 'FAILED'
+
+
+@pytest.mark.parametrize('quantity', [None, float('nan'), float('inf'), 'invalid'])
+def test_invalid_query_quantity_never_complete(client, quantity):
+    def request(req, account, model):
+        client.positionMulti(req, account, model, NS(symbol='AAPL', conId=1), quantity, 10)
+        client.positionMultiEnd(req)
+    client.reqPositionsMulti = request
+    assert client.position_snapshot().status == 'FAILED'
+
+
+@pytest.mark.parametrize('code', [201, 321])
+def test_position_query_errors_do_not_compete_with_order_callback_owner(client, code):
+    def request(req, *args):
+        client._order_status_events[req] = threading.Event()
+        client._order_status[req] = {'status': 'Submitted'}
+        client.error(req, code, 'test id collision')
+        client.positionMultiEnd(req)
+    client.reqPositionsMulti = request
+    result = client.position_snapshot()
+    assert result.status == ('COMPLETE' if code == 201 else 'FAILED')
+    order_id = client._req_id
+    assert bool(client._order_errors.get(order_id)) == (code == 201)
+    assert client._order_status[order_id]['status'] == 'Submitted'
+
+
+@pytest.mark.parametrize('recovery_code', [1101, 1102])
+def test_upstream_recovery_allows_fresh_query_without_reconnecting(client, recovery_code):
+    ids=[]
+    def interrupted(req, account, model):
+        ids.append(req)
+        client.error(-1, 1100, 'test upstream loss')
+        client.error(-1, recovery_code, 'test upstream restored')
+        client.positionMultiEnd(req)
+    client.reqPositionsMulti=interrupted
+    assert client.position_snapshot().status == 'DISCONNECTED'
+    def fresh(req, account, model):
+        client.positionMultiEnd(ids[0])
+        client.positionMulti(req, account, model, NS(symbol='AAPL', conId=1), .1, 10)
+        client.positionMultiEnd(req)
+    client.reqPositionsMulti=fresh
+    result=client.position_snapshot()
+    assert result.status == 'COMPLETE' and result.rows[0].position == .1
+    assert client._managed_accounts == ['TEST']
+
+
+@pytest.mark.parametrize('quantity', [.1, -.1, 1.25, -1.25, 1])
+def test_real_recovery_never_adopts_preexisting_inventory(client, quantity):
+    from src.core.active_trade_registry import ActiveTradeRegistry
+    from src.execution.recovery_engine import build_recovery_plan, apply_recovery_actions
+    def response(req, account, model):
+        client.positionMulti(req, account, model, NS(symbol='AAPL', conId=1), quantity, 10)
+        client.positionMultiEnd(req)
+    client.reqPositionsMulti = response
+    snapshot, v=verdict(collect(client))
+    registry=ActiveTradeRegistry()
+    o=CoreOrchestrator.__new__(CoreOrchestrator)
+    o._latest_position_truth_snapshot=snapshot
+    o.trade_registry=registry
+    plan=build_recovery_plan(snapshot,v,{'execution_stalled':False})
+    assert plan.manual_required_count == 1 and plan.auto_actions_count == 0
+    apply_recovery_actions(plan,o)
+    assert registry.snapshot() == []
+    assert snapshot.broker_positions['AAPL'].quantity == quantity and v.block_new_entries
+
+
+def test_retained_auto_attach_plan_cannot_adopt_inventory():
+    from src.execution.recovery_engine import RecoveryAction, RecoveryPlan, apply_recovery_actions
+    action=RecoveryAction('AAPL','ATTACH_BROKER_POSITION','WARNING',False,True,'legacy')
+    plan=RecoveryPlan([action],0,1,1,0,'legacy')
+    apply_recovery_actions(plan,NS(attach_broker_position_from_recovery=lambda **_: pytest.fail('auto adoption')))
+
+
+def test_order_id_callback_does_not_restore_lost_position_transport(client):
+    client.error(-1, 1100, 'test upstream loss')
+    client.nextValidId(1234)
+    client.reqPositionsMulti=lambda req, *args: client.positionMultiEnd(req)
+    assert client.position_snapshot().status == 'DISCONNECTED'
+    client.error(-1,1102,'test upstream restored')
+    assert client.position_snapshot().status == 'COMPLETE'
+
+
+def test_unknown_position_truth_keeps_recovery_plan_blocked():
+    from src.execution.recovery_engine import build_recovery_plan
+    snapshot, v=verdict(collect(None))
+    plan=build_recovery_plan(snapshot,v,{'execution_stalled':False})
+    assert plan.manual_required_count == 1 and plan.auto_actions_count == 0
+    assert 'blocked=True' in plan.summary
+    assert plan.actions[0].action_type == 'FLAG_POSITION_TRUTH_UNAVAILABLE'

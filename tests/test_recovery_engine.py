@@ -39,7 +39,7 @@ def _snapshot(*mismatches: PositionMismatch) -> PositionTruthSnapshot:
     )
 
 
-def test_broker_only_creates_auto_attach_action() -> None:
+def test_broker_only_requires_manual_ownership_review() -> None:
     plan = build_recovery_plan(
         _snapshot(
             PositionMismatch(
@@ -54,7 +54,8 @@ def test_broker_only_creates_auto_attach_action() -> None:
         {"healthy": False},
         {"execution_stalled": False},
     )
-    assert any(a.action_type == "ATTACH_BROKER_POSITION" and a.safe_to_auto_apply for a in plan.actions)
+    assert any(a.action_type == "FLAG_UNOWNED_BROKER_POSITION" and a.requires_manual_intervention
+               and not a.safe_to_auto_apply for a in plan.actions)
 
 
 def test_system_only_requires_manual_intervention() -> None:
@@ -136,6 +137,4 @@ def test_orchestrator_applies_only_safe_recovery_actions() -> None:
     apply_recovery_actions(plan, orch)
 
     trades = orch.trade_registry.snapshot()
-    assert len(trades) == 1
-    assert trades[0].symbol == "AAPL"
-    assert getattr(trades[0], "recovery_tag", "") == "broker_attached"
+    assert trades == []

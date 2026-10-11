@@ -65,6 +65,10 @@ def test_non_test_environment_enforces_ibkr_validation(monkeypatch) -> None:
 
 
 def test_paper_and_live_dispatch_use_ibkr(monkeypatch, capsys) -> None:
+    from src.ibkr.position_snapshot import PositionRows
+    # This dispatch fixture models a completed empty broker query, not missing truth.
+    monkeypatch.setattr(order_router, "_fetch_ibkr_truth",
+                        lambda mode: ([], [], PositionRows(available=True)))
     monkeypatch.setattr(order_router, "_is_explicit_test_mode", lambda: False)
     monkeypatch.setattr(order_router, "_validate_ibkr_connection", lambda mode: None)
 

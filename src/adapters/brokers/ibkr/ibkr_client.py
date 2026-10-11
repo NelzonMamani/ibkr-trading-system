@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+import math
 import time
 import json
 import os
@@ -119,6 +120,7 @@ class IbkrClient(EWrapper, EClient):
         self._position_queries: dict[int, dict] = {}
         self._position_connection_epoch = 0
         self._position_transport_available = False
+        self._position_upstream_lost = False
         self._open_order_count = 0
         self._order_status_count = 0
         self._exec_details_count = 0
@@ -189,6 +191,7 @@ class IbkrClient(EWrapper, EClient):
             f"readonly={self.readonly_enabled}"
         )
         self._connection_event.clear()
+        self._position_upstream_lost = False
         super().connect(self.host, self.port, int(self.client_id))
 
         self._stop_event.clear()
@@ -473,6 +476,7 @@ class IbkrClient(EWrapper, EClient):
                 return BrokerPositionResult(status="DISCONNECTED")
             self._position_queries[req_id] = context
         try:
+            self._register_request(req_id, "POSITIONS_MULTI")
             self.reqPositionsMulti(req_id, accounts[0], "")
             context["event"].wait(timeout=max(0, timeout))
             with self._lock:
@@ -496,6 +500,7 @@ class IbkrClient(EWrapper, EClient):
             # mutate returned evidence or complete another query.
             with self._lock:
                 self._position_queries.pop(req_id, None)
+                self._request_type_by_req_id.pop(req_id, None)
             try:
                 self.cancelPositionsMulti(req_id)
             except Exception:
@@ -507,11 +512,13 @@ class IbkrClient(EWrapper, EClient):
             raise RuntimeError(f"Broker position truth unavailable: {result.status}")
         return list(result.rows)
 
-    def _invalidate_position_queries(self) -> None:
+    def _invalidate_position_queries(self, *, clear_account_scope: bool = True) -> None:
         with self._lock:
             self._position_connection_epoch += 1
             self._position_transport_available = False
-            self._managed_accounts = []
+            self._position_upstream_lost = True
+            if clear_account_scope:
+                self._managed_accounts = []
             for context in self._position_queries.values():
                 context["status"] = "DISCONNECTED"
                 context["event"].set()
@@ -523,6 +530,14 @@ class IbkrClient(EWrapper, EClient):
                 return
             if account != context["account"] or modelCode:
                 context["status"] = "WRONG_ACCOUNT"
+                context["event"].set()
+                return
+            try:
+                valid_quantity = math.isfinite(float(pos))
+            except (TypeError, ValueError, OverflowError):
+                valid_quantity = False
+            if not valid_quantity:
+                context["status"] = "FAILED"
                 context["event"].set()
                 return
             symbol = str(getattr(contract, "symbol", "") or "").strip().upper()
@@ -1182,7 +1197,8 @@ class IbkrClient(EWrapper, EClient):
             context["reference_error"] = (errorCode, errorString)
         if reqId >= 0:
             self._errors[reqId] = (errorCode, errorString)
-            if reqId in self._order_status_events:
+            if (reqId in self._order_status_events
+                    and (request_type != "POSITIONS_MULTI" or is_order_only_callback)):
                 existing = self._order_status.get(reqId, {})
                 if is_non_rejecting_order_warning:
                     self._order_warnings[reqId] = (errorCode, errorString)
@@ -1239,16 +1255,27 @@ class IbkrClient(EWrapper, EClient):
             print("[IBKR][CONNECT_FAIL] code=326 client id already in use")
         with self._lock:
             context = self._position_queries.get(reqId)
-            if context is not None:
+            if context is not None and not is_order_only_callback:
                 context["status"] = "FAILED"
                 context["event"].set()
         if errorCode in (1100, 1300):  # connection/pacing
-            self._invalidate_position_queries()
+            self._invalidate_position_queries(clear_account_scope=errorCode == 1300)
             self._last_disconnect_reason = f"code={errorCode} msg={errorString}"
             self._connection_event.clear()
+        elif errorCode in (1101, 1102):
+            # TWS restored the same upstream session without a new API handshake.
+            # Retained account identity is scope, never position evidence. All
+            # interrupted query epochs remain invalid; only a fresh query may pass.
+            with self._lock:
+                if self.is_connected() and not self._stop_event.is_set():
+                    self._position_upstream_lost = False
+                    self._position_transport_available = True
+                    self._connection_event.set()
 
     def nextValidId(self, orderId: int):  # type: ignore[override]
-        self._position_transport_available = True
+        with self._lock:
+            if not self._position_upstream_lost:
+                self._position_transport_available = True
         broker_next = int(orderId)
         chosen = broker_next
         if self._last_reserved_order_id is not None and broker_next <= int(self._last_reserved_order_id):
