@@ -489,3 +489,35 @@ def test_explicit_request_registration_and_order_reservation_share_lock(client):
         assert not t.is_alive()
     assert result['order'] != result.get('request')
     assert (result['order']==100 and result.get('request_rejected')) or result['order']>100
+
+
+def _discovered_order(client, kind, order_id):
+    contract=NS(symbol='AAPL')
+    if kind=='openOrder':
+        client.openOrder(order_id,contract,NS(orderType='STP',tif='DAY',outsideRth=True),NS(status='Submitted'))
+    elif kind=='orderStatus':
+        client.orderStatus(order_id,'Submitted',0,1,0,0,0,0,0,'',0)
+    else:
+        client.execDetails(900,contract,NS(orderId=order_id,execId='fixture',shares=1,price=10,time='fixture'))
+
+
+@pytest.mark.parametrize('kind', ['openOrder','orderStatus','execDetails'])
+def test_callback_discovered_order_ids_cannot_be_claimed_by_requests(client,kind):
+    client.nextValidId(100)
+    _discovered_order(client,kind,150)
+    with pytest.raises(RuntimeError,match='already reserved for an order'):
+        client._register_request(150,'HISTORICAL_DATA')
+    assert client.reserve_order_id()>150
+    assert client._next_req_id()>150
+    client.error(150,103,'test rejection for observed order')
+    assert client._order_errors[150][0]==103
+    assert client._order_status_events[150].is_set()
+    assert 150 not in client._historical_events
+
+
+def test_order_discovered_during_position_query_invalidates_ambiguous_query(client):
+    def request(req, *args):
+        _discovered_order(client,'openOrder',req)
+        client.positionMultiEnd(req)
+    client.reqPositionsMulti=request
+    assert client.position_snapshot().status=='FAILED'

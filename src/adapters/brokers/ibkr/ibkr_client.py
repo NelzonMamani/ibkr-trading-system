@@ -360,13 +360,25 @@ class IbkrClient(EWrapper, EClient):
             brokerErrors=[],
         )
 
+    def _observe_order_id(self, order_id: int) -> None:
+        """Reserve callback-discovered IDs without adopting or acting on orders."""
+        with self._lock:
+            self._order_status_events.setdefault(order_id, threading.Event())
+            context = self._position_queries.get(order_id)
+            if context is not None:
+                # A broker order discovered after allocation exposes an ambiguous
+                # ID. Its pending position query cannot become authoritative.
+                context["status"] = "FAILED"
+                context["event"].set()
+
     def reserve_order_id(self) -> int:
         with self._lock:
             if self._next_valid_order_id is None:
                 print("[CRITICAL] IBKR_NEXT_VALID_ID_NOT_READY")
                 raise RuntimeError("IBKR order id not yet initialized.")
             order_id = max(int(self._next_valid_order_id), self._req_id + 1,
-                           (self._last_reserved_order_id or 0) + 1)
+                           (self._last_reserved_order_id or 0) + 1,
+                           max(self._order_status_events, default=0) + 1)
             self._next_valid_order_id = int(order_id) + 1
             self._next_order_id = self._next_valid_order_id
             self._last_reserved_order_id = int(order_id)
@@ -1317,6 +1329,7 @@ class IbkrClient(EWrapper, EClient):
         whyHeld: str,
         mktCapPrice: float,
     ):  # type: ignore[override]
+        self._observe_order_id(int(orderId))
         if not hasattr(self, "_order_status_count"):
             self._order_status_count = 0
         self._order_status_count += 1
@@ -1379,6 +1392,8 @@ class IbkrClient(EWrapper, EClient):
         event.set()
 
     def execDetails(self, reqId, contract, execution):  # type: ignore[override]
+        if getattr(execution, "orderId", None) is not None:
+            self._observe_order_id(int(execution.orderId))
         if not hasattr(self, "_exec_details_count"):
             self._exec_details_count = 0
         self._exec_details_count += 1
@@ -1436,6 +1451,7 @@ class IbkrClient(EWrapper, EClient):
         )
 
     def openOrder(self, orderId, contract, order, orderState):  # type: ignore[override]
+        self._observe_order_id(int(orderId))
         if not hasattr(self, "_open_order_count"):
             self._open_order_count = 0
         self._open_order_count += 1
