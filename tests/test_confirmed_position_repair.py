@@ -521,3 +521,87 @@ def test_order_discovered_during_position_query_invalidates_ambiguous_query(clie
         client.positionMultiEnd(req)
     client.reqPositionsMulti=request
     assert client.position_snapshot().status=='FAILED'
+
+
+@pytest.mark.parametrize('kind', ['MARKET_DATA','HISTORICAL_DATA','CONTRACT_DETAILS',
+    'SCANNER_DATA','ACCOUNT_SUMMARY','EXECUTIONS','POSITIONS_MULTI'])
+def test_discovered_collision_retires_every_request_owner(client,kind):
+    req=150
+    client._register_request(req,kind)
+    event=threading.Event()
+    event_maps={'MARKET_DATA':client._market_events,'HISTORICAL_DATA':client._historical_events,
+        'CONTRACT_DETAILS':client._contract_events,'SCANNER_DATA':client._scanner_events,
+        'ACCOUNT_SUMMARY':client._account_summary_events}
+    if kind in event_maps:event_maps[kind][req]=event
+    client._historical_data[req]=[NS(close=42)]
+    client._contract_details[req]=[NS(contract=NS(symbol='AAPL',conId=1))]
+    client._scanner_rows[req]=[NS(symbol='AAPL')]
+    client._account_summary_rows[req]={'AvailableFunds':'100'}
+    client._market_data[req]={'last':42}
+    ticker=client._build_ticker(NS(symbol='AAPL'))
+    ticker.last=42;ticker.snapshotEnd=True
+    client._ticker_by_req_id[req]=ticker
+    client._active_market_req_ids.add(req)
+    if kind=='EXECUTIONS':
+        client._executions_event.clear();client._executions_snapshot=[NS(orderId=1)]
+    if kind=='POSITIONS_MULTI':
+        client._position_queries[req]={'event':event,'status':'PARTIAL'}
+    _discovered_order(client,'openOrder',req)
+    assert req not in client._request_type_by_req_id
+    assert client._request_id_conflicted(req)
+    assert req not in client._historical_data and req not in client._contract_details
+    assert req not in client._scanner_rows and req not in client._account_summary_rows
+    assert req not in client._market_data and req not in client._active_market_req_ids
+    assert not ticker.snapshotEnd and ticker.last is None
+    if kind in event_maps:assert event.is_set() and req not in event_maps[kind]
+    if kind=='EXECUTIONS':assert client._executions_event.is_set() and not client._executions_snapshot
+    if kind=='POSITIONS_MULTI':assert event.is_set() and client._position_queries[req]['status']=='FAILED'
+    client.error(req,321,'test ambiguous request error')
+    client.error(req,103,'test ambiguous order error')
+    assert req not in client._order_errors and not client._order_status_events[req].is_set()
+    assert client._broker_error_events[-1]['code']==103  # diagnostic retained, not misassigned
+    # Genuine typed order facts remain authoritative; late request data cannot return.
+    client.orderStatus(req,'Submitted',0,1,0,0,0,0,0,'',0)
+    assert client._order_status[req]['status']=='Submitted'
+    client.historicalData(req,NS(close=99));client.historicalDataEnd(req,'','')
+    client.contractDetails(req,NS(contract=NS(symbol='AAPL',conId=1)));client.contractDetailsEnd(req)
+    client.accountSummary(req,'TEST','AvailableFunds','100','USD');client.accountSummaryEnd(req)
+    client.scannerData(req,1,NS(contract=NS(symbol='AAPL')),'','','','');client.scannerDataEnd(req)
+    assert req not in client._historical_data and req not in client._contract_details
+    assert req not in client._scanner_rows and req not in client._account_summary_rows
+    client._request_context_by_req_id.clear()  # bounded context eviction does not undo quarantine
+    client.error(req,321,'test late error after metadata eviction')
+    assert req not in client._order_errors
+    assert client._order_status[req]['status']=='Submitted'
+
+
+@pytest.mark.parametrize('kind', ['HISTORICAL_DATA','CONTRACT_DETAILS','SCANNER_DATA',
+                                  'ACCOUNT_SUMMARY','EXECUTIONS'])
+def test_colliding_read_interfaces_raise_unavailable(client,monkeypatch,kind):
+    from ibapi.client import EClient
+    def discover(req,*args):_discovered_order(client,'openOrder',req)
+    if kind=='HISTORICAL_DATA':
+        monkeypatch.setattr(EClient,'reqHistoricalData',lambda self,req,*args:discover(req))
+        call=lambda:client.reqHistoricalData(NS(symbol='AAPL'))
+    elif kind=='CONTRACT_DETAILS':
+        client.reqContractDetails=discover
+        call=lambda:client.resolve_contract('AAPL')
+    elif kind=='SCANNER_DATA':
+        client.reqScannerSubscription=discover
+        client.cancelScannerSubscription=lambda *args:None
+        call=lambda:client.reqScannerData(NS())
+    elif kind=='ACCOUNT_SUMMARY':
+        client.reqAccountSummary=discover;client.cancelAccountSummary=lambda *args:None
+        call=client.get_account_summary
+    else:
+        client.reqExecutions=discover
+        call=client.executions
+    with pytest.raises(RuntimeError,match='ownership is ambiguous'):call()
+
+
+def test_colliding_market_snapshot_cannot_supply_cached_quote_authority(client,monkeypatch):
+    from ibapi.client import EClient
+    client.resolve_contract=lambda *args:NS(contract=NS(symbol='AAPL',conId=1))
+    monkeypatch.setattr(EClient,'reqMktData',lambda self,req,*args:_discovered_order(client,'openOrder',req))
+    monkeypatch.setattr(EClient,'cancelMktData',lambda *args:None)
+    with pytest.raises(RuntimeError,match='ownership is ambiguous'):client.get_market_snapshot('AAPL')
