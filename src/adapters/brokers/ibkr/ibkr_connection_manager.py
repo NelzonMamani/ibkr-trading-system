@@ -64,6 +64,11 @@ class IbkrConnectionManager:
     def is_connected(self) -> bool:
         return self._client is not None and self._client.is_connected()
 
+    @property
+    def existing_client(self) -> IbkrClient | None:
+        """Inspect the canonical client without initiating or repairing a connection."""
+        return self._client
+
     def get_client(self) -> IbkrClient:
         return self.ensure_connected()
 
@@ -288,6 +293,10 @@ def get_shared_ibkr_connection_manager(
                     readonly_enabled=True,
                     run_mode="TEST",
                 )
+
+            @property
+            def existing_client(self) -> DummyIBKRClient:
+                return self._client
 
             def get_client(self) -> DummyIBKRClient:
                 return self._client

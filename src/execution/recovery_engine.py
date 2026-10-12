@@ -52,11 +52,11 @@ def build_recovery_plan(position_snapshot: Any, position_verdict: Any, fill_verd
             actions.append(
                 _action(
                     symbol,
-                    "ATTACH_BROKER_POSITION",
-                    "WARNING",
-                    manual=False,
-                    auto=True,
-                    rationale="Broker is source of truth; attach broker-reported position into runtime state.",
+                    "FLAG_UNOWNED_BROKER_POSITION",
+                    "CRITICAL",
+                    manual=True,
+                    auto=False,
+                    rationale="Broker exposure does not establish system ownership; manual review required.",
                 )
             )
         elif mismatch_type == "SYSTEM_ONLY_POSITION":
@@ -81,6 +81,11 @@ def build_recovery_plan(position_snapshot: Any, position_verdict: Any, fill_verd
                     rationale="Broker and runtime quantities differ; cannot auto-correct without execution proof.",
                 )
             )
+
+    if str(_extract(position_snapshot, "snapshot_status", "")).upper() == "UNKNOWN":
+        actions.append(_action("SYSTEM", "FLAG_POSITION_TRUTH_UNAVAILABLE", "CRITICAL",
+                               manual=True, auto=False,
+                               rationale="Position query evidence is unavailable; reconciliation remains blocked."))
 
     stalled = bool(_extract(fill_verdict, "execution_stalled", False))
     stalled_symbols = list(_extract(fill_verdict, "stalled_symbols", []) or [])
@@ -137,13 +142,8 @@ def build_recovery_plan(position_snapshot: Any, position_verdict: Any, fill_verd
 def apply_recovery_actions(plan: RecoveryPlan, orchestrator: Any) -> None:
     auto_applied = 0
     for action in plan.actions:
-        if action.action_type == "ATTACH_BROKER_POSITION" and action.safe_to_auto_apply:
-            if hasattr(orchestrator, "attach_broker_position_from_recovery"):
-                orchestrator.attach_broker_position_from_recovery(symbol=action.symbol)
-            print(f"[RECOVERY][ACTION] symbol={action.symbol} type=ATTACH_BROKER_POSITION")
-            auto_applied += 1
-            continue
-
+        # Broker inventory alone never establishes ownership, including retained
+        # plans from the former auto-attach path. Do not adopt or liquidate it.
         if action.action_type != "NO_ACTION":
             print(f"[RECOVERY][MANUAL_REQUIRED] symbol={action.symbol} reason={action.rationale}")
 

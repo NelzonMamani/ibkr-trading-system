@@ -9,12 +9,14 @@ from src.config.config_resolver import set_config_overrides
 from src.config.runtime_config import RunMode
 from src.core.orchestrator import CoreOrchestrator
 from src.execution.position_truth import (
+    BrokerPositionCollection,
     PositionTruthConfig,
     collect_broker_position_snapshot,
     collect_system_position_snapshot,
     reconcile_position_truth,
 )
 from src.models.data_models import TradeIntent
+from src.ibkr.position_snapshot import BrokerPositionResult
 
 
 def _now() -> datetime:
@@ -32,8 +34,10 @@ class _BrokerClient:
     def __init__(self, rows):
         self._rows = rows
 
-    def positions(self):
-        return list(self._rows)
+    def position_snapshot(self):
+        for row in self._rows:
+            row.account = "TEST"
+        return BrokerPositionResult(tuple(self._rows), "COMPLETE", "TEST", _now())
 
 
 class _NoPositionsClient:
@@ -41,7 +45,7 @@ class _NoPositionsClient:
 
 
 def test_reconcile_empty_empty_is_healthy() -> None:
-    snapshot, verdict = reconcile_position_truth({}, {}, as_of=_now(), live_broker_mode=True)
+    snapshot, verdict = reconcile_position_truth(BrokerPositionCollection(status="COMPLETE", completed_at=_now()), {}, as_of=_now(), live_broker_mode=True)
     assert snapshot.mismatches == []
     assert verdict.healthy is True
     assert verdict.block_new_entries is False
@@ -83,7 +87,7 @@ def test_reconcile_system_only_is_critical() -> None:
         [SimpleNamespace(symbol="AAPL", quantity=100, direction="LONG")],
         as_of=as_of,
     )
-    _, verdict = reconcile_position_truth({}, system, as_of=as_of, live_broker_mode=True)
+    _, verdict = reconcile_position_truth(BrokerPositionCollection(status="COMPLETE", completed_at=_now()), system, as_of=as_of, live_broker_mode=True)
     assert verdict.healthy is False
     assert verdict.critical_mismatch_count == 1
     assert verdict.block_new_entries is True

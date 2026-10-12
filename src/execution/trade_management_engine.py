@@ -420,7 +420,7 @@ class TradeManagementEngine:
                     continue
                 observed[identity] = int(remaining)
             broker = positions.get(plan.symbol)
-            quantity = int(read(broker, "quantity", 0)) if broker is not None else 0
+            quantity = float(read(broker, "quantity", 0)) if broker is not None else 0
             con_id = read(broker, "con_id") if broker is not None else None
             same_security = broker is None or (type(con_id) is int and con_id > 0 and plan.security_id == f"conId:{con_id}")
             position = self._positions.get(plan.symbol)

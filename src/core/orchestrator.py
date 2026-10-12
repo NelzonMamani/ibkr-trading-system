@@ -2975,7 +2975,7 @@ class CoreOrchestrator:
             self.execution_engine.refresh_relationship_order_snapshot()
             as_of = max(as_of, datetime.now(timezone.utc))
         broker_positions = collect_broker_position_snapshot(
-            self.connection_manager.optional_client,
+            self.connection_manager.get_ibkr_client(ensure_connected=False),
             as_of=as_of,
             config=PositionTruthConfig(
                 broker_required=broker_required,
@@ -2992,6 +2992,10 @@ class CoreOrchestrator:
             as_of=as_of,
             live_broker_mode=broker_required,
         )
+        if snapshot.snapshot_status == "UNKNOWN":
+            previous = getattr(self, "_latest_position_truth_snapshot", None)
+            if previous is not None:
+                snapshot.broker_positions = previous.broker_positions
         self._latest_position_truth_snapshot = snapshot
         self._latest_position_truth_verdict = verdict
         manager = getattr(self, "trade_management_engine", None)
@@ -3084,26 +3088,9 @@ class CoreOrchestrator:
         return verdict
 
     def attach_broker_position_from_recovery(self, *, symbol: str) -> None:
-        snapshot = self._latest_position_truth_snapshot
-        if snapshot is None:
-            return
-        broker_row = snapshot.broker_positions.get(symbol.upper())
-        if broker_row is None:
-            return
-        if any(t.symbol.upper() == symbol.upper() for t in self.trade_registry.snapshot()):
-            return
-        recovered_trade = ActiveTrade(
-            symbol=symbol.upper(),
-            trader_type="BROKER_ATTACHED",
-            entry_tick=0,
-            entry_price=float(broker_row.avg_cost or 0.0),
-            direction="SHORT" if int(broker_row.quantity) < 0 else "LONG",
-            quantity=abs(int(broker_row.quantity)),
-            strategy_name="BROKER_RECOVERY",
-            stop_loss_price=0.0,
-        )
-        setattr(recovered_trade, "recovery_tag", "broker_attached")
-        self.trade_registry.register_trade(recovered_trade)
+        # Compatibility boundary for retained callers/plans. Position evidence
+        # confirms exposure, not permission to adopt pre-existing inventory.
+        print(f"[RECOVERY][MANUAL_REQUIRED] symbol={symbol.upper()} reason=OWNERSHIP_NOT_CONFIRMED")
 
     def _run_manager_pipeline(
         self,

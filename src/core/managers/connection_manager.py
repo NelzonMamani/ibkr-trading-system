@@ -91,4 +91,4 @@ class ConnectionManager:
             self.ensure_connected()
         if self._ibkr_connection_manager is None:
             return None
-        return self._ibkr_connection_manager.get_client()
+        return self._ibkr_connection_manager.existing_client

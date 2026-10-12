@@ -136,6 +136,8 @@ def test_ibkr_callbacks_emit_order_observability_logs(capsys: pytest.CaptureFixt
     from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
 
     client = IbkrClient.__new__(IbkrClient)
+    client._lock = threading.Lock()
+    client._position_queries = {}
     client.NON_REJECTING_ORDER_WARNING_CODES = {2109}
     client._errors = {}
     client._order_status = {}

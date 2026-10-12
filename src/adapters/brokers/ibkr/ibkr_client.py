@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+import math
 import time
 import json
 import os
@@ -15,6 +16,7 @@ from ibapi.contract import Contract, ContractDetails
 from ibapi.order import Order
 from ibapi.wrapper import EWrapper
 
+from src.ibkr.position_snapshot import BrokerPositionResult
 from src.domain.market_snapshot import MarketSnapshot
 from src.ibkr.market_data_client import (
     MarketDataSnapshot,
@@ -115,6 +117,10 @@ class IbkrClient(EWrapper, EClient):
         self._executions_event = threading.Event()
         self._positions_snapshot: Dict[str, object] = {}
         self._positions_event = threading.Event()
+        self._position_queries: dict[int, dict] = {}
+        self._position_connection_epoch = 0
+        self._position_transport_available = False
+        self._position_upstream_lost = False
         self._open_order_count = 0
         self._order_status_count = 0
         self._exec_details_count = 0
@@ -185,6 +191,7 @@ class IbkrClient(EWrapper, EClient):
             f"readonly={self.readonly_enabled}"
         )
         self._connection_event.clear()
+        self._position_upstream_lost = False
         super().connect(self.host, self.port, int(self.client_id))
 
         self._stop_event.clear()
@@ -204,6 +211,7 @@ class IbkrClient(EWrapper, EClient):
     def disconnect(self) -> None:  # type: ignore[override]
         print(f"[IBKR] Disconnecting client_id={self.client_id}")
         self._stop_event.set()
+        self._invalidate_position_queries()
         try:
             try:
                 with self._lock:
@@ -259,13 +267,26 @@ class IbkrClient(EWrapper, EClient):
     # --- Request/response helpers ---
     def _next_req_id(self) -> int:
         with self._lock:
-            self._req_id += 1
+            # IBKR errors carry one numeric ID for both requests and orders.
+            # Allocate both through the existing authorities under this lock,
+            # always above IDs already reserved by either side. Positive gaps in
+            # order IDs are legal; no guessed error-code ownership is needed.
+            self._req_id = max(self._req_id, self._last_reserved_order_id or 0,
+                               self._next_valid_order_id or 0,
+                               max(self._order_status_events, default=0),
+                               max(self._order_state_registry, default=0)) + 1
             return self._req_id
 
     def _register_request(self, req_id: int, request_type: str, contract=None) -> None:
         if not hasattr(self, "_request_type_by_req_id"):
             self._request_type_by_req_id = {}
         with self._lock:
+            if (req_id in self._order_status_events or req_id in self._order_state_registry
+                    or req_id == self._last_reserved_order_id):
+                raise RuntimeError("Request ID is already reserved for an order.")
+            # Raw compatibility calls may supply their own positive request ID.
+            # Registration must reserve that ID before a concurrent order can.
+            self._req_id = max(self._req_id, req_id)
             if request_type == "CONTRACT_DETAILS" and self._stop_event.is_set():
                 raise RuntimeError("Contract resolution stopped during disconnect.")
             self._request_type_by_req_id[req_id] = request_type
@@ -339,15 +360,72 @@ class IbkrClient(EWrapper, EClient):
             brokerErrors=[],
         )
 
+    def _request_id_conflicted(self, req_id: int) -> bool:
+        return bool(getattr(self, "_order_state_registry", {}).get(req_id, {}).get("request_id_conflict"))
+
+    def _raise_if_request_id_conflicted(self, req_id: int) -> None:
+        if self._request_id_conflicted(req_id):
+            raise RuntimeError("Request/order ID ownership is ambiguous.")
+
+    def _observe_order_id(self, order_id: int) -> None:
+        """Reserve observed IDs; quarantine collisions without inventing error ownership."""
+        self._ensure_order_state_registry()
+        with self._lock:
+            known_order = order_id in self._order_status_events
+            self._order_status_events.setdefault(order_id, threading.Event())
+            request_type = getattr(self, "_request_type_by_req_id", {}).pop(order_id, None)
+            position_query = self._position_queries.get(order_id)
+            context = getattr(self, "_request_context_by_req_id", {}).get(order_id, {})
+            # Completed request metadata and still-held request maps also expose
+            # ambiguity. An unseen lower ID may be a retired request whose bounded
+            # context has already been evicted; keep that case conservative.
+            possible_request = (request_type is not None or position_query is not None
+                                or bool(context.get("request_type"))
+                                or (not known_order and order_id <= self._req_id))
+            if not possible_request:
+                return
+            # Generic IBKR errors have no request-vs-order discriminator. Retain
+            # this ambiguity in the existing order-ID registry even after request
+            # metadata is evicted; never attribute a late shared-ID error to either.
+            self._order_state_registry.setdefault(order_id, {})["request_id_conflict"] = True
+            context = self._request_context_by_req_id.get(order_id, {})
+            context["reference_error"] = (-1, "Request/order ID ownership is ambiguous.")
+            context.pop("reference_response", None)
+            context.pop("reference_deadline", None)
+            if position_query is not None:
+                position_query["status"] = "FAILED"
+                position_query["event"].set()
+            for events in (self._market_events, self._historical_events, self._contract_events,
+                           self._scanner_events, self._account_summary_events):
+                event = events.pop(order_id, None)
+                if event is not None:
+                    event.set()  # Release waiters to raise unavailable, not complete.
+            for rows in (self._market_data, self._historical_data, self._contract_details,
+                         self._scanner_rows, self._account_summary_rows):
+                rows.pop(order_id, None)
+            self._active_market_req_ids.discard(order_id)
+            ticker = self._ticker_by_req_id.get(order_id)
+            if ticker is not None:
+                ticker.snapshotEnd = False
+                for field in ("bid", "ask", "last", "close", "open", "high", "low", "volume"):
+                    setattr(ticker, field, None)
+                ticker.brokerErrors.append({"code": -1, "message": "REQUEST_ORDER_ID_CONFLICT"})
+            if request_type == "EXECUTIONS":
+                self._executions_snapshot = []
+                self._executions_event.set()
+
     def reserve_order_id(self) -> int:
         with self._lock:
             if self._next_valid_order_id is None:
                 print("[CRITICAL] IBKR_NEXT_VALID_ID_NOT_READY")
                 raise RuntimeError("IBKR order id not yet initialized.")
-            order_id = int(self._next_valid_order_id)
+            order_id = max(int(self._next_valid_order_id), self._req_id + 1,
+                           (self._last_reserved_order_id or 0) + 1,
+                           max(self._order_status_events, default=0) + 1)
             self._next_valid_order_id = int(order_id) + 1
             self._next_order_id = self._next_valid_order_id
             self._last_reserved_order_id = int(order_id)
+            self._order_status_events.setdefault(order_id, threading.Event())
             self._persist_last_reserved_order_id(int(order_id))
             print(f"[IBKR][ORDER_ID_SOURCE] source=IBKR_NEXT_VALID_ID order_id={order_id}")
             print(f"[IBKR][ORDER_ID_SEQUENCE] reserved={order_id} next={self._next_valid_order_id}")
@@ -444,16 +522,118 @@ class IbkrClient(EWrapper, EClient):
         self._register_request(req_id, "EXECUTIONS")
         self.reqExecutions(req_id, ExecutionFilter())
         self._executions_event.wait(timeout=timeout_seconds or self.snapshot_timeout_seconds)
-        return list(self._executions_snapshot)
+        with self._lock:
+            self._raise_if_request_id_conflicted(req_id)
+            return list(self._executions_snapshot)
+
+    def position_snapshot(self, timeout_seconds: Optional[float] = None) -> BrokerPositionResult:
+        # The legacy reqPositions stream has no correlation token. Never cancel or
+        # reassign its subscription here. reqPositionsMulti has request-scoped end
+        # markers and cancellation, on the SAME canonical socket/account authority.
+        with self._lock:
+            accounts = tuple(self._managed_accounts)
+            if not self.is_connected() or self._stop_event.is_set() or not self._position_transport_available:
+                return BrokerPositionResult(status="DISCONNECTED")
+            if len(accounts) != 1 or not accounts[0]:
+                return BrokerPositionResult(status="ACCOUNT_SCOPE_UNAVAILABLE")
+            epoch = self._position_connection_epoch
+        req_id = self._next_req_id()
+        timeout = self.snapshot_timeout_seconds if timeout_seconds is None else timeout_seconds
+        context = {"account": accounts[0], "rows": {}, "event": threading.Event(),
+                   "status": "PARTIAL", "completed_at": None, "epoch": epoch,
+                   "deadline": time.monotonic() + max(0, timeout)}
+        with self._lock:
+            if (epoch != self._position_connection_epoch or not self.is_connected()
+                    or self._stop_event.is_set() or not self._position_transport_available):
+                return BrokerPositionResult(status="DISCONNECTED")
+            self._position_queries[req_id] = context
+        try:
+            self._register_request(req_id, "POSITIONS_MULTI")
+            self.reqPositionsMulti(req_id, accounts[0], "")
+            context["event"].wait(timeout=max(0, timeout))
+            with self._lock:
+                if epoch != self._position_connection_epoch or not self.is_connected():
+                    context["status"] = "DISCONNECTED"
+                elif tuple(self._managed_accounts) != accounts:
+                    context["status"] = "WRONG_ACCOUNT"
+                elif context["status"] == "PARTIAL":
+                    context["status"] = "TIMEOUT"
+                elif context["status"] == "COMPLETE":
+                    from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
+                    age = (datetime.now(timezone.utc) - context["completed_at"]).total_seconds()
+                    if not 0 <= age <= get_ibkr_snapshot_max_age_seconds():
+                        context["status"] = "STALE"
+                return BrokerPositionResult(tuple(context["rows"].values()), context["status"],
+                                            context["account"], context["completed_at"])
+        except Exception:
+            return BrokerPositionResult(status="FAILED", account=accounts[0])
+        finally:
+            # Retire before cancellation: even synchronous/late callbacks cannot
+            # mutate returned evidence or complete another query.
+            with self._lock:
+                self._position_queries.pop(req_id, None)
+                self._request_type_by_req_id.pop(req_id, None)
+            try:
+                self.cancelPositionsMulti(req_id)
+            except Exception:
+                pass
 
     def positions(self, timeout_seconds: Optional[int] = None) -> list[object]:
-        if not self.is_connected():
-            return list(self._positions_snapshot.values())
-        self._positions_event.clear()
-        self._positions_snapshot = {}
-        self.reqPositions()
-        self._positions_event.wait(timeout=timeout_seconds or self.snapshot_timeout_seconds)
-        return list(self._positions_snapshot.values())
+        result = self.position_snapshot(timeout_seconds)
+        if result.status != "COMPLETE":
+            raise RuntimeError(f"Broker position truth unavailable: {result.status}")
+        return list(result.rows)
+
+    def _invalidate_position_queries(self, *, clear_account_scope: bool = True) -> None:
+        with self._lock:
+            self._position_connection_epoch += 1
+            self._position_transport_available = False
+            self._position_upstream_lost = True
+            if clear_account_scope:
+                self._managed_accounts = []
+            for context in self._position_queries.values():
+                context["status"] = "DISCONNECTED"
+                context["event"].set()
+
+    def positionMulti(self, reqId, account, modelCode, contract, pos, avgCost):
+        with self._lock:
+            context = self._position_queries.get(reqId)
+            if context is None or context["status"] != "PARTIAL":
+                return
+            if account != context["account"] or modelCode:
+                context["status"] = "WRONG_ACCOUNT"
+                context["event"].set()
+                return
+            try:
+                valid_quantity = math.isfinite(float(pos))
+            except (TypeError, ValueError, OverflowError):
+                valid_quantity = False
+            if not valid_quantity:
+                context["status"] = "FAILED"
+                context["event"].set()
+                return
+            symbol = str(getattr(contract, "symbol", "") or "").strip().upper()
+            if not symbol:
+                context["status"] = "FAILED"
+                context["event"].set()
+                return
+            context["rows"][(account, getattr(contract, "conId", 0), symbol)] = SimpleNamespace(
+                account=account, contract=contract, symbol=symbol, position=pos, avgCost=avgCost)
+
+    def positionMultiEnd(self, reqId):
+        with self._lock:
+            context = self._position_queries.get(reqId)
+            if context is None or context["status"] != "PARTIAL":
+                return
+            if (context["epoch"] != self._position_connection_epoch or not self.is_connected()
+                    or self._stop_event.is_set()):
+                context["status"] = "DISCONNECTED"
+            elif time.monotonic() > context["deadline"]:
+                context["status"] = "TIMEOUT"
+            else:
+                context["status"] = "COMPLETE"
+                context["completed_at"] = datetime.now(timezone.utc)
+            context["event"].set()
 
 
     def get_account_summary(self, timeout_seconds: Optional[int] = None) -> Dict[str, str]:
@@ -471,7 +651,9 @@ class IbkrClient(EWrapper, EClient):
         timeout = timeout_seconds or self.snapshot_timeout_seconds
         event.wait(timeout=timeout)
         self.cancelAccountSummary(req_id)
-        return dict(self._account_summary_rows.get(req_id, {}))
+        with self._lock:
+            self._raise_if_request_id_conflicted(req_id)
+            return dict(self._account_summary_rows.get(req_id, {}))
 
     def get_primary_account(self, timeout_seconds: Optional[int] = None) -> Optional[str]:
         if not self.is_connected():
@@ -512,7 +694,9 @@ class IbkrClient(EWrapper, EClient):
         if not event.wait(timeout=self.snapshot_timeout_seconds):
             raise RuntimeError(f"Contract resolution failed for symbol={symbol} (timeout).")
 
-        details = self._contract_details.get(req_id, [])
+        with self._lock:
+            self._raise_if_request_id_conflicted(req_id)
+            details = list(self._contract_details.get(req_id, []))
         if not details:
             raise RuntimeError(f"Contract resolution failed for symbol={symbol}")
 
@@ -628,13 +812,13 @@ class IbkrClient(EWrapper, EClient):
 
         if args and isinstance(args[0], int):
             req_id = int(args[0])
-            if len(args) >= 2 and not isinstance(args[1], int):
-                contract = args[1]
+            contract = args[1] if len(args) >= 2 else kwargs.get("contract")
+            self._register_request(req_id, "MARKET_DATA", contract)
+            if contract is not None and not isinstance(contract, int):
                 self._req_id_by_contract_key[self._contract_key(contract)] = req_id
                 self._ticker_by_req_id.setdefault(req_id, self._build_ticker(contract)).reqId = req_id
             self._market_events.setdefault(req_id, threading.Event())
             self._market_data.setdefault(req_id, {"bid": None, "ask": None, "last": None, "volume": None})
-            self._register_request(req_id, "MARKET_DATA", contract)
             self._active_market_req_ids.add(req_id)
             return super().reqMktData(*args, **kwargs)
 
@@ -684,7 +868,8 @@ class IbkrClient(EWrapper, EClient):
                 raise TypeError(f"Unexpected reqHistoricalData kwargs: {sorted(kwargs.keys())}")
 
             req_id = self._next_req_id()
-            self._historical_events[req_id] = threading.Event()
+            event = threading.Event()
+            self._historical_events[req_id] = event
             self._historical_data[req_id] = []
             self._register_request(req_id, "HISTORICAL_DATA", contract)
             print(
@@ -704,7 +889,7 @@ class IbkrClient(EWrapper, EClient):
                 chart_options,
             )
 
-            event = self._historical_events[req_id]
+            self._raise_if_request_id_conflicted(req_id)
             start = time.time()
             timeout = self.snapshot_timeout_seconds
 
@@ -721,7 +906,9 @@ class IbkrClient(EWrapper, EClient):
 
                 time.sleep(0.01)
 
-            data = self._historical_data.get(req_id, [])
+            with self._lock:
+                self._raise_if_request_id_conflicted(req_id)
+                data = list(self._historical_data.get(req_id, []))
             if not data:
                 print(f"[IBKR][HIST_EMPTY_FINAL] req_id={req_id}")
             else:
@@ -731,10 +918,10 @@ class IbkrClient(EWrapper, EClient):
 
         if args and isinstance(args[0], int):
             req_id = int(args[0])
-            self._historical_events.setdefault(req_id, threading.Event())
-            self._historical_data.setdefault(req_id, [])
             contract = args[1] if len(args) > 1 else kwargs.get("contract")
             self._register_request(req_id, "HISTORICAL_DATA", contract)
+            self._historical_events.setdefault(req_id, threading.Event())
+            self._historical_data.setdefault(req_id, [])
             return super().reqHistoricalData(*args, **kwargs)
 
         raise TypeError(
@@ -748,23 +935,29 @@ class IbkrClient(EWrapper, EClient):
         return bool(updated)
 
     def contractDetails(self, reqId: int, contractDetails: ContractDetails):  # type: ignore[override]
-        self._contract_details.setdefault(reqId, []).append(contractDetails)
+        with self._lock:
+            if self._request_id_conflicted(reqId):
+                return
+            self._contract_details.setdefault(reqId, []).append(contractDetails)
 
     def contractDetailsEnd(self, reqId: int):  # type: ignore[override]
-        context = getattr(self, "_request_context_by_req_id", {}).get(reqId, {})
-        if "reference_deadline" in context and "reference_response" not in context:
-            # Freeze only fields received by the genuine end callback. Late rows
-            # cannot be promoted; error wakeups are not successful completion.
-            rows = tuple({**{field: getattr(detail.contract, field, None) for field in
-                         ("conId", "symbol", "secType", "currency", "exchange", "primaryExchange", "localSymbol", "tradingClass")},
-                         "longName": getattr(detail, "longName", None)}
-                         for detail in self._contract_details.get(reqId, ()))
-            context["reference_completed_at_utc"] = datetime.now(timezone.utc).isoformat()
-            context["reference_response"] = (time.monotonic(), rows)
-        event = self._contract_events.get(reqId)
-        if event:
-            event.set()
-        getattr(self, "_request_type_by_req_id", {}).pop(reqId, None)
+        with self._lock:
+            if self._request_id_conflicted(reqId):
+                return
+            context = getattr(self, "_request_context_by_req_id", {}).get(reqId, {})
+            if "reference_deadline" in context and "reference_response" not in context:
+                # Freeze only fields received by the genuine end callback. Late rows
+                # cannot be promoted; error wakeups are not successful completion.
+                rows = tuple({**{field: getattr(detail.contract, field, None) for field in
+                             ("conId", "symbol", "secType", "currency", "exchange", "primaryExchange", "localSymbol", "tradingClass")},
+                             "longName": getattr(detail, "longName", None)}
+                             for detail in self._contract_details.get(reqId, ()))
+                context["reference_completed_at_utc"] = datetime.now(timezone.utc).isoformat()
+                context["reference_response"] = (time.monotonic(), rows)
+            event = self._contract_events.get(reqId)
+            if event:
+                event.set()
+            getattr(self, "_request_type_by_req_id", {}).pop(reqId, None)
 
     # --- Market data snapshot ---
     def get_market_snapshot(self, symbol: str) -> MarketSnapshot:
@@ -780,6 +973,7 @@ class IbkrClient(EWrapper, EClient):
             event.wait(timeout=self.snapshot_timeout_seconds)
             completed_at = datetime.now(timezone.utc)
             with self._lock:
+                self._raise_if_request_id_conflicted(req_id)
                 # Cancellation owns cleanup; retain all values before it runs.
                 ticker = SimpleNamespace(**vars(self._ticker_by_req_id[req_id]))
         finally:
@@ -891,7 +1085,9 @@ class IbkrClient(EWrapper, EClient):
         self.reqScannerSubscription(req_id, subscription, [], [])
         event.wait(timeout=self.snapshot_timeout_seconds)
         self.cancelScannerSubscription(req_id)
-        return list(self._scanner_rows.get(req_id, []))
+        with self._lock:
+            self._raise_if_request_id_conflicted(req_id)
+            return list(self._scanner_rows.get(req_id, []))
 
     def cancelScannerSubscription(self, reqId):
         """
@@ -976,16 +1172,22 @@ class IbkrClient(EWrapper, EClient):
         self._market_update_event.set()
 
     def historicalData(self, reqId: int, bar):  # type: ignore[override]
-        self._historical_data.setdefault(reqId, []).append(bar)
+        with self._lock:
+            if self._request_id_conflicted(reqId):
+                return
+            self._historical_data.setdefault(reqId, []).append(bar)
 
     def historicalDataEnd(self, reqId: int, start: str, end: str):  # type: ignore[override]
-        print(
-            f"[IBKR][HIST_DONE] req_id={reqId} bars={len(self._historical_data.get(reqId, []))}"
-        )
-        event = self._historical_events.get(reqId)
-        if event:
-            event.set()
-        getattr(self, "_request_type_by_req_id", {}).pop(reqId, None)
+        with self._lock:
+            if self._request_id_conflicted(reqId):
+                return
+            print(
+                f"[IBKR][HIST_DONE] req_id={reqId} bars={len(self._historical_data.get(reqId, []))}"
+            )
+            event = self._historical_events.get(reqId)
+            if event:
+                event.set()
+            getattr(self, "_request_type_by_req_id", {}).pop(reqId, None)
 
     def accountSummary(
         self,
@@ -995,15 +1197,21 @@ class IbkrClient(EWrapper, EClient):
         value: str,
         currency: str,
     ):  # type: ignore[override]
-        register_account(account)
-        rows = self._account_summary_rows.setdefault(reqId, {})
-        rows[tag] = value
+        with self._lock:
+            if self._request_id_conflicted(reqId):
+                return
+            register_account(account)
+            rows = self._account_summary_rows.setdefault(reqId, {})
+            rows[tag] = value
 
     def accountSummaryEnd(self, reqId: int):  # type: ignore[override]
-        event = self._account_summary_events.get(reqId)
-        if event:
-            event.set()
-        getattr(self, "_request_type_by_req_id", {}).pop(reqId, None)
+        with self._lock:
+            if self._request_id_conflicted(reqId):
+                return
+            event = self._account_summary_events.get(reqId)
+            if event:
+                event.set()
+            getattr(self, "_request_type_by_req_id", {}).pop(reqId, None)
 
     def managedAccounts(self, accountsList: str):  # type: ignore[override]
         register_account(accountsList)
@@ -1023,24 +1231,30 @@ class IbkrClient(EWrapper, EClient):
         projection: str,
         legsStr: str,
     ):  # type: ignore[override]
-        from types import SimpleNamespace
+        with self._lock:
+            if self._request_id_conflicted(reqId):
+                return
+            from types import SimpleNamespace
 
-        self._scanner_rows.setdefault(reqId, []).append(
-            SimpleNamespace(
-                rank=rank,
-                contractDetails=contractDetails,
-                distance=distance,
-                benchmark=benchmark,
-                projection=projection,
-                legsStr=legsStr,
+            self._scanner_rows.setdefault(reqId, []).append(
+                SimpleNamespace(
+                    rank=rank,
+                    contractDetails=contractDetails,
+                    distance=distance,
+                    benchmark=benchmark,
+                    projection=projection,
+                    legsStr=legsStr,
+                )
             )
-        )
 
     def scannerDataEnd(self, reqId: int):  # type: ignore[override]
-        event = self._scanner_events.get(reqId)
-        if event:
-            event.set()
-        getattr(self, "_request_type_by_req_id", {}).pop(reqId, None)
+        with self._lock:
+            if self._request_id_conflicted(reqId):
+                return
+            event = self._scanner_events.get(reqId)
+            if event:
+                event.set()
+            getattr(self, "_request_type_by_req_id", {}).pop(reqId, None)
 
     # --- Error handling ---
     def error(self, reqId: int, errorCode: int, errorString: str):  # type: ignore[override]
@@ -1065,90 +1279,115 @@ class IbkrClient(EWrapper, EClient):
         self._broker_error_events.append(event)
         del self._broker_error_events[:-256]
         print(f"[IBKR][BROKER_ERROR] {json.dumps(event, sort_keys=True)}")
-        unknown_market_req = int(errorCode) == 300 and reqId >= 0 and request_type is None
-        if unknown_market_req:
-            print(
-                "[IBKR][WARN] "
-                f"code=300 reqId={reqId} request_type=UNKNOWN reason={errorString} action=downgraded"
+        self._update_position_transport(errorCode, errorString)
+        with self._lock:
+            if self._request_id_conflicted(reqId):
+                print(f"[IBKR][ERROR][OWNERSHIP_AMBIGUOUS] id={reqId} code={errorCode}")
+                return
+            unknown_market_req = int(errorCode) == 300 and reqId >= 0 and request_type is None
+            if unknown_market_req:
+                print(
+                    "[IBKR][WARN] "
+                    f"code=300 reqId={reqId} request_type=UNKNOWN reason={errorString} action=downgraded"
+                )
+                return
+            fractional_unsupported_warning = int(errorCode) == 2176
+            is_non_rejecting_order_warning = (
+                errorCode in self.NON_REJECTING_ORDER_WARNING_CODES and reqId in self._order_status_events
             )
-            return
-        fractional_unsupported_warning = int(errorCode) == 2176
-        is_non_rejecting_order_warning = (
-            errorCode in self.NON_REJECTING_ORDER_WARNING_CODES and reqId in self._order_status_events
-        )
-        is_order_only_callback = (
-            is_non_rejecting_order_warning or fractional_unsupported_warning
-            or (errorCode in self.ORDER_ONLY_CALLBACK_CODES
-                and reqId in self._order_status_events)
-        )
-        if (request_type_by_req_id.get(reqId) == "CONTRACT_DETAILS"
-                and "reference_deadline" in context and "reference_response" not in context
-                and not is_order_only_callback):
-            # Numeric order IDs share the legacy error map. Exclude known order
-            # callbacks; only this active attempt can disqualify its response.
-            context["reference_error"] = (errorCode, errorString)
-        if reqId >= 0:
-            self._errors[reqId] = (errorCode, errorString)
-            if reqId in self._order_status_events:
-                existing = self._order_status.get(reqId, {})
-                if is_non_rejecting_order_warning:
-                    self._order_warnings[reqId] = (errorCode, errorString)
-                    self._order_status[reqId] = {
-                        **existing,
-                        "broker_warning_code": str(errorCode),
-                        "broker_warning_message": errorString,
-                    }
-                else:
-                    self._order_errors[reqId] = (errorCode, errorString)
-                    self._order_status[reqId] = {
-                        **existing,
-                        "status": existing.get("status", "REJECTED"),
-                        "broker_error_code": str(errorCode),
-                        "broker_error_message": errorString,
-                    }
-                    self._order_status_events[reqId].set()
-            if reqId in self._contract_events and not is_order_only_callback:
-                self._contract_events[reqId].set()
-            if reqId in self._market_events:
-                self._market_events[reqId].set()
-                self._market_update_event.set()
-            if reqId in self._historical_events:
-                self._historical_events[reqId].set()
-            if reqId in self._account_summary_events:
-                self._account_summary_events[reqId].set()
-            if reqId in self._scanner_events:
-                self._scanner_events[reqId].set()
-        if fractional_unsupported_warning:
-            print(
-                "[IBKR][WARN] "
-                f"type=FRACTIONAL_SHARE_UNSUPPORTED order_id={reqId} code={errorCode} message={errorString}"
+            is_order_only_callback = (
+                is_non_rejecting_order_warning or fractional_unsupported_warning
+                or (errorCode in self.ORDER_ONLY_CALLBACK_CODES
+                    and reqId in self._order_status_events)
             )
-            message = (
-                "[IBKR][WARN] "
-                f"type=FRACTIONAL_SHARE_UNSUPPORTED reqId={reqId} code={errorCode} msg={errorString}"
-            )
-        elif is_non_rejecting_order_warning:
-            print(f"[IBKR][WARN] order_id={reqId} code={errorCode} message={errorString}")
-            message = f"[IBKR] Warning reqId={reqId} code={errorCode} msg={errorString}"
-        else:
-            message = f"[IBKR] Error reqId={reqId} code={errorCode} msg={errorString} timestamp_utc={timestamp_utc}"
-        if not fractional_unsupported_warning:
-            print(
-                "[ORDER][ERROR] "
-                f"order_id={reqId} code={errorCode} message={errorString}"
-            )
-            print(
-                "[IBKR][ORDER_ERROR] "
-                f"order_id={reqId} code={errorCode} message={errorString}"
-            )
-        print(message)
-        if errorCode == 326:
-            print("[IBKR][CONNECT_FAIL] code=326 client id already in use")
-        if errorCode in (1100, 1300):  # connection/pacing
-            self._last_disconnect_reason = f"code={errorCode} msg={errorString}"
+            if (request_type_by_req_id.get(reqId) == "CONTRACT_DETAILS"
+                    and "reference_deadline" in context and "reference_response" not in context
+                    and not is_order_only_callback):
+                # Numeric order IDs share the legacy error map. Exclude known order
+                # callbacks; only this active attempt can disqualify its response.
+                context["reference_error"] = (errorCode, errorString)
+            if reqId >= 0:
+                self._errors[reqId] = (errorCode, errorString)
+                if reqId in self._order_status_events:
+                    existing = self._order_status.get(reqId, {})
+                    if is_non_rejecting_order_warning:
+                        self._order_warnings[reqId] = (errorCode, errorString)
+                        self._order_status[reqId] = {
+                            **existing,
+                            "broker_warning_code": str(errorCode),
+                            "broker_warning_message": errorString,
+                        }
+                    else:
+                        self._order_errors[reqId] = (errorCode, errorString)
+                        self._order_status[reqId] = {
+                            **existing,
+                            "status": existing.get("status", "REJECTED"),
+                            "broker_error_code": str(errorCode),
+                            "broker_error_message": errorString,
+                        }
+                        self._order_status_events[reqId].set()
+                if reqId in self._contract_events and not is_order_only_callback:
+                    self._contract_events[reqId].set()
+                if reqId in self._market_events:
+                    self._market_events[reqId].set()
+                    self._market_update_event.set()
+                if reqId in self._historical_events:
+                    self._historical_events[reqId].set()
+                if reqId in self._account_summary_events:
+                    self._account_summary_events[reqId].set()
+                if reqId in self._scanner_events:
+                    self._scanner_events[reqId].set()
+            if fractional_unsupported_warning:
+                print(
+                    "[IBKR][WARN] "
+                    f"type=FRACTIONAL_SHARE_UNSUPPORTED order_id={reqId} code={errorCode} message={errorString}"
+                )
+                message = (
+                    "[IBKR][WARN] "
+                    f"type=FRACTIONAL_SHARE_UNSUPPORTED reqId={reqId} code={errorCode} msg={errorString}"
+                )
+            elif is_non_rejecting_order_warning:
+                print(f"[IBKR][WARN] order_id={reqId} code={errorCode} message={errorString}")
+                message = f"[IBKR] Warning reqId={reqId} code={errorCode} msg={errorString}"
+            else:
+                message = f"[IBKR] Error reqId={reqId} code={errorCode} msg={errorString} timestamp_utc={timestamp_utc}"
+            if not fractional_unsupported_warning:
+                print(
+                    "[ORDER][ERROR] "
+                    f"order_id={reqId} code={errorCode} message={errorString}"
+                )
+                print(
+                    "[IBKR][ORDER_ERROR] "
+                    f"order_id={reqId} code={errorCode} message={errorString}"
+                )
+            print(message)
+            if errorCode == 326:
+                print("[IBKR][CONNECT_FAIL] code=326 client id already in use")
+            context = self._position_queries.get(reqId)
+            if context is not None and not is_order_only_callback:
+                context["status"] = "FAILED"
+                context["event"].set()
+
+    def _update_position_transport(self, error_code: int, error_string: str) -> None:
+        if error_code in (1100, 1300):  # connection/pacing
+            self._invalidate_position_queries(clear_account_scope=error_code == 1300)
+            self._last_disconnect_reason = f"code={error_code} msg={error_string}"
             self._connection_event.clear()
+        elif error_code in (1101, 1102):
+            # TWS restored the same upstream session without a new API handshake.
+            # Retained account identity is scope, never position evidence. All
+            # interrupted query epochs remain invalid; only a fresh query may pass.
+            with self._lock:
+                if self.is_connected() and not self._stop_event.is_set():
+                    self._position_upstream_lost = False
+                    self._position_transport_available = True
+                    self._connection_event.set()
+
 
     def nextValidId(self, orderId: int):  # type: ignore[override]
+        with self._lock:
+            if not self._position_upstream_lost:
+                self._position_transport_available = True
         broker_next = int(orderId)
         chosen = broker_next
         if self._last_reserved_order_id is not None and broker_next <= int(self._last_reserved_order_id):
@@ -1176,6 +1415,7 @@ class IbkrClient(EWrapper, EClient):
         whyHeld: str,
         mktCapPrice: float,
     ):  # type: ignore[override]
+        self._observe_order_id(int(orderId))
         if not hasattr(self, "_order_status_count"):
             self._order_status_count = 0
         self._order_status_count += 1
@@ -1238,6 +1478,8 @@ class IbkrClient(EWrapper, EClient):
         event.set()
 
     def execDetails(self, reqId, contract, execution):  # type: ignore[override]
+        if getattr(execution, "orderId", None) is not None:
+            self._observe_order_id(int(execution.orderId))
         if not hasattr(self, "_exec_details_count"):
             self._exec_details_count = 0
         self._exec_details_count += 1
@@ -1295,6 +1537,7 @@ class IbkrClient(EWrapper, EClient):
         )
 
     def openOrder(self, orderId, contract, order, orderState):  # type: ignore[override]
+        self._observe_order_id(int(orderId))
         if not hasattr(self, "_open_order_count"):
             self._open_order_count = 0
         self._open_order_count += 1
@@ -1353,9 +1596,12 @@ class IbkrClient(EWrapper, EClient):
         self._open_orders_event.set()
 
     def execDetailsEnd(self, reqId):  # type: ignore[override]
-        print(f"[IBKR][CALLBACK_RAW] event=execDetailsEnd req_id={reqId}")
-        self._executions_event.set()
-        getattr(self, "_request_type_by_req_id", {}).pop(reqId, None)
+        with self._lock:
+            if self._request_id_conflicted(reqId):
+                return
+            print(f"[IBKR][CALLBACK_RAW] event=execDetailsEnd req_id={reqId}")
+            self._executions_event.set()
+            getattr(self, "_request_type_by_req_id", {}).pop(reqId, None)
 
     def position(self, account, contract, pos, avgCost):  # type: ignore[override]
         register_account(account)
@@ -1386,6 +1632,7 @@ class IbkrClient(EWrapper, EClient):
         self._emit_execution_callback({"event_type": "positionEnd"})
 
     def connectionClosed(self):  # type: ignore[override]
+        self._invalidate_position_queries()
         self._last_disconnect_reason = "connectionClosed"
         self._connection_event.clear()
         print("[IBKR] Connection closed by broker.")

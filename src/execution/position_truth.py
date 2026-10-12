@@ -3,6 +3,10 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from typing import Any
+import math
+
+from src.ibkr.position_snapshot import BrokerPositionResult
+from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
 
 from src.config.runtime_config import RunMode
 
@@ -14,7 +18,7 @@ WARNING_MISMATCH_TYPES = {"QUANTITY_MISMATCH"}
 @dataclass
 class NormalizedBrokerPosition:
     symbol: str
-    quantity: int
+    quantity: float
     avg_cost: float | None
     market_price: float | None
     market_value: float | None
@@ -31,7 +35,7 @@ class NormalizedBrokerPosition:
 @dataclass
 class NormalizedSystemPosition:
     symbol: str
-    quantity: int
+    quantity: float
     source: str
     as_of: datetime
 
@@ -44,8 +48,8 @@ class NormalizedSystemPosition:
 @dataclass
 class PositionMismatch:
     symbol: str
-    broker_quantity: int
-    system_quantity: int
+    broker_quantity: float
+    system_quantity: float
     mismatch_type: str
     severity: str
     rationale: str
@@ -115,72 +119,71 @@ def _read_value(row: Any, key: str, fallback: Any = None) -> Any:
     return getattr(row, key, fallback)
 
 
-def _resolve_position_quantity(row: Any) -> int:
+def _resolve_position_quantity(row: Any) -> float:
     raw = _read_value(row, "position", None)
     if raw is None:
         raw = _read_value(row, "quantity", 0)
-    return int(raw or 0)
+    quantity = float(raw or 0)
+    if not math.isfinite(quantity):
+        raise ValueError("Nonfinite position quantity")
+    return quantity
 
 
-def collect_broker_position_snapshot(
-    ibkr_client: Any,
-    *,
-    as_of: datetime,
-    config: PositionTruthConfig,
-) -> dict[str, NormalizedBrokerPosition]:
-    print("[POSITION][BROKER_SNAPSHOT][START]")
-    broker_positions: dict[str, NormalizedBrokerPosition] = {}
-    mode_label = str(getattr(config.run_mode, "value", config.run_mode) or "UNKNOWN").upper()
+class BrokerPositionCollection(dict):
+    def __init__(self, *, status="UNAVAILABLE", completed_at=None):
+        super().__init__()
+        self.status = status
+        self.completed_at = completed_at
 
-    if ibkr_client is None:
-        if config.broker_required:
-            print(f"[POSITION][BROKER_SNAPSHOT][ERROR] mode={mode_label} reason=missing_client")
-        print("[POSITION][BROKER_SNAPSHOT][RESULT] count=0")
-        return broker_positions
 
-    if not hasattr(ibkr_client, "positions"):
-        if config.broker_required:
-            print(f"[POSITION][BROKER_SNAPSHOT][ERROR] mode={mode_label} reason=positions_unavailable")
-        print("[POSITION][BROKER_SNAPSHOT][RESULT] count=0")
-        return broker_positions
-
+def collect_broker_position_snapshot(ibkr_client: Any, *, as_of: datetime,
+                                     config: PositionTruthConfig) -> BrokerPositionCollection:
+    collection = BrokerPositionCollection()
+    method = getattr(ibkr_client, "position_snapshot", None)
+    if not callable(method):
+        print("[POSITION][BROKER_SNAPSHOT][ERROR] reason=positions_unavailable")
+        return collection
     try:
-        rows = ibkr_client.positions() or []
-    except Exception as exc:
-        print(f"[POSITION][BROKER_SNAPSHOT][ERROR] mode={mode_label} reason=positions_call_failed error={exc}")
-        print("[POSITION][BROKER_SNAPSHOT][RESULT] count=0")
-        return broker_positions
-
-    for row in rows:
-        symbol = _normalize_symbol(_read_value(row, "symbol", ""))
-        if not symbol:
-            continue
-        quantity = _resolve_position_quantity(row)
-        if quantity == 0:
-            continue
-        broker_positions[symbol] = NormalizedBrokerPosition(
-            symbol=symbol,
-            quantity=quantity,
-            avg_cost=_optional_float(_read_value(row, "avgCost", _read_value(row, "avg_cost", _read_value(row, "average_cost")))),
-            market_price=_optional_float(_read_value(row, "marketPrice", _read_value(row, "market_price"))),
-            market_value=_optional_float(_read_value(row, "marketValue", _read_value(row, "market_value"))),
-            source="ibkr.positions",
-            as_of=as_of,
-            con_id=_read_value(row, "con_id", _read_value(row, "conId", _read_value(_read_value(row, "contract"), "conId"))),
-        )
-
-    print(f"[POSITION][BROKER_SNAPSHOT][RESULT] count={len(broker_positions)}")
-    return broker_positions
+        result = method()
+        if not isinstance(result, BrokerPositionResult):
+            return collection
+        collection.status = result.status
+        collection.completed_at = result.completed_at
+        if result.status != "COMPLETE":
+            return collection
+        age = (datetime.now(timezone.utc) - result.completed_at).total_seconds() if result.completed_at else float("inf")
+        if not result.account or not 0 <= age <= get_ibkr_snapshot_max_age_seconds():
+            collection.status = "STALE_OR_UNSCOPED"
+            return collection
+        for row in result.rows:
+            if _read_value(row, "account") != result.account:
+                raise ValueError("Wrong position account")
+            symbol = _normalize_symbol(_read_value(row, "symbol", ""))
+            if not symbol or symbol in collection:
+                raise ValueError("Missing or ambiguous position security")
+            quantity = _resolve_position_quantity(row)
+            if quantity == 0:
+                continue
+            collection[symbol] = NormalizedBrokerPosition(
+                symbol=symbol, quantity=quantity,
+                avg_cost=_optional_float(_read_value(row, "avgCost", _read_value(row, "avg_cost"))),
+                market_price=_optional_float(_read_value(row, "marketPrice")),
+                market_value=_optional_float(_read_value(row, "marketValue")),
+                source="ibkr.positions", as_of=result.completed_at,
+                con_id=_read_value(row, "con_id", _read_value(_read_value(row, "contract"), "conId")))
+    except Exception:
+        collection.status = "FAILED"
+    return collection
 
 
 def collect_system_position_snapshot(active_trades: list[Any], *, as_of: datetime) -> dict[str, NormalizedSystemPosition]:
     print("[POSITION][SYSTEM_SNAPSHOT][START]")
-    positions: dict[str, int] = {}
+    positions: dict[str, float] = {}
     for trade in active_trades:
         symbol = _normalize_symbol(getattr(trade, "symbol", ""))
         if not symbol:
             continue
-        qty = int(getattr(trade, "quantity", 0) or 0)
+        qty = _resolve_position_quantity(trade)
         if qty == 0:
             continue
         direction = str(getattr(trade, "direction", "") or "").upper()
@@ -209,14 +212,23 @@ def reconcile_position_truth(
     live_broker_mode: bool,
 ) -> tuple[PositionTruthSnapshot, PositionTruthVerdict]:
     print("[POSITION][RECONCILE][START]")
+    completed_at = getattr(broker_positions, "completed_at", None)
+    age = (datetime.now(timezone.utc) - completed_at).total_seconds() if completed_at else float("inf")
+    if live_broker_mode and (getattr(broker_positions, "status", None) != "COMPLETE"
+                            or not 0 <= age <= get_ibkr_snapshot_max_age_seconds()):
+        snapshot = PositionTruthSnapshot(broker_positions, system_positions, [], [],
+            sorted(set(broker_positions) | set(system_positions)), "UNKNOWN", as_of)
+        return snapshot, PositionTruthVerdict(False, True, False, True, 1, 0,
+                                             "position_truth_unavailable")
+
     all_symbols = sorted(set(broker_positions.keys()) | set(system_positions.keys()))
     mismatches: list[PositionMismatch] = []
     matched_symbols: list[str] = []
     unknown_symbols: list[str] = []
 
     for symbol in all_symbols:
-        broker_qty = int(broker_positions.get(symbol).quantity) if symbol in broker_positions else 0
-        system_qty = int(system_positions.get(symbol).quantity) if symbol in system_positions else 0
+        broker_qty = broker_positions.get(symbol).quantity if symbol in broker_positions else 0
+        system_qty = system_positions.get(symbol).quantity if symbol in system_positions else 0
 
         mismatch: PositionMismatch | None = None
         if symbol in broker_positions and symbol not in system_positions:

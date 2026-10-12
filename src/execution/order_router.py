@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from src.ibkr.position_snapshot import PositionRows
+
 import os
 import math
 import time
@@ -322,7 +324,7 @@ class TrackedPosition:
 @dataclass
 class IbkrPositionTruth:
     symbol: str
-    quantity: int = 0
+    quantity: float = 0
     avg_price: float | None = None
     last_update_time: str = field(default_factory=lambda: _now_utc_iso())
 
@@ -432,10 +434,10 @@ def runtime_lifecycle_snapshot() -> dict[str, int | str]:
             filled += 1
         if row.is_entry and row.remaining_qty > 0 and row.canonical_state in {"WORKING", "PARTIALLY_FILLED", "SUBMITTED_PENDING_CONFIRMATION", "SUBMITTED", "ACKNOWLEDGED"}:
             pending_entries += 1
-    open_positions = sum(1 for p in _IBKR_POSITIONS_BY_SYMBOL.values() if int(p.quantity) > 0)
+    open_positions = sum(1 for p in _IBKR_POSITIONS_BY_SYMBOL.values() if p.quantity != 0)
     partial_positions = 0
     reducing_positions = 0
-    closed_positions = sum(1 for p in _IBKR_POSITIONS_BY_SYMBOL.values() if int(p.quantity) == 0)
+    closed_positions = sum(1 for p in _IBKR_POSITIONS_BY_SYMBOL.values() if p.quantity == 0)
     return {
         "working_order_count": working,
         "partially_filled_order_count": partial,
@@ -1166,14 +1168,14 @@ def _extract_position_qty(position_row: Any) -> float:
     return 0.0
 
 
-def _upsert_ibkr_position_truth(*, symbol: str, quantity: int, avg_price: float | None, update_time: str | None = None) -> None:
+def _upsert_ibkr_position_truth(*, symbol: str, quantity: float, avg_price: float | None, update_time: str | None = None) -> None:
     global _IBKR_POSITION_EVENTS_COUNT
     normalized_symbol = str(symbol or "").upper().strip()
     if not normalized_symbol:
         return
     _IBKR_POSITION_EVENTS_COUNT += 1
     row = _IBKR_POSITIONS_BY_SYMBOL.setdefault(normalized_symbol, IbkrPositionTruth(symbol=normalized_symbol))
-    row.quantity = int(quantity)
+    row.quantity = float(quantity)
     row.avg_price = float(avg_price) if avg_price is not None else None
     row.last_update_time = str(update_time or _now_utc_iso())
     print(
@@ -1192,7 +1194,7 @@ def _sync_ibkr_positions_from_snapshot(positions: list[Any]) -> None:
         if not normalized_symbol:
             continue
         seen_symbols.add(normalized_symbol)
-        quantity = int(_extract_position_qty(row) or 0)
+        quantity = _extract_position_qty(row)
         avg_cost = _extract_position_avg_cost(row)
         _upsert_ibkr_position_truth(
             symbol=normalized_symbol,
@@ -1403,7 +1405,7 @@ def _upsert_order_from_submission(*, order_id: int, symbol: str, side: str, tota
     if intent_id:
         row.intent_id = str(intent_id or "")
     normalized_side = str(side or "").upper()
-    ibkr_qty = int(_IBKR_POSITIONS_BY_SYMBOL.get(symbol, IbkrPositionTruth(symbol=symbol)).quantity or 0)
+    ibkr_qty = _IBKR_POSITIONS_BY_SYMBOL.get(symbol, IbkrPositionTruth(symbol=symbol)).quantity
     row.is_exit = normalized_side == "SELL" and ibkr_qty > 0
     row.is_entry = not row.is_exit
     print(f"[LIFECYCLE][ORDER] order_id={order_id} symbol={symbol} state={row.canonical_state} filled={row.filled_qty} remaining={row.remaining_qty}")
@@ -1879,7 +1881,7 @@ def _on_ibkr_callback(callback_payload: Any) -> None:
         qty_raw = _extract_callback_field(callback_payload, "position", "qty", "shares", "quantity")
         avg_raw = _extract_callback_field(callback_payload, "avgCost", "avg_cost", "averageCost", "avg_price")
         try:
-            qty = int(float(qty_raw or 0))
+            qty = float(qty_raw or 0)
         except (TypeError, ValueError):
             qty = 0
         try:
@@ -2364,7 +2366,10 @@ def _fetch_ibkr_truth(mode: RunMode, include_executions: bool = False) -> tuple[
     client = manager.get_client()
     open_orders = _safe_list_call(client, "openOrders")
     executions = _safe_list_call(client, "executions") if include_executions else []
-    positions = _safe_list_call(client, "positions")
+    try:
+        positions = PositionRows(client.positions(), available=True)
+    except Exception:
+        positions = PositionRows(available=False)
     print(f"[POSITION][SYNC] source=IBKR positions={len(positions)}")
     return open_orders, executions, positions
 
@@ -2372,7 +2377,7 @@ def _fetch_ibkr_truth(mode: RunMode, include_executions: bool = False) -> tuple[
 def _normalize_ibkr_truth(raw: Any) -> tuple[list[Any], list[Any], list[Any]]:
     if isinstance(raw, tuple):
         if len(raw) == 3:
-            return list(raw[0] or []), list(raw[1] or []), list(raw[2] or [])
+            return list(raw[0] or []), list(raw[1] or []), raw[2] if isinstance(raw[2], PositionRows) else list(raw[2] or [])
         if len(raw) == 2:
             return list(raw[0] or []), [], list(raw[1] or [])
     return [], [], []
@@ -2420,9 +2425,13 @@ def _run_watchdog_checks(*, now: datetime | None = None) -> None:
 
 def _run_passive_position_reconciliation(*, positions: list[Any]) -> None:
     global _RECON_RESYNC_NEEDED, _RECONCILED_POSITIONS_OK, _RECONCILED_POSITIONS_MISMATCH, _BROKER_POSITION_WITHOUT_FILL_COUNT, _LOCAL_FILL_WITHOUT_POSITION_COUNT, _OPEN_POSITIONS_CONFIRMED, _REDUCED_POSITIONS_CONFIRMED, _CLOSED_POSITIONS_CONFIRMED
+    if not getattr(positions, "available", True):
+        _RECON_RESYNC_NEEDED = True
+        print("[POSITION][RECONCILE][UNKNOWN] reason=positions_unavailable")
+        return
     _sync_ibkr_positions_from_snapshot(positions)
-    broker_position_by_symbol: dict[str, int] = {
-        symbol: int(row.quantity) for symbol, row in _IBKR_POSITIONS_BY_SYMBOL.items()
+    broker_position_by_symbol: dict[str, float] = {
+        symbol: row.quantity for symbol, row in _IBKR_POSITIONS_BY_SYMBOL.items()
     }
     broker_avg_cost_by_symbol: dict[str, float | None] = {
         symbol: row.avg_price for symbol, row in _IBKR_POSITIONS_BY_SYMBOL.items()
@@ -2444,23 +2453,23 @@ def _run_passive_position_reconciliation(*, positions: list[Any]) -> None:
     mismatch_count = 0
     for symbol in sorted(symbols):
         local_qty = int(local_fill_qty_by_symbol.get(symbol, 0) or 0)
-        ibkr_qty = int(broker_position_by_symbol.get(symbol, 0))
+        ibkr_qty = broker_position_by_symbol.get(symbol, 0)
         expected_position = int(local_fill_qty_by_symbol.get(symbol, 0))
         print(f"[POSITION][DERIVED] symbol={symbol} derived_qty={expected_position}")
         broker_avg_cost = broker_avg_cost_by_symbol.get(symbol)
         local_avg_cost = local_fill_avg_by_symbol.get(symbol)
         verdict = "ALIGNED"
         reason = ""
-        prev_broker_qty = int(_BROKER_POSITION_LAST_QTY_BY_SYMBOL.get(symbol, 0))
+        prev_broker_qty = _BROKER_POSITION_LAST_QTY_BY_SYMBOL.get(symbol, 0)
         if (
             expected_position == 0
             and local_qty == 0
-            and (ibkr_qty == 0 or prev_broker_qty > 0)
+            and ibkr_qty == 0
         ):
             verdict = "POSITION_CLOSED_ALIGNED"
         elif ibkr_qty == 0 and expected_position == 0:
             verdict = "ALIGNED"
-        elif ibkr_qty > 0 and expected_position == 0:
+        elif ibkr_qty != 0 and expected_position == 0:
             verdict = "BROKER_POSITION_WITHOUT_FILL"
             reason = "broker_has_open_position_without_execdetails_fill_trail"
         elif ibkr_qty == 0 and expected_position > 0:
@@ -2528,14 +2537,14 @@ def _run_passive_position_reconciliation(*, positions: list[Any]) -> None:
             "[EXECUTION][POSITION_RECONCILE] "
             f"symbol={symbol} local_qty={local_qty} expected_position={expected_position} broker_qty={ibkr_qty} verdict={verdict}"
         )
-        if ibkr_qty > 0 and prev_broker_qty <= 0:
+        if ibkr_qty != 0 and prev_broker_qty == 0:
             print(f"[EXECUTION][POSITION_OPEN_CONFIRMED] symbol={symbol} broker_qty={ibkr_qty} avg_cost={broker_avg_cost}")
             _OPEN_POSITIONS_CONFIRMED += 1
-        elif ibkr_qty > 0 and prev_broker_qty > ibkr_qty:
+        elif ibkr_qty != 0 and abs(prev_broker_qty) > abs(ibkr_qty):
             print(f"[EXECUTION][POSITION_REDUCED_CONFIRMED] symbol={symbol} broker_qty={ibkr_qty}")
             print(f"[EXECUTION][LIFECYCLE] symbol={symbol} marker=POSITION_REDUCED_CONFIRMED")
             _REDUCED_POSITIONS_CONFIRMED += 1
-        elif ibkr_qty == 0 and prev_broker_qty > 0:
+        elif ibkr_qty == 0 and prev_broker_qty != 0:
             print(f"[EXECUTION][POSITION_CLOSED_CONFIRMED] symbol={symbol}")
             print(f"[EXECUTION][LIFECYCLE] symbol={symbol} marker=POSITION_CLOSED_CONFIRMED")
             _CLOSED_POSITIONS_CONFIRMED += 1
@@ -2578,7 +2587,7 @@ def _check_position_consistency() -> None:
         for row in _RUNTIME_ORDERS.values()
         if row.filled_qty > 0 or row.canonical_state in {"PARTIALLY_FILLED", "FILLED"}
     }
-    position_symbols = {symbol for symbol, row in _IBKR_POSITIONS_BY_SYMBOL.items() if int(row.quantity) > 0}
+    position_symbols = {symbol for symbol, row in _IBKR_POSITIONS_BY_SYMBOL.items() if row.quantity != 0}
     for symbol in sorted(filled_symbols - position_symbols):
         print(f"[POSITION][INCONSISTENT_STATE] symbol={symbol} reason=PENDING_POSITION_CONFIRMATION")
     for symbol in sorted(position_symbols - filled_symbols):
@@ -2673,7 +2682,7 @@ def _post_submission_ibkr_diagnostics(
                 visibility["executions_snapshot_seen"] = True
             tracked = _RUNTIME_ORDERS.get(int(order_id))
             if tracked is not None and tracked.filled_qty > 0:
-                visibility["position_seen"] = bool(_IBKR_POSITIONS_BY_SYMBOL.get(tracked.symbol) and int(_IBKR_POSITIONS_BY_SYMBOL[tracked.symbol].quantity) > 0)
+                visibility["position_seen"] = bool(_IBKR_POSITIONS_BY_SYMBOL.get(tracked.symbol) and _IBKR_POSITIONS_BY_SYMBOL[tracked.symbol].quantity != 0)
         broker_truth_confirmed = any(_visibility_confirmed(order_id) for order_id in submitted_lookup)
         return current_open_orders, current_executions, broker_truth_confirmed
 
@@ -3791,6 +3800,14 @@ def execute_intents(
             _EXECUTION_TRACE_BY_INTENT[trace.intent_id] = trace
         order_side = "BUY" if str(getattr(decision, "side", "LONG") or "LONG").upper() == "LONG" else "SELL"
         is_exit_order = str(getattr(decision, "action", "") or "").upper() == "EXIT" or order_side == "SELL"
+        if (not getattr(positions, "available", True)
+                and str(getattr(decision, "action", "") or "").upper() != "EXIT"):
+            blocked_pre_submit += 1
+            events.append(ExecutionEvent(symbol=decision.symbol, intent_id=decision.intent_id,
+                action="BLOCKED", detail="reason=POSITION_TRUTH_UNAVAILABLE",
+                event_type="POSITION_TRUTH_UNAVAILABLE", broker_status="REJECTED",
+                last_update_time=_now_utc_iso()))
+            continue
         truth = _create_execution_truth(
             order_ref=_build_order_ref(str(decision.intent_id or "")),
             broker_order_id=None,
@@ -4303,7 +4320,7 @@ def execute_intents(
         if trace.cycle_id != cycle_id:
             continue
         ibkr_pos = _IBKR_POSITIONS_BY_SYMBOL.get(trace.symbol)
-        if ibkr_pos is not None and int(ibkr_pos.quantity) > 0:
+        if ibkr_pos is not None and ibkr_pos.quantity != 0:
             trace.position_opened = True
             trace.lifecycle_state = "POSITION_CONFIRMED"
             positions_opened += 1
@@ -4447,7 +4464,7 @@ def execute_intents(
         f"submission_attempted={submission_attempted_total} "
         f"orders_submitted={orders_submitted} acks_received={acks_received} fills_received={fills_received} "
         f"filled_orders={sum(1 for row in _RUNTIME_ORDERS.values() if int(row.filled_qty) > 0)} "
-        f"open_positions={sum(1 for row in _IBKR_POSITIONS_BY_SYMBOL.values() if int(row.quantity) > 0)} "
+        f"open_positions={sum(1 for row in _IBKR_POSITIONS_BY_SYMBOL.values() if row.quantity != 0)} "
         f"positions_opened={_IBKR_POSITION_EVENTS_COUNT} failures_by_type={dict(sorted(_EXECUTION_FAILURES_BY_TYPE.items()))}"
     )
     working_count = sum(1 for row in _RUNTIME_ORDERS.values() if row.canonical_state == "WORKING")
