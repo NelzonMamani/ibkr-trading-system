@@ -276,11 +276,12 @@ def assess_issuer_event(symbol, item, candidates=()):
             # ownership. Keep this grammar bounded and anchored; unknown names,
             # possessive rivals and appended owners still fail closed.
             connector = complement.group(0).strip().lower()
-            ordinary = connector in {"for", "at", "from"} and re.fullmatch(
+            ordinary_pattern = (
                 r"(?:(?:its\s+)?(?:lead\s+|new\s+)?(?:drug|therapy|treatment|candidate)(?:\s+[A-Z]{1,8}-\d{1,6})?"
                 r"|(?:cloud|software|manufacturing|supply|healthcare)\s+services"
                 r"|hospitals|clinics|patients|(?:its\s+)?(?:US|U\.S\.|European)\s+(?:plant|facility)"
-                r"|\$\d+(?:\.\d+)?\s+(?:million|billion))[.!]?", owner, re.I)
+                r"|\$\d+(?:\.\d+)?\s+(?:million|billion))[.!]?")
+            ordinary = connector in {"for", "at", "from"} and re.fullmatch(ordinary_pattern, owner, re.I)
 
             if end is not None:
                 consumed_owner_end = complement.end() + end
@@ -290,7 +291,9 @@ def assess_issuer_event(symbol, item, candidates=()):
                 same_owner_tail = re.fullmatch(r"[\s,.!]*", suffix)
                 same_owner_period = clause_kind == "EARNINGS" and re.fullmatch(
                     r"[\s,]*(?:for|in)\s+" + period_text + r"[\s.!]*", suffix, re.I)
-                if not same_owner_tail and not same_owner_period:
+                same_owner_ordinary = re.fullmatch(
+                    r"\s+(?:for|at|from)\s+" + ordinary_pattern, suffix, re.I)
+                if not same_owner_tail and not same_owner_period and not same_owner_ordinary:
                     owner_uncertain = True
                     break
             elif period or ordinary:

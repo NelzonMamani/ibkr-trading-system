@@ -120,7 +120,7 @@ source failures without a deadline remain unavailable without being falsely
 labelled budget exhaustion. Transport reachability/failure diagnostics are kept
 separate from this required-coverage decision.
 
-The `ross_issuer_event_v7` qualification fingerprint also rejects unverified
+The `ross_issuer_event_v8` qualification fingerprint also rejects unverified
 post-event ownership (for example, JPM reporting earnings of another company).
 Verified same-issuer ownership and ordinary earnings-period complements remain
 supported. This fingerprint invalidates older compressed witness-selection
@@ -155,3 +155,8 @@ Passive `granted/awarded/issued/assigned/licensed/given to` event recipients
 require the same verified issuer ownership as other owner complements. Ordinary
 purpose infinitives (`to improve hospitals`) are not recipients. Unknown or
 foreign recipients fail closed; v7 invalidates prior compressed witness proof.
+
+A verified same-issuer recipient can be followed by the same fully anchored
+ordinary product/purpose grammar. This reuses the original complement rule;
+trailing foreign ownership and unknown beneficiaries remain rejected. The v8
+fingerprint invalidates previously compressed witness-selection coverage.
