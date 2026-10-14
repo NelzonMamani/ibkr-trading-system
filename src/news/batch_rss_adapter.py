@@ -142,6 +142,8 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
                 tier_started_at_s=stage_started_at_s,
                 tier_deadline_s=fast_deadline_s,
                 **({"source_tier": "research"} if research else {}),
+                **({"source_groups_by_url": {row["source_id"]: row["source_group"] for row in plan}}
+                   if query_research else {}),
                 **({"raw_feed_directory": self._raw_feed_directory} if research and self._raw_feed_directory is not None else {}),
                 **lifecycle_kwargs,
             )
@@ -712,7 +714,9 @@ def _evidence_from_headline(
         observed_source=headline.source,
         source_domain=_source_domain(headline.url),
         provider="rss_batch",
-        source_group=((QUERY_GROUP if request.strategy_id == QUERY_PROFILE else "BROAD_RSS_RESEARCH") if headline.source_tier == "research" else "PREP_EXTENDED" if headline.source_tier == "extended" else "FAST_TRADING"),
+        source_group=((headline.source_provenance.get("source_group") or
+                       (QUERY_GROUP if request.strategy_id == QUERY_PROFILE else "BROAD_RSS_RESEARCH"))
+                      if headline.source_tier == "research" else "PREP_EXTENDED" if headline.source_tier == "extended" else "FAST_TRADING"),
         source_tier=headline.source_tier,
         verified_source=None if headline.source_tier == "research" else True,
         cache_state="not_checked",

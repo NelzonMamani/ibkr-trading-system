@@ -223,3 +223,60 @@ def test_non_feed_http_success_is_not_available(monkeypatch,tmp_path):
     assert result['symbols']['JPM']['query_coverage']['available']==0
     assert result['symbols']['JPM']['coverage_status']=='unavailable'
     assert all(r['http_status']==200 and r['body_complete'] for r in result['raw_feed_evidence']['records'])
+
+
+@pytest.mark.parametrize('change', ['replace_peer', 'change_peer_alias'])
+def test_batch_query_plan_changes_refresh_other_issuer(monkeypatch,tmp_path,change):
+    calls=[]
+    peer = ISSUERS[2] if change=='replace_peer' else replace(ISSUERS[1], aliases=('Disc Medicine Research',))
+    target=query_sources((peer,))[0]['source_id']
+    def fetch(url,timeout):
+        calls.append(url)
+        return feed([entry()] if url==target else [])
+    monkeypatch.setattr(news_fetcher,'_fetch_feed',fetch)
+    cold=lookup_news(ISSUERS[:2],settings(tmp_path,cache_mode='refresh'))
+    assert not cold['symbols']['JPM']['articles']
+    calls.clear()
+    warm=lookup_news((ISSUERS[0],peer),settings(tmp_path,cache_mode='use'))
+    assert len(warm['symbols']['JPM']['articles'])==1
+    assert warm['symbols']['JPM']['acquisition_profile']['fingerprint'] != cold['symbols']['JPM']['acquisition_profile']['fingerprint']
+    assert len(calls)==len(set(calls))==25
+    assert warm['symbols']['JPM']['provenance']=='provider_refresh'
+
+
+def test_fixed_feed_article_group_survives_store_and_replay(monkeypatch,tmp_path):
+    fast=get_source_group_urls('FAST_TRADING')[0]
+    prep=get_source_group_urls('PREP_EXTENDED')[0]
+    def fetch(url,timeout):
+        if url in (fast,prep):
+            return feed([SimpleNamespace(
+                title='JPMorgan Chase announces results', summary='', link='https://publisher.test/'+('fast' if url==fast else 'prep'),
+                published_parsed=time.gmtime(time.time()-60))])
+        return feed()
+    monkeypatch.setattr(news_fetcher,'_fetch_feed',fetch)
+    cold=lookup_news(ISSUERS[:1],settings(tmp_path,cache_mode='refresh'))
+    assert {a['source_group'] for a in cold['symbols']['JPM']['articles']}=={'FAST_TRADING','PREP_EXTENDED'}
+    cached=lookup_news(ISSUERS[:1],settings(tmp_path,cache_mode='only'))
+    assert {a['source_group'] for a in cached['symbols']['JPM']['articles']}=={'FAST_TRADING','PREP_EXTENDED'}
+
+
+def test_explicit_partial_refresh_keeps_full_query_acquisition(monkeypatch,tmp_path):
+    peer_url=query_sources(ISSUERS[1:2])[0]['source_id']
+    warmed=False
+    calls=[]
+    def fetch(url,timeout):
+        calls.append(url)
+        return feed([entry()] if warmed and url==peer_url else [])
+    monkeypatch.setattr(news_fetcher,'_fetch_feed',fetch)
+    service=CanonicalNewsIntelligenceService(
+        evidence_store=CanonicalNewsEvidenceStore(tmp_path/'canonical.json',prep_artifact_loader=lambda:{}),
+        retrieval_provider=BatchRssNewsIntelligenceProvider())
+    request,policy=research_contracts(settings(tmp_path,cache_mode='refresh'))
+    service.get_news(ISSUERS[:2],request,policy)
+    warmed=True
+    calls.clear()
+    result=service.get_news(ISSUERS[:2],request,replace(policy,refresh_mode='incremental',
+        metadata={**policy.metadata,'refresh_symbols':('JPM',)}))
+    assert len(result.evidence_for_symbol('JPM'))==1
+    assert len(calls)==len(set(calls))==25
+    assert set(result.diagnostics.diagnostics['refresh_symbols'])=={'JPM','IRON'}

@@ -38,6 +38,15 @@ lookup selects 27 distinct URLs; 50 issuers select at most 121. Query scheduling
 precedes fixed feeds, but deadlines can still leave sources unattempted; this is
 explicitly reported, never inferred as a negative search result.
 
+Acquisition compatibility fingerprints every query URL in the complete candidate
+batch, because another issuer's search response can contain this issuer's news.
+Changing a peer identity/query invalidates that shared acquisition. When any
+issuer needs a query-profile refresh, the research batch refreshes together,
+including explicit partial-refresh requests; unchanged compatible batches can
+still replay their cached acquisition. Ordinary Ross cadence/refresh scope is
+unchanged. Fixed-feed articles retain FAST_TRADING/PREP_EXTENDED provenance;
+query articles retain ISSUER_QUERY_RSS, independently of their research tier.
+
 Per-issuer `query_coverage` gives selected, attempted and available query URLs.
 `rss_request_counts` measures logical current-acquisition URL fetches, not HTTP
 redirects. Per-source outcomes retain failures, unattempted/unfinished work,

@@ -552,6 +552,7 @@ def _fetch_headlines_from_sources(
     tier_deadline_s: float | None = None,
     lifecycle: RssFetchLifecycle | None = None,
     raw_feed_directory=None,
+    source_groups_by_url: Mapping[str, str] | None = None,
 ) -> tuple[Dict[str, List[Headline]], RssFailureSummary]:
     budget_seconds = _normalize_budget_seconds(total_news_budget_seconds)
     started_at_s = time.monotonic() if stage_started_at_s is None else float(stage_started_at_s)
@@ -870,6 +871,8 @@ def _fetch_headlines_from_sources(
                 source_facts = {"feed_label": source_name or None,
                                 "publisher_label_basis": "entry_source" if label else "feed_label_or_url",
                                 "publisher_url": entry_source.get("href") if isinstance(entry_source, Mapping) else None}
+                if source_groups_by_url is not None:
+                    source_facts["source_group"] = source_groups_by_url[url]
                 if label:
                     publisher = label
                     # Google appends the supplied publisher label to item titles.
@@ -1215,6 +1218,7 @@ def fetch_headlines_for_symbols(
     tier_deadline_s: float | None = None,
     lifecycle: RssFetchLifecycle | None = None,
     raw_feed_directory=None,
+    source_groups_by_url: Mapping[str, str] | None = None,
 ) -> tuple[Dict[str, List[Headline]], RssFailureSummary]:
     return _fetch_headlines_from_sources(
         symbols,
@@ -1231,6 +1235,7 @@ def fetch_headlines_for_symbols(
         tier_started_at_s=tier_started_at_s,
         tier_deadline_s=tier_deadline_s,
         lifecycle=lifecycle, raw_feed_directory=raw_feed_directory,
+        source_groups_by_url=source_groups_by_url,
     )
 
 

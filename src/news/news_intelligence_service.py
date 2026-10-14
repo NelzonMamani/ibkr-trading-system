@@ -24,7 +24,7 @@ from src.news.evidence_store import (
     summarize_news_evidence,
 )
 from src.news.source_groups import get_source_group_urls
-from src.news.issuer_rss_queries import query_sources
+from src.news.issuer_rss_queries import QUERY_GROUP, query_sources
 from src.news.news_intelligence_contract import (
     CacheState,
     NewsBatchResult,
@@ -64,13 +64,13 @@ def _json_value(value: Any) -> Any:
 
 
 def _acquisition_profile(candidate: NewsCandidate, request: NewsRequest, policy: RetrievalPolicy,
-                         *, provider_id: str = "rss_batch") -> dict[str, Any]:
+                         *, provider_id: str = "rss_batch", batch_candidates=None) -> dict[str, Any]:
     groups = _source_groups_for_policy(policy) if provider_id == "rss_batch" else policy.source_groups
     source_urls = {}
     if provider_id == "rss_batch":
         source_urls = {
-            group: (tuple(row["source_id"] for row in query_sources((candidate,)))
-                    if group == "ISSUER_QUERY_RSS" else get_source_group_urls(group))
+            group: (tuple(row["source_id"] for row in query_sources(batch_candidates or (candidate,)))
+                    if group == QUERY_GROUP else get_source_group_urls(group))
             for group in groups
         }
     profile = _json_value({
@@ -179,7 +179,8 @@ class CanonicalNewsIntelligenceService(NewsIntelligenceProvider):
         acquisition_provider_id = (getattr(self.retrieval_provider, "provider_id", None)
                                    or next(iter(retrieval_policy.provider_groups), "rss_batch"))
         profiles = ({candidate.normalized_symbol: _acquisition_profile(
-                         candidate, request, retrieval_policy, provider_id=acquisition_provider_id)
+                         candidate, request, retrieval_policy, provider_id=acquisition_provider_id,
+                         batch_candidates=ordered_candidates)
                      for candidate in ordered_candidates} if require_compatible else {})
         previous_retrievals = cache_diagnostics.get("last_retrieval_by_symbol", {})
         compatible = {symbol: previous_retrievals.get(symbol, {}).get("acquisition_profile") == profile
@@ -208,6 +209,12 @@ class CanonicalNewsIntelligenceService(NewsIntelligenceProvider):
             cache_diagnostics["cadence_cache_hit_symbols"] = [
                 symbol for symbol in cache_diagnostics.get("cadence_cache_hit_symbols", []) if symbol not in mismatches
             ]
+        if acquisition_provider_id == "rss_batch" and QUERY_GROUP in retrieval_policy.source_groups and refresh_symbols:
+            # Every issuer is matched against the full batch URL plan. Refresh
+            # that research acquisition together so its saved fingerprint and
+            # actual selected URLs cannot diverge on a partial refresh.
+            refresh_symbols = list(symbols)
+            cache_diagnostics["cadence_cache_hit_symbols"] = []
         refresh_allowed = (
             retrieval_policy.network_allowed
             and retrieval_policy.refresh_mode not in {"cache_only", "disabled"}
