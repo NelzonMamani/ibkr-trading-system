@@ -203,7 +203,7 @@ The explicit operational acquisition contract is now:
 | Selected-source coverage | Complete only when every URL in the planned source scope, including deferred/capped work, was attempted, available and fully processed. Otherwise partial; individual failures, unattempted rows, processing cuts and deadlines remain visible. |
 | Search completeness | Always unestablished. Even complete selected-source coverage is not an exhaustive company-news search. `issuer_query_requests_completed` names query-request completion, not general coverage. |
 | Qualification | Existing Ross publication freshness, issuer-to-event attribution, uncertainty rejection and dilution veto decide every retained article. Valid acquired evidence can qualify under partial source coverage. Neither acquisition success nor HTTP200 manufactures a catalyst. |
-| Partial negative | Without a qualifying witness, partial coverage cannot prove catalyst absence. Keep mandatory DATA_UNAVAILABLE; preserve explicit observed dilution vetoes and their rejection reasons. |
+| Partial negative | Without a qualifying witness, partial coverage cannot prove catalyst absence. Keep mandatory DATA_UNAVAILABLE, including when a dilution veto is observed; retain the veto flag and explicit `partial_coverage_dilution_veto` rejection reason. |
 | Deadline | Late worker results never enter canonical evidence. A coverage deadline is retained separately from a completed issuer acquisition; no budget increase or new fallback work. |
 | Cache | Persist the same acquisition/coverage facts in the canonical store. Scheduling fingerprint `ross_issuer_acquisition_v4` rejects earlier universal-dependency outcomes. No second authority. |
 

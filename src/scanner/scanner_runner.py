@@ -3364,11 +3364,13 @@ def _ross_news_contexts_from_news_intelligence_result(
             context["search_completeness_established"] = False
             context["coverage_deadline_exhausted"] = bool(scope.get("coverage_deadline_exhausted"))
             # Partial acquisition can supply a validated positive witness, but
-            # cannot prove catalyst absence. Preserve explicit dilution vetoes.
-            if scope and not scope.get("source_coverage_complete") and not context.get("ross_catalyst_valid") and not context.get("dilution_flag"):
+            # cannot prove catalyst absence. Keep observed dilution vetoes and
+            # their explicit reasons even when mandatory status is unavailable.
+            if scope and not scope.get("source_coverage_complete") and not context.get("ross_catalyst_valid"):
                 context["news_available"] = False
-                context["ross_catalyst_notes"] = "partial_coverage_no_qualifying_catalyst"
-                context["news_diagnostic_status"] = "partial_coverage_no_qualifying_catalyst"
+                partial_reason = "partial_coverage_dilution_veto" if context.get("dilution_flag") else "partial_coverage_no_qualifying_catalyst"
+                context["ross_catalyst_notes"] = partial_reason
+                context["news_diagnostic_status"] = partial_reason
             context["issuer_query_outcomes"] = outcomes
             context["issuer_query_requests_completed"] = bool(outcomes) and all(
                 row.get("attempted") and row.get("status") == "available" and not row.get("processing_truncated") for row in outcomes)
@@ -3408,7 +3410,8 @@ def _news_diagnostics_from_news_intelligence_result(
         or failure_reason
         or result.diagnostics.budget_exhausted
         or (result.retrieval_policy is not None and result.retrieval_policy.metadata.get("ross_issuer_query")
-            and result.diagnostics.unavailable)
+            and (result.diagnostics.unavailable or any(
+                context.get("source_coverage_status") == "partial" for context in news_by_symbol.values())))
         or diagnostics.get("cache_read_failed")
         or diagnostics.get("cache_write_failed")
     )

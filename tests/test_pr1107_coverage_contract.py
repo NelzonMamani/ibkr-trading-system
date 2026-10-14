@@ -36,10 +36,12 @@ def test_query_acquisition_partial_coverage_and_qualification_are_separate(monke
     assert result.summary_for_symbol('JPM').provider_available
     assert ctx['acquisition_available'] and not ctx['source_coverage_complete']
     assert ctx['issuer_query_requests_completed']
+    assert ross._news_diagnostics_from_news_intelligence_result(result,{'JPM':ctx}).news_degraded
     assert ctx['ross_catalyst_valid'] is qualified and bool(ctx['dilution_flag']) is veto
     decision=assess_catalyst(mode='READ_ONLY',news_enabled=True,news_available=ctx['news_available'],confirmed=True if ctx['ross_catalyst_valid'] else False if ctx['news_available'] else None)
     assert decision.satisfied is qualified
-    if not qualified and not veto:assert decision.status.value=='DATA_UNAVAILABLE'
+    if not qualified:assert decision.status.value=='DATA_UNAVAILABLE'
+    if veto:assert ctx['ross_catalyst_notes']=='partial_coverage_dilution_veto'
     raw=result.diagnostics.diagnostics['refresh_diagnostics']
     assert not raw['extended_fallback_requested'] and raw['issuer_query']['search_completeness_established'] is False
     assert len(calls)==len(set(calls))
@@ -49,6 +51,7 @@ def test_query_acquisition_partial_coverage_and_qualification_are_separate(monke
     cached=context(again)
     assert len(calls)==before and cached['ross_catalyst_valid'] is qualified
     assert cached['acquisition_available'] and not cached['source_coverage_complete']
+    assert ross._news_diagnostics_from_news_intelligence_result(again,{'JPM':cached}).news_degraded
     assert svc.retrieval_provider._lifecycle.wait_for_cleanup(1)['cleanup_complete']
 
 
@@ -111,7 +114,9 @@ def test_partial_routes_do_not_require_sample_tickers_or_certify_missing_events(
         assert not ctx['acquisition_available']
         assert not result.summary_for_symbol('ZZZZ').budget_exhausted
         assert result.summary_for_symbol('ZZZZ').retrieval_status=='unavailable'
-    elif scenario=='veto':assert ctx['dilution_flag']
+    elif scenario=='veto':
+        assert ctx['dilution_flag'] and not ctx['news_available']
+        assert ctx['ross_catalyst_notes']=='partial_coverage_dilution_veto'
     else:assert ctx['acquisition_available']
     if scenario in {'update_only','generic_empty'}:
         assert not ctx['news_available']
