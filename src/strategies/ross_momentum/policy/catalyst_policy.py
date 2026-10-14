@@ -345,8 +345,8 @@ def select_qualification_evidence(items, request):
 def unresolved_issuer_news(headlines_by_symbol, request):
     """Fallback only for bounded cohorts not already resolved by Ross policy.
 
-    The adapter calls this only AFTER primary acquisition completion. This never
-    clears incomplete required source coverage or turns generic news positive.
+    The adapter calls this after complete primary exploration. Source coverage
+    stays separate from acquisition and this never turns generic news positive.
     """
     unresolved = []
     for symbol, items in headlines_by_symbol.items():

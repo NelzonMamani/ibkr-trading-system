@@ -206,9 +206,9 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
             for url in fast_sources)
         if operational:
             if not primary_complete:
-                # PREP cannot complete a missing required primary acquisition.
-                # Preserve unavailable outcomes, rather than spending a second pool
-                # and later pretending the primary hole has been repaired.
+                # Preserve the bounded primary-first scheduling contract.
+                # Preserve incomplete coverage rather than spending a second pool
+                # or pretending deferred sources were covered.
                 fallback_skipped_reason = "primary_coverage_incomplete"
                 unresolved_for_extended = list(symbols)
             elif provider_failed:
@@ -334,14 +334,41 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
             summary = replace(summary, source_diagnostics=(*summary.source_diagnostics, *deferred))
         provider_status = news_provider_status(summary)
         retrieval_status = _retrieval_status(summary, provider_status)
-        required_primary_unavailable = operational and not primary_complete
-        if required_primary_unavailable and not budget_exhausted:
-            retrieval_status = "unavailable"
+        # Source-list completeness is a coverage fact, not a Ross publisher quorum.
+        # Only completed issuer-query routes or entries accepted by the bounded
+        # canonical matcher establish acquisition for that issuer.
+        acquisition_by_symbol = {}
+        if operational:
+            rows = {row.get("source_id"): row for row in summary.source_diagnostics}
+            all_planned = {row["source_id"] for row in (*plan, *omitted_queries)}
+            coverage_complete = bool(all_planned) and all(
+                rows.get(url, {}).get("attempted")
+                and rows[url].get("retrieval_status") == "available"
+                and not rows[url].get("processing_truncated") for url in all_planned)
+            for symbol in symbols:
+                completed_queries = [row["source_id"] for row in queries[:limit]
+                    if symbol in row.get("query_issuers", ())
+                    and rows.get(row["source_id"], {}).get("attempted")
+                    and rows[row["source_id"]].get("retrieval_status") == "available"
+                    and not rows[row["source_id"]].get("processing_truncated")]
+                accepted_entries = len(headlines_by_symbol.get(symbol, ()))
+                acquisition_by_symbol[symbol] = {
+                    "acquisition_completed": bool(completed_queries or accepted_entries),
+                    "completed_query_urls": completed_queries,
+                    "retained_matched_entry_count": accepted_entries,
+                    "source_coverage_complete": coverage_complete,
+                    "source_coverage_status": "complete_selected_sources" if coverage_complete else "partial",
+                    "search_completeness_established": False,
+                    "coverage_deadline_exhausted": budget_exhausted,
+                }
+            retrieval_status = ("available" if coverage_complete else "partial") if any(row["acquisition_completed"] for row in acquisition_by_symbol.values()) else retrieval_status
         budget_unresolved_symbols = _budget_unresolved_symbols(
             symbols,
             unresolved_for_extended,
             news_budget_exhausted=bool(getattr(summary, "news_budget_exhausted", False)),
         )
+        if operational:
+            budget_unresolved_symbols = {symbol for symbol, row in acquisition_by_symbol.items() if not row["acquisition_completed"] and budget_exhausted}
         evidence_by_symbol: dict[str, tuple[NewsEvidence, ...]] = {}
         summaries_by_symbol: dict[str, NewsEvidenceSummary] = {}
         status_counts: dict[str, int] = {}
@@ -356,8 +383,15 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
             symbol_retrieval_status = _retrieval_status(
                 summary, provider_status, budget_exhausted=symbol_budget_exhausted,
             )
-            if required_primary_unavailable and not symbol_budget_exhausted:
-                symbol_retrieval_status = "unavailable"
+            if operational:
+                acquired = acquisition_by_symbol[symbol]["acquisition_completed"]
+                if acquired:
+                    symbol_retrieval_status = "available" if acquisition_by_symbol[symbol]["source_coverage_complete"] else "partial"
+                    # An issuer acquisition completed before the coordinator
+                    # deadline; incomplete source exploration stays in coverage.
+                    symbol_budget_exhausted = False
+                else:
+                    symbol_retrieval_status = "budget_exhausted" if symbol_budget_exhausted else "unavailable"
             evidences = enrich_evidence_metrics(
                 tuple(
                     _evidence_from_headline(
@@ -380,6 +414,8 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
                 budget_unresolved_symbols,
                 provider_status,
             )
+            if operational and acquisition_by_symbol[symbol]["acquisition_completed"] and not acquisition_by_symbol[symbol]["source_coverage_complete"]:
+                objective_status = "news_present_partial_coverage" if evidences else "partial_coverage_no_match_observed"
             status_counts[objective_status] = status_counts.get(objective_status, 0) + 1
             symbols_by_status.setdefault(objective_status, []).append(symbol)
             evidence_by_symbol[symbol] = evidences
@@ -388,7 +424,7 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
                 evidence=evidences,
                 retrieval_status=symbol_retrieval_status,
                 provider_status=provider_status,
-                provider_available=False if required_primary_unavailable else _provider_available(provider_status),
+                provider_available=(acquisition_by_symbol[symbol]["acquisition_completed"] if operational else _provider_available(provider_status)),
                 budget_exhausted=symbol_budget_exhausted,
                 objective_status=objective_status,
             )
@@ -474,11 +510,13 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
             ),
         }
         if operational:
-            diagnostics_payload.update(required_primary_coverage_complete=primary_complete,
+            diagnostics_payload.update(acquisition_contract="completed_issuer_route_or_matched_entry_v1",
+                                       primary_source_coverage_complete=primary_complete,
+                                       operational_acquisition_by_symbol=acquisition_by_symbol,
                                        fallback_skipped_reason=fallback_skipped_reason,
                                        fallback_unresolved_symbols=tuple(unresolved_for_extended),
                                        stage_deadline_exhausted=total_budget_exhausted,
-                                       required_coverage_failure_reason=("required_primary_coverage_unavailable" if required_primary_unavailable else None))
+                                       coverage_failure_reason=("primary_source_coverage_incomplete" if not primary_complete else None))
             query_rows = [row for row in source_diag_payload if row.get("source_group") == OPERATIONAL_GROUP]
             diagnostics_payload["issuer_query"] = {
                 "provider": "google_news_search", "request_limit": limit, "search_completeness_established": False,
@@ -495,7 +533,7 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
         diagnostics = RetrievalDiagnostics(
             retrieval_status=retrieval_status,
             provider_status=provider_status,
-            provider_available=False if required_primary_unavailable else _provider_available(provider_status),
+            provider_available=(any(row["acquisition_completed"] for row in acquisition_by_symbol.values()) if operational else _provider_available(provider_status)),
             cache_state="not_checked",
             source_groups_queried=(tuple(group for group in OPERATIONAL_GROUPS if any(
                 row.source_group == group and row.attempted for row in source_diag_objects)) if operational else QUERY_GROUPS if query_research and fast_fetched else ("BROAD_RSS_RESEARCH",) if research and fast_fetched else _queried_source_groups(fast_fetched, extended_fetched)),
@@ -511,7 +549,8 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
             total_budget_seconds=total_news_budget_seconds,
             budget_exhausted=bool(getattr(summary, "news_budget_exhausted", False)),
             timeout_count=_timeout_count(getattr(summary, "failures_by_domain", {}) or {}),
-            unresolved_symbols=tuple(sorted(budget_unresolved_symbols)),
+            unresolved_symbols=(tuple(symbol for symbol, row in acquisition_by_symbol.items() if not row["acquisition_completed"])
+                                if operational else tuple(sorted(budget_unresolved_symbols))),
             diagnostics=diagnostics_payload,
         )
         return NewsBatchResult(

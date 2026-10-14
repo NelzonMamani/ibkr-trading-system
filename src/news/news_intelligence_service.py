@@ -357,7 +357,8 @@ class CanonicalNewsIntelligenceService(NewsIntelligenceProvider):
                     "prep_reused": symbol in set(cache_diagnostics.get("prep_reuse_symbols", [])),
                     "refresh_requested": symbol in set(refresh_symbols),
                     "last_retrieval": dict(cached_retrieval),
-                    "objective_news_status": _objective_status(symbol, merged, refresh_result, budget_exhausted=budget_exhausted),
+                    "objective_news_status": _objective_status(symbol, merged, refresh_result, budget_exhausted=budget_exhausted,
+                        acquisition_scope=cached_retrieval.get("coverage", {}).get("diagnostics", {}).get("operational_acquisition_by_symbol", {}).get(symbol)),
                     "classification_authority": "strategy_adapter_not_common_provider",
                 },
             )
@@ -617,11 +618,14 @@ def _objective_status(
     refresh_result: NewsBatchResult | None,
     *,
     budget_exhausted: bool | None = None,
+    acquisition_scope: Mapping[str, Any] | None = None,
 ) -> str:
     if budget_exhausted is None:
         budget_exhausted = _symbol_budget_exhausted(symbol, refresh_result)
     if budget_exhausted:
         return "budget_exhausted"
+    if acquisition_scope and not acquisition_scope.get("source_coverage_complete"):
+        return "news_present_partial_coverage" if evidence else "partial_coverage_no_match_observed"
     if any(item.stale is False for item in evidence):
         return "news_present_unclassified"
     if evidence:

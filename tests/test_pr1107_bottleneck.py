@@ -11,7 +11,7 @@ from src.news import news_fetcher
 
 
 @pytest.mark.parametrize('title',['JPM generic report','JPM reports earnings beat'])
-def test_incomplete_primary_does_not_spend_fallback_or_clear_unavailability(monkeypatch,tmp_path,title):
+def test_incomplete_primary_defers_fallback_and_keeps_qualification_separate(monkeypatch,tmp_path,title):
     calls=[];gate=threading.Event()
     def feed(url,timeout):
         calls.append(url)
@@ -32,20 +32,23 @@ def test_incomplete_primary_does_not_spend_fallback_or_clear_unavailability(monk
         assert time.monotonic()-started < 0.5
         raw=result.diagnostics.diagnostics['refresh_diagnostics']
         assert raw['fallback_skipped_reason']=='primary_coverage_incomplete'
-        assert not raw['required_primary_coverage_complete']
+        assert not raw['primary_source_coverage_complete']
         assert not raw['extended_fallback_requested']
         assert result.diagnostics.budget_exhausted
         assert not any('forbes' in url or 'fortune' in url for url in calls)
         contexts=ross._ross_news_contexts_from_news_intelligence_result(result)
-        assert contexts['JPM']['issuer_query_coverage_complete']
-        assert not contexts['JPM']['news_available'] and not contexts['JPM']['ross_catalyst_valid']
+        assert contexts['JPM']['issuer_query_requests_completed']
+        assert contexts['JPM']['acquisition_available']
+        assert not contexts['JPM']['source_coverage_complete']
+        assert contexts['JPM']['ross_catalyst_valid'] == ('earnings' in title)
+        assert contexts['JPM']['news_available'] == ('earnings' in title)
         deferred=[r for r in result.diagnostics.source_diagnostics if r.source_group=='PREP_EXTENDED']
         assert deferred and all(not r.attempted and r.failure_reason=='primary_coverage_incomplete' for r in deferred)
         assert not svc.retrieval_provider._lifecycle.snapshot()['cleanup_complete']
     finally:
         gate.set()
         assert svc.retrieval_provider._lifecycle.wait_for_cleanup(2)['cleanup_complete']
-    assert not contexts['JPM']['ross_catalyst_valid']
+    assert contexts['JPM']['ross_catalyst_valid'] == ('earnings' in title)
 
 
 def test_policy_witness_in_completed_primary_avoids_unnecessary_fallback(monkeypatch,tmp_path):
@@ -53,7 +56,7 @@ def test_policy_witness_in_completed_primary_avoids_unnecessary_fallback(monkeyp
     svc=service(tmp_path);request=ross._ross_news_request()
     result=svc.get_news((CANDIDATE,),request,ross._ross_retrieval_policy(refresh_mode='bounded_refresh',network_allowed=True))
     raw=result.diagnostics.diagnostics['refresh_diagnostics']
-    assert raw['required_primary_coverage_complete']
+    assert raw['primary_source_coverage_complete']
     assert raw['fallback_skipped_reason']=='ross_policy_resolved_in_primary'
     assert not raw['extended_fallback_requested'] and len(calls)==9
     assert ross._ross_news_contexts_from_news_intelligence_result(result)['JPM']['ross_catalyst_valid']
@@ -104,7 +107,8 @@ def test_successful_primary_peer_does_not_inherit_unresolved_peer_fallback_deadl
         assert contexts['JPM']['ross_catalyst_valid']
         assert not contexts['IRON']['news_available']
         assert not result.summary_for_symbol('JPM').budget_exhausted
-        assert result.summary_for_symbol('IRON').budget_exhausted
+        assert not result.summary_for_symbol('IRON').budget_exhausted
+        assert contexts['IRON']['coverage_deadline_exhausted']
         timings=result.diagnostics.diagnostics['phase_timings']
         assert timings['service_total_seconds']>=timings['provider_seconds']
     finally:
@@ -112,7 +116,7 @@ def test_successful_primary_peer_does_not_inherit_unresolved_peer_fallback_deadl
 
 
 @pytest.mark.parametrize('positive',[False,True])
-def test_one_required_primary_failure_remains_unavailable_without_false_deadline(monkeypatch,tmp_path,positive):
+def test_primary_failure_is_partial_acquisition_without_false_deadline(monkeypatch,tmp_path,positive):
     calls=[]
     def feed(url,timeout):
         calls.append(url)
@@ -123,16 +127,17 @@ def test_one_required_primary_failure_remains_unavailable_without_false_deadline
     svc=service(tmp_path)
     result=svc.get_news((CANDIDATE,),ross._ross_news_request(),ross._ross_retrieval_policy(refresh_mode='bounded_refresh',network_allowed=True))
     raw=result.diagnostics.diagnostics['refresh_diagnostics']
-    assert not raw['required_primary_coverage_complete']
+    assert not raw['primary_source_coverage_complete']
     assert raw['fallback_skipped_reason']=='primary_coverage_incomplete'
     assert not raw['extended_fallback_requested'] and len(calls)==9
     assert not result.diagnostics.budget_exhausted
-    assert result.summary_for_symbol('JPM').retrieval_status=='unavailable'
-    assert not result.summary_for_symbol('JPM').provider_available
+    assert result.summary_for_symbol('JPM').retrieval_status=='partial'
+    assert result.summary_for_symbol('JPM').provider_available
     contexts=ross._ross_news_contexts_from_news_intelligence_result(result)
     ctx=contexts['JPM']
-    assert not ctx['news_available'] and not ctx['ross_catalyst_valid']
-    assert ross._news_diagnostics_from_news_intelligence_result(result,contexts).news_degraded
+    assert ctx['acquisition_available'] and not ctx['source_coverage_complete']
+    assert ctx['ross_catalyst_valid'] is positive
+    assert ctx['news_available'] is positive
     assert svc.retrieval_provider._lifecycle.wait_for_cleanup(1)['cleanup_complete']
 
 

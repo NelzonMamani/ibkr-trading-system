@@ -88,12 +88,12 @@ cache/profile work, classification, persistence and logging. The old verifier's
 Operational scheduling contract `ross_primary_completion_v3` preserves the
 5.2/2.8 allocations and the eight-second ceiling. Incomplete required primary
 acquisition remains unavailable; PREP cannot repair that missing dependency, so
-it is explicitly deferred instead of launching a second pool for a result that
-cannot qualify. This is an early failed return, not an availability upgrade.
-After a completed primary acquisition, only issuers unresolved by the existing
-Ross policy enter fallback. A fresh policy witness or a safety veto is terminal;
-generic/empty primary results still need their configured unresolved fallback.
-Successful primary peers do not inherit an unresolved peer's fallback deadline.
+it is explicitly deferred instead of launching another pool. This scheduling
+optimization remains, but the universal availability dependency introduced with
+it was an implementation defect; the acquisition/coverage correction below
+supersedes that dependency. Complete primary exploration still sends only
+policy-unresolved issuers to fallback. A fresh policy witness or safety veto
+remains terminal. A completed peer does not inherit another peer's deadline.
 
 Compatible canonical acquisition metadata is reused for positive, negative and
 unavailable outcomes within existing cadence. A current negative cache hit now
@@ -113,12 +113,10 @@ trading readiness. Every dependency-deferred source and incomplete outcome stays
 visible. Live fixed-source latency may still prevent cold acquisition completion;
 no coverage, freshness or catalyst rule is relaxed to hide that limit.
 
-Required primary completion means every selected primary URL has an attempted,
-fully processed `available` outcome. A known HTTP/source error is incomplete
-required coverage too; a positive query or PREP response cannot erase it. Known
-source failures without a deadline remain unavailable without being falsely
-labelled budget exhaustion. Transport reachability/failure diagnostics are kept
-separate from this required-coverage decision.
+The earlier repair at `929084c64c` treated every selected primary URL as a
+required availability dependency. That was adapter logic, not an explicit Ross
+policy requirement. It is superseded by the acquisition/coverage correction below;
+HTTP errors still remain real coverage failures and are never erased.
 
 The `ross_issuer_event_v9` qualification fingerprint also rejects unverified
 post-event ownership (for example, JPM reporting earnings of another company).
@@ -164,3 +162,51 @@ fingerprint invalidates previously compressed witness-selection coverage.
 The same comma/whitespace separators accepted before verified-owner earnings
 periods are accepted before its fully anchored ordinary complement. Unknown or
 foreign suffixes remain rejected; v9 invalidates earlier witness proof.
+
+## Acquisition versus source coverage: authority correction
+
+The universal dependency came from `batch_rss_adapter.py` at reviewed head
+`929084c64ca66ccef58792b6feb3667953873c54`: `primary_complete` requires every
+selected primary URL to be attempted, available and untruncated; the
+`required_primary_unavailable` branch then forces every issuer unavailable.
+The earlier tests and repair notes mirrored that implementation assumption;
+they were not an independent Ross policy requirement.
+
+Actual authority:
+
+- `strategy_policy.py:1022` (`StockSelectionSpec.require_catalyst=True`) and
+  `policy/ross_policy.py:68-70` delegate mandatory catalyst policy.
+- `policy/catalyst_policy.py:42-64` requires a confirmed catalyst, and fails
+  missing/unavailable/unknown evidence closed. It contains no publisher quorum.
+- `docs/architecture/NEWS_INTELLIGENCE_CONTRACT.md`, Ownership Boundary and
+  Separate Dimensions, keep objective retrieval separate from strategy policy.
+  Its Ross Runtime Migration forbids treating unavailability/budget exhaustion
+  as catalyst absence. This correction preserves those negative decisions.
+- `source_groups.py` defines memberships/order/purposes, not an availability AND
+  across publishers. The accepted canonical adapter `_retrieval_status` and
+  `_provider_available` support `partial_request_failure` as partial acquisition;
+  `tests/test_pr1067_batch_rss_adapter.py::test_pr1067_partial_failure_mapping`
+  verifies that established contract.
+- `_news_retrieval_state_for_symbol` already isolates successful per-issuer
+  `available`/`partial` summaries from unrelated batch exhaustion. The existing
+  successful-peer/fallback-deadline regression exercises that distinction.
+
+No Ross thresholds, event vocabulary, attribution grammar, freshness, source
+membership, publisher quorum, dilution veto, budgets or default setting change.
+This corrects an accidental adapter-wide dependency, not an adopted policy.
+
+The explicit operational acquisition contract is now:
+
+| Dimension | Contract |
+| --- | --- |
+| Issuer acquisition | A selected issuer-query response fully processed before the coordinator deadline, or a matched entry already accepted by the canonical bounded fetcher, establishes a bounded acquisition. HTTP success alone or another issuer's empty query does not. |
+| Selected-source coverage | Complete only when every URL in the planned source scope, including deferred/capped work, was attempted, available and fully processed. Otherwise partial; individual failures, unattempted rows, processing cuts and deadlines remain visible. |
+| Search completeness | Always unestablished. Even complete selected-source coverage is not an exhaustive company-news search. `issuer_query_requests_completed` names query-request completion, not general coverage. |
+| Qualification | Existing Ross publication freshness, issuer-to-event attribution, uncertainty rejection and dilution veto decide every retained article. Valid acquired evidence can qualify under partial source coverage. Neither acquisition success nor HTTP200 manufactures a catalyst. |
+| Partial negative | Without a qualifying witness, partial coverage cannot prove catalyst absence. Keep mandatory DATA_UNAVAILABLE; preserve explicit observed dilution vetoes and their rejection reasons. |
+| Deadline | Late worker results never enter canonical evidence. A coverage deadline is retained separately from a completed issuer acquisition; no budget increase or new fallback work. |
+| Cache | Persist the same acquisition/coverage facts in the canonical store. Scheduling fingerprint `ross_issuer_acquisition_v4` rejects earlier universal-dependency outcomes. No second authority. |
+
+Contract-positive cases are labelled fixtures, not natural catalyst evidence.
+The attached Windows timing acceptance is preserved separately; no new Windows
+lookup is requested by this diagnostic correction.

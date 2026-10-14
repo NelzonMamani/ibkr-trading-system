@@ -2812,7 +2812,7 @@ def _ross_retrieval_policy(
         tier_budgets = {"fast": total_budget_seconds * (1-reserve), "extended": total_budget_seconds * reserve}
         metadata.update(ross_issuer_query=True, require_compatible_acquisition=True,
                         query_limit=RossPolicy().issuer_query_limit, qualification_profile="ross_issuer_event_v9",
-                        operational_scheduling_contract="ross_primary_completion_v3")
+                        operational_scheduling_contract="ross_issuer_acquisition_v4")
     if normalized_refresh_symbols:
         metadata["refresh_symbols"] = normalized_refresh_symbols
         metadata["unresolved_symbols"] = normalized_refresh_symbols
@@ -3324,6 +3324,13 @@ def _ross_news_context_from_evidence(
     }
 
 
+def _ross_operational_acquisition_scope(symbol, summary, result):
+    coverage = _refresh_diag_value(_news_intelligence_diag(result), "operational_acquisition_by_symbol", {})
+    if not coverage and summary is not None:
+        coverage = summary.diagnostics.get("last_retrieval", {}).get("coverage", {}).get("diagnostics", {}).get("operational_acquisition_by_symbol", {})
+    return coverage.get(symbol, {})
+
+
 def _ross_news_contexts_from_news_intelligence_result(
     result: NewsBatchResult,
 ) -> Dict[str, Dict[str, Any]]:
@@ -3337,7 +3344,8 @@ def _ross_news_contexts_from_news_intelligence_result(
         candidate = next((row for row in result.candidates if row.normalized_symbol == normalized), None)
         signature = _evidence_signature(evidence, summary, candidate=candidate, diagnostics=result.diagnostics)
         cached = _NEWS_CACHE.get(normalized)
-        signature = (*signature, int(time.time()), result.request.metadata.get("qualification_profile") if result.request else None)
+        signature = (*signature, int(time.time()), result.request.metadata.get("qualification_profile") if result.request else None,
+                     repr(_ross_operational_acquisition_scope(normalized, summary, result)))
         if cached and cached.get("signature") == signature:
             context = cached["context"]
             news_by_symbol[normalized] = context
@@ -3349,8 +3357,20 @@ def _ross_news_contexts_from_news_intelligence_result(
             if not acquisition and summary is not None:
                 acquisition = summary.diagnostics.get("last_retrieval", {}).get("coverage", {}).get("diagnostics", {}).get("issuer_query", {})
             outcomes = acquisition.get("per_issuer", {}).get(normalized, [])
+            scope = _ross_operational_acquisition_scope(normalized, summary, result)
+            context["acquisition_available"] = bool(scope.get("acquisition_completed"))
+            context["source_coverage_complete"] = bool(scope.get("source_coverage_complete"))
+            context["source_coverage_status"] = scope.get("source_coverage_status", "unknown")
+            context["search_completeness_established"] = False
+            context["coverage_deadline_exhausted"] = bool(scope.get("coverage_deadline_exhausted"))
+            # Partial acquisition can supply a validated positive witness, but
+            # cannot prove catalyst absence. Preserve explicit dilution vetoes.
+            if scope and not scope.get("source_coverage_complete") and not context.get("ross_catalyst_valid") and not context.get("dilution_flag"):
+                context["news_available"] = False
+                context["ross_catalyst_notes"] = "partial_coverage_no_qualifying_catalyst"
+                context["news_diagnostic_status"] = "partial_coverage_no_qualifying_catalyst"
             context["issuer_query_outcomes"] = outcomes
-            context["issuer_query_coverage_complete"] = bool(outcomes) and all(
+            context["issuer_query_requests_completed"] = bool(outcomes) and all(
                 row.get("attempted") and row.get("status") == "available" and not row.get("processing_truncated") for row in outcomes)
         news_by_symbol[normalized] = context
         _NEWS_CACHE[normalized] = {"signature": signature, "context": context}
