@@ -24,6 +24,7 @@ from src.news.news_intelligence_contract import (
     NewsRequest,
     RetrievalDiagnostics,
     RetrievalPolicy,
+    ResearchSourceDiagnostic,
     SourceDiagnostic,
 )
 from src.news.rss_batch_runtime import (
@@ -317,10 +318,6 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
         tier_attempt_counts = dict(getattr(summary, "tier_sources_attempted_counts", {}) or {})
         source_diag_objects = _source_diagnostics_from_summary(summary)
         source_diag_payload = [dict(getattr(item, "__dict__", {})) for item in source_diag_objects]
-        if not research:
-            for row in source_diag_payload:
-                row.pop("entries_examined_count", None)
-                row.pop("processing_truncated", None)
         if self._lifecycle is None:
             # Keep existing scanner diagnostic payloads unchanged. Research opts
             # into the extra fields, including explicit unknown measurements.
@@ -501,8 +498,9 @@ def _source_diagnostics_from_summary(summary: RssFailureSummary) -> tuple[Source
         source_id = str(item.get("source_id") or item.get("source_url") or "").strip()
         if not source_id:
             continue
+        diagnostic_type = ResearchSourceDiagnostic if item.get("source_tier") == "research" else SourceDiagnostic
         rows.append(
-            SourceDiagnostic(
+            diagnostic_type(
                 source_id=source_id,
                 provider=str(item.get("provider") or "rss_batch"),
                 source_group=str(item.get("source_group") or ""),
@@ -522,8 +520,9 @@ def _source_diagnostics_from_summary(summary: RssFailureSummary) -> tuple[Source
                 feed_item_count=item.get("feed_item_count"),
                 elapsed_kind=item.get("elapsed_kind"),
                 worker_completed=item.get("worker_completed"),
-                entries_examined_count=item.get("entries_examined_count"),
-                processing_truncated=bool(item.get("processing_truncated", False)),
+                **({"entries_examined_count": item.get("entries_examined_count"),
+                    "processing_truncated": bool(item.get("processing_truncated", False))}
+                   if diagnostic_type is ResearchSourceDiagnostic else {}),
             )
         )
     return tuple(rows)

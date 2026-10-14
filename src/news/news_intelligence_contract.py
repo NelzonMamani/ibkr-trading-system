@@ -154,6 +154,12 @@ class SourceDiagnostic:
     feed_item_count: int | None = None
     elapsed_kind: str | None = None
     worker_completed: bool | None = None
+
+
+@dataclass(frozen=True)
+class ResearchSourceDiagnostic(SourceDiagnostic):
+    """Opt-in measurements; ordinary source serialization stays unchanged."""
+
     entries_examined_count: int | None = None
     processing_truncated: bool = False
 
@@ -342,6 +348,7 @@ __all__ = [
     "RetrievalDiagnostics",
     "RetrievalPolicy",
     "RetrievalStatus",
+    "ResearchSourceDiagnostic",
     "SourceDiagnostic",
     "TimeoutPolicy",
 ]

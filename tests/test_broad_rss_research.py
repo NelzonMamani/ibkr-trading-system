@@ -216,3 +216,24 @@ def test_scoped_persistence_and_changed_identity_coverage_unknown(monkeypatch,tm
     changed=(replace(IDENTITIES[0],company_name='Different Issuer Corp.'),)
     result=lookup_news(changed,settings(tmp_path,cache_mode='only'),service=service)
     assert result['symbols']['IRON']['coverage_status']=='unknown'
+
+
+def test_operational_diagnostics_and_evidence_signature_preserve_old_keys():
+    from dataclasses import asdict
+    from src.news.news_intelligence_contract import SourceDiagnostic
+    original_fields={'source_id','provider','source_group','source_tier','retrieval_status','attempted','matched_count',
+        'failure_reason','elapsed_seconds','timeout_seconds','timed_out','budget_exhausted',
+        'request_elapsed_seconds','parse_elapsed_seconds','http_status','response_closed','feed_item_count','elapsed_kind','worker_completed'}
+    def operational_fetch(symbols,sources,**kwargs):
+        return {symbol:[] for symbol in symbols},news_fetcher.RssFailureSummary(len(sources),0,{},None,
+            source_diagnostics=({'source_id':sources[0],'provider':'rss_batch','source_group':'FAST_TRADING',
+                                 'source_tier':'fast','retrieval_status':'available','attempted':True},))
+    provider=batch_rss_adapter.BatchRssNewsIntelligenceProvider(fast_fetcher=operational_fetch)
+    result=provider.get_news(IDENTITIES[:1],NewsRequest(),RetrievalPolicy(source_groups=('FAST_TRADING',)))
+    # This is the whole dataclass representation used by operational evidence signatures,
+    # not just the nested adapter diagnostics payload.
+    row=asdict(result.diagnostics)['source_diagnostics'][0]
+    assert set(row)==original_fields
+    assert type(result.diagnostics.source_diagnostics[0]) is SourceDiagnostic
+    assert 'entries_examined_count' not in json.dumps(asdict(result.diagnostics))
+    assert 'processing_truncated' not in json.dumps(asdict(result.diagnostics))
