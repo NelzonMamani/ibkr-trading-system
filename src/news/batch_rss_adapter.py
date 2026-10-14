@@ -24,6 +24,7 @@ from src.news.news_intelligence_contract import (
     NewsRequest,
     RetrievalDiagnostics,
     RetrievalPolicy,
+    ResearchSourceDiagnostic,
     SourceDiagnostic,
 )
 from src.news.rss_batch_runtime import (
@@ -87,7 +88,12 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
             )
 
         source_groups = _source_groups_for_policy(retrieval_policy)
+        research = source_groups == ("BROAD_RSS_RESEARCH",)
+        if research and (request.strategy_id != "broad_rss_research_v1" or not request.metadata.get("research_only")):
+            raise ValueError("BROAD_RSS_RESEARCH requires an explicit research-only request")
         fast_sources = _sources_for_group(source_groups, "FAST_TRADING")
+        if research:
+            fast_sources = _sources_for_group(source_groups, "BROAD_RSS_RESEARCH")
         extended_sources = _sources_for_group(source_groups, "PREP_EXTENDED")
         fast_source_set = set(fast_sources)
         cross_tier_duplicate_sources = [url for url in extended_sources if url in fast_source_set]
@@ -113,7 +119,8 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
         fast_fetched = bool(fast_sources)
         extended_fetched = False
         if fast_sources:
-            headlines_by_symbol, fast_summary_raw = self._fast_fetcher(
+            fetcher = self._extended_fetcher if research else self._fast_fetcher
+            headlines_by_symbol, fast_summary_raw = fetcher(
                 symbols,
                 fast_sources,
                 lookback_hours=lookback_hours,
@@ -126,6 +133,7 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
                 tier_budget_seconds=fast_budget_seconds,
                 tier_started_at_s=stage_started_at_s,
                 tier_deadline_s=fast_deadline_s,
+                **({"source_tier": "research"} if research else {}),
                 **lifecycle_kwargs,
             )
         else:
@@ -362,6 +370,7 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
             "duplicate_source_fetches_avoided_count": duplicate_fetches_avoided,
             "cross_tier_duplicate_source_urls_avoided": tuple(cross_tier_duplicate_sources),
             "source_diagnostics": source_diag_payload,
+            **({"research_by_symbol": dict(summary.research_by_symbol)} if research else {}),
             "per_source_elapsed_seconds": {item.source_id: item.elapsed_seconds for item in source_diag_objects},
             "tier_elapsed_seconds_by_tier": tier_elapsed_by_tier,
             "tier_budget_seconds_by_tier": tier_budget_by_tier,
@@ -379,7 +388,7 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
             provider_status=provider_status,
             provider_available=_provider_available(provider_status),
             cache_state="not_checked",
-            source_groups_queried=_queried_source_groups(fast_fetched, extended_fetched),
+            source_groups_queried=(("BROAD_RSS_RESEARCH",) if research and fast_fetched else _queried_source_groups(fast_fetched, extended_fetched)),
             provider_groups_queried=("rss_batch",),
             sources_queried=tuple((fast_sources if fast_fetched else []) + (extended_sources if extended_fetched else [])),
             source_diagnostics=source_diag_objects,
@@ -435,6 +444,10 @@ def _metadata_by_symbol(candidates: Sequence[NewsCandidate]) -> dict[str, dict[s
 def _source_groups_for_policy(retrieval_policy: RetrievalPolicy) -> tuple[str, ...]:
     requested = tuple(str(group or "").strip().upper() for group in retrieval_policy.source_groups)
     groups = requested or DEFAULT_SOURCE_GROUPS
+    if "BROAD_RSS_RESEARCH" in groups:
+        if groups != ("BROAD_RSS_RESEARCH",) or retrieval_policy.metadata.get("research_profile") != "broad_rss_research_v1":
+            raise ValueError("BROAD_RSS_RESEARCH is an exclusive opt-in research profile")
+        return groups
     return tuple(group for group in groups if group in ADAPTED_SOURCE_GROUPS)
 
 
@@ -485,8 +498,9 @@ def _source_diagnostics_from_summary(summary: RssFailureSummary) -> tuple[Source
         source_id = str(item.get("source_id") or item.get("source_url") or "").strip()
         if not source_id:
             continue
+        diagnostic_type = ResearchSourceDiagnostic if item.get("source_tier") == "research" else SourceDiagnostic
         rows.append(
-            SourceDiagnostic(
+            diagnostic_type(
                 source_id=source_id,
                 provider=str(item.get("provider") or "rss_batch"),
                 source_group=str(item.get("source_group") or ""),
@@ -506,6 +520,9 @@ def _source_diagnostics_from_summary(summary: RssFailureSummary) -> tuple[Source
                 feed_item_count=item.get("feed_item_count"),
                 elapsed_kind=item.get("elapsed_kind"),
                 worker_completed=item.get("worker_completed"),
+                **({"entries_examined_count": item.get("entries_examined_count"),
+                    "processing_truncated": bool(item.get("processing_truncated", False))}
+                   if diagnostic_type is ResearchSourceDiagnostic else {}),
             )
         )
     return tuple(rows)
@@ -675,9 +692,9 @@ def _evidence_from_headline(
         observed_source=headline.source,
         source_domain=_source_domain(headline.url),
         provider="rss_batch",
-        source_group=("PREP_EXTENDED" if headline.source_tier == "extended" else "FAST_TRADING"),
+        source_group=("BROAD_RSS_RESEARCH" if headline.source_tier == "research" else "PREP_EXTENDED" if headline.source_tier == "extended" else "FAST_TRADING"),
         source_tier=headline.source_tier,
-        verified_source=True,
+        verified_source=None if headline.source_tier == "research" else True,
         cache_state="not_checked",
         retrieval_status=retrieval_status,
         budget_exhausted=budget_exhausted,
@@ -697,6 +714,10 @@ def _evidence_from_headline(
 
 
 def _evidence_id(symbol: str, headline: Headline) -> str:
+    if headline.source_tier == "research":
+        identity = (symbol, headline.title.casefold(), headline.source.casefold(), headline.url,
+                    str(headline.published_ts) if not headline.url else "")
+        return f"rss-research:{symbol}:" + hashlib.sha256(repr(identity).encode()).hexdigest()[:24]
     digest = hashlib.sha1(
         "|".join(
             (

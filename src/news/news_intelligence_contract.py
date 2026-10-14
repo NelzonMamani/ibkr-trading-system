@@ -157,6 +157,14 @@ class SourceDiagnostic:
 
 
 @dataclass(frozen=True)
+class ResearchSourceDiagnostic(SourceDiagnostic):
+    """Opt-in measurements; ordinary source serialization stays unchanged."""
+
+    entries_examined_count: int | None = None
+    processing_truncated: bool = False
+
+
+@dataclass(frozen=True)
 class RetrievalDiagnostics:
     """Batch-level retrieval, provider, cache, timing, and budget evidence."""
 
@@ -340,6 +348,7 @@ __all__ = [
     "RetrievalDiagnostics",
     "RetrievalPolicy",
     "RetrievalStatus",
+    "ResearchSourceDiagnostic",
     "SourceDiagnostic",
     "TimeoutPolicy",
 ]

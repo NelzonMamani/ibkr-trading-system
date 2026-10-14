@@ -150,3 +150,7 @@ CI at `7d595c343962062b03b6df18903da08034a5cb16` passed **2,189 tests with one s
 `PAPER_READY=NO`
 
 `PAPER_READINESS_GATE=FAIL`
+
+## Explicit broad RSS profile
+
+The default two-group behavior above is unchanged. `--profile broad_rss_research_v1` exclusively selects the historical catalogue as `BROAD_RSS_RESEARCH` through the canonical RSS service. It requires company names for all issuers and adds separate article-observation/headline-grouping reports. See [BROAD_RSS_RESEARCH.md](BROAD_RSS_RESEARCH.md). This opt-in does not alter Ross operational source groups or catalyst qualification.

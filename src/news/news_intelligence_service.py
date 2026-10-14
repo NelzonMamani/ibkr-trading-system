@@ -240,7 +240,14 @@ class CanonicalNewsIntelligenceService(NewsIntelligenceProvider):
                         "budget_exhausted": outcome.budget_exhausted,
                     }
                     if require_compatible:
-                        retrieval_by_symbol[symbol].update(acquisition_profile=profiles[symbol], coverage=coverage)
+                        symbol_coverage = coverage
+                        if research_by_symbol := coverage.get("diagnostics", {}).get("research_by_symbol"):
+                            # Persist only this issuer's observations, not the
+                            # whole batch once for each symbol in the store.
+                            symbol_coverage = {**coverage, "diagnostics": {
+                                **coverage["diagnostics"], "research_by_symbol": {symbol: research_by_symbol.get(symbol, {})},
+                            }}
+                        retrieval_by_symbol[symbol].update(acquisition_profile=profiles[symbol], coverage=symbol_coverage)
                         if acquisition_provider_id == "massive_ticker_news":
                             provider_summary = refresh_result.summary_for_symbol(symbol)
                             retrieval_by_symbol[symbol]["provider_details"] = (
