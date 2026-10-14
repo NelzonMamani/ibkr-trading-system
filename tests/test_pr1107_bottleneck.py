@@ -175,7 +175,7 @@ def test_verified_same_issuer_or_period_complement_keeps_fixture_positive(headli
 def test_changed_owner_qualification_contract_refreshes_old_compressed_coverage(monkeypatch,tmp_path):
     calls=[];fixture_transport(monkeypatch,calls,[])
     svc=service(tmp_path);current=ross._ross_news_request()
-    assert current.metadata['qualification_profile']=='ross_issuer_event_v4'
+    assert current.metadata['qualification_profile']=='ross_issuer_event_v5'
     old=replace(current,metadata={**current.metadata,'qualification_profile':'ross_issuer_event_v1'})
     policy=ross._ross_retrieval_policy(refresh_mode='bounded_refresh',network_allowed=True)
     svc.get_news((CANDIDATE,),old,policy);before=len(calls)
@@ -239,3 +239,30 @@ def test_non_earnings_foreign_ownership_cannot_qualify_actual_consumer(headline)
     assert not context['ross_catalyst_valid']
     assert context['qualification_decisions'][0]['reason']=='event_ownership_uncertain_or_other_issuer'
     assert not assess_catalyst(mode='READ_ONLY',news_enabled=True,news_available=context['news_available'],confirmed=context['ross_catalyst_valid']).satisfied
+
+
+@pytest.mark.parametrize('headline',[
+    'JPM reports earnings for the quarter ended September 30, 2026',
+    'JPM reports earnings for the third quarter ended September 30, 2026',
+    'JPM receives FDA approval for its lead drug AX-101',
+    'JPM receives FDA approval for lead therapy',
+    'JPM wins contract for cloud services',
+    'JPM launches AI platform for hospitals',
+])
+def test_direct_event_ordinary_complements_are_not_issuer_owners(headline):
+    from test_ross_operational_issuer_news import item
+    from src.strategies.ross_momentum.policy.catalyst_policy import assess_issuer_event
+    assert assess_issuer_event('JPM',item(headline))['qualified']
+
+
+@pytest.mark.parametrize('tail',[
+    'the quarter ended September 31, 2026',
+    'the quarter ended September 30, 2026 of Bank of America',
+    'its lead drug AX-101 of Bank of America',
+    'cloud services from Bank of America',
+    'hospitals of Bank of America',
+])
+def test_ordinary_complement_cannot_hide_invalid_date_or_foreign_owner(tail):
+    from test_ross_operational_issuer_news import item
+    from src.strategies.ross_momentum.policy.catalyst_policy import assess_issuer_event
+    assert not assess_issuer_event('JPM',item('JPM reports earnings for '+tail))['qualified']

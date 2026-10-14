@@ -120,7 +120,7 @@ source failures without a deadline remain unavailable without being falsely
 labelled budget exhaustion. Transport reachability/failure diagnostics are kept
 separate from this required-coverage decision.
 
-The `ross_issuer_event_v4` qualification fingerprint also rejects unverified
+The `ross_issuer_event_v5` qualification fingerprint also rejects unverified
 post-event ownership (for example, JPM reporting earnings of another company).
 Verified same-issuer ownership and ordinary earnings-period complements remain
 supported. This fingerprint invalidates older compressed witness-selection
@@ -136,3 +136,11 @@ Ownership/complement checks apply across catalyst classes, not just earnings.
 For example, an issuer announcing FDA approval for an unverified rival cannot
 qualify that rival's event. Unknown product/beneficiary relationships also fail
 closed; this deliberately limits recall rather than guessing event ownership.
+
+The v5 grammar preserves fully dated `quarter ended September 30, 2026`
+reporting periods (validated calendar dates, with no trailing owner). Explicit
+bounded product/purpose complements such as `for its lead drug AX-101`, `for
+lead therapy`, `for cloud services`, and `for hospitals` do not imply another
+issuer owns the event. Arbitrary corporate names, invalid dates and appended
+foreign ownership remain rejected. These are labelled contract fixtures, not
+observed positive trading evidence.

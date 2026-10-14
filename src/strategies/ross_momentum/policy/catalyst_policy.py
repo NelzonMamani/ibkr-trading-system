@@ -252,6 +252,25 @@ def assess_issuer_event(symbol, item, candidates=()):
             end = identity_end(owner)
             period_text = r"(?:the\s+)?(?:fiscal\s+)?(?:Q[1-4]|(?:first|second|third|fourth)\s+quarter)(?:\s+(?:of\s+)?20\d{2})?"
             period = clause_kind == "EARNINGS" and re.fullmatch(period_text + r"[\s.!]*", owner, re.I)
+            # A complete dated reporting period is not an issuer owner. Validate
+            # the entire tail and calendar date; never swallow a trailing rival.
+            ended = re.fullmatch(r"(?:the\s+)?(?:(?:fiscal|first|second|third|fourth)\s+)?quarter\s+ended\s+([A-Za-z]+\s+\d{1,2},\s+20\d{2})[.!]?", owner, re.I)
+            if clause_kind == "EARNINGS" and ended:
+                try:
+                    datetime.strptime(ended.group(1), "%B %d, %Y")
+                    period = True
+                except ValueError:
+                    pass
+            # Explicit product/purpose/value/location syntax is not corporate
+            # ownership. Keep this grammar bounded and anchored; unknown names,
+            # possessive rivals and appended owners still fail closed.
+            connector = complement.group(0).strip().lower()
+            ordinary = connector in {"for", "at", "from"} and re.fullmatch(
+                r"(?:(?:its\s+)?(?:lead\s+|new\s+)?(?:drug|therapy|treatment|candidate)(?:\s+[A-Z]{1,8}-\d{1,6})?"
+                r"|(?:cloud|software|manufacturing|supply|healthcare)\s+services"
+                r"|hospitals|clinics|patients|(?:its\s+)?(?:US|U\.S\.|European)\s+(?:plant|facility)"
+                r"|\$\d+(?:\.\d+)?\s+(?:million|billion))[.!]?", owner)
+
             if end is not None:
                 consumed_owner_end = complement.end() + end
                 # A recognised company followed by 'its rival', a possessive,
@@ -263,7 +282,7 @@ def assess_issuer_event(symbol, item, candidates=()):
                 if not same_owner_tail and not same_owner_period:
                     owner_uncertain = True
                     break
-            elif period:
+            elif period or ordinary:
                 consumed_owner_end = len(tail)
             else:
                 owner_uncertain = True
