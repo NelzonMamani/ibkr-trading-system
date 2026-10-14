@@ -120,8 +120,14 @@ source failures without a deadline remain unavailable without being falsely
 labelled budget exhaustion. Transport reachability/failure diagnostics are kept
 separate from this required-coverage decision.
 
-The `ross_issuer_event_v2` qualification fingerprint also rejects unverified
+The `ross_issuer_event_v3` qualification fingerprint also rejects unverified
 post-event ownership (for example, JPM reporting earnings of another company).
 Verified same-issuer ownership and ordinary earnings-period complements remain
 supported. This fingerprint invalidates older compressed witness-selection
 coverage, rather than treating an old retained cohort as proof of the new rule.
+
+Short dilution abbreviations (ATM, S1, S-1) require token boundaries; ordinary
+words such as treatment cannot occupy the priority veto witness slot. Longer
+existing offering/dilution terms retain their established matching forms.
+Degradation is derived from each result's recorded acquisition policy, so a
+later dynamic setting change cannot relabel an operational failure as healthy.

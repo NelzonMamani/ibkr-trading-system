@@ -144,6 +144,9 @@ def test_one_required_primary_failure_remains_unavailable_without_false_deadline
     'JPM reports earnings of JPMorgan Chase and Bank of America',
     'JPM reports earnings for Q3 of Bank of America',
     'JPM reports earnings for its competitor Bank of America',
+    'JPM reports earnings of its own competitor Bank of America',
+    "JPM reports earnings of JPMorgan Chase's rival Bank of America",
+    'JPM reports earnings for Q3: BAC',
 ])
 def test_other_or_uncertain_event_owner_cannot_satisfy_actual_consumer(headline):
     from test_ross_operational_issuer_news import item
@@ -159,7 +162,9 @@ def test_other_or_uncertain_event_owner_cannot_satisfy_actual_consumer(headline)
 @pytest.mark.parametrize('headline',[
     'JPM reports earnings for Q3',
     'JPM reports earnings for the third quarter',
+    'JPM reports earnings for Q3 of 2026',
     'JPM reports earnings of JPMorgan Chase',
+    'JPM reports earnings of JPMorgan Chase for Q3',
 ])
 def test_verified_same_issuer_or_period_complement_keeps_fixture_positive(headline):
     from test_ross_operational_issuer_news import item
@@ -170,7 +175,7 @@ def test_verified_same_issuer_or_period_complement_keeps_fixture_positive(headli
 def test_changed_owner_qualification_contract_refreshes_old_compressed_coverage(monkeypatch,tmp_path):
     calls=[];fixture_transport(monkeypatch,calls,[])
     svc=service(tmp_path);current=ross._ross_news_request()
-    assert current.metadata['qualification_profile']=='ross_issuer_event_v2'
+    assert current.metadata['qualification_profile']=='ross_issuer_event_v3'
     old=replace(current,metadata={**current.metadata,'qualification_profile':'ross_issuer_event_v1'})
     policy=ross._ross_retrieval_policy(refresh_mode='bounded_refresh',network_allowed=True)
     svc.get_news((CANDIDATE,),old,policy);before=len(calls)
@@ -178,3 +183,39 @@ def test_changed_owner_qualification_contract_refreshes_old_compressed_coverage(
     assert len(calls)>before
     assert current_result.diagnostics.diagnostics['acquisition_profile_mismatch_symbols']==['JPM']
     assert svc.retrieval_provider._lifecycle.wait_for_cleanup(1)['cleanup_complete']
+
+
+@pytest.mark.parametrize('text',['JPM treatment update','JPM aftermath review','JPM XS1 protocol'])
+def test_short_financing_terms_do_not_match_ordinary_words(text):
+    from src.strategies.ross_momentum.policy.catalyst_policy import detect_dilution
+    assert not detect_dilution(text)
+
+
+@pytest.mark.parametrize('text',['JPM announces ATM program','JPM files S-1/A','JPM files S1','JPM announces offerings'])
+def test_actual_short_financing_terms_keep_veto(text):
+    from src.strategies.ross_momentum.policy.catalyst_policy import detect_dilution
+    assert detect_dilution(text)
+
+
+def test_treatment_cannot_displace_valid_policy_witness(monkeypatch,tmp_path):
+    calls=[]
+    entries=[entry('JPM generic report '+str(n),n+1) for n in range(5)]
+    entries.extend([entry('JPM treatment overview',600),entry('JPM reports earnings beat',700)])
+    fixture_transport(monkeypatch,calls,entries)
+    svc=service(tmp_path)
+    result=svc.get_news((CANDIDATE,),ross._ross_news_request(),ross._ross_retrieval_policy(refresh_mode='bounded_refresh',network_allowed=True))
+    context=ross._ross_news_contexts_from_news_intelligence_result(result)['JPM']
+    assert context['ross_catalyst_valid'] and not context['dilution_flag']
+    assert context['news_count']==5 and context['qualification_evidence_count']==6
+    assert not any('treatment' in x.headline for x in result.evidence_for_symbol('JPM'))
+    assert svc.retrieval_provider._lifecycle.wait_for_cleanup(1)['cleanup_complete']
+
+
+def test_degradation_uses_acquisition_policy_even_after_dynamic_flag_changes():
+    from src.config.config_resolver import set_config_overrides
+    from src.news.news_intelligence_contract import NewsBatchResult,RetrievalDiagnostics
+    policy=ross._ross_retrieval_policy(refresh_mode='bounded_refresh',network_allowed=True)
+    result=NewsBatchResult(retrieval_policy=policy,diagnostics=RetrievalDiagnostics(
+        retrieval_status='unavailable',provider_status='partial_request_failure',provider_available=False))
+    set_config_overrides({'ROSS_ISSUER_QUERY_ENABLED':False})
+    assert ross._news_diagnostics_from_news_intelligence_result(result,{}).news_degraded

@@ -144,7 +144,12 @@ def classify_headline(title: str) -> str | None:
 
 
 def detect_dilution(title: str) -> bool:
-    return any(keyword in title.lower() for keyword in DILUTION_KEYWORDS)
+    text = title.lower()
+    # Short financing abbreviations must not match ordinary words (treatment,
+    # aftermath, etc.). Keep established longer offering/dilution forms intact.
+    return any((re.search(r"(?<![a-z0-9])" + re.escape(keyword) + r"(?![a-z0-9])", text)
+                if keyword in {"atm", "s1", "s-1"} else keyword in text)
+               for keyword in DILUTION_KEYWORDS)
 
 
 def assess_issuer_event(symbol, item, candidates=()):
@@ -247,14 +252,22 @@ def assess_issuer_event(symbol, item, candidates=()):
                 continue
             owner = tail[complement.end():].strip()
             end = identity_end(owner)
-            period = clause_kind == "EARNINGS" and re.match(
-                r"^(?:the\s+)?(?:fiscal\s+)?(?:Q[1-4]|(?:first|second|third|fourth)\s+quarter|quarter\s+ended)\b", owner, re.I)
+            period_text = r"(?:the\s+)?(?:fiscal\s+)?(?:Q[1-4]|(?:first|second|third|fourth)\s+quarter)(?:\s+(?:of\s+)?20\d{2})?"
+            period = clause_kind == "EARNINGS" and re.fullmatch(period_text + r"[\s.!]*", owner, re.I)
             if end is not None:
                 consumed_owner_end = complement.end() + end
-                if re.search(r"\b(?:and|with|vs)\b|&", owner[end:], re.I):
+                # A recognised company followed by 'its rival', a possessive,
+                # or another unknown complement is not proof of event ownership.
+                suffix = owner[end:]
+                same_owner_tail = re.fullmatch(r"[\s,.!]*", suffix)
+                same_owner_period = clause_kind == "EARNINGS" and re.fullmatch(
+                    r"[\s,]*(?:for|in)\s+" + period_text + r"[\s.!]*", suffix, re.I)
+                if not same_owner_tail and not same_owner_period:
                     owner_uncertain = True
                     break
-            elif not period and not re.match(r"^its\s+own\b", owner, re.I):
+            elif period:
+                consumed_owner_end = len(tail)
+            else:
                 owner_uncertain = True
                 break
         if owner_uncertain:
