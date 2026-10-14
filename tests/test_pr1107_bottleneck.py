@@ -175,7 +175,7 @@ def test_verified_same_issuer_or_period_complement_keeps_fixture_positive(headli
 def test_changed_owner_qualification_contract_refreshes_old_compressed_coverage(monkeypatch,tmp_path):
     calls=[];fixture_transport(monkeypatch,calls,[])
     svc=service(tmp_path);current=ross._ross_news_request()
-    assert current.metadata['qualification_profile']=='ross_issuer_event_v3'
+    assert current.metadata['qualification_profile']=='ross_issuer_event_v4'
     old=replace(current,metadata={**current.metadata,'qualification_profile':'ross_issuer_event_v1'})
     policy=ross._ross_retrieval_policy(refresh_mode='bounded_refresh',network_allowed=True)
     svc.get_news((CANDIDATE,),old,policy);before=len(calls)
@@ -219,3 +219,23 @@ def test_degradation_uses_acquisition_policy_even_after_dynamic_flag_changes():
         retrieval_status='unavailable',provider_status='partial_request_failure',provider_available=False))
     set_config_overrides({'ROSS_ISSUER_QUERY_ENABLED':False})
     assert ross._news_diagnostics_from_news_intelligence_result(result,{}).news_degraded
+
+
+@pytest.mark.parametrize('headline',[
+    'ACME announces FDA approval for Rival Therapeutics',
+    'ACME announces FDA approval at Rival Therapeutics',
+    'ACME announces FDA approval from Rival Therapeutics',
+    'ACME announces upgrade for Rival Therapeutics',
+    'ACME announces contract for Rival Therapeutics',
+])
+def test_non_earnings_foreign_ownership_cannot_qualify_actual_consumer(headline):
+    from test_ross_operational_issuer_news import item
+    from src.news.news_intelligence_contract import NewsBatchResult,NewsCandidate,RetrievalDiagnostics
+    from src.strategies.ross_momentum.policy.catalyst_policy import assess_catalyst
+    candidate=NewsCandidate('ACME',company_name='Acme Therapeutics, Inc.',aliases=('Acme Therapeutics',))
+    evidence=replace(item(headline),symbol='ACME',company_name=candidate.company_name,aliases=candidate.aliases)
+    result=NewsBatchResult(candidates=(candidate,),request=ross._ross_news_request(),diagnostics=RetrievalDiagnostics(provider_available=True))
+    context=ross._ross_news_context_from_evidence('ACME',(evidence,),None,result)
+    assert not context['ross_catalyst_valid']
+    assert context['qualification_decisions'][0]['reason']=='event_ownership_uncertain_or_other_issuer'
+    assert not assess_catalyst(mode='READ_ONLY',news_enabled=True,news_available=context['news_available'],confirmed=context['ross_catalyst_valid']).satisfied
