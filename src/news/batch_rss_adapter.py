@@ -36,6 +36,7 @@ from src.news.rss_batch_runtime import (
     stage_elapsed_seconds,
     stage_remaining_seconds,
 )
+from src.news.issuer_rss_queries import QUERY_PROFILE, QUERY_GROUP, QUERY_GROUPS, query_plan
 from src.news.source_groups import SourceGroupId, get_source_group_urls
 from src.news.rss_lifecycle import RssFetchLifecycle
 
@@ -54,8 +55,9 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
 
     provider_id = "rss_batch"
 
-    def __init__(self, *, fast_fetcher=None, extended_fetcher=None, lifecycle: RssFetchLifecycle | None = None) -> None:
+    def __init__(self, *, fast_fetcher=None, extended_fetcher=None, lifecycle: RssFetchLifecycle | None = None, raw_feed_directory=None) -> None:
         self._lifecycle = lifecycle
+        self._raw_feed_directory = raw_feed_directory
         self._fast_fetcher = fast_fetcher or fetch_fast_headlines_for_symbols
         self._extended_fetcher = extended_fetcher or fetch_headlines_for_symbols
 
@@ -88,13 +90,19 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
             )
 
         source_groups = _source_groups_for_policy(retrieval_policy)
-        research = source_groups == ("BROAD_RSS_RESEARCH",)
-        if research and (request.strategy_id != "broad_rss_research_v1" or not request.metadata.get("research_only")):
-            raise ValueError("BROAD_RSS_RESEARCH requires an explicit research-only request")
+        query_research = QUERY_GROUP in source_groups
+        research = source_groups == ("BROAD_RSS_RESEARCH",) or query_research
+        plan = query_plan(ordered_candidates) if query_research else []
+        expected_profile = QUERY_PROFILE if query_research else "broad_rss_research_v1"
+        if research and (request.strategy_id != expected_profile or not request.metadata.get("research_only")):
+            raise ValueError("RSS research requires its explicit research-only request")
         fast_sources = _sources_for_group(source_groups, "FAST_TRADING")
         if research:
             fast_sources = _sources_for_group(source_groups, "BROAD_RSS_RESEARCH")
         extended_sources = _sources_for_group(source_groups, "PREP_EXTENDED")
+        if query_research:
+            fast_sources = [row["source_id"] for row in plan]
+            extended_sources = []
         fast_source_set = set(fast_sources)
         cross_tier_duplicate_sources = [url for url in extended_sources if url in fast_source_set]
         if cross_tier_duplicate_sources:
@@ -134,6 +142,7 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
                 tier_started_at_s=stage_started_at_s,
                 tier_deadline_s=fast_deadline_s,
                 **({"source_tier": "research"} if research else {}),
+                **({"raw_feed_directory": self._raw_feed_directory} if research and self._raw_feed_directory is not None else {}),
                 **lifecycle_kwargs,
             )
         else:
@@ -316,6 +325,12 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
             )
 
         tier_attempt_counts = dict(getattr(summary, "tier_sources_attempted_counts", {}) or {})
+        if query_research:
+            by_url = {row["source_id"]: row for row in plan}
+            summary = replace(summary, source_diagnostics=tuple(
+                {**row, "source_group": by_url[row["source_id"]]["source_group"],
+                 "query_issuers": tuple(by_url[row["source_id"]].get("query_issuers", ()))}
+                for row in summary.source_diagnostics))
         source_diag_objects = _source_diagnostics_from_summary(summary)
         source_diag_payload = [dict(getattr(item, "__dict__", {})) for item in source_diag_objects]
         if self._lifecycle is None:
@@ -388,7 +403,7 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
             provider_status=provider_status,
             provider_available=_provider_available(provider_status),
             cache_state="not_checked",
-            source_groups_queried=(("BROAD_RSS_RESEARCH",) if research and fast_fetched else _queried_source_groups(fast_fetched, extended_fetched)),
+            source_groups_queried=(QUERY_GROUPS if query_research and fast_fetched else ("BROAD_RSS_RESEARCH",) if research and fast_fetched else _queried_source_groups(fast_fetched, extended_fetched)),
             provider_groups_queried=("rss_batch",),
             sources_queried=tuple((fast_sources if fast_fetched else []) + (extended_sources if extended_fetched else [])),
             source_diagnostics=source_diag_objects,
@@ -444,6 +459,10 @@ def _metadata_by_symbol(candidates: Sequence[NewsCandidate]) -> dict[str, dict[s
 def _source_groups_for_policy(retrieval_policy: RetrievalPolicy) -> tuple[str, ...]:
     requested = tuple(str(group or "").strip().upper() for group in retrieval_policy.source_groups)
     groups = requested or DEFAULT_SOURCE_GROUPS
+    if QUERY_GROUP in groups:
+        if groups != QUERY_GROUPS or retrieval_policy.metadata.get("research_profile") != QUERY_PROFILE:
+            raise ValueError("ISSUER_QUERY_RSS requires its explicit research profile")
+        return groups
     if "BROAD_RSS_RESEARCH" in groups:
         if groups != ("BROAD_RSS_RESEARCH",) or retrieval_policy.metadata.get("research_profile") != "broad_rss_research_v1":
             raise ValueError("BROAD_RSS_RESEARCH is an exclusive opt-in research profile")
@@ -521,7 +540,8 @@ def _source_diagnostics_from_summary(summary: RssFailureSummary) -> tuple[Source
                 elapsed_kind=item.get("elapsed_kind"),
                 worker_completed=item.get("worker_completed"),
                 **({"entries_examined_count": item.get("entries_examined_count"),
-                    "processing_truncated": bool(item.get("processing_truncated", False))}
+                    "processing_truncated": bool(item.get("processing_truncated", False)),
+                    "entry_diagnostics": item.get("entry_diagnostics", {}), "query_issuers": tuple(item.get("query_issuers", ()))}
                    if diagnostic_type is ResearchSourceDiagnostic else {}),
             )
         )
@@ -692,7 +712,7 @@ def _evidence_from_headline(
         observed_source=headline.source,
         source_domain=_source_domain(headline.url),
         provider="rss_batch",
-        source_group=("BROAD_RSS_RESEARCH" if headline.source_tier == "research" else "PREP_EXTENDED" if headline.source_tier == "extended" else "FAST_TRADING"),
+        source_group=((QUERY_GROUP if request.strategy_id == QUERY_PROFILE else "BROAD_RSS_RESEARCH") if headline.source_tier == "research" else "PREP_EXTENDED" if headline.source_tier == "extended" else "FAST_TRADING"),
         source_tier=headline.source_tier,
         verified_source=None if headline.source_tier == "research" else True,
         cache_state="not_checked",
@@ -703,6 +723,8 @@ def _evidence_from_headline(
             "source_tier": headline.source_tier,
             "match_type": headline.match_type,
             "matched_field": headline.matched_field,
+            **({"timestamp_provenance": headline.timestamp_provenance, "raw_title": headline.raw_title,
+                "source_provenance": headline.source_provenance} if headline.source_tier == "research" else {}),
         },
         audit={
             "provider_status": provider_status,

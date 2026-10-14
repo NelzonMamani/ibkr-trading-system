@@ -24,6 +24,7 @@ from src.news.evidence_store import (
     summarize_news_evidence,
 )
 from src.news.source_groups import get_source_group_urls
+from src.news.issuer_rss_queries import query_sources
 from src.news.news_intelligence_contract import (
     CacheState,
     NewsBatchResult,
@@ -65,6 +66,13 @@ def _json_value(value: Any) -> Any:
 def _acquisition_profile(candidate: NewsCandidate, request: NewsRequest, policy: RetrievalPolicy,
                          *, provider_id: str = "rss_batch") -> dict[str, Any]:
     groups = _source_groups_for_policy(policy) if provider_id == "rss_batch" else policy.source_groups
+    source_urls = {}
+    if provider_id == "rss_batch":
+        source_urls = {
+            group: (tuple(row["source_id"] for row in query_sources((candidate,)))
+                    if group == "ISSUER_QUERY_RSS" else get_source_group_urls(group))
+            for group in groups
+        }
     profile = _json_value({
         "schema": "news.acquisition_profile.v1",
         "request": {
@@ -78,7 +86,7 @@ def _acquisition_profile(candidate: NewsCandidate, request: NewsRequest, policy:
         },
         "retrieval": {
             "source_groups": groups,
-            "source_urls_by_group": {group: get_source_group_urls(group) for group in groups} if provider_id == "rss_batch" else {},
+            "source_urls_by_group": source_urls,
             "provider_groups": policy.provider_groups,
             "total_budget_seconds": _total_budget_seconds(policy),
             "tier_budgets": policy.tier_budgets,
