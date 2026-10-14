@@ -4,6 +4,7 @@ from dataclasses import asdict, replace
 import hashlib
 import json
 import math
+import time
 from datetime import datetime, timezone
 from typing import Any, Mapping, Sequence
 
@@ -115,6 +116,7 @@ def _acquisition_profile(candidate: NewsCandidate, request: NewsRequest, policy:
         profile["retrieval"]["source_urls_by_group"][OPERATIONAL_GROUP] = sorted(query_urls)
         profile["retrieval"]["operational_selected_query_urls"] = sorted(query_urls[:limit])
         profile["retrieval"]["operational_query_limit"] = limit
+        profile["retrieval"]["operational_scheduling_contract"] = policy.metadata.get("operational_scheduling_contract")
         profile["request"]["qualification_profile"] = request.metadata.get("qualification_profile")
     if request.query_start_utc is not None:
         profile["request"].update(query_start_utc=request.query_start_utc.isoformat(),
@@ -155,6 +157,14 @@ class CanonicalNewsIntelligenceService(NewsIntelligenceProvider):
         retrieval_policy: RetrievalPolicy,
     ) -> NewsBatchResult:
         started_at = datetime.now(timezone.utc)
+        phase_start = time.monotonic()
+        phase_last = phase_start
+        phases = {}
+        def mark(name):
+            nonlocal phase_last
+            now = time.monotonic()
+            phases[name] = now - phase_last
+            phase_last = now
         ordered_candidates = _dedupe_candidates(candidates)
         symbols = [candidate.normalized_symbol for candidate in ordered_candidates]
         if not symbols:
@@ -189,6 +199,7 @@ class CanonicalNewsIntelligenceService(NewsIntelligenceProvider):
             "prep_reuse_symbols": [],
             "cache_read_skipped": True,
         }
+        mark("cache_read_seconds")
         require_compatible = bool(retrieval_policy.metadata.get("require_compatible_acquisition"))
         acquisition_provider_id = (getattr(self.retrieval_provider, "provider_id", None)
                                    or next(iter(retrieval_policy.provider_groups), "rss_batch"))
@@ -243,6 +254,7 @@ class CanonicalNewsIntelligenceService(NewsIntelligenceProvider):
             "cache_write_failed": False,
             "cache_write_error": None,
         }
+        mark("profile_and_refresh_plan_seconds")
         if refresh_allowed:
             refresh_candidates = [candidate for candidate in ordered_candidates if candidate.normalized_symbol in set(refresh_symbols)]
             refresh_metadata = {
@@ -256,6 +268,7 @@ class CanonicalNewsIntelligenceService(NewsIntelligenceProvider):
                 metadata=refresh_metadata,
             )
             refresh_result = self.retrieval_provider.get_news(refresh_candidates, request, refresh_policy)
+            mark("provider_seconds")
             if retrieval_policy.allow_cache_write or require_compatible:
                 completed_at = refresh_result.completed_at or datetime.now(timezone.utc)
                 coverage = _json_value(asdict(refresh_result.diagnostics)) if require_compatible else None
@@ -296,6 +309,7 @@ class CanonicalNewsIntelligenceService(NewsIntelligenceProvider):
                     write_diagnostics = self.evidence_store.write(retrieved, request)
                 write_diagnostics["cache_write_skipped"] = False
 
+        mark("acquisition_metadata_and_cache_write_seconds")
         coverage_unknown = [
             symbol for symbol in symbols
             if (symbol in mismatches or symbol in acquisition_due_symbols) and symbol not in retrieval_by_symbol
@@ -392,6 +406,9 @@ class CanonicalNewsIntelligenceService(NewsIntelligenceProvider):
                     provider_status="coverage_unknown" if all_unknown else "mixed",
                     provider_available=None if diagnostics.provider_available is not False else False,
                     unresolved_symbols=tuple(dict.fromkeys((*diagnostics.unresolved_symbols, *coverage_unknown))))
+        if retrieval_policy.metadata.get("ross_issuer_query"):
+            mark("merge_summary_and_diagnostics_seconds")
+            diagnostics = replace(diagnostics, diagnostics={**diagnostics.diagnostics, "phase_timings": phases})
         result = NewsBatchResult(
             candidates=ordered_candidates,
             evidence_by_symbol=combined_evidence,
@@ -406,6 +423,9 @@ class CanonicalNewsIntelligenceService(NewsIntelligenceProvider):
         emit_retrieval_diagnostics(
             result, provider_invoked=refresh_result is not None, cache_diagnostics=cache_diagnostics
         )
+        if retrieval_policy.metadata.get("ross_issuer_query"):
+            mark("diagnostic_emission_seconds")
+            phases["service_total_seconds"] = time.monotonic() - phase_start
         return result
 
 

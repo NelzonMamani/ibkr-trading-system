@@ -197,9 +197,28 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
         extended_budget_seconds = 0.0
         fast_budget_exhausted = bool(getattr(fast_summary, "tier_budget_exhausted", False))
         extended_budget_exhausted = False
+        fallback_skipped_reason = None
+        primary_complete = not fast_budget_exhausted and not any(
+            not row.get("attempted") or row.get("processing_truncated")
+            or row.get("retrieval_status") in {"budget_exhausted", "partial", "unknown", "not_requested"}
+            for row in fast_summary.source_diagnostics)
+        if operational:
+            if not primary_complete:
+                # PREP cannot complete a missing required primary acquisition.
+                # Preserve unavailable outcomes, rather than spending a second pool
+                # and later pretending the primary hole has been repaired.
+                fallback_skipped_reason = "primary_coverage_incomplete"
+            elif provider_failed:
+                fallback_skipped_reason = "primary_provider_unavailable"
+            elif callable(request.metadata.get("fallback_resolver")):
+                needed = set(request.metadata["fallback_resolver"](headlines_by_symbol, request))
+                unresolved_for_extended = [symbol for symbol in unresolved_for_extended if symbol in needed]
+                if not unresolved_for_extended:
+                    fallback_skipped_reason = "ross_policy_resolved_in_primary"
 
         if (
             not provider_failed
+            and not fallback_skipped_reason
             and retrieval_policy.fallback_mode != "none"
             and unresolved_for_extended
             and extended_sources
@@ -264,7 +283,8 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
             stage_elapsed_seconds(stage_started_at_s),
         )
         total_budget_exhausted = bool(getattr(summary, "news_budget_exhausted", False))
-        budget_exhausted = total_budget_exhausted or budget_skipped_sources > 0 or extended_budget_exhausted
+        budget_exhausted = (total_budget_exhausted or budget_skipped_sources > 0 or extended_budget_exhausted
+                            or (operational and not primary_complete))
         if budget_skipped_sources or summary_elapsed or budget_exhausted or total_news_budget_seconds:
             summary_updates: dict[str, Any] = {
                 "total_news_budget_seconds": total_news_budget_seconds,
@@ -303,6 +323,12 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
                 )
             summary = replace(summary, **summary_updates)
 
+        if operational and fallback_skipped_reason and extended_sources:
+            deferred = tuple({"source_id": url, "source_tier": "operational_query", "attempted": False,
+                              "retrieval_status": "not_requested", "matched_count": 0,
+                              "failure_reason": fallback_skipped_reason,
+                              "budget_exhausted": not primary_complete} for url in extended_sources)
+            summary = replace(summary, source_diagnostics=(*summary.source_diagnostics, *deferred))
         provider_status = news_provider_status(summary)
         retrieval_status = _retrieval_status(summary, provider_status)
         budget_unresolved_symbols = _budget_unresolved_symbols(
@@ -440,9 +466,13 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
             ),
         }
         if operational:
+            diagnostics_payload.update(required_primary_coverage_complete=primary_complete,
+                                       fallback_skipped_reason=fallback_skipped_reason,
+                                       fallback_unresolved_symbols=tuple(unresolved_for_extended),
+                                       stage_deadline_exhausted=total_budget_exhausted)
             query_rows = [row for row in source_diag_payload if row.get("source_group") == OPERATIONAL_GROUP]
             diagnostics_payload["issuer_query"] = {
-                "provider": "google_news_search", "request_limit": limit,
+                "provider": "google_news_search", "request_limit": limit, "search_completeness_established": False,
                 "planned_queries": len(queries), "attempted_queries": sum(bool(row.get("attempted")) for row in query_rows),
                 "yahoo": "not_scheduled_observed_HTTP429_no_operational_retry",
                 "per_issuer": {
@@ -458,7 +488,8 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
             provider_status=provider_status,
             provider_available=_provider_available(provider_status),
             cache_state="not_checked",
-            source_groups_queried=(OPERATIONAL_GROUPS if operational else QUERY_GROUPS if query_research and fast_fetched else ("BROAD_RSS_RESEARCH",) if research and fast_fetched else _queried_source_groups(fast_fetched, extended_fetched)),
+            source_groups_queried=(tuple(group for group in OPERATIONAL_GROUPS if any(
+                row.source_group == group and row.attempted for row in source_diag_objects)) if operational else QUERY_GROUPS if query_research and fast_fetched else ("BROAD_RSS_RESEARCH",) if research and fast_fetched else _queried_source_groups(fast_fetched, extended_fetched)),
             provider_groups_queried=("rss_batch",),
             sources_queried=tuple((fast_sources if fast_fetched else []) + (extended_sources if extended_fetched else [])),
             source_diagnostics=source_diag_objects,

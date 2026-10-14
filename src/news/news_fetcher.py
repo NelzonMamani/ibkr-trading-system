@@ -1145,7 +1145,10 @@ def _fetch_headlines_from_sources(
                             )
                         )
                         continue
+                    processing_started = time.monotonic()
                     matched_count = process_feed(url, feed)
+                    if operational:
+                        date_counts[url]["coordinator_processing_seconds"] = time.monotonic() - processing_started
                     source_diagnostics.append(
                         source_diag(
                             url,

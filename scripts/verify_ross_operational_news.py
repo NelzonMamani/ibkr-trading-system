@@ -68,6 +68,10 @@ def run_consumer(candidates, directory: Path, *, enabled: bool):
                 news_available=ctx['news_available'],confirmed=ctx['ross_catalyst_valid'],validation_bypass_requested=False)) for s,ctx in contexts.items()},
             'cleanup':cleanup,'consumer_elapsed_seconds':time.monotonic()-started,
             'limits':'Eight-second acquisition, existing six-hour Ross freshness, five display slots plus one policy witness. Raw responses are separate evidence. Google URLs remain intermediary URLs. No trading-readiness upgrade.'}
+        report['news_consumer_call_seconds']=diagnostics.news_intelligence_diagnostics.get('ross_consumer_elapsed_seconds')
+        report['verification_assembly_seconds']=max(0.0, report['consumer_elapsed_seconds'] - (report['news_consumer_call_seconds'] or 0.0))
+        report['consumer_elapsed_includes_diagnostic_assembly']=True
+        report['verification_scope']='diagnostic_only_no_readiness_decision'
         # Keep acquisition evidence before the separate diagnostic cleanup wait.
         report['worker_stage']='acquisition_complete_cleanup_pending'
         (directory/'operational-evidence.json').write_text(json.dumps(jsonable(report),indent=2)+'\n',encoding='utf-8')
@@ -119,6 +123,14 @@ def main():
     try:
         result=run_consumer(candidates,directory,enabled=args.enable_issuer_query)
         (directory/'operational-evidence.json').write_text(json.dumps(result,indent=2)+'\n',encoding='utf-8')
+        raw=result['diagnostics']['news_intelligence_diagnostics'].get('refresh_diagnostics', {})
+        print('Timing/coverage: '+json.dumps({
+            'news_stage_seconds':raw.get('news_elapsed_seconds'),
+            'consumer_call_seconds':result['news_consumer_call_seconds'],
+            'verification_assembly_seconds':result['verification_assembly_seconds'],
+            'required_primary_coverage_complete':raw.get('required_primary_coverage_complete'),
+            'fallback_skipped_reason':raw.get('fallback_skipped_reason'),
+            'diagnostic_only_no_readiness_decision':True}))
         for symbol,context in result['contexts'].items():
             print(symbol,json.dumps({'valid':context.get('ross_catalyst_valid'),'status':context.get('news_diagnostic_status'),
                 'decisions':context.get('qualification_decisions',[])}))

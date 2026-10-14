@@ -73,3 +73,42 @@ a timeout/failure is evidence and must not be discarded. Offline fixture success
 is contract verification; captured-response replay is regression, not a claim of
 current network availability or live operational eligibility. Windows acceptance
 within eight seconds is still required before considering this setting's default.
+
+
+## Windows bottleneck repair (operational acceptance still pending)
+
+The 2026-10-14 Windows run at `0a4bfce95b` completed all three Google
+queries, but query response completion was not completion of the whole required
+primary acquisition. The adapter passed the original full unresolved issuer set
+to PREP even after primary deadlines, and propagated global exhaustion to every
+issuer. Eight seconds measures the acquisition deadline, not a hard total for
+cache/profile work, classification, persistence and logging. The old verifier's
+`consumer_elapsed_seconds` additionally included diagnostic result assembly.
+
+Operational scheduling contract `ross_primary_completion_v2` preserves the
+5.2/2.8 allocations and the eight-second ceiling. Incomplete required primary
+acquisition remains unavailable; PREP cannot repair that missing dependency, so
+it is explicitly deferred instead of launching a second pool for a result that
+cannot qualify. This is an early failed return, not an availability upgrade.
+After a completed primary acquisition, only issuers unresolved by the existing
+Ross policy enter fallback. A fresh policy witness or a safety veto is terminal;
+generic/empty primary results still need their configured unresolved fallback.
+Successful primary peers do not inherit an unresolved peer's fallback deadline.
+
+Compatible canonical acquisition metadata is reused for positive, negative and
+unavailable outcomes within existing cadence. A current negative cache hit now
+returns after one canonical read, rather than rereading the same cache/prep and
+reconstructing all diagnostics. Fresh prep articles still use existing identity,
+time and policy checks; prep hydration alone cannot certify missing query/source
+coverage or clear a failed acquisition. No second cache authority is introduced.
+Old scheduling fingerprints cannot certify the repaired completion contract.
+
+The verifier now separates the actual news consumer call from report assembly.
+Canonical diagnostics measure cache reads, acquisition profile/refresh planning,
+provider time, acquisition metadata/cache write, merge/summary work, diagnostic
+emission, and Ross policy-context processing. Per-source coordinator processing
+is separate from worker request/parse latency. Cleanup remains outside the
+consumer call. Process exit zero means diagnostic completion, not acceptance or
+trading readiness. Every dependency-deferred source and incomplete outcome stays
+visible. Live fixed-source latency may still prevent cold acquisition completion;
+no coverage, freshness or catalyst rule is relaxed to hide that limit.

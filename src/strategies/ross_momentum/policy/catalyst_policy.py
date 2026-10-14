@@ -264,3 +264,19 @@ def select_qualification_evidence(items, request):
     if witness is not None and key(witness) not in {key(x) for x in latest}:
         latest.append(witness)
     return latest
+
+
+def unresolved_issuer_news(headlines_by_symbol, request):
+    """Fallback only for bounded cohorts not already resolved by Ross policy.
+
+    The adapter calls this only AFTER primary acquisition completion. This never
+    clears incomplete required source coverage or turns generic news positive.
+    """
+    unresolved = []
+    for symbol, items in headlines_by_symbol.items():
+        positive = any(assess_issuer_event(symbol, item)['qualified'] for item in items)
+        veto = any(0 <= time.time() - item.published_ts <= request.freshness_seconds
+                   and detect_dilution(item.title) for item in items)
+        if not positive and not veto:
+            unresolved.append(symbol)
+    return unresolved

@@ -338,7 +338,7 @@ def _apply_non_operational_backfill_markers(
         context["non_operational_carryover"] = True
 
 from src.strategies.ross_momentum.policy.catalyst_policy import (
-    CATALYST_KEYWORDS, CATALYST_KEYWORD_FORMS, DILUTION_KEYWORDS,
+    CATALYST_KEYWORDS, CATALYST_KEYWORD_FORMS, DILUTION_KEYWORDS, unresolved_issuer_news,
     classify_headline, detect_dilution, assess_issuer_event, select_qualification_evidence,
 )
 SESSION_DEFAULT_FOCUS_THRESHOLDS: dict[str, int] = {
@@ -2788,7 +2788,7 @@ def _ross_news_request() -> NewsRequest:
         need_reliability=True,
         max_evidence_per_symbol=presentation + int(enabled),
         metadata=({"qualification_profile": "ross_issuer_event_v1", "presentation_limit": presentation,
-                   "retention_selector": select_qualification_evidence} if enabled else {}),
+                   "retention_selector": select_qualification_evidence, "fallback_resolver": unresolved_issuer_news} if enabled else {}),
         audit_reason="ross_readonly_scanner_news",
     )
 
@@ -2811,7 +2811,8 @@ def _ross_retrieval_policy(
         reserve = _news_extended_tier_reserve_fraction()
         tier_budgets = {"fast": total_budget_seconds * (1-reserve), "extended": total_budget_seconds * reserve}
         metadata.update(ross_issuer_query=True, require_compatible_acquisition=True,
-                        query_limit=RossPolicy().issuer_query_limit, qualification_profile="ross_issuer_event_v1")
+                        query_limit=RossPolicy().issuer_query_limit, qualification_profile="ross_issuer_event_v1",
+                        operational_scheduling_contract="ross_primary_completion_v2")
     if normalized_refresh_symbols:
         metadata["refresh_symbols"] = normalized_refresh_symbols
         metadata["unresolved_symbols"] = normalized_refresh_symbols
@@ -3540,7 +3541,15 @@ def _extended_only_tier_budget() -> float:
     return max(0.0, total_budget_seconds - _fast_only_tier_budget())
 
 
-def _enrich_news_context(
+def _enrich_news_context(symbols, provider_source, symbol_metadata_by_symbol=None):
+    started = time.monotonic()
+    contexts, diagnostic = _enrich_news_context_impl(symbols, provider_source, symbol_metadata_by_symbol)
+    if RossPolicy().issuer_query_enabled:
+        diagnostic.news_intelligence_diagnostics["ross_consumer_elapsed_seconds"] = time.monotonic() - started
+    return contexts, diagnostic
+
+
+def _enrich_news_context_impl(
     symbols: List[str],
     provider_source: str,
     symbol_metadata_by_symbol: Optional[Dict[str, Dict[str, Any]]] = None,
@@ -3557,10 +3566,15 @@ def _enrich_news_context(
         request,
         _ross_retrieval_policy(refresh_mode="cache_only", network_allowed=False),
     )
+    policy_started = time.monotonic()
     cache_news_by_symbol = _ross_news_contexts_from_news_intelligence_result(cache_result)
+    if RossPolicy().issuer_query_enabled:
+        cache_result.diagnostics.diagnostics["ross_policy_context_seconds"] = time.monotonic() - policy_started
     unresolved_symbols = _unresolved_ross_news_symbols([candidate.normalized_symbol for candidate in candidates], cache_news_by_symbol)
 
-    if provider_source == "MOCK" or not unresolved_symbols:
+    compatible_hits = set(cache_result.diagnostics.diagnostics.get("acquisition_cache_hit_symbols", ()))
+    cache_acquisition_current = RossPolicy().issuer_query_enabled and all(c.normalized_symbol in compatible_hits for c in candidates)
+    if provider_source == "MOCK" or not unresolved_symbols or cache_acquisition_current:
         return cache_news_by_symbol, _news_diagnostics_from_news_intelligence_result(cache_result, cache_news_by_symbol)
 
     if RossPolicy().issuer_query_enabled:
@@ -3570,7 +3584,9 @@ def _enrich_news_context(
                 _ross_retrieval_policy(refresh_mode="bounded_refresh", network_allowed=True))
         finally:
             cleanup = lifecycle.snapshot() if lifecycle is not None else {"cleanup_complete": None}
+        policy_started = time.monotonic()
         operational_news = _ross_news_contexts_from_news_intelligence_result(operational_result)
+        operational_result.diagnostics.diagnostics["ross_policy_context_seconds"] = time.monotonic() - policy_started
         diagnostic = _news_diagnostics_from_news_intelligence_result(operational_result, operational_news)
         diagnostic.news_intelligence_diagnostics["rss_cleanup"] = cleanup
         return operational_news, diagnostic
