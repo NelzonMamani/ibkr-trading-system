@@ -2662,7 +2662,7 @@ def _news_symbol_metadata_for_contexts(contexts: Iterable[Dict[str, Any]]) -> Di
         "con_id", "conId", "isin", "figi", "cik", "lei",
     )
     metadata_by_symbol: Dict[str, Dict[str, Any]] = {}
-    for context in contexts:
+    for position, context in enumerate(contexts, 1):
         symbol = str(context.get("symbol") or "").strip().upper()
         if not symbol:
             continue
@@ -2671,6 +2671,10 @@ def _news_symbol_metadata_for_contexts(contexts: Iterable[Dict[str, Any]]) -> Di
             for key in metadata_keys
             if _metadata_value_from_context(context, key)
         }
+        if RossPolicy().issuer_query_enabled:
+            rank = _metadata_value_from_context(context, "priority_rank")
+            # Preserve caller priority before the cap; no new ranking authority.
+            values["priority_rank"] = rank if isinstance(rank, int) and not isinstance(rank, bool) and rank > 0 else position
         if context.get("con_id_is_synthetic"):
             values.pop("con_id", None)
             values.pop("conId", None)

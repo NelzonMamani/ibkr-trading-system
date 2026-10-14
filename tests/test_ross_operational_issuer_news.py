@@ -270,3 +270,23 @@ def test_captured_bac_event_does_not_qualify_comentioned_jpm():
     decision = assess_issuer_event('JPM', item(title,age))
     assert not decision['qualified']
     assert decision['reason'] == 'event_not_attributed_to_requested_issuer'
+
+
+def test_scanner_context_order_reaches_actual_capped_acquisition(monkeypatch,tmp_path):
+    calls=[];fixture_transport(monkeypatch,calls,[])
+    contexts=[{'symbol':s,'company_name':'Fixture '+s+' Corporation'} for s in ('ZZZ','YYY','XXX','WWW','AAA','BBB')]
+    metadata=ross._news_symbol_metadata_for_contexts(iter(contexts))
+    assert metadata['ZZZ']['priority_rank']==1 and metadata['AAA']['priority_rank']==5
+    svc=service(tmp_path);monkeypatch.setattr(ross,'_news_intelligence_service_for_scanner',lambda:svc)
+    result,_=ross._enrich_news_context([row['symbol'] for row in contexts],'RSS',metadata)
+    assert all(result[s]['issuer_query_outcomes'][0]['attempted'] for s in ('ZZZ','YYY','XXX','WWW'))
+    assert result['AAA']['issuer_query_outcomes'][0]['reason']=='query_request_limit'
+    assert result['BBB']['issuer_query_outcomes'][0]['reason']=='query_request_limit'
+    assert svc.retrieval_provider._lifecycle.wait_for_cleanup(1)['cleanup_complete']
+    explicit=ross._news_symbol_metadata_for_contexts([{'symbol':'ZZZ','priority_rank':8},{'symbol':'AAA','priority_rank':1}])
+    assert explicit['ZZZ']['priority_rank']==8 and explicit['AAA']['priority_rank']==1
+
+
+def test_disabled_setting_does_not_add_priority_to_legacy_handoff():
+    set_config_overrides({'ROSS_ISSUER_QUERY_ENABLED':False})
+    assert 'priority_rank' not in ross._news_symbol_metadata_for_contexts([{'symbol':'JPM','company_name':CANDIDATE.company_name}])['JPM']

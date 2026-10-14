@@ -54,7 +54,7 @@ def run_consumer(candidates, directory: Path, *, enabled: bool):
     service.get_news=observe
     started=time.monotonic()
     try:
-        metadata={c.normalized_symbol:{**c.metadata, 'company_name':c.company_name,'aliases':c.aliases,'exchange':c.exchange} for c in candidates}
+        metadata={c.normalized_symbol:{**c.metadata, 'company_name':c.company_name,'aliases':c.aliases,'exchange':c.exchange, 'priority_rank':c.priority_rank if c.priority_rank is not None else rank} for rank,c in enumerate(candidates,1)}
         # Dependency substitution supplies an isolated instance of the SAME service,
         # not a second consumer, engine, prep store or qualification authority.
         with patch.object(ross,'_news_intelligence_service_for_scanner',lambda:service), patch.object(ross,'_NEWS_CACHE',{}):

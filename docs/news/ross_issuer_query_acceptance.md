@@ -8,7 +8,8 @@ mandatory catalyst policy, or upgrade readiness. Research records stay research.
 
 The existing Google News RSS search contract encodes full names/aliases, `$TICKER`
 and supported exchange notation. The primary tier schedules at most four distinct
-Google query URLs first (candidate priority rank, then ticker); identical URLs
+Google query URLs first (explicit scanner priority, otherwise existing context
+order; ticker breaks ties); identical URLs
 share a fetch. Fixed feeds remain one fetch per distinct feed across the batch.
 The unchanged eight-second stage reserves 5.2 seconds for primary acquisition and
 2.8 seconds for PREP fallback. Queries are not appended to the fallback reserve.
