@@ -290,3 +290,17 @@ def test_scanner_context_order_reaches_actual_capped_acquisition(monkeypatch,tmp
 def test_disabled_setting_does_not_add_priority_to_legacy_handoff():
     set_config_overrides({'ROSS_ISSUER_QUERY_ENABLED':False})
     assert 'priority_rank' not in ross._news_symbol_metadata_for_contexts([{'symbol':'JPM','company_name':CANDIDATE.company_name}])['JPM']
+
+
+def test_rank_permutation_reuses_wave_but_changed_selected_issuer_refreshes(monkeypatch,tmp_path):
+    calls=[];fixture_transport(monkeypatch,calls,[])
+    svc=service(tmp_path);request=ross._ross_news_request();policy=ross._ross_retrieval_policy(refresh_mode='bounded_refresh',network_allowed=True)
+    candidates=tuple(NewsCandidate('T'+str(n),company_name='Fixture Corporation '+str(n),priority_rank=n+1) for n in range(5))
+    svc.get_news(candidates,request,policy);before=len(calls)
+    same_wave=(replace(candidates[0],priority_rank=2),replace(candidates[1],priority_rank=1),*candidates[2:])
+    svc.get_news(same_wave,request,policy)
+    assert len(calls)==before
+    new_wave=(*same_wave[:-1],replace(same_wave[-1],priority_rank=1))
+    svc.get_news(new_wave,request,policy)
+    assert len(calls)>before
+    assert svc.retrieval_provider._lifecycle.wait_for_cleanup(1)['cleanup_complete']

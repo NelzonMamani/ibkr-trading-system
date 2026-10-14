@@ -108,7 +108,13 @@ def _acquisition_profile(candidate: NewsCandidate, request: NewsRequest, policy:
         profile["issuer"]["metadata"] = {"matching_aliases": list(company_aliases_for_symbol(
             candidate.normalized_symbol, {**candidate.metadata, "company_name": candidate.company_name or candidate.metadata.get("company_name"),
                                           "aliases": (candidate.aliases, candidate.metadata.get("aliases", ())) }))}
-        profile["retrieval"]["operational_query_limit"] = min(4, int(policy.metadata.get("query_limit", 4)))
+        limit = max(1, min(4, int(policy.metadata.get("query_limit", 4))))
+        query_urls = [row["source_id"] for row in operational_queries(batch_candidates or (candidate,))]
+        # A rank permutation within the same concurrent wave is not new coverage.
+        # Keep whole-batch identity plus the actually selected capped URL set.
+        profile["retrieval"]["source_urls_by_group"][OPERATIONAL_GROUP] = sorted(query_urls)
+        profile["retrieval"]["operational_selected_query_urls"] = sorted(query_urls[:limit])
+        profile["retrieval"]["operational_query_limit"] = limit
         profile["request"]["qualification_profile"] = request.metadata.get("qualification_profile")
     if request.query_start_utc is not None:
         profile["request"].update(query_start_utc=request.query_start_utc.isoformat(),
