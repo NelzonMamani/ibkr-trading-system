@@ -56,6 +56,16 @@ class RossPolicy:
         return FloatPolicy.from_stock_selection(self.stock_selection)
 
     @property
+    def issuer_query_enabled(self) -> bool:
+        from src.config.config_resolver import get_config
+        return bool(get_config("ROSS_ISSUER_QUERY_ENABLED"))
+
+    @property
+    def issuer_query_limit(self) -> int:
+        # One first scheduler wave, not an unbounded per-ticker search loop.
+        return 4
+
+    @property
     def catalyst(self) -> CatalystPolicy:
         return CatalystPolicy.from_stock_selection(self.stock_selection)
 

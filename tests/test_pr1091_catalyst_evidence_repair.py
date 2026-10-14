@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from datetime import datetime, timezone
 from dataclasses import replace
 from types import SimpleNamespace
 
@@ -91,7 +92,7 @@ def test_cached_observed_durian_item_cannot_confirm_ross_catalyst():
     context = scanner_runner._ross_news_context_from_evidence("EGG", (evidence,), None, result)
     assert context["ross_catalyst_valid"] is False
     assert context["catalyst_type"] is None
-    positive = replace(evidence, headline="EGG reports earnings beat")
+    positive = replace(evidence, headline="EGG reports earnings beat", published_at=datetime.now(timezone.utc))
     assert scanner_runner._ross_news_context_from_evidence("EGG", (positive,), None, result)["ross_catalyst_valid"] is True
 
 
@@ -127,7 +128,7 @@ def test_persisted_false_match_cannot_gain_authority_from_a_valid_event_word(pro
 
 @pytest.mark.parametrize("metadata", [{"company_name": "Trusted Example Inc."}, {"aliases": ["Trusted Example"]}])
 def test_cache_revalidation_preserves_upstream_metadata_issuer_identity(metadata):
-    evidence = NewsEvidence(symbol="TRST", headline="Trusted Example signs new contract", provider="rss_batch", age_seconds=60, stale=False, cache_state="hit")
+    evidence = NewsEvidence(symbol="TRST", headline="Trusted Example signs new contract", published_at=datetime.now(timezone.utc), provider="rss_batch", age_seconds=60, stale=False, cache_state="hit")
     result = NewsBatchResult(candidates=(NewsCandidate("TRST", metadata=metadata),), diagnostics=RetrievalDiagnostics(provider_available=True))
     assert scanner_runner._ross_news_context_from_evidence("TRST", (evidence,), None, result)["ross_catalyst_valid"] is True
 

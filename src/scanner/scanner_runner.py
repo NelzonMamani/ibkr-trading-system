@@ -337,54 +337,10 @@ def _apply_non_operational_backfill_markers(
         context["qualification_dead"] = True
         context["non_operational_carryover"] = True
 
-CATALYST_KEYWORDS = {
-    "earnings": "EARNINGS",
-    "guidance": "EARNINGS",
-    "fda": "FDA",
-    "approval": "FDA",
-    "contract": "CONTRACT",
-    "partnership": "CONTRACT",
-    "upgrade": "ANALYST_ACTION",
-    "downgrade": "ANALYST_ACTION",
-    "initiates": "ANALYST_ACTION",
-    "press release": "PRESS_RELEASE",
-    "ai": "TECH_CATALYST",
-    "artificial intelligence": "TECH_CATALYST",
-    "crypto": "CRYPTO_CATALYST",
-    "bitcoin": "CRYPTO_CATALYST",
-    "ev": "EV_CATALYST",
-    "electric vehicle": "EV_CATALYST",
-    "battery": "EV_CATALYST",
-    "defense": "DEFENSE_CATALYST",
-    "military": "DEFENSE_CATALYST",
-    "quantum": "TECH_CATALYST",
-    "semiconductor": "TECH_CATALYST",
-    "gpu": "TECH_CATALYST",
-}
-# Preserve ordinary forms recognized by the established event vocabulary
-# without treating short abbreviations as arbitrary substrings of prose.
-CATALYST_KEYWORD_FORMS = {
-    "approval": ("approval", "approvals"),
-    "contract": ("contract", "contracts", "contracted", "contracting"),
-    "partnership": ("partnership", "partnerships"),
-    "upgrade": ("upgrade", "upgrades", "upgraded"),
-    "downgrade": ("downgrade", "downgrades", "downgraded"),
-    "press release": ("press release", "press releases"),
-    "crypto": ("crypto", "cryptos", "cryptocurrency", "cryptocurrencies"),
-    "bitcoin": ("bitcoin", "bitcoins"),
-    "ev": ("ev", "evs"),
-    "electric vehicle": ("electric vehicle", "electric vehicles"),
-    "semiconductor": ("semiconductor", "semiconductors"),
-    "gpu": ("gpu", "gpus"),
-}
-DILUTION_KEYWORDS = {
-    "offering",
-    "dilution",
-    "s-1",
-    "s1",
-    "atm",
-    "registered direct",
-}
+from src.strategies.ross_momentum.policy.catalyst_policy import (
+    CATALYST_KEYWORDS, CATALYST_KEYWORD_FORMS, DILUTION_KEYWORDS, unresolved_issuer_news,
+    classify_headline, detect_dilution, assess_issuer_event, select_qualification_evidence,
+)
 SESSION_DEFAULT_FOCUS_THRESHOLDS: dict[str, int] = {
     "RTH_OPEN": 250_000,
     "RTH_MID": 300_000,
@@ -2558,24 +2514,11 @@ def _attention_tier(vel5: int, vel10: int, vel30: int) -> str:
 
 
 def _detect_catalyst_type(titles: Iterable[str]) -> Optional[str]:
-    for title in titles:
-        lowered = title.lower()
-        for keyword, label in CATALYST_KEYWORDS.items():
-            # Abbreviations such as AI and EV are event terms, not substrings
-            # of unrelated words (waits, revenue, preview).
-            forms = "|".join(re.escape(value) for value in CATALYST_KEYWORD_FORMS.get(keyword, (keyword,)))
-            if re.search(rf"(?<![a-z0-9])(?:{forms})(?![a-z0-9])", lowered):
-                return label
-    return None
+    return next((kind for title in titles if (kind := classify_headline(title))), None)
 
 
 def _detect_dilution(titles: Iterable[str]) -> bool:
-    for title in titles:
-        lowered = title.lower()
-        if any(keyword in lowered for keyword in DILUTION_KEYWORDS):
-            return True
-    return False
-
+    return any(detect_dilution(title) for title in titles)
 
 
 def _news_provider_status(summary: Any) -> str:
@@ -2719,7 +2662,7 @@ def _news_symbol_metadata_for_contexts(contexts: Iterable[Dict[str, Any]]) -> Di
         "con_id", "conId", "isin", "figi", "cik", "lei",
     )
     metadata_by_symbol: Dict[str, Dict[str, Any]] = {}
-    for context in contexts:
+    for position, context in enumerate(contexts, 1):
         symbol = str(context.get("symbol") or "").strip().upper()
         if not symbol:
             continue
@@ -2728,6 +2671,10 @@ def _news_symbol_metadata_for_contexts(contexts: Iterable[Dict[str, Any]]) -> Di
             for key in metadata_keys
             if _metadata_value_from_context(context, key)
         }
+        if RossPolicy().issuer_query_enabled:
+            rank = _metadata_value_from_context(context, "priority_rank")
+            # Preserve caller priority before the cap; no new ranking authority.
+            values["priority_rank"] = rank if isinstance(rank, int) and not isinstance(rank, bool) and rank > 0 else position
         if context.get("con_id_is_synthetic"):
             values.pop("con_id", None)
             values.pop("conId", None)
@@ -2829,6 +2776,8 @@ def _news_config_int(name: str, default: int) -> int:
 
 
 def _ross_news_request() -> NewsRequest:
+    presentation = max(1, _news_config_int("NEWS_MAX_ENTRIES_PER_SYMBOL", 5))
+    enabled = RossPolicy().issuer_query_enabled
     return NewsRequest(
         strategy_id="ross_momentum",
         lookback_seconds=max(0.0, _news_config_float("NEWS_LOOKBACK_HOURS", 24.0)) * 3600.0,
@@ -2837,7 +2786,9 @@ def _ross_news_request() -> NewsRequest:
         need_heat=True,
         need_velocity=True,
         need_reliability=True,
-        max_evidence_per_symbol=max(1, _news_config_int("NEWS_MAX_ENTRIES_PER_SYMBOL", 5)),
+        max_evidence_per_symbol=presentation + int(enabled),
+        metadata=({"qualification_profile": "ross_issuer_event_v9", "presentation_limit": presentation,
+                   "retention_selector": select_qualification_evidence, "fallback_resolver": unresolved_issuer_news} if enabled else {}),
         audit_reason="ross_readonly_scanner_news",
     )
 
@@ -2853,6 +2804,15 @@ def _ross_retrieval_policy(
 ) -> RetrievalPolicy:
     normalized_refresh_symbols = tuple(_dedupe_sorted_symbols(refresh_symbols))
     metadata: Dict[str, Any] = {}
+    enabled = RossPolicy().issuer_query_enabled
+    if enabled:
+        source_groups = ("FAST_TRADING", "PREP_EXTENDED", "ROSS_ISSUER_QUERY")
+        total_budget_seconds = min(8.0, _news_stage_budget_seconds())
+        reserve = _news_extended_tier_reserve_fraction()
+        tier_budgets = {"fast": total_budget_seconds * (1-reserve), "extended": total_budget_seconds * reserve}
+        metadata.update(ross_issuer_query=True, require_compatible_acquisition=True,
+                        query_limit=RossPolicy().issuer_query_limit, qualification_profile="ross_issuer_event_v9",
+                        operational_scheduling_contract="ross_issuer_acquisition_v4")
     if normalized_refresh_symbols:
         metadata["refresh_symbols"] = normalized_refresh_symbols
         metadata["unresolved_symbols"] = normalized_refresh_symbols
@@ -2868,6 +2828,7 @@ def _ross_retrieval_policy(
             if total_budget_seconds is None
             else max(0.0, float(total_budget_seconds))
         ),
+        refresh_interval_seconds=_news_config_float("NEWS_REFRESH_SECONDS_RTH", 90.0) if enabled else None,
         tier_budgets=tier_budgets or {},
         extended_reserve_fraction=_news_extended_tier_reserve_fraction(),
         request_timeout_seconds=max(0.0, _news_config_float("NEWS_REQUEST_TIMEOUT_S", 5.0)),
@@ -2877,8 +2838,10 @@ def _ross_retrieval_policy(
 
 
 def _news_intelligence_service_for_scanner() -> CanonicalNewsIntelligenceService:
+    from src.news.rss_lifecycle import RssFetchLifecycle
     return CanonicalNewsIntelligenceService(
         retrieval_provider=BatchRssNewsIntelligenceProvider(
+            lifecycle=RssFetchLifecycle() if RossPolicy().issuer_query_enabled else None,
             fast_fetcher=fetch_fast_headlines_for_symbols,
             extended_fetcher=fetch_headlines_for_symbols,
         )
@@ -2930,6 +2893,7 @@ def _news_candidates_for_symbols(
                 company_name=company_name,
                 aliases=aliases,
                 exchange=_first_metadata_value(metadata, ("exchange", "primary_exchange", "primaryExchange")),
+                priority_rank=metadata.get("priority_rank"),
                 price=_safe_float(metadata.get("last_price"), None),
                 gap_pct=_safe_float(metadata.get("gap_pct") or metadata.get("pct_change"), None),
                 percentage_move=_safe_float(metadata.get("pct_change"), None),
@@ -3222,16 +3186,20 @@ def _ross_news_context_from_evidence(
             ),
         )
     )
+    presentation_limit = int(result.request.metadata.get("presentation_limit", len(ordered))) if result.request else len(ordered)
+    presentation = ordered[:presentation_limit]
+    qualification_split = bool(result.request and result.request.metadata.get("qualification_profile"))
+    metrics_filtered = relevance_filtered or qualification_split
     diagnostics = _news_intelligence_diag(result)
-    news_age_minutes = _evidence_age_minutes(ordered)
-    fresh_news_count = _fresh_evidence_count(ordered)
-    stale_news_count = max(len(ordered) - fresh_news_count, 0)
+    news_age_minutes = _evidence_age_minutes(presentation)
+    fresh_news_count = _fresh_evidence_count(presentation)
+    stale_news_count = max(len(presentation) - fresh_news_count, 0)
     news_is_fresh = news_age_minutes is not None and news_age_minutes <= NEWS_AGE_MAX_MINUTES
     # Stored per-item fields can themselves contain the original batch's
     # aggregate metrics. After rejecting evidence, derive a fresh cohort view
     # from accepted text/source/time facts, never those inherited aggregates.
     filtered_metrics = None
-    if relevance_filtered:
+    if metrics_filtered:
         metric_now = time.time()
         metric_headlines = [
             Headline(
@@ -3244,18 +3212,20 @@ def _ross_news_context_from_evidence(
                 ),
                 url=str(item.url or ""),
             )
-            for item in ordered
+            for item in presentation
         ]
         filtered_metrics = normalize_headlines(metric_headlines, now_ts=metric_now)
-    velocity_summary = None if relevance_filtered else summary
-    vel5 = _summary_velocity(velocity_summary, ordered, "velocity_5m", 5 * 60)
-    vel10 = _summary_velocity(velocity_summary, ordered, "velocity_10m", 10 * 60)
-    vel30 = _summary_velocity(velocity_summary, ordered, "velocity_30m", 30 * 60)
-    vel60 = _summary_velocity(velocity_summary, ordered, "velocity_60m", 60 * 60)
-    catalyst_type = _catalyst_type_from_evidence(ordered)
+    velocity_summary = None if metrics_filtered else summary
+    vel5 = _summary_velocity(velocity_summary, presentation, "velocity_5m", 5 * 60)
+    vel10 = _summary_velocity(velocity_summary, presentation, "velocity_10m", 10 * 60)
+    vel30 = _summary_velocity(velocity_summary, presentation, "velocity_30m", 30 * 60)
+    vel60 = _summary_velocity(velocity_summary, presentation, "velocity_60m", 60 * 60)
+    attribution = [assess_issuer_event(symbol, item, result.candidates) for item in ordered]
+    qualifying_ids = {row["evidence_id"] for row in attribution if row["qualified"]}
+    catalyst_type = next((row["catalyst_type"] for row in attribution if row["qualified"]), None)
     dilution_flag = _dilution_from_evidence(ordered)
     retrieval_unavailable, budget_exhausted = _news_retrieval_state_for_symbol(symbol, summary, result)
-    ross_catalyst_valid = bool(catalyst_type and not dilution_flag and news_is_fresh)
+    ross_catalyst_valid = bool(qualifying_ids and not dilution_flag and not retrieval_unavailable)
     if ross_catalyst_valid:
         news_status = "catalyst_confirmed"
     elif budget_exhausted:
@@ -3271,16 +3241,16 @@ def _ross_news_context_from_evidence(
         and news_age_minutes is not None
         and news_age_minutes <= NEWS_AGE_MAX_MINUTES
     )
-    domains, links = _evidence_domains_and_links(ordered)
-    top_news = ordered[0]
+    domains, links = _evidence_domains_and_links(presentation)
+    top_news = presentation[0]
     reliability_values = [
         float(value)
-        for item in ordered
+        for item in presentation
         for value in (item.source_reliability_score, item.source_credibility_score)
         if value is not None
     ]
-    heat_values = [float(item.heat_score) for item in ordered if item.heat_score is not None]
-    hotness_values = [float(item.hotness_score) for item in ordered if item.hotness_score is not None]
+    heat_values = [float(item.heat_score) for item in presentation if item.heat_score is not None]
+    hotness_values = [float(item.hotness_score) for item in presentation if item.hotness_score is not None]
     source_provenance = diagnostics.get("source_provenance_by_symbol", {}).get(symbol, [])
     match_types = diagnostics.get("match_types_by_symbol", {}).get(symbol, [])
     independent_source_count = summary.independent_source_count if summary is not None else 0
@@ -3300,16 +3270,16 @@ def _ross_news_context_from_evidence(
                 "cache_state": item.cache_state,
                 "retrieval_status": item.retrieval_status,
             }
-            for item in ordered
+            for item in presentation
         ]
-        match_types = sorted({str(item.match_type) for item in ordered if item.match_type})
+        match_types = sorted({str(item.match_type) for item in presentation if item.match_type})
     return {
         "news_present": True,
         "news_available": not retrieval_unavailable,
         "first_seen_ts": min(
             (
                 item.first_seen_at.timestamp()
-                for item in ordered
+                for item in presentation
                 if item.first_seen_at is not None
             ),
             default=None,
@@ -3326,12 +3296,17 @@ def _ross_news_context_from_evidence(
         "gam_ea_eligible": gam_ea_eligible,
         "ross_catalyst_valid": ross_catalyst_valid,
         "ross_catalyst_notes": "Catalyst present" if ross_catalyst_valid else news_status,
-        "news_count": len(ordered),
+        "news_count": len(presentation),
+        "qualification_evidence_count": len(ordered),
+        "qualification_decisions": attribution,
+        "qualification_evidence_ids": [item.evidence_id for item in ordered],
+        "qualifying_evidence_ids": sorted(qualifying_ids),
+        "presentation_evidence_ids": [item.evidence_id for item in presentation],
         "fresh_news_count": fresh_news_count,
         "stale_news_count": stale_news_count,
         "top_news_title": top_news.headline if top_news else None,
         "top_news_age_hours": round((news_age_minutes or 0) / 60.0, 3) if news_age_minutes is not None else None,
-        "top_news_catalyst_tag": catalyst_type or dict(top_news.raw or {}).get("catalyst_tag") or "generic",
+        "top_news_catalyst_tag": (_detect_catalyst_type([str(top_news.headline or "")]) or "generic") if qualification_split else catalyst_type or dict(top_news.raw or {}).get("catalyst_tag") or "generic",
         "news_source_mode": _evidence_source_mode(ordered, summary),
         "news_asof": datetime.now(timezone.utc).isoformat(),
         "news_provider_status": _news_provider_status_for_symbol(symbol, summary, result),
@@ -3349,6 +3324,13 @@ def _ross_news_context_from_evidence(
     }
 
 
+def _ross_operational_acquisition_scope(symbol, summary, result):
+    coverage = _refresh_diag_value(_news_intelligence_diag(result), "operational_acquisition_by_symbol", {})
+    if not coverage and summary is not None:
+        coverage = summary.diagnostics.get("last_retrieval", {}).get("coverage", {}).get("diagnostics", {}).get("operational_acquisition_by_symbol", {})
+    return coverage.get(symbol, {})
+
+
 def _ross_news_contexts_from_news_intelligence_result(
     result: NewsBatchResult,
 ) -> Dict[str, Dict[str, Any]]:
@@ -3362,12 +3344,36 @@ def _ross_news_contexts_from_news_intelligence_result(
         candidate = next((row for row in result.candidates if row.normalized_symbol == normalized), None)
         signature = _evidence_signature(evidence, summary, candidate=candidate, diagnostics=result.diagnostics)
         cached = _NEWS_CACHE.get(normalized)
+        signature = (*signature, int(time.time()), result.request.metadata.get("qualification_profile") if result.request else None,
+                     repr(_ross_operational_acquisition_scope(normalized, summary, result)))
         if cached and cached.get("signature") == signature:
             context = cached["context"]
             news_by_symbol[normalized] = context
             print(f"[NEWS] symbol={normalized} catalyst_tag={context.get('catalyst_type') or 'NONE'} news_changed=False")
             continue
         context = _ross_news_context_from_evidence(normalized, evidence, summary, result)
+        if result.request and result.request.metadata.get("qualification_profile") == "ross_issuer_event_v9":
+            acquisition = _refresh_diag_value(_news_intelligence_diag(result), "issuer_query", {})
+            if not acquisition and summary is not None:
+                acquisition = summary.diagnostics.get("last_retrieval", {}).get("coverage", {}).get("diagnostics", {}).get("issuer_query", {})
+            outcomes = acquisition.get("per_issuer", {}).get(normalized, [])
+            scope = _ross_operational_acquisition_scope(normalized, summary, result)
+            context["acquisition_available"] = bool(scope.get("acquisition_completed"))
+            context["source_coverage_complete"] = bool(scope.get("source_coverage_complete"))
+            context["source_coverage_status"] = scope.get("source_coverage_status", "unknown")
+            context["search_completeness_established"] = False
+            context["coverage_deadline_exhausted"] = bool(scope.get("coverage_deadline_exhausted"))
+            # Partial acquisition can supply a validated positive witness, but
+            # cannot prove catalyst absence. Keep observed dilution vetoes and
+            # their explicit reasons even when mandatory status is unavailable.
+            if scope and not scope.get("source_coverage_complete") and not context.get("ross_catalyst_valid"):
+                context["news_available"] = False
+                partial_reason = "partial_coverage_dilution_veto" if context.get("dilution_flag") else "partial_coverage_no_qualifying_catalyst"
+                context["ross_catalyst_notes"] = partial_reason
+                context["news_diagnostic_status"] = partial_reason
+            context["issuer_query_outcomes"] = outcomes
+            context["issuer_query_requests_completed"] = bool(outcomes) and all(
+                row.get("attempted") and row.get("status") == "available" and not row.get("processing_truncated") for row in outcomes)
         news_by_symbol[normalized] = context
         _NEWS_CACHE[normalized] = {"signature": signature, "context": context}
         if context.get("news_present"):
@@ -3403,6 +3409,9 @@ def _news_diagnostics_from_news_intelligence_result(
         all_failed
         or failure_reason
         or result.diagnostics.budget_exhausted
+        or (result.retrieval_policy is not None and result.retrieval_policy.metadata.get("ross_issuer_query")
+            and (result.diagnostics.unavailable or any(
+                context.get("source_coverage_status") == "partial" for context in news_by_symbol.values())))
         or diagnostics.get("cache_read_failed")
         or diagnostics.get("cache_write_failed")
     )
@@ -3557,7 +3566,15 @@ def _extended_only_tier_budget() -> float:
     return max(0.0, total_budget_seconds - _fast_only_tier_budget())
 
 
-def _enrich_news_context(
+def _enrich_news_context(symbols, provider_source, symbol_metadata_by_symbol=None):
+    started = time.monotonic()
+    contexts, diagnostic = _enrich_news_context_impl(symbols, provider_source, symbol_metadata_by_symbol)
+    if RossPolicy().issuer_query_enabled:
+        diagnostic.news_intelligence_diagnostics["ross_consumer_elapsed_seconds"] = time.monotonic() - started
+    return contexts, diagnostic
+
+
+def _enrich_news_context_impl(
     symbols: List[str],
     provider_source: str,
     symbol_metadata_by_symbol: Optional[Dict[str, Dict[str, Any]]] = None,
@@ -3574,11 +3591,30 @@ def _enrich_news_context(
         request,
         _ross_retrieval_policy(refresh_mode="cache_only", network_allowed=False),
     )
+    policy_started = time.monotonic()
     cache_news_by_symbol = _ross_news_contexts_from_news_intelligence_result(cache_result)
+    if RossPolicy().issuer_query_enabled:
+        cache_result.diagnostics.diagnostics["ross_policy_context_seconds"] = time.monotonic() - policy_started
     unresolved_symbols = _unresolved_ross_news_symbols([candidate.normalized_symbol for candidate in candidates], cache_news_by_symbol)
 
-    if provider_source == "MOCK" or not unresolved_symbols:
+    compatible_hits = set(cache_result.diagnostics.diagnostics.get("acquisition_cache_hit_symbols", ()))
+    cache_acquisition_current = RossPolicy().issuer_query_enabled and all(c.normalized_symbol in compatible_hits for c in candidates)
+    if provider_source == "MOCK" or not unresolved_symbols or cache_acquisition_current:
         return cache_news_by_symbol, _news_diagnostics_from_news_intelligence_result(cache_result, cache_news_by_symbol)
+
+    if RossPolicy().issuer_query_enabled:
+        lifecycle = getattr(service.retrieval_provider, "_lifecycle", None)
+        try:
+            operational_result = service.get_news(candidates, request,
+                _ross_retrieval_policy(refresh_mode="bounded_refresh", network_allowed=True))
+        finally:
+            cleanup = lifecycle.snapshot() if lifecycle is not None else {"cleanup_complete": None}
+        policy_started = time.monotonic()
+        operational_news = _ross_news_contexts_from_news_intelligence_result(operational_result)
+        operational_result.diagnostics.diagnostics["ross_policy_context_seconds"] = time.monotonic() - policy_started
+        diagnostic = _news_diagnostics_from_news_intelligence_result(operational_result, operational_news)
+        diagnostic.news_intelligence_diagnostics["rss_cleanup"] = cleanup
+        return operational_news, diagnostic
 
     fast_result = service.get_news(
         candidates,
