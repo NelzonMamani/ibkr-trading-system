@@ -154,6 +154,8 @@ class SourceDiagnostic:
     feed_item_count: int | None = None
     elapsed_kind: str | None = None
     worker_completed: bool | None = None
+    entries_examined_count: int | None = None
+    processing_truncated: bool = False
 
 
 @dataclass(frozen=True)

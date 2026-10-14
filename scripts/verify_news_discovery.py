@@ -20,7 +20,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from src.news.news_intelligence_contract import NewsCandidate
 from src.news.standalone_lookup import (
-    LookupSettings, human_report, jsonable, lookup_news, normalize_candidates,
+    BROAD_RESEARCH_PROFILE, RESEARCH_PROFILE, LookupSettings, human_report, jsonable, lookup_news, normalize_candidates,
 )
 
 STARTUP_ALLOWANCE_SECONDS = 10.0
@@ -34,6 +34,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--company-name", help="Issuer name for a single-symbol query")
     parser.add_argument("--alias", action="append", default=[], help="Issuer alias for a single symbol; repeatable")
     parser.add_argument("--lookback-hours", type=float, default=24.0)
+    parser.add_argument("--profile", choices=(RESEARCH_PROFILE, BROAD_RESEARCH_PROFILE), default=RESEARCH_PROFILE)
     parser.add_argument("--provider", choices=("rss", "massive"), default="rss")
     parser.add_argument("--published-after", help="Inclusive historical UTC start; pair with --published-before (Massive only)")
     parser.add_argument("--published-before", help="Inclusive historical UTC end; pair with --published-after (Massive only)")
@@ -112,6 +113,7 @@ def _inputs(args):
     elif not groups:
         groups = LookupSettings().source_groups
     settings = LookupSettings(
+        profile=args.profile,
         lookback_hours=args.lookback_hours, budget_seconds=args.budget_seconds,
         request_timeout_seconds=args.request_timeout_seconds, cleanup_seconds=args.cleanup_seconds,
         refresh_interval_seconds=args.refresh_interval_seconds, max_items=args.max_items,
@@ -122,6 +124,8 @@ def _inputs(args):
         cache_mode=args.cache_mode, cache_file=args.cache_file.resolve(),
         prep_file=args.prep_file.resolve() if args.prep_file else None,
     ).validated()
+    if settings.profile == BROAD_RESEARCH_PROFILE and any(not str(c.company_name or "").strip() for c in candidates):
+        raise ValueError("Broad RSS research requires company_name for every issuer")
     input_paths = {path.resolve() for path in (args.prep_file, args.candidates_file) if path}
     if any(_paths_alias(settings.cache_file, path) for path in input_paths):
         raise ValueError("--cache-file must be different from prep and candidate input files")
@@ -148,7 +152,7 @@ def _write_result(path: Path, result):
 
 def _source_identity():
     paths = sorted((REPO_ROOT / "src/news").glob("*.py"))
-    paths.extend([Path(__file__).resolve(), REPO_ROOT / "scripts/verify_news_provider_batch.py"])
+    paths.extend([Path(__file__).resolve(), REPO_ROOT / "scripts/verify_news_provider_batch.py", REPO_ROOT / "verified_rss.txt"])
     hashes = {path.relative_to(REPO_ROOT).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest() for path in paths if path.is_file()}
     try:
         head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, text=True, stderr=subprocess.DEVNULL).strip()

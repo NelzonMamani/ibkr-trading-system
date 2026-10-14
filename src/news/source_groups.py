@@ -9,6 +9,7 @@ SourceGroupId = Literal[
     "PREP_EXTENDED",
     "MACRO_LONG_HORIZON",
     "VERIFIED_RSS_LEGACY",
+    "BROAD_RSS_RESEARCH",
 ]
 
 
@@ -93,6 +94,13 @@ NEWS_SOURCE_GROUPS: dict[SourceGroupId, NewsSourceGroup] = {
         active_runtime_group=False,
         catalogue_path="verified_rss.txt",
     ),
+    "BROAD_RSS_RESEARCH": NewsSourceGroup(
+        group_id="BROAD_RSS_RESEARCH",
+        purpose="Explicit opt-in research over the historical catalogue; availability unverified.",
+        runtime_scope="standalone_research_only",
+        active_runtime_group=False,
+        catalogue_path="verified_rss.txt",
+    ),
 }
 
 
@@ -101,6 +109,9 @@ def get_source_group(group_id: SourceGroupId) -> NewsSourceGroup:
 
 
 def get_source_group_urls(group_id: SourceGroupId) -> tuple[str, ...]:
+    if group_id == "BROAD_RSS_RESEARCH":
+        from src.news.verified_sources import load_verified_rss_sources
+        return tuple(load_verified_rss_sources())
     return get_source_group(group_id).urls
 
 

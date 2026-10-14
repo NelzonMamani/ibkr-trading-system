@@ -66,10 +66,12 @@ class RssFailureSummary:
     unique_source_urls_scheduled_count: int = 0
     unique_source_urls_attempted_count: int = 0
     duplicate_source_fetches_avoided_count: int = 0
+    research_by_symbol: Mapping[str, Any] = field(default_factory=dict)
 
 
 DEFAULT_RSS_FETCH_WORKERS = 4
 MIN_SOURCE_TIMEOUT_SECONDS = 0.05
+RESEARCH_OBSERVATION_LIMIT = 1000
 SOURCE_WAIT_POLL_SECONDS = 0.05
 
 
@@ -512,6 +514,16 @@ def _fetch_headlines_from_sources(
     headlines: Dict[str, List[Headline]] = _empty_headlines(normalized_symbols)
     failures_by_domain: Dict[str, Dict[str, int]] = {}
     max_entries = max(1, int(max_entries_per_symbol or 1))
+    research = source_tier == "research"
+    research_by_symbol = {symbol: {"issuer_match_observations": 0, "repeated_article_observations": 0,
+                                  "article_limit_excluded_observations": 0, "observation_records_truncated": 0,
+                                  "observations": []} for symbol in normalized_symbols} if research else {}
+    processed_entries: dict[str, int] = {}
+    processing_truncated: set[str] = set()
+
+    def retention_limit_reached() -> bool:
+        # Research continues scanning selected feeds after the retained-article cap.
+        return not research and all(len(items) >= max_entries for items in headlines.values())
 
     def budget_kwargs(exhausted: bool = False) -> Dict[str, Any]:
         return _budget_summary_kwargs(
@@ -559,7 +571,7 @@ def _fetch_headlines_from_sources(
     symbol_patterns = _compile_symbol_patterns(normalized_symbols)
     summary_symbol_patterns = _compile_symbol_patterns(normalized_symbols, allow_bare=False)
     company_patterns = _compile_company_patterns(normalized_symbols, symbol_metadata)
-    seen_by_symbol: Dict[str, set[tuple[str, str]]] = {symbol: set() for symbol in normalized_symbols}
+    seen_by_symbol: Dict[str, set[tuple[str, ...]]] = {symbol: set() for symbol in normalized_symbols}
     failures = 0
     ticker_token_matches = 0
     company_name_matches = 0
@@ -609,7 +621,7 @@ def _fetch_headlines_from_sources(
             "source_url": url,
             "source_domain": _domain_for_url(url),
             "provider": "rss_batch",
-            "source_group": "PREP_EXTENDED" if source_tier == "extended" else "FAST_TRADING",
+            "source_group": "BROAD_RSS_RESEARCH" if research else "PREP_EXTENDED" if source_tier == "extended" else "FAST_TRADING",
             "source_tier": source_tier,
             "retrieval_status": retrieval_status,
             "attempted": bool(attempted),
@@ -627,6 +639,8 @@ def _fetch_headlines_from_sources(
             feed_item_count=feed_item_count, elapsed_kind=elapsed_kind,
             worker_completed=worker_completed,
         )
+        if research:
+            row.update(entries_examined_count=processed_entries.get(url), processing_truncated=url in processing_truncated)
         return row
 
     def per_source_timeout_seconds(remaining_source_count: int) -> float:
@@ -702,15 +716,34 @@ def _fetch_headlines_from_sources(
 
     def process_feed(url: str, feed: Any) -> int:
         nonlocal ticker_token_matches, company_name_matches, description_summary_matches, tier_matches
+        nonlocal news_budget_exhausted, tier_budget_exhausted
+
+        def research_processing_expired() -> bool:
+            nonlocal news_budget_exhausted, tier_budget_exhausted
+            if not research:
+                return False
+            current = time.monotonic()
+            stage_expired = deadline_s is not None and current >= deadline_s
+            tier_expired = tier_deadline is not None and current >= tier_deadline
+            if stage_expired or tier_expired:
+                processing_truncated.add(url)
+                news_budget_exhausted = news_budget_exhausted or stage_expired
+                tier_budget_exhausted = tier_budget_exhausted or tier_expired
+                return True
+            return False
         source_name = ""
         try:
             source_name = (feed.feed.get("title") or "").strip()
         except Exception:
             source_name = ""
         source_matches = 0
+        processed_entries[url] = 0
         for entry in getattr(feed, "entries", []) or []:
-            if all(len(items) >= max_entries for items in headlines.values()):
+            if retention_limit_reached():
                 break
+            if research_processing_expired():
+                break
+            processed_entries[url] += 1
             title = _clean_text(_entry_value(entry, "title"))
             link = _clean_text(_entry_value(entry, "link"))
             if not title:
@@ -725,7 +758,7 @@ def _fetch_headlines_from_sources(
             title_upper = title.upper()
             summary_upper = summary_text.upper()
             for symbol in normalized_symbols:
-                if len(headlines[symbol]) >= max_entries:
+                if not research and len(headlines[symbol]) >= max_entries:
                     continue
                 match_type = ""
                 matched_field = ""
@@ -749,8 +782,33 @@ def _fetch_headlines_from_sources(
                             break
                 if not match_type:
                     continue
-                key = (title.lower(), source_name.lower() or url.lower())
-                if key in seen_by_symbol[symbol]:
+                if research_processing_expired():
+                    break
+                key = ((title.casefold(), source_name.casefold() or url, link, "" if link else str(ts)) if research
+                       else (title.lower(), source_name.lower() or url.lower()))
+                if research:
+                    facts = research_by_symbol[symbol]
+                    facts["issuer_match_observations"] += 1
+                    repeated = key in seen_by_symbol[symbol]
+                    facts["repeated_article_observations"] += int(repeated)
+                    if len(facts["observations"]) < RESEARCH_OBSERVATION_LIMIT:
+                        facts["observations"].append({"headline": title, "publisher": source_name or url,
+                            "url": link, "published_ts": ts, "feed_url": url,
+                            "match_type": match_type, "matched_field": matched_field,
+                            "repeated_article_observation": repeated})
+                    else:
+                        facts["observation_records_truncated"] += 1
+                    # Bound identity tracking as well as the report. Once the
+                    # observation cap is hit, repetition beyond it is unknown.
+                    if not facts["observation_records_truncated"]:
+                        seen_by_symbol[symbol].add(key)
+                    source_matches += 1
+                    if len(headlines[symbol]) >= max_entries:
+                        facts["article_limit_excluded_observations"] += int(not repeated)
+                        continue
+                    if repeated:
+                        continue
+                elif key in seen_by_symbol[symbol]:
                     continue
                 seen_by_symbol[symbol].add(key)
                 if match_type == "ticker_token":
@@ -760,7 +818,8 @@ def _fetch_headlines_from_sources(
                 if matched_field == "summary":
                     description_summary_matches += 1
                 tier_matches += 1
-                source_matches += 1
+                if not research:
+                    source_matches += 1
                 headlines[symbol].append(
                     Headline(
                         title=title,
@@ -811,7 +870,7 @@ def _fetch_headlines_from_sources(
                     next_source_index < len(unique_sources) and len(pending) < worker_count
                     and not news_budget_exhausted and not tier_budget_exhausted
                 ):
-                    if all(len(items) >= max_entries for items in headlines.values()):
+                    if retention_limit_reached():
                         break
                     remaining_budget_s = _budget_remaining_seconds(deadline_s)
                     remaining_tier_s = _budget_remaining_seconds(tier_deadline)
@@ -941,18 +1000,20 @@ def _fetch_headlines_from_sources(
                     source_diagnostics.append(
                         source_diag(
                             url,
-                            retrieval_status="available",
+                            retrieval_status="partial" if url in processing_truncated else "available",
                             attempted=True,
                             matched_count=matched_count,
+                            failure_reason="processing_deadline_exhausted" if url in processing_truncated else None,
+                            budget_exhausted=url in processing_truncated,
                             elapsed_seconds=elapsed,
                             timeout_seconds=timeout_s,
                             **measurements,
                         )
                     )
-                if all(len(items) >= max_entries for items in headlines.values()):
+                if retention_limit_reached():
                     break
         finally:
-            if lifecycle is not None and not skipped_sources_recorded and all(len(items) >= max_entries for items in headlines.values()):
+            if lifecycle is not None and not skipped_sources_recorded and retention_limit_reached():
                 for url in unique_sources[next_source_index:]:
                     source_diagnostics.append(source_diag(
                         url, retrieval_status="not_requested", attempted=False,
@@ -1002,6 +1063,7 @@ def _fetch_headlines_from_sources(
         unique_source_urls_scheduled_count=len(unique_sources),
         unique_source_urls_attempted_count=sources_attempted,
         duplicate_source_fetches_avoided_count=duplicate_source_fetches_avoided,
+        research_by_symbol=research_by_symbol,
         **budget_kwargs(news_budget_exhausted),
         **tier_budget_kwargs(tier_budget_exhausted),
     )

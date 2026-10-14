@@ -34,6 +34,7 @@ def merge_rss_failure_summaries(*summaries: Any) -> RssFailureSummary:
     unique_source_urls_scheduled_count = 0
     unique_source_urls_attempted_count = 0
     duplicate_source_fetches_avoided_count = 0
+    research_by_symbol: dict[str, Any] = {}
     for summary in summaries:
         if summary is None:
             continue
@@ -66,6 +67,7 @@ def merge_rss_failure_summaries(*summaries: Any) -> RssFailureSummary:
         unique_source_urls_scheduled_count += int(getattr(summary, "unique_source_urls_scheduled_count", 0) or 0)
         unique_source_urls_attempted_count += int(getattr(summary, "unique_source_urls_attempted_count", 0) or 0)
         duplicate_source_fetches_avoided_count += int(getattr(summary, "duplicate_source_fetches_avoided_count", 0) or 0)
+        research_by_symbol.update(getattr(summary, "research_by_symbol", {}) or {})
         tier_budget_seconds = max(tier_budget_seconds, float(getattr(summary, "tier_budget_seconds", 0.0) or 0.0))
         tier_elapsed_seconds = max(tier_elapsed_seconds, float(getattr(summary, "tier_elapsed_seconds", 0.0) or 0.0))
         tier_budget_exhausted = tier_budget_exhausted or bool(getattr(summary, "tier_budget_exhausted", False))
@@ -105,6 +107,7 @@ def merge_rss_failure_summaries(*summaries: Any) -> RssFailureSummary:
         unique_source_urls_scheduled_count=unique_source_urls_scheduled_count,
         unique_source_urls_attempted_count=unique_source_urls_attempted_count,
         duplicate_source_fetches_avoided_count=duplicate_source_fetches_avoided_count,
+        research_by_symbol=research_by_symbol,
     )
 
 
@@ -126,9 +129,12 @@ def news_provider_status(summary: Any) -> str:
 def dedupe_bounded_headlines(headlines: Iterable[Headline], max_entries_per_symbol: int) -> list[Headline]:
     max_entries = max(1, int(max_entries_per_symbol or 1))
     result: list[Headline] = []
-    seen: set[str] = set()
+    seen: set[str | tuple[str, ...]] = set()
     for headline in headlines:
         key = f"{headline.title.lower().strip()}|{headline.source.lower().strip()}"
+        if headline.source_tier == "research":
+            key = (headline.title.casefold().strip(), headline.source.casefold().strip(),
+                   headline.url, str(headline.published_ts) if not headline.url else "")
         if key in seen:
             continue
         seen.add(key)
