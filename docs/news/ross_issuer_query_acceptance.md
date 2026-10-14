@@ -120,7 +120,7 @@ source failures without a deadline remain unavailable without being falsely
 labelled budget exhaustion. Transport reachability/failure diagnostics are kept
 separate from this required-coverage decision.
 
-The `ross_issuer_event_v6` qualification fingerprint also rejects unverified
+The `ross_issuer_event_v7` qualification fingerprint also rejects unverified
 post-event ownership (for example, JPM reporting earnings of another company).
 Verified same-issuer ownership and ordinary earnings-period complements remain
 supported. This fingerprint invalidates older compressed witness-selection
@@ -150,3 +150,8 @@ and protects a verified leading issuer identity from clause-word splitting
 (e.g. AS / Amer Sports). Later co-mention clauses remain independent. Explicit
 lowercase/title-case and separator-ticker fixtures verify both acceptance of
 direct assertions and rejection of rival-event inheritance.
+
+Passive `granted/awarded/issued/assigned/licensed/given to` event recipients
+require the same verified issuer ownership as other owner complements. Ordinary
+purpose infinitives (`to improve hospitals`) are not recipients. Unknown or
+foreign recipients fail closed; v7 invalidates prior compressed witness proof.

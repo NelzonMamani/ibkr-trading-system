@@ -175,7 +175,7 @@ def test_verified_same_issuer_or_period_complement_keeps_fixture_positive(headli
 def test_changed_owner_qualification_contract_refreshes_old_compressed_coverage(monkeypatch,tmp_path):
     calls=[];fixture_transport(monkeypatch,calls,[])
     svc=service(tmp_path);current=ross._ross_news_request()
-    assert current.metadata['qualification_profile']=='ross_issuer_event_v6'
+    assert current.metadata['qualification_profile']=='ross_issuer_event_v7'
     old=replace(current,metadata={**current.metadata,'qualification_profile':'ross_issuer_event_v1'})
     policy=ross._ross_retrieval_policy(refresh_mode='bounded_refresh',network_allowed=True)
     svc.get_news((CANDIDATE,),old,policy);before=len(calls)
@@ -292,3 +292,22 @@ def test_clause_boundaries_preserve_leading_verified_identity(headline,qualified
     from src.strategies.ross_momentum.policy.catalyst_policy import assess_issuer_event
     evidence=replace(item(headline),symbol='AS',company_name='Amer Sports, Inc.',aliases=('Amer Sports',))
     assert assess_issuer_event('AS',evidence)['qualified'] is qualified
+
+
+@pytest.mark.parametrize('headline,qualified',[
+    ('JPM announces FDA approval granted to Rival Therapeutics',False),
+    ('JPM announces contract awarded to Bank of America',False),
+    ('JPM announces FDA approval granted exclusively to Rival Therapeutics',False),
+    ('JPM announces FDA approval issued to Rival Therapeutics',False),
+    ('JPM announces contract assigned to Bank of America',False),
+    ('JPM announces FDA approval granted to JPMorgan Chase',True),
+    ('JPM wins contract to improve hospitals',True),
+])
+def test_passive_event_recipients_must_belong_to_requested_issuer(headline,qualified):
+    from test_ross_operational_issuer_news import item
+    from src.news.news_intelligence_contract import NewsBatchResult,RetrievalDiagnostics
+    result=NewsBatchResult(candidates=(CANDIDATE,),request=ross._ross_news_request(),diagnostics=RetrievalDiagnostics(provider_available=True))
+    context=ross._ross_news_context_from_evidence('JPM',(item(headline),),None,result)
+    assert context['ross_catalyst_valid'] is qualified
+    if not qualified:
+        assert context['qualification_decisions'][0]['reason']=='event_ownership_uncertain_or_other_issuer'

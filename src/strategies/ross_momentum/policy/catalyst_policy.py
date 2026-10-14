@@ -254,7 +254,7 @@ def assess_issuer_event(symbol, item, candidates=()):
         # matcher rather than inferring company names or trusting stored tags.
         owner_uncertain = False
         tail = remainder[event.end():] if event else ""
-        connectors = r"of|by|belonging\s+to|for|at|from"
+        connectors = r"of|by|belonging\s+to|for|at|from|(?:granted|awarded|issued|assigned|licensed|given)(?:\s+(?:exclusively|solely|jointly))?\s+to"
         consumed_owner_end = -1
         for complement in re.finditer(r"\b(?:" + connectors + r")\s+", tail, re.I):
             if complement.start() < consumed_owner_end:
