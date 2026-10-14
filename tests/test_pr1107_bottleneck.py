@@ -134,3 +134,47 @@ def test_one_required_primary_failure_remains_unavailable_without_false_deadline
     assert not ctx['news_available'] and not ctx['ross_catalyst_valid']
     assert ross._news_diagnostics_from_news_intelligence_result(result,contexts).news_degraded
     assert svc.retrieval_provider._lifecycle.wait_for_cleanup(1)['cleanup_complete']
+
+
+@pytest.mark.parametrize('headline',[
+    'JPM reports earnings of Bank of America',
+    'JPM reports earnings for Bank of America',
+    'JPM reports earnings at Bank of America',
+    'JPM reports earnings from Bank of America',
+    'JPM reports earnings of JPMorgan Chase and Bank of America',
+    'JPM reports earnings for Q3 of Bank of America',
+    'JPM reports earnings for its competitor Bank of America',
+])
+def test_other_or_uncertain_event_owner_cannot_satisfy_actual_consumer(headline):
+    from test_ross_operational_issuer_news import item
+    from src.news.news_intelligence_contract import NewsBatchResult, RetrievalDiagnostics
+    from src.strategies.ross_momentum.policy.catalyst_policy import assess_catalyst
+    result=NewsBatchResult(candidates=(CANDIDATE,),request=ross._ross_news_request(),diagnostics=RetrievalDiagnostics(provider_available=True))
+    context=ross._ross_news_context_from_evidence('JPM',(item(headline),),None,result)
+    assert not context['ross_catalyst_valid']
+    assert context['qualification_decisions'][0]['reason']=='event_ownership_uncertain_or_other_issuer'
+    assert not assess_catalyst(mode='READ_ONLY',news_enabled=True,news_available=context['news_available'],confirmed=context['ross_catalyst_valid']).satisfied
+
+
+@pytest.mark.parametrize('headline',[
+    'JPM reports earnings for Q3',
+    'JPM reports earnings for the third quarter',
+    'JPM reports earnings of JPMorgan Chase',
+])
+def test_verified_same_issuer_or_period_complement_keeps_fixture_positive(headline):
+    from test_ross_operational_issuer_news import item
+    from src.strategies.ross_momentum.policy.catalyst_policy import assess_issuer_event
+    assert assess_issuer_event('JPM',item(headline))['qualified']
+
+
+def test_changed_owner_qualification_contract_refreshes_old_compressed_coverage(monkeypatch,tmp_path):
+    calls=[];fixture_transport(monkeypatch,calls,[])
+    svc=service(tmp_path);current=ross._ross_news_request()
+    assert current.metadata['qualification_profile']=='ross_issuer_event_v2'
+    old=replace(current,metadata={**current.metadata,'qualification_profile':'ross_issuer_event_v1'})
+    policy=ross._ross_retrieval_policy(refresh_mode='bounded_refresh',network_allowed=True)
+    svc.get_news((CANDIDATE,),old,policy);before=len(calls)
+    current_result=svc.get_news((CANDIDATE,),current,policy)
+    assert len(calls)>before
+    assert current_result.diagnostics.diagnostics['acquisition_profile_mismatch_symbols']==['JPM']
+    assert svc.retrieval_provider._lifecycle.wait_for_cleanup(1)['cleanup_complete']

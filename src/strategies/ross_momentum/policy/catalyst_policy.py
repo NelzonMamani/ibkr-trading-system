@@ -189,6 +189,16 @@ def assess_issuer_event(symbol, item, candidates=()):
         return result
     aliases = company_aliases_for_symbol(symbol, metadata)
     ticker = _compile_symbol_patterns((symbol,))[symbol]
+    def identity_end(text):
+        match = ticker.match(text)
+        end = match.end() if match else None
+        for alias in aliases:
+            words = re.findall(r'[A-Z0-9]+', alias.upper())
+            match = re.match(r'[^A-Z0-9]*' + r'[^A-Z0-9]+'.join(map(re.escape, words)) + r'(?![A-Z0-9])', text.upper())
+            if match:
+                end = max(end or 0, match.end())
+        return end
+    ownership_rejected = False
     # Clause boundaries prevent a later co-mention from inheriting an event.
     clauses = re.split(r';|\s+[—–]\s+|\b(?:while|whereas|versus|alongside|after|but|as)\b', title, flags=re.I)
     for clause in clauses:
@@ -196,12 +206,7 @@ def assess_issuer_event(symbol, item, candidates=()):
         clause_kind = classify_headline(clause)
         if clause_kind is None:
             continue
-        subject_end = ticker.match(clause).end() if ticker.match(clause) else None
-        for alias in aliases:
-            words = re.findall(r'[A-Z0-9]+', alias.upper())
-            match = re.match(r'[^A-Z0-9]*' + r'[^A-Z0-9]+'.join(map(re.escape, words)) + r'(?![A-Z0-9])', clause.upper())
-            if match:
-                subject_end = max(subject_end or 0, match.end())
+        subject_end = identity_end(clause)
         if subject_end is None:
             continue
         remainder = clause[subject_end:]
@@ -228,9 +233,36 @@ def assess_issuer_event(symbol, item, candidates=()):
             continue
         if re.search(r'\b(?:and|with|vs)\b|&', prefix, re.I):
             continue
+        # Subject assertions cannot borrow an event explicitly owned by somebody
+        # else. Unknown ownership fails closed; reuse the SAME issuer identity
+        # matcher rather than inferring company names or trusting stored tags.
+        owner_uncertain = False
+        tail = remainder[event.end():] if event else ""
+        connectors = r"of|by|belonging\s+to"
+        if clause_kind == "EARNINGS":
+            connectors += r"|for|at|from"
+        consumed_owner_end = -1
+        for complement in re.finditer(r"\b(?:" + connectors + r")\s+", tail, re.I):
+            if complement.start() < consumed_owner_end:
+                continue
+            owner = tail[complement.end():].strip()
+            end = identity_end(owner)
+            period = clause_kind == "EARNINGS" and re.match(
+                r"^(?:the\s+)?(?:fiscal\s+)?(?:Q[1-4]|(?:first|second|third|fourth)\s+quarter|quarter\s+ended)\b", owner, re.I)
+            if end is not None:
+                consumed_owner_end = complement.end() + end
+                if re.search(r"\b(?:and|with|vs)\b|&", owner[end:], re.I):
+                    owner_uncertain = True
+                    break
+            elif not period and not re.match(r"^its\s+own\b", owner, re.I):
+                owner_uncertain = True
+                break
+        if owner_uncertain:
+            ownership_rejected = True
+            continue
         result.update(qualified=True, catalyst_type=clause_kind, reason='issuer_subject_event_attributed')
         return result
-    result['reason'] = 'event_not_attributed_to_requested_issuer'
+    result['reason'] = 'event_ownership_uncertain_or_other_issuer' if ownership_rejected else 'event_not_attributed_to_requested_issuer'
     return result
 
 

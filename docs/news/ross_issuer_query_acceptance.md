@@ -119,3 +119,9 @@ required coverage too; a positive query or PREP response cannot erase it. Known
 source failures without a deadline remain unavailable without being falsely
 labelled budget exhaustion. Transport reachability/failure diagnostics are kept
 separate from this required-coverage decision.
+
+The `ross_issuer_event_v2` qualification fingerprint also rejects unverified
+post-event ownership (for example, JPM reporting earnings of another company).
+Verified same-issuer ownership and ordinary earnings-period complements remain
+supported. This fingerprint invalidates older compressed witness-selection
+coverage, rather than treating an old retained cohort as proof of the new rule.
