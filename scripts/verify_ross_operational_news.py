@@ -59,7 +59,7 @@ def run_consumer(candidates, directory: Path, *, enabled: bool):
         # not a second consumer, engine, prep store or qualification authority.
         with patch.object(ross,'_news_intelligence_service_for_scanner',lambda:service), patch.object(ross,'_NEWS_CACHE',{}):
             contexts,diagnostics=ross._enrich_news_context([c.normalized_symbol for c in candidates], 'RSS' if enabled else 'MOCK', metadata)
-        cleanup=lifecycle.wait_for_cleanup(0)
+        cleanup=lifecycle.snapshot()
         report={'schema':'ross.operational_news_verification.v1', 'runtime':identity,
             'setting_enabled':enabled,'consumer':'src.scanner.scanner_runner._enrich_news_context',
             'contexts':contexts, 'diagnostics':asdict(diagnostics),
@@ -68,6 +68,11 @@ def run_consumer(candidates, directory: Path, *, enabled: bool):
                 news_available=ctx['news_available'],confirmed=ctx['ross_catalyst_valid'],validation_bypass_requested=False)) for s,ctx in contexts.items()},
             'cleanup':cleanup,'consumer_elapsed_seconds':time.monotonic()-started,
             'limits':'Eight-second acquisition, existing six-hour Ross freshness, five display slots plus one policy witness. Raw responses are separate evidence. Google URLs remain intermediary URLs. No trading-readiness upgrade.'}
+        # Keep acquisition evidence before the separate diagnostic cleanup wait.
+        report['worker_stage']='acquisition_complete_cleanup_pending'
+        (directory/'operational-evidence.json').write_text(json.dumps(jsonable(report),indent=2)+'\n',encoding='utf-8')
+        report['cleanup']=lifecycle.wait_for_cleanup(10.0)
+        report['worker_stage']='cleanup_wait_complete'
         after=_source_identity()['source_hashes']
         after.update({p.relative_to(ROOT).as_posix():hashlib.sha256(p.read_bytes()).hexdigest() for p in extra_paths})
         report['runtime']['source_hashes_unchanged']=identity['source_hashes']==after

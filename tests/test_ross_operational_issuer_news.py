@@ -113,7 +113,8 @@ def test_actual_enrichment_witness_batch_cache_and_canonical_queries(monkeypatch
     ctx=contexts['JPM']
     assert ctx['ross_catalyst_valid'] and ctx['news_count']==5 and ctx['qualification_evidence_count']==6
     assert not set(ctx['qualifying_evidence_ids']) & set(ctx['presentation_evidence_ids'])
-    assert diag.news_intelligence_diagnostics['rss_cleanup']['cleanup_complete'] is True
+    assert diag.news_intelligence_diagnostics['rss_cleanup']['cleanup_elapsed_seconds'] == 0
+    assert svc.retrieval_provider._lifecycle.wait_for_cleanup(1)['cleanup_complete'] is True
     urls=[url for url,_ in calls]
     assert len(urls)==len(set(urls)) and urls[0].startswith('https://news.google.com/rss/search?')
     assert not any('yahoo' in url for url in urls)
@@ -152,7 +153,7 @@ def test_empty_failure_cadence_query_cap_and_batch_identity(monkeypatch,tmp_path
     assert svc.retrieval_provider._lifecycle.wait_for_cleanup(1)['cleanup_complete']
 
 @pytest.mark.parametrize('headline', ['JPM reports earnings beat', '$JPM reports earnings beat',
-    'JPMorgan Chase announces record quarterly earnings', 'JPM wins new contract'])
+    'JPMorgan Chase announces record quarterly earnings', 'JPM wins new contract', 'JPM announces new supply contract'])
 def test_fixture_direct_issuer_events_can_qualify(headline):
     assert assess_issuer_event('JPM',item(headline))['qualified']
 
@@ -226,3 +227,46 @@ def test_older_fresh_dilution_witness_vetoes_positive(monkeypatch,tmp_path):
     ctx,_=ross._enrich_news_context(['JPM'],'RSS',{'JPM':{'company_name':CANDIDATE.company_name}})
     assert ctx['JPM']['qualification_evidence_count']==6
     assert ctx['JPM']['dilution_flag'] and not ctx['JPM']['ross_catalyst_valid']
+
+
+def test_witness_is_excluded_from_all_presentation_metrics():
+    from src.news.news_intelligence_contract import NewsEvidenceSummary
+    display=tuple(replace(item('JPM market roundup '+str(n),n+1),original_source='Fixture Low Wire',
+        url='https://low.invalid/'+str(n),source_domain='low.invalid',velocity_5m=6,heat_score=99,
+        source_reliability_score=1) for n in range(5))
+    witness=replace(item('JPM announces new supply contract',100),original_source='Reuters',
+        url='https://reuters.invalid/event',source_domain='reuters.invalid',velocity_5m=6,heat_score=99,source_reliability_score=1)
+    result=NewsBatchResult(candidates=(CANDIDATE,),request=ross._ross_news_request(),diagnostics=RetrievalDiagnostics(provider_available=True))
+    ctx=ross._ross_news_context_from_evidence('JPM',(*display,witness),NewsEvidenceSummary('JPM',velocity_5m=6,independent_source_count=2),result)
+    assert ctx['ross_catalyst_valid'] and ctx['catalyst_type']=='CONTRACT'
+    assert ctx['news_count']==ctx['fresh_news_count']==ctx['velocity_5m']==5
+    assert ctx['news_independent_source_count']==1 and ctx['news_heat_score']<99
+    assert ctx['news_source_reliability_score']==0
+    assert ctx['top_news_catalyst_tag']=='generic'
+    assert all('reuters' not in link for link in ctx['top_links'])
+    assert ctx['top_domains']==['low.invalid']
+    assert len(ctx['news_intelligence_source_provenance'])==5
+
+
+def test_actual_consumer_never_waits_for_cleanup(monkeypatch,tmp_path):
+    calls=[];fixture_transport(monkeypatch,calls,[])
+    svc=service(tmp_path);life=svc.retrieval_provider._lifecycle
+    def forbidden(*a,**k):
+        raise AssertionError('Scanner must not synchronously wait after news budget')
+    original=life.wait_for_cleanup
+    monkeypatch.setattr(life,'wait_for_cleanup',forbidden)
+    monkeypatch.setattr(ross,'_news_intelligence_service_for_scanner',lambda:svc)
+    try:
+        _,diag=ross._enrich_news_context(['JPM'],'RSS',{'JPM':{'company_name':CANDIDATE.company_name}})
+        assert diag.news_intelligence_diagnostics['rss_cleanup']['cleanup_elapsed_seconds']==0
+    finally:
+        assert original(2)['cleanup_complete']
+
+
+def test_captured_bac_event_does_not_qualify_comentioned_jpm():
+    # Actual captured headline/publication instant; offline regression at the captured clock.
+    title = "Bank of America Falls 5% as $1.2B Money Laundering Penalty Drives Earnings Miss; JPMorgan Chase and Wells Fargo Hold Steady"
+    age = NOW.timestamp() - datetime(2026,10,14,12,32,tzinfo=timezone.utc).timestamp()
+    decision = assess_issuer_event('JPM', item(title,age))
+    assert not decision['qualified']
+    assert decision['reason'] == 'event_not_attributed_to_requested_issuer'

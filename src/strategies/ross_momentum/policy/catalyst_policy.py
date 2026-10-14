@@ -221,7 +221,7 @@ def assess_issuer_event(symbol, item, candidates=()):
                           "launches", "expands", "signs", "posts", "releases", "gets", "obtains", "granted",
                           "its", "a", "an", "the", "new", "major", "record", "quarterly", "annual", "fiscal",
                           "first", "second", "third", "fourth", "quarter", "half", "year", "positive", "strong",
-                          "q1", "q2", "q3", "q4", "multi", "million", "billion", "dollar"}
+                          "q1", "q2", "q3", "q4", "multi", "million", "billion", "dollar", "supply", "distribution", "manufacturing", "commercial", "government", "definitive", "licensing", "strategic", "collaboration", "purchase", "sales", "service", "services", "long", "term"}
         direct_technology_launch = (clause_kind in {"TECH_CATALYST", "EV_CATALYST", "CRYPTO_CATALYST", "DEFENSE_CATALYST"}
                                     and re.match(r"^[\s:,'’()-]*(?:launches?|expands?)\b", remainder, re.I))
         if not direct_technology_launch and any(token not in allowed_prefix and not token.isdigit() for token in re.findall(r"[a-z0-9]+", prefix.lower())):

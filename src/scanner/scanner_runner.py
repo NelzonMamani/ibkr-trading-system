@@ -3181,16 +3181,20 @@ def _ross_news_context_from_evidence(
             ),
         )
     )
+    presentation_limit = int(result.request.metadata.get("presentation_limit", len(ordered))) if result.request else len(ordered)
+    presentation = ordered[:presentation_limit]
+    qualification_split = bool(result.request and result.request.metadata.get("qualification_profile"))
+    metrics_filtered = relevance_filtered or qualification_split
     diagnostics = _news_intelligence_diag(result)
-    news_age_minutes = _evidence_age_minutes(ordered)
-    fresh_news_count = _fresh_evidence_count(ordered)
-    stale_news_count = max(len(ordered) - fresh_news_count, 0)
+    news_age_minutes = _evidence_age_minutes(presentation)
+    fresh_news_count = _fresh_evidence_count(presentation)
+    stale_news_count = max(len(presentation) - fresh_news_count, 0)
     news_is_fresh = news_age_minutes is not None and news_age_minutes <= NEWS_AGE_MAX_MINUTES
     # Stored per-item fields can themselves contain the original batch's
     # aggregate metrics. After rejecting evidence, derive a fresh cohort view
     # from accepted text/source/time facts, never those inherited aggregates.
     filtered_metrics = None
-    if relevance_filtered:
+    if metrics_filtered:
         metric_now = time.time()
         metric_headlines = [
             Headline(
@@ -3203,14 +3207,14 @@ def _ross_news_context_from_evidence(
                 ),
                 url=str(item.url or ""),
             )
-            for item in ordered
+            for item in presentation
         ]
         filtered_metrics = normalize_headlines(metric_headlines, now_ts=metric_now)
-    velocity_summary = None if relevance_filtered else summary
-    vel5 = _summary_velocity(velocity_summary, ordered, "velocity_5m", 5 * 60)
-    vel10 = _summary_velocity(velocity_summary, ordered, "velocity_10m", 10 * 60)
-    vel30 = _summary_velocity(velocity_summary, ordered, "velocity_30m", 30 * 60)
-    vel60 = _summary_velocity(velocity_summary, ordered, "velocity_60m", 60 * 60)
+    velocity_summary = None if metrics_filtered else summary
+    vel5 = _summary_velocity(velocity_summary, presentation, "velocity_5m", 5 * 60)
+    vel10 = _summary_velocity(velocity_summary, presentation, "velocity_10m", 10 * 60)
+    vel30 = _summary_velocity(velocity_summary, presentation, "velocity_30m", 30 * 60)
+    vel60 = _summary_velocity(velocity_summary, presentation, "velocity_60m", 60 * 60)
     attribution = [assess_issuer_event(symbol, item, result.candidates) for item in ordered]
     qualifying_ids = {row["evidence_id"] for row in attribution if row["qualified"]}
     catalyst_type = next((row["catalyst_type"] for row in attribution if row["qualified"]), None)
@@ -3232,18 +3236,16 @@ def _ross_news_context_from_evidence(
         and news_age_minutes is not None
         and news_age_minutes <= NEWS_AGE_MAX_MINUTES
     )
-    domains, links = _evidence_domains_and_links(ordered)
-    presentation_limit = int(result.request.metadata.get("presentation_limit", len(ordered))) if result.request else len(ordered)
-    presentation = ordered[:presentation_limit]
+    domains, links = _evidence_domains_and_links(presentation)
     top_news = presentation[0]
     reliability_values = [
         float(value)
-        for item in ordered
+        for item in presentation
         for value in (item.source_reliability_score, item.source_credibility_score)
         if value is not None
     ]
-    heat_values = [float(item.heat_score) for item in ordered if item.heat_score is not None]
-    hotness_values = [float(item.hotness_score) for item in ordered if item.hotness_score is not None]
+    heat_values = [float(item.heat_score) for item in presentation if item.heat_score is not None]
+    hotness_values = [float(item.hotness_score) for item in presentation if item.hotness_score is not None]
     source_provenance = diagnostics.get("source_provenance_by_symbol", {}).get(symbol, [])
     match_types = diagnostics.get("match_types_by_symbol", {}).get(symbol, [])
     independent_source_count = summary.independent_source_count if summary is not None else 0
@@ -3263,16 +3265,16 @@ def _ross_news_context_from_evidence(
                 "cache_state": item.cache_state,
                 "retrieval_status": item.retrieval_status,
             }
-            for item in ordered
+            for item in presentation
         ]
-        match_types = sorted({str(item.match_type) for item in ordered if item.match_type})
+        match_types = sorted({str(item.match_type) for item in presentation if item.match_type})
     return {
         "news_present": True,
         "news_available": not retrieval_unavailable,
         "first_seen_ts": min(
             (
                 item.first_seen_at.timestamp()
-                for item in ordered
+                for item in presentation
                 if item.first_seen_at is not None
             ),
             default=None,
@@ -3292,13 +3294,14 @@ def _ross_news_context_from_evidence(
         "news_count": len(presentation),
         "qualification_evidence_count": len(ordered),
         "qualification_decisions": attribution,
+        "qualification_evidence_ids": [item.evidence_id for item in ordered],
         "qualifying_evidence_ids": sorted(qualifying_ids),
         "presentation_evidence_ids": [item.evidence_id for item in presentation],
         "fresh_news_count": fresh_news_count,
         "stale_news_count": stale_news_count,
         "top_news_title": top_news.headline if top_news else None,
         "top_news_age_hours": round((news_age_minutes or 0) / 60.0, 3) if news_age_minutes is not None else None,
-        "top_news_catalyst_tag": catalyst_type or dict(top_news.raw or {}).get("catalyst_tag") or "generic",
+        "top_news_catalyst_tag": (_detect_catalyst_type([str(top_news.headline or "")]) or "generic") if qualification_split else catalyst_type or dict(top_news.raw or {}).get("catalyst_tag") or "generic",
         "news_source_mode": _evidence_source_mode(ordered, summary),
         "news_asof": datetime.now(timezone.utc).isoformat(),
         "news_provider_status": _news_provider_status_for_symbol(symbol, summary, result),
@@ -3562,7 +3565,7 @@ def _enrich_news_context(
             operational_result = service.get_news(candidates, request,
                 _ross_retrieval_policy(refresh_mode="bounded_refresh", network_allowed=True))
         finally:
-            cleanup = lifecycle.wait_for_cleanup(10.0) if lifecycle is not None else {"cleanup_complete": None}
+            cleanup = lifecycle.snapshot() if lifecycle is not None else {"cleanup_complete": None}
         operational_news = _ross_news_contexts_from_news_intelligence_result(operational_result)
         diagnostic = _news_diagnostics_from_news_intelligence_result(operational_result, operational_news)
         diagnostic.news_intelligence_diagnostics["rss_cleanup"] = cleanup

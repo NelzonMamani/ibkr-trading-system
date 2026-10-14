@@ -12,6 +12,7 @@ from src.scanner import scanner_runner
 @pytest.fixture(autouse=True)
 def clean_context_cache(monkeypatch):
     monkeypatch.setattr(scanner_runner, "_NEWS_CACHE", {})
+    monkeypatch.setattr(scanner_runner.time, "time", lambda: 1060.0)
 
 
 @pytest.mark.parametrize(
@@ -47,11 +48,16 @@ def _context(result):
     return scanner_runner._ross_news_contexts_from_news_intelligence_result(result)["EGG"]
 
 
-def test_summary_change_with_same_evidence_id_invalidates_cached_positive():
+def test_summary_only_identity_stays_uncertain_and_changes_invalidate_context():
     item = _item()
-    assert _context(_result([item]))["ross_catalyst_valid"] is True
+    first = _context(_result([item]))
+    assert first["ross_catalyst_valid"] is False  # Mention alone cannot bind the generic subject.
+    assert first["news_count"] == 1
+    signature = scanner_runner._NEWS_CACHE["EGG"]["signature"]
     changed = replace(item, summary="The issuer is EGGX. Visitors enjoy egg tarts.")
-    assert _context(_result([changed]))["ross_catalyst_valid"] is False
+    context = _context(_result([changed]))
+    assert context["ross_catalyst_valid"] is False and context["news_count"] == 0
+    assert scanner_runner._NEWS_CACHE["EGG"]["signature"] != signature
 
 
 def test_case_sensitive_title_change_invalidates_cached_positive():
@@ -109,4 +115,4 @@ def test_rejected_items_cannot_inflate_remaining_context_metrics_or_provenance(m
     assert [row["source"] for row in context["news_intelligence_source_provenance"]] == ["Example Wire"]
     assert context["news_intelligence_match_types"] == ["ticker_token"]
     assert context["news_available"] is False
-    assert context["ross_catalyst_valid"] is True  # Valid retained evidence; incomplete retrieval remains reported.
+    assert context["ross_catalyst_valid"] is False  # Current unavailable acquisition fails closed; evidence remains reported.

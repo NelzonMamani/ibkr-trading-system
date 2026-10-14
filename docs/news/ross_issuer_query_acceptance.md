@@ -23,7 +23,9 @@ this is partial company coverage, not evidence of no news. There is no claim of
 fair rotation across a larger ranked batch. Source deadlines, HTTP failures,
 processing truncation, dates, missing dates and publication ranges remain visible.
 Operational feeds are byte-bounded to 512 KiB each. Late workers never contribute
-articles after retrieval deadlines; owned cleanup gets ten seconds separately.
+articles after retrieval deadlines. The scanner only snapshots owned cleanup;
+it never waits ten extra seconds on the news stage. The diagnostic verifier waits
+up to ten seconds after the consumer returns, separately from acquisition.
 The verification subprocess also has a wall deadline and records forced exits.
 
 Canonical acquisition metadata, including failed and empty results, obeys the
