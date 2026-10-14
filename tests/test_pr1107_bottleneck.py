@@ -129,6 +129,8 @@ def test_one_required_primary_failure_remains_unavailable_without_false_deadline
     assert not result.diagnostics.budget_exhausted
     assert result.summary_for_symbol('JPM').retrieval_status=='unavailable'
     assert not result.summary_for_symbol('JPM').provider_available
-    ctx=ross._ross_news_contexts_from_news_intelligence_result(result)['JPM']
+    contexts=ross._ross_news_contexts_from_news_intelligence_result(result)
+    ctx=contexts['JPM']
     assert not ctx['news_available'] and not ctx['ross_catalyst_valid']
+    assert ross._news_diagnostics_from_news_intelligence_result(result,contexts).news_degraded
     assert svc.retrieval_provider._lifecycle.wait_for_cleanup(1)['cleanup_complete']

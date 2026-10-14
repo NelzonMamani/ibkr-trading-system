@@ -3387,6 +3387,7 @@ def _news_diagnostics_from_news_intelligence_result(
         all_failed
         or failure_reason
         or result.diagnostics.budget_exhausted
+        or (RossPolicy().issuer_query_enabled and result.diagnostics.unavailable)
         or diagnostics.get("cache_read_failed")
         or diagnostics.get("cache_write_failed")
     )
