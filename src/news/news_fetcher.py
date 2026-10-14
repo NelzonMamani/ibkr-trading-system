@@ -9,6 +9,7 @@ import threading
 import time
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from math import ceil
 from typing import Any, Dict, Iterable, List, Mapping
 from urllib.parse import urlparse
@@ -36,6 +37,9 @@ class Headline:
     source_tier: str = "fast"
     match_type: str = "ticker_token"
     matched_field: str = "title"
+    timestamp_provenance: Mapping[str, Any] = field(default_factory=dict)
+    raw_title: str = ""
+    source_provenance: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -67,6 +71,10 @@ class RssFailureSummary:
     unique_source_urls_attempted_count: int = 0
     duplicate_source_fetches_avoided_count: int = 0
     research_by_symbol: Mapping[str, Any] = field(default_factory=dict)
+
+
+class RssFeedFormatError(ValueError):
+    pass
 
 
 DEFAULT_RSS_FETCH_WORKERS = 4
@@ -241,6 +249,32 @@ def symbol_relevance_match(
     return None
 
 
+def _entry_date_facts(entry):
+    # FeedParserDict.get can synthesize updated from published. Provenance must
+    # reflect fields actually present, rather than that compatibility fallback.
+    def actual_value(key):
+        return (entry[key] if key in entry else None) if isinstance(entry, Mapping) else getattr(entry, key, None)
+    facts = {}
+    selected = None
+    for kind in ("published", "updated"):
+        raw = actual_value(kind)
+        facts[kind + "_original"] = str(raw) if raw is not None else None
+        parsed = actual_value(kind + "_parsed")
+        ts = None
+        if parsed:
+            try:
+                ts = float(calendar.timegm(parsed))
+                facts[kind + "_utc"] = datetime.fromtimestamp(ts, timezone.utc).isoformat()
+            except (TypeError, ValueError, OverflowError, OSError, IndexError):
+                ts = None
+        facts.setdefault(kind + "_utc", None)
+        if selected is None and ts is not None:
+            selected = ts
+            facts["selected_time_basis"] = kind
+    facts.setdefault("selected_time_basis", None)
+    return selected, facts
+
+
 def _entry_timestamp(entry: Any) -> float | None:
     published = getattr(entry, "published_parsed", None)
     updated = getattr(entry, "updated_parsed", None)
@@ -294,12 +328,35 @@ def _fetch_feed(url: str, timeout_s: float) -> object | None:
     try:
         requested_at_s = time.monotonic()
         try:
-            response = requests.get(url, timeout=timeout_s)
+            capture = timing.get("_raw_capture")
+            if capture is None:
+                response = requests.get(url, timeout=timeout_s)
+            else:
+                from src.news.rss_raw_capture import RAW_FEED_BYTES, RawFeedLimitExceeded
+                acquired_at = datetime.now(timezone.utc).isoformat()
+                body = bytearray()
+                complete = False
+                error = None
+                try:
+                    response = requests.get(url, timeout=timeout_s, stream=True)
+                    timing["http_status"] = getattr(response, "status_code", None)
+                    for chunk in response.iter_content(chunk_size=16384):
+                        remaining = RAW_FEED_BYTES - len(body)
+                        body.extend(chunk[:remaining])
+                        if len(chunk) > remaining:
+                            raise RawFeedLimitExceeded("raw_feed_byte_limit_exceeded")
+                    complete = True
+                except Exception as exc:
+                    error = type(exc).__name__
+                    raise
+                finally:
+                    timing["raw_capture"] = capture.save(url, bytes(body), complete=complete,
+                        status=getattr(response, "status_code", None), acquired_at=acquired_at, error=error)
         finally:
             timing["request_elapsed_seconds"] = max(0.0, time.monotonic() - requested_at_s)
         timing["http_status"] = getattr(response, "status_code", None)
         response.raise_for_status()
-        text = response.text
+        text = bytes(body) if capture is not None else response.text
         parse_started_at_s = time.monotonic()
         try:
             feed = feedparser.parse(text)
@@ -494,6 +551,8 @@ def _fetch_headlines_from_sources(
     tier_started_at_s: float | None = None,
     tier_deadline_s: float | None = None,
     lifecycle: RssFetchLifecycle | None = None,
+    raw_feed_directory=None,
+    source_groups_by_url: Mapping[str, str] | None = None,
 ) -> tuple[Dict[str, List[Headline]], RssFailureSummary]:
     budget_seconds = _normalize_budget_seconds(total_news_budget_seconds)
     started_at_s = time.monotonic() if stage_started_at_s is None else float(stage_started_at_s)
@@ -515,6 +574,14 @@ def _fetch_headlines_from_sources(
     failures_by_domain: Dict[str, Dict[str, int]] = {}
     max_entries = max(1, int(max_entries_per_symbol or 1))
     research = source_tier == "research"
+    raw_capture = None
+    if raw_feed_directory is not None:
+        if not research or lifecycle is None:
+            raise ValueError("Raw capture requires research and an owned lifecycle")
+        from src.news.rss_raw_capture import RawFeedCapture
+        raw_capture = RawFeedCapture(raw_feed_directory)
+    date_counts = {}
+    captures = {}
     research_by_symbol = {symbol: {"issuer_match_observations": 0, "repeated_article_observations": 0,
                                   "article_limit_excluded_observations": 0, "observation_records_truncated": 0,
                                   "observations": []} for symbol in normalized_symbols} if research else {}
@@ -567,6 +634,8 @@ def _fetch_headlines_from_sources(
 
 
     now = time.time()
+    if raw_capture is not None:
+        raw_capture.evaluation_time_utc = datetime.fromtimestamp(now, timezone.utc).isoformat()
     min_ts = now - (lookback_hours * 3600)
     symbol_patterns = _compile_symbol_patterns(normalized_symbols)
     summary_symbol_patterns = _compile_symbol_patterns(normalized_symbols, allow_bare=False)
@@ -640,7 +709,11 @@ def _fetch_headlines_from_sources(
             worker_completed=worker_completed,
         )
         if research:
-            row.update(entries_examined_count=processed_entries.get(url), processing_truncated=url in processing_truncated)
+            measurements = dict(date_counts.get(url, {}))
+            measurements["empty_feed"] = feed_item_count == 0 if feed_item_count is not None else None
+            measurements["raw_capture"] = captures.get(url) if raw_capture is not None else None
+            row.update(entries_examined_count=processed_entries.get(url), processing_truncated=url in processing_truncated,
+                       entry_diagnostics=measurements)
         return row
 
     def per_source_timeout_seconds(remaining_source_count: int) -> float:
@@ -664,12 +737,18 @@ def _fetch_headlines_from_sources(
         if lifecycle is not None:
             lifecycle.source_started(attempt_id, source_started_s)
         with capture_source_timing(lifecycle is not None) as timing:
+            if raw_capture is not None:
+                timing["_raw_capture"] = raw_capture
             error = None
             feed = None
             try:
                 feed = _fetch_feed(url, timeout_s)
+                if research and feed is not None and hasattr(feed, "version") and not feed.version:
+                    raise RssFeedFormatError("response_is_not_a_recognized_feed")
             except Exception as exc:  # exercised through synthetic transport failures
                 error = exc
+            if raw_capture is not None and timing.get("raw_capture") is not None:
+                captures[url] = timing["raw_capture"]
             completed_at_s = timing.get("_completed_at_s")
             if completed_at_s is None:
                 completed_at_s = time.monotonic()
@@ -738,6 +817,16 @@ def _fetch_headlines_from_sources(
             source_name = ""
         source_matches = 0
         processed_entries[url] = 0
+        counts = {name: 0 for name in ("usable_dates", "within_window", "missing_invalid_dates", "stale_entries",
+                                      "future_entries", "missing_titles", "published_time_used", "updated_time_used")}
+        counts.update(relevance_rejections_by_symbol={symbol: 0 for symbol in normalized_symbols},
+                      observed_date_min_utc=None, observed_date_max_utc=None,
+                      observed_publication_min_utc=None, observed_publication_max_utc=None,
+                      observed_update_min_utc=None, observed_update_max_utc=None,
+                      date_range_scope="examined entries; may be partial", evaluation_time_utc=datetime.fromtimestamp(now, timezone.utc).isoformat(),
+                      window_start_utc=datetime.fromtimestamp(min_ts, timezone.utc).isoformat())
+        if research:
+            date_counts[url] = counts
         for entry in getattr(feed, "entries", []) or []:
             if retention_limit_reached():
                 break
@@ -746,14 +835,50 @@ def _fetch_headlines_from_sources(
             processed_entries[url] += 1
             title = _clean_text(_entry_value(entry, "title"))
             link = _clean_text(_entry_value(entry, "link"))
+            date_facts = {}
+            ts = None
+            if research:
+                ts, date_facts = _entry_date_facts(entry)
+                for label, value in (("date", datetime.fromtimestamp(ts, timezone.utc).isoformat() if ts is not None else None),
+                                     ("publication", date_facts["published_utc"]), ("update", date_facts["updated_utc"])):
+                    if value is not None:
+                        for bound, choose in (("min", min), ("max", max)):
+                            key = f"observed_{label}_{bound}_utc"
+                            counts[key] = choose(counts[key], value) if counts[key] else value
+                counts["usable_dates"] += int(ts is not None)
+                counts["missing_invalid_dates"] += int(ts is None)
+                counts["future_entries"] += int(ts is not None and ts > now)
+                counts["stale_entries"] += int(ts is not None and ts < min_ts)
+                counts["within_window"] += int(ts is not None and min_ts <= ts <= now)
+                counts["missing_titles"] += int(not title)
+                if ts is not None:
+                    counts[date_facts["selected_time_basis"] + "_time_used"] += 1
             if not title:
                 continue
-            ts = _entry_timestamp(entry)
+            if not research:
+                ts = _entry_timestamp(entry)
             if ts is None or ts > now:
                 logging.info("[NEWS][TIME_REJECT] source=%s reason=missing_or_future_publication_time", url)
                 continue
             if ts < min_ts:
                 continue
+            publisher = source_name or url
+            raw_title = title
+            source_facts = {}
+            if research:
+                entry_source = _entry_value(entry, "source")
+                label = _clean_text(entry_source.get("title")) if isinstance(entry_source, Mapping) else ""
+                source_facts = {"feed_label": source_name or None,
+                                "publisher_label_basis": "entry_source" if label else "feed_label_or_url",
+                                "publisher_url": entry_source.get("href") if isinstance(entry_source, Mapping) else None}
+                if source_groups_by_url is not None:
+                    source_facts["source_group"] = source_groups_by_url[url]
+                if label:
+                    publisher = label
+                    # Google appends the supplied publisher label to item titles.
+                    # Preserve the original title; strip only an exact known suffix.
+                    if urlparse(url).hostname == "news.google.com" and title.endswith(" - " + label):
+                        title = title[:-(len(label) + 3)]
             summary_text = _entry_summary(entry)
             title_upper = title.upper()
             summary_upper = summary_text.upper()
@@ -781,10 +906,12 @@ def _fetch_headlines_from_sources(
                             matched_field = "summary"
                             break
                 if not match_type:
+                    if research:
+                        counts["relevance_rejections_by_symbol"][symbol] += 1
                     continue
                 if research_processing_expired():
                     break
-                key = ((title.casefold(), source_name.casefold() or url, link, "" if link else str(ts)) if research
+                key = ((" ".join(title.split()).casefold(), publisher.casefold(), link, "" if link else str(ts)) if research
                        else (title.lower(), source_name.lower() or url.lower()))
                 if research:
                     facts = research_by_symbol[symbol]
@@ -792,7 +919,8 @@ def _fetch_headlines_from_sources(
                     repeated = key in seen_by_symbol[symbol]
                     facts["repeated_article_observations"] += int(repeated)
                     if len(facts["observations"]) < RESEARCH_OBSERVATION_LIMIT:
-                        facts["observations"].append({"headline": title, "publisher": source_name or url,
+                        facts["observations"].append({"headline": title, "raw_title": raw_title, "publisher": publisher, "timestamp_provenance": date_facts,
+                            "source_provenance": source_facts,
                             "url": link, "published_ts": ts, "feed_url": url,
                             "match_type": match_type, "matched_field": matched_field,
                             "repeated_article_observation": repeated})
@@ -823,13 +951,15 @@ def _fetch_headlines_from_sources(
                 headlines[symbol].append(
                     Headline(
                         title=title,
-                        source=source_name or url,
+                        source=publisher,
                         published_ts=ts,
                         url=link,
                         summary=summary_text,
                         source_tier=source_tier,
                         match_type=match_type,
                         matched_field=matched_field,
+                        timestamp_provenance=date_facts, raw_title=raw_title,
+                        source_provenance=source_facts,
                     )
                 )
         return source_matches
@@ -1087,6 +1217,8 @@ def fetch_headlines_for_symbols(
     tier_started_at_s: float | None = None,
     tier_deadline_s: float | None = None,
     lifecycle: RssFetchLifecycle | None = None,
+    raw_feed_directory=None,
+    source_groups_by_url: Mapping[str, str] | None = None,
 ) -> tuple[Dict[str, List[Headline]], RssFailureSummary]:
     return _fetch_headlines_from_sources(
         symbols,
@@ -1102,7 +1234,8 @@ def fetch_headlines_for_symbols(
         tier_budget_seconds=tier_budget_seconds,
         tier_started_at_s=tier_started_at_s,
         tier_deadline_s=tier_deadline_s,
-        lifecycle=lifecycle,
+        lifecycle=lifecycle, raw_feed_directory=raw_feed_directory,
+        source_groups_by_url=source_groups_by_url,
     )
 
 

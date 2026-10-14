@@ -20,7 +20,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from src.news.news_intelligence_contract import NewsCandidate
 from src.news.standalone_lookup import (
-    BROAD_RESEARCH_PROFILE, RESEARCH_PROFILE, LookupSettings, human_report, jsonable, lookup_news, normalize_candidates,
+    QUERY_PROFILE, BROAD_RESEARCH_PROFILE, RESEARCH_PROFILE, LookupSettings, human_report, jsonable, lookup_news, normalize_candidates,
 )
 
 STARTUP_ALLOWANCE_SECONDS = 10.0
@@ -34,7 +34,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--company-name", help="Issuer name for a single-symbol query")
     parser.add_argument("--alias", action="append", default=[], help="Issuer alias for a single symbol; repeatable")
     parser.add_argument("--lookback-hours", type=float, default=24.0)
-    parser.add_argument("--profile", choices=(RESEARCH_PROFILE, BROAD_RESEARCH_PROFILE), default=RESEARCH_PROFILE)
+    parser.add_argument("--profile", choices=(RESEARCH_PROFILE, BROAD_RESEARCH_PROFILE, QUERY_PROFILE), default=RESEARCH_PROFILE)
     parser.add_argument("--provider", choices=("rss", "massive"), default="rss")
     parser.add_argument("--published-after", help="Inclusive historical UTC start; pair with --published-before (Massive only)")
     parser.add_argument("--published-before", help="Inclusive historical UTC end; pair with --published-after (Massive only)")
@@ -51,6 +51,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--refresh-interval-seconds", type=float, default=300.0)
     parser.add_argument("--max-items", type=int, default=20)
     parser.add_argument("--format", choices=("human", "json"), default="human")
+    parser.add_argument("--raw-feed-directory", type=Path, help="New separate directory for bounded raw RSS response evidence (512 KiB/feed)")
     parser.add_argument("--json-output", type=Path, help="Also write the complete machine-readable result")
     parser.add_argument("--_worker-config", type=Path, help=argparse.SUPPRESS)
     return parser
@@ -113,7 +114,7 @@ def _inputs(args):
     elif not groups:
         groups = LookupSettings().source_groups
     settings = LookupSettings(
-        profile=args.profile,
+        profile=args.profile, raw_feed_directory=args.raw_feed_directory.resolve() if args.raw_feed_directory else None,
         lookback_hours=args.lookback_hours, budget_seconds=args.budget_seconds,
         request_timeout_seconds=args.request_timeout_seconds, cleanup_seconds=args.cleanup_seconds,
         refresh_interval_seconds=args.refresh_interval_seconds, max_items=args.max_items,
@@ -124,7 +125,7 @@ def _inputs(args):
         cache_mode=args.cache_mode, cache_file=args.cache_file.resolve(),
         prep_file=args.prep_file.resolve() if args.prep_file else None,
     ).validated()
-    if settings.profile == BROAD_RESEARCH_PROFILE and any(not str(c.company_name or "").strip() for c in candidates):
+    if settings.profile in {BROAD_RESEARCH_PROFILE, QUERY_PROFILE} and any(not str(c.company_name or "").strip() for c in candidates):
         raise ValueError("Broad RSS research requires company_name for every issuer")
     input_paths = {path.resolve() for path in (args.prep_file, args.candidates_file) if path}
     if any(_paths_alias(settings.cache_file, path) for path in input_paths):
@@ -133,6 +134,12 @@ def _inputs(args):
         protected = input_paths | {settings.cache_file}
         if any(_paths_alias(args.json_output, path) for path in protected):
             raise ValueError("--json-output must be different from cache, prep and candidate input files")
+    if settings.raw_feed_directory is not None:
+        raw = settings.raw_feed_directory
+        if raw.exists():
+            raise ValueError("--raw-feed-directory must be new")
+        if any(raw == path or raw in path.parents for path in input_paths | {settings.cache_file} | ({args.json_output.resolve()} if args.json_output else set())):
+            raise ValueError("Raw response evidence must be separate from inputs, JSON output and canonical cache")
     return candidates, settings
 
 

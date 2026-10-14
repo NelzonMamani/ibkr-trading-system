@@ -162,6 +162,8 @@ class ResearchSourceDiagnostic(SourceDiagnostic):
 
     entries_examined_count: int | None = None
     processing_truncated: bool = False
+    entry_diagnostics: Mapping[str, Any] = field(default_factory=dict)
+    query_issuers: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

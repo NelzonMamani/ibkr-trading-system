@@ -10,6 +10,7 @@ SourceGroupId = Literal[
     "MACRO_LONG_HORIZON",
     "VERIFIED_RSS_LEGACY",
     "BROAD_RSS_RESEARCH",
+    "ISSUER_QUERY_RSS",
 ]
 
 
@@ -100,6 +101,12 @@ NEWS_SOURCE_GROUPS: dict[SourceGroupId, NewsSourceGroup] = {
         runtime_scope="standalone_research_only",
         active_runtime_group=False,
         catalogue_path="verified_rss.txt",
+    ),
+    "ISSUER_QUERY_RSS": NewsSourceGroup(
+        group_id="ISSUER_QUERY_RSS",
+        purpose="Explicit issuer-query RSS research; dynamic URLs, access unverified.",
+        runtime_scope="standalone_research_only",
+        active_runtime_group=False,
     ),
 }
 

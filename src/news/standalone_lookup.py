@@ -11,6 +11,7 @@ from typing import Any, Callable, Mapping, Sequence
 
 from src.news.news_intelligence_contract import NewsCandidate, NewsRequest, RetrievalPolicy
 from src.news.source_groups import get_source_group_urls
+from src.news.issuer_rss_queries import QUERY_PROFILE, QUERY_GROUP, QUERY_GROUPS, query_plan
 
 RESEARCH_PROFILE = "standalone_research_v1"
 BROAD_RESEARCH_PROFILE = "broad_rss_research_v1"
@@ -40,6 +41,7 @@ class LookupSettings:
     massive_max_pages_per_symbol: int = 2
     massive_max_requests: int = 5
     profile: str = RESEARCH_PROFILE
+    raw_feed_directory: Path | None = None
 
     def validated(self) -> LookupSettings:
         for name, upper, allow_zero in (
@@ -55,9 +57,9 @@ class LookupSettings:
         if self.cache_mode not in {"use", "refresh", "only", "off"}:
             raise ValueError("cache_mode must be use, refresh, only or off")
         provider = str(self.provider).strip().lower()
-        if self.profile not in {RESEARCH_PROFILE, BROAD_RESEARCH_PROFILE}:
+        if self.profile not in {RESEARCH_PROFILE, BROAD_RESEARCH_PROFILE, QUERY_PROFILE}:
             raise ValueError("Unknown research profile")
-        if self.profile == BROAD_RESEARCH_PROFILE and provider != "rss":
+        if self.profile in {BROAD_RESEARCH_PROFILE, QUERY_PROFILE} and provider != "rss":
             raise ValueError("Broad RSS research requires the existing RSS provider")
         if provider not in {"rss", "massive"}:
             raise ValueError("provider must be rss or massive")
@@ -79,7 +81,13 @@ class LookupSettings:
             if (end - start).total_seconds() > 720 * 3600:
                 raise ValueError("An explicit publication window may span at most 720 hours")
         requested = tuple(dict.fromkeys(str(group).strip().upper() for group in self.source_groups))
-        if self.profile == BROAD_RESEARCH_PROFILE:
+        if self.raw_feed_directory is not None and (provider != "rss" or self.profile not in {BROAD_RESEARCH_PROFILE, QUERY_PROFILE}):
+            raise ValueError("Raw feed capture requires an explicit RSS research profile")
+        if self.profile == QUERY_PROFILE:
+            if requested not in {SUPPORTED_SOURCE_GROUPS, QUERY_GROUPS}:
+                raise ValueError("Issuer-query research uses fixed operational feeds plus ISSUER_QUERY_RSS")
+            ordered = QUERY_GROUPS
+        elif self.profile == BROAD_RESEARCH_PROFILE:
             if requested not in {SUPPORTED_SOURCE_GROUPS, (BROAD_SOURCE_GROUP,)}:
                 raise ValueError("Broad RSS research selects only BROAD_RSS_RESEARCH")
             ordered = (BROAD_SOURCE_GROUP,)
@@ -177,7 +185,7 @@ def research_contracts(settings: LookupSettings) -> tuple[NewsRequest, Retrieval
                         total_budget_seconds=float(settings.budget_seconds),
                         request_timeout_seconds=float(settings.request_timeout_seconds),
                         timeout_policy="clamp_to_remaining_budget", extended_reserve_fraction=0.35,
-                        fallback_mode="unresolved_only" if "PREP_EXTENDED" in settings.source_groups else "none",
+                        fallback_mode="unresolved_only" if "PREP_EXTENDED" in settings.source_groups and settings.profile != QUERY_PROFILE else "none",
                         refresh_interval_seconds=float(settings.refresh_interval_seconds),
                         metadata=metadata),
     )
@@ -190,7 +198,9 @@ def _prep_loader(path: Path | None) -> Callable[[], Mapping[str, Any]]:
     return lambda: load_canonical_premarket_prep_artifact(path)
 
 
-def _selected_sources(settings: LookupSettings) -> list[dict[str, Any]]:
+def _selected_sources(settings: LookupSettings, candidates=()) -> list[dict[str, Any]]:
+    if settings.profile == QUERY_PROFILE:
+        return query_plan(candidates)
     if settings.provider == "massive":
         return [{"source_id": MASSIVE_PROVIDER_ID, "source_group": MASSIVE_SOURCE_GROUP,
                  "source_url": "https://api.massive.com/v2/reference/news"}]
@@ -217,6 +227,7 @@ def _coverage_rows(selected, raw_rows, *, origin, details=None):
                    "http_status": None, "timed_out": False, "budget_exhausted": False}
             if details and details.get("provider_status") == "provider_request_failure":
                 row["failure_reason"] = "fallback_not_attempted_after_provider_failure"
+        row = {**chosen, **row}
         row["origin"] = origin
         rows.append(row)
     return rows
@@ -294,9 +305,10 @@ def lookup_news(
     started = time.monotonic()
     settings = settings.validated()
     candidates = normalize_candidates(candidates)
-    if settings.profile == BROAD_RESEARCH_PROFILE and any(not str(c.company_name or "").strip() for c in candidates):
+    if settings.profile in {BROAD_RESEARCH_PROFILE, QUERY_PROFILE} and any(not str(c.company_name or "").strip() for c in candidates):
         raise ValueError("Broad RSS research requires company_name for every issuer; use a candidates file for a batch")
     request, policy = research_contracts(settings)
+    selected = _selected_sources(settings, candidates)
     if service is None:
         from src.news import news_fetcher
         if settings.provider == "rss" and policy.network_allowed and (news_fetcher.requests is None or news_fetcher.feedparser is None):
@@ -310,7 +322,7 @@ def lookup_news(
             from src.news.massive_news_adapter import MassiveNewsIntelligenceProvider
             provider = MassiveNewsIntelligenceProvider(lifecycle=lifecycle)
         else:
-            provider = BatchRssNewsIntelligenceProvider(lifecycle=lifecycle)
+            provider = BatchRssNewsIntelligenceProvider(lifecycle=lifecycle, raw_feed_directory=settings.raw_feed_directory)
         service = CanonicalNewsIntelligenceService(
             evidence_store=CanonicalNewsEvidenceStore(settings.cache_file, prep_artifact_loader=_prep_loader(settings.prep_file)),
             retrieval_provider=provider,
@@ -321,7 +333,6 @@ def lookup_news(
     now = datetime.now(timezone.utc)
     diag = jsonable(result.diagnostics)
     details = diag.get("diagnostics", {})
-    selected = _selected_sources(settings)
     acquisition_by_symbol = details.get("last_retrieval_by_symbol", {})
     coverage_unknown = set(details.get("acquisition_coverage_unknown_symbols", ()))
     refreshed = set(details.get("refresh_symbols", ())) if details.get("refresh_allowed") else set()
@@ -364,7 +375,7 @@ def lookup_news(
                 articles.append(article)
         status = summary_data.get("retrieval_status", "unknown")
         research_observations = None
-        if settings.profile == BROAD_RESEARCH_PROFILE:
+        if settings.profile in {BROAD_RESEARCH_PROFILE, QUERY_PROFILE}:
             facts = coverage.get("diagnostics", {}).get("research_by_symbol", {}).get(symbol, {})
             research_observations = _research_observation_report(facts, source_rows, articles)
         if symbol in coverage_unknown or (not live and not acquisition.get("acquisition_profile")):
@@ -398,6 +409,10 @@ def lookup_news(
             "cache_profile_compatible": details.get("acquisition_profile_compatible_by_symbol", {}).get(symbol),
             "sources": source_rows, "excluded_evidence": rejected,
             "research_only": True,
+            **({"query_coverage": {"selected": sum(symbol in row.get("query_issuers", ()) for row in selected),
+                                    "attempted": sum(symbol in row.get("query_issuers", ()) and bool(row.get("attempted")) for row in source_rows),
+                                    "available": sum(symbol in row.get("query_issuers", ()) and row.get("retrieval_status") == "available" for row in source_rows),
+                                    "search_completeness_established": False}} if settings.profile == QUERY_PROFILE else {}),
             **({"research_observations": research_observations} if research_observations is not None else {}),
             **({"provider_details": provider_details} if settings.provider == "massive" else {}),
         }
@@ -411,6 +426,10 @@ def lookup_news(
         "selected_source_groups": list(settings.source_groups),
         "queried_source_groups": list(result.diagnostics.source_groups_queried),
         "diagnostics": diag,
+        **({"rss_request_counts": {"selected_distinct_urls": len(selected),
+             "attempted": sum(bool(row.get("attempted")) for row in diag.get("source_diagnostics", ())),
+             "counts_scope": "logical URL fetches in current acquisition; HTTP redirects not counted; per-issuer query coverage retained separately"}}
+           if settings.profile in {BROAD_RESEARCH_PROFILE, QUERY_PROFILE} else {}),
         "timing": {"service_elapsed_seconds": service_elapsed, "retrieval_elapsed_seconds": time.monotonic() - started},
         "cleanup": lifecycle.snapshot() if lifecycle is not None else {"cleanup_complete": None, "reason": "injected_service_without_lifecycle"},
         "research_results_are_trading_catalysts": False,
@@ -419,6 +438,14 @@ def lookup_news(
         on_retrieval(payload)
     if lifecycle is not None:
         payload["cleanup"] = lifecycle.wait_for_cleanup(float(settings.cleanup_seconds))
+    if settings.raw_feed_directory is not None:
+        directory = Path(settings.raw_feed_directory)
+        payload["raw_feed_evidence"] = {
+            "directory": str(directory), "separate_from_canonical_store": True,
+            "max_bytes_per_feed": 512 * 1024,
+            "records": [json.loads(path.read_text(encoding="utf-8")) for path in sorted(directory.glob("*.json"))],
+            "complete_capture_requires_complete_body_and_http_success": True,
+        }
     payload["timing"]["total_elapsed_seconds"] = time.monotonic() - started
     return payload
 
@@ -433,6 +460,8 @@ def human_report(result: Mapping[str, Any]) -> str:
         lines.append(f"Publication window (inclusive UTC): {settings['published_after']} to {settings['published_before']}")
     for symbol, item in result["symbols"].items():
         lines.append(f"{symbol}: {item['outcome']} | coverage={item['coverage_status']} | {item['provenance']} | {len(item['articles'])} article(s)")
+        if item.get("query_coverage") is not None:
+            lines.append("  Issuer-query coverage: " + json.dumps(item["query_coverage"], sort_keys=True))
         if item.get("research_observations") is not None:
             facts = item["research_observations"]
             lines.append(f"  Observed feed entries={facts['observed_feed_entries']} (shared batch; unknown sources={len(facts['feed_entry_count_unknown_sources'])}) | examined={facts['entries_examined']} | issuer matches={facts['issuer_match_observations']}")
@@ -450,7 +479,11 @@ def human_report(result: Mapping[str, Any]) -> str:
             lines.extend([f"  {article['headline']}", f"  {article['publisher']} | {article['published_at']} | age={article['age_seconds']/3600:.2f}h | match={article['match_type']}/{article['matched_field']} | origin={article['acquisition_origin']}", f"  {article['url']}"])
     lines.append("Source outcomes (current retrieval; cached details are retained per symbol):")
     for source in result["diagnostics"].get("source_diagnostics", []):
+        if source.get("entry_diagnostics"):
+            lines.append("  Entry diagnostics: " + json.dumps(source["entry_diagnostics"], sort_keys=True))
         lines.append(f"  {source['source_id']}: {source['retrieval_status']} | reason={source.get('failure_reason')} | request={source.get('request_elapsed_seconds')}s parse={source.get('parse_elapsed_seconds')}s | timeout={source.get('timed_out')} budget={source.get('budget_exhausted')}")
+    if "rss_request_counts" in result:
+        lines.append("RSS request counts: " + json.dumps(result["rss_request_counts"], sort_keys=True))
     lines.append(f"Elapsed={result['timing'].get('total_elapsed_seconds', 0):.3f}s | cleanup_complete={result['cleanup'].get('cleanup_complete')}")
     lines.append("Research evidence only; strategy freshness and catalyst qualification remain separate.")
     return "\n".join(lines)
