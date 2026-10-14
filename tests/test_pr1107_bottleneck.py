@@ -109,3 +109,26 @@ def test_successful_primary_peer_does_not_inherit_unresolved_peer_fallback_deadl
         assert timings['service_total_seconds']>=timings['provider_seconds']
     finally:
         gate.set();assert svc.retrieval_provider._lifecycle.wait_for_cleanup(2)['cleanup_complete']
+
+
+@pytest.mark.parametrize('positive',[False,True])
+def test_one_required_primary_failure_remains_unavailable_without_false_deadline(monkeypatch,tmp_path,positive):
+    calls=[]
+    def feed(url,timeout):
+        calls.append(url)
+        if 'reuters.com' in url:
+            raise news_fetcher.requests.HTTPError(response=SimpleNamespace(status_code=401))
+        return SimpleNamespace(feed={'title':'fixture'},entries=[entry('JPM reports earnings beat' if positive else 'JPM generic report',60)] if 'news.google.com' in url else [])
+    monkeypatch.setattr(news_fetcher,'_fetch_feed',feed);monkeypatch.setattr(news_fetcher,'feedparser',object())
+    svc=service(tmp_path)
+    result=svc.get_news((CANDIDATE,),ross._ross_news_request(),ross._ross_retrieval_policy(refresh_mode='bounded_refresh',network_allowed=True))
+    raw=result.diagnostics.diagnostics['refresh_diagnostics']
+    assert not raw['required_primary_coverage_complete']
+    assert raw['fallback_skipped_reason']=='primary_coverage_incomplete'
+    assert not raw['extended_fallback_requested'] and len(calls)==9
+    assert not result.diagnostics.budget_exhausted
+    assert result.summary_for_symbol('JPM').retrieval_status=='unavailable'
+    assert not result.summary_for_symbol('JPM').provider_available
+    ctx=ross._ross_news_contexts_from_news_intelligence_result(result)['JPM']
+    assert not ctx['news_available'] and not ctx['ross_catalyst_valid']
+    assert svc.retrieval_provider._lifecycle.wait_for_cleanup(1)['cleanup_complete']

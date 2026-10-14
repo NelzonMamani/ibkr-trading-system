@@ -2812,7 +2812,7 @@ def _ross_retrieval_policy(
         tier_budgets = {"fast": total_budget_seconds * (1-reserve), "extended": total_budget_seconds * reserve}
         metadata.update(ross_issuer_query=True, require_compatible_acquisition=True,
                         query_limit=RossPolicy().issuer_query_limit, qualification_profile="ross_issuer_event_v1",
-                        operational_scheduling_contract="ross_primary_completion_v2")
+                        operational_scheduling_contract="ross_primary_completion_v3")
     if normalized_refresh_symbols:
         metadata["refresh_symbols"] = normalized_refresh_symbols
         metadata["unresolved_symbols"] = normalized_refresh_symbols

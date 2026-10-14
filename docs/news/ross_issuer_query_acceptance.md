@@ -85,7 +85,7 @@ issuer. Eight seconds measures the acquisition deadline, not a hard total for
 cache/profile work, classification, persistence and logging. The old verifier's
 `consumer_elapsed_seconds` additionally included diagnostic result assembly.
 
-Operational scheduling contract `ross_primary_completion_v2` preserves the
+Operational scheduling contract `ross_primary_completion_v3` preserves the
 5.2/2.8 allocations and the eight-second ceiling. Incomplete required primary
 acquisition remains unavailable; PREP cannot repair that missing dependency, so
 it is explicitly deferred instead of launching a second pool for a result that
@@ -112,3 +112,10 @@ consumer call. Process exit zero means diagnostic completion, not acceptance or
 trading readiness. Every dependency-deferred source and incomplete outcome stays
 visible. Live fixed-source latency may still prevent cold acquisition completion;
 no coverage, freshness or catalyst rule is relaxed to hide that limit.
+
+Required primary completion means every selected primary URL has an attempted,
+fully processed `available` outcome. A known HTTP/source error is incomplete
+required coverage too; a positive query or PREP response cannot erase it. Known
+source failures without a deadline remain unavailable without being falsely
+labelled budget exhaustion. Transport reachability/failure diagnostics are kept
+separate from this required-coverage decision.
