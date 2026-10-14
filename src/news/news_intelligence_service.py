@@ -15,7 +15,7 @@ from src.news.batch_rss_adapter import (
 from src.news.retrieval_diagnostics import emit_retrieval_diagnostics
 from src.news.evidence_store import (
     CanonicalNewsEvidenceStore,
-    dedupe_evidence,
+    dedupe_evidence, retained_evidence,
     evidence_max_entries,
     evidence_freshness_seconds,
     evidence_in_query_window,
@@ -24,7 +24,7 @@ from src.news.evidence_store import (
     summarize_news_evidence,
 )
 from src.news.source_groups import get_source_group_urls
-from src.news.issuer_rss_queries import QUERY_GROUP, query_sources
+from src.news.issuer_rss_queries import QUERY_GROUP, query_sources, OPERATIONAL_GROUP, operational_queries
 from src.news.news_intelligence_contract import (
     CacheState,
     NewsBatchResult,
@@ -70,7 +70,7 @@ def _acquisition_profile(candidate: NewsCandidate, request: NewsRequest, policy:
     if provider_id == "rss_batch":
         source_urls = {
             group: (tuple(row["source_id"] for row in query_sources(batch_candidates or (candidate,)))
-                    if group == QUERY_GROUP else get_source_group_urls(group))
+                    if group == QUERY_GROUP else tuple(row["source_id"] for row in operational_queries(batch_candidates or (candidate,))) if group == OPERATIONAL_GROUP else get_source_group_urls(group))
             for group in groups
         }
     profile = _json_value({
@@ -102,6 +102,14 @@ def _acquisition_profile(candidate: NewsCandidate, request: NewsRequest, policy:
             "market": candidate.market, "region": candidate.region, "metadata": candidate.metadata,
         },
     })
+    if policy.metadata.get("ross_issuer_query"):
+        from src.news.news_fetcher import company_aliases_for_symbol
+        # Quote/volume metadata changes must not defeat failure/empty cadence.
+        profile["issuer"]["metadata"] = {"matching_aliases": list(company_aliases_for_symbol(
+            candidate.normalized_symbol, {**candidate.metadata, "company_name": candidate.company_name or candidate.metadata.get("company_name"),
+                                          "aliases": (candidate.aliases, candidate.metadata.get("aliases", ())) }))}
+        profile["retrieval"]["operational_query_limit"] = min(4, int(policy.metadata.get("query_limit", 4)))
+        profile["request"]["qualification_profile"] = request.metadata.get("qualification_profile")
     if request.query_start_utc is not None:
         profile["request"].update(query_start_utc=request.query_start_utc.isoformat(),
                                   query_end_utc=request.query_end_utc.isoformat())
@@ -209,7 +217,7 @@ class CanonicalNewsIntelligenceService(NewsIntelligenceProvider):
             cache_diagnostics["cadence_cache_hit_symbols"] = [
                 symbol for symbol in cache_diagnostics.get("cadence_cache_hit_symbols", []) if symbol not in mismatches
             ]
-        if acquisition_provider_id == "rss_batch" and QUERY_GROUP in retrieval_policy.source_groups and refresh_symbols:
+        if acquisition_provider_id == "rss_batch" and any(group in retrieval_policy.source_groups for group in (QUERY_GROUP, OPERATIONAL_GROUP)) and refresh_symbols:
             # Every issuer is matched against the full batch URL plan. Refresh
             # that research acquisition together so its saved fingerprint and
             # actual selected URLs cannot diverge on a partial refresh.
@@ -300,7 +308,7 @@ class CanonicalNewsIntelligenceService(NewsIntelligenceProvider):
             if request.query_start_utc is not None:
                 items = [refresh_evidence_age(item, request=request, now=started_at) for item in items
                          if evidence_in_query_window(item, request, now=started_at)]
-            merged = tuple(dedupe_evidence(items, max_items=evidence_max_entries(request)))
+            merged = tuple(retained_evidence(items, request))
             combined_evidence[symbol] = merged
             cached_retrieval = (cache_diagnostics.get("last_retrieval_by_symbol", {}).get(symbol, {})
                                 if symbol in cache_diagnostics.get("cadence_cache_hit_symbols", []) else {})

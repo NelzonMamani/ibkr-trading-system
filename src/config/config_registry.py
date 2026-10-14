@@ -1333,6 +1333,11 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
         "mutable": "dynamic",
         "description": "Minimum seconds between news refreshes during RTH.",
     },
+    "ROSS_ISSUER_QUERY_ENABLED": {
+        "type": bool, "default": False, "env": ["ROSS_ISSUER_QUERY_ENABLED"],
+        "affects": ["NewsEngine", "RossPolicy"], "enforcement": "SOFT", "mutable": "dynamic",
+        "description": "Opt in to bounded canonical Ross Google issuer queries; readiness remains separate.",
+    },
     "NEWS_ENABLED": {
         "type": bool,
         "default": True,

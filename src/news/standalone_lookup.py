@@ -118,6 +118,8 @@ def _publication_boundary(value, name):
 
 
 def jsonable(value: Any) -> Any:
+    if callable(value):
+        return value.__module__ + "." + value.__name__
     if is_dataclass(value):
         return {field.name: jsonable(getattr(value, field.name)) for field in fields(value)}
     if isinstance(value, datetime):

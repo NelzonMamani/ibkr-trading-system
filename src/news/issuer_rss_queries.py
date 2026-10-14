@@ -13,6 +13,9 @@ from urllib.parse import urlencode
 from src.news.news_intelligence_contract import NewsCandidate
 from src.news.source_groups import get_source_group_urls
 
+OPERATIONAL_GROUP = "ROSS_ISSUER_QUERY"
+OPERATIONAL_GROUPS = ("FAST_TRADING", "PREP_EXTENDED", OPERATIONAL_GROUP)
+
 QUERY_PROFILE = "issuer_query_rss_research_v1"
 QUERY_GROUP = "ISSUER_QUERY_RSS"
 QUERY_GROUPS = ("FAST_TRADING", "PREP_EXTENDED", QUERY_GROUP)
@@ -56,4 +59,21 @@ def query_plan(candidates):
     for group in QUERY_GROUPS[:-1]:
         for url in get_source_group_urls(group):
             rows.setdefault(url, {"source_id": url, "source_group": group})
+    return list(rows.values())
+
+
+def operational_queries(candidates):
+    # Yahoo's observed 429 remains research evidence; no operational retry loop.
+    rows = {}
+    for candidate in sorted(candidates, key=lambda c: (c.priority_rank is None, c.priority_rank or 0, c.normalized_symbol)):
+        try:
+            queries = query_sources((candidate,))
+        except ValueError:
+            # Invalid identities have explicit per-issuer coverage; no invented URL.
+            continue
+        for row in queries:
+            if row["query_provider"] != "google_news_search":
+                continue
+            shared = rows.setdefault(row["source_id"], {**row, "source_group": OPERATIONAL_GROUP, "query_issuers": []})
+            shared["query_issuers"].extend(s for s in row["query_issuers"] if s not in shared["query_issuers"])
     return list(rows.values())

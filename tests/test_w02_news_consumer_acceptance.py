@@ -508,7 +508,7 @@ def test_negative_default_summary_only_inherits_applicable_batch_failure(tmp_pat
 
 
 @pytest.mark.parametrize("budget", [False, True])
-def test_confirmed_persisted_evidence_retains_authority_when_explicit_refresh_is_incomplete(tmp_path, offline_clock, budget):
+def test_unavailable_refresh_retains_evidence_but_fails_closed_for_qualification(tmp_path, offline_clock, budget):
     class Provider:
         calls = 0
 
@@ -534,8 +534,8 @@ def test_confirmed_persisted_evidence_retains_authority_when_explicit_refresh_is
     assert result.evidence_for_symbol("EGG")[0].age_seconds == 300
     context, decision = _ross(result)
     assert context["EGG"]["news_available"] is False
-    assert context["EGG"]["news_diagnostic_status"] == "catalyst_confirmed"
-    assert decision["EGG"].status.value == "CONFIRMED"
+    assert context["EGG"]["news_diagnostic_status"] == ("budget_exhausted" if budget else "provider_unavailable")
+    assert decision["EGG"].status.value == "DATA_UNAVAILABLE"
 
 
 @pytest.mark.parametrize("summary_kind", ["omitted", "unknown", "reachable"])

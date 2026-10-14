@@ -11,6 +11,7 @@ SourceGroupId = Literal[
     "VERIFIED_RSS_LEGACY",
     "BROAD_RSS_RESEARCH",
     "ISSUER_QUERY_RSS",
+    "ROSS_ISSUER_QUERY",
 ]
 
 
@@ -108,6 +109,7 @@ NEWS_SOURCE_GROUPS: dict[SourceGroupId, NewsSourceGroup] = {
         runtime_scope="standalone_research_only",
         active_runtime_group=False,
     ),
+    "ROSS_ISSUER_QUERY": NewsSourceGroup(group_id="ROSS_ISSUER_QUERY", purpose="Explicit RossPolicy Google query plan", runtime_scope="opt_in_ross", active_runtime_group=False),
 }
 
 

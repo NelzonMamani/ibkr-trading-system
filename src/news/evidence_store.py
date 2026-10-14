@@ -68,6 +68,14 @@ def evidence_max_entries(request: NewsRequest | None = None) -> int:
         return 5
 
 
+def retained_evidence(evidence, request):
+    selector = request.metadata.get("retention_selector") if request is not None else None
+    if callable(selector):
+        unique = dedupe_evidence(evidence, max_items=max(1, len(evidence)))
+        return selector(unique, request)
+    return dedupe_evidence(evidence, max_items=evidence_max_entries(request))
+
+
 def evidence_cache_path() -> Path:
     return Path(str(get_config("NEWS_CACHE_FILE")))
 
@@ -171,7 +179,7 @@ class CanonicalNewsEvidenceStore:
                     source_credibility_score=None, source_reliability_score=None,
                     independent_source_count=None,
                 ) for item in accepted), now_ts=now.timestamp()))
-            deduped = dedupe_evidence(accepted, max_items=evidence_max_entries(request))
+            deduped = retained_evidence(accepted, request)
             evidence_by_symbol[symbol] = tuple(deduped)
             fresh_count = sum(1 for item in deduped if item.stale is False)
             stale_count = sum(1 for item in deduped if item.stale is True)
@@ -261,7 +269,7 @@ class CanonicalNewsEvidenceStore:
                 existing = [item for item in existing if evidence_in_query_window(item, request, now=now)]
                 incoming = [refresh_evidence_age(item, request=request, now=now) for item in incoming
                             if evidence_in_query_window(item, request, now=now)]
-            merged = dedupe_evidence(existing + incoming, max_items=max_items)
+            merged = retained_evidence(existing + incoming, request)
             previous = symbols_payload.get(symbol) or {}
             bucket = {"updated_at": now.isoformat(),
                       "evidence": [serialize_evidence(item) for item in merged]}
@@ -341,7 +349,7 @@ def summarize_news_evidence(
     diagnostics: Mapping[str, Any] | None = None,
 ) -> NewsEvidenceSummary:
     normalized = normalize_symbol(symbol)
-    items = list(dedupe_evidence(evidence, max_items=evidence_max_entries(request)))
+    items = list(retained_evidence(evidence, request))
     fresh_items = [item for item in items if item.stale is False]
     generic_count = sum(1 for item in items if item.is_generic is True)
     qualifying_count = sum(1 for item in items if item.is_qualifying_event_class is True)
@@ -496,7 +504,7 @@ def evidence_from_prep_entry(
             )
         )
     enriched = enrich_evidence_metrics(evidence, now_ts=now.timestamp()) if evidence else ()
-    return tuple(dedupe_evidence(enriched, max_items=evidence_max_entries(request)))
+    return tuple(retained_evidence(enriched, request))
 
 
 def refresh_evidence_age(

@@ -36,7 +36,7 @@ from src.news.rss_batch_runtime import (
     stage_elapsed_seconds,
     stage_remaining_seconds,
 )
-from src.news.issuer_rss_queries import QUERY_PROFILE, QUERY_GROUP, QUERY_GROUPS, query_plan
+from src.news.issuer_rss_queries import QUERY_PROFILE, QUERY_GROUP, QUERY_GROUPS, query_plan, OPERATIONAL_GROUP, OPERATIONAL_GROUPS, operational_queries
 from src.news.source_groups import SourceGroupId, get_source_group_urls
 from src.news.rss_lifecycle import RssFetchLifecycle
 
@@ -48,6 +48,13 @@ UNRESOLVED_SYMBOL_METADATA_KEYS: tuple[str, ...] = (
     "extended_unresolved_symbols",
     "symbols_for_extended_fallback",
 )
+
+
+def _operational_tier_summary(summary, tier):
+    fields = ("tier_source_counts", "tier_match_counts", "tier_sources_attempted_counts",
+              "tier_budget_seconds_by_tier", "tier_elapsed_seconds_by_tier", "tier_budget_exhausted_by_tier")
+    return replace(summary, **{name: {tier if key == "operational_query" else key: value
+                                     for key, value in getattr(summary, name).items()} for name in fields})
 
 
 class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
@@ -90,6 +97,13 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
             )
 
         source_groups = _source_groups_for_policy(retrieval_policy)
+        operational = OPERATIONAL_GROUP in source_groups
+        if operational and (request.strategy_id != "ross_momentum" or not retrieval_policy.metadata.get("ross_issuer_query") or request.metadata.get("research_only")):
+            raise ValueError("Operational queries require explicit Ross policy intent")
+        if operational and self._lifecycle is None:
+            raise ValueError("Operational queries require an owned lifecycle")
+        if operational and not callable(request.metadata.get("retention_selector")):
+            raise ValueError("Operational queries require Ross qualification retention")
         query_research = QUERY_GROUP in source_groups
         research = source_groups == ("BROAD_RSS_RESEARCH",) or query_research
         plan = query_plan(ordered_candidates) if query_research else []
@@ -103,6 +117,13 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
         if query_research:
             fast_sources = [row["source_id"] for row in plan]
             extended_sources = []
+        omitted_queries = []
+        if operational:
+            queries = operational_queries(candidates)
+            limit = max(1, min(4, int(retrieval_policy.metadata.get("query_limit", 4))))
+            omitted_queries = queries[limit:]
+            plan = queries[:limit] + [{"source_id": url, "source_group": "FAST_TRADING"} for url in fast_sources] + [{"source_id": url, "source_group": "PREP_EXTENDED"} for url in extended_sources]
+            fast_sources = list(dict.fromkeys([row["source_id"] for row in queries[:limit]] + fast_sources))
         fast_source_set = set(fast_sources)
         cross_tier_duplicate_sources = [url for url in extended_sources if url in fast_source_set]
         if cross_tier_duplicate_sources:
@@ -123,11 +144,14 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
         fast_deadline_s = min(stage_deadline_s, stage_started_at_s + fast_budget_seconds)
         symbol_metadata = _metadata_by_symbol(ordered_candidates)
 
+        if operational and self._raw_feed_directory is not None:
+            from pathlib import Path
+            Path(self._raw_feed_directory).mkdir(parents=True, exist_ok=False)
         lifecycle_kwargs = {"lifecycle": self._lifecycle} if self._lifecycle is not None else {}
         fast_fetched = bool(fast_sources)
         extended_fetched = False
         if fast_sources:
-            fetcher = self._extended_fetcher if research else self._fast_fetcher
+            fetcher = self._extended_fetcher if research or operational else self._fast_fetcher
             headlines_by_symbol, fast_summary_raw = fetcher(
                 symbols,
                 fast_sources,
@@ -141,10 +165,11 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
                 tier_budget_seconds=fast_budget_seconds,
                 tier_started_at_s=stage_started_at_s,
                 tier_deadline_s=fast_deadline_s,
-                **({"source_tier": "research"} if research else {}),
+                **({"source_tier": "research" if research else "operational_query"} if research or operational else {}),
                 **({"source_groups_by_url": {row["source_id"]: row["source_group"] for row in plan}}
-                   if query_research else {}),
-                **({"raw_feed_directory": self._raw_feed_directory} if research and self._raw_feed_directory is not None else {}),
+                   if query_research or operational else {}),
+                **({"raw_feed_directory": (self._raw_feed_directory / "primary" if operational else self._raw_feed_directory)} if (research or operational) and self._raw_feed_directory is not None else {}),
+                **({"retention_selector": request.metadata.get("retention_selector"), "retention_request": request} if operational else {}),
                 **lifecycle_kwargs,
             )
         else:
@@ -159,6 +184,8 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
                 news_elapsed_seconds=stage_elapsed_seconds(stage_started_at_s),
             )
 
+        if operational:
+            fast_summary_raw = _operational_tier_summary(fast_summary_raw, "fast")
         fast_summary = merge_rss_failure_summaries(fast_summary_raw)
         summary: RssFailureSummary = fast_summary
         fast_provider_status = news_provider_status(fast_summary)
@@ -201,15 +228,20 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
                     request_timeout_s=request_timeout_s,
                     symbol_metadata=extended_metadata,
                     max_entries_per_symbol=max_entries_per_symbol,
-                    source_tier="extended",
+                    source_tier="operational_query" if operational else "extended",
                     total_news_budget_seconds=total_news_budget_seconds,
                     stage_started_at_s=stage_started_at_s,
                     stage_deadline_s=stage_deadline_s,
                     tier_budget_seconds=extended_budget_seconds,
                     tier_started_at_s=extended_started_at_s,
                     tier_deadline_s=min(stage_deadline_s, extended_started_at_s + extended_budget_seconds),
+                    **({"source_groups_by_url": {row["source_id"]: row["source_group"] for row in plan},
+                        "retention_selector": request.metadata.get("retention_selector"), "retention_request": request} if operational else {}),
+                    **({"raw_feed_directory": self._raw_feed_directory / "fallback"} if operational and self._raw_feed_directory is not None else {}),
                     **lifecycle_kwargs,
                 )
+                if operational:
+                    extended_summary = _operational_tier_summary(extended_summary, "extended")
                 extended_fetched = True
                 extended_budget_exhausted = bool(
                     getattr(extended_summary, "tier_budget_exhausted", False)
@@ -217,13 +249,13 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
                 )
                 for symbol, extended_headlines in extended_headlines_by_symbol.items():
                     combined = list(headlines_by_symbol.get(symbol, [])) + list(extended_headlines)
-                    headlines_by_symbol[symbol] = dedupe_bounded_headlines(combined, max_entries_per_symbol)
+                    headlines_by_symbol[symbol] = request.metadata["retention_selector"](combined, request) if operational else dedupe_bounded_headlines(combined, max_entries_per_symbol)
                 summary = merge_rss_failure_summaries(fast_summary, extended_summary)
             else:
                 extended_budget_exhausted = True
                 budget_skipped_source_diagnostics = _budget_skipped_source_diagnostics(
                     extended_sources,
-                    source_tier="extended",
+                    source_tier="operational_query" if operational else "extended",
                 )
                 budget_skipped_sources += len(budget_skipped_source_diagnostics)
 
@@ -286,7 +318,8 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
 
         for candidate in ordered_candidates:
             symbol = candidate.normalized_symbol
-            unique_headlines = dedupe_bounded_headlines(headlines_by_symbol.get(symbol, []), max_entries_per_symbol)
+            unique_headlines = (request.metadata["retention_selector"](headlines_by_symbol.get(symbol, []), request) if operational
+                                else dedupe_bounded_headlines(headlines_by_symbol.get(symbol, []), max_entries_per_symbol))
             symbol_budget_exhausted = symbol in budget_unresolved_symbols
             symbol_retrieval_status = _retrieval_status(
                 summary, provider_status, budget_exhausted=symbol_budget_exhausted,
@@ -327,7 +360,13 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
             )
 
         tier_attempt_counts = dict(getattr(summary, "tier_sources_attempted_counts", {}) or {})
-        if query_research:
+        if operational and omitted_queries:
+            summary = replace(summary, source_diagnostics=(*summary.source_diagnostics, *(
+                {**row, "source_tier": "operational_query", "attempted": False,
+                 "retrieval_status": "not_requested", "failure_reason": "query_request_limit", "matched_count": 0}
+                for row in omitted_queries)))
+        if query_research or operational:
+            plan = plan + omitted_queries
             by_url = {row["source_id"]: row for row in plan}
             summary = replace(summary, source_diagnostics=tuple(
                 {**row, "source_group": by_url[row["source_id"]]["source_group"],
@@ -400,12 +439,26 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
                 "event_and_catalyst_classification_remain_strategy_adapter_authority",
             ),
         }
+        if operational:
+            query_rows = [row for row in source_diag_payload if row.get("source_group") == OPERATIONAL_GROUP]
+            diagnostics_payload["issuer_query"] = {
+                "provider": "google_news_search", "request_limit": limit,
+                "planned_queries": len(queries), "attempted_queries": sum(bool(row.get("attempted")) for row in query_rows),
+                "yahoo": "not_scheduled_observed_HTTP429_no_operational_retry",
+                "per_issuer": {
+                    symbol: ([{"url": row["source_id"], "attempted": row.get("attempted", False),
+                               "status": row.get("retrieval_status"), "reason": row.get("failure_reason"),
+                               "processing_truncated": row.get("processing_truncated")} for row in query_rows
+                              if symbol in row.get("query_issuers", ())]
+                             or [{"attempted": False, "status": "not_requested", "reason": "query_identity_unavailable"}])
+                    for symbol in symbols},
+            }
         diagnostics = RetrievalDiagnostics(
             retrieval_status=retrieval_status,
             provider_status=provider_status,
             provider_available=_provider_available(provider_status),
             cache_state="not_checked",
-            source_groups_queried=(QUERY_GROUPS if query_research and fast_fetched else ("BROAD_RSS_RESEARCH",) if research and fast_fetched else _queried_source_groups(fast_fetched, extended_fetched)),
+            source_groups_queried=(OPERATIONAL_GROUPS if operational else QUERY_GROUPS if query_research and fast_fetched else ("BROAD_RSS_RESEARCH",) if research and fast_fetched else _queried_source_groups(fast_fetched, extended_fetched)),
             provider_groups_queried=("rss_batch",),
             sources_queried=tuple((fast_sources if fast_fetched else []) + (extended_sources if extended_fetched else [])),
             source_diagnostics=source_diag_objects,
@@ -461,6 +514,10 @@ def _metadata_by_symbol(candidates: Sequence[NewsCandidate]) -> dict[str, dict[s
 def _source_groups_for_policy(retrieval_policy: RetrievalPolicy) -> tuple[str, ...]:
     requested = tuple(str(group or "").strip().upper() for group in retrieval_policy.source_groups)
     groups = requested or DEFAULT_SOURCE_GROUPS
+    if OPERATIONAL_GROUP in groups:
+        if groups != OPERATIONAL_GROUPS or not retrieval_policy.metadata.get("ross_issuer_query"):
+            raise ValueError("Operational query selection requires Ross policy")
+        return groups
     if QUERY_GROUP in groups:
         if groups != QUERY_GROUPS or retrieval_policy.metadata.get("research_profile") != QUERY_PROFILE:
             raise ValueError("ISSUER_QUERY_RSS requires its explicit research profile")
@@ -519,7 +576,7 @@ def _source_diagnostics_from_summary(summary: RssFailureSummary) -> tuple[Source
         source_id = str(item.get("source_id") or item.get("source_url") or "").strip()
         if not source_id:
             continue
-        diagnostic_type = ResearchSourceDiagnostic if item.get("source_tier") == "research" else SourceDiagnostic
+        diagnostic_type = ResearchSourceDiagnostic if item.get("source_tier") in {"research", "operational_query"} else SourceDiagnostic
         rows.append(
             diagnostic_type(
                 source_id=source_id,
@@ -716,9 +773,9 @@ def _evidence_from_headline(
         provider="rss_batch",
         source_group=((headline.source_provenance.get("source_group") or
                        (QUERY_GROUP if request.strategy_id == QUERY_PROFILE else "BROAD_RSS_RESEARCH"))
-                      if headline.source_tier == "research" else "PREP_EXTENDED" if headline.source_tier == "extended" else "FAST_TRADING"),
+                      if headline.source_tier in {"research", "operational_query"} else "PREP_EXTENDED" if headline.source_tier == "extended" else "FAST_TRADING"),
         source_tier=headline.source_tier,
-        verified_source=None if headline.source_tier == "research" else True,
+        verified_source=None if headline.source_tier in {"research", "operational_query"} else True,
         cache_state="not_checked",
         retrieval_status=retrieval_status,
         budget_exhausted=budget_exhausted,
@@ -728,7 +785,7 @@ def _evidence_from_headline(
             "match_type": headline.match_type,
             "matched_field": headline.matched_field,
             **({"timestamp_provenance": headline.timestamp_provenance, "raw_title": headline.raw_title,
-                "source_provenance": headline.source_provenance} if headline.source_tier == "research" else {}),
+                "source_provenance": headline.source_provenance} if headline.source_tier in {"research", "operational_query"} else {}),
         },
         audit={
             "provider_status": provider_status,
@@ -740,10 +797,10 @@ def _evidence_from_headline(
 
 
 def _evidence_id(symbol: str, headline: Headline) -> str:
-    if headline.source_tier == "research":
+    if headline.source_tier in {"research", "operational_query"}:
         identity = (symbol, headline.title.casefold(), headline.source.casefold(), headline.url,
                     str(headline.published_ts) if not headline.url else "")
-        return f"rss-research:{symbol}:" + hashlib.sha256(repr(identity).encode()).hexdigest()[:24]
+        return f"rss-{'research' if headline.source_tier == 'research' else 'operational'}:{symbol}:" + hashlib.sha256(repr(identity).encode()).hexdigest()[:24]
     digest = hashlib.sha1(
         "|".join(
             (
