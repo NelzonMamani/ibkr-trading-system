@@ -292,7 +292,7 @@ def assess_issuer_event(symbol, item, candidates=()):
                 same_owner_period = clause_kind == "EARNINGS" and re.fullmatch(
                     r"[\s,]*(?:for|in)\s+" + period_text + r"[\s.!]*", suffix, re.I)
                 same_owner_ordinary = re.fullmatch(
-                    r"\s+(?:for|at|from)\s+" + ordinary_pattern, suffix, re.I)
+                    r"[\s,]*(?:for|at|from)\s+" + ordinary_pattern, suffix, re.I)
                 if not same_owner_tail and not same_owner_period and not same_owner_ordinary:
                     owner_uncertain = True
                     break

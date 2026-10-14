@@ -175,7 +175,7 @@ def test_verified_same_issuer_or_period_complement_keeps_fixture_positive(headli
 def test_changed_owner_qualification_contract_refreshes_old_compressed_coverage(monkeypatch,tmp_path):
     calls=[];fixture_transport(monkeypatch,calls,[])
     svc=service(tmp_path);current=ross._ross_news_request()
-    assert current.metadata['qualification_profile']=='ross_issuer_event_v8'
+    assert current.metadata['qualification_profile']=='ross_issuer_event_v9'
     old=replace(current,metadata={**current.metadata,'qualification_profile':'ross_issuer_event_v1'})
     policy=ross._ross_retrieval_policy(refresh_mode='bounded_refresh',network_allowed=True)
     svc.get_news((CANDIDATE,),old,policy);before=len(calls)
@@ -326,4 +326,19 @@ def test_verified_recipient_reuses_anchored_ordinary_complement(headline,qualifi
     from src.news.news_intelligence_contract import NewsBatchResult,RetrievalDiagnostics
     result=NewsBatchResult(candidates=(CANDIDATE,),request=ross._ross_news_request(),diagnostics=RetrievalDiagnostics(provider_available=True))
     context=ross._ross_news_context_from_evidence('JPM',(item(headline),),None,result)
+    assert context['ross_catalyst_valid'] is qualified
+
+
+@pytest.mark.parametrize('suffix,qualified',[
+    (', for its lead drug AX-101',True),
+    (', For Its Lead Drug AX-101',True),
+    (',for its lead drug AX-101',True),
+    (', for Rival Therapeutics',False),
+    (', for its lead drug AX-101 of Rival Therapeutics',False),
+])
+def test_verified_recipient_complement_separator_punctuation(suffix,qualified):
+    from test_ross_operational_issuer_news import item
+    from src.news.news_intelligence_contract import NewsBatchResult,RetrievalDiagnostics
+    result=NewsBatchResult(candidates=(CANDIDATE,),request=ross._ross_news_request(),diagnostics=RetrievalDiagnostics(provider_available=True))
+    context=ross._ross_news_context_from_evidence('JPM',(item('JPM announces FDA approval granted to JPMorgan Chase'+suffix),),None,result)
     assert context['ross_catalyst_valid'] is qualified
