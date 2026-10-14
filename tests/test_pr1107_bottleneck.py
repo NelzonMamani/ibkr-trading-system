@@ -175,7 +175,7 @@ def test_verified_same_issuer_or_period_complement_keeps_fixture_positive(headli
 def test_changed_owner_qualification_contract_refreshes_old_compressed_coverage(monkeypatch,tmp_path):
     calls=[];fixture_transport(monkeypatch,calls,[])
     svc=service(tmp_path);current=ross._ross_news_request()
-    assert current.metadata['qualification_profile']=='ross_issuer_event_v5'
+    assert current.metadata['qualification_profile']=='ross_issuer_event_v6'
     old=replace(current,metadata={**current.metadata,'qualification_profile':'ross_issuer_event_v1'})
     policy=ross._ross_retrieval_policy(refresh_mode='bounded_refresh',network_allowed=True)
     svc.get_news((CANDIDATE,),old,policy);before=len(calls)
@@ -266,3 +266,29 @@ def test_ordinary_complement_cannot_hide_invalid_date_or_foreign_owner(tail):
     from test_ross_operational_issuer_news import item
     from src.strategies.ross_momentum.policy.catalyst_policy import assess_issuer_event
     assert not assess_issuer_event('JPM',item('JPM reports earnings for '+tail))['qualified']
+
+
+@pytest.mark.parametrize('headline',[
+    'JPM Wins Contract for Cloud Services',
+    'JPM Receives FDA Approval for Its Lead Drug AX-101',
+    'JPM Launches AI Platform for Hospitals',
+])
+def test_title_case_direct_product_complements(headline):
+    from test_ross_operational_issuer_news import item
+    from src.strategies.ross_momentum.policy.catalyst_policy import assess_issuer_event
+    assert assess_issuer_event('JPM',item(headline))['qualified']
+
+
+@pytest.mark.parametrize('headline,qualified',[
+    ('AS reports earnings beat',True),
+    ('$AS reports earnings beat',True),
+    ('Amer Sports reports earnings beat',True),
+    ('AS tracks rival earnings',False),
+    ('Bank of America reports earnings beat as AS watches',False),
+    ('AS comments as Bank of America reports earnings beat',False),
+])
+def test_clause_boundaries_preserve_leading_verified_identity(headline,qualified):
+    from test_ross_operational_issuer_news import item
+    from src.strategies.ross_momentum.policy.catalyst_policy import assess_issuer_event
+    evidence=replace(item(headline),symbol='AS',company_name='Amer Sports, Inc.',aliases=('Amer Sports',))
+    assert assess_issuer_event('AS',evidence)['qualified'] is qualified

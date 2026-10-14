@@ -205,7 +205,18 @@ def assess_issuer_event(symbol, item, candidates=()):
         return end
     ownership_rejected = False
     # Clause boundaries prevent a later co-mention from inheriting an event.
-    clauses = re.split(r';|\s+[—–]\s+|\b(?:while|whereas|versus|alongside|after|but|as)\b', title, flags=re.I)
+    # A leading verified issuer may itself be AS (or contain a boundary word).
+    # Protect only that identity span; later clauses still cannot inherit it.
+    title = title.strip()
+    protected_end = identity_end(title) or 0
+    boundaries = [m for m in re.finditer(r';|\s+[—–]\s+|\b(?:while|whereas|versus|alongside|after|but|as)\b', title, re.I)
+                  if m.start() >= protected_end]
+    clauses = []
+    start = 0
+    for boundary in boundaries:
+        clauses.append(title[start:boundary.start()])
+        start = boundary.end()
+    clauses.append(title[start:])
     for clause in clauses:
         clause = clause.strip()
         clause_kind = classify_headline(clause)
@@ -269,7 +280,7 @@ def assess_issuer_event(symbol, item, candidates=()):
                 r"(?:(?:its\s+)?(?:lead\s+|new\s+)?(?:drug|therapy|treatment|candidate)(?:\s+[A-Z]{1,8}-\d{1,6})?"
                 r"|(?:cloud|software|manufacturing|supply|healthcare)\s+services"
                 r"|hospitals|clinics|patients|(?:its\s+)?(?:US|U\.S\.|European)\s+(?:plant|facility)"
-                r"|\$\d+(?:\.\d+)?\s+(?:million|billion))[.!]?", owner)
+                r"|\$\d+(?:\.\d+)?\s+(?:million|billion))[.!]?", owner, re.I)
 
             if end is not None:
                 consumed_owner_end = complement.end() + end

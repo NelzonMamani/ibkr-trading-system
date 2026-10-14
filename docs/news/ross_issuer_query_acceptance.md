@@ -120,7 +120,7 @@ source failures without a deadline remain unavailable without being falsely
 labelled budget exhaustion. Transport reachability/failure diagnostics are kept
 separate from this required-coverage decision.
 
-The `ross_issuer_event_v5` qualification fingerprint also rejects unverified
+The `ross_issuer_event_v6` qualification fingerprint also rejects unverified
 post-event ownership (for example, JPM reporting earnings of another company).
 Verified same-issuer ownership and ordinary earnings-period complements remain
 supported. This fingerprint invalidates older compressed witness-selection
@@ -144,3 +144,9 @@ lead therapy`, `for cloud services`, and `for hospitals` do not imply another
 issuer owns the event. Arbitrary corporate names, invalid dates and appended
 foreign ownership remain rejected. These are labelled contract fixtures, not
 observed positive trading evidence.
+
+The v6 attribution grammar handles ordinary complements case-insensitively
+and protects a verified leading issuer identity from clause-word splitting
+(e.g. AS / Amer Sports). Later co-mention clauses remain independent. Explicit
+lowercase/title-case and separator-ticker fixtures verify both acceptance of
+direct assertions and rejection of rival-event inheritance.
