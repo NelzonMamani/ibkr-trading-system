@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import sys
 from typing import Optional
@@ -64,7 +64,7 @@ class _BaseProvider(ScannerDataProvider):
             close=self._close,
             change_percent=None,
             volume=self._volume,
-            timestamp_utc="2025-01-01T00:00:00Z",
+            timestamp_utc=datetime.now(timezone.utc).isoformat(),
             data_quality_flags=(),
         )
 
@@ -157,7 +157,7 @@ class _HistoryAttemptedNoBarsProvider(_IdentityPropagationProvider):
     def get_quote(self, symbol: str) -> QuoteData:
         return QuoteData(
             symbol=symbol, bid=24.8, ask=25.2, last=25.0, vwap=24.9, open=24.0, high=25.5, low=23.8, close=24.0,
-            change_percent=4.2, volume=220_000, timestamp_utc="2025-01-01T00:00:00Z", data_quality_flags=(),
+            change_percent=4.2, volume=220_000, timestamp_utc=datetime.now(timezone.utc).isoformat(), data_quality_flags=(),
         )
 
     def get_intraday_stats(self, symbol: str) -> IntradayStats:

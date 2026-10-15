@@ -514,6 +514,8 @@ def reset_scanner_runtime_state(
     _LAST_SCANNER_PAYLOAD = None
     _ROSS_DAILY_STATE = None
     if clear_persistent_provider:
+        from src.market_data.float_discovery_worker import shutdown_float_discovery_workers
+        workers_stopped = shutdown_float_discovery_workers()
         if _PERSISTENT_PROVIDER is not None:
             try:
                 _PERSISTENT_PROVIDER.disconnect()
@@ -522,6 +524,8 @@ def reset_scanner_runtime_state(
                     raise
         _PERSISTENT_PROVIDER = None
         _PERSISTENT_PROVIDER_SOURCE = None
+        if not workers_stopped:
+            raise RuntimeError("Float discovery worker shutdown incomplete")
 
 
 def _safe_float(value: Any, default: Optional[float] = None) -> Optional[float]:
@@ -1965,6 +1969,17 @@ def _seed_watchlist_from_prep(
 
 
 def _stale_market_data_drop(context: Dict[str, Any]) -> Optional[str]:
+    # Long passes can age a previously fresh quote before selection consumes it.
+    # Receipt/scan time must never replace the retained broker trade timestamp.
+    try:
+        stamp = datetime.fromisoformat(context["quote_timestamp_utc"].replace("Z", "+00:00"))
+        if stamp.tzinfo is not None and (datetime.now(timezone.utc) - stamp).total_seconds() > int(get_config("IBKR_SNAPSHOT_MAX_AGE_SECONDS")):
+            flags = list(context.get("data_quality_flags") or ())
+            if "MD_STALE" not in flags:
+                flags.append("MD_STALE")
+                context["data_quality_flags"] = flags
+    except (KeyError, AttributeError, TypeError, ValueError):
+        pass  # Missing/invalid timestamps retain their separate authority gates.
     # Consume the provider's freshness decision; receipt/scan time cannot
     # turn a stale last trade into fresh market evidence.
     if "MD_STALE" not in (context.get("data_quality_flags") or ()):
