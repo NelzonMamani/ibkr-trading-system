@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from src.core.acquisition import checkpoint, cycle_cache, contract_key, cooperative_await
+
 import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -463,12 +465,7 @@ class MarketDataClient:
             exchange="SMART",
             currency="USD",
         )
-        qualified = qualify_contracts_resilient(
-            self._resolve_ib_client(),
-            contract,
-            timeout_seconds=self.snapshot_timeout_seconds,
-            log_prefix="[EXECUTION][QUALIFY]",
-        )
+        qualified = self.qualifyContracts(contract)
         if qualified:
             return qualified[0]
         raise RuntimeError(
@@ -485,15 +482,43 @@ class MarketDataClient:
         Compatibility wrapper for ib_insync-style APIs used by the
         snapshot enrichment layer.
         """
-        ib = self._resolve_ib_client()
-        return qualify_contracts_resilient(
-            ib,
-            *contracts,
-            timeout_seconds=self.snapshot_timeout_seconds,
-            log_prefix="[EXECUTION][QUALIFY]",
-        )
+        checkpoint()
+        cache = cycle_cache()
+        result = []
+        for contract in contracts:
+            key = ("qualified", id(self), contract_key(contract))
+            if cache is not None and key in cache:
+                result.extend(cache[key])
+                continue
+            rows = qualify_contracts_resilient(
+                self._resolve_ib_client(), contract,
+                timeout_seconds=self.snapshot_timeout_seconds,
+                log_prefix="[EXECUTION][QUALIFY]",
+            )
+            checkpoint()
+            if cache is not None and rows:
+                cache[key] = rows
+                for row in rows:
+                    cache[("qualified", id(self), contract_key(row))] = rows
+            result.extend(rows)
+        return result
 
     def snapshot_stock(self, contract_or_symbol) -> MarketDataSnapshot:
+        checkpoint()
+        cache = cycle_cache()
+        key = ("snapshot", id(self), contract_key(contract_or_symbol), self.market_data_type)
+        if cache is not None and key in cache:
+            snapshot, debug = cache[key]
+            self.last_snapshot_debug = debug
+            return snapshot
+        snapshot = self._snapshot_stock_uncached(contract_or_symbol)
+        checkpoint()
+        if cache is not None and not any(flag in snapshot.data_quality_flags for flag in (
+                "MD_TIMEOUT", "CONTRACT_QUALIFY_FAILED", "MD_EMPTY")):
+            cache[key] = (snapshot, self.last_snapshot_debug)
+        return snapshot
+
+    def _snapshot_stock_uncached(self, contract_or_symbol) -> MarketDataSnapshot:
         base_flags = _market_data_type_flags("UNKNOWN")
         symbol = getattr(contract_or_symbol, "symbol", None) or str(contract_or_symbol or "").upper()
         self.last_snapshot_debug = {
@@ -547,6 +572,7 @@ class MarketDataClient:
             completion_reason = "timeout"
             try:
                 while True:
+                    checkpoint()
                     if self._ticker_snapshot_complete(ticker):
                         snapshot_complete = True
                         completion_reason = "snapshot_end"
@@ -732,6 +758,18 @@ class MarketDataClient:
         return qualified[0]
 
     def _request_daily_history_with_fallback(self, contract, *, lookback_days: int, use_rth: bool = True, end_datetime: str = ""):
+        checkpoint()
+        cache = cycle_cache()
+        key = ("daily", id(self), contract_key(contract), lookback_days, use_rth, end_datetime)
+        if cache is not None and key in cache:
+            return list(cache[key])
+        bars = self._daily_history_uncached(contract, lookback_days=lookback_days, use_rth=use_rth, end_datetime=end_datetime)
+        checkpoint()
+        if cache is not None and bars:
+            cache[key] = list(bars)
+        return bars
+
+    def _daily_history_uncached(self, contract, *, lookback_days: int, use_rth: bool = True, end_datetime: str = ""):
         attempts = [
             {
                 "label": "primary",
@@ -760,7 +798,11 @@ class MarketDataClient:
                 f"label={attempt['label']} useRTH={attempt['useRTH']} endDateTime='{attempt['endDateTime']}' durationStr={attempt['durationStr']} whatToShow=TRADES"
             )
             try:
-                bars = self._resolve_ib_client().reqHistoricalData(
+                client = self._resolve_ib_client()
+                async_history = getattr(client, "reqHistoricalDataAsync", None)
+                request = (lambda *args, **kwargs: self._cancellable_insync_history(client, *args, **kwargs)) if callable(async_history) else client.reqHistoricalData
+                checkpoint()
+                bars = request(
                     contract,
                     endDateTime=attempt["endDateTime"],
                     durationStr=attempt["durationStr"],
@@ -768,7 +810,11 @@ class MarketDataClient:
                     whatToShow="TRADES",
                     useRTH=attempt["useRTH"],
                     formatDate=1,
-                ) or []
+                )
+                if callable(async_history):
+                    bars = self._run_async(cooperative_await(bars))
+                checkpoint()
+                bars = bars or []
             except Exception as exc:
                 print(
                     "[IBKR][HIST_ATTEMPT_FAIL] "
@@ -782,6 +828,37 @@ class MarketDataClient:
             if bars:
                 return bars
         return []
+
+    async def _cancellable_insync_history(self, ib, contract, **params):
+        """Own one ib_insync history request so cancellation also stops its wire work.
+
+        Preserve the synchronous IB history defaults (including its 60s timeout).
+        reqHistoricalDataAsync does not cancel wire work on CancelledError.
+        """
+        from ib_insync import BarDataList, util
+        from src.core.acquisition import AcquisitionCancelled
+        req_id = ib.client.getReqId()
+        bars = BarDataList()
+        bars.reqId, bars.contract = req_id, contract
+        for key, value in {**params, "keepUpToDate": False, "chartOptions": []}.items():
+            setattr(bars, key, value)
+        future = ib.wrapper.startReq(req_id, contract, container=bars)
+        try:
+            ib.client.reqHistoricalData(
+                req_id, contract, util.formatIBDatetime(params["endDateTime"]),
+                params["durationStr"], params["barSizeSetting"], params["whatToShow"],
+                params["useRTH"], params["formatDate"], False, [])
+            await asyncio.wait_for(future, 60)
+        except asyncio.TimeoutError:
+            ib.client.cancelHistoricalData(req_id)
+            bars.clear()
+        except (asyncio.CancelledError, AcquisitionCancelled):
+            ib.client.cancelHistoricalData(req_id)
+            raise
+        finally:
+            # startReq's future/container must not survive cancellation/timeout.
+            ib.wrapper._endReq(req_id)
+        return bars
 
     def prev_close_from_history(self, symbol: str, use_rth: bool = True) -> Optional[float]:
         try:

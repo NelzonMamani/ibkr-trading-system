@@ -13,10 +13,13 @@ from src.risk.risk_engine import RiskEngine
 
 
 def test_tha_allows_real_execution_flow() -> None:
-    now = datetime.now(timezone.utc)
-    day = now.astimezone().strftime("%Y%m%d")
-    later = (now + timedelta(hours=1)).astimezone()
-    start_hhmm = now.astimezone().strftime("%H%M")
+    # Synthetic exchange hours must use an IANA zone, not the host display
+    # name (Windows calls UTC "Coordinated Universal Time"). Fix the clock
+    # too, so crossing local midnight cannot change this in-window fixture.
+    now = datetime(2026, 10, 15, 14, 0, tzinfo=timezone.utc)
+    day = now.strftime("%Y%m%d")
+    later = now + timedelta(hours=1)
+    start_hhmm = now.strftime("%H%M")
     end_hhmm = later.strftime("%H%M")
     if end_hhmm == start_hhmm:
         end_hhmm = "2359"
@@ -28,7 +31,7 @@ def test_tha_allows_real_execution_flow() -> None:
         run_mode="PAPER",
         trading_hours=trading_hours,
         liquid_hours=None,
-        timezone=str(now.astimezone().tzinfo),
+        timezone="UTC",
     )
     tha_decision = resolve_trading_window_decision(policy=policy, now=now)
     assert tha_decision.in_window is True

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from src.core.acquisition import acquisition_cycle, checkpoint
+
 import argparse
 from collections import Counter
 from dataclasses import asdict, dataclass, field, replace
@@ -3568,7 +3570,9 @@ def _extended_only_tier_budget() -> float:
 
 def _enrich_news_context(symbols, provider_source, symbol_metadata_by_symbol=None):
     started = time.monotonic()
+    checkpoint()
     contexts, diagnostic = _enrich_news_context_impl(symbols, provider_source, symbol_metadata_by_symbol)
+    checkpoint()
     if RossPolicy().issuer_query_enabled:
         diagnostic.news_intelligence_diagnostics["ross_consumer_elapsed_seconds"] = time.monotonic() - started
     return contexts, diagnostic
@@ -5068,6 +5072,7 @@ def _is_payload_cacheable(payload: Dict[str, Any]) -> bool:
     return True
 
 
+@acquisition_cycle
 def run_scanner_cycle(
     mode: str = "integrated",
     policy: StockSelectionPolicy | None = None,
@@ -5155,6 +5160,7 @@ def run_scanner_cycle(
         )
 
     def _runtime_bound_reached(stage: str, *, reserve_news: bool = False) -> bool:
+        checkpoint()
         remaining = _runtime_remaining_seconds(reserve_news=reserve_news)
         if remaining is None:
             return False

@@ -262,6 +262,13 @@ def complete_after_process_exit(directory, process, no_runtime_remains, final_au
     exited = exit_code is not None and process.pid != os.getpid() and matched
     evidence["launcher_identity"] = sanitize(getattr(process, "launcher_identity", None))
     evidence["runtime_identity"] = sanitize(identity)
+    # Preserve the two distinct attestations. Terminal certification requires
+    # both live binding AND the child's shutdown identity, never just a PID.
+    evidence["supervisor_runtime_identity_verified"] = identity_verified
+    evidence["child_shutdown_identity_matched"] = bool(matched)
+    evidence["runtime_identity_verification_reason"] = (
+        "MATCHED" if matched else "CHILD_SHUTDOWN_IDENTITY_MISSING_OR_MISMATCHED"
+        if identity_verified else "SUPERVISOR_BINDING_UNVERIFIED")
     evidence["runtime_identity_verified"] = bool(matched)
     evidence["launcher_pid"] = getattr(process, "launcher_identity", {}).get("pid") if getattr(process, "launcher_identity", None) else None
     evidence["runtime_pid"] = identity.get("pid") if isinstance(identity, dict) else None

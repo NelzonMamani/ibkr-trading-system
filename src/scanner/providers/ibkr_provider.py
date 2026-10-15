@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+
+from src.core.acquisition import checkpoint
 from typing import Any, Optional
 
 import re
@@ -452,7 +454,7 @@ class IbkrScannerProvider(ScannerDataProvider):
         return bars
 
     def get_intraday_stats(self, symbol: str) -> IntradayStats:
-        snapshot = self.market_data_client.snapshot_stock(symbol)
+        snapshot = self.get_quote(symbol)
         volume = int(snapshot.volume) if snapshot.volume is not None else None
         avg_volume = None
         window_days = None
@@ -485,7 +487,9 @@ class IbkrScannerProvider(ScannerDataProvider):
         ):
             for attempt in range(1, 3):
                 print(f"[FLOAT][FETCH_START] symbol={symbol} provider={provider_name} attempt={attempt}")
+                checkpoint()
                 value, reason = fetcher(symbol)
+                checkpoint()
                 if value is not None and value > 0:
                     cache_provider.record_discovery(symbol=symbol, value=int(value), source=provider_name)
                     self.last_float_source = provider_name
@@ -516,7 +520,7 @@ class IbkrScannerProvider(ScannerDataProvider):
         return cached_value
 
     def _average_daily_volume(self, symbol: str) -> tuple[Optional[int], Optional[int]]:
-        contract = self.market_data_client.qualify_contract(symbol)
+        contract = self._qualified_contract_for_symbol(symbol)
         if contract is None:
             return None, None
         return self.market_data_client.average_daily_volume_from_history(contract, window=20, use_rth=True)
@@ -544,8 +548,10 @@ class IbkrScannerProvider(ScannerDataProvider):
         request_failures = 0
         parse_failures = 0
         for _, url in urls:
+            checkpoint()
             try:
                 response = requests.get(url, timeout=5, headers=headers)
+                checkpoint()
                 response.raise_for_status()
                 payload = response.json()
             except requests.RequestException:
@@ -582,6 +588,7 @@ class IbkrScannerProvider(ScannerDataProvider):
 
     @staticmethod
     def _fetch_finviz_float_detailed(symbol: str) -> tuple[Optional[int], str]:
+        checkpoint()
         url = f"https://finviz.com/quote.ashx?t={symbol}"
         try:
             response = requests.get(
@@ -589,6 +596,7 @@ class IbkrScannerProvider(ScannerDataProvider):
                 timeout=5,
                 headers={"User-Agent": "Mozilla/5.0"},
             )
+            checkpoint()
             response.raise_for_status()
             text = response.text
         except requests.RequestException:

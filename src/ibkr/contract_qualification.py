@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+
+from src.core.acquisition import checkpoint, cooperative_await
 from typing import Any
 
 
@@ -9,6 +11,7 @@ def qualify_contracts_resilient(client: Any, *contracts: Any, timeout_seconds: f
     sync_qualify = getattr(client, "qualifyContracts", None)
     async_qualify = getattr(client, "qualifyContractsAsync", None)
     for contract in contracts:
+        checkpoint()
         if contract is None:
             continue
         symbol = str(getattr(contract, "symbol", None) or "UNKNOWN").upper()
@@ -17,7 +20,7 @@ def qualify_contracts_resilient(client: Any, *contracts: Any, timeout_seconds: f
         if callable(async_qualify):
             print(f"{log_prefix}[ASYNC_ATTEMPT] symbol={symbol}")
             try:
-                awaitable = async_qualify(contract)
+                awaitable = cooperative_await(async_qualify(contract))
                 if timeout_seconds is not None:
                     awaitable = asyncio.wait_for(awaitable, timeout=timeout_seconds)
                 result = client.run(awaitable) if hasattr(client, "run") else asyncio.run(awaitable)
@@ -27,7 +30,9 @@ def qualify_contracts_resilient(client: Any, *contracts: Any, timeout_seconds: f
         if not result and callable(sync_qualify):
             try:
                 print(f"{log_prefix}[SYNC_FALLBACK] symbol={symbol}")
+                checkpoint()
                 result = sync_qualify(contract)
+                checkpoint()
             except Exception as exc:
                 print(f"{log_prefix}[FAILED] symbol={symbol} reason={exc}")
                 result = None
