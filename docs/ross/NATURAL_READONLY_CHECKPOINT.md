@@ -900,3 +900,8 @@ This fixture correction is a concrete changed-head reason for fresh CI, not a
 weakened stale-data assertion. Old in-flight CI at7154770e is superseded; CLI
 cancellation was unavailable (Forbidden), so its results are not substituted for
 final-head verification.
+
+
+## Controlled integration (2026-10-16 UTC)
+
+PR1108 was ancestry-preserving merged with exact-head guard at 5b91fcd20699e0664dc6c7f08668823e5a080942; accepted merge 424cedf289bce0a4ac20ed9f9f620b2bd2ec58f7. PR1109 was retargeted to main and main merged into its branch. Integration production/test source remains identical to reviewed ee44dd2ebe51dedf500f54f7c23618a6ad51c91c. The CI cumulative exact harness allowlist now uses that certified source anchor and full Linux/Windows2779-pass receipt 38824692588; any non-allowlisted change still requires full suites. The workstation2759-pass evidence belongs only to8f40 and is not evidence for PR1109. Integration checks/review pending. Observation unexecuted, PAPER_READY=NO.

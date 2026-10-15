@@ -20,9 +20,9 @@ jobs:
         shell: python
         run: |
           import os, subprocess
-          baseline = '8f40e4c4b3ca8fa0f74d8e41cd947e50bc2e370c'
-          # This fixed receipt anchor has successful full Linux/Windows suites
-          # AND the user's Windows2759-pass result. Any source/test change
+          baseline = 'ee44dd2ebe51dedf500f54f7c23618a6ad51c91c'
+          # This fixed source receipt has successful 2779-pass Linux/Windows
+          # suites. The earlier workstation2759 receipt remains separate. Any change
           # outside this exact harness/docs allowlist still runs full suites.
           allowed = {
               '.github/workflows/pytest.yml',
@@ -39,7 +39,7 @@ jobs:
           with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
               out.write(f'harness_only={str(focused).lower()}\n')
           print('HARNESS_ONLY=' + str(focused))
-          print('Full-suite receipt: actions/runs/38819547660 at ' + baseline)
+          print('Full-suite receipt: actions/runs/38824692588 at ' + baseline)
           print('Changed files: ' + ', '.join(sorted(paths)))
 
   test:
@@ -76,8 +76,8 @@ jobs:
       - name: Harness-only source identity and whitespace checks
         if: needs.verification-scope.outputs.harness_only == 'true'
         run: |
-          git diff --check 8f40e4c4b3ca8fa0f74d8e41cd947e50bc2e370c HEAD
-          git diff --exit-code 8f40e4c4b3ca8fa0f74d8e41cd947e50bc2e370c HEAD -- src tests/offline tests/conftest.py requirements.txt
+          git diff --check ee44dd2ebe51dedf500f54f7c23618a6ad51c91c HEAD
+          git diff --exit-code ee44dd2ebe51dedf500f54f7c23618a6ad51c91c HEAD -- src tests/offline tests/conftest.py requirements.txt
           echo "Production/offline Python source unchanged; full-suite receipts carried forward, not rerun."
 
   windows-offline:
