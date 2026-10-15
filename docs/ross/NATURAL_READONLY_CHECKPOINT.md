@@ -889,3 +889,14 @@ retain false launch gates and require separate observation authorization.
 Natural pass/issuer/catalyst/downstream acceptance remains unproven. No broker or
 provider acquisition, natural runtime, trading, merge or readiness upgrade.
 `PAPER_READY=NO`.
+
+A focused downstream-consumer check exposed three pre-existing test fixtures that
+labelled a fixed January2025 quote as current while testing percentage/RVOL gates.
+The new age-at-selection rule correctly rejected it. Their shared synthetic
+provider now supplies a current aware UTC trade timestamp (including its no-bars
+variant); price/reference/RVOL/catalyst assertions are unchanged. The focused
+consumer set changed from3 failed/83 passed to **86 passed**,107 warnings,2.66s.
+This fixture correction is a concrete changed-head reason for fresh CI, not a
+weakened stale-data assertion. Old in-flight CI at7154770e is superseded; CLI
+cancellation was unavailable (Forbidden), so its results are not substituted for
+final-head verification.
