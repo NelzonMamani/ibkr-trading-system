@@ -35,7 +35,7 @@ jobs:
 
   windows-offline:
     runs-on: windows-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -44,7 +44,12 @@ jobs:
           cache: "pip"
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
-      - name: Windows collection and offline socketpair regressions
+      - name: Seed inherited operator order state
+        run: |
+          $state = Join-Path $env:RUNNER_TEMP 'operator-order-state.json'
+          '{"last_reserved_order_id":361}' | Set-Content -Encoding ascii $state
+          "IBKR_ORDER_ID_STATE_PATH=$state" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Full Windows offline suite (includes all six request-ID cases)
         env:
           PYTHONPATH: ${{ github.workspace }}/tests/offline;${{ github.workspace }}
-        run: python -m pytest -q tests/test_offline_socketpair_guard.py tests/test_execution_mode_engine.py tests/test_pr1091_console_reporting.py
+        run: python -m pytest -q

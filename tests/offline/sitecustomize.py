@@ -36,3 +36,17 @@ def offline(event, args):
 
 
 sys.addaudithook(offline)
+
+# yfinance uses native libcurl, which does not emit Python socket audit events.
+# Stop its synchronous and asynchronous transfer entry points before native I/O.
+def _deny_native_transfer(*args, **kwargs):
+    raise OSError('OFFLINE_CI: native network acquisition disabled')
+
+
+try:
+    from curl_cffi import Curl, AsyncCurl
+except ImportError:
+    pass  # Optional only when yfinance/curl_cffi is not installed.
+else:
+    Curl.perform = _deny_native_transfer
+    AsyncCurl.add_handle = _deny_native_transfer

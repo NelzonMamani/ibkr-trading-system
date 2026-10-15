@@ -26,23 +26,43 @@ class FloatDiscoveryWorker:
     def __init__(self, cache_path: str | Path, ttl_days: int = 7, sqlite_path: str | None = None) -> None:
         self._cache_path = Path(cache_path)
         self._provider = FloatProvider(cache_path=self._cache_path, ttl_days=ttl_days, sqlite_path=sqlite_path)
-        self._queue: Queue[str] = Queue()
+        self._queue: Queue[str | None] = Queue()
         self._queued: set[str] = set()
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
+        self._stop = threading.Event()
 
     def ensure_started(self) -> None:
-        if self._thread is not None and self._thread.is_alive():
-            return
-        self._thread = threading.Thread(target=self._worker_loop, name="float-discovery-worker", daemon=True)
-        self._thread.start()
+        with self._lock:
+            if self._stop.is_set() or (self._thread is not None and self._thread.is_alive()):
+                return
+            self._thread = threading.Thread(target=self._worker_loop, name="float-discovery-worker", daemon=True)
+            self._thread.start()
+
+    def shutdown(self, timeout: float = 3) -> bool:
+        """Cancel queued work and join owned work; never hide a surviving thread."""
+        with self._lock:
+            self._stop.set()
+            while True:
+                try:
+                    symbol = self._queue.get_nowait()
+                except Empty:
+                    break
+                self._queued.discard(symbol)
+                self._queue.task_done()
+            thread = self._thread
+            if thread is not None and thread.is_alive():
+                self._queue.put(None)
+        if thread is not None and thread is not threading.current_thread():
+            thread.join(timeout=max(0, timeout))
+        return thread is None or not thread.is_alive()
 
     def enqueue(self, symbol: str) -> bool:
         normalized = str(symbol or "").upper().strip()
         if not normalized:
             return False
         with self._lock:
-            if normalized in self._queued:
+            if self._stop.is_set() or normalized in self._queued:
                 return False
             self._queued.add(normalized)
             self._queue.put(normalized)
@@ -71,7 +91,10 @@ class FloatDiscoveryWorker:
                 continue
 
             try:
-                self._discover_and_cache(symbol)
+                if symbol is None:
+                    return
+                if not self._stop.is_set():
+                    self._discover_and_cache(symbol)
             finally:
                 with self._lock:
                     self._queued.discard(symbol)
@@ -82,7 +105,11 @@ class FloatDiscoveryWorker:
             ("YAHOO", self._provider.provider_yahoo),
             ("FINVIZ", self._provider.provider_finviz),
         ):
+            if self._stop.is_set():
+                return
             value, reason = provider_fn(symbol)
+            if self._stop.is_set():
+                return
             if value is not None and value > 0:
                 self._provider.record_discovery(symbol=symbol, value=int(value), source=provider_name)
                 print(

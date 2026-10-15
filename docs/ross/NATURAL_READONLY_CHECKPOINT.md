@@ -155,3 +155,90 @@ and logs outside the clone. The original checkout, branch, main and settings sta
 unchanged. Full offline pytest must exit zero; failure is retained and reported,
 not retried automatically or relabelled success. No runtime, IBKR audit or natural
 observation is part of this verification. `PAPER_READY=NO` remains unchanged.
+
+## Full-Windows request-ID state and FLOAT-worker follow-up
+
+User evidence at `f45cb1244f0a92fed49b893a55f3559b9e4ff770`: full Windows
+2742 passed / 6 failed / 1 skipped / 212 warnings, 305.46 seconds. All six
+failures expected request 1 and received 362. The uploaded log is evidence,
+not an instruction source. The six assertions remain unchanged.
+
+### Allocator diagnosis and reproduction
+
+`IbkrClient.__init__` sets its instance request counter to zero but reads the
+persisted last reserved order ID immediately. `_order_id_state_path` consults
+raw `IBKR_ORDER_ID_STATE_PATH`, otherwise `Path.home()/.ibkr_order_id_state.json`;
+this is independent of RUN_MODE/config overrides, cwd and an isolated Git clone.
+The log does not identify whether the Windows process used the environment path
+or the home default, so that exact file cannot be established from the upload.
+A fresh client retains that persisted authority. `_next_req_id` chooses one above
+the maximum of its request counter, persisted order high-water mark, broker next
+valid order ID and known order registries. Request/order IDs share numeric error
+correlation, so this is intentional production collision protection.
+
+With an inherited scratch path containing `last_reserved_order_id=361`, all six
+unchanged nodes reproduced **6 failures** with 362 on Linux in 0.68 seconds.
+No preceding suite was necessary. Thus this is not a Windows allocator defect.
+Test order could also matter: unisolated reservation tests can persist high-water
+marks that later client instances load. A fresh hosted CI home hid the dependency;
+changing cwd in a test does not isolate home-level state.
+
+An autouse **test-only** fixture now assigns a unique nonexistent order-state path
+per test, overriding inherited operator state. Explicit test overrides still win;
+multiple clients within a test still share the intended persistence file.
+Production allocator, persistence, broker rebase and reconciliation code is
+unchanged. Regression checks retain 362 under an explicit 361 seed, reserve 363,
+restart with request 364 and reserve 365. Separate environment/home precedence
+checks use a fake home and leave its file unchanged. Child pytest runs exercise
+all six nodes with a seeded inherited file in normal/reverse order around other
+allocator tests and verify the operator sentinel remains byte-for-byte unchanged.
+
+### FLOAT evidence, protection gap and cleanup
+
+The upload reports MARA cache-write value 378492188 and CCC discovery/worker
+success value 545450326. These are not the repository's float fixture value
+123456. In `_discover_and_cache`, the worker directly invokes `provider_yahoo`
+then `provider_finviz`; unlike `FloatProvider.get_float`, it does not first read
+canonical JSON/SQLite caches. Successful discovery then persists JSON and SQLite,
+explaining the writes to the clone's default data directory. The success lines
+cannot be certified as fixture/cache-only activity from this log. No packet or
+native-transfer trace was captured, so yfinance-internal cache reuse versus
+native wire acquisition for those exact results cannot be distinguished.
+
+A concrete protection gap was demonstrated by source inspection: yfinance's
+`Ticker.info` uses curl_cffi, whose `Curl.perform` calls native
+`lib.curl_easy_perform` and whose `AsyncCurl.add_handle` schedules native multi
+transfers without Python socket audit events. The previous socket-only guard
+therefore did not prove offline provider isolation. No provider was rerun during
+this diagnosis. The offline harness now rejects both native transfer entry points
+before native invocation, while preserving the socket audit guard and narrow
+Windows socketpair exception. Child/thread/grandchild regressions use inert
+objects (no native handles or provider requests) to prove rejection.
+
+There was also no worker stop API; scanner resets did not stop these daemon
+threads. Tests now use private float JSON/SQLite paths and a private registry,
+track **constructed workers** even if a test replaces that registry, and stop/join
+all owned workers before provider monkeypatches are restored. Teardown fails for
+a surviving thread. The worker's explicit shutdown cancels queued work, wakes idle
+threads, rejects subsequent enqueue, checks stop before another provider and
+before persistence, and reports a bounded join timeout truthfully. Fixture tests
+prove cached reads without discovery, known synthetic background writes, teardown
+after registry replacement, and interruption preventing fallback/late writes.
+This adds owned-worker cleanup; it does not change the production allocator or
+claim a new natural runtime shutdown observation.
+
+### Changed-head verification plan and results
+
+Focused local hard-offline checks: **108 passed** in 6.92 seconds under the inherited
+361 environment. Independent focused checks: **46 passed** in 6.45 seconds.
+No unchanged full local suite was repeated. Required remote CI now runs one full
+Linux suite and one full Windows Python 3.13.3 suite; Windows first seeds inherited
+operator state to 361. This includes the six formerly failing cases and catches
+suite-order contamination. Final head-specific remote results and independent
+review are recorded in PR #1108's verification summary and Checks.
+
+The replacement short-path PowerShell preparation still clones into a unique
+`C:\tmp\r1108-<id>\s`, pins the reviewed head, preserves the original PyCharm
+checkout, and runs the full offline verifier with a retained failure-aware log.
+It does not delete/reset an operator order-state file. `PAPER_READY=NO`; no IBKR
+connection, provider acquisition, natural observation, merge or readiness upgrade.

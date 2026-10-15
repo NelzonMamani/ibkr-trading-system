@@ -107,3 +107,33 @@ with socket.socket() as connection:
 result = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True, timeout=15)
 assert result.returncode == 0, result.stdout + result.stderr
 ''')
+
+
+def test_native_curl_transfer_entries_blocked_in_child_thread_and_grandchild():
+    child('''
+import subprocess, sys, threading
+from curl_cffi import Curl, AsyncCurl
+# Inert objects ensure a broken guard cannot make an actual native request.
+def check():
+    for transfer, args in [(Curl.perform, (object(),)), (AsyncCurl.add_handle, (object(), object()))]:
+        try:
+            transfer(*args)
+        except OSError as error:
+            assert str(error) == 'OFFLINE_CI: native network acquisition disabled'
+        else:
+            raise AssertionError('native transfer escaped')
+check()
+errors = []
+def run():
+    try:
+        check()
+    except BaseException as error:
+        errors.append(error)
+thread = threading.Thread(target=run)
+thread.start()
+thread.join(5)
+assert not thread.is_alive() and not errors
+code = "from curl_cffi import Curl;\\ntry:\\n Curl.perform(object())\\nexcept OSError as e:\\n assert str(e) == 'OFFLINE_CI: native network acquisition disabled'\\nelse:\\n raise AssertionError('grandchild native transfer escaped')"
+result = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True, timeout=15)
+assert result.returncode == 0, result.stdout + result.stderr
+''')
