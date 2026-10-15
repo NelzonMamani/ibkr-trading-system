@@ -73,3 +73,47 @@ runs the repository's complete required pytest job. It does not start `src.main`
 or a supervisor/broker audit. A future natural observation requires separate user
 authorization and must retain the established stop, hooks, mutation and identity
 gates; extending its duration cannot repair failed shutdown.
+
+## Authorized publication and PR verification
+
+The user explicitly authorized publishing repair commit
+`664163ca87234959729b99075a21b86a2962a0ea` on
+`codex/natural-readonly-enrichment-stop`. It was pushed without force to the
+existing repository; main remains the accepted baseline.
+
+PR: https://github.com/NelzonMamani/ibkr-trading-system/pull/1108 (draft, against main).
+
+Completed **local** changed-head pytest at that repair commit: **2725 passed,
+1 skipped, 212 warnings**, 187.39 seconds, with the hard offline guard loaded.
+Independent exact-head PR review found no remaining actionable correctness blocker;
+its separate focused offline run passed **60 tests** in 2.78 seconds. These local
+results must not be presented as GitHub Actions results or human approval.
+
+The required **remote** workflow is `pytest`, job `test`. The first PR run is
+https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/38801073410.
+Every follow-up head, including this checkpoint-only change, requires its own
+successful PR check and independent exact-head review. Final head-specific remote
+results and the independent review receipt belong in the PR checks/review and PR
+verification summary; a successful older run cannot certify a newer commit.
+
+### Preparing the unchanged Windows PyCharm checkout
+
+Do not run a new relative script from the old checkout. In the existing PyCharm
+repository's PowerShell terminal, fetch only the repair branch from the explicit
+repository URL, verify FETCH_HEAD equals the final reviewed SHA, then create a
+unique detached worktree under TEMP at that SHA. Never switch/reset the original
+checkout, force a ref, or write main. Check that the existing certification
+interpreter `C:\tmp\pr1091-cert-env-20260923\Scripts\python.exe` exists before
+preparation; fail if it is missing rather than choosing a different interpreter.
+
+Invoke `powershell.exe -NoProfile -ExecutionPolicy Bypass -File` on the absolute
+path of `scripts\certification\verify_natural_readonly_offline.ps1` **inside that
+new worktree**, with `-ExpectedCommit` pinned to the reviewed SHA and `-Python`
+set to the checked interpreter. Check each native exit code. Retain the detached
+worktree for inspection. The final delivery supplies one complete copy-paste
+PowerShell command implementing this preparation and verification.
+
+Only Git fetch uses the network in this command. The verifier checks the clean
+pinned checkout, loads the offline guard, and runs pytest; it never invokes
+`src.main`, the observation supervisor, an IBKR audit, or trading. A passing test
+suite does not establish natural issuer acquisition or upgrade readiness.
