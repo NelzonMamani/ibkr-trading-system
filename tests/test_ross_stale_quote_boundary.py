@@ -1,11 +1,23 @@
 """Offline consumer regressions; fixtures are not natural Ross observations."""
 from copy import deepcopy
+from datetime import datetime, timezone
 
 import pytest
 
 from src.config.config_resolver import set_config_overrides
 from src.scanner import scanner_runner as scanner
 from src.strategies.ross_momentum.strategy_policy import RossMomentumPolicy
+
+
+@pytest.fixture(autouse=True)
+def market_clock(monkeypatch):
+    # The fixture's unflagged quote is fresh at this instant; explicit stale
+    # authority remains stale. No assertion depends on the host calendar.
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 9, 28, 13, tzinfo=timezone.utc)
+    monkeypatch.setattr(scanner, 'datetime', Clock)
 
 
 @pytest.fixture

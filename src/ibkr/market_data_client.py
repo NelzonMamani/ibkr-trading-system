@@ -510,6 +510,18 @@ class MarketDataClient:
         if cache is not None and key in cache:
             snapshot, debug = cache[key]
             self.last_snapshot_debug = debug
+            # Reuse data, never the age decision from the earlier acquisition.
+            # Keep the original broker timestamp, authority and request evidence.
+            try:
+                stamp = datetime.fromisoformat(snapshot.timestamp_utc.replace("Z", "+00:00"))
+                if stamp.tzinfo is None:
+                    raise ValueError("Unscoped market timestamp")
+                if (datetime.now(timezone.utc) - stamp).total_seconds() > int(get_config("IBKR_SNAPSHOT_MAX_AGE_SECONDS")):
+                    if "MD_STALE" not in snapshot.data_quality_flags:
+                        snapshot.data_quality_flags.append("MD_STALE")
+            except (AttributeError, TypeError, ValueError):
+                if "MD_TIMESTAMP_UNKNOWN" not in snapshot.data_quality_flags:
+                    snapshot.data_quality_flags.append("MD_TIMESTAMP_UNKNOWN")
             return snapshot
         snapshot = self._snapshot_stock_uncached(contract_or_symbol)
         checkpoint()

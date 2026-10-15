@@ -812,3 +812,80 @@ operator block remains pinned to historical8f40 and its launch flags remain fals
 regenerate it for the eventual reviewed runtime head after those findings have a
 disposition and before any separately authorized observation. Do not launch it
 from the old checkout or treat a harness fix as natural/runtime acceptance.
+
+## Separate production acceptance follow-up — 16 October 2026
+
+Wrapper repair is complete and remains independently reviewed at
+`5b91fcd20699e0664dc6c7f08668823e5a080942` on PR1108. Actual Windows
+PowerShell 5.1 checked all 13 controlled paths in changed-head CI
+https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/38823534757.
+Its branch is not changed by this production follow-up.
+
+The existing patch `/workspace/work/acceptance-package/focused-followup.patch`
+is preserved byte-for-byte, SHA256
+`0c545f3923125349bce3efa4859d1d7052fac6dc0952fa3f93a23e99e695a5b0`, with an
+additional `.original.patch` copy. It was inspected and carried forward rather
+than discarded/recreated. The separate branch is
+`codex/readonly-quote-age-worker-shutdown`, based on the completed wrapper head;
+its PR targets `codex/natural-readonly-enrichment-stop`, so its review diff contains
+only this focused production follow-up and depends explicitly on PR1108.
+Neither PR is merged; main remains unchanged.
+
+### Focused repairs and preserved semantics
+
+- Quote cache hits re-evaluate the original aware broker trade timestamp against
+  the existing IBKR_SNAPSHOT_MAX_AGE_SECONDS limit, retaining the strict greater-
+  than boundary. No new quote request, receipt-time substitution, renewed timestamp,
+  market-data-type promotion or authority/completion/request-ID replacement.
+  Existing stale flags are never cleared. Missing/invalid/naive cached timestamps
+  remain unknown, not evidence of a fresh trade.
+- Scanner stale-consumer checks reassess age immediately at the existing
+  Watchlist, Focus, forced-premarket and prep-seeding stale boundaries. A quote
+  originally fresh can no longer outlive the limit during enrichment/selection
+  merely because its old flags did not yet contain MD_STALE. Other Ross gates,
+  catalyst/float/RVOL/rank/size policies and READ_ONLY protections are unchanged.
+- Runtime scanner_reset now invokes owned float-worker cleanup. All registered
+  workers receive a stop before any join consumes the shared three-second budget.
+  Successful owners are retired; failed/live owners remain registered and produce
+  an incomplete scanner_reset hook. One ordinary worker error does not suppress
+  other worker stops or provider disconnect. Required later hooks and independent
+  mutation-evidence flushing remain required even on this failure.
+- Registry lookup/start is synchronized. Blocking SQLite/cache construction runs
+  outside the registry lock; construction ownership is tracked separately.
+  A shutdown generation invalidates in-flight initialization, preventing a late
+  worker start. Pending constructors wait only within the remaining shared budget;
+  incomplete construction is failed cleanup, not a clean-stop claim. Standard
+  constructor/filesystem stalls are not forcibly interrupted. Concurrent shutdown
+  does not claim completion of another owner's cleanup.
+
+The constructor-lock issue was found by independent preliminary review of the
+carried patch and repaired before publication; it is not hidden by a longer
+observation/grace period. The preserved draft remains useful historical evidence,
+while the new branch contains its reviewed refinements and additional regressions.
+
+### Verification attribution and observation hold
+
+Local hard-offline focused checks: **105 passed in 5.10 seconds**, including
+age-limit/provenance/request-count/cancellation checks, all stale consumers,
+real synthetic in-flight worker stop/no fallback/no late persistence, shared join
+budget, failed-owner retention/provider disconnect, constructor cancellation,
+and durable failed-hook/mutation proof. Earlier independent focused 25 passed
+preceded the additional edge cases; it is not the final exact-head receipt.
+New production changes require fresh remote full Linux and Windows suites and
+independent exact-head review. Those final receipts and the pinned regenerated
+operator block belong in the new PR summary after completion.
+
+The user's **2759 passed / 1 skipped / 212 warnings / 435.69 seconds** workstation
+result still certifies the earlier `8f40e4c4` Python source, not this new production
+implementation. Completed wrapper Windows checks are also separate. No repeated
+workstation full suite is requested, and no full local suite was run here.
+
+The earlier acceptance evidence map, issuer paths, POSITION TRUTH analysis and
+five independent outcomes remain in force. The checked-in historical observation
+block pinned to8f40 remains obsolete/HOLD and must not be run. Only after these
+findings are resolved, fresh CI passes and exact-head review completes will the
+operator package be regenerated with the new exact reviewed source head. It will
+retain false launch gates and require separate observation authorization.
+Natural pass/issuer/catalyst/downstream acceptance remains unproven. No broker or
+provider acquisition, natural runtime, trading, merge or readiness upgrade.
+`PAPER_READY=NO`.

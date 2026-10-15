@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from queue import Empty, Queue
@@ -126,15 +127,104 @@ class FloatDiscoveryWorker:
 
 
 _WORKERS: dict[tuple[str, str], FloatDiscoveryWorker] = {}
+_WORKERS_LOCK = threading.RLock()
+_WORKERS_CHANGED = threading.Condition(_WORKERS_LOCK)
+_WORKERS_SHUTTING_DOWN = False
+_WORKERS_GENERATION = 0
+_WORKER_BUILDERS: dict[object, int] = {}
+
+
+def shutdown_float_discovery_workers(timeout: float = 3) -> bool:
+    """Retire owned runtime workers within one shared join budget.
+
+    Keep surviving workers registered so incomplete cleanup remains observable.
+    """
+    global _WORKERS_SHUTTING_DOWN, _WORKERS_GENERATION
+    deadline = time.monotonic() + max(0, timeout)
+    with _WORKERS_LOCK:
+        if _WORKERS_SHUTTING_DOWN:
+            return False  # Another owner is still completing cleanup.
+        _WORKERS_SHUTTING_DOWN = True
+        _WORKERS_GENERATION += 1  # In-flight constructors cannot start later.
+        owned = tuple(_WORKERS.items())
+    retired = set()
+    failed = set()
+    try:
+        # Signal ALL owners before spending the shared budget waiting on any
+        # one of them. One failed worker must not suppress the others' cleanup.
+        for key, worker in owned:
+            try:
+                if worker.shutdown(timeout=0):
+                    retired.add(key)
+            except Exception as exc:
+                failed.add(key)
+                print(f"[FLOAT][SHUTDOWN] completed=False error_type={type(exc).__name__}")
+        for key, worker in owned:
+            if key in retired or key in failed:
+                continue
+            try:
+                if worker.shutdown(timeout=max(0, deadline - time.monotonic())):
+                    retired.add(key)
+            except Exception as exc:
+                print(f"[FLOAT][SHUTDOWN] completed=False error_type={type(exc).__name__}")
+        with _WORKERS_CHANGED:
+            while _WORKER_BUILDERS:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                _WORKERS_CHANGED.wait(timeout=remaining)
+            builders_done = not _WORKER_BUILDERS
+        return len(retired) == len(owned) and builders_done
+    finally:
+        with _WORKERS_LOCK:
+            for key, worker in owned:
+                if key in retired and _WORKERS.get(key) is worker:
+                    _WORKERS.pop(key)
+            _WORKERS_SHUTTING_DOWN = False
 
 
 def get_float_discovery_worker(cache_path: str | Path) -> FloatDiscoveryWorker:
     cache_path = Path(cache_path).resolve()
     sqlite_path = str(Path(get_persistence_sqlite_path()).resolve())
     resolved = (str(cache_path), sqlite_path)
-    worker = _WORKERS.get(resolved)
-    if worker is None:
-        worker = FloatDiscoveryWorker(cache_path=cache_path, sqlite_path=sqlite_path)
-        _WORKERS[resolved] = worker
-    worker.ensure_started()
-    return worker
+    with _WORKERS_LOCK:
+        if _WORKERS_SHUTTING_DOWN:
+            raise RuntimeError("Float discovery workers are shutting down")
+        if any(generation != _WORKERS_GENERATION for generation in _WORKER_BUILDERS.values()):
+            raise RuntimeError("Float discovery worker shutdown is pending")
+        worker = _WORKERS.get(resolved)
+        if worker is not None:
+            if worker._stop.is_set():
+                raise RuntimeError("Float discovery worker shutdown is pending")
+            worker.ensure_started()
+            return worker
+        generation = _WORKERS_GENERATION
+        token = object()
+        _WORKER_BUILDERS[token] = generation
+    candidate = None
+    try:
+        # SQLite/cache initialization can block. Never hold the ownership lock
+        # across it: shutdown must be able to signal other workers immediately.
+        candidate = FloatDiscoveryWorker(cache_path=cache_path, sqlite_path=sqlite_path)
+        with _WORKERS_LOCK:
+            if _WORKERS_SHUTTING_DOWN or generation != _WORKERS_GENERATION:
+                raise RuntimeError("Float discovery workers are shutting down")
+            worker = _WORKERS.get(resolved)
+            if worker is None:
+                worker = candidate
+                _WORKERS[resolved] = worker
+            if worker._stop.is_set():
+                raise RuntimeError("Float discovery worker shutdown is pending")
+            worker.ensure_started()
+            return worker
+    finally:
+        # A lost concurrent constructor or stale generation never owns a thread.
+        try:
+            with _WORKERS_LOCK:
+                owns_candidate = candidate is _WORKERS.get(resolved)
+            if candidate is not None and not owns_candidate:
+                candidate.shutdown(timeout=0)
+        finally:
+            with _WORKERS_CHANGED:
+                _WORKER_BUILDERS.pop(token, None)
+                _WORKERS_CHANGED.notify_all()
