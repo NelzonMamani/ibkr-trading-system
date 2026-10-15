@@ -250,3 +250,12 @@ on the first stop; subsequent calls only join. The deterministic paused-exit
 regression requires zero unfinished tasks and no restart/enqueue after closure.
 This concrete changed-code finding requires fresh final-head CI; an older Linux
 pass is retained as history, not substituted for the final result.
+
+The first full Windows CI at `75f87749` passed all six allocator cases, but failed
+one independent host-clock fixture: `test_tha_execution_flow` converted the host
+UTC display name `Coordinated Universal Time` into a ZoneInfo/IANA key. Its test
+inputs now use a fixed UTC instant and matching `UTC` exchange-hours key, avoiding
+both OS display-name and midnight dependence. The execution/risk assertions and
+production timezone code are unchanged. That earlier Windows result is recorded
+as 1 failed / 2757 passed / 1 skipped, not reported as a passing suite. Fresh
+final-head CI is required after this demonstrated portability fix as well.
