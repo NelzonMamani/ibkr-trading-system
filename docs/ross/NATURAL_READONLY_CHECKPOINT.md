@@ -242,3 +242,11 @@ The replacement short-path PowerShell preparation still clones into a unique
 checkout, and runs the full offline verifier with a retained failure-aware log.
 It does not delete/reset an operator order-state file. `PAPER_READY=NO`; no IBKR
 connection, provider acquisition, natural observation, merge or readiness upgrade.
+
+A further focused cleanup probe paused an idle worker after it consumed its stop
+sentinel but before exit. Repeated shutdown previously queued another sentinel,
+leaving `unfinished_tasks=1` after join. Shutdown now drains/enqueues a wake-up only
+on the first stop; subsequent calls only join. The deterministic paused-exit
+regression requires zero unfinished tasks and no restart/enqueue after closure.
+This concrete changed-code finding requires fresh final-head CI; an older Linux
+pass is retained as history, not substituted for the final result.

@@ -42,17 +42,19 @@ class FloatDiscoveryWorker:
     def shutdown(self, timeout: float = 3) -> bool:
         """Cancel queued work and join owned work; never hide a surviving thread."""
         with self._lock:
+            first_stop = not self._stop.is_set()
             self._stop.set()
-            while True:
-                try:
-                    symbol = self._queue.get_nowait()
-                except Empty:
-                    break
-                self._queued.discard(symbol)
-                self._queue.task_done()
             thread = self._thread
-            if thread is not None and thread.is_alive():
-                self._queue.put(None)
+            if first_stop:
+                while True:
+                    try:
+                        symbol = self._queue.get_nowait()
+                    except Empty:
+                        break
+                    self._queued.discard(symbol)
+                    self._queue.task_done()
+                if thread is not None and thread.is_alive():
+                    self._queue.put(None)
         if thread is not None and thread is not threading.current_thread():
             thread.join(timeout=max(0, timeout))
         return thread is None or not thread.is_alive()

@@ -130,3 +130,28 @@ def test_stop_during_fixture_lookup_prevents_fallback_and_late_write(monkeypatch
     assert worker._queue.unfinished_tasks == 0
     assert not worker._thread.is_alive()
     assert not worker.enqueue('LATE')
+
+
+def test_repeated_shutdown_sends_only_one_wakeup(monkeypatch, tmp_path):
+    worker = workers.FloatDiscoveryWorker(tmp_path / 'float.json', sqlite_path=str(tmp_path / 'fund.db'))
+    received, release = threading.Event(), threading.Event()
+    original = worker._queue.get
+    def get(*args, **kwargs):
+        item = original(*args, **kwargs)
+        if item is None:
+            received.set()
+            assert release.wait(3)
+        return item
+    monkeypatch.setattr(worker._queue, 'get', get)
+    worker.ensure_started()
+    try:
+        assert not worker.shutdown(timeout=0)
+        assert received.wait(3)  # the sentinel was consumed, but exit is paused
+        assert not worker.shutdown(timeout=0)
+        assert not worker.shutdown(timeout=0)
+    finally:
+        release.set()
+    assert worker.shutdown(timeout=3)
+    assert worker._queue.unfinished_tasks == 0 and worker._queue.empty()
+    worker.ensure_started()
+    assert not worker._thread.is_alive() and not worker.enqueue('LATE')
