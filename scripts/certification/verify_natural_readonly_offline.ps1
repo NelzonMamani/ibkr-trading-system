@@ -6,6 +6,8 @@ param(
     [string]$Python = 'C:\tmp\pr1091-cert-env-20260923\Scripts\python.exe'
 )
 $ErrorActionPreference = 'Stop'
+$PSNativeCommandUseErrorActionPreference = $false
+$verificationExit = 1
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 Push-Location $repo
 $previousPythonPath = $env:PYTHONPATH
@@ -19,8 +21,13 @@ try {
     & $Python -c "import sys; assert 'sitecustomize' in sys.modules; assert hasattr(sys.modules['sitecustomize'], 'offline')"
     if ($LASTEXITCODE -ne 0) { throw 'Offline guard failed to load' }
     & $Python -m pytest -q
-    if ($LASTEXITCODE -ne 0) { throw 'Offline regression suite failed' }
+    # Capture immediately, before cleanup or another command can change status.
+    # pytest uses distinct nonzero statuses (including collection error=2).
+    $verificationExit = $LASTEXITCODE
+} catch {
+    Write-Error $_ -ErrorAction Continue
 } finally {
     $env:PYTHONPATH = $previousPythonPath
     Pop-Location
 }
+exit $verificationExit

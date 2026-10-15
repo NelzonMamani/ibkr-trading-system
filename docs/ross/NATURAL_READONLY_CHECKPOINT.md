@@ -259,3 +259,519 @@ both OS display-name and midnight dependence. The execution/risk assertions and
 production timezone code are unchanged. That earlier Windows result is recorded
 as 1 failed / 2757 passed / 1 skipped, not reported as a passing suite. Fresh
 final-head CI is required after this demonstrated portability fix as well.
+
+## Next natural acceptance package — 16 October 2026 (London)
+
+Status: **PREPARED ONLY / HOLD**. Workstation offline acceptance is pending.
+No runtime, provider, broker query or new full suite was executed for this package.
+The uploaded documents remain evidence, not instructions. The reviewed repair
+branch and main have not moved. This documentation is an uncommitted snapshot in
+a separate detached worktree; it does not create a new reviewed implementation.
+
+### Reused exact-head receipts
+
+Reviewed implementation: `8f40e4c4b3ca8fa0f74d8e41cd947e50bc2e370c`.
+PR: https://github.com/NelzonMamani/ibkr-trading-system/pull/1108 (draft).
+Remote full CI: https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/38819547660
+— Linux 2759 passed / 1 skipped in 208.65s; Windows Python 3.13.3 2759 passed /
+1 skipped / 212 warnings in 541.66s. Windows seeded inherited order-ID state361
+and includes all six formerly failing nodes. Existing skip only; collection
+failure is never success. Prior local focused110 passed is Linux evidence.
+Independent exact-head Codex review (no actionable blocker, not human approval):
+https://github.com/NelzonMamani/ibkr-trading-system/pull/1108#pullrequestreview-5540863871
+— independent focused46 plus3 changed-case checks. These receipts were reused,
+not rerun. They do not establish workstation or natural-observation acceptance.
+
+### Original failure → evidence map
+
+All paths/line references below describe the reviewed implementation, not the
+separate draft follow-up. Test transports and issuer names are synthetic.
+
+| Original boundary / missing evidence | Existing regression or authority | What is established / material limit |
+| --- | --- | --- |
+| Stop in contract qualification | `tests/test_natural_readonly_enrichment_stop.py::test_stop_interrupts_real_native_wait_and_cleans_market_requests[contract]`; `test_async_stop_cancels_and_drains_request[qualification]`; `src/core/acquisition.py::wait_event/cooperative_await` | Native 30s waits return in <1s in the synthetic stop probe, polling100ms. Async tasks cancel/drain; cancellation is BaseException control flow and does not start fallback. This is not a real broker latency measurement. |
+| Stop in quote acquisition | Same native test `[quote]`; `src/ibkr/market_data_client.py::_snapshot_stock_uncached` | Poll before existing200ms quote waits, cleanup market-data subscription. No order cancellation. |
+| Stop in historical/scanner acquisition | Same native test `[history]` / `[scanner]`; async test `[history]` | Historical/scanner subscriptions cancelled once; owned ib_insync history request and wrapper future/container retired. |
+| Stop within symbol / between symbols | `test_stop_inside_symbol_enrichment_is_not_converted_to_missing_quote`; `scanner_runner.py:5162` `_runtime_bound_reached` invokes checkpoint even without a deadline; per-symbol `gates` loop at5632 | A stop propagates out instead of becoming missing data/partial selection; next symbol checks stop. Dedicated between-symbol fake-loop timing node is absent, but checkpoint placement is direct and owner-scope exit is tested. No material demonstrated defect here. |
+| Foreground float HTTP stop | `test_float_stop_does_not_start_next_http_fallback`; provider checkpoints before/after HTTP, `src/scanner/providers/ibkr_provider.py:490,551,591` | Does not start next fallback after stop; does not preempt an in-flight synchronous call. Existing request timeouts apply; do not promise hard DNS/OS bounds. |
+| Background float discovery | `tests/test_offline_state_isolation.py::test_stop_during_fixture_lookup_prevents_fallback_and_late_write`, `test_repeated_shutdown_sends_only_one_wakeup`, owned-worker fixture in `tests/conftest.py` | Explicit worker.shutdown is bounded and prevents fallback/write after return. **Material runtime ownership gap:** scanner_reset does not call it at reviewed head; test-fixture cleanup is not proof of runtime cleanup. See separate follow-up. |
+| News acquisition stop | `scanner_runner.py:3571` `_enrich_news_context` entry/return checkpoints; `tests/test_pr1072_bounded_news_retrieval.py::test_pr1072_source_timeouts_are_fairly_clamped_to_remaining_budget`; `tests/test_ross_operational_issuer_news.py::test_operational_deadline_late_worker_never_adds_evidence`, `test_actual_consumer_never_waits_for_cleanup` | News uses existing total budget8s by default and discards returned result when stop is seen. It is not polled inside every RSS request. Existing tests prove budget/no late evidence, not stop at every real RSS boundary. New synthetic return-after-stop probe passed at8f40; no provider run. |
+| Required shutdown hooks | `test_interrupted_enrichment_runs_all_shutdown_hooks_and_durable_mutation_proof`; `tests/test_pr1090_p1_repairs.py::test_graceful_keeps_all_ordered_hooks_and_flush`, shutdown transaction injection/normal completion matrices | Ordered required hooks and durable evidence tested under interrupted owner loop. Hook success at runtime remains to be observed; fixture transport cannot prove every third-party hook is bounded. |
+| Independent runtime mutation evidence | Same interrupted-enrichment test; `src/ibkr/mutation_audit.py::instrument_mutation/require_zero_attempts`; shutdown terminal failure tests | SDK attempt counts increment before guards. Runtime counters must exist and be zero; final supervisor audit has separate counters. Zero final open orders does not replace either. Missing counters fail. |
+| Identity mismatch / inventory | `test_missing_child_evidence_distinguishes_verified_binding_without_passing`; `tests/test_post_pr1090_process_identity.py::test_separate_runtime_identity_owns_exit_and_acknowledgement`, handshake rejection/Windows retained-handle tests; `tests/test_pr1090_p1_repairs.py` structured inventory, unreadable inventory, remaining-runtime and escalation tests | Live binding true is separate from matching child shutdown identity. Missing/mismatched child identity remains terminal false. Fresh inventory must complete and contain no Ross runtime; forced exit/failed readers/audit remain failures. |
+
+Required hooks remain exactly `src/ibkr/shutdown_evidence.py::REQUIRED_HOOKS`:
+ops_summary, learning_scheduler, execution_engine.shutdown,
+trade_exit_engine.shutdown, storage_engine.shutdown,
+active_trade_registry.verify_empty, scanner_reset, manager_disconnect,
+event_collector.flush_summary, console_flush. Terminal event order additionally
+requires graceful request, shutdown started/complete, terminal flushed, witnessed
+runtime exit, no runtime, final broker query/disconnect and final evidence flush.
+
+### Request reuse audit and material freshness finding
+
+`src/core/acquisition.py` owns a ContextVar cache only for the current acquisition
+scope. `run_scanner_cycle` is an acquisition_cycle; its scope is released on
+normal return and cancellation. The owning orchestrator's scope supplies the
+stop poll. No per-pass result is promoted into the next pass by this new cache.
+
+| Cache | Key / successful reuse | Failure / cancellation boundary |
+| --- | --- | --- |
+| Qualification, `MarketDataClient.qualifyContracts:481` | Client identity plus full contract_key: conId, symbol, secType, exchange, primaryExchange, currency, localSymbol, tradingClass. Successful rows stored for original and qualified identity. | Empty rows not cached. Error handling can retry, but AcquisitionCancelled is not caught by ordinary Exception. Checkpoint precedes lookup and follows acquisition. |
+| Quote, `snapshot_stock:506` | Client, full identity, requested market-data type; original snapshot, original authority/type confirmations, timestamps, request/completion/field evidence and debug retained. Intraday stats uses get_quote rather than a second wire request. | MD_TIMEOUT, CONTRACT_QUALIFY_FAILED and MD_EMPTY not cached; no negative-result memoization. Checkpoint before lookup/after acquisition prevents serving a cached result after stop. **Age-on-hit gap below.** |
+| Daily history, `_request_daily_history_with_fallback:760` | Client, full identity, lookback, RTH and end datetime. Bar size1day / TRADES / format1 are fixed by this API; they are not variable ignored parameters. 20D vs25D, RTH, explicit end and other conId remain separate. | Empty/failed result not cached; fallback opportunities retained. Checkpoints before lookup and after acquisition; cancellation exits scope, including cleanup. |
+
+Existing `test_exact_requests_reused_and_cycle_identity_boundaries_isolated`
+asserts one qualification/quote across repeated reads, one20D request, separate25D
+and parameter/identity histories, and a new acquisition next scope.
+`test_empty_history_keeps_same_cycle_retry` asserts empty → successful → reused.
+`tests/test_market_data_client_snapshot.py` retains async→sync qualification and
+RTH-false history fallback coverage. Failure rules for quote/qualification are
+also direct cache insertion predicates; there is no new blanket failed cache.
+
+**Cannot affirm that reused quotes never bypass freshness at8f40.** Freshness is
+computed only in `_snapshot_stock_uncached:651`; a cache hit returns the earlier
+flags. `_stale_market_data_drop:1967` consumes MD_STALE without recalculating age.
+A previously fresh quote can age during enrichment/reuse/selection without that
+flag. Existing stale-consumer tests start with MD_STALE and do not catch this.
+Do not replace broker time with receipt/scan time or silently renew a timestamp.
+
+### Separate focused follow-up — not part of reviewed PR1108
+
+Prepared in detached `/workspace/work/acceptance-followup`, based on8f40, with no
+commit/push/CI/readiness claim. Reviewable draft patch:
+`/workspace/work/acceptance-package/focused-followup.patch`.
+
+1. Reassess original broker timestamp age on cached-quote retrieval and again at
+   scanner stale-consumer boundary. Preserve request identity, broker timestamp,
+   type/completion/field authority and request count; no extra acquisition and no
+   timestamp refresh. Existing stale fixture gets a fixed clock, assertions intact.
+2. Bounded runtime-owned float-worker stop under scanner_reset, sharing one3s join
+   budget; preserve survivor registration and fail the hook on incomplete cleanup,
+   while still disconnecting the provider. No global thread/process kill.
+
+Before edits, four new synthetic probes at the baseline gave2 failed /2 passed:
+aged quote lacked MD_STALE; runtime reset never called worker shutdown; news
+return-after-stop and cancellation-before-cache-hit already passed. The probe's
+context-manager ordering was corrected before that recorded result; it is not
+a runtime finding. After the draft changes, six new probes plus nine existing
+stale-boundary cases gave **15 passed in0.69s**, local Linux only. No full suite,
+Windows run, remote CI or independent review was run for this draft. It requires
+focused review and changed-head certification before it can replace the reviewed
+head. These findings need an explicit disposition before releasing observation;
+do not turn a clean terminal result into a claim that background worker drain or
+age-at-selection was proved on8f40.
+
+### Validated issuer identity → canonical acquisition
+
+1. Genuine IBKR scanner rows enter `IbkrScannerProvider.scan` with contract
+   conId/listing/routing/currency/localSymbol/tradingClass. Scanner `details.longName`
+   is retained in `last_scan_details.symbol_details` (`ibkr_provider.py:227`).
+2. If absent, `get_quote:280` calls `_qualified_contract_for_symbol` and
+   `_retain_qualified_company_name:388`. The latter reads existing qualification
+   metadata, never performs another issuer-name request. Original positive scanner
+   conId remains the comparison authority even if qualification mutates a contract.
+3. `IbkrClient.get_contract_reference_metadata:711` requires connected state,
+   latest matching request, completed on time, no reference error, exactly one
+   frozen response row, matching conId and supplied security fields; SMART is only
+   routing. Missing/late/ambiguous/disconnected/mismatched evidence gives no name.
+4. `_build_symbol_context` gets quote before reading updated scan metadata and
+   copies `longName` to `long_name` plus issuer/security fields (`scanner_runner.py`
+   around4440). `_news_symbol_metadata_for_contexts:2645` retains identity and
+   priority, rejects synthetic/invalid security IDs. `_news_candidates_for_symbols:2861`
+   selects the full name into NewsCandidate.company_name, retaining aliases/metadata.
+5. Natural evaluated contexts at6010, or selected watchlist contexts at6382,
+   feed `_enrich_news_context` → canonical service `get_news`. It first checks
+   compatible canonical cache, then bounded operational refresh when unresolved.
+   With ROSS_ISSUER_QUERY_ENABLED=true, `_ross_retrieval_policy` selects operational
+   Google issuer queries without changing rank/caps/catalyst gates.
+6. `src/news/batch_rss_adapter.py` →
+   `src/news/issuer_rss_queries.py::operational_queries/query_sources` builds the
+   literal full-name/alias/$ticker Google RSS query, ordered by candidate priority.
+   Missing full company_name cannot create a query; it produces
+   query_identity_unavailable. Yahoo issuer RSS is not operationally retried after
+   its observed429. Discovery/query coverage is not proof of search completeness.
+
+Reuse receipts: `tests/test_ibkr_reference_names.py::test_real_managed_provider_to_rss_reuses_qualification`,
+unavailable/ambiguous/mismatched/late/disconnected-name tests;
+`tests/test_scanner_news_identity_handoff.py::test_real_provider_context_to_news_preserves_supplied_identity`,
+`test_generated_scanner_id_is_not_news_identity`; operational
+`test_actual_enrichment_witness_batch_cache_and_canonical_queries`,
+`test_scanner_context_order_reaches_actual_capped_acquisition` and
+`test_empty_failure_cadence_query_cap_and_batch_identity`.
+
+Observable join for the future run:
+- `[SCANNER][IBKR][ROW]` rank/symbol/conId → `[IBKR][PROVIDER][QUOTE]` matching
+  contract identity → `[NEWS][RETRIEVAL_DIAGNOSTICS]` candidate_identities with the
+  same symbol/conId, full company_name and effective RSS aliases.
+- Require `provider_invoked=true`, bounded_refresh/network_allowed=true and
+  attempted completed ROSS_ISSUER_QUERY source facts. Retrieval logs deliberately
+  strip URL query values; their base Google URL alone cannot prove a full-name q.
+- Use sanitized `cache-exports/news.json` canonical acquisition diagnostics
+  `issuer_query.per_issuer` URL/status/attempted/processing_truncated and retained
+  candidate identity to verify the full-name query and per-issuer completion.
+  `operational_acquisition_by_symbol`, `issuer_query_requests_completed`,
+  `source_coverage_complete`, deadline/truncation/failure facts distinguish a real
+  completed query from a planned URL, compatible cache hit, HTTP429 or empty result.
+  Missing cache export/association leaves exact-query acceptance unproven.
+- SPY/QQQ preparation retrieval with no issuer identity is explicitly insufficient.
+  No manual symbol, alias/name injection, forced selection or positive control is
+  introduced by the operator package.
+
+### POSITION TRUTH availability, without suppressing the blocker
+
+`CoreOrchestrator._run_manager_pipeline:3133` resolves position truth BEFORE its
+normal `ensure_connected:3164`. `_resolve_position_truth_cycle:3003` intentionally
+uses `get_ibkr_client(ensure_connected=False)`; no adapter/connection means no
+position_snapshot method or DISCONNECTED. `collect_broker_position_snapshot:138`
+returns unavailable, not empty authority. `reconcile_position_truth:219` creates
+UNKNOWN / critical1 / block_new_entries=True / require_reconciliation=True even
+with zero displayed mismatches. `recovery_engine.py:84` adds the manual-required
+availability action. This explains the observed summary; it is not a quantity
+mismatch and did not itself account for scanner enrichment latency.
+
+Normal reconciliation **can clear this availability verdict on a later cycle**:
+the method recomputes and replaces the snapshot/verdict every cycle. A connected
+canonical adapter must have one managed account, current transport epoch,
+request-correlated reqPositionsMulti/positionMultiEnd completion, no error/loss,
+and a fresh scoped timestamp. Then confirmed empty-vs-empty or matching holdings
+is healthy/block_new_entries=False; a new recovery plan has NO_ACTION when no
+other blocker exists. Connection alone, nextValidId alone, cached old rows or a
+positionEnd from another query cannot clear it. A long/interrupted first pass
+may never reach that subsequent reconciliation; no clearing was observed in the
+failed upload. `_degraded` can remain a historical latch, and startup/autonomous
+recovery/daily-risk/position ownership gates are separate; do not claim global
+readiness or force those gates clear.
+
+Existing evidence: `tests/test_confirmed_position_repair.py::test_complete_and_signed_fractional[0]`,
+`test_unavailable_never_flat_or_complete` (missing/disconnected/stale/unscoped...),
+`test_upstream_recovery_allows_fresh_query_without_reconnecting[1101/1102]`,
+`test_order_id_callback_does_not_restore_lost_position_transport`,
+`test_unknown_position_truth_keeps_recovery_plan_blocked`, real-handoff/retained
+exposure tests; `tests/test_position_truth_authority.py::test_reconcile_empty_empty_is_healthy`
+and exact-match/mismatch tests. These are synthetic tests already included in
+the successful full CI, not a new broker reconciliation experiment.
+
+### Independent outcomes — never collapse into one PASS
+
+| Outcome | Required positive evidence | Incomplete / negative interpretation |
+| --- | --- | --- |
+| Graceful cancellation / terminal safety | STOP_REQUESTED time → graceful/shutdown/terminal events, every hook completed once, child identity matches retained supervisor identity, unforced runtime exit0, successful launcher/readers, complete empty final runtime inventory, fresh end-confirmed separate READ_ONLY audit with zero open orders/disconnect, both SDK mutation-attempt owners exactly zero, artifact/privacy scan pass. | Forced termination, missing hook/counter/identity/end marker, inventory error or audit failure = FAIL. No catalyst is required. Observer timeout alone cannot convert this to success. |
+| Full natural scanner pass | Genuine broker universe (requested50, actual count recorded), per-symbol evaluated/deferred/drop accounting, scanner summary/contract and WATCHLIST_K_SELECTED/Focus final or corresponding empty outcomes for the same pass, completed scanner return/owner TOPN_REFRESH. No stop/deadline truncation or broker-zero/teaching/MOCK/manual fallback. | Build-start/raw50 rows or some contexts is not completion. Clean stop before return = INCOMPLETE, not end-to-end acceptance. Legitimate all-rejected pass can complete with empty K/M. |
+| Natural issuer acquisition | Genuine candidate identity reaches full-name canonical operational query; per-issuer attempted+available+completed, no processing truncation, associated response/coverage diagnostics retained. Evaluate cache-only reuse separately. | No issuer identity, only SPY/QQQ, missing full query association, planned URL only, unavailable/429/budget truncation = UNPROVEN/FAILED acquisition, regardless of clean stop. Completed empty retrieval may pass acquisition but not catalyst. |
+| Catalyst qualification | Existing Ross issuer attribution, fresh publication/event rules, qualifying catalyst witness and no applicable dilution veto, expressed as ross_catalyst_valid/catalyst-confirmed for that candidate. | No recent news, generic/co-mention, stale/update-only, unavailable or vetoed evidence cannot qualify. Natural absence is legitimate; do not force a catalyst for shutdown acceptance. |
+| Downstream progression | Naturally selected Watchlist/Focus candidate handed to RossMomentumStrategy.evaluate; observable pattern/setup/risk decision and resulting READ_ONLY suppression. Follow each existing gate and report terminal reason. | No Focus/catalyst/pattern, position-truth/recovery/risk block or no handoff means progression not demonstrated, without invalidating an independently successful shutdown. Never require a live/order mutation as proof. |
+
+### Operator package contract and review status
+
+The ONE block below is a **review copy on HOLD**, not authorization to execute.
+It is also saved verbatim as `docs/ross/PR1108_NATURAL_READONLY_ACCEPTANCE.ps1`
+in this separate documentation snapshot. It keeps reviewed head8f40 pinned and
+has workstation/explicit-observation flags false. The two material findings
+require disposition before release; if a follow-up is accepted, regenerate the
+package with its newly reviewed head. Do not flip flags as a workaround.
+
+It prepares a unique short-path `C:\tmp\ro1108-<id>\s`, leaving the unchanged
+PyCharm checkout untouched. Child-only environment starts from registered
+defaults plus existing safe READ_ONLY defaults, original50/15/5, canonical
+issuer opt-in and required news; no threshold/RVOL/float/catalyst bypass or
+session override. IBKR is explicit loopback paper-TWS7497/client71. Preflight is
+filesystem/config/guard/process-only and requires normal RTH, accepted interpreter,
+clean pinned checkout, no existing Ross runtime and active independent pre-guard
+SDK instrumentation. It makes no preflight broker/provider request.
+
+Canonical state/cache paths are private; no old scanner/news/prep cache is copied
+to make selection succeed. Existing operator order-ID high-water state, if present,
+is copied into private state and original bytes verified unchanged afterward;
+the production allocator is not reset. Defaults under the fresh clone's ignored
+data directory are isolated from the original checkout. A child startup configuration, recorded with source/hash in the evidence,
+sets yfinance timezone/cookie/ISIN caches to private state before first use.
+It changes cache location only, exits78 if configuration fails, and does not
+change network permission, strategy data or event-loop policy. Cache provenance
+remains explicit rather than being treated as fresh acquisition.
+
+The existing supervisor, not the PR1040 capped adapter, launches `-m src.main`.
+Observation180s is unchanged. Supervisor grace60s/terminate15s/kill15s and bounded
+reader/pipe/identity cleanup remain unchanged. Progress every5s reports stdout
+bytes and paths; create terminal/STOP_REQUESTED for early graceful stop without
+killing the shell/runtime. Broker-zero fallback requests an early stop and fails
+natural acceptance. Terminal stdout/stderr and supervisor logs stay available.
+The outer540s monitor budget detects stuck supervision; it does not certify
+cleanup or broadly kill unrelated processes. If it expires, retain surviving
+identity/evidence, mark FAIL, and inspect before any retry. Third-party/OS stalls
+are not falsely represented as a hard successful-stop guarantee.
+
+After supervisor exit the package runs independent read-only process inventory,
+source/operator-state hashes, validates runtime AND separate audit mutation
+counters and strict terminal evidence, exports only sanitized canonical caches,
+then privacy-scans the allowlisted evidence directory and makes ONE
+`ross-natural-readonly-upload.zip`. It excludes raw SQLite, user config/secrets,
+the clone and order-state file. Failure still retains a diagnostic ZIP when
+privacy-safe; privacy failure produces no shareable ZIP. Never infer strategy
+acceptance from exit0/zero open orders. No auto-retry. Workstation PS execution,
+actual supervisor/future runtime and provider/broker behavior were not tested now.
+Embedded helper Python was syntax-compiled only; PowerShell is unavailable here,
+so Windows parsing/execution of this new operator block is still pending review.
+
+`PAPER_READY=NO`; no readiness upgrade, runtime, provider requests, IBKR connection,
+trading, merge, force-push or repeated full suites occurred in this preparation.
+
+### Complete short-path operator block (not released for execution)
+
+```powershell
+# REVIEW COPY. No launch is authorized by preparation of this command.
+& {
+    $ErrorActionPreference = 'Stop'
+    $PSNativeCommandUseErrorActionPreference = $false
+    $WorkstationAccepted = $false
+    $ObservationAuthorized = $false
+    # Keep both false until the workstation result and the two material findings
+    # have an explicit disposition. A repaired head needs a newly pinned package.
+    if (!$WorkstationAccepted -or !$ObservationAuthorized) {
+        throw 'HOLD: workstation acceptance and explicit observation authorization are pending; see checkpoint findings.'
+    }
+    $obsHead = '8f40e4c4b3ca8fa0f74d8e41cd947e50bc2e370c'
+    $obsPython = 'C:\tmp\pr1091-cert-env-20260923\Scripts\python.exe'
+    if (!(Test-Path -LiteralPath $obsPython -PathType Leaf)) { throw "Missing $obsPython" }
+    $obsSource = (& git rev-parse --show-toplevel | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or !$obsSource) { throw 'Run from your existing PyCharm repository.' }
+    $obsOrigin = (& git -C $obsSource remote get-url origin | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or $obsOrigin -notmatch '(?i)github\.com[:/]NelzonMamani/ibkr-trading-system(?:\.git)?/?$') { throw 'Unexpected source repository.' }
+    $obsRoot = 'C:\tmp\ro1108-' + [guid]::NewGuid().ToString('N').Substring(0,8)
+    New-Item -ItemType Directory -Path $obsRoot | Out-Null
+    $obsCheckout = Join-Path $obsRoot 's'
+    $obsEvidence = Join-Path $obsRoot 'e'
+    $obsHelper = Join-Path $obsRoot 'operator.py'
+    & git clone --no-checkout --no-hardlinks -- $obsSource $obsCheckout
+    if ($LASTEXITCODE -ne 0) { throw 'Isolated clone failed.' }
+    & git -C $obsCheckout config --local core.longpaths true
+    if ($LASTEXITCODE -ne 0) { throw 'Long-path setup failed.' }
+    & git -C $obsCheckout remote set-url origin https://github.com/NelzonMamani/ibkr-trading-system.git
+    if ($LASTEXITCODE -ne 0) { throw 'Origin setup failed.' }
+    & git -C $obsCheckout fetch --no-tags origin refs/heads/codex/natural-readonly-enrichment-stop
+    if ($LASTEXITCODE -ne 0) { throw 'Fetch failed.' }
+    $obsFetched = (& git -C $obsCheckout rev-parse FETCH_HEAD | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or $obsFetched -cne $obsHead) { throw 'Branch differs from the reviewed head; obtain a new package.' }
+    & git -C $obsCheckout checkout --detach $obsHead
+    if ($LASTEXITCODE -ne 0) { throw 'Reviewed checkout failed.' }
+    @'
+import hashlib, json, os, shutil, subprocess, sys, zipfile
+from datetime import datetime, timezone
+from pathlib import Path
+phase, root_text, expected = sys.argv[1:]
+root = Path(root_text); repo = root/'s'; evidence = root/'e'; state = root/'state'
+sys.path.insert(0, str(repo)); os.chdir(repo)
+if hasattr(sys.modules.get('sitecustomize'), 'offline'):
+    raise SystemExit('Offline pytest hook present: observation must use a separate process.')
+from scripts.certification.pr1040_real_readonly_runtime_observation_adapter import build_safe_readonly_env, assert_safe_runtime_env
+from src.config.config_registry import CONFIG_REGISTRY
+env = dict(os.environ)
+for entry in CONFIG_REGISTRY.values():
+    for key in entry.get('env', ()):
+        env.pop(key, None)
+for key in tuple(env):
+    if key.startswith('PR1090_') or key.startswith('ROSS_'):
+        env.pop(key, None)
+env = build_safe_readonly_env(env)
+env.update(PYTHONPATH=os.pathsep.join((str(state/'startup'),str(repo))), PYTHONUNBUFFERED='1',
+    PR1108_YFINANCE_CACHE=str(state/'yfinance'),
+    IBKR_HOST='127.0.0.1', IBKR_PORT='7497', IBKR_CLIENT_ID='71',
+    IBKR_FALLBACK_ENABLED='false', ROSS_ISSUER_QUERY_ENABLED='true', ROSS_REQUIRE_NEWS='true',
+    SCANNER_TOP_GAINERS_COUNT='50', TOPN_MAX_SYMBOLS_PER_STRATEGY='50',
+    WATCHLIST_MAX_SYMBOLS_PER_STRATEGY='15', FOCUS_MAX_SYMBOLS_PER_STRATEGY='5',
+    IBKR_ORDER_ID_STATE_PATH=str(state/'order-id.json'),
+    IBKR_GUARD_PERSIST_PATH=str(state/'submission-guard.json'),
+    SCANNER_FLOAT_CACHE_FILE=str(state/'float.json'), NEWS_CACHE_FILE=str(state/'news.json'),
+    PERSISTENCE_SQLITE_PATH=str(state/'runtime.sqlite3'), DECISION_TRACE_PATH=str(state/'decision-trace.jsonl'))
+assert_safe_runtime_env(env)
+original_state = Path(os.environ.get('IBKR_ORDER_ID_STATE_PATH') or Path.home()/'.ibkr_order_id_state.json')
+os.environ.clear(); os.environ.update(env)
+from src.ibkr.evidence_safety import capture_console, install_console_protection, scan_artifacts, write_json
+from scripts.certification import pr1090_terminal_observation_supervisor as supervisor
+from src.ibkr.mutation_audit import require_zero_attempts, snapshot
+def digest(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
+def source_manifest():
+    paths = subprocess.check_output(['git','ls-files','-z'], cwd=repo).decode().split('\0')
+    return {name: digest(repo/name) for name in paths if name}
+if phase == 'preflight':
+    evidence.mkdir(); state.mkdir()
+    with capture_console(evidence/'preflight'):
+        if os.name != 'nt' or sys.version_info[:3] != (3, 13, 3):
+            raise SystemExit('Requires the accepted Windows Python 3.13.3 interpreter.')
+        supervisor.require_clean_certification_worktree(expected)
+        inventory = supervisor.runtime_inventory()
+        write_json(evidence/'initial-runtime-inventory.json', inventory)
+        if not inventory['completed'] or inventory['runtimes']:
+            raise SystemExit('Pre-existing runtime or incomplete inventory; no launch.')
+        from src.config.config_resolver import get_config
+        from src.config.system_config import get_current_market_session
+        if get_current_market_session() != 'RTH':
+            raise SystemExit('Requires the normal configured RTH window; no session override.')
+        from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
+        from ibapi.client import EClient
+        from src.ibkr.read_only_guard import assert_read_only_allows
+        for action in ('PLACE_ORDER','MODIFY_ORDER','CANCEL_ORDER'):
+            try: assert_read_only_allows(action)
+            except RuntimeError: pass
+            else: raise SystemExit('Write guard not enforced.')
+        if not all(getattr(getattr(EClient, name), '_mutation_audited', False)
+                   for name in ('placeOrder','cancelOrder','reqGlobalCancel')):
+            raise SystemExit('Independent SDK attempt instrumentation missing.')
+        if not getattr(IbkrClient.submit_order, '_mutation_audited', False):
+            raise SystemExit('Native submit-order attempt instrumentation missing.')
+        require_zero_attempts(snapshot())
+        # Cache-location configuration only. Child startup must fail closed if
+        # this cannot be installed; no provider fetch or event-loop-policy edit.
+        startup = state/'startup'; startup.mkdir()
+        hook = startup/'sitecustomize.py'
+        hook.write_text("import os\ntry:\n import yfinance.cache as c\n c.set_cache_location(os.environ['PR1108_YFINANCE_CACHE'])\nexcept BaseException:\n os._exit(78)\n", encoding='utf-8')
+        write_json(evidence/'operator-startup-config.json', {'scope': 'yfinance cache location only',
+            'sha256': digest(hook), 'source': hook.read_text(), 'path': str(hook)})
+        if original_state.exists():
+            shutil.copy2(original_state, state/'order-id.json')
+        (root/'operator-state-source.json').write_text(json.dumps({'path': str(original_state), 'sha256': digest(original_state)}))
+        write_json(evidence/'source-before.json', source_manifest())
+        write_json(evidence/'preflight.json', {'head': expected, 'utc': datetime.now(timezone.utc).isoformat(),
+            'mode': 'READ_ONLY', 'seconds': 180, 'top_n': get_config('TOPN_MAX_SYMBOLS_PER_STRATEGY'),
+            'watchlist_k': get_config('WATCHLIST_MAX_SYMBOLS_PER_STRATEGY'), 'focus_m': get_config('FOCUS_MAX_SYMBOLS_PER_STRATEGY'),
+            'issuer_query': get_config('ROSS_ISSUER_QUERY_ENABLED'), 'require_news': get_config('ROSS_REQUIRE_NEWS'),
+            'write_guards_verified': True, 'sdk_attempt_audit_verified': True, 'PAPER_READY': False})
+elif phase == 'observe':
+    install_console_protection()
+    raise SystemExit(supervisor.main(['--seconds','180','--output',str(evidence/'terminal'),'--expected-commit',expected]))
+elif phase == 'package':
+    # This phase performs filesystem/process checks only. Broker audit belongs
+    # exclusively to the existing supervisor after its observed runtime exits.
+    evidence.mkdir(exist_ok=True)
+    with capture_console(evidence/'packaging'):
+        after = source_manifest()
+        before_path = evidence/'source-before.json'
+        unchanged = before_path.exists() and json.loads(before_path.read_text()) == after
+        write_json(evidence/'source-after.json', after)
+        inventory = supervisor.runtime_inventory()
+        write_json(evidence/'independent-final-runtime-inventory.json', inventory)
+        mutation_ok = False; blockers = []
+        try:
+            terminal = json.loads((evidence/'terminal'/'terminal_evidence.json').read_text())
+            from src.ibkr.shutdown_evidence import validate_terminal
+            require_zero_attempts(terminal.get('mutation_attempts'))
+            require_zero_attempts(terminal.get('audit_mutation_attempts'))
+            verdict = validate_terminal(terminal)
+            mutation_ok = True
+            blockers = verdict['blockers']
+        except Exception as exc:
+            blockers = ['Missing/unsafe terminal evidence: '+type(exc).__name__]
+        write_json(evidence/'independent-mutation-validation.json', {'passed': mutation_ok,
+            'authority': 'runtime SDK pre-guard counters AND separate supervisor audit counters',
+            'not_inferred_from_zero_open_orders': True})
+        saved = root/'operator-state-source.json'
+        operator_unchanged = False
+        if saved.exists():
+            original = json.loads(saved.read_text())
+            operator_unchanged = digest(Path(original['path'])) == original['sha256']
+        for name in ('news.json', 'float.json'):
+            path = state/name
+            if path.is_file():
+                write_json(evidence/'cache-exports'/name, json.loads(path.read_text()))
+        terminal_ok = mutation_ok and not blockers and unchanged and operator_unchanged and inventory['completed'] and not inventory['runtimes']
+        write_json(evidence/'operator-summary.json', {'head': expected, 'terminal_checks_passed': terminal_ok,
+            'tracked_source_unchanged': unchanged, 'operator_order_state_unchanged': operator_unchanged,
+            'blockers': blockers, 'scanner_pass': 'REQUIRES_LOG_REVIEW', 'natural_issuer_acquisition': 'REQUIRES_LOG_REVIEW',
+            'catalyst': 'REQUIRES_LOG_REVIEW', 'downstream_progression': 'REQUIRES_LOG_REVIEW', 'PAPER_READY': False})
+    privacy = scan_artifacts(evidence)
+    write_json(evidence/'shareable-evidence-scan.json', privacy)
+    if not privacy['passed']:
+        raise SystemExit('Privacy scan failed; evidence retained locally, no shareable ZIP.')
+    archive = root/'ross-natural-readonly-upload.zip'
+    with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as out:
+        for path in sorted(evidence.rglob('*')):
+            if path.is_file(): out.write(path, path.relative_to(evidence))
+    print('SHARE ZIP: '+str(archive))
+    raise SystemExit(0 if terminal_ok else 2)
+else:
+    raise SystemExit('Unknown operator phase')
+'@ | Set-Content -LiteralPath $obsHelper -Encoding UTF8
+    $obsResult = 1
+    try {
+        & $obsPython -E -u $obsHelper preflight $obsRoot $obsHead
+        if ($LASTEXITCODE -ne 0) { throw "Preflight failed; inspect $obsEvidence\preflight" }
+        Write-Host "Logs: $obsEvidence\terminal\stdout.log and stderr.log"
+        Write-Host "Early stop: create $obsEvidence\terminal\STOP_REQUESTED (do not terminate Python)."
+        $obsProcess = Start-Process -FilePath $obsPython -ArgumentList @('-E','-u',$obsHelper,'observe',$obsRoot,$obsHead) -WorkingDirectory $obsCheckout -RedirectStandardOutput (Join-Path $obsEvidence 'supervisor.stdout.log') -RedirectStandardError (Join-Path $obsEvidence 'supervisor.stderr.log') -PassThru
+        $obsClock = [Diagnostics.Stopwatch]::StartNew()
+        while (!$obsProcess.WaitForExit(5000)) {
+            $obsLog = Join-Path $obsEvidence 'terminal\stdout.log'
+            $obsBytes = if (Test-Path $obsLog) { (Get-Item $obsLog).Length } else { 0 }
+            Write-Host ("Elapsed {0:N0}s; runtime stdout {1} bytes; evidence {2}" -f $obsClock.Elapsed.TotalSeconds,$obsBytes,$obsEvidence)
+            if ((Test-Path $obsLog) -and (Select-String -LiteralPath $obsLog -SimpleMatch '[SCANNER][IBKR][RAW_ZERO]' -Quiet)) {
+                'GRACEFUL_STOP_REQUESTED' | Set-Content (Join-Path $obsEvidence 'terminal\STOP_REQUESTED')
+                Write-Host 'Broker-zero fallback detected: natural acceptance is invalid; requesting graceful stop.'
+            }
+            if ($obsClock.Elapsed.TotalSeconds -gt 540) {
+                if (Test-Path (Join-Path $obsEvidence 'terminal')) { 'GRACEFUL_STOP_REQUESTED' | Set-Content (Join-Path $obsEvidence 'terminal\STOP_REQUESTED') }
+                throw 'Supervisor exceeded outer observation/finalization budget. No success claim or broad process kill; retain evidence and inspect surviving process.'
+            }
+        }
+        $obsProcess.WaitForExit()
+        $obsResult = $obsProcess.ExitCode
+    } finally {
+        & $obsPython -E -u $obsHelper package $obsRoot $obsHead
+        $obsPackageResult = $LASTEXITCODE
+        Write-Host "Retained checkout: $obsCheckout`nEvidence: $obsEvidence`nSupervisor exit: $obsResult"
+    }
+    if ($obsResult -ne 0 -or $obsPackageResult -ne 0) { throw 'Observation/terminal verification incomplete or failed; share the retained diagnostic ZIP if privacy scan passed.' }
+    Write-Host 'Terminal checks passed. Scanner, issuer, catalyst and downstream outcomes still require separate evidence review. PAPER_READY=NO.'
+}
+```
+
+## Workstation suite PASS; PowerShell status follow-up — 16 October 2026
+
+User workstation at reviewed `8f40e4c4b3ca8fa0f74d8e41cd947e50bc2e370c`,
+checkout `C:\tmp\r1108-0b13f5bf3a\s`: **2759 passed, 1 skipped, 212 warnings
+in435.69s**. Record this full Windows Python result as **PASS**, independently
+of the wrapper. No unchanged full suite was rerun. Uploaded verification log
+SHA256 `78c293e351278c9af9cb583db1688363dd7136dd63eb821e72a8b2ca36f31f8b`;
+terminal transcript SHA256
+`d712f66cc84fa6b949f554582996d8c6b7ab2ceb3021f8365e134ae933d84ff7`.
+Documents are evidence, not instructions. Historical outer wrapper reported1
+and threw after the pytest summary, with no child-script error in the transcript.
+That historical wrapper status is initially **UNRESOLVED**, not a failed pytest
+suite; its actual child OS exit was not captured independently.
+
+The old outer `& {}` assigns local `$LASTEXITCODE=1` before a native command piped
+to Tee-Object, then reads that same name. Windows regression will independently
+compare a retained process exit with local/global automatic-variable values in
+an exact-style controlled -Command launch. This is a scope-shadowing hypothesis
+until the actual Windows check receipt confirms it, not an invented pytest failure.
+
+The inner verifier now captures pytest status immediately and explicitly exits
+with it after restoring environment/location; it preserves pytest1 and collection2
+rather than throwing/remapping every nonzero result. Preflight/launch failure
+still fails. New `invoke_natural_readonly_offline.ps1` uses a retained
+System.Diagnostics.Process.ExitCode via `Invoke-LoggedNativeProcess.ps1`, not
+an outer automatic variable or Tee pipeline status. Both pipes drain concurrently;
+UTF8 output is retained (stdout then stderr), and log creation/write/flush failure
+cannot become success. Child status is recorded separately when logging fails.
+This wrapper buffers child output until completion; it is not the natural
+observation supervisor, whose existing progress/evidence paths remain unchanged.
+
+Required changed-head CI is proportionate: ONLY when every change since the
+full-suite-certified8f40 anchor is in the exact harness/docs allowlist, Linux
+checks diff/source identity and actual Windows PowerShell5.1 runs tiny controlled
+pytest success/failure/collection fixtures, missing-executable and log errors,
+quoting/dual-pipe/native-status tests, the old scope reproduction and syntax-only
+parsing of the staged observation command. No repository full suite is silently
+labelled rerun. Any production/Python-test/offline-hook change outside that exact
+allowlist retains normal full Linux/Windows suites. Final head-specific receipts
+and independent review are recorded in PR1108's summary/Checks.
+
+Production `src`, offline Python guard, event-loop policy, test assertions,
+requirements and both separate uncommitted runtime follow-up defects remain
+unchanged by this harness repair. The earlier acceptance map and HOLD command
+are now saved with this checkpoint rather than only in the detached documentation
+snapshot. Workstation pytest acceptance is satisfied; runtime observation remains
+on HOLD for disposition of quote-age and runtime float-worker ownership findings
+and explicit future observation authorization. No repeat workstation full suite
+is requested. `PAPER_READY=NO`; no broker/provider acquisition, natural runtime,
+merge or readiness upgrade.
