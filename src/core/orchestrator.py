@@ -111,6 +111,7 @@ from src.strategy_policy_v2.consumption import (
 from src.strategy_policy_v2.flags import is_policy_v2_enabled_for_strategy
 from src.strategy_policy_v2.policy_v2 import StrategyPolicyV2
 from src.strategy_policy_v2.registry import resolve_policy_v2
+from src.core.acquisition import AcquisitionCancelled, acquisition_scope
 from src.scanner.scanner_runner import run_scanner_cycle
 from src.scanner.providers.base import ProviderConnectionError
 from src.scanner.providers.mock_provider import MockScannerProvider
@@ -1966,6 +1967,23 @@ class CoreOrchestrator:
             )
         return resolved_mode
 
+    def _poll_acquisition_stop(self) -> bool:
+        stop_file = os.environ.get("PR1090_STOP_FILE")
+        if stop_file and Path(stop_file).is_file() and not self.stop_controller.is_stop_requested():
+            self._request_stop(StopMode.GRACEFUL, reason="Supervisor stop requested", source="PR1090")
+        return self.stop_controller.is_stop_requested()
+
+    def _wait_for_stop(self, seconds: float) -> bool:
+        import time
+        deadline = time.monotonic() + max(0, seconds)
+        while True:
+            if self._poll_acquisition_stop():
+                return True
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            time.sleep(min(0.1, remaining))
+
     def _stop_requested_at_boundary(self, stage_label: str) -> bool:
         if self.stop_controller.is_stop_requested():
             mode = self.stop_controller.stop_mode() or StopMode.GRACEFUL
@@ -2123,7 +2141,8 @@ class CoreOrchestrator:
                         "[SESSION] System WOULD treat market as closed (teaching-only)."
                     )
                 if current_session in {"PRE", "CLOSED"}:
-                    self.run_preparation_mode()
+                    with acquisition_scope(self._poll_acquisition_stop):
+                        self.run_preparation_mode()
                 if self.run_mode == RunMode.LIVE and current_session == "CLOSED":
                     print(
                         "[GATE] RUN_MODE is LIVE while session is CLOSED. "
@@ -2141,7 +2160,8 @@ class CoreOrchestrator:
                     print(
                         "[SAFETY] RUN_MODE and session allow safe progression to orchestrator.run_once()."
                     )
-                    should_continue = self.run_once()
+                    with acquisition_scope(self._poll_acquisition_stop):
+                        should_continue = self.run_once()
                     cycles_run += 1
                     retry_count = 0
                     if should_continue is False:
@@ -2156,7 +2176,11 @@ class CoreOrchestrator:
                         break
 
                 print(f"[SLEEP] Sleeping for {sleep_seconds} seconds before next cycle.")
-                time.sleep(sleep_seconds)
+                if self._wait_for_stop(sleep_seconds):
+                    break
+            except AcquisitionCancelled:
+                # Leave acquisition scope before executing every shutdown hook.
+                break
             except (ProviderConnectionError, ConnectionError, TimeoutError) as exc:
                 if self.run_mode == RunMode.LIVE:
                     print(f"[CONNECTIVITY] Provider connectivity failure in LIVE mode: {exc}")
@@ -2244,7 +2268,8 @@ class CoreOrchestrator:
                         },
                     },
                 )
-                time.sleep(backoff_seconds)
+                if self._wait_for_stop(backoff_seconds):
+                    break
             except KeyboardInterrupt:
                 self._handle_keyboard_interrupt()
                 return

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from src.core.acquisition import AcquisitionCancelled, checkpoint, wait_event
+
 import threading
 import math
 import time
@@ -198,7 +200,7 @@ class IbkrClient(EWrapper, EClient):
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
 
-        if not self._connection_event.wait(timeout=self.snapshot_timeout_seconds):
+        if not wait_event(self._connection_event, self.snapshot_timeout_seconds):
             self.disconnect()
             raise RuntimeError("IBKR connection timeout waiting for handshake")
 
@@ -691,7 +693,7 @@ class IbkrClient(EWrapper, EClient):
 
         self.reqContractDetails(req_id, contract)
 
-        if not event.wait(timeout=self.snapshot_timeout_seconds):
+        if not wait_event(event, self.snapshot_timeout_seconds):
             raise RuntimeError(f"Contract resolution failed for symbol={symbol} (timeout).")
 
         with self._lock:
@@ -893,18 +895,24 @@ class IbkrClient(EWrapper, EClient):
             start = time.time()
             timeout = self.snapshot_timeout_seconds
 
-            while True:
-                if event.is_set():
-                    break
+            try:
+                while True:
+                    checkpoint()
+                    if event.is_set():
+                        break
 
-                data = self._historical_data.get(req_id, [])
-                if data:
-                    break
+                    data = self._historical_data.get(req_id, [])
+                    if data:
+                        break
 
-                if time.time() - start > timeout:
-                    break
+                    if time.time() - start > timeout:
+                        break
 
-                time.sleep(0.01)
+                    time.sleep(0.01)
+            except AcquisitionCancelled:
+                # Market-data cancellation only; never an order cancellation.
+                self.cancelHistoricalData(req_id)
+                raise
 
             with self._lock:
                 self._raise_if_request_id_conflicted(req_id)
@@ -970,7 +978,7 @@ class IbkrClient(EWrapper, EClient):
         self._market_data[req_id] = {"bid": None, "ask": None, "last": None, "volume": None}
         try:
             self.reqMktData(req_id, contract, "", True, False, [])
-            event.wait(timeout=self.snapshot_timeout_seconds)
+            wait_event(event, self.snapshot_timeout_seconds)
             completed_at = datetime.now(timezone.utc)
             with self._lock:
                 self._raise_if_request_id_conflicted(req_id)
@@ -1083,8 +1091,10 @@ class IbkrClient(EWrapper, EClient):
         self._register_request(req_id, "SCANNER_DATA")
 
         self.reqScannerSubscription(req_id, subscription, [], [])
-        event.wait(timeout=self.snapshot_timeout_seconds)
-        self.cancelScannerSubscription(req_id)
+        try:
+            wait_event(event, self.snapshot_timeout_seconds)
+        finally:
+            self.cancelScannerSubscription(req_id)
         with self._lock:
             self._raise_if_request_id_conflicted(req_id)
             return list(self._scanner_rows.get(req_id, []))

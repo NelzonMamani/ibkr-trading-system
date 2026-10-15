@@ -29,4 +29,6 @@ jobs:
           if [ -f pyproject.toml ]; then pip install -e .; fi
 
       - name: Run pytest
+        env:
+          PYTHONPATH: ${{ github.workspace }}/tests/offline:${{ github.workspace }}
         run: pytest -q
