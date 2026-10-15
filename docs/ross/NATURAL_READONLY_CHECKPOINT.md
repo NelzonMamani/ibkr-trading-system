@@ -117,3 +117,41 @@ Only Git fetch uses the network in this command. The verifier checks the clean
 pinned checkout, loads the offline guard, and runs pytest; it never invokes
 `src.main`, the observation supervisor, an IBKR audit, or trading. A passing test
 suite does not establish natural issuer acquisition or upgrade readiness.
+
+## Windows offline harness compatibility repair
+
+The uploaded Windows Python **3.13.3** run at
+`f0aea1f8823ae05964a793a54e9c25b2d35785a1` failed collection in
+`test_execution_mode_engine.py` and `test_pr1091_console_reporting.py`.
+`src.main` imports create the default ProactorEventLoop; its self-pipe calls
+CPython's TCP `_fallback_socketpair`, whose internal `csock.connect` the offline
+hook rejected. That run failed; zero executed tests does not certify the suite.
+
+The harness now recognizes only the cached original stdlib fallback function's
+exact code frame, its exact client socket, and the address of its own newly bound
+listening loopback socket. The endpoint must match its local `addr`/`port`, be
+listening, and exclude 4001/4002/7496/7497. This grants no general localhost or
+thread-wide exemption. Ordinary loopback connections, broker ports (IPv4/IPv6),
+external connections, DNS and datagrams remain denied. No production source or
+event-loop policy changes; asyncio still uses Proactor on Windows.
+
+Regression children load the actual startup hook via inherited PYTHONPATH.
+Tests exercise default loop creation and `src.main` import, the real TCP fallback
+on Linux as well as Windows, ordinary connects while a socketpair is open,
+external/IBKR connect and connect_ex rejection, DNS/datagram rejection and guard
+inheritance into a grandchild Python. Neither failed file is skipped. The required
+Linux full pytest job remains; a new Windows-latest Python **3.13.3** job runs the
+harness regressions and both previously collection-failing files. Final per-head
+Linux and Windows results are recorded in the PR verification summary; Linux
+fallback tests must not be described as Windows execution. Windows CI focused
+success does not claim a complete Windows suite pass or local workstation pass.
+
+Replacement PowerShell preparation uses a unique **C:\tmp\r1108-<id>\s** clone
+with local `core.longpaths=true`, `--no-checkout --no-hardlinks` from the unchanged
+PyCharm repository, explicit GitHub origin and a pinned reviewed detached commit.
+It verifies every native exit status and clean checkout, invokes the offline
+verifier using its absolute short path and the existing certification interpreter,
+and logs outside the clone. The original checkout, branch, main and settings stay
+unchanged. Full offline pytest must exit zero; failure is retained and reported,
+not retried automatically or relabelled success. No runtime, IBKR audit or natural
+observation is part of this verification. `PAPER_READY=NO` remains unchanged.
