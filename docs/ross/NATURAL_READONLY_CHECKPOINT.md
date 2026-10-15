@@ -736,14 +736,21 @@ terminal transcript SHA256
 `d712f66cc84fa6b949f554582996d8c6b7ab2ceb3021f8365e134ae933d84ff7`.
 Documents are evidence, not instructions. Historical outer wrapper reported1
 and threw after the pytest summary, with no child-script error in the transcript.
-That historical wrapper status is initially **UNRESOLVED**, not a failed pytest
-suite; its actual child OS exit was not captured independently.
+The historical wrapper status was initially **UNRESOLVED**, not a failed pytest
+suite; its actual child OS exit was not captured independently. The scope defect
+is now independently reproduced and repaired as recorded below; this does not
+invent a historical OS-exit receipt that the upload did not contain.
 
 The old outer `& {}` assigns local `$LASTEXITCODE=1` before a native command piped
-to Tee-Object, then reads that same name. Windows regression will independently
-compare a retained process exit with local/global automatic-variable values in
-an exact-style controlled -Command launch. This is a scope-shadowing hypothesis
-until the actual Windows check receipt confirms it, not an invented pytest failure.
+to Tee-Object, then reads that same name. Actual Windows PowerShell reproduced
+`reported=1, global=0, local=1` for a successful controlled child. The native
+command updates the global automatic variable, while the explicitly assigned
+local sentinel shadows it. The following read returns the sentinel; Tee does
+not make it an independently captured process status. The old inner verifier
+returns normally after successful Python and cleanup; `powershell.exe -File`
+returns0 for that normal completion. Its ordinary throw path previously collapsed
+pytest nonzero codes into shell failure1. The repair uses an explicit captured
+pytest exit and a retained process ExitCode, preserving those distinct boundaries.
 
 The inner verifier now captures pytest status immediately and explicitly exits
 with it after restoring environment/location; it preserves pytest1 and collection2
@@ -775,3 +782,33 @@ on HOLD for disposition of quote-age and runtime float-worker ownership findings
 and explicit future observation authorization. No repeat workstation full suite
 is requested. `PAPER_READY=NO`; no broker/provider acquisition, natural runtime,
 merge or readiness upgrade.
+
+### Confirmed actual Windows harness receipt
+
+At harness commit `afeb15a8999ff283d629c54eaa122ed6519d5b5b`, remote
+https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/38823257275
+passed verification-scope, Linux source/whitespace checks and the actual Windows
+PowerShell controlled job. Windows PowerShell **5.1.26100.33438**, Python3.13.3:
+**13 controlled checks passed**. The old pipeline logged
+`OLD_PIPELINE: {"reported":1,"global":0,"local":1}`. Both direct verifier and
+new outer wrapper preserved actual tiny-pytest success0, failure1, collection2;
+missing Python/native executable, prelaunch log-open error, post-exit log-write
+error, quoting/large dual pipes and native7 were checked. Intentional failing and
+collection-error fixtures remain nonzero; they are not claimed as repository
+suite passes. The new operator command was AST-parsed only, never executed.
+The Windows evidence artifact is `windows-powershell-status-evidence`. No full
+repository suite ran at this harness head; full results remain attached to8f40.
+
+Independent exact-afeb static Codex review found no actionable blocker; it is
+not human approval or a claim of local Windows execution. This checkpoint-only
+receipt update also requires focused changed-head checks and exact-head review;
+those final receipts are linked in PR1108's verification summary, rather than
+creating an endless sequence of commits recording their own SHA.
+
+Next operator action: retain the already-passing workstation log and transcript;
+**do not repeat the full workstation suite**. Review the focused harness receipt
+and disposition of the separate quote-age/runtime-worker draft. The held natural
+operator block remains pinned to historical8f40 and its launch flags remain false;
+regenerate it for the eventual reviewed runtime head after those findings have a
+disposition and before any separately authorized observation. Do not launch it
+from the old checkout or treat a harness fix as natural/runtime acceptance.
