@@ -131,6 +131,28 @@ public class ObservationFaultStream : Stream {
         Check ($child.ExitCode -eq $expected) "Released entrypoint did not preserve $case OS status."
         $passed++
     }
+    # Preparation invokes only Python version and controlled git stubs; it must
+    # print the later execution command without starting any operator phase.
+    $script:preparedCheckout=$null
+    function git {
+        $global:LASTEXITCODE=0
+        if ($args -contains 'clone') {
+            $script:preparedCheckout=$args[-1]
+            New-Item -ItemType Directory $script:preparedCheckout | Out-Null
+        }
+        if ($args -contains 'rev-parse') { return ('a'*40) }
+    }
+    try {
+        $prepared=& (Join-Path $repo 'docs\ross\PR1108_NATURAL_READONLY_ACCEPTANCE.ps1') -ExpectedCommit ('a'*40) -Python $Python 6>&1
+        Check ($null -ne $script:preparedCheckout) 'Preparation did not clone.'
+        $preparedRoot=Split-Path $script:preparedCheckout -Parent
+        Check (!(Test-Path (Join-Path $preparedRoot 'e'))) 'Preparation launched preflight/runtime.'
+        Check (($prepared | Out-String) -match 'run_natural_readonly_observation.ps1') 'No separate execution command printed.'
+    } finally {
+        Remove-Item Function:git -ErrorAction SilentlyContinue
+        if ($script:preparedCheckout) { Remove-Item -Recurse -Force (Split-Path $script:preparedCheckout -Parent) }
+    }
+    $passed++
     # Actual startup semantics: -E parent ignores PYTHONPATH; its ordinary child
     # loads the copied hook and configures only a private fake-provider cache.
     $startup=Join-Path $scratch 'startup'; $fake=Join-Path $scratch 'fake'

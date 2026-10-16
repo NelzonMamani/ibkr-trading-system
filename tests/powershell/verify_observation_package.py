@@ -87,3 +87,61 @@ for case in ('valid', 'missing-terminal', 'mutation', 'source', 'order-state', '
             assert summary['terminal_checks_passed'] == (case == 'valid'), case
             assert summary['PAPER_READY'] is False
 print('REAL_PACKAGE_CHECKS_PASS: 8 synthetic cases; no acquisition')
+
+if os.name == 'nt':
+    # Exercise real preflight with synthetic inventory/session/native classes.
+    # Fake SDK classes have no connect/request methods: accidental acquisition fails.
+    import shutil
+    import types
+    from src.config import system_config
+    saved_session = system_config.get_current_market_session
+    def audited(*args, **kwargs):
+        raise AssertionError('No broker operation allowed')
+    audited._mutation_audited = True
+    class FakeSDK:
+        placeOrder = cancelOrder = reqGlobalCancel = audited
+    class FakeNative:
+        submit_order = audited
+    modules = {
+        'ibapi.client': types.SimpleNamespace(EClient=FakeSDK),
+        'src.adapters.brokers.ibkr.ibkr_client': types.SimpleNamespace(IbkrClient=FakeNative),
+    }
+    saved_modules = {name: sys.modules.get(name) for name in modules}
+    sys.modules.update(modules)
+    for case in ('valid', 'dirty', 'inventory', 'session'):
+        os.environ.clear(); os.environ.update(original_env)
+        root = scratch / ('real-preflight-' + case)
+        checkout = root / 's'
+        hook = checkout / 'scripts/certification/readonly_cache_sitecustomize.py'
+        hook.parent.mkdir(parents=True)
+        shutil.copy2(repo / 'scripts/certification/readonly_cache_sitecustomize.py', hook)
+        subprocess.run(['git', 'init', '-q', str(checkout)], check=True)
+        subprocess.run(['git', '-C', str(checkout), 'add', '.'], check=True)
+        subprocess.run(['git', '-C', str(checkout), '-c', 'user.name=Harness', '-c', 'user.email=harness@example.invalid', 'commit', '-qm', 'fixture'], check=True)
+        expected = subprocess.check_output(['git', '-C', str(checkout), 'rev-parse', 'HEAD'], text=True).strip()
+        if case == 'dirty': hook.write_text('unreviewed')
+        supervisor.ROOT = checkout
+        supervisor.runtime_inventory = lambda: {'completed': True, 'runtimes': [{'pid':987}] if case == 'inventory' else []}
+        system_config.get_current_market_session = lambda: 'CLOSED' if case == 'session' else 'RTH'
+        original = root / 'original-order-state.json'
+        original.write_text('{"last_reserved_order_id":361}')
+        os.environ['IBKR_ORDER_ID_STATE_PATH'] = str(original)
+        sys.argv = ['operator', 'preflight', str(root), expected]
+        failed = False
+        try:
+            runpy.run_path(str(repo / 'scripts/certification/natural_readonly_operator.py'), run_name='__main__')
+        except (RuntimeError, SystemExit):
+            failed = True
+        assert failed == (case != 'valid'), case
+        if case == 'valid':
+            assert json.loads((root / 'state/order-id.json').read_text())['last_reserved_order_id'] == 361
+            receipt = json.loads((root / 'e/child-cache-probe.json').read_text())
+            assert receipt['exit_code'] == 0 and receipt['parent_ignore_environment'] is True
+            assert json.loads((root / 'e/preflight.json').read_text())['write_guards_verified'] is True
+        else:
+            assert not (root / 'e/preflight.json').exists()
+    for name, module in saved_modules.items():
+        if module is None: sys.modules.pop(name, None)
+        else: sys.modules[name] = module
+    system_config.get_current_market_session = saved_session
+    print('REAL_PREFLIGHT_CHECKS_PASS: 4 synthetic cases; no acquisition')
