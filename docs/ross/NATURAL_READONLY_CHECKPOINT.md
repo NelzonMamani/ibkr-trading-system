@@ -801,3 +801,41 @@ fresh end-confirmed scoped reconciliation on a later normal cycle can clear it.
 Connection alone cannot. The existing tests/code cited above remain evidence;
 no broker experiment, suppression or readiness claim was performed.
 **PAPER_READY=NO. No runtime, acquisition, trading or natural observation executed.**
+
+### Operator harness execution receipts and final package identity
+
+The operator-only release is PR1110:
+https://github.com/NelzonMamani/ibkr-trading-system/pull/1110.
+Its final exact-head CI/review and accepted main merge SHA are recorded in that
+release receipt; the preparation command must pin that accepted merge, never a
+moving branch. The accepted production/source main above remainsa0fb504d and all
+production source is still reviewedee44; PR1110 adds no production changes.
+
+Actual Windows PowerShell5.1.26100.33438 / Python3.13.3 CI38828009620 at
+fc966761723bd25928879e8ccc815473a4e50cf2: **PASS**,13 original exit-status checks
+plus20 operator checks. Job116739971123 explicitly records
+REAL_PACKAGE_CHECKS_PASS:8 synthetic cases and REAL_PREFLIGHT_CHECKS_PASS:4
+synthetic cases, CACHE_STARTUP_CHECKS_PASS and installed-provider cache-location
+inspection. Preflight cases use fake native classes with no connection methods,
+synthetic inventory/session and the actual READ_ONLY guards. No broker/provider
+request or runtime is started. Linux synthetic packaging8cases and source/AST/
+whitespace checks also passed. This is harness evidence, not a full pytest suite.
+
+CI38827750302 at07845 failed the new preparation fixture's receipt assertion:
+PowerShell script scope stored the Git-stub receipt in the called script rather
+than the test. It is retained as a failure, corrected with a shared fixture object
+and cleanup. Earlier independent review also fixed concurrent packaging after
+preflight failure, failure-time stop requests, duplicate stop wait and disposal
+error metadata before release. Successful old harness runs are not substituted
+for the final changed-head gate. Preparation now checks explicit global native
+status, with a caller-local361 regression, avoiding the original wrapper's
+shadowing defect. Process-owned exit status remains the authority for observation.
+
+Independent exact code review at e1ebac871451652488adc0c2c367fd18eae93b40 is
+review5541451077 (nonhuman Codex, separate agent). The final docs-only receipt
+commit carries these code checks forward; exact final changed-head CI/review is
+required on PR1110 before release. No additional workstation full-suite run is
+requested. The next user action is **preparation only**, using the complete
+short-path pinned block in the completion receipt; inspect the printed execution
+command and documented TWS/RTH setup before any separate user-operated run.
+The observation is not executed by preparation. PAPER_READY remains NO.
