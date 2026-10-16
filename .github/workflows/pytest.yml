@@ -30,6 +30,12 @@ jobs:
               'scripts/certification/invoke_natural_readonly_offline.ps1',
               'scripts/certification/Invoke-LoggedNativeProcess.ps1',
               'tests/powershell/test_offline_exit_status.ps1',
+              'tests/powershell/test_readonly_observation.ps1',
+              'tests/powershell/verify_observation_package.py',
+              'scripts/certification/Invoke-ReadonlyObservation.ps1',
+              'scripts/certification/run_natural_readonly_observation.ps1',
+              'scripts/certification/natural_readonly_operator.py',
+              'scripts/certification/readonly_cache_sitecustomize.py',
               'docs/ross/NATURAL_READONLY_CHECKPOINT.md',
               'docs/ross/PR1108_NATURAL_READONLY_ACCEPTANCE.ps1',
           }
@@ -78,6 +84,8 @@ jobs:
         run: |
           git diff --check ee44dd2ebe51dedf500f54f7c23618a6ad51c91c HEAD
           git diff --exit-code ee44dd2ebe51dedf500f54f7c23618a6ad51c91c HEAD -- src tests/offline tests/conftest.py requirements.txt
+          python -m py_compile scripts/certification/natural_readonly_operator.py scripts/certification/readonly_cache_sitecustomize.py tests/powershell/verify_observation_package.py
+          python tests/powershell/verify_observation_package.py "$GITHUB_WORKSPACE" "$RUNNER_TEMP/observation-package-linux"
           echo "Production/offline Python source unchanged; full-suite receipts carried forward, not rerun."
 
   windows-offline:
@@ -106,17 +114,25 @@ jobs:
         run: python -m pytest -q
       - name: Install controlled-process pytest dependency only
         if: needs.verification-scope.outputs.harness_only == 'true'
-        run: python -m pip install pytest
+        run: python -m pip install pytest "yfinance>=0.2.54"
       - name: Actual Windows PowerShell exit propagation regression
         if: needs.verification-scope.outputs.harness_only == 'true'
         shell: powershell
         run: |
           & .\tests\powershell\test_offline_exit_status.ps1 -Python (Get-Command python.exe).Source
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Actual Windows PowerShell observation harness (stub children only)
+        if: needs.verification-scope.outputs.harness_only == 'true'
+        shell: powershell
+        run: |
+          & .\tests\powershell\test_readonly_observation.ps1 -Python (Get-Command python.exe).Source
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Upload controlled harness evidence
         if: always() && needs.verification-scope.outputs.harness_only == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: windows-powershell-status-evidence
-          path: ${{ runner.temp }}/ps-status-*/
+          path: |
+            ${{ runner.temp }}/ps-status-*/
+            ${{ runner.temp }}/ps-observation-*/
           if-no-files-found: error
