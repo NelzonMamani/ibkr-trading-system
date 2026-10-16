@@ -143,7 +143,9 @@ public class ObservationFaultStream : Stream {
         if ($args -contains 'rev-parse') { return ('a'*40) }
     }
     try {
+        $LASTEXITCODE=361 # Caller-local stale status must not shadow native results.
         $prepared=& (Join-Path $repo 'docs\ross\PR1108_NATURAL_READONLY_ACCEPTANCE.ps1') -ExpectedCommit ('a'*40) -Python $Python 6>&1
+        Check ($LASTEXITCODE -eq 361) 'Preparation unexpectedly changed caller sentinel.'
         Check ($null -ne $global:ObservationPrepFixture.Checkout) 'Preparation did not clone.'
         $preparedRoot=Split-Path $global:ObservationPrepFixture.Checkout -Parent
         Check (!(Test-Path (Join-Path $preparedRoot 'e'))) 'Preparation launched preflight/runtime.'
