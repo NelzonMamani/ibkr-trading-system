@@ -516,214 +516,13 @@ so Windows parsing/execution of this new operator block is still pending review.
 `PAPER_READY=NO`; no readiness upgrade, runtime, provider requests, IBKR connection,
 trading, merge, force-push or repeated full suites occurred in this preparation.
 
-### Complete short-path operator block (not released for execution)
+### Historical held command superseded
 
-```powershell
-# REVIEW COPY. No launch is authorized by preparation of this command.
-& {
-    $ErrorActionPreference = 'Stop'
-    $PSNativeCommandUseErrorActionPreference = $false
-    $WorkstationAccepted = $false
-    $ObservationAuthorized = $false
-    # Keep both false until the workstation result and the two material findings
-    # have an explicit disposition. A repaired head needs a newly pinned package.
-    if (!$WorkstationAccepted -or !$ObservationAuthorized) {
-        throw 'HOLD: workstation acceptance and explicit observation authorization are pending; see checkpoint findings.'
-    }
-    $obsHead = '8f40e4c4b3ca8fa0f74d8e41cd947e50bc2e370c'
-    $obsPython = 'C:\tmp\pr1091-cert-env-20260923\Scripts\python.exe'
-    if (!(Test-Path -LiteralPath $obsPython -PathType Leaf)) { throw "Missing $obsPython" }
-    $obsSource = (& git rev-parse --show-toplevel | Out-String).Trim()
-    if ($LASTEXITCODE -ne 0 -or !$obsSource) { throw 'Run from your existing PyCharm repository.' }
-    $obsOrigin = (& git -C $obsSource remote get-url origin | Out-String).Trim()
-    if ($LASTEXITCODE -ne 0 -or $obsOrigin -notmatch '(?i)github\.com[:/]NelzonMamani/ibkr-trading-system(?:\.git)?/?$') { throw 'Unexpected source repository.' }
-    $obsRoot = 'C:\tmp\ro1108-' + [guid]::NewGuid().ToString('N').Substring(0,8)
-    New-Item -ItemType Directory -Path $obsRoot | Out-Null
-    $obsCheckout = Join-Path $obsRoot 's'
-    $obsEvidence = Join-Path $obsRoot 'e'
-    $obsHelper = Join-Path $obsRoot 'operator.py'
-    & git clone --no-checkout --no-hardlinks -- $obsSource $obsCheckout
-    if ($LASTEXITCODE -ne 0) { throw 'Isolated clone failed.' }
-    & git -C $obsCheckout config --local core.longpaths true
-    if ($LASTEXITCODE -ne 0) { throw 'Long-path setup failed.' }
-    & git -C $obsCheckout remote set-url origin https://github.com/NelzonMamani/ibkr-trading-system.git
-    if ($LASTEXITCODE -ne 0) { throw 'Origin setup failed.' }
-    & git -C $obsCheckout fetch --no-tags origin refs/heads/codex/natural-readonly-enrichment-stop
-    if ($LASTEXITCODE -ne 0) { throw 'Fetch failed.' }
-    $obsFetched = (& git -C $obsCheckout rev-parse FETCH_HEAD | Out-String).Trim()
-    if ($LASTEXITCODE -ne 0 -or $obsFetched -cne $obsHead) { throw 'Branch differs from the reviewed head; obtain a new package.' }
-    & git -C $obsCheckout checkout --detach $obsHead
-    if ($LASTEXITCODE -ne 0) { throw 'Reviewed checkout failed.' }
-    @'
-import hashlib, json, os, shutil, subprocess, sys, zipfile
-from datetime import datetime, timezone
-from pathlib import Path
-phase, root_text, expected = sys.argv[1:]
-root = Path(root_text); repo = root/'s'; evidence = root/'e'; state = root/'state'
-sys.path.insert(0, str(repo)); os.chdir(repo)
-if hasattr(sys.modules.get('sitecustomize'), 'offline'):
-    raise SystemExit('Offline pytest hook present: observation must use a separate process.')
-from scripts.certification.pr1040_real_readonly_runtime_observation_adapter import build_safe_readonly_env, assert_safe_runtime_env
-from src.config.config_registry import CONFIG_REGISTRY
-env = dict(os.environ)
-for entry in CONFIG_REGISTRY.values():
-    for key in entry.get('env', ()):
-        env.pop(key, None)
-for key in tuple(env):
-    if key.startswith('PR1090_') or key.startswith('ROSS_'):
-        env.pop(key, None)
-env = build_safe_readonly_env(env)
-env.update(PYTHONPATH=os.pathsep.join((str(state/'startup'),str(repo))), PYTHONUNBUFFERED='1',
-    PR1108_YFINANCE_CACHE=str(state/'yfinance'),
-    IBKR_HOST='127.0.0.1', IBKR_PORT='7497', IBKR_CLIENT_ID='71',
-    IBKR_FALLBACK_ENABLED='false', ROSS_ISSUER_QUERY_ENABLED='true', ROSS_REQUIRE_NEWS='true',
-    SCANNER_TOP_GAINERS_COUNT='50', TOPN_MAX_SYMBOLS_PER_STRATEGY='50',
-    WATCHLIST_MAX_SYMBOLS_PER_STRATEGY='15', FOCUS_MAX_SYMBOLS_PER_STRATEGY='5',
-    IBKR_ORDER_ID_STATE_PATH=str(state/'order-id.json'),
-    IBKR_GUARD_PERSIST_PATH=str(state/'submission-guard.json'),
-    SCANNER_FLOAT_CACHE_FILE=str(state/'float.json'), NEWS_CACHE_FILE=str(state/'news.json'),
-    PERSISTENCE_SQLITE_PATH=str(state/'runtime.sqlite3'), DECISION_TRACE_PATH=str(state/'decision-trace.jsonl'))
-assert_safe_runtime_env(env)
-original_state = Path(os.environ.get('IBKR_ORDER_ID_STATE_PATH') or Path.home()/'.ibkr_order_id_state.json')
-os.environ.clear(); os.environ.update(env)
-from src.ibkr.evidence_safety import capture_console, install_console_protection, scan_artifacts, write_json
-from scripts.certification import pr1090_terminal_observation_supervisor as supervisor
-from src.ibkr.mutation_audit import require_zero_attempts, snapshot
-def digest(path):
-    return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
-def source_manifest():
-    paths = subprocess.check_output(['git','ls-files','-z'], cwd=repo).decode().split('\0')
-    return {name: digest(repo/name) for name in paths if name}
-if phase == 'preflight':
-    evidence.mkdir(); state.mkdir()
-    with capture_console(evidence/'preflight'):
-        if os.name != 'nt' or sys.version_info[:3] != (3, 13, 3):
-            raise SystemExit('Requires the accepted Windows Python 3.13.3 interpreter.')
-        supervisor.require_clean_certification_worktree(expected)
-        inventory = supervisor.runtime_inventory()
-        write_json(evidence/'initial-runtime-inventory.json', inventory)
-        if not inventory['completed'] or inventory['runtimes']:
-            raise SystemExit('Pre-existing runtime or incomplete inventory; no launch.')
-        from src.config.config_resolver import get_config
-        from src.config.system_config import get_current_market_session
-        if get_current_market_session() != 'RTH':
-            raise SystemExit('Requires the normal configured RTH window; no session override.')
-        from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
-        from ibapi.client import EClient
-        from src.ibkr.read_only_guard import assert_read_only_allows
-        for action in ('PLACE_ORDER','MODIFY_ORDER','CANCEL_ORDER'):
-            try: assert_read_only_allows(action)
-            except RuntimeError: pass
-            else: raise SystemExit('Write guard not enforced.')
-        if not all(getattr(getattr(EClient, name), '_mutation_audited', False)
-                   for name in ('placeOrder','cancelOrder','reqGlobalCancel')):
-            raise SystemExit('Independent SDK attempt instrumentation missing.')
-        if not getattr(IbkrClient.submit_order, '_mutation_audited', False):
-            raise SystemExit('Native submit-order attempt instrumentation missing.')
-        require_zero_attempts(snapshot())
-        # Cache-location configuration only. Child startup must fail closed if
-        # this cannot be installed; no provider fetch or event-loop-policy edit.
-        startup = state/'startup'; startup.mkdir()
-        hook = startup/'sitecustomize.py'
-        hook.write_text("import os\ntry:\n import yfinance.cache as c\n c.set_cache_location(os.environ['PR1108_YFINANCE_CACHE'])\nexcept BaseException:\n os._exit(78)\n", encoding='utf-8')
-        write_json(evidence/'operator-startup-config.json', {'scope': 'yfinance cache location only',
-            'sha256': digest(hook), 'source': hook.read_text(), 'path': str(hook)})
-        if original_state.exists():
-            shutil.copy2(original_state, state/'order-id.json')
-        (root/'operator-state-source.json').write_text(json.dumps({'path': str(original_state), 'sha256': digest(original_state)}))
-        write_json(evidence/'source-before.json', source_manifest())
-        write_json(evidence/'preflight.json', {'head': expected, 'utc': datetime.now(timezone.utc).isoformat(),
-            'mode': 'READ_ONLY', 'seconds': 180, 'top_n': get_config('TOPN_MAX_SYMBOLS_PER_STRATEGY'),
-            'watchlist_k': get_config('WATCHLIST_MAX_SYMBOLS_PER_STRATEGY'), 'focus_m': get_config('FOCUS_MAX_SYMBOLS_PER_STRATEGY'),
-            'issuer_query': get_config('ROSS_ISSUER_QUERY_ENABLED'), 'require_news': get_config('ROSS_REQUIRE_NEWS'),
-            'write_guards_verified': True, 'sdk_attempt_audit_verified': True, 'PAPER_READY': False})
-elif phase == 'observe':
-    install_console_protection()
-    raise SystemExit(supervisor.main(['--seconds','180','--output',str(evidence/'terminal'),'--expected-commit',expected]))
-elif phase == 'package':
-    # This phase performs filesystem/process checks only. Broker audit belongs
-    # exclusively to the existing supervisor after its observed runtime exits.
-    evidence.mkdir(exist_ok=True)
-    with capture_console(evidence/'packaging'):
-        after = source_manifest()
-        before_path = evidence/'source-before.json'
-        unchanged = before_path.exists() and json.loads(before_path.read_text()) == after
-        write_json(evidence/'source-after.json', after)
-        inventory = supervisor.runtime_inventory()
-        write_json(evidence/'independent-final-runtime-inventory.json', inventory)
-        mutation_ok = False; blockers = []
-        try:
-            terminal = json.loads((evidence/'terminal'/'terminal_evidence.json').read_text())
-            from src.ibkr.shutdown_evidence import validate_terminal
-            require_zero_attempts(terminal.get('mutation_attempts'))
-            require_zero_attempts(terminal.get('audit_mutation_attempts'))
-            verdict = validate_terminal(terminal)
-            mutation_ok = True
-            blockers = verdict['blockers']
-        except Exception as exc:
-            blockers = ['Missing/unsafe terminal evidence: '+type(exc).__name__]
-        write_json(evidence/'independent-mutation-validation.json', {'passed': mutation_ok,
-            'authority': 'runtime SDK pre-guard counters AND separate supervisor audit counters',
-            'not_inferred_from_zero_open_orders': True})
-        saved = root/'operator-state-source.json'
-        operator_unchanged = False
-        if saved.exists():
-            original = json.loads(saved.read_text())
-            operator_unchanged = digest(Path(original['path'])) == original['sha256']
-        for name in ('news.json', 'float.json'):
-            path = state/name
-            if path.is_file():
-                write_json(evidence/'cache-exports'/name, json.loads(path.read_text()))
-        terminal_ok = mutation_ok and not blockers and unchanged and operator_unchanged and inventory['completed'] and not inventory['runtimes']
-        write_json(evidence/'operator-summary.json', {'head': expected, 'terminal_checks_passed': terminal_ok,
-            'tracked_source_unchanged': unchanged, 'operator_order_state_unchanged': operator_unchanged,
-            'blockers': blockers, 'scanner_pass': 'REQUIRES_LOG_REVIEW', 'natural_issuer_acquisition': 'REQUIRES_LOG_REVIEW',
-            'catalyst': 'REQUIRES_LOG_REVIEW', 'downstream_progression': 'REQUIRES_LOG_REVIEW', 'PAPER_READY': False})
-    privacy = scan_artifacts(evidence)
-    write_json(evidence/'shareable-evidence-scan.json', privacy)
-    if not privacy['passed']:
-        raise SystemExit('Privacy scan failed; evidence retained locally, no shareable ZIP.')
-    archive = root/'ross-natural-readonly-upload.zip'
-    with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as out:
-        for path in sorted(evidence.rglob('*')):
-            if path.is_file(): out.write(path, path.relative_to(evidence))
-    print('SHARE ZIP: '+str(archive))
-    raise SystemExit(0 if terminal_ok else 2)
-else:
-    raise SystemExit('Unknown operator phase')
-'@ | Set-Content -LiteralPath $obsHelper -Encoding UTF8
-    $obsResult = 1
-    try {
-        & $obsPython -E -u $obsHelper preflight $obsRoot $obsHead
-        if ($LASTEXITCODE -ne 0) { throw "Preflight failed; inspect $obsEvidence\preflight" }
-        Write-Host "Logs: $obsEvidence\terminal\stdout.log and stderr.log"
-        Write-Host "Early stop: create $obsEvidence\terminal\STOP_REQUESTED (do not terminate Python)."
-        $obsProcess = Start-Process -FilePath $obsPython -ArgumentList @('-E','-u',$obsHelper,'observe',$obsRoot,$obsHead) -WorkingDirectory $obsCheckout -RedirectStandardOutput (Join-Path $obsEvidence 'supervisor.stdout.log') -RedirectStandardError (Join-Path $obsEvidence 'supervisor.stderr.log') -PassThru
-        $obsClock = [Diagnostics.Stopwatch]::StartNew()
-        while (!$obsProcess.WaitForExit(5000)) {
-            $obsLog = Join-Path $obsEvidence 'terminal\stdout.log'
-            $obsBytes = if (Test-Path $obsLog) { (Get-Item $obsLog).Length } else { 0 }
-            Write-Host ("Elapsed {0:N0}s; runtime stdout {1} bytes; evidence {2}" -f $obsClock.Elapsed.TotalSeconds,$obsBytes,$obsEvidence)
-            if ((Test-Path $obsLog) -and (Select-String -LiteralPath $obsLog -SimpleMatch '[SCANNER][IBKR][RAW_ZERO]' -Quiet)) {
-                'GRACEFUL_STOP_REQUESTED' | Set-Content (Join-Path $obsEvidence 'terminal\STOP_REQUESTED')
-                Write-Host 'Broker-zero fallback detected: natural acceptance is invalid; requesting graceful stop.'
-            }
-            if ($obsClock.Elapsed.TotalSeconds -gt 540) {
-                if (Test-Path (Join-Path $obsEvidence 'terminal')) { 'GRACEFUL_STOP_REQUESTED' | Set-Content (Join-Path $obsEvidence 'terminal\STOP_REQUESTED') }
-                throw 'Supervisor exceeded outer observation/finalization budget. No success claim or broad process kill; retain evidence and inspect surviving process.'
-            }
-        }
-        $obsProcess.WaitForExit()
-        $obsResult = $obsProcess.ExitCode
-    } finally {
-        & $obsPython -E -u $obsHelper package $obsRoot $obsHead
-        $obsPackageResult = $LASTEXITCODE
-        Write-Host "Retained checkout: $obsCheckout`nEvidence: $obsEvidence`nSupervisor exit: $obsResult"
-    }
-    if ($obsResult -ne 0 -or $obsPackageResult -ne 0) { throw 'Observation/terminal verification incomplete or failed; share the retained diagnostic ZIP if privacy scan passed.' }
-    Write-Host 'Terminal checks passed. Scanner, issuer, catalyst and downstream outcomes still require separate evidence review. PAPER_READY=NO.'
-}
-```
+The old embedded8f40 command and approval booleans have been removed to avoid
+multiple competing executable packages. The single maintained preparation entry
+is `docs/ross/PR1108_NATURAL_READONLY_ACCEPTANCE.ps1`; its current contract is
+recorded in the final integration section below. Historical HOLD descriptions
+above describe the earlier package and are superseded by that section.
 
 ## Workstation suite PASS; PowerShell status follow-up — 16 October 2026
 
@@ -905,3 +704,138 @@ final-head verification.
 ## Controlled integration (2026-10-16 UTC)
 
 PR1108 was ancestry-preserving merged with exact-head guard at 5b91fcd20699e0664dc6c7f08668823e5a080942; accepted merge 424cedf289bce0a4ac20ed9f9f620b2bd2ec58f7. PR1109 was retargeted to main and main merged into its branch. Integration production/test source remains identical to reviewed ee44dd2ebe51dedf500f54f7c23618a6ad51c91c. The CI cumulative exact harness allowlist now uses that certified source anchor and full Linux/Windows2779-pass receipt 38824692588; any non-allowlisted change still requires full suites. The workstation2759-pass evidence belongs only to8f40 and is not evidence for PR1109. Integration checks/review pending. Observation unexecuted, PAPER_READY=NO.
+
+
+## Accepted combined source and operator release — 16 October 2026 UTC
+
+This section supersedes prior unmerged/HOLD-script descriptions, not historical
+verification attribution. PR1108 merged as424cedf289bce0a4ac20ed9f9f620b2bd2ec58f7
+with expected head5b91fcd20699e0664dc6c7f08668823e5a080942. PR1109 retargeted main,
+merged that main ancestry, and merged as a0fb504dabcb3f6f20bbe97b9e88e32cd806b419
+with expected integration headae817f9e084fb181d31eb0abda210b89ca53bb48. Production
+and every existing test are identical to reviewed ee44dd2ebe51dedf500f54f7c23618a6ad51c91c.
+No unresolved review threads or actionable review blockers existed at integration.
+Integration CI38826657284 passed Linux source/whitespace checks and actual Windows
+PowerShell controlled-process checks. Independent exact integration review5541352408
+is a Codex review, not human approval. Ancestry was preserved, no main force push.
+
+Evidence remains separate: workstation at8f40 =2759 passed/1 skipped/212 warnings
+in435.69s; PR1109 full CI38824692588 at ee44 =2779 passed/1 skipped on both Linux
+and Windows (Windows212 warnings,471.84s). Neither is a natural observation. No
+full suite was repeated for source-identical integration or operator-only changes.
+
+The separate operator release changes harness/docs only. The cumulative exact
+allowlist is anchored to certifiedee44. Any source/test outside the explicit
+harness paths still runs full suites. New focused Windows evidence/review will be
+recorded in its exact-head PR receipt; do not infer a pass from this preparation.
+
+The maintained PowerShell preparation script takes mandatory ExpectedCommit
+(the final accepted main merge SHA from the release receipt) and Python (the
+existing verified3.13.3 environment with dependencies). It clones to a unique
+`C:\tmp\ro-xxxxxxxx\s`, checks pinned commit is in fetched main, detaches at
+that commit, and prints a separate complete `powershell.exe -NoProfile ... -File
+run_natural_readonly_observation.ps1` command. It does not run preflight,
+observation, providers, broker calls or another full suite. No approval booleans
+are placeholders in the released command. **Next action is preparation only;
+observation remains unexecuted and is a separate user-operated action.**
+
+Before that separate execution: use normal weekday RTH (America/New_York
+09:30–16:00, excluding configured holidays/early close); log in to PAPER TWS,
+API enabled, read-only API enabled, socket7497 on127.0.0.1, localhost permitted,
+client71 unused, correct market/scanner subscriptions. No existing Ross runtime
+may be running. Keep TWS/account/session normal; do not force a session or
+candidates. Existing safe READ_ONLY config disables broker writes, translation,
+submission, execution probes and execution; fallback is false. Natural50/15/5
+TopN/Watchlist/Focus and issuer-query/required-news gates remain. Operator-owned
+order-ID state is copied privately (never reset), all operational caches, SQLite,
+guard persistence and decision traces are inside the unique root/state.
+
+The supervisor process runs Python-E, which intentionally ignores PYTHONPATH.
+Its runtime child is launched by the unchanged supervisor as Python-u-m-src.main,
+without-E. The private startup hook therefore applies to that child. Preflight
+runs a no-acquisition child with the same startup behavior and verifies actual
+yfinance timezone/cookie/available ISIN cache-manager locations, not only env.
+Configuration failure exits78 because Python otherwise ignores sitecustomize
+exceptions. No event-loop policy is changed. Actual Windows tests use fake
+providers for failures and installed yfinance for cache-location inspection only.
+
+Execution preflight requires a clean exact source, Windows Python3.13.3, normal
+RTH, complete empty runtime inventory, all three READ_ONLY action guards, SDK
+mutation instrumentation and zero attempts. Existing supervisor owns verified
+process identity,180-second observation, cooperative STOP_REQUESTED, required
+hooks, independent runtime mutation flush, bounded graceful/escalation handling,
+final process inventory and fresh independent broker audit.180 seconds is an
+observation budget, never proof of completed scanner pass. Terminal safety can
+pass after an interrupted pass, with pass/issuer/downstream separately incomplete.
+PowerShell outer supervision remains bounded; a surviving owner prevents ZIP
+packaging and is reported for inspection, never a success or broad process kill.
+Child OS exit codes are retained independently of LASTEXITCODE. Both streams are
+captured concurrently; logging/launch/timeout/packaging failures remain failures.
+
+Logs are under root/e (supervisor and terminal stdout/stderr); progress and exact
+STOP_REQUESTED path are printed. After child exit, packaging independently checks
+current source HEAD/clean hashes, original operator order-state hash, final
+inventory, strict terminal verdict and both pre-guard SDK attempt owners. It
+exports sanitized news/float JSON, privacy-scans evidence, and emits one
+root/ross-natural-readonly-upload.zip. Unsafe privacy output has no shareable ZIP;
+a failed terminal can produce a clearly failed diagnostic ZIP. A live supervisor
+has no concurrent ZIP. Raw SQLite, credentials, private order state and checkout
+are excluded. Do not reuse a failed root for a second run.
+
+Five outcomes remain independent, with the earlier evidence map authoritative:
+1. Graceful shutdown: all hooks/identity/ordered events/unforced exits/independent
+   inventories, mutation counters and fresh final audit pass. No catalyst needed.
+2. Full natural scanner pass: genuine universe and complete per-symbol accounting,
+   completed scanner summary and natural Watchlist/Focus outcome, no truncation.
+3. Full-issuer acquisition: validated genuine contract issuer reaches canonical
+   operational full-name RSS query; attempted/completed response diagnostics for
+   that candidate. SPY/QQQ preparation or a planned URL is insufficient.
+4. Catalyst qualification: existing attribution/freshness/catalyst/dilution gates
+   pass naturally. Empty/rejected news is legitimate and cannot be forced.
+5. Downstream progression: natural Watchlist/Focus, decision/risk/position-truth
+   stages prove their own gates, remaining READ_ONLY throughout. A terminal-only
+   pass is not end-to-end trading acceptance.
+
+POSITION TRUTH critical1/blocked remains an availability verdict before connection;
+fresh end-confirmed scoped reconciliation on a later normal cycle can clear it.
+Connection alone cannot. The existing tests/code cited above remain evidence;
+no broker experiment, suppression or readiness claim was performed.
+**PAPER_READY=NO. No runtime, acquisition, trading or natural observation executed.**
+
+### Operator harness execution receipts and final package identity
+
+The operator-only release is PR1110:
+https://github.com/NelzonMamani/ibkr-trading-system/pull/1110.
+Its final exact-head CI/review and accepted main merge SHA are recorded in that
+release receipt; the preparation command must pin that accepted merge, never a
+moving branch. The accepted production/source main above remainsa0fb504d and all
+production source is still reviewedee44; PR1110 adds no production changes.
+
+Actual Windows PowerShell5.1.26100.33438 / Python3.13.3 CI38828009620 at
+fc966761723bd25928879e8ccc815473a4e50cf2: **PASS**,13 original exit-status checks
+plus20 operator checks. Job116739971123 explicitly records
+REAL_PACKAGE_CHECKS_PASS:8 synthetic cases and REAL_PREFLIGHT_CHECKS_PASS:4
+synthetic cases, CACHE_STARTUP_CHECKS_PASS and installed-provider cache-location
+inspection. Preflight cases use fake native classes with no connection methods,
+synthetic inventory/session and the actual READ_ONLY guards. No broker/provider
+request or runtime is started. Linux synthetic packaging8cases and source/AST/
+whitespace checks also passed. This is harness evidence, not a full pytest suite.
+
+CI38827750302 at07845 failed the new preparation fixture's receipt assertion:
+PowerShell script scope stored the Git-stub receipt in the called script rather
+than the test. It is retained as a failure, corrected with a shared fixture object
+and cleanup. Earlier independent review also fixed concurrent packaging after
+preflight failure, failure-time stop requests, duplicate stop wait and disposal
+error metadata before release. Successful old harness runs are not substituted
+for the final changed-head gate. Preparation now checks explicit global native
+status, with a caller-local361 regression, avoiding the original wrapper's
+shadowing defect. Process-owned exit status remains the authority for observation.
+
+Independent exact code review at e1ebac871451652488adc0c2c367fd18eae93b40 is
+review5541451077 (nonhuman Codex, separate agent). The final docs-only receipt
+commit carries these code checks forward; exact final changed-head CI/review is
+required on PR1110 before release. No additional workstation full-suite run is
+requested. The next user action is **preparation only**, using the complete
+short-path pinned block in the completion receipt; inspect the printed execution
+command and documented TWS/RTH setup before any separate user-operated run.
+The observation is not executed by preparation. PAPER_READY remains NO.
