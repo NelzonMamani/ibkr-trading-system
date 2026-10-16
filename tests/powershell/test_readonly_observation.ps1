@@ -133,24 +133,25 @@ public class ObservationFaultStream : Stream {
     }
     # Preparation invokes only Python version and controlled git stubs; it must
     # print the later execution command without starting any operator phase.
-    $script:preparedCheckout=$null
+    $global:ObservationPrepFixture=[pscustomobject]@{ Checkout=$null }
     function git {
         $global:LASTEXITCODE=0
         if ($args -contains 'clone') {
-            $script:preparedCheckout=$args[-1]
-            New-Item -ItemType Directory $script:preparedCheckout | Out-Null
+            $global:ObservationPrepFixture.Checkout=$args[-1]
+            New-Item -ItemType Directory $global:ObservationPrepFixture.Checkout | Out-Null
         }
         if ($args -contains 'rev-parse') { return ('a'*40) }
     }
     try {
         $prepared=& (Join-Path $repo 'docs\ross\PR1108_NATURAL_READONLY_ACCEPTANCE.ps1') -ExpectedCommit ('a'*40) -Python $Python 6>&1
-        Check ($null -ne $script:preparedCheckout) 'Preparation did not clone.'
-        $preparedRoot=Split-Path $script:preparedCheckout -Parent
+        Check ($null -ne $global:ObservationPrepFixture.Checkout) 'Preparation did not clone.'
+        $preparedRoot=Split-Path $global:ObservationPrepFixture.Checkout -Parent
         Check (!(Test-Path (Join-Path $preparedRoot 'e'))) 'Preparation launched preflight/runtime.'
         Check (($prepared | Out-String) -match 'run_natural_readonly_observation.ps1') 'No separate execution command printed.'
     } finally {
         Remove-Item Function:git -ErrorAction SilentlyContinue
-        if ($script:preparedCheckout) { Remove-Item -Recurse -Force (Split-Path $script:preparedCheckout -Parent) }
+        if ($global:ObservationPrepFixture.Checkout) { Remove-Item -Recurse -Force (Split-Path $global:ObservationPrepFixture.Checkout -Parent) }
+        Remove-Variable ObservationPrepFixture -Scope Global
     }
     $passed++
     # Actual startup semantics: -E parent ignores PYTHONPATH; its ordinary child
@@ -203,10 +204,12 @@ print('CACHE_STARTUP_CHECKS_PASS')
 '@ | Set-Content $probe
     $result=Invoke-ObservationChild -Python $Python -ChildArguments @('-E','-u',$probe,$startup,$fake,(Join-Path $scratch 'private-cache')) -LogPrefix (Join-Path $scratch 'startup-probe') -BudgetSeconds 15
     Check ($result.ExitCode -eq 0) 'Cache startup semantics failed.'
+    Get-Content ($scratch+'\startup-probe.stdout.log') | Where-Object { $_ -match 'CACHE_STARTUP_CHECKS_PASS|REAL_PROVIDER_CACHE_LOCATIONS' } | ForEach-Object { Write-Host $_ }
     $passed++
     # Real packaging implementation with synthetic terminal/inventory; no supervisor.main.
     $result=Invoke-ObservationChild -Python $Python -ChildArguments @('-E','-u',(Join-Path $repo 'tests\powershell\verify_observation_package.py'),$repo,$scratch) -LogPrefix (Join-Path $scratch 'real-package') -BudgetSeconds 45
     Check ($result.ExitCode -eq 0) 'Real package regression failed.'
+    Get-Content ($scratch+'\real-package.stdout.log') | Where-Object { $_ -match 'REAL_(PACKAGE|PREFLIGHT)_CHECKS_PASS' } | ForEach-Object { Write-Host $_ }
     $passed++
     @{passed=$passed; powershell=$PSVersionTable.PSVersion.ToString(); platform=$env:OS; scope='controlled stub children only; no providers/broker/runtime'} | ConvertTo-Json | Set-Content (Join-Path $scratch 'receipt.json')
     Write-Host "OBSERVATION_HARNESS_PASS: $passed checks; $scratch"
