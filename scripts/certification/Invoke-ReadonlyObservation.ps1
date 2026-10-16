@@ -5,7 +5,7 @@ function Invoke-ObservationChild {
           [scriptblock]$LogStreamFactory = { param($path) [IO.File]::Open($path, 'Create', 'Write', 'Read') })
     $ErrorActionPreference = 'Stop'
     $process = $null; $outFile = $null; $errFile = $null
-    $code = $null; $exited = $false; $timedOut = $false; $started = $false
+    $code = $null; $exited = $false; $timedOut = $false; $started = $false; $stopWaited = $false; $childError = $null
     try {
         # Open both logs before starting anything. Failures cannot launch a child.
         $outFile = & $LogStreamFactory ($LogPrefix + '.stdout.log')
@@ -37,6 +37,7 @@ function Invoke-ObservationChild {
                     [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($StopPath)) | Out-Null
                     [IO.File]::WriteAllText($StopPath, "GRACEFUL_STOP_REQUESTED`n")
                 }
+                $stopWaited = $true
                 if (!$process.WaitForExit([int]($StopSeconds * 1000))) {
                     throw "Child PID $childId exceeded stop budget. No broad kill; inspect retained process and evidence."
                 }
@@ -56,12 +57,13 @@ function Invoke-ObservationChild {
         $childError = $_
         # Logging/control failures still request the same cooperative stop. Keep
         # the original error even if stop-file creation or waiting also fails.
-        if ($started -and !$exited) {
+        if ($started -and !$exited -and !$stopWaited) {
             try {
                 if ($StopPath) {
                     [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($StopPath)) | Out-Null
                     [IO.File]::WriteAllText($StopPath, "GRACEFUL_STOP_REQUESTED`n")
                 }
+                $stopWaited = $true
                 $exited = $process.WaitForExit([int]($StopSeconds * 1000))
                 if ($exited) { $code = $process.ExitCode }
             } catch { }
@@ -71,9 +73,18 @@ function Invoke-ObservationChild {
         $childError.Exception.Data['ChildExited'] = $exited
         throw $childError
     } finally {
-        if ($null -ne $outFile) { $outFile.Dispose() }
-        if ($null -ne $errFile) { $errFile.Dispose() }
-        if ($null -ne $process) { $process.Dispose() }
+        $disposeError = $null
+        foreach ($owned in @($outFile,$errFile,$process)) {
+            if ($null -ne $owned) {
+                try { $owned.Dispose() } catch { if ($null -eq $disposeError) { $disposeError = $_ } }
+            }
+        }
+        if ($null -eq $childError -and $null -ne $disposeError) {
+            $disposeError.Exception.Data['ChildStarted'] = $started
+            $disposeError.Exception.Data['ChildExited'] = $exited
+            $disposeError.Exception.Data['ChildExitCode'] = $code
+            throw $disposeError
+        }
     }
 }
 function Invoke-ReadonlyObservation {
@@ -86,14 +97,18 @@ function Invoke-ReadonlyObservation {
     $stop = Join-Path $evidence 'terminal\STOP_REQUESTED'
     $result = 1; $canPackage = $true
     try {
+        $canPackage = $false
         $preflight = Invoke-ObservationChild -Python $Python -ChildArguments @('-E','-u',$Operator,'preflight',$Root,$ExpectedCommit) -LogPrefix (Join-Path $evidence 'preflight-process') -BudgetSeconds $PreflightSeconds -StopSeconds $StopSeconds
+        $canPackage = $true
         $result = $preflight.ExitCode
         if ($preflight.TimedOut) { throw 'Preflight timed out; no observation launch.' }
         if ($result -eq 0) {
             Write-Host "Logs: $evidence\terminal\stdout.log and stderr.log"
             Write-Host "Early graceful stop: New-Item -ItemType File -Force '$stop'"
             try {
+                $canPackage = $false
                 $observed = Invoke-ObservationChild -Python $Python -ChildArguments @('-E','-u',$Operator,'observe',$Root,$ExpectedCommit) -LogPrefix (Join-Path $evidence 'supervisor') -StopPath $stop -BudgetSeconds $ObservationSeconds -StopSeconds $StopSeconds
+                $canPackage = $true
                 $result = $observed.ExitCode
                 if ($observed.TimedOut -and $result -eq 0) { $result = 124 }
             } catch {
@@ -103,7 +118,9 @@ function Invoke-ReadonlyObservation {
             }
         }
     } catch {
-        $canPackage = !$_.Exception.Data['ChildStarted'] -or [bool]$_.Exception.Data['ChildExited']
+        if ($_.Exception.Data.Contains('ChildStarted')) {
+            $canPackage = !$_.Exception.Data['ChildStarted'] -or [bool]$_.Exception.Data['ChildExited']
+        }
         throw
     } finally {
         if ($canPackage) {

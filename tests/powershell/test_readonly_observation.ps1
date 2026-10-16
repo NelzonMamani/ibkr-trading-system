@@ -79,8 +79,8 @@ try {
     # Uncooperative controlled child: bounded return, no packaging while alive.
     $env:OBS_TEST_CASE='stuck'; $root=Join-Path $scratch 'stuck'; New-Item -ItemType Directory $root | Out-Null
     $clock=[Diagnostics.Stopwatch]::StartNew(); $failed=$false
-    try { Invoke-ReadonlyObservation -Python $Python -Operator $stub -Root $root -ExpectedCommit ('a'*40) -ObservationSeconds .3 -StopSeconds .3 | Out-Null } catch { $failed=$true }
-    Check ($failed -and $clock.Elapsed.TotalSeconds -lt 5) 'Uncooperative stop was not bounded.'
+    try { Invoke-ReadonlyObservation -Python $Python -Operator $stub -Root $root -ExpectedCommit ('a'*40) -ObservationSeconds .3 -StopSeconds 1 | Out-Null } catch { $failed=$true }
+    Check ($failed -and $clock.Elapsed.TotalSeconds -lt 2.1) 'Uncooperative stop was not bounded.'
     Check (!(Test-Path (Join-Path $root 'stub.zip'))) 'Packaged while child alive.'
     $stubPid=[int](Get-Content (Join-Path $root 'e\pid'))
     Stop-Process -Id $stubPid -ErrorAction SilentlyContinue # Owned synthetic child only.
