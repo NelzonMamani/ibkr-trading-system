@@ -112,6 +112,17 @@ for case in ('valid', 'missing-terminal', 'mutation', 'source', 'order-state', '
         with zipfile.ZipFile(archive) as sealed:
             actual = json.loads(sealed.read('phase-status.json'))
             assert actual['preflight_exit']==1 and actual['package_exit']==2 and actual['observation_exit'] is None
+        preserved_hash = hashlib.sha256(archive.read_bytes()).hexdigest()
+        (evidence/'unsafe-receipt.txt').write_text('Account DU1234567')
+        sys.argv = ['operator','seal',str(root),expected]
+        try:
+            runpy.run_path(str(repo/'scripts/certification/natural_readonly_operator.py'),run_name='__main__')
+        except SystemExit as exc:
+            assert exc.code != 0
+        else:
+            raise AssertionError('Unsafe final receipt was sealed')
+        assert hashlib.sha256(archive.read_bytes()).hexdigest() == preserved_hash
+
 print('REAL_PACKAGE_CHECKS_PASS: 9 synthetic cases; no acquisition')
 
 if os.name == 'nt':

@@ -35,6 +35,7 @@ if phase == 'observe':
         print('o'*200000); print('e'*200000, file=sys.stderr)
     sys.exit({'failure':1,'collection':2,'native7':7}.get(case,0))
 if phase == 'seal':
+    if case=='seal-failure': sys.exit(9)
     with zipfile.ZipFile(p/'ross-natural-readonly-upload.zip','a') as z: z.write(e/'phase-status.json','phase-status.json')
     sys.exit(0)
 if phase == 'package':
@@ -50,12 +51,12 @@ try {
         Check ($errors.Count -eq 0) "Parse failure $script"
     }
     $passed++
-    foreach ($case in @('success','preflight','preflight-package-failure','failure','collection','native7','pipes','package','stop')) {
+    foreach ($case in @('success','preflight','preflight-package-failure','failure','collection','native7','pipes','package','seal-failure','stop')) {
         $env:OBS_TEST_CASE=$case
         $root=Join-Path $scratch $case; New-Item -ItemType Directory $root | Out-Null
         $budget=if ($case -eq 'stop') { .3 } else { 10 }
         $result=Invoke-ReadonlyObservation -Python $Python -Operator $stub -Root $root -ExpectedCommit ('a'*40) -ObservationSeconds $budget -StopSeconds 2
-        $expected=@{success=0;preflight=2;'preflight-package-failure'=2;failure=1;collection=2;native7=7;pipes=0;package=9;stop=124}[$case]
+        $expected=@{success=0;preflight=2;'preflight-package-failure'=2;failure=1;collection=2;native7=7;pipes=0;package=9;'seal-failure'=1;stop=124}[$case]
         Check ($result -eq $expected) "$case exit $result != $expected"
         $phases=Get-Content (Join-Path $root 'e\phases')
         Check ($phases[-1] -eq $(if ($case -in @('package','preflight-package-failure')) {'package'} else {'seal'})) "$case did not package"
@@ -141,11 +142,15 @@ public class ObservationFaultStream : Stream {
     Copy-Item (Join-Path $repo 'scripts\certification\run_natural_readonly_observation.ps1') $entry
     Copy-Item (Join-Path $repo 'scripts\certification\Invoke-ReadonlyObservation.ps1') $entry
     Copy-Item $stub (Join-Path $entry 'natural_readonly_operator.py')
-    foreach ($case in @('success','collection','failure','preflight')) {
+    foreach ($case in @('success','collection','failure','preflight','seal-failure')) {
         $env:OBS_TEST_CASE=$case; $root=Join-Path $scratch ('entry-'+$case); New-Item -ItemType Directory $root | Out-Null
         $child=Invoke-ObservationChild -Python (Get-Command powershell.exe).Source -ChildArguments @('-NoProfile','-ExecutionPolicy','Bypass','-File',(Join-Path $entry 'run_natural_readonly_observation.ps1'),'-Python',$Python,'-Root',$root,'-ExpectedCommit',('a'*40)) -LogPrefix (Join-Path $scratch ('entry-'+$case)) -BudgetSeconds 20
-        $expected=@{success=0;collection=2;failure=1;preflight=2}[$case]
+        $expected=@{success=0;collection=2;failure=1;preflight=2;'seal-failure'=1}[$case]
         Check ($child.ExitCode -eq $expected) "Released entrypoint did not preserve $case OS status."
+        if ($case -eq 'seal-failure') {
+            $report=Get-Content -Raw (Join-Path $scratch ('entry-'+$case+'.stdout.log'))
+            Check ($report -notmatch 'DIAGNOSTIC ZIP:' -and $report -match 'Archive sealing failed') 'Unsealed archive was announced.'
+        }
         if ($case -eq 'preflight') {
             $report=Get-Content -Raw (Join-Path $scratch ('entry-'+$case+'.stdout.log'))
             Check ($report -match 'Preflight failed at initial_runtime_inventory: controlled timeout') 'Actual preflight reason lost.'
