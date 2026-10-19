@@ -93,14 +93,27 @@ function Invoke-ReadonlyObservation {
           [double]$StopSeconds = 30, [double]$PackageSeconds = 90)
     $ErrorActionPreference = 'Stop'
     $evidence = Join-Path $Root 'e'
+    if (Test-Path -LiteralPath $evidence) { throw 'Evidence already exists; prepare a fresh run root. Existing evidence preserved.' }
     [IO.Directory]::CreateDirectory($evidence) | Out-Null
     $stop = Join-Path $evidence 'terminal\STOP_REQUESTED'
     $result = 1; $canPackage = $true
+    $phaseStatus = [ordered]@{ preflight_exit=$null; observation_exit=$null; package_exit=$null; final_exit=$null; package_status='NOT_STARTED' }
     try {
         $canPackage = $false
         $preflight = Invoke-ObservationChild -Python $Python -ChildArguments @('-E','-u',$Operator,'preflight',$Root,$ExpectedCommit) -LogPrefix (Join-Path $evidence 'preflight-process') -BudgetSeconds $PreflightSeconds -StopSeconds $StopSeconds
         $canPackage = $true
         $result = $preflight.ExitCode
+        $phaseStatus.preflight_exit = $result
+        Write-Host "Preflight exit: $result"
+        if ($result -ne 0) {
+            $reasonFile = Join-Path $evidence 'preflight-result.json'
+            if (Test-Path $reasonFile) {
+                $reason = Get-Content -Raw $reasonFile | ConvertFrom-Json
+                Write-Host ("Preflight failed at {0}: {1}" -f $reason.stage,$reason.reason)
+            } else {
+                Get-Content (Join-Path $evidence 'preflight-process.stderr.log') | ForEach-Object { Write-Host $_ }
+            }
+        }
         if ($preflight.TimedOut) { throw 'Preflight timed out; no observation launch.' }
         if ($result -eq 0) {
             Write-Host "Logs: $evidence\terminal\stdout.log and stderr.log"
@@ -110,6 +123,7 @@ function Invoke-ReadonlyObservation {
                 $observed = Invoke-ObservationChild -Python $Python -ChildArguments @('-E','-u',$Operator,'observe',$Root,$ExpectedCommit) -LogPrefix (Join-Path $evidence 'supervisor') -StopPath $stop -BudgetSeconds $ObservationSeconds -StopSeconds $StopSeconds
                 $canPackage = $true
                 $result = $observed.ExitCode
+                $phaseStatus.observation_exit = $result
                 if ($observed.TimedOut -and $result -eq 0) { $result = 124 }
             } catch {
                 # Never package files while a supervisor may still own writers.
@@ -118,17 +132,50 @@ function Invoke-ReadonlyObservation {
             }
         }
     } catch {
+        if ($result -eq 0) { $result = 1 }
+        $phaseStatus.outer_error = $_.Exception.GetType().Name
         if ($_.Exception.Data.Contains('ChildStarted')) {
             $canPackage = !$_.Exception.Data['ChildStarted'] -or [bool]$_.Exception.Data['ChildExited']
         }
         throw
     } finally {
         if ($canPackage) {
-            $packaged = Invoke-ObservationChild -Python $Python -ChildArguments @('-E','-u',$Operator,'package',$Root,$ExpectedCommit) -LogPrefix (Join-Path $evidence 'package-process') -BudgetSeconds $PackageSeconds -StopSeconds $StopSeconds
-            if ($result -eq 0 -and ($packaged.ExitCode -ne 0 -or $packaged.TimedOut)) {
-                $result = if ($packaged.ExitCode -ne 0) { $packaged.ExitCode } else { 124 }
+            $phaseStatus.package_status = 'RUNNING'
+            $phaseStatus | ConvertTo-Json | Set-Content -Encoding UTF8 (Join-Path $evidence 'phase-status-before-package.json')
+            try {
+                $packaged = Invoke-ObservationChild -Python $Python -ChildArguments @('-E','-u',$Operator,'package',$Root,$ExpectedCommit) -LogPrefix (Join-Path $evidence 'package-process') -BudgetSeconds $PackageSeconds -StopSeconds $StopSeconds
+                $phaseStatus.package_exit = $packaged.ExitCode
+                $phaseStatus.package_status = if ($packaged.TimedOut) { 'TIMEOUT' } elseif ($packaged.ExitCode -eq 0) { 'PASS' } else { 'NONZERO' }
+                Write-Host ("Package exit: {0}; status: {1}" -f $packaged.ExitCode,$phaseStatus.package_status)
+
+                if ($result -eq 0 -and ($packaged.ExitCode -ne 0 -or $packaged.TimedOut)) {
+                    $result = if ($packaged.ExitCode -ne 0) { $packaged.ExitCode } else { 124 }
+                }
+            } catch {
+                $phaseStatus.package_status = 'ERROR'
+                $phaseStatus.package_exit = $_.Exception.Data['ChildExitCode']
+                if ($result -eq 0) { $result = 1 }
+                Write-Host ("Packaging failed: {0}; inspect {1}" -f $_.Exception.GetType().Name,$evidence)
             }
         }
+        $phaseStatus.receipt_scope = 'Actual preflight/observation/package OS exits; filesystem-only sealing must pass before ZIP is announced.'
+        $phaseStatus.final_exit = $result
+        $phaseStatus | ConvertTo-Json | Set-Content -Encoding UTF8 (Join-Path $evidence 'phase-status.json')
+        $zip = Join-Path $Root 'ross-natural-readonly-upload.zip'
+        if ($canPackage -and $phaseStatus.package_exit -in @(0,2) -and (Test-Path -LiteralPath $zip -PathType Leaf)) {
+            try {
+                $sealed = Invoke-ObservationChild -Python $Python -ChildArguments @('-E','-u',$Operator,'seal',$Root,$ExpectedCommit) -LogPrefix (Join-Path $Root 'seal-process') -BudgetSeconds $PackageSeconds -StopSeconds $StopSeconds
+                Write-Host ("Archive seal exit: {0}" -f $sealed.ExitCode)
+                if ($sealed.ExitCode -eq 0 -and !$sealed.TimedOut) { Write-Host "DIAGNOSTIC ZIP: $zip" }
+                else { if ($result -eq 0) { $result = 1 }; Write-Host 'Archive sealing failed; no shareable ZIP is announced.' }
+            } catch {
+                if ($result -eq 0) { $result = 1 }
+                Write-Host 'Archive sealing failed; inspect root/seal-process stderr. Existing evidence retained.'
+            }
+        } else { Write-Host 'No verified shareable ZIP; evidence retained locally.' }
+        $phaseStatus.final_exit = $result
+        $phaseStatus | ConvertTo-Json | Set-Content -Encoding UTF8 (Join-Path $evidence 'phase-status.json')
+        Write-Host "Final exit: $result (preflight/observation failures are preserved independently of packaging)."
         Write-Host "Retained root: $Root; evidence: $evidence"
     }
     return [int]$result

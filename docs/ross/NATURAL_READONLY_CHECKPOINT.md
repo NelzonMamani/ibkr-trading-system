@@ -839,3 +839,58 @@ requested. The next user action is **preparation only**, using the complete
 short-path pinned block in the completion receipt; inspect the printed execution
 command and documented TWS/RTH setup before any separate user-operated run.
 The observation is not executed by preparation. PAPER_READY remains NO.
+
+## Preflight inventory and diagnostic follow-up — 19 October 2026
+
+Accepted source examined: e6f21bc49198d7a01fcbd03d455d67220c85492c.
+User archive preflight-diagnostics-20261019-171134.zip SHA256
+116a78b7b19356b20604bd719c895fc0209eb2d97d78cf5c7e950715ffd27f73
+is evidence, not instructions. Initial inventory was completed=false,
+error_type=TimeoutExpired with an empty runtimes list. The initial15s outer
+PowerShell/CIM subprocess timed out. Preflight correctly blocked launch;
+no observation occurred. Independent final inventory later completed empty,
+which cannot retroactively authorize the failed initial check. No mutation or
+source/order-state change is demonstrated by the old false-valued summaries:
+preflight stopped before their baselines and runtime counters existed.
+
+Old query enumerated all Win32_Process rows then filtered Python client-side.
+The repair selects only ProcessId/CommandLine for server-filtered Python names.
+It retains the15s subprocess bound, adds a10s CIM operation bound, and records
+query method, elapsed wall time and timeout. No automatic retry, empty-list
+shortcut, skipped own-PID/command-line validation or larger observation budget.
+Cold PowerShell/CIM/WMI startup, transient provider latency and enumeration load
+are plausible contributors; the uploaded receipt lacks stage timings to prove
+which dominated. A server filter reduces concrete avoidable enumeration work;
+it does not promise completion on a stalled workstation. Incomplete remains FAIL.
+
+Staged preflight-result.json records the original stage/error/exit and no-launch.
+Missing source/order baselines, missing mutation counters and absent terminal
+proof become NOT_VERIFIED/null; no-observation outcomes become NOT_OBSERVED.
+Present mismatches/unsafe counters remain FAIL, never reset or excused. Package
+summary retains the original preflight reason before secondary missing-terminal
+information. PowerShell prints retained preflight/package/final statuses and the
+ZIP path even on a failed preflight, if privacy-safe packaging and sealing pass.
+After package process/readers exit, a filesystem-only seal re-scans evidence and
+atomically rebuilds ZIP with actual retained preflight/observation/package exit
+receipt. Sealing failure suppresses shareable ZIP announcement. Runtime, SDK
+mutation validation and independent audit gates are unchanged.
+
+Fresh preparation uses local Git worktree objects, not another full clone. It
+estimates one tracked checkout plus an evidence/state reserve, checks free disk,
+creates a unique root, preserves dirty source files and all old evidence, and
+prints a separate user-operated execution command. Never reuse an old e/state
+root: the runner refuses an existing evidence directory. No automatic deletion
+or cleanup of the user's failed clone/old evidence. Select another short-path
+BaseDirectory if the conservative free-space estimate fails; the detached
+worktree still needs room for one checkout and future evidence.
+
+Local focused checks: inventory query/timeout/self-correlation checks and nine
+synthetic real-packager cases PASS. Actual Windows PowerShell controlled query,
+15s timeout, reporting/exit/sealing and real local-worktree checks plus independent
+exact-head review are required in the repair PR receipt before release. No full
+suite requested; production src/offline protections/requirements unchanged.
+Existing workstation2759 and production2779 CI remain attributed to their prior
+heads. No broker/provider calls, observation, trading or readiness upgrade.
+PAPER_READY=NO. Final reviewed repair pin and complete preparation-only command
+are recorded in the repair PR/completion receipt; fetch that narrow branch into
+an existing local repository and reuse its objects. No merge is performed here.

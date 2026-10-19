@@ -80,21 +80,27 @@ def is_ross_runtime(args):
         parts and parts[-1] == "pr1040_real_readonly_runtime_observation_adapter.py")
 
 
+WINDOWS_INVENTORY_TIMEOUT_SECONDS = 15
+WINDOWS_INVENTORY_COMMAND = (
+    "$ErrorActionPreference='Stop'; "
+    "@(Get-CimInstance -Query \"SELECT ProcessId,CommandLine FROM Win32_Process WHERE Name LIKE 'python%'\" "
+    "-OperationTimeoutSec 10 -ErrorAction Stop | "
+    "Select-Object ProcessId,CommandLine) | ConvertTo-Json -Compress"
+)
+
+
 def runtime_inventory(*, platform=None, proc_root=None):
     """Preserve matching PID/argv evidence; any incomplete enumeration fails closed."""
     platform = os.name if platform is None else platform
     evidence = {"completed": False, "runtimes": []}
     try:
         if platform == "nt":
-            command = (
-                "$ErrorActionPreference='Stop'; "
-                "@(Get-CimInstance Win32_Process -ErrorAction Stop | "
-                "Where-Object { $_.Name -match '^python' } | "
-                "Select-Object ProcessId,CommandLine) | ConvertTo-Json -Compress"
-            )
+            started = time.monotonic()
+            evidence.update(timeout_seconds=WINDOWS_INVENTORY_TIMEOUT_SECONDS,
+                            query_method='CIM_SERVER_FILTERED_PYTHON')
             result = subprocess.run(
-                ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command],
-                capture_output=True, text=True, timeout=15, check=True)
+                ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", WINDOWS_INVENTORY_COMMAND],
+                capture_output=True, text=True, timeout=WINDOWS_INVENTORY_TIMEOUT_SECONDS, check=True)
             rows = json.loads(result.stdout)
             if isinstance(rows, dict):
                 rows = [rows]
@@ -131,6 +137,9 @@ def runtime_inventory(*, platform=None, proc_root=None):
         evidence["completed"] = True
     except Exception as exc:
         evidence["error_type"] = type(exc).__name__
+    finally:
+        if platform == 'nt':
+            evidence['elapsed_seconds'] = round(time.monotonic() - started, 3)
     return evidence
 
 
