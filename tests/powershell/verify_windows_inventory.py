@@ -23,6 +23,11 @@ try:
     assert '-Query' in args[-1] and "WHERE Name LIKE 'python%'" in args[-1]
     assert 'Where-Object' not in args[-1] and '-OperationTimeoutSec 10' in args[-1]
     assert result['elapsed_seconds'] >= 0 and result['timeout_seconds'] == 15
+    def array_fields(args, **kwargs):
+        return subprocess.CompletedProcess(args,0,json.dumps({'ProcessId':[os.getpid()], 'CommandLine':['python.exe -E operator.py']}),'')
+    module.subprocess.run = array_fields
+    result = module.runtime_inventory(platform='nt')
+    assert not result['completed'] and result['error_type']=='ValueError'
     def timeout(*args, **kwargs): raise subprocess.TimeoutExpired('inventory', 15)
     module.subprocess.run = timeout
     result = module.runtime_inventory(platform='nt')
@@ -43,10 +48,12 @@ if os.name == 'nt':
         prefix += "if ($Query -notlike '*WHERE Name LIKE*' -or $OperationTimeoutSec -ne 10) { throw 'query contract' }; "
         if case == 'cim-error': prefix += "throw 'controlled CIM failure'; "
         if case == 'slow': prefix += 'Start-Sleep -Milliseconds 500; '
-        prefix += "ConvertFrom-Json '" + payload.replace("'", "''") + "' }; "
+        prefix += "foreach ($row in (ConvertFrom-Json '" + payload.replace("'", "''") + "')) { $row } }; "
         def controlled(args, **kwargs):
             assert kwargs['timeout'] == 15
-            return real_run(args[:-1]+[prefix+args[-1]], **kwargs)
+            response = real_run(args[:-1]+[prefix+args[-1]], **kwargs)
+            print('CONTROLLED_CIM_'+case, response.stdout.strip(), flush=True)
+            return response
         module.subprocess.run = controlled
         started = time.monotonic()
         result = module.runtime_inventory(platform='nt')
