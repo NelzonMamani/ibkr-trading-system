@@ -73,7 +73,9 @@ def test_publication_not_stored_flags_controls_attribution():
                 replace(good,published_at=datetime.fromtimestamp(NOW.timestamp()+1,timezone.utc)),replace(good,source_tier='research')):
         assert not assess_issuer_event('JPM',bad)['qualified']
     result=NewsBatchResult(candidates=(CANDIDATE,),diagnostics=RetrievalDiagnostics(provider_available=False,provider_status='provider_unavailable'))
-    assert not ross._ross_news_context_from_evidence('JPM',(good,),None,result)['ross_catalyst_valid']
+    ctx=ross._ross_news_context_from_evidence('JPM',(good,),None,result)
+    assert ctx['ross_catalyst_valid'] and ctx['acquisition_health']=='degraded'
+    assert not ctx['news_available']
 
 
 def test_setting_disabled_preserves_acquisition_contract():

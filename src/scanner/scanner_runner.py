@@ -2635,7 +2635,33 @@ def _merge_news_contexts(
     merged = dict(base)
     for symbol, context in preferred.items():
         current = merged.get(symbol)
-        if current is None or (not current.get("ross_catalyst_valid") and context.get("ross_catalyst_valid")):
+        if current is None:
+            merged[symbol] = context
+            continue
+        left, right = current.get("catalyst_evidence"), context.get("catalyst_evidence")
+        if left and right:
+            from src.news.evidence_store import evidence_from_mapping
+            issuer = left["issuer"]
+            candidate = NewsCandidate(**issuer)
+            items = tuple(item for row in left["evidence"] + right["evidence"]
+                          if (item := evidence_from_mapping(row)) is not None)
+            # Reassess both fact cohorts. Neither old positive flags nor old
+            # acquisition receipts can override new veto facts or publication age.
+            combined = _ross_news_context_from_evidence(symbol, items, None,
+                NewsBatchResult(candidates=(candidate,)))
+            for key in ("news_available", "news_provider_status", "acquisition_health", "acquisition_reason",
+                        "acquisition_available", "source_coverage_complete", "source_coverage_status",
+                        "search_completeness_established", "coverage_deadline_exhausted", "issuer_query_outcomes"):
+                if key in current:
+                    combined[key] = current[key]
+            combined["catalyst_evidence"]["acquisition_snapshot"]["health"] = combined.get("acquisition_health", "unknown")
+            combined["catalyst_evidence"]["acquisition_snapshot"]["reason"] = combined.get("acquisition_reason", "acquisition_not_verified")
+            merged[symbol] = combined
+        elif context.get("dilution_flag"):
+            # Preserve preexisting conservative vetoes; never promote an opaque
+            # legacy positive over a newer canonical acquisition.
+            merged[symbol] = context
+        elif not left and not current.get("dilution_flag") and context.get("ross_catalyst_valid"):
             merged[symbol] = context
     return merged
 
@@ -3147,6 +3173,9 @@ def _empty_news_context_from_summary(
         notes = "No recent news present"
     return {
         "news_present": False,
+        "qualification_reason": "no_valid_canonical_event",
+        "acquisition_health": "healthy" if news_available else "degraded",
+        "acquisition_reason": "acquisition_available" if news_available else "acquisition_unavailable",
         "news_available": news_available,
         "first_seen_ts": None,
         "news_age_minutes": None,
@@ -3259,7 +3288,18 @@ def _ross_news_context_from_evidence(
     catalyst_type = next((row["catalyst_type"] for row in attribution if row["qualified"]), None)
     dilution_flag = _dilution_from_evidence(ordered)
     retrieval_unavailable, budget_exhausted = _news_retrieval_state_for_symbol(symbol, summary, result)
-    ross_catalyst_valid = bool(qualifying_ids and not dilution_flag and not retrieval_unavailable)
+    # Event validity is independent of acquisition health. Facts are reclassified
+    # above on every boundary; an expired/failed receipt cannot erase a valid event.
+    ross_catalyst_valid = bool(qualifying_ids and not dilution_flag)
+    acquisition_reason = ("budget_exhausted" if budget_exhausted else
+                          "acquisition_unavailable" if retrieval_unavailable else "acquisition_available")
+    if summary is not None and summary.provider_status == "coverage_unknown":
+        acquisition_reason = "acquisition_receipt_expired_or_incompatible"
+    acquisition_health = "degraded" if retrieval_unavailable or budget_exhausted else "healthy"
+    candidate = next((row for row in result.candidates if row.normalized_symbol == symbol), None)
+    from src.strategies.ross_momentum.policy.catalyst_lifecycle import evidence_handoff
+    handoff = evidence_handoff(symbol, ordered, candidate,
+        acquisition_health=acquisition_health, acquisition_reason=acquisition_reason)
     if ross_catalyst_valid:
         news_status = "catalyst_confirmed"
     elif budget_exhausted:
@@ -3310,6 +3350,10 @@ def _ross_news_context_from_evidence(
     return {
         "news_present": True,
         "news_available": not retrieval_unavailable,
+        "qualification_reason": "retained_dilution_veto" if dilution_flag else "verified_issuer_event_valid" if qualifying_ids else "no_valid_canonical_event",
+        "acquisition_health": acquisition_health,
+        "acquisition_reason": acquisition_reason,
+        "catalyst_evidence": handoff,
         "first_seen_ts": min(
             (
                 item.first_seen_at.timestamp()
@@ -3409,6 +3453,13 @@ def _ross_news_contexts_from_news_intelligence_result(
                 partial_reason = "partial_coverage_dilution_veto" if context.get("dilution_flag") else "partial_coverage_no_qualifying_catalyst"
                 context["ross_catalyst_notes"] = partial_reason
                 context["news_diagnostic_status"] = partial_reason
+            if not scope.get("source_coverage_complete"):
+                context["acquisition_health"] = "degraded"
+                if context.get("acquisition_reason") == "acquisition_available":
+                    context["acquisition_reason"] = "partial_or_unknown_source_coverage"
+                if context.get("catalyst_evidence"):
+                    context["catalyst_evidence"]["acquisition_snapshot"]["health"] = context["acquisition_health"]
+                    context["catalyst_evidence"]["acquisition_snapshot"]["reason"] = context["acquisition_reason"]
             context["issuer_query_outcomes"] = outcomes
             context["issuer_query_requests_completed"] = bool(outcomes) and all(
                 row.get("attempted") and row.get("status") == "available" and not row.get("processing_truncated") for row in outcomes)
@@ -3429,7 +3480,7 @@ def _unresolved_ross_news_symbols(symbols: Iterable[str], news_by_symbol: Dict[s
     unresolved: list[str] = []
     for symbol in _dedupe_sorted_symbols(symbols):
         context = news_by_symbol.get(symbol, {})
-        if not context.get("ross_catalyst_valid"):
+        if not context.get("ross_catalyst_valid") or context.get("acquisition_health") == "degraded":
             unresolved.append(symbol)
     return unresolved
 
@@ -4045,6 +4096,10 @@ def _candidate_from_context(
         top_news_catalyst_tag=top_news_catalyst_tag,
         news_source_mode=news_source_mode,
         news_asof=news_asof,
+        catalyst_evidence=news_context.get("catalyst_evidence"),
+        catalyst_qualification_reason=news_context.get("qualification_reason"),
+        news_acquisition_health=news_context.get("acquisition_health"),
+        news_acquisition_reason=news_context.get("acquisition_reason"),
         data_quality_ok=not data_quality_flags,
         quote_integrity_state=context.get("quote_integrity_state") or quote_contract.get("integrity_state"),
         quote_usability_state=context.get("quote_usability_state"),
@@ -6692,10 +6747,8 @@ def run_scanner_cycle(
             else:
                 catalyst_confirmed = bool(
                     news_context.get("ross_catalyst_valid")
-                    or context.get("catalyst_present")
-                    or context.get("catalyst_summary")
                 )
-                news_available = bool(news_context.get("news_available") or context.get("catalyst_summary"))
+                news_available = bool(news_context.get("news_available"))
                 catalyst_status_decision = assess_catalyst(
                     mode=run_mode,
                     news_enabled=news_enabled,
@@ -6712,7 +6765,10 @@ def run_scanner_cycle(
                 f"pct_change={context.get('pct_change')} rvol_phase={context.get('rvol_phase')} "
                 f"price={context.get('last_price')} float={context.get('float_shares')} "
                 f"catalyst_status={context.get('catalyst_status') or 'UNKNOWN'} "
-                f"catalyst_reason={context.get('catalyst_policy_reason') or 'UNKNOWN'}"
+                f"catalyst_reason={context.get('catalyst_policy_reason') or 'UNKNOWN'} "
+                f"qualification_reason={news_context.get('qualification_reason', 'no_valid_canonical_event')} "
+                f"acquisition_health={news_context.get('acquisition_health', 'unknown')} "
+                f"acquisition_reason={news_context.get('acquisition_reason', 'acquisition_not_verified')}"
             )
             focus_drop = _evaluate_focus_gates(context, thresholds)
             if focus_drop:

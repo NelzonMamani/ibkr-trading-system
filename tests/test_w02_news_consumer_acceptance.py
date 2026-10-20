@@ -508,7 +508,7 @@ def test_negative_default_summary_only_inherits_applicable_batch_failure(tmp_pat
 
 
 @pytest.mark.parametrize("budget", [False, True])
-def test_unavailable_refresh_retains_evidence_but_fails_closed_for_qualification(tmp_path, offline_clock, budget):
+def test_unavailable_refresh_retains_verified_positive_and_separate_health(tmp_path, offline_clock, budget):
     class Provider:
         calls = 0
 
@@ -534,8 +534,10 @@ def test_unavailable_refresh_retains_evidence_but_fails_closed_for_qualification
     assert result.evidence_for_symbol("EGG")[0].age_seconds == 300
     context, decision = _ross(result)
     assert context["EGG"]["news_available"] is False
-    assert context["EGG"]["news_diagnostic_status"] == ("budget_exhausted" if budget else "provider_unavailable")
-    assert decision["EGG"].status.value == "DATA_UNAVAILABLE"
+    assert context["EGG"]["news_diagnostic_status"] == "catalyst_confirmed"
+    assert context["EGG"]["acquisition_reason"] == ("budget_exhausted" if budget else "acquisition_unavailable")
+    assert context["EGG"]["acquisition_health"] == "degraded"
+    assert decision["EGG"].status.value == "CONFIRMED"
 
 
 @pytest.mark.parametrize("summary_kind", ["omitted", "unknown", "reachable"])

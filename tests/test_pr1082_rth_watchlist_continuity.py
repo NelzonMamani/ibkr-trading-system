@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from catalyst_fixtures import canonical_catalyst_fixture
+
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -52,6 +54,7 @@ def _row(symbol: str, *, catalyst: bool = False, rvol: float = 3.0, rank: float 
         halted=False,
         ssr=False,
         catalyst_present=catalyst,
+        catalyst_evidence=canonical_catalyst_fixture(symbol) if catalyst else None,
         catalyst_summary="fresh catalyst" if catalyst else None,
         catalyst_status=status,
         news_count=1 if catalyst else 0,
@@ -361,7 +364,9 @@ def test_pr1082_focus_refresh_retains_authoritative_news_provenance(monkeypatch,
 
     assert len(scanner_calls) == 1
     assert cadence.focus.authority == "CACHED_SCANNER_PAYLOAD"
-    assert cadence.focus.rows[0] is aaa
+    assert cadence.focus.rows[0].catalyst_evidence == aaa.catalyst_evidence
+    assert cadence.focus.rows[0].catalyst_qualification_reason == "verified_issuer_event_valid"
+    assert cadence.focus.rows[0].news_acquisition_health == "degraded"
     assert cadence.focus.rows[0].selection_rationale == {"catalyst_status": "CONFIRMED", "rank": 10.0}
 
 def test_pr1082_structurally_incompatible_focus_cannot_gain_authority(monkeypatch, capsys) -> None:

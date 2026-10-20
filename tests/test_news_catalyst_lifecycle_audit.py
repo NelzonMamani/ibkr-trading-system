@@ -110,18 +110,18 @@ def test_premarket_publication_retained_into_rth_without_new_headline(lifecycle,
     assert article.published_at==PUB and article.age_seconds==9000
     assert life.provider.calls==1
     ctx=context(warm)
-    assert ctx['ross_catalyst_valid'] is (not compatible)
+    assert ctx['ross_catalyst_valid'] is True
     if compatible:
         assert warm.summary_for_symbol('JPM').provider_status=='coverage_unknown'
         assert ctx['qualification_decisions'][0]['qualified'] is True
-        # A successful empty refresh restores coverage without a new publication.
+        # A successful empty refresh restores coverage without renewing event validity.
         life.provider.articles=()
         refreshed=restarted.get_news((CANDIDATE,),life.request,policy)
         assert context(refreshed)['ross_catalyst_valid']
         assert refreshed.evidence_for_symbol('JPM')[0].published_at==PUB
 
 
-def test_reported_refresh_failure_preserves_facts_but_current_policy_blocks(lifecycle):
+def test_reported_refresh_failure_preserves_verified_event_and_degraded_health(lifecycle):
     life=lifecycle
     old=life.service.get_news((CANDIDATE,),life.request,life.policy).evidence_for_symbol('JPM')[0]
     life.clock.current+=timedelta(seconds=121)
@@ -131,7 +131,9 @@ def test_reported_refresh_failure_preserves_facts_but_current_policy_blocks(life
     assert retained.evidence_id==old.evidence_id and retained.published_at==old.published_at
     ctx=context(failed)
     assert ctx['qualification_decisions'][0]['qualified']
-    assert not ctx['ross_catalyst_valid'] and not ctx['news_available']
+    assert ctx['ross_catalyst_valid'] and not ctx['news_available']
+    assert ctx['acquisition_health']=='degraded'
+    assert ctx['qualification_reason']=='verified_issuer_event_valid'
 
 
 def test_new_offering_vetoes_retained_positive_and_expiry_policy_is_not_invented(lifecycle):

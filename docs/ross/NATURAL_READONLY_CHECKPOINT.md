@@ -1742,3 +1742,107 @@ unchanged in this receipt-only update. Fixed harness/docs CI baseline advances t
 that reviewed completed source receipt; allowlist is unchanged. No unchanged full
 suite is repeated solely to append this evidence; changed-head controlled checks
 and independent receipt review remain required.
+
+## 2026-10-20 — controlled integration and independent positive-event lifecycle
+
+Accepted main: `6e3fcf6686a93f9ebbbf61dbe5c496d7b0277496`. PR1116 exact
+`35c6271b764e498495fcd337e9107d62ad68bc76` passed CI39442689748/review5586816471,
+no unresolved threads, merged preserving ancestry as
+`d80473368104351c2510598a32ce4456c79b1fab`. PR1117 reviewed receipt head83fa6ac1
+was integrated with that main at `426ca7858e0be99336420a40d4cb9314bad1388e`.
+Only checkpoint append conflict required resolution; both historical blocks retained.
+Production implementations merged cleanly. Independent renewed review5588331512
+found no blocker; independent32focused cases passed2.12s and primary24combined
+cases passed3.11s separately. Integration CI39458297023 passed all3jobs:
+Linux2848passed1skipped216.98s, actual WindowsPython3.13.3
+2848passed1skipped212warnings447.48s, WindowsPowerShell5.1
+13exit-status+30controlled observation checks. Exact-head guarded merge produced
+accepted6e3fcf66; its tree is byte-identical to reviewed426ca785 and both prior
+heads are ancestors. These CI receipts do not replace historical workstation2759
+or natural35c three-scan receipts. No workstation suite or operator run repeated.
+
+### New focused lifecycle policy (separate branch/PR, not another observation)
+
+The user explicitly authorizes decoupling independently verified positive events
+from acquisition health. This supersedes the old failure-blocks-positive behavior
+recorded in the historical audit; it is not a claim that the old code already did it.
+
+- `scanner_runner._ross_news_context_from_evidence` reclassifies original canonical
+  facts using `assess_issuer_event`. A still-valid issuer-attributed positive with
+  no retained dilution veto qualifies even if acquisition fails, exhausts its
+  budget, or the compatible120-second receipt expires. `news_available`, provider
+  status, source coverage and search completeness remain separate degraded facts.
+  No complete coverage or absence of adverse news is inferred. Nonpositive partial
+  coverage remains DATA_UNAVAILABLE; AIXI's incomplete text and NCPL solicitation
+  still do not qualify. Classification, issuer matching, six-hour inclusive boundary,
+  publication timestamps and dilution rules are unchanged.
+- `_unresolved_ross_news_symbols` also considers degraded acquisition health, so
+  retaining a positive does not permanently suppress existing due acquisition.
+  No new scheduler, HTTP path, budget, worker or provider engine is added.
+- Canonical `ross_catalyst_evidence_v1` handoff carries evidence IDs, original text,
+  publication/provenance, issuer identity/aliases and historical acquisition snapshot.
+  `CandidateMetrics` carries this through cached Focus and strategy handoff. A bare
+  cached CONFIRMED/catalyst_present/summary cannot provide natural catalyst authority.
+- `catalyst_lifecycle.revalidate_handoff` reparses and reattributes the facts, then
+  reads the current canonical store (no prep import, HTTP or write) to include newer
+  retained vetoes. It reads the existing bounded presentation+witness cohort without
+  dropping the extra slot or inventing veto expiry. Missing, malformed, unverified,
+  future, research-only, update-only or expired facts cannot qualify. Unreadable
+  canonical state rejects explicitly. Both old and new veto cohorts survive merges.
+- `_run_manager_pipeline` revalidates cached Focus each cycle and before setup;
+  `StrategyRunner.process` repeats the guard at actual READ_ONLY/PAPER/LIVE strategy
+  dispatch, including the alternate handoff path. Expired rows are removed from
+  cached Focus before use. Accepted copies carry current qualification reason,
+  publication-derived valid_until_utc and acquisition-health reason; historical
+  acquisition snapshots never advertise current healthy coverage. Local revalidation
+  conservatively reports degraded/coverage-not-reverified unless a specific persisted
+  failure/expired/missing receipt provides a more precise reason. No fresh HTTP per
+  cycle is required. Existing explicit MANUAL_FOCUS stock-selection authority is
+  preserved and labelled canonical_event_claimed=false; no manual row is introduced.
+
+Qualification reasons include verified_issuer_event_valid, retained_dilution_veto,
+no_valid_canonical_event, canonical_evidence_missing/invalid, canonical_issuer_mismatch
+and canonical_store_unreadable. Acquisition reasons separately identify expired or
+incompatible receipt, provider unavailability/failure, budget exhaustion, partial or
+unknown coverage, and cached coverage not reverified. Event validity is never renewed
+from an acquisition completion time or a stored validity/CONFIRMED flag.
+
+### Verification and full Ross completion checklist
+
+Controlled offline fixtures cover PRE→RTH, new service/store instances and serialized
+restart handoff, successful empty refresh, failed refresh, exact21600.0/21600.1-second
+expiry, future→current, original-publication-derived expiry, current and retained older
+vetoes, both merge directions, corrupted/malformed canonical state, missing IDs and
+untrusted flags, degraded accepted-row metadata, and actual orchestrator cached Focus
+expiry without rescan/HTTP. Routing fixtures now supply explicit canonical event facts;
+existing route/terminal assertions remain, with row provenance compared instead of
+object identity because health updates intentionally return copies. The three old
+failure-blocking expectations are changed to assert the newly authorized independent
+qualification and degraded acquisition separately. No tests are skipped.
+
+Local final focused execution:538passed144warnings9.36s (news, lifecycle, Focus,
+setup/handoff, canonical/W02, multi-candidate scheduling, cancellation and shutdown).
+Earlier checks exposed the expected old-policy assertions and boolean-only route
+fixtures; those failures were not counted as passes. One attempted check named a
+nonexistent test file and collected nothing; corrected paths subsequently passed.
+Changed-head CI and independent review remain required; their exact receipts belong
+in the separate lifecycle PR. No historical full suite verifies this new production
+change. Offline startup guards block acquisition, including existing fixture-created
+float workers; no broker/provider request, natural runtime or holdings mutation ran.
+
+| Ross completion outcome / next step | Status |
+| --- | --- |
+| Graceful shutdown, evidence finalization, inventory and zero mutations |Natural PASS preserved; offline regressions retained.|
+| Successive genuine broker discovery and bounded quote-refresh scheduling |Natural35c receipt PASS:3×50row observations, Watchlists5/5/3; no new run.|
+| Full-issuer acquisition and retained publication/identity |Natural AIXI/NCPL acquisition/retention verified; overall coverage remains partial.|
+| Independently valid event through failed/expired acquisition and cached handoff |New focused implementation/offline evidence; not yet natural acceptance.|
+| Catalyst qualification |Natural NOT ESTABLISHED; all13recorded evaluations unavailable; examples not promoted.|
+| Downstream setup/trigger/intent progression |Natural NOT ESTABLISHED; Focus0; no forced selection or manufactured intent.|
+| Independent background acquisition — following implementation step |Reuse canonical service and bounded workers/queue; ONE serialized store owner shared by scanner/prep/maintenance; route all writes through that owner before enabling maintenance. Do not start another JSON writer.|
+| Remaining lifecycle policy |Correction/retraction and financing-risk expiry remain undefined; retained dilution veto unchanged. Metrics remain uncalibrated/informational.|
+| Remaining continuous operation |Whole-Watchlist between-scan quote/news maintenance, provider access/coverage and natural setup receipts remain open; no unchanged observation requested.|
+| Holdings / readiness |External holdings and ownership blockers preserved. PAPER_READY=NO.|
+
+Next engineering action after lifecycle review: design and implement serialized
+canonical-store ownership before independent bounded acquisition maintenance. No
+additional operator observation or readiness upgrade is requested in this package.
