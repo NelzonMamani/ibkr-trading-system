@@ -437,3 +437,42 @@ def test_historical_window_filters_before_cap_without_evicting_ross_cohort(store
     assert [row.evidence_id for row in rows]==[historical.evidence_id]
     saved=json.loads(store.cache_path.read_text())['news_intelligence']['symbols']['JPM']
     assert {row['evidence_id'] for row in saved['evidence']}=={positive.evidence_id,veto.evidence_id,historical.evidence_id}
+
+
+def test_maintenance_scanner_read_preserves_corrupt_cache_failure_and_degraded_signal(store,monkeypatch):
+    store.cache_path.write_text('{broken')
+    owner=NewsMaintenance(store=store)
+    monkeypatch.setattr(owner,'submit',lambda *args,**kwargs:0)
+    contexts,diagnostic=ross._enrich_news_context(['JPM','EGG'],'IBKR',news_maintenance=owner)
+    assert diagnostic.news_degraded is True
+    assert diagnostic.provider_status=='cache_read_error'
+    raw=diagnostic.news_intelligence_diagnostics
+    assert raw['cache_read_failed'] is True and raw['cache_read_error']=='JSONDecodeError'
+    assert set(raw['maintenance_by_symbol'])=={'JPM','EGG'}
+    assert all(row['diagnostics']['cache_read_failed'] for row in raw['maintenance_by_symbol'].values())
+    assert not any(row['ross_catalyst_valid'] for row in contexts.values())
+    assert store.cache_path.read_text()=='{broken'
+    assert owner.close(.2)
+
+
+def test_maintenance_read_aggregates_mixed_cache_truth_without_hiding_available_issuer(store,monkeypatch):
+    from src.news.news_intelligence_contract import NewsEvidenceSummary
+    def read(service,candidates,request,policy):
+        symbol=candidates[0].symbol;bad=symbol=='BAD'
+        return NewsBatchResult(candidates=tuple(candidates),evidence_by_symbol={symbol:() if bad else (fact(symbol),)},
+            summaries_by_symbol={symbol:NewsEvidenceSummary(symbol=symbol,provider_available=not bad,
+                retrieval_status='unavailable' if bad else 'cache_hit')},
+            diagnostics=RetrievalDiagnostics(provider_available=not bad,retrieval_status='unavailable' if bad else 'cache_hit',
+                cache_state='miss' if bad else 'hit',unresolved_symbols=(symbol,) if bad else (),
+                diagnostics={'cache_read_failed':bad,'cache_read_error':'PermissionError' if bad else None,
+                    'cache_hit_symbols':[] if bad else [symbol],'cache_hits_by_symbol':{} if bad else {symbol:1}}))
+    monkeypatch.setattr(CanonicalNewsIntelligenceService,'get_news',read)
+    owner=NewsMaintenance(store=store)
+    result=owner.read((NewsCandidate('BAD'),NewsCandidate('GOOD')),NewsRequest(),RetrievalPolicy())
+    assert result.diagnostics.retrieval_status=='partial' and result.diagnostics.provider_available is None
+    assert result.diagnostics.unresolved_symbols==('BAD',)
+    assert result.diagnostics.diagnostics['cache_read_failed'] is True
+    assert result.diagnostics.diagnostics['cache_hit_symbols']==['GOOD']
+    assert result.diagnostics.diagnostics['cache_hits_by_symbol']=={'GOOD':1}
+    assert result.summary_for_symbol('GOOD').provider_available is True and len(result.evidence_for_symbol('GOOD'))==1
+    assert owner.close(.2)

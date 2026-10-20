@@ -1990,3 +1990,13 @@ receipt. Restored existing historical-window filtering before its cap; independe
 protected Ross cohort facts/vetoes still persist. Existing W04 history regressions
 and a new simultaneous historical-cap/Ross-cohort case cover both requirements.
 Final changed-head CI/review must supersede that initial receipt in PR1119.
+
+Automated PR1119 review confirmed the historical-cap finding and identified a
+second reporting gap: maintenance combined per-issuer results but dropped batch
+cache-failure flags. Per-issuer health/evidence was preserved, yet the scanner's
+NEWS_DELAYED signal could be omitted. Maintenance now aggregates cache errors,
+per-symbol maps/hit/miss lists, retrieval availability, budget/timeout and unresolved
+truth, retaining complete per-issuer diagnostics. Mixed results do not erase an
+available issuer or claim whole-batch availability. Corrupt-cache scanner-path and
+mixed-result regressions cover the reporting boundary. Focused maintenance+whole
+W04:46passed4warnings2.07s. No classification, acquisition or market gate changed.

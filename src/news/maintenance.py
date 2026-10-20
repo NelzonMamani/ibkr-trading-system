@@ -246,16 +246,42 @@ class NewsMaintenance:
         reader = CanonicalNewsIntelligenceService(evidence_store=self.store)
         policy = effective_policy(policy)
         evidence, summaries, unresolved = {}, {}, []
+        per_symbol, details, outcomes = {}, {}, []
         for candidate in candidates:
             result = reader.get_news((candidate,),request,replace(policy,refresh_mode='cache_only',network_allowed=False,allow_cache_write=False))
             symbol = candidate.normalized_symbol
             evidence[symbol] = result.evidence_for_symbol(symbol)
             summaries[symbol] = result.summary_for_symbol(symbol)
             unresolved.extend(result.diagnostics.unresolved_symbols)
+            outcome = result.diagnostics
+            outcomes.append(outcome)
+            per_symbol[symbol] = asdict(outcome)
+            for key,value in outcome.diagnostics.items():
+                if key.endswith('_by_symbol') and isinstance(value,dict):
+                    details.setdefault(key,{}).update(value)
+                elif key.endswith('_symbols') and isinstance(value,(list,tuple)):
+                    details[key] = list(dict.fromkeys([*details.get(key,()),*value]))
+                elif key in ('cache_read_failed','cache_write_failed','prep_read_failed'):
+                    details[key] = bool(details.get(key)) or bool(value)
+                elif key in ('cache_read_error','cache_write_error','prep_read_error','failure_reason') and value:
+                    details.setdefault(key,value)
+        unavailable = [row.unavailable for row in outcomes]
+        all_failed = bool(outcomes) and all(unavailable)
+        statuses = {row.retrieval_status for row in outcomes}
+        status = (next(iter(statuses)) if len(statuses)==1 else 'partial') if outcomes else 'not_requested'
+        availability = {row.provider_available for row in outcomes}
+        available = next(iter(availability)) if len(availability)==1 else None
+        cache_states = {row.cache_state for row in outcomes}
+        details.update(maintenance=self.snapshot(),maintenance_by_symbol=per_symbol)
         return NewsBatchResult(candidates=tuple(candidates),request=request,retrieval_policy=policy,
             evidence_by_symbol=evidence,summaries_by_symbol=summaries,
-            diagnostics=RetrievalDiagnostics(provider_status='maintenance_cache',unresolved_symbols=tuple(unresolved),
-                diagnostics={'maintenance':self.snapshot()}))
+            diagnostics=RetrievalDiagnostics(retrieval_status='unavailable' if all_failed else status,
+                provider_status=('cache_read_error' if details.get('cache_read_failed') else 'maintenance_cache'),
+                provider_available=False if all_failed else available,
+                cache_state=next(iter(cache_states)) if len(cache_states)==1 else 'not_checked',
+                budget_exhausted=any(row.budget_exhausted for row in outcomes),
+                timeout_count=sum(row.timeout_count for row in outcomes),
+                unresolved_symbols=tuple(dict.fromkeys(unresolved)),diagnostics=details))
 
     def snapshot(self):
         with self.condition:
