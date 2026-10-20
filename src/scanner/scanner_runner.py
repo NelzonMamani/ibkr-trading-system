@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from src.core.acquisition import acquisition_cycle, checkpoint
+from src.core.acquisition import acquisition_cycle, checkpoint, acquisition_deadline
 
 import argparse
 from collections import Counter
@@ -4563,7 +4563,7 @@ def _build_symbol_context(
     
 
 def _refresh_provisional_shortlist(candidates, provider, session_label, float_cache,
-                                   limit, thresholds, drop_ledger, runtime_bound_reached=None):
+                                   limit, thresholds, drop_ledger, runtime_bound_reached=None, deadline_s=None):
     # Rank with the existing authority, bound acquisition to K, then rebuild
     # selection metrics and rerun original discovery gates before publication.
     if not callable(getattr(provider, "refresh_quote", None)):
@@ -4572,7 +4572,7 @@ def _refresh_provisional_shortlist(candidates, provider, session_label, float_ca
         checkpoint()
         if runtime_bound_reached is not None and runtime_bound_reached("shortlist_refresh"):
             break
-        _refresh_shortlisted_quote(context, provider, session_label, float_cache)
+        _refresh_shortlisted_quote(context, provider, session_label, float_cache, deadline_s=deadline_s)
     survivors = []
     for context in candidates:
         reason = (_evaluate_price_gate(context, thresholds)
@@ -4587,7 +4587,7 @@ def _refresh_provisional_shortlist(candidates, provider, session_label, float_ca
     return survivors
 
 
-def _refresh_shortlisted_quote(context, provider, session_label, float_cache):
+def _refresh_shortlisted_quote(context, provider, session_label, float_cache, *, deadline_s=None):
     """Refresh only aged shortlisted quotes, once, through the existing provider.
 
     Rebuild derived metrics with the same reference/identity/history caches.
@@ -4603,22 +4603,24 @@ def _refresh_shortlisted_quote(context, provider, session_label, float_cache):
     before_stamp = context.get("quote_timestamp_utc")
     before_request = context.get("quote_request_id")
     try:
-        quote = refresh(symbol)
-        checkpoint()
-        if str(getattr(quote, "symbol", "")).upper() != symbol.upper():
-            raise ValueError("refresh symbol mismatch")
-        stamp = datetime.fromisoformat(quote.timestamp_utc.replace("Z", "+00:00"))
-        if stamp.tzinfo is None or getattr(quote, "timestamp_source", "UNKNOWN") != "LAST_TRADE":
-            raise ValueError("refresh lacks broker market timestamp")
-        if any(flag in (getattr(quote, "data_quality_flags", ()) or ()) for flag in
-               ("MD_TIMEOUT", "SNAPSHOT_TIMEOUT", "MD_EMPTY", "MD_TIMESTAMP_UNKNOWN")):
-            raise ValueError("refresh unavailable")
-        rebuilt = _build_symbol_context(
-            provider, symbol, session_label, float_cache=float_cache,
-            universe_rank=context.get("universe_rank"), quote_override=quote,
-        )
-        if rebuilt is None or _context_identity(rebuilt).key != _context_identity(context).key:
-            raise ValueError("refresh identity mismatch or unavailable")
+        with acquisition_deadline(deadline_s):
+            quote = refresh(symbol)
+            checkpoint()
+            if str(getattr(quote, "symbol", "")).upper() != symbol.upper():
+                raise ValueError("refresh symbol mismatch")
+            stamp = datetime.fromisoformat(quote.timestamp_utc.replace("Z", "+00:00"))
+            if stamp.tzinfo is None or getattr(quote, "timestamp_source", "UNKNOWN") != "LAST_TRADE":
+                raise ValueError("refresh lacks broker market timestamp")
+            if any(flag in (getattr(quote, "data_quality_flags", ()) or ()) for flag in
+                   ("MD_TIMEOUT", "SNAPSHOT_TIMEOUT", "MD_EMPTY", "MD_TIMESTAMP_UNKNOWN")):
+                raise ValueError("refresh unavailable")
+            rebuilt = _build_symbol_context(
+                provider, symbol, session_label, float_cache=float_cache,
+                universe_rank=context.get("universe_rank"), quote_override=quote,
+            )
+            if rebuilt is None or _context_identity(rebuilt).key != _context_identity(context).key:
+                raise ValueError("refresh identity mismatch or unavailable")
+            checkpoint()
         # Replace the old quote-derived contract, including stale eligibility.
         # Do not retain supplemental prices with unknown timestamp authority.
         context.pop("snapshot_supplemented_fields", None)
@@ -6121,6 +6123,7 @@ def run_scanner_cycle(
         candidates = _refresh_provisional_shortlist(
             candidates, provider, session_label, float_cache, watchlist_limit,
             thresholds, drop_ledger, runtime_bound_reached=_runtime_bound_reached,
+            deadline_s=runtime_deadline_value,
         )
         refresh_rejected_symbols = discovery_survivor_symbols - {row["symbol"] for row in candidates}
         candidate_metrics_for_ranking: List[CandidateMetrics] = []

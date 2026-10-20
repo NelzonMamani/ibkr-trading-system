@@ -1034,3 +1034,38 @@ production follow-up; **observation remains HOLD** until the new source is revie
 and a later explicitly authorized package is pinned. Preserve existing evidence.
 No broker/provider call, runtime run, trading, forced selection or readiness upgrade
 was performed during diagnosis. PAPER_READY=NO.
+
+## 2026-10-20 — controlled integration and late deadline review
+
+PR1111 was rechecked at exact4ae3fe38ff5215e4c5fd5316a75030febdc6a9f3:
+three required jobs SUCCESS, independent exact-head review, no unresolved threads,
+reviewed harness-only diff. It was merged with ancestry preserved as
+**2aba8df95fffebcb5e74525b867a0977de579924** (parents e6f21bc4 and4ae3fe38).
+PR1112 was retargeted to main without changing reviewed4815fc23. Its prospective
+merge tree exactly matched4815fc23; intended remaining diff was four production
+files, three focused test files and this checkpoint.33 focused integration cases
+passed; existing full Linux/Windows2803-pass receipts remained separate.
+
+Before merging PR1112, a newly arrived automated review thread4322634242 found
+that the positive precheck did not bound a snapshot's independent five-second
+wait by the remaining scanner budget. Integration paused; no review thread was
+ignored or treated as resolved merely because CI was green. The focused repair
+retains4815fc23511bdf8bfd41ca8e42e9d6ddb53b0cb0 as an ancestor and adds one scoped
+absolute acquisition deadline only around shortlist refresh/context rebuilding.
+Native snapshot/event/async waits clamp to remaining time; every retry checks the
+same deadline. Expiry discards partial rebuilding and preserves original stale
+rejection, without renewing timestamps, changing freshness/pacing or extending
+scanner/news budgets. Stop cancellation takes precedence; the deadline scope is
+restored before required finalization. Identity/history cycle caches are shared,
+not recreated. Seven controlled deadline regressions cover native wait/retry
+cleanup, expired/nested scopes, simultaneous stop, event/async cleanup, sequential
+refreshes sharing one deadline, and no publication after rebuild expiry.
+
+Local deadline/shortlist/shutdown/cache focused result:59 passed in2.14s. This is
+not a workstation full-suite result. New production source requires renewed
+exact-head review and changed-head Linux/Windows CI before PR1112 merge; final
+head/check/merge receipts are recorded in the PR and integration release receipt.
+No workstation suite was repeated. Existing workstation2759 at8f40, production
+2779 and2803 CI receipts, and natural run at4ae remain distinct historical evidence.
+No observation/provider/broker runtime or holding mutation during integration.
+Observation execution remains separate and on HOLD; PAPER_READY=NO.
