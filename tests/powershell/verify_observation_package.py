@@ -21,7 +21,7 @@ def forbidden(*args, **kwargs):
 supervisor.main = forbidden
 supervisor.final_broker_audit = forbidden
 original_env = dict(os.environ)
-for case in ('valid', 'missing-terminal', 'mutation', 'source', 'order-state', 'inventory', 'privacy', 'bad-cache'):
+for case in ('valid', 'missing-terminal', 'mutation', 'source', 'order-state', 'inventory', 'privacy', 'bad-cache', 'preflight-timeout'):
     os.environ.clear()
     os.environ.update(original_env)
     root = scratch / ('real-package-' + case)
@@ -52,8 +52,14 @@ for case in ('valid', 'missing-terminal', 'mutation', 'source', 'order-state', '
                                     ('process_inventory', 'broker_audit', 'artifact_validation', 'mutation_validation')}}
     if case == 'mutation':
         terminal['mutation_attempts']['place'] = 1
-    if case != 'missing-terminal':
+    if case not in ('missing-terminal','preflight-timeout'):
         write_json(evidence / 'terminal' / 'terminal_evidence.json', terminal)
+    if case == 'preflight-timeout':
+        (evidence/'source-before.json').unlink()
+        (root/'operator-state-source.json').unlink()
+        write_json(evidence/'preflight-result.json', {'status':'FAIL','stage':'initial_runtime_inventory',
+            'exit_code':1,'reason':'Pre-existing runtime or incomplete inventory; no launch.'})
+        write_json(evidence/'initial-runtime-inventory.json', {'completed':False,'runtimes':[],'error_type':'TimeoutExpired'})
     if case == 'source':
         tracked.write_text('unreviewed source')
     if case == 'order-state':
@@ -86,7 +92,38 @@ for case in ('valid', 'missing-terminal', 'mutation', 'source', 'order-state', '
             summary = json.loads(zipped.read('operator-summary.json'))
             assert summary['terminal_checks_passed'] == (case == 'valid'), case
             assert summary['PAPER_READY'] is False
-print('REAL_PACKAGE_CHECKS_PASS: 8 synthetic cases; no acquisition')
+            if case == 'preflight-timeout':
+                assert summary['tracked_source_unchanged'] is None
+                assert summary['operator_order_state_unchanged'] is None
+                assert summary['source_integrity_status'] == summary['order_state_status'] == 'NOT_VERIFIED'
+                assert summary['graceful_shutdown'] is None and summary['terminal_status'] == 'NOT_VERIFIED'
+                assert summary['scanner_pass'] == 'NOT_OBSERVED'
+                assert summary['blockers'][0].startswith('Preflight initial_runtime_inventory:')
+                mutation = json.loads(zipped.read('independent-mutation-validation.json'))
+                assert mutation['passed'] is None and mutation['status']=='NOT_VERIFIED'
+                assert json.loads(zipped.read('package-result.json'))['expected_exit_code']==2
+    if case == 'preflight-timeout':
+        write_json(evidence/'phase-status.json', {'preflight_exit':1,'observation_exit':None,'package_exit':2,'final_exit':1})
+        sys.argv = ['operator','seal',str(root),expected]
+        try:
+            runpy.run_path(str(repo/'scripts/certification/natural_readonly_operator.py'),run_name='__main__')
+        except SystemExit as exc:
+            assert exc.code == 0
+        with zipfile.ZipFile(archive) as sealed:
+            actual = json.loads(sealed.read('phase-status.json'))
+            assert actual['preflight_exit']==1 and actual['package_exit']==2 and actual['observation_exit'] is None
+        preserved_hash = hashlib.sha256(archive.read_bytes()).hexdigest()
+        (evidence/'unsafe-receipt.txt').write_text('Account DU1234567')
+        sys.argv = ['operator','seal',str(root),expected]
+        try:
+            runpy.run_path(str(repo/'scripts/certification/natural_readonly_operator.py'),run_name='__main__')
+        except SystemExit as exc:
+            assert exc.code != 0
+        else:
+            raise AssertionError('Unsafe final receipt was sealed')
+        assert hashlib.sha256(archive.read_bytes()).hexdigest() == preserved_hash
+
+print('REAL_PACKAGE_CHECKS_PASS: 9 synthetic cases; no acquisition')
 
 if os.name == 'nt':
     # Exercise real preflight with synthetic inventory/session/native classes.
@@ -108,7 +145,7 @@ if os.name == 'nt':
     }
     saved_modules = {name: sys.modules.get(name) for name in modules}
     sys.modules.update(modules)
-    for case in ('valid', 'dirty', 'inventory', 'session'):
+    for case in ('valid', 'dirty', 'inventory', 'inventory-timeout', 'session'):
         os.environ.clear(); os.environ.update(original_env)
         root = scratch / ('real-preflight-' + case)
         checkout = root / 's'
@@ -121,7 +158,7 @@ if os.name == 'nt':
         expected = subprocess.check_output(['git', '-C', str(checkout), 'rev-parse', 'HEAD'], text=True).strip()
         if case == 'dirty': hook.write_text('unreviewed')
         supervisor.ROOT = checkout
-        supervisor.runtime_inventory = lambda: {'completed': True, 'runtimes': [{'pid':987}] if case == 'inventory' else []}
+        supervisor.runtime_inventory = lambda: {'completed':case!='inventory-timeout', 'runtimes':[{'pid':987}] if case=='inventory' else [], **({'error_type':'TimeoutExpired'} if case=='inventory-timeout' else {})}
         system_config.get_current_market_session = lambda: 'CLOSED' if case == 'session' else 'RTH'
         original = root / 'original-order-state.json'
         original.write_text('{"last_reserved_order_id":361}')
@@ -140,8 +177,14 @@ if os.name == 'nt':
             assert json.loads((root / 'e/preflight.json').read_text())['write_guards_verified'] is True
         else:
             assert not (root / 'e/preflight.json').exists()
+            failure = json.loads((root/'e/preflight-result.json').read_text())
+            assert failure['status']=='FAIL' and failure['exit_code'] != 0
+            if case == 'inventory-timeout':
+                assert failure['stage']=='initial_runtime_inventory'
+                assert not (root/'e/source-before.json').exists()
+                assert not (root/'operator-state-source.json').exists()
     for name, module in saved_modules.items():
         if module is None: sys.modules.pop(name, None)
         else: sys.modules[name] = module
     system_config.get_current_market_session = saved_session
-    print('REAL_PREFLIGHT_CHECKS_PASS: 4 synthetic cases; no acquisition')
+    print('REAL_PREFLIGHT_CHECKS_PASS: 5 synthetic cases; no acquisition')

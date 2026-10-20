@@ -18,9 +18,11 @@ with (e/'phases').open('a') as out: out.write(phase+'\n')
 case=os.environ.get('OBS_TEST_CASE','success')
 print('STDOUT '+phase, flush=True); print('STDERR '+phase, file=sys.stderr, flush=True)
 if phase == 'preflight':
+    if case in ('preflight','preflight-package-failure'):
+        (e/'preflight-result.json').write_text(json.dumps(dict(status='FAIL',stage='initial_runtime_inventory',reason='controlled timeout',exit_code=2)))
     if case=='preflight-stuck':
         (e/'pid').write_text(str(os.getpid())); time.sleep(15)
-    sys.exit(2 if case=='preflight' else 0)
+    sys.exit(2 if case in ('preflight','preflight-package-failure') else 0)
 if phase == 'observe':
     if case in ('stop', 'stuck'):
         (e/'pid').write_text(str(os.getpid()))
@@ -32,9 +34,14 @@ if phase == 'observe':
     if case=='pipes':
         print('o'*200000); print('e'*200000, file=sys.stderr)
     sys.exit({'failure':1,'collection':2,'native7':7}.get(case,0))
+if phase == 'seal':
+    if case=='seal-failure': sys.exit(9)
+    with zipfile.ZipFile(p/'ross-natural-readonly-upload.zip','a') as z: z.write(e/'phase-status.json','phase-status.json')
+    sys.exit(0)
 if phase == 'package':
-    if case=='package': sys.exit(9)
+    if case in ('package','preflight-package-failure'): sys.exit(9)
     with zipfile.ZipFile(p/'stub.zip','w') as z: z.write(e/'phases','phases')
+    (p/'ross-natural-readonly-upload.zip').write_bytes((p/'stub.zip').read_bytes())
     sys.exit(0)
 '@ | Set-Content -Encoding utf8 $stub
 try {
@@ -44,24 +51,35 @@ try {
         Check ($errors.Count -eq 0) "Parse failure $script"
     }
     $passed++
-    foreach ($case in @('success','preflight','failure','collection','native7','pipes','package','stop')) {
+    foreach ($case in @('success','preflight','preflight-package-failure','failure','collection','native7','pipes','package','seal-failure','stop')) {
         $env:OBS_TEST_CASE=$case
         $root=Join-Path $scratch $case; New-Item -ItemType Directory $root | Out-Null
         $budget=if ($case -eq 'stop') { .3 } else { 10 }
         $result=Invoke-ReadonlyObservation -Python $Python -Operator $stub -Root $root -ExpectedCommit ('a'*40) -ObservationSeconds $budget -StopSeconds 2
-        $expected=@{success=0;preflight=2;failure=1;collection=2;native7=7;pipes=0;package=9;stop=124}[$case]
+        $expected=@{success=0;preflight=2;'preflight-package-failure'=2;failure=1;collection=2;native7=7;pipes=0;package=9;'seal-failure'=1;stop=124}[$case]
         Check ($result -eq $expected) "$case exit $result != $expected"
         $phases=Get-Content (Join-Path $root 'e\phases')
-        Check ($phases[-1] -eq 'package') "$case did not package"
-        if ($case -eq 'preflight') { Check (!($phases -contains 'observe')) 'Preflight failure launched observation.' }
-        if ($case -ne 'package') { Check (Test-Path (Join-Path $root 'stub.zip')) 'Missing ZIP.' }
-        if ($case -ne 'preflight') {
+        Check ($phases[-1] -eq $(if ($case -in @('package','preflight-package-failure')) {'package'} else {'seal'})) "$case did not package"
+        if ($case -in @('preflight','preflight-package-failure')) { Check (!($phases -contains 'observe')) 'Preflight failure launched observation.' }
+        if ($case -notin @('package','preflight-package-failure')) { Check (Test-Path (Join-Path $root 'stub.zip')) 'Missing ZIP.' }
+        if ($case -notin @('preflight','preflight-package-failure')) {
             Check ((Get-Content -Raw (Join-Path $root 'e\supervisor.stdout.log')) -match 'STDOUT observe') 'stdout lost'
             Check ((Get-Content -Raw (Join-Path $root 'e\supervisor.stderr.log')) -match 'STDERR observe') 'stderr lost'
         }
         if ($case -eq 'stop') { Check (Test-Path (Join-Path $root 'e\terminal\STOP_REQUESTED')) 'No bounded cooperative stop.' }
+        $status=Get-Content -Raw (Join-Path $root 'e\phase-status.json') | ConvertFrom-Json
+        Check ($status.final_exit -eq $expected) 'Final phase receipt disagrees.'
+        if ($case -eq 'preflight-package-failure') {
+            Check ($status.preflight_exit -eq 2 -and $status.package_exit -eq 9) 'Packaging masked preflight failure.'
+        }
         $passed++
     }
+    $preserved=Join-Path $scratch 'existing-root'; New-Item -ItemType Directory (Join-Path $preserved 'e') | Out-Null
+    'KEEP' | Set-Content (Join-Path $preserved 'e\receipt.txt')
+    $failed=$false
+    try { Invoke-ReadonlyObservation -Python $Python -Operator $stub -Root $preserved -ExpectedCommit ('a'*40) | Out-Null } catch { $failed=$true }
+    Check ($failed -and (Get-Content -Raw (Join-Path $preserved 'e\receipt.txt')) -match 'KEEP') 'Existing evidence was overwritten.'
+    $passed++
     # Launch and log-open failures must not start the child.
     foreach ($case in @('launch','log-open')) {
         $root=Join-Path $scratch $case; New-Item -ItemType Directory $root | Out-Null
@@ -124,37 +142,48 @@ public class ObservationFaultStream : Stream {
     Copy-Item (Join-Path $repo 'scripts\certification\run_natural_readonly_observation.ps1') $entry
     Copy-Item (Join-Path $repo 'scripts\certification\Invoke-ReadonlyObservation.ps1') $entry
     Copy-Item $stub (Join-Path $entry 'natural_readonly_operator.py')
-    foreach ($case in @('success','collection','failure')) {
+    foreach ($case in @('success','collection','failure','preflight','seal-failure')) {
         $env:OBS_TEST_CASE=$case; $root=Join-Path $scratch ('entry-'+$case); New-Item -ItemType Directory $root | Out-Null
         $child=Invoke-ObservationChild -Python (Get-Command powershell.exe).Source -ChildArguments @('-NoProfile','-ExecutionPolicy','Bypass','-File',(Join-Path $entry 'run_natural_readonly_observation.ps1'),'-Python',$Python,'-Root',$root,'-ExpectedCommit',('a'*40)) -LogPrefix (Join-Path $scratch ('entry-'+$case)) -BudgetSeconds 20
-        $expected=@{success=0;collection=2;failure=1}[$case]
+        $expected=@{success=0;collection=2;failure=1;preflight=2;'seal-failure'=1}[$case]
         Check ($child.ExitCode -eq $expected) "Released entrypoint did not preserve $case OS status."
+        if ($case -eq 'seal-failure') {
+            $report=Get-Content -Raw (Join-Path $scratch ('entry-'+$case+'.stdout.log'))
+            Check ($report -notmatch 'DIAGNOSTIC ZIP:' -and $report -match 'Archive sealing failed') 'Unsealed archive was announced.'
+        }
+        if ($case -eq 'preflight') {
+            $report=Get-Content -Raw (Join-Path $scratch ('entry-'+$case+'.stdout.log'))
+            Check ($report -match 'Preflight failed at initial_runtime_inventory: controlled timeout') 'Actual preflight reason lost.'
+            Check ($report -match 'Package exit: 0' -and $report -match 'DIAGNOSTIC ZIP:' -and $report -match 'Final exit: 2') 'Diagnostic path/status not surfaced.'
+        }
         $passed++
     }
-    # Preparation invokes only Python version and controlled git stubs; it must
-    # print the later execution command without starting any operator phase.
-    $global:ObservationPrepFixture=[pscustomobject]@{ Checkout=$null }
-    function git {
-        $global:LASTEXITCODE=0
-        if ($args -contains 'clone') {
-            $global:ObservationPrepFixture.Checkout=$args[-1]
-            New-Item -ItemType Directory $global:ObservationPrepFixture.Checkout | Out-Null
-        }
-        if ($args -contains 'rev-parse') { return ('a'*40) }
-    }
-    try {
-        $LASTEXITCODE=361 # Caller-local stale status must not shadow native results.
-        $prepared=& (Join-Path $repo 'docs\ross\PR1108_NATURAL_READONLY_ACCEPTANCE.ps1') -ExpectedCommit ('a'*40) -Python $Python 6>&1
-        Check ($LASTEXITCODE -eq 361) 'Preparation unexpectedly changed caller sentinel.'
-        Check ($null -ne $global:ObservationPrepFixture.Checkout) 'Preparation did not clone.'
-        $preparedRoot=Split-Path $global:ObservationPrepFixture.Checkout -Parent
-        Check (!(Test-Path (Join-Path $preparedRoot 'e'))) 'Preparation launched preflight/runtime.'
-        Check (($prepared | Out-String) -match 'run_natural_readonly_observation.ps1') 'No separate execution command printed.'
-    } finally {
-        Remove-Item Function:git -ErrorAction SilentlyContinue
-        if ($global:ObservationPrepFixture.Checkout) { Remove-Item -Recurse -Force (Split-Path $global:ObservationPrepFixture.Checkout -Parent) }
-        Remove-Variable ObservationPrepFixture -Scope Global
-    }
+    # Real local Git worktree preparation, including dirty source and old evidence.
+    # No network fetch/clone, no operator child is invoked.
+    $source=Join-Path $scratch 'local-source'; New-Item -ItemType Directory $source | Out-Null
+    & git -C $source init -q
+    'original' | Set-Content (Join-Path $source 'sentinel.txt')
+    & git -C $source add .
+    & git -C $source -c user.name=Harness -c user.email=harness@example.invalid commit -qm fixture
+    Check ($global:LASTEXITCODE -eq 0) 'Fixture commit failed.'
+    $localHead=(& git -C $source rev-parse HEAD | Out-String).Trim()
+    'dirty source retained' | Set-Content (Join-Path $source 'sentinel.txt')
+    $prepBase=Join-Path $scratch 'prepared'; New-Item -ItemType Directory $prepBase | Out-Null
+    $old=Join-Path $prepBase 'old-evidence'; New-Item -ItemType Directory $old | Out-Null
+    'KEEP' | Set-Content (Join-Path $old 'receipt.txt')
+    $LASTEXITCODE=361
+    $prepared=& (Join-Path $repo 'docs\ross\PR1108_NATURAL_READONLY_ACCEPTANCE.ps1') -ExpectedCommit $localHead -Python $Python -SourceCheckout $source -BaseDirectory $prepBase 6>&1
+    Check ($LASTEXITCODE -eq 361) 'Caller-local status was unexpectedly changed.'
+    $preparedRoot=Get-ChildItem -Directory $prepBase | Where-Object { $_.Name -like 'ro-*' } | Select-Object -First 1
+    Check ($null -ne $preparedRoot) 'Preparation did not create worktree.'
+    $checkout=Join-Path $preparedRoot.FullName 's'
+    Check (Test-Path -LiteralPath (Join-Path $checkout '.git') -PathType Leaf) 'Expected shared Git worktree, not full clone.'
+    Check (!(Test-Path (Join-Path $preparedRoot.FullName 'e'))) 'Preparation launched preflight/runtime.'
+    Check ((Get-Content -Raw (Join-Path $source 'sentinel.txt')) -match 'dirty source retained') 'Source changed.'
+    Check ((Get-Content -Raw (Join-Path $old 'receipt.txt')) -match 'KEEP') 'Existing evidence changed.'
+    Check (($prepared | Out-String) -match 'run_natural_readonly_observation.ps1') 'No separate execution command printed.'
+    & git -C $source worktree remove --force $checkout
+    Check ($global:LASTEXITCODE -eq 0) 'Synthetic worktree cleanup failed.'
     $passed++
     # Actual startup semantics: -E parent ignores PYTHONPATH; its ordinary child
     # loads the copied hook and configures only a private fake-provider cache.
@@ -207,6 +236,10 @@ print('CACHE_STARTUP_CHECKS_PASS')
     $result=Invoke-ObservationChild -Python $Python -ChildArguments @('-E','-u',$probe,$startup,$fake,(Join-Path $scratch 'private-cache')) -LogPrefix (Join-Path $scratch 'startup-probe') -BudgetSeconds 15
     Check ($result.ExitCode -eq 0) 'Cache startup semantics failed.'
     Get-Content ($scratch+'\startup-probe.stdout.log') | Where-Object { $_ -match 'CACHE_STARTUP_CHECKS_PASS|REAL_PROVIDER_CACHE_LOCATIONS' } | ForEach-Object { Write-Host $_ }
+    $passed++
+    $inventory=Invoke-ObservationChild -Python $Python -ChildArguments @('-E','-u',(Join-Path $repo 'tests\powershell\verify_windows_inventory.py')) -LogPrefix (Join-Path $scratch 'inventory') -BudgetSeconds 60
+    Check ($inventory.ExitCode -eq 0) 'Windows inventory checks failed.'
+    Get-Content ($scratch+'\inventory.stdout.log') | ForEach-Object { Write-Host $_ }
     $passed++
     # Real packaging implementation with synthetic terminal/inventory; no supervisor.main.
     $result=Invoke-ObservationChild -Python $Python -ChildArguments @('-E','-u',(Join-Path $repo 'tests\powershell\verify_observation_package.py'),$repo,$scratch) -LogPrefix (Join-Path $scratch 'real-package') -BudgetSeconds 45
