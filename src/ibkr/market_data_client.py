@@ -503,11 +503,11 @@ class MarketDataClient:
             result.extend(rows)
         return result
 
-    def snapshot_stock(self, contract_or_symbol) -> MarketDataSnapshot:
+    def snapshot_stock(self, contract_or_symbol, *, refresh: bool = False) -> MarketDataSnapshot:
         checkpoint()
         cache = cycle_cache()
         key = ("snapshot", id(self), contract_key(contract_or_symbol), self.market_data_type)
-        if cache is not None and key in cache:
+        if cache is not None and key in cache and not refresh:
             snapshot, debug = cache[key]
             self.last_snapshot_debug = debug
             # Reuse data, never the age decision from the earlier acquisition.
