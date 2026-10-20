@@ -74,15 +74,15 @@ observability gap above; no placeholder approval booleans are used.
     $p = 'C:\tmp\pr1091-cert-env-20260923\Scripts\python.exe'
     New-Item -ItemType Directory -Force 'C:\tmp' | Out-Null
     & git -C $s fetch --no-tags origin main
-    if ($LASTEXITCODE -ne 0) { throw 'Fetch failed; no observation started.' }
+    if ($global:LASTEXITCODE -ne 0) { throw 'Fetch failed; no observation started.' }
     & git -C $s cat-file -e ($h + '^{commit}')
-    if ($LASTEXITCODE -ne 0) { throw 'Accepted commit unavailable locally.' }
+    if ($global:LASTEXITCODE -ne 0) { throw 'Accepted commit unavailable locally.' }
     $text = @(& git -C $s show ($h + ':docs/ross/PR1108_NATURAL_READONLY_ACCEPTANCE.ps1'))
-    if ($LASTEXITCODE -ne 0) { throw 'Cannot read pinned preparation script.' }
+    if ($global:LASTEXITCODE -ne 0) { throw 'Cannot read pinned preparation script.' }
     $f = Join-Path 'C:\tmp' ('prepare-ro-' + [guid]::NewGuid().ToString('N').Substring(0,8) + '.ps1')
-    [IO.File]::WriteAllLines($f, [string[]]$text, (New-Object Text.UTF8Encoding($false)))
+    [IO.File]::WriteAllLines($f, [string[]]$text, (New-Object System.Text.UTF8Encoding($false)))
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $f -ExpectedCommit $h -Python $p -SourceCheckout $s -BaseDirectory 'C:\tmp' -RuntimeSeconds 900
-    if ($LASTEXITCODE -ne 0) { throw 'Preparation failed; no observation started.' }
+    if ($global:LASTEXITCODE -ne 0) { throw 'Preparation failed; no observation started.' }
     Write-Warning 'Observation HOLD: integrate reviewed telemetry follow-up, then re-prepare at its accepted head. Do not execute this older printed command.'
 }
 ```

@@ -52,6 +52,14 @@ try {
         Check ($errors.Count -eq 0) "Parse failure $script"
     }
     $passed++
+    $release = Get-Content -Raw (Join-Path $repo 'docs\ross\PR1119_INTEGRATION_RELEASE.md')
+    $block = [regex]::Match($release, '(?s)```powershell\r?\n(.*?)\r?\n```').Groups[1].Value
+    $parseErrors=$null; $parseTokens=$null
+    $null=[Management.Automation.Language.Parser]::ParseInput($block,[ref]$parseTokens,[ref]$parseErrors)
+    Check ($block.Length -gt 0 -and $parseErrors.Count -eq 0) 'Release preparation block parse failure'
+    Check ($block -notmatch '\$LASTEXITCODE\b') 'Release block uses shadowable native exit status'
+    Check ($block -match '-RuntimeSeconds 900') 'Release block does not print a900s observation'
+    $passed++
     foreach ($case in @('success','preflight','preflight-package-failure','failure','collection','native7','pipes','package','seal-failure','stop')) {
         $env:OBS_TEST_CASE=$case
         $root=Join-Path $scratch $case; New-Item -ItemType Directory $root | Out-Null

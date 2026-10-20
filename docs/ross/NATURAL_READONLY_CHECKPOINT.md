@@ -2053,3 +2053,13 @@ Observation remains HOLD pending review/integration of that telemetry follow-up;
 the accepted-source preparation block starts nothing and prints the separate900s
 command with HOLD warning. No repeated workstation suite or runtime/acquisition.
 GUI draft unchanged; PAPER_READY=NO.
+
+Telemetry follow-up local focused107passed16warnings4.17s before independent
+review; review found logging exceptions could skip worker cleanup and caller-local
+LASTEXITCODE shadowing in the unreleased preparation block. Structured emission
+now catches output/serialization failure, stops maintenance, retains a failure
+counter, still cleans owned sources/releases work, and prevents successful owned
+shutdown certification. Broken-output cases cover lookup start and publication.
+Preparation checks explicitly use global native exit status; Windows controlled
+harness parses the released block and checks that contract. These changes remain
+separate from accepted main pending review/integration; observation remains HOLD.

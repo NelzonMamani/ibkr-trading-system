@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 import threading
+import sys
 import time
 
 from src.config.config_resolver import get_config
@@ -82,7 +83,7 @@ class NewsMaintenance:
         self.threads = []
         self.sequence = 0
         self.active_streak = 0
-        self.stats = {'submitted':0,'deduplicated':0,'rejected_full':0,'completed':0,'failed':0,'retired':0,'publication_failures':0}
+        self.stats = {'submitted':0,'deduplicated':0,'rejected_full':0,'completed':0,'failed':0,'retired':0,'publication_failures':0,'telemetry_failures':0}
         self.receipts = []
         self.started_at = None
         self.first_result_seconds = None
@@ -96,8 +97,21 @@ class NewsMaintenance:
             retrieval_provider=BatchRssNewsIntelligenceProvider(lifecycle=RssFetchLifecycle(),feed_pool=self.feeds))
 
     def _event(self, name, **fields):
-        print('[NEWS][MAINTENANCE]['+name+'] '+json.dumps({
-            'utc':datetime.now(timezone.utc).isoformat(),**fields}),flush=True)
+        try:
+            print('[NEWS][MAINTENANCE]['+name+'] '+json.dumps({
+                'utc':datetime.now(timezone.utc).isoformat(),**fields}),flush=True)
+            return True
+        except Exception as exc:
+            # Telemetry must never bypass source cleanup or leave work running.
+            with self.condition:
+                self.stats['telemetry_failures'] += 1
+            self.stop.set()
+            try:
+                sys.stderr.write('NEWS_MAINTENANCE_TELEMETRY_FAILURE:'+type(exc).__name__+'\n')
+                sys.stderr.flush()
+            except Exception:
+                pass
+            return False
 
     def stopped(self):
         return self.stop.is_set() or self.external_stop() or _file_stop()
@@ -260,7 +274,7 @@ class NewsMaintenance:
                            'error':error,'completed':outcome is not None,'published':outcome is not None and not publication_failed,'cleanup_complete':cleanup['cleanup_complete']}
                     self.receipts.append(row)
                     del self.receipts[:-128]
-                    print('[NEWS][MAINTENANCE][RESULT] '+json.dumps(row),flush=True)
+                    self._event('RESULT',**row)
                     self.condition.notify_all()
 
     def read(self, candidates, request, policy):
@@ -332,5 +346,5 @@ class NewsMaintenance:
                 cleanup_results.append(False)
         cleanup_complete = all(cleanup_results)
         complete = not any(thread.is_alive() for thread in self.threads) and cleanup_complete
-        print('[NEWS][MAINTENANCE][SHUTDOWN] '+json.dumps({**self.snapshot(),'cleanup_complete':complete}),flush=True)
-        return complete
+        self._event('SHUTDOWN',**self.snapshot(),cleanup_complete=complete)
+        return complete and not self.stats['telemetry_failures']

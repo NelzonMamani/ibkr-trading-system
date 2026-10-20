@@ -545,3 +545,27 @@ def test_cached_lookup_does_not_claim_a_new_publication(store,capsys):
     assert not calls and not any(line.startswith('[NEWS][MAINTENANCE][PUBLISH]') for line in lines)
     complete=[json.loads(line.split('] ',1)[1]) for line in lines if line.startswith('[NEWS][MAINTENANCE][LOOKUP_COMPLETE]')]
     assert len(complete)==1 and complete[0]['published'] is False and complete[0]['evidence_count']==1
+
+
+@pytest.mark.parametrize('marker',['LOOKUP_START','PUBLISH'])
+def test_telemetry_failure_cannot_skip_worker_cleanup_or_certify_success(store,monkeypatch,marker):
+    import builtins
+    original=builtins.print;cleanup=[];calls=[]
+    class Lifecycle:
+        def wait_for_cleanup(self,timeout):
+            cleanup.append(timeout);return {'cleanup_complete':True}
+    build=factory(store,threading.Event(),calls)
+    def service():
+        result=build();result.retrieval_provider._lifecycle=Lifecycle();return result
+    def emit(*args,**kwargs):
+        if args and str(args[0]).startswith('[NEWS][MAINTENANCE]['+marker+']'):
+            raise BrokenPipeError('controlled output failure')
+        return original(*args,**kwargs)
+    monkeypatch.setattr(builtins,'print',emit)
+    owner=NewsMaintenance(store=store,service_factory=service,workers=1)
+    owner.submit((NewsCandidate('GOOD'),),NewsRequest(),RetrievalPolicy())
+    until(lambda:owner.snapshot()['alive_workers']==0)
+    assert owner.snapshot()['telemetry_failures']>=1 and owner.close(2) is False
+    assert owner.snapshot()['inflight']==0 and not owner.lifecycles and cleanup
+    assert calls==(['GOOD'] if marker=='PUBLISH' else [])
+    assert store.cache_path.exists()==(marker=='PUBLISH')
