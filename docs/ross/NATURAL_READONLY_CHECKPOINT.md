@@ -1401,3 +1401,31 @@ then bounded grace60s/terminate15s/kill15s (outer watchdog540s). Share only the
 privacy-sealed `ross-natural-readonly-upload.zip` printed by the runner; preserve
 its real phase/exit statuses even on preflight failure. No providers, IBKR runtime,
 observation, holdings mutation or trading were executed during this integration.
+
+## 2026-10-20 — separate canonical news / Ross catalyst lifecycle audit
+
+Separate from PR1116 and the user's running observation. Baseline accepted main
+`ff741ded903522ad25969def38c4588c82ade03a`; separate branch
+`codex/news-catalyst-lifecycle-audit`. See [full audit and file/function evidence map](NEWS_CATALYST_LIFECYCLE_AUDIT.md).
+No provider/broker requests, scanner/runtime, observation, holdings mutation,
+trading, merge or readiness upgrade occurred. Historical receipts remain intact.
+
+| Ross completion item | Verified current behavior / remaining gap |
+| --- | --- |
+| Premarket positive persistence | Canonical evidence survives warm read/restart/preparation serialization with original publication/ID/URL. New headline not required. |
+| Qualification through later session | Legacy fact-only cache can qualify while publication valid. Current compatible Ross v9 coverage expires by registry RTH120s (not helper fallback90); cache-only then becomes coverage_unknown and blocks even with a valid positive. A successful compatible empty refresh restores qualification using the same article. PRE→RTH never renews publication. |
+| Refresh failure | Still-valid retained facts survive; current explicit tested policy blocks qualification on unavailable/budget outcomes. Changing that is a proposal, not this repair. |
+| Exact publication expiry | Demonstrated same-batch/same-integer-second cache defect could retain CONFIRMED past21600s or retain a future rejection after publication. Separate narrow fix invalidates cache on publication-boundary state; original inclusive6h rule preserved. |
+| Dilution/conflict lifecycle | Observed offering veto preserved. Final retained-offering veto lacks age filter; no general correction/retraction/conflict or explicit event-expiry contract. Policy decision required before changing these rules. |
+| Cached Focus/setup revalidation | Canonical witness/expiry not carried through CandidateMetrics/list cache; no per-cycle canonical news recheck proved. Adapter cache fix does not establish this handoff. Separate focused design/testing remains required. |
+| Independent acquisition | Existing canonical service and standalone consumer work without IBKR/scanner; per-lookup RSS pending work bounded to4 workers. No installed persistent news queue/scheduler; shared JSON writer/retention interoperability not established. No new engine/daemon launched. |
+| Heat/novelty/velocity/reliability | Calculated/displayed; not direct canonical Ross gates. Catalyst existence/type does affect eligibility and context/strategy ordering. Cached canonical aggregates can be snapshot-stale; Ross v9 recomputes presentation velocity. New gates require evidence/calibration and policy approval. |
+| Readiness | PAPER_READY=NO. Current natural catalyst qualification, downstream progression and continuous news/Watchlist maintenance remain unestablished. |
+
+Initial new time-controlled baseline cases:2publication-boundary failures,6other
+casespassed. Fixture setup errors before that (an integer config supplied asfloat)
+were corrected in tests only and were not counted as product failures or passes.
+After narrow boundary fix,136existing+new focused news cases passed2.26s; expanded
+11-case lifecycle matrix passed1.07s. Independent reviewer118offline cases passed
+before final documentation. Final exact-head CI/review receipts will be linked in
+the separate audit PR; PR1116 receipts do not verify this new branch.
