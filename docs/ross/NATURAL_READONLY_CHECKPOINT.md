@@ -2031,3 +2031,25 @@ Final local combined focused verification after cooperative lock polling:
 scope-exit checkpoint a second time; fixture context handling was corrected so
 only cancellation raised inside the read satisfies the assertion. Failed fixture
 executions are not counted as passes. Final CI/review receipts remain in PR1119.
+
+## PR1119 controlled integration — 2026-10-20
+
+Accepted main e3d2a7b09bc23421f409ff3cdfd0aea3dcefc458 ancestry-preserving merge
+of exact reviewed ac8e3360c54dec42a7c11022d3ffb80e1b9b6994. Rechecked all3CI
+checks in39471508105, independent review5589445390, resolved2threads and intended
+diff; tree equality and ancestry checks passed. Local431/independent101 remain
+separate from Linux2921/1skip and actual Windows2921/1skip220warnings501.17s,
+controlled31 plus PowerShell13/30 checks. Historical workstation/natural evidence
+and holdings remain unchanged.
+
+Release inspection demonstrated missing per-dispatch fairness and immediate
+publication telemetry, despite existing aggregate counters and source/strategy
+receipts. A separate focused observability follow-up adds structured markers and
+explicit operator news configuration/preflight receipts, preserving scheduling,
+qualification, provider limits and cancellation. It is not part of the already
+accepted PR1119 tree. Full map, complete shared-object short-path preparation block,
+prerequisites and five separate outcomes are in PR1119_INTEGRATION_RELEASE.md.
+Observation remains HOLD pending review/integration of that telemetry follow-up;
+the accepted-source preparation block starts nothing and prints the separate900s
+command with HOLD warning. No repeated workstation suite or runtime/acquisition.
+GUI draft unchanged; PAPER_READY=NO.

@@ -4,6 +4,7 @@ Workers acquire one issuer at a time and publish through the existing service's
 serialized store owner. Consumers read completed issuer results immediately.
 """
 from dataclasses import asdict, dataclass, replace
+from datetime import datetime, timezone
 import hashlib
 import json
 import threading
@@ -94,6 +95,10 @@ class NewsMaintenance:
         return CanonicalNewsIntelligenceService(evidence_store=self.store,
             retrieval_provider=BatchRssNewsIntelligenceProvider(lifecycle=RssFetchLifecycle(),feed_pool=self.feeds))
 
+    def _event(self, name, **fields):
+        print('[NEWS][MAINTENANCE]['+name+'] '+json.dumps({
+            'utc':datetime.now(timezone.utc).isoformat(),**fields}),flush=True)
+
     def stopped(self):
         return self.stop.is_set() or self.external_stop() or _file_stop()
 
@@ -117,7 +122,7 @@ class NewsMaintenance:
                 self.work[key] = Work(key,candidate,request,policy,self.sequence,priority)
                 self.stats['submitted'] += 1
                 accepted += 1
-            print('[NEWS][MAINTENANCE][QUEUE] '+json.dumps({**self.stats,'tracked':len(self.work)}),flush=True)
+            self._event('QUEUE',accepted=accepted,**self.snapshot())
             if accepted and not self.threads:
                 self.started_at = self.clock()
                 self.threads = [threading.Thread(target=self._run,name=f'news-maintenance-{i}',daemon=False)
@@ -142,6 +147,8 @@ class NewsMaintenance:
             for item in self.work.values():
                 symbol = item.candidate.normalized_symbol
                 item.priority = 0 if symbol in focused else 1 if symbol in watch else 2
+            self._event('PRIORITY',watchlist=sorted(watch),focus=sorted(focused),
+                        fairness_active_dispatch_limit=3,**self.snapshot())
             self.condition.notify_all()
 
     def _take(self):
@@ -153,12 +160,17 @@ class NewsMaintenance:
             return None
         # At most three active dispatches before the oldest waiting normal row.
         normal = [item for item in ready if item.priority == 2]
-        if normal and self.active_streak >= 3:
+        fairness = bool(normal and self.active_streak >= 3)
+        if fairness:
             chosen = min(normal,key=lambda item:(item.due,item.sequence))
         else:
             chosen = min(ready,key=lambda item:(item.priority,item.due,item.sequence))
         self.active_streak = self.active_streak+1 if chosen.priority < 2 else 0
         chosen.running = True
+        self._event('DISPATCH',symbol=chosen.candidate.normalized_symbol,key=chosen.key,
+                    priority=chosen.priority,reason='normal_fairness' if fairness else 'priority_due_order',
+                    normal_ready=len(normal),dispatch_ready=len(ready),active_streak=self.active_streak,
+                    refresh_interval_seconds=chosen.policy.refresh_interval_seconds,**self.snapshot())
         return chosen
 
     def _run(self):
@@ -169,6 +181,7 @@ class NewsMaintenance:
                     self.condition.wait(.1)
                     continue
             started = self.clock()
+            self._event('LOOKUP_START',symbol=item.candidate.normalized_symbol,key=item.key)
             lifecycle = None
             outcome, error = None, None
             try:
@@ -213,6 +226,15 @@ class NewsMaintenance:
                         self.first_result_seconds = self.clock()-self.started_at
                     if outcome is not None and not publication_failed and outcome.evidence_for_symbol(item.candidate.normalized_symbol) and self.first_evidence_seconds is None:
                         self.first_evidence_seconds = self.clock()-self.started_at
+                published = bool(outcome is not None and not publication_failed and
+                                 item.candidate.normalized_symbol in outcome.diagnostics.diagnostics.get('cache_write_symbols',()))
+                self._event('PUBLISH' if published else 'LOOKUP_COMPLETE',
+                    symbol=item.candidate.normalized_symbol,key=item.key,published=published,
+                    elapsed_before_cleanup_seconds=completed_tick-started,error=error,
+                    evidence_count=len(outcome.evidence_for_symbol(item.candidate.normalized_symbol)) if outcome else 0,
+                    provider_available=outcome.diagnostics.provider_available if outcome else None,
+                    budget_exhausted=outcome.diagnostics.budget_exhausted if outcome else None,
+                    qualification_evaluated=False,**self.snapshot())
                 try:
                     cleanup = lifecycle.wait_for_cleanup(8.) if lifecycle is not None else {'cleanup_complete':True}
                 except Exception as exc:
@@ -288,7 +310,10 @@ class NewsMaintenance:
         with self.condition:
             return {**self.stats,'tracked':len(self.work),'inflight':sum(item.running for item in self.work.values()),
                     'first_result_seconds':self.first_result_seconds,'first_evidence_seconds':self.first_evidence_seconds,'alive_workers':sum(t.is_alive() for t in self.threads),
-                    'feed_requests':self.feeds.requests,'feed_reuse':self.feeds.hits}
+                    'feed_requests':self.feeds.requests,'feed_reuse':self.feeds.hits,
+                    'backlog':sum(not item.running for item in self.work.values()),
+                    'ready':sum(not item.running and item.due<=self.clock() for item in self.work.values()),
+                    'priority_counts':{str(priority):sum(item.priority==priority for item in self.work.values()) for priority in range(3)}}
 
     def close(self, timeout=12.):
         self.stop.set()

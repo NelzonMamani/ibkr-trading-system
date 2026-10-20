@@ -175,6 +175,9 @@ if os.name == 'nt':
             receipt = json.loads((root / 'e/child-cache-probe.json').read_text())
             assert receipt['exit_code'] == 0 and receipt['parent_ignore_environment'] is True
             assert json.loads((root / 'e/preflight.json').read_text())['write_guards_verified'] is True
+            news = json.loads((root / 'e/news-maintenance-config.json').read_text())
+            assert all(news[key] is True for key in ('NEWS_ENABLED','NEWS_MAINTENANCE_ENABLED','ROSS_ISSUER_QUERY_ENABLED'))
+            assert news['NEWS_REFRESH_SECONDS_RTH'] == 120 and news['NEWS_TOTAL_BUDGET_S'] == 8
         else:
             assert not (root / 'e/preflight.json').exists()
             failure = json.loads((root/'e/preflight-result.json').read_text())
