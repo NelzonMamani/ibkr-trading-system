@@ -31,6 +31,7 @@ env.update(PYTHONPATH=os.pathsep.join((str(state/'startup'),str(repo))), PYTHONU
     IBKR_HOST='127.0.0.1', IBKR_PORT='7497', IBKR_CLIENT_ID='71',
     IBKR_ORDER_TRANSLATION_ENABLED='false', LIVE_EXECUTION_PROBE_MODE='false',
     IBKR_FALLBACK_ENABLED='false', ROSS_ISSUER_QUERY_ENABLED='true', ROSS_REQUIRE_NEWS='true',
+    NEWS_ENABLED='true', NEWS_MAINTENANCE_ENABLED='true',
     SCANNER_TOP_GAINERS_COUNT='50', TOPN_MAX_SYMBOLS_PER_STRATEGY='50',
     WATCHLIST_MAX_SYMBOLS_PER_STRATEGY='15', FOCUS_MAX_SYMBOLS_PER_STRATEGY='5',
     IBKR_ORDER_ID_STATE_PATH=str(state/'order-id.json'),
@@ -72,6 +73,12 @@ if phase == 'preflight':
             from src.config.system_config import get_current_market_session
             if get_current_market_session() != 'RTH':
                 raise SystemExit('Requires the normal configured RTH window; no session override.')
+            preflight_stage = 'news_maintenance_configuration'
+            news_config = {key:get_config(key) for key in ('NEWS_ENABLED','NEWS_MAINTENANCE_ENABLED',
+                          'ROSS_ISSUER_QUERY_ENABLED','NEWS_REFRESH_SECONDS_RTH','NEWS_TOTAL_BUDGET_S')}
+            if not all(news_config[key] is True for key in ('NEWS_ENABLED','NEWS_MAINTENANCE_ENABLED','ROSS_ISSUER_QUERY_ENABLED')):
+                raise SystemExit('Canonical news maintenance configuration not enabled; no launch.')
+            write_json(evidence/'news-maintenance-config.json', news_config)
             preflight_stage = 'write_guards'
             from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
             from ibapi.client import EClient

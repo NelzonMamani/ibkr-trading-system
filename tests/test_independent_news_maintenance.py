@@ -129,7 +129,7 @@ def factory(store, release, calls, *, failing=()):
     return lambda:CanonicalNewsIntelligenceService(evidence_store=store,retrieval_provider=Provider())
 
 
-def test_incremental_first_result_precedes_slow_batch_completion_and_dedup(store):
+def test_incremental_first_result_precedes_slow_batch_completion_and_dedup(store,capsys):
     release=threading.Event();calls=[]
     owner=NewsMaintenance(store=store,service_factory=factory(store,release,calls),capacity=4)
     request=NewsRequest(max_evidence_per_symbol=5);policy=RetrievalPolicy(refresh_interval_seconds=120,total_budget_seconds=8)
@@ -150,9 +150,17 @@ def test_incremental_first_result_precedes_slow_batch_completion_and_dedup(store
         assert owner.snapshot()['tracked']==2 and owner.snapshot()['deduplicated']==2
         print(f'SYNTHETIC_MAINTENANCE_TIMING first_usable={first:.6f}s batch_complete={complete:.6f}s (fixture waits, not live speed)')
     finally:release.set();assert owner.close(2)
+    events=[(line.split('] ')[0].rsplit('[',1)[-1],json.loads(line.split('] ',1)[1]))
+            for line in capsys.readouterr().out.splitlines() if line.startswith('[NEWS][MAINTENANCE][')]
+    published=[row for kind,row in events if kind=='PUBLISH']
+    assert {row['symbol'] for row in published}=={'FAST','SLOW'}
+    assert all(row['published'] and row['qualification_evaluated'] is False and row['utc'] for row in published)
+    fast=next(row for row in published if row['symbol']=='FAST')
+    assert fast['first_evidence_seconds'] is not None and fast['evidence_count']==1
+    assert {row['key'] for kind,row in events if kind=='LOOKUP_START'}=={row['key'] for row in published}
 
 
-def test_bounded_queue_priority_fairness_and_identity_exclusion(store):
+def test_bounded_queue_priority_fairness_and_identity_exclusion(store,capsys):
     owner=NewsMaintenance(store=store,capacity=8,workers=1)
     request=NewsRequest();policy=RetrievalPolicy()
     # Keep dispatch deterministic without starting real worker threads.
@@ -172,6 +180,12 @@ def test_bounded_queue_priority_fairness_and_identity_exclusion(store):
     owner.capacity=9
     assert owner.submit((duplicate,),replace(request,lookback_seconds=3600),policy)==1
     assert owner._take().candidate.symbol!='A4'
+
+    rows=[json.loads(line.split('] ',1)[1]) for line in capsys.readouterr().out.splitlines()
+          if line.startswith('[NEWS][MAINTENANCE][DISPATCH]')]
+    assert rows[3]['symbol']=='OLD' and rows[3]['reason']=='normal_fairness'
+    assert rows[3]['priority']==2 and rows[3]['normal_ready']>=1
+    assert all('backlog' in row and 'inflight' in row and 'priority_counts' in row for row in rows)
 
 
 def test_shutdown_cancels_slow_acquisition_and_joins_owned_workers(store):
@@ -518,3 +532,42 @@ def test_cache_owner_contention_cancels_before_per_issuer_timeout(store,independ
         release.set();thread.join(2);timer.cancel();timer.join(2)
         assert maintenance.close(.2)
     assert not thread.is_alive() and store.cache_path.read_bytes()==original
+
+
+def test_cached_lookup_does_not_claim_a_new_publication(store,capsys):
+    store.write({'GOOD':(fact('GOOD'),)})
+    calls=[];owner=NewsMaintenance(store=store,service_factory=factory(store,threading.Event(),calls),workers=1)
+    try:
+        owner.submit((NewsCandidate('GOOD'),),NewsRequest(),RetrievalPolicy(refresh_mode='cache_only',network_allowed=False))
+        until(lambda:owner.snapshot()['completed']==1)
+    finally:assert owner.close(2)
+    lines=capsys.readouterr().out.splitlines()
+    assert not calls and not any(line.startswith('[NEWS][MAINTENANCE][PUBLISH]') for line in lines)
+    complete=[json.loads(line.split('] ',1)[1]) for line in lines if line.startswith('[NEWS][MAINTENANCE][LOOKUP_COMPLETE]')]
+    assert len(complete)==1 and complete[0]['published'] is False and complete[0]['evidence_count']==1
+    result=[json.loads(line.split('] ',1)[1]) for line in lines if line.startswith('[NEWS][MAINTENANCE][RESULT]')]
+    assert len(result)==1 and result[0]['published'] is False and owner.receipts[-1]['published'] is False
+
+
+@pytest.mark.parametrize('marker',['LOOKUP_START','PUBLISH'])
+def test_telemetry_failure_cannot_skip_worker_cleanup_or_certify_success(store,monkeypatch,marker):
+    import builtins
+    original=builtins.print;cleanup=[];calls=[]
+    class Lifecycle:
+        def wait_for_cleanup(self,timeout):
+            cleanup.append(timeout);return {'cleanup_complete':True}
+    build=factory(store,threading.Event(),calls)
+    def service():
+        result=build();result.retrieval_provider._lifecycle=Lifecycle();return result
+    def emit(*args,**kwargs):
+        if args and str(args[0]).startswith('[NEWS][MAINTENANCE]['+marker+']'):
+            raise BrokenPipeError('controlled output failure')
+        return original(*args,**kwargs)
+    monkeypatch.setattr(builtins,'print',emit)
+    owner=NewsMaintenance(store=store,service_factory=service,workers=1)
+    owner.submit((NewsCandidate('GOOD'),),NewsRequest(),RetrievalPolicy())
+    until(lambda:owner.snapshot()['alive_workers']==0)
+    assert owner.snapshot()['telemetry_failures']>=1 and owner.close(2) is False
+    assert owner.snapshot()['inflight']==0 and not owner.lifecycles and cleanup
+    assert calls==(['GOOD'] if marker=='PUBLISH' else [])
+    assert store.cache_path.exists()==(marker=='PUBLISH')
