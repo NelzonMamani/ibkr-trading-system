@@ -174,3 +174,74 @@ def test_valid_until_is_derived_from_original_publication_not_capsule_flags(life
     assert decision['valid_until_utc']==(PUB+timedelta(hours=6)).isoformat()
     life.clock.current=PUB+timedelta(hours=6,microseconds=1)
     assert not revalidate_handoff('JPM',handoff,store=life.store)['qualified']
+
+
+def test_raw_veto_tag_preserves_existing_strip_semantics(lifecycle):
+    life=lifecycle;handoff=snapshot(life)
+    generic=life.article('JPM market roundup',raw={'catalyst_tag':' offering '})
+    life.store.write({'JPM':(generic,)},life.request)
+    decision=revalidate_handoff('JPM',handoff,store=life.store)
+    assert not decision['qualified'] and decision['dilution_veto']
+
+
+@pytest.mark.parametrize('historical',[None,False,'healthy'])
+def test_malformed_historical_health_is_unknown_not_authority(lifecycle,historical):
+    life=lifecycle;handoff=snapshot(life);handoff['acquisition_snapshot']=historical
+    decision=revalidate_handoff('JPM',handoff,store=life.store)
+    assert decision['qualified'] and decision['acquisition_health']=='degraded'
+    assert decision['previous_acquisition_health']=='unknown'
+
+
+@pytest.mark.parametrize('kind',['future','update_only'])
+def test_unqualified_same_id_never_extends_validity(lifecycle,kind):
+    life=lifecycle;handoff=snapshot(life)
+    original=life.provider.articles[0]
+    bad=replace(original,published_at=life.clock.current+timedelta(hours=1))
+    if kind=='update_only':bad=replace(bad,raw={'timestamp_provenance':{'selected_time_basis':'updated'}})
+    life.store.write({'JPM':(bad,)},life.request)
+    decision=revalidate_handoff('JPM',handoff,store=life.store)
+    assert decision['qualified']
+    assert decision['valid_until_utc']==(PUB+timedelta(hours=6)).isoformat()
+
+
+@pytest.mark.parametrize('mode,allowed',[('READ_ONLY',False),('LIVE',False),('PAPER',True),('SIM',True)])
+def test_existing_explicit_validation_authority_is_separate_from_event(lifecycle,mode,allowed):
+    from src.config.config_resolver import set_config_overrides
+    set_config_overrides({'ROSS_VALIDATION_OVERRIDE_ENABLED':True})
+    row={'symbol':'JPM','catalyst_present':True}
+    assert bool(filter_catalyst_rows([row],store=lifecycle.store,mode=mode)) is allowed
+
+
+def test_later_setup_row_rechecks_expiry_after_slow_first_row(lifecycle,monkeypatch):
+    from catalyst_fixtures import canonical_catalyst_fixture
+    from src.config.runtime_config import RunMode
+    from src.strategies.ross_momentum_strategy_v1 import RossMomentumStrategyV1
+    from src.strategies.ross_momentum.policy import catalyst_lifecycle
+    life=lifecycle
+    rows=[{'symbol':symbol,'volume':2000000,'catalyst_evidence':canonical_catalyst_fixture(symbol,published=life.clock.fromtimestamp(PUB.timestamp(),PUB.tzinfo))}
+          for symbol in ('JPM','EGG')]
+    monkeypatch.setattr(catalyst_lifecycle,'CanonicalNewsEvidenceStore',lambda:life.store)
+    strategy=RossMomentumStrategyV1()
+    built=[]
+    def slow_inputs(**kwargs):
+        built.append(kwargs['row']['symbol'])
+        life.clock.current=PUB+timedelta(hours=6,microseconds=1)
+        return None, []
+    monkeypatch.setattr('src.strategies.ross_momentum_strategy_v1.build_runtime_pattern_inputs',slow_inputs)
+    strategy.process_watchlist(watchlist=rows,snapshots={},session_label='RTH',
+        timestamp_utc=life.clock.current.isoformat(),mode=RunMode.READ_ONLY,session_phase='RTH')
+    assert built==['JPM']
+    assert strategy.last_symbol_terminal_outcomes['EGG']['reason']=='canonical_catalyst_revalidation_failed'
+    assert life.provider.calls==0
+
+
+def test_direct_ross_runner_rejects_opaque_confirmed_flags(lifecycle):
+    from src.config.runtime_config import RunMode
+    from src.strategies.ross_momentum.runner import RossMomentumRunner
+    runner=RossMomentumRunner.__new__(RossMomentumRunner)
+    seen=[]
+    runner.strategy=SimpleNamespace(process_watchlist=lambda **kwargs:seen.extend(kwargs['watchlist']) or [])
+    result=runner.run({'watchlist':[{'symbol':'JPM','catalyst_present':True,'catalyst_status':'CONFIRMED'}],
+                       'mode':RunMode.READ_ONLY})
+    assert seen==[] and result['trade_intents']==[]
+    assert lifecycle.provider.calls==0

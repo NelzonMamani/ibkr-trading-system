@@ -1790,8 +1790,10 @@ recorded in the historical audit; it is not a claim that the old code already di
   future, research-only, update-only or expired facts cannot qualify. Unreadable
   canonical state rejects explicitly. Both old and new veto cohorts survive merges.
 - `_run_manager_pipeline` revalidates cached Focus each cycle and before setup;
-  `StrategyRunner.process` repeats the guard at actual READ_ONLY/PAPER/LIVE strategy
-  dispatch, including the alternate handoff path. Expired rows are removed from
+  `StrategyRunner.process` and direct `RossMomentumRunner.run` repeat the guard at
+  actual READ_ONLY/PAPER/LIVE dispatch, including the alternate handoff path. Each
+  canonical row is revalidated again immediately before its V1 setup work, so
+  slow earlier symbols cannot carry a later row past expiry. Expired rows are removed from
   cached Focus before use. Accepted copies carry current qualification reason,
   publication-derived valid_until_utc and acquisition-health reason; historical
   acquisition snapshots never advertise current healthy coverage. Local revalidation
@@ -1799,6 +1801,8 @@ recorded in the historical audit; it is not a claim that the old code already di
   failure/expired/missing receipt provides a more precise reason. No fresh HTTP per
   cycle is required. Existing explicit MANUAL_FOCUS stock-selection authority is
   preserved and labelled canonical_event_claimed=false; no manual row is introduced.
+  The established explicit SIM/PAPER validation override remains separately labelled
+  and cannot operate in LIVE/READ_ONLY or assert a CONFIRMED canonical event.
 
 Qualification reasons include verified_issuer_event_valid, retained_dilution_veto,
 no_valid_canonical_event, canonical_evidence_missing/invalid, canonical_issuer_mismatch
@@ -1814,18 +1818,25 @@ restart handoff, successful empty refresh, failed refresh, exact21600.0/21600.1-
 expiry, future→current, original-publication-derived expiry, current and retained older
 vetoes, both merge directions, corrupted/malformed canonical state, missing IDs and
 untrusted flags, degraded accepted-row metadata, and actual orchestrator cached Focus
-expiry without rescan/HTTP. Routing fixtures now supply explicit canonical event facts;
+expiry without rescan/HTTP. Review regressions also cover raw offering-tag whitespace,
+malformed historical health metadata, duplicate-ID future/update-only facts that must
+not extend expiry, and later-row expiry during slow earlier-symbol setup work. Routing fixtures now supply explicit canonical event facts;
 existing route/terminal assertions remain, with row provenance compared instead of
 object identity because health updates intentionally return copies. The three old
 failure-blocking expectations are changed to assert the newly authorized independent
 qualification and degraded acquisition separately. No tests are skipped.
 
-Local final focused execution:538passed144warnings9.36s (news, lifecycle, Focus,
+Earlier focused execution at the initial lifecycle head:538passed144warnings9.36s (news, lifecycle, Focus,
 setup/handoff, canonical/W02, multi-candidate scheduling, cancellation and shutdown).
 Earlier checks exposed the expected old-policy assertions and boolean-only route
 fixtures; those failures were not counted as passes. One attempted check named a
 nonexistent test file and collected nothing; corrected paths subsequently passed.
-Changed-head CI and independent review remain required; their exact receipts belong
+Independent review found and repaired exact veto-tag whitespace parity, malformed
+historical health handling, duplicate-ID validity metadata, and per-symbol setup
+expiry windows, each with focused regressions. Initial controlled-case setup mistakes
+were corrected without counting failed executions as passes. Final local combined focused execution:570passed144warnings10.71s; separate
+post-review57case subset passed1.78s. Final changed-head
+CI and independent review remain required; their exact receipts belong
 in the separate lifecycle PR. No historical full suite verifies this new production
 change. Offline startup guards block acquisition, including existing fixture-created
 float workers; no broker/provider request, natural runtime or holdings mutation ran.

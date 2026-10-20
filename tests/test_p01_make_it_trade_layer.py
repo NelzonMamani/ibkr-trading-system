@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from catalyst_fixtures import canonical_catalyst_fixture
+
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -100,7 +102,7 @@ def test_ross_runner_explicit_focus_skips_non_focus_rows(capsys) -> None:
         result = runner.run(
             {
                 "watchlist": [
-                    {"symbol": "AAPL", "focus_m_symbols": ["AAPL"]},
+                    {"symbol": "AAPL", "focus_m_symbols": ["AAPL"], "catalyst_evidence": canonical_catalyst_fixture("AAPL")},
                     {"symbol": "MSFT", "focus_m_symbols": ["AAPL"]},
                 ],
                 "snapshots": {},

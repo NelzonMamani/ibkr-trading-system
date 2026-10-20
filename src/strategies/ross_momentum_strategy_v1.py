@@ -686,6 +686,20 @@ class RossMomentumStrategyV1(BaseStrategy):
             symbol = row.get("symbol") if isinstance(row, dict) else getattr(row, "symbol", None)
             if not symbol:
                 continue
+            # Production runner entrypoints require canonical authority. Recheck
+            # each handed-off row here too: earlier symbols can cross its expiry
+            # after the batch guard. Legacy low-level diagnostic fixtures have no
+            # handoff; runtime entrypoints reject missing natural authority.
+            has_canonical_handoff = ("catalyst_evidence" in row if isinstance(row, dict)
+                                     else hasattr(row, "catalyst_evidence"))
+            if has_canonical_handoff:
+                from src.strategies.ross_momentum.policy.catalyst_lifecycle import filter_catalyst_rows
+                validated = filter_catalyst_rows([row], stage="symbol_setup", mode=mode)
+                if not validated:
+                    _terminal(str(symbol), "DATA_BLOCKED", "canonical_catalyst_revalidation_failed", stage="catalyst")
+                    classification_counts["DATA_BLOCKED"] += 1
+                    continue
+                row = validated[0]
             if effective_focus_symbols and str(symbol).upper() not in effective_focus_symbols:
                 print(f"[ROSS][FOCUS][SKIP] symbol={symbol} reason=NOT_IN_FOCUS_LIST")
             self.last_evaluated_symbols.append(str(symbol).upper())

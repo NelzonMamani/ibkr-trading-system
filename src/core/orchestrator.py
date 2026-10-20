@@ -3457,7 +3457,7 @@ class CoreOrchestrator:
 
             if self._ross_focus_authority_required(active_strategy):
                 from src.strategies.ross_momentum.policy.catalyst_lifecycle import filter_catalyst_rows
-                cadence.focus.rows = filter_catalyst_rows(cadence.focus.rows, stage="cached_focus")
+                cadence.focus.rows = filter_catalyst_rows(cadence.focus.rows, stage="cached_focus", mode=self.run_mode)
                 cadence.focus.symbols = self._symbols_from_candidates(cadence.focus.rows)
             if active_strategy == strategy_key:
                 selected_watchlist = list(cadence.watchlist.rows)
@@ -3814,7 +3814,7 @@ class CoreOrchestrator:
         )
         if self._ross_focus_authority_required(strategy_key):
             from src.strategies.ross_momentum.policy.catalyst_lifecycle import filter_catalyst_rows
-            strategy_inputs = filter_catalyst_rows(strategy_inputs, stage="setup_handoff")
+            strategy_inputs = filter_catalyst_rows(strategy_inputs, stage="setup_handoff", mode=self.run_mode)
         tha_decisions = self._resolve_tha_decisions(
             strategy_inputs=strategy_inputs,
             now_utc=cycle_started_at,

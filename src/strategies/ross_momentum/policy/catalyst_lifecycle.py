@@ -16,12 +16,13 @@ from src.news.evidence_store import CanonicalNewsEvidenceStore, evidence_from_ma
 from src.news.issuer_relevance import evidence_issuer_relevance_verified
 from src.news.news_intelligence_contract import NewsBatchResult, NewsCandidate, NewsRequest
 from .catalyst_policy import ISSUER_EVENT_MAX_AGE_SECONDS, assess_issuer_event, detect_dilution
+from .runtime_safety import validation_override_allowed, log_validation_override_active
 
 
 def retained_dilution(items):
     # Preserve the existing final consumer veto, including retained older facts.
     return any(detect_dilution(str(item.headline or "")) or item.dilution_or_offering
-               or str(dict(item.raw or {}).get("catalyst_tag") or "").lower() == "offering"
+               or str(dict(item.raw or {}).get("catalyst_tag") or "").strip().lower() == "offering"
                for item in items)
 
 
@@ -75,9 +76,9 @@ def revalidate_handoff(symbol, handoff, *, store=None, request=None):
     decisions = [assess_issuer_event(symbol, item, (candidate,)) for item in facts]
     positive = [row for row in decisions if row["qualified"] and row["evidence_id"]]
     veto = retained_dilution(facts)
-    positive_ids = {row["evidence_id"] for row in positive}
     valid_until = max((item.published_at.timestamp() + ISSUER_EVENT_MAX_AGE_SECONDS
-                       for item in facts if item.evidence_id in positive_ids and item.published_at), default=None)
+                       for item, decision in zip(facts, decisions)
+                       if decision["qualified"] and decision["evidence_id"] and item.published_at), default=None)
     # Inspect latest persisted acquisition facts without invoking acquisition.
     receipt = current.diagnostics.get("last_retrieval_by_symbol", {}).get(symbol, {})
     health_reason = "cached_handoff_coverage_not_reverified"
@@ -95,6 +96,8 @@ def revalidate_handoff(symbol, handoff, *, store=None, request=None):
                 health_reason = "acquisition_receipt_expired"
         except (TypeError, ValueError):
             health_reason = "acquisition_receipt_missing_or_invalid"
+    historical = handoff.get("acquisition_snapshot")
+    historical = historical if isinstance(historical, Mapping) else {}
     # A snapshot's historical health is never advertised as current coverage.
     return {"qualified": bool(positive and not veto),
             "qualification_reason": "retained_dilution_veto" if veto else
@@ -103,11 +106,16 @@ def revalidate_handoff(symbol, handoff, *, store=None, request=None):
             "qualification_decisions": decisions, "dilution_veto": bool(veto),
             "valid_until_utc": datetime.fromtimestamp(valid_until, timezone.utc).isoformat() if valid_until is not None and not veto else None,
             "acquisition_health": "degraded", "acquisition_reason": health_reason,
-            "previous_acquisition_health": handoff.get("acquisition_snapshot", {}).get("health", "unknown"),
-            "previous_acquisition_reason": handoff.get("acquisition_snapshot", {}).get("reason", "acquisition_not_verified")}
+            "previous_acquisition_health": historical.get("health", "unknown"),
+            "previous_acquisition_reason": historical.get("reason", "acquisition_not_verified")}
 
 
-def filter_catalyst_rows(rows, *, store=None, request=None, stage="setup_handoff"):
+def filter_catalyst_rows(rows, *, store=None, request=None, stage="setup_handoff", mode=None):
+    # Preserve the established explicit SIM/PAPER validation override only. It
+    # is never a CONFIRMED event and cannot operate in LIVE/READ_ONLY.
+    if mode is not None and validation_override_allowed(mode, bool(get_config("ROSS_VALIDATION_OVERRIDE_ENABLED"))):
+        log_validation_override_active(mode, "catalyst_handoff_explicit_validation_bypass")
+        return list(rows)
     accepted = []
     for row in rows:
         read = row.get if isinstance(row, dict) else lambda key, default=None: getattr(row, key, default)
