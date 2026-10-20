@@ -2015,3 +2015,19 @@ and finally cleanup of every child. Lock timeouts are unchanged. Windows CI now
 runs the controlled maintenance file before the full suite so concurrency failures
 surface promptly. Final exact-head Windows success remains required; failed runs
 are not acceptance receipts. No provider/broker acquisition or operator rerun.
+
+Independent review of the Windows reader follow-up identified a cooperative-stop
+regression before acceptance: a single blocking thread-lock wait plus OS-lock
+polling without checkpoints could repeat across50 issuer reads. Lock acquisition
+now polls in short checkpoint-aware intervals; OS-lock and atomic-replace retry
+loops checkpoint too, as does every maintenance issuer read. AcquisitionCancelled
+propagates outside ordinary cache-error wrapping. Controlled cases hold either the
+same thread owner or a separate owner/OS lock, interrupt a50-issuer read, require
+cancellation under1s and prove released ownership, unchanged bytes and cleanup.
+Existence/open checks also occur inside coordinated reading, preserving a genuine
+missing cache as a miss rather than racing an uncoordinated pre-lock stat.
+Final local combined focused verification after cooperative lock polling:
+431passed143warnings8.56s. The first two new contention cases initially caught the
+scope-exit checkpoint a second time; fixture context handling was corrected so
+only cancellation raised inside the read satisfies the assertion. Failed fixture
+executions are not counted as passes. Final CI/review receipts remain in PR1119.

@@ -10,7 +10,7 @@ import threading
 import time
 
 from src.config.config_resolver import get_config
-from src.core.acquisition import acquisition_scope, AcquisitionCancelled, _file_stop
+from src.core.acquisition import acquisition_scope, AcquisitionCancelled, checkpoint, _file_stop
 from src.news.batch_rss_adapter import BatchRssNewsIntelligenceProvider
 from src.news.evidence_store import CanonicalNewsEvidenceStore
 from src.news.feed_pool import SharedFeedPool
@@ -248,6 +248,7 @@ class NewsMaintenance:
         evidence, summaries, unresolved = {}, {}, []
         per_symbol, details, outcomes = {}, {}, []
         for candidate in candidates:
+            checkpoint()
             result = reader.get_news((candidate,),request,replace(policy,refresh_mode='cache_only',network_allowed=False,allow_cache_write=False))
             symbol = candidate.normalized_symbol
             evidence[symbol] = result.evidence_for_symbol(symbol)

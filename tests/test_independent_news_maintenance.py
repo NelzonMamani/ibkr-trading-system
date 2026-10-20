@@ -489,3 +489,32 @@ def test_maintenance_read_aggregates_mixed_cache_truth_without_hiding_available_
     assert result.diagnostics.diagnostics['cache_hits_by_symbol']=={'GOOD':1}
     assert result.summary_for_symbol('GOOD').provider_available is True and len(result.evidence_for_symbol('GOOD'))==1
     assert owner.close(.2)
+
+
+@pytest.mark.parametrize('independent_os_owner',[False,True])
+def test_cache_owner_contention_cancels_before_per_issuer_timeout(store,independent_os_owner):
+    from src.core.acquisition import acquisition_scope,AcquisitionCancelled
+    from src.news.store_owner import owner_for,CanonicalStoreOwner
+    store.write({'SEED':(fact('SEED'),)})
+    original=store.cache_path.read_bytes()
+    held=threading.Event();release=threading.Event();stopped=threading.Event()
+    owner=CanonicalStoreOwner(store.cache_path) if independent_os_owner else owner_for(store.cache_path)
+    def hold():
+        with owner.transaction():
+            held.set();assert release.wait(3)
+    thread=threading.Thread(target=hold);thread.start();assert held.wait(2)
+    maintenance=NewsMaintenance(store=store)
+    timer=threading.Timer(.05,stopped.set);timer.start();started=time.monotonic()
+    try:
+        with acquisition_scope(stopped.is_set):
+            try:
+                with pytest.raises(AcquisitionCancelled):
+                    maintenance.read(tuple(NewsCandidate(f'S{i}') for i in range(50)),NewsRequest(),RetrievalPolicy())
+            finally:
+                # Require cancellation inside read, not merely at scope exit.
+                stopped.clear()
+        assert time.monotonic()-started<1.
+    finally:
+        release.set();thread.join(2);timer.cancel();timer.join(2)
+        assert maintenance.close(.2)
+    assert not thread.is_alive() and store.cache_path.read_bytes()==original

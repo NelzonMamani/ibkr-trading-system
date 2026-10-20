@@ -10,6 +10,8 @@ import tempfile
 import threading
 import time
 
+from src.core.acquisition import checkpoint
+
 _owners = {}
 _registry_lock = threading.Lock()
 
@@ -22,17 +24,24 @@ class CanonicalStoreOwner:
     @contextmanager
     def transaction(self, timeout=5.0):
         deadline = time.monotonic() + timeout
-        if not self.lock.acquire(timeout=timeout):
-            raise TimeoutError('canonical store owner busy')
+        while True:
+            checkpoint()
+            remaining = deadline - time.monotonic()
+            if self.lock.acquire(timeout=max(0.,min(.05,remaining))):
+                break
+            if remaining <= 0:
+                raise TimeoutError('canonical store owner busy')
         handle = None
         locked = False
         try:
+            checkpoint()
             self.path.parent.mkdir(parents=True, exist_ok=True)
             handle = open(str(self.path) + '.lock', 'a+b')
             handle.seek(0, os.SEEK_END)
             if handle.tell() == 0:
                 handle.write(b'0'); handle.flush()
             while True:
+                checkpoint()
                 try:
                     handle.seek(0)
                     if os.name == 'nt':
@@ -69,12 +78,14 @@ class CanonicalStoreOwner:
 
     def publish(self, text):
         """Called only under transaction; replace is the publication boundary."""
+        checkpoint()
         descriptor, name = tempfile.mkstemp(prefix=self.path.name+'.', suffix='.tmp', dir=self.path.parent)
         try:
             with os.fdopen(descriptor, 'w', encoding='utf-8') as handle:
                 handle.write(text); handle.flush(); os.fsync(handle.fileno())
             deadline = time.monotonic() + .5
             while True:
+                checkpoint()
                 try:
                     os.replace(name, self.path)
                     break

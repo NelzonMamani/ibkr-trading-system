@@ -337,8 +337,6 @@ class CanonicalNewsEvidenceStore:
         return self.write(evidence_by_symbol, request, retrieval_by_symbol=retrieval_by_symbol)
 
     def _load_cache_payload(self, diagnostics: dict[str, Any], *, owned: bool = False) -> dict[str, Any]:
-        if not self.cache_path.exists():
-            return {"symbols": {}, NEWS_INTELLIGENCE_CACHE_NAMESPACE: {"schema_version": NEWS_INTELLIGENCE_SCHEMA_VERSION, "symbols": {}}}
         try:
             from src.news.store_owner import owner_for
             text = self.cache_path.read_text(encoding="utf-8") if owned else owner_for(self.cache_path).read_text()
@@ -352,6 +350,8 @@ class CanonicalNewsEvidenceStore:
                 if any(not isinstance(bucket, dict) or not isinstance(bucket.get("evidence", []), list)
                        for bucket in namespace.get("symbols", {}).values()):
                     raise ValueError("invalid canonical evidence bucket")
+        except FileNotFoundError:
+            return {"symbols": {}, NEWS_INTELLIGENCE_CACHE_NAMESPACE: {"schema_version": NEWS_INTELLIGENCE_SCHEMA_VERSION, "symbols": {}}}
         except Exception as exc:
             diagnostics_key = "cache_read_failed" if "cache_read_failed" in diagnostics else "cache_write_failed"
             error_key = "cache_read_error" if "cache_read_error" in diagnostics else "cache_write_error"
