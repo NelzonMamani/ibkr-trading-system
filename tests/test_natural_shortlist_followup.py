@@ -142,8 +142,9 @@ def test_refresh_cannot_replace_broker_timestamp_with_receipt(monkeypatch, stamp
     assert row['quote_timestamp_utc'] == old_stamp
     assert scanner._stale_market_data_drop(row) == 'DROP_STALE_MARKET_DATA'
 
-@pytest.mark.parametrize('refreshed_price,expected_selected', [(6., True), (.01, False)])
-def test_full_scanner_refreshes_aged_survivor_before_selection(monkeypatch, tmp_path, refreshed_price, expected_selected):
+@pytest.mark.parametrize('initial_stale', [False, True])
+@pytest.mark.parametrize('refreshed_price,refreshed_age,initial_float,expected_selected', [(6., 0, 8_000_000, True), (.01, 0, 8_000_000, False), (6., 30, 8_000_000, False), (6., 0, 200_000_000_000, False)])
+def test_full_scanner_refreshes_aged_survivor_before_selection(monkeypatch, tmp_path, refreshed_price, refreshed_age, initial_float, expected_selected, initial_stale):
     """Real scanner call path, synthetic provider only; no network or runtime."""
     from dataclasses import replace
     from src.scanner.providers.mock_provider import MockScannerProvider
@@ -153,7 +154,8 @@ def test_full_scanner_refreshes_aged_survivor_before_selection(monkeypatch, tmp_
     class Provider(MockScannerProvider):
         def get_quote(self, symbol):
             return replace(super().get_quote(symbol), last=6., bid=5.99, ask=6.01, close=5., open=5.,
-                           volume=2_000_000, timestamp_utc=datetime.now(timezone.utc).isoformat(), timestamp_source='LAST_TRADE')
+                           volume=2_000_000, timestamp_utc=(datetime.now(timezone.utc)-timedelta(seconds=30 if initial_stale else 0)).isoformat(),
+                           data_quality_flags=('MD_STALE',) if initial_stale else (), timestamp_source='LAST_TRADE')
         def get_previous_rth_close(self, identity):
             return 5.
         def get_prev_close(self, symbol):
@@ -162,9 +164,11 @@ def test_full_scanner_refreshes_aged_survivor_before_selection(monkeypatch, tmp_
             return []
         def refresh_quote(self, symbol):
             requests.append(symbol)
-            return replace(self.get_quote(symbol), last=refreshed_price)
+            return replace(self.get_quote(symbol), last=refreshed_price,
+                           timestamp_utc=(datetime.now(timezone.utc)-timedelta(seconds=refreshed_age)).isoformat(),
+                           data_quality_flags=())
     monkeypatch.setattr(scanner, '_is_mock_scanner_mode', lambda: False)
-    monkeypatch.setattr(scanner, '_bootstrap_float_cache', lambda *a: {'ONE': {'float_value':8_000_000, 'float_source':'FIXTURE'}})
+    monkeypatch.setattr(scanner, '_bootstrap_float_cache', lambda *a: {'ONE': {'float_value':initial_float, 'float_source':'FIXTURE'}})
     real_rank = scanner._rank_candidates
     aged = False
     def age_once(rows):
@@ -185,7 +189,9 @@ def test_full_scanner_refreshes_aged_survivor_before_selection(monkeypatch, tmp_
     try:
         payload = scanner.run_scanner_cycle(mode='READONLY', provider=Provider(symbols=['ONE']), policy=policy,
                                            forced_session_label='RTH_MID', forced_session_source='TEST_OVERRIDE')
-        assert requests == ['ONE']
+        assert requests == ([] if initial_float > 100_000_000_000 else ['ONE'])
+        if initial_float > 100_000_000_000:
+            assert payload['drop_ledger']['ONE'] == 'DROP_FLOAT_MAX'
         selected = [row.symbol for row in payload['watchlist_k']]
         assert ('ONE' in selected) is expected_selected
     finally:
