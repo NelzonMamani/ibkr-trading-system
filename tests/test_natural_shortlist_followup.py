@@ -154,9 +154,17 @@ def test_full_scanner_refreshes_aged_survivor_before_selection(monkeypatch, tmp_
         def get_quote(self, symbol):
             return replace(super().get_quote(symbol), last=6., bid=5.99, ask=6.01, close=5., open=5.,
                            volume=2_000_000, timestamp_utc=datetime.now(timezone.utc).isoformat(), timestamp_source='LAST_TRADE')
+        def get_previous_rth_close(self, identity):
+            return 5.
+        def get_prev_close(self, symbol):
+            return 5.
+        def get_daily_bars(self, identity, lookback_days):
+            return []
         def refresh_quote(self, symbol):
             requests.append(symbol)
             return replace(self.get_quote(symbol), last=refreshed_price)
+    monkeypatch.setattr(scanner, '_is_mock_scanner_mode', lambda: False)
+    monkeypatch.setattr(scanner, '_bootstrap_float_cache', lambda *a: {'ONE': {'float_value':8_000_000, 'float_source':'FIXTURE'}})
     real_rank = scanner._rank_candidates
     aged = False
     def age_once(rows):
@@ -183,3 +191,14 @@ def test_full_scanner_refreshes_aged_survivor_before_selection(monkeypatch, tmp_
     finally:
         scanner.reset_scanner_runtime_state()
         set_config_overrides(None)
+
+
+def test_expired_scanner_budget_starts_no_shortlist_requests(monkeypatch):
+    row = context()
+    monkeypatch.setattr(scanner, '_rank_candidates', lambda rows: rows)
+    monkeypatch.setattr(scanner, '_evaluate_price_gate', lambda *a: None)
+    monkeypatch.setattr(scanner, '_evaluate_watchlist_gates', lambda *a: 'DROP_STALE_MARKET_DATA')
+    ledger = {}
+    result = scanner._refresh_provisional_shortlist([row], NS(refresh_quote=lambda _: pytest.fail('expired budget request')),
+        'RTH', {}, 1, None, ledger, runtime_bound_reached=lambda stage: True)
+    assert result == [] and ledger == {'ONE':'DROP_STALE_MARKET_DATA'}

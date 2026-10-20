@@ -4563,12 +4563,15 @@ def _build_symbol_context(
     
 
 def _refresh_provisional_shortlist(candidates, provider, session_label, float_cache,
-                                   limit, thresholds, drop_ledger):
+                                   limit, thresholds, drop_ledger, runtime_bound_reached=None):
     # Rank with the existing authority, bound acquisition to K, then rebuild
     # selection metrics and rerun original discovery gates before publication.
     if not callable(getattr(provider, "refresh_quote", None)):
         return candidates
     for context in _rank_candidates(candidates)[:max(0, limit)]:
+        checkpoint()
+        if runtime_bound_reached is not None and runtime_bound_reached("shortlist_refresh"):
+            break
         _refresh_shortlisted_quote(context, provider, session_label, float_cache)
     survivors = []
     for context in candidates:
@@ -6114,10 +6117,12 @@ def run_scanner_cycle(
             news_diag = _with_news_status_index(news_diag, news_by_symbol)
         elif allow_news:
             news_diag = _with_news_status_index(news_diag, news_by_symbol)
+        discovery_survivor_symbols = {row["symbol"] for row in candidates}
         candidates = _refresh_provisional_shortlist(
             candidates, provider, session_label, float_cache, watchlist_limit,
-            thresholds, drop_ledger,
+            thresholds, drop_ledger, runtime_bound_reached=_runtime_bound_reached,
         )
+        refresh_rejected_symbols = discovery_survivor_symbols - {row["symbol"] for row in candidates}
         candidate_metrics_for_ranking: List[CandidateMetrics] = []
         for context in evaluated_contexts:
             symbol = context.get("symbol")
@@ -6169,7 +6174,8 @@ def run_scanner_cycle(
             # Keep stale rows in diagnostic metrics, but never offer them to selection.
             selection_metrics = [
                 metric for metric in candidate_metrics_for_ranking
-                if drop_ledger.get(metric.symbol) != "DROP_STALE_MARKET_DATA"
+                if metric.symbol not in refresh_rejected_symbols
+                and drop_ledger.get(metric.symbol) != "DROP_STALE_MARKET_DATA"
                 and _stale_market_data_drop(context_by_symbol.get(metric.symbol, {})) is None
             ]
             if session_label == "WEEKEND" and run_mode != RunMode.LIVE:
