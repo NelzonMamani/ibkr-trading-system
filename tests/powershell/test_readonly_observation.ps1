@@ -192,7 +192,7 @@ public class ObservationFaultStream : Stream {
     $old=Join-Path $prepBase 'old-evidence'; New-Item -ItemType Directory $old | Out-Null
     'KEEP' | Set-Content (Join-Path $old 'receipt.txt')
     $LASTEXITCODE=361
-    $prepared=& (Join-Path $repo 'docs\ross\PR1108_NATURAL_READONLY_ACCEPTANCE.ps1') -ExpectedCommit $localHead -Python $Python -SourceCheckout $source -BaseDirectory $prepBase 6>&1
+    $prepared=& (Join-Path $repo 'docs\ross\PR1108_NATURAL_READONLY_ACCEPTANCE.ps1') -ExpectedCommit $localHead -Python $Python -SourceCheckout $source -BaseDirectory $prepBase -RuntimeSeconds 900 6>&1
     Check ($LASTEXITCODE -eq 361) 'Caller-local status was unexpectedly changed.'
     $preparedRoot=Get-ChildItem -Directory $prepBase | Where-Object { $_.Name -like 'ro-*' } | Select-Object -First 1
     Check ($null -ne $preparedRoot) 'Preparation did not create worktree.'
@@ -202,6 +202,7 @@ public class ObservationFaultStream : Stream {
     Check ((Get-Content -Raw (Join-Path $source 'sentinel.txt')) -match 'dirty source retained') 'Source changed.'
     Check ((Get-Content -Raw (Join-Path $old 'receipt.txt')) -match 'KEEP') 'Existing evidence changed.'
     Check (($prepared | Out-String) -match 'run_natural_readonly_observation.ps1') 'No separate execution command printed.'
+    Check (($prepared | Out-String) -match '-RuntimeSeconds 900') 'Prepared command lost selected duration.'
     & git -C $source worktree remove --force $checkout
     Check ($global:LASTEXITCODE -eq 0) 'Synthetic worktree cleanup failed.'
     $passed++

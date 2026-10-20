@@ -1542,3 +1542,17 @@ one scan completes, record incomplete continuous acceptance and its cause, not a
 terminal-only pass. Keep five outcomes separate: graceful shutdown, full natural
 scan(s), full-issuer acquisition/coverage, catalyst qualification and downstream
 progression. A catalyst is not required to validate scheduling or shutdown.
+
+
+PR1116 carries this focused repair and the bounded-duration harness separately by
+cause commit. Preparation helper also accepts RuntimeSeconds and prints that exact
+value in its separate execution command, avoiding an accidental return to180s.
+Local final focused check:117passed115warnings6.56s, including existing shutdown,
+cache/deadline/cadence, new multi-candidate and duration cases. Initial broader
+focused invocation collected an existing `from core.orchestrator` test without
+`src` on PYTHONPATH and stopped with ModuleNotFoundError; that attempt remains a
+collection failure. Corrected offline import path `tests/offline:.:src` produced
+the117-pass receipt, with no code/assertion/skip change. Linux controlled inventory
+and9synthetic real packaging checks also passed. Independent review at50fef96e
+ran21offline cases successfully; final changed-head CI/review receipts belong to
+PR1116 and must be checked there before operator use. No full workstation rerun.

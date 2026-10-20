@@ -2,7 +2,8 @@
 param([Parameter(Mandatory=$true)][ValidatePattern('^[0-9a-f]{40}$')][string]$ExpectedCommit,
       [Parameter(Mandatory=$true)][string]$Python,
       [Parameter(Mandatory=$true)][string]$SourceCheckout,
-      [string]$BaseDirectory = 'C:\tmp')
+      [string]$BaseDirectory = 'C:\tmp',
+      [ValidateRange(180,1800)][int]$RuntimeSeconds = 180)
 $ErrorActionPreference = 'Stop'
 if ($PSVersionTable.PSEdition -ne 'Desktop') { throw 'Use Windows PowerShell 5.1.' }
 if (!(Test-Path -LiteralPath $Python -PathType Leaf)) { throw "Missing Python: $Python" }
@@ -31,4 +32,4 @@ if ($global:LASTEXITCODE -ne 0 -or $actual -cne $ExpectedCommit) { throw 'Checko
 $runner = Join-Path $checkout 'scripts\certification\run_natural_readonly_observation.ps1'
 Write-Host "Prepared $checkout at $actual. Nothing observed. PAPER_READY=NO."
 Write-Host 'After the documented TWS/session setup, separately run:'
-Write-Host ('powershell.exe -NoProfile -ExecutionPolicy Bypass -File "{0}" -Python "{1}" -Root "{2}" -ExpectedCommit {3}' -f $runner,$Python,$root,$ExpectedCommit)
+Write-Host ('powershell.exe -NoProfile -ExecutionPolicy Bypass -File "{0}" -Python "{1}" -Root "{2}" -ExpectedCommit {3} -RuntimeSeconds {4}' -f $runner,$Python,$root,$ExpectedCommit,$RuntimeSeconds)
