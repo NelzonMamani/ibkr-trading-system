@@ -325,6 +325,13 @@ def load_manual_focus_config() -> ManualFocusConfig:
         return _disabled_manual_focus_config(effective_source=source)
 
 
+def _report_strategy_input_skip(watchlist_symbols, focus_symbols):
+    reason = ("EMPTY_WATCHLIST" if not watchlist_symbols else
+              "NO_FOCUS_CANDIDATES" if not focus_symbols else "NO_STRATEGY_INPUTS")
+    print(f"[PIPELINE][SKIP] reason={reason} watchlist_count={len(watchlist_symbols)} "
+          f"focus_count={len(focus_symbols)}")
+
+
 def _report_intent_absence(focus_count, violations):
     """Empty Focus/no trigger are ordinary no-trade outcomes, not pipeline faults."""
     if violations:
@@ -3857,7 +3864,7 @@ class CoreOrchestrator:
                 prep_only=session_prep_only,
             )
         else:
-            print("[PIPELINE][SKIP] empty watchlist")
+            _report_strategy_input_skip(watchlist_symbols, final_evaluation_symbols)
             strategy_output = []
         print(f"[PIPELINE][STRATEGY_OUTPUT] count={len(strategy_output or [])}")
         print(

@@ -1999,10 +1999,15 @@ def _stale_market_data_drop(context: Dict[str, Any]) -> Optional[str]:
 def _evaluate_watchlist_gates(
     context: Dict[str, Any],
     thresholds: GateThresholds,
+    *,
+    provisional: bool = False,
 ) -> Optional[str]:
-    stale_drop = _stale_market_data_drop(context)
-    if stale_drop:
-        return stale_drop
+    # Only acquisition ranking may defer freshness. Final selection and Focus
+    # must consume fresh broker evidence through the existing strict gates.
+    if not provisional:
+        stale_drop = _stale_market_data_drop(context)
+        if stale_drop:
+            return stale_drop
     float_drop = _evaluate_float_gate(context, thresholds)
     if float_drop:
         return float_drop
@@ -5968,7 +5973,10 @@ def run_scanner_cycle(
                         runtime_bound_reached=lambda stage: _runtime_bound_reached(stage, reserve_news=True),
                     )
             pct_gate_considered += 1
-            drop_reason = _evaluate_watchlist_gates(context, thresholds)
+            drop_reason = _evaluate_watchlist_gates(
+                context, thresholds,
+                provisional=callable(getattr(provider, "refresh_quote", None)),
+            )
             if drop_reason:
                 pct_gate_failed += 1
                 drop_ledger.setdefault(symbol, drop_reason)
@@ -6021,6 +6029,7 @@ def run_scanner_cycle(
             pct_gate_passed += 1
             keep_parts = [
                 f"[SCANNER][KEEP] symbol={symbol}",
+                "stage=PROVISIONAL_ACQUISITION" if callable(getattr(provider, "refresh_quote", None)) else "stage=DISCOVERY",
                 f"last={_format_value(context.get('last_price'))}",
                 f"final_pct={_format_value(context.get('pct_change'))}",
                 f"pct_source={context.get('pct_source') or 'NA'}",
@@ -6380,7 +6389,12 @@ def run_scanner_cycle(
                     continue
                 stale_reason = _stale_market_data_drop(context)
                 if stale_reason:
-                    drop_ledger[symbol] = stale_reason
+                    first_reason = drop_ledger.get(symbol)
+                    # Missing-data rows can otherwise enter optional backfill;
+                    # make their later hard stale block explicit. Preserve prior
+                    # hard float/RVOL/percentage rejection causes.
+                    if first_reason is None or first_reason.startswith("DROP_MISSING_"):
+                        drop_ledger[symbol] = stale_reason
                     continue
                 drop_reason = drop_ledger.get(symbol)
                 if drop_reason and not drop_reason.startswith("DROP_MISSING_"):
