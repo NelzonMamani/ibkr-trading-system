@@ -14,6 +14,9 @@ from src.strategies.ross_momentum.strategy_policy import StockSelectionSpec
 from .runtime_safety import normalize_run_mode, validation_override_allowed
 
 
+ISSUER_EVENT_MAX_AGE_SECONDS = 6 * 60 * 60
+
+
 class CatalystStatus(str, Enum):
     CONFIRMED = "CONFIRMED"
     ABSENT = "ABSENT"
@@ -152,6 +155,17 @@ def detect_dilution(title: str) -> bool:
                for keyword in DILUTION_KEYWORDS)
 
 
+def issuer_event_time_state(item, *, now_ts):
+    """Qualification-time cache boundary, never a replacement publication time."""
+    published = getattr(item, 'published_at', None)
+    timestamp = (published.timestamp() if published is not None and published.tzinfo is not None
+                 else getattr(item, 'published_ts', None))
+    if timestamp is None:
+        return 'unknown'
+    age = now_ts - timestamp
+    return 'future' if age < 0 else 'stale' if age > ISSUER_EVENT_MAX_AGE_SECONDS else 'current'
+
+
 def assess_issuer_event(symbol, item, candidates=()):
     """Conservative title-clause attribution, not semantic event inference.
 
@@ -177,7 +191,7 @@ def assess_issuer_event(symbol, item, candidates=()):
     if timestamp_facts.get('selected_time_basis') == 'updated':
         result['reason'] = 'publication_time_unverified_update_only'
         return result
-    if age is None or age < 0 or age > 21600:
+    if age is None or age < 0 or age > ISSUER_EVENT_MAX_AGE_SECONDS:
         result['reason'] = 'missing_future_or_stale_publication_time'
         return result
     if symbol_relevance_match(symbol, title=title, summary=str(getattr(item, 'summary', '') or ''), metadata=metadata) is None:
@@ -333,7 +347,7 @@ def select_qualification_evidence(items, request):
         symbol = getattr(item, 'symbol', '')
         decision = assess_issuer_event(symbol, item)
         age = time.time() - stamp(item)
-        veto = (getattr(item, 'source_tier', None) != 'research' and 0 <= age <= 21600 and detect_dilution(str(getattr(item, 'headline', getattr(item, 'title', '')))))
+        veto = (getattr(item, 'source_tier', None) != 'research' and 0 <= age <= ISSUER_EVENT_MAX_AGE_SECONDS and detect_dilution(str(getattr(item, 'headline', getattr(item, 'title', '')))))
         rank = (2 if veto else 1 if decision['qualified'] else 0, stamp(item))
         if rank[0] and rank > witness_rank:
             witness, witness_rank = item, rank
