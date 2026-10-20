@@ -2063,3 +2063,51 @@ shutdown certification. Broken-output cases cover lookup start and publication.
 Preparation checks explicitly use global native exit status; Windows controlled
 harness parses the released block and checks that contract. These changes remain
 separate from accepted main pending review/integration; observation remains HOLD.
+
+## Natural receipt 5 at d967 — 2026-10-20
+
+Preserve user-operated PASS: three genuine scans/150 rows, Watchlists3/4/2,
+independent maintenance/incremental publication at5.256s, transport212requests/
+1174reuse; graceful terminal PASS, no force, zero runtime/independent mutations,
+unchanged source/operator order state. Five outcomes remain separate: shutdown
+PASS; scanner passes PASS; natural issuer acquisition demonstrated but partial;
+catalyst qualification UNESTABLISHED; downstream progression UNESTABLISHED.
+No changed-source result replaces historical workstation evidence. Holdings and
+ownership blockers unchanged; GUI draft remains deferred; PAPER_READY=NO.
+
+Full trace, exact per-Watchlist issuer query receipts, freshness timings, limits
+of missing historical date/relevance counters, and service/cleanup reconciliation:
+[RUN5_NEWS_ELIGIBILITY_FINDINGS.md](RUN5_NEWS_ELIGIBILITY_FINDINGS.md), with extracted
+hashed receipt summary in evidence/RUN5_NEWS_RECEIPT_SUMMARY.json. Robust parsing
+finds156 starts/results,155 completed publications, one interrupted CLRO. Seven
+failures are six budget-exhausted outcomes plus interruption. WORX interim cleanup
+incomplete stops maintenance; final owned cleanup succeeds. Retired work50 leaves
+tracked13; backlog is not a worker leak. Active due lateness inferred <=2.214s
+between uninterrupted intervals; exact retirement-boundary waits unavailable.
+
+Demonstrated operational blocker: cached empty Focus is copied between broker
+scans;223 priority updates do not reconsider Watchlist eligibility. Watchlist
+quotes are not maintained with empty Focus. A separate focused repair reconsiders
+canonical evidence at existing Focus cadence using genuine retained shortlist
+context; verified positives require bounded existing-provider refresh and original
+strict gates/selector. No new discovery/HTTP on the selection caller. Monitoring
+quotes do not become fresh by copying them. Existing six-hour event validity,
+attribution/deduplication/dilution vetoes and15s broker freshness remain intact.
+This cannot make the incomplete AIXI article qualifying; WORX/NCPL/BETR zero
+retained evidence is not established absence of qualifying news under partial
+coverage. Observation HOLD; no additional operator run now. CI/review receipts
+belong to the focused PR; no merge or readiness upgrade authorized by this task.
+
+Run5 focused repair local Linux/Python3.12 verification:166passed119warnings5.69s
+across new26cases plus continuity, multi-candidate latency, canonical lifecycle,
+maintenance/store/shutdown and native blocking-acquisition regressions. Real
+provider/client wrappers with fixture transports confirm one history/qualification
+baseline across initial+two reconsiderations, three genuine quote acquisitions;
+different history parameters/new full scopes request independently. Independent
+WIP review identified stale policy settings and repeated history; both corrected.
+Core+real-helper replay exposed old Watchlist handoff dropping new evidence; only
+matching existing Watchlist objects are now updated from revalidated Focus. A
+multi-positive fast-leader/slow-tail replay verifies local selection reserve inside
+the unchanged absolute deadline. These synthetic receipts are not live speed or
+natural catalyst acceptance. Required remote Linux/Windows CI and final exact-head
+review will be recorded on the focused repair PR; no workstation suite repeated.

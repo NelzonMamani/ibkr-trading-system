@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import re
+import time
 from threading import Lock, Thread
 from uuid import uuid4
 from typing import Dict, List, Optional, Set, Tuple
@@ -112,7 +113,7 @@ from src.strategy_policy_v2.flags import is_policy_v2_enabled_for_strategy
 from src.strategy_policy_v2.policy_v2 import StrategyPolicyV2
 from src.strategy_policy_v2.registry import resolve_policy_v2
 from src.core.acquisition import AcquisitionCancelled, acquisition_scope
-from src.scanner.scanner_runner import run_scanner_cycle
+from src.scanner.scanner_runner import run_scanner_cycle, reassess_ross_watchlist
 from src.scanner.providers.base import ProviderConnectionError
 from src.scanner.providers.mock_provider import MockScannerProvider
 from src.market_data.session_pct_change import canonical_session_label, normalize_session_label, resolve_market_session_context
@@ -3429,6 +3430,24 @@ class CoreOrchestrator:
                     base = list(cached_focus_rows)
                     focus_authority = "CACHED_SCANNER_PAYLOAD"
                     focus_reason = "WITHIN_TOPN_REFRESH_WINDOW"
+                    maintenance = getattr(self, "_news_maintenance", None)
+                    if active_strategy == "ross_momentum" and maintenance is not None and provider_override is None:
+                        try:
+                            reassessed = reassess_ross_watchlist(
+                                cached_payload, cadence.watchlist.symbols, news_maintenance=maintenance, policy=active_scanner_policy,
+                                market_data_client=self.connection_manager.optional_client,
+                                forced_session_label=forced_session_label, forced_session_source=forced_session_source,
+                                deadline_s=time.monotonic() + max(1, focus_refresh),
+                            )
+                            if reassessed is not None:
+                                base = list(reassessed)
+                                focus_authority = "CANONICAL_WATCHLIST_REASSESSMENT"
+                                focus_reason = "CURRENT_NEWS_AND_STRICT_MARKET_GATES"
+                        except Exception as exc:
+                            base = []
+                            focus_authority = "BLOCKED_WATCHLIST_REASSESSMENT"
+                            focus_reason = type(exc).__name__
+                            print(f"[ROSS][REASSESS][FAILED] error={type(exc).__name__} focus_count=0")
                 elif cadence.watchlist.authority == "DEGRADED_STALE_MONITORING":
                     base = []
                     focus_authority = "BLOCKED_DEGRADED_WATCHLIST"
@@ -3441,7 +3460,7 @@ class CoreOrchestrator:
                     base = list(cadence.watchlist.rows)[:focus_limit_max]
                     focus_authority = "WATCHLIST_FALLBACK"
                     focus_reason = "NON_ROSS_OR_NON_EXECUTION_MODE"
-                if focus_authority in {"SCANNER_PAYLOAD", "CACHED_SCANNER_PAYLOAD"}:
+                if focus_authority in {"SCANNER_PAYLOAD", "CACHED_SCANNER_PAYLOAD", "CANONICAL_WATCHLIST_REASSESSMENT"}:
                     base, focus_not_in_watchlist = self._focus_rows_within_watchlist(
                         list(base),
                         list(cadence.watchlist.rows),
@@ -3476,6 +3495,12 @@ class CoreOrchestrator:
                 from src.strategies.ross_momentum.policy.catalyst_lifecycle import filter_catalyst_rows
                 cadence.focus.rows = filter_catalyst_rows(cadence.focus.rows, stage="cached_focus", mode=self.run_mode)
                 cadence.focus.symbols = self._symbols_from_candidates(cadence.focus.rows)
+                if cadence.focus.authority == "CANONICAL_WATCHLIST_REASSESSMENT":
+                    # Later setup assembly indexes the Watchlist by symbol. Carry
+                    # the newly verified facts/quote there, not the old scan row.
+                    current_focus = {row.symbol: row for row in cadence.focus.rows}
+                    cadence.watchlist.rows = [current_focus.get(row.symbol, row)
+                                              for row in cadence.watchlist.rows]
             if active_strategy == strategy_key:
                 selected_watchlist = list(cadence.watchlist.rows)
                 selected_focus = list(cadence.focus.rows)
