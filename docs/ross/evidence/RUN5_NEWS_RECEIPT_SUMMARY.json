@@ -1,0 +1,1771 @@
+{
+  "head": "d967a8ee07b457802841ff65fc88e760083a04dc",
+  "receipt_sha256": "62846f2c5ce2e3b802e27901ac4400966413d0d5b796a66482e64439f3809998",
+  "parser": "JSONDecoder.raw_decode after every maintenance/retrieval marker, including embedded markers on interleaved stdout lines",
+  "maintenance_marker_counts": {
+    "QUEUE": 3,
+    "DISPATCH": 156,
+    "LOOKUP_START": 156,
+    "PUBLISH": 155,
+    "RESULT": 156,
+    "PRIORITY": 223,
+    "LOOKUP_COMPLETE": 1,
+    "SHUTDOWN": 1
+  },
+  "final_maintenance": {
+    "utc": "2026-10-20T19:45:42.953828+00:00",
+    "submitted": 63,
+    "deduplicated": 10,
+    "rejected_full": 0,
+    "completed": 155,
+    "failed": 7,
+    "retired": 50,
+    "publication_failures": 0,
+    "telemetry_failures": 0,
+    "tracked": 13,
+    "inflight": 0,
+    "first_result_seconds": 5.256151400040835,
+    "first_evidence_seconds": 5.256156800314784,
+    "alive_workers": 0,
+    "feed_requests": 212,
+    "feed_reuse": 1174,
+    "backlog": 13,
+    "ready": 7,
+    "priority_counts": {
+      "0": 0,
+      "1": 2,
+      "2": 11
+    },
+    "cleanup_complete": true,
+    "line": 45892
+  },
+  "watchlist_issuer_lookups": {
+    "WORX": [
+      {
+        "started_at_utc": "2026-10-20T19:32:55.626589+00:00",
+        "completed_at_utc": "2026-10-20T19:32:57.320367+00:00",
+        "line": 5484,
+        "provider_available": true,
+        "retrieval_budget_exhausted": false,
+        "provider_status": "partial_request_failure",
+        "summary": {
+          "budget_exhausted": false,
+          "cache_state": "miss",
+          "evidence_count": 0,
+          "fresh_evidence_count": 0,
+          "objective_news_status": "partial_coverage_no_match_observed",
+          "provider_available": true,
+          "provider_status": "partial_request_failure",
+          "retrieval_status": "partial",
+          "retrieval_unavailable": false,
+          "stale_evidence_count": 0,
+          "unavailability_reasons": []
+        },
+        "queries": [
+          {
+            "attempted": true,
+            "budget_exhausted": false,
+            "elapsed_kind": "worker_fetch_parse",
+            "elapsed_seconds": 1.4201672999188304,
+            "failure_code": null,
+            "feed_item_count": 33,
+            "http_status": 200,
+            "matched_count": 0,
+            "parse_elapsed_seconds": 0.0758003001101315,
+            "provider": "rss_batch",
+            "request_elapsed_seconds": 1.3426235001534224,
+            "response_closed": true,
+            "source": "https://news.google.com/rss/search",
+            "source_group": "ROSS_ISSUER_QUERY",
+            "source_tier": "operational_query",
+            "status": "available",
+            "timed_out": false,
+            "timeout_seconds": 5.0,
+            "worker_completed": true
+          }
+        ],
+        "source_status_counts": {
+          "provider_error": 5,
+          "available": 4,
+          "not_requested": 13
+        }
+      },
+      {
+        "started_at_utc": "2026-10-20T19:34:59.421017+00:00",
+        "completed_at_utc": "2026-10-20T19:35:03.378439+00:00",
+        "line": 16064,
+        "provider_available": true,
+        "retrieval_budget_exhausted": false,
+        "provider_status": "partial_request_failure",
+        "summary": {
+          "budget_exhausted": false,
+          "cache_state": "miss",
+          "evidence_count": 0,
+          "fresh_evidence_count": 0,
+          "objective_news_status": "partial_coverage_no_match_observed",
+          "provider_available": true,
+          "provider_status": "partial_request_failure",
+          "retrieval_status": "partial",
+          "retrieval_unavailable": false,
+          "stale_evidence_count": 0,
+          "unavailability_reasons": []
+        },
+        "queries": [
+          {
+            "attempted": true,
+            "budget_exhausted": false,
+            "elapsed_kind": "worker_fetch_parse",
+            "elapsed_seconds": 1.3765890998765826,
+            "failure_code": null,
+            "feed_item_count": 33,
+            "http_status": 200,
+            "matched_count": 0,
+            "parse_elapsed_seconds": 0.054759399965405464,
+            "provider": "rss_batch",
+            "request_elapsed_seconds": 1.318658099975437,
+            "response_closed": true,
+            "source": "https://news.google.com/rss/search",
+            "source_group": "ROSS_ISSUER_QUERY",
+            "source_tier": "operational_query",
+            "status": "available",
+            "timed_out": false,
+            "timeout_seconds": 5.0,
+            "worker_completed": true
+          }
+        ],
+        "source_status_counts": {
+          "available": 5,
+          "provider_error": 4,
+          "not_requested": 13
+        }
+      },
+      {
+        "started_at_utc": "2026-10-20T19:37:03.550726+00:00",
+        "completed_at_utc": "2026-10-20T19:37:06.678416+00:00",
+        "line": 23520,
+        "provider_available": true,
+        "retrieval_budget_exhausted": false,
+        "provider_status": "partial_request_failure",
+        "summary": {
+          "budget_exhausted": false,
+          "cache_state": "miss",
+          "evidence_count": 0,
+          "fresh_evidence_count": 0,
+          "objective_news_status": "partial_coverage_no_match_observed",
+          "provider_available": true,
+          "provider_status": "partial_request_failure",
+          "retrieval_status": "partial",
+          "retrieval_unavailable": false,
+          "stale_evidence_count": 0,
+          "unavailability_reasons": []
+        },
+        "queries": [
+          {
+            "attempted": true,
+            "budget_exhausted": false,
+            "elapsed_kind": "worker_fetch_parse",
+            "elapsed_seconds": 1.149225799832493,
+            "failure_code": null,
+            "feed_item_count": 33,
+            "http_status": 200,
+            "matched_count": 0,
+            "parse_elapsed_seconds": 0.024406499695032835,
+            "provider": "rss_batch",
+            "request_elapsed_seconds": 1.122758500277996,
+            "response_closed": true,
+            "source": "https://news.google.com/rss/search",
+            "source_group": "ROSS_ISSUER_QUERY",
+            "source_tier": "operational_query",
+            "status": "available",
+            "timed_out": false,
+            "timeout_seconds": 5.0,
+            "worker_completed": true
+          }
+        ],
+        "source_status_counts": {
+          "provider_error": 4,
+          "available": 5,
+          "not_requested": 13
+        }
+      },
+      {
+        "started_at_utc": "2026-10-20T19:39:07.251418+00:00",
+        "completed_at_utc": "2026-10-20T19:39:11.095560+00:00",
+        "line": 28735,
+        "provider_available": true,
+        "retrieval_budget_exhausted": false,
+        "provider_status": "partial_request_failure",
+        "summary": {
+          "budget_exhausted": false,
+          "cache_state": "miss",
+          "evidence_count": 0,
+          "fresh_evidence_count": 0,
+          "objective_news_status": "partial_coverage_no_match_observed",
+          "provider_available": true,
+          "provider_status": "partial_request_failure",
+          "retrieval_status": "partial",
+          "retrieval_unavailable": false,
+          "stale_evidence_count": 0,
+          "unavailability_reasons": []
+        },
+        "queries": [
+          {
+            "attempted": true,
+            "budget_exhausted": false,
+            "elapsed_kind": "worker_fetch_parse",
+            "elapsed_seconds": 1.2969292998313904,
+            "failure_code": null,
+            "feed_item_count": 33,
+            "http_status": 200,
+            "matched_count": 0,
+            "parse_elapsed_seconds": 0.05692389979958534,
+            "provider": "rss_batch",
+            "request_elapsed_seconds": 1.2375332000665367,
+            "response_closed": true,
+            "source": "https://news.google.com/rss/search",
+            "source_group": "ROSS_ISSUER_QUERY",
+            "source_tier": "operational_query",
+            "status": "available",
+            "timed_out": false,
+            "timeout_seconds": 5.0,
+            "worker_completed": true
+          }
+        ],
+        "source_status_counts": {
+          "provider_error": 5,
+          "available": 4,
+          "not_requested": 13
+        }
+      },
+      {
+        "started_at_utc": "2026-10-20T19:41:11.650638+00:00",
+        "completed_at_utc": "2026-10-20T19:41:16.384147+00:00",
+        "line": 34170,
+        "provider_available": true,
+        "retrieval_budget_exhausted": false,
+        "provider_status": "partial_request_failure",
+        "summary": {
+          "budget_exhausted": false,
+          "cache_state": "miss",
+          "evidence_count": 0,
+          "fresh_evidence_count": 0,
+          "objective_news_status": "partial_coverage_no_match_observed",
+          "provider_available": true,
+          "provider_status": "partial_request_failure",
+          "retrieval_status": "partial",
+          "retrieval_unavailable": false,
+          "stale_evidence_count": 0,
+          "unavailability_reasons": []
+        },
+        "queries": [
+          {
+            "attempted": true,
+            "budget_exhausted": false,
+            "elapsed_kind": "worker_fetch_parse",
+            "elapsed_seconds": 1.6226812996901572,
+            "failure_code": null,
+            "feed_item_count": 31,
+            "http_status": 200,
+            "matched_count": 0,
+            "parse_elapsed_seconds": 0.05324329994618893,
+            "provider": "rss_batch",
+            "request_elapsed_seconds": 1.567450899630785,
+            "response_closed": true,
+            "source": "https://news.google.com/rss/search",
+            "source_group": "ROSS_ISSUER_QUERY",
+            "source_tier": "operational_query",
+            "status": "available",
+            "timed_out": false,
+            "timeout_seconds": 5.0,
+            "worker_completed": true
+          }
+        ],
+        "source_status_counts": {
+          "available": 6,
+          "provider_error": 3,
+          "not_requested": 13
+        }
+      },
+      {
+        "started_at_utc": "2026-10-20T19:43:16.394126+00:00",
+        "completed_at_utc": "2026-10-20T19:43:20.080102+00:00",
+        "line": 39612,
+        "provider_available": true,
+        "retrieval_budget_exhausted": false,
+        "provider_status": "partial_request_failure",
+        "summary": {
+          "budget_exhausted": false,
+          "cache_state": "miss",
+          "evidence_count": 0,
+          "fresh_evidence_count": 0,
+          "objective_news_status": "partial_coverage_no_match_observed",
+          "provider_available": true,
+          "provider_status": "partial_request_failure",
+          "retrieval_status": "partial",
+          "retrieval_unavailable": false,
+          "stale_evidence_count": 0,
+          "unavailability_reasons": []
+        },
+        "queries": [
+          {
+            "attempted": true,
+            "budget_exhausted": false,
+            "elapsed_kind": "worker_fetch_parse",
+            "elapsed_seconds": 1.1371126999147236,
+            "failure_code": null,
+            "feed_item_count": 33,
+            "http_status": 200,
+            "matched_count": 0,
+            "parse_elapsed_seconds": 0.02596600027754903,
+            "provider": "rss_batch",
+            "request_elapsed_seconds": 1.1089376998133957,
+            "response_closed": true,
+            "source": "https://news.google.com/rss/search",
+            "source_group": "ROSS_ISSUER_QUERY",
+            "source_tier": "operational_query",
+            "status": "available",
+            "timed_out": false,
+            "timeout_seconds": 5.0,
+            "worker_completed": true
+          }
+        ],
+        "source_status_counts": {
+          "provider_error": 4,
+          "available": 5,
+          "not_requested": 13
+        }
+      },
+      {
+        "started_at_utc": "2026-10-20T19:45:22.299594+00:00",
+        "completed_at_utc": "2026-10-20T19:45:29.316028+00:00",
+        "line": 45344,
+        "provider_available": false,
+        "retrieval_budget_exhausted": true,
+        "provider_status": "partial_request_failure",
+        "summary": {
+          "budget_exhausted": true,
+          "cache_state": "miss",
+          "evidence_count": 0,
+          "fresh_evidence_count": 0,
+          "objective_news_status": "budget_exhausted",
+          "provider_available": false,
+          "provider_status": "partial_request_failure",
+          "retrieval_status": "budget_exhausted",
+          "retrieval_unavailable": true,
+          "stale_evidence_count": 0,
+          "unavailability_reasons": [
+            "provider_unavailable",
+            "budget_exhausted",
+            "retrieval_budget_exhausted"
+          ]
+        },
+        "queries": [
+          {
+            "attempted": true,
+            "budget_exhausted": true,
+            "elapsed_kind": "since_submission",
+            "elapsed_seconds": 5.220460099633783,
+            "failure_code": "deadline_exhausted",
+            "feed_item_count": null,
+            "http_status": null,
+            "matched_count": 0,
+            "parse_elapsed_seconds": null,
+            "provider": "rss_batch",
+            "request_elapsed_seconds": null,
+            "response_closed": null,
+            "source": "https://news.google.com/rss/search",
+            "source_group": "ROSS_ISSUER_QUERY",
+            "source_tier": "operational_query",
+            "status": "budget_exhausted",
+            "timed_out": false,
+            "timeout_seconds": 5.0,
+            "worker_completed": false
+          }
+        ],
+        "source_status_counts": {
+          "provider_error": 6,
+          "available": 1,
+          "budget_exhausted": 2,
+          "not_requested": 13
+        }
+      }
+    ],
+    "AIXI": [
+      {
+        "started_at_utc": "2026-10-20T19:32:50.037216+00:00",
+        "completed_at_utc": "2026-10-20T19:32:55.287900+00:00",
+        "line": 5420,
+        "provider_available": true,
+        "retrieval_budget_exhausted": true,
+        "provider_status": "partial_request_failure",
+        "summary": {
+          "budget_exhausted": false,
+          "cache_state": "miss",
+          "evidence_count": 1,
+          "fresh_evidence_count": 1,
+          "objective_news_status": "news_present_partial_coverage",
+          "provider_available": true,
+          "provider_status": "partial_request_failure",
+          "retrieval_status": "partial",
+          "retrieval_unavailable": false,
+          "stale_evidence_count": 0,
+          "unavailability_reasons": []
+        },
+        "queries": [
+          {
+            "attempted": true,
+            "budget_exhausted": false,
+            "elapsed_kind": "worker_fetch_parse",
+            "elapsed_seconds": 1.425487000029534,
+            "failure_code": null,
+            "feed_item_count": 21,
+            "http_status": 200,
+            "matched_count": 1,
+            "parse_elapsed_seconds": 0.03810869995504618,
+            "provider": "rss_batch",
+            "request_elapsed_seconds": 1.3857411998324096,
+            "response_closed": true,
+            "source": "https://news.google.com/rss/search",
+            "source_group": "ROSS_ISSUER_QUERY",
+            "source_tier": "operational_query",
+            "status": "available",
+            "timed_out": false,
+            "timeout_seconds": 5.0,
+            "worker_completed": true
+          }
+        ],
+        "source_status_counts": {
+          "provider_error": 3,
+          "available": 3,
+          "partial": 1,
+          "budget_exhausted": 2,
+          "not_requested": 13
+        }
+      },
+      {
+        "started_at_utc": "2026-10-20T19:34:55.393789+00:00",
+        "completed_at_utc": "2026-10-20T19:34:59.531425+00:00",
+        "line": 15814,
+        "provider_available": true,
+        "retrieval_budget_exhausted": false,
+        "provider_status": "partial_request_failure",
+        "summary": {
+          "budget_exhausted": false,
+          "cache_state": "hit",
+          "evidence_count": 1,
+          "fresh_evidence_count": 1,
+          "objective_news_status": "news_present_partial_coverage",
+          "provider_available": true,
+          "provider_status": "partial_request_failure",
+          "retrieval_status": "partial",
+          "retrieval_unavailable": false,
+          "stale_evidence_count": 0,
+          "unavailability_reasons": []
+        },
+        "queries": [
+          {
+            "attempted": true,
+            "budget_exhausted": false,
+            "elapsed_kind": "worker_fetch_parse",
+            "elapsed_seconds": 1.6667213002219796,
+            "failure_code": null,
+            "feed_item_count": 21,
+            "http_status": 200,
+            "matched_count": 1,
+            "parse_elapsed_seconds": 0.12625910015776753,
+            "provider": "rss_batch",
+            "request_elapsed_seconds": 1.5392772001214325,
+            "response_closed": true,
+            "source": "https://news.google.com/rss/search",
+            "source_group": "ROSS_ISSUER_QUERY",
+            "source_tier": "operational_query",
+            "status": "available",
+            "timed_out": false,
+            "timeout_seconds": 5.0,
+            "worker_completed": true
+          }
+        ],
+        "source_status_counts": {
+          "provider_error": 4,
+          "available": 5,
+          "not_requested": 13
+        }
+      },
+      {
+        "started_at_utc": "2026-10-20T19:36:59.542318+00:00",
+        "completed_at_utc": "2026-10-20T19:37:03.675918+00:00",
+        "line": 23390,
+        "provider_available": true,
+        "retrieval_budget_exhausted": false,
+        "provider_status": "partial_request_failure",
+        "summary": {
+          "budget_exhausted": false,
+          "cache_state": "hit",
+          "evidence_count": 1,
+          "fresh_evidence_count": 1,
+          "objective_news_status": "news_present_partial_coverage",
+          "provider_available": true,
+          "provider_status": "partial_request_failure",
+          "retrieval_status": "partial",
+          "retrieval_unavailable": false,
+          "stale_evidence_count": 0,
+          "unavailability_reasons": []
+        },
+        "queries": [
+          {
+            "attempted": true,
+            "budget_exhausted": false,
+            "elapsed_kind": "worker_fetch_parse",
+            "elapsed_seconds": 2.400924500077963,
+            "failure_code": null,
+            "feed_item_count": 21,
+            "http_status": 200,
+            "matched_count": 1,
+            "parse_elapsed_seconds": 0.05838620010763407,
+            "provider": "rss_batch",
+            "request_elapsed_seconds": 1.2515818998217583,
+            "response_closed": true,
+            "source": "https://news.google.com/rss/search",
+            "source_group": "ROSS_ISSUER_QUERY",
+            "source_tier": "operational_query",
+            "status": "available",
+            "timed_out": false,
+            "timeout_seconds": 5.0,
+            "worker_completed": true
+          }
+        ],
+        "source_status_counts": {
+          "provider_error": 4,
+          "available": 5,
+          "not_requested": 13
+        }
+      },
+      {
+        "started_at_utc": "2026-10-20T19:39:03.747639+00:00",
+        "completed_at_utc": "2026-10-20T19:39:07.375869+00:00",
+        "line": 28480,
+        "provider_available": true,
+        "retrieval_budget_exhausted": false,
+        "provider_status": "partial_request_failure",
+        "summary": {
+          "budget_exhausted": false,
+          "cache_state": "hit",
+          "evidence_count": 1,
+          "fresh_evidence_count": 1,
+          "objective_news_status": "news_present_partial_coverage",
+          "provider_available": true,
+          "provider_status": "partial_request_failure",
+          "retrieval_status": "partial",
+          "retrieval_unavailable": false,
+          "stale_evidence_count": 0,
+          "unavailability_reasons": []
+        },
+        "queries": [
+          {
+            "attempted": true,
+            "budget_exhausted": false,
+            "elapsed_kind": "worker_fetch_parse",
+            "elapsed_seconds": 2.1217262004502118,
+            "failure_code": null,
+            "feed_item_count": 21,
+            "http_status": 200,
+            "matched_count": 1,
+            "parse_elapsed_seconds": 0.020147900097072124,
+            "provider": "rss_batch",
+            "request_elapsed_seconds": 1.0608135000802577,
+            "response_closed": true,
+            "source": "https://news.google.com/rss/search",
+            "source_group": "ROSS_ISSUER_QUERY",
+            "source_tier": "operational_query",
+            "status": "available",
+            "timed_out": false,
+            "timeout_seconds": 5.0,
+            "worker_completed": true
+          }
+        ],
+        "source_status_counts": {
+          "provider_error": 5,
+          "available": 4,
+          "not_requested": 13
+        }
+      },
+      {
+        "started_at_utc": "2026-10-20T19:41:07.386342+00:00",
+        "completed_at_utc": "2026-10-20T19:41:11.778493+00:00",
+        "line": 33945,
+        "provider_available": true,
+        "retrieval_budget_exhausted": false,
+        "provider_status": "partial_request_failure",
+        "summary": {
+          "budget_exhausted": false,
+          "cache_state": "hit",
+          "evidence_count": 1,
+          "fresh_evidence_count": 1,
+          "objective_news_status": "news_present_partial_coverage",
+          "provider_available": true,
+          "provider_status": "partial_request_failure",
+          "retrieval_status": "partial",
+          "retrieval_unavailable": false,
+          "stale_evidence_count": 0,
+          "unavailability_reasons": []
+        },
+        "queries": [
+          {
+            "attempted": true,
+            "budget_exhausted": false,
+            "elapsed_kind": "worker_fetch_parse",
+            "elapsed_seconds": 2.436454199720174,
+            "failure_code": null,
+            "feed_item_count": 21,
+            "http_status": 200,
+            "matched_count": 1,
+            "parse_elapsed_seconds": 0.05925779975950718,
+            "provider": "rss_batch",
+            "request_elapsed_seconds": 1.4289512000977993,
+            "response_closed": true,
+            "source": "https://news.google.com/rss/search",
+            "source_group": "ROSS_ISSUER_QUERY",
+            "source_tier": "operational_query",
+            "status": "available",
+            "timed_out": false,
+            "timeout_seconds": 5.0,
+            "worker_completed": true
+          }
+        ],
+        "source_status_counts": {
+          "provider_error": 4,
+          "available": 5,
+          "not_requested": 13
+        }
+      },
+      {
+        "started_at_utc": "2026-10-20T19:43:11.826930+00:00",
+        "completed_at_utc": "2026-10-20T19:43:16.163356+00:00",
+        "line": 39468,
+        "provider_available": true,
+        "retrieval_budget_exhausted": false,
+        "provider_status": "partial_request_failure",
+        "summary": {
+          "budget_exhausted": false,
+          "cache_state": "hit",
+          "evidence_count": 1,
+          "fresh_evidence_count": 1,
+          "objective_news_status": "news_present_partial_coverage",
+          "provider_available": true,
+          "provider_status": "partial_request_failure",
+          "retrieval_status": "partial",
+          "retrieval_unavailable": false,
+          "stale_evidence_count": 0,
+          "unavailability_reasons": []
+        },
+        "queries": [
+          {
+            "attempted": true,
+            "budget_exhausted": false,
+            "elapsed_kind": "worker_fetch_parse",
+            "elapsed_seconds": 3.290503699798137,
+            "failure_code": null,
+            "feed_item_count": 21,
+            "http_status": 200,
+            "matched_count": 1,
+            "parse_elapsed_seconds": 0.018913700245320797,
+            "provider": "rss_batch",
+            "request_elapsed_seconds": 2.0827080998569727,
+            "response_closed": true,
+            "source": "https://news.google.com/rss/search",
+            "source_group": "ROSS_ISSUER_QUERY",
+            "source_tier": "operational_query",
+            "status": "available",
+            "timed_out": false,
+            "timeout_seconds": 5.0,
+            "worker_completed": true
+          }
+        ],
+        "source_status_counts": {
+          "provider_error": 3,
+          "available": 6,
+          "not_requested": 13
+        }
+      },
+      {
+        "started_at_utc": "2026-10-20T19:45:16.236911+00:00",
+        "completed_at_utc": "2026-10-20T19:45:22.944371+00:00",
+        "line": 45069,
+        "provider_available": false,
+        "retrieval_budget_exhausted": true,
+        "provider_status": "partial_request_failure",
+        "summary": {
+          "budget_exhausted": true,
+          "cache_state": "hit",
+          "evidence_count": 1,
+          "fresh_evidence_count": 1,
+          "objective_news_status": "budget_exhausted",
+          "provider_available": false,
+          "provider_status": "partial_request_failure",
+          "retrieval_status": "budget_exhausted",
+          "retrieval_unavailable": true,
+          "stale_evidence_count": 0,
+          "unavailability_reasons": [
+            "provider_unavailable",
+            "budget_exhausted",
+            "retrieval_budget_exhausted"
+          ]
+        },
+        "queries": [
+          {
+            "attempted": true,
+            "budget_exhausted": true,
+            "elapsed_kind": "since_submission",
+            "elapsed_seconds": 5.3425972000695765,
+            "failure_code": "deadline_exhausted",
+            "feed_item_count": null,
+            "http_status": null,
+            "matched_count": 0,
+            "parse_elapsed_seconds": null,
+            "provider": "rss_batch",
+            "request_elapsed_seconds": null,
+            "response_closed": null,
+            "source": "https://news.google.com/rss/search",
+            "source_group": "ROSS_ISSUER_QUERY",
+            "source_tier": "operational_query",
+            "status": "budget_exhausted",
+            "timed_out": false,
+            "timeout_seconds": 5.0,
+            "worker_completed": false
+          }
+        ],
+        "source_status_counts": {
+          "provider_error": 4,
+          "budget_exhausted": 5,
+          "not_requested": 13
+        }
+      }
+    ],
+    "NCPL": [
+      {
+        "started_at_utc": "2026-10-20T19:32:50.038527+00:00",
+        "completed_at_utc": "2026-10-20T19:32:55.309749+00:00",
+        "line": 5422,
+        "provider_available": true,
+        "retrieval_budget_exhausted": true,
+        "provider_status": "partial_request_failure",
+        "summary": {
+          "budget_exhausted": false,
+          "cache_state": "miss",
+          "evidence_count": 0,
+          "fresh_evidence_count": 0,
+          "objective_news_status": "partial_coverage_no_match_observed",
+          "provider_available": true,
+          "provider_status": "partial_request_failure",
+          "retrieval_status": "partial",
+          "retrieval_unavailable": false,
+          "stale_evidence_count": 0,
+          "unavailability_reasons": []
+        },
+        "queries": [
+          {
+            "attempted": true,
+            "budget_exhausted": false,
+            "elapsed_kind": "worker_fetch_parse",
+            "elapsed_seconds": 2.1202801996842027,
+            "failure_code": null,
+            "feed_item_count": 70,
+            "http_status": 200,
+            "matched_count": 0,
+            "parse_elapsed_seconds": 0.2033555000089109,
+            "provider": "rss_batch",
+            "request_elapsed_seconds": 1.9160136003047228,
+            "response_closed": true,
+            "source": "https://news.google.com/rss/search",
+            "source_group": "ROSS_ISSUER_QUERY",
+            "source_tier": "operational_query",
+            "status": "available",
+            "timed_out": false,
+            "timeout_seconds": 5.0,
+            "worker_completed": true
+          }
+        ],
+        "source_status_counts": {
+          "provider_error": 4,
+          "available": 3,
+          "budget_exhausted": 2,
+          "not_requested": 13
+        }
+      },
+      {
+        "started_at_utc": "2026-10-20T19:34:55.393926+00:00",
+        "completed_at_utc": "2026-10-20T19:34:59.415371+00:00",
+        "line": 15809,
+        "provider_available": true,
+        "retrieval_budget_exhausted": false,
+        "provider_status": "partial_request_failure",
+        "summary": {
+          "budget_exhausted": false,
+          "cache_state": "miss",
+          "evidence_count": 0,
+          "fresh_evidence_count": 0,
+          "objective_news_status": "partial_coverage_no_match_observed",
+          "provider_available": true,
+          "provider_status": "partial_request_failure",
+          "retrieval_status": "partial",
+          "retrieval_unavailable": false,
+          "stale_evidence_count": 0,
+          "unavailability_reasons": []
+        },
+        "queries": [
+          {
+            "attempted": true,
+            "budget_exhausted": false,
+            "elapsed_kind": "worker_fetch_parse",
+            "elapsed_seconds": 2.4086801996454597,
+            "failure_code": null,
+            "feed_item_count": 70,
+            "http_status": 200,
+            "matched_count": 0,
+            "parse_elapsed_seconds": 0.1901717996224761,
+            "provider": "rss_batch",
+            "request_elapsed_seconds": 1.1523667997680604,
+            "response_closed": true,
+            "source": "https://news.google.com/rss/search",
+            "source_group": "ROSS_ISSUER_QUERY",
+            "source_tier": "operational_query",
+            "status": "available",
+            "timed_out": false,
+            "timeout_seconds": 5.0,
+            "worker_completed": true
+          }
+        ],
+        "source_status_counts": {
+          "provider_error": 4,
+          "available": 5,
+          "not_requested": 13
+        }
+      },
+      {
+        "started_at_utc": "2026-10-20T19:36:59.432620+00:00",
+        "completed_at_utc": "2026-10-20T19:37:03.543602+00:00",
+        "line": 23385,
+        "provider_available": true,
+        "retrieval_budget_exhausted": false,
+        "provider_status": "partial_request_failure",
+        "summary": {
+          "budget_exhausted": false,
+          "cache_state": "miss",
+          "evidence_count": 0,
+          "fresh_evidence_count": 0,
+          "objective_news_status": "partial_coverage_no_match_observed",
+          "provider_available": true,
+          "provider_status": "partial_request_failure",
+          "retrieval_status": "partial",
+          "retrieval_unavailable": false,
+          "stale_evidence_count": 0,
+          "unavailability_reasons": []
+        },
+        "queries": [
+          {
+            "attempted": true,
+            "budget_exhausted": false,
+            "elapsed_kind": "worker_fetch_parse",
+            "elapsed_seconds": 1.6130059002898633,
+            "failure_code": null,
+            "feed_item_count": 70,
+            "http_status": 200,
+            "matched_count": 0,
+            "parse_elapsed_seconds": 0.06290689995512366,
+            "provider": "rss_batch",
+            "request_elapsed_seconds": 1.548499200027436,
+            "response_closed": true,
+            "source": "https://news.google.com/rss/search",
+            "source_group": "ROSS_ISSUER_QUERY",
+            "source_tier": "operational_query",
+            "status": "available",
+            "timed_out": false,
+            "timeout_seconds": 5.0,
+            "worker_completed": true
+          }
+        ],
+        "source_status_counts": {
+          "provider_error": 4,
+          "available": 5,
+          "not_requested": 13
+        }
+      },
+      {
+        "started_at_utc": "2026-10-20T19:39:03.641494+00:00",
+        "completed_at_utc": "2026-10-20T19:39:07.242174+00:00",
+        "line": 28475,
+        "provider_available": true,
+        "retrieval_budget_exhausted": false,
+        "provider_status": "partial_request_failure",
+        "summary": {
+          "budget_exhausted": false,
+          "cache_state": "miss",
+          "evidence_count": 0,
+          "fresh_evidence_count": 0,
+          "objective_news_status": "partial_coverage_no_match_observed",
+          "provider_available": true,
+          "provider_status": "partial_request_failure",
+          "retrieval_status": "partial",
+          "retrieval_unavailable": false,
+          "stale_evidence_count": 0,
+          "unavailability_reasons": []
+        },
+        "queries": [
+          {
+            "attempted": true,
+            "budget_exhausted": false,
+            "elapsed_kind": "worker_fetch_parse",
+            "elapsed_seconds": 1.3700344003736973,
+            "failure_code": null,
+            "feed_item_count": 70,
+            "http_status": 200,
+            "matched_count": 0,
+            "parse_elapsed_seconds": 0.060803300235420465,
+            "provider": "rss_batch",
+            "request_elapsed_seconds": 1.3070251001045108,
+            "response_closed": true,
+            "source": "https://news.google.com/rss/search",
+            "source_group": "ROSS_ISSUER_QUERY",
+            "source_tier": "operational_query",
+            "status": "available",
+            "timed_out": false,
+            "timeout_seconds": 5.0,
+            "worker_completed": true
+          }
+        ],
+        "source_status_counts": {
+          "provider_error": 5,
+          "available": 4,
+          "not_requested": 13
+        }
+      },
+      {
+        "started_at_utc": "2026-10-20T19:41:07.282232+00:00",
+        "completed_at_utc": "2026-10-20T19:41:11.642328+00:00",
+        "line": 33934,
+        "provider_available": true,
+        "retrieval_budget_exhausted": false,
+        "provider_status": "partial_request_failure",
+        "summary": {
+          "budget_exhausted": false,
+          "cache_state": "miss",
+          "evidence_count": 0,
+          "fresh_evidence_count": 0,
+          "objective_news_status": "partial_coverage_no_match_observed",
+          "provider_available": true,
+          "provider_status": "partial_request_failure",
+          "retrieval_status": "partial",
+          "retrieval_unavailable": false,
+          "stale_evidence_count": 0,
+          "unavailability_reasons": []
+        },
+        "queries": [
+          {
+            "attempted": true,
+            "budget_exhausted": false,
+            "elapsed_kind": "worker_fetch_parse",
+            "elapsed_seconds": 2.9894183999858797,
+            "failure_code": null,
+            "feed_item_count": 70,
+            "http_status": 200,
+            "matched_count": 0,
+            "parse_elapsed_seconds": 0.15133140003308654,
+            "provider": "rss_batch",
+            "request_elapsed_seconds": 2.836401400156319,
+            "response_closed": true,
+            "source": "https://news.google.com/rss/search",
+            "source_group": "ROSS_ISSUER_QUERY",
+            "source_tier": "operational_query",
+            "status": "available",
+            "timed_out": false,
+            "timeout_seconds": 5.0,
+            "worker_completed": true
+          }
+        ],
+        "source_status_counts": {
+          "provider_error": 4,
+          "available": 5,
+          "not_requested": 13
+        }
+      },
+      {
+        "started_at_utc": "2026-10-20T19:43:11.716808+00:00",
+        "completed_at_utc": "2026-10-20T19:43:16.031892+00:00",
+        "line": 39465,
+        "provider_available": true,
+        "retrieval_budget_exhausted": false,
+        "provider_status": "partial_request_failure",
+        "summary": {
+          "budget_exhausted": false,
+          "cache_state": "miss",
+          "evidence_count": 0,
+          "fresh_evidence_count": 0,
+          "objective_news_status": "partial_coverage_no_match_observed",
+          "provider_available": true,
+          "provider_status": "partial_request_failure",
+          "retrieval_status": "partial",
+          "retrieval_unavailable": false,
+          "stale_evidence_count": 0,
+          "unavailability_reasons": []
+        },
+        "queries": [
+          {
+            "attempted": true,
+            "budget_exhausted": false,
+            "elapsed_kind": "worker_fetch_parse",
+            "elapsed_seconds": 1.8827208001166582,
+            "failure_code": null,
+            "feed_item_count": 70,
+            "http_status": 200,
+            "matched_count": 0,
+            "parse_elapsed_seconds": 0.15713099995628,
+            "provider": "rss_batch",
+            "request_elapsed_seconds": 1.7239771001040936,
+            "response_closed": true,
+            "source": "https://news.google.com/rss/search",
+            "source_group": "ROSS_ISSUER_QUERY",
+            "source_tier": "operational_query",
+            "status": "available",
+            "timed_out": false,
+            "timeout_seconds": 5.0,
+            "worker_completed": true
+          }
+        ],
+        "source_status_counts": {
+          "provider_error": 3,
+          "available": 6,
+          "not_requested": 13
+        }
+      },
+      {
+        "started_at_utc": "2026-10-20T19:45:16.108340+00:00",
+        "completed_at_utc": "2026-10-20T19:45:22.283855+00:00",
+        "line": 45064,
+        "provider_available": true,
+        "retrieval_budget_exhausted": true,
+        "provider_status": "partial_request_failure",
+        "summary": {
+          "budget_exhausted": false,
+          "cache_state": "miss",
+          "evidence_count": 0,
+          "fresh_evidence_count": 0,
+          "objective_news_status": "partial_coverage_no_match_observed",
+          "provider_available": true,
+          "provider_status": "partial_request_failure",
+          "retrieval_status": "partial",
+          "retrieval_unavailable": false,
+          "stale_evidence_count": 0,
+          "unavailability_reasons": []
+        },
+        "queries": [
+          {
+            "attempted": true,
+            "budget_exhausted": false,
+            "elapsed_kind": "worker_fetch_parse",
+            "elapsed_seconds": 2.7497131996788085,
+            "failure_code": null,
+            "feed_item_count": 70,
+            "http_status": 200,
+            "matched_count": 0,
+            "parse_elapsed_seconds": 0.33752489974722266,
+            "provider": "rss_batch",
+            "request_elapsed_seconds": 2.4043490001931787,
+            "response_closed": true,
+            "source": "https://news.google.com/rss/search",
+            "source_group": "ROSS_ISSUER_QUERY",
+            "source_tier": "operational_query",
+            "status": "available",
+            "timed_out": false,
+            "timeout_seconds": 5.0,
+            "worker_completed": true
+          }
+        ],
+        "source_status_counts": {
+          "provider_error": 5,
+          "available": 1,
+          "budget_exhausted": 3,
+          "not_requested": 13
+        }
+      }
+    ],
+    "BETR": [
+      {
+        "started_at_utc": "2026-10-20T19:33:06.886895+00:00",
+        "completed_at_utc": "2026-10-20T19:33:08.400163+00:00",
+        "line": 6786,
+        "provider_available": true,
+        "retrieval_budget_exhausted": false,
+        "provider_status": "partial_request_failure",
+        "summary": {
+          "budget_exhausted": false,
+          "cache_state": "miss",
+          "evidence_count": 0,
+          "fresh_evidence_count": 0,
+          "objective_news_status": "partial_coverage_no_match_observed",
+          "provider_available": true,
+          "provider_status": "partial_request_failure",
+          "retrieval_status": "partial",
+          "retrieval_unavailable": false,
+          "stale_evidence_count": 0,
+          "unavailability_reasons": []
+        },
+        "queries": [
+          {
+            "attempted": true,
+            "budget_exhausted": false,
+            "elapsed_kind": "worker_fetch_parse",
+            "elapsed_seconds": 1.394370499998331,
+            "failure_code": null,
+            "feed_item_count": 10,
+            "http_status": 200,
+            "matched_count": 0,
+            "parse_elapsed_seconds": 0.011054500006139278,
+            "provider": "rss_batch",
+            "request_elapsed_seconds": 1.3803187003359199,
+            "response_closed": true,
+            "source": "https://news.google.com/rss/search",
+            "source_group": "ROSS_ISSUER_QUERY",
+            "source_tier": "operational_query",
+            "status": "available",
+            "timed_out": false,
+            "timeout_seconds": 5.0,
+            "worker_completed": true
+          }
+        ],
+        "source_status_counts": {
+          "provider_error": 5,
+          "available": 4,
+          "not_requested": 13
+        }
+      },
+      {
+        "started_at_utc": "2026-10-20T19:35:10.899708+00:00",
+        "completed_at_utc": "2026-10-20T19:35:12.166597+00:00",
+        "line": 16876,
+        "provider_available": true,
+        "retrieval_budget_exhausted": false,
+        "provider_status": "partial_request_failure",
+        "summary": {
+          "budget_exhausted": false,
+          "cache_state": "miss",
+          "evidence_count": 0,
+          "fresh_evidence_count": 0,
+          "objective_news_status": "partial_coverage_no_match_observed",
+          "provider_available": true,
+          "provider_status": "partial_request_failure",
+          "retrieval_status": "partial",
+          "retrieval_unavailable": false,
+          "stale_evidence_count": 0,
+          "unavailability_reasons": []
+        },
+        "queries": [
+          {
+            "attempted": true,
+            "budget_exhausted": false,
+            "elapsed_kind": "worker_fetch_parse",
+            "elapsed_seconds": 1.002309000119567,
+            "failure_code": null,
+            "feed_item_count": 10,
+            "http_status": 200,
+            "matched_count": 0,
+            "parse_elapsed_seconds": 0.012982199899852276,
+            "provider": "rss_batch",
+            "request_elapsed_seconds": 0.9868788998574018,
+            "response_closed": true,
+            "source": "https://news.google.com/rss/search",
+            "source_group": "ROSS_ISSUER_QUERY",
+            "source_tier": "operational_query",
+            "status": "available",
+            "timed_out": false,
+            "timeout_seconds": 5.0,
+            "worker_completed": true
+          }
+        ],
+        "source_status_counts": {
+          "provider_error": 4,
+          "available": 5,
+          "not_requested": 13
+        }
+      },
+      {
+        "started_at_utc": "2026-10-20T19:37:12.249681+00:00",
+        "completed_at_utc": "2026-10-20T19:37:13.567769+00:00",
+        "line": 23900,
+        "provider_available": true,
+        "retrieval_budget_exhausted": false,
+        "provider_status": "partial_request_failure",
+        "summary": {
+          "budget_exhausted": false,
+          "cache_state": "miss",
+          "evidence_count": 0,
+          "fresh_evidence_count": 0,
+          "objective_news_status": "partial_coverage_no_match_observed",
+          "provider_available": true,
+          "provider_status": "partial_request_failure",
+          "retrieval_status": "partial",
+          "retrieval_unavailable": false,
+          "stale_evidence_count": 0,
+          "unavailability_reasons": []
+        },
+        "queries": [
+          {
+            "attempted": true,
+            "budget_exhausted": false,
+            "elapsed_kind": "worker_fetch_parse",
+            "elapsed_seconds": 1.02836690004915,
+            "failure_code": null,
+            "feed_item_count": 10,
+            "http_status": 200,
+            "matched_count": 0,
+            "parse_elapsed_seconds": 0.013574999757111073,
+            "provider": "rss_batch",
+            "request_elapsed_seconds": 1.0137808001600206,
+            "response_closed": true,
+            "source": "https://news.google.com/rss/search",
+            "source_group": "ROSS_ISSUER_QUERY",
+            "source_tier": "operational_query",
+            "status": "available",
+            "timed_out": false,
+            "timeout_seconds": 5.0,
+            "worker_completed": true
+          }
+        ],
+        "source_status_counts": {
+          "provider_error": 4,
+          "available": 5,
+          "not_requested": 13
+        }
+      },
+      {
+        "started_at_utc": "2026-10-20T19:39:13.578909+00:00",
+        "completed_at_utc": "2026-10-20T19:39:14.650510+00:00",
+        "line": 28865,
+        "provider_available": true,
+        "retrieval_budget_exhausted": false,
+        "provider_status": "partial_request_failure",
+        "summary": {
+          "budget_exhausted": false,
+          "cache_state": "miss",
+          "evidence_count": 0,
+          "fresh_evidence_count": 0,
+          "objective_news_status": "partial_coverage_no_match_observed",
+          "provider_available": true,
+          "provider_status": "partial_request_failure",
+          "retrieval_status": "partial",
+          "retrieval_unavailable": false,
+          "stale_evidence_count": 0,
+          "unavailability_reasons": []
+        },
+        "queries": [
+          {
+            "attempted": true,
+            "budget_exhausted": false,
+            "elapsed_kind": "worker_fetch_parse",
+            "elapsed_seconds": 0.8984795999713242,
+            "failure_code": null,
+            "feed_item_count": 10,
+            "http_status": 200,
+            "matched_count": 0,
+            "parse_elapsed_seconds": 0.008822800125926733,
+            "provider": "rss_batch",
+            "request_elapsed_seconds": 0.888646500185132,
+            "response_closed": true,
+            "source": "https://news.google.com/rss/search",
+            "source_group": "ROSS_ISSUER_QUERY",
+            "source_tier": "operational_query",
+            "status": "available",
+            "timed_out": false,
+            "timeout_seconds": 5.0,
+            "worker_completed": true
+          }
+        ],
+        "source_status_counts": {
+          "provider_error": 5,
+          "available": 4,
+          "not_requested": 13
+        }
+      },
+      {
+        "started_at_utc": "2026-10-20T19:41:14.713471+00:00",
+        "completed_at_utc": "2026-10-20T19:41:16.639932+00:00",
+        "line": 34174,
+        "provider_available": true,
+        "retrieval_budget_exhausted": false,
+        "provider_status": "partial_request_failure",
+        "summary": {
+          "budget_exhausted": false,
+          "cache_state": "miss",
+          "evidence_count": 0,
+          "fresh_evidence_count": 0,
+          "objective_news_status": "partial_coverage_no_match_observed",
+          "provider_available": true,
+          "provider_status": "partial_request_failure",
+          "retrieval_status": "partial",
+          "retrieval_unavailable": false,
+          "stale_evidence_count": 0,
+          "unavailability_reasons": []
+        },
+        "queries": [
+          {
+            "attempted": true,
+            "budget_exhausted": false,
+            "elapsed_kind": "worker_fetch_parse",
+            "elapsed_seconds": 1.5943337003700435,
+            "failure_code": null,
+            "feed_item_count": 10,
+            "http_status": 200,
+            "matched_count": 0,
+            "parse_elapsed_seconds": 0.1660802001133561,
+            "provider": "rss_batch",
+            "request_elapsed_seconds": 1.4268439998850226,
+            "response_closed": true,
+            "source": "https://news.google.com/rss/search",
+            "source_group": "ROSS_ISSUER_QUERY",
+            "source_tier": "operational_query",
+            "status": "available",
+            "timed_out": false,
+            "timeout_seconds": 5.0,
+            "worker_completed": true
+          }
+        ],
+        "source_status_counts": {
+          "available": 6,
+          "provider_error": 3,
+          "not_requested": 13
+        }
+      },
+      {
+        "started_at_utc": "2026-10-20T19:43:16.720992+00:00",
+        "completed_at_utc": "2026-10-20T19:43:19.630568+00:00",
+        "line": 39609,
+        "provider_available": true,
+        "retrieval_budget_exhausted": false,
+        "provider_status": "partial_request_failure",
+        "summary": {
+          "budget_exhausted": false,
+          "cache_state": "miss",
+          "evidence_count": 0,
+          "fresh_evidence_count": 0,
+          "objective_news_status": "partial_coverage_no_match_observed",
+          "provider_available": true,
+          "provider_status": "partial_request_failure",
+          "retrieval_status": "partial",
+          "retrieval_unavailable": false,
+          "stale_evidence_count": 0,
+          "unavailability_reasons": []
+        },
+        "queries": [
+          {
+            "attempted": true,
+            "budget_exhausted": false,
+            "elapsed_kind": "worker_fetch_parse",
+            "elapsed_seconds": 1.1419437997974455,
+            "failure_code": null,
+            "feed_item_count": 10,
+            "http_status": 200,
+            "matched_count": 0,
+            "parse_elapsed_seconds": 0.02139279991388321,
+            "provider": "rss_batch",
+            "request_elapsed_seconds": 1.118484599981457,
+            "response_closed": true,
+            "source": "https://news.google.com/rss/search",
+            "source_group": "ROSS_ISSUER_QUERY",
+            "source_tier": "operational_query",
+            "status": "available",
+            "timed_out": false,
+            "timeout_seconds": 5.0,
+            "worker_completed": true
+          }
+        ],
+        "source_status_counts": {
+          "available": 5,
+          "provider_error": 4,
+          "not_requested": 13
+        }
+      },
+      {
+        "started_at_utc": "2026-10-20T19:45:23.701124+00:00",
+        "completed_at_utc": "2026-10-20T19:45:33.252697+00:00",
+        "line": 45480,
+        "provider_available": false,
+        "retrieval_budget_exhausted": true,
+        "provider_status": "partial_request_failure",
+        "summary": {
+          "budget_exhausted": true,
+          "cache_state": "miss",
+          "evidence_count": 0,
+          "fresh_evidence_count": 0,
+          "objective_news_status": "budget_exhausted",
+          "provider_available": false,
+          "provider_status": "partial_request_failure",
+          "retrieval_status": "budget_exhausted",
+          "retrieval_unavailable": true,
+          "stale_evidence_count": 0,
+          "unavailability_reasons": [
+            "provider_unavailable",
+            "budget_exhausted",
+            "retrieval_budget_exhausted"
+          ]
+        },
+        "queries": [
+          {
+            "attempted": true,
+            "budget_exhausted": true,
+            "elapsed_kind": "since_submission",
+            "elapsed_seconds": 5.216139500029385,
+            "failure_code": "deadline_exhausted",
+            "feed_item_count": null,
+            "http_status": null,
+            "matched_count": 0,
+            "parse_elapsed_seconds": null,
+            "provider": "rss_batch",
+            "request_elapsed_seconds": null,
+            "response_closed": null,
+            "source": "https://news.google.com/rss/search",
+            "source_group": "ROSS_ISSUER_QUERY",
+            "source_tier": "operational_query",
+            "status": "budget_exhausted",
+            "timed_out": false,
+            "timeout_seconds": 5.0,
+            "worker_completed": false
+          }
+        ],
+        "source_status_counts": {
+          "provider_error": 7,
+          "available": 1,
+          "budget_exhausted": 1,
+          "not_requested": 13
+        }
+      }
+    ]
+  },
+  "last_issuer_query_entry_diagnostics": {
+    "WORX": [
+      {
+        "status": "budget_exhausted",
+        "feed_item_count": null,
+        "matched_count": 0,
+        "entry_diagnostics": {
+          "empty_feed": null,
+          "http_request_attempted": false,
+          "raw_capture": null,
+          "transport_cache_hit": null
+        }
+      }
+    ],
+    "AIXI": [
+      {
+        "status": "budget_exhausted",
+        "feed_item_count": null,
+        "matched_count": 0,
+        "entry_diagnostics": {
+          "empty_feed": null,
+          "http_request_attempted": false,
+          "raw_capture": null,
+          "transport_cache_hit": null
+        }
+      }
+    ],
+    "NCPL": [
+      {
+        "status": "available",
+        "feed_item_count": 70,
+        "matched_count": 0,
+        "entry_diagnostics": {
+          "coordinator_processing_seconds": 0.017123099882155657,
+          "date_range_scope": "examined entries; may be partial",
+          "empty_feed": false,
+          "evaluation_time_utc": "2026-10-20T19:45:16.613317+00:00",
+          "future_entries": 0,
+          "http_request_attempted": true,
+          "missing_invalid_dates": 0,
+          "missing_titles": 0,
+          "observed_date_max_utc": "2026-10-20T19:22:26+00:00",
+          "observed_date_min_utc": "2020-11-04T08:00:00+00:00",
+          "observed_publication_max_utc": "2026-10-20T19:22:26+00:00",
+          "observed_publication_min_utc": "2020-11-04T08:00:00+00:00",
+          "observed_update_max_utc": null,
+          "observed_update_min_utc": null,
+          "published_time_used": 70,
+          "raw_capture": null,
+          "relevance_rejections_by_symbol": {
+            "NCPL": 1
+          },
+          "stale_entries": 69,
+          "transport_cache_hit": false,
+          "updated_time_used": 0,
+          "usable_dates": 70,
+          "window_start_utc": "2026-10-20T13:45:16.613317+00:00",
+          "within_window": 1
+        }
+      }
+    ],
+    "BETR": [
+      {
+        "status": "budget_exhausted",
+        "feed_item_count": null,
+        "matched_count": 0,
+        "entry_diagnostics": {
+          "empty_feed": null,
+          "http_request_attempted": false,
+          "raw_capture": null,
+          "transport_cache_hit": null
+        }
+      }
+    ]
+  },
+  "retained_watchlist_articles": {
+    "WORX": [],
+    "AIXI": [
+      {
+        "evidence_id": "rss-operational:AIXI:ed98f7d8c582f2589a272cfb",
+        "headline": "$AIXI latest SEC filing confirms its appeal against Apple ha",
+        "company_name": "XIAO I CORP",
+        "published_at": "2026-10-20T14:07:25+00:00",
+        "fetched_at": "2026-10-20T19:32:50.060094+00:00",
+        "match_type": "ticker_token",
+        "match_confidence": 1.0,
+        "source_tier": "operational_query",
+        "original_source": "KuCoin",
+        "heat_score": 6.07,
+        "hotness_score": 6.07
+      }
+    ],
+    "NCPL": [],
+    "BETR": []
+  },
+  "budget_exhausted_publications": [
+    {
+      "utc": "2026-10-20T19:32:55.290415+00:00",
+      "symbol": "AIXI",
+      "key": "6ea6695cab1d00c0ba1577f7b3a6c854eaa3fc965b0c46635eea833ae66c1cc7",
+      "published": true,
+      "elapsed_before_cleanup_seconds": 5.253638299647719,
+      "error": null,
+      "evidence_count": 1,
+      "provider_available": true,
+      "budget_exhausted": true,
+      "qualification_evaluated": false,
+      "submitted": 50,
+      "deduplicated": 0,
+      "rejected_full": 0,
+      "completed": 0,
+      "failed": 0,
+      "retired": 0,
+      "publication_failures": 0,
+      "telemetry_failures": 0,
+      "tracked": 50,
+      "inflight": 2,
+      "first_result_seconds": 5.256151400040835,
+      "first_evidence_seconds": 5.256156800314784,
+      "alive_workers": 2,
+      "feed_requests": 10,
+      "feed_reuse": 3,
+      "backlog": 48,
+      "ready": 48,
+      "priority_counts": {
+        "0": 0,
+        "1": 0,
+        "2": 50
+      },
+      "line": 5421
+    },
+    {
+      "utc": "2026-10-20T19:32:55.311326+00:00",
+      "symbol": "NCPL",
+      "key": "f44089400fe07d1e30d31f8a708c5ae58336b06fc84d41747a8ed3bac68c03a9",
+      "published": true,
+      "elapsed_before_cleanup_seconds": 5.2733636000193655,
+      "error": null,
+      "evidence_count": 0,
+      "provider_available": true,
+      "budget_exhausted": true,
+      "qualification_evaluated": false,
+      "submitted": 50,
+      "deduplicated": 0,
+      "rejected_full": 0,
+      "completed": 0,
+      "failed": 0,
+      "retired": 0,
+      "publication_failures": 0,
+      "telemetry_failures": 0,
+      "tracked": 50,
+      "inflight": 2,
+      "first_result_seconds": 5.256151400040835,
+      "first_evidence_seconds": 5.256156800314784,
+      "alive_workers": 2,
+      "feed_requests": 10,
+      "feed_reuse": 3,
+      "backlog": 48,
+      "ready": 48,
+      "priority_counts": {
+        "0": 0,
+        "1": 0,
+        "2": 50
+      },
+      "line": 5423
+    },
+    {
+      "utc": "2026-10-20T19:45:22.295825+00:00",
+      "symbol": "NCPL",
+      "key": "f44089400fe07d1e30d31f8a708c5ae58336b06fc84d41747a8ed3bac68c03a9",
+      "published": true,
+      "elapsed_before_cleanup_seconds": 6.1890839003026485,
+      "error": null,
+      "evidence_count": 0,
+      "provider_available": true,
+      "budget_exhausted": true,
+      "qualification_evaluated": false,
+      "submitted": 63,
+      "deduplicated": 10,
+      "rejected_full": 0,
+      "completed": 151,
+      "failed": 2,
+      "retired": 50,
+      "publication_failures": 0,
+      "telemetry_failures": 0,
+      "tracked": 13,
+      "inflight": 2,
+      "first_result_seconds": 5.256151400040835,
+      "first_evidence_seconds": 5.256156800314784,
+      "alive_workers": 2,
+      "feed_requests": 207,
+      "feed_reuse": 1154,
+      "backlog": 11,
+      "ready": 2,
+      "priority_counts": {
+        "0": 0,
+        "1": 2,
+        "2": 11
+      },
+      "line": 45065
+    },
+    {
+      "utc": "2026-10-20T19:45:22.956982+00:00",
+      "symbol": "AIXI",
+      "key": "6ea6695cab1d00c0ba1577f7b3a6c854eaa3fc965b0c46635eea833ae66c1cc7",
+      "published": true,
+      "elapsed_before_cleanup_seconds": 6.724865799769759,
+      "error": null,
+      "evidence_count": 1,
+      "provider_available": false,
+      "budget_exhausted": true,
+      "qualification_evaluated": false,
+      "submitted": 63,
+      "deduplicated": 10,
+      "rejected_full": 0,
+      "completed": 152,
+      "failed": 3,
+      "retired": 50,
+      "publication_failures": 0,
+      "telemetry_failures": 0,
+      "tracked": 13,
+      "inflight": 2,
+      "first_result_seconds": 5.256151400040835,
+      "first_evidence_seconds": 5.256156800314784,
+      "alive_workers": 2,
+      "feed_requests": 207,
+      "feed_reuse": 1154,
+      "backlog": 11,
+      "ready": 1,
+      "priority_counts": {
+        "0": 0,
+        "1": 2,
+        "2": 11
+      },
+      "line": 45070
+    },
+    {
+      "utc": "2026-10-20T19:45:29.334519+00:00",
+      "symbol": "WORX",
+      "key": "9516df9c9d8439feb40561d7248e7cc15be7c4ff4025d252d0e8af6921c610eb",
+      "published": true,
+      "elapsed_before_cleanup_seconds": 7.036274100188166,
+      "error": null,
+      "evidence_count": 0,
+      "provider_available": false,
+      "budget_exhausted": true,
+      "qualification_evaluated": false,
+      "submitted": 63,
+      "deduplicated": 10,
+      "rejected_full": 0,
+      "completed": 153,
+      "failed": 4,
+      "retired": 50,
+      "publication_failures": 0,
+      "telemetry_failures": 0,
+      "tracked": 13,
+      "inflight": 2,
+      "first_result_seconds": 5.256151400040835,
+      "first_evidence_seconds": 5.256156800314784,
+      "alive_workers": 2,
+      "feed_requests": 211,
+      "feed_reuse": 1167,
+      "backlog": 11,
+      "ready": 0,
+      "priority_counts": {
+        "0": 0,
+        "1": 2,
+        "2": 11
+      },
+      "line": 45345
+    },
+    {
+      "utc": "2026-10-20T19:45:33.279888+00:00",
+      "symbol": "BETR",
+      "key": "3ba87f65d9dc54ca098a819425aa39bda2a2f8dad93d3b42b89275763c21b0b4",
+      "published": true,
+      "elapsed_before_cleanup_seconds": 9.58150180010125,
+      "error": null,
+      "evidence_count": 0,
+      "provider_available": false,
+      "budget_exhausted": true,
+      "qualification_evaluated": false,
+      "submitted": 63,
+      "deduplicated": 10,
+      "rejected_full": 0,
+      "completed": 153,
+      "failed": 4,
+      "retired": 50,
+      "publication_failures": 0,
+      "telemetry_failures": 0,
+      "tracked": 13,
+      "inflight": 2,
+      "first_result_seconds": 5.256151400040835,
+      "first_evidence_seconds": 5.256156800314784,
+      "alive_workers": 2,
+      "feed_requests": 211,
+      "feed_reuse": 1167,
+      "backlog": 11,
+      "ready": 0,
+      "priority_counts": {
+        "0": 0,
+        "1": 2,
+        "2": 11
+      },
+      "line": 45481
+    }
+  ],
+  "incomplete_results": [
+    {
+      "utc": "2026-10-20T19:45:37.346186+00:00",
+      "symbol": "WORX",
+      "elapsed_seconds": 15.04810560029,
+      "error": null,
+      "completed": true,
+      "published": true,
+      "cleanup_complete": false,
+      "line": 45755
+    },
+    {
+      "utc": "2026-10-20T19:45:39.408102+00:00",
+      "symbol": "CLRO",
+      "elapsed_seconds": 3.1731844996102154,
+      "error": null,
+      "completed": false,
+      "published": false,
+      "cleanup_complete": true,
+      "line": 45757
+    }
+  ]
+}

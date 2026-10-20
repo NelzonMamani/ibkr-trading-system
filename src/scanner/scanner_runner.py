@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from src.core.acquisition import acquisition_cycle, checkpoint, acquisition_deadline
+from src.core.acquisition import acquisition_cycle, checkpoint, acquisition_deadline, cycle_cache
 
 import argparse
+from copy import deepcopy
 from collections import Counter
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, time as dtime, timedelta, timezone
@@ -5292,6 +5293,220 @@ def _is_payload_cacheable(payload: Dict[str, Any]) -> bool:
     return True
 
 
+def _shortlist_request_cache(client, symbols):
+    """Bound historical/identity baselines to one compatible natural TopN view."""
+    wanted = set(symbols)
+    return deepcopy({key: value for key, value in (cycle_cache() or {}).items()
+                     if isinstance(key, tuple) and len(key) >= 3
+                     and key[0] in {"qualified", "daily"} and key[1] == id(client)
+                     and isinstance(key[2], tuple) and len(key[2]) > 1 and key[2][1] in wanted
+                     and value})
+
+
+@acquisition_cycle
+def reassess_ross_watchlist(payload, symbols, *, news_maintenance, market_data_client,
+                            forced_session_label=None, forced_session_source=None, deadline_s=None, policy=None):
+    """Reconsider the genuine shortlist at Focus cadence, without a new scan/HTTP.
+
+    Only verified-positive candidates need broker quote acquisition. Monitoring
+    rows may age; they never become Focus using an old price or a cached flag.
+    Caller must require fresh TopN/list authority. Missing legacy context returns
+    None; incompatible current context rejects rather than reusing old Focus.
+    """
+    with acquisition_deadline(deadline_s):
+        return _reassess_ross_watchlist(payload, symbols, news_maintenance=news_maintenance,
+            market_data_client=market_data_client, forced_session_label=forced_session_label,
+            forced_session_source=forced_session_source, deadline_s=deadline_s, policy=policy)
+
+
+def _reassess_ross_watchlist(payload, symbols, *, news_maintenance, market_data_client,
+                             forced_session_label, forced_session_source, deadline_s, policy):
+    bundle = payload.get("ross_watchlist_reassessment")
+    if not isinstance(bundle, dict) or bundle.get("schema") != "ross_scan_shortlist_v1":
+        return None
+    now = _utc_now()
+    session = resolve_session_diagnostics(now, forced_session_label=forced_session_label,
+                                         forced_session_source=forced_session_source).resolved_session
+    provider = _PERSISTENT_PROVIDER
+    if (not bool(get_config("NEWS_ENABLED")) or policy is None
+            or policy != bundle.get("policy")
+            or _gate_thresholds(policy, _resolve_runtime_thresholds(policy, session)) != bundle["thresholds"]):
+        print("[ROSS][REASSESS] reason=CURRENT_POLICY_INCOMPATIBLE focus_count=0")
+        return []
+    if (bundle["date"] != now.date().isoformat() or bundle["session"] != session
+            or market_data_client is None or provider is None or provider.source_name != "IBKR"
+            or getattr(provider, "market_data_client", None) is not market_data_client):
+        print("[ROSS][REASSESS] reason=INCOMPATIBLE_SCAN_CONTEXT focus_count=0")
+        return []
+    cache = cycle_cache()
+    if cache is not None:
+        # Only successful same-client identity/daily-history requests from this
+        # fresh TopN snapshot. Never carry snapshot quotes or failed requests.
+        cache.update(deepcopy(bundle.get("request_cache", {})))
+    contexts = deepcopy([row for row in bundle["contexts"] if row["symbol"] in set(symbols)])
+    candidates = _news_candidates_for_symbols([row["symbol"] for row in contexts],
+                                              _news_symbol_metadata_for_contexts(contexts))
+    request = _ross_news_request()
+    result = news_maintenance.read(candidates, request,
+                                  _ross_retrieval_policy(refresh_mode="bounded_refresh", network_allowed=True))
+    news = _ross_news_contexts_from_news_intelligence_result(result)
+    for row in contexts:
+        context = news.get(row["symbol"], {})
+        print(f"[ROSS][REASSESS][NEWS] symbol={row['symbol']} "
+              f"utc={datetime.now(timezone.utc).isoformat()} "
+              f"qualification_reason={context.get('qualification_reason', 'no_valid_canonical_event')} "
+              f"acquisition_health={context.get('acquisition_health', 'unknown')} "
+              f"acquisition_reason={context.get('acquisition_reason', 'acquisition_not_verified')}")
+    eligible = [row for row in contexts if news.get(row["symbol"], {}).get("ross_catalyst_valid")]
+    thresholds = bundle["thresholds"]
+    # Leave bounded local selection time inside the caller's absolute deadline;
+    # a slow tail must not make the outer scope discard still-fresh leaders.
+    refresh_deadline = deadline_s
+    if deadline_s is not None:
+        remaining = max(0., deadline_s - time.monotonic())
+        refresh_deadline = deadline_s - min(1., remaining / 3.)
+    eligible = _refresh_provisional_shortlist(
+        eligible, provider, session, deepcopy(bundle["float_cache"]), len(contexts),
+        thresholds, {}, deadline_s=refresh_deadline,
+    )
+    symbol_contexts = {row["symbol"]: build_symbol_context(
+        row["symbol"], session_label=session, base_context=row,
+        news_context=news.get(row["symbol"], {})) for row in eligible}
+    focus = _select_ross_focus_contexts(
+        eligible, news, thresholds, run_mode=get_run_mode(), news_enabled=True,
+        validation_override_active=False, catalyst_decision=None, session_label=session,
+        symbol_contexts=symbol_contexts, focus_limit=bundle["focus_limit"],
+    )
+    checkpoint()
+    rows = [_candidate_from_context(row, news.get(row["symbol"], {}), thresholds,
+                                   drop_reason=None, timestamp_utc=now.isoformat()) for row in focus]
+    print(f"[ROSS][REASSESS] source=CANONICAL_CACHE broker_scan=false "
+          f"watchlist_count={len(contexts)} positive_count={len(eligible)} focus_count={len(rows)}")
+    return rows
+
+
+def _select_ross_focus_contexts(watchlist_contexts, news_by_symbol, thresholds, *,
+                                run_mode, news_enabled, validation_override_active,
+                                catalyst_decision, session_label, symbol_contexts, focus_limit):
+    """One gate/ranking authority for scans and between-scan reconsideration."""
+    focus_candidates: list[Dict[str, Any]] = []
+    volume_soft_fail_candidates: list[Dict[str, Any]] = []
+    for context in watchlist_contexts:
+        symbol = str(context.get("symbol") or "")
+        news_context = news_by_symbol.get(symbol, {})
+        for key in (
+            "news_present",
+            "news_available",
+            "news_count",
+            "fresh_news_count",
+            "stale_news_count",
+            "top_news_title",
+            "top_news_age_hours",
+            "top_news_catalyst_tag",
+            "news_source_mode",
+            "news_asof",
+            "news_provider_status",
+            "news_diagnostic_status",
+        ):
+            if key in news_context:
+                context[key] = news_context.get(key)
+        if catalyst_decision is not None:
+            context["catalyst_status"] = catalyst_decision.status.value
+            context["catalyst_present"] = bool(catalyst_decision.satisfied)
+            context["catalyst_policy_reason"] = catalyst_decision.reason
+        else:
+            catalyst_confirmed = bool(
+                news_context.get("ross_catalyst_valid")
+            )
+            news_available = bool(news_context.get("news_available"))
+            catalyst_status_decision = assess_catalyst(
+                mode=run_mode,
+                news_enabled=news_enabled,
+                news_available=news_available,
+                confirmed=True if catalyst_confirmed else (False if news_available else None),
+                validation_bypass_requested=validation_override_active,
+            )
+            context["catalyst_status"] = catalyst_status_decision.status.value
+            context["catalyst_present"] = bool(catalyst_status_decision.satisfied)
+            context["catalyst_policy_reason"] = catalyst_status_decision.reason
+        print(
+            "[ROSS][FOCUS][EVAL] "
+            f"symbol={symbol} session={context.get('session') or session_label} "
+            f"pct_change={context.get('pct_change')} rvol_phase={context.get('rvol_phase')} "
+            f"price={context.get('last_price')} float={context.get('float_shares')} "
+            f"catalyst_status={context.get('catalyst_status') or 'UNKNOWN'} "
+            f"catalyst_reason={context.get('catalyst_policy_reason') or 'UNKNOWN'} "
+            f"qualification_reason={news_context.get('qualification_reason', 'no_valid_canonical_event')} "
+            f"acquisition_health={news_context.get('acquisition_health', 'unknown')} "
+            f"acquisition_reason={news_context.get('acquisition_reason', 'acquisition_not_verified')}"
+        )
+        focus_drop = _evaluate_focus_gates(context, thresholds)
+        if focus_drop:
+            context["focus_drop_reason"] = focus_drop
+            if focus_drop == "SOFT_FAIL_VOLUME":
+                print(
+                    "[ROSS][FOCUS][ACCEPT] "
+                    f"symbol={context.get('symbol')} decision=DEGRADED reason={focus_drop}"
+                )
+                volume_soft_fail_candidates.append(context)
+                focus_candidates.append(context)
+                continue
+            print(
+                "[ROSS][FOCUS][REJECT] "
+                f"symbol={context.get('symbol')} reason={focus_drop}"
+            )
+            print(
+                "[SCANNER][FOCUS_DROP] symbol="
+                f"{context.get('symbol')} reason={focus_drop}"
+            )
+            continue
+        print(
+            "[ROSS][FOCUS][ACCEPT] "
+            f"symbol={context.get('symbol')} decision=ACCEPT reason=FOCUS_GATES_PASS"
+        )
+        focus_candidates.append(context)
+    if not focus_candidates and volume_soft_fail_candidates:
+        focus_candidates = _bounded_pass_focus_candidates(
+            volume_soft_fail_candidates,
+            thresholds=thresholds,
+            focus_limit=focus_limit,
+        )
+        for context in focus_candidates:
+            context["focus_admission_reason"] = "BOUNDED_PASS_VOLUME_WEAK"
+            print(
+                "[FOCUS][ADMIT][BOUNDED_PASS] "
+                f"symbol={context.get('symbol')} reason=volume_weak_but_top_candidate"
+            )
+    focus_contexts = _rank_candidates(focus_candidates)
+    focus_contexts = sorted(
+        focus_contexts,
+        key=lambda item: -(
+            symbol_contexts.get(item.get("symbol", "")).focus_rank_score
+            if symbol_contexts.get(item.get("symbol", ""))
+            else 0.0
+        ),
+    )[:focus_limit]
+    if normalize_session_label(session_label) in {"PRE", "PREMARKET"}:
+        if not focus_contexts and watchlist_contexts:
+            eligible = [
+                context
+                for context in watchlist_contexts
+                if _forced_premarket_focus_eligible(
+                    context,
+                    thresholds,
+                    session_label=session_label,
+                )
+            ]
+            focus_contexts = eligible[: min(5, len(eligible))]
+            print(f"[FOCUS][FORCED_PROMOTION_PREMARKET] count={len(focus_contexts)}")
+    for context in list(focus_contexts):
+        if _stale_market_data_drop(context):
+            context["focus_drop_reason"] = "DROP_STALE_MARKET_DATA"
+            focus_contexts.remove(context)
+            print(f"[SCANNER][FOCUS_DROP] symbol={context.get('symbol')} reason=DROP_STALE_MARKET_DATA boundary=publish")
+    return focus_contexts
+
+
 @acquisition_cycle
 def run_scanner_cycle(
     mode: str = "integrated",
@@ -6731,121 +6946,12 @@ def run_scanner_cycle(
         print("[SCANNER][STAGE] print")
         fast_rows = _build_fast_rows(watchlist_contexts, news_by_symbol)
         focus_limit = limits["focus_limit"]
-        focus_candidates: list[Dict[str, Any]] = []
-        volume_soft_fail_candidates: list[Dict[str, Any]] = []
-        for context in watchlist_contexts:
-            symbol = str(context.get("symbol") or "")
-            news_context = news_by_symbol.get(symbol, {})
-            for key in (
-                "news_present",
-                "news_available",
-                "news_count",
-                "fresh_news_count",
-                "stale_news_count",
-                "top_news_title",
-                "top_news_age_hours",
-                "top_news_catalyst_tag",
-                "news_source_mode",
-                "news_asof",
-                "news_provider_status",
-                "news_diagnostic_status",
-            ):
-                if key in news_context:
-                    context[key] = news_context.get(key)
-            if catalyst_decision is not None:
-                context["catalyst_status"] = catalyst_decision.status.value
-                context["catalyst_present"] = bool(catalyst_decision.satisfied)
-                context["catalyst_policy_reason"] = catalyst_decision.reason
-            else:
-                catalyst_confirmed = bool(
-                    news_context.get("ross_catalyst_valid")
-                )
-                news_available = bool(news_context.get("news_available"))
-                catalyst_status_decision = assess_catalyst(
-                    mode=run_mode,
-                    news_enabled=news_enabled,
-                    news_available=news_available,
-                    confirmed=True if catalyst_confirmed else (False if news_available else None),
-                    validation_bypass_requested=validation_override_active,
-                )
-                context["catalyst_status"] = catalyst_status_decision.status.value
-                context["catalyst_present"] = bool(catalyst_status_decision.satisfied)
-                context["catalyst_policy_reason"] = catalyst_status_decision.reason
-            print(
-                "[ROSS][FOCUS][EVAL] "
-                f"symbol={symbol} session={context.get('session') or session_label} "
-                f"pct_change={context.get('pct_change')} rvol_phase={context.get('rvol_phase')} "
-                f"price={context.get('last_price')} float={context.get('float_shares')} "
-                f"catalyst_status={context.get('catalyst_status') or 'UNKNOWN'} "
-                f"catalyst_reason={context.get('catalyst_policy_reason') or 'UNKNOWN'} "
-                f"qualification_reason={news_context.get('qualification_reason', 'no_valid_canonical_event')} "
-                f"acquisition_health={news_context.get('acquisition_health', 'unknown')} "
-                f"acquisition_reason={news_context.get('acquisition_reason', 'acquisition_not_verified')}"
-            )
-            focus_drop = _evaluate_focus_gates(context, thresholds)
-            if focus_drop:
-                context["focus_drop_reason"] = focus_drop
-                if focus_drop == "SOFT_FAIL_VOLUME":
-                    print(
-                        "[ROSS][FOCUS][ACCEPT] "
-                        f"symbol={context.get('symbol')} decision=DEGRADED reason={focus_drop}"
-                    )
-                    volume_soft_fail_candidates.append(context)
-                    focus_candidates.append(context)
-                    continue
-                print(
-                    "[ROSS][FOCUS][REJECT] "
-                    f"symbol={context.get('symbol')} reason={focus_drop}"
-                )
-                print(
-                    "[SCANNER][FOCUS_DROP] symbol="
-                    f"{context.get('symbol')} reason={focus_drop}"
-                )
-                continue
-            print(
-                "[ROSS][FOCUS][ACCEPT] "
-                f"symbol={context.get('symbol')} decision=ACCEPT reason=FOCUS_GATES_PASS"
-            )
-            focus_candidates.append(context)
-        if not focus_candidates and volume_soft_fail_candidates:
-            focus_candidates = _bounded_pass_focus_candidates(
-                volume_soft_fail_candidates,
-                thresholds=thresholds,
-                focus_limit=focus_limit,
-            )
-            for context in focus_candidates:
-                context["focus_admission_reason"] = "BOUNDED_PASS_VOLUME_WEAK"
-                print(
-                    "[FOCUS][ADMIT][BOUNDED_PASS] "
-                    f"symbol={context.get('symbol')} reason=volume_weak_but_top_candidate"
-                )
-        focus_contexts = _rank_candidates(focus_candidates)
-        focus_contexts = sorted(
-            focus_contexts,
-            key=lambda item: -(
-                symbol_contexts.get(item.get("symbol", "")).focus_rank_score
-                if symbol_contexts.get(item.get("symbol", ""))
-                else 0.0
-            ),
-        )[:focus_limit]
-        if normalize_session_label(session_label) in {"PRE", "PREMARKET"}:
-            if not focus_contexts and watchlist_contexts:
-                eligible = [
-                    context
-                    for context in watchlist_contexts
-                    if _forced_premarket_focus_eligible(
-                        context,
-                        thresholds,
-                        session_label=session_label,
-                    )
-                ]
-                focus_contexts = eligible[: min(5, len(eligible))]
-                print(f"[FOCUS][FORCED_PROMOTION_PREMARKET] count={len(focus_contexts)}")
-        for context in list(focus_contexts):
-            if _stale_market_data_drop(context):
-                context["focus_drop_reason"] = "DROP_STALE_MARKET_DATA"
-                focus_contexts.remove(context)
-                print(f"[SCANNER][FOCUS_DROP] symbol={context.get('symbol')} reason=DROP_STALE_MARKET_DATA boundary=publish")
+        focus_contexts = _select_ross_focus_contexts(
+            watchlist_contexts, news_by_symbol, thresholds, run_mode=run_mode,
+            news_enabled=news_enabled, validation_override_active=validation_override_active,
+            catalyst_decision=catalyst_decision, session_label=session_label,
+            symbol_contexts=symbol_contexts, focus_limit=focus_limit,
+        )
         focus_summary = _focus_summary_counts(watchlist_contexts, focus_contexts)
         print(
             "[ROSS][FOCUS][SUMMARY] "
@@ -7298,6 +7404,15 @@ def run_scanner_cycle(
         "focus_m": focus_metrics,
         "watchlist_k_symbols": list(live_watchlist_symbols),
         "focus_m_symbols": focus_symbols,
+        "ross_watchlist_reassessment": {
+            "schema": "ross_scan_shortlist_v1", "session": session_label,
+            "date": utc_now.date().isoformat(), "thresholds": thresholds,
+            "contexts": deepcopy([ctx for ctx in watchlist_contexts
+                                   if ctx.get("symbol") in live_watchlist_symbols]),
+            "float_cache": deepcopy(float_cache), "focus_limit": focus_limit,
+            "policy": resolved_policy,
+            "request_cache": _shortlist_request_cache(market_data_client, live_watchlist_symbols),
+        } if news_maintenance is not None and provider_source == "IBKR" else None,
         "ross_top_universe_symbols": sorted(daily_state.top_universe.keys()),
         "ross_rejected_tracked_symbols": sorted(daily_state.rejected_tracked.keys()),
         "ross_daily_state": {
