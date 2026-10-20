@@ -325,6 +325,15 @@ def load_manual_focus_config() -> ManualFocusConfig:
         return _disabled_manual_focus_config(effective_source=source)
 
 
+def _report_intent_absence(focus_count, violations):
+    """Empty Focus/no trigger are ordinary no-trade outcomes, not pipeline faults."""
+    if violations:
+        print("[FATAL] PIPELINE BROKEN — REQUIRED INTENT CONTRACT VIOLATED")
+    else:
+        reason = "NO_FOCUS_CANDIDATES" if not focus_count else "NO_QUALIFIED_INTENT"
+        print(f"[PIPELINE][NO_INTENT] reason={reason}")
+
+
 class RuntimeSafetyError(RuntimeError):
     """Raised when a runtime safety gate is violated."""
 
@@ -4308,7 +4317,7 @@ class CoreOrchestrator:
             self.regime_layer.evaluate(candidates=selected_candidates or [], session=get_current_market_session())
         self._trace_event("ACTION", {"trade_intents": intent_count, "allow_orders": mode_manager.allow_orders})
         if not intent_stage_seen():
-            print("[FATAL] PIPELINE BROKEN — NO INTENT GENERATED")
+            _report_intent_absence(focus_passed, violations)
         if not strategy_output:
             print("[STRATEGY] No trade intents generated.")
         return True

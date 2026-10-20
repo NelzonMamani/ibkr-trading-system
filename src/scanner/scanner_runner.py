@@ -1094,6 +1094,8 @@ def _float_focus_failure_diagnostics(
     )
     if focus_symbols:
         focus_empty_explanation = "FOCUS_M_POPULATED"
+    elif focus_drop_by_symbol and all(reason == "DROP_STALE_MARKET_DATA" for reason in focus_drop_by_symbol.values()):
+        focus_empty_explanation = "STALE_MARKET_DATA_AT_FOCUS"
     elif catalyst_failure_symbols:
         focus_empty_explanation = "USABLE_MARKET_DATA_BUT_CATALYST_NEWS_FAILURE"
     elif rvol_failure_symbols and focus_drop_by_symbol:
@@ -6721,7 +6723,7 @@ def run_scanner_cycle(
                 f"blocked_by_spread={focus_drop_reasons.get('DROP_SPREAD', 0) + focus_drop_reasons.get('DROP_MISSING_SPREAD', 0)} "
                 f"blocked_by_float={focus_drop_reasons.get('DROP_FLOAT_MAX', 0) + focus_drop_reasons.get('DROP_FLOAT_MISSING', 0)} "
                 f"blocked_by_news={focus_drop_reasons.get('DROP_NO_CATALYST', 0)} "
-                f"blocked_by_data_quality={focus_drop_reasons.get('DROP_MISSING_BID_ASK', 0) + focus_drop_reasons.get('DROP_MISSING_PRICE', 0) + focus_drop_reasons.get('DROP_MISSING_RVOL', 0)}"
+                f"blocked_by_data_quality={focus_drop_reasons.get('DROP_MISSING_BID_ASK', 0) + focus_drop_reasons.get('DROP_MISSING_PRICE', 0) + focus_drop_reasons.get('DROP_MISSING_RVOL', 0) + focus_drop_reasons.get('DROP_STALE_MARKET_DATA', 0)}"
             )
 
         exclusion_counts = Counter(drop_ledger.values())
