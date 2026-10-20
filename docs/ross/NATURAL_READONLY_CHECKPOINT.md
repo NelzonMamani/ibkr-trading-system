@@ -1173,3 +1173,150 @@ packages diagnostics and prints the ZIP only after successful privacy-safe seal.
 A clean early stop is not full-pass or end-to-end acceptance. Preserve the final
 shareable ZIP and prior archives. No observation/provider/broker runtime ran during
 integration. PAPER_READY=NO.
+
+## 2026-10-20 — second natural receipt at accepted0ae: successful refresh, stale news, provisional-gate diagnosis
+
+User-operated archive `ross-natural-readonly-upload(2).zip` (uploaded filename
+`ross-natural-readonly-upload.zip`), SHA256
+`cb4cc43e8607438e465a49bd2d296e2401532ebe3a9726342f5c4be1e1a252b2`,
+records accepted head0ae803718ca8c9ace547f247077c44f2d6133500. This is uploaded
+historical evidence, not a run executed during diagnosis. Preserve the original
+archive/state. All broker/feed timestamps below are retained in recorded UTC
+(London is UTC+1 on this date); callback times are not substituted for trade times.
+
+| Separate acceptance outcome | Evidence / result |
+| --- | --- |
+| Graceful cancellation/terminal safety | PASS; terminal certification PASS, no forced termination; runtime and independent place/modify/cancel attempts all0; source/operator order state unchanged; preflight/observation/package/final exits0 |
+| Full natural scanner pass | PASS:50 genuine candidates → WORX,AIXI Watchlist →0 Focus; both shortlisted refreshes completed with new genuine broker LAST_TRADE times |
+| Natural full-issuer acquisition | VERIFIED for WORX,AIXI (and SAIQ,XCH): actual full-name canonical Google RSS queries, HTTP200, workers completed, responses closed, no query processing truncation; overall source/search coverage remains partial |
+| Catalyst qualification | NOT ESTABLISHED; both reached catalyst evaluation, DATA_UNAVAILABLE/news_unavailable, DROP_NO_CATALYST. No retained eligible evidence; no inference that no qualifying news exists |
+| Downstream progression | NOT ESTABLISHED:0 Focus, no qualifying strategy inputs/intents. Shutdown/refresh success is not end-to-end or trading acceptance |
+
+### News: exact exclusions supported by recorded counters
+
+Natural acquisition evaluated entries at2026-10-20T13:38:25.450253Z against the
+unchanged six-hour window beginning07:38:25.450253Z. Four completed Google query
+responses contain117 entries total. Each response's entries_examined_count equals
+feed_item_count; each has0 within-window,0 future,0 missing/invalid dates,0 missing
+titles, published_time_used equal to its entire count, updated_time_used0,
+matched_count0, processing_truncated=false and raw_capture=null.
+
+| Query issuer / supplied full identity | Examined / stale | Recorded publication range (UTC) | Worker fetch+parse |
+| --- | --- | --- | --- |
+| AIXI / XIAO I CORP |21 /21|2019-03-04T22:25:55Z →2026-10-08T07:00:00Z|1.376999s|
+| XCH / XCHG LTD |7 /7|2021-04-19T14:22:26Z →2026-09-29T19:54:07Z|1.394007s|
+| SAIQ / WISESAT SPACE HOLDINGS CORP |57 /57|2026-09-30T22:00:00Z →2026-10-17T00:44:00Z|1.438430s|
+| WORX / SCWORX CORP |32 /32|2017-05-24T06:40:09Z →2026-10-16T18:57:12Z|1.471039s|
+
+Each URL contains its quoted full issuer name OR dollar ticker; query identity
+propagation/acquisition is therefore proven. That does not prove identity of
+individual returned articles. `src/news/news_fetcher.py` checks usable publication
+time and excludes stale entries before ticker/company relevance matching. All117
+failed this temporal eligibility boundary. Per-symbol relevance-rejection counters
+are0 because those entries did not reach matching; they do not mean117 identity
+matches, nor117 identity mismatches. With0 retained matches, no candidate evidence
+reaches downstream catalyst/event qualification. No category-specific exclusion
+(e.g. wrong issuer, general story, non-catalyst event) can be invented for these
+entries. Existing offline date/relevance diagnostics regressions verify this order.
+
+The package contains aggregate date counters/ranges and query/source receipts,
+not raw RSS bodies or rejected-entry titles/links/individual timestamps. Therefore
+article-by-article identity, publisher relevance and hypothetical event quality
+cannot be reconstructed. News rules/query construction remain unchanged: there
+is no demonstrated rule defect or evidence justifying a wider time window/new
+provider lookup.117 old entries establish only why these captured responses
+retained nothing; they do not establish absence of current qualifying issuer news.
+
+For WORX and AIXI, cached evidence arrays are empty; last_retrieval is partial,
+provider_available=true, provider_status=partial_request_failure. Per-issuer
+operational_acquisition says acquisition_completed=true, retained_count0,
+source_coverage_complete=false, search_completeness_established=false,
+coverage_deadline_exhausted=true. Their successful query requests did not exhaust
+a per-issuer request budget (last_retrieval.budget_exhausted=false); aggregate
+coverage exhausted its fast tier. Other feed sources include Reuters401,
+GlobeNewswire403 and Benzinga RAWFEEDLIMITEXCEEDED. Do not relabel these successful
+issuer responses as HTTP-unavailable, or partial global coverage as completed
+negative news. The context adapter consequently reports news unavailable for
+qualification, not a proven absence of news. Cold lookup had no candidate cache
+hits; returned per-symbol partial/no-evidence contexts are reused in the same
+cycle without additional Watchlist provider retrieval.
+
+### Freshness: first causes, timing and bounded provisional acquisition
+
+The initial48 rejected symbols had first recorded causes:
+31 DROP_STALE_MARKET_DATA,7 DROP_FLOAT_MAX,6 DROP_FLOAT_UNKNOWN,
+3 DROP_RVOL_DISCOVERY and1 DROP_PCT_CHANGE. The final summary's48 stale is not
+proof that all48 initially failed freshness alone. Underflow/backfill iterates
+all unselected contexts after enrichment and overwrites an existing drop_ledger
+entry with a later stale result. By then all48 are stale. Preserve first-cause
+accounting with setdefault while retaining stale flags/final rejection authority.
+A full synthetic scanner regression preserves FLOAT_MAX even after later ageing.
+
+Initial authoritative quote callbacks span WORX req465 at13:36:54.103825Z to
+GRML req710 at13:38:23.902844Z, about89.8s. Between symbols, genuine contract,
+20-day volume history,25-day reference history and float enrichment run serially;
+float workers also update the isolated cache. Log repetitions of get_quote are
+not sufficient proof of duplicate wire requests. Original non-shortlisted broker
+trade timestamps/assessment wall times are not fully serialized, so early stale
+status cannot be split precisely into illiquid old trades versus enrichment
+ageing for each symbol. The recorded MD_STALE decision is retained as evidence.
+
+Cache-only candidate news:13:38:25.040135–25.230345Z, no provider invocation.
+Operational news:13:38:25.274709–30.850320Z; monotonic acquisition5.201403s,
+fast budget5.2s, total8s. The next timestamped quote callback is13:38:47.268894Z.
+The intervening16.4s includes return/context/log/ranking work but has no detailed
+span receipts; do not assign an invented per-function latency cause. Before
+refresh the rank log names only WORX,AIXI. Refresh order and genuine provenance:
+
+| Symbol | Original broker timestamp / request | Refreshed broker timestamp / request | Receipt → assessment |
+| --- | --- | --- | --- |
+| WORX |13:36:53Z /465|13:38:46Z /714|13:38:47.272269Z →47.278711Z|
+| AIXI |13:37:01Z /485|13:38:46Z /715|13:38:47.803499Z →47.807300Z|
+
+Refreshed flags are empty. Approximate new trade ages at assessment are1.279s
+and1.807s, within the unchanged15s limit. Focus then rejects both for catalyst,
+not stale data. Refresh is working; no timestamp renewal or stale-limit change
+is justified by these successes.
+
+A separate demonstrated ordering defect remains: initial `_evaluate_watchlist_gates`
+returns immediately on stale data, before otherwise valid rows can reach the
+bounded provisional acquisition list. XCH's recorded discovery metrics are
+price2.46,pct41.38,rvol3.82,float1.286410m, yet it drops stale atstdout1884 and
+never reaches refresh. This does not prove XCH would become fresh, meet Focus
+volume/spread/catalyst gates or deserve selection. It does prove that freshness
+precluded even bounded reacquisition of an otherwise discovery-eligible row.
+
+Repair only initial acquisition ranking: an explicit default-off provisional
+mode defers freshness when the existing provider supports refresh. All price,
+percentage,RVOL,float/identity/session gates continue to apply. Stale flags and
+broker timestamps remain unchanged. Initial KEEP is labeled PROVISIONAL_ACQUISITION.
+Existing strategy rank[:K], request pacing, shared absolute deadline, cancellation,
+identity/history caches, final metric/score rebuild and strict Watchlist/Focus/
+publish freshness checks remain. No full-universe refresh, forced replenishment
+or automatic Focus/catalyst is introduced. Failed/still-stale refreshed data stays
+rejected. Synthetic full-scanner regressions cover stale already at initial
+acquisition, fresh/still-stale/invalid-price refresh, and early float rejection
+with no refresh and preserved first-cause ledger.
+
+### Empty strategy-input reporting
+
+The repeated `[PIPELINE][SKIP] empty watchlist` atstdout5881 etc comes from the
+strategy-input else branch, not the scanner Watchlist. Official Watchlist has
+WORX,AIXI; empty official Focus intentionally empties strategy inputs. Report
+NO_FOCUS_CANDIDATES with watchlist_count2/focus_count0, reserving EMPTY_WATCHLIST
+for an actually empty Watchlist and NO_STRATEGY_INPUTS for other empty handoffs.
+No strategy invocation or intent is manufactured; real no-Focus authority is
+unchanged. Existing legitimate empty-Watchlist branch remains accurate.
+
+### Engineering state and smallest next action
+
+Follow-up branch `codex/natural-run2-evidence-reporting` contains separate freshness/
+first-cause and reporting fixes plus this evidence map. Focused offline scanner,
+deadline/cancellation, news-date/relevance and console checks are recorded in its
+PR receipt; changed production source requires exact-head Linux/Windows CI and
+independent review. Prior workstation2759, old production2811 CI and this user
+natural receipt remain separately attributed; no workstation suite or observation
+is repeated. Next action is review the focused repair PR; do not rerun observation
+or acquire providers merely to fill missing raw evidence. Preserve all broker
+holdings and manual ownership blockers; no adoption, liquidation, cancellation,
+suppression, trading, merge or readiness upgrade in this diagnosis. PAPER_READY=NO.
