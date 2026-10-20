@@ -2657,6 +2657,16 @@ def _news_alias_values(value: Any) -> tuple[str, ...]:
     return ()
 
 
+def _news_acquisition_order(contexts, survivors):
+    """Spend the existing issuer-query cap on discovery survivors first.
+
+    Retain rejected symbols for explicit partial-coverage accounting. This changes
+    acquisition priority only, never strategy ranking or membership.
+    """
+    eligible = {row.get("symbol") for row in survivors}
+    return sorted(contexts, key=lambda row: row.get("symbol") not in eligible)
+
+
 def _news_symbol_metadata_for_contexts(contexts: Iterable[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
     metadata_keys = (
         "company_name",
@@ -6092,7 +6102,7 @@ def run_scanner_cycle(
         )
         news_symbols_to_fetch = list(candidate_symbols)
         if selector is not None and allow_news and news_symbols_to_fetch:
-            news_symbol_metadata = _news_symbol_metadata_for_contexts(evaluated_contexts)
+            news_symbol_metadata = _news_symbol_metadata_for_contexts(_news_acquisition_order(evaluated_contexts, candidates))
             fetched_news, news_diag = _enrich_news_context(
                 news_symbols_to_fetch,
                 provider_source,
