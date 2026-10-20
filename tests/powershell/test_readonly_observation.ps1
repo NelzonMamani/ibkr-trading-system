@@ -12,8 +12,9 @@ function Check($ok, $text) { if (!$ok) { throw $text } }
 $stub = Join-Path $scratch "stub 'quoted'.py"
 @'
 import json, os, pathlib, sys, time, zipfile
-phase, root, head = sys.argv[1:]
+phase, root, head, *duration_args = sys.argv[1:]
 p = pathlib.Path(root); e=p/'e'; e.mkdir(exist_ok=True)
+with (e/'durations').open('a') as durations: durations.write(phase+':'+(duration_args[0] if duration_args else '180')+'\n')
 with (e/'phases').open('a') as out: out.write(phase+'\n')
 case=os.environ.get('OBS_TEST_CASE','success')
 print('STDOUT '+phase, flush=True); print('STDERR '+phase, file=sys.stderr, flush=True)
@@ -58,6 +59,8 @@ try {
         $result=Invoke-ReadonlyObservation -Python $Python -Operator $stub -Root $root -ExpectedCommit ('a'*40) -ObservationSeconds $budget -StopSeconds 2
         $expected=@{success=0;preflight=2;'preflight-package-failure'=2;failure=1;collection=2;native7=7;pipes=0;package=9;'seal-failure'=1;stop=124}[$case]
         Check ($result -eq $expected) "$case exit $result != $expected"
+        $durations=@(Get-Content (Join-Path $root 'e\durations'))
+        foreach ($line in $durations) { Check ($line.EndsWith(':180')) 'Default duration changed across child boundary' }
         $phases=Get-Content (Join-Path $root 'e\phases')
         Check ($phases[-1] -eq $(if ($case -in @('package','preflight-package-failure')) {'package'} else {'seal'})) "$case did not package"
         if ($case -in @('preflight','preflight-package-failure')) { Check (!($phases -contains 'observe')) 'Preflight failure launched observation.' }
@@ -72,6 +75,23 @@ try {
         if ($case -eq 'preflight-package-failure') {
             Check ($status.preflight_exit -eq 2 -and $status.package_exit -eq 9) 'Packaging masked preflight failure.'
         }
+        $passed++
+    }
+    foreach ($seconds in @(900,1800)) {
+        $env:OBS_TEST_CASE='success'
+        $root=Join-Path $scratch ('duration-'+$seconds); New-Item -ItemType Directory $root | Out-Null
+        $result=Invoke-ReadonlyObservation -Python $Python -Operator $stub -Root $root -ExpectedCommit ('a'*40) -RuntimeSeconds $seconds
+        Check ($result -eq 0) "Duration $seconds failed"
+        $durations=@(Get-Content (Join-Path $root 'e\durations'))
+        Check ($durations.Count -eq 4) 'Duration phases missing'
+        foreach ($line in $durations) { Check ($line.EndsWith(':'+[string]$seconds)) 'Duration lost across child boundary' }
+        $passed++
+    }
+    foreach ($seconds in @(179,1801)) {
+        $root=Join-Path $scratch ('invalid-duration-'+$seconds); New-Item -ItemType Directory $root | Out-Null
+        $failed=$false
+        try { Invoke-ReadonlyObservation -Python $Python -Operator $stub -Root $root -ExpectedCommit ('a'*40) -RuntimeSeconds $seconds | Out-Null } catch { $failed=$true }
+        Check ($failed -and !(Test-Path (Join-Path $root 'e'))) 'Invalid duration started a phase'
         $passed++
     }
     $preserved=Join-Path $scratch 'existing-root'; New-Item -ItemType Directory (Join-Path $preserved 'e') | Out-Null
