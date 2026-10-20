@@ -20,8 +20,8 @@ jobs:
         shell: python
         run: |
           import os, subprocess
-          baseline = 'caf5467a2cdb40ad26efd628e9ae1232d3ae6588'
-          # This fixed source receipt has successful 2811-pass Linux/Windows
+          baseline = '91988fdde713a642637955f01c2f8145d58ffd3a'
+          # This fixed source receipt has successful 2824-pass Linux/Windows
           # suites. The earlier workstation2759 receipt remains separate. Any change
           # outside this exact harness/docs allowlist still runs full suites.
           allowed = {
@@ -47,7 +47,7 @@ jobs:
           with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
               out.write(f'harness_only={str(focused).lower()}\n')
           print('HARNESS_ONLY=' + str(focused))
-          print('Full-suite receipt: actions/runs/39389648522 at ' + baseline)
+          print('Full-suite receipt: actions/runs/39434843988 at ' + baseline)
           print('Changed files: ' + ', '.join(sorted(paths)))
 
   test:
@@ -84,8 +84,8 @@ jobs:
       - name: Harness-only source identity and whitespace checks
         if: needs.verification-scope.outputs.harness_only == 'true'
         run: |
-          git diff --check caf5467a2cdb40ad26efd628e9ae1232d3ae6588 HEAD
-          git diff --exit-code caf5467a2cdb40ad26efd628e9ae1232d3ae6588 HEAD -- src tests/offline tests/conftest.py requirements.txt
+          git diff --check 91988fdde713a642637955f01c2f8145d58ffd3a HEAD
+          git diff --exit-code 91988fdde713a642637955f01c2f8145d58ffd3a HEAD -- src tests/offline tests/conftest.py requirements.txt
           python -m py_compile scripts/certification/natural_readonly_operator.py scripts/certification/readonly_cache_sitecustomize.py tests/powershell/verify_observation_package.py
           python tests/powershell/verify_windows_inventory.py
           python tests/powershell/verify_observation_package.py "$GITHUB_WORKSPACE" "$RUNNER_TEMP/observation-package-linux"
