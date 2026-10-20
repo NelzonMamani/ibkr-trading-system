@@ -1079,3 +1079,97 @@ Earlier cde4 CI/review is superseded for integration; only the final repaired
 head's checks/review can authorize the PR1112 merge. Production order mutation
 paths are unchanged. Final accepted integration/package pins remain in the PR
 receipt; no natural execution is implied by engineering acceptance.
+
+## 2026-10-20 — accepted integration and preparation-only release
+
+PR1111 accepted merge:2aba8df95fffebcb5e74525b867a0977de579924, preserving reviewed
+4ae3fe38ff5215e4c5fd5316a75030febdc6a9f3 and its original main parent. PR1112
+accepted production merge:8ff169d1511654ef3d913c742a0dfd26b63a9a60, preserving originally reviewed
+4815fc23511bdf8bfd41ca8e42e9d6ddb53b0cb0 plus the focused late-review deadline
+repairs through caf5467a2cdb40ad26efd628e9ae1232d3ae6588. No conflict resolution
+changed implementation. The actual accepted merge tree is exactly the final
+reviewed caf5467a tree. Final release/main SHA and the one literal pinned operator
+block are retained in the integration release PR receipt and completion message;
+they include this documentation without changing the reviewed production source.
+
+Evidence ledger (do not combine or relabel these receipts):
+
+| Receipt | Proven result | Limit |
+| --- | --- | --- |
+| Workstation8f40e4c4 |2759 passed,1 skipped,212 warnings,435.69s; wrapper subsequently repaired separately | Historical source, not verification of later production changes |
+| Reviewed productionee44 CI38824692588 |2779 passed Linux/Windows | Earlier implementation |
+| PR1111 CI39286810328 at4ae | Actual Windows PowerShell5.1 exit/inventory/operator/packaging checks; Linux focused checks | Controlled children, not natural acceptance |
+| User natural run at4ae, ZIP781387b4a892435e40150a37f69ef48603a7eaf4b9c003ca488b8e08aa5a606c | Inventory1.086s; graceful terminalPASS; no forced stop; zero runtime/independent mutations; source/order state unchanged;50→8→0 | Partial issuer acquisition only; no catalyst/downstream acceptance |
+| PR1112 original4815 CI39387332954 |2803 passed,1 skipped on Linux/Windows; Windows212 warnings | Before final deadline repair |
+| Final productioncaf5467a CI39389648522 | 2811 passed,1 skipped on both; Linux202.96s; actual WindowsPython3.13.3 212warnings,437.96s | Hosted offline CI, not workstation/natural execution |
+| Renewed independent review5582237886 atcaf | No remaining actionable blocker; independent8 deadline regressions pass | Separate nonhuman review; not broker acceptance |
+
+The release's CI receipt baseline advances to the final source above only after
+its full Windows/Linux success is verified. Exact source/offline-guard/conftest/
+requirements identity and a narrow harness/docs allowlist retain proportionate
+controlled checks for documentation releases; any production/test/dependency
+change outside that allowlist runs full suites. No workstation suite repeated.
+
+Preparation uses the existing reviewed `PR1108_NATURAL_READONLY_ACCEPTANCE.ps1`.
+Run the one released block from the user's existing PyCharm repository in Windows
+PowerShell5.1, using C:\tmp\pr1091-cert-env-20260923\Scripts\python.exe (verified
+Python3.13.3 and dependencies). It fetches main into existing Git objects, checks
+the pinned accepted commit/ancestry, extracts the script from that commit and
+creates a unique C:\tmp\ro-xxxxxxxx\s detached worktree. Dirty PyCharm source,
+existing evidence, original order state and broker holdings remain untouched.
+A conservative disk estimate must pass; choose another short-path base or free
+space manually if needed. Never delete old evidence automatically. No full clone,
+provider import/acquisition, preflight or runtime launch is part of preparation.
+The new root reserves fresh state/evidence: e must remain absent until the separate
+runner creates it; an existing e is refused. The script prints a separate complete
+execution command. **Do not execute that printed command under this integration
+instruction. Preparation is authorized; observation remains HOLD.**
+
+Before a later separately authorized run:
+
+- Use normal configured weekday US RTH (America/New_York09:30–16:00, honoring
+  holidays/early close), a correct workstation clock, genuine subscriptions and
+  validated paper-TWS session. No session/candidate/catalyst overrides.
+- PAPER TWS: API enabled, read-only API enabled, socket127.0.0.1:7497, localhost
+  permitted and client71 unused. This setup is unnecessary for preparation.
+- No existing Ross runtime. Initial inventory must complete within its bound and
+  be empty; incomplete with empty rows is a failure. Exact pinned source must be
+  clean; all READ_ONLY write guards and independent mutation instrumentation must
+  pass. Runtime child startup/cache-isolation probe must pass as actually launched.
+- Retain private order high-watermark copy and new isolated state/cache/SQLite.
+  Preserve existing CMND,DFSC,ENVB,FGI,PBM broker holdings. Broker-only exposure
+  cannot establish system ownership; manual blockers remain. Do not adopt,
+  liquidate, cancel or suppress them to obtain acceptance. Ownership resolution
+  is not required to validate shutdown/scanner/news; unresolved blockers continue
+  to prevent downstream readiness.
+
+The next separately authorized180s observation will verify these distinct results:
+
+1. Graceful cancellation/terminal audit: bounded stop, required hooks and float
+   workers cleaned up, runtime identity verified, final inventory empty, runtime
+   and independent mutation counters zero, source/order state unchanged, retained
+   real exits and privacy-checked shareable ZIP. Regressions fail this result;
+   a missing first pass/catalyst alone does not.
+2. Full natural scanner pass:50 genuine candidates processed through unforced
+   Watchlist/Focus gates.180s is an observation budget, not proof of completion.
+   Inspect old/new broker timestamp/request/receipt/assessment markers and
+   bounded shortlist refresh; genuine stale/unknown/failed refresh still rejects.
+3. Natural full-issuer acquisition: eligible-survivor query priority under the
+   same four-query/eight-second limits, actual full-name canonical requests,
+   per-issuer attempted/completed/available evidence, attribution and truthful
+   partial/cache coverage. Do not infer all8 Watchlist issuers are covered.
+4. Catalyst qualification: qualifying, fresh, attributed Ross catalyst evidence.
+   Completed retrieval or clean shutdown alone does not establish this outcome;
+   no catalyst may legitimately appear.
+5. Downstream progression: only naturally eligible Focus/pattern/trigger/intent
+   stages may progress, with READ_ONLY and ownership blockers remaining effective.
+   No manufactured intent/order, forced selection or trading-readiness upgrade.
+
+During later execution, the unchanged runner prints responsive log paths and the
+cooperative STOP_REQUESTED path. The supervisor retains180s observation plus
+bounded graceful/escalation handling; outer540s supervision and packaging remain
+bounded. Both streams and phase exits are retained; incomplete/failing preflight
+packages diagnostics and prints the ZIP only after successful privacy-safe seal.
+A clean early stop is not full-pass or end-to-end acceptance. Preserve the final
+shareable ZIP and prior archives. No observation/provider/broker runtime ran during
+integration. PAPER_READY=NO.
