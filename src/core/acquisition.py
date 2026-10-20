@@ -16,13 +16,41 @@ class AcquisitionCancelled(BaseException):
     pass
 
 
+class AcquisitionDeadlineExceeded(Exception):
+    """An optional acquisition budget expired; this is not a stop request."""
+
+
 _state = ContextVar("acquisition_state", default=None)
+_deadline = ContextVar("acquisition_deadline", default=None)
 
 
 def checkpoint():
     state = _state.get()
     if state is not None and state["stop"]():
         raise AcquisitionCancelled()
+    deadline = _deadline.get()
+    if deadline is not None and time.monotonic() >= deadline:
+        raise AcquisitionDeadlineExceeded("Acquisition deadline reached")
+
+
+def bounded_timeout(seconds):
+    """Clamp blocking waits to the same absolute acquisition deadline."""
+    checkpoint()
+    deadline = _deadline.get()
+    return max(0.0, min(seconds, deadline - time.monotonic())) if deadline is not None else seconds
+
+
+@contextmanager
+def acquisition_deadline(deadline):
+    parent = _deadline.get()
+    effective = parent if deadline is None else (min(parent, deadline) if parent is not None else deadline)
+    token = _deadline.set(effective)
+    try:
+        checkpoint()
+        yield
+        checkpoint()
+    finally:
+        _deadline.reset(token)
 
 
 def _file_stop():
@@ -60,7 +88,7 @@ def wait_event(event, timeout):
     while True:
         checkpoint()
         remaining = deadline - time.monotonic()
-        if event.wait(min(0.1, max(0, remaining))):
+        if event.wait(bounded_timeout(min(0.1, max(0, remaining)))):
             checkpoint()
             return True
         if remaining <= 0:
@@ -82,7 +110,7 @@ async def cooperative_await(awaitable):
     try:
         while not task.done():
             checkpoint()
-            await asyncio.wait({task}, timeout=0.1)
+            await asyncio.wait({task}, timeout=bounded_timeout(0.1))
         checkpoint()
         return task.result()
     finally:

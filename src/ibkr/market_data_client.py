@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from src.core.acquisition import checkpoint, cycle_cache, contract_key, cooperative_await
+from src.core.acquisition import checkpoint, cycle_cache, contract_key, cooperative_await, bounded_timeout
 
 import asyncio
 from dataclasses import dataclass, field
@@ -503,11 +503,11 @@ class MarketDataClient:
             result.extend(rows)
         return result
 
-    def snapshot_stock(self, contract_or_symbol) -> MarketDataSnapshot:
+    def snapshot_stock(self, contract_or_symbol, *, refresh: bool = False) -> MarketDataSnapshot:
         checkpoint()
         cache = cycle_cache()
         key = ("snapshot", id(self), contract_key(contract_or_symbol), self.market_data_type)
-        if cache is not None and key in cache:
+        if cache is not None and key in cache and not refresh:
             snapshot, debug = cache[key]
             self.last_snapshot_debug = debug
             # Reuse data, never the age decision from the earlier acquisition.
@@ -572,11 +572,13 @@ class MarketDataClient:
         received_at = None
         required_fields = ("bid", "ask", "last", "close", "volume")
         for attempt_index, (requested_type, attempt_label) in enumerate(attempts, start=1):
+            checkpoint()
             req_market_data_type = getattr(ib, "reqMarketDataType", None)
             if callable(req_market_data_type):
                 req_market_data_type(_market_data_type_code(requested_type))
             tracked = _track_insync_snapshot_callbacks(ib)
             request_started_at = datetime.now(timezone.utc)
+            checkpoint()
             ticker = ib.reqMktData(contract, genericTickList="", snapshot=True, regulatorySnapshot=False)
             _prepare_snapshot_ticker(ib, ticker, requested_type, tracked, request_started_at)
             started_at = time.monotonic()
@@ -595,7 +597,7 @@ class MarketDataClient:
                     remaining = self.snapshot_timeout_seconds - (time.monotonic() - started_at)
                     if remaining <= 0:
                         break
-                    ib.waitOnUpdate(timeout=min(0.2, remaining))
+                    ib.waitOnUpdate(timeout=bounded_timeout(min(0.2, remaining)))
                 completed_at = datetime.now(timezone.utc)
                 raw_fields = self._snapshot_debug_fields(ticker)
                 returned_type = _returned_market_data_type(ticker)

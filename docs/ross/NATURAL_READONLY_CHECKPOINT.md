@@ -894,3 +894,188 @@ heads. No broker/provider calls, observation, trading or readiness upgrade.
 PAPER_READY=NO. Final reviewed repair pin and complete preparation-only command
 are recorded in the repair PR/completion receipt; fetch that narrow branch into
 an existing local repository and reuse its objects. No merge is performed here.
+
+## 2026-10-20 — completed natural pass at reviewed PR1111; remaining selection blockers
+
+Evidence is the user-operated run at **4ae3fe38ff5215e4c5fd5316a75030febdc6a9f3**,
+not a run performed during diagnosis. Uploaded `ross-natural-readonly-upload.zip`
+SHA256 `781387b4a892435e40150a37f69ef48603a7eaf4b9c003ca488b8e08aa5a606c`.
+Preserve this ZIP and its original evidence/state roots unchanged.
+
+| Independent acceptance outcome | Receipt / result |
+| --- | --- |
+| Process inventory | PASS: completed=true, CIM_SERVER_FILTERED_PYTHON, 1.086 seconds, bounded15s; no initial runtimes |
+| Graceful shutdown / terminal certification | PASS: no forced termination, both child exits0, required hooks succeeded, runtime identity MATCHED; final broker audit completed/disconnected with zero open orders |
+| Runtime mutation and independent audit | PASS: place=modify=cancel=0 in both independent sets; tracked source and operator order state unchanged; package/final exit0 |
+| Full natural scanner pass | PASS:50 genuine candidates →8 Watchlist →0 Focus; first pass completed |
+| Full-issuer news acquisition | PARTIAL VERIFIED: genuine full issuer queries attempted/completed for PLAG,SLN,WORX,YMAT; WORX/YMAT are actual Watchlist members; not verified for remaining six Watchlist issuers |
+| Catalyst qualification | NOT ESTABLISHED: all eight Focus evaluations reported DATA_UNAVAILABLE/news_unavailable; no qualifying catalyst should be inferred from a completed query |
+| Downstream progression | NOT ESTABLISHED:0 Focus, no qualifying intent or orders; terminal audit success does not certify end-to-end selection/trading readiness |
+
+### Timestamp / latency trace (UTC, original terminal stdout line references)
+
+Initial supplemental snapshots arrived around17:23:07–08. Authoritative provider
+quotes were then acquired serially with20-day intraday-volume and25-day reference
+history work. These history durations are distinct requests, not duplicates.
+Repeated `get_quote` log entries subsequently reuse the per-cycle snapshot cache;
+a log entry alone is not an extra wire request. News follows all50 enrichment
+contexts, and Focus follows news. No shortlist quote refresh existed at4ae.
+
+| Symbol | Native type-callback receipt, requestID (line) | Minimum wait to Focus from that receipt |
+| --- | --- | --- |
+| AAME |17:23:19.937345,496 (2019)| >89.47s |
+| WORX |17:23:13.790254,476 (1716)| >95.61s |
+| FUFU |17:23:18.588604,491 (1939)| >90.81s |
+| YMAT |17:23:15.498328,481 (1789)| >93.90s |
+| EXYN |17:23:27.668787,511 (2283)| >81.73s |
+| TCRT |17:23:45.543489,556 (2973)| >63.86s |
+| SLE |17:24:01.156787,601 (3590)| >48.25s |
+| HUIZ |17:24:27.208624,671 (4558)| >22.19s |
+
+These are callback-receipt latency bounds to after news completion17:24:49.407871,
+**not fabricated broker trade timestamps or exact quote ages**. The archive does
+not serialize the full per-symbol `market_data_observations` payload returned by
+the scanner. Broker trade times therefore cannot be reconstructed exactly.
+Focus lines5484–5507 explicitly reject all8 as DROP_STALE_MARKET_DATA; even the
+latest callback precedes Focus by more than the unchanged15s freshness limit.
+News cache-only check begins17:24:43.324224 after all-symbol enrichment; operational
+news17:24:43.560937–17:24:49.407871 adds more ageing. This demonstrates implementation
+latency, not failure to observe long enough. Extending observation cannot repair it.
+
+Smallest repair: bound explicit reacquisition to the existing strategy's topK
+provisional discovery survivors; use the existing provider/pacing/cooperative
+acquisition, replacing only quote cache entries. Keep qualified identity and
+parameter-keyed history caches. Rebuild quote-derived metrics with the same
+reference/float facts; rerun price/Watchlist/float gates before final selection.
+Unknown/invalid timestamp, mismatched identity, failed/timeout refresh remain
+rejected. Genuine LAST_TRADE timestamp is retained unchanged; never substitute
+receipt/current time. Final Focus gates and a final publish-age check remain
+mandatory; earlier refreshed rows may still age out while later rows are read.
+No repeated refresh loop or forced promotion is introduced. New
+`[SCANNER][SHORTLIST_REFRESH]` markers retain old/new requestIDs, broker times,
+receipt and assessment times/flags for the next separately authorized observation.
+
+### News budget and issuer handoff
+
+Actual path: genuine scanner `symbol_scan_details` / qualified company name →
+`_build_symbol_context` identity fields → `_news_symbol_metadata_for_contexts` →
+news candidates / canonical issuer query → batch adapter `ROSS_ISSUER_QUERY`.
+The cached per-issuer URL proves full names, not manually supplied candidates:
+PLANET GREEN HOLDINGS CORP (PLAG), SILENCE THERAPEUTICS PLC-ADR (SLN),
+SCWORX CORP (WORX), J-STAR HOLDING CO LTD-A (YMAT), each OR its dollar ticker.
+
+Cache-only all50 lookup had zero hits; SPY/QQQ prep does not cover candidate
+issuers. Operational result attempted12 sources:4 issuer requests and8 feed
+requests. Per-source elapsed: YMAT1.360343s, PLAG1.497436s, SLN1.524976s,
+WORX1.757972s (parallel/completion order is not priority order). Exact individual
+start/completion wall times are not recorded; cached result completed_at is
+17:24:48.974585. Stage monotonic elapsed5.230826s, fast budget5.2s, total8s,
+reserved extended2.8s unused because primary coverage was incomplete. Some
+feeds returned401/403 or did not complete; no provider retry was run here.
+
+The cap is4 issuer queries, selected by original raw-universe priority:
+PLAG,SLN,WORX,YMAT. PLAG was already stale-rejected and SLN over-float-rejected
+before acquisition. They consumed half the cap while six of eight eventual
+Watchlist issuers went unqueried.46 results say budget_exhausted; per-issuer truth
+for those says query_request_limit, attempted=false. This is a cap/priority issue
+as well as a fast-tier deadline, not proof all requests consumed eight seconds.
+Four query results remain partial,46 budget_exhausted; none establishes search
+completeness. Already-returned per-symbol entries are reused at Watchlist stage,
+so no extra Watchlist acquisition recovers omitted issuer queries that cycle.
+
+Repair only acquisition order: stable discovery-survivor-first priority, retaining
+all50 symbols for coverage accounting and the same four-query/eight-second caps.
+With this run's survivors, first four become WORX,YMAT,FUFU,AAME; four other
+eligible issuers may still be explicitly uncovered. Strategy rank/membership,
+canonical identity, attribution, cache semantics and catalyst gates are unchanged.
+A fetched feed/headline or reused partial cache is never complete issuer coverage.
+
+### Position truth and reporting
+
+Initial preconnection missing-snapshot UNKNOWN/critical1 is an availability
+blocker. Normal connection subsequently obtains a completed broker snapshot,
+but it contains CMND0.1, DFSC8, ENVB8, FGI1 and PBM7 against zero system positions.
+The resulting five BROKER_ONLY_POSITION critical mismatches are a different,
+continuing ownership blocker: entries/exits blocked, five manual-review recovery
+actions, auto_applied0. `src/execution/recovery_engine.py` explicitly states:
+"Broker exposure does not establish system ownership; manual review required."
+`test_reconcile_broker_only_is_critical` and confirmed-position-repair regressions
+retain that behavior. Reconciliation can clear snapshot availability after
+connection; it cannot invent ownership. Evidence supports expected unowned
+exposure blocking, not a demonstrated recovery defect. Whether the positions
+were externally created or originate in absent historical system state is not
+established by this isolated run. Do not adopt, liquidate, cancel or modify them.
+This blocker did not explain the serial scanner delay.
+
+The unconditional `not intent_stage_seen()` fatal message was misleading with
+NO_FOCUS_CANDIDATES and zero evaluated setups. Replace it with ordinary
+NO_FOCUS_CANDIDATES/NO_QUALIFIED_INTENT reporting when no audit contract is
+violated. Keep real trigger-without-intent invariant exceptions and actual audit
+contract violations fatal. Empty-Focus diagnostics now count stale rejection and
+name an all-stale result accurately. No intent is manufactured.
+
+### Review / execution state
+
+PR1111 remains a separate harness-only repair at reviewed4ae. Its required CI
+39286810328 succeeded (including actual Windows PowerShell controlled checks),
+independent exact-head review5574683076 found no blocker; the user-run terminal
+receipt now verifies inventory latency and graceful shutdown in the workstation
+session. Recommend its exact-head engineering merge after rechecking unchanged
+head/checks/review/threads; **no merge is authorized/performed by this task**.
+This recommendation does not accept the production follow-up or trading readiness.
+
+New production follow-up is separate branch `codex/natural-shortlist-freshness-news`
+stacked on4ae, with separate-cause commits and focused offline probes. Required
+changed-head Linux/Windows CI and independent review are recorded in its PR
+receipt. Reuse workstation2759-pass at8f40 and old2779-pass CI only for their own
+unchanged source; neither verifies this new production source. No new workstation
+full-suite rerun is requested. Next operator action is review PR1111 and the
+production follow-up; **observation remains HOLD** until the new source is reviewed
+and a later explicitly authorized package is pinned. Preserve existing evidence.
+No broker/provider call, runtime run, trading, forced selection or readiness upgrade
+was performed during diagnosis. PAPER_READY=NO.
+
+## 2026-10-20 — controlled integration and late deadline review
+
+PR1111 was rechecked at exact4ae3fe38ff5215e4c5fd5316a75030febdc6a9f3:
+three required jobs SUCCESS, independent exact-head review, no unresolved threads,
+reviewed harness-only diff. It was merged with ancestry preserved as
+**2aba8df95fffebcb5e74525b867a0977de579924** (parents e6f21bc4 and4ae3fe38).
+PR1112 was retargeted to main without changing reviewed4815fc23. Its prospective
+merge tree exactly matched4815fc23; intended remaining diff was four production
+files, three focused test files and this checkpoint.33 focused integration cases
+passed; existing full Linux/Windows2803-pass receipts remained separate.
+
+Before merging PR1112, a newly arrived automated review thread4322634242 found
+that the positive precheck did not bound a snapshot's independent five-second
+wait by the remaining scanner budget. Integration paused; no review thread was
+ignored or treated as resolved merely because CI was green. The focused repair
+retains4815fc23511bdf8bfd41ca8e42e9d6ddb53b0cb0 as an ancestor and adds one scoped
+absolute acquisition deadline only around shortlist refresh/context rebuilding.
+Native snapshot/event/async waits clamp to remaining time; every retry checks the
+same deadline. Expiry discards partial rebuilding and preserves original stale
+rejection, without renewing timestamps, changing freshness/pacing or extending
+scanner/news budgets. Stop cancellation takes precedence; the deadline scope is
+restored before required finalization. Identity/history cycle caches are shared,
+not recreated. Seven controlled deadline regressions cover native wait/retry
+cleanup, expired/nested scopes, simultaneous stop, event/async cleanup, sequential
+refreshes sharing one deadline, and no publication after rebuild expiry.
+
+Local deadline/shortlist/shutdown/cache focused result:59 passed in2.14s. This is
+not a workstation full-suite result. New production source requires renewed
+exact-head review and changed-head Linux/Windows CI before PR1112 merge; final
+head/check/merge receipts are recorded in the PR and integration release receipt.
+No workstation suite was repeated. Existing workstation2759 at8f40, production
+2779 and2803 CI receipts, and natural run at4ae remain distinct historical evidence.
+No observation/provider/broker runtime or holding mutation during integration.
+Observation execution remains separate and on HOLD; PAPER_READY=NO.
+
+Independent delta review of cde4a86b found one additional cleanup gap: native
+history waits cancelled their wire request on stop but not on deadline expiry.
+The same market-data-only cancellation now handles both conditions, polling is
+clamped, and an eighth controlled regression proves exactly one request/cancel
+and no subsequent wire fallback. Final focused result:60 passed in2.07s.
+Earlier cde4 CI/review is superseded for integration; only the final repaired
+head's checks/review can authorize the PR1112 merge. Production order mutation
+paths are unchanged. Final accepted integration/package pins remain in the PR
+receipt; no natural execution is implied by engineering acceptance.

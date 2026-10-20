@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from src.core.acquisition import acquisition_cycle, checkpoint
+from src.core.acquisition import acquisition_cycle, checkpoint, acquisition_deadline
 
 import argparse
 from collections import Counter
@@ -1094,6 +1094,8 @@ def _float_focus_failure_diagnostics(
     )
     if focus_symbols:
         focus_empty_explanation = "FOCUS_M_POPULATED"
+    elif focus_drop_by_symbol and all(reason == "DROP_STALE_MARKET_DATA" for reason in focus_drop_by_symbol.values()):
+        focus_empty_explanation = "STALE_MARKET_DATA_AT_FOCUS"
     elif catalyst_failure_symbols:
         focus_empty_explanation = "USABLE_MARKET_DATA_BUT_CATALYST_NEWS_FAILURE"
     elif rvol_failure_symbols and focus_drop_by_symbol:
@@ -2657,6 +2659,16 @@ def _news_alias_values(value: Any) -> tuple[str, ...]:
     return ()
 
 
+def _news_acquisition_order(contexts, survivors):
+    """Spend the existing issuer-query cap on discovery survivors first.
+
+    Retain rejected symbols for explicit partial-coverage accounting. This changes
+    acquisition priority only, never strategy ranking or membership.
+    """
+    eligible = {row.get("symbol") for row in survivors}
+    return sorted(contexts, key=lambda row: row.get("symbol") not in eligible)
+
+
 def _news_symbol_metadata_for_contexts(contexts: Iterable[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
     metadata_keys = (
         "company_name",
@@ -4217,6 +4229,7 @@ def _build_symbol_context(
     *,
     universe_rank: Optional[int] = None,
     include_pct_change: bool = True,
+    quote_override=None,
 ) -> Optional[Dict[str, Any]]:
     is_session_contract = isinstance(session_contract, dict) and (
         "canonical_session" in session_contract
@@ -4237,7 +4250,7 @@ def _build_symbol_context(
         float_cache = {}
     calendar_session = resolve_calendar_session(datetime.now(timezone.utc))
     try:
-        quote = provider.get_quote(symbol)
+        quote = quote_override if quote_override is not None else provider.get_quote(symbol)
     except Exception as exc:
         if _is_unsubscribed_market_data_error(exc):
             return {
@@ -4548,6 +4561,80 @@ def _build_symbol_context(
     _emit_scanner_reference_trace("final_context_build", context)
     return context
     
+
+def _refresh_provisional_shortlist(candidates, provider, session_label, float_cache,
+                                   limit, thresholds, drop_ledger, runtime_bound_reached=None, deadline_s=None):
+    # Rank with the existing authority, bound acquisition to K, then rebuild
+    # selection metrics and rerun original discovery gates before publication.
+    if not callable(getattr(provider, "refresh_quote", None)):
+        return candidates
+    for context in _rank_candidates(candidates)[:max(0, limit)]:
+        checkpoint()
+        if runtime_bound_reached is not None and runtime_bound_reached("shortlist_refresh"):
+            break
+        _refresh_shortlisted_quote(context, provider, session_label, float_cache, deadline_s=deadline_s)
+    survivors = []
+    for context in candidates:
+        reason = (_evaluate_price_gate(context, thresholds)
+                  or _evaluate_watchlist_gates(context, thresholds)
+                  or _evaluate_float_gate(context, thresholds))
+        if reason:
+            drop_ledger[context["symbol"]] = reason
+            print(f"[SCANNER][DROP] symbol={context['symbol']} reason={reason} boundary=shortlist_refresh")
+        else:
+            context["scanner_score"], context["scanner_score_components"] = _score_context(context)
+            survivors.append(context)
+    return survivors
+
+
+def _refresh_shortlisted_quote(context, provider, session_label, float_cache, *, deadline_s=None):
+    """Refresh only aged shortlisted quotes, once, through the existing provider.
+
+    Rebuild derived metrics with the same reference/identity/history caches.
+    Failed refreshes retain the original stale rejection. Cancellation escapes.
+    """
+    checkpoint()
+    if not _stale_market_data_drop(context):
+        return
+    refresh = getattr(provider, "refresh_quote", None)
+    if not callable(refresh):
+        return
+    symbol = str(context.get("symbol") or "")
+    before_stamp = context.get("quote_timestamp_utc")
+    before_request = context.get("quote_request_id")
+    try:
+        with acquisition_deadline(deadline_s):
+            quote = refresh(symbol)
+            checkpoint()
+            if str(getattr(quote, "symbol", "")).upper() != symbol.upper():
+                raise ValueError("refresh symbol mismatch")
+            stamp = datetime.fromisoformat(quote.timestamp_utc.replace("Z", "+00:00"))
+            if stamp.tzinfo is None or getattr(quote, "timestamp_source", "UNKNOWN") != "LAST_TRADE":
+                raise ValueError("refresh lacks broker market timestamp")
+            if any(flag in (getattr(quote, "data_quality_flags", ()) or ()) for flag in
+                   ("MD_TIMEOUT", "SNAPSHOT_TIMEOUT", "MD_EMPTY", "MD_TIMESTAMP_UNKNOWN")):
+                raise ValueError("refresh unavailable")
+            rebuilt = _build_symbol_context(
+                provider, symbol, session_label, float_cache=float_cache,
+                universe_rank=context.get("universe_rank"), quote_override=quote,
+            )
+            if rebuilt is None or _context_identity(rebuilt).key != _context_identity(context).key:
+                raise ValueError("refresh identity mismatch or unavailable")
+            checkpoint()
+        # Replace the old quote-derived contract, including stale eligibility.
+        # Do not retain supplemental prices with unknown timestamp authority.
+        context.pop("snapshot_supplemented_fields", None)
+        context.update(rebuilt)
+        _stale_market_data_drop(context)
+        print(f"[SCANNER][SHORTLIST_REFRESH] symbol={symbol} status=completed "
+              f"previous_request_id={before_request} request_id={context.get('quote_request_id')} "
+              f"previous_market_timestamp={before_stamp} market_timestamp={context.get('quote_timestamp_utc')} "
+              f"received_at={context.get('quote_received_at_utc')} "
+              f"assessed_at={datetime.now(timezone.utc).isoformat()} "
+              f"flags={context.get('data_quality_flags')}")
+    except Exception as exc:
+        print(f"[SCANNER][SHORTLIST_REFRESH] symbol={symbol} status=failed error={type(exc).__name__}")
+
 
 def _quote_market_data_provenance(quote) -> dict[str, Any]:
     """Keep broker-confirmed type and market time separate from request/receipt."""
@@ -6022,7 +6109,7 @@ def run_scanner_cycle(
         )
         news_symbols_to_fetch = list(candidate_symbols)
         if selector is not None and allow_news and news_symbols_to_fetch:
-            news_symbol_metadata = _news_symbol_metadata_for_contexts(evaluated_contexts)
+            news_symbol_metadata = _news_symbol_metadata_for_contexts(_news_acquisition_order(evaluated_contexts, candidates))
             fetched_news, news_diag = _enrich_news_context(
                 news_symbols_to_fetch,
                 provider_source,
@@ -6032,6 +6119,13 @@ def run_scanner_cycle(
             news_diag = _with_news_status_index(news_diag, news_by_symbol)
         elif allow_news:
             news_diag = _with_news_status_index(news_diag, news_by_symbol)
+        discovery_survivor_symbols = {row["symbol"] for row in candidates}
+        candidates = _refresh_provisional_shortlist(
+            candidates, provider, session_label, float_cache, watchlist_limit,
+            thresholds, drop_ledger, runtime_bound_reached=_runtime_bound_reached,
+            deadline_s=runtime_deadline_value,
+        )
+        refresh_rejected_symbols = discovery_survivor_symbols - {row["symbol"] for row in candidates}
         candidate_metrics_for_ranking: List[CandidateMetrics] = []
         for context in evaluated_contexts:
             symbol = context.get("symbol")
@@ -6083,7 +6177,8 @@ def run_scanner_cycle(
             # Keep stale rows in diagnostic metrics, but never offer them to selection.
             selection_metrics = [
                 metric for metric in candidate_metrics_for_ranking
-                if drop_ledger.get(metric.symbol) != "DROP_STALE_MARKET_DATA"
+                if metric.symbol not in refresh_rejected_symbols
+                and drop_ledger.get(metric.symbol) != "DROP_STALE_MARKET_DATA"
                 and _stale_market_data_drop(context_by_symbol.get(metric.symbol, {})) is None
             ]
             if session_label == "WEEKEND" and run_mode != RunMode.LIVE:
@@ -6613,6 +6708,11 @@ def run_scanner_cycle(
                 ]
                 focus_contexts = eligible[: min(5, len(eligible))]
                 print(f"[FOCUS][FORCED_PROMOTION_PREMARKET] count={len(focus_contexts)}")
+        for context in list(focus_contexts):
+            if _stale_market_data_drop(context):
+                context["focus_drop_reason"] = "DROP_STALE_MARKET_DATA"
+                focus_contexts.remove(context)
+                print(f"[SCANNER][FOCUS_DROP] symbol={context.get('symbol')} reason=DROP_STALE_MARKET_DATA boundary=publish")
         focus_summary = _focus_summary_counts(watchlist_contexts, focus_contexts)
         print(
             "[ROSS][FOCUS][SUMMARY] "
@@ -6632,7 +6732,7 @@ def run_scanner_cycle(
                 f"blocked_by_spread={focus_drop_reasons.get('DROP_SPREAD', 0) + focus_drop_reasons.get('DROP_MISSING_SPREAD', 0)} "
                 f"blocked_by_float={focus_drop_reasons.get('DROP_FLOAT_MAX', 0) + focus_drop_reasons.get('DROP_FLOAT_MISSING', 0)} "
                 f"blocked_by_news={focus_drop_reasons.get('DROP_NO_CATALYST', 0)} "
-                f"blocked_by_data_quality={focus_drop_reasons.get('DROP_MISSING_BID_ASK', 0) + focus_drop_reasons.get('DROP_MISSING_PRICE', 0) + focus_drop_reasons.get('DROP_MISSING_RVOL', 0)}"
+                f"blocked_by_data_quality={focus_drop_reasons.get('DROP_MISSING_BID_ASK', 0) + focus_drop_reasons.get('DROP_MISSING_PRICE', 0) + focus_drop_reasons.get('DROP_MISSING_RVOL', 0) + focus_drop_reasons.get('DROP_STALE_MARKET_DATA', 0)}"
             )
 
         exclusion_counts = Counter(drop_ledger.values())

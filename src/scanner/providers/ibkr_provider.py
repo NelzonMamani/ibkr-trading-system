@@ -277,7 +277,11 @@ class IbkrScannerProvider(ScannerDataProvider):
         print(f"RAW_SCAN_SYMBOLS (N={len(symbols)}): {symbols}")
         return symbols
 
-    def get_quote(self, symbol: str) -> QuoteData:
+    def refresh_quote(self, symbol: str) -> QuoteData:
+        """One explicitly requested snapshot; retain identity/history cycle caches."""
+        return self.get_quote(symbol, refresh=True)
+
+    def get_quote(self, symbol: str, *, refresh: bool = False) -> QuoteData:
         contract = self._qualified_contract_for_symbol(symbol)
         self._retain_qualified_company_name(symbol)
         print(
@@ -287,7 +291,9 @@ class IbkrScannerProvider(ScannerDataProvider):
             f"exchange={getattr(contract, 'exchange', None) if contract is not None else None} "
             f"primaryExchange={getattr(contract, 'primaryExchange', None) if contract is not None else None}"
         )
-        snapshot = self.market_data_client.snapshot_stock(contract if contract is not None else symbol)
+        target = contract if contract is not None else symbol
+        snapshot = (self.market_data_client.snapshot_stock(target, refresh=True) if refresh
+                    else self.market_data_client.snapshot_stock(target))
         debug = getattr(self.market_data_client, "last_snapshot_debug", {}) or {}
         raw_fields = debug.get("raw_fields", {})
         waited_seconds = debug.get("waited_seconds", 0.0)
