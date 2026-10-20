@@ -45,7 +45,7 @@ The focused follow-up adds only telemetry/configuration receipts:
 | First usable evidence | first_result_seconds / first_evidence_seconds are runtime monotonic elapsed values exposed at publication/snapshots. Evidence means retained canonical facts, possibly stale or non-qualifying; it does not mean verified positive catalyst. Fresh isolated state makes cold-start attribution reviewable. |
 | Evidence at actual strategy use | Existing ROSS/CATALYST/REVALIDATE at cached Focus/setup handoff records IDs, qualification_reason and independent acquisition_health/reason. No Focus means no strategy-use receipt; report NOT_ESTABLISHED, not successful use. |
 | Feed reuse, failures, cadence | Snapshot feed_requests/feed_reuse; RETRIEVAL_DIAGNOSTICS source failure, budget, attempt counts and persisted per-issuer receipt; DISPATCH refresh interval and successive timestamps. Logical source counts are not identical to HTTP request counts. |
-| Genuine scans vs cached cycles | Existing SCANNER/ATTEMPT with actual returned rows and SCANNER/SUCCESS correspond to broker subscription path. REFRESH_WINDOW_CACHE_HIT, broker_scan_reused and Core cadence/cache markers are cached reuse, not new market discovery. |
+| Genuine scans vs cached cycles | Existing SCANNER/ATTEMPT with actual returned rows and SCANNER/SUCCESS correspond to broker subscription path. REFRESH_WINDOW_CACHE_HIT and WATCHLIST/AUTHORITY scanner_payload_fresh=false with topn_age_seconds are cached reuse, not new market discovery. |
 | Explicit released configuration | Follow-up forces both news flags true after inherited-env clearing; preflight verifies them and issuer-query flag and writes news-maintenance-config.json with cadence/budget. No network call required for this receipt. |
 
 Use runtime `e\terminal\stdout.log` and `stderr.log`, `e\preflight-process.*.log`,
@@ -73,6 +73,8 @@ observability gap above; no placeholder approval booleans are used.
     $s = 'C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system'
     $p = 'C:\tmp\pr1091-cert-env-20260923\Scripts\python.exe'
     New-Item -ItemType Directory -Force 'C:\tmp' | Out-Null
+    $b = Join-Path 'C:\tmp' ('r1119-' + [guid]::NewGuid().ToString('N').Substring(0,8))
+    New-Item -ItemType Directory -Path $b | Out-Null
     & git -C $s fetch --no-tags origin main
     if ($global:LASTEXITCODE -ne 0) { throw 'Fetch failed; no observation started.' }
     & git -C $s cat-file -e ($h + '^{commit}')
@@ -81,8 +83,13 @@ observability gap above; no placeholder approval booleans are used.
     if ($global:LASTEXITCODE -ne 0) { throw 'Cannot read pinned preparation script.' }
     $f = Join-Path 'C:\tmp' ('prepare-ro-' + [guid]::NewGuid().ToString('N').Substring(0,8) + '.ps1')
     [IO.File]::WriteAllLines($f, [string[]]$text, (New-Object System.Text.UTF8Encoding($false)))
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $f -ExpectedCommit $h -Python $p -SourceCheckout $s -BaseDirectory 'C:\tmp' -RuntimeSeconds 900
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $f -ExpectedCommit $h -Python $p -SourceCheckout $s -BaseDirectory $b -RuntimeSeconds 900
     if ($global:LASTEXITCODE -ne 0) { throw 'Preparation failed; no observation started.' }
+    $roots = @(Get-ChildItem -LiteralPath $b -Directory -Filter 'ro-*')
+    if ($roots.Count -ne 1) { throw 'Cannot identify the fresh preparation root.' }
+    $e = Join-Path $roots[0].FullName 'e'
+    New-Item -ItemType Directory -Path $e | Out-Null
+    Write-Host ('Fresh evidence directory: ' + $e)
     Write-Warning 'Observation HOLD: integrate reviewed telemetry follow-up, then re-prepare at its accepted head. Do not execute this older printed command.'
 }
 ```
