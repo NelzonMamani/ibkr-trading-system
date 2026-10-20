@@ -1330,3 +1330,74 @@ earlier hard float/RVOL/percentage causes but still upgrades missing-data rows t
 DROP_STALE_MARKET_DATA. Existing assertions remain unchanged. Failed intermediate
 CI is retained as failure; only final repaired-head CI/review is an acceptance
 gate. No provider/observation/workstation rerun was used to diagnose this.
+
+
+## 2026-10-20 — PR1114 controlled integration and next operator preparation
+
+PR1114 reviewed head `91988fdde713a642637955f01c2f8145d58ffd3a` was merged
+with ancestry preserved at accepted main `0896e855a5e0f2dd2612ceb7a9a18078434a34d2`.
+Parents are accepted0ae and reviewed91988; both complete trees are
+`a79cf3936512fc129f5ff6a1766a65aaaa808f76`. No conflict resolution or implementation
+change occurred. Immediately before merging: head unchanged, ready/non-draft,
+CI39434843988 completed SUCCESS, independent exact-head review5586079692 recorded
+no remaining blocker, and review threads were empty. Review is independent Codex
+COMMENT evidence, not a human approval. The intended six-file diff was inspected.
+
+Completed CI at91988: Linux Python3.11 **2824 passed,1 skipped,197.07s**;
+actual Windows Python3.13.3 **2824 passed,1 skipped,212 warnings,581.21s**.
+Historical workstation **2759 passed,1 skipped,212 warnings,435.69s at8f40**
+remains separate; it does not verify the new production changes. Intermediate
+c199 CI failures remain failed receipts. No workstation suite was repeated.
+The fixed harness-only CI baseline advances to this completed2824-pass receipt;
+its allowlist is unchanged and production/offline-source identity is still checked.
+This documentation/CI receipt release does not change reviewed production or harness.
+
+Preserved user-operated natural evidence at0ae (archive SHA256
+`cb4cc43e8607438e465a49bd2d296e2401532ebe3a9726342f5c4be1e1a252b2`):
+
+| Separate outcome | Recorded result |
+| --- | --- |
+| Graceful shutdown/terminal certification | PASS; no forced termination; runtime and independent place/modify/cancel counters zero; source/operator order state unchanged. |
+| Full natural scanner pass | PASS:50 genuine candidates → WORX/AIXI Watchlist →0 Focus. Both shortlist refreshes had genuine new broker timestamps. |
+| Full-issuer news acquisition | Verified issuer queries reached acquisition; four successful responses contained117/117 stale entries before relevance matching. Global coverage partial; raw rejected bodies absent. Zero retained evidence does not prove news absence. |
+| Catalyst qualification | NOT ESTABLISHED. Both shortlisted rows rejected DATA_UNAVAILABLE/news_unavailable/DROP_NO_CATALYST. |
+| Downstream progression | NOT ESTABLISHED. No Focus, strategy intent or trading acceptance. PAPER_READY=NO. |
+
+The next user-operated observation must separately establish whether otherwise
+eligible initially stale rows enter existing bounded provisional rank[:K] refresh;
+only genuine broker timestamps may pass unchanged final freshness gates. Failed,
+still-stale or otherwise invalid refreshed rows must reject. Rejection summaries
+must retain earlier hard float/RVOL/percentage causes, preserve explicit stale
+blocking for optional missing-data backfill, and report populated Watchlist/empty
+Focus as NO_FOCUS_CANDIDATES. No guaranteed Focus/catalyst is required for successful
+shutdown. A180-second observation can end before full completion and is not an
+end-to-end acceptance guarantee. The recorded117 stale news exclusions do not
+justify changing query rules, budgets, freshness limits or provider behavior.
+
+Preparation and execution remain separate. Use Windows PowerShell5.1, the existing
+Git checkout `C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system`, verified
+Python3.13.3 at `C:\tmp\pr1091-cert-env-20260923\Scripts\python.exe`, and a fresh
+short-path base directory. Fetch Git objects without cloning; extract the pinned
+preparation helper with `git show`; invoke it with ExpectedCommit,Python,
+SourceCheckout,BaseDirectory. It creates one detached worktree sharing Git history,
+estimates checkout/evidence disk space and prints the separate observation command.
+Do not reuse an evidence directory or delete earlier receipts. The final release PR
+and operator delivery carry the exact accepted release pin and two complete commands.
+
+Only before separately executing the printed observation command: use normal NYSE
+RTH (09:30–16:00 America/New_York, exchange holidays/early closes respected), correct
+clock and market/scanner entitlements, logged-in PAPER TWS with API enabled and
+Read-Only API enabled on127.0.0.1:7497, unused client71, and no existing Ross runtime.
+Preparation itself needs no TWS. Complete empty process inventory is required;
+incomplete inventory remains fail-closed. Source/session/startup-cache-isolation,
+READ_ONLY guards, private state, cooperative stop, bounded shutdown, final process
+inventory, required hooks and independent mutation audit remain mandatory.
+Preserve existing holdings and their manual ownership blockers; do not adopt,
+liquidate, cancel or suppress them. No session overrides or manual candidates.
+
+Live progress is in the fresh root's `e\terminal\stdout.log` and `stderr.log`;
+cooperative stop uses `e\terminal\STOP_REQUESTED`. The supervisor observes180s,
+then bounded grace60s/terminate15s/kill15s (outer watchdog540s). Share only the
+privacy-sealed `ross-natural-readonly-upload.zip` printed by the runner; preserve
+its real phase/exit statuses even on preflight failure. No providers, IBKR runtime,
+observation, holdings mutation or trading were executed during this integration.
