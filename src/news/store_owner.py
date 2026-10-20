@@ -61,6 +61,12 @@ class CanonicalStoreOwner:
                 handle.close()
             self.lock.release()
 
+    def read_text(self):
+        # Windows replacement can temporarily deny an uncoordinated open.
+        # Readers share the same bounded owner as writers, including processes.
+        with self.transaction():
+            return self.path.read_text(encoding="utf-8")
+
     def publish(self, text):
         """Called only under transaction; replace is the publication boundary."""
         descriptor, name = tempfile.mkstemp(prefix=self.path.name+'.', suffix='.tmp', dir=self.path.parent)

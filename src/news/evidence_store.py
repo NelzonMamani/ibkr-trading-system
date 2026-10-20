@@ -246,7 +246,7 @@ class CanonicalNewsEvidenceStore:
             "cache_write_symbols": [],
             "cache_write_evidence_count": 0,
         }
-        payload = self._load_cache_payload(diagnostics)
+        payload = self._load_cache_payload(diagnostics, owned=True)
         if diagnostics.get("cache_write_failed"):
             return diagnostics  # Never replace unreadable state with an empty document.
         namespace = payload.setdefault(NEWS_INTELLIGENCE_CACHE_NAMESPACE, {})
@@ -336,11 +336,13 @@ class CanonicalNewsEvidenceStore:
             return self.write(evidence_by_symbol, request)
         return self.write(evidence_by_symbol, request, retrieval_by_symbol=retrieval_by_symbol)
 
-    def _load_cache_payload(self, diagnostics: dict[str, Any]) -> dict[str, Any]:
+    def _load_cache_payload(self, diagnostics: dict[str, Any], *, owned: bool = False) -> dict[str, Any]:
         if not self.cache_path.exists():
             return {"symbols": {}, NEWS_INTELLIGENCE_CACHE_NAMESPACE: {"schema_version": NEWS_INTELLIGENCE_SCHEMA_VERSION, "symbols": {}}}
         try:
-            payload = json.loads(self.cache_path.read_text(encoding="utf-8"))
+            from src.news.store_owner import owner_for
+            text = self.cache_path.read_text(encoding="utf-8") if owned else owner_for(self.cache_path).read_text()
+            payload = json.loads(text)
             if not isinstance(payload, dict):
                 raise ValueError("canonical cache root is not an object")
             if NEWS_INTELLIGENCE_CACHE_NAMESPACE in payload:

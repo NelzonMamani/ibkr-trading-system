@@ -2000,3 +2000,18 @@ truth, retaining complete per-issuer diagnostics. Mixed results do not erase an
 available issuer or claim whole-batch availability. Corrupt-cache scanner-path and
 mixed-result regressions cover the reporting boundary. Focused maintenance+whole
 W04:46passed4warnings2.07s. No classification, acquisition or market gate changed.
+
+Actual Windows CI39469413468 atda9c3333 failed the two new concurrency cases:
+2917passed2failed1skipped220warnings477.49s. Linux at that head passed2919/1skip
+237.61s; it does not substitute for Windows. Windows uncoordinated raw-file readers
+encountered PermissionError during replacement. Canonical reads now participate in
+the same bounded owner transaction; the already-owned write path avoids nested OS
+locks. The concurrent-reader regression uses the actual public canonical read API,
+requiring intact seed evidence, no cache-read failures, all25 final rows and cleanup.
+The process fixture also drained child stdout/stderr sequentially: a child logging
+configuration while holding the lock could fill a Windows pipe while its peer
+waited. All pipes are now drained concurrently, with forced large controlled output
+and finally cleanup of every child. Lock timeouts are unchanged. Windows CI now
+runs the controlled maintenance file before the full suite so concurrency failures
+surface promptly. Final exact-head Windows success remains required; failed runs
+are not acceptance receipts. No provider/broker acquisition or operator rerun.

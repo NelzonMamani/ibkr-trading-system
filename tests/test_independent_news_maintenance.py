@@ -45,7 +45,10 @@ def test_thread_writers_merge_and_readers_never_see_partial_json(store):
     stop=threading.Event();errors=[]
     def reader():
         while not stop.is_set():
-            try:json.loads(store.cache_path.read_text())
+            try:
+                result=store.read((NewsCandidate('SEED'),))
+                assert not result.diagnostics['cache_read_failed'],result.diagnostics
+                assert len(result.evidence_by_symbol['SEED'])==1
             except Exception as exc:errors.append(exc)
     thread=threading.Thread(target=reader);thread.start()
     try:
@@ -60,6 +63,7 @@ def test_thread_writers_merge_and_readers_never_see_partial_json(store):
 
 def test_process_writers_share_same_owner(store):
     code="""import sys
+print("controlled child output "*8192,flush=True)
 from src.news.evidence_store import CanonicalNewsEvidenceStore
 from src.news.news_intelligence_contract import NewsEvidence
 from pathlib import Path
@@ -69,9 +73,18 @@ for i in range(8):
  assert not r['cache_write_failed'],r
 """
     children=[subprocess.Popen([sys.executable,'-c',code,str(store.cache_path),prefix],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True) for prefix in ('A','B','C')]
-    for child in children:
-        out,err=child.communicate(timeout=20)
-        assert child.returncode==0,(out,err)
+    try:
+        # Drain every pipe concurrently: Windows pipes can fill while another
+        # child owns the store lock and emits its configuration diagnostics.
+        with ThreadPoolExecutor(max_workers=len(children)) as pool:
+            outputs=list(pool.map(lambda child:child.communicate(timeout=20),children))
+        for child,(out,err) in zip(children,outputs):
+            assert child.returncode==0,(out,err)
+    finally:
+        for child in children:
+            if child.poll() is None:
+                child.kill()
+            child.communicate()
     assert len(json.loads(store.cache_path.read_text())['news_intelligence']['symbols'])==24
 
 
