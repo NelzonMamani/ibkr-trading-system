@@ -110,6 +110,11 @@ jobs:
           $state = Join-Path $env:RUNNER_TEMP 'operator-order-state.json'
           '{"last_reserved_order_id":361}' | Set-Content -Encoding ascii $state
           "IBKR_ORDER_ID_STATE_PATH=$state" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Controlled Windows news ownership and maintenance regressions
+        if: needs.verification-scope.outputs.harness_only != 'true'
+        env:
+          PYTHONPATH: ${{ github.workspace }}/tests/offline;${{ github.workspace }}
+        run: python -m pytest -q tests/test_independent_news_maintenance.py
       - name: Full Windows offline suite (includes all six request-ID cases)
         if: needs.verification-scope.outputs.harness_only != 'true'
         env:

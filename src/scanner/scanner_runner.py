@@ -3655,10 +3655,10 @@ def _extended_only_tier_budget() -> float:
     return max(0.0, total_budget_seconds - _fast_only_tier_budget())
 
 
-def _enrich_news_context(symbols, provider_source, symbol_metadata_by_symbol=None):
+def _enrich_news_context(symbols, provider_source, symbol_metadata_by_symbol=None, news_maintenance=None):
     started = time.monotonic()
     checkpoint()
-    contexts, diagnostic = _enrich_news_context_impl(symbols, provider_source, symbol_metadata_by_symbol)
+    contexts, diagnostic = _enrich_news_context_impl(symbols, provider_source, symbol_metadata_by_symbol, news_maintenance)
     checkpoint()
     if RossPolicy().issuer_query_enabled:
         diagnostic.news_intelligence_diagnostics["ross_consumer_elapsed_seconds"] = time.monotonic() - started
@@ -3669,14 +3669,21 @@ def _enrich_news_context_impl(
     symbols: List[str],
     provider_source: str,
     symbol_metadata_by_symbol: Optional[Dict[str, Dict[str, Any]]] = None,
+    news_maintenance=None,
 ) -> tuple[Dict[str, Dict[str, Any]], NewsDiagnostics]:
     candidates = _news_candidates_for_symbols(symbols, symbol_metadata_by_symbol)
     if not candidates:
         diagnostics = NewsDiagnostics(False, False, None, 0, 0, {}, provider_status="no_symbols")
         return {}, diagnostics
 
-    service = _news_intelligence_service_for_scanner()
     request = _ross_news_request()
+    if news_maintenance is not None:
+        policy = _ross_retrieval_policy(refresh_mode="bounded_refresh", network_allowed=True)
+        news_maintenance.submit(candidates,request,policy)
+        result = news_maintenance.read(candidates,request,policy)
+        contexts = _ross_news_contexts_from_news_intelligence_result(result)
+        return contexts, _news_diagnostics_from_news_intelligence_result(result,contexts)
+    service = _news_intelligence_service_for_scanner()
     cache_result = service.get_news(
         candidates,
         request,
@@ -5298,6 +5305,7 @@ def run_scanner_cycle(
     forced_session_source: str | None = None,
     runtime_deadline_s: float | None = None,
     runtime_news_reserve_s: float | None = None,
+    news_maintenance=None,
 ) -> Dict[str, Any]:
     global _SCAN_CYCLE_COUNT, _WATCHLIST_HASH, _LAST_SESSION_LABEL, _LAST_PRINT_CYCLE, _PERSISTENT_PROVIDER, _PERSISTENT_PROVIDER_SOURCE, _LAST_BROKER_SCAN_TS, _LAST_SCANNER_PAYLOAD
     _SCAN_CYCLE_COUNT += 1
@@ -6223,12 +6231,15 @@ def run_scanner_cycle(
             else NewsDiagnostics(False, False, None, 0, 0, {}, provider_status="not_requested")
         )
         news_symbols_to_fetch = list(candidate_symbols)
+        if news_maintenance is not None:
+            news_maintenance.set_universe(candidate_symbols)
         if selector is not None and allow_news and news_symbols_to_fetch:
             news_symbol_metadata = _news_symbol_metadata_for_contexts(_news_acquisition_order(evaluated_contexts, candidates))
             fetched_news, news_diag = _enrich_news_context(
                 news_symbols_to_fetch,
                 provider_source,
                 symbol_metadata_by_symbol=news_symbol_metadata,
+                **({"news_maintenance": news_maintenance} if news_maintenance is not None else {}),
             )
             news_by_symbol = _merge_news_contexts(fetched_news, prep_news_by_symbol)
             news_diag = _with_news_status_index(news_diag, news_by_symbol)
@@ -6618,6 +6629,7 @@ def run_scanner_cycle(
                 missing_watchlist_news_symbols,
                 provider_source,
                 symbol_metadata_by_symbol=news_symbol_metadata,
+                **({"news_maintenance": news_maintenance} if news_maintenance is not None else {}),
             )
             news_by_symbol = _merge_news_contexts(fetched_news, news_by_symbol)
             news_diag = _with_news_status_index(news_diag, news_by_symbol)

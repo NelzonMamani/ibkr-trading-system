@@ -62,7 +62,8 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
 
     provider_id = "rss_batch"
 
-    def __init__(self, *, fast_fetcher=None, extended_fetcher=None, lifecycle: RssFetchLifecycle | None = None, raw_feed_directory=None) -> None:
+    def __init__(self, *, fast_fetcher=None, extended_fetcher=None, lifecycle: RssFetchLifecycle | None = None, raw_feed_directory=None, feed_pool=None) -> None:
+        self._feed_pool = feed_pool
         self._lifecycle = lifecycle
         self._raw_feed_directory = raw_feed_directory
         self._fast_fetcher = fast_fetcher or fetch_fast_headlines_for_symbols
@@ -148,6 +149,8 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
             from pathlib import Path
             Path(self._raw_feed_directory).mkdir(parents=True, exist_ok=False)
         lifecycle_kwargs = {"lifecycle": self._lifecycle} if self._lifecycle is not None else {}
+        if self._feed_pool is not None:
+            lifecycle_kwargs["feed_pool"] = self._feed_pool
         fast_fetched = bool(fast_sources)
         extended_fetched = False
         if fast_sources:

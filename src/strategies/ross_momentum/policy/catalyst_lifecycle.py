@@ -65,7 +65,7 @@ def revalidate_handoff(symbol, handoff, *, store=None, request=None):
         return rejected
     # Read the existing bounded presentation+witness cohort without trimming its
     # extra slot or reselecting away an already-retained older veto.
-    read_request = NewsRequest(max_evidence_per_symbol=evidence_max_entries() + 1)
+    read_request = NewsRequest(max_evidence_per_symbol=evidence_max_entries() + 1, metadata={"read_retained_cohort": True})
     current = (store or CanonicalNewsEvidenceStore()).read((candidate,), read_request, include_prep=False)
     if current.diagnostics.get("cache_read_failed"):
         return {**rejected, "qualification_reason": "canonical_store_unreadable"}

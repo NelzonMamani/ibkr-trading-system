@@ -111,7 +111,9 @@ def validate_terminal(evidence):
         if any(not start < index < end for index, name in enumerate(names) if name == "SHUTDOWN_HOOK"):
             blockers.append("Hook recorded outside shutdown interval")
     hooks = evidence.get("hooks", [])
-    for name in REQUIRED_HOOKS:
+    owned_hooks = ("news_maintenance.shutdown",) if any(
+        row.get("event") == "SHUTDOWN_STARTED" and row.get("news_maintenance_owned") is True for row in events) else ()
+    for name in (*REQUIRED_HOOKS, *owned_hooks):
         matching = [row for row in hooks if row.get("hook") == name]
         if len(matching) != 1 or matching[0].get("attempted") is not True or matching[0].get("completed") is not True:
             blockers.append("Incomplete hook: " + name)
