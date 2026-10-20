@@ -271,7 +271,7 @@ class NewsMaintenance:
                     if self.universe is not None and item.candidate.normalized_symbol not in self.universe | self.active:
                         self.work.pop(item.key,None)
                     row = {'symbol':item.candidate.normalized_symbol,'elapsed_seconds':elapsed,
-                           'error':error,'completed':outcome is not None,'published':outcome is not None and not publication_failed,'cleanup_complete':cleanup['cleanup_complete']}
+                           'error':error,'completed':outcome is not None,'published':published,'cleanup_complete':cleanup['cleanup_complete']}
                     self.receipts.append(row)
                     del self.receipts[:-128]
                     self._event('RESULT',**row)

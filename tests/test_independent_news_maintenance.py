@@ -545,6 +545,8 @@ def test_cached_lookup_does_not_claim_a_new_publication(store,capsys):
     assert not calls and not any(line.startswith('[NEWS][MAINTENANCE][PUBLISH]') for line in lines)
     complete=[json.loads(line.split('] ',1)[1]) for line in lines if line.startswith('[NEWS][MAINTENANCE][LOOKUP_COMPLETE]')]
     assert len(complete)==1 and complete[0]['published'] is False and complete[0]['evidence_count']==1
+    result=[json.loads(line.split('] ',1)[1]) for line in lines if line.startswith('[NEWS][MAINTENANCE][RESULT]')]
+    assert len(result)==1 and result[0]['published'] is False and owner.receipts[-1]['published'] is False
 
 
 @pytest.mark.parametrize('marker',['LOOKUP_START','PUBLISH'])
