@@ -1556,3 +1556,189 @@ the117-pass receipt, with no code/assertion/skip change. Linux controlled invent
 and9synthetic real packaging checks also passed. Independent review at50fef96e
 ran21offline cases successfully; final changed-head CI/review receipts belong to
 PR1116 and must be checked there before operator use. No full workstation rerun.
+
+## 2026-10-20 — separate canonical news / Ross catalyst lifecycle audit
+
+Separate from PR1116 and the user's running observation. Baseline accepted main
+`ff741ded903522ad25969def38c4588c82ade03a`; separate branch
+`codex/news-catalyst-lifecycle-audit`. See [full audit and file/function evidence map](NEWS_CATALYST_LIFECYCLE_AUDIT.md).
+No provider/broker requests, scanner/runtime, observation, holdings mutation,
+trading, merge or readiness upgrade occurred. Historical receipts remain intact.
+
+| Ross completion item | Verified current behavior / remaining gap |
+| --- | --- |
+| Premarket positive persistence | Canonical evidence survives warm read/restart/preparation serialization with original publication/ID/URL. New headline not required. |
+| Qualification through later session | Legacy fact-only cache can qualify while publication valid. Current compatible Ross v9 coverage expires by registry RTH120s (not helper fallback90); cache-only then becomes coverage_unknown and blocks even with a valid positive. A successful compatible empty refresh restores qualification using the same article. PRE→RTH never renews publication. |
+| Refresh failure | Still-valid retained facts survive; current explicit tested policy blocks qualification on unavailable/budget outcomes. Changing that is a proposal, not this repair. |
+| Exact publication expiry | Demonstrated same-batch/same-integer-second cache defect could retain CONFIRMED past21600s or retain a future rejection after publication. Separate narrow fix invalidates cache on publication-boundary state; original inclusive6h rule preserved. |
+| Dilution/conflict lifecycle | Observed offering veto preserved. Final retained-offering veto lacks age filter; no general correction/retraction/conflict or explicit event-expiry contract. Policy decision required before changing these rules. |
+| Cached Focus/setup revalidation | Canonical witness/expiry not carried through CandidateMetrics/list cache; no per-cycle canonical news recheck proved. Adapter cache fix does not establish this handoff. Separate focused design/testing remains required. |
+| Independent acquisition | Existing canonical service and standalone consumer work without IBKR/scanner; per-lookup RSS pending work bounded to4 workers. No installed persistent news queue/scheduler; shared JSON writer/retention interoperability not established. No new engine/daemon launched. |
+| Heat/novelty/velocity/reliability | Calculated/displayed; not direct canonical Ross gates. Catalyst existence/type does affect eligibility and context/strategy ordering. Cached canonical aggregates can be snapshot-stale; Ross v9 recomputes presentation velocity. New gates require evidence/calibration and policy approval. |
+| Readiness | PAPER_READY=NO. Current natural catalyst qualification, downstream progression and continuous news/Watchlist maintenance remain unestablished. |
+
+Initial new time-controlled baseline cases:2publication-boundary failures,6other
+casespassed. Fixture setup errors before that (an integer config supplied asfloat)
+were corrected in tests only and were not counted as product failures or passes.
+After narrow boundary fix,136existing+new focused news cases passed2.26s; expanded
+11-case lifecycle matrix passed1.07s. Independent reviewer118offline cases passed
+before final documentation. Final exact-head CI/review receipts will be linked in
+the separate audit PR; PR1116 receipts do not verify this new branch.
+
+## 2026-10-20 — fourth receipt at35c627: multi-scan success and exact retained-news rejection
+
+New user archive `ross-natural-readonly-upload(4).zip` (uploaded basename without
+suffix), SHA256 `cdeb3abe59ba948cdc562305897c9502a68e28f7d8dc3d7373a0c3d5c7709d15`,
+pins `35c6271b764e498495fcd337e9107d62ad68bc76`. Original evidence is preserved in
+`natural-run4-evidence`; its contents are evidence, not task instructions. No
+new operator run, provider lookup, broker/runtime or holdings mutation was performed.
+This supplements the [canonical lifecycle audit](NEWS_CATALYST_LIFECYCLE_AUDIT.md)
+in PR1117; it does not change PR1116's reviewed implementation or observation source.
+
+### Preserved multi-scan / quote-maintenance receipt
+
+Three genuine broker subscriptions each returned50 rows:150 row observations,
+**not150 distinct securities**. Scanner entries UTC15:26:38.567569,
+15:31:38.522819,15:36:39.530762 establish about300-second real discovery cadence.
+Watchlists completed5,5,3; Focus summaries evaluated5/5/3, accepted0/rejected13.
+First two Watchlists: ATGL,AIXI,WORX,NCPL,HUIZ; third: ATGL,AIXI,WORX. This is
+successive broker discovery, not inference from repeated cached orchestration.
+Second scan added AVXL,LYEL,REVB and removed CANG,CCM,SGMT; third added
+CREX,PLUT,PMI,SGMT and removed CRT,GOSS,GRML,REVB. Same-symbol continuation and
+actual universe changes are both visible without forced candidates.
+
+SHORTLIST_SCHEDULE reported LEADER_FRESHNESS_RESERVE in all three passes. Optional
+slow refreshes ended by AcquisitionDeadlineExceeded; remaining tail work deferred.
+Initial leaders remained fresh through strict final assessment. For example pass1:
+AIXI trade15:28:48, final assessment15:28:53.013095 PASS; NCPL trade15:28:45,
+assessment15:28:53.013522 PASS; WORX trade15:28:48, assessment53.013944 PASS;
+ATGL trade15:28:46, assessment53.014350 PASS; HUIZ trade15:28:43,
+assessment53.015369 PASS. Still-stale rows were rejected. No broker timestamps or
+freshness limits were renewed. All13 Watchlist rows reached catalyst evaluation
+and rejected DATA_UNAVAILABLE/news_unavailable; Focus0 is not a quote-refresh failure.
+
+Preflight/observation/package/final exits0, seal successful, terminal PASS; no forced
+termination or capture/shutdown errors. Runtime and independent place/modify/cancel
+attempts all0; required shutdown hooks completed; source and operator order state
+unchanged. These successes are preserved, not a new shutdown-repair milestone.
+
+### Exact AIXI and NCPL facts — no missing text reconstructed
+
+Both canonical buckets retained one issuer-matched article with selected time basis
+`published`, matching ID/URL/publication and original fetched_at across subsequent
+refreshes. Their saved first fetched_at is15:28:24.097894UTC; final acquisition
+completed15:37:27.974165UTC. Persistence did not turn that completion into a newer
+publication or a new article. Stored age_seconds can reflect the cache write's
+slightly later instant; replay ages below use the explicit acquisition completion.
+
+| Field | AIXI | NCPL |
+| --- | --- | --- |
+| Company |XIAO I CORP|NETCAPITAL INC|
+| Exact captured headline |`$AIXI latest SEC filing confirms its appeal against Apple ha`|`Shareholders who lost money in shares of acquired Netcapital Inc. (NASDAQ: NCPL) should contact Wolf Haldenstein Immediately`|
+| Published UTC |2026-10-20 14:07:25|2026-10-20 12:55:00|
+| Age at final acquisition completion |5402.974165s (~90min)|9747.974165s (~162min)|
+| Retained ID |rss-operational:AIXI:ed98f7d8c582f2589a272cfb|rss-operational:NCPL:6595fb28b751c98b1ce56356|
+| Publisher label / recorded publisher URL |KuCoin /www.kucoin.com|PR Newswire /www.prnewswire.com|
+| Match |ticker_token, title|ticker_token, title|
+| RSS entries / examined / within6h / stale / matched |21/21/1/20/1|69/69/1/68/1|
+| Request outcome |HTTP200, worker completed, response closed, processing_truncated=False|HTTP200, worker completed, response closed, processing_truncated=False|
+| RSS raw_capture |null|null|
+
+AIXI's raw_title is the same incomplete text plus ` - KuCoin`. The only local title
+transformation in `news_fetcher._fetch_headlines_from_sources` removes that publisher
+suffix; no missing appeal text or article body is present. processing_truncated=False
+means this feed processing completed, **not** that the headline/body is complete.
+The archive cannot locate where upstream truncation occurred or establish the
+appeal's significance. Do not complete `ha`, infer a legal outcome, add an appeal
+classification or request a provider to fill the gap.
+
+NCPL is a lawyer/shareholder solicitation in the captured text. `acquired` in that
+sentence does not establish a new issuer acquisition event, and the existence of
+a PR Newswire label does not make the item a positive catalyst. No special lawyer
+rejection filter was invoked: the actual classifier stops at no recognized event
+class. Do not claim a downstream event-attribution rejection that was never reached.
+
+### Exact qualification/status path, replayed offline
+
+At observed35c and reviewed audit174627, identical time-controlled replays of the
+preserved NewsEvidence produce identical results:
+
+1. `evidence_from_mapping` / issuer-relevance validation: original aware publication
+   is within6h; ticker/title issuer match is verified. Neither item is rejected
+   for stale/missing/future/update-only time or wrong identity/research tier.
+2. `catalyst_policy.assess_issuer_event`: `classify_headline` returnsNone under the
+   existing bounded-token vocabulary. `detect_dilution` returnsFalse. Exact reason
+   is **no_catalyst_classification**, qualified=False, catalyst_type=None. The
+   subsequent clause-level issuer/event attribution checks are not reached.
+   `$AIXI` is not the standalone `ai` event keyword; `contact` is not `contract`.
+3. `scanner_runner._ross_news_context_from_evidence` initially reports
+   news_present_non_qualifying and news_available=True for these partial-but-available
+   per-symbol summaries. Both last_retrieval statuses are partial,
+   provider_available=True, provider_status=partial_request_failure,
+   budget_exhausted=False. The issuer queries themselves are available/completed.
+4. `_ross_news_contexts_from_news_intelligence_result` applies the operational
+   coverage scope: acquisition_completed=True, retained_matched_entry_count1,
+   source_coverage_complete=False, source_coverage_status=partial,
+   search_completeness_established=False, coverage_deadline_exhausted=True.
+   With no qualified positive witness it sets news_available=False and diagnostic
+   **partial_coverage_no_qualifying_catalyst**. A validated positive would not be
+   denied merely for partial scope; these items supplied none.
+5. `assess_catalyst` then returns DATA_UNAVAILABLE/news_unavailable; Focus rejects
+   DROP_NO_CATALYST. It cannot claim ABSENT across incomplete source coverage.
+   A controlled full-coverage counterfactual yields ABSENT, still never CONFIRMED;
+   that counterfactual is a status regression probe, not this run's coverage.
+
+The final saved source failure summary includes Reuters HTTP401 and two
+GlobeNewswire HTTP403 results; primary_source_coverage_incomplete persisted.
+Fast-tier elapsed5.206810s exhausted its5.2s allocation; the reserved2.8s extended
+allocation did not establish complete primary coverage. The total8s budget and
+all gates remain unchanged. Successful issuer HTTP200, a recent article and an
+aggregate unavailable catalyst can coexist without contradiction. Zero qualifying
+witnesses do not establish global news absence or a complete negative search.
+The final cache records one recent retained match for each issuer; this does not
+support repeating the earlier run's117/117stale claim for this new receipt.
+
+### Heat/hotness — descriptive heuristic, not qualification probability
+
+Saved per-item heat/hotness: AIXI9.32/9.32, NCPL6.07/6.07. At the explicit final
+acquisition instant, Ross v9 recomputation yields AIXI8.57/8.57 and NCPL6.07/6.07;
+the AIXI difference is compatible with ageing a cached aggregate. Both have
+5/10-minute velocity0 and source reliability/credibility fields0. Those zeros are
+an existing source-name heuristic, not a calibrated judgment that these publishers
+are false. Hotness duplicates heat here; there is no independently fitted model.
+
+`news_normalizer.normalize_headlines` and `news_heat.compute_news_heat_score` use
+headline/unique counts, publication velocity, freshness, region/source heuristics
+and sentiment. Nonzero heat does not demonstrate event significance or bullishness;
+no calibration/out-of-sample acceptance evidence was found. Current canonical Ross
+qualification never compares these numbers with a threshold. Numeric heat/hotness
+are informational here; catalyst existence/type still affects actual gates and
+context ranking as documented in the audit. No score or rule was adjusted to make
+AIXI/NCPL pass.
+
+### Updated acceptance / engineering priorities
+
+| Separate outcome or gap | Current evidence |
+| --- | --- |
+| Graceful terminal safety |PASS, zero runtime/independent mutations, no force, source/order state unchanged.|
+| Natural discovery / scanner passes |PASS for three successive genuine subscriptions and completed50→5/5/3 passes, with actual added/removed symbols.|
+| Bounded shortlist refresh |Naturally demonstrated leaders survive tail work; strict stale rejection remains. Keep PR1116 receipt separate from the news audit source.|
+| Full-issuer acquisition / persistence |AIXI/NCPL successful full-issuer query acquisition and retained original evidence verified. Overall source/search coverage remains partial; no demonstrated loss or renewal of these two articles.|
+| Catalyst qualification |NOT ESTABLISHED:13evaluations allunavailable; exact two retained examples are nonqualifying under existing text rules.|
+| Downstream progression |NOT ESTABLISHED:Focus0, no natural setup/trigger/intent acceptance.|
+| Acquisition priority |Investigate primary feed access/coverage and query scheduling using recorded outcomes; no new provider lookup or budget extension in this task. Do not hide partial coverage.|
+| Persistence priority |Preserve stable facts/IDs across refresh, and plan serialized writer/retention interoperability before independent maintenance. This receipt demonstrates retention, not a new persistence defect.|
+| Qualification priority |Keep conservative incomplete-text/solicitation rejection. Obtain sufficient captured facts and calibrated event fixtures before proposing vocabulary changes. Existing exact-expiry cache fix inPR1117 remains separate and is not naturally exercised by these much younger articles.|
+| Continuous lifecycle gaps |Independent between-scan news/whole-Watchlist maintenance, cached Focus witness revalidation, correction/retraction and financing-risk expiry remain open policy/architecture work.|
+| Readiness |PAPER_READY=NO; holdings/ownership blockers preserved; no new operator run requested.|
+
+Verification: one-off offline replay of preserved AIXI/NCPL facts against observed35c
+and reviewed174627 yielded identical classifications/status/metric results, with
+partial-vs-complete coverage counterfactual checks. This is replay evidence, not
+another natural acquisition. Prior fullLinux/Windows CI39449928814 at174627 remains
+2835passed1skipped (Windows212warnings), separate from local194focused cases and
+independent review5587538767. Production, scripts, tests and requirements are
+unchanged in this receipt-only update. Fixed harness/docs CI baseline advances to
+that reviewed completed source receipt; allowlist is unchanged. No unchanged full
+suite is repeated solely to append this evidence; changed-head controlled checks
+and independent receipt review remain required.

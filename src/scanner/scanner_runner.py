@@ -341,7 +341,7 @@ def _apply_non_operational_backfill_markers(
 
 from src.strategies.ross_momentum.policy.catalyst_policy import (
     CATALYST_KEYWORDS, CATALYST_KEYWORD_FORMS, DILUTION_KEYWORDS, unresolved_issuer_news,
-    classify_headline, detect_dilution, assess_issuer_event, select_qualification_evidence,
+    classify_headline, detect_dilution, assess_issuer_event, select_qualification_evidence, issuer_event_time_state,
 )
 SESSION_DEFAULT_FOCUS_THRESHOLDS: dict[str, int] = {
     "RTH_OPEN": 250_000,
@@ -3378,7 +3378,11 @@ def _ross_news_contexts_from_news_intelligence_result(
         candidate = next((row for row in result.candidates if row.normalized_symbol == normalized), None)
         signature = _evidence_signature(evidence, summary, candidate=candidate, diagnostics=result.diagnostics)
         cached = _NEWS_CACHE.get(normalized)
-        signature = (*signature, int(time.time()), result.request.metadata.get("qualification_profile") if result.request else None,
+        now_ts = time.time()
+        # Integer-second metric reuse must not retain authority across the exact
+        # publication/future or inclusive six-hour qualification boundary.
+        time_states = tuple(issuer_event_time_state(item, now_ts=now_ts) for item in evidence)
+        signature = (*signature, int(now_ts), time_states, result.request.metadata.get("qualification_profile") if result.request else None,
                      repr(_ross_operational_acquisition_scope(normalized, summary, result)))
         if cached and cached.get("signature") == signature:
             context = cached["context"]
