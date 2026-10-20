@@ -1288,6 +1288,11 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
     # =========================
     # News ingestion
     # =========================
+    "NEWS_MAINTENANCE_ENABLED": {
+        "type": bool, "default": True, "env": ["NEWS_MAINTENANCE_ENABLED"],
+        "affects": ["NewsEngine", "Scanner"], "enforcement": "SOFT", "mutable": "static",
+        "description": "Runtime-owned bounded canonical news maintenance; restart required to change ownership.",
+    },
     "NEWS_CACHE_FILE": {
         "type": str,
         "default": "data/news/news_cache.json",

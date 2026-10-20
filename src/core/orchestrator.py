@@ -2676,6 +2676,21 @@ class CoreOrchestrator:
             RunMode.LIVE,
         }
 
+    def _runtime_news_maintenance(self):
+        # Ownership is pinned for this runtime. Never fall back to a competing
+        # synchronous acquirer after workers have started (including after stop).
+        owner = getattr(self, "_news_maintenance", None)
+        if owner is not None:
+            return owner
+        if not bool(get_config("NEWS_ENABLED")) or not bool(get_config("NEWS_MAINTENANCE_ENABLED")):
+            return None
+        from src.news.maintenance import NewsMaintenance
+        owner = NewsMaintenance(stop_requested=lambda: (
+            self.stop_controller.is_stop_requested() or not bool(get_config("NEWS_ENABLED"))
+        ))
+        self._news_maintenance = owner
+        return owner
+
     def _strategy_cadence(self, strategy_key: str) -> StrategyCadenceState:
         if strategy_key not in self._strategy_cadence_state:
             self._strategy_cadence_state[strategy_key] = StrategyCadenceState()
@@ -3233,6 +3248,8 @@ class CoreOrchestrator:
                         disconnect_provider=provider_override is not None,
                         forced_session_label=forced_session_label,
                         forced_session_source=forced_session_source,
+                        **({"news_maintenance": self._runtime_news_maintenance()}
+                           if active_strategy == "ross_momentum" and provider_override is None else {}),
                     )
                     scanner_payload_fresh = bool(strategy_payload)
                     observations = list(strategy_payload.get("candidate_metrics", []))
@@ -3476,6 +3493,9 @@ class CoreOrchestrator:
                 f"mock_mode=True reason=EMPTY_STRATEGY_WATCHLIST source_count={len(fallback_candidates)} selected={len(selected_watchlist)}"
             )
 
+        maintenance = getattr(self, "_news_maintenance", None)
+        if maintenance is not None:
+            maintenance.set_active(self._symbols_from_candidates(selected_watchlist),self._symbols_from_candidates(selected_focus))
         pipeline_trace("CONTEXT")
         manual_focus_symbols = self._refresh_manual_focus_if_due(cycle_started_at)
         manual_focus_session_phase = session_phase
@@ -6847,6 +6867,9 @@ class CoreOrchestrator:
             self._shutdown_finished = True
             proof.record("PANIC_STOP_REQUESTED", mode="PANIC", completed=True)
             proof.record("SHUTDOWN_STARTED", mode="PANIC", completed=True)
+            maintenance = getattr(self, "_news_maintenance", None)
+            if maintenance is not None:
+                maintenance.stop.set()
             proof.attempt("execution_engine.shutdown", self.execution_engine.shutdown)
             for name in REQUIRED_HOOKS:
                 if name == "execution_engine.shutdown":
@@ -6874,7 +6897,11 @@ class CoreOrchestrator:
                 return False
 
         started = emit_shutdown("SHUTDOWN_STARTED", self._stop_payload(resolved_mode))
-        proof.record("SHUTDOWN_STARTED", completed=started)
+        proof.record("SHUTDOWN_STARTED", completed=started,
+                     news_maintenance_owned=getattr(self, "_news_maintenance", None) is not None)
+        maintenance = getattr(self, "_news_maintenance", None)
+        if maintenance is not None:
+            proof.attempt("news_maintenance.shutdown", maintenance.close)
         hooks = [
             ("ops_summary", self._emit_ops_summary),
             ("learning_scheduler", self.learning_scheduler.on_shutdown),

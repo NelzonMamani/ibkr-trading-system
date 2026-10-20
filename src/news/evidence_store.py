@@ -179,7 +179,8 @@ class CanonicalNewsEvidenceStore:
                     source_credibility_score=None, source_reliability_score=None,
                     independent_source_count=None,
                 ) for item in accepted), now_ts=now.timestamp()))
-            deduped = retained_evidence(accepted, request)
+            deduped = (dedupe_evidence(accepted, max_items=len(accepted) or 1)
+                       if request and request.metadata.get("read_retained_cohort") else retained_evidence(accepted, request))
             evidence_by_symbol[symbol] = tuple(deduped)
             fresh_count = sum(1 for item in deduped if item.stale is False)
             stale_count = sum(1 for item in deduped if item.stale is True)
@@ -220,7 +221,16 @@ class CanonicalNewsEvidenceStore:
         }
         return EvidenceStoreReadResult(evidence_by_symbol=evidence_by_symbol, summaries_by_symbol=summaries, diagnostics=diagnostics)
 
-    def write(
+    def write(self, evidence_by_symbol, request=None, *, retrieval_by_symbol=None):
+        from src.news.store_owner import owner_for
+        try:
+            with owner_for(self.cache_path).transaction():
+                return self._write_owned(evidence_by_symbol, request, retrieval_by_symbol=retrieval_by_symbol)
+        except Exception as exc:
+            return {"cache_write_failed": True, "cache_write_error": type(exc).__name__,
+                    "cache_write_symbols": [], "cache_write_evidence_count": 0}
+
+    def _write_owned(
         self,
         evidence_by_symbol: Mapping[str, Sequence[NewsEvidence]],
         request: NewsRequest | None = None,
@@ -237,6 +247,8 @@ class CanonicalNewsEvidenceStore:
             "cache_write_evidence_count": 0,
         }
         payload = self._load_cache_payload(diagnostics)
+        if diagnostics.get("cache_write_failed"):
+            return diagnostics  # Never replace unreadable state with an empty document.
         namespace = payload.setdefault(NEWS_INTELLIGENCE_CACHE_NAMESPACE, {})
         if not isinstance(namespace, dict):
             namespace = {}
@@ -266,16 +278,33 @@ class CanonicalNewsEvidenceStore:
                 if isinstance(item, NewsEvidence)
             ]
             if request is not None and request.query_start_utc is not None:
-                existing = [item for item in existing if evidence_in_query_window(item, request, now=now)]
                 incoming = [refresh_evidence_age(item, request=request, now=now) for item in incoming
                             if evidence_in_query_window(item, request, now=now)]
             merged = retained_evidence(existing + incoming, request)
             previous = symbols_payload.get(symbol) or {}
+            # Consumer-specific research/presentation caps cannot evict an existing
+            # Ross qualification cohort. It remains bounded by its original policy.
+            ross_rows = previous.get("ross_qualification_evidence", ())
+            old_profile = previous.get("last_retrieval", {}).get("acquisition_profile", {}).get("request", {})
+            if not ross_rows and old_profile.get("qualification_profile") == "ross_issuer_event_v9":
+                ross_rows = previous.get("evidence", ())
+            if request and request.query_start_utc is None and request.strategy_id == "ross_momentum":
+                ross_rows = [serialize_evidence(item) for item in merged]
+            protected = [item for row in ross_rows if (item := evidence_from_mapping(row, now=now)) is not None]
+            combined = dedupe_evidence(list(merged) + protected, max_items=len(merged)+len(protected) or 1)
             bucket = {"updated_at": now.isoformat(),
-                      "evidence": [serialize_evidence(item) for item in merged]}
+                      "evidence": [serialize_evidence(item) for item in combined]}
+            if ross_rows:
+                bucket["ross_qualification_evidence"] = list(ross_rows)
             retrieval = (retrieval_by_symbol or {}).get(symbol)
             if retrieval is not None:
-                bucket["last_retrieval"] = dict(retrieval)
+                previous_retrieval = previous.get("last_retrieval", {})
+                prior_time = _parse_datetime(previous_retrieval.get("completed_at"))
+                incoming_time = _parse_datetime(retrieval.get("completed_at"))
+                # A slower publisher cannot roll acquisition health/cadence back
+                # behind a newer completed acquisition. Merge its facts regardless.
+                bucket["last_retrieval"] = dict(previous_retrieval if prior_time is not None and incoming_time is not None
+                                                and prior_time > incoming_time else retrieval)
             elif isinstance(previous.get("last_retrieval"), Mapping):
                 bucket["last_retrieval"] = dict(previous["last_retrieval"])
             symbols_payload[symbol] = bucket
@@ -285,7 +314,8 @@ class CanonicalNewsEvidenceStore:
         diagnostics["cache_write_symbols"] = sorted(set(diagnostics["cache_write_symbols"]))
         try:
             self.cache_path.parent.mkdir(parents=True, exist_ok=True)
-            self.cache_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+            from src.news.store_owner import owner_for
+            owner_for(self.cache_path).publish(json.dumps(payload, indent=2, sort_keys=True))
         except Exception as exc:
             diagnostics["cache_write_failed"] = True
             diagnostics["cache_write_error"] = type(exc).__name__
@@ -310,6 +340,15 @@ class CanonicalNewsEvidenceStore:
             return {"symbols": {}, NEWS_INTELLIGENCE_CACHE_NAMESPACE: {"schema_version": NEWS_INTELLIGENCE_SCHEMA_VERSION, "symbols": {}}}
         try:
             payload = json.loads(self.cache_path.read_text(encoding="utf-8"))
+            if not isinstance(payload, dict):
+                raise ValueError("canonical cache root is not an object")
+            if NEWS_INTELLIGENCE_CACHE_NAMESPACE in payload:
+                namespace = payload[NEWS_INTELLIGENCE_CACHE_NAMESPACE]
+                if not isinstance(namespace, dict) or not isinstance(namespace.get("symbols", {}), dict):
+                    raise ValueError("invalid canonical namespace")
+                if any(not isinstance(bucket, dict) or not isinstance(bucket.get("evidence", []), list)
+                       for bucket in namespace.get("symbols", {}).values()):
+                    raise ValueError("invalid canonical evidence bucket")
         except Exception as exc:
             diagnostics_key = "cache_read_failed" if "cache_read_failed" in diagnostics else "cache_write_failed"
             error_key = "cache_read_error" if "cache_read_error" in diagnostics else "cache_write_error"

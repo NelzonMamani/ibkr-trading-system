@@ -344,6 +344,8 @@ def _fetch_feed(url: str, timeout_s: float) -> object | None:
                     response = requests.get(url, timeout=timeout_s, stream=True)
                     timing["http_status"] = getattr(response, "status_code", None)
                     for chunk in response.iter_content(chunk_size=16384):
+                        if (timing.get("_cancel") and timing["_cancel"]()) or time.monotonic()-requested_at_s >= timeout_s:
+                            raise TimeoutError("bounded RSS body deadline/cancellation")
                         remaining = RAW_FEED_BYTES - len(body)
                         body.extend(chunk[:remaining])
                         if len(chunk) > remaining:
@@ -557,7 +559,7 @@ def _fetch_headlines_from_sources(
     lifecycle: RssFetchLifecycle | None = None,
     raw_feed_directory=None,
     source_groups_by_url: Mapping[str, str] | None = None,
-    retention_selector=None, retention_request=None,
+    retention_selector=None, retention_request=None, feed_pool=None,
 ) -> tuple[Dict[str, List[Headline]], RssFailureSummary]:
     budget_seconds = _normalize_budget_seconds(total_news_budget_seconds)
     started_at_s = time.monotonic() if stage_started_at_s is None else float(stage_started_at_s)
@@ -719,6 +721,9 @@ def _fetch_headlines_from_sources(
             measurements = dict(date_counts.get(url, {}))
             measurements["empty_feed"] = feed_item_count == 0 if feed_item_count is not None else None
             measurements["raw_capture"] = captures.get(url) if raw_capture is not None else None
+            if feed_pool is not None:
+                measurements["transport_cache_hit"] = transport_reuse.get(url)
+                measurements["http_request_attempted"] = transport_reuse.get(url) is False
             row.update(entries_examined_count=processed_entries.get(url), processing_truncated=url in processing_truncated,
                        entry_diagnostics=measurements)
         return row
@@ -739,6 +744,20 @@ def _fetch_headlines_from_sources(
             timeout_s = min(timeout_s, max(MIN_SOURCE_TIMEOUT_SECONDS, remaining_tier_s / waves_remaining))
         return max(0.001, timeout_s)
 
+    def transport(url, timeout_s):
+        with capture_source_timing(True) as timing:
+            timing["_bounded_operational"] = True  # All maintenance transports are byte/time bounded.
+            timing["_cancel"] = feed_pool.cancelled
+            try:
+                if requests is None:
+                    raise RuntimeError("bounded maintenance transport unavailable")
+                feed, error = _fetch_feed(url, timeout_s), None
+            except Exception as exc:
+                feed, error = None, exc
+            return {"feed": feed, "error": error, "_response": timing.get("_response"),
+                    "completed_at_s": timing.get("_completed_at_s", time.monotonic()), **timing}
+
+    transport_reuse = {}
     def fetch_one(url: str, timeout_s: float, attempt_id: int | None, callback_ready: threading.Event | None) -> Mapping[str, Any]:
         source_started_s = time.monotonic()
         if lifecycle is not None:
@@ -750,7 +769,15 @@ def _fetch_headlines_from_sources(
             error = None
             feed = None
             try:
-                feed = _fetch_feed(url, timeout_s)
+                if feed_pool is None:
+                    feed = _fetch_feed(url, timeout_s)
+                else:
+                    shared = feed_pool.fetch(url, timeout_s, lambda remaining: transport(url, remaining))
+                    transport_reuse[url] = bool(shared.get("transport_cache_hit"))
+                    timing.update({key: value for key, value in shared.items() if key not in {"feed", "error"}})
+                    feed = shared.get("feed")
+                    if shared.get("error") is not None:
+                        raise shared["error"]
                 if detailed and feed is not None and hasattr(feed, "version") and not feed.version:
                     raise RssFeedFormatError("response_is_not_a_recognized_feed")
             except Exception as exc:  # exercised through synthetic transport failures
@@ -1011,6 +1038,8 @@ def _fetch_headlines_from_sources(
 
         try:
             while pending or next_source_index < len(unique_sources):
+                from src.core.acquisition import checkpoint
+                checkpoint()
                 wave_timeout_s: float | None = None
                 while (
                     next_source_index < len(unique_sources) and len(pending) < worker_count
@@ -1241,7 +1270,7 @@ def fetch_headlines_for_symbols(
     lifecycle: RssFetchLifecycle | None = None,
     raw_feed_directory=None,
     source_groups_by_url: Mapping[str, str] | None = None,
-    retention_selector=None, retention_request=None,
+    retention_selector=None, retention_request=None, feed_pool=None,
 ) -> tuple[Dict[str, List[Headline]], RssFailureSummary]:
     return _fetch_headlines_from_sources(
         symbols,
@@ -1257,7 +1286,7 @@ def fetch_headlines_for_symbols(
         tier_budget_seconds=tier_budget_seconds,
         tier_started_at_s=tier_started_at_s,
         tier_deadline_s=tier_deadline_s,
-        lifecycle=lifecycle, raw_feed_directory=raw_feed_directory,
+        lifecycle=lifecycle, raw_feed_directory=raw_feed_directory, feed_pool=feed_pool,
         source_groups_by_url=source_groups_by_url,
         retention_selector=retention_selector, retention_request=retention_request,
     )
@@ -1278,6 +1307,7 @@ def fetch_fast_headlines_for_symbols(
     tier_started_at_s: float | None = None,
     tier_deadline_s: float | None = None,
     lifecycle: RssFetchLifecycle | None = None,
+    feed_pool=None,
 ) -> tuple[Dict[str, List[Headline]], RssFailureSummary]:
     return _fetch_headlines_from_sources(
         symbols,
@@ -1293,5 +1323,5 @@ def fetch_fast_headlines_for_symbols(
         tier_budget_seconds=tier_budget_seconds,
         tier_started_at_s=tier_started_at_s,
         tier_deadline_s=tier_deadline_s,
-        lifecycle=lifecycle,
+        lifecycle=lifecycle, feed_pool=feed_pool,
     )

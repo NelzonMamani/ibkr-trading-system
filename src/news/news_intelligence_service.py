@@ -294,6 +294,8 @@ class CanonicalNewsIntelligenceService(NewsIntelligenceProvider):
                             provider_summary = refresh_result.summary_for_symbol(symbol)
                             retrieval_by_symbol[symbol]["provider_details"] = (
                                 _json_value(provider_summary.diagnostics) if provider_summary is not None else {})
+            from src.core.acquisition import checkpoint
+            checkpoint()
             if retrieval_policy.allow_cache_write:
                 # Persist acquisition outcomes even when the provider returns no articles.
                 retrieved = {symbol: tuple(refresh_result.evidence_by_symbol.get(symbol, ()))

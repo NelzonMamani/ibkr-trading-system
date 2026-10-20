@@ -1880,3 +1880,104 @@ Focused lifecycle+continuity+runtime+bridge99passed131warnings4.33s. The other
 inline finding (malformed acquisition_snapshot) was already fixed with explicit
 unknown historical metadata and regressions. Final head checks/review supersede
 intermediate receipts; no observation occurred.
+
+## Independent canonical news maintenance — 2026-10-20
+
+PR1118 was integrated only after exact-head checks/review and resolved threads:
+reviewed `9ac38bc5b4e5894afa953b9511967838c14f5591`, accepted main
+`2e53fe1238873f3b6c7043d9f269209a530458de`. The ancestry-preserving merge tree
+is identical to the reviewed tree (`git diff --exit-code` passed). CI39461247792:
+Linux2890passed1skipped; actual Windows Python3.13.3 2890passed1skipped,
+216warnings473.22s, plus Windows PowerShell harness checks. Independent review
+5588543044 and both resolved inline threads were checked. Historical workstation
+2759-pass evidence and all natural-run receipts remain separate and unchanged.
+
+The separate independent-maintenance PR introduces the following ownership map.
+
+| Writer / reader | Ownership boundary |
+| --- | --- |
+| Canonical service, scanner adapter, preparation NewsProvider and standalone lookup using the same configured canonical path | All writes, including retrieval metadata, enter `CanonicalNewsEvidenceStore.write` and the path-keyed `CanonicalStoreOwner.transaction`. |
+| Maintenance workers | Reuse that service/store; no second JSON writer. Two bounded acquisition workers publish each completed issuer independently. |
+| Cross-process writers | Same sidecar OS lock (Windows msvcrt / POSIX flock), bounded acquisition; reload/merge/publication inside the lock. No stale pre-lock snapshot. |
+| Readers and cached Focus/setup | Atomic same-directory fsync/replace publication; readers see a complete old or new file. Malformed canonical state fails closed and is preserved. |
+| Raw RSS caches and preparation report artifacts | Separate artifact paths, not alternative canonical writers. |
+
+Existing facts are not removed by a historical query window. A bounded original
+Ross cohort survives smaller research-request caps, including older retained
+veto facts; consumer query windows still apply. Late publication merges facts but
+cannot roll acquisition health back over a newer receipt. Publication failure
+preserves the previous bytes and is explicitly not a usable new canonical result.
+Original publication times, identity/event attribution, deduplication, six-hour
+positive-event validity, dilution vetoes and all Ross market gates remain intact.
+
+`NewsMaintenance` is runtime-owned, lazy, broker-free and bounded: two workers,
+128 tracked identities/requests (validated maximum256), deduplicated queued and
+in-flight work, no overlapping request for the same issuer. Active Focus then
+Watchlist receive priority, with an oldest-normal dispatch after at most three
+active dispatches when normal work is ready. New scanner universes retire obsolete
+pending work; active and in-flight identities are retained safely. Identical work
+keeps its existing due time. Refreshes and failures retain configured cadence and
+the existing at-most-eight-second acquisition budget; no unbounded retry loop.
+A shared feed pool single-flights identical URLs, caps transport concurrency at4
+and cache entries at128, and reuses results/backoff at the existing RTH cadence.
+Each issuer still receives independent canonical attribution/filtering. Diagnostics
+separate logical source processing from actual HTTP and cached transport reuse.
+
+Scanner enrichment submits genuine broker-derived identities and reads available
+canonical results immediately. Workers do not wait for IBKR or the next scanner
+cycle; per-issuer results become visible before a slower batch member completes.
+Runtime Watchlist/Focus updates set priorities. Maintenance ownership is static
+for a runtime; disabling NEWS_ENABLED cooperatively stops the owner, and an
+existing/stopped owner never falls back to a competing synchronous acquirer.
+Changing ownership requires restart. Legacy direct scanner calls without an owner
+retain their existing synchronous behavior.
+
+Qualification and acquisition health retain PR1118's separate reasons. Market
+attention/rank influences queue scheduling only, not event qualification. Heat and
+related metrics remain uncalibrated/informational. No headline/classification
+relaxation promotes AIXI, NCPL or any unavailable candidate.
+
+Cancellation reaches queue waits, feed waits, transport streaming and publication
+boundaries. Graceful shutdown records ownership and requires the owned
+`news_maintenance.shutdown` hook in addition to every existing required hook.
+Historical receipts without ownership retain their original requirements. Failed
+cleanup blocks terminal certification; no forced thread termination or false PASS.
+Uncooperative third-party I/O remains a bounded-cleanup limitation reported as
+incomplete rather than concealed.
+
+Focused offline coverage includes concurrent thread/process publishers and busy
+readers; malformed state and failed atomic publication; late receipts and positive/
+veto retention; bounded queues, identity/request deduplication, shared-feed limits,
+priority fairness/universe rotation; slow/failing sources; incremental results;
+configured cadence; cancellation, supervisor stop-file and owned-hook finalization.
+The controlled FAST/SLOW fixture measured first usable publication approximately
+0.013s and batch completion approximately0.048s in one local run. These are synthetic
+fixture timings, not live-provider speed claims. Local focused receipt before the
+final ownership-pin case:408passed143warnings8.99s; the final26-case maintenance
+file passed4warnings2.24s. Final combined local focused check:409passed143warnings8.81s. Exact-head CI and independent review receipts belong in
+the maintenance PR; historical workstation results do not verify this new source.
+
+| Full Ross completion item | Current evidence / remaining acceptance |
+| --- | --- |
+| Graceful shutdown, inventory, zero runtime/independent mutations, source/order-state integrity | Historical natural PASS preserved; owned maintenance cleanup newly covered offline. |
+| Genuine repeated discovery / quote refresh | Historical three subscriptions150rows, Watchlists5/5/3 preserved; strict broker timestamps and freshness unchanged. |
+| Natural full-issuer acquisition / retained attribution | Historical recent AIXI/NCPL evidence preserved, incomplete coverage explicit; new incremental maintenance is offline-only evidence. |
+| Valid event persistence and cached Focus/setup handoff | PR1118 reviewed implementation integrated; controlled PRE/RTH/restart/expiry/veto cases, no natural positive qualification claimed. |
+| Independent maintenance / fairness / first usable result | Implemented separately; controlled evidence only pending integration and a future user-operated acceptance. |
+| Catalyst qualification | NOT ESTABLISHED naturally; no forced Focus or relaxed classification. |
+| Downstream setup/trigger/intent | NOT ESTABLISHED naturally; terminal PASS alone is insufficient. |
+| Remaining operational/policy gaps | Whole-Watchlist between-scan quote maintenance, provider coverage, correction/retraction policy, financing-risk expiry and metric calibration remain open. |
+| GUI draft only | Red Top50, yellow Watchlist up to15, green Focus up to3, each with text labels. No GUI implementation or runtime Focus-limit change. |
+| Holdings / readiness | External holdings and ownership blockers preserved. PAPER_READY=NO. |
+
+Smallest next natural acceptance action: after this separate PR passes review/CI
+and is explicitly integrated, prepare one pinned existing 900-second user-operated
+READ_ONLY observation during a supported session, covering at least two genuine
+300-second discovery intervals. Verify incremental issuer publication while the
+scanner progresses, active priority plus normal fairness, transport reuse/cadence,
+strict final quote freshness and separate qualification/coverage/attention reasons,
+then zero order attempts, unchanged operator state and owned-worker shutdown.
+A catalyst is not required to establish maintenance/shutdown success; qualification
+and downstream progression remain separate. No observation or provider/broker
+request was executed for this change, and no additional operator run is requested
+before integration.
