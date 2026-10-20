@@ -59,6 +59,7 @@ try {
     Check ($block.Length -gt 0 -and $parseErrors.Count -eq 0) 'Release preparation block parse failure'
     Check ($block -notmatch '\$LASTEXITCODE\b') 'Release block uses shadowable native exit status'
     Check ($block -match '-RuntimeSeconds 900') 'Release block does not print a900s observation'
+    Check ($block -notmatch 'New-Item[^\r\n]*-Path\s+\$e(?:\s|$)') 'Release block precreates forbidden evidence directory'
     $passed++
     foreach ($case in @('success','preflight','preflight-package-failure','failure','collection','native7','pipes','package','seal-failure','stop')) {
         $env:OBS_TEST_CASE=$case

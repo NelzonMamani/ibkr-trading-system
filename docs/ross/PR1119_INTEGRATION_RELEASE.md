@@ -88,8 +88,8 @@ observability gap above; no placeholder approval booleans are used.
     $roots = @(Get-ChildItem -LiteralPath $b -Directory -Filter 'ro-*')
     if ($roots.Count -ne 1) { throw 'Cannot identify the fresh preparation root.' }
     $e = Join-Path $roots[0].FullName 'e'
-    New-Item -ItemType Directory -Path $e | Out-Null
-    Write-Host ('Fresh evidence directory: ' + $e)
+    if (Test-Path -LiteralPath $e) { throw 'Evidence already exists; prepare a fresh root.' }
+    Write-Host ('Fresh evidence destination (created only by observation): ' + $e)
     Write-Warning 'Observation HOLD: integrate reviewed telemetry follow-up, then re-prepare at its accepted head. Do not execute this older printed command.'
 }
 ```
