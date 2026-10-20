@@ -365,6 +365,9 @@ class StrategyRunner:
             prep_only if prep_only is not None else session_norm in {"AH", "OVN", "CLOSED", "WEEKEND"}
         )
         watchlist = list(watchlist or [])
+        if str(strategy_key or "").strip().lower() == "ross_momentum" and str(getattr(mode, "value", mode)).upper() in {"READ_ONLY", "PAPER", "LIVE"}:
+            from src.strategies.ross_momentum.policy.catalyst_lifecycle import filter_catalyst_rows
+            watchlist = filter_catalyst_rows(watchlist, stage="strategy_use", mode=mode)
         manual_focus_symbols = (
             _manual_focus_symbols(watchlist)
             if str(strategy_key or "").strip().lower() == "ross_momentum"

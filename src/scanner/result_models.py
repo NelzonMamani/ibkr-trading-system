@@ -82,6 +82,11 @@ class CandidateMetrics:
     news_source_mode: Optional[str]
     news_asof: Optional[str]
     data_quality_ok: bool
+    catalyst_evidence: Optional[dict[str, object]] = None
+    catalyst_qualification_reason: Optional[str] = None
+    catalyst_valid_until_utc: Optional[str] = None
+    news_acquisition_health: Optional[str] = None
+    news_acquisition_reason: Optional[str] = None
     quote_integrity_state: Optional[str] = None
     quote_usability_state: Optional[str] = None
     data_integrity_flags: list[str] = field(default_factory=list)

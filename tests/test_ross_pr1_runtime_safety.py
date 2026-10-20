@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from catalyst_fixtures import canonical_catalyst_fixture
+
 import pytest
 
 from src.config.config_resolver import set_config_overrides
@@ -108,7 +110,7 @@ def test_live_strategy_runner_blocks_synthetic_intent(capsys) -> None:
 
     intents = runner.process(
         strategy_key="ross_momentum",
-        watchlist=[{"symbol": "ROSSX"}],
+        watchlist=[{"symbol": "ROSSX", "catalyst_evidence": canonical_catalyst_fixture("ROSSX")}],
         snapshots={},
         session_label="RTH",
         timestamp_utc="2026-06-12T12:00:00Z",

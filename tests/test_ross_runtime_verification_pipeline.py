@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from catalyst_fixtures import canonical_catalyst_fixture
+
 from dataclasses import replace
 from types import SimpleNamespace
 
@@ -77,6 +79,7 @@ def _candidate(symbol: str, rank: float) -> CandidateMetrics:
         halted=False,
         ssr=False,
         catalyst_present=True,
+        catalyst_evidence=canonical_catalyst_fixture(symbol),
         catalyst_summary="test",
         news_count=1,
         fresh_news_count=1,

@@ -3455,6 +3455,10 @@ class CoreOrchestrator:
                 f"open_positions={self.trade_registry.count_active()}"
             )
 
+            if self._ross_focus_authority_required(active_strategy):
+                from src.strategies.ross_momentum.policy.catalyst_lifecycle import filter_catalyst_rows
+                cadence.focus.rows = filter_catalyst_rows(cadence.focus.rows, stage="cached_focus", mode=self.run_mode)
+                cadence.focus.symbols = self._symbols_from_candidates(cadence.focus.rows)
             if active_strategy == strategy_key:
                 selected_watchlist = list(cadence.watchlist.rows)
                 selected_focus = list(cadence.focus.rows)
@@ -3802,9 +3806,31 @@ class CoreOrchestrator:
                     "[ROSS][EVALUATION_SOURCE] "
                     f"symbol={symbol} source=MANUAL_FOCUS path=USER_SELECTED_TO_SETUP_EVAL"
                 )
+        if self._ross_focus_authority_required(strategy_key):
+            from src.strategies.ross_momentum.policy.catalyst_lifecycle import filter_catalyst_rows
+            catalyst_handoff_rejections = {}
+            strategy_inputs = filter_catalyst_rows(strategy_inputs, stage="setup_handoff", mode=self.run_mode,
+                                                  rejection_reasons=catalyst_handoff_rejections)
+            if catalyst_handoff_rejections:
+                permitted = set(self._symbols_from_candidates(strategy_inputs))
+                strategy_watchlist = list(strategy_inputs)
+                strategy_evaluation_symbols = self._symbols_from_candidates(strategy_inputs)
+                final_evaluation_symbols = [symbol for symbol in final_evaluation_symbols if symbol in permitted]
+                selected_focus = [row for row in selected_focus if self._candidate_symbol(row) in permitted]
+                focus_state = self._strategy_cadence(strategy_key).focus
+                focus_state.rows = [row for row in focus_state.rows if self._candidate_symbol(row) in permitted]
+                focus_state.symbols = self._symbols_from_candidates(focus_state.rows)
+                focus_passed = len(final_evaluation_symbols)
+                focus_rejected += len(catalyst_handoff_rejections)
+                for reason in catalyst_handoff_rejections.values():
+                    key = "CATALYST_HANDOFF:" + reason
+                    focus_dominant_reasons[key] = focus_dominant_reasons.get(key, 0) + 1
+                no_focus_execution_block = not final_evaluation_symbols
+                print(f"[ROSS][FOCUS_HANDOFF_RECONCILED] focus={final_evaluation_symbols} "
+                      f"strategy_input_count={len(strategy_inputs)} rejections={catalyst_handoff_rejections}")
         self.strategy_runner.receive_watchlist_snapshot(
             watchlist_symbols=final_evaluation_symbols,
-            snapshots=snapshots_by_symbol,
+            snapshots={symbol: snapshot for symbol, snapshot in snapshots_by_symbol.items() if symbol in final_evaluation_symbols},
             session_label=session_label,
             timestamp_utc=cycle_started_at.isoformat(),
         )

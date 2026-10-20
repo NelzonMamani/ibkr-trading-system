@@ -77,6 +77,10 @@ class RossMomentumRunner:
 
     def run(self, context):
         watchlist = _filter_watchlist_for_explicit_focus(context.get("watchlist", []))
+        mode = context.get("mode")
+        if str(getattr(mode, "value", mode)).upper() in {"READ_ONLY", "PAPER", "LIVE"}:
+            from .policy.catalyst_lifecycle import filter_catalyst_rows
+            watchlist = filter_catalyst_rows(watchlist, stage="ross_runner", mode=mode)
         intents = self.strategy.process_watchlist(
             watchlist=watchlist,
             snapshots=context.get("snapshots", {}),

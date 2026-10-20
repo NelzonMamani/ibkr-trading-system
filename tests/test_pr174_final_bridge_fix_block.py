@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from catalyst_fixtures import canonical_catalyst_fixture
+
 from types import SimpleNamespace
 
 from src.config.config_resolver import set_config_overrides
@@ -10,6 +12,7 @@ from src.models.data_models import TradeIntent
 def _candidate(symbol: str, score: float) -> SimpleNamespace:
     return SimpleNamespace(
         symbol=symbol,
+        catalyst_evidence=canonical_catalyst_fixture(symbol),
         last_price=10.0 + score,
         gap_pct=score,
         pct_change=score,
