@@ -1868,3 +1868,15 @@ its pending CI is not treated as verification of this final fixture update.
 Production source is unchanged by this final test/checkpoint correction. Final
 head CI/review receipts must be checked in the lifecycle PR, not inferred from
 historical or superseded runs.
+
+PR1118 automated review also identified a reporting boundary: setup-handoff
+revalidation could remove strategy_inputs while leaving the rejected symbol in
+strategy_watchlist/final Focus telemetry. Focus collections, cached Focus,
+passed/rejected counts, strategy input symbols and the received snapshot now
+reconcile together, with CATALYST_HANDOFF:<actual qualification reason>. The
+controlled case expires an event after the cached-Focus check but before setup;
+no runner invocation, selected-but-not-evaluated or invented NO_SETUP cause occurs.
+Focused lifecycle+continuity+runtime+bridge99passed131warnings4.33s. The other
+inline finding (malformed acquisition_snapshot) was already fixed with explicit
+unknown historical metadata and regressions. Final head checks/review supersede
+intermediate receipts; no observation occurred.

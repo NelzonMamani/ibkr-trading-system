@@ -245,3 +245,24 @@ def test_direct_ross_runner_rejects_opaque_confirmed_flags(lifecycle):
                        'mode':RunMode.READ_ONLY})
     assert seen==[] and result['trade_intents']==[]
     assert lifecycle.provider.calls==0
+
+
+def test_setup_boundary_reconciles_focus_and_actual_rejection_cause(lifecycle,monkeypatch,capsys):
+    from test_pr1082_rth_watchlist_continuity import _row, _payload, _install_runtime_harness, _cadence
+    from src.strategies.ross_momentum.policy import catalyst_lifecycle
+    life=lifecycle;row=_row('JPM',catalyst=True);row.catalyst_evidence=snapshot(life)
+    monkeypatch.setattr(catalyst_lifecycle,'CanonicalNewsEvidenceStore',lambda:life.store)
+    orchestrator,_,processed=_install_runtime_harness(monkeypatch,[_payload([row],focus=[row])])
+    received=[]
+    def expire_before_handoff(symbols):
+        life.clock.current=PUB+timedelta(hours=6,microseconds=1)
+        return {},[]
+    orchestrator.market_data_snapshot_manager.batch_snapshots=expire_before_handoff
+    orchestrator.strategy_runner.receive_watchlist_snapshot=lambda **kwargs:received.append(kwargs['watchlist_symbols'])
+    assert orchestrator.run_once() is True
+    assert processed==[] and received==[[]]
+    assert _cadence(orchestrator).focus.symbols==[]
+    output=capsys.readouterr().out
+    assert 'strategy_input_count=0' in output
+    assert 'CATALYST_HANDOFF:no_valid_canonical_event' in output
+    assert 'selected_but_not_evaluated' not in output

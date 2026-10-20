@@ -110,7 +110,7 @@ def revalidate_handoff(symbol, handoff, *, store=None, request=None):
             "previous_acquisition_reason": historical.get("reason", "acquisition_not_verified")}
 
 
-def filter_catalyst_rows(rows, *, store=None, request=None, stage="setup_handoff", mode=None):
+def filter_catalyst_rows(rows, *, store=None, request=None, stage="setup_handoff", mode=None, rejection_reasons=None):
     # Preserve the established explicit SIM/PAPER validation override only. It
     # is never a CONFIRMED event and cannot operate in LIVE/READ_ONLY.
     if mode is not None and validation_override_allowed(mode, bool(get_config("ROSS_VALIDATION_OVERRIDE_ENABLED"))):
@@ -144,4 +144,6 @@ def filter_catalyst_rows(rows, *, store=None, request=None, stage="setup_handoff
                 for key, value in changes.items():
                     setattr(updated, key, value)
             accepted.append(updated)
+        elif rejection_reasons is not None:
+            rejection_reasons[str(read("symbol") or "").upper()] = decision["qualification_reason"]
     return accepted
