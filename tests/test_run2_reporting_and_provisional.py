@@ -42,4 +42,3 @@ def test_provisional_age_deferral_retains_every_other_discovery_gate(thresholds,
     row = context(); row.update(changes)
     assert scanner._evaluate_watchlist_gates(row, thresholds, provisional=True) == reason
     assert row['data_quality_flags'] == ['MD_STALE']
-
