@@ -6389,7 +6389,12 @@ def run_scanner_cycle(
                     continue
                 stale_reason = _stale_market_data_drop(context)
                 if stale_reason:
-                    drop_ledger.setdefault(symbol, stale_reason)
+                    first_reason = drop_ledger.get(symbol)
+                    # Missing-data rows can otherwise enter optional backfill;
+                    # make their later hard stale block explicit. Preserve prior
+                    # hard float/RVOL/percentage rejection causes.
+                    if first_reason is None or first_reason.startswith("DROP_MISSING_"):
+                        drop_ledger[symbol] = stale_reason
                     continue
                 drop_reason = drop_ledger.get(symbol)
                 if drop_reason and not drop_reason.startswith("DROP_MISSING_"):

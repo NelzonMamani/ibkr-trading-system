@@ -1249,7 +1249,9 @@ The initial48 rejected symbols had first recorded causes:
 proof that all48 initially failed freshness alone. Underflow/backfill iterates
 all unselected contexts after enrichment and overwrites an existing drop_ledger
 entry with a later stale result. By then all48 are stale. Preserve first-cause
-accounting with setdefault while retaining stale flags/final rejection authority.
+accounting for earlier hard rejections while retaining stale flags/final rejection
+authority. Optional missing-data backfill rows still upgrade to the hard stale
+block, preserving existing premarket seed/backfill safeguards.
 A full synthetic scanner regression preserves FLOAT_MAX even after later ageing.
 
 Initial authoritative quote callbacks span WORX req465 at13:36:54.103825Z to
@@ -1320,3 +1322,11 @@ is repeated. Next action is review the focused repair PR; do not rerun observati
 or acquire providers merely to fill missing raw evidence. Preserve all broker
 holdings and manual ownership blockers; no adoption, liquidation, cancellation,
 suppression, trading, merge or readiness upgrade in this diagnosis. PAPER_READY=NO.
+
+Changed-head Linux CI at c199f6df exposed four existing premarket missing-price
+seed/backfill regressions: preserving DROP_MISSING_PRICE hid the later explicit
+hard stale block in those optional-data paths. The focused correction preserves
+earlier hard float/RVOL/percentage causes but still upgrades missing-data rows to
+DROP_STALE_MARKET_DATA. Existing assertions remain unchanged. Failed intermediate
+CI is retained as failure; only final repaired-head CI/review is an acceptance
+gate. No provider/observation/workstation rerun was used to diagnose this.
