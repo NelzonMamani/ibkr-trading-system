@@ -1857,3 +1857,14 @@ float workers; no broker/provider request, natural runtime or holdings mutation 
 Next engineering action after lifecycle review: design and implement serialized
 canonical-store ownership before independent bounded acquisition maintenance. No
 additional operator observation or readiness upgrade is requested in this package.
+
+Initial lifecycle CI39460077728 Linux atddc1a9a5 failed3 routing/validation fixture
+cases (2874passed1skipped219.89s); it is not a successful receipt. Two cases were
+already resolved in the reviewed follow-up; the third PR174 bridge fixture now
+carries canonical facts as well, with all original Focus/strategy/intent assertions
+retained. Bridge+new lifecycle+runtime-safety focused49passed4warnings1.51s.
+The intermediate dd65 source adds per-row setup expiry and direct-runner guards;
+its pending CI is not treated as verification of this final fixture update.
+Production source is unchanged by this final test/checkpoint correction. Final
+head CI/review receipts must be checked in the lifecycle PR, not inferred from
+historical or superseded runs.
