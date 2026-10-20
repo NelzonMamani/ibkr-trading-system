@@ -278,6 +278,7 @@ class CanonicalNewsEvidenceStore:
                 if isinstance(item, NewsEvidence)
             ]
             if request is not None and request.query_start_utc is not None:
+                existing = [item for item in existing if evidence_in_query_window(item, request, now=now)]
                 incoming = [refresh_evidence_age(item, request=request, now=now) for item in incoming
                             if evidence_in_query_window(item, request, now=now)]
             merged = retained_evidence(existing + incoming, request)

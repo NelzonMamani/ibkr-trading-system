@@ -1902,8 +1902,8 @@ The separate independent-maintenance PR introduces the following ownership map.
 | Readers and cached Focus/setup | Atomic same-directory fsync/replace publication; readers see a complete old or new file. Malformed canonical state fails closed and is preserved. |
 | Raw RSS caches and preparation report artifacts | Separate artifact paths, not alternative canonical writers. |
 
-Existing facts are not removed by a historical query window. A bounded original
-Ross cohort survives smaller research-request caps, including older retained
+Historical queries filter their result cohort before applying its cap, as before.
+A bounded original Ross cohort survives historical windows and smaller research-request caps, including older retained
 veto facts; consumer query windows still apply. Late publication merges facts but
 cannot roll acquisition health back over a newer receipt. Publication failure
 preserves the previous bytes and is explicitly not a usable new canonical result.
@@ -1981,3 +1981,12 @@ A catalyst is not required to establish maintenance/shutdown success; qualificat
 and downstream progression remain separate. No observation or provider/broker
 request was executed for this change, and no additional operator run is requested
 before integration.
+
+
+Maintenance initial exact-head CI39467584933 at13114302 exposed a historical-query
+cap regression: out-of-window current rows could crowd out the requested historical
+article. That failure (Linux2915passed1failed1skipped225.13s) is not a passing
+receipt. Restored existing historical-window filtering before its cap; independently
+protected Ross cohort facts/vetoes still persist. Existing W04 history regressions
+and a new simultaneous historical-cap/Ross-cohort case cover both requirements.
+Final changed-head CI/review must supersede that initial receipt in PR1119.

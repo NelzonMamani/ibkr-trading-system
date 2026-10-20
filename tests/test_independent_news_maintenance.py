@@ -423,3 +423,17 @@ def test_runtime_pins_owner_and_news_disable_stops_without_sync_fallback(monkeyp
     assert owner.stopped()
     assert orchestrator.CoreOrchestrator._runtime_news_maintenance(runtime) is owner
     assert owner.close(.2)
+
+
+def test_historical_window_filters_before_cap_without_evicting_ross_cohort(store):
+    now=datetime.now(timezone.utc)
+    positive=fact('JPM','JPM reports earnings beat')
+    veto=fact('JPM','JPM announces registered direct offering',age=7*3600)
+    store.write({'JPM':(positive,veto)},NewsRequest(strategy_id='ross_momentum',max_evidence_per_symbol=2))
+    historical=replace(fact('JPM','JPM wins historical contract'),published_at=now-timedelta(days=2))
+    request=NewsRequest(max_evidence_per_symbol=1,query_start_utc=now-timedelta(days=3),query_end_utc=now-timedelta(days=1))
+    assert not store.write({'JPM':(historical,)},request)['cache_write_failed']
+    rows=store.read((NewsCandidate('JPM'),),request).evidence_by_symbol['JPM']
+    assert [row.evidence_id for row in rows]==[historical.evidence_id]
+    saved=json.loads(store.cache_path.read_text())['news_intelligence']['symbols']['JPM']
+    assert {row['evidence_id'] for row in saved['evidence']}=={positive.evidence_id,veto.evidence_id,historical.evidence_id}
