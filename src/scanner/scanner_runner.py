@@ -4571,22 +4571,69 @@ def _build_symbol_context(
     return context
     
 
+def _shortlist_selection_deadline(contexts, thresholds):
+    """Reserve up to five seconds of genuine leaders' lifetime for selection.
+
+    This limits optional acquisition, never freshness authority. The owning-thread
+    provider already clamps pacing, waits and retries to acquisition_deadline.
+    No extra refresh rounds or transport threads are introduced.
+    """
+    now = datetime.now(timezone.utc)
+    monotonic_now = time.monotonic()
+    max_age = int(get_config("IBKR_SNAPSHOT_MAX_AGE_SECONDS"))
+    reserve = min(5.0, max_age / 3.0)
+    deadlines = []
+    for context in contexts:
+        if (_evaluate_price_gate(context, thresholds)
+                or _evaluate_watchlist_gates(context, thresholds)
+                or _evaluate_float_gate(context, thresholds)):
+            continue
+        try:
+            stamp = datetime.fromisoformat(context["quote_timestamp_utc"].replace("Z", "+00:00"))
+            if stamp.tzinfo is None or context.get("quote_timestamp_source") != "LAST_TRADE":
+                continue
+            remaining = max_age - (now - stamp).total_seconds()
+            deadlines.append(monotonic_now + max(0.0, remaining - reserve))
+        except (KeyError, TypeError, ValueError, AttributeError):
+            continue
+    return min(deadlines) if deadlines else None
+
+
 def _refresh_provisional_shortlist(candidates, provider, session_label, float_cache,
                                    limit, thresholds, drop_ledger, runtime_bound_reached=None, deadline_s=None):
-    # Rank with the existing authority, bound acquisition to K, then rebuild
-    # selection metrics and rerun original discovery gates before publication.
+    # Rank with the existing authority and bound acquisition to K. Later slow
+    # rows cannot consume the remaining freshness lifetime of eligible leaders.
     if not callable(getattr(provider, "refresh_quote", None)):
         return candidates
-    for context in _rank_candidates(candidates)[:max(0, limit)]:
+    ranked = _rank_candidates(candidates)[:max(0, limit)]
+    selection_deadline = None
+    for index, context in enumerate(ranked):
         checkpoint()
         if runtime_bound_reached is not None and runtime_bound_reached("shortlist_refresh"):
             break
-        _refresh_shortlisted_quote(context, provider, session_label, float_cache, deadline_s=deadline_s)
+        if selection_deadline is not None and time.monotonic() >= selection_deadline:
+            print(f"[SCANNER][SHORTLIST_SCHEDULE] reason=LEADER_FRESHNESS_RESERVE "
+                  f"deferred_symbols={[row['symbol'] for row in ranked[index:]]}")
+            break
+        effective_deadline = deadline_s
+        if selection_deadline is not None:
+            effective_deadline = (min(deadline_s, selection_deadline)
+                                  if deadline_s is not None else selection_deadline)
+        _refresh_shortlisted_quote(context, provider, session_label, float_cache, deadline_s=effective_deadline)
+        next_deadline = _shortlist_selection_deadline(ranked[:index + 1], thresholds)
+        if next_deadline is not None:
+            selection_deadline = (min(selection_deadline, next_deadline)
+                                  if selection_deadline is not None else next_deadline)
     survivors = []
     for context in candidates:
+        checkpoint()
         reason = (_evaluate_price_gate(context, thresholds)
                   or _evaluate_watchlist_gates(context, thresholds)
                   or _evaluate_float_gate(context, thresholds))
+        assessed_at = datetime.now(timezone.utc).isoformat()
+        print(f"[SCANNER][SHORTLIST_ASSESSMENT] symbol={context['symbol']} "
+              f"assessed_at={assessed_at} market_timestamp={context.get('quote_timestamp_utc')} "
+              f"request_id={context.get('quote_request_id')} reason={reason or 'PASS'}")
         if reason:
             drop_ledger[context["symbol"]] = reason
             print(f"[SCANNER][DROP] symbol={context['symbol']} reason={reason} boundary=shortlist_refresh")

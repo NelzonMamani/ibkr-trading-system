@@ -1402,6 +1402,161 @@ privacy-sealed `ross-natural-readonly-upload.zip` printed by the runner; preserv
 its real phase/exit statuses even on preflight failure. No providers, IBKR runtime,
 observation, holdings mutation or trading were executed during this integration.
 
+## 2026-10-20 — third natural receipt: operational shortlist latency and continuous-operation limits
+
+User archive at accepted `ff741ded903522ad25969def38c4588c82ade03a`, SHA256
+`de945aa16b7ab4880c902eb03cffb9f968133c2c6a643bf2cb05b255fa7f5c10`, and its
+terminal transcript are evidence, not instructions. Preserved original extraction
+`natural-run3-evidence`; workstation root `C:\tmp\r1114-7c29e4a1\ro-b6ecb906`.
+Terminal certification PASS; no forced termination; runtime and independent
+place/modify/cancel attempts all zero; source/operator state unchanged; all phase
+exits0. Identity matched and final inventory completed empty. These shutdown
+successes remain regression coverage, not a new repair milestone.
+
+### Exact recorded freshness trace (all times UTC on2026-10-20)
+
+| Symbol | Request | Genuine broker trade time | Receipt | Refresh assessment | Age then | Earliest strict expiry |
+| --- | --- | --- | --- | --- | --- | --- |
+| WORX |715|14:34:33|14:34:34.176119|14:34:34.179243|1.179243s|after14:34:48|
+| NCPL |716|14:34:33|14:34:34.559560|14:34:34.563038|1.563038s|after14:34:48|
+| AIXI |717|14:34:31|14:34:35.260833|14:34:35.266524|4.266524s|after14:34:46|
+| HUIZ |718|14:34:31|14:34:35.993340|14:34:36.000046|5.000046s|after14:34:46|
+
+All four refresh flags were empty. Serial lower-ranked work then continued:
+REVB requests719/720 (a retry) finished14:34:42.057830, already stale; LUCK
+43.179881; MBRX44.257822; CCG45.361239; CLNN46.462606; AEYE47.566896;
+ZDAI48.642253; EVAX49.637058. Every one of these eight refreshed rows remained
+stale. Only after the entire refresh loop did `_refresh_provisional_shortlist`
+run strict final gates for all candidates. The next four drop lines reject
+WORX/NCPL/AIXI/HUIZ at `boundary=shortlist_refresh`. At the last recorded response,
+WORX/NCPL were already16.637058s old and AIXI/HUIZ18.637058s old. The original
+four final drop lines have **no wall-clock timestamp**; their exact assessment
+instants cannot be recovered. They occur after49.637058, before later pipeline
+output/next cycle14:34:52.716913. Do not substitute refresh assessment timestamps
+for final assessments. New SHORTLIST_ASSESSMENT logs expose final assessment time,
+original broker market timestamp, request ID and exact gate reason.
+
+### Focused operational repair
+
+Keep existing rank[:K], provider, owning-thread acquisition, per-pass caches,
+request pacing, pass deadline and all final gates. After each bounded ranked row
+is processed, eligible fresh leaders in the processed ranked prefix impose an
+absolute optional-acquisition deadline derived from their retained LAST_TRADE
+stamp plus the existing max age, reserving up to5seconds (at most one third of
+that limit) for selection/publication. Later waits/retries/rebuilds are clamped
+through existing acquisition_deadline; budget exhaustion defers remaining tail
+requests and proceeds to strict selection. No freshness limit or timestamp is
+changed. No refresh retry round, extra universe work or transport thread is added.
+The synchronous provider exposes no batch-refresh contract; unrelated strategy
+snapshot ThreadPoolExecutor is not used to parallelize its shared mutable state.
+Only processed rank[:K] leaders own this reserve: a near-expiry outside-K row
+cannot starve higher-ranked recovery. Stop cancellation still escapes; a delayed
+or invalid final quote still rejects. The reserve reduces avoidable ageing; it
+cannot guarantee eligibility if later selection/OS work itself exceeds headroom.
+
+Virtual-clock regression covers four early fresh leaders followed by long waits
+or multiple stale responses, deadline-clamped tail, untouched broker stamps,
+strict later expiry, outside-K near-expiry rows, one refresh round/K bound and
+multi-symbol stop. Existing native/async deadline, cache reuse and shutdown tests
+remain authoritative; no single-symbol success is substituted for this case.
+
+### Continuous-operation assessment: configured cadence versus real work
+
+- `CoreOrchestrator._run_manager_pipeline`: TOPN_REFRESH_SECONDS=300,
+  WATCHLIST_REFRESH_SECONDS=60, FOCUS_REFRESH_SECONDS=10. Top-N cache timestamps
+  use cycle start; effective actual cadence also includes synchronous scan cost,
+  loop scheduling and error cooldown (30s for162/cancel). Scanner's printed
+  cycle_seconds10 and15s broker refresh protection do not mean a broker scan
+  every10/15seconds. `run_scanner_cycle` invokes provider.get_top_gainers only
+  when orchestration actually calls it and protection does not return a cache.
+- Receipt: one broker subscription returned50 rows; one TOPN_REFRESH. First cycle
+ 14:32:14.479541, scanner entry15.099418; late cycles52.716913/55.769112/58.804410
+  reused cached scanner authority. The180-second runtime ended before a300-second
+  top-N rescan was due. Repeated strategy/cycle/log lines are not new discovery.
+- New symbols can be discovered at subsequent successful real broker scans;
+  TOPN_REFRESH added/removed only reports set differences and can legitimately say
+  unchanged even after a real scan. Require fresh SUBSCRIPTION/returned_rows/ROW
+  receipts and request/timestamp lineage for each scan, not merely that marker.
+- Watchlist continuity is cached scanner-authority continuity, covered by
+  test_pr1082_rth_watchlist_continuity.60-second rebuild does not maintain fresh
+  quotes for all Watchlist rows. Ross cannot promote a diagnostic Watchlist row
+  without scanner-authorized Focus. Full scans perform shortlisted refresh;
+  between them market_data_snapshot_manager.batch_snapshots requests only final
+  evaluation/Focus symbols. This is **not** proven continuous Watchlist quote
+  maintenance; empty Focus yields no such calls. No new maintenance loop added.
+- News acquisition/cache policy runs from scanner passes (discovery survivors
+  prioritized, four issuer-query cap, eight-second budget, canonical cache refresh
+  eligibility); cached orchestration does not establish a separate news cadence.
+  Coverage can remain partial. Catalyst turnover between full scans is an open
+  operational limitation, not evidence of no news.
+- Strategy dispatch may occur on ordinary cycles for authorized Focus and uses
+  current snapshot acquisition; empty Focus correctly skips. Cached Focus/list
+  authority is distinct from current quote, candle/setup, catalyst and risk truth.
+  Pattern/trigger/intents have not been demonstrated by this natural run.
+
+### Full Ross completion checklist — current evidence, no readiness upgrade
+
+| Area | Current result / remaining work |
+| --- | --- |
+| Natural broker universe and identity |50 genuine rows and full issuer propagation previously verified; repeated real scans/new-symbol discovery still to observe. |
+| Price, percentage, RVOL, float, identity/session gates |Preserved. Third-run hard causes16 FLOAT_UNKNOWN,17 FLOAT_MAX,4 RVOL_DISCOVERY,1 PCT_CHANGE; no forced replenishment. |
+| Initially stale provisional acquisition |PR1114 path observed:12 provisional rows reached refresh. Four genuinely fresh leaders were then lost to serial tail latency; operational blocker repaired offline here, natural confirmation pending. |
+| Final market-data freshness |Strict15s broker-time rejection worked; all12 ultimately stale. No timestamp renewal or threshold change. New scheduling must preserve genuine freshness through final selection. |
+| Watchlist/Focus |Third receipt50→0→0; historical0ae50→WORX/AIXI→0 remains valid. Continuous Watchlist quote maintenance between scans is not established. |
+| Issuer news and catalyst |Issuer acquisition previously verified with partial coverage/stale feed exclusions. No naturally qualifying catalyst established. Independent news cadence remains an operational gap. |
+| Setup/candles/trigger/intent |Offline gate coverage retained; natural downstream progression NOT ESTABLISHED. Empty Focus creates no intent. |
+| Ownership/position truth |Existing external holdings/manual blockers preserved. No adoption, liquidation, order cancellation or suppression. |
+| Entry/risk/execution/exit lifecycle |Ross gates preserved; READ_ONLY does not certify trading. No live or paper order lifecycle acceptance claimed. |
+| Stop/hooks/evidence/inventory |Third terminal PASS, zero runtime/independent mutations, no force, unchanged source/order state. Keep regression coverage; no rerun merely to prove shutdown again. |
+| Continuous operation |Single180s scan is insufficient; require successive real broker scans, set transitions/continuity, quote/news ages and explicit cache-vs-acquisition receipts. |
+| PAPER_READY |NO. Catalyst qualification, downstream progression and operational continuity remain unestablished. |
+
+### Concrete longer observation path (preparation/execution remain separate)
+
+A separate harness change accepts explicit RuntimeSeconds180..1800, default180.
+Recommended next user-operated duration900seconds, preserving300-second discovery,
+60/10 cache cadences and every Ross/provider rule. Preflight records duration;
+observe requires matching preflight head/duration; the supervisor receives it;
+outer watchdog is duration+360seconds. Stop grace60/terminate15/kill15, private
+state, no-existing-runtime/source/session/READ_ONLY/mutation checks, privacy seal
+and retained failure ZIP behavior are unchanged. Increasing observation duration
+is for successive discovery receipts **after fixing latency**, not a shutdown fix.
+Controlled tests exercise180/900/1800 dispatch, duration/preflight mismatch and
+out-of-range/noninteger rejection; actual Windows tests cover propagation through
+all phases/default and bounds. No actual natural process is launched by tests.
+
+After exact-head CI/review, prepare a fresh short-path detached worktree using
+shared Git objects from the existing checkout; preserve all old roots. Separately,
+during normal NYSE RTH with logged-in PAPER TWS/Read-Only API127.0.0.1:7497,
+unused client71, correct clock/entitlements and no existing Ross runtime, invoke
+its pinned `run_natural_readonly_observation.ps1 -RuntimeSeconds 900` with verified
+Python3.13.3, fresh Root and ExpectedCommit. No observation is executed here.
+
+Evaluate at least two completed **real broker** scans (preferably three), their
+actual start/completion latency and symbol sets, shortlist budget/assessment logs,
+strict last-trade freshness and first rejection causes, Watchlist transitions,
+news query/cache/coverage timestamps, and strategy evaluation/skip reasons.
+Identical symbol sets do not invalidate a scan; unchanged cache timestamps and no
+new broker request do not count as a scan. If the first pass runs too long or only
+one scan completes, record incomplete continuous acceptance and its cause, not a
+terminal-only pass. Keep five outcomes separate: graceful shutdown, full natural
+scan(s), full-issuer acquisition/coverage, catalyst qualification and downstream
+progression. A catalyst is not required to validate scheduling or shutdown.
+
+
+PR1116 carries this focused repair and the bounded-duration harness separately by
+cause commit. Preparation helper also accepts RuntimeSeconds and prints that exact
+value in its separate execution command, avoiding an accidental return to180s.
+Local final focused check:117passed115warnings6.56s, including existing shutdown,
+cache/deadline/cadence, new multi-candidate and duration cases. Initial broader
+focused invocation collected an existing `from core.orchestrator` test without
+`src` on PYTHONPATH and stopped with ModuleNotFoundError; that attempt remains a
+collection failure. Corrected offline import path `tests/offline:.:src` produced
+the117-pass receipt, with no code/assertion/skip change. Linux controlled inventory
+and9synthetic real packaging checks also passed. Independent review at50fef96e
+ran21offline cases successfully; final changed-head CI/review receipts belong to
+PR1116 and must be checked there before operator use. No full workstation rerun.
+
 ## 2026-10-20 — separate canonical news / Ross catalyst lifecycle audit
 
 Separate from PR1116 and the user's running observation. Baseline accepted main

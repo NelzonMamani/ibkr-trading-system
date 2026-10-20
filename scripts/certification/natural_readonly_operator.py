@@ -2,7 +2,12 @@
 import hashlib, json, os, shutil, subprocess, sys, zipfile
 from datetime import datetime, timezone
 from pathlib import Path
-phase, root_text, expected = sys.argv[1:]
+phase, root_text, expected, *duration_args = sys.argv[1:]
+if len(duration_args) > 1:
+    raise SystemExit('At most one bounded runtime duration is allowed')
+runtime_seconds = int(duration_args[0]) if duration_args else 180
+if not 180 <= runtime_seconds <= 1800:
+    raise SystemExit('Runtime duration must be between180 and1800 seconds')
 if phase not in ('preflight', 'observe', 'package', 'seal'):
     raise SystemExit('Unknown operator phase')
 root = Path(root_text); repo = root/'s'; evidence = root/'e'; state = root/'state'
@@ -106,7 +111,7 @@ if phase == 'preflight':
             (root/'operator-state-source.json').write_text(json.dumps({'path': str(original_state), 'sha256': digest(original_state)}))
             write_json(evidence/'source-before.json', source_manifest())
             write_json(evidence/'preflight.json', {'head': expected, 'utc': datetime.now(timezone.utc).isoformat(),
-                'mode': 'READ_ONLY', 'seconds': 180, 'top_n': get_config('TOPN_MAX_SYMBOLS_PER_STRATEGY'),
+                'mode': 'READ_ONLY', 'seconds': runtime_seconds, 'top_n': get_config('TOPN_MAX_SYMBOLS_PER_STRATEGY'),
                 'watchlist_k': get_config('WATCHLIST_MAX_SYMBOLS_PER_STRATEGY'), 'focus_m': get_config('FOCUS_MAX_SYMBOLS_PER_STRATEGY'),
                 'issuer_query': get_config('ROSS_ISSUER_QUERY_ENABLED'), 'require_news': get_config('ROSS_REQUIRE_NEWS'),
                 'write_guards_verified': True, 'sdk_attempt_audit_verified': True, 'PAPER_READY': False})
@@ -123,9 +128,12 @@ if phase == 'preflight':
             print('Preflight initialization/reporting failed; no observation launch.', file=sys.stderr)
         raise
 elif phase == 'observe':
+    preflight_receipt = json.loads((evidence/'preflight.json').read_text())
+    if preflight_receipt.get('seconds') != runtime_seconds or preflight_receipt.get('head') != expected:
+        raise SystemExit('Observation duration/head differs from successful preflight')
     install_console_protection()
     write_json(evidence/'observation-attempt.json', {'attempted':True})
-    raise SystemExit(supervisor.main(['--seconds','180','--output',str(evidence/'terminal'),'--expected-commit',expected]))
+    raise SystemExit(supervisor.main(['--seconds',str(runtime_seconds),'--output',str(evidence/'terminal'),'--expected-commit',expected]))
 elif phase == 'package':
     # This phase performs filesystem/process checks only. Broker audit belongs
     # exclusively to the existing supervisor after its observed runtime exits.

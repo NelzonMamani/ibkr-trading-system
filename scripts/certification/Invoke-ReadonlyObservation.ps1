@@ -90,8 +90,11 @@ function Invoke-ObservationChild {
 function Invoke-ReadonlyObservation {
     param([string]$Python, [string]$Operator, [string]$Root, [string]$ExpectedCommit,
           [double]$PreflightSeconds = 90, [double]$ObservationSeconds = 540,
-          [double]$StopSeconds = 30, [double]$PackageSeconds = 90)
+          [double]$StopSeconds = 30, [double]$PackageSeconds = 90,
+          [ValidateRange(180,1800)][int]$RuntimeSeconds = 180)
     $ErrorActionPreference = 'Stop'
+    $durationArguments = @()
+    if ($RuntimeSeconds -ne 180) { $durationArguments = @([string]$RuntimeSeconds) }
     $evidence = Join-Path $Root 'e'
     if (Test-Path -LiteralPath $evidence) { throw 'Evidence already exists; prepare a fresh run root. Existing evidence preserved.' }
     [IO.Directory]::CreateDirectory($evidence) | Out-Null
@@ -100,7 +103,7 @@ function Invoke-ReadonlyObservation {
     $phaseStatus = [ordered]@{ preflight_exit=$null; observation_exit=$null; package_exit=$null; final_exit=$null; package_status='NOT_STARTED' }
     try {
         $canPackage = $false
-        $preflight = Invoke-ObservationChild -Python $Python -ChildArguments @('-E','-u',$Operator,'preflight',$Root,$ExpectedCommit) -LogPrefix (Join-Path $evidence 'preflight-process') -BudgetSeconds $PreflightSeconds -StopSeconds $StopSeconds
+        $preflight = Invoke-ObservationChild -Python $Python -ChildArguments (@('-E','-u',$Operator,'preflight',$Root,$ExpectedCommit) + $durationArguments) -LogPrefix (Join-Path $evidence 'preflight-process') -BudgetSeconds $PreflightSeconds -StopSeconds $StopSeconds
         $canPackage = $true
         $result = $preflight.ExitCode
         $phaseStatus.preflight_exit = $result
@@ -120,7 +123,7 @@ function Invoke-ReadonlyObservation {
             Write-Host "Early graceful stop: New-Item -ItemType File -Force '$stop'"
             try {
                 $canPackage = $false
-                $observed = Invoke-ObservationChild -Python $Python -ChildArguments @('-E','-u',$Operator,'observe',$Root,$ExpectedCommit) -LogPrefix (Join-Path $evidence 'supervisor') -StopPath $stop -BudgetSeconds $ObservationSeconds -StopSeconds $StopSeconds
+                $observed = Invoke-ObservationChild -Python $Python -ChildArguments (@('-E','-u',$Operator,'observe',$Root,$ExpectedCommit) + $durationArguments) -LogPrefix (Join-Path $evidence 'supervisor') -StopPath $stop -BudgetSeconds $ObservationSeconds -StopSeconds $StopSeconds
                 $canPackage = $true
                 $result = $observed.ExitCode
                 $phaseStatus.observation_exit = $result
@@ -143,7 +146,7 @@ function Invoke-ReadonlyObservation {
             $phaseStatus.package_status = 'RUNNING'
             $phaseStatus | ConvertTo-Json | Set-Content -Encoding UTF8 (Join-Path $evidence 'phase-status-before-package.json')
             try {
-                $packaged = Invoke-ObservationChild -Python $Python -ChildArguments @('-E','-u',$Operator,'package',$Root,$ExpectedCommit) -LogPrefix (Join-Path $evidence 'package-process') -BudgetSeconds $PackageSeconds -StopSeconds $StopSeconds
+                $packaged = Invoke-ObservationChild -Python $Python -ChildArguments (@('-E','-u',$Operator,'package',$Root,$ExpectedCommit) + $durationArguments) -LogPrefix (Join-Path $evidence 'package-process') -BudgetSeconds $PackageSeconds -StopSeconds $StopSeconds
                 $phaseStatus.package_exit = $packaged.ExitCode
                 $phaseStatus.package_status = if ($packaged.TimedOut) { 'TIMEOUT' } elseif ($packaged.ExitCode -eq 0) { 'PASS' } else { 'NONZERO' }
                 Write-Host ("Package exit: {0}; status: {1}" -f $packaged.ExitCode,$phaseStatus.package_status)
@@ -164,7 +167,7 @@ function Invoke-ReadonlyObservation {
         $zip = Join-Path $Root 'ross-natural-readonly-upload.zip'
         if ($canPackage -and $phaseStatus.package_exit -in @(0,2) -and (Test-Path -LiteralPath $zip -PathType Leaf)) {
             try {
-                $sealed = Invoke-ObservationChild -Python $Python -ChildArguments @('-E','-u',$Operator,'seal',$Root,$ExpectedCommit) -LogPrefix (Join-Path $Root 'seal-process') -BudgetSeconds $PackageSeconds -StopSeconds $StopSeconds
+                $sealed = Invoke-ObservationChild -Python $Python -ChildArguments (@('-E','-u',$Operator,'seal',$Root,$ExpectedCommit) + $durationArguments) -LogPrefix (Join-Path $Root 'seal-process') -BudgetSeconds $PackageSeconds -StopSeconds $StopSeconds
                 Write-Host ("Archive seal exit: {0}" -f $sealed.ExitCode)
                 if ($sealed.ExitCode -eq 0 -and !$sealed.TimedOut) { Write-Host "DIAGNOSTIC ZIP: $zip" }
                 else { if ($result -eq 0) { $result = 1 }; Write-Host 'Archive sealing failed; no shareable ZIP is announced.' }
