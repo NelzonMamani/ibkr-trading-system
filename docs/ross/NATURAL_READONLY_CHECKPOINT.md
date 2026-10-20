@@ -1069,3 +1069,13 @@ No workstation suite was repeated. Existing workstation2759 at8f40, production
 2779 and2803 CI receipts, and natural run at4ae remain distinct historical evidence.
 No observation/provider/broker runtime or holding mutation during integration.
 Observation execution remains separate and on HOLD; PAPER_READY=NO.
+
+Independent delta review of cde4a86b found one additional cleanup gap: native
+history waits cancelled their wire request on stop but not on deadline expiry.
+The same market-data-only cancellation now handles both conditions, polling is
+clamped, and an eighth controlled regression proves exactly one request/cancel
+and no subsequent wire fallback. Final focused result:60 passed in2.07s.
+Earlier cde4 CI/review is superseded for integration; only the final repaired
+head's checks/review can authorize the PR1112 merge. Production order mutation
+paths are unchanged. Final accepted integration/package pins remain in the PR
+receipt; no natural execution is implied by engineering acceptance.

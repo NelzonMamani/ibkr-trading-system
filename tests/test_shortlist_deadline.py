@@ -127,3 +127,30 @@ def test_async_deadline_cancels_and_joins_transport(monkeypatch):
     with pytest.raises(acquisition.AcquisitionDeadlineExceeded):
         asyncio.run(operation())
     assert cleaned == [True]
+
+
+def test_native_history_deadline_cancels_request_without_wire_fallback(monkeypatch, clock):
+    from ibapi.client import EClient
+    from ibapi.contract import Contract
+    from src.adapters.brokers.ibkr import ibkr_client as native_module
+    client = native_module.IbkrClient('127.0.0.1', 7497, 999, 30, 'LIVE', True)
+    monkeypatch.setattr(client, 'is_connected', lambda: True)
+    monkeypatch.setattr(client, 'isConnected', lambda: True)
+    requests, cancelled, waits = [], [], []
+    monkeypatch.setattr(EClient, 'reqHistoricalData', lambda *args, **kwargs: requests.append(args))
+    monkeypatch.setattr(client, 'cancelHistoricalData', lambda req: cancelled.append(req))
+    def sleep(seconds):
+        waits.append(seconds)
+        clock[0] += seconds
+    monkeypatch.setattr(native_module, 'time', NS(time=lambda: clock[0], monotonic=lambda: clock[0], sleep=sleep))
+    md = MarketDataClient(connection_manager=NS(), allow_direct_connection=False)
+    monkeypatch.setattr(md, '_resolve_ib_client', lambda: client)
+    contract = Contract()
+    contract.symbol, contract.conId = 'ONE', 123
+    with acquisition.acquisition_scope(lambda: False):
+        with pytest.raises(acquisition.AcquisitionDeadlineExceeded), acquisition.acquisition_deadline(100.025):
+            md._request_daily_history_with_fallback(contract, lookback_days=25)
+    assert len(requests) == len(cancelled) == 1
+    assert cancelled == [requests[0][1]]
+    assert sum(waits) == pytest.approx(.025)
+    acquisition.checkpoint()

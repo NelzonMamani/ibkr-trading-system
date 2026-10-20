@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from src.core.acquisition import AcquisitionCancelled, checkpoint, wait_event
+from src.core.acquisition import AcquisitionCancelled, AcquisitionDeadlineExceeded, checkpoint, wait_event, bounded_timeout
 
 import threading
 import math
@@ -878,6 +878,7 @@ class IbkrClient(EWrapper, EClient):
                 f"[IBKR][HIST_REQ] req_id={req_id} symbol={getattr(contract, 'symbol', None)}"
             )
 
+            checkpoint()
             super().reqHistoricalData(
                 req_id,
                 contract,
@@ -908,8 +909,8 @@ class IbkrClient(EWrapper, EClient):
                     if time.time() - start > timeout:
                         break
 
-                    time.sleep(0.01)
-            except AcquisitionCancelled:
+                    time.sleep(bounded_timeout(0.01))
+            except (AcquisitionCancelled, AcquisitionDeadlineExceeded):
                 # Market-data cancellation only; never an order cancellation.
                 self.cancelHistoricalData(req_id)
                 raise
