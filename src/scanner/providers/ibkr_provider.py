@@ -11,7 +11,9 @@ import requests
 
 from src.runtime.async_runtime_bootstrap import safe_import_ib_insync
 
-from src.config.runtime_config import get_scanner_symbols
+from src.config.runtime_config import (
+    get_scanner_symbols, get_scanner_mode, get_ibkr_fallback_enabled, get_run_mode, RunMode,
+)
 from src.adapters.brokers.ibkr.ibkr_connection_manager import (
     IbkrConnectionConfig,
     IbkrConnectionManager,
@@ -85,7 +87,14 @@ def robust_scan(
                     abovePrice=price_low,
                     belowPrice=price_high,
                 )
-                results = client.request_scanner_data(sub) or []
+                results = client.request_scanner_data(sub)
+                # Missing/invalid responses are unavailable, never proof of an
+                # empty completed broker query. Keep list subclasses (ScanDataList).
+                if not isinstance(results, (list, tuple)):
+                    raise RuntimeError(
+                        "IBKR scanner response unavailable: expected row sequence, got "
+                        + type(results).__name__
+                    )
                 print(
                     f"[SCANNER][ATTEMPT] scan={scan_code} "
                     f"loc={location} price={price_low}-{price_high} "
@@ -160,6 +169,9 @@ class IbkrScannerProvider(ScannerDataProvider):
         limit: int,
         request: ScannerRequest | None = None,
     ) -> list[str]:
+        # A failed new query must not leave a prior confirmed-empty receipt live.
+        self.last_scan_details = {"scan_status": "UNAVAILABLE", "returned_rows": None,
+                                  "symbols": []}
         try:
             resolved_requested_top_n = max(1, int(limit))
         except Exception:
@@ -228,6 +240,7 @@ class IbkrScannerProvider(ScannerDataProvider):
                 "description": getattr(contract, "description", None),
             }
         self.last_scan_details = {
+            "scan_status": "CONFIRMED_EMPTY" if returned_rows == 0 else "COMPLETE",
             "requested_location_code": location_code,
             "requested_scan_code": scan_code,
             "selected_location_code": scan_context.get("location"),
@@ -264,12 +277,22 @@ class IbkrScannerProvider(ScannerDataProvider):
             "[SCANNER][BROKER_EMPTY] IBKR returned zero symbols "
             "(scanCode=ALL_FALLBACKS, location=ALL_FALLBACKS, price_range=ALL_FALLBACKS)"
         )
+        # Local teaching candidates are never broker observations. Both explicit
+        # fallback authorization and a non-natural teaching mode are required.
+        teaching_fallback = (get_ibkr_fallback_enabled()
+                             and get_scanner_mode().upper() == "TEACHING"
+                             and get_run_mode() in {RunMode.SIM, RunMode.PAPER})
+        if not teaching_fallback:
+            self.last_scan_details["local_fallback_source"] = None
+            print("[SCANNER][IBKR][RAW_ZERO] local_fallback_source=disabled fallback_symbol_count=0")
+            return []
         symbols = get_scanner_symbols(default=[])
         fallback_source = "config_scanner_symbols"
         if not symbols:
             symbols = ["AAPL", "MSFT", "NVDA", "AMD", "TSLA"]
             fallback_source = "hardcoded_teaching_fallback"
-        symbols = [symbol.upper() for symbol in symbols][:limit]
+        symbols = [symbol.upper() for symbol in symbols][:resolved_requested_top_n]
+        self.last_scan_details["local_fallback_source"] = fallback_source
         print(
             "[SCANNER][IBKR][RAW_ZERO] "
             f"local_fallback_source={fallback_source} fallback_symbol_count={len(symbols)}"

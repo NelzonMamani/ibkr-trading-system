@@ -246,6 +246,14 @@ def test_final_audit_always_disconnects_without_real_broker(monkeypatch, query_o
     monkeypatch.setattr(runtime_config, "resolve_ibkr_connection", lambda: ("fake", 0, 123, "READ_ONLY"))
     result = supervisor.final_broker_audit()
     assert result["query_completed"] is query_ok
+    assert result["end_received"] is query_ok
+    assert result["query_type"] == "reqAllOpenOrders"
+    assert result["timeout_seconds"] == 10
+    assert result["connected_before_query"] and result["connected_after_wait"]
+    assert result["elapsed_seconds"] >= 0
+    if not query_ok:
+        assert "open_orders_count" not in result
+        assert result["error"] == "RuntimeError: Final audit openOrderEnd missing"
     assert result["disconnected"] is True
     assert calls == ["connect", "query", "disconnect"]
 

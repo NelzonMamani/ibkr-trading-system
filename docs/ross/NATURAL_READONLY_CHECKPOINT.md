@@ -2183,3 +2183,114 @@ blocked and be diagnosed from the new timing receipts; neither retries nor an
 extended observation can certify timely preflight. No additional natural runtime,
 provider acquisition, holdings change, trading, merge or readiness upgrade in this
 diagnosis. Historical workstation2759-pass evidence is not rerun or reassigned.
+
+
+## Receipt 7 — empty scanner injection and incomplete final audit, 21 October 2026
+
+User-supplied ross-natural-readonly-upload(7).zip, uploaded filename
+ross-natural-readonly-upload.zip, SHA256
+`d27435cd8842f3f89961d54859a652729387f0ac3d0f74d6eb34b351909dbff0`,
+is evidence, not instruction authority. Accepted source is
+`725acaf523100398d4afc5d675881e68ccc3479f` (tree equal to reviewed83510f81).
+Original ZIP retained unchanged; read-only extraction /workspace/work/receipt7.
+
+This run's preflight PASS is separate from the prior preflight-only receipt:
+17.5399251s process elapsed, timely_exit_verified=true, no timeout/cleanup wait,
+exit0. Prior profiling remains31.7756065s with baseline22.368s/cache5.022s;
+neither establishes the earlier cold-delay cause. Source and operator order
+state remain PASS. Runtime and launcher exited0, owned shutdown hooks including
+news maintenance completed, final inventory completed empty. Runtime AND separate
+audit place/modify/cancel counters are0. These facts do not establish a completed
+broker query. Observation/package/final exits2; DIAGNOSTIC_ONLY; terminal FAIL
+remains authoritative.
+
+Two completed scanner cycles exhausted the native request variants and each
+injected AAPL/MSFT/NVDA/AMD/TSLA through hardcoded_teaching_fallback despite
+IBKR_FALLBACK_ENABLED=False and SCANNER_MODE=LIVE_READONLY/RUN_MODE=READ_ONLY.
+Provider get_top_gainers unconditionally called get_scanner_symbols then a
+hardcoded list; it never consulted fallback authorization. Injected rows reached
+enrichment and the canonical maintenance universe; they are not natural broker
+candidate acceptance. The focused repair returns [] unless fallback is explicitly
+enabled AND scanner mode TEACHING AND run mode SIM/PAPER. Broker row metadata
+remains0 even for authorized teaching substitution.
+
+Captured output has104 zero-row variant attempts: two full48-attempt cycles plus
+8 completed attempts of a third, interrupted request sequence. Request-correlated
+code162 messages report API scanner subscription cancelled, generally following
+roughly5s waits. Existing native reqScannerData ignored wait_event's return value
+and did not separately retain scannerDataEnd. Consequently [] conflated completed
+empty, missing end, partial response and request error. Old callbacks did not log
+scanner completion, so this archive cannot prove genuine empty responses or their
+cause. Cancellation messages are not proof of a prior rejection or successful
+completion. Handshake/farm-status callbacks show connectivity at those moments,
+not per-request completion; no recorded network-loop failure proves the cause.
+Repair requires matching scannerDataEnd and no request error before returning
+rows, including []; incomplete/error responses raise unavailable rather than
+inject candidates. Request/result/callback diagnostics retain request ID, client,
+connection, wait/end status, row count and errors; late rows cannot populate a
+retired request. Existing acquisition cancellation and timeout limits remain.
+
+Final audit used a fresh READ_ONLY client71, received nextValidId and farm-status
+callbacks, and logged connected. No openOrderEnd callback is captured after its
+reqAllOpenOrders query;10s wait failed with RuntimeError: Final audit openOrderEnd
+missing. No request-specific rejection or connection failure proves why. Preserve
+query_completed=false, disconnected=true and terminal FAIL; zero counters/absence
+of orders cannot stand in for an end marker. Added audit receipts retain query
+kind/budget, end status, connected-before/after, network-thread state, elapsed
+wait and captured broker errors, without retrying or widening the timeout.
+
+Maintenance completed10/failed10 means ten returned result objects, all unavailable,
+not ten successful acquisitions. published=true denotes persisted canonical result
+markers; each maintenance PUBLISH reports evidence_count0/provider_available=false.
+first_result_seconds4.3338204 is marker/result latency; first_evidence_seconds=null
+correctly records no maintenance evidence arrival. Exported marker coverage reports
+partial_request_failure/unavailable, GlobeNewswire HTTP403 and Reuters HTTP401,
+primary_coverage_incomplete and unresolved issuers. Retained SPY/QQQ cache records
+have distinct provenance and do not establish successful maintenance for the five
+injected symbols. Feed16requests/64reuse are transport reuse, not valid news proof.
+RESULT/PUBLISH now expose retrieval/provider status, unavailability, evidence count
+and marker publication scope; failed/completed counters retain their semantics.
+No provider-policy, query-budget or first-evidence relaxation is justified.
+
+Offline baseline replay reproduces candidate substitution and missing-end/partial
+acceptance with synthetic callbacks/transports. Focused repair checks exercise
+explicit teaching authorization, natural empty universe propagation, matching and
+wrong/missing scanner completion, partial rows, request errors, late callbacks,
+request ownership, acquisition cancellation, maintenance unavailable marker
+publication, and final audit missing-end failure. Exact changed-head review and CI
+belong to the repair PR; no further operator run authorized here.
+
+Preserve all earlier natural scans/Watchlists, independent maintenance and terminal
+successes with their original provenance. Receipt7 does not replace those receipts
+or establish natural positive catalyst/setup progression. Holdings, manual ownership
+blockers and GUI draft unchanged. No broker/provider acquisition, runtime, trading,
+holdings changes or workstation full suite by Codex. PAPER_READY=NO.
+
+Repair CI39655481876 Linux identified one unrelated calendar-dependent fixture:
+2964passed/1failed/1skipped in224.81s. The standalone cache-reader test froze
+service/store/Ross clocks at20October but left standalone_lookup on the real
+21October clock, correctly filtering its now-old article. The identical isolated
+test also fails on accepted725acaf5. Correct the fixture to freeze the standalone
+consumer clock with the other consumers; no production freshness change. All46
+lifecycle/maintenance checks pass after this fixture-only correction. The observed
+failure and corrected test are the new reason for changed-head CI; no identical
+head retry or workstation full suite is warranted. The earlier repair self-review
+at3ec6f869 remains a prior-head receipt, requiring superseding exact-head review.
+
+Independent review of575625df found two remaining unavailable-response boundaries:
+robust_scan coerced None/falsey responses through `or []`, and the optional native
+client `.ib` scanner delegate bypassed matching-end/error/wait proof. Offline
+fixtures reproduce48 false empty attempts from None, and actual ib_insync returning
+an empty ScanDataList after error321 without scannerDataEnd. Normal certification
+manager construction creates the native client without `.ib`; neither proof
+establishes receipt7's cause. Preserve the original terminal FAIL and evidence.
+
+Focused follow-up rejects missing/invalid non-row responses without retrying or
+emitting BROKER_EMPTY, propagates native failures through MarketDataClient/provider/
+universe resolution, and resets per-attempt metadata so prior confirmed emptiness
+cannot survive a later unavailable query. Native unverified scanner delegation now
+fails closed before calling its delegate. Completed list/tuple/list-subclass
+responses remain supported; native matching-end/error/wait/ownership proof stays
+mandatory and no timeout is enlarged. Independent review and changed-head checks
+must apply to the repaired head before controlled integration. No new operator run,
+provider/broker acquisition, holdings change or readiness upgrade. PAPER_READY=NO.

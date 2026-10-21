@@ -247,6 +247,10 @@ class NewsMaintenance:
                     elapsed_before_cleanup_seconds=completed_tick-started,error=error,
                     evidence_count=len(outcome.evidence_for_symbol(item.candidate.normalized_symbol)) if outcome else 0,
                     provider_available=outcome.diagnostics.provider_available if outcome else None,
+                    retrieval_unavailable=outcome.diagnostics.unavailable if outcome else True,
+                    retrieval_status=outcome.diagnostics.retrieval_status if outcome else None,
+                    provider_status=outcome.diagnostics.provider_status if outcome else None,
+                    publication_scope='canonical_result_marker',
                     budget_exhausted=outcome.diagnostics.budget_exhausted if outcome else None,
                     qualification_evaluated=False,**self.snapshot())
                 try:
@@ -271,7 +275,15 @@ class NewsMaintenance:
                     if self.universe is not None and item.candidate.normalized_symbol not in self.universe | self.active:
                         self.work.pop(item.key,None)
                     row = {'symbol':item.candidate.normalized_symbol,'elapsed_seconds':elapsed,
-                           'error':error,'completed':outcome is not None,'published':published,'cleanup_complete':cleanup['cleanup_complete']}
+                           'error':error,'completed':outcome is not None,'published':published,
+                           'failed':failed,'retrieval_unavailable':outcome.diagnostics.unavailable if outcome else True,
+                           'retrieval_status':outcome.diagnostics.retrieval_status if outcome else None,
+                           'provider_status':outcome.diagnostics.provider_status if outcome else None,
+                           'provider_available':outcome.diagnostics.provider_available if outcome else None,
+                           'evidence_count':len(outcome.evidence_for_symbol(item.candidate.normalized_symbol)) if outcome else 0,
+                           'publication_scope':'canonical_result_marker',
+                           'cleanup_complete':cleanup['cleanup_complete']}
+
                     self.receipts.append(row)
                     del self.receipts[:-128]
                     self._event('RESULT',**row)
