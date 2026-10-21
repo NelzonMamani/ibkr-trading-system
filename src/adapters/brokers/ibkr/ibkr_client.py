@@ -1091,14 +1091,41 @@ class IbkrClient(EWrapper, EClient):
         self._scanner_rows[req_id] = []
         self._register_request(req_id, "SCANNER_DATA")
 
-        self.reqScannerSubscription(req_id, subscription, [], [])
+        context = self._request_context_by_req_id[req_id]
+        context["scanner_end_received"] = False
+        started = time.monotonic()
+        print(f"[IBKR][SCANNER_REQUEST] req_id={req_id} client_id={self.client_id} "
+              f"scan={getattr(subscription, 'scanCode', None)} "
+              f"location={getattr(subscription, 'locationCode', None)} "
+              f"connected={self.is_connected()} timeout_seconds={self.snapshot_timeout_seconds}")
         try:
-            wait_event(event, self.snapshot_timeout_seconds)
+            self.reqScannerSubscription(req_id, subscription, [], [])
+            signalled = wait_event(event, self.snapshot_timeout_seconds)
+            with self._lock:
+                self._raise_if_request_id_conflicted(req_id)
+                rows = list(self._scanner_rows.get(req_id, []))
+                error = self._errors.get(req_id)
+                completed = bool(context["scanner_end_received"])
+                receipt = {"req_id": req_id, "client_id": self.client_id,
+                           "end_received": completed, "wait_signalled": signalled,
+                           "row_count": len(rows), "error": error,
+                           "connected": self.is_connected(),
+                           "elapsed_seconds": time.monotonic()-started}
+                self.last_scanner_request = receipt
+                print(f"[IBKR][SCANNER_RESULT] {json.dumps(sanitize(receipt), sort_keys=True)}")
+            if error:
+                raise RuntimeError(f"IBKR scanner request {req_id} failed: {error}")
+            if not completed:
+                raise TimeoutError(f"IBKR scanner request {req_id}: scannerDataEnd missing")
+            return rows
         finally:
-            self.cancelScannerSubscription(req_id)
-        with self._lock:
-            self._raise_if_request_id_conflicted(req_id)
-            return list(self._scanner_rows.get(req_id, []))
+            try:
+                self.cancelScannerSubscription(req_id)
+            finally:
+                with self._lock:
+                    self._scanner_events.pop(req_id, None)
+                    self._scanner_rows.pop(req_id, None)
+                    self._request_type_by_req_id.pop(req_id, None)
 
     def cancelScannerSubscription(self, reqId):
         """
@@ -1247,6 +1274,9 @@ class IbkrClient(EWrapper, EClient):
                 return
             from types import SimpleNamespace
 
+            if reqId not in self._scanner_events:
+                print(f"[IBKR][SCANNER_CALLBACK_IGNORED] req_id={reqId} event=scannerData reason=no_active_request")
+                return
             self._scanner_rows.setdefault(reqId, []).append(
                 SimpleNamespace(
                     rank=rank,
@@ -1263,7 +1293,9 @@ class IbkrClient(EWrapper, EClient):
             if self._request_id_conflicted(reqId):
                 return
             event = self._scanner_events.get(reqId)
+            print(f"[IBKR][SCANNER_CALLBACK] req_id={reqId} event=scannerDataEnd active={event is not None}")
             if event:
+                self._request_context_by_req_id[reqId]["scanner_end_received"] = True
                 event.set()
             getattr(self, "_request_type_by_req_id", {}).pop(reqId, None)
 

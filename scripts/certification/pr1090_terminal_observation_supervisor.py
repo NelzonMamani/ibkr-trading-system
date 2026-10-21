@@ -161,13 +161,22 @@ def final_broker_audit():
     client = IbkrClient(host=host, port=port, client_id=client_id,
                         market_data_type="DELAYED", snapshot_timeout_seconds=10, readonly_enabled=True)
     client.readonly_enabled = True
-    result = {"query_completed": False, "disconnected": False}
+    result = {"query_completed": False, "disconnected": False, "query_type": "reqAllOpenOrders",
+              "timeout_seconds": 10, "end_received": False}
     try:
         client.connect()
         client._open_orders_event.clear()
         client._open_orders_snapshot = {}
+        result["connected_before_query"] = client.is_connected()
+        thread = getattr(client, "_thread", None)
+        result["network_thread_alive_before_query"] = bool(thread and thread.is_alive())
+        query_started = time.monotonic()
         client.reqAllOpenOrders()
-        if not client._open_orders_event.wait(timeout=10):
+        result["end_received"] = bool(client._open_orders_event.wait(timeout=10))
+        result["elapsed_seconds"] = time.monotonic() - query_started
+        result["connected_after_wait"] = client.is_connected()
+        result["broker_errors"] = list(getattr(client, "_broker_error_events", ()))
+        if not result["end_received"]:
             raise RuntimeError("Final audit openOrderEnd missing")
         result["query_completed"] = True
         result["open_orders_count"] = len(client._open_orders_snapshot)

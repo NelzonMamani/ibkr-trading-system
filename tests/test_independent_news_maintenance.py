@@ -571,3 +571,19 @@ def test_telemetry_failure_cannot_skip_worker_cleanup_or_certify_success(store,m
     assert owner.snapshot()['inflight']==0 and not owner.lifecycles and cleanup
     assert calls==(['GOOD'] if marker=='PUBLISH' else [])
     assert store.cache_path.exists()==(marker=='PUBLISH')
+
+
+def test_unavailable_marker_publication_is_completed_and_failed_without_evidence(store):
+    owner=NewsMaintenance(store=store,service_factory=factory(store,threading.Event(),[],failing=('FAIL',)),workers=1)
+    try:
+        owner.submit((NewsCandidate('FAIL'),),NewsRequest(),RetrievalPolicy())
+        until(lambda:owner.snapshot()['completed']==1)
+        receipt=owner.receipts[0]
+        assert receipt['completed'] and receipt['published'] and receipt['failed']
+        assert receipt['retrieval_unavailable'] and not receipt['provider_available']
+        assert receipt['provider_status']=='provider_request_failure'
+        assert receipt['evidence_count']==0
+        assert receipt['publication_scope']=='canonical_result_marker'
+        assert owner.snapshot()['failed']==1
+        assert owner.snapshot()['first_evidence_seconds'] is None
+    finally:assert owner.close(2)
