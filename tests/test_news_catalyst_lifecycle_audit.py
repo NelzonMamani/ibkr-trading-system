@@ -7,7 +7,7 @@ import time
 import pytest
 
 from src.config.config_resolver import set_config_overrides
-from src.news import evidence_store, news_intelligence_service
+from src.news import evidence_store, news_intelligence_service, standalone_lookup
 from src.news.evidence_store import CanonicalNewsEvidenceStore
 from src.news.news_intelligence_contract import NewsBatchResult, NewsCandidate, NewsEvidence, RetrievalDiagnostics
 from src.news.news_intelligence_service import CanonicalNewsIntelligenceService
@@ -24,7 +24,7 @@ def lifecycle(monkeypatch, tmp_path):
         @classmethod
         def now(cls, tz=None):
             return cls.fromtimestamp(cls.current.timestamp(), tz=tz)
-    for module in (evidence_store, news_intelligence_service, ross):
+    for module in (evidence_store, news_intelligence_service, standalone_lookup, ross):
         monkeypatch.setattr(module, 'datetime', Clock)
     monkeypatch.setattr(time, 'time', lambda: Clock.current.timestamp())
     monkeypatch.setattr(ross, '_NEWS_CACHE', {})

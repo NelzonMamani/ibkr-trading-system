@@ -2265,3 +2265,14 @@ successes with their original provenance. Receipt7 does not replace those receip
 or establish natural positive catalyst/setup progression. Holdings, manual ownership
 blockers and GUI draft unchanged. No broker/provider acquisition, runtime, trading,
 holdings changes or workstation full suite by Codex. PAPER_READY=NO.
+
+Repair CI39655481876 Linux identified one unrelated calendar-dependent fixture:
+2964passed/1failed/1skipped in224.81s. The standalone cache-reader test froze
+service/store/Ross clocks at20October but left standalone_lookup on the real
+21October clock, correctly filtering its now-old article. The identical isolated
+test also fails on accepted725acaf5. Correct the fixture to freeze the standalone
+consumer clock with the other consumers; no production freshness change. All46
+lifecycle/maintenance checks pass after this fixture-only correction. The observed
+failure and corrected test are the new reason for changed-head CI; no identical
+head retry or workstation full suite is warranted. The earlier repair self-review
+at3ec6f869 remains a prior-head receipt, requiring superseding exact-head review.
