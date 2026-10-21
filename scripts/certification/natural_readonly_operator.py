@@ -1,5 +1,5 @@
 # Operator-only filesystem/preflight/observation phases. Not imported by production.
-import hashlib, json, os, shutil, subprocess, sys, zipfile
+import hashlib, json, os, shutil, subprocess, sys, zipfile, time
 from datetime import datetime, timezone
 from pathlib import Path
 phase, root_text, expected, *duration_args = sys.argv[1:]
@@ -11,11 +11,27 @@ if not 180 <= runtime_seconds <= 1800:
 if phase not in ('preflight', 'observe', 'package', 'seal'):
     raise SystemExit('Unknown operator phase')
 root = Path(root_text); repo = root/'s'; evidence = root/'e'; state = root/'state'
+# Bootstrap and import costs are inside the outer process budget. Record them
+# before repository imports; no provider/broker operation is performed here.
+_timing_started = time.monotonic()
+_timing_rows = []
+def preflight_timing(stage):
+    if phase != 'preflight':
+        return
+    evidence.mkdir(parents=True, exist_ok=True)
+    _timing_rows.append({'stage': stage, 'utc': datetime.now(timezone.utc).isoformat(),
+                         'elapsed_seconds': time.monotonic() - _timing_started})
+    target = evidence/'preflight-timing.json'
+    temporary = target.with_suffix('.tmp')
+    temporary.write_text(json.dumps({'pid': os.getpid(), 'stages': _timing_rows}, indent=2))
+    temporary.replace(target)
+preflight_timing('python_entry_before_repository_imports')
 sys.path.insert(0, str(repo)); os.chdir(repo)
 if hasattr(sys.modules.get('sitecustomize'), 'offline'):
     raise SystemExit('Offline pytest hook present: observation must use a separate process.')
 from scripts.certification.pr1040_real_readonly_runtime_observation_adapter import build_safe_readonly_env, assert_safe_runtime_env
 from src.config.config_registry import CONFIG_REGISTRY
+preflight_timing('adapter_and_registry_imports_complete')
 env = dict(os.environ)
 env.pop('PYTHONHOME', None)
 env.pop('PYTHONSTARTUP', None)
@@ -44,6 +60,7 @@ os.environ.clear(); os.environ.update(env)
 from src.ibkr.evidence_safety import capture_console, install_console_protection, scan_artifacts, write_json
 from scripts.certification import pr1090_terminal_observation_supervisor as supervisor
 from src.ibkr.mutation_audit import require_zero_attempts, snapshot
+preflight_timing('supervisor_imports_complete')
 def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
 def source_manifest():
@@ -55,11 +72,14 @@ if phase == 'preflight':
         evidence.mkdir(exist_ok=True); state.mkdir()
         with capture_console(evidence/'preflight'):
             preflight_stage = 'platform'
+            preflight_timing(preflight_stage)
             if os.name != 'nt' or sys.version_info[:3] != (3, 13, 3):
                 raise SystemExit('Requires the accepted Windows Python 3.13.3 interpreter.')
             preflight_stage = 'source_integrity'
+            preflight_timing(preflight_stage)
             supervisor.require_clean_certification_worktree(expected)
             preflight_stage = 'initial_runtime_inventory'
+            preflight_timing(preflight_stage)
             inventory = supervisor.runtime_inventory()
             write_json(evidence/'initial-runtime-inventory.json', inventory)
             if not inventory['completed']:
@@ -69,17 +89,20 @@ if phase == 'preflight':
             if inventory['runtimes']:
                 raise SystemExit('Pre-existing Ross runtime; no launch.')
             preflight_stage = 'session'
+            preflight_timing(preflight_stage)
             from src.config.config_resolver import get_config
             from src.config.system_config import get_current_market_session
             if get_current_market_session() != 'RTH':
                 raise SystemExit('Requires the normal configured RTH window; no session override.')
             preflight_stage = 'news_maintenance_configuration'
+            preflight_timing(preflight_stage)
             news_config = {key:get_config(key) for key in ('NEWS_ENABLED','NEWS_MAINTENANCE_ENABLED',
                           'ROSS_ISSUER_QUERY_ENABLED','NEWS_REFRESH_SECONDS_RTH','NEWS_TOTAL_BUDGET_S')}
             if not all(news_config[key] is True for key in ('NEWS_ENABLED','NEWS_MAINTENANCE_ENABLED','ROSS_ISSUER_QUERY_ENABLED')):
                 raise SystemExit('Canonical news maintenance configuration not enabled; no launch.')
             write_json(evidence/'news-maintenance-config.json', news_config)
             preflight_stage = 'write_guards'
+            preflight_timing(preflight_stage)
             from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
             from ibapi.client import EClient
             from src.ibkr.read_only_guard import assert_read_only_allows
@@ -96,6 +119,7 @@ if phase == 'preflight':
             # Cache-location configuration only. Child startup must fail closed if
             # this cannot be installed; no provider fetch or event-loop-policy edit.
             preflight_stage = 'child_cache_isolation'
+            preflight_timing(preflight_stage)
             startup = state/'startup'; startup.mkdir()
             hook = startup/'sitecustomize.py'
             shutil.copy2(repo/'scripts/certification/readonly_cache_sitecustomize.py', hook)
@@ -113,6 +137,7 @@ if phase == 'preflight':
             write_json(evidence/'operator-startup-config.json', {'scope': 'yfinance cache location only',
                 'sha256': digest(hook), 'source': hook.read_text(), 'path': str(hook)})
             preflight_stage = 'baseline_finalization'
+            preflight_timing(preflight_stage)
             if original_state.exists():
                 shutil.copy2(original_state, state/'order-id.json')
             (root/'operator-state-source.json').write_text(json.dumps({'path': str(original_state), 'sha256': digest(original_state)}))
@@ -122,6 +147,7 @@ if phase == 'preflight':
                 'watchlist_k': get_config('WATCHLIST_MAX_SYMBOLS_PER_STRATEGY'), 'focus_m': get_config('FOCUS_MAX_SYMBOLS_PER_STRATEGY'),
                 'issuer_query': get_config('ROSS_ISSUER_QUERY_ENABLED'), 'require_news': get_config('ROSS_REQUIRE_NEWS'),
                 'write_guards_verified': True, 'sdk_attempt_audit_verified': True, 'PAPER_READY': False})
+        preflight_timing('guard_checks_and_baselines_complete')
         write_json(evidence/'preflight-result.json', {'status':'PASS', 'stage':'complete', 'exit_code':0})
     except BaseException as exc:
         code = exc.code if isinstance(exc, SystemExit) and isinstance(exc.code, int) else 1
@@ -171,6 +197,10 @@ elif phase == 'package':
             blockers = verdict['blockers']
         except Exception as exc:
             blockers = ['Missing/unsafe terminal evidence: '+type(exc).__name__]
+        outer_path = evidence/'phase-status-before-package.json'
+        outer_status = json.loads(outer_path.read_text(encoding='utf-8-sig')) if outer_path.exists() else {}
+        if outer_status.get('preflight_timed_out'):
+            blockers.insert(0, 'Preflight outer process deadline expired; inner guard PASS is not timely-completion authority.')
         if preflight_result and preflight_result.get('status') == 'FAIL':
             blockers.insert(0, 'Preflight '+preflight_result['stage']+': '+preflight_result['reason'])
         write_json(evidence/'independent-mutation-validation.json', {'passed': mutation_ok,
@@ -188,7 +218,7 @@ elif phase == 'package':
                 write_json(evidence/'cache-exports'/name, json.loads(path.read_text()))
         terminal_ok = bool(mutation_ok and not blockers and unchanged and operator_unchanged and inventory['completed'] and not inventory['runtimes'])
         write_json(evidence/'operator-summary.json', {'head': expected, 'graceful_shutdown': terminal_ok if terminal_present else None, 'terminal_status':'NOT_VERIFIED' if not terminal_present else ('PASS' if terminal_ok else 'FAIL'), 'terminal_checks_passed': terminal_ok,
-            'preflight_result':preflight_result, 'observation_attempted':attempted,
+            'preflight_result':preflight_result, 'preflight_outer_status':outer_status, 'observation_attempted':attempted,
             'source_integrity_status':'NOT_VERIFIED' if unchanged is None else ('PASS' if unchanged else 'FAIL'),
             'order_state_status':'NOT_VERIFIED' if operator_unchanged is None else ('PASS' if operator_unchanged else 'FAIL'),
             'tracked_source_unchanged': unchanged, 'operator_order_state_unchanged': operator_unchanged,

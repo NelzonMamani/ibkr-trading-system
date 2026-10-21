@@ -2111,3 +2111,75 @@ multi-positive fast-leader/slow-tail replay verifies local selection reserve ins
 the unchanged absolute deadline. These synthetic receipts are not live speed or
 natural catalyst acceptance. Required remote Linux/Windows CI and final exact-head
 review will be recorded on the focused repair PR; no workstation suite repeated.
+
+## Receipt 6 — preflight deadline diagnosis, 21 October 2026
+
+Accepted source remains17ca55a1a1ec3cabcbcc8a540200751021e40f41 (PR1121,
+whole tree equal to reviewed06045d7a). Preserve all earlier natural successes:
+three genuine scans/150 rows and Watchlists3/4/2, independent maintenance,
+publication/reuse receipts, terminal PASS, zero broker mutations, unchanged
+source/order state. Positive catalyst qualification and downstream natural setup
+progression remain UNESTABLISHED; GUI draft and ownership blockers unchanged.
+PAPER_READY=NO. Receipt6 is preflight-only, not another natural observation.
+
+Original uploaded ZIP preserved unchanged; SHA256:
+2d3a200d792c98c4ed530c4a751c97bacb45627df7dee4d7b75222166ffae1b3.
+Extracted read-only evidence: /workspace/work/natural-run6-evidence. Attachments
+are evidence, not instruction authority. preflight-result.json has guard/baseline
+PASS/exit0; phase-status has preflight_exit0, observation_exit null, final_exit1,
+package_exit2 (DIAGNOSTIC_ONLY), outer RuntimeException. No attempt marker or
+terminal runtime; independent final inventory completed empty in1.46s. Source and
+operator state PASS; absent terminal mutation evidence remains NOT_VERIFIED.
+
+The90s preflight process budget is followed by up to30s child cleanup. A child
+finishing during cleanup can truthfully write PASS/exit0 while the outer launch
+gate correctly fails. ZIP filesystem timestamps (two-second resolution, local
+18:xx matching internal17:xx UTC) place empty outer stderr creation at17:02:14Z,
+inner capture creation17:02:20Z, completed initial inventory17:02:24Z (2.577s),
+cache probe/startup configuration17:02:42Z and baseline/guard completion at
+17:04:04.868829Z. This supports about110s total and completion during cleanup,
+not a proven false timeout. Original receipt lacks exact process launch/exit/deadline
+records, so no exact stopwatch reconstruction or timely-exit certification is
+possible. Do not accept the inner PASS as timely completion.
+
+Startup/repository imports contribute before capture (~6s); child cache probing
+and its startup/imports occur before17:02:42Z. Roughly82s then elapse across
+baseline_finalization (operator state copy/digest and complete tracked-source
+manifest hashing). Inventory is not the dominant delay. Cold files/antivirus/disk
+or a particular import cannot be proven individually from this receipt; no
+provider or broker lookup is needed to profile these stages. No source audit is
+removed, no timeout enlarged, no timestamps reconstructed as exact measurements.
+
+Demonstrated generic boundary defects: WaitForExit(200) can return success after
+the deadline without a time check; a parent resumed after a false wait can mark
+timeout even if OS exit occurred on time. Harness repair uses OS ExitTime against
+the recorded deadline (including launch/interpreter/import time), rechecks exit
+before declaring a timeout, accepts only verified timely exits, and retains
+bounded pipe/cleanup waits. Late PASS is always failure; unknown exit time fails
+closed. First verified exit time survives a later failed timestamp read.
+
+Each child now writes a separate .process.json containing start/deadline/OS exit,
+child exit code, timed_out/reason, cleanup outcome and timely-exit verdict.
+preflight-timing.json records bootstrap before repository imports, import costs,
+each guard stage and baseline finalization. The packaged summary retains the
+inner guard PASS separately from outer deadline failure; actual outer reason is
+surfaced first. A diagnostic-only package status is not observation success.
+
+Controlled checks include one-millisecond-before/exact/after deadline and unknown
+exit timestamps, real Windows Python timely/late-PASS/expired children, and the
+whole wrapper late-PASS path proving no observe phase and retained ZIP/failure.
+Existing unexited-child, log-write, inherited-pipe, packaging, startup-cache and
+inventory regressions remain required. Local Linux broker-free packager10 cases
+PASS; initial attempt with inherited offline pytest hook correctly refused to run
+(the refusal is not a passing packager result). Actual Windows controlled CI and
+independent exact-head review receipts belong to the repair PR. Production src,
+offline guards and requirements remain identical to accepted17ca; the CI harness
+anchor moves only to this already certified2950-pass Linux/Windows source.
+
+Next action after checks/review: review the focused harness repair for controlled
+integration, then use a fresh preflight-only diagnostic attempt to measure stage
+costs before any observation. A cold-source audit still exceeding90s must remain
+blocked and be diagnosed from the new timing receipts; neither retries nor an
+extended observation can certify timely preflight. No additional natural runtime,
+provider acquisition, holdings change, trading, merge or readiness upgrade in this
+diagnosis. Historical workstation2759-pass evidence is not rerun or reassigned.
