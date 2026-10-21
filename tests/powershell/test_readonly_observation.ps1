@@ -57,19 +57,31 @@ try {
     $passed++
     # Real Windows Python children, no repository imports or acquisition. Include
     # cold interpreter startup in the budget, and retain an inner PASS on late exit.
-    foreach ($case in @('timely','late-pass','expired')) {
+    foreach ($case in @('timely','timely-near','late-pass','expired')) {
         $prefix = Join-Path $scratch $case
         $receipt = $prefix + '.inner.json'
         $delay = if ($case -eq 'timely') { .05 } elseif ($case -eq 'late-pass') { 4.05 } else { 1.0 }
-        $budget = if ($case -eq 'expired') { .2 } elseif ($case -eq 'timely') { 5.0 } else { 4.0 }
-        $code = 'import pathlib,sys,time; time.sleep(float(sys.argv[2])); pathlib.Path(sys.argv[1]).write_text("PASS"); print("completed",flush=True)'
-        $result = Invoke-ObservationChild -Python $Python -ChildArguments @('-E','-u','-c',$code,$receipt,[string]$delay) -LogPrefix $prefix -BudgetSeconds $budget -StopSeconds 5
+        $budget = if ($case -eq 'expired') { .2 } elseif ($case -in @('timely','timely-near')) { 5.0 } else { 4.0 }
+        $mode = 'relative'
+        if ($case -eq 'timely-near') {
+            # Fixed wall-clock target absorbs variable interpreter startup; OS
+            # exit must still prove it actually completed near, and before,5s.
+            $delay = ([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() / 1000.0) + 4.5
+            $mode = 'absolute'
+        }
+        $delayText = $delay.ToString([Globalization.CultureInfo]::InvariantCulture)
+        $code = 'import pathlib,sys,time; delay=float(sys.argv[2]); delay=max(0,delay-time.time()) if sys.argv[3]=="absolute" else delay; time.sleep(delay); pathlib.Path(sys.argv[1]).write_text("PASS"); print("completed",flush=True)'
+        $result = Invoke-ObservationChild -Python $Python -ChildArguments @('-E','-u','-c',$code,$receipt,$delayText,$mode) -LogPrefix $prefix -BudgetSeconds $budget -StopSeconds 5
         $processReceipt = Get-Content -Raw ($prefix+'.process.json') | ConvertFrom-Json
         Check ($result.ExitCode -eq 0 -and $result.Exited) "$case child exit lost"
         Check ((Get-Content -Raw $receipt) -eq 'PASS') "$case inner completion missing"
-        if ($case -eq 'timely') {
+        if ($case -in @('timely','timely-near')) {
             Check (!$result.TimedOut -and $processReceipt.timely_exit_verified) 'Timely completion mislabeled timeout'
             Check ([datetime]$processReceipt.os_exit_utc -le [datetime]$processReceipt.deadline_utc) 'No timely OS exit proof'
+            if ($case -eq 'timely-near') {
+                $margin = ([datetime]$processReceipt.deadline_utc - [datetime]$processReceipt.os_exit_utc).TotalSeconds
+                Check ($margin -ge 0 -and $margin -le 1) 'Fixture did not actually finish near deadline'
+            }
         } else {
             Check ($result.TimedOut -and !$processReceipt.timely_exit_verified) 'Late PASS bypassed deadline'
             Check ([datetime]$processReceipt.os_exit_utc -gt [datetime]$processReceipt.deadline_utc) 'Late OS completion not retained'
