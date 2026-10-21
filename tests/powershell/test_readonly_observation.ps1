@@ -19,6 +19,8 @@ with (e/'phases').open('a') as out: out.write(phase+'\n')
 case=os.environ.get('OBS_TEST_CASE','success')
 print('STDOUT '+phase, flush=True); print('STDERR '+phase, file=sys.stderr, flush=True)
 if phase == 'preflight':
+    if case=='preflight-late-pass':
+        time.sleep(1); (e/'preflight-result.json').write_text(json.dumps(dict(status='PASS',stage='complete',exit_code=0)))
     if case in ('preflight','preflight-package-failure'):
         (e/'preflight-result.json').write_text(json.dumps(dict(status='FAIL',stage='initial_runtime_inventory',reason='controlled timeout',exit_code=2)))
     if case=='preflight-stuck':
@@ -46,6 +48,35 @@ if phase == 'package':
     sys.exit(0)
 '@ | Set-Content -Encoding utf8 $stub
 try {
+    # Deterministic near-boundary proof. Observation time is not OS exit time.
+    $deadline = [datetime]::UtcNow
+    Check (Test-ObservationExitDeadline $deadline ($deadline.AddMilliseconds(-1))) 'Timely near-deadline exit rejected'
+    Check (Test-ObservationExitDeadline $deadline $deadline) 'Exact boundary exit rejected'
+    Check (!(Test-ObservationExitDeadline $deadline ($deadline.AddMilliseconds(1)))) 'Late completion accepted'
+    Check (!(Test-ObservationExitDeadline $deadline $null)) 'Unknown exit time accepted'
+    $passed++
+    # Real Windows Python children, no repository imports or acquisition. Include
+    # cold interpreter startup in the budget, and retain an inner PASS on late exit.
+    foreach ($case in @('timely','late-pass','expired')) {
+        $prefix = Join-Path $scratch $case
+        $receipt = $prefix + '.inner.json'
+        $delay = if ($case -eq 'timely') { .05 } elseif ($case -eq 'late-pass') { 4.05 } else { 1.0 }
+        $budget = if ($case -eq 'expired') { .2 } elseif ($case -eq 'timely') { 5.0 } else { 4.0 }
+        $code = 'import pathlib,sys,time; time.sleep(float(sys.argv[2])); pathlib.Path(sys.argv[1]).write_text("PASS"); print("completed",flush=True)'
+        $result = Invoke-ObservationChild -Python $Python -ChildArguments @('-E','-u','-c',$code,$receipt,[string]$delay) -LogPrefix $prefix -BudgetSeconds $budget -StopSeconds 5
+        $processReceipt = Get-Content -Raw ($prefix+'.process.json') | ConvertFrom-Json
+        Check ($result.ExitCode -eq 0 -and $result.Exited) "$case child exit lost"
+        Check ((Get-Content -Raw $receipt) -eq 'PASS') "$case inner completion missing"
+        if ($case -eq 'timely') {
+            Check (!$result.TimedOut -and $processReceipt.timely_exit_verified) 'Timely completion mislabeled timeout'
+            Check ([datetime]$processReceipt.os_exit_utc -le [datetime]$processReceipt.deadline_utc) 'No timely OS exit proof'
+        } else {
+            Check ($result.TimedOut -and !$processReceipt.timely_exit_verified) 'Late PASS bypassed deadline'
+            Check ([datetime]$processReceipt.os_exit_utc -gt [datetime]$processReceipt.deadline_utc) 'Late OS completion not retained'
+        }
+        Check ((Get-Content -Raw ($prefix+'.stdout.log')) -match 'completed') "$case output lost"
+        $passed++
+    }
     foreach ($script in @('scripts\certification\Invoke-ReadonlyObservation.ps1','scripts\certification\run_natural_readonly_observation.ps1','docs\ross\PR1108_NATURAL_READONLY_ACCEPTANCE.ps1')) {
         $errors=$null; $tokens=$null
         $null=[Management.Automation.Language.Parser]::ParseFile((Join-Path $repo $script),[ref]$tokens,[ref]$errors)
@@ -86,6 +117,18 @@ try {
         }
         $passed++
     }
+    $env:OBS_TEST_CASE='preflight-late-pass'
+    $root=Join-Path $scratch 'preflight-late-pass'; New-Item -ItemType Directory $root | Out-Null
+    $failed=$false
+    try { Invoke-ReadonlyObservation -Python $Python -Operator $stub -Root $root -ExpectedCommit ('a'*40) -PreflightSeconds .2 -StopSeconds 3 | Out-Null }
+    catch { $failed=$_.Exception.Message -match 'Preflight timed out' }
+    Check $failed 'Late inner PASS launched observation'
+    $phases=Get-Content (Join-Path $root 'e/phases')
+    Check (!($phases -contains 'observe') -and ($phases -contains 'seal')) 'Late PASS launched runtime or lost package'
+    $status=Get-Content -Raw (Join-Path $root 'e/phase-status.json') | ConvertFrom-Json
+    Check ($status.preflight_exit -eq 0 -and $status.preflight_timed_out -and $status.final_exit -ne 0) 'Contradictory child/outer outcomes not separated'
+    Check ($status.outer_reason -match 'deadline failure') 'Actual deadline reason missing'
+    $passed++
     foreach ($seconds in @(900,1800)) {
         $env:OBS_TEST_CASE='success'
         $root=Join-Path $scratch ('duration-'+$seconds); New-Item -ItemType Directory $root | Out-Null

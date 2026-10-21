@@ -21,7 +21,7 @@ def forbidden(*args, **kwargs):
 supervisor.main = forbidden
 supervisor.final_broker_audit = forbidden
 original_env = dict(os.environ)
-for case in ('valid', 'missing-terminal', 'mutation', 'source', 'order-state', 'inventory', 'privacy', 'bad-cache', 'preflight-timeout'):
+for case in ('valid', 'missing-terminal', 'mutation', 'source', 'order-state', 'inventory', 'privacy', 'bad-cache', 'preflight-timeout', 'preflight-late-pass'):
     os.environ.clear()
     os.environ.update(original_env)
     root = scratch / ('real-package-' + case)
@@ -52,8 +52,12 @@ for case in ('valid', 'missing-terminal', 'mutation', 'source', 'order-state', '
                                     ('process_inventory', 'broker_audit', 'artifact_validation', 'mutation_validation')}}
     if case == 'mutation':
         terminal['mutation_attempts']['place'] = 1
-    if case not in ('missing-terminal','preflight-timeout'):
+    if case not in ('missing-terminal','preflight-timeout','preflight-late-pass'):
         write_json(evidence / 'terminal' / 'terminal_evidence.json', terminal)
+    if case == 'preflight-late-pass':
+        write_json(evidence/'preflight-result.json', {'status':'PASS','stage':'complete','exit_code':0})
+        write_json(evidence/'phase-status-before-package.json', {'preflight_exit':0,
+            'preflight_timed_out':True, 'outer_reason':'Preflight timed out; no observation launch.'})
     if case == 'preflight-timeout':
         (evidence/'source-before.json').unlink()
         (root/'operator-state-source.json').unlink()
@@ -92,6 +96,10 @@ for case in ('valid', 'missing-terminal', 'mutation', 'source', 'order-state', '
             summary = json.loads(zipped.read('operator-summary.json'))
             assert summary['terminal_checks_passed'] == (case == 'valid'), case
             assert summary['PAPER_READY'] is False
+            if case == 'preflight-late-pass':
+                assert summary['preflight_result']['status'] == 'PASS'
+                assert summary['preflight_outer_status']['preflight_timed_out'] is True
+                assert 'outer process deadline' in summary['blockers'][0]
             if case == 'preflight-timeout':
                 assert summary['tracked_source_unchanged'] is None
                 assert summary['operator_order_state_unchanged'] is None
@@ -123,7 +131,7 @@ for case in ('valid', 'missing-terminal', 'mutation', 'source', 'order-state', '
             raise AssertionError('Unsafe final receipt was sealed')
         assert hashlib.sha256(archive.read_bytes()).hexdigest() == preserved_hash
 
-print('REAL_PACKAGE_CHECKS_PASS: 9 synthetic cases; no acquisition')
+print('REAL_PACKAGE_CHECKS_PASS: 10 synthetic cases; no acquisition')
 
 if os.name == 'nt':
     # Exercise real preflight with synthetic inventory/session/native classes.
@@ -175,6 +183,11 @@ if os.name == 'nt':
             receipt = json.loads((root / 'e/child-cache-probe.json').read_text())
             assert receipt['exit_code'] == 0 and receipt['parent_ignore_environment'] is True
             assert json.loads((root / 'e/preflight.json').read_text())['write_guards_verified'] is True
+            timing = json.loads((root/'e/preflight-timing.json').read_text())['stages']
+            assert timing[0]['stage'] == 'python_entry_before_repository_imports'
+            assert timing[-1]['stage'] == 'guard_checks_and_baselines_complete'
+            assert 'baseline_finalization' in [row['stage'] for row in timing]
+            assert [row['elapsed_seconds'] for row in timing] == sorted(row['elapsed_seconds'] for row in timing)
             news = json.loads((root / 'e/news-maintenance-config.json').read_text())
             assert all(news[key] is True for key in ('NEWS_ENABLED','NEWS_MAINTENANCE_ENABLED','ROSS_ISSUER_QUERY_ENABLED'))
             assert news['NEWS_REFRESH_SECONDS_RTH'] == 120 and news['NEWS_TOTAL_BUDGET_S'] == 8

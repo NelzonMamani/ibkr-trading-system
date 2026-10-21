@@ -1,3 +1,8 @@
+# Timeliness is proved by the OS exit timestamp, never by a child's PASS file.
+function Test-ObservationExitDeadline {
+    param([datetime]$DeadlineUtc, [Nullable[datetime]]$ExitUtc)
+    return ($null -ne $ExitUtc -and $ExitUtc.ToUniversalTime() -le $DeadlineUtc)
+}
 # Generic process boundary: tests supply controlled children; released runner fixes the operator.
 function Invoke-ObservationChild {
     param([string]$Python, [string[]]$ChildArguments, [string]$LogPrefix,
@@ -6,6 +11,7 @@ function Invoke-ObservationChild {
     $ErrorActionPreference = 'Stop'
     $process = $null; $outFile = $null; $errFile = $null
     $code = $null; $exited = $false; $timedOut = $false; $started = $false; $stopWaited = $false; $childError = $null
+    $startUtc = $null; $deadlineUtc = $null; $exitUtc = $null; $clock = $null; $timeoutReason = $null
     try {
         # Open both logs before starting anything. Failures cannot launch a child.
         $outFile = & $LogStreamFactory ($LogPrefix + '.stdout.log')
@@ -21,6 +27,9 @@ function Invoke-ObservationChild {
         }) -join ' ')
         $process = New-Object Diagnostics.Process
         $process.StartInfo = $info
+        $startUtc = [datetime]::UtcNow
+        $deadlineUtc = $startUtc.AddSeconds($BudgetSeconds)
+        $clock = [Diagnostics.Stopwatch]::StartNew()
         if (!$process.Start()) { throw 'Child launch failed.' }
         $started = $true
         $childId = $process.Id
@@ -28,11 +37,27 @@ function Invoke-ObservationChild {
         $null = $process.Handle
         $outCopy = $process.StandardOutput.BaseStream.CopyToAsync($outFile)
         $errCopy = $process.StandardError.BaseStream.CopyToAsync($errFile)
-        $clock = [Diagnostics.Stopwatch]::StartNew()
-        while (!$process.WaitForExit(200)) {
+        while ($true) {
+            $remaining = $BudgetSeconds - $clock.Elapsed.TotalSeconds
+            $waitMs = [int][Math]::Max(0, [Math]::Min(200, [Math]::Ceiling($remaining * 1000)))
+            $observedExit = $process.WaitForExit($waitMs)
+            if ($observedExit) {
+                try { $exitUtc = $process.ExitTime.ToUniversalTime() } catch { $exitUtc = $null }
+                if (Test-ObservationExitDeadline -DeadlineUtc $deadlineUtc -ExitUtc $exitUtc) { break }
+                $timedOut = $true
+                $timeoutReason = if ($null -eq $exitUtc) { 'EXIT_TIME_UNVERIFIED' } else { 'OS_EXIT_AFTER_DEADLINE' }
+                break
+            }
             if ($outCopy.IsFaulted -or $errCopy.IsFaulted) { throw 'Child log write failed.' }
             if ($clock.Elapsed.TotalSeconds -ge $BudgetSeconds) {
+                # Recheck a process that exited between the bounded wait and
+                # deadline decision. A late observer may accept only proven timely exit.
+                if ($process.WaitForExit(0)) {
+                    try { $exitUtc = $process.ExitTime.ToUniversalTime() } catch { $exitUtc = $null }
+                    if (Test-ObservationExitDeadline -DeadlineUtc $deadlineUtc -ExitUtc $exitUtc) { break }
+                }
                 $timedOut = $true
+                $timeoutReason = 'ALIVE_AT_DEADLINE_OR_LATE_EXIT'
                 if ($StopPath) {
                     [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($StopPath)) | Out-Null
                     [IO.File]::WriteAllText($StopPath, "GRACEFUL_STOP_REQUESTED`n")
@@ -49,10 +74,11 @@ function Invoke-ObservationChild {
         }
         $exited = $true
         $code = $process.ExitCode
+        try { $exitUtc = $process.ExitTime.ToUniversalTime() } catch { }
         # Descendants holding a pipe cannot make cleanup wait indefinitely.
         if (!$outCopy.Wait(5000) -or !$errCopy.Wait(5000)) { throw 'Child pipes did not close within budget.' }
         $outFile.Flush(); $errFile.Flush()
-        [pscustomobject]@{ ExitCode = $code; TimedOut = $timedOut; Exited = $true; ProcessId = $childId }
+        [pscustomobject]@{ ExitCode = $code; TimedOut = $timedOut; Exited = $true; ProcessId = $childId; StartedUtc = $startUtc; DeadlineUtc = $deadlineUtc; ExitUtc = $exitUtc; TimeoutReason = $timeoutReason }
     } catch {
         $childError = $_
         # Logging/control failures still request the same cooperative stop. Keep
@@ -74,6 +100,20 @@ function Invoke-ObservationChild {
         throw $childError
     } finally {
         $disposeError = $null
+        try {
+            if ($exited -and $null -eq $exitUtc) {
+                try { $exitUtc = $process.ExitTime.ToUniversalTime() } catch { }
+            }
+            [ordered]@{ started=$started; exited=$exited; exit_code=$code;
+                timed_out=$timedOut; timeout_reason=$timeoutReason;
+                budget_seconds=$BudgetSeconds; cleanup_budget_seconds=$StopSeconds;
+                started_utc=$startUtc; deadline_utc=$deadlineUtc; os_exit_utc=$exitUtc;
+                completed_utc=[datetime]::UtcNow;
+                elapsed_seconds=$(if ($null -ne $clock) { $clock.Elapsed.TotalSeconds } else { $null });
+                stop_waited=$stopWaited;
+                timely_exit_verified=($exited -and !$timedOut -and (Test-ObservationExitDeadline -DeadlineUtc $deadlineUtc -ExitUtc $exitUtc))
+            } | ConvertTo-Json | Set-Content -Encoding UTF8 ($LogPrefix + '.process.json')
+        } catch { $disposeError = $_ }
         foreach ($owned in @($outFile,$errFile,$process)) {
             if ($null -ne $owned) {
                 try { $owned.Dispose() } catch { if ($null -eq $disposeError) { $disposeError = $_ } }
@@ -107,6 +147,8 @@ function Invoke-ReadonlyObservation {
         $canPackage = $true
         $result = $preflight.ExitCode
         $phaseStatus.preflight_exit = $result
+        $phaseStatus.preflight_timed_out = $preflight.TimedOut
+        $phaseStatus.preflight_deadline_status = if ($preflight.TimedOut) { 'TIMEOUT' } else { 'TIMELY_EXIT_VERIFIED' }
         Write-Host "Preflight exit: $result"
         if ($result -ne 0) {
             $reasonFile = Join-Path $evidence 'preflight-result.json'
@@ -117,7 +159,7 @@ function Invoke-ReadonlyObservation {
                 Get-Content (Join-Path $evidence 'preflight-process.stderr.log') | ForEach-Object { Write-Host $_ }
             }
         }
-        if ($preflight.TimedOut) { throw 'Preflight timed out; no observation launch.' }
+        if ($preflight.TimedOut) { throw ('Preflight timed out; no observation launch. Child exit {0} is separate from deadline failure ({1}); see preflight-process.process.json.' -f $result,$preflight.TimeoutReason) }
         if ($result -eq 0) {
             Write-Host "Logs: $evidence\terminal\stdout.log and stderr.log"
             Write-Host "Early graceful stop: New-Item -ItemType File -Force '$stop'"
@@ -137,6 +179,7 @@ function Invoke-ReadonlyObservation {
     } catch {
         if ($result -eq 0) { $result = 1 }
         $phaseStatus.outer_error = $_.Exception.GetType().Name
+        $phaseStatus.outer_reason = $_.Exception.Message
         if ($_.Exception.Data.Contains('ChildStarted')) {
             $canPackage = !$_.Exception.Data['ChildStarted'] -or [bool]$_.Exception.Data['ChildExited']
         }
@@ -148,7 +191,7 @@ function Invoke-ReadonlyObservation {
             try {
                 $packaged = Invoke-ObservationChild -Python $Python -ChildArguments (@('-E','-u',$Operator,'package',$Root,$ExpectedCommit) + $durationArguments) -LogPrefix (Join-Path $evidence 'package-process') -BudgetSeconds $PackageSeconds -StopSeconds $StopSeconds
                 $phaseStatus.package_exit = $packaged.ExitCode
-                $phaseStatus.package_status = if ($packaged.TimedOut) { 'TIMEOUT' } elseif ($packaged.ExitCode -eq 0) { 'PASS' } else { 'NONZERO' }
+                $phaseStatus.package_status = if ($packaged.TimedOut) { 'TIMEOUT' } elseif ($packaged.ExitCode -eq 0) { 'PASS' } elseif ($packaged.ExitCode -eq 2) { 'DIAGNOSTIC_ONLY' } else { 'NONZERO' }
                 Write-Host ("Package exit: {0}; status: {1}" -f $packaged.ExitCode,$phaseStatus.package_status)
 
                 if ($result -eq 0 -and ($packaged.ExitCode -ne 0 -or $packaged.TimedOut)) {
