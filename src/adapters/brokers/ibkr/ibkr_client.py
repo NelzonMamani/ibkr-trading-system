@@ -1115,8 +1115,8 @@ class IbkrClient(EWrapper, EClient):
                 print(f"[IBKR][SCANNER_RESULT] {json.dumps(sanitize(receipt), sort_keys=True)}")
             if error:
                 raise RuntimeError(f"IBKR scanner request {req_id} failed: {error}")
-            if not completed:
-                raise TimeoutError(f"IBKR scanner request {req_id}: scannerDataEnd missing")
+            if not signalled or not completed:
+                raise TimeoutError(f"IBKR scanner request {req_id}: scannerDataEnd missing within wait budget")
             return rows
         finally:
             try:
