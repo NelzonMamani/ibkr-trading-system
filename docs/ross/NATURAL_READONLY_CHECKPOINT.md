@@ -2276,3 +2276,21 @@ lifecycle/maintenance checks pass after this fixture-only correction. The observ
 failure and corrected test are the new reason for changed-head CI; no identical
 head retry or workstation full suite is warranted. The earlier repair self-review
 at3ec6f869 remains a prior-head receipt, requiring superseding exact-head review.
+
+Independent review of575625df found two remaining unavailable-response boundaries:
+robust_scan coerced None/falsey responses through `or []`, and the optional native
+client `.ib` scanner delegate bypassed matching-end/error/wait proof. Offline
+fixtures reproduce48 false empty attempts from None, and actual ib_insync returning
+an empty ScanDataList after error321 without scannerDataEnd. Normal certification
+manager construction creates the native client without `.ib`; neither proof
+establishes receipt7's cause. Preserve the original terminal FAIL and evidence.
+
+Focused follow-up rejects missing/invalid non-row responses without retrying or
+emitting BROKER_EMPTY, propagates native failures through MarketDataClient/provider/
+universe resolution, and resets per-attempt metadata so prior confirmed emptiness
+cannot survive a later unavailable query. Native unverified scanner delegation now
+fails closed before calling its delegate. Completed list/tuple/list-subclass
+responses remain supported; native matching-end/error/wait/ownership proof stays
+mandatory and no timeout is enlarged. Independent review and changed-head checks
+must apply to the repaired head before controlled integration. No new operator run,
+provider/broker acquisition, holdings change or readiness upgrade. PAPER_READY=NO.

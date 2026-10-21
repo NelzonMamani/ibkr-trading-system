@@ -1079,8 +1079,13 @@ class IbkrClient(EWrapper, EClient):
         """
         Forward scanner request to underlying IB client.
         """
+        self.last_scanner_request = {"completion_status": "UNAVAILABLE",
+                                     "end_received": False, "wait_signalled": False,
+                                     "row_count": None}
         if hasattr(self, "ib") and self.ib is not None:
-            return self.ib.reqScannerData(subscription)
+            # ib_insync can return an empty ScanDataList on request errors without
+            # scannerDataEnd. This branch has no native completion authority.
+            raise RuntimeError("IBKR scanner response unavailable: unverified delegate; use native scanner client")
 
         if not self.is_connected():
             raise RuntimeError("IBKR client is not connected.")
@@ -1107,6 +1112,7 @@ class IbkrClient(EWrapper, EClient):
                 error = self._errors.get(req_id)
                 completed = bool(context["scanner_end_received"])
                 receipt = {"req_id": req_id, "client_id": self.client_id,
+                           "completion_status": "COMPLETE" if signalled and completed and not error else "UNAVAILABLE",
                            "end_received": completed, "wait_signalled": signalled,
                            "row_count": len(rows), "error": error,
                            "connected": self.is_connected(),

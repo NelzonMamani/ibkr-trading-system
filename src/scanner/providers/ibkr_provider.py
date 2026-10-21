@@ -87,7 +87,14 @@ def robust_scan(
                     abovePrice=price_low,
                     belowPrice=price_high,
                 )
-                results = client.request_scanner_data(sub) or []
+                results = client.request_scanner_data(sub)
+                # Missing/invalid responses are unavailable, never proof of an
+                # empty completed broker query. Keep list subclasses (ScanDataList).
+                if not isinstance(results, (list, tuple)):
+                    raise RuntimeError(
+                        "IBKR scanner response unavailable: expected row sequence, got "
+                        + type(results).__name__
+                    )
                 print(
                     f"[SCANNER][ATTEMPT] scan={scan_code} "
                     f"loc={location} price={price_low}-{price_high} "
@@ -162,6 +169,9 @@ class IbkrScannerProvider(ScannerDataProvider):
         limit: int,
         request: ScannerRequest | None = None,
     ) -> list[str]:
+        # A failed new query must not leave a prior confirmed-empty receipt live.
+        self.last_scan_details = {"scan_status": "UNAVAILABLE", "returned_rows": None,
+                                  "symbols": []}
         try:
             resolved_requested_top_n = max(1, int(limit))
         except Exception:
@@ -230,6 +240,7 @@ class IbkrScannerProvider(ScannerDataProvider):
                 "description": getattr(contract, "description", None),
             }
         self.last_scan_details = {
+            "scan_status": "CONFIRMED_EMPTY" if returned_rows == 0 else "COMPLETE",
             "requested_location_code": location_code,
             "requested_scan_code": scan_code,
             "selected_location_code": scan_context.get("location"),
