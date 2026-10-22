@@ -87,8 +87,8 @@ that an issuer has a fresh article; missing news remains unknown, not no catalys
 Before requesting any operator observation, specify exactly one **news-only** paired
 diagnostic: CLIK and STAK, each original query versus identical query with `when:6h`,
 for four Google URLs total (the existing query ceiling). Keep8s total acquisition,
-maximum2 concurrent workers, request timeout at most5s and the existing bounded
-cleanup; deadline failures remain incomplete. No fixed feed fanout, fallback, Yahoo,
+maximum2 concurrent workers, request timeout at most5s and the existing standalone
+cleanup ceiling10s (never additional acquisition time); deadline failures remain incomplete. No fixed feed fanout, fallback, Yahoo,
 retry, broker import/connection, scanner, Core runtime, cache publication or Focus
 selection. Use a fresh diagnostic directory and existing owned RSS lifecycle/raw
 capture (512KiB per response), record acquisition/evaluation times and original XML,
@@ -109,8 +109,11 @@ permission for an unchanged observation run.
 
 ## Checks and remaining authority
 
-Final focused run:32passed/4warnings in1.63s across exclusion evidence, existing issuer
-query contracts and receipt9 replay. New fixtures cover fresh tails after old feed
+Initial focused run:32passed/4warnings in1.63s. After bounding summary-text
+processing to the sample slots, final focused run:33passed/4warnings in2.05s across exclusion evidence, existing issuer
+query contracts and receipt9 replay. Excluded summaries are evaluated lazily: after two samples for a reason, later
+entries increment counts without extracting/hash-processing more rejected text.
+New fixtures cover fresh tails after old feed
 entries, timezone/publication precedence, cap/truncation/privacy, and actual canonical
 metadata persistence without news promotion or content-bearing stdout. Earlier test
 fixture failures omitted the operational retention request metadata and owned

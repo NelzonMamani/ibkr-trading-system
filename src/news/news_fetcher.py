@@ -869,7 +869,7 @@ def _fetch_headlines_from_sources(
             # still describe all examined entries, including unsampled ones.
             if detailed and source_groups_by_url and source_groups_by_url.get(url) == "ROSS_ISSUER_QUERY":
                 retain_exclusion(counts, reason=reason, entry_index=processed_entries[url],
-                    title=title, summary=_entry_summary(entry), url=link,
+                    title=title, summary=lambda: _entry_summary(entry), url=link,
                     date_facts=date_facts, symbol=symbol, identity_patterns=identity_patterns)
 
         for entry in getattr(feed, "entries", []) or []:

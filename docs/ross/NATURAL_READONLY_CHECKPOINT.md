@@ -2335,6 +2335,6 @@ exports; original receipt9's missing rejected text cannot be reconstructed. Samp
 are diagnostic, not canonical evidence. The smallest proposed acquisition change
 is a same-budget replacement recency query, conditional on one four-URL,8s, news-only
 paired diagnostic for CLIK/STAK. It has not run and authorizes no operator observation.
-Focused32-case checks pass; independent review belongs to the changed head.
+Focused33-case checks pass; independent review belongs to the changed head.
 No holdings change, broker/provider acquisition, trading or readiness upgrade.
 PAPER_READY=NO.

@@ -98,3 +98,13 @@ def test_exclusion_survives_canonical_metadata_without_becoming_news(monkeypatch
     finally:
         assert lifecycle.wait_for_cleanup(2)['cleanup_complete']
         set_config_overrides({})
+
+
+def test_full_sample_slots_do_not_process_more_excluded_summary_text():
+    calls=[]
+    d={}
+    for index in range(100):
+        retain_exclusion(d,reason='outside_lookback_window',entry_index=index,title='old',
+            summary=lambda:calls.append(True) or 'summary',url='',date_facts={})
+    assert len(calls)==2
+    assert d['exclusion_evidence']['counts']['outside_lookback_window']==100

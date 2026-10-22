@@ -19,6 +19,7 @@ def retain_exclusion(diagnostics, *, reason, entry_index, title, summary, url,
     samples = state['samples'].setdefault(reason, [])
     if len(samples) >= SAMPLES_PER_REASON:
         return
+    summary = summary() if callable(summary) else summary
     from src.ibkr.evidence_safety import sanitize
     original = {'title': str(title or ''), 'summary': str(summary or ''), 'url': str(url or ''),
                 'dates': dict(date_facts), 'patterns': list(identity_patterns), 'symbol': symbol}
