@@ -14,6 +14,7 @@ from math import ceil
 from typing import Any, Dict, Iterable, List, Mapping
 from urllib.parse import urlparse
 
+from src.news.rss_exclusion_evidence import retain_exclusion
 from src.news.rss_lifecycle import RssFetchLifecycle, capture_source_timing, current_source_timing
 
 if importlib.util.find_spec("feedparser"):
@@ -164,6 +165,12 @@ def _normalized_words(value: Any) -> list[str]:
 
 def _company_alias_from_words(words: list[str], symbol: str) -> str | None:
     while words and words[-1] in _LEGAL_SUFFIXES:
+        # A supplied two-word issuer such as Click Holdings must not collapse
+        # into a single ambiguous word. Do not admit generic wrapper names.
+        if len(words) == 2 and words[-1] in {"HOLDING", "HOLDINGS", "GROUP"}:
+            if words[0] in _LEGAL_SUFFIXES | {"THE", "A", "AN"}:
+                return None
+            break
         words = words[:-1]
     if len(words) < 2:
         return None
@@ -195,7 +202,13 @@ def company_aliases_for_symbol(symbol: str, metadata: Any = None) -> tuple[str, 
     normalized_symbol = str(symbol or "").strip().upper()
     aliases: list[str] = []
     for value in _metadata_values(metadata):
-        words = _normalized_words(value)
+        name = _clean_text(value)
+        # Recognized broker display decorations only. No arbitrary trailing
+        # letters, countries, or words are removed from issuer identities.
+        name = re.sub(r"\b(LTD|LIMITED)/BVI(?:-[AB])?$", r"\1", name, flags=re.I)
+        name = re.sub(r"\b(INC|INCORPORATED|CORP|CORPORATION|LTD|LIMITED|PLC)-[AB]$",
+                      r"\1", name, flags=re.I)
+        words = _normalized_words(name)
         alias = _company_alias_from_words(words, normalized_symbol)
         if alias and alias not in aliases:
             aliases.append(alias)
@@ -862,6 +875,15 @@ def _fetch_headlines_from_sources(
                       window_start_utc=datetime.fromtimestamp(min_ts, timezone.utc).isoformat())
         if detailed:
             date_counts[url] = counts
+        def exclusion(reason, *, symbol=None, identity_patterns=()):
+            # Issuer routes only; bounded separate samples prevent old entries
+            # from consuming the fresh-relevance diagnostic slots. Aggregates
+            # still describe all examined entries, including unsampled ones.
+            if detailed and source_groups_by_url and source_groups_by_url.get(url) == "ROSS_ISSUER_QUERY":
+                retain_exclusion(counts, reason=reason, entry_index=processed_entries[url],
+                    title=title, summary=lambda: _entry_summary(entry), url=link,
+                    date_facts=date_facts, symbol=symbol, identity_patterns=identity_patterns)
+
         for entry in getattr(feed, "entries", []) or []:
             if retention_limit_reached():
                 break
@@ -889,13 +911,16 @@ def _fetch_headlines_from_sources(
                 if ts is not None:
                     counts[date_facts["selected_time_basis"] + "_time_used"] += 1
             if not title:
+                exclusion('missing_title')
                 continue
             if not detailed:
                 ts = _entry_timestamp(entry)
             if ts is None or ts > now:
+                exclusion('missing_publication_time' if ts is None else 'future_publication_time')
                 logging.info("[NEWS][TIME_REJECT] source=%s reason=missing_or_future_publication_time", url)
                 continue
             if ts < min_ts:
+                exclusion('outside_lookback_window')
                 continue
             publisher = source_name or url
             raw_title = title
@@ -943,6 +968,9 @@ def _fetch_headlines_from_sources(
                 if not match_type:
                     if detailed:
                         counts["relevance_rejections_by_symbol"][symbol] += 1
+                        exclusion('issuer_match_unverified', symbol=symbol,
+                            identity_patterns=tuple(p.pattern for p in
+                                (symbol_patterns.get(symbol), summary_symbol_patterns.get(symbol), *company_patterns.get(symbol, [])) if p))
                     continue
                 if research_processing_expired():
                     break

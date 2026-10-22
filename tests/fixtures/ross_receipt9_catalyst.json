@@ -1,0 +1,1085 @@
+{
+  "accepted_head": "be5cc0090c067a965f8a1398f631d2d984e4fc6a",
+  "archive_sha256": "eefa84ae5d17280b27651afc670c9dc2bd01152bc2266b108c8ade3bf30f1940",
+  "replay_scope": "final retained snapshot, not earlier runtime availability",
+  "replay_at": "2026-10-22T17:31:21.207342+00:00",
+  "symbols": {
+    "STAK": {
+      "issuer": {
+        "aliases": [],
+        "company_name": "STAK INC-A",
+        "exchange": "SMART",
+        "market": null,
+        "metadata": {
+          "matching_aliases": [
+            "STAK INC A"
+          ]
+        },
+        "region": null,
+        "symbol": "STAK"
+      },
+      "updated_at": "2026-10-22T17:31:18.780008+00:00",
+      "evidence": [],
+      "qualification_ids": [],
+      "provider_status": "partial_request_failure",
+      "retrieval_status": "partial",
+      "provider_available": true,
+      "budget_exhausted": false,
+      "acquisition_scope": {
+        "acquisition_completed": true,
+        "completed_query_urls": [
+          "https://news.google.com/rss/search?q=%28%22STAK+INC-A%22+OR+%22%24STAK%22%29&hl=en-US&gl=US&ceid=US%3Aen"
+        ],
+        "coverage_deadline_exhausted": false,
+        "retained_matched_entry_count": 0,
+        "search_completeness_established": false,
+        "source_coverage_complete": false,
+        "source_coverage_status": "partial"
+      },
+      "issuer_query": [
+        {
+          "attempted": true,
+          "processing_truncated": false,
+          "reason": null,
+          "status": "available",
+          "url": "https://news.google.com/rss/search?q=%28%22STAK+INC-A%22+OR+%22%24STAK%22%29&hl=en-US&gl=US&ceid=US%3Aen"
+        }
+      ],
+      "fallback_skipped_reason": "primary_coverage_incomplete",
+      "source_failures": {
+        "www.globenewswire.com": "HTTP_403:2",
+        "www.reuters.com": "HTTP_401:1"
+      },
+      "issuer_query_source": {
+        "source_id": "https://news.google.com/rss/search?q=%28%22STAK+INC-A%22+OR+%22%24STAK%22%29&hl=en-US&gl=US&ceid=US%3Aen",
+        "source_group": "ROSS_ISSUER_QUERY",
+        "retrieval_status": "available",
+        "failure_reason": null,
+        "http_status": 200,
+        "feed_item_count": 6,
+        "matched_count": 0,
+        "processing_truncated": false,
+        "entry_diagnostics": {
+          "coordinator_processing_seconds": 0.00030540022999048233,
+          "date_range_scope": "examined entries; may be partial",
+          "empty_feed": false,
+          "evaluation_time_utc": "2026-10-22T17:31:16.319378+00:00",
+          "future_entries": 0,
+          "http_request_attempted": true,
+          "missing_invalid_dates": 0,
+          "missing_titles": 0,
+          "observed_date_max_utc": "2026-07-24T07:00:00+00:00",
+          "observed_date_min_utc": "2017-03-30T17:57:25+00:00",
+          "observed_publication_max_utc": "2026-07-24T07:00:00+00:00",
+          "observed_publication_min_utc": "2017-03-30T17:57:25+00:00",
+          "observed_update_max_utc": null,
+          "observed_update_min_utc": null,
+          "published_time_used": 6,
+          "raw_capture": null,
+          "relevance_rejections_by_symbol": {
+            "STAK": 0
+          },
+          "stale_entries": 6,
+          "transport_cache_hit": false,
+          "updated_time_used": 0,
+          "usable_dates": 6,
+          "window_start_utc": "2026-10-22T11:31:16.319378+00:00",
+          "within_window": 0
+        }
+      }
+    },
+    "PFSA": {
+      "issuer": {
+        "aliases": [],
+        "company_name": "PROFUSA INC",
+        "exchange": "SMART",
+        "market": null,
+        "metadata": {
+          "matching_aliases": []
+        },
+        "region": null,
+        "symbol": "PFSA"
+      },
+      "updated_at": "2026-10-22T17:25:08.899804+00:00",
+      "evidence": [
+        {
+          "age_seconds": 17528.899804,
+          "aliases": [],
+          "audit": {
+            "classification_authority": "strategy_adapter_not_common_provider",
+            "provider_status": "partial_request_failure",
+            "request_audit_reason": "ross_readonly_scanner_news",
+            "request_strategy_id": "ross_momentum"
+          },
+          "budget_exhausted": false,
+          "cache_state": "hit",
+          "catalyst_classification": null,
+          "classifier_version": null,
+          "company_name": "PROFUSA INC",
+          "decay_score": null,
+          "dilution_or_offering": null,
+          "duplicate_cluster_id": null,
+          "event_class": null,
+          "evidence_id": "rss-operational:PFSA:90f56d3515164292af1f66b4",
+          "failures": [],
+          "fetched_at": "2026-10-22T17:18:54.966281+00:00",
+          "first_seen_at": "2026-10-22T12:33:00+00:00",
+          "freshness_bucket": "30m_6h",
+          "headline": "PFSA Stock Slides As Traders Eye Volatility And Balance Sheet Strain",
+          "heat_score": 7.97,
+          "hotness_score": 7.97,
+          "independent_source_count": 1,
+          "is_generic": null,
+          "is_qualifying_event_class": false,
+          "match_confidence": 1.0,
+          "match_type": "ticker_token",
+          "matched_field": "title",
+          "observed_source": "StocksToTrade",
+          "original_source": "StocksToTrade",
+          "provider": "rss_batch",
+          "publication_count": 2,
+          "published_at": "2026-10-22T12:33:00+00:00",
+          "raw": {
+            "match_type": "ticker_token",
+            "matched_field": "title",
+            "raw_title": "PFSA Stock Slides As Traders Eye Volatility And Balance Sheet Strain - StocksToTrade",
+            "source": "StocksToTrade",
+            "source_provenance": {
+              "feed_label": "\"(\"PROFUSA INC\" OR \"$PFSA\")\" - Google News",
+              "publisher_label_basis": "entry_source",
+              "publisher_url": "https://stockstotrade.com",
+              "source_group": "ROSS_ISSUER_QUERY"
+            },
+            "source_tier": "operational_query",
+            "timestamp_provenance": {
+              "published_original": "Thu, 22 Oct 2026 12:33:00 GMT",
+              "published_utc": "2026-10-22T12:33:00+00:00",
+              "selected_time_basis": "published",
+              "updated_original": null,
+              "updated_utc": null
+            }
+          },
+          "reference_id": "https://news.google.com/rss/articles/CBMidEFVX3lxTE5XU2pFR1pDaklUN1plY2FUTTJGNVpvM2xKdHNoTHJfQU96Zm1XVzdJTVNLekxzOWRtRWkxUGlsYmJqRUptSTAteVN2VFVEemg2ZzlvQy1rd0tXWERmeEJjWHZWTzlyTG9sUUJfYnVRMFBCQnZC?oc=5",
+          "region": null,
+          "retrieval_status": "partial",
+          "source_credibility_score": 0.0,
+          "source_domain": "news.google.com",
+          "source_group": "ROSS_ISSUER_QUERY",
+          "source_reliability_score": 0.0,
+          "source_tier": "operational_query",
+          "spike_indicator": null,
+          "stale": false,
+          "summary": "PFSA Stock Slides As Traders Eye Volatility And Balance Sheet Strain &nbsp;&nbsp; StocksToTrade PFSA Stock Slides As Traders Eye Volatility And Balance Sheet Strain &nbsp;&nbsp; StocksToTrade",
+          "symbol": "PFSA",
+          "timed_out": false,
+          "url": "https://news.google.com/rss/articles/CBMidEFVX3lxTE5XU2pFR1pDaklUN1plY2FUTTJGNVpvM2xKdHNoTHJfQU96Zm1XVzdJTVNLekxzOWRtRWkxUGlsYmJqRUptSTAteVN2VFVEemg2ZzlvQy1rd0tXWERmeEJjWHZWTzlyTG9sUUJfYnVRMFBCQnZC?oc=5",
+          "velocity_10m": 0,
+          "velocity_30m": 0,
+          "velocity_5m": 0,
+          "velocity_60m": 0,
+          "verified_source": null
+        },
+        {
+          "age_seconds": 20168.899804,
+          "aliases": [],
+          "audit": {
+            "classification_authority": "strategy_adapter_not_common_provider",
+            "provider_status": "partial_request_failure",
+            "request_audit_reason": "ross_readonly_scanner_news",
+            "request_strategy_id": "ross_momentum"
+          },
+          "budget_exhausted": false,
+          "cache_state": "hit",
+          "catalyst_classification": null,
+          "classifier_version": null,
+          "company_name": "PROFUSA INC",
+          "decay_score": null,
+          "dilution_or_offering": null,
+          "duplicate_cluster_id": null,
+          "event_class": null,
+          "evidence_id": "rss-operational:PFSA:4c2c573fd8e4063dff382300",
+          "failures": [],
+          "fetched_at": "2026-10-22T17:18:54.966281+00:00",
+          "first_seen_at": "2026-10-22T11:49:00+00:00",
+          "freshness_bucket": "30m_6h",
+          "headline": "PFSA Stock Slides As Profusa Tests Penny-Stock Support",
+          "heat_score": 7.97,
+          "hotness_score": 7.97,
+          "independent_source_count": 1,
+          "is_generic": null,
+          "is_qualifying_event_class": false,
+          "match_confidence": 1.0,
+          "match_type": "ticker_token",
+          "matched_field": "title",
+          "observed_source": "StocksToTrade",
+          "original_source": "StocksToTrade",
+          "provider": "rss_batch",
+          "publication_count": 2,
+          "published_at": "2026-10-22T11:49:00+00:00",
+          "raw": {
+            "match_type": "ticker_token",
+            "matched_field": "title",
+            "raw_title": "PFSA Stock Slides As Profusa Tests Penny-Stock Support - StocksToTrade",
+            "source": "StocksToTrade",
+            "source_provenance": {
+              "feed_label": "\"(\"PROFUSA INC\" OR \"$PFSA\")\" - Google News",
+              "publisher_label_basis": "entry_source",
+              "publisher_url": "https://stockstotrade.com",
+              "source_group": "ROSS_ISSUER_QUERY"
+            },
+            "source_tier": "operational_query",
+            "timestamp_provenance": {
+              "published_original": "Thu, 22 Oct 2026 11:49:00 GMT",
+              "published_utc": "2026-10-22T11:49:00+00:00",
+              "selected_time_basis": "published",
+              "updated_original": null,
+              "updated_utc": null
+            }
+          },
+          "reference_id": "https://news.google.com/rss/articles/CBMickFVX3lxTE51bU9vQXBRT2tnSS1sb01CYUVTdDk3RE1XZXl0TlVFSHZZSmFWaGpnYmZIc09tNVU3OFY4Vm5laGhLMGFqaTJDRUphMURrTGRVSDNiZkZfckhCRHo1Y0pRZl9ZX1JaVDJ4UTY4T3Y1b1luQQ?oc=5",
+          "region": null,
+          "retrieval_status": "partial",
+          "source_credibility_score": 0.0,
+          "source_domain": "news.google.com",
+          "source_group": "ROSS_ISSUER_QUERY",
+          "source_reliability_score": 0.0,
+          "source_tier": "operational_query",
+          "spike_indicator": null,
+          "stale": false,
+          "summary": "PFSA Stock Slides As Profusa Tests Penny-Stock Support &nbsp;&nbsp; StocksToTrade PFSA Stock Slides As Profusa Tests Penny-Stock Support &nbsp;&nbsp; StocksToTrade",
+          "symbol": "PFSA",
+          "timed_out": false,
+          "url": "https://news.google.com/rss/articles/CBMickFVX3lxTE51bU9vQXBRT2tnSS1sb01CYUVTdDk3RE1XZXl0TlVFSHZZSmFWaGpnYmZIc09tNVU3OFY4Vm5laGhLMGFqaTJDRUphMURrTGRVSDNiZkZfckhCRHo1Y0pRZl9ZX1JaVDJ4UTY4T3Y1b1luQQ?oc=5",
+          "velocity_10m": 0,
+          "velocity_30m": 0,
+          "velocity_5m": 0,
+          "velocity_60m": 0,
+          "verified_source": null
+        }
+      ],
+      "qualification_ids": [
+        "rss-operational:PFSA:90f56d3515164292af1f66b4",
+        "rss-operational:PFSA:4c2c573fd8e4063dff382300"
+      ],
+      "provider_status": "partial_request_failure",
+      "retrieval_status": "partial",
+      "provider_available": true,
+      "budget_exhausted": false,
+      "acquisition_scope": {
+        "acquisition_completed": true,
+        "completed_query_urls": [
+          "https://news.google.com/rss/search?q=%28%22PROFUSA+INC%22+OR+%22%24PFSA%22%29&hl=en-US&gl=US&ceid=US%3Aen"
+        ],
+        "coverage_deadline_exhausted": false,
+        "retained_matched_entry_count": 1,
+        "search_completeness_established": false,
+        "source_coverage_complete": false,
+        "source_coverage_status": "partial"
+      },
+      "issuer_query": [
+        {
+          "attempted": true,
+          "processing_truncated": false,
+          "reason": null,
+          "status": "available",
+          "url": "https://news.google.com/rss/search?q=%28%22PROFUSA+INC%22+OR+%22%24PFSA%22%29&hl=en-US&gl=US&ceid=US%3Aen"
+        }
+      ],
+      "fallback_skipped_reason": "primary_coverage_incomplete",
+      "source_failures": {
+        "www.globenewswire.com": "HTTP_403:2",
+        "www.reuters.com": "HTTP_401:1"
+      },
+      "issuer_query_source": {
+        "source_id": "https://news.google.com/rss/search?q=%28%22PROFUSA+INC%22+OR+%22%24PFSA%22%29&hl=en-US&gl=US&ceid=US%3Aen",
+        "source_group": "ROSS_ISSUER_QUERY",
+        "retrieval_status": "available",
+        "failure_reason": null,
+        "http_status": 200,
+        "feed_item_count": 15,
+        "matched_count": 1,
+        "processing_truncated": false,
+        "entry_diagnostics": {
+          "coordinator_processing_seconds": 0.0007150000892579556,
+          "date_range_scope": "examined entries; may be partial",
+          "empty_feed": false,
+          "evaluation_time_utc": "2026-10-22T17:25:06.713628+00:00",
+          "future_entries": 0,
+          "http_request_attempted": true,
+          "missing_invalid_dates": 0,
+          "missing_titles": 0,
+          "observed_date_max_utc": "2026-10-22T11:49:00+00:00",
+          "observed_date_min_utc": "2025-07-11T20:45:22+00:00",
+          "observed_publication_max_utc": "2026-10-22T11:49:00+00:00",
+          "observed_publication_min_utc": "2025-07-11T20:45:22+00:00",
+          "observed_update_max_utc": null,
+          "observed_update_min_utc": null,
+          "published_time_used": 15,
+          "raw_capture": null,
+          "relevance_rejections_by_symbol": {
+            "PFSA": 0
+          },
+          "stale_entries": 14,
+          "transport_cache_hit": false,
+          "updated_time_used": 0,
+          "usable_dates": 15,
+          "window_start_utc": "2026-10-22T11:25:06.713628+00:00",
+          "within_window": 1
+        }
+      }
+    },
+    "NCPL": {
+      "issuer": {
+        "aliases": [],
+        "company_name": "NETCAPITAL INC",
+        "exchange": "SMART",
+        "market": null,
+        "metadata": {
+          "matching_aliases": []
+        },
+        "region": null,
+        "symbol": "NCPL"
+      },
+      "updated_at": "2026-10-22T17:31:18.914775+00:00",
+      "evidence": [
+        {
+          "age_seconds": 15078.914775,
+          "aliases": [],
+          "audit": {
+            "classification_authority": "strategy_adapter_not_common_provider",
+            "provider_status": "partial_request_failure",
+            "request_audit_reason": "ross_readonly_scanner_news",
+            "request_strategy_id": "ross_momentum"
+          },
+          "budget_exhausted": false,
+          "cache_state": "hit",
+          "catalyst_classification": null,
+          "classifier_version": null,
+          "company_name": "NETCAPITAL INC",
+          "decay_score": null,
+          "dilution_or_offering": null,
+          "duplicate_cluster_id": null,
+          "event_class": null,
+          "evidence_id": "rss-operational:NCPL:dd907819932335007f6f2d21",
+          "failures": [],
+          "fetched_at": "2026-10-22T17:18:49.360068+00:00",
+          "first_seen_at": "2026-10-22T13:20:00+00:00",
+          "freshness_bucket": "30m_6h",
+          "headline": "NCPL Stock Slides As Financial Pressures Test Traders\u2019 Nerves",
+          "heat_score": 6.07,
+          "hotness_score": 6.07,
+          "independent_source_count": 1,
+          "is_generic": null,
+          "is_qualifying_event_class": false,
+          "match_confidence": 1.0,
+          "match_type": "ticker_token",
+          "matched_field": "title",
+          "observed_source": "StocksToTrade",
+          "original_source": "StocksToTrade",
+          "provider": "rss_batch",
+          "publication_count": 1,
+          "published_at": "2026-10-22T13:20:00+00:00",
+          "raw": {
+            "match_type": "ticker_token",
+            "matched_field": "title",
+            "raw_title": "NCPL Stock Slides As Financial Pressures Test Traders\u2019 Nerves - StocksToTrade",
+            "source": "StocksToTrade",
+            "source_provenance": {
+              "feed_label": "\"(\"NETCAPITAL INC\" OR \"$NCPL\")\" - Google News",
+              "publisher_label_basis": "entry_source",
+              "publisher_url": "https://stockstotrade.com",
+              "source_group": "ROSS_ISSUER_QUERY"
+            },
+            "source_tier": "operational_query",
+            "timestamp_provenance": {
+              "published_original": "Thu, 22 Oct 2026 13:20:00 GMT",
+              "published_utc": "2026-10-22T13:20:00+00:00",
+              "selected_time_basis": "published",
+              "updated_original": null,
+              "updated_utc": null
+            }
+          },
+          "reference_id": "https://news.google.com/rss/articles/CBMidkFVX3lxTFBPLWtCXzAwVVBtTldLZENXQ0dseFYwVno5NjNnUFc2QVRZQkU1Z1RpVW02T2lFMlhtSjQzMEhNb1ZCVlptSHFSYS1TaVgwTDliZ3c2Q1hDZ0pFN3A4SS0wdEZDSFFEb3hUUTZMakRIUXFRXzZBd1E?oc=5",
+          "region": null,
+          "retrieval_status": "partial",
+          "source_credibility_score": 0.0,
+          "source_domain": "news.google.com",
+          "source_group": "ROSS_ISSUER_QUERY",
+          "source_reliability_score": 0.0,
+          "source_tier": "operational_query",
+          "spike_indicator": null,
+          "stale": false,
+          "summary": "NCPL Stock Slides As Financial Pressures Test Traders\u2019 Nerves &nbsp;&nbsp; StocksToTrade NCPL Stock Slides As Financial Pressures Test Traders\u2019 Nerves &nbsp;&nbsp; StocksToTrade",
+          "symbol": "NCPL",
+          "timed_out": false,
+          "url": "https://news.google.com/rss/articles/CBMidkFVX3lxTFBPLWtCXzAwVVBtTldLZENXQ0dseFYwVno5NjNnUFc2QVRZQkU1Z1RpVW02T2lFMlhtSjQzMEhNb1ZCVlptSHFSYS1TaVgwTDliZ3c2Q1hDZ0pFN3A4SS0wdEZDSFFEb3hUUTZMakRIUXFRXzZBd1E?oc=5",
+          "velocity_10m": 0,
+          "velocity_30m": 0,
+          "velocity_5m": 0,
+          "velocity_60m": 0,
+          "verified_source": null
+        }
+      ],
+      "qualification_ids": [
+        "rss-operational:NCPL:dd907819932335007f6f2d21"
+      ],
+      "provider_status": "partial_request_failure",
+      "retrieval_status": "partial",
+      "provider_available": true,
+      "budget_exhausted": false,
+      "acquisition_scope": {
+        "acquisition_completed": true,
+        "completed_query_urls": [
+          "https://news.google.com/rss/search?q=%28%22NETCAPITAL+INC%22+OR+%22%24NCPL%22%29&hl=en-US&gl=US&ceid=US%3Aen"
+        ],
+        "coverage_deadline_exhausted": false,
+        "retained_matched_entry_count": 1,
+        "search_completeness_established": false,
+        "source_coverage_complete": false,
+        "source_coverage_status": "partial"
+      },
+      "issuer_query": [
+        {
+          "attempted": true,
+          "processing_truncated": false,
+          "reason": null,
+          "status": "available",
+          "url": "https://news.google.com/rss/search?q=%28%22NETCAPITAL+INC%22+OR+%22%24NCPL%22%29&hl=en-US&gl=US&ceid=US%3Aen"
+        }
+      ],
+      "fallback_skipped_reason": "primary_coverage_incomplete",
+      "source_failures": {
+        "www.globenewswire.com": "HTTP_403:2",
+        "www.reuters.com": "HTTP_401:1"
+      },
+      "issuer_query_source": {
+        "source_id": "https://news.google.com/rss/search?q=%28%22NETCAPITAL+INC%22+OR+%22%24NCPL%22%29&hl=en-US&gl=US&ceid=US%3Aen",
+        "source_group": "ROSS_ISSUER_QUERY",
+        "retrieval_status": "available",
+        "failure_reason": null,
+        "http_status": 200,
+        "feed_item_count": 72,
+        "matched_count": 1,
+        "processing_truncated": false,
+        "entry_diagnostics": {
+          "coordinator_processing_seconds": 0.0023090001195669174,
+          "date_range_scope": "examined entries; may be partial",
+          "empty_feed": false,
+          "evaluation_time_utc": "2026-10-22T17:31:16.413718+00:00",
+          "future_entries": 0,
+          "http_request_attempted": true,
+          "missing_invalid_dates": 0,
+          "missing_titles": 0,
+          "observed_date_max_utc": "2026-10-22T13:20:00+00:00",
+          "observed_date_min_utc": "2020-11-04T08:00:00+00:00",
+          "observed_publication_max_utc": "2026-10-22T13:20:00+00:00",
+          "observed_publication_min_utc": "2020-11-04T08:00:00+00:00",
+          "observed_update_max_utc": null,
+          "observed_update_min_utc": null,
+          "published_time_used": 72,
+          "raw_capture": null,
+          "relevance_rejections_by_symbol": {
+            "NCPL": 0
+          },
+          "stale_entries": 71,
+          "transport_cache_hit": false,
+          "updated_time_used": 0,
+          "usable_dates": 72,
+          "window_start_utc": "2026-10-22T11:31:16.413718+00:00",
+          "within_window": 1
+        }
+      }
+    },
+    "CLIK": {
+      "issuer": {
+        "aliases": [],
+        "company_name": "CLICK HOLDINGS LTD/BVI-A",
+        "exchange": "SMART",
+        "market": null,
+        "metadata": {
+          "matching_aliases": [
+            "CLICK HOLDINGS LTD BVI A"
+          ]
+        },
+        "region": null,
+        "symbol": "CLIK"
+      },
+      "updated_at": "2026-10-22T17:31:20.207342+00:00",
+      "evidence": [],
+      "qualification_ids": [],
+      "provider_status": "partial_request_failure",
+      "retrieval_status": "partial",
+      "provider_available": true,
+      "budget_exhausted": false,
+      "acquisition_scope": {
+        "acquisition_completed": true,
+        "completed_query_urls": [
+          "https://news.google.com/rss/search?q=%28%22CLICK+HOLDINGS+LTD%2FBVI-A%22+OR+%22%24CLIK%22%29&hl=en-US&gl=US&ceid=US%3Aen"
+        ],
+        "coverage_deadline_exhausted": false,
+        "retained_matched_entry_count": 0,
+        "search_completeness_established": false,
+        "source_coverage_complete": false,
+        "source_coverage_status": "partial"
+      },
+      "issuer_query": [
+        {
+          "attempted": true,
+          "processing_truncated": false,
+          "reason": null,
+          "status": "available",
+          "url": "https://news.google.com/rss/search?q=%28%22CLICK+HOLDINGS+LTD%2FBVI-A%22+OR+%22%24CLIK%22%29&hl=en-US&gl=US&ceid=US%3Aen"
+        }
+      ],
+      "fallback_skipped_reason": "primary_coverage_incomplete",
+      "source_failures": {
+        "www.globenewswire.com": "HTTP_403:2",
+        "www.reuters.com": "HTTP_401:1"
+      },
+      "issuer_query_source": {
+        "source_id": "https://news.google.com/rss/search?q=%28%22CLICK+HOLDINGS+LTD%2FBVI-A%22+OR+%22%24CLIK%22%29&hl=en-US&gl=US&ceid=US%3Aen",
+        "source_group": "ROSS_ISSUER_QUERY",
+        "retrieval_status": "available",
+        "failure_reason": null,
+        "http_status": 200,
+        "feed_item_count": 5,
+        "matched_count": 0,
+        "processing_truncated": false,
+        "entry_diagnostics": {
+          "coordinator_processing_seconds": 0.0005219001322984695,
+          "date_range_scope": "examined entries; may be partial",
+          "empty_feed": false,
+          "evaluation_time_utc": "2026-10-22T17:31:19.035620+00:00",
+          "future_entries": 0,
+          "http_request_attempted": true,
+          "missing_invalid_dates": 0,
+          "missing_titles": 0,
+          "observed_date_max_utc": "2026-10-22T15:20:00+00:00",
+          "observed_date_min_utc": "2026-08-25T07:00:00+00:00",
+          "observed_publication_max_utc": "2026-10-22T15:20:00+00:00",
+          "observed_publication_min_utc": "2026-08-25T07:00:00+00:00",
+          "observed_update_max_utc": null,
+          "observed_update_min_utc": null,
+          "published_time_used": 5,
+          "raw_capture": null,
+          "relevance_rejections_by_symbol": {
+            "CLIK": 1
+          },
+          "stale_entries": 4,
+          "transport_cache_hit": false,
+          "updated_time_used": 0,
+          "usable_dates": 5,
+          "window_start_utc": "2026-10-22T11:31:19.035620+00:00",
+          "within_window": 1
+        }
+      }
+    },
+    "FBLG": {
+      "issuer": {
+        "aliases": [],
+        "company_name": "FIBROBIOLOGICS INC",
+        "exchange": "SMART",
+        "market": null,
+        "metadata": {
+          "matching_aliases": []
+        },
+        "region": null,
+        "symbol": "FBLG"
+      },
+      "updated_at": "2026-10-22T17:23:07.603639+00:00",
+      "evidence": [],
+      "qualification_ids": [],
+      "provider_status": "partial_request_failure",
+      "retrieval_status": "partial",
+      "provider_available": true,
+      "budget_exhausted": false,
+      "acquisition_scope": {
+        "acquisition_completed": true,
+        "completed_query_urls": [
+          "https://news.google.com/rss/search?q=%28%22FIBROBIOLOGICS+INC%22+OR+%22%24FBLG%22%29&hl=en-US&gl=US&ceid=US%3Aen"
+        ],
+        "coverage_deadline_exhausted": false,
+        "retained_matched_entry_count": 0,
+        "search_completeness_established": false,
+        "source_coverage_complete": false,
+        "source_coverage_status": "partial"
+      },
+      "issuer_query": [
+        {
+          "attempted": true,
+          "processing_truncated": false,
+          "reason": null,
+          "status": "available",
+          "url": "https://news.google.com/rss/search?q=%28%22FIBROBIOLOGICS+INC%22+OR+%22%24FBLG%22%29&hl=en-US&gl=US&ceid=US%3Aen"
+        }
+      ],
+      "fallback_skipped_reason": "primary_coverage_incomplete",
+      "source_failures": {
+        "www.globenewswire.com": "HTTP_403:2",
+        "www.marketwatch.com": "TIMEOUTERROR:1",
+        "www.reuters.com": "HTTP_401:1"
+      },
+      "issuer_query_source": {
+        "source_id": "https://news.google.com/rss/search?q=%28%22FIBROBIOLOGICS+INC%22+OR+%22%24FBLG%22%29&hl=en-US&gl=US&ceid=US%3Aen",
+        "source_group": "ROSS_ISSUER_QUERY",
+        "retrieval_status": "available",
+        "failure_reason": null,
+        "http_status": 200,
+        "feed_item_count": 23,
+        "matched_count": 0,
+        "processing_truncated": false,
+        "entry_diagnostics": {
+          "coordinator_processing_seconds": 0.000714300200343132,
+          "date_range_scope": "examined entries; may be partial",
+          "empty_feed": false,
+          "evaluation_time_utc": "2026-10-22T17:23:06.604627+00:00",
+          "future_entries": 0,
+          "http_request_attempted": true,
+          "missing_invalid_dates": 0,
+          "missing_titles": 0,
+          "observed_date_max_utc": "2026-10-20T10:45:28+00:00",
+          "observed_date_min_utc": "2024-02-01T17:13:08+00:00",
+          "observed_publication_max_utc": "2026-10-20T10:45:28+00:00",
+          "observed_publication_min_utc": "2024-02-01T17:13:08+00:00",
+          "observed_update_max_utc": null,
+          "observed_update_min_utc": null,
+          "published_time_used": 23,
+          "raw_capture": null,
+          "relevance_rejections_by_symbol": {
+            "FBLG": 0
+          },
+          "stale_entries": 23,
+          "transport_cache_hit": false,
+          "updated_time_used": 0,
+          "usable_dates": 23,
+          "window_start_utc": "2026-10-22T11:23:06.604627+00:00",
+          "within_window": 0
+        }
+      }
+    },
+    "ATGL": {
+      "issuer": {
+        "aliases": [],
+        "company_name": "ALPHA TECHNOLOGY GROUP LTD-A",
+        "exchange": "SMART",
+        "market": null,
+        "metadata": {
+          "matching_aliases": [
+            "ALPHA TECHNOLOGY GROUP LTD A"
+          ]
+        },
+        "region": null,
+        "symbol": "ATGL"
+      },
+      "updated_at": "2026-10-22T17:28:11.776329+00:00",
+      "evidence": [],
+      "qualification_ids": [],
+      "provider_status": "partial_request_failure",
+      "retrieval_status": "partial",
+      "provider_available": true,
+      "budget_exhausted": false,
+      "acquisition_scope": {
+        "acquisition_completed": true,
+        "completed_query_urls": [
+          "https://news.google.com/rss/search?q=%28%22ALPHA+TECHNOLOGY+GROUP+LTD-A%22+OR+%22%24ATGL%22%29&hl=en-US&gl=US&ceid=US%3Aen"
+        ],
+        "coverage_deadline_exhausted": false,
+        "retained_matched_entry_count": 0,
+        "search_completeness_established": false,
+        "source_coverage_complete": false,
+        "source_coverage_status": "partial"
+      },
+      "issuer_query": [
+        {
+          "attempted": true,
+          "processing_truncated": false,
+          "reason": null,
+          "status": "available",
+          "url": "https://news.google.com/rss/search?q=%28%22ALPHA+TECHNOLOGY+GROUP+LTD-A%22+OR+%22%24ATGL%22%29&hl=en-US&gl=US&ceid=US%3Aen"
+        }
+      ],
+      "fallback_skipped_reason": "primary_coverage_incomplete",
+      "source_failures": {
+        "www.benzinga.com": "TIMEOUTERROR:1",
+        "www.globenewswire.com": "HTTP_403:2",
+        "www.marketwatch.com": "TIMEOUTERROR:1",
+        "www.reuters.com": "TIMEOUTERROR:1"
+      },
+      "issuer_query_source": {
+        "source_id": "https://news.google.com/rss/search?q=%28%22ALPHA+TECHNOLOGY+GROUP+LTD-A%22+OR+%22%24ATGL%22%29&hl=en-US&gl=US&ceid=US%3Aen",
+        "source_group": "ROSS_ISSUER_QUERY",
+        "retrieval_status": "available",
+        "failure_reason": null,
+        "http_status": 200,
+        "feed_item_count": 0,
+        "matched_count": 0,
+        "processing_truncated": false,
+        "entry_diagnostics": {
+          "coordinator_processing_seconds": 3.0199997127056122e-05,
+          "date_range_scope": "examined entries; may be partial",
+          "empty_feed": true,
+          "evaluation_time_utc": "2026-10-22T17:28:10.878619+00:00",
+          "future_entries": 0,
+          "http_request_attempted": true,
+          "missing_invalid_dates": 0,
+          "missing_titles": 0,
+          "observed_date_max_utc": null,
+          "observed_date_min_utc": null,
+          "observed_publication_max_utc": null,
+          "observed_publication_min_utc": null,
+          "observed_update_max_utc": null,
+          "observed_update_min_utc": null,
+          "published_time_used": 0,
+          "raw_capture": null,
+          "relevance_rejections_by_symbol": {
+            "ATGL": 0
+          },
+          "stale_entries": 0,
+          "transport_cache_hit": false,
+          "updated_time_used": 0,
+          "usable_dates": 0,
+          "window_start_utc": "2026-10-22T11:28:10.878619+00:00",
+          "within_window": 0
+        }
+      }
+    },
+    "MTEN": {
+      "issuer": {
+        "aliases": [],
+        "company_name": "MINGTENG INT CORP-A",
+        "exchange": "SMART",
+        "market": null,
+        "metadata": {
+          "matching_aliases": [
+            "MINGTENG INT CORP A"
+          ]
+        },
+        "region": null,
+        "symbol": "MTEN"
+      },
+      "updated_at": "2026-10-22T17:31:07.172398+00:00",
+      "evidence": [],
+      "qualification_ids": [],
+      "provider_status": "partial_request_failure",
+      "retrieval_status": "partial",
+      "provider_available": true,
+      "budget_exhausted": false,
+      "acquisition_scope": {
+        "acquisition_completed": true,
+        "completed_query_urls": [
+          "https://news.google.com/rss/search?q=%28%22MINGTENG+INT+CORP-A%22+OR+%22%24MTEN%22%29&hl=en-US&gl=US&ceid=US%3Aen"
+        ],
+        "coverage_deadline_exhausted": false,
+        "retained_matched_entry_count": 0,
+        "search_completeness_established": false,
+        "source_coverage_complete": false,
+        "source_coverage_status": "partial"
+      },
+      "issuer_query": [
+        {
+          "attempted": true,
+          "processing_truncated": false,
+          "reason": null,
+          "status": "available",
+          "url": "https://news.google.com/rss/search?q=%28%22MINGTENG+INT+CORP-A%22+OR+%22%24MTEN%22%29&hl=en-US&gl=US&ceid=US%3Aen"
+        }
+      ],
+      "fallback_skipped_reason": "primary_coverage_incomplete",
+      "source_failures": {
+        "www.globenewswire.com": "HTTP_403:2",
+        "www.marketwatch.com": "TIMEOUTERROR:1",
+        "www.reuters.com": "HTTP_401:1"
+      },
+      "issuer_query_source": {
+        "source_id": "https://news.google.com/rss/search?q=%28%22MINGTENG+INT+CORP-A%22+OR+%22%24MTEN%22%29&hl=en-US&gl=US&ceid=US%3Aen",
+        "source_group": "ROSS_ISSUER_QUERY",
+        "retrieval_status": "available",
+        "failure_reason": null,
+        "http_status": 200,
+        "feed_item_count": 5,
+        "matched_count": 0,
+        "processing_truncated": false,
+        "entry_diagnostics": {
+          "coordinator_processing_seconds": 0.0003424999304115772,
+          "date_range_scope": "examined entries; may be partial",
+          "empty_feed": false,
+          "evaluation_time_utc": "2026-10-22T17:31:05.885887+00:00",
+          "future_entries": 0,
+          "http_request_attempted": true,
+          "missing_invalid_dates": 0,
+          "missing_titles": 0,
+          "observed_date_max_utc": "2026-06-16T07:00:00+00:00",
+          "observed_date_min_utc": "2024-05-06T08:03:54+00:00",
+          "observed_publication_max_utc": "2026-06-16T07:00:00+00:00",
+          "observed_publication_min_utc": "2024-05-06T08:03:54+00:00",
+          "observed_update_max_utc": null,
+          "observed_update_min_utc": null,
+          "published_time_used": 5,
+          "raw_capture": null,
+          "relevance_rejections_by_symbol": {
+            "MTEN": 0
+          },
+          "stale_entries": 5,
+          "transport_cache_hit": false,
+          "updated_time_used": 0,
+          "usable_dates": 5,
+          "window_start_utc": "2026-10-22T11:31:05.885887+00:00",
+          "within_window": 0
+        }
+      }
+    }
+  },
+  "focus_evaluations": [
+    {
+      "line": 5585,
+      "symbol": "STAK",
+      "session": "RTH_MID",
+      "pct_change": "69.01",
+      "rvol_phase": "97.04",
+      "price": "1.6901",
+      "float": "6883781",
+      "catalyst_status": "DATA_UNAVAILABLE",
+      "catalyst_reason": "news_unavailable",
+      "qualification_reason": "no_valid_canonical_event",
+      "acquisition_health": "degraded",
+      "acquisition_reason": "acquisition_unavailable"
+    },
+    {
+      "line": 5588,
+      "symbol": "PFSA",
+      "session": "RTH_MID",
+      "pct_change": "35.41",
+      "rvol_phase": "53.66",
+      "price": "1.1499",
+      "float": "518167",
+      "catalyst_status": "DATA_UNAVAILABLE",
+      "catalyst_reason": "news_unavailable",
+      "qualification_reason": "no_valid_canonical_event",
+      "acquisition_health": "degraded",
+      "acquisition_reason": "acquisition_unavailable"
+    },
+    {
+      "line": 5591,
+      "symbol": "NCPL",
+      "session": "RTH_MID",
+      "pct_change": "55.73",
+      "rvol_phase": "5.15",
+      "price": "2.445",
+      "float": "4387760",
+      "catalyst_status": "DATA_UNAVAILABLE",
+      "catalyst_reason": "news_unavailable",
+      "qualification_reason": "no_valid_canonical_event",
+      "acquisition_health": "degraded",
+      "acquisition_reason": "acquisition_unavailable"
+    },
+    {
+      "line": 5594,
+      "symbol": "CLIK",
+      "session": "RTH_MID",
+      "pct_change": "19.23",
+      "rvol_phase": "48.33",
+      "price": "1.395",
+      "float": "264762",
+      "catalyst_status": "DATA_UNAVAILABLE",
+      "catalyst_reason": "news_unavailable",
+      "qualification_reason": "no_valid_canonical_event",
+      "acquisition_health": "degraded",
+      "acquisition_reason": "acquisition_unavailable"
+    },
+    {
+      "line": 5597,
+      "symbol": "FBLG",
+      "session": "RTH_MID",
+      "pct_change": "10.78",
+      "rvol_phase": "6.79",
+      "price": "1.1",
+      "float": "5191460",
+      "catalyst_status": "DATA_UNAVAILABLE",
+      "catalyst_reason": "news_unavailable",
+      "qualification_reason": "no_valid_canonical_event",
+      "acquisition_health": "degraded",
+      "acquisition_reason": "acquisition_unavailable"
+    },
+    {
+      "line": 20489,
+      "symbol": "STAK",
+      "session": "RTH_MID",
+      "pct_change": "69.5",
+      "rvol_phase": "96.82",
+      "price": "1.695",
+      "float": "6883781",
+      "catalyst_status": "DATA_UNAVAILABLE",
+      "catalyst_reason": "news_unavailable",
+      "qualification_reason": "no_valid_canonical_event",
+      "acquisition_health": "degraded",
+      "acquisition_reason": "partial_or_unknown_source_coverage"
+    },
+    {
+      "line": 20492,
+      "symbol": "NCPL",
+      "session": "RTH_MID",
+      "pct_change": "56.63",
+      "rvol_phase": "5.17",
+      "price": "2.4591",
+      "float": "4387760",
+      "catalyst_status": "DATA_UNAVAILABLE",
+      "catalyst_reason": "news_unavailable",
+      "qualification_reason": "no_valid_canonical_event",
+      "acquisition_health": "degraded",
+      "acquisition_reason": "partial_or_unknown_source_coverage"
+    },
+    {
+      "line": 20495,
+      "symbol": "CLIK",
+      "session": "RTH_MID",
+      "pct_change": "18.59",
+      "rvol_phase": "48.62",
+      "price": "1.3875",
+      "float": "264762",
+      "catalyst_status": "DATA_UNAVAILABLE",
+      "catalyst_reason": "news_unavailable",
+      "qualification_reason": "no_valid_canonical_event",
+      "acquisition_health": "degraded",
+      "acquisition_reason": "partial_or_unknown_source_coverage"
+    },
+    {
+      "line": 20498,
+      "symbol": "ATGL",
+      "session": "RTH_MID",
+      "pct_change": "10.39",
+      "rvol_phase": "5.67",
+      "price": "8.5",
+      "float": "14864979",
+      "catalyst_status": "DATA_UNAVAILABLE",
+      "catalyst_reason": "news_unavailable",
+      "qualification_reason": "no_valid_canonical_event",
+      "acquisition_health": "degraded",
+      "acquisition_reason": "acquisition_unavailable"
+    },
+    {
+      "line": 33984,
+      "symbol": "STAK",
+      "session": "RTH_MID",
+      "pct_change": "72.04",
+      "rvol_phase": "96.42",
+      "price": "1.7204",
+      "float": "6883781",
+      "catalyst_status": "DATA_UNAVAILABLE",
+      "catalyst_reason": "news_unavailable",
+      "qualification_reason": "no_valid_canonical_event",
+      "acquisition_health": "degraded",
+      "acquisition_reason": "partial_or_unknown_source_coverage"
+    },
+    {
+      "line": 33987,
+      "symbol": "NCPL",
+      "session": "RTH_MID",
+      "pct_change": "56.05",
+      "rvol_phase": "5.21",
+      "price": "2.45",
+      "float": "4387760",
+      "catalyst_status": "DATA_UNAVAILABLE",
+      "catalyst_reason": "news_unavailable",
+      "qualification_reason": "no_valid_canonical_event",
+      "acquisition_health": "degraded",
+      "acquisition_reason": "partial_or_unknown_source_coverage"
+    },
+    {
+      "line": 33990,
+      "symbol": "CLIK",
+      "session": "RTH_MID",
+      "pct_change": "17.09",
+      "rvol_phase": "48.63",
+      "price": "1.37",
+      "float": "264762",
+      "catalyst_status": "DATA_UNAVAILABLE",
+      "catalyst_reason": "news_unavailable",
+      "qualification_reason": "no_valid_canonical_event",
+      "acquisition_health": "degraded",
+      "acquisition_reason": "partial_or_unknown_source_coverage"
+    },
+    {
+      "line": 33993,
+      "symbol": "MTEN",
+      "session": "RTH_MID",
+      "pct_change": "14.44",
+      "rvol_phase": "4.16",
+      "price": "1.005",
+      "float": "4024135",
+      "catalyst_status": "DATA_UNAVAILABLE",
+      "catalyst_reason": "news_unavailable",
+      "qualification_reason": "no_valid_canonical_event",
+      "acquisition_health": "degraded",
+      "acquisition_reason": "acquisition_unavailable"
+    }
+  ],
+  "focus_rejections": [
+    {
+      "line": 5586,
+      "symbol": "STAK",
+      "reason": "DROP_NO_CATALYST"
+    },
+    {
+      "line": 5589,
+      "symbol": "PFSA",
+      "reason": "DROP_NO_CATALYST"
+    },
+    {
+      "line": 5592,
+      "symbol": "NCPL",
+      "reason": "DROP_NO_CATALYST"
+    },
+    {
+      "line": 5595,
+      "symbol": "CLIK",
+      "reason": "DROP_NO_CATALYST"
+    },
+    {
+      "line": 5598,
+      "symbol": "FBLG",
+      "reason": "DROP_NO_CATALYST"
+    },
+    {
+      "line": 20490,
+      "symbol": "STAK",
+      "reason": "DROP_NO_CATALYST"
+    },
+    {
+      "line": 20493,
+      "symbol": "NCPL",
+      "reason": "DROP_NO_CATALYST"
+    },
+    {
+      "line": 20496,
+      "symbol": "CLIK",
+      "reason": "DROP_NO_CATALYST"
+    },
+    {
+      "line": 20499,
+      "symbol": "ATGL",
+      "reason": "DROP_NO_CATALYST"
+    },
+    {
+      "line": 33985,
+      "symbol": "STAK",
+      "reason": "DROP_NO_CATALYST"
+    },
+    {
+      "line": 33988,
+      "symbol": "NCPL",
+      "reason": "DROP_NO_CATALYST"
+    },
+    {
+      "line": 33991,
+      "symbol": "CLIK",
+      "reason": "DROP_NO_CATALYST"
+    },
+    {
+      "line": 33994,
+      "symbol": "MTEN",
+      "reason": "DROP_NO_CATALYST"
+    }
+  ],
+  "reassessment_count": 58,
+  "reassessment_failures": 0
+}

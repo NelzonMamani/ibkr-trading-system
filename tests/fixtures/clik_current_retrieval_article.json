@@ -1,0 +1,34 @@
+{
+  "source_results_sha256": "17975aee3245ef34b0d65454142570e817adf025b343bef06bc9dc6d41d2c821",
+  "label": "current retrieval experiment, not receipt9 reconstruction or natural acceptance",
+  "reference_utc": "2026-10-22T21:37:51.890520+00:00",
+  "company_name": "CLICK HOLDINGS LTD/BVI-A",
+  "symbol": "CLIK",
+  "article": {
+    "entry_index": 2,
+    "article_identity": "bc2160f1d50f44644ffa9a6bc5d3438606a431a0d8a9aa08f8cc3fc630511342",
+    "duplicate_within_response": false,
+    "timestamp_provenance": {
+      "published_original": "Thu, 22 Oct 2026 15:20:00 GMT",
+      "published_utc": "2026-10-22T15:20:00+00:00",
+      "selected_time_basis": "published",
+      "updated_original": null,
+      "updated_utc": null
+    },
+    "match": null,
+    "exclusion_reason": "outside_lookback_window",
+    "publisher": "Quiver Quantitative",
+    "publisher_basis": "entry_source",
+    "title_publication_identity": "bd8ed4ab3aa4b1a6322f9c52379d81f2415b2e82f685cc87004b59c37a0aa770",
+    "privacy_redacted": false,
+    "title": "Click Holdings Reports Record FY2026 Revenue, Profit and Segment Growth Across Nursing, Logistics and Professional Services",
+    "title_truncated": false,
+    "title_sha256": "155aa1c3d2cd060ac9822c4820a68f93b7c7b236db23fa5f1984bd64b1e2ac11",
+    "summary": "Click Holdings Reports Record FY2026 Revenue, Profit and Segment Growth Across Nursing, Logistics and Professional Services &nbsp;&nbsp; Quiver Quantitative Click Holdings Reports Record FY2026 Revenue, Profit and Segment Growth Across Nursing, Logistics and Professional Services &nbsp;&nbsp; Quiver Quantitative",
+    "summary_truncated": false,
+    "summary_sha256": "836c21cec2349a0c2118daffe4140d476fe595292d9b0da8eb60dd935dbbabbb",
+    "url": "https://news.google.com/rss/articles/CBMi8gFBVV95cUxNbHJUSWdrR09TcUE4alpsQlk4UlYySUNUR0xrOHM0NHJZZTBWRjNhRzNOcnhmSGFUcnZERjRzOW44RlQ5YlptS056V3YxWVJrUVA5S292WWtnWFpKdHd1eXNOTzFiR3NVVXluTnYzcFYwdTVVaml6VlJCRHlEQm00dG50REt2WDZJbEROSmFHSXlSOHJXZkRzV1ROamtfY1VyWnJhRkM2VnI5dnlLSE02bFlHel9DTE1oYmpvQ0lyUTI5YVdWQUZoclVGaDNTcTJNb0pkTVRueVJ5UlZWa2dOX2J3ZHN0UE9NNWZhQmhPOUkxdw?oc=5",
+    "url_truncated": false,
+    "url_sha256": "7c6fa71f137cd4557d4eabdf7d6b88470ffab9d9f8deccaf46723ff9a1dc6094"
+  }
+}

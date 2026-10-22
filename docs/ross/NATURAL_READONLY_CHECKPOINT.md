@@ -2294,3 +2294,77 @@ responses remain supported; native matching-end/error/wait/ownership proof stays
 mandatory and no timeout is enlarged. Independent review and changed-head checks
 must apply to the repaired head before controlled integration. No new operator run,
 provider/broker acquisition, holdings change or readiness upgrade. PAPER_READY=NO.
+
+### Receipt9 — current Ross checklist after offline catalyst investigation
+
+Accepted `be5cc0090c067a965f8a1398f631d2d984e4fc6a`; archive
+SHA256 `eefa84ae5d17280b27651afc670c9dc2bd01152bc2266b108c8ade3bf30f1940`.
+See [the symbol trace and offline replay findings](RECEIPT9_CATALYST_FINDINGS.md).
+This current checklist supplements the historical checklists above; receipt7 FAIL,
+receipt8 FAIL and earlier receipts retain their original provenance and status.
+
+| Ross completion outcome | Current receipt9 evidence / remaining work |
+| --- | --- |
+| Terminal shutdown, completed independent audit, inventory, zero mutations |PASS preserved and independently revalidated offline; query end received, both mutation counter sets zero, final inventory empty.|
+| Source and operator order state |PASS preserved; complete source-before/source-after equality; order-state comparison unchanged.|
+| Natural broker discovery / Watchlist |3 confirmed50-row matching-end scans; Watchlists5/4/4; no teaching injection, seeding or backfill.|
+| Independent background acquisition and serialized publication |Natural evidence arrival established: first evidence5.5736879s; completed161/failed5;161 persisted publications including21 nonempty publication events; cleanup complete. Partial provider coverage remains open.|
+| Whole-Watchlist reconsideration through Core between scans |Natural58 canonical reassessments with no failure; positive0/Focus0. Offline real-Core replay confirms later evidence is read without rediscovery or HTTP; existing positive-path/strict-gate tests pass.|
+| Canonical catalyst qualification |NOT ESTABLISHED naturally. PFSA2/NCPL1 retained commentary articles are nonqualifying; other requested symbols retain0.13 logged Focus evaluations drop at mandatory catalyst gate.|
+| Coverage / attribution gaps |403/401/timeouts, stale/empty issuer feeds and deferred extended tier remain partial coverage. CLIK's fresh rejected text was not captured, so correctness of that specific relevance exclusion remains unresolved. No proven implementation repair from this receipt.|
+| Downstream setup / trigger / intent progression |NOT ESTABLISHED; no forced Focus, synthetic natural-success claim or trading.|
+| Undefined lifecycle policy |Correction/retraction and financing-risk expiry remain undefined; retained dilution veto unchanged.|
+| Holdings, ownership blockers and GUI draft |Preserved unchanged. PAPER_READY=NO.|
+
+Only source inspection, preserved-archive analysis and bounded offline fixtures ran.
+No new operator observation, provider/broker acquisition, holdings change, full-suite
+repeat, latency repair or readiness upgrade. No documentation-only release PR.
+
+### Receipt9 acquisition follow-up — bounded exclusion evidence
+
+See [issuer acquisition analysis and the single news-only diagnostic decision](ISSUER_ACQUISITION_FOLLOWUP.md).
+Terminal PASS and58 Core reconsiderations remain accepted; they were not repeated.
+No proven ordering, timezone or retained-item-cap defect explains the observed old
+issuer material. Upstream queries lack a recency request; provider behaviour remains
+unresolved without captured raw responses. The161-URL catalogue is not current
+issuer coverage. Do not broaden source fanout, freshness or catalyst policy.
+
+The CLIK adjudication gap is repaired prospectively with bounded, privacy-sanitized
+exclusion identity/text/provenance in existing retrieval metadata and evidence
+exports; original receipt9's missing rejected text cannot be reconstructed. Samples
+are diagnostic, not canonical evidence. The smallest proposed acquisition change
+is a same-budget replacement recency query, conditional on one four-URL,8s, news-only
+paired diagnostic for CLIK/STAK. It has not run and authorizes no operator observation.
+Focused33-case checks pass; independent review belongs to the changed head.
+No holdings change, broker/provider acquisition, trading or readiness upgrade.
+PAPER_READY=NO.
+
+### Current-retrieval CLIK identity defect — narrow offline repair
+
+The authorized paired experiment completed: original CLIK/STAK5/6 entries versus
+when:6h0/0; no fresh-relevant improvement, no production query replacement. See
+[the captured-article identity replay](CLIK_CAPTURED_IDENTITY_REPAIR.md).
+
+The captured public name Click Holdings failed against broker CLICK HOLDINGS
+LTD/BVI-A. Recognized broker suffix normalization and preservation of the full
+specific two-word supplied alias repair that demonstrated matcher path. Single-word,
+generic, unrelated-company and ticker-collision protections remain; canonical
+classification and freshness are unchanged. The original article is stale at the
+experiment clock and nonqualifying even in the explicitly labelled earlier-clock
+counterfactual. No receipt9 availability or acceptance is inferred; receipt9's
+uncaptured CLIK rejection remains unadjudicated.
+
+Carry local2c22693e's exclusion evidence and independent review forward. Preserve
+receipt9 terminal PASS and58 reconsiderations, historical failures, holdings,
+ownership blockers and GUI draft. Focused97 checks pass; exact-head independent
+review is required before integration. No new live request or observation.
+PAPER_READY=NO.
+
+
+CLIK repair review follow-up: head465ecef was blocked independently because issuer
+brand words could supply catalyst keywords. Canonical event classification now
+excludes the matched issuer identity span; dedicated brand negatives and actual
+event positives pass alongside the focused ownership/lifecycle checks (216passed,
+4 existing warnings). Exact corrected-head review is required before integration.
+The captured article remains stale and has no canonical classification; receipt9's
+uncaptured rejection remains unadjudicated. PAPER_READY=NO.
