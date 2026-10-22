@@ -2294,3 +2294,28 @@ responses remain supported; native matching-end/error/wait/ownership proof stays
 mandatory and no timeout is enlarged. Independent review and changed-head checks
 must apply to the repaired head before controlled integration. No new operator run,
 provider/broker acquisition, holdings change or readiness upgrade. PAPER_READY=NO.
+
+### Receipt9 — current Ross checklist after offline catalyst investigation
+
+Accepted `be5cc0090c067a965f8a1398f631d2d984e4fc6a`; archive
+SHA256 `eefa84ae5d17280b27651afc670c9dc2bd01152bc2266b108c8ade3bf30f1940`.
+See [the symbol trace and offline replay findings](RECEIPT9_CATALYST_FINDINGS.md).
+This current checklist supplements the historical checklists above; receipt7 FAIL,
+receipt8 FAIL and earlier receipts retain their original provenance and status.
+
+| Ross completion outcome | Current receipt9 evidence / remaining work |
+| --- | --- |
+| Terminal shutdown, completed independent audit, inventory, zero mutations |PASS preserved and independently revalidated offline; query end received, both mutation counter sets zero, final inventory empty.|
+| Source and operator order state |PASS preserved; complete source-before/source-after equality; order-state comparison unchanged.|
+| Natural broker discovery / Watchlist |3 confirmed50-row matching-end scans; Watchlists5/4/4; no teaching injection, seeding or backfill.|
+| Independent background acquisition and serialized publication |Natural evidence arrival established: first evidence5.5736879s; completed161/failed5;161 persisted publications including21 nonempty publication events; cleanup complete. Partial provider coverage remains open.|
+| Whole-Watchlist reconsideration through Core between scans |Natural58 canonical reassessments with no failure; positive0/Focus0. Offline real-Core replay confirms later evidence is read without rediscovery or HTTP; existing positive-path/strict-gate tests pass.|
+| Canonical catalyst qualification |NOT ESTABLISHED naturally. PFSA2/NCPL1 retained commentary articles are nonqualifying; other requested symbols retain0.13 logged Focus evaluations drop at mandatory catalyst gate.|
+| Coverage / attribution gaps |403/401/timeouts, stale/empty issuer feeds and deferred extended tier remain partial coverage. CLIK's fresh rejected text was not captured, so correctness of that specific relevance exclusion remains unresolved. No proven implementation repair from this receipt.|
+| Downstream setup / trigger / intent progression |NOT ESTABLISHED; no forced Focus, synthetic natural-success claim or trading.|
+| Undefined lifecycle policy |Correction/retraction and financing-risk expiry remain undefined; retained dilution veto unchanged.|
+| Holdings, ownership blockers and GUI draft |Preserved unchanged. PAPER_READY=NO.|
+
+Only source inspection, preserved-archive analysis and bounded offline fixtures ran.
+No new operator observation, provider/broker acquisition, holdings change, full-suite
+repeat, latency repair or readiness upgrade. No documentation-only release PR.
