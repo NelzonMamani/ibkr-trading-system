@@ -108,3 +108,14 @@ def test_full_sample_slots_do_not_process_more_excluded_summary_text():
             summary=lambda:calls.append(True) or 'summary',url='',date_facts={})
     assert len(calls)==2
     assert d['exclusion_evidence']['counts']['outside_lookback_window']==100
+
+
+def test_privacy_expansion_sets_truncation_flag_at_exact_boundary():
+    d={}
+    title='x'*505+' U12345'
+    assert len(title)==512
+    retain_exclusion(d,reason='issuer_match_unverified',entry_index=1,title=title,
+                     summary='',url='',date_facts={})
+    row=d['exclusion_evidence']['samples']['issuer_match_unverified'][0]
+    assert len(row['title'])==512 and row['privacy_redacted'] and row['title_truncated']
+    assert 'U12345' not in row['title']

@@ -36,7 +36,7 @@ def retain_exclusion(diagnostics, *, reason, entry_index, title, summary, url,
     for key, value in (('title', title), ('summary', summary), ('url', url)):
         value = str(value or '')
         record[key] = safe_input[key][:TEXT_LIMITS[key]]
-        record[key + '_truncated'] = len(value) > TEXT_LIMITS[key]
+        record[key + '_truncated'] = max(len(value), len(safe_input[key])) > TEXT_LIMITS[key]
         record[key + '_sha256'] = hashlib.sha256(value.encode('utf-8')).hexdigest()
     # Identity is over the actual normalized fields used at the filter boundary.
     record['article_identity_sha256'] = hashlib.sha256(

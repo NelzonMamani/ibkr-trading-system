@@ -121,3 +121,10 @@ lifecycle; they were corrected, not counted as passes. No production gate was ch
 to satisfy fixtures. Independent changed-head review is required before integration.
 No full suite or infrastructure checks were repeated. Receipt7/8 historical failures,
 receipt9 PASS, holdings, ownership blockers and GUI draft are preserved. PAPER_READY=NO.
+
+Independent review of7f841bd6 found no safety/authority blocker and identified one
+minor diagnostic accuracy case: privacy redaction may expand text across the field
+limit even when the original fits. Truncation now reports either original or
+sanitized-length overflow. The exact512-character boundary regression and all six
+exclusion tests passed in0.80s after that change; the earlier33-case run remains a
+separate receipt. No broad suite was repeated for this one-line metadata correction.
