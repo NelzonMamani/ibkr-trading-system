@@ -1,4 +1,5 @@
 """Captured current article and explicitly counterfactual event replays; offline."""
+from dataclasses import replace
 from datetime import datetime, timezone
 import json
 from pathlib import Path
@@ -90,3 +91,23 @@ def test_other_company_event_ownership_is_not_inherited(monkeypatch,title):
     import time
     monkeypatch.setattr(time,'time',lambda:datetime(2026,10,22,17,20,tzinfo=timezone.utc).timestamp())
     assert not assess_issuer_event('CLIK',evidence(title))['qualified']
+
+
+@pytest.mark.parametrize('company,title,expected',(
+    ('AI Group Ltd', 'AI Group launches a routine website redesign', None),
+    ('EV Holdings Ltd', 'EV Holdings expands nursing services', None),
+    ('Contract Group Ltd', 'Contract Group reports record annual sales', None),
+    ('AI Holdings Ltd/BVI-A', 'AI Holdings launches services', None),
+    ('Contract Holdings Ltd/BVI-A', 'Contract Holdings reports record', None),
+    ('AI Group Ltd', 'AI Group reports earnings beat', 'EARNINGS'),
+    ('AI Holdings Ltd/BVI-A', 'AI Holdings launches AI platform', 'TECH_CATALYST'),
+    ('Contract Group Ltd', 'Contract Group wins major contract', 'CONTRACT'),
+))
+def test_issuer_brand_cannot_supply_event_keyword(monkeypatch, company, title, expected):
+    import time
+    monkeypatch.setattr(time, 'time', lambda: datetime(2026,10,22,17,20,tzinfo=timezone.utc).timestamp())
+    item = replace(evidence(title), company_name=company)
+    decision = assess_issuer_event('CLIK', item)
+    assert decision['qualified'] is (expected is not None)
+    if expected is not None:
+        assert decision['catalyst_type'] == expected

@@ -233,13 +233,15 @@ def assess_issuer_event(symbol, item, candidates=()):
     clauses.append(title[start:])
     for clause in clauses:
         clause = clause.strip()
-        clause_kind = classify_headline(clause)
-        if clause_kind is None:
-            continue
         subject_end = identity_end(clause)
         if subject_end is None:
             continue
         remainder = clause[subject_end:]
+        # Identity words (e.g. AI Group) cannot supply the asserted event.
+        # Classify only the text outside the verified issuer identity span.
+        clause_kind = classify_headline(remainder)
+        if clause_kind is None:
+            continue
         # Multiple coordinated subjects are ambiguous without event binding.
         event = next((m for m in re.finditer(r'\b(?:' + '|'.join(re.escape(form) for keyword in CATALYST_KEYWORDS for form in CATALYST_KEYWORD_FORMS.get(keyword, (keyword,))) + r')\b', remainder, re.I)), None)
         prefix = remainder[:event.start()] if event else remainder

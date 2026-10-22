@@ -82,3 +82,21 @@ forward as ancestors, not overwritten. Receipt9 terminal PASS and58 between-scan
 reconsiderations remain accepted. Receipt7 terminal FAIL, receipt8 failures,
 holdings, ownership blockers and GUI draft are preserved. No new requests, broker
 connection/runtime, operator observation or trading. PAPER_READY=NO.
+
+
+## Independent review finding and corrected event boundary
+
+Independent review blocked head 465ecef82027ff74cfe2a9ee283fec311898fba7:
+newly usable names such as AI Group, EV Holdings and Contract Group could supply
+an event keyword from their identity alone. Offline reproductions confirmed this.
+Canonical assessment now classifies only the remainder after the verified issuer
+identity. A recognized event keyword must occur outside that span; vocabulary,
+freshness and ownership checks remain unchanged. Brand-only routine announcements
+fail closed, while genuine earnings, AI launches and contract assertions outside
+the issuer span retain their existing classes. This is a stricter attribution gate.
+
+Focused validation after this correction: 216 passed, four existing datetime
+DeprecationWarnings, in 2.96s across eight identity, privacy, provider, ownership and
+lifecycle test files. The initial new-test run failed because the test attempted to
+mutate frozen NewsEvidence; corrected to dataclasses.replace, then all passed.
+No full suite, infrastructure checks, acquisition or operator run occurred.

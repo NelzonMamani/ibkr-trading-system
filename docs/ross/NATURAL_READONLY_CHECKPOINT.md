@@ -2359,3 +2359,12 @@ receipt9 terminal PASS and58 reconsiderations, historical failures, holdings,
 ownership blockers and GUI draft. Focused97 checks pass; exact-head independent
 review is required before integration. No new live request or observation.
 PAPER_READY=NO.
+
+
+CLIK repair review follow-up: head465ecef was blocked independently because issuer
+brand words could supply catalyst keywords. Canonical event classification now
+excludes the matched issuer identity span; dedicated brand negatives and actual
+event positives pass alongside the focused ownership/lifecycle checks (216passed,
+4 existing warnings). Exact corrected-head review is required before integration.
+The captured article remains stale and has no canonical classification; receipt9's
+uncaptured rejection remains unadjudicated. PAPER_READY=NO.
