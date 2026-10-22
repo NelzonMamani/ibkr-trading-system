@@ -16,12 +16,12 @@ root = Path(root_text); repo = root/'s'; evidence = root/'e'; state = root/'stat
 _timing_started = time.monotonic()
 _timing_rows = []
 def preflight_timing(stage):
-    if phase != 'preflight':
+    if phase not in ('preflight', 'package'):
         return
     evidence.mkdir(parents=True, exist_ok=True)
     _timing_rows.append({'stage': stage, 'utc': datetime.now(timezone.utc).isoformat(),
                          'elapsed_seconds': time.monotonic() - _timing_started})
-    target = evidence/'preflight-timing.json'
+    target = evidence/(phase+'-timing.json')
     temporary = target.with_suffix('.tmp')
     temporary.write_text(json.dumps({'pid': os.getpid(), 'stages': _timing_rows}, indent=2))
     temporary.replace(target)
@@ -33,6 +33,7 @@ from scripts.certification.pr1040_real_readonly_runtime_observation_adapter impo
 from src.config.config_registry import CONFIG_REGISTRY
 preflight_timing('adapter_and_registry_imports_complete')
 env = dict(os.environ)
+env.pop('PR1108_CACHE_PROBE_TRACE', None)
 env.pop('PYTHONHOME', None)
 env.pop('PYTHONSTARTUP', None)
 for entry in CONFIG_REGISTRY.values():
@@ -64,8 +65,12 @@ preflight_timing('supervisor_imports_complete')
 def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
 def source_manifest():
+    preflight_timing('source_enumeration_begin')
     paths = subprocess.check_output(['git','ls-files','-z'], cwd=repo).decode().split('\0')
-    return {name: digest(repo/name) for name in paths if name}
+    preflight_timing('source_enumeration_complete_hashing_begin')
+    manifest = {name: digest(repo/name) for name in paths if name}
+    preflight_timing('source_hashing_complete')
+    return manifest
 if phase == 'preflight':
     preflight_stage = 'initialization'
     try:
@@ -123,25 +128,19 @@ if phase == 'preflight':
             startup = state/'startup'; startup.mkdir()
             hook = startup/'sitecustomize.py'
             shutil.copy2(repo/'scripts/certification/readonly_cache_sitecustomize.py', hook)
-            probe = subprocess.run([sys.executable, '-c',
-                "import os, pathlib, yfinance.cache as c; "
-                "assert getattr(c, '_readonly_cache_isolated', False); "
-                "assert pathlib.Path(os.environ['PR1108_YFINANCE_CACHE']).is_absolute(); "
-                "print('CHILD_CACHE_ISOLATION_VERIFIED', c._readonly_cache_locations)"],
-                env=env, cwd=repo, capture_output=True, text=True, timeout=30)
-            write_json(evidence/'child-cache-probe.json', {'exit_code': probe.returncode,
-                'stdout': probe.stdout, 'stderr': probe.stderr, 'child_flags': ['-c'],
-                'parent_ignore_environment': bool(sys.flags.ignore_environment)})
-            if probe.returncode != 0 or 'CHILD_CACHE_ISOLATION_VERIFIED' not in probe.stdout:
-                raise SystemExit('Child startup/cache isolation failed; no runtime launch.')
+            from scripts.certification.readonly_cache_probe import run_cache_probe
+            run_cache_probe(sys.executable, repo, evidence, env)
             write_json(evidence/'operator-startup-config.json', {'scope': 'yfinance cache location only',
                 'sha256': digest(hook), 'source': hook.read_text(), 'path': str(hook)})
             preflight_stage = 'baseline_finalization'
             preflight_timing(preflight_stage)
+            preflight_timing('operator_state_begin')
             if original_state.exists():
                 shutil.copy2(original_state, state/'order-id.json')
             (root/'operator-state-source.json').write_text(json.dumps({'path': str(original_state), 'sha256': digest(original_state)}))
+            preflight_timing('operator_state_complete')
             write_json(evidence/'source-before.json', source_manifest())
+            preflight_timing('source_before_persisted')
             write_json(evidence/'preflight.json', {'head': expected, 'utc': datetime.now(timezone.utc).isoformat(),
                 'mode': 'READ_ONLY', 'seconds': runtime_seconds, 'top_n': get_config('TOPN_MAX_SYMBOLS_PER_STRATEGY'),
                 'watchlist_k': get_config('WATCHLIST_MAX_SYMBOLS_PER_STRATEGY'), 'focus_m': get_config('FOCUS_MAX_SYMBOLS_PER_STRATEGY'),
@@ -171,16 +170,23 @@ elif phase == 'package':
     # This phase performs filesystem/process checks only. Broker audit belongs
     # exclusively to the existing supervisor after its observed runtime exits.
     evidence.mkdir(exist_ok=True)
+    probe_path = evidence/'child-cache-probe.json'
+    if probe_path.exists() and json.loads(probe_path.read_text()).get('child_exited') is False:
+        raise SystemExit('Cache probe still alive; preserve raw evidence, no archive.')
     with capture_console(evidence/'packaging'):
+        preflight_timing('packaging_begin')
         after = source_manifest()
         before_path = evidence/'source-before.json'
+        preflight_timing('package_source_identity_begin')
         actual_head = subprocess.check_output(['git','rev-parse','HEAD'], cwd=repo, text=True).strip()
         clean = not subprocess.check_output(['git','status','--porcelain'], cwd=repo, text=True).strip()
         unchanged = None if not before_path.exists() else (actual_head == expected and clean and before_path.exists()
                      and json.loads(before_path.read_text()) == after)
         write_json(evidence/'source-after.json', after)
+        preflight_timing('source_after_persisted_inventory_begin')
         inventory = supervisor.runtime_inventory()
         write_json(evidence/'independent-final-runtime-inventory.json', inventory)
+        preflight_timing('package_inventory_complete_validation_begin')
         preflight_result_path = evidence/'preflight-result.json'
         preflight_result = json.loads(preflight_result_path.read_text()) if preflight_result_path.exists() else None
         attempted = (evidence/'observation-attempt.json').exists() or (evidence/'terminal').exists()
@@ -207,11 +213,13 @@ elif phase == 'package':
             'status':'NOT_VERIFIED' if mutation_ok is None else ('PASS' if mutation_ok else 'FAIL'),
             'authority': 'runtime SDK pre-guard counters AND separate supervisor audit counters',
             'not_inferred_from_zero_open_orders': True})
+        preflight_timing('package_operator_state_begin')
         saved = root/'operator-state-source.json'
         operator_unchanged = None
         if saved.exists():
             original = json.loads(saved.read_text())
             operator_unchanged = digest(Path(original['path'])) == original['sha256']
+        preflight_timing('package_operator_state_complete')
         for name in ('news.json', 'float.json'):
             path = state/name
             if path.is_file():
@@ -224,12 +232,14 @@ elif phase == 'package':
             'tracked_source_unchanged': unchanged, 'operator_order_state_unchanged': operator_unchanged,
             'blockers': blockers, 'scanner_pass': ('REQUIRES_LOG_REVIEW' if attempted else 'NOT_OBSERVED'), 'natural_issuer_acquisition': ('REQUIRES_LOG_REVIEW' if attempted else 'NOT_OBSERVED'),
             'catalyst': ('REQUIRES_LOG_REVIEW' if attempted else 'NOT_OBSERVED'), 'downstream_progression': ('REQUIRES_LOG_REVIEW' if attempted else 'NOT_OBSERVED'), 'PAPER_READY': False})
+    preflight_timing('privacy_scan_begin')
     privacy = scan_artifacts(evidence)
     write_json(evidence/'shareable-evidence-scan.json', privacy)
     if not privacy['passed']:
         raise SystemExit('Privacy scan failed; evidence retained locally, no shareable ZIP.')
     write_json(evidence/'package-result.json', {'status':'PASS' if terminal_ok else 'DIAGNOSTIC_ONLY',
         'expected_exit_code':0 if terminal_ok else 2, 'privacy_scan_passed':True})
+    preflight_timing('privacy_scan_complete_archive_begin')
     archive = root/'ross-natural-readonly-upload.zip'
     with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as out:
         for path in sorted(evidence.rglob('*')):
