@@ -165,6 +165,12 @@ def _normalized_words(value: Any) -> list[str]:
 
 def _company_alias_from_words(words: list[str], symbol: str) -> str | None:
     while words and words[-1] in _LEGAL_SUFFIXES:
+        # A supplied two-word issuer such as Click Holdings must not collapse
+        # into a single ambiguous word. Do not admit generic wrapper names.
+        if len(words) == 2 and words[-1] in {"HOLDING", "HOLDINGS", "GROUP"}:
+            if words[0] in _LEGAL_SUFFIXES | {"THE", "A", "AN"}:
+                return None
+            break
         words = words[:-1]
     if len(words) < 2:
         return None
@@ -196,7 +202,13 @@ def company_aliases_for_symbol(symbol: str, metadata: Any = None) -> tuple[str, 
     normalized_symbol = str(symbol or "").strip().upper()
     aliases: list[str] = []
     for value in _metadata_values(metadata):
-        words = _normalized_words(value)
+        name = _clean_text(value)
+        # Recognized broker display decorations only. No arbitrary trailing
+        # letters, countries, or words are removed from issuer identities.
+        name = re.sub(r"\b(LTD|LIMITED)/BVI(?:-[AB])?$", r"\1", name, flags=re.I)
+        name = re.sub(r"\b(INC|INCORPORATED|CORP|CORPORATION|LTD|LIMITED|PLC)-[AB]$",
+                      r"\1", name, flags=re.I)
+        words = _normalized_words(name)
         alias = _company_alias_from_words(words, normalized_symbol)
         if alias and alias not in aliases:
             aliases.append(alias)

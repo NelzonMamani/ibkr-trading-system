@@ -2338,3 +2338,24 @@ paired diagnostic for CLIK/STAK. It has not run and authorizes no operator obser
 Focused33-case checks pass; independent review belongs to the changed head.
 No holdings change, broker/provider acquisition, trading or readiness upgrade.
 PAPER_READY=NO.
+
+### Current-retrieval CLIK identity defect — narrow offline repair
+
+The authorized paired experiment completed: original CLIK/STAK5/6 entries versus
+when:6h0/0; no fresh-relevant improvement, no production query replacement. See
+[the captured-article identity replay](CLIK_CAPTURED_IDENTITY_REPAIR.md).
+
+The captured public name Click Holdings failed against broker CLICK HOLDINGS
+LTD/BVI-A. Recognized broker suffix normalization and preservation of the full
+specific two-word supplied alias repair that demonstrated matcher path. Single-word,
+generic, unrelated-company and ticker-collision protections remain; canonical
+classification and freshness are unchanged. The original article is stale at the
+experiment clock and nonqualifying even in the explicitly labelled earlier-clock
+counterfactual. No receipt9 availability or acceptance is inferred; receipt9's
+uncaptured CLIK rejection remains unadjudicated.
+
+Carry local2c22693e's exclusion evidence and independent review forward. Preserve
+receipt9 terminal PASS and58 reconsiderations, historical failures, holdings,
+ownership blockers and GUI draft. Focused97 checks pass; exact-head independent
+review is required before integration. No new live request or observation.
+PAPER_READY=NO.
