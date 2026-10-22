@@ -2319,3 +2319,22 @@ receipt8 FAIL and earlier receipts retain their original provenance and status.
 Only source inspection, preserved-archive analysis and bounded offline fixtures ran.
 No new operator observation, provider/broker acquisition, holdings change, full-suite
 repeat, latency repair or readiness upgrade. No documentation-only release PR.
+
+### Receipt9 acquisition follow-up — bounded exclusion evidence
+
+See [issuer acquisition analysis and the single news-only diagnostic decision](ISSUER_ACQUISITION_FOLLOWUP.md).
+Terminal PASS and58 Core reconsiderations remain accepted; they were not repeated.
+No proven ordering, timezone or retained-item-cap defect explains the observed old
+issuer material. Upstream queries lack a recency request; provider behaviour remains
+unresolved without captured raw responses. The161-URL catalogue is not current
+issuer coverage. Do not broaden source fanout, freshness or catalyst policy.
+
+The CLIK adjudication gap is repaired prospectively with bounded, privacy-sanitized
+exclusion identity/text/provenance in existing retrieval metadata and evidence
+exports; original receipt9's missing rejected text cannot be reconstructed. Samples
+are diagnostic, not canonical evidence. The smallest proposed acquisition change
+is a same-budget replacement recency query, conditional on one four-URL,8s, news-only
+paired diagnostic for CLIK/STAK. It has not run and authorizes no operator observation.
+Focused32-case checks pass; independent review belongs to the changed head.
+No holdings change, broker/provider acquisition, trading or readiness upgrade.
+PAPER_READY=NO.
