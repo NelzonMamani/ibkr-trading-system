@@ -282,8 +282,8 @@ public class ObservationFaultStream : Stream {
         $env:OBS_TEST_CASE = $case
         $onlyRoot = Join-Path $scratch ('preflight-only-'+$case)
         New-Item -ItemType Directory $onlyRoot | Out-Null
-        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $preflightScripts 'run_natural_readonly_preflight.ps1') -Python $Python -Root $onlyRoot -ExpectedCommit ('a'*40)
-        $onlyExit = $LASTEXITCODE
+        $onlyChild = Invoke-ObservationChild -Python (Get-Command powershell.exe).Source -ChildArguments @('-NoProfile','-ExecutionPolicy','Bypass','-File',(Join-Path $preflightScripts 'run_natural_readonly_preflight.ps1'),'-Python',$Python,'-Root',$onlyRoot,'-ExpectedCommit',('a'*40)) -LogPrefix (Join-Path $scratch ('only-entry-'+$case)) -BudgetSeconds 20
+        $onlyExit = $onlyChild.ExitCode
         Check ($onlyExit -eq $(if ($case -eq 'success') { 0 } else { 1 })) 'Preflight-only exit propagation failed'
         Check (((Get-Content (Join-Path $onlyRoot 'e\phases')) -join ',') -ceq 'preflight') 'Preflight-only runner continued beyond preflight'
         $onlyStatus = Get-Content (Join-Path $onlyRoot 'e\preflight-only-status.json') -Raw | ConvertFrom-Json
