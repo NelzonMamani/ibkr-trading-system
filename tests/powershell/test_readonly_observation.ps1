@@ -270,6 +270,26 @@ public class ObservationFaultStream : Stream {
     & git -C $source worktree remove --force $checkout
     Check ($global:LASTEXITCODE -eq 0) 'Synthetic worktree cleanup failed.'
     $passed++
+    # Exercise the released preflight-only runner with a stub operator. Even
+    # PASS must produce exactly one phase, and a failed preflight stays failed.
+    $preflightScripts = Join-Path $scratch 'preflight-only-scripts'
+    New-Item -ItemType Directory $preflightScripts | Out-Null
+    foreach ($name in @('run_natural_readonly_preflight.ps1','Invoke-ReadonlyObservation.ps1')) {
+        Copy-Item (Join-Path $repo ('scripts\certification\'+$name)) $preflightScripts
+    }
+    Copy-Item $stub (Join-Path $preflightScripts 'natural_readonly_operator.py')
+    foreach ($case in @('success','preflight')) {
+        $env:OBS_TEST_CASE = $case
+        $onlyRoot = Join-Path $scratch ('preflight-only-'+$case)
+        New-Item -ItemType Directory $onlyRoot | Out-Null
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $preflightScripts 'run_natural_readonly_preflight.ps1') -Python $Python -Root $onlyRoot -ExpectedCommit ('a'*40)
+        $onlyExit = $LASTEXITCODE
+        Check ($onlyExit -eq $(if ($case -eq 'success') { 0 } else { 1 })) 'Preflight-only exit propagation failed'
+        Check (((Get-Content (Join-Path $onlyRoot 'e\phases')) -join ',') -ceq 'preflight') 'Preflight-only runner continued beyond preflight'
+        $onlyStatus = Get-Content (Join-Path $onlyRoot 'e\preflight-only-status.json') -Raw | ConvertFrom-Json
+        Check (!$onlyStatus.observation_attempted -and !$onlyStatus.PAPER_READY) 'Preflight-only authority changed'
+        $passed++
+    }
     # Actual startup semantics: -E parent ignores PYTHONPATH; its ordinary child
     # loads the copied hook and configures only a private fake-provider cache.
     $startup=Join-Path $scratch 'startup'; $fake=Join-Path $scratch 'fake'

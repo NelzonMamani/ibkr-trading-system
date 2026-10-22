@@ -20,8 +20,8 @@ jobs:
         shell: python
         run: |
           import os, subprocess
-          baseline = '17ca55a1a1ec3cabcbcc8a540200751021e40f41'
-          # This fixed source receipt has successful 2950-pass Linux/Windows
+          baseline = '06156242a4017f5e5afc668c3c01430252e6fc1d'
+          # This fixed source receipt has successful 2987-pass Linux/Windows
           # suites. The earlier workstation2759 receipt remains separate. Any change
           # outside this exact harness/docs allowlist still runs full suites.
           allowed = {
@@ -38,7 +38,11 @@ jobs:
               'scripts/certification/pr1090_terminal_observation_supervisor.py',
               'tests/powershell/verify_windows_inventory.py',
               'scripts/certification/readonly_cache_sitecustomize.py',
+              'scripts/certification/readonly_cache_probe.py',
+              'scripts/certification/run_natural_readonly_preflight.ps1',
+              'tests/powershell/verify_cache_probe.py',
               'docs/ross/NATURAL_READONLY_CHECKPOINT.md',
+              'docs/ross/RECEIPT8_PREFLIGHT_DIAGNOSTIC.md',
               'docs/ross/PR1108_NATURAL_READONLY_ACCEPTANCE.ps1',
           }
           ancestor = subprocess.run(['git','merge-base','--is-ancestor',baseline,'HEAD']).returncode == 0
@@ -47,7 +51,7 @@ jobs:
           with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
               out.write(f'harness_only={str(focused).lower()}\n')
           print('HARNESS_ONLY=' + str(focused))
-          print('Full-suite receipt: actions/runs/39489050258 at ' + baseline)
+          print('Full-suite receipt: actions/runs/39661442363 at ' + baseline)
           print('Changed files: ' + ', '.join(sorted(paths)))
 
   test:
@@ -84,9 +88,10 @@ jobs:
       - name: Harness-only source identity and whitespace checks
         if: needs.verification-scope.outputs.harness_only == 'true'
         run: |
-          git diff --check 17ca55a1a1ec3cabcbcc8a540200751021e40f41 HEAD
-          git diff --exit-code 17ca55a1a1ec3cabcbcc8a540200751021e40f41 HEAD -- src tests/offline tests/conftest.py requirements.txt
+          git diff --check 06156242a4017f5e5afc668c3c01430252e6fc1d HEAD
+          git diff --exit-code 06156242a4017f5e5afc668c3c01430252e6fc1d HEAD -- src tests/offline tests/conftest.py requirements.txt
           python -m py_compile scripts/certification/natural_readonly_operator.py scripts/certification/readonly_cache_sitecustomize.py tests/powershell/verify_observation_package.py
+          python tests/powershell/verify_cache_probe.py
           python tests/powershell/verify_windows_inventory.py
           python tests/powershell/verify_observation_package.py "$GITHUB_WORKSPACE" "$RUNNER_TEMP/observation-package-linux"
           echo "Production/offline Python source unchanged; full-suite receipts carried forward, not rerun."
@@ -123,6 +128,8 @@ jobs:
       - name: Install controlled-process pytest dependency only
         if: needs.verification-scope.outputs.harness_only == 'true'
         run: python -m pip install pytest "yfinance>=0.2.54"
+      - name: Offline cache startup diagnostic fixtures
+        run: python tests/powershell/verify_cache_probe.py
       - name: Actual Windows PowerShell exit propagation regression
         shell: powershell
         run: |
