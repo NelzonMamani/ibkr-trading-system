@@ -75,11 +75,12 @@ Every recorded scan Focus evaluation has `DATA_UNAVAILABLE`, `news_unavailable`,
 
 | Scan | Watchlist / exact rejected symbols | Runtime stdout evidence lines |
 | --- | --- | --- |
-|1|STAK, PFSA, NCPL, CLIK, FBLG|13 evaluation/rejection records are retained with exact line numbers and market inputs in the replay fixture.|
-|2|STAK, NCPL, CLIK, ATGL|Same mandatory catalyst gate; acquisition health remains degraded.|
-|3|STAK, NCPL, CLIK, MTEN|Same mandatory catalyst gate; acquisition health remains degraded.|
+|1|STAK, PFSA, NCPL, CLIK, FBLG|EVAL5585/5588/5591/5594/5597; each REJECT is the next line.|
+|2|STAK, NCPL, CLIK, ATGL|EVAL20489/20492/20495/20498; each REJECT is the next line.|
+|3|STAK, NCPL, CLIK, MTEN|EVAL33984/33987/33990/33993; each REJECT is the next line.|
 
 These are the thirteen natural decisions, not seven reconstructed market snapshots.
+The fixture also retains exact market inputs and per-symbol rejection line numbers.
 The predicate is `require_catalyst and not _has_focus_catalyst(context)` in
 `scanner_runner._evaluate_focus_gates`; price/momentum/volume cannot manufacture
 catalyst authority. This does not claim that hypothetical later market gates or
