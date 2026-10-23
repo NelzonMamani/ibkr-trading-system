@@ -584,6 +584,7 @@ class MarketDataClient:
             started_at = time.monotonic()
             snapshot_complete = False
             completion_reason = "timeout"
+            attempt_finished = False
             try:
                 while True:
                     checkpoint()
@@ -628,6 +629,7 @@ class MarketDataClient:
                     **_snapshot_authority_metadata(ticker, raw_fields, completed_at=completed_at, completion_reason=completion_reason),
                 }
                 self.last_snapshot_debug["attempts"].append(attempt_debug)
+                attempt_finished = True
                 if completion_reason == "timeout":
                     flags.append("MD_TIMEOUT")
                 if not snapshot_complete:
@@ -641,6 +643,11 @@ class MarketDataClient:
                     snapshot_timestamp = timestamp
                     received_at = receipt
             finally:
+                record_completion = getattr(ib, "record_quote_completion", None)
+                if callable(record_completion):
+                    # An exception/stop must not be mislabeled a measured timeout.
+                    reason = completion_reason if attempt_finished else "interrupted"
+                    record_completion(getattr(ticker, "reqId", None), reason)
                 # Copy all result fields first; cancel may remove or mutate ticker state.
                 if tracked is not None:
                     req_id = getattr(ticker, "reqId", None)

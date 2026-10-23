@@ -2368,3 +2368,53 @@ event positives pass alongside the focused ownership/lifecycle checks (216passed
 4 existing warnings). Exact corrected-head review is required before integration.
 The captured article remains stale and has no canonical classification; receipt9's
 uncaptured rejection remains unadjudicated. PAPER_READY=NO.
+
+
+### Receipt10 — terminal PASS; quote acquisition blocked initial enrichment
+
+Accepted `0fcd8681eb8328d026e53a67070ce7064e93628d`. Archive SHA256
+`e9b4e61aa0df4e2577bf340c766fb08ff911f3c9bf001bc89bb01f4d466a4c63`.
+See [the quote-path comparison and offline repair](RECEIPT10_QUOTE_FINDINGS.md).
+Terminal PASS, both zero-mutation audits, completed final broker audit, unchanged
+source/operator state, empty final inventory and one confirmed50-row native scan
+remain accepted. Receipt9 PASS and58 reconsiderations and all historical failures
+remain separate receipts; holdings, ownership blockers and GUI draft unchanged.
+
+82 completed provider quote summaries timed out with all fields missing;27 rows
+were dropped. No Watchlist/Focus selection or news-maintenance submissions occurred
+before stop. This run does not assess PR1125's catalyst changes or demonstrate
+natural catalyst-to-Focus/setup progression. Requested DELAYED is not returned-type
+authority: receipt9 confirmed LIVE; receipt10 has no logged effective-type callback.
+Quote transport cause remains unresolved, without proof of entitlement, routing,
+connection or callback-signature failure. No timeout/data-type/freshness relaxation.
+
+Demonstrated redundant work: each fully evaluated timeout row made three logical
+quote calls (six5s attempts) and two history calls before the strict rejection.
+The normal Core path supplies no finite optional cycle deadline; shortlist deadlines
+apply later and the outer stop worked. A narrow early timeout return now skips
+intraday/reference enrichment while preserving the existing rejection and broker
+provenance. Failures remain uncached; later cycles can obtain fresh evidence.
+Focused96 checks pass (quote authority/cleanup, strict freshness, budgets, stop and
+reuse); independent review belongs to the exact changed head. No full suite, new
+operator observation, broker/provider acquisition, holdings change or trading.
+PAPER_READY=NO.
+
+### Receipt10 follow-up — bounded quote diagnostics, draft publication
+
+[Native quote diagnostic implementation and proposed bounded experiment](RECEIPT10_QUOTE_DIAGNOSTICS.md)
+continues reviewed9461d41b. The timeout early return is retained. New bounded,
+privacy-sanitized send/flags/ownership/callback/type/completion/cleanup facts do
+not supply prices, market timestamps, broker ACK or quote authority. Native
+callbacks fail closed on wrong owner/conflict; late callbacks cannot update a
+replacement request. Trace caps/eviction and the wrapper-entry (not raw-wire)
+evidence boundary remain explicit. Valid-candidate enrichment and cache reuse
+continue after a failed candidate in offline replay. No production timeout,
+freshness, strict quote/catalyst gate or READ_ONLY protection is relaxed.
+
+The proposed next diagnostic uses ONE completed normal scanner response and at
+most TWO naturally returned candidates, one snapshot each with existing5s waits,
+no manual symbol, retry, history/news acquisition or Ross runtime. It requires
+separate authorization and cannot by itself prove catalyst-to-Focus progression.
+No new operator run or broker/provider acquisition during this implementation.
+Receipt9/receipt10 PASS,58 receipt9 reconsiderations, all distinct historical
+limits/failures and holdings remain preserved. PAPER_READY=NO.

@@ -4292,6 +4292,22 @@ def _score_context(context: Dict[str, Any]) -> tuple[float, dict[str, float]]:
     return final_score, components
 
 
+def _supplied_issuer_context(scan_detail):
+    """Pure handoff of supplied identity; never obtain a replacement reference."""
+    return {
+        **{key: scan_detail[key] for key in (
+            "aliases", "alias", "company_aliases", "issuer_aliases", "isin", "figi", "cik", "lei",
+        ) if key in scan_detail},
+        "company_name": scan_detail.get("company_name") or scan_detail.get("companyName"),
+        "issuer_name": scan_detail.get("issuer_name") or scan_detail.get("issuerName"),
+        "security_name": scan_detail.get("security_name") or scan_detail.get("securityName"),
+        "long_name": scan_detail.get("long_name") or scan_detail.get("longName"),
+        "short_name": scan_detail.get("short_name") or scan_detail.get("shortName"),
+        "contract_description": scan_detail.get("contract_description") or scan_detail.get("contractDescription"),
+        "description": scan_detail.get("description"),
+    }
+
+
 def _build_symbol_context(
     provider: ScannerDataProvider,
     symbol: str,
@@ -4347,6 +4363,34 @@ def _build_symbol_context(
     last_price = _resolve_price(quote)
     spread, spread_pct = _spread_values(quote)
     snapshot_timeout = any(flag in data_quality_flags for flag in ("MD_TIMEOUT", "SNAPSHOT_TIMEOUT"))
+    if snapshot_timeout:
+        details = _provider_symbol_scan_details(provider)
+        detail = details.get(symbol, {}) if isinstance(details, dict) else {}
+        # The caller already drops timeouts unconditionally. Do not acquire
+        # another quote via intraday/reference enrichment or spend history work
+        # on a candidate that cannot pass that existing gate. Failed snapshots
+        # remain uncached, so a later cycle can obtain genuinely new evidence.
+        context = {
+            "symbol": symbol, "session": session_label,
+            "con_id": detail.get("conId"), "con_id_is_synthetic": False,
+            "exchange": detail.get("exchange") or detail.get("primaryExchange"),
+            "primary_exchange": detail.get("primaryExchange"),
+            "trading_class": detail.get("tradingClass"),
+            "local_symbol": detail.get("localSymbol") or symbol,
+            "currency": detail.get("currency") or "USD",
+            "instrument_type": detail.get("secType") or "STK",
+            **_supplied_issuer_context(detail),
+            "last_price": last_price, "bid": getattr(quote, "bid", None),
+            "ask": getattr(quote, "ask", None), "close": getattr(quote, "close", None),
+            "volume": getattr(quote, "volume", None),
+            "data_quality_flags": data_quality_flags, "snapshot_timeout": True,
+            "enrichment_skipped_reason": "SNAPSHOT_TIMEOUT",
+            "universe_rank": universe_rank,
+            **_quote_market_data_provenance(quote),
+        }
+        attach_session_contract(context, session_contract)
+        print(f"[SCANNER][ENRICHMENT_SKIPPED] symbol={symbol} reason=SNAPSHOT_TIMEOUT")
+        return context
     if get_config("DEBUG_MARKET_DATA"):
         print(
             "[SCANNER][MD][DEBUG] ticks "
@@ -4534,17 +4578,7 @@ def _build_symbol_context(
         "primary_exchange": primary_exchange,
         "trading_class": trading_class,
         "local_symbol": local_symbol,
-        # Preserve only supplied identity facts; security IDs are not issuer names.
-        **{key: scan_detail[key] for key in (
-            "aliases", "alias", "company_aliases", "issuer_aliases", "isin", "figi", "cik", "lei",
-        ) if key in scan_detail},
-        "company_name": scan_detail.get("company_name") or scan_detail.get("companyName"),
-        "issuer_name": scan_detail.get("issuer_name") or scan_detail.get("issuerName"),
-        "security_name": scan_detail.get("security_name") or scan_detail.get("securityName"),
-        "long_name": scan_detail.get("long_name") or scan_detail.get("longName"),
-        "short_name": scan_detail.get("short_name") or scan_detail.get("shortName"),
-        "contract_description": scan_detail.get("contract_description") or scan_detail.get("contractDescription"),
-        "description": scan_detail.get("description"),
+        **_supplied_issuer_context(scan_detail),
         "currency": getattr(qualified_identity, "currency", None) or scan_detail.get("currency") or "USD",
         "instrument_type": getattr(qualified_identity, "sec_type", None) or scan_detail.get("secType") or "STK",
         "last_price": last_price,
