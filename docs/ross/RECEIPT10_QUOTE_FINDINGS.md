@@ -31,8 +31,11 @@ active subscription before forwarding reqMktData. Contract-mode calls use empty
 genericTickList, snapshot=true, regulatorySnapshot=false and empty options.
 MarketDataClient requests type3 (DELAYED) for both primary and retry. Callbacks
 marketDataType, tickPrice, tickSize, tickString and tickSnapshotEnd update only
-active request tickers. LIVE/delayed tick mappings and installed pinned ibapi
-callback signatures are compatible. Missing prices/type/time are not synthesized.
+active request tickers. LIVE/delayed tick mappings and the locally installed ibapi callback signatures
+are compatible. requirements.txt specifies ibapi>=9.81.1.post1, not an exact pin;
+the receipt does not identify the workstation SDK distribution/version, so this
+local signature check cannot establish its exact decoder. Missing prices/type/time
+are not synthesized.
 Completion requires the received end or the existing required-fields condition;
 the latter still retains snapshot_complete=false. Cleanup cancels unfinished wire
 requests, drops active ownership and removes local mappings; completed native
