@@ -2418,3 +2418,68 @@ separate authorization and cannot by itself prove catalyst-to-Focus progression.
 No new operator run or broker/provider acquisition during this implementation.
 Receipt9/receipt10 PASS,58 receipt9 reconsiderations, all distinct historical
 limits/failures and holdings remain preserved. PAPER_READY=NO.
+
+## 2026-10-23 — Trading OS / Ross Completion Control reconciliation
+
+This entry reconciles the existing completion tables in this file against the
+user's 23 October 2026 checkpoint. It does not create a separate checklist.
+The institutional multi-strategy roadmap remains
+`TRADING_OS_MASTER_CATALOGUE/00_READ_FIRST/04_INSTITUTIONAL_TRADING_OS_COMPLETION_PLAN.md`.
+Its historical "execution blocked only by mode" assertion is not current natural
+runtime or paper-readiness evidence. This entry supersedes earlier *next-action*
+and proposed diagnostic scope statements where they conflict, without replacing
+historical receipts or their provenance.
+
+### Accepted implementation and verification baseline
+
+PR1126 is merged at `74dbb9090ccc7aae46f8028c857363f62ff68cf0`;
+reviewed head `537faa242f277676bffb265a655b4872c16c9485`.
+Repository main and PR merge metadata were read during this reconciliation.
+The accepted PR verification record reports Linux and Windows CI:
+**3,058 passed, 1 skipped per OS**, run40007779021, and clear independent
+exact-head review. These are implementation/offline receipts, not natural Ross
+acceptance. Timeout-enrichment short circuit and bounded native wrapper quote
+diagnostics are merged. Older failed CI receipts remain preserved.
+
+### Reconciled existing completion checklist
+
+| Area | Merged implementation / offline verification | Natural runtime proof | Unresolved acceptance / next gate |
+| --- | --- | --- | --- |
+| Discovery and Watchlist continuity | Existing strict scanner completion, ownership and continuity protections retained. | Receipt9 terminal PASS, genuine scans/Watchlists and 58 between-scan reconsiderations preserved; receipt10 confirmed one 50-row scan. | No forced candidates, Focus, setups or intents; quote failure currently prevents downstream assessment. |
+| Quote acquisition and enrichment | PR1126 timeout-enrichment short circuit and bounded native callback diagnostics merged and covered by accepted CI/review. | Receipt10 timed out; latest quote-only diagnostic completed a 50-row scan, but AIOK/CLRO snapshots timed out with no recorded quote callbacks or returned market-data type. | Transport cause unresolved. No evidence establishes ownership rejection or upstream failure. Requested data type is not returned-type proof. |
+| Transport/decoder mechanisms | SDK9.81.1.post1 offline send/decoder reproductions passed, per user-preserved checkpoint. Short-send and receive-buffer-loss fault injections demonstrate possible mechanisms only. | No captured transport evidence establishes either mechanism as the receipt's cause. | Await current bounded instrumentation result; verify unchanged transport behavior, privacy, deadlines, send counts, receive/framing/queue progress, decoder dispatch and wrapper correlation. |
+| Catalyst acquisition and qualification | Prior canonical issuer/lifecycle/identity implementation and offline evidence retained. | Receipt9 background acquisition and reassessment evidence remains valid; natural qualifying catalyst-to-Focus progression remains unproven. Receipt10 cannot assess downstream catalyst changes. | Mandatory valid catalyst, partial provider coverage, original uncaptured CLIK exclusion and undefined correction/retraction/financing-risk expiry gaps remain separate. |
+| Focus, fresh pattern inputs, setup/trigger, decision/risk, READ_ONLY intent | Existing offline gate and pipeline coverage retained; no implementation result is promoted to natural acceptance. | Full natural qualifying catalyst → Focus → fresh inputs → setup/trigger → decision/risk → READ_ONLY intent remains NOT ESTABLISHED. | Obtain truthful natural evidence after quote localization and any established-defect repair; preserve Ross selection pillars, session rules and strict freshness. |
+| Terminal evidence and READ_ONLY safety | Existing stop, audit, mutation, source/state and inventory checks retained. | Receipt9/receipt10 terminal PASS preserved. Latest diagnostic cleanup, completed audit, state checks and zero mutations passed; overall diagnostic remains DIAGNOSTIC_ONLY, exit2. | Terminal safety success is distinct from quote availability, strategy progression and trading acceptance. Preserve all historical failures and limits. |
+| Holdings and ownership | Existing ownership and entry protections retained. | Historical holdings and manual ownership blockers retain their original evidence. | No adoption, liquidation, cancellation, suppression or inferred reconciliation; holdings and GUI draft preserved. |
+| Paper readiness and management | Historical lifecycle/risk/management implementations and offline results remain separate evidence. | No new PAPER order or management acceptance demonstrated by these diagnostic receipts. | Assess position truth/ownership, paper-readiness and entry/partial-fill/stop/target/trailing/exit/recovery acceptance separately; do not mark these accepted from READ_ONLY results. |
+
+Latest diagnostic and SDK details above are carried from the user's checkpoint;
+their raw diagnostic archive was not re-analysed during this repository
+reconciliation. They are not newly executed or independently reproduced results.
+
+### Current work boundary and ordered next actions
+
+1. This reconciliation updates the existing checkpoint only. A saved branch
+   revision is not a merged update to main.
+2. Ingest the pending Codex transport/decoder diagnostic result without repeating
+   completed work. `QUOTE_DIAGNOSTIC_74DB_SDK_ANALYSIS.md` is the referenced
+   proposal; it is not present in the accepted main tree inspected here.
+3. Verify implementation, exact-head independent review and appropriate CI before
+   supplying a complete reviewed Windows PowerShell5.1 operator block.
+4. Eventual diagnostic scope is **one completed normal scan, one naturally
+   returned candidate, one five-second snapshot, 25-second acquisition cap and
+   120-second outer deadline**. No retries, history, news or Ross runtime.
+   This supersedes the older two-candidate proposal for future work only; the
+   historical two-candidate diagnostic receipt remains preserved.
+5. Localize quote failure; repair only an established defect.
+6. Prove natural catalyst → Focus → fresh pattern inputs → setup/trigger →
+   decision/risk → READ_ONLY intent.
+7. Assess the remaining paper-readiness and management gates separately.
+
+The checkpoint alone authorizes **no live diagnostic, automatic operator rerun or
+trading**. No new broker/provider acquisition, test-suite rerun, holdings change or
+runtime observation was performed for this reconciliation. All historical receipts,
+holdings, ownership blockers and GUI draft remain preserved.
+
+**PAPER_READY=NO. PAPER_READINESS_GATE=FAIL.**
