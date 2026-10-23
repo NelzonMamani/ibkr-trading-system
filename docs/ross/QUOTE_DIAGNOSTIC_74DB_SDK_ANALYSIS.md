@@ -269,3 +269,25 @@ PAPER_READINESS_GATE=FAIL. All holdings, ownership blockers, GUI draft and histo
 receipts retain their original authority. The checkpoint was reconciled against
 76e597870f56b4e94b717878c793dbf2fce62295 without merging either branch or duplicating
 its authoritative completion checklist.
+
+### First published-head CI finding: test-only non-draining proof
+
+At diagnostic head c26e36bf482ba3e42551db606f663e0260506a89, CI40017765656
+Linux passed3079/1skipped (225.31s). Windows passed3078/1skipped with one failure
+in the unchanged accepted-baseline test_pr1107_bottleneck fixture: whole-service
+elapsed1.1365393s exceeded its hardware-dependent0.5s assertion. New transport/
+operator controls passed; downstream PowerShell steps were skipped, so this is not
+a completed Windows acceptance receipt. The failed run is preserved.
+
+The assertion includes configuration/cache/diagnostic emission as well as provider
+work. An isolated offline control injecting0.6s into diagnostic emission reproduces
+that assertion failure while provider elapsed is about0.13s. This demonstrates the
+test's scope problem, not the cause of the actual Windows slowdown. Independent
+review supports replacing the whole-service speed assertion with explicit proof
+that at least one gated fixed-feed worker started, remains unfinished, and has not
+released its gate when the service returns. Existing0.2/0.13/0.07s acquisition
+allocations, budget-exhaustion, fallback deferral, qualification and2s worker/cleanup
+bounds remain unchanged. This verifies non-draining return, not exact service
+latency. No production latency repair or deadline relaxation is made. Corrected
+fixture and diagnostic checks require changed-head review and CI; no same-head
+blind rerun is used. Initial correction checks passed97 cases.

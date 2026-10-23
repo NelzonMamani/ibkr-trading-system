@@ -13,11 +13,14 @@ from src.news import news_fetcher
 @pytest.mark.parametrize('title',['JPM generic report','JPM reports earnings beat'])
 def test_incomplete_primary_defers_fallback_and_keeps_qualification_separate(monkeypatch,tmp_path,title):
     calls=[];gate=threading.Event()
+    blocked_started=threading.Event();blocked_finished=threading.Event()
     def feed(url,timeout):
         calls.append(url)
         if 'news.google.com' in url:
             return SimpleNamespace(feed={'title':'fixture query'},entries=[entry(title,60)])
+        blocked_started.set()
         gate.wait(2)
+        blocked_finished.set()
         return SimpleNamespace(feed={},entries=[])
     monkeypatch.setattr(news_fetcher,'_fetch_feed',feed)
     monkeypatch.setattr(news_fetcher,'feedparser',object())
@@ -26,10 +29,16 @@ def test_incomplete_primary_defers_fallback_and_keeps_qualification_separate(mon
     # Scaled timing contract, preserving allocations; not a provider latency claim.
     policy=replace(ross._ross_retrieval_policy(refresh_mode='bounded_refresh',network_allowed=True),
         total_budget_seconds=0.2,tier_budgets={'fast':0.13,'extended':0.07})
-    started=time.monotonic()
     try:
         result=svc.get_news((CANDIDATE,),request,policy)
-        assert time.monotonic()-started < 0.5
+        # Whole-service wall time also includes config/cache/console work and
+        # runner scheduling. Prove non-joining coordinator return directly:
+        # owned gated workers must still be unfinished when the result returns.
+        pending = svc.retrieval_provider._lifecycle.snapshot()
+        assert pending['running_count'] > 0 and pending['unfinished_count'] > 0
+        assert blocked_started.is_set() and not blocked_finished.is_set()
+        assert not pending['cleanup_complete'] and not gate.is_set()
+        assert result.diagnostics.total_budget_seconds == policy.total_budget_seconds == 0.2
         raw=result.diagnostics.diagnostics['refresh_diagnostics']
         assert raw['fallback_skipped_reason']=='primary_coverage_incomplete'
         assert not raw['primary_source_coverage_complete']

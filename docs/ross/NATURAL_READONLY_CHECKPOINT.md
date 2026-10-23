@@ -2344,6 +2344,17 @@ intent and assess paper-management acceptance separately. The one-candidate scop
 supersedes only earlier next-action proposals; all earlier receipts remain intact.
 Saved branch changes are not merged main. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
 
+PR1127 initial published head c26e36bf482ba3e42551db606f663e0260506a89:
+Linux3079 passed/1skipped; Windows3078 passed/1failed/1skipped at CI40017765656.
+The unchanged news fixture's whole-service0.5s assertion failed at1.1365393s;
+actual Windows delay is not localized. An offline injected diagnostic-emission
+delay demonstrates that assertion also measures non-acquisition work. A test-only
+correction proves return while gated workers remain unfinished and retains original
+acquisition budgets, qualification rules and bounded cleanup. No production timeout
+change; failed CI and earlier review remain prior-head receipts. Final changed-head
+CI/review belongs to the PR; this is no natural acceptance or paper upgrade.
+
+
 Only source inspection, preserved-archive analysis and bounded offline fixtures ran.
 No new operator observation, provider/broker acquisition, holdings change, full-suite
 repeat, latency repair or readiness upgrade. No documentation-only release PR.
