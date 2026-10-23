@@ -4347,6 +4347,24 @@ def _build_symbol_context(
     last_price = _resolve_price(quote)
     spread, spread_pct = _spread_values(quote)
     snapshot_timeout = any(flag in data_quality_flags for flag in ("MD_TIMEOUT", "SNAPSHOT_TIMEOUT"))
+    if snapshot_timeout:
+        # The caller already drops timeouts unconditionally. Do not acquire
+        # another quote via intraday/reference enrichment or spend history work
+        # on a candidate that cannot pass that existing gate. Failed snapshots
+        # remain uncached, so a later cycle can obtain genuinely new evidence.
+        context = {
+            "symbol": symbol, "session": session_label,
+            "last_price": last_price, "bid": getattr(quote, "bid", None),
+            "ask": getattr(quote, "ask", None), "close": getattr(quote, "close", None),
+            "volume": getattr(quote, "volume", None),
+            "data_quality_flags": data_quality_flags, "snapshot_timeout": True,
+            "enrichment_skipped_reason": "SNAPSHOT_TIMEOUT",
+            "universe_rank": universe_rank,
+            **_quote_market_data_provenance(quote),
+        }
+        attach_session_contract(context, session_contract)
+        print(f"[SCANNER][ENRICHMENT_SKIPPED] symbol={symbol} reason=SNAPSHOT_TIMEOUT")
+        return context
     if get_config("DEBUG_MARKET_DATA"):
         print(
             "[SCANNER][MD][DEBUG] ticks "
