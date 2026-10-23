@@ -71,3 +71,51 @@ def test_operator_stop_is_not_converted_to_quote_failure():
             raise AcquisitionCancelled()
     with pytest.raises(AcquisitionCancelled):
         runner._build_symbol_context(Provider(), 'AIOK', 'RTH', float_cache={})
+
+
+def test_real_provider_skips_timeout_work_but_enriches_next_valid_candidate(monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    from src.core.acquisition import acquisition_scope
+    from src.ibkr.market_data_client import MarketDataClient
+    from src.scanner.providers.ibkr_provider import IbkrScannerProvider
+    from test_ibkr_provider_contract_pipeline import DummyMarketDataClient
+
+    md = MarketDataClient(connection_manager=SimpleNamespace(), allow_direct_connection=False)
+    md.ib = SimpleNamespace(isConnected=lambda: True, qualifyContracts=lambda *cs: list(cs))
+    calls, histories = [], []
+    def acquire(c):
+        calls.append(c.symbol)
+        item = DummyMarketDataClient().snapshot_stock(c)
+        item.symbol = c.symbol
+        item.data_quality_flags = ['MD_TIMEOUT'] if c.symbol == 'BAD' else []
+        item.timestamp_utc = datetime.now(timezone.utc).isoformat()
+        item.returned_market_data_type = 'LIVE'
+        item.market_data_type_confirmed = True
+        item.timestamp_source = 'LAST_TRADE'
+        if c.symbol == 'BAD':
+            item.bid = item.ask = item.last = item.close = item.volume = None
+        md.last_snapshot_debug = {'raw_fields': {}, 'timeout_occurred': c.symbol == 'BAD'}
+        return item
+    def history(c, **params):
+        histories.append(c.symbol)
+        now = datetime.now(timezone.utc)
+        return [SimpleNamespace(date=(now-timedelta(days=i)).strftime('%Y%m%d'),
+                                close=10., volume=1000) for i in range(1, 31)]
+    monkeypatch.setattr(md, '_snapshot_stock_uncached', acquire)
+    monkeypatch.setattr(md, '_daily_history_uncached', history)
+    provider = object.__new__(IbkrScannerProvider)
+    provider.market_data_client = md
+    provider.last_scan_details = {'symbol_details': {symbol: {
+        'symbol': symbol, 'conId': i, 'exchange': 'SMART', 'primaryExchange': 'NASDAQ',
+        'currency': 'USD', 'localSymbol': symbol, 'tradingClass': 'SCM'}
+        for i, symbol in enumerate(('BAD', 'GOOD'), 123)}}
+    runner._REFERENCE_RESOLVER.reset_cycle()
+    with acquisition_scope(lambda: False):
+        bad = runner._build_symbol_context(provider, 'BAD', 'RTH', float_cache={})
+        assert bad['snapshot_timeout'] and calls == ['BAD'] and histories == []
+        good = runner._build_symbol_context(provider, 'GOOD', 'RTH', float_cache={})
+    assert calls == ['BAD', 'GOOD']  # Valid exact-identity quote cache still reused.
+    assert histories and set(histories) == {'GOOD'}
+    assert good['last_price'] == 10.5 and good['volume'] == 5000
+    assert good['pct_change'] is not None and not good['snapshot_timeout']
+    assert 'enrichment_skipped_reason' not in good

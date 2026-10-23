@@ -2398,3 +2398,23 @@ Focused96 checks pass (quote authority/cleanup, strict freshness, budgets, stop 
 reuse); independent review belongs to the exact changed head. No full suite, new
 operator observation, broker/provider acquisition, holdings change or trading.
 PAPER_READY=NO.
+
+### Receipt10 follow-up — bounded quote diagnostics, draft publication
+
+[Native quote diagnostic implementation and proposed bounded experiment](RECEIPT10_QUOTE_DIAGNOSTICS.md)
+continues reviewed9461d41b. The timeout early return is retained. New bounded,
+privacy-sanitized send/flags/ownership/callback/type/completion/cleanup facts do
+not supply prices, market timestamps, broker ACK or quote authority. Native
+callbacks fail closed on wrong owner/conflict; late callbacks cannot update a
+replacement request. Trace caps/eviction and the wrapper-entry (not raw-wire)
+evidence boundary remain explicit. Valid-candidate enrichment and cache reuse
+continue after a failed candidate in offline replay. No production timeout,
+freshness, strict quote/catalyst gate or READ_ONLY protection is relaxed.
+
+The proposed next diagnostic uses ONE completed normal scanner response and at
+most TWO naturally returned candidates, one snapshot each with existing5s waits,
+no manual symbol, retry, history/news acquisition or Ross runtime. It requires
+separate authorization and cannot by itself prove catalyst-to-Focus progression.
+No new operator run or broker/provider acquisition during this implementation.
+Receipt9/receipt10 PASS,58 receipt9 reconsiderations, all distinct historical
+limits/failures and holdings remain preserved. PAPER_READY=NO.

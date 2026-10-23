@@ -18,6 +18,7 @@ from ibapi.contract import Contract, ContractDetails
 from ibapi.order import Order
 from ibapi.wrapper import EWrapper
 
+from src.ibkr.quote_diagnostics import QuoteDiagnostics
 from src.ibkr.position_snapshot import BrokerPositionResult
 from src.domain.market_snapshot import MarketSnapshot
 from src.ibkr.market_data_client import (
@@ -73,6 +74,7 @@ class IbkrClient(EWrapper, EClient):
         self.host = host
         self.port = port
         self.client_id = client_id
+        self._quote_trace = QuoteDiagnostics(client_id)
         self.snapshot_timeout_seconds = snapshot_timeout_seconds
         self.market_data_type = market_data_type.upper()
         self.readonly_enabled = readonly_enabled
@@ -771,6 +773,51 @@ class IbkrClient(EWrapper, EClient):
         self._requested_market_data_type_code = int(marketDataType)
         return super().reqMarketDataType(marketDataType)
 
+    def _send_quote(self, *args, **kwargs):
+        names = ("reqId", "contract", "genericTickList", "snapshot", "regulatorySnapshot", "mktDataOptions")
+        values = {name: args[index] if len(args) > index else kwargs.get(name)
+                  for index, name in enumerate(names)}
+        req_id = values["reqId"]
+        self._quote_trace.start(req_id, values["contract"],
+            getattr(self, "_requested_market_data_type_code", _market_data_type_code(self.market_data_type)),
+            values["genericTickList"], values["snapshot"], values["regulatorySnapshot"], values["mktDataOptions"])
+        try:
+            result = super().reqMktData(*args, **kwargs)
+        except BaseException:
+            self._quote_trace.sent(req_id, "SDK_RAISED")
+            self._quote_trace.finish(req_id, "send_error")
+            try:
+                self.cancelMktData(req_id)
+            except Exception:
+                pass  # cancel owns finally-cleanup; retain the original exception.
+            raise
+        self._quote_trace.sent(req_id, "SDK_RETURNED_NOT_BROKER_ACK")
+        return result
+
+    def _quote_callback_ticker(self, req_id, kind, *, supported=True, valid=True, returned_type=None, tick_type=None):
+        # Caller holds the native lock. Diagnostic counts are not authority.
+        owner = self._request_type_by_req_id.get(req_id)
+        ticker = self._ticker_by_req_id.get(req_id)
+        if self._request_id_conflicted(req_id):
+            reason = "conflicted"
+        elif req_id not in self._active_market_req_ids:
+            reason = "inactive" if req_id in self._quote_trace.requests else "unknown_request"
+        elif owner != "MARKET_DATA":
+            reason = "wrong_owner"
+        elif ticker is None:
+            reason = "missing_ticker"
+        elif not supported:
+            reason = "unsupported_tick"
+        elif not valid:
+            reason = "invalid_value"
+        else:
+            reason = "accepted"
+        self._quote_trace.callback(req_id, kind, reason, owner=owner, returned_type=returned_type, tick_type=tick_type)
+        return ticker if reason == "accepted" else None
+
+    def record_quote_completion(self, req_id, reason):
+        self._quote_trace.finish(req_id, reason)
+
     def reqMktData(self, *args, **kwargs):  # type: ignore[override]
         """
         Compatibility wrapper supporting both:
@@ -802,7 +849,7 @@ class IbkrClient(EWrapper, EClient):
             self._req_id_by_contract_key[self._contract_key(contract)] = req_id
             self._register_request(req_id, "MARKET_DATA", contract)
             self._active_market_req_ids.add(req_id)
-            super().reqMktData(
+            self._send_quote(
                 req_id,
                 contract,
                 generic_tick_list,
@@ -822,7 +869,7 @@ class IbkrClient(EWrapper, EClient):
             self._market_events.setdefault(req_id, threading.Event())
             self._market_data.setdefault(req_id, {"bid": None, "ask": None, "last": None, "volume": None})
             self._active_market_req_ids.add(req_id)
-            return super().reqMktData(*args, **kwargs)
+            return self._send_quote(*args, **kwargs)
 
         raise TypeError("reqMktData requires either (contract, ...) or (reqId, contract, ...)")
 
@@ -840,11 +887,20 @@ class IbkrClient(EWrapper, EClient):
             completed = bool(getattr(ticker, "snapshotEnd", False))
             # Stop accepting ticks before sending a cancellation over the wire.
             self._active_market_req_ids.discard(req_id)
+        outcome = "NOT_SENT_ALREADY_COMPLETE" if completed else "SDK_CANCEL_RAISED"
         try:
-            # IBKR ends snapshot subscriptions itself; cancelling one produces 300.
-            return None if completed else super().cancelMktData(req_id)
+            # SDK return is not broker cancellation acknowledgement.
+            if completed:
+                return None
+            result = super().cancelMktData(req_id)
+            outcome = "SDK_CANCEL_RETURNED_NOT_BROKER_ACK"
+            return result
         finally:
             self._cleanup_market_request(req_id)
+            self._quote_trace.cleanup(req_id, outcome,
+                active=req_id in self._active_market_req_ids,
+                ticker_present=req_id in self._ticker_by_req_id,
+                event_present=req_id in self._market_events)
 
     def reqHistoricalData(self, *args, **kwargs):  # type: ignore[override]
         """
@@ -985,6 +1041,11 @@ class IbkrClient(EWrapper, EClient):
                 self._raise_if_request_id_conflicted(req_id)
                 # Cancellation owns cleanup; retain all values before it runs.
                 ticker = SimpleNamespace(**vars(self._ticker_by_req_id[req_id]))
+            self.record_quote_completion(req_id, "snapshot_end" if ticker.snapshotEnd else
+                                         "broker_error" if ticker.brokerErrors else "timeout")
+        except BaseException:
+            self.record_quote_completion(req_id, "interrupted")
+            raise
         finally:
             self.cancelMktData(req_id)
         returned_type = _returned_market_data_type(ticker)
@@ -1143,8 +1204,8 @@ class IbkrClient(EWrapper, EClient):
 
     def marketDataType(self, reqId: TickerId, marketDataType: int):  # type: ignore[override]
         with self._lock:
-            ticker = self._ticker_by_req_id.get(reqId)
-            if ticker is None or reqId not in self._active_market_req_ids:
+            ticker = self._quote_callback_ticker(reqId, "marketDataType", returned_type=marketDataType)
+            if ticker is None:
                 return
             ticker.marketDataType = marketDataType if marketDataType in {1, 2, 3, 4} else None
             ticker.marketDataTypeConfirmed = ticker.marketDataType is not None
@@ -1161,8 +1222,8 @@ class IbkrClient(EWrapper, EClient):
 
     def tickSnapshotEnd(self, reqId: TickerId):  # type: ignore[override]
         with self._lock:
-            ticker = self._ticker_by_req_id.get(reqId)
-            if ticker is None or reqId not in self._active_market_req_ids:
+            ticker = self._quote_callback_ticker(reqId, "tickSnapshotEnd")
+            if ticker is None:
                 return
             ticker.snapshotEnd = True
             ticker.snapshotEndedAt = datetime.now(timezone.utc)
@@ -1174,11 +1235,9 @@ class IbkrClient(EWrapper, EClient):
     def tickPrice(self, reqId: TickerId, tickType: int, price: float, attrib):  # type: ignore[override]
         field = {1: "bid", 2: "ask", 4: "last", 6: "high", 7: "low", 9: "close", 14: "open",
                  66: "bid", 67: "ask", 68: "last", 72: "high", 73: "low", 75: "close", 76: "open"}.get(tickType)
-        if field is None:
-            return
         with self._lock:
-            ticker = self._ticker_by_req_id.get(reqId)
-            if ticker is None or reqId not in self._active_market_req_ids:
+            ticker = self._quote_callback_ticker(reqId, "tickPrice", supported=field is not None, tick_type=tickType)
+            if ticker is None:
                 return
             self._market_data[reqId][field] = price
             setattr(ticker, field, price)
@@ -1188,11 +1247,9 @@ class IbkrClient(EWrapper, EClient):
     def tickSize(self, reqId: TickerId, tickType: int, size: float):  # type: ignore[override]
         field = {0: "bidSize", 3: "askSize", 5: "lastSize", 8: "volume",
                  69: "bidSize", 70: "askSize", 71: "lastSize", 74: "volume"}.get(tickType)
-        if field is None:
-            return
         with self._lock:
-            ticker = self._ticker_by_req_id.get(reqId)
-            if ticker is None or reqId not in self._active_market_req_ids:
+            ticker = self._quote_callback_ticker(reqId, "tickSize", supported=field is not None, tick_type=tickType)
+            if ticker is None:
                 return
             value = float(size)
             self._market_data[reqId][field] = value
@@ -1202,14 +1259,18 @@ class IbkrClient(EWrapper, EClient):
 
     def tickString(self, reqId: TickerId, tickType: int, value: str):  # type: ignore[override]
         if tickType not in {45, 88}:
+            with self._lock:
+                self._quote_callback_ticker(reqId, "tickString", supported=False, tick_type=tickType)
             return
         try:
             timestamp = datetime.fromtimestamp(float(value), timezone.utc)
         except (TypeError, ValueError, OverflowError, OSError):
+            with self._lock:
+                self._quote_callback_ticker(reqId, "tickString", valid=False, tick_type=tickType)
             return
         with self._lock:
-            ticker = self._ticker_by_req_id.get(reqId)
-            if ticker is None or reqId not in self._active_market_req_ids:
+            ticker = self._quote_callback_ticker(reqId, "tickString", tick_type=tickType)
+            if ticker is None:
                 return
             ticker.lastTime = timestamp
             _record_field_receipt(ticker, ["market_timestamp"])
@@ -1311,7 +1372,8 @@ class IbkrClient(EWrapper, EClient):
         request_type_by_req_id = getattr(self, "_request_type_by_req_id", {})
         context = getattr(self, "_request_context_by_req_id", {}).get(reqId, {})
         request_type = request_type_by_req_id.get(reqId) or context.get("request_type")
-        ticker = self._ticker_by_req_id.get(reqId)
+        with self._lock:
+            ticker = self._quote_callback_ticker(reqId, "error")
         event = sanitize({
             "timestamp_utc": timestamp_utc,
             "req_id": reqId,
