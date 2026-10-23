@@ -119,3 +119,21 @@ def test_real_provider_skips_timeout_work_but_enriches_next_valid_candidate(monk
     assert good['last_price'] == 10.5 and good['volume'] == 5000
     assert good['pct_change'] is not None and not good['snapshot_timeout']
     assert 'enrichment_skipped_reason' not in good
+
+
+def test_timeout_retains_supplied_identity_without_reference_acquisition():
+    class Provider:
+        last_scan_details = {'symbol_details': {'AIOK': {
+            'conId': 123, 'longName': 'One Industrial Inc', 'companyName': 'One Industrial',
+            'primaryExchange': 'NASDAQ', 'currency': 'USD', 'aliases': ['One Industries']}}}
+        def get_quote(self, symbol):
+            return quote(['SNAPSHOT_TIMEOUT'])
+        def get_intraday_stats(self, symbol):
+            pytest.fail('timeout enrichment continued')
+    result = runner._build_symbol_context(Provider(), 'AIOK', 'RTH', float_cache={})
+    assert result['con_id'] == 123 and not result['con_id_is_synthetic']
+    assert result['long_name'] == 'One Industrial Inc'
+    assert result['company_name'] == 'One Industrial'
+    assert result['aliases'] == ['One Industries']
+    assert result['primary_exchange'] == 'NASDAQ'
+    assert result['snapshot_timeout'] and result.get('reference_price') is None

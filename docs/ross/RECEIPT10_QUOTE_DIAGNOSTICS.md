@@ -114,3 +114,21 @@ prior failures, holdings, ownership blockers and GUI draft remain preserved.
 Captured CLIK remains stale and its earlier-clock counterfactual remains
 no_catalyst_classification; receipt9's missing rejection cannot be reconstructed.
 PAPER_READY=NO. No live diagnostic or operator observation has been run by Codex.
+
+## First published-head CI finding and correction
+
+Run40006857603 at2f495fdb preserved as a failed-head receipt: Linux reported two
+failures,3055 passed and1 skipped. The timeout short circuit omitted supplied
+issuer metadata expected by the existing managed-provider-to-RSS identity test.
+The new quote error observer also assumed constructor-initialized quote state,
+breaking an order-only partially initialized callback consumer.
+
+The corrected head hands off existing scanner/qualification identity metadata via
+one pure helper shared with normal enrichment. No reference request, history or
+extra quote is needed, and no identity is invented for the timed-out candidate.
+Order-only consumers without quote telemetry safely have no quote authority while
+existing order error observability continues. Existing failing tests pass without
+changing their assertions; a dedicated timeout identity-retention fixture is added.
+Focused checks expanded to177 passing in3.24s, including both affected test files.
+This code change and observed CI failure justify new-head Linux/Windows CI and
+superseding independent exact-head review, not a same-head full-suite retry.

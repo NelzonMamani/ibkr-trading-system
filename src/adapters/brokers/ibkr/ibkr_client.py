@@ -796,7 +796,10 @@ class IbkrClient(EWrapper, EClient):
 
     def _quote_callback_ticker(self, req_id, kind, *, supported=True, valid=True, returned_type=None, tick_type=None):
         # Caller holds the native lock. Diagnostic counts are not authority.
-        owner = self._request_type_by_req_id.get(req_id)
+        # Order-only/partially initialized callback consumers have no quote owner.
+        if not hasattr(self, "_quote_trace"):
+            return None
+        owner = getattr(self, "_request_type_by_req_id", {}).get(req_id)
         ticker = self._ticker_by_req_id.get(req_id)
         if self._request_id_conflicted(req_id):
             reason = "conflicted"
