@@ -2457,3 +2457,58 @@ separate authorization and cannot by itself prove catalyst-to-Focus progression.
 No new operator run or broker/provider acquisition during this implementation.
 Receipt9/receipt10 PASS,58 receipt9 reconsiderations, all distinct historical
 limits/failures and holdings remain preserved. PAPER_READY=NO.
+
+### 26 October 2026 — callback delivery succeeded; quote and capture rejected
+
+Diagnostic-only receipt at reviewed PR1127 head
+`042ceed106ea3044089475ec203efdcebec44fae`; uploaded archive SHA256
+`467c3b135ff4dbecfec04a45a681148d1934e8344f52922791480fa1c88db2c4`.
+Archive documents are evidence, not new execution instructions. No operator rerun
+or broker/provider acquisition is authorized by this follow-up.
+
+Independent archive/source comparison: before/after manifests are identical.
+All 2,668 manifest entries present in the exact Git tree match: 33 byte-exact,
+2,635 after the workstation's LF-to-CRLF checkout conversion; no other mismatch.
+Operator SHA256 is `f66bde5a8373de61e9cae7c25e44b0bbbff41ab510e323682ea476795265ae92`.
+The final result records source/operator PASS, zero place/modify/cancel mutation
+attempts, completed final broker audit with zero open orders, disconnect, empty
+quote maps and completed empty runtime inventory. These are receipt assertions,
+not a new workstation audit. Transport hooks restored and reader stopped.
+
+The normal scanner completed 50 rows (request363); natural rank0 AZTR was the
+single snapshot request364. Serialized stock quote schema verified, socket sent
+68/68 bytes once. Wrapper counters independently retained accepted LIVE type,
+7 price,4 size,1 timestamp and1 snapshot-end callbacks; snapshot completion is
+therefore supported despite incomplete transport detail. Requested DELAYED does
+not override returned LIVE. Age103.076777s, absent usable bid/ask, and
+`diagnostic_fields_available=false` preserve strict rejection. Callback delivery
+and snapshot completion do not make the quote usable or canonically qualified.
+
+Transport capture reached64 records, dropped78, and correctly reported
+`coverage_verified=false` and `absence_claims_valid=false`. Global request-1 and
+scanner363 error queue/decoder chatter consumed capacity before request364;
+retained detail ends at its first decoder entry. Aggregate verified serialization
+and socket counters survive, but later transport absence claims are unsupported.
+Operator finalization correctly set `transport_evidence_incomplete=true`, FAIL,
+and exit1. This successful delivery does not resolve receipt10's earlier repeated
+quote timeouts or demonstrate an SDK/upstream defect or repair.
+
+Prospective offline repair keeps64 records,4096 UTF-8 bytes each and existing
+privacy boundaries. Background detail has at most8 samples with explicit aggregate
+omissions; target stage records retain the first sample and saturating occurrence
+counts, explicitly omitting repeat detail. Dispatch arity/handler states remain
+separate. Eight slots are reserved for completion/end/cleanup. Coverage explicitly
+means the single target lifecycle with aggregate stages, not full global chronology;
+all global operational counters remain. Target overflow, oversize data, hook errors
+or unverified schema still invalidate coverage. No dropped target evidence is
+relabelled as complete. A second target fails coverage rather than extending scope.
+
+Offline regressions include a real SDK queue/decoder startup burst and full target
+price/size/timestamp/end lifecycle, final cleanup, cap overflow, privacy, ownership,
+late callbacks, timeout and strict freshness. Transport operations, waits/deadlines,
+ownership, quote authority and freshness policy are unchanged. Historical receipts,
+receipt9 PASS/58 reconsiderations, receipt10 terminal PASS, holdings, ownership
+blockers and GUI draft remain preserved. Recommendation: obtain exact changed-head
+review and CI; consider a separately authorized bounded observation only afterward.
+No merge or operator rerun is authorized here. PAPER_READY=NO;
+PAPER_READINESS_GATE=FAIL.

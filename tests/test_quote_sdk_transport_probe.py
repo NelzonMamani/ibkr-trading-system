@@ -195,7 +195,9 @@ def test_caps_and_overlong_values(prepared):
     for i in range(100):
         d.record('bounded', n=i)
     d.record('oversize', text='x'*5000)
-    assert len(d.records) == 64
+    assert len(d.records) == 56  # Eight slots remain reserved for finalization.
+    c.record_quote_completion(364, 'timeout'); c.cancelMktData(364)
+    assert any(r['event'] == 'wrapper_cleanup' for r in d.records)
     assert all(len(json.dumps(r, ensure_ascii=True).encode()) <= 4096 for r in d.records)
     assert d.counters['records_dropped'] and d.counters['oversize'] == 1
     c.disconnect(); d.close()
@@ -247,3 +249,51 @@ def test_live_reader_invalidates_final_evidence(prepared):
     assert calls == [2] and not d.snapshot()['reader_stopped']
     assert not d.snapshot()['coverage_verified']
     d.reader = None  # Fixture teardown must not model another pending join.
+
+
+def test_startup_burst_full_target_lifecycle_preserves_budget(prepared):
+    c, d, raw = prepared
+    # Real queue and SDK dispatch: global farm errors before the normal scan,
+    # then non-target scanner errors. No socket connection/acquisition is made.
+    def dispatch(values):
+        payload = frame(values)[4:]
+        c.msg_queue.put(payload)
+        c.decoder.interpret(comm.read_fields(c.msg_queue.get()))
+    for _ in range(80):
+        dispatch([4, 2, -1, 2104, 'PRIVATE_GLOBAL_TEXT'])
+    for _ in range(10):
+        dispatch([4, 2, 363, 162, 'PRIVATE_SCANNER_TEXT'])
+    ticker = c.reqMktData(contract(), snapshot=True)
+    messages = [[58, 1, 364, 1]]
+    messages += [[1, 3, 364, tick, value, 100, 0] for tick, value in
+                 [(1, -1), (2, -1), (4, 4.05), (6, 4.1), (7, 3.9), (9, 4.0), (14, 4.0)]]
+    messages += [[2, 6, 364, tick, 1000] for tick in (0, 3, 5, 8)]
+    messages += [[46, 6, 364, 45, '1793027024'], [57, 1, 364]]
+    for values in messages:
+        data = frame(values)
+        raw.chunks = [data]
+        received = c.conn.recvMsg()
+        _, payload, remaining = comm.read_msg(received)
+        assert not remaining
+        c.msg_queue.put(payload)
+        c.decoder.interpret(comm.read_fields(c.msg_queue.get()))
+    c.record_quote_completion(364, 'snapshot_end')
+    c.cancelMktData(364)
+    assert ticker.snapshotEnd and ticker.marketDataTypeConfirmed
+    assert ticker.bid <= 0 and ticker.ask <= 0  # SDK sentinels remain unusable.
+    assert not c._market_events and not c._ticker_by_req_id and not c._active_market_req_ids
+    c.disconnect(); d.close()
+    result = d.snapshot()
+    assert result['coverage_verified'] and result['absence_claims_valid']
+    assert result['counters']['records_dropped'] == 0
+    assert result['counters']['background_records_omitted'] > 300
+    assert result['counters']['repeated_details_omitted'] > 20
+    assert result['counters']['queue_put'] == result['counters']['queue_get'] == 104
+    assert result['counters']['decoder_entry'] == result['counters']['decoder_return'] == 104
+    assert result['counters']['quote_socket_calls'] == 1 and len(raw.sent) == 1
+    assert len(result['records']) <= 64
+    assert all(len(json.dumps(row, ensure_ascii=True).encode()) <= 4096 for row in result['records'])
+    events = {row['event'] for row in result['records']}
+    assert {'serialized_quote', 'wrapper_send', 'wrapper_completion', 'wrapper_cleanup',
+            'quote_window_end', 'decoder_return'} <= events
+    assert 'PRIVATE_' not in json.dumps(result) and '4.05' not in json.dumps(result)
