@@ -8,7 +8,7 @@ from queue import Empty, Queue
 from typing import Optional
 
 from src.config.runtime_config import get_persistence_sqlite_path
-from src.market_data.float_provider import FloatProvider
+from src.market_data.float_provider import FloatProvider, resolve_float_cache_path
 
 
 @dataclass(frozen=True)
@@ -184,7 +184,7 @@ def shutdown_float_discovery_workers(timeout: float = 3) -> bool:
 
 
 def get_float_discovery_worker(cache_path: str | Path) -> FloatDiscoveryWorker:
-    cache_path = Path(cache_path).resolve()
+    cache_path = resolve_float_cache_path(cache_path)
     sqlite_path = str(Path(get_persistence_sqlite_path()).resolve())
     resolved = (str(cache_path), sqlite_path)
     with _WORKERS_LOCK:

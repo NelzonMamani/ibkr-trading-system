@@ -33,6 +33,9 @@ from src.config.runtime_config import (
 )
 from src.core.event_collector import EventCollector
 from src.market_data.float_discovery_worker import get_float_discovery_worker
+from src.market_data.float_provider import (
+    read_float_cache_text, resolve_float_cache_path, float_cache_mtime_ns,
+)
 from src.news.batch_rss_adapter import BatchRssNewsIntelligenceProvider
 from src.news.news_fetcher import Headline, RssFailureSummary, fetch_fast_headlines_for_symbols, fetch_headlines_for_symbols, symbol_relevance_match
 from src.news.news_intelligence_contract import (
@@ -710,10 +713,7 @@ def _should_print_watchlist(
 
 def _load_float_cache(path: Path) -> Dict[str, Dict[str, Any]]:
     try:
-        if not path.exists():
-            print(f"[FLOAT][CACHE_LOAD] path={path.resolve()} entries=0")
-            return {}
-        data = path.read_text(encoding="utf-8")
+        data = read_float_cache_text(path)
         parsed = json.loads(data)
         if isinstance(parsed, dict):
             parsed.pop("_meta", None)
@@ -748,18 +748,18 @@ def _load_float_cache(path: Path) -> Dict[str, Dict[str, Any]]:
                         "float_source": str(source),
                         "float_asof": timestamp,
                     }
-            print(f"[FLOAT][CACHE_LOAD] path={path.resolve()} entries={len(normalized)}")
+            print(f"[FLOAT][CACHE_LOAD] path={resolve_float_cache_path(path)} entries={len(normalized)}")
             return normalized
     except Exception:
-        print(f"[FLOAT][CACHE_LOAD] path={path.resolve()} entries=0")
+        print(f"[FLOAT][CACHE_LOAD] path={resolve_float_cache_path(path)} entries=0")
         return {}
-    print(f"[FLOAT][CACHE_LOAD] path={path.resolve()} entries=0")
+    print(f"[FLOAT][CACHE_LOAD] path={resolve_float_cache_path(path)} entries=0")
     return {}
 
 
 def _resolve_float_cache_path() -> Path:
     path = Path(get_config("SCANNER_FLOAT_CACHE_FILE"))
-    print(f"[FLOAT][CACHE_PATH] path={path.resolve()}")
+    print(f"[FLOAT][CACHE_PATH] path={resolve_float_cache_path(path)}")
     return path
 
 
@@ -848,7 +848,7 @@ def _rehydrate_context_float(
 
 def _float_cache_mtime_ns(path: Path) -> int | None:
     try:
-        return path.stat().st_mtime_ns if path.exists() else None
+        return float_cache_mtime_ns(path)
     except Exception:
         return None
 
@@ -860,7 +860,7 @@ def _refresh_float_cache_from_disk_if_changed(
 ) -> bool:
     global _FLOAT_CACHE_STATE
     file_mtime_ns = _float_cache_mtime_ns(cache_path)
-    path_key = str(cache_path.resolve())
+    path_key = str(resolve_float_cache_path(cache_path))
     if _FLOAT_CACHE_STATE.get("path") == path_key and _FLOAT_CACHE_STATE.get("mtime_ns") == file_mtime_ns:
         return False
 
@@ -870,7 +870,7 @@ def _refresh_float_cache_from_disk_if_changed(
     _FLOAT_CACHE_STATE = {"path": path_key, "mtime_ns": file_mtime_ns, "data": float_cache}
     print(
         "[FLOAT][CACHE_REFRESH] "
-        f"path={cache_path.resolve()} entries={len(float_cache)} reason=same_cycle_cache_change"
+        f"path={resolve_float_cache_path(cache_path)} entries={len(float_cache)} reason=same_cycle_cache_change"
     )
     return True
 
@@ -1132,14 +1132,9 @@ def _bootstrap_float_cache(
     global _FLOAT_CACHE_STATE, _FLOAT_SOURCE_BY_SYMBOL, _FLOAT_CACHE_HIT_SYMBOLS
     cache_path = _resolve_float_cache_path()
 
-    file_mtime_ns = None
-    if cache_path.exists():
-        try:
-            file_mtime_ns = cache_path.stat().st_mtime_ns
-        except Exception:
-            file_mtime_ns = None
+    file_mtime_ns = _float_cache_mtime_ns(cache_path)
 
-    path_key = str(cache_path.resolve())
+    path_key = str(resolve_float_cache_path(cache_path))
     if _FLOAT_CACHE_STATE.get("path") != path_key or _FLOAT_CACHE_STATE.get("mtime_ns") != file_mtime_ns:
         _FLOAT_CACHE_STATE = {"path": path_key, "mtime_ns": file_mtime_ns, "data": _load_float_cache(cache_path)}
 

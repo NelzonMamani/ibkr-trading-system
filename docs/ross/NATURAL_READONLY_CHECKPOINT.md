@@ -2513,3 +2513,78 @@ blockers and GUI draft remain preserved. Recommendation: obtain exact changed-he
 review and CI; consider a separately authorized bounded observation only afterward.
 No merge or operator rerun is authorized here. PAPER_READY=NO;
 PAPER_READINESS_GATE=FAIL.
+
+### PR1128 Windows float-cache publication blocker — offline repair
+
+Continue from `a13cb2314f2e1827032d3a47a94e7c8fd7ca3156`. Preserve failed
+CI40347587519: Linux3085 passed/1 skipped; Windows3084 passed/1 failed/1 skipped
+in469.35s. `test_concurrent_provider_writes_preserve_all_discoveries` propagated
+PermissionError/WinError5 from `os.replace` at float_provider.py:280. The35-case
+Windows maintenance check passed; later cache/PowerShell/parser checks were skipped
+and the missing-artifact upload failed. Unchanged source never proved this harmless.
+
+The established production defect is an incomplete lock boundary. Original writer
+merge/read/temp-file operations were under the canonical per-path RLock, but lock
+lookup resolved the live cache leaf BEFORE acquiring that lock; post-write logging
+resolved it AFTER releasing the lock. CPython3.13.3 `os._getfinalpathname`, used by
+Windows `Path.resolve`, opens the leaf with CreateFileW desired-access0/share-mode0
+and releases the GIL around native work. That handle can deny another writer's
+atomic replacement despite correct per-path lock identity. Source reference:
+https://github.com/python/cpython/blob/v3.13.3/Modules/posixmodule.c
+(`os__getfinalpathname_impl`). This is a local concurrency repair, not an SDK repair.
+
+The failed fixture constructs all8 providers sequentially before submitting writes,
+uses one isolated temporary cache/database, observes every future and joins its
+ThreadPoolExecutor. No scanner or discovery worker is created by that test. The
+retained log shows SYM0 published, SYM1 publication failed, and the later6 writes
+completed. It does not capture native handle ownership at the instant of failure;
+no external handle/antivirus attribution is claimed. Controlled native Windows
+replay enlarges this exact lock-lookup resolution window using the same share-mode0
+handle, runs the exact failed-head module, and requires real PermissionError from
+unmocked replacement. The repaired control requires successful publication and
+closed handles. This establishes a reachable cause matching the receipt, not a
+reconstruction of its uncaptured scheduling.
+
+Additional production readers were audited: provider constructor/_load_cache;
+scanner bootstrap and same-cycle refresh; mock scanner constructor cache reader.
+They closed read_text handles, but did not synchronize them with publication.
+Worker registry cache-path resolution and scanner state/logging also resolved the
+live leaf outside the writer lock. All now use the shared cache I/O boundary.
+Canonical FloatProvider is the sole float JSON writer; its compatibility import,
+IBKR provider, Core and discovery worker delegate to it. PersistentReferenceCache
+uses a distinct reference_cache.json and is not a float-cache writer.
+
+The repair holds one process-local reentrant I/O gate before full canonical
+resolution and the canonical per-path lock through disk read/merge/temp write/
+close/atomic replace. Constructor reads, scanner/mock reads and cache metadata
+access participate; redundant provider log resolutions are removed. Relative,
+case-normalized and symlink aliases retain full canonical identity. No network
+request, SQLite operation or worker join runs inside that gate. Other cache paths'
+short local I/O is serialized too. Temp handles close before replace; readers close
+before releasing the gate; failed publication cleans its temp and propagates the
+error without updating memory/SQLite or fabricating a float. No retries, PermissionError
+suppression, non-atomic write or concurrency-test weakening. This remains an
+in-process protocol, not new cross-process or arbitrary external-handle ownership.
+External denial still fails closed.
+
+Verification includes the unchanged8-writer discovery-preservation test, overlapping
+provider/constructor/scanner/mock read-handle controls, publication-gate ownership,
+relative/dot/case aliases, one-attempt persistent denial, unchanged prior data and
+memory/database state and temp cleanup. Native controls use bounded event waits,
+release handles in finally blocks and join all owned futures before teardown.
+Windows CI checks the exact failed module against the repaired module before the
+full suite. Both full Linux/Windows suites and previously skipped offline cache,
+PowerShell exit/observation harness and PowerShell5.1 parser remain required;
+exact-head review and final CI receipts are recorded in draft PR1128. The failed
+receipt is retained even after prospective checks pass.
+
+PR1127 remains the draft parent; this repair continues draft PR1128. Capture64×4096,
+background/target omission counters, finalization reservation, scoped coverage and
+fail-closed coverage protections are unchanged from a13cb231. All historical
+receipts, holdings, ownership blockers and GUI draft remain. The earlier quote-timeout
+cause is unresolved. Recommended next operator action only AFTER review/CI and
+controlled integration: seek separate authorization for the existing one-scan,
+one-natural-candidate, one-snapshot diagnostic with the accepted source pin and
+original deadlines; do not rerun receipt10/Ross or acquire history/news. No operator
+step is executed or authorized by this repair. PAPER_READY=NO;
+PAPER_READINESS_GATE=FAIL.

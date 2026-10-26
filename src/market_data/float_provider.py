@@ -5,6 +5,7 @@ import os
 import sqlite3
 import tempfile
 import threading
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -23,12 +24,38 @@ except Exception:
 
 
 _CACHE_LOCKS: dict[str, threading.RLock] = {}
-_CACHE_LOCKS_GUARD = threading.Lock()
+# Windows realpath/Path.resolve opens the leaf with share mode 0. Serialize
+# canonicalization as well as file handles/publication, not just the writers.
+# Order is always this process-local I/O gate, then the canonical per-path lock.
+_CACHE_LOCKS_GUARD = threading.RLock()
 
 
+def resolve_float_cache_path(path: str | Path) -> Path:
+    with _CACHE_LOCKS_GUARD:
+        return Path(path).resolve()
+
+
+@contextmanager
 def _cache_lock(path: Path):
     with _CACHE_LOCKS_GUARD:
-        return _CACHE_LOCKS.setdefault(os.path.normcase(str(path.resolve())), threading.RLock())
+        canonical = resolve_float_cache_path(path)
+        lock = _CACHE_LOCKS.setdefault(os.path.normcase(str(canonical)), threading.RLock())
+        with lock:
+            yield canonical
+
+
+def read_float_cache_text(path: Path) -> str:
+    # read_text closes its handle before releasing the publication gate.
+    with _cache_lock(path) as canonical:
+        return canonical.read_text(encoding="utf-8")
+
+
+def float_cache_mtime_ns(path: Path) -> int | None:
+    with _cache_lock(path) as canonical:
+        try:
+            return canonical.stat().st_mtime_ns
+        except FileNotFoundError:
+            return None
 
 
 @dataclass(frozen=True)
@@ -59,8 +86,8 @@ class FloatProvider:
         sqlite_path: str | None = None,
     ) -> None:
 
-        self.cache_path = Path(get_config("SCANNER_FLOAT_CACHE_FILE") if cache_path is None else cache_path).resolve()
-        print(f"[FLOAT][CACHE_PATH] path={self.cache_path.resolve()}")
+        self.cache_path = resolve_float_cache_path(get_config("SCANNER_FLOAT_CACHE_FILE") if cache_path is None else cache_path)
+        print(f"[FLOAT][CACHE_PATH] path={self.cache_path}")
         self.ttl = timedelta(days=max(int(ttl_days), 1))
 
         self.sqlite_path = sqlite_path or get_persistence_sqlite_path(
@@ -242,18 +269,14 @@ class FloatProvider:
 
         try:
 
-            if not self.cache_path.exists():
-                print(f"[FLOAT][CACHE_LOAD] path={self.cache_path.resolve()} entries=0")
-                return {}
-
-            payload = json.loads(self.cache_path.read_text(encoding="utf-8"))
+            payload = json.loads(read_float_cache_text(self.cache_path))
 
             if isinstance(payload, dict):
-                print(f"[FLOAT][CACHE_LOAD] path={self.cache_path.resolve()} entries={len(payload)}")
+                print(f"[FLOAT][CACHE_LOAD] path={self.cache_path} entries={len(payload)}")
                 return payload
 
         except Exception:
-            print(f"[FLOAT][CACHE_LOAD] path={self.cache_path.resolve()} entries=0")
+            print(f"[FLOAT][CACHE_LOAD] path={self.cache_path} entries=0")
             return {}
 
         return {}
@@ -284,7 +307,7 @@ class FloatProvider:
                     temporary.unlink(missing_ok=True)
         print(
             "[FLOAT][CACHE_WRITE] "
-            f"symbol={symbol} path={self.cache_path.resolve()} source={source} value={int(value)}"
+            f"symbol={symbol} path={self.cache_path} source={source} value={int(value)}"
         )
 
     # ======================================================

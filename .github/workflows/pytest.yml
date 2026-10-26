@@ -102,6 +102,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13.3"
@@ -120,6 +122,11 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}/tests/offline;${{ github.workspace }}
         run: python -m pytest -q tests/test_independent_news_maintenance.py
+      - name: Native Windows float-cache failure and repaired controls (offline)
+        if: needs.verification-scope.outputs.harness_only != 'true'
+        env:
+          PYTHONPATH: ${{ github.workspace }}/tests/offline;${{ github.workspace }}
+        run: python -m pytest -q -s tests/test_float_cache_concurrency.py
       - name: Full Windows offline suite (includes all six request-ID cases)
         if: needs.verification-scope.outputs.harness_only != 'true'
         env:
