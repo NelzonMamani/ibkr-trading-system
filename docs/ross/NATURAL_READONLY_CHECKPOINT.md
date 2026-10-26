@@ -3068,3 +3068,138 @@ head review and changed-head CI supersede engineering gates without erasing the
 failed run. Natural terminal PASS/exit0, all4 issuer findings and ownership blockers
 remain unchanged. No acquisition or unchanged-head CI rerun. PAPER_READY=NO;
 PAPER_READINESS_GATE=FAIL.
+
+## Accepted PR1131 merge and smallest next evidence step (26 October 2026)
+
+This entry supersedes the preceding *integration recommendation*, not its
+historical findings or receipts. GitHub PR1131 is merged: merge commit
+`f70edc3c5c368db561b95adc6c59b71cd82cfb28`, parents
+`086a662c4f11f94b27ae3018a8cd561b7cc0f2a0` and
+`b9b0ad5da2714746a0028f049ef6216a393b2104`, tree
+`849422d9a52f7cdc1a5cfdec3814f9f1e4a64e1c`. Git objects, remote main and
+GitHub's merged PR receipt agree. GitHub records merge time 26 October 2026
+20:25:28 UTC (20:25:28 Europe/London). The accepted merge tree exactly equals
+PR1131's independently reviewed, successfully tested final tree. Carry forward
+review5658314441 and successful changed-head CI40393068669; preserve failed
+CI40390431426 and its attribution limits. No completed suite or natural
+observation was repeated for this assessment.
+
+### Content supplied versus authority to qualify
+
+At this exact accepted source, `news_fetcher._entry_summary` collects RSS
+`summary`, `description`, `subtitle`, and `content` values. `Headline.summary`
+is passed by `batch_rss_adapter._evidence_from_headline` into `NewsEvidence.summary`
+and retained by the canonical store. Acquisition therefore is **not inherently
+headline-only**, but it supplies only what the RSS item contains; it does not
+retrieve the linked article or filing body. A feed summary can itself merely
+repeat a headline. The captured current AZTR Form8K sample does so, with publisher
+text; it does not disclose a qualifying underlying event. The missing filing
+body cannot be reconstructed from this receipt.
+
+Issuer relevance can match title or summary. `assess_issuer_event`, however,
+intentionally classifies and binds an asserted event to the issuer's **title
+clause**, using original publication time, existing six-hour freshness,
+source-tier restrictions and dilution/uncertainty exclusions. Summary text does
+not independently authorize a catalyst. A sufficiently explicit title can carry
+a valid event without a full article body; a generic filing title cannot. No
+content-loss or classification defect is established by the observed Form8K.
+Do not introduce article crawling or summary qualification on this evidence.
+
+New deterministic offline controls on accepted main used synthetic feed entries,
+a private temporary canonical store, controlled UTC time and a synthetic quote
+provider. They exercised real RSS matching, canonical service publication,
+`reassess_ross_watchlist`, and the shared normal Focus selection gates:
+
+- Synthetic `Azitra Inc reports earnings beat`, with supplied `AZITRA INC` and no
+  ticker in the title: full legal-name match, one canonical write, then cached
+  reconsideration from empty Focus to AZTR Focus with
+  `verified_issuer_event_valid` and a fresh synthetic broker-provenance quote.
+- Synthetic `Azitra Inc files Form 8-K` with an earnings assertion only in its
+  summary: retained article, no Focus.
+- Synthetic peer-owned earnings clause with a later Azitra Inc co-mention:
+  retained article, no Focus.
+
+All three controls passed (0.90s). Reconsideration made no additional feed read
+or canonical write and left cache bytes unchanged. The market-data refresh and
+all financial selection inputs were synthetic fixtures, not natural candidates
+or live broker calls. This establishes a reachable software path, **not** an
+observed catalyst, natural Focus, setup, intent, risk acceptance or trading result.
+
+### Why primary exclusions remain unadjudicable
+
+The prior receipt records, per issuer, 70 in-window primary entries rejected for
+issuer matching (Benzinga10, MarketWatch10, BusinessInsider20, SeekingAlpha30),
+plus CNN20 stale. Aggregate date/relevance counts cannot identify their titles,
+summaries, exact matching fields or per-article publication provenance. The
+archive contains neither those rejected item bodies nor raw primary XML.
+`news_fetcher` calls `retain_exclusion` only for source group
+`ROSS_ISSUER_QUERY`; the primary `FAST_TRADING` routes intentionally receive
+counters without those samples. This is an evidence-coverage limit, not proof
+that any individual primary rejection was wrong. The Google exclusion samples
+cannot stand in for primary content. HTTP403/401/timeout receipts remain partial
+coverage; missing error bodies still preclude assigning their upstream cause.
+
+Existing facilities have distinct limits:
+
+- `retain_exclusion` sanitizes before clipping, keeps two samples per reason,
+  title512/summary1024/URL512 character limits, original-field hashes,
+  truncation/redaction flags, identity patterns and timestamp provenance, plus
+  aggregate counts. Its current route guard does **not** sample primary feeds.
+  It cannot retrospectively recover their missing content.
+- `RawFeedCapture` can capture primary bytes through an owned lifecycle and
+  detailed `operational_query` fetch. Its existing 512KiB/response bound,
+  hash, acquisition/evaluation times, HTTP status and body-complete/error fields
+  permit offline replay. A new synthetic primary-route control passed (0.24s):
+  an unmatched item had counters but no sampled exclusion, the raw response was
+  captured once and closed, and replay reproduced the rejection without another
+  HTTP call. The raw sidecar is **not privacy-sanitized**; it must stay private,
+  outside canonical caches, and cannot be treated as a shareable sanitized
+  rejection record or complete capture after truncation/failure.
+- The public issuer-query research CLI adds Yahoo and fixed extended routes;
+  broad research selects its separate catalogue. Neither is a drop-in command
+  for a primary-only operational diagnostic. Do not broaden fanout by choosing
+  one merely to obtain raw capture.
+
+### One next acceptance action — primary-only content adjudication
+
+Recommend preparing, then separately authorizing, **one provider-only diagnostic
+of the eight existing FAST_TRADING URLs for the four captured issuer identities**
+(AZITRA INC / AZTR, RENT THE RUNWAY INC-A / RENT, GLUCOTRACK INC / GCTK,
+SCISPARC LTD / SPRC). No broker, scanner, Focus selection, fallback, Yahoo,
+issuer-query, extra source, retry session or linked-article fetch. This is not an
+unchanged 900-second natural observation. Its purpose is to adjudicate matching
+and content sufficiency even if every result remains negative.
+
+Use the existing detailed fetch, retention selector and owned lifecycle with a
+single fixed batch, six-hour lookback, no more than the existing eight-second
+Ross total news budget and five-second per-request cap clamped to remaining
+budget; bounded cleanup must finish before packaging. Capture each scheduled
+response once with the existing 512KiB cap (at most eight bodies / 4MiB), preserving
+incomplete/unattempted/error status. Keep raw bodies private. Offline replay at
+the recorded evaluation clock should produce a shareable report using the
+existing sanitizer and `retain_exclusion` limits: separate stale versus fresh
+issuer exclusions, original counts and explicit unsampled/redacted/truncated
+coverage. Do not expand those sample limits or call sampled coverage exhaustive.
+No operational cache/prep publication or operator-state change is needed.
+A small primary-only diagnostic caller/report must be prepared and validated
+before execution; this entry is a scope recommendation, not an executable or
+permission to acquire. Do not reuse a broader CLI or unsanitized raw archive.
+
+Defined information gain: for the sampled primary items, determine whether the
+actual title/summary identifies the supplied issuer and whether the title asserts
+a qualifying owned event; for every scheduled route, distinguish absent content,
+HTTP failure, timeout, byte truncation and genuinely empty/mismatched content.
+If no usable content is captured, report that limit and stop; do not repeat hoping
+for a catalyst. A new diagnostic would establish facts only for its own window,
+not recover the missing 900-second observation evidence or guarantee natural
+Focus. Review the report before choosing any subsequent natural acceptance run.
+
+The archived natural terminal PASS/exit0, three completed50-row scans, twelve
+DROP_NO_CATALYST Focus rejections and lack of natural downstream progression stay
+unchanged. Five unmatched broker positions remain a separate ownership/entry
+blocker; no adoption, liquidation or cancellation. Earlier timeout and negative-age
+receipt causes remain unresolved. This task made no production change, acquisition,
+operator rerun, forced Focus/setup/intent, merge or trade. Only the four new offline
+controls were run; prior CI/review receipts are carried forward, not rerun.
+
+`PAPER_READY=NO`; `PAPER_READINESS_GATE=FAIL`.
