@@ -2613,3 +2613,52 @@ This is a deterministic test-only correction, with no production news change,
 timeout increase, assertion removal, or speculative scheduling attribution. Failed
 CI40354478522 and original40347587519 remain receipts. The final changed head
 requires superseding independent review and all Linux/Windows/harness gates.
+
+## 2026-10-26 — Authorized controlled integration receipt
+
+The user explicitly authorized controlled integration and this checkpoint correction.
+Both PRs were merged using merge commits, without squash, rebase or cherry-pick.
+
+| Integration | Actual commit | Verified parents | Verified tree |
+| --- | --- | --- | --- |
+| PR1127 (M1) | `7e146639850a657d740da63092e26e4ecc3bde96` | `74dbb9090ccc7aae46f8028c857363f62ff68cf0`, `042ceed106ea3044089475ec203efdcebec44fae` | `c8594c620283f27054dcc9c970c1f87e25452809` |
+| PR1128 (M2) | `93dbb4004e561512233253a882b573c0245928b4` | M1, `0807689f3687184989dc2e9564bb67808735d1dd` | `f7dc9dd1def6d05fad8c6e3cf1230bfc7744a7e6` |
+
+PR1128 was retargeted to main after M1, with unchanged head. Its remaining diff,
+successful verification-scope/test/windows-offline head checks and empty review
+thread list were rechecked before merging. Both actual merge trees and ordered
+parents were read back and matched the expected values.
+
+Final reviewed implementation head: `0807689f3687184989dc2e9564bb67808735d1dd`.
+Final independent **agent** exact-head review:
+https://github.com/NelzonMamani/ibkr-trading-system/pull/1128#pullrequestreview-5655117817
+(clear; recorded agent receipt, not a separate GitHub human approval).
+Final changed-head CI:
+https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/40355399309
+SUCCESS: Linux **3,092 passed, 3 skipped**; Windows **3,094 passed, 1 skipped**.
+The two additional Linux skips are native Windows controls executed on Windows.
+Required native controls, maintenance/cache checks and PowerShell checks passed.
+PR1127 verification remains CI40020114478 and review5634144323 at its original head.
+These are head-specific pre-integration results; no new post-merge suite is claimed.
+
+Merged work includes bounded target-focused capture with explicit omissions/reserved
+finalization capacity, the demonstrated Windows float-cache I/O synchronization
+repair, and the documented test-only synchronization corrections. Earlier failed
+CI receipts and the original diagnostic capture FAIL remain preserved.
+
+This additive checkpoint correction changes documentation only. Its resulting
+commit/tree will differ from M2; an operator block pinned to M2's exact whole-tree
+hash cannot be silently reused with a newer main pin. Any next operator block must
+verify its literal accepted commit and the reviewed executable/source equivalence,
+accounting explicitly for this documentation-only delta.
+
+No acquisition, diagnostic rerun, trading or test-suite rerun was performed during
+integration. Next live diagnostic remains separately authorized only: one completed
+normal scan, at most one natural candidate, one five-second snapshot, 25-second
+acquisition cap, 120-second outer deadline and existing bounded cleanup/privacy
+phases; no retry/history/news/Ross runtime. Earlier quote-timeout cause, natural
+catalyst-to-Focus/fresh-input/setup/trigger/decision/risk/READ_ONLY-intent progression,
+ownership blockers and paper-management acceptance remain open.
+
+All historical receipts, holdings, ownership blockers and GUI draft remain preserved.
+**PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.**
