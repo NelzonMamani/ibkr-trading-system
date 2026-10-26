@@ -297,3 +297,35 @@ def test_startup_burst_full_target_lifecycle_preserves_budget(prepared):
     assert {'serialized_quote', 'wrapper_send', 'wrapper_completion', 'wrapper_cleanup',
             'quote_window_end', 'decoder_return'} <= events
     assert 'PRIVATE_' not in json.dumps(result) and '4.05' not in json.dumps(result)
+
+
+def test_target_overflow_keeps_final_capacity_and_invalidates_coverage(prepared):
+    c, d, raw = prepared
+    c.reqMktData(contract(), snapshot=True)
+    for i in range(100):
+        d.record('target_detail', request_id=364, ordinal=i)
+    # Global traffic arriving after target saturation must not consume the
+    # final reservation, even if its own eight samples were not yet used.
+    for i in range(100):
+        d.record('global_detail', request_id=-1)
+    c.record_quote_completion(364, 'timeout'); c.cancelMktData(364)
+    c.disconnect(); d.close()
+    result = d.snapshot()
+    assert not result['coverage_verified'] and not result['absence_claims_valid']
+    assert result['counters']['records_dropped'] > 0
+    assert {'wrapper_completion', 'quote_window_end', 'wrapper_cleanup'} <= {
+        row['event'] for row in result['records']}
+    assert len(result['records']) <= 64
+
+
+def test_aggregate_dispatch_states_and_oversize_remain_explicit(prepared):
+    c, d, raw = prepared
+    c.reqMktData(contract(), snapshot=True)
+    for arity in (True, True, False, False):
+        d.record('decoder_entry', request_id=364, message_id=58, arity_ok=arity)
+    entries = [r for r in d.records if r['event'] == 'decoder_entry']
+    assert len(entries) == 2 and all(r['observations'] == 2 for r in entries)
+    d.record('decoder_entry', request_id=364, message_id=58, arity_ok=True, text='x'*5000)
+    assert d.counters['oversize'] == 1
+    c.disconnect(); d.close()
+    assert not d.snapshot()['coverage_verified']

@@ -79,6 +79,9 @@ class TransportDiagnostic:
             value = {'event': event, 'seconds': round(time.monotonic()-self.started, 6), **facts}
             encoded = json.dumps(value, ensure_ascii=True, allow_nan=False).encode()
             with self.lock:
+                if len(encoded) > 4096:
+                    self.count('oversize')
+                    return
                 # Startup/global traffic has aggregate counters but at most eight
                 # samples. The remaining 56 slots belong to the one target's
                 # lifecycle, including completion/cleanup. Never evict evidence.
@@ -107,7 +110,7 @@ class TransportDiagnostic:
                 if len(encoded) > 4096:
                     self.count('oversize')
                     return
-                if not target and self.background_records >= 8:
+                if not target and (self.background_records >= 8 or len(self.records) >= 56):
                     self.count('background_records_omitted')
                     return
                 final_event = event in ('wrapper_completion', 'quote_window_end', 'wrapper_cleanup')

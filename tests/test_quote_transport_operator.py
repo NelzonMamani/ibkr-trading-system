@@ -67,3 +67,24 @@ def test_expired_absolute_cap_starts_no_quote(monkeypatch):
     f.reqScannerData=scan
     with pytest.raises(acquisition.AcquisitionDeadlineExceeded):payload.acquire(f,lambda *a:None)
     assert f.scans==1 and not f.requests
+
+
+@pytest.mark.parametrize('stale,missing', [(True, False), (False, True), (True, True)])
+def test_completed_live_quote_still_rejects_stale_or_missing_fields(monkeypatch, stale, missing):
+    from datetime import timedelta
+    f = Fake()
+    request = f.reqMktData
+    def completed(*args, **kwargs):
+        ticker = request(*args, **kwargs)
+        if stale:
+            ticker.lastTime -= timedelta(seconds=103.076777)
+        if missing:
+            ticker.bid = ticker.ask = -1  # Actual SDK missing-price sentinel.
+        return ticker
+    f.reqMktData = completed
+    monkeypatch.setattr(acquisition, 'wait_event', lambda event, timeout: True)
+    quote = payload.acquire(f, lambda *args: None)['quotes'][0]
+    assert quote['snapshot_complete'] and quote['returned_type'] == 'LIVE'
+    assert not quote['diagnostic_fields_available']
+    assert quote['canonical_qualification'] == 'NOT_PERFORMED'
+    assert f.completions == ['snapshot_end'] and not f._market_events
