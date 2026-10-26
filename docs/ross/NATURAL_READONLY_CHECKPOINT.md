@@ -2598,3 +2598,18 @@ this remaining metadata access now uses the guarded mtime helper. A regression
 fails on9b680bf1 at that exact unguarded access and passes with the fix, with no
 worker/acquisition. Final changed-head review/CI supersedes those implementation
 receipts; final results belong to PR1128, while40347587519 remains preserved.
+
+Changed-head CI40354478522 at42bd30fb exposed a separate test synchronization
+defect before the float controls: Windows maintenance34 passed/1 failed, IndexError
+in `test_failed_publication_is_not_reported_as_a_usable_result`; later checks
+were skipped and absent-artifact upload failed. The publication-failure counter
+is updated before telemetry/cleanup, while completed count and receipt append
+share a later condition-lock critical section. Waiting only for the early counter
+did not authorize indexing receipts. The test now holds that exact intermediate
+telemetry point with bounded events, proves counter1/completed0/receipts empty,
+then releases and waits for completed1 before all original failed-publication,
+no-evidence and unchanged-bytes assertions. Finally always releases and joins.
+This is a deterministic test-only correction, with no production news change,
+timeout increase, assertion removal, or speculative scheduling attribution. Failed
+CI40354478522 and original40347587519 remain receipts. The final changed head
+requires superseding independent review and all Linux/Windows/harness gates.
