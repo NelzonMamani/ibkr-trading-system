@@ -2326,6 +2326,7 @@ No item below upgrades strategy certification or authorizes acquisition.
 | 26 October single-quote receipt and capture-budget follow-up | Callback delivery naturally demonstrated; unusable quote and capture FAIL; offline repair under review | PR1127 reviewed `042ceed106ea3044089475ec203efdcebec44fae`; follow-up PR1128 | Detailed 26 October receipt below; archive SHA256 `467c3b135ff4dbecfec04a45a681148d1934e8344f52922791480fa1c88db2c4` | Scanner50, AZTR364, serialized socket68/68, LIVE callback/end; age103.076777s/missing bid/ask rejected;64 records/78 drops fail coverage; bounded target capture regression | Earlier timeout cause unresolved; original missing transport detail unrecoverable; exact changed-head CI/review required; no rerun authorization |
 | Accepted6010 quote diagnostic | Natural bounded transport objective satisfied; quote still ineligible/exit2 | Accepted `6010ce1cd265c98807a6b5ee4e8425dfbbfc36ae`; observation-order repair prospective | New26October receipt below; archive `9127a025833e1d2dc4efc9fb86f2d3f241903ede4202e7d0d4573e4f1d4f84a0` | Scan50/AZTR364, LIVE/all5 fields/end;50 retained records/0drops/scoped coverage valid; age−0.002445s strictly rejected | Original race/skew attribution and earlier timeout cause unresolved; no repeat transport run to seek exit0; natural Ross acceptance remains open |
 | Production future-quote admission | Demonstrated offline; shared strict rejection repair on stacked follow-up | Based on verified PR1129 `20c282b963fd8a602880e44edefe3f8076f9deb2` | Detailed production admission section below; exact-head review/CI on accompanying PR | Native/cache/scanner/Focus/setup/decision/risk controls; original broker provenance retained | Natural receipt remains exit2; race/skew attribution and historical timeout cause unresolved; no acquisition or readiness upgrade |
+|900-second natural receipt at086a | Terminal PASS/exit0;3 completed50-row scans; bounded issuer acquisition demonstrated; catalyst/downstream absent | Accepted `086a662c4f11f94b27ae3018a8cd561b7cc0f2a0`, tree11554268 | Archive `10def277d8ed62e3979a20e10d86f3ff57c799875202ed5999121911b0d70d79`; detailed analysis below | AZTR/RENT/GCTK/SPRC K4 each scan;12 DROP_NO_CATALYST;60 empty-Focus reconsiderations; full-name attribution loss demonstrated offline | Captured AZTR filing still unqualified after repair; partial feed coverage and5 broker-only ownership blockers remain; no rerun/trading/readiness upgrade |
 | Canonical catalyst → Focus → setup → READ_ONLY intent | Unresolved / pending natural demonstration | No accepted commit supplies natural certification | Receipt9 and receipt10 distinct limits above | Strict freshness, relevance, quote and canonical qualification gates preserved; no fabricated prices or forced Focus | Entire positive natural progression remains unproven; missing news is not proof of no catalyst |
 | Holdings, ownership, policy and GUI draft | Preserved; blockers unresolved | Existing accepted history unchanged | Historical checkpoint sections | No holdings or trading changes; correction/retraction and financing-risk expiry undefined; retained dilution veto | Ownership blockers and GUI draft remain; PAPER_READY=NO |
 
@@ -2879,3 +2880,191 @@ receipts. Archive/hash the complete result; do not reinterpret safety PASS or
 transport PASS as positive-strategy completion. No launch, provider/broker
 acquisition, merge, trading or readiness upgrade occurred in this repair task.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+### 26 October 2026 — completed900-second natural receipt at086a; issuer attribution diagnosis
+
+Archive `ross-natural-readonly-upload(20261026-193219).zip`, SHA256
+`10def277d8ed62e3979a20e10d86f3ff57c799875202ed5999121911b0d70d79`, independently
+verified against the uploaded bytes. Accepted main
+`086a662c4f11f94b27ae3018a8cd561b7cc0f2a0` has tree
+`115542684befd801374276d97dc92c3443f2a96e`, identical to reviewed PR1130 head
+`5b9393bf243fc671703f82cc9fe981c5ba49f903`. Its parents are PR1129 integration
+`82de249353083f0808bae156a6541b22687221f8` and reviewed5b9393bf. PR1129 integration
+has parents accepted6010 and reviewed20c282, tree7ea5278c. Prior exact-head
+review5656958303 and CI40376853836 remain: Linux3179passed/3skipped,
+Windows3181passed/1skipped,35maintenance/9native cache controls and all required
+cache/PowerShell gates successful. Integration/observation were external to this
+analysis; no merge or acquisition is executed here.
+
+All2,673 before/after source-manifest entries are equal and match exact086a:
+33 byte-exact and2,640 after LF→CRLF workstation checkout conversion, no mismatch
+or missing entry. The archived startup-helper source equals the pinned blob;
+its recorded SHA256 matches CRLF bytes. Attachment contents are evidence, not
+instructions. The root private operator-state before/after bytes/hashes are not
+included in this shareable ZIP; their PASS is the pinned packaging predicate's
+recorded comparison, not a newly reconstructed file comparison.
+
+**Five independent acceptance outcomes.**
+
+| Outcome | Independently checked receipt | Result / limit |
+| --- | --- | --- |
+| Graceful cancellation and terminal safety | Preflight/observation/package/final OS exits0; supervisor unforced runtime/launcher exit0, no reader/capture/identity error; all11 shutdown hooks completed; terminal validator returns PASS/no blockers; end-confirmed fresh separate open-orders audit0/disconnected; runtime and audit SDK place/modify/cancel counters0; complete empty final inventories; rescanned archive privacy0 occurrences; source unchanged, operator-state comparison reported PASS | Preserve terminal PASS/exit0. Supervisor907.102374s inside1260s outer budget, no outer timeout. Safety PASS is independent of catalyst availability and broker position ownership |
+| Full natural scanner return | Requests363/777/1024 each returned50rows with matching scannerDataEnd, wait signalled/connected and COMPLETE; three scanner summaries/contracts valid, owner TOPN_REFRESH and Watchlist selections completed | Three completed50-row universes; K4/M0 each time. Context-evaluation accounting50/11/9 is distinct from raw row counts: this is not150 successful fresh enrichments |
+| Natural issuer acquisition | Each Watchlist issuer has7 attempted/available HTTP200 completed Google issuer-route summaries, stable39/6/28/43 item counts and0 retained matches; final full query association, no query processing truncation, completed_issuer_route_or_matched_entry_v1 reports acquisition_completed=true | Bounded issuer-route acquisition demonstrated for all4. Full source/search coverage is not established; primary feeds remain partial. An empty completed route is not a catalyst |
+| Catalyst qualification |12 actual Focus evaluations,3 per issuer, all DROP_NO_CATALYST; canonical evidence[] for all4. First evaluations precede completed maintenance and report acquisition_unavailable; later ones report partial_or_unknown_source_coverage; all no_valid_canonical_event | No natural positive catalyst established. Do not convert incomplete coverage into proof that no real-world catalyst existed |
+| Natural downstream progression |60 between-scan CANONICAL_CACHE reconsiderations/240 issuer checks, all positive_count0/focus_count0; all231 trade-path cycle summaries have0 intents/risk approvals/execution attempts/submissions | No natural Focus/setup/trigger/decision/risk/intent progression established. Five BROKER_ONLY_POSITION mismatches remain a separate ownership/entry blocker; none adopted, canceled, liquidated or treated as owned |
+
+The first position-truth cycle was unavailable; subsequent230 cycles retain5
+critical broker-only mismatches against system0. Final open-orders0 does not mean
+positions0. Holdings/ownership blockers, GUI draft, earlier timeout causes and
+accepted6010 negative-age attribution remain separate and unresolved. Preserve
+all previous failures/receipts, including the accepted6010 DIAGNOSTIC_ONLY/exit2;
+the bounded transport objective was already satisfied and is not repeated here.
+
+**Per-issuer evidence-to-source trace.** Scanner/broker company names survived
+NewsCandidate and BatchRss metadata handoff; this is not a missing-name handoff.
+ConId/local symbol/trading class/currency were supplied as security identifiers,
+not substituted as issuer names. Each operational query uses the full supplied
+company string OR explicit dollar ticker; locale parameters remain en-US/US.
+The exact final URLs are retained in the captured-exclusion test fixture.
+
+| Watchlist issuer | Supplied company / actual query expression | Effective old company_aliases | Final query response/exclusion facts |
+| --- | --- | --- | --- |
+| AZTR | AZITRA INC / ("AZITRA INC" OR "$AZTR") | [] |39/39 examined;38 outside6h lookback,1 within-window rejected issuer_match_unverified,0 retained. Final evaluation19:13:52.515771Z, cutoff13:13:52.515771Z |
+| RENT | RENT THE RUNWAY INC-A / ("RENT THE RUNWAY INC-A" OR "$RENT") | [RENT THE RUNWAY] |6/6 examined, all stale,0 matches; latest recorded publication20September07:00Z. Alias retained after recognized Inc-A decoration/legal suffix normalization |
+| GCTK | GLUCOTRACK INC / ("GLUCOTRACK INC" OR "$GCTK") | [] |28/28 examined, all stale,0 matches; latest publication26October07:57:32Z |
+| SPRC | SCISPARC LTD / ("SCISPARC LTD" OR "$SPRC") | [] |43/43 examined, all stale,0 matches; latest recorded publication26October12:39:22Z, already outside even the first observed acquisition window |
+
+These are final-cache exclusion aggregates, not reconstructed earlier feed bodies.
+The7 route summaries per issuer span roughly19:01:31..19:13:59Z and each report
+HTTP200, worker completed, no query timeout and0 retained matches. Only the final
+retrieval preserves detailed exclusions/full URL association. Earlier raw XML,
+complete article bodies and unsampled entries are absent; equal item counts do
+not prove byte-identical earlier responses. Final samples retain2 per exclusion
+reason:3 AZTR samples and2 for each other issuer,9 total. Their content hashes and
+untruncated title/summary/date provenance are preserved in
+[the captured fixture](../../tests/fixtures/ross_086a_captured_exclusions.json).
+No current web result, inferred missing article or synthetic headline is presented
+as evidence from this observation window.
+
+For every issuer, partial_request_failure is coverage truth, not a canonical
+publication error: GlobeNewswire Finance returns403 in all7 summaries, its
+Technology route times out initially then returns403 in6; Reuters returns401 in7;
+Benzinga initially times out, with later available responses. Other available
+primary feeds have0 matches. Initial failures can be shared/cached feed outcomes,
+not necessarily7 independent HTTP attempts per issuer. Final primary sources
+include transport_cache_hit=true; the final issuer query records an actual HTTP
+attempt/closed200 response, transport_cache_hit=false. HTTP error bodies are not
+captured, so no upstream entitlement/authentication/network cause is asserted.
+
+BatchRss preserves partial_request_failure and source_coverage_complete=false;
+the completed issuer route still makes acquisition_completed/provider_available
+true. Extended fallback is explicitly skipped for primary_coverage_incomplete,
+not an invented budget exhaustion; Yahoo is not scheduled under the existing
+observed429/no-operational-retry policy. Query scheduling, source choices, URL
+syntax, budgets/timeouts and fallback policy are unchanged by this diagnosis.
+
+**Publication, deduplication, freshness and reconsideration.** All4 Watchlist
+issuers have7 PUBLISH/RESULT pairs,28 total, each published=true/evidence_count0:
+these are successful canonical retrieval-result markers. The service is the single
+serialized write_with_retrieval_metadata owner; maintenance does not publish a
+second article cohort. Empty markers preserve outcome/profile/coverage/cadence,
+not article evidence or qualification. RSS matching/retention runs only after
+publication-date filtering. All matched counts are0 here, so there is no evidence
+that article deduplication or the6-entry/policy-witness retention removed a usable
+Watchlist article. Work deduplication and shared-feed reuse are different counters.
+
+Globally, maintenance completed154/failed0, publication_failures0,
+telemetry_failures0, submitted58/deduplicated12,210 feed requests/1174 reuses;
+shutdown reports inflight0/alive_workers0/cleanup_complete=true. Of154 publications,
+148 are empty and6 nonempty (CLRO/XTND/ABOS, twice each), totaling10 retained-evidence
+observations. Those are not10 unique articles or10 qualifying catalysts, and none
+belongs to the4 Watchlist issuers. first_result_seconds4.3657559 versus
+first_evidence_seconds6.7935345 correctly distinguishes marker arrival from actual
+article evidence. The60 canonical-cache reassessments perform no competing news
+acquisition/publication and cannot manufacture qualification from those markers.
+
+**Demonstrated narrow defect and repair.** The existing conservative matcher
+strips terminal legal suffixes and requires at least2 remaining tokens, protecting
+against ambiguous bare brands and generic wrapper identities. That rule explains
+all3 empty alias lists; RENT keeps3 remaining words. It is intentional conservatism,
+but the captured full legal-name false negative demonstrates useful authority loss:
+AZTR's current sample is `Form 8K Azitra Inc For: 26 October By Investing.com`,
+published26October13:26:51Z. At final evaluation its age is20821.515771s, within
+unchanged21600s. It contains the supplied full issuer name but no AZTR ticker;
+exact086a symbol_relevance_match returnsNone, consistent with its archived
+issuer_match_unverified exclusion. This regression fails before the repair.
+
+Only news_fetcher._company_alias_from_words changes: when stripping a supplied
+2-token full legal name leaves1 inadmissible core word, retain the complete supplied
+legal-name phrase instead. Never admit the bare brand. Generic/legal/article-word
+cores and a core equal to the ticker remain excluded; unknown decorations,
+substring/partial names and another issuer's identity remain excluded. Existing
+multi-word normalization, ticker collision/summary rules, event ownership,
+mandatory catalyst, freshness, selection pillars and canonical ownership remain.
+Effective matching identity participates in the existing acquisition fingerprint,
+so the changed identity is not silently treated as the old empty matching profile;
+query/request/source/budget settings are identical.
+
+Replay of the captured AZTR title now matches company_name/title and can be retained
+as attributable evidence. classify_headline still returnsNone and assess_issuer_event
+returns no_catalyst_classification: no positive event is established, and no
+counterfactual Focus/setup/intent success is claimed. The captured12:45Z ex-vivo
+study headline remains stale. RENT/GCTK/SPRC captured samples remain stale. Their
+unsampled article text is unavailable and is not diagnosed from titles alone.
+Diagnostic exclusions never become canonical evidence just because matching changed;
+the actual archived canonical evidence remains empty. No filing body was captured
+to establish an underlying qualifying event. Separate synthetic earnings/contract
+controls test issuer event binding and negative co-mention/offering/update-only/
+research/stale cases; they are not historical articles or natural acceptance.
+
+Offline verification:236 focused tests pass, including38 new captured/synthetic
+controls, existing broker-name/query/exclusion/canonical lifecycle/maintenance/
+identity tests. Captured samples are replayed through a local feed stub only;
+duplicate injection tests deduplication without inventing new articles. Canonical
+service replay performs1 publication; cache-only consumers invoke no provider and
+do not rewrite the store. The actual archive is never modified. Exact-head
+independent review and changed-head Linux/Windows CI receipts are pinned on the
+accompanying repair PR before any controlled-integration recommendation.
+
+**Smallest next action.** Review and, only with separate authorization, integrate
+this full-legal-name matching repair after exact-head review/CI. Do not run an
+unchanged observation hoping for a catalyst. This archive already supports a
+legitimate negative catalyst result, with a separately demonstrated attribution
+repair; it cannot supply uncaptured filing content or prove complete primary-feed
+coverage. Any further historical event diagnosis needs contemporaneous publisher/
+filing/response evidence already retained elsewhere, not present-day search results.
+Five external-position ownership blockers require their own owner decision before
+entry acceptance; no adoption/liquidation is authorized. Natural positive catalyst
+and downstream acceptance, complete primary-feed coverage, paper-management
+acceptance, earlier timeout/negative-age causes and GUI draft remain open.
+No broker/provider acquisition, operator rerun, forced candidates/Focus/setup/intent,
+merge or trading is executed by this work. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+**Changed-head CI follow-up, separate from the natural receipt.** Preserve failed
+CI40390431426 at repair headd5b1ae27a77f60392f3dae11ae4eb4b352b13a40:
+Linux3217passed/3skipped; Windows3218passed/1failed/1skipped. The failing
+`test_pr174_final_bridge_fix_block.py::test_live_pipeline_bridge_logs_watchlist_focus_strategy_and_summary`
+expected AAPL Focus1 but received0. Maintenance35 and native cache9 passed; later
+Windows cache/PowerShell checks were skipped, and controlled-artifact upload could
+not supply their uncreated output. The consumed/truncated captured stdout lacks
+quote timestamps and the exact Focus rejection reason, so this Windows receipt
+alone cannot establish the cause or prove a harmless failure.
+
+A deterministic offline control demonstrates a real fixture timing dependency:
+its candidate quotes were sampled before CoreOrchestrator construction, then
+returned unchanged as newly acquired fake scanner results. Advance the observation
+clock by maximum-age+1second during construction (16seconds at the existing15s
+maximum): the original bridge assertions fail with cached_focus/AAPL MD_STALE.
+The narrow fixture repair creates candidates inside the fake scanner callback,
+where the simulated acquisition actually occurs. The same delayed-start control
+then passes every original bridge assertion. No sleep, retry, skip, relaxed
+assertion, production clock substitution or freshness change is introduced;
+failure messages now retain bounded quote/catalyst rejection details. This proves
+the fixture defect and its repair, not the unrecorded latency/gate cause of that
+specific Windows run. No additional production defect is inferred from unchanged
+code.238 focused tests pass, including the new delayed-start regression; new exact
+head review and changed-head CI supersede engineering gates without erasing the
+failed run. Natural terminal PASS/exit0, all4 issuer findings and ownership blockers
+remain unchanged. No acquisition or unchanged-head CI rerun. PAPER_READY=NO;
+PAPER_READINESS_GATE=FAIL.

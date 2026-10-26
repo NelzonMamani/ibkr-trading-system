@@ -1,0 +1,385 @@
+{
+  "receipt_commit": "086a662c4f11f94b27ae3018a8cd561b7cc0f2a0",
+  "archive_sha256": "10def277d8ed62e3979a20e10d86f3ff57c799875202ed5999121911b0d70d79",
+  "scope": "Bounded diagnostic exclusion samples, not full feeds or canonical article evidence. Final cache only; earlier responses not reconstructed.",
+  "issuers": {
+    "AZTR": {
+      "company_name": "AZITRA INC",
+      "matching_aliases": [],
+      "query_url": "https://news.google.com/rss/search?q=%28%22AZITRA+INC%22+OR+%22%24AZTR%22%29&hl=en-US&gl=US&ceid=US%3Aen",
+      "evaluation_time_utc": "2026-10-26T19:13:52.515771+00:00",
+      "feed_item_count": 39,
+      "entries_examined_count": 39,
+      "counts": {
+        "within_window": 1,
+        "stale_entries": 38,
+        "future_entries": 0,
+        "missing_invalid_dates": 0,
+        "relevance_rejections_by_symbol": {
+          "AZTR": 1
+        }
+      },
+      "exclusion_evidence": {
+        "authority": "diagnostic_only_not_canonical",
+        "counts": {
+          "issuer_match_unverified": 1,
+          "outside_lookback_window": 38
+        },
+        "samples": {
+          "issuer_match_unverified": [
+            {
+              "article_identity_sha256": "a3b9cde444420185101222cd310c4f3739b0001f7782ba412d63b3968347a60d",
+              "entry_index": 3,
+              "identity_patterns": [
+                "(?i:(?<![A-Z0-9$])\\$AZTR(?![A-Z0-9])|\\(AZTR\\)|(?<![A-Z0-9])(?:NASDAQ|NYSE(?:\\s+AMERICAN|\\s+ARCA)?|AMEX|OTCQX|OTCQB|OTC)\\s*:\\s*AZTR(?![A-Z0-9]))|(?<![A-Za-z0-9])AZTR(?![A-Za-z0-9])",
+                "(?i:(?<![A-Z0-9$])\\$AZTR(?![A-Z0-9])|\\(AZTR\\)|(?<![A-Z0-9])(?:NASDAQ|NYSE(?:\\s+AMERICAN|\\s+ARCA)?|AMEX|OTCQX|OTCQB|OTC)\\s*:\\s*AZTR(?![A-Z0-9]))"
+              ],
+              "identity_patterns_truncated": false,
+              "privacy_redacted": false,
+              "reason": "issuer_match_unverified",
+              "summary": "Form 8K Azitra Inc For: 26 October By Investing.com &nbsp;&nbsp; Investing.com India Form 8K Azitra Inc For: 26 October By Investing.com &nbsp;&nbsp; Investing.com India",
+              "summary_sha256": "2d352dfe305d2d362ee30e17c0e85d9a36c4beb094dda36e530f96ab629db9ed",
+              "summary_truncated": false,
+              "symbol": "AZTR",
+              "timestamp_provenance": {
+                "published_original": "Mon, 26 Oct 2026 13:26:51 GMT",
+                "published_utc": "2026-10-26T13:26:51+00:00",
+                "selected_time_basis": "published",
+                "updated_original": null,
+                "updated_utc": null
+              },
+              "timestamp_provenance_truncated": false,
+              "title": "Form 8K Azitra Inc For: 26 October By Investing.com",
+              "title_sha256": "f6c70678a3caf0aedf46ee54e329fc788c3ae53cda10f5f98b3b94555edec4da",
+              "title_truncated": false,
+              "url": "https://news.google.com/rss/articles/CBMimgFBVV95cUxQV2puZ2laRHg0ZGh4RUc5Wkl3WDNPaUtEUGIzREJmOHFfVm9WbzluWk9zWjVKMWNrTDhhTEVqZ09DczdwNk8xRkN2RFBtVFdMYzV4eEVmMkNKdzJyb1c1b3VENXNmZDNzOVlJZFhidE04T0hmMU5HUUowT1Q4c0otNjV6UzFHemFkZlJWcjVQMkQ3T3FsX1R4RnFB?oc=5",
+              "url_sha256": "2a6fecbf0b6dfebb7f517121962574b5af3591c670080025ffb3ee541fade5f3",
+              "url_truncated": false
+            }
+          ],
+          "outside_lookback_window": [
+            {
+              "article_identity_sha256": "e8df000d451f449c3961ae1a5d36826c3589e28c1e8dae613fdd8253e792448b",
+              "entry_index": 1,
+              "identity_patterns": [],
+              "identity_patterns_truncated": false,
+              "privacy_redacted": false,
+              "reason": "outside_lookback_window",
+              "summary": "Azitra, Inc. Announces Revitalizing Results from Ex Vivo Study of ATR-COSF Demonstrating Ability to Reduce Fine Lines and Improve Elasticity in Human Skin &nbsp;&nbsp; Yahoo! Finance Canada Azitra, Inc. Announces Revitalizing Results from Ex Vivo Study of ATR-COSF Demonstrating Ability to Reduce Fine Lines and Improve Elasticity in Human Skin &nbsp;&nbsp; Yahoo! Finance Canada",
+              "summary_sha256": "23c0b118a4bb53f35319dc664150df4d77f2165b2f367270b6045bf62d73a2c4",
+              "summary_truncated": false,
+              "symbol": null,
+              "timestamp_provenance": {
+                "published_original": "Mon, 26 Oct 2026 12:45:00 GMT",
+                "published_utc": "2026-10-26T12:45:00+00:00",
+                "selected_time_basis": "published",
+                "updated_original": null,
+                "updated_utc": null
+              },
+              "timestamp_provenance_truncated": false,
+              "title": "Azitra, Inc. Announces Revitalizing Results from Ex Vivo Study of ATR-COSF Demonstrating Ability to Reduce Fine Lines and Improve Elasticity in Human Skin - Yahoo! Finance Canada",
+              "title_sha256": "e0fac87f3152abff4c3d56c064616ab1ebe1b2fe2f7f896000cc154577d76d05",
+              "title_truncated": false,
+              "url": "https://news.google.com/rss/articles/CBMilAFBVV95cUxPcnhGNHVJRkRtNF9RaVlvTDZfUzhEQXNqUnV0S2cyUzZKTFZFb040Y3BQYk9IMkN3ZVFFT0dLMlVhUktPX2xpQklYaUpvSjRKNmxUU1VxX0NxMk8zSDlPbkl5dFdacnJ0Q2dxakpyeGlpSWtNdVJrYWVRX3ExODFTWlJORndJMUZLWm05bjZ1SlBSSWc0?oc=5",
+              "url_sha256": "c5b2499a09edee7c2c2e11f84ab99253473bd5b771845176baa539352dc59c52",
+              "url_truncated": false
+            },
+            {
+              "article_identity_sha256": "fe91ab72a26f991fcf9db9212bd3f41ef968cb0f069561e7f1e974f5287cae7d",
+              "entry_index": 2,
+              "identity_patterns": [],
+              "identity_patterns_truncated": false,
+              "privacy_redacted": false,
+              "reason": "outside_lookback_window",
+              "summary": "Azitra Inc Estimates \u2013 AMEX:AZTR &nbsp;&nbsp; TradingView Azitra Inc Estimates \u2013 AMEX:AZTR &nbsp;&nbsp; TradingView",
+              "summary_sha256": "d89fd9caaa9166e2fd36f8685f982e217c3d5ce33eecc02d90a2f9df85a96068",
+              "summary_truncated": false,
+              "symbol": null,
+              "timestamp_provenance": {
+                "published_original": "Sat, 24 Oct 2026 04:23:25 GMT",
+                "published_utc": "2026-10-24T04:23:25+00:00",
+                "selected_time_basis": "published",
+                "updated_original": null,
+                "updated_utc": null
+              },
+              "timestamp_provenance_truncated": false,
+              "title": "Azitra Inc Estimates \u2013 AMEX:AZTR - TradingView",
+              "title_sha256": "654763782b69977db7f8e57d7c2b11507f661f2c0abfc617b7eb9ce755e2bc20",
+              "title_truncated": false,
+              "url": "https://news.google.com/rss/articles/CBMidkFVX3lxTE1tR1VJaWo4SlRnZnBOYWxsTGhuRDBXMFFYa2FyVnM2RHJWOEM1VlBiem9TTkZVSERETUpLd21Sb3VjUUJrQkVCcXNoYURaVXZWQUd6M1JtMzJGR0d4RkZPNnBIeUo1SlpYOTJONTdZdndhWXNDUEE?oc=5",
+              "url_sha256": "84b2e4e2ea762e3b99e25fa39b0e5e2a7606163cd778b70c124dfe5825fb5a10",
+              "url_truncated": false
+            }
+          ]
+        },
+        "samples_per_reason": 2,
+        "schema": "news.rss_exclusions.v1",
+        "text_limits": {
+          "summary": 1024,
+          "title": 512,
+          "url": 512
+        }
+      }
+    },
+    "RENT": {
+      "company_name": "RENT THE RUNWAY INC-A",
+      "matching_aliases": [
+        "RENT THE RUNWAY"
+      ],
+      "query_url": "https://news.google.com/rss/search?q=%28%22RENT+THE+RUNWAY+INC-A%22+OR+%22%24RENT%22%29&hl=en-US&gl=US&ceid=US%3Aen",
+      "evaluation_time_utc": "2026-10-26T19:13:57.714872+00:00",
+      "feed_item_count": 6,
+      "entries_examined_count": 6,
+      "counts": {
+        "within_window": 0,
+        "stale_entries": 6,
+        "future_entries": 0,
+        "missing_invalid_dates": 0,
+        "relevance_rejections_by_symbol": {
+          "RENT": 0
+        }
+      },
+      "exclusion_evidence": {
+        "authority": "diagnostic_only_not_canonical",
+        "counts": {
+          "outside_lookback_window": 6
+        },
+        "samples": {
+          "outside_lookback_window": [
+            {
+              "article_identity_sha256": "624f5580abb43e54069e98515e4154b465ca46778c25af11f5e11f842bcb2d00",
+              "entry_index": 1,
+              "identity_patterns": [],
+              "identity_patterns_truncated": false,
+              "privacy_redacted": false,
+              "reason": "outside_lookback_window",
+              "summary": "$RENT stock is down 16% today. Here's what we see in our data. &nbsp;&nbsp; Quiver Quantitative $RENT stock is down 16% today. Here's what we see in our data. &nbsp;&nbsp; Quiver Quantitative",
+              "summary_sha256": "9b165e2d18e9bf861150211f01ab471a7b23a17f5c921a35a8fcf811ec9cf8e8",
+              "summary_truncated": false,
+              "symbol": null,
+              "timestamp_provenance": {
+                "published_original": "Fri, 11 Sep 2026 07:00:00 GMT",
+                "published_utc": "2026-09-11T07:00:00+00:00",
+                "selected_time_basis": "published",
+                "updated_original": null,
+                "updated_utc": null
+              },
+              "timestamp_provenance_truncated": false,
+              "title": "$RENT stock is down 16% today. Here's what we see in our data. - Quiver Quantitative",
+              "title_sha256": "16b19e2287111c651ebc89caf8c9d9041be969693c0f4a867730641873fb4cd5",
+              "title_truncated": false,
+              "url": "https://news.google.com/rss/articles/CBMinAFBVV95cUxQQU1SaGk3aF9uOHNaTEN2N3RDYXpjQ0V2dmdLb1I3VG1aenhfZE9FN2daV0V2MnVJbzNzYVdqQ09XZG5wbHdpR2NDWTQ0N1J5M3NnQzFqQldsbkZrdG5sRzhuWnNCTjE1TkgtN040eEVZYmRPNWRwb1NtYzdpbllhVGtfMEVPYzg4ZE1kOHVTSGF0UzI2UWRvTVJ3Nl8?oc=5",
+              "url_sha256": "2feb1bdc2412e03aeb03254349c94d18a6f21940498c1d571192231337ab4507",
+              "url_truncated": false
+            },
+            {
+              "article_identity_sha256": "816cae98c121b3be6a534c07b9db62d1f5a771998b3fc44338b9ec52ccdf1755",
+              "entry_index": 2,
+              "identity_patterns": [],
+              "identity_patterns_truncated": false,
+              "privacy_redacted": false,
+              "reason": "outside_lookback_window",
+              "summary": "RENT Investors Have Opportunity to Join Rent the Runway, Inc. Fraud Investigation with SBS Law &nbsp;&nbsp; Business Wire RENT Investors Have Opportunity to Join Rent the Runway, Inc. Fraud Investigation with SBS Law &nbsp;&nbsp; Business Wire",
+              "summary_sha256": "c45404943165cca88c37dd0cccada17d0c9f29720c960f21aa2b6ed8a27ec428",
+              "summary_truncated": false,
+              "symbol": null,
+              "timestamp_provenance": {
+                "published_original": "Sun, 20 Sep 2026 07:00:00 GMT",
+                "published_utc": "2026-09-20T07:00:00+00:00",
+                "selected_time_basis": "published",
+                "updated_original": null,
+                "updated_utc": null
+              },
+              "timestamp_provenance_truncated": false,
+              "title": "RENT Investors Have Opportunity to Join Rent the Runway, Inc. Fraud Investigation with SBS Law - Business Wire",
+              "title_sha256": "c23b3e218c6c18fa5a7c896e60bd18776f3d8fc9dec268d49a302920a55b7f34",
+              "title_truncated": false,
+              "url": "https://news.google.com/rss/articles/CBMi5AFBVV95cUxQS1IxaldrUjdFWEhiS1I4dU8tNXVfbmNucDFGSTFIR1BZbi1OcU1rUXJoVldYcjUwWS1ud1VsZDAtcUtVMEVUMEliQUNhYWFJWHR0UVIwdnFtZnBJZURyTnI5MDE3QkFxaGZzNGVZN08yQldpYlA3aE5YZE1LUTNBWkFYX1k1SkpNZjBweWRMOTd0WUh6dkNZcnJ2MnZxMktJU1JwUWlESmNkVU5OeU4wV0NHdUJzYVNmZjBIbXFvZ1dEdXFSX0dxazBCd3RoUXE3T2FkZ2RVdWpFN2xxVnREZmJZMWs?oc=5",
+              "url_sha256": "06a496c2b8ce70eb733e6d129f560d715b8e021ceee9be562c3f34c408ea66c8",
+              "url_truncated": false
+            }
+          ]
+        },
+        "samples_per_reason": 2,
+        "schema": "news.rss_exclusions.v1",
+        "text_limits": {
+          "summary": 1024,
+          "title": 512,
+          "url": 512
+        }
+      }
+    },
+    "GCTK": {
+      "company_name": "GLUCOTRACK INC",
+      "matching_aliases": [],
+      "query_url": "https://news.google.com/rss/search?q=%28%22GLUCOTRACK+INC%22+OR+%22%24GCTK%22%29&hl=en-US&gl=US&ceid=US%3Aen",
+      "evaluation_time_utc": "2026-10-26T19:13:52.393019+00:00",
+      "feed_item_count": 28,
+      "entries_examined_count": 28,
+      "counts": {
+        "within_window": 0,
+        "stale_entries": 28,
+        "future_entries": 0,
+        "missing_invalid_dates": 0,
+        "relevance_rejections_by_symbol": {
+          "GCTK": 0
+        }
+      },
+      "exclusion_evidence": {
+        "authority": "diagnostic_only_not_canonical",
+        "counts": {
+          "outside_lookback_window": 28
+        },
+        "samples": {
+          "outside_lookback_window": [
+            {
+              "article_identity_sha256": "d1732c726dfdcfbb1e347734ffc98926d048a5a7240ca00d6c9086e091ab6294",
+              "entry_index": 1,
+              "identity_patterns": [],
+              "identity_patterns_truncated": false,
+              "privacy_redacted": false,
+              "reason": "outside_lookback_window",
+              "summary": "GlucoTrack, Inc. Estimates \u2013 NASDAQ:GCTK &nbsp;&nbsp; TradingView GlucoTrack, Inc. Estimates \u2013 NASDAQ:GCTK &nbsp;&nbsp; TradingView",
+              "summary_sha256": "e835ebdda12febe65318c8cab8ae9a7790021b467de81be45bf40dd1447eda62",
+              "summary_truncated": false,
+              "symbol": null,
+              "timestamp_provenance": {
+                "published_original": "Mon, 26 Oct 2026 07:57:32 GMT",
+                "published_utc": "2026-10-26T07:57:32+00:00",
+                "selected_time_basis": "published",
+                "updated_original": null,
+                "updated_utc": null
+              },
+              "timestamp_provenance_truncated": false,
+              "title": "GlucoTrack, Inc. Estimates \u2013 NASDAQ:GCTK - TradingView",
+              "title_sha256": "21aae40913d8eaa2bd0a38854efd370faae4146fea38e4ef5934ff51fb2b8d6b",
+              "title_truncated": false,
+              "url": "https://news.google.com/rss/articles/CBMieEFVX3lxTE1XN3pOWHhZOFdCNzI3Q21KZmhUMmJ2RXdQTEI0OFZybXRUTWphNVhPSWhQLXZqTmtHRk51VnRoUlZNSEljWklRYWt0T2Z2SEpRTEpsekl1blJUYnZVNWtvNmRlX1JSMHBlUjRkX3JYeVJiSVhGS1d4Rg?oc=5",
+              "url_sha256": "5e8b11e2513bfcfe1eae5ed34b0bf4d87f3f520a7b82cc386dd55b891f99967f",
+              "url_truncated": false
+            },
+            {
+              "article_identity_sha256": "75e2da35835dda8bfde0781a5338108002ec777553b00011691dd4a2e1a5af0f",
+              "entry_index": 2,
+              "identity_patterns": [],
+              "identity_patterns_truncated": false,
+              "privacy_redacted": false,
+              "reason": "outside_lookback_window",
+              "summary": "Glucotrack, Inc. Announces Reverse Stock Split &nbsp;&nbsp; Moomoo Glucotrack, Inc. Announces Reverse Stock Split &nbsp;&nbsp; Moomoo",
+              "summary_sha256": "c7b1d3dd6e16f2dcdb737a1bf2c6ef1350e44bf0fc144b6b5d7931fc2fb28144",
+              "summary_truncated": false,
+              "symbol": null,
+              "timestamp_provenance": {
+                "published_original": "Thu, 22 Oct 2026 04:00:00 GMT",
+                "published_utc": "2026-10-22T04:00:00+00:00",
+                "selected_time_basis": "published",
+                "updated_original": null,
+                "updated_utc": null
+              },
+              "timestamp_provenance_truncated": false,
+              "title": "Glucotrack, Inc. Announces Reverse Stock Split - Moomoo",
+              "title_sha256": "9aeb868a4455fdcb0a23b618ee01ab2ff07ca0b89f29d46d792f0924d26f186b",
+              "title_truncated": false,
+              "url": "https://news.google.com/rss/articles/CBMikgFBVV95cUxOLVhqdWdScUo4Z0xJMzJhaTJZSTM5cC1ZbnF6X1FhSkdlRnktT0ZMUnp6a0F1QlBUZ1RFOUgyZWJZOUtvdVV6c1U5WjRpeHVWYkhQdUxpd1ByYmUwLXZGcTRrcjdOUTYxQWJraG1hYnBpRjJJUzJYTTdFNVFQTVhhWXZiM0IwX3VSdmI3M00zeGNjQQ?oc=5",
+              "url_sha256": "d9a7cde63515bda24fed88b6cc8e50534d928c6615122961eeac4070567acece",
+              "url_truncated": false
+            }
+          ]
+        },
+        "samples_per_reason": 2,
+        "schema": "news.rss_exclusions.v1",
+        "text_limits": {
+          "summary": 1024,
+          "title": 512,
+          "url": 512
+        }
+      }
+    },
+    "SPRC": {
+      "company_name": "SCISPARC LTD",
+      "matching_aliases": [],
+      "query_url": "https://news.google.com/rss/search?q=%28%22SCISPARC+LTD%22+OR+%22%24SPRC%22%29&hl=en-US&gl=US&ceid=US%3Aen",
+      "evaluation_time_utc": "2026-10-26T19:13:57.815873+00:00",
+      "feed_item_count": 43,
+      "entries_examined_count": 43,
+      "counts": {
+        "within_window": 0,
+        "stale_entries": 43,
+        "future_entries": 0,
+        "missing_invalid_dates": 0,
+        "relevance_rejections_by_symbol": {
+          "SPRC": 0
+        }
+      },
+      "exclusion_evidence": {
+        "authority": "diagnostic_only_not_canonical",
+        "counts": {
+          "outside_lookback_window": 43
+        },
+        "samples": {
+          "outside_lookback_window": [
+            {
+              "article_identity_sha256": "7bd72bbaee38719bec255ff50cdd595500aa07679ffa440acdd0107a83eb1aa0",
+              "entry_index": 1,
+              "identity_patterns": [],
+              "identity_patterns_truncated": false,
+              "privacy_redacted": false,
+              "reason": "outside_lookback_window",
+              "summary": "SciSparc Ltd. (SPRC) stock price, news, quote and history &nbsp;&nbsp; Yahoo Finance UK SciSparc Ltd. (SPRC) stock price, news, quote and history &nbsp;&nbsp; Yahoo Finance UK",
+              "summary_sha256": "d4c75f4513377b73df0f0c1fd6de7628aa7cada16ba73d0916f3c4f54f8af046",
+              "summary_truncated": false,
+              "symbol": null,
+              "timestamp_provenance": {
+                "published_original": "Fri, 23 Oct 2026 18:15:10 GMT",
+                "published_utc": "2026-10-23T18:15:10+00:00",
+                "selected_time_basis": "published",
+                "updated_original": null,
+                "updated_utc": null
+              },
+              "timestamp_provenance_truncated": false,
+              "title": "SciSparc Ltd. (SPRC) stock price, news, quote and history - Yahoo Finance UK",
+              "title_sha256": "76aa86b5613638461d7ea7780ebe9947db86320c60cc92304577ffcf07923b3c",
+              "title_truncated": false,
+              "url": "https://news.google.com/rss/articles/CBMiUkFVX3lxTE5tV2pramlZUG1hLTN6czY3bjkxOGZrbTFMdjhWZzZyRVhEdTBxcFZER2lMWjF6YUdMaXhoalhKMUhRNFRGS3JxOXJiQ19aVmhBdFE?oc=5",
+              "url_sha256": "29b799a5c80d98693d1912a9c37561ae9ae247e8894d910016d7768f035629bb",
+              "url_truncated": false
+            },
+            {
+              "article_identity_sha256": "7d74c5fd4bc752e8edfb8f425c44b394cd0a4bc17a3d3690bff803d112c21994",
+              "entry_index": 2,
+              "identity_patterns": [],
+              "identity_patterns_truncated": false,
+              "privacy_redacted": false,
+              "reason": "outside_lookback_window",
+              "summary": "SciSparc Ltd. Estimates \u2013 NASDAQ:SPRC &nbsp;&nbsp; TradingView SciSparc Ltd. Estimates \u2013 NASDAQ:SPRC &nbsp;&nbsp; TradingView",
+              "summary_sha256": "eb064feb3b98bd97d819ad261a5232c6250fdb4be8f89d2d054f3256dd81f4ee",
+              "summary_truncated": false,
+              "symbol": null,
+              "timestamp_provenance": {
+                "published_original": "Fri, 23 Oct 2026 14:42:44 GMT",
+                "published_utc": "2026-10-23T14:42:44+00:00",
+                "selected_time_basis": "published",
+                "updated_original": null,
+                "updated_utc": null
+              },
+              "timestamp_provenance_truncated": false,
+              "title": "SciSparc Ltd. Estimates \u2013 NASDAQ:SPRC - TradingView",
+              "title_sha256": "3c5fb4914e04251571d47b7a81ae3d12a391db8820efe88b90d3afea53977b4f",
+              "title_truncated": false,
+              "url": "https://news.google.com/rss/articles/CBMieEFVX3lxTE1jZDNScHFoakcxWkhjbXh3TkRJV2lIdURlemcxQnFmRl9CQXRpY2g4ZllXdEV5V2hMbVdTZVR6V0F1Z0FSV0JLZzUtTGFsbTd3VlA3dEZjd2wyYnRIZXlCN0NQU3o5NXNLTnZBSDNBRjZMT2NBVEc2Zw?oc=5",
+              "url_sha256": "292365061a55a22bd6454007e5be66cd57217d0bf8b257b24cef8af6aaedb62b",
+              "url_truncated": false
+            }
+          ]
+        },
+        "samples_per_reason": 2,
+        "schema": "news.rss_exclusions.v1",
+        "text_limits": {
+          "summary": 1024,
+          "title": 512,
+          "url": 512
+        }
+      }
+    }
+  }
+}
