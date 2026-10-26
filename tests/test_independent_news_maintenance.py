@@ -295,7 +295,7 @@ def test_real_fetcher_reuses_shared_feed_and_keeps_per_issuer_attribution(monkey
     published=datetime.now(timezone.utc).strftime('%a, %d %b %Y %H:%M:%S GMT')
     def fetch(url,timeout):
         calls.append(url);time.sleep(.03)
-        return SimpleNamespace(entries=[{'title':f'{symbol} reports earnings beat','published':published,'published_parsed':time.gmtime(),
+        return SimpleNamespace(version='rss20', bozo=False, entries=[{'title':f'{symbol} reports earnings beat','published':published,'published_parsed':time.gmtime(),
               'link':f'https://fixture.invalid/{symbol}'} for symbol in ('JPM','EGG')])
     monkeypatch.setattr(news_fetcher,'_fetch_feed',fetch)
     request=NewsRequest(freshness_seconds=21600,metadata={'presentation_limit':5})

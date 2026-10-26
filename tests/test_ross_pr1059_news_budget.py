@@ -64,7 +64,7 @@ def _entry(title: str, *, summary: str = "", age_seconds: int = 300):
 
 
 def _feed(*entries):
-    return SimpleNamespace(feed={"title": "PR1059_FEED"}, entries=list(entries))
+    return SimpleNamespace(version="rss20", bozo=False, feed={"title": "PR1059_FEED"}, entries=list(entries))
 
 
 def _headline(title: str, *, age_seconds: int = 300, source_tier: str = "fast") -> scanner_runner.Headline:

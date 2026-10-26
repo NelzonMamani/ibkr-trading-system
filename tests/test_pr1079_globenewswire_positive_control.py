@@ -44,7 +44,7 @@ def _entry(title: str, *, summary: str = "", link: str = IPDN_URL, age_seconds: 
 
 
 def _feed(title: str, entries: list[object]):
-    return SimpleNamespace(feed={"title": title}, entries=entries)
+    return SimpleNamespace(version="rss20", bozo=False, feed={"title": title}, entries=entries)
 
 
 def test_pr1079_ipdn_miss_is_globenewswire_source_coverage_not_matching(monkeypatch):

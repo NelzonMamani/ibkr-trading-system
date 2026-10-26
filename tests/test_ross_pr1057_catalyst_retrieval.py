@@ -53,7 +53,7 @@ def _entry(title: str, *, summary: str = "", age_seconds: int = 300):
 
 
 def _feed(*entries):
-    return SimpleNamespace(feed={"title": "PR1057_FEED"}, entries=list(entries))
+    return SimpleNamespace(version="rss20", bozo=False, feed={"title": "PR1057_FEED"}, entries=list(entries))
 
 
 def _patch_feeds(monkeypatch: pytest.MonkeyPatch, feeds_by_url: dict[str, Any]) -> None:

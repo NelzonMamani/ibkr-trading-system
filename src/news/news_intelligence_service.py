@@ -25,6 +25,7 @@ from src.news.evidence_store import (
     summarize_news_evidence,
 )
 from src.news.source_groups import get_source_group_urls
+from src.news.news_fetcher import RSS_AVAILABILITY_CONTRACT
 from src.news.issuer_rss_queries import QUERY_GROUP, query_sources, OPERATIONAL_GROUP, operational_queries
 from src.news.news_intelligence_contract import (
     CacheState,
@@ -121,7 +122,10 @@ def _acquisition_profile(candidate: NewsCandidate, request: NewsRequest, policy:
     if request.query_start_utc is not None:
         profile["request"].update(query_start_utc=request.query_start_utc.isoformat(),
                                   query_end_utc=request.query_end_utc.isoformat())
-    # Keep existing RSS fingerprints stable; its provider identity is implicit in v1.
+    # Old available-empty coverage cannot certify this stricter transport/parser
+    # contract. This changes coverage compatibility, never stored article facts.
+    if provider_id == "rss_batch":
+        profile["retrieval"]["rss_availability_contract"] = RSS_AVAILABILITY_CONTRACT
     if provider_id != "rss_batch":
         profile["retrieval"]["provider_id"] = provider_id
     if provider_id == "massive_ticker_news":
@@ -281,6 +285,8 @@ class CanonicalNewsIntelligenceService(NewsIntelligenceProvider):
                         "provider_available": outcome.provider_available,
                         "budget_exhausted": outcome.budget_exhausted,
                     }
+                    if acquisition_provider_id == "rss_batch":
+                        retrieval_by_symbol[symbol]["rss_availability_contract"] = RSS_AVAILABILITY_CONTRACT
                     if require_compatible:
                         symbol_coverage = coverage
                         if research_by_symbol := coverage.get("diagnostics", {}).get("research_by_symbol"):
@@ -336,6 +342,11 @@ class CanonicalNewsIntelligenceService(NewsIntelligenceProvider):
                                 if symbol in cache_diagnostics.get("cadence_cache_hit_symbols", []) else {})
             if require_compatible:
                 cached_retrieval = retrieval_by_symbol.get(symbol, previous_retrievals.get(symbol, {}) if compatible[symbol] else {})
+            if (acquisition_provider_id == "rss_batch" and cached_retrieval.get("provider_available") is True
+                    and cached_retrieval.get("rss_availability_contract") != RSS_AVAILABILITY_CONTRACT
+                    and symbol not in retrieval_by_symbol):
+                if symbol not in coverage_unknown:
+                    coverage_unknown.append(symbol)
             symbol_refresh = refresh_result if refresh_result is not None and (not require_compatible or symbol in refresh_symbols) else None
             refreshed_outcome = _refresh_symbol_outcome(symbol, symbol_refresh) if symbol_refresh is not None else None
             provider_status = (refreshed_outcome.provider_status if refreshed_outcome is not None

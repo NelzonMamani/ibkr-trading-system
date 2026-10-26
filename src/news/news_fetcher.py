@@ -81,6 +81,34 @@ class RssFeedFormatError(ValueError):
     pass
 
 
+class RssFeedParseError(RssFeedFormatError):
+    pass
+
+
+class RssFeedRedirectError(RuntimeError):
+    def __init__(self, status_code):
+        super().__init__("feed_redirect_not_followed")
+        self.status_code = status_code
+
+
+RSS_AVAILABILITY_CONTRACT = "no_redirect_recognized_rss_atom_no_recovery_v1"
+
+
+def _reject_feed_redirect(status_code):
+    if status_code is not None and 300 <= status_code < 400:
+        raise RssFeedRedirectError(status_code)
+
+
+def _validate_feed(feed):
+    version = getattr(feed, "version", None)
+    if not isinstance(version, str) or not version.startswith(("rss", "atom")):
+        raise RssFeedFormatError("response_is_not_a_recognized_rss_or_atom_feed")
+    if getattr(feed, "bozo", False):
+        # Parser recovery may have omitted content. No exception payload is logged.
+        raise RssFeedParseError("feed_parser_recovery_not_complete_coverage")
+    return feed
+
+
 DEFAULT_RSS_FETCH_WORKERS = 4
 MIN_SOURCE_TIMEOUT_SECONDS = 0.05
 RESEARCH_OBSERVATION_LIMIT = 1000
@@ -342,19 +370,25 @@ def _fetch_feed(url: str, timeout_s: float) -> object | None:
     if feedparser is None:
         return None
     if requests is None:
-        return feedparser.parse(url)
+        raise RuntimeError("feed_requests_transport_unavailable")
     timing = current_source_timing()
     if timing is None:
-        response = requests.get(url, timeout=timeout_s)
-        response.raise_for_status()
-        return feedparser.parse(response.text)
+        response = None
+        try:
+            response = requests.get(url, timeout=timeout_s, allow_redirects=False)
+            _reject_feed_redirect(getattr(response, "status_code", None))
+            response.raise_for_status()
+            return _validate_feed(feedparser.parse(response.text))
+        finally:
+            if response is not None:
+                response.close()
     response = None
     try:
         requested_at_s = time.monotonic()
         try:
             capture = timing.get("_raw_capture")
             if capture is None and not timing.get("_bounded_operational"):
-                response = requests.get(url, timeout=timeout_s)
+                response = requests.get(url, timeout=timeout_s, allow_redirects=False)
             else:
                 from src.news.rss_raw_capture import RAW_FEED_BYTES, RawFeedLimitExceeded
                 acquired_at = datetime.now(timezone.utc).isoformat()
@@ -362,8 +396,9 @@ def _fetch_feed(url: str, timeout_s: float) -> object | None:
                 complete = False
                 error = None
                 try:
-                    response = requests.get(url, timeout=timeout_s, stream=True)
+                    response = requests.get(url, timeout=timeout_s, stream=True, allow_redirects=False)
                     timing["http_status"] = getattr(response, "status_code", None)
+                    _reject_feed_redirect(getattr(response, "status_code", None))
                     for chunk in response.iter_content(chunk_size=16384):
                         if (timing.get("_cancel") and timing["_cancel"]()) or time.monotonic()-requested_at_s >= timeout_s:
                             raise TimeoutError("bounded RSS body deadline/cancellation")
@@ -382,6 +417,7 @@ def _fetch_feed(url: str, timeout_s: float) -> object | None:
         finally:
             timing["request_elapsed_seconds"] = max(0.0, time.monotonic() - requested_at_s)
         timing["http_status"] = getattr(response, "status_code", None)
+        _reject_feed_redirect(getattr(response, "status_code", None))
         response.raise_for_status()
         text = bytes(body) if capture is not None or timing.get("_bounded_operational") else response.text
         parse_started_at_s = time.monotonic()
@@ -395,7 +431,7 @@ def _fetch_feed(url: str, timeout_s: float) -> object | None:
         entries = getattr(feed, "entries", None)
         if entries is not None and hasattr(entries, "__len__"):
             timing["feed_item_count"] = len(entries)
-        return feed
+        return _validate_feed(feed)
     except Exception:
         timing.setdefault("_completed_at_s", time.monotonic())
         raise
@@ -411,6 +447,8 @@ def _domain_for_url(url: str) -> str:
 
 
 def _failure_code(exc: Exception | None, feed_missing: bool = False) -> str:
+    if isinstance(exc, RssFeedRedirectError):
+        return f"HTTP_{exc.status_code}"
     if feed_missing:
         return "FEED_EMPTY"
     if exc is None:
@@ -799,8 +837,9 @@ def _fetch_headlines_from_sources(
                     feed = shared.get("feed")
                     if shared.get("error") is not None:
                         raise shared["error"]
-                if detailed and feed is not None and hasattr(feed, "version") and not feed.version:
-                    raise RssFeedFormatError("response_is_not_a_recognized_feed")
+                    _reject_feed_redirect(shared.get("http_status"))
+                if feed is not None:
+                    _validate_feed(feed)
             except Exception as exc:  # exercised through synthetic transport failures
                 error = exc
             if raw_capture is not None and timing.get("raw_capture") is not None:

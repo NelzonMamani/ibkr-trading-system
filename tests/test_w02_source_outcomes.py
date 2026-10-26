@@ -92,7 +92,7 @@ def test_completed_future_is_accepted_only_before_applicable_deadline(
             pass
 
     monkeypatch.setattr(news_fetcher, "ThreadPoolExecutor", DeferredExecutor)
-    feed = SimpleNamespace(feed={"title": "Controlled source"}, entries=[SimpleNamespace(
+    feed = SimpleNamespace(version="rss20", bozo=False, feed={"title": "Controlled source"}, entries=[SimpleNamespace(
         title="W02X wins contract", link="https://news.example/w02x",
         published_parsed=time.gmtime(time.time() - 60),
     )])
@@ -244,7 +244,7 @@ def test_coordinator_drains_in_time_completions_before_expiring_remaining_work(
         def shutdown(self, **kwargs): pass
 
     monkeypatch.setattr(news_fetcher, "ThreadPoolExecutor", Executor)
-    monkeypatch.setattr(news_fetcher, "_fetch_feed", lambda url, timeout: SimpleNamespace(
+    monkeypatch.setattr(news_fetcher, "_fetch_feed", lambda url, timeout: SimpleNamespace(version="rss20", bozo=False,
         feed={"title": "Controlled source"}, entries=[SimpleNamespace(
             title=f"W02X update {url}", link=url,
             published_parsed=time.gmtime(time.time() - 60),
@@ -334,7 +334,7 @@ def test_in_time_public_retrieval_survives_late_coordinator_and_cache_restart(
         def shutdown(self, **kwargs): pass
 
     monkeypatch.setattr(news_fetcher, "ThreadPoolExecutor", Executor)
-    feed = SimpleNamespace(feed={"title": "Controlled source"}, entries=[SimpleNamespace(
+    feed = SimpleNamespace(version="rss20", bozo=False, feed={"title": "Controlled source"}, entries=[SimpleNamespace(
         title="W02X company update", link="https://news.example/w02x",
         published_parsed=time.gmtime(time.time() - 60),
     )] if has_evidence else [])

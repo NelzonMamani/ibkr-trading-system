@@ -126,7 +126,7 @@ def test_rss_publication_time_is_utc_and_missing_time_does_not_become_now(monkey
     assert news_fetcher._entry_timestamp(SimpleNamespace()) is None
     entries = [SimpleNamespace(title="EGG reports earnings", link="https://example.test/earnings")]
     monkeypatch.setattr(news_fetcher, "feedparser", object())
-    monkeypatch.setattr(news_fetcher, "_fetch_feed", lambda *_: SimpleNamespace(feed={}, entries=entries))
+    monkeypatch.setattr(news_fetcher, "_fetch_feed", lambda *_: SimpleNamespace(version="rss20", bozo=False, feed={}, entries=entries))
     rows, _ = news_fetcher.fetch_fast_headlines_for_symbols(["EGG"], ["https://example.test/rss"])
     assert rows["EGG"] == []
 

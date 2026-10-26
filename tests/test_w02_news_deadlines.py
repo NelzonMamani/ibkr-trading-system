@@ -65,7 +65,7 @@ def test_extended_tier_deadline_bounds_actual_source_attempts(
     def fake_feed(url: str, timeout_s: float):
         calls.append(url)
         clock.advance(1.0)
-        return SimpleNamespace(feed={"title": "Controlled feed"}, entries=[])
+        return SimpleNamespace(version="rss20", bozo=False, feed={"title": "Controlled feed"}, entries=[])
 
     monkeypatch.setattr(news_fetcher, "_fetch_feed", fake_feed)
     tier_budgets = {"fast": 5.2}

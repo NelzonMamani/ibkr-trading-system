@@ -37,7 +37,7 @@ class InlineExecutor:
 
 
 def feed(title="W03X and W03Y company update"):
-    return SimpleNamespace(feed={"title": "Controlled publisher"}, entries=[SimpleNamespace(
+    return SimpleNamespace(version="rss20", bozo=False, feed={"title": "Controlled publisher"}, entries=[SimpleNamespace(
         title=title, link="https://news.example/article", published_parsed=time.gmtime(time.time() - 60),
     )])
 
@@ -61,7 +61,8 @@ def test_real_fetch_seam_measures_phases_and_response_cleanup(monkeypatch, outco
             clock[0] += 0.4  # Cleanup is outside the fetch/parse completion instant.
             if outcome == "close_error":
                 raise OSError("controlled close failure")
-    def get(url, timeout):
+    def get(url, timeout, *, allow_redirects):
+        assert allow_redirects is False
         clock[0] += 0.2
         if outcome == "read_timeout":
             raise requests.exceptions.ReadTimeout("controlled timeout")
@@ -198,7 +199,7 @@ def test_lifecycle_tracks_shared_sources_across_both_tiers_once(monkeypatch):
     ))
     def fetch(url, timeout):
         calls.append(url)
-        return SimpleNamespace(feed={}, entries=[]) if url == "rss://shared" else feed()
+        return SimpleNamespace(version="rss20", bozo=False, feed={}, entries=[]) if url == "rss://shared" else feed()
     monkeypatch.setattr(news_fetcher, "_fetch_feed", fetch)
     lifecycle = RssFetchLifecycle()
     result = BatchRssNewsIntelligenceProvider(lifecycle=lifecycle).get_news(

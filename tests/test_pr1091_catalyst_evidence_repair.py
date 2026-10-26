@@ -60,7 +60,7 @@ def test_batch_provider_rejects_same_unrelated_mentions(monkeypatch):
         SimpleNamespace(title="SpaceX reaches orbit", summary="A 10-hour mission", link="https://news.example/space", published_parsed=time.gmtime()),
     ]
     monkeypatch.setattr(news_fetcher, "feedparser", object())
-    monkeypatch.setattr(news_fetcher, "_fetch_feed", lambda *_: SimpleNamespace(feed={"title": "captured examples"}, entries=entries))
+    monkeypatch.setattr(news_fetcher, "_fetch_feed", lambda *_: SimpleNamespace(version="rss20", bozo=False, feed={"title": "captured examples"}, entries=entries))
     headlines, diagnostics = news_fetcher.fetch_fast_headlines_for_symbols(["EGG", "CNET", "LINK", "HOUR"], ["https://news.example/feed"])
     assert all(not items for items in headlines.values())
     assert diagnostics.ticker_token_match_count == 0
