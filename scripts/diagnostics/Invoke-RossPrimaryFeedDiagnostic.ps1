@@ -21,7 +21,8 @@ if ($LASTEXITCODE -ne 0 -or $tree -ne $ExpectedTree) { throw 'Exact source tree 
 $dirty = (& git -C $source status --porcelain | Out-String).Trim()
 if ($LASTEXITCODE -ne 0 -or $dirty) { throw 'Use a clean isolated source checkout.' }
 $evidence = [IO.Path]::GetFullPath($EvidenceRoot)
-$sourcePrefix = $source.TrimEnd('\') + '\'
+$separator = [IO.Path]::DirectorySeparatorChar
+$sourcePrefix = $source.TrimEnd($separator) + $separator
 if ($evidence.Equals($source,[StringComparison]::OrdinalIgnoreCase) -or
     $evidence.StartsWith($sourcePrefix,[StringComparison]::OrdinalIgnoreCase) -or
     (Test-Path -LiteralPath $evidence)) { throw 'EvidenceRoot must be new and outside source.' }
