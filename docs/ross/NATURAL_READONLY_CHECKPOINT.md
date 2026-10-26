@@ -2588,3 +2588,13 @@ one-natural-candidate, one-snapshot diagnostic with the accepted source pin and
 original deadlines; do not rerun receipt10/Ross or acquire history/news. No operator
 step is executed or authorized by this repair. PAPER_READY=NO;
 PAPER_READINESS_GATE=FAIL.
+
+Float metadata follow-up: source9b680bf1484dafe2e25096223fb0f3c779a990e6
+has local3091 passed/3 skipped and CI40352375305 Linux3091 passed/3 skipped
+(224.11s); its native Windows exact-failed-head/repaired controls passed before
+the full suite. Final audit found the scanner's missing-symbol reason still used
+Path.exists outside the gate. Windows stat's slow fallback also uses share-mode0;
+this remaining metadata access now uses the guarded mtime helper. A regression
+fails on9b680bf1 at that exact unguarded access and passes with the fix, with no
+worker/acquisition. Final changed-head review/CI supersedes those implementation
+receipts; final results belong to PR1128, while40347587519 remains preserved.

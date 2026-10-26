@@ -1169,7 +1169,7 @@ def _bootstrap_float_cache(
         _FLOAT_SOURCE_BY_SYMBOL[symbol] = "UNKNOWN"
         unknown_tolerated += 1
         if symbol not in float_cache:
-            reason = "cache_missing" if not cache_path.exists() else "json_miss"
+            reason = "cache_missing" if _float_cache_mtime_ns(cache_path) is None else "json_miss"
         else:
             reason = "schema_invalid"
         print(f"[FLOAT][PROVENANCE] symbol={symbol} reason={reason}")

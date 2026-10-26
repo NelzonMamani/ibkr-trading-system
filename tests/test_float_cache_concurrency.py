@@ -184,3 +184,32 @@ def test_windows_resolve_handle_versus_atomic_publication(monkeypatch, tmp_path,
         assert set(json.loads(cache.read_text())) == {'OLD', 'NEW'}
         assert writer._get_db_float('NEW').value == 2
     print(f'NATIVE_WINDOWS_CONTROL legacy={legacy} publication_failed={legacy} handles_closed=True')
+
+
+def test_scanner_missing_symbol_metadata_stays_inside_publication_gate(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+    from src.scanner import scanner_runner as scanner
+    cache = tmp_path/'float.json'
+    cache.write_text('{}', encoding='utf-8')
+    monkeypatch.setattr(scanner, '_resolve_float_cache_path', lambda: cache)
+    monkeypatch.setattr(scanner, 'get_float_discovery_worker', lambda path: SimpleNamespace(enqueue=lambda symbol: False))
+    for name, value in [('_FLOAT_CACHE_STATE', {}), ('_FLOAT_SOURCE_BY_SYMBOL', {}),
+                        ('_FLOAT_CACHE_HIT_SYMBOLS', set())]:
+        monkeypatch.setattr(scanner, name, value)
+    stat = Path.stat
+    observations = []
+    def checked_stat(path, *args, **kwargs):
+        if path == cache:
+            def probe():
+                acquired = module._CACHE_LOCKS_GUARD.acquire(blocking=False)
+                observations.append(acquired)
+                if acquired:
+                    module._CACHE_LOCKS_GUARD.release()
+            thread = threading.Thread(target=probe)
+            thread.start(); thread.join(3)
+            assert not thread.is_alive()
+            assert not observations[-1], 'scanner metadata handle escaped publication gate'
+        return stat(path, *args, **kwargs)
+    monkeypatch.setattr(Path, 'stat', checked_stat)
+    assert scanner._bootstrap_float_cache(['MISSING'], provider=None) == {}
+    assert observations and not any(observations)
