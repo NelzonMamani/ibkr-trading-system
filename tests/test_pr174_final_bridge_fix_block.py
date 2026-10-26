@@ -44,10 +44,11 @@ def test_live_pipeline_bridge_logs_watchlist_focus_strategy_and_summary(monkeypa
         }
     )
 
-    watchlist = [_candidate("AAPL", 10.0), _candidate("MSFT", 9.0)]
-    focus = [_candidate("AAPL", 10.0)]
-
     def _scanner_cycle(**kwargs):
+        # These represent newly acquired scanner observations, not pre-startup
+        # quotes whose eligibility depends on constructor speed.
+        watchlist = [_candidate("AAPL", 10.0), _candidate("MSFT", 9.0)]
+        focus = [_candidate("AAPL", 10.0)]
         return {
             "candidate_metrics": watchlist,
             "watchlist_k": watchlist,
@@ -83,8 +84,35 @@ def test_live_pipeline_bridge_logs_watchlist_focus_strategy_and_summary(monkeypa
 
     output = capsys.readouterr().out
     assert "[WATCHLIST] size=2 symbols=['AAPL', 'MSFT']" in output
-    assert "[FOCUS] size=1 symbols=['AAPL']" in output
+    assert "[FOCUS] size=1 symbols=['AAPL']" in output, "\n".join(
+        line for line in output.splitlines() if "[ROSS][QUOTE]" in line or "[ROSS][CATALYST]" in line)
     assert "[STRATEGY] runner=ross_momentum symbol=AAPL stage=evaluate" in output
     assert "[INTENT] symbol=AAPL side=LONG" in output
     assert "[DECISION] symbol=AAPL verdict=emit_intent setup=ROSS_TEST_SETUP executable=false" in output
     assert "[PIPELINE] scanner_kept=2 watchlist=2 focus=1 evaluated=1 intents=1" in output
+
+
+def test_bridge_fixture_supplies_current_quote_after_slow_runtime_setup(monkeypatch, capsys):
+    """Advance startup deterministically; never sleep or relax production freshness."""
+    from datetime import datetime, timedelta, timezone
+    from src.domain import quote_freshness
+    from src.config.config_resolver import get_config
+    class Clock(datetime):
+        value = datetime.now(timezone.utc)
+        @classmethod
+        def now(cls, tz=None):
+            return cls.value
+    monkeypatch.setattr(quote_freshness, 'datetime', Clock)
+    original = CoreOrchestrator.__init__
+    def delayed_setup(self, *args, **kwargs):
+        original(self, *args, **kwargs)
+        Clock.value += timedelta(seconds=int(get_config('IBKR_SNAPSHOT_MAX_AGE_SECONDS')) + 1)
+    monkeypatch.setattr(CoreOrchestrator, '__init__', delayed_setup)
+    captured = []
+    class Capture:
+        def readouterr(self):
+            output = capsys.readouterr()
+            captured.append(output.out)
+            return output
+    test_live_pipeline_bridge_logs_watchlist_focus_strategy_and_summary(monkeypatch, Capture())
+    assert not any('reason=MD_STALE' in text for text in captured)

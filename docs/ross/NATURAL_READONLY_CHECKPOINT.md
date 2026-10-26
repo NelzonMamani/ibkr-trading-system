@@ -3040,3 +3040,31 @@ and downstream acceptance, complete primary-feed coverage, paper-management
 acceptance, earlier timeout/negative-age causes and GUI draft remain open.
 No broker/provider acquisition, operator rerun, forced candidates/Focus/setup/intent,
 merge or trading is executed by this work. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+**Changed-head CI follow-up, separate from the natural receipt.** Preserve failed
+CI40390431426 at repair headd5b1ae27a77f60392f3dae11ae4eb4b352b13a40:
+Linux3217passed/3skipped; Windows3218passed/1failed/1skipped. The failing
+`test_pr174_final_bridge_fix_block.py::test_live_pipeline_bridge_logs_watchlist_focus_strategy_and_summary`
+expected AAPL Focus1 but received0. Maintenance35 and native cache9 passed; later
+Windows cache/PowerShell checks were skipped, and controlled-artifact upload could
+not supply their uncreated output. The consumed/truncated captured stdout lacks
+quote timestamps and the exact Focus rejection reason, so this Windows receipt
+alone cannot establish the cause or prove a harmless failure.
+
+A deterministic offline control demonstrates a real fixture timing dependency:
+its candidate quotes were sampled before CoreOrchestrator construction, then
+returned unchanged as newly acquired fake scanner results. Advance the observation
+clock by maximum-age+1second during construction (16seconds at the existing15s
+maximum): the original bridge assertions fail with cached_focus/AAPL MD_STALE.
+The narrow fixture repair creates candidates inside the fake scanner callback,
+where the simulated acquisition actually occurs. The same delayed-start control
+then passes every original bridge assertion. No sleep, retry, skip, relaxed
+assertion, production clock substitution or freshness change is introduced;
+failure messages now retain bounded quote/catalyst rejection details. This proves
+the fixture defect and its repair, not the unrecorded latency/gate cause of that
+specific Windows run. No additional production defect is inferred from unchanged
+code.238 focused tests pass, including the new delayed-start regression; new exact
+head review and changed-head CI supersede engineering gates without erasing the
+failed run. Natural terminal PASS/exit0, all4 issuer findings and ownership blockers
+remain unchanged. No acquisition or unchanged-head CI rerun. PAPER_READY=NO;
+PAPER_READINESS_GATE=FAIL.
