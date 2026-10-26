@@ -1,4 +1,9 @@
-# Natural READ_ONLY diagnostic checkpoint — 15 October 2026
+# Natural READ_ONLY diagnostic checkpoint — updated 23 October 2026
+
+Current authoritative completion status is in [the maintained checklist below](#receipt9--current-ross-completion-checklist-updated-through-pr1126).
+Earlier dated sections are historical evidence, not superseding readiness decisions.
+Accepted baseline for current diagnostic implementation: `74dbb9090ccc7aae46f8028c857363f62ff68cf0` (PR1126).
+`PAPER_READY=NO`; `PAPER_READINESS_GATE=FAIL`; natural catalyst → Focus → setup → READ_ONLY intent remains unproven.
 
 Accepted baseline: `1b632f8131183a776a6532d2785644a8a0309efb` (PR1107).
 Evidence: user-uploaded `ross-natural-readonly-upload.zip`. The archive is evidence,
@@ -2295,26 +2300,60 @@ mandatory and no timeout is enlarged. Independent review and changed-head checks
 must apply to the repaired head before controlled integration. No new operator run,
 provider/broker acquisition, holdings change or readiness upgrade. PAPER_READY=NO.
 
-### Receipt9 — current Ross checklist after offline catalyst investigation
+### Receipt9 — current Ross completion checklist, updated through PR1126
 
-Accepted `be5cc0090c067a965f8a1398f631d2d984e4fc6a`; archive
-SHA256 `eefa84ae5d17280b27651afc670c9dc2bd01152bc2266b108c8ade3bf30f1940`.
-See [the symbol trace and offline replay findings](RECEIPT9_CATALYST_FINDINGS.md).
-This current checklist supplements the historical checklists above; receipt7 FAIL,
-receipt8 FAIL and earlier receipts retain their original provenance and status.
+This is the maintained authoritative checklist, updated in place; the earlier
+checklists and receipts remain historical evidence. Status labels distinguish
+**implemented and merged**, **offline verified**, **naturally demonstrated** and
+**unresolved or pending**. A terminal PASS certifies only its recorded gates.
+No item below upgrades strategy certification or authorizes acquisition.
 
-| Ross completion outcome | Current receipt9 evidence / remaining work |
-| --- | --- |
-| Terminal shutdown, completed independent audit, inventory, zero mutations |PASS preserved and independently revalidated offline; query end received, both mutation counter sets zero, final inventory empty.|
-| Source and operator order state |PASS preserved; complete source-before/source-after equality; order-state comparison unchanged.|
-| Natural broker discovery / Watchlist |3 confirmed50-row matching-end scans; Watchlists5/4/4; no teaching injection, seeding or backfill.|
-| Independent background acquisition and serialized publication |Natural evidence arrival established: first evidence5.5736879s; completed161/failed5;161 persisted publications including21 nonempty publication events; cleanup complete. Partial provider coverage remains open.|
-| Whole-Watchlist reconsideration through Core between scans |Natural58 canonical reassessments with no failure; positive0/Focus0. Offline real-Core replay confirms later evidence is read without rediscovery or HTTP; existing positive-path/strict-gate tests pass.|
-| Canonical catalyst qualification |NOT ESTABLISHED naturally. PFSA2/NCPL1 retained commentary articles are nonqualifying; other requested symbols retain0.13 logged Focus evaluations drop at mandatory catalyst gate.|
-| Coverage / attribution gaps |403/401/timeouts, stale/empty issuer feeds and deferred extended tier remain partial coverage. CLIK's fresh rejected text was not captured, so correctness of that specific relevance exclusion remains unresolved. No proven implementation repair from this receipt.|
-| Downstream setup / trigger / intent progression |NOT ESTABLISHED; no forced Focus, synthetic natural-success claim or trading.|
-| Undefined lifecycle policy |Correction/retraction and financing-risk expiry remain undefined; retained dilution veto unchanged.|
-| Holdings, ownership blockers and GUI draft |Preserved unchanged. PAPER_READY=NO.|
+| Item | Status | Commit / PR | Evidence reference | Validation | Remaining acceptance gap |
+| --- | --- | --- | --- | --- | --- |
+| Deadline receipts and complete source verification | Implemented and merged; naturally demonstrated preflight | PR1122, accepted `725acaf523100398d4afc5d675881e68ccc3479f` | Receipt7 section and preserved preflight-only receipt above | Preflight31.7756s, timely exit, baseline22.368s/cache5.022s; complete source verification retained | Earlier cold-delay cause unresolved; no latency inference from successful probe |
+| Natural empty scanner preservation, ownership/end/error gates and final-audit diagnostics | Implemented and merged; offline verified | PR1123, accepted `06156242a4017f5e5afc668c3c01430252e6fc1d` | Receipt7 investigation above | Focused empty/unavailable, teaching authorization, late callback, missing-end and marker telemetry fixtures; reviewed repaired head | Receipt7 terminal FAIL retained; incomplete queries never imply zero orders or confirmed empty results |
+| Durable startup and package diagnostics | Implemented and merged; naturally demonstrated preflight | PR1124, accepted `be5cc0090c067a965f8a1398f631d2d984e4fc6a` | Preserved c01b27e diagnostic receipt; receipt8 investigation | Outer37.4262s, child7.5447s, yfinance6.934s; enumeration0.061s/full hashing25.190s; no observation/package | Receipt8 child timeout cause and88.9697s packaging delay unresolved; no speculative repair or timeout extension |
+| Receipt9 terminal safety, source and operator state | Naturally demonstrated, terminal PASS | Accepted `be5cc0090c067a965f8a1398f631d2d984e4fc6a` | [Receipt9 findings](RECEIPT9_CATALYST_FINDINGS.md); archive SHA256 `eefa84ae5d17280b27651afc670c9dc2bd01152bc2266b108c8ade3bf30f1940` | Completed final audit, zero mutations, empty final inventory, complete source equality and unchanged order state | PASS is not complete strategy certification |
+| Natural scanner / Watchlist and between-scan reconsideration | Naturally demonstrated; offline verified Core replay | PR1121 accepted `17ca55a1a1ec3cabcbcc8a540200751021e40f41`; receipt9 at be5cc009 | Receipt9 findings and retained logs | Three matching-end50-row scans; Watchlists5/4/4;58 Core reconsiderations, positive0/Focus0 | Positive catalyst-to-Focus progression absent; no forced replenishment |
+| Background news and maintenance truth | Naturally demonstrated arrival; partial coverage unresolved | PR1123 telemetry; receipt9 at be5cc009 | Receipt7 maintenance analysis; receipt9 findings | Receipt9 completed161/failed5;161 persisted publications,21 nonempty publication events; first evidence5.5736879s | Publication markers are not usable news. Receipt7 completed10/failed10, evidence0, first_evidence_seconds=null retained; provider403/401/timeouts and stale/empty feeds remain gaps |
+| Bounded exclusion evidence and safe issuer matching | Implemented and merged; offline verified | PR1125 reviewed `ea126c5deb6e3673756142f8d667f592a1e9989d`, accepted `0fcd8681eb8328d026e53a67070ce7064e93628d`; includes local2c22693e | [Acquisition follow-up](ISSUER_ACQUISITION_FOLLOWUP.md), [CLIK replay](CLIK_CAPTURED_IDENTITY_REPAIR.md) | Positive/negative issuer suffix, collision and issuer-word exclusion checks; reviewed integration | Captured article remains stale; labelled earlier-time counterfactual remains no_catalyst_classification. Receipt9 uncaptured CLIK rejection remains unadjudicated; no retroactive repair claim |
+| Production query recency proposal | Offline assessed; no production change | PR1125 evidence context | Acquisition follow-up and retained four-request results.json | Original CLIK/STAK5/6 versus when:6h0/0; all HTTP200, comparable pairs, cleanup complete | No fresh-relevant improvement established; retain queries, freshness and qualification rules |
+| Receipt10 terminal safety and scanner | Naturally demonstrated, terminal PASS | Accepted `0fcd8681eb8328d026e53a67070ce7064e93628d` | [Receipt10 findings](RECEIPT10_QUOTE_FINDINGS.md); archive SHA256 `e9b4e61aa0df4e2577bf340c766fb08ff911f3c9bf001bc89bb01f4d466a4c63` | One confirmed50-row scan, zero mutations, completed final audit, unchanged source/operator state and completed shutdown |82 missing-field quote timeouts/27 drops prevented first enrichment completion; no Watchlist/Focus/news submissions; does not assess PR1125 catalyst changes |
+| Quote-timeout redundant work and bounded wrapper diagnostics | Implemented and merged; offline verified | PR1126 reviewed `537faa242f277676bffb265a655b4872c16c9485`, accepted `74dbb9090ccc7aae46f8028c857363f62ff68cf0`; tree `1ea593405772bdbf592db31629fed2b5750cc29b` | [Quote diagnostics](RECEIPT10_QUOTE_DIAGNOSTICS.md); CI40007779021; independent review5633156925 |177 focused checks; final Linux3058 passed/1 skipped, Windows3058 passed/1 skipped plus35 maintenance checks and PowerShell harness; reviewed exact head, accepted tree equality | Early rejection avoids redundant quote/history offline while valid enrichment remains covered; natural successful quote enrichment not demonstrated after repair. Prior CI40006857603 failure retained |
+| Latest one-scan/two-snapshot diagnostic | Naturally demonstrated diagnostic limits; DIAGNOSTIC_ONLY, exit2 | Accepted74dbb909 | [SDK investigation](QUOTE_DIAGNOSTIC_74DB_SDK_ANALYSIS.md); archive SHA256 `3abbcb91f298e1edd1f6d2a0ddfaf90c226589d982a4b12e3b461e79732e26e6` | Scanner50 completed; AIOK364/CLRO365 each5s timeout; ownership registered, SDK returned, callbacks empty, type UNKNOWN; no suppression/eviction; cleanup/audit/source/operator safety PASS | Quote transport cause unresolved. Neither ownership rejection, upstream failure nor SDK defect established; no prices or missing completion inferred |
+| SDK serialization/decoder fault mechanisms | Offline verified only | Local SDK9.81.1.post1 reference, not a runtime repair | SDK investigation;11-case replay logs on Python3.12.14 and3.13.5 | Fake sockets exercise serialization, framing, queue, decoder and callbacks; short-send blind spot, recv4096-then-timeout loss and arity rejection reproduced | Possible mechanisms, not established runtime causes. Workstation Python3.13.3 captured; installed SDK hashes/server version absent. No SDK version attribution to receipts9/10 |
+| Scoped transport/decoder diagnostic implementation | Implemented on unmerged diagnostic branch; offline verified; published-head CI/review receipts belong to the accompanying PR | `codex/quote-transport-diagnostic`, based on accepted74dbb909; no automatic merge | [SDK investigation and implementation](QUOTE_DIAGNOSTIC_74DB_SDK_ANALYSIS.md); new repository tests/operator scripts |124 focused offline checks pass, including21 transport/operator controls; actual serialized fields, server version/hashes, send/recv/framer/queue/decoder facts and wrapper correlation,64 records×4KiB plus fixed counters; no transport repair or SDK upgrade | Require final published-head CI and independent review before operator instructions. Future separately authorized scope: one normal completed scan, one natural candidate, one5s snapshot,25s acquisition/120s outer cap and bounded cleanup; no retries/history/news/Ross runtime |
+| Canonical catalyst → Focus → setup → READ_ONLY intent | Unresolved / pending natural demonstration | No accepted commit supplies natural certification | Receipt9 and receipt10 distinct limits above | Strict freshness, relevance, quote and canonical qualification gates preserved; no fabricated prices or forced Focus | Entire positive natural progression remains unproven; missing news is not proof of no catalyst |
+| Holdings, ownership, policy and GUI draft | Preserved; blockers unresolved | Existing accepted history unchanged | Historical checkpoint sections | No holdings or trading changes; correction/retraction and financing-risk expiry undefined; retained dilution veto | Ownership blockers and GUI draft remain; PAPER_READY=NO |
+
+Reconciled against `76e597870f56b4e94b717878c793dbf2fce62295` on
+`codex/ross-completion-control-20261023`, without merging either branch. Its
+PR1126/receipt status overlaps the maintained rows above. Its additional roadmap,
+management and ordered-action distinctions are retained here, without duplicating
+the checklist. The institutional roadmap remains
+`TRADING_OS_MASTER_CATALOGUE/00_READ_FIRST/04_INSTITUTIONAL_TRADING_OS_COMPLETION_PLAN.md`;
+its historical “execution blocked only by mode” assertion is not current natural
+or paper-readiness evidence. Position truth/ownership and entry/partial-fill/stop/
+target/trailing/exit/recovery management require separate paper acceptance; none is
+certified by READ_ONLY terminal success. Current order: finish bounded diagnostic
+implementation, offline tests, exact-head review and Linux/Windows CI; only then
+supply the operator block. Any live run requires separate authorization. Localize
+quote failure before repairing an established defect, then establish natural
+catalyst → Focus → fresh pattern inputs → setup/trigger → decision/risk → READ_ONLY
+intent and assess paper-management acceptance separately. The one-candidate scope
+supersedes only earlier next-action proposals; all earlier receipts remain intact.
+Saved branch changes are not merged main. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+PR1127 initial published head c26e36bf482ba3e42551db606f663e0260506a89:
+Linux3079 passed/1skipped; Windows3078 passed/1failed/1skipped at CI40017765656.
+The unchanged news fixture's whole-service0.5s assertion failed at1.1365393s;
+actual Windows delay is not localized. An offline injected diagnostic-emission
+delay demonstrates that assertion also measures non-acquisition work. A test-only
+correction proves return while gated workers remain unfinished and retains original
+acquisition budgets, qualification rules and bounded cleanup. No production timeout
+change; failed CI and earlier review remain prior-head receipts. Final changed-head
+CI/review belongs to the PR; this is no natural acceptance or paper upgrade.
+
 
 Only source inspection, preserved-archive analysis and bounded offline fixtures ran.
 No new operator observation, provider/broker acquisition, holdings change, full-suite

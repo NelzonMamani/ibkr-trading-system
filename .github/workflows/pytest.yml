@@ -140,6 +140,9 @@ jobs:
         run: |
           & .\tests\powershell\test_readonly_observation.ps1 -Python (Get-Command python.exe).Source
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Windows PowerShell5.1 quote diagnostic parser (no acquisition)
+        shell: powershell
+        run: .\tests\powershell\verify_quote_transport.ps1
       - name: Upload controlled harness evidence
         if: always()
         uses: actions/upload-artifact@v4
