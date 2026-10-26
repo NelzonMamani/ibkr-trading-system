@@ -3285,13 +3285,16 @@ catalyst, Focus, setup, intent or readiness. No unchanged natural observation is
 requested. All five unmatched positions and historical timeout/negative-age
 cause limits remain unchanged. No acquisition was executed in this preparation.
 
-Initial exact-head review of257b178879636c477aeae83d507b58ba417c1bb6 found
-one Windows wrapper precreation guard defect: a two-literal-backslash prefix
-failed to reject an ordinary source-nested EvidenceRoot before mkdir/ACL.
-Python still rejected its batch path before acquisition. The corrected wrapper
-uses DirectorySeparatorChar and resolves junction/symlink parents with a
-read-only Python path check before any creation/ACL change. A Windows5.1
-controlled invocation supplies mocked Git identity, attempts source-nested
-output, and proves rejection before the directory exists; it never executes
-acquisition. The initial review finding and initial changed-head CI receipt
-remain on the PR; the final corrected head requires its own review and CI.
+Initial exact-head review of257b178879636c477aeae83d507b58ba417c1bb6 raised
+a possible two-backslash Windows guard issue. Byte-level verification showed
+exactly one literal backslash in each original string; the reviewer had read
+JSON/display escaping as source bytes and explicitly retracted the finding.
+The original ordinary nested-path guard was already correct. Preserve review
+receipt5658934791 as superseded by this correction, not as a demonstrated defect.
+The wrapper now spells the separator with DirectorySeparatorChar for clarity
+and additionally resolves junction/symlink parents with a read-only Python path
+check before creation/ACL changes. A Windows5.1 controlled invocation with mocked
+Git identity proves ordinary nested output is rejected before directory creation,
+without acquisition. These are preparation hardening and validation, not a
+production repair. Final exact-head review and changed-head CI must cover the
+consolidated result; earlier review/CI receipts remain on the PR.
