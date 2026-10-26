@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from quote_fixtures import current_broker_quote
+
 from dataclasses import replace
 
 from src.core.engines.decision_engine import DecisionEngine
@@ -96,7 +98,7 @@ def test_parabolic_exhaustion_registered_and_suppresses_lower_setups() -> None:
 
 def test_risk_engine_blocks_intent_when_exhaustion_active() -> None:
     risk = RiskEngine()
-    intent = TradeIntent(
+    intent = TradeIntent(quote_evidence={'selection': current_broker_quote(), 'snapshot': None},
         symbol="PEX",
         direction="LONG",
         strategy_name="RossMomentumStrategyV1",

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from quote_fixtures import current_broker_quote
+
 from catalyst_fixtures import canonical_catalyst_fixture
 
 import json
@@ -33,6 +35,7 @@ def _row(symbol: str, *, catalyst: bool = False, rvol: float = 3.0, rank: float 
     status = "CONFIRMED" if catalyst else "DATA_UNAVAILABLE"
     return SimpleNamespace(
         symbol=symbol,
+        quote_evidence=current_broker_quote(),
         session_label="RTH",
         session_phase="RTH",
         last_price=5.0,
@@ -142,6 +145,7 @@ def _trade_intent(symbol: str) -> TradeIntent:
         strategy_name="RossMomentumStrategyV1",
         confidence=0.91,
         rationale="focused regression intent",
+        quote_evidence={'selection': current_broker_quote(), 'snapshot': None},
         trader_type="MOMENTUM",
         stop_loss_price=4.80,
         take_profit_price=5.50,

@@ -1,4 +1,5 @@
 """Synthetic offline policy contracts; no broker/Paper acceptance."""
+from quote_fixtures import current_broker_quote
 from dataclasses import asdict
 import pytest
 from src.execution.trade_management_engine import TradeManagementEngine
@@ -642,7 +643,7 @@ def test_real_risk_scales_existing_relationship_without_counting_new_trade(monke
         monkeypatch.setattr(risk,"_resolve_profile_size",lambda _:16)
         risk.trade_registry.register_trade(ActiveTrade(symbol="FIXTURE",trader_type="MOMENTUM",entry_tick=1,
             entry_price=10.,direction="LONG",quantity=8,strategy_name="RossMomentumStrategyV1",stop_loss_price=9.))
-        intent=TradeIntent(symbol="FIXTURE",direction="LONG",strategy_name="RossMomentumStrategyV1",confidence=.8,
+        intent=TradeIntent(quote_evidence={'selection': current_broker_quote(), 'snapshot': None}, symbol="FIXTURE",direction="LONG",strategy_name="RossMomentumStrategyV1",confidence=.8,
             rationale="synthetic fresh-child add",trader_type="MOMENTUM",decision_id="offline-add",
             stop_loss_price=9.,gap_percent=9.2,rvol=10.,float_millions=8.,
             relationship_context={"profile":"BULL_FLAG_MICRO_2R_V1","relationship_id":"r","action":"ADD",

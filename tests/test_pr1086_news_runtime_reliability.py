@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from quote_fixtures import current_broker_time
+
 import json
 import time
 from dataclasses import replace
@@ -63,7 +65,7 @@ class _MetadataRuntimeProvider:
         last = float(row.get("last", 7.0))
         prev_close = float(row.get("prev_close", 5.0))
         pct_change = round(((last - prev_close) / prev_close) * 100.0, 2)
-        return QuoteData(
+        return QuoteData(timestamp_source='LAST_TRADE',
             symbol=symbol,
             bid=float(row.get("bid", round(last - 0.01, 2))),
             ask=float(row.get("ask", round(last + 0.01, 2))),
@@ -75,7 +77,7 @@ class _MetadataRuntimeProvider:
             close=prev_close,
             change_percent=pct_change,
             volume=float(row.get("volume", 1_600_000)),
-            timestamp_utc=None,
+            timestamp_utc=current_broker_time().isoformat(),
             data_quality_flags=(),
         )
 

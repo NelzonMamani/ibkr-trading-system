@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from quote_fixtures import current_broker_quote
+
 from catalyst_fixtures import canonical_catalyst_fixture
 
 from types import SimpleNamespace
@@ -10,7 +12,7 @@ from src.models.data_models import TradeIntent
 
 
 def _candidate(symbol: str, score: float) -> SimpleNamespace:
-    return SimpleNamespace(
+    return SimpleNamespace(quote_evidence=current_broker_quote(),
         symbol=symbol,
         catalyst_evidence=canonical_catalyst_fixture(symbol),
         last_price=10.0 + score,

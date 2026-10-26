@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from quote_fixtures import current_broker_quote
+
 from datetime import datetime, timedelta, timezone
 
 from src.config.config_resolver import set_config_overrides
@@ -39,7 +41,7 @@ def test_tha_allows_real_execution_flow() -> None:
 
     set_config_overrides({"RUN_MODE": "PAPER", "EXECUTION_ENABLED": True})
     try:
-        intent = TradeIntent(
+        intent = TradeIntent(quote_evidence={'selection': current_broker_quote(), 'snapshot': None},
             symbol="THA",
             direction="LONG",
             strategy_name="ross_momentum",

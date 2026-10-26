@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -52,7 +53,7 @@ class _BaseProvider(ScannerDataProvider):
         return ["AAPL"]
 
     def get_quote(self, symbol: str) -> QuoteData:
-        return QuoteData(
+        return QuoteData(timestamp_source='LAST_TRADE',
             symbol=symbol,
             bid=self._last - 0.5,
             ask=self._last + 0.5,
@@ -155,7 +156,7 @@ class _IdentityPropagationProvider(_BaseProvider):
 
 class _HistoryAttemptedNoBarsProvider(_IdentityPropagationProvider):
     def get_quote(self, symbol: str) -> QuoteData:
-        return QuoteData(
+        return QuoteData(timestamp_source='LAST_TRADE',
             symbol=symbol, bid=24.8, ask=25.2, last=25.0, vwap=24.9, open=24.0, high=25.5, low=23.8, close=24.0,
             change_percent=4.2, volume=220_000, timestamp_utc=datetime.now(timezone.utc).isoformat(), data_quality_flags=(),
         )

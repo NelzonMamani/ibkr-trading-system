@@ -368,6 +368,8 @@ class StrategyRunner:
         if str(strategy_key or "").strip().lower() == "ross_momentum" and str(getattr(mode, "value", mode)).upper() in {"READ_ONLY", "PAPER", "LIVE"}:
             from src.strategies.ross_momentum.policy.catalyst_lifecycle import filter_catalyst_rows
             watchlist = filter_catalyst_rows(watchlist, stage="strategy_use", mode=mode)
+            from src.domain.quote_freshness import filter_quote_rows
+            watchlist = filter_quote_rows(watchlist, stage="strategy_use", snapshots=snapshots)
         manual_focus_symbols = (
             _manual_focus_symbols(watchlist)
             if str(strategy_key or "").strip().lower() == "ross_momentum"

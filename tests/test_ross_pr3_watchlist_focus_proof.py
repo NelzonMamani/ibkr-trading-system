@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from quote_fixtures import current_broker_time
+
 from dataclasses import replace
 
 import pytest
@@ -46,7 +48,7 @@ class _ControlledProvider:
         ask = row.get("ask", round(last + 0.01, 2))
         volume = float(row.get("volume", 1_000_000))
         pct_change = round(((last - prev_close) / prev_close) * 100.0, 2)
-        return QuoteData(
+        return QuoteData(timestamp_source='LAST_TRADE',
             symbol=symbol,
             bid=None if bid is None else float(bid),
             ask=None if ask is None else float(ask),
@@ -58,7 +60,7 @@ class _ControlledProvider:
             close=prev_close,
             change_percent=pct_change,
             volume=volume,
-            timestamp_utc=None,
+            timestamp_utc=current_broker_time().isoformat(),
             data_quality_flags=(),
         )
 

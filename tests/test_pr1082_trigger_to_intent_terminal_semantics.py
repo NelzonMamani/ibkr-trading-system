@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from quote_fixtures import current_broker_quote
+
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -243,6 +245,7 @@ def _watchlist_row(state: str = "ready", symbol: str = "UPC") -> dict:
     last = _rows(state)[-1][3]
     return {
         "symbol": symbol,
+        "quote_evidence": current_broker_quote(),
         "promotion_reason": "LIVE_SCAN",
         "watchlist_source": "LIVE_SCAN",
         "session_label": "RTH",
@@ -268,6 +271,8 @@ def _snapshot(state: str = "ready", symbol: str = "UPC") -> MarketSnapshot:
         last=last,
         volume=1_800_000,
         asof_utc=datetime.now(timezone.utc),
+        market_timestamp_utc=datetime.fromisoformat(current_broker_quote()['timestamp_utc']),
+        timestamp_source='LAST_TRADE',
     )
 
 def _base_strategy(monkeypatch: pytest.MonkeyPatch, tmp_path, *, state: str) -> RossMomentumStrategyV1:

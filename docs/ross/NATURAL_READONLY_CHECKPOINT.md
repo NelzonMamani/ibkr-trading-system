@@ -2325,6 +2325,7 @@ No item below upgrades strategy certification or authorizes acquisition.
 | Scoped transport/decoder diagnostic implementation | Implemented on unmerged diagnostic branch; offline verified; published-head CI/review receipts belong to the accompanying PR | `codex/quote-transport-diagnostic`, based on accepted74dbb909; no automatic merge | [SDK investigation and implementation](QUOTE_DIAGNOSTIC_74DB_SDK_ANALYSIS.md); new repository tests/operator scripts |124 focused offline checks pass, including21 transport/operator controls; actual serialized fields, server version/hashes, send/recv/framer/queue/decoder facts and wrapper correlation,64 records×4KiB plus fixed counters; no transport repair or SDK upgrade | Require final published-head CI and independent review before operator instructions. Future separately authorized scope: one normal completed scan, one natural candidate, one5s snapshot,25s acquisition/120s outer cap and bounded cleanup; no retries/history/news/Ross runtime |
 | 26 October single-quote receipt and capture-budget follow-up | Callback delivery naturally demonstrated; unusable quote and capture FAIL; offline repair under review | PR1127 reviewed `042ceed106ea3044089475ec203efdcebec44fae`; follow-up PR1128 | Detailed 26 October receipt below; archive SHA256 `467c3b135ff4dbecfec04a45a681148d1934e8344f52922791480fa1c88db2c4` | Scanner50, AZTR364, serialized socket68/68, LIVE callback/end; age103.076777s/missing bid/ask rejected;64 records/78 drops fail coverage; bounded target capture regression | Earlier timeout cause unresolved; original missing transport detail unrecoverable; exact changed-head CI/review required; no rerun authorization |
 | Accepted6010 quote diagnostic | Natural bounded transport objective satisfied; quote still ineligible/exit2 | Accepted `6010ce1cd265c98807a6b5ee4e8425dfbbfc36ae`; observation-order repair prospective | New26October receipt below; archive `9127a025833e1d2dc4efc9fb86f2d3f241903ede4202e7d0d4573e4f1d4f84a0` | Scan50/AZTR364, LIVE/all5 fields/end;50 retained records/0drops/scoped coverage valid; age−0.002445s strictly rejected | Original race/skew attribution and earlier timeout cause unresolved; no repeat transport run to seek exit0; natural Ross acceptance remains open |
+| Production future-quote admission | Demonstrated offline; shared strict rejection repair on stacked follow-up | Based on verified PR1129 `20c282b963fd8a602880e44edefe3f8076f9deb2` | Detailed production admission section below; exact-head review/CI on accompanying PR | Native/cache/scanner/Focus/setup/decision/risk controls; original broker provenance retained | Natural receipt remains exit2; race/skew attribution and historical timeout cause unresolved; no acquisition or readiness upgrade |
 | Canonical catalyst → Focus → setup → READ_ONLY intent | Unresolved / pending natural demonstration | No accepted commit supplies natural certification | Receipt9 and receipt10 distinct limits above | Strict freshness, relevance, quote and canonical qualification gates preserved; no fabricated prices or forced Focus | Entire positive natural progression remains unproven; missing news is not proof of no catalyst |
 | Holdings, ownership, policy and GUI draft | Preserved; blockers unresolved | Existing accepted history unchanged | Historical checkpoint sections | No holdings or trading changes; correction/retraction and financing-risk expiry undefined; retained dilution veto | Ownership blockers and GUI draft remain; PAPER_READY=NO |
 
@@ -2752,4 +2753,129 @@ not evidence that all future timestamps are rejected and need separate admission
 assessment before a readiness claim. Natural positive progression, earlier timeout
 cause, holdings/ownership blockers, paper-management acceptance and GUI draft remain
 open/preserved. No acquisition, operator rerun, automatic merge or trading here.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+### 26 October 2026 — production future-quote admission, offline assessment/repair
+
+Starting point is verified draft PR1129 head
+`20c282b963fd8a602880e44edefe3f8076f9deb2`, tree
+`7ea5278cb332c9c50d4a56749f11fcb98c67ffd5`, based on accepted main6010.
+PR1129 review5655892797 and CI40363925435 are retained: Linux3103passed/3skipped;
+Windows3105passed/1skipped,35maintenance/9native cache controls and PowerShell
+checks successful. This follow-up is a separate stacked repair, not an integration
+or observation. Final exact-head review/changed-head CI must be pinned on its PR.
+
+The accepted6010 archive remains DIAGNOSTIC_ONLY/exit2. Bounded target transport
+coverage is satisfied (50records/0drops, explicit omissions); quote eligibility
+was rejected. Its−0.002445s cause remains unestablished: PR1129 demonstrated a
+local observation-order race offline, but neither that race nor broker/workstation
+clock skew is proved for the archived receipt. Historical timeout causes and all
+failed receipts, including CI40347587519/40354478522, remain unresolved/preserved.
+Do not repeat transport diagnostics merely to seek exit0.
+
+**Production authority trace and demonstrated gaps.** Native tickString45/88 and
+SDK lastTime/rtTime provide the broker timestamp; generic ticker.time is accepted
+only with explicit BROKER provenance. MarketDataClient retains LAST_TRADE and
+separate request/completion/receipt clocks. Its snapshot-finalization and cycle
+cache-reuse checks were upper-bound-only. Native get_market_snapshot had only a
+missing-time flag. IbkrScannerProvider translates the original timestamp/type and
+quality flags into QuoteData; it does not grant eligibility. Cycle caches can store
+rejected evidence, never a reusable permission decision.
+
+Scanner context keeps quote_timestamp_utc/source separately from scan/receipt time.
+Final Watchlist/Focus, prep seeding, shortlist survival and between-scan reassessment
+consume its freshness gate; provisional acquisition ranking is not permission.
+The scanner's quote-validity contract measures price/field shape, not temporal
+eligibility. CandidateMetrics previously dropped broker timestamp provenance and
+retained only scan time/quality flags. Canonical catalyst validation independently
+controls positive-event eligibility; a CONFIRMED flag is not authority.
+
+Actual dispatch is StrategyRunner → RossMomentumRunner →
+RossMomentumStrategyV1.process_watchlist, using selection-row facts and any supplied
+MarketSnapshot for setup/trigger/decision. Pattern-input construction did not merge
+snapshot timestamp rejection; a fresh row could therefore accompany an unusable
+new snapshot. The separate ross_momentum.strategy/decision_policy smoke-registry
+path is not the active V1 dispatch and is not redesigned here.
+
+The active Core _run_manager_pipeline reports risk disposition from its gated
+intent list without calling RiskEngine. Its optimistic RISK_APPROVED event and
+later handoff previously had no independent quote-time authority. The older Core
+path calls RiskEngine and can force risk approval. Risk recognized STALE_SNAPSHOT,
+but not MD_STALE/future/unknown broker-time flags. These are distinct authorities:
+storing provenance, selecting a stock, creating an intent and approving execution
+are not interchangeable.
+
+Four controls on exact20c282 fail as expected: future-by1microsecond snapshot,
+cache insertion/reuse, final Watchlist and Focus all lack future rejection. Native
+callbacks complete and preserve that future broker time. Downstream controls also
+demonstrate the need to revalidate cached Focus and supplied snapshots, and to
+reject an emitted intent that ages during arbitration. These are synthetic offline
+schedules, not reconstructions or new natural evidence.
+
+**Narrow repair.** Shared src/domain/quote_freshness.py classifies aware LAST_TRADE
+timestamps against the unchanged IBKR_SNAPSHOT_MAX_AGE_SECONDS: inclusive
+0<=age<=maximum. Reasons are MD_TIMESTAMP_FUTURE, MD_STALE and
+MD_TIMESTAMP_UNKNOWN. No tolerance, clamp, receipt/scan-time substitution or
+maximum-age change. Broker values/provenance survive rejection unchanged (ISO
+serialization retains their precision). Snapshot creation, cache insertion/reuse
+and final scanner gates use this authority. Cached flags remain attached even if
+the clock later catches up; a stored rejected observation is not rehabilitated.
+Future/unknown rejection cannot trigger an additional shortlist refresh.
+
+CandidateMetrics now carries original quote_evidence independently of scan time.
+Cached Focus, setup handoff and runners revalidate it. V1 checks both selection
+and supplied snapshot evidence before pattern acquisition, before decision and
+before emission. Original evidence accompanies intents into active risk handoff
+and RiskEngine; temporal rejection precedes forced-execution/risk-approval paths,
+including Ross validation aliases. Active risk accounting retains the actual
+emitted-intent fact and explicit temporal veto rather than replacing it with
+NO_SETUP/SESSION_BLOCK. READ_ONLY order protections remain separate and unchanged.
+Explicit manual stock choice still needs a real current broker snapshot for setup;
+manual choice never fabricates a broker timestamp or bypasses a temporal veto.
+
+Regression coverage includes future1microsecond, zero, inclusive maximum, just
+stale, missing/naive/malformed/untrusted/local-only time, actual native callbacks,
+provider/candidate handoffs, cache insertion/reuse/clock regression/sticky rejection,
+cached Focus without rescanning, V1 pattern/decision/emission delays, supplied
+snapshot rejection, manual selection with actual snapshot authority, Ross risk
+aliases, forced-execution rejection and post-arbitration revalidation. Positive
+routing/setup fixtures now explicitly declare synthetic broker provenance; they
+are not natural certification. Existing holdings, ownership, deadlines, transport
+operations/capture limits/omission reporting, freshness maxima and GUI draft stay
+unchanged. Independent exact-head review and full changed-head Linux/Windows CI,
+including native cache/maintenance/PowerShell checks, are required for integration.
+
+**Prepared next natural Ross acceptance plan — not executed or authorized here.**
+After reviewed/green controlled integration, record the literal accepted main SHA
+and tree, including any documentation-only integration delta. Use Windows
+PowerShell5.1 Desktop and verified Python3.13.3 with repository dependencies.
+Prepare an isolated worktree/state/evidence directory through the existing
+PR1108_NATURAL_READONLY_ACCEPTANCE.ps1 with that ExpectedCommit and
+RuntimeSeconds900; preserve existing evidence and operator files. Its printed
+run_natural_readonly_observation.ps1 command is the eventual separately authorized
+operation. It uses the existing supervisor/preflight/final-audit harness; the outer
+observation budget is runtime+360seconds (1260 here), with existing stop/cleanup
+bounds. This is one bounded natural observation, not a retry-until-positive loop.
+
+Before any separately authorized launch, resolve current runtime/session ownership
+and existing holdings blockers without adopting/canceling external positions or
+orders; preflight must pass. The harness fixes localhost7497/client71, READ_ONLY,
+execution/translation/probes/fallback disabled, normal TopN50/Watchlist15/Focus5,
+news/maintenance/issuer queries required and isolated caches/state. Preserve its
+full effective safety assertions; do not seed candidates, force session/Focus,
+setups, triggers or intents. Use a naturally executable PRE/RTH window with fresh
+broker quotes and genuinely current canonical issuer evidence. No new broad RSS,
+SDK repair or freshness concession is part of this plan.
+
+Acceptance requires matching-end natural discovery, usable broker quotes at every
+handoff, canonical issuer/catalyst qualification with retained vetoes, genuine
+Watchlist → Focus → fresh pattern inputs → setup → confirmation → trigger →
+decision → reason-coded risk/READ_ONLY-intent evidence. The active manager's
+risk marker alone is not a full RiskEngine evaluation or paper/trading acceptance.
+Retain gate-specific negative/no-intent outcomes when nature supplies no eligible
+candidate. Require owned stop, completed final broker audit, zero mutation attempts,
+empty completed final runtime inventory and unchanged source/operator state/privacy
+receipts. Archive/hash the complete result; do not reinterpret safety PASS or
+transport PASS as positive-strategy completion. No launch, provider/broker
+acquisition, merge, trading or readiness upgrade occurred in this repair task.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.

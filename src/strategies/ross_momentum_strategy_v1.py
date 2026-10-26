@@ -6,6 +6,8 @@ Consumes SignalEvent(s) and emits TradeIntent(s) using teaching-safe rules.
 
 from __future__ import annotations
 
+from src.domain.quote_freshness import evidence_rejection, quote_evidence, selection_quote_evidence
+
 import json
 from datetime import timezone
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
@@ -711,6 +713,20 @@ class RossMomentumStrategyV1(BaseStrategy):
             setup_evaluated = False
             print(f"[SETUP][EVAL] symbol={symbol}")
             snapshot = snapshots.get(symbol) if isinstance(snapshots, dict) else None
+            production_mode = str(getattr(mode, "value", mode)).upper() in {"READ_ONLY", "PAPER", "LIVE"}
+            row_quote = selection_quote_evidence(row, snapshot)
+            snapshot_quote = (quote_evidence(snapshot.market_timestamp_utc, snapshot.timestamp_source, snapshot.data_quality_flags)
+                              if isinstance(snapshot, MarketSnapshot) else None)
+            if production_mode:
+                # A new snapshot is independently required to be usable if supplied;
+                # it cannot legitimize an invalid retained selection timestamp.
+                reason = evidence_rejection(row_quote)
+                if reason is None and snapshot is not None:
+                    reason = evidence_rejection(snapshot_quote)
+                if reason:
+                    _terminal(str(symbol), "DATA_BLOCKED", reason, stage="quote")
+                    classification_counts["DATA_BLOCKED"] += 1
+                    continue
             symbol_source = infer_symbol_source(row)
             symbol_trace = RossSymbolTrace(
                 symbol=symbol,
@@ -1200,6 +1216,12 @@ class RossMomentumStrategyV1(BaseStrategy):
                 trigger_candidates.extend(pattern_triggers)
                 symbol_trace.input_summary["trigger_candidates"] = trigger_candidates
 
+            if production_mode:
+                reason = evidence_rejection(row_quote) or (evidence_rejection(snapshot_quote) if snapshot is not None else None)
+                if reason:
+                    _terminal(str(symbol), "DATA_BLOCKED", reason, stage="decision_quote")
+                    classification_counts["DATA_BLOCKED"] += 1
+                    continue
             decision = self._decision_engine.compute_decision(
                 symbol=symbol,
                 levels=levels,
@@ -1725,6 +1747,8 @@ class RossMomentumStrategyV1(BaseStrategy):
                 raise RuntimeError("CRITICAL: TRIGGER_FIRED_NO_INTENT")
             if gap_go_trigger_fired and not intent:
                 raise RuntimeError("CRITICAL: TRIGGER_FIRED_NO_INTENT")
+            # Keep selection and supplemental snapshot authority for risk re-age.
+            intent.quote_evidence = {"selection": row_quote, "snapshot": snapshot_quote}
             intent.relationship_context = dict((getattr(selected_contract, "setup_metadata", {}) or {}).get("relationship") or {})
             if intent.relationship_context:
                 intent.relationship_context["warning"] = bool(
@@ -1862,6 +1886,14 @@ class RossMomentumStrategyV1(BaseStrategy):
                 )
                 continue
             intent = candidate["intent"]
+            if str(getattr(mode, "value", mode)).upper() in {"READ_ONLY", "PAPER", "LIVE"}:
+                evidence = intent.quote_evidence or {}
+                reason = evidence_rejection(evidence.get("selection"))
+                if reason is None and evidence.get("snapshot") is not None:
+                    reason = evidence_rejection(evidence["snapshot"])
+                if reason:
+                    _record_ready_candidate_no_intent(candidate, category="DATA_BLOCKED", reason=reason, stage="intent_quote")
+                    continue
             tradeable = candidate.get("tradeable") or {}
             setattr(intent, "trigger_reference_price", tradeable.get("trigger_reference_price"))
             setattr(intent, "entry_extension_pct", tradeable.get("extension_pct"))

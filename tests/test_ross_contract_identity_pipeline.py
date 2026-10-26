@@ -56,7 +56,8 @@ class DummyProvider:
         }
 
     def get_quote(self, symbol: str):
-        return SimpleNamespace(
+        from quote_fixtures import current_broker_time
+        return SimpleNamespace(timestamp_utc=current_broker_time().isoformat(), timestamp_source='LAST_TRADE',
             bid=10.9,
             ask=11.1,
             last=11.0,

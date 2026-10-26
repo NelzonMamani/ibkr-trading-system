@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from quote_fixtures import current_broker_quote
+
 from catalyst_fixtures import canonical_catalyst_fixture
 
 import pytest
@@ -110,7 +112,7 @@ def test_live_strategy_runner_blocks_synthetic_intent(capsys) -> None:
 
     intents = runner.process(
         strategy_key="ross_momentum",
-        watchlist=[{"symbol": "ROSSX", "catalyst_evidence": canonical_catalyst_fixture("ROSSX")}],
+        watchlist=[{'quote_evidence': current_broker_quote(), "symbol": "ROSSX", "catalyst_evidence": canonical_catalyst_fixture("ROSSX")}],
         snapshots={},
         session_label="RTH",
         timestamp_utc="2026-06-12T12:00:00Z",
@@ -130,7 +132,7 @@ def test_paper_strategy_runner_allows_synthetic_intent_only_with_flag(capsys) ->
 
     intents = runner.process(
         strategy_key="ross_momentum",
-        watchlist=[{"symbol": "ROSSX"}],
+        watchlist=[{"symbol": "ROSSX", "quote_evidence": current_broker_quote()}],
         snapshots={},
         session_label="RTH",
         timestamp_utc="2026-06-12T12:00:00Z",

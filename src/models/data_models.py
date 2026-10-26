@@ -130,6 +130,7 @@ class TradeIntent:
     execution_refinement_mode: Optional[str] = None
     relationship_context: Optional[dict] = None
     target_model: Optional[str] = None  # Descriptive setup target, not a broker limit price.
+    quote_evidence: Optional[dict] = None  # Original broker time, never scan/intent time.
 
     def __post_init__(self) -> None:
         if not self.symbol:
