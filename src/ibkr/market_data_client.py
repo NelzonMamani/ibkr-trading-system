@@ -3,6 +3,8 @@ from __future__ import annotations
 from src.core.acquisition import checkpoint, cycle_cache, contract_key, cooperative_await, bounded_timeout
 
 import asyncio
+import copy
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import math
@@ -104,6 +106,15 @@ def _record_field_receipt(ticker, fields) -> None:
     for name in fields:
         if name:
             ticker.fieldReceivedAt[name] = received.isoformat()
+
+
+def _copy_snapshot_ticker(ticker):
+    # Numeric/time attributes are immutable. Copy mutable authority metadata too,
+    # without traversing SDK event handlers, contracts or synchronization objects.
+    observed = copy.copy(ticker)
+    observed.fieldReceivedAt = dict(getattr(ticker, "fieldReceivedAt", {}) or {})
+    observed.brokerErrors = copy.deepcopy(getattr(ticker, "brokerErrors", []) or [])
+    return observed
 
 
 def _snapshot_authority_metadata(ticker, fields, *, completed_at, completion_reason):
@@ -599,12 +610,16 @@ class MarketDataClient:
                     if remaining <= 0:
                         break
                     ib.waitOnUpdate(timeout=bounded_timeout(min(0.2, remaining)))
-                completed_at = datetime.now(timezone.utc)
-                raw_fields = self._snapshot_debug_fields(ticker)
-                returned_type = _returned_market_data_type(ticker)
+                # Native callbacks run on the reader thread under this lock.
+                # ib_insync callbacks share this event loop: copy without yielding.
+                with getattr(ib, "_lock", None) or nullcontext():
+                    observed = _copy_snapshot_ticker(ticker)
+                    completed_at = datetime.now(timezone.utc)
+                raw_fields = self._snapshot_debug_fields(observed)
+                returned_type = _returned_market_data_type(observed)
                 flags = _market_data_type_flags(returned_type)
-                timestamp = _resolve_snapshot_timestamp(ticker)
-                receipt = getattr(ticker, "receivedAt", None) or getattr(ticker, "time", None)
+                timestamp = _resolve_snapshot_timestamp(observed)
+                receipt = getattr(observed, "receivedAt", None) or getattr(observed, "time", None)
                 if not isinstance(receipt, datetime):
                     receipt = None
                 missing_fields = [name for name in required_fields if raw_fields.get(name) is None]
@@ -618,15 +633,15 @@ class MarketDataClient:
                     "waited_seconds": round(time.monotonic() - started_at, 3),
                     "timeout_occurred": completion_reason == "timeout",
                     "snapshot_complete": snapshot_complete,
-                    "request_id": getattr(ticker, "reqId", None),
+                    "request_id": getattr(observed, "reqId", None),
                     "market_data_type_received_at_utc": (
-                        ticker.marketDataTypeReceivedAt.isoformat()
-                        if getattr(ticker, "marketDataTypeReceivedAt", None) else None
+                        observed.marketDataTypeReceivedAt.isoformat()
+                        if getattr(observed, "marketDataTypeReceivedAt", None) else None
                     ),
                     "completion_reason": completion_reason,
                     "raw_fields": raw_fields,
                     "missing_fields": missing_fields,
-                    **_snapshot_authority_metadata(ticker, raw_fields, completed_at=completed_at, completion_reason=completion_reason),
+                    **_snapshot_authority_metadata(observed, raw_fields, completed_at=completed_at, completion_reason=completion_reason),
                 }
                 self.last_snapshot_debug["attempts"].append(attempt_debug)
                 attempt_finished = True
