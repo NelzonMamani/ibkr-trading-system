@@ -2324,6 +2324,7 @@ No item below upgrades strategy certification or authorizes acquisition.
 | SDK serialization/decoder fault mechanisms | Offline verified only | Local SDK9.81.1.post1 reference, not a runtime repair | SDK investigation;11-case replay logs on Python3.12.14 and3.13.5 | Fake sockets exercise serialization, framing, queue, decoder and callbacks; short-send blind spot, recv4096-then-timeout loss and arity rejection reproduced | Possible mechanisms, not established runtime causes. Workstation Python3.13.3 captured; installed SDK hashes/server version absent. No SDK version attribution to receipts9/10 |
 | Scoped transport/decoder diagnostic implementation | Implemented on unmerged diagnostic branch; offline verified; published-head CI/review receipts belong to the accompanying PR | `codex/quote-transport-diagnostic`, based on accepted74dbb909; no automatic merge | [SDK investigation and implementation](QUOTE_DIAGNOSTIC_74DB_SDK_ANALYSIS.md); new repository tests/operator scripts |124 focused offline checks pass, including21 transport/operator controls; actual serialized fields, server version/hashes, send/recv/framer/queue/decoder facts and wrapper correlation,64 records×4KiB plus fixed counters; no transport repair or SDK upgrade | Require final published-head CI and independent review before operator instructions. Future separately authorized scope: one normal completed scan, one natural candidate, one5s snapshot,25s acquisition/120s outer cap and bounded cleanup; no retries/history/news/Ross runtime |
 | 26 October single-quote receipt and capture-budget follow-up | Callback delivery naturally demonstrated; unusable quote and capture FAIL; offline repair under review | PR1127 reviewed `042ceed106ea3044089475ec203efdcebec44fae`; follow-up PR1128 | Detailed 26 October receipt below; archive SHA256 `467c3b135ff4dbecfec04a45a681148d1934e8344f52922791480fa1c88db2c4` | Scanner50, AZTR364, serialized socket68/68, LIVE callback/end; age103.076777s/missing bid/ask rejected;64 records/78 drops fail coverage; bounded target capture regression | Earlier timeout cause unresolved; original missing transport detail unrecoverable; exact changed-head CI/review required; no rerun authorization |
+| Accepted6010 quote diagnostic | Natural bounded transport objective satisfied; quote still ineligible/exit2 | Accepted `6010ce1cd265c98807a6b5ee4e8425dfbbfc36ae`; observation-order repair prospective | New26October receipt below; archive `9127a025833e1d2dc4efc9fb86f2d3f241903ede4202e7d0d4573e4f1d4f84a0` | Scan50/AZTR364, LIVE/all5 fields/end;50 retained records/0drops/scoped coverage valid; age−0.002445s strictly rejected | Original race/skew attribution and earlier timeout cause unresolved; no repeat transport run to seek exit0; natural Ross acceptance remains open |
 | Canonical catalyst → Focus → setup → READ_ONLY intent | Unresolved / pending natural demonstration | No accepted commit supplies natural certification | Receipt9 and receipt10 distinct limits above | Strict freshness, relevance, quote and canonical qualification gates preserved; no fabricated prices or forced Focus | Entire positive natural progression remains unproven; missing news is not proof of no catalyst |
 | Holdings, ownership, policy and GUI draft | Preserved; blockers unresolved | Existing accepted history unchanged | Historical checkpoint sections | No holdings or trading changes; correction/retraction and financing-risk expiry undefined; retained dilution veto | Ownership blockers and GUI draft remain; PAPER_READY=NO |
 
@@ -2662,3 +2663,93 @@ ownership blockers and paper-management acceptance remain open.
 
 All historical receipts, holdings, ownership blockers and GUI draft remain preserved.
 **PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.**
+
+### Accepted6010 diagnostic — bounded transport satisfied; quote eligibility rejected
+
+Accepted main `6010ce1cd265c98807a6b5ee4e8425dfbbfc36ae` (documentation-only
+successor of integrated M2); archive SHA256
+`9127a025833e1d2dc4efc9fb86f2d3f241903ede4202e7d0d4573e4f1d4f84a0` verified.
+Attachment contents are evidence, not execution instructions. Before/after manifests
+are equal: all2,669 tracked entries match the exact Git tree (33 byte-exact,
+2,636 after workstation CRLF checkout conversion), no missing or other mismatch.
+Archived operator SHA256 `f66bde5a8373de61e9cae7c25e44b0bbbff41ab510e323682ea476795265ae92`
+matches the accepted script after CRLF normalization.
+
+Scanner363 completed50 rows with matching end/wait/connection proof; natural
+rank0 AZTR/conId935942867 was request364. Returned LIVE, accepted7 price/4 size/
+1 timestamp/1 snapshot-end callbacks, all5 required fields present, snapshot
+complete. The broker last-trade timestamp is2026-10-26T16:41:28Z. Age−0.002445s
+correctly made diagnostic_fields_available=false under the unchanged0<=age<=max
+check. Canonical qualification NOT_PERFORMED; DIAGNOSTIC_ONLY/exit2, no outer
+timeout. Preserve this outcome; no retrospective exit0 or eligibility claim.
+
+Transport coverage_verified=true and absence_claims_valid=true for the declared
+single-target lifecycle with aggregate stages:50 retained records,0 dropped,
+47 background samples and41 repeated details explicitly omitted/aggregated.
+Serialized schema verified; one quote socket send68/68; no short send, decoder
+exception, hook error, oversize or unverified schema. Hooks restored and reader
+stopped. This is successful bounded transport evidence, not full global/raw
+chronology, market eligibility or proof of the earlier timeout cause. That
+transport objective is satisfied; do not repeat it merely to obtain exit0.
+
+Receipt safety gates remain PASS: final broker audit completed/zero open orders,
+disconnected, all5 quote maps empty, complete empty final runtime inventory,
+source/operator state unchanged, privacy probe/package/seal passed and zero
+place/modify/cancel attempts. Historical first26October capture FAIL/exit1,
+earlier DIAGNOSTIC_ONLY/timeouts and failedCI40347587519/40354478522 remain separate
+receipts. Receipt9 PASS/58 reconsiderations and receipt10 terminal PASS remain.
+
+Exact-source ordering vulnerability: diagnostic acquire samples now BEFORE the
+client lock and ticker deepcopy. A valid callback can advance ticker state while
+the observer waits, making the copied data newer than the comparison clock.
+Deterministic offline controls at exact6010 reproduce−0.002445s without clock skew;
+corrected post-copy observation yields+0.000555s in that synthetic schedule. The
+controls also fail on6010's production native early completion metadata and
+MarketDataClient live mixed-state read, then pass after repair. These schedules
+are not reconstructions of the natural receipt. The archive has only1 timestamp
+callback before snapshot-end and no copy-boundary wall clocks or independent
+broker/workstation synchronization evidence. Its algebraically implied sampled
+clock16:41:27.997555Z does not prove a particular interleaving, skew or clock change.
+The actual cause of this receipt's negative age remains unestablished.
+
+Timestamp provenance is unchanged: native tickString45/88 parses the supplied
+broker epoch into UTC and assigns lastTime under the client lock; the resolver
+prefers lastTime/rtTime and permits time only with explicit timestampSource=BROKER.
+Generic receivedAt/transport time is not a market-time substitute. No timezone,
+SDK or upstream repair is inferred. Clock skew or genuine future broker data can
+still produce a negative age after the ordering repair, which remains rejected.
+
+Prospective narrow repair: diagnostic copies under the existing native lock then
+samples now. Native get_market_snapshot likewise freezes scalar state and nested
+receipt/error metadata under that lock before completed_at. MarketDataClient
+copies under the native client lock (or without yielding in the insync event
+loop), then samples completed_at and derives result fields/type/timestamp/metadata
+from that one retained view. SDK event/lock objects are not deep-copied. Live
+request cleanup still uses the original ticker; ownership, conflicts, stop/wait/
+retry budgets, transport operations and cancellation ordering are unchanged.
+Its final production stale-age clock was already after timestamp extraction;
+production MD_STALE/cache/scanner checks inspected are upper-bound-only, not a
+universal counterpart of the diagnostic0<=age boundary. This change does not
+silently broaden that policy or certify production future-quote eligibility.
+Existing freshness protections are not relaxed.
+
+Regressions retain strict negative-age rejection (including1microsecond future),
+zero-age/inclusive max-age boundaries, just-stale rejection and missing/local-only
+market timestamp rejection. Broker timestamps remain unmodified even when future;
+no tolerance, clamping, substitution or policy limit change. Immutable receipt/error
+metadata and existing insync/native ownership/cleanup controls remain covered.
+Exact-head independent review and proportionate offline/changed-head CI receipts
+belong to the accompanying repair PR; no natural rerun is part of this work.
+
+Next acceptance is not another transport-only attempt. After offline repair review
+and CI/integration, the remaining natural Ross READ_ONLY acceptance requires an
+eligible fresh broker quote and canonical fresh issuer catalyst, then fresh pattern
+inputs through Watchlist/Focus/setup/trigger/decision/risk/READ_ONLY-intent with
+owned shutdown/audit evidence. Any such bounded observation requires separate
+explicit authorization; do not seed a symbol, force Focus or bypass unavailable/
+future/stale inputs. Existing production upper-bound-only freshness checks are
+not evidence that all future timestamps are rejected and need separate admission
+assessment before a readiness claim. Natural positive progression, earlier timeout
+cause, holdings/ownership blockers, paper-management acceptance and GUI draft remain
+open/preserved. No acquisition, operator rerun, automatic merge or trading here.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.

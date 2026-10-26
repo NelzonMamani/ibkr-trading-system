@@ -74,10 +74,12 @@ def acquire(client, put):
             reason = 'interrupted'
             try:
                 signalled = wait_event(client._market_events[req], 5)
-                now = datetime.now(timezone.utc)
                 with client._lock:
                     client._raise_if_request_id_conflicted(req)
                     t = copy.deepcopy(vars(ticker))
+                    # Compare the retained observation with a clock sampled after
+                    # its copy, never with a pre-lock clock from an older state.
+                    now = datetime.now(timezone.utc)
                 from types import SimpleNamespace
                 t = SimpleNamespace(**t)
                 reason = 'snapshot_end' if t.snapshotEnd else 'broker_error' if t.brokerErrors else 'timeout'

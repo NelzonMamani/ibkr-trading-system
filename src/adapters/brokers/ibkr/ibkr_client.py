@@ -29,6 +29,7 @@ from src.ibkr.market_data_client import (
     _resolve_snapshot_timestamp,
     _record_field_receipt,
     _snapshot_authority_metadata,
+    _copy_snapshot_ticker,
 )
 from src.ibkr.read_only_guard import assert_read_only_allows
 from src.ibkr.evidence_safety import register_account, sanitize
@@ -1039,11 +1040,12 @@ class IbkrClient(EWrapper, EClient):
         try:
             self.reqMktData(req_id, contract, "", True, False, [])
             wait_event(event, self.snapshot_timeout_seconds)
-            completed_at = datetime.now(timezone.utc)
             with self._lock:
                 self._raise_if_request_id_conflicted(req_id)
+                # Freeze callback state before sampling its observation clock.
                 # Cancellation owns cleanup; retain all values before it runs.
-                ticker = SimpleNamespace(**vars(self._ticker_by_req_id[req_id]))
+                ticker = _copy_snapshot_ticker(self._ticker_by_req_id[req_id])
+                completed_at = datetime.now(timezone.utc)
             self.record_quote_completion(req_id, "snapshot_end" if ticker.snapshotEnd else
                                          "broker_error" if ticker.brokerErrors else "timeout")
         except BaseException:
