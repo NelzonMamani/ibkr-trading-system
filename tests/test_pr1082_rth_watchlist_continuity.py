@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from quote_fixtures import current_broker_quote
 
 from catalyst_fixtures import canonical_catalyst_fixture
@@ -161,7 +163,7 @@ def _trade_intent(symbol: str) -> TradeIntent:
 
 def _install_runtime_harness(
     monkeypatch: pytest.MonkeyPatch,
-    payloads: list[dict[str, object]],
+    payloads: list[dict[str, object] | Callable[[], dict[str, object]]],
     *,
     run_mode: str = "READ_ONLY",
 ):
@@ -208,7 +210,8 @@ def _install_runtime_harness(
         scanner_calls.append(kwargs)
         if not queue:
             raise AssertionError("unexpected scanner Top N refresh")
-        return queue.pop(0)
+        payload = queue.pop(0)
+        return payload() if callable(payload) else payload
 
     monkeypatch.setattr("src.core.orchestrator.run_scanner_cycle", _scanner_cycle)
     monkeypatch.setattr("src.core.orchestrator.resolve_watchlist_selector", lambda *_args, **_kwargs: (lambda observations, _policy: observations))
@@ -333,11 +336,15 @@ def test_pr1082_data_unavailable_keeps_focus_empty_without_destroying_watchlist(
     assert "[PIPELINE][FOCUS] count=0 symbols=[]" in out
 
 def test_pr1082_later_confirmed_catalyst_can_promote_genuine_focus(monkeypatch, capsys) -> None:
-    unavailable = _row("AAA", catalyst=False)
-    confirmed = _row("AAA", catalyst=True)
+    def unavailable_payload():
+        return _payload([_row("AAA", catalyst=False)], focus=[])
+    def confirmed_payload():
+        # This represents the newly acquired second scan, not a quote created
+        # before the first cycle and aged by its execution time.
+        confirmed = _row("AAA", catalyst=True)
+        return _payload([confirmed], focus=[confirmed])
     orchestrator, scanner_calls, processed = _install_runtime_harness(
-        monkeypatch,
-        [_payload([unavailable], focus=[]), _payload([confirmed], focus=[confirmed])],
+        monkeypatch, [unavailable_payload, confirmed_payload],
     )
     assert orchestrator.run_once() is True
     capsys.readouterr()
@@ -349,9 +356,11 @@ def test_pr1082_later_confirmed_catalyst_can_promote_genuine_focus(monkeypatch, 
 
     assert orchestrator.run_once() is True
 
+    diagnostics = capsys.readouterr().out
     assert len(scanner_calls) == 2
     assert cadence.watchlist.symbols == ["AAA"]
-    assert cadence.focus.symbols == ["AAA"]
+    assert cadence.focus.symbols == ["AAA"], "\n".join(
+        line for line in diagnostics.splitlines() if "[ROSS][QUOTE]" in line or "[ROSS][CATALYST]" in line)
     assert cadence.focus.rows[0].selection_rationale["catalyst_status"] == "CONFIRMED"
     assert processed[-1] == ["AAA"]
 
@@ -936,3 +945,26 @@ def test_trade_structure_terminal_integrity_remains_fail_closed(monkeypatch, cap
     output = capsys.readouterr().out
     assert f"BBB:{error}" in output
     assert "PIPELINE_BREAK_SETUP_TO_INTENT" in output
+
+
+def test_later_catalyst_fixture_acquires_quote_after_slow_first_cycle(monkeypatch, capsys):
+    """Synthetic scanner handoffs must not predate an earlier slow cycle."""
+    from src.domain import quote_freshness
+    from src.config.config_resolver import get_config
+    class Clock(datetime):
+        value = datetime.now(timezone.utc)
+        @classmethod
+        def now(cls, tz=None):
+            return cls.value
+    monkeypatch.setattr(quote_freshness, 'datetime', Clock)
+    original = CoreOrchestrator.run_once
+    calls = []
+    def delayed_first_cycle(self):
+        result = original(self)
+        calls.append(1)
+        if len(calls) == 1:
+            Clock.value += timedelta(seconds=int(get_config('IBKR_SNAPSHOT_MAX_AGE_SECONDS')) + 1)
+        return result
+    monkeypatch.setattr(CoreOrchestrator, 'run_once', delayed_first_cycle)
+    test_pr1082_later_confirmed_catalyst_can_promote_genuine_focus(monkeypatch, capsys)
+    assert len(calls) == 2

@@ -3298,3 +3298,22 @@ Git identity proves ordinary nested output is rejected before directory creation
 without acquisition. These are preparation hardening and validation, not a
 production repair. Final exact-head review and changed-head CI must cover the
 consolidated result; earlier review/CI receipts remain on the PR.
+
+Preserve initial preparation CI40400479149 at257b178879636c477aeae83d507b58ba417c1bb6:
+Linux3243passed/3skipped; Windows3245passed/1failed/1skipped. The failure was the
+existing `test_pr1082_later_confirmed_catalyst_can_promote_genuine_focus`, with
+captured `stage=cached_focus symbol=AAA reason=MD_STALE`; subsequent Windows
+cache/PowerShell checks were skipped. This is not an acquisition/capture failure.
+Both supposedly new scan rows were constructed before runtime initialization and
+the first cycle. A new deterministic control advances only the quote observation
+clock by maximum-age+1second after the first cycle: the unchanged fixture fails
+its original Focus assertion with MD_STALE. The fixture now creates each of
+these two synthetic scan payloads at its scanner callback. It does not renew
+cached rows or alter production time/freshness behavior. Original assertions
+remain, with bounded quote/catalyst rejection details on failure. The new slow
+first-cycle control and affected caller/reconsideration tests pass (99 offline
+checks). This demonstrates a fixture timing dependency; the Windows receipt does
+not retain enough boundary-clock data to assign its elapsed-age cause to runner
+latency versus clock movement. A later passing head does not erase the failure.
+No production defect or freshness concession is inferred. Final changed-head
+review/CI includes this narrow verification repair.
