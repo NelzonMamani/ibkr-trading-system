@@ -28,7 +28,7 @@ def test_query_acquisition_partial_coverage_and_qualification_are_separate(monke
         calls.append(url)
         if 'news.google.com' not in url:
             raise news_fetcher.requests.HTTPError(response=SimpleNamespace(status_code=403))
-        return SimpleNamespace(feed={},entries=[entry(title,age)])
+        return SimpleNamespace(version="rss20", bozo=False, feed={},entries=[entry(title,age)])
     monkeypatch.setattr(news_fetcher,'_fetch_feed',feed);monkeypatch.setattr(news_fetcher,'feedparser',object())
     svc=service(tmp_path);request=ross._ross_news_request();policy=ross._ross_retrieval_policy(refresh_mode='bounded_refresh',network_allowed=True)
     result=svc.get_news((CANDIDATE,),request,policy);ctx=context(result)
@@ -59,7 +59,7 @@ def test_successful_peer_query_does_not_certify_failed_issuer_route(monkeypatch,
     def feed(url,timeout):
         if 'news.google.com' not in url or 'Disc+' in url:
             raise news_fetcher.requests.HTTPError(response=SimpleNamespace(status_code=401))
-        return SimpleNamespace(feed={},entries=[entry('JPM reports earnings beat',60)])
+        return SimpleNamespace(version="rss20", bozo=False, feed={},entries=[entry('JPM reports earnings beat',60)])
     monkeypatch.setattr(news_fetcher,'_fetch_feed',feed);monkeypatch.setattr(news_fetcher,'feedparser',object())
     svc=service(tmp_path)
     result=svc.get_news((CANDIDATE,NewsCandidate('IRON',company_name='Disc Medicine, Inc.')),ross._ross_news_request(),ross._ross_retrieval_policy(refresh_mode='bounded_refresh',network_allowed=True))
@@ -77,7 +77,7 @@ def test_deadline_keeps_completed_evidence_and_excludes_late_evidence(monkeypatc
         calls.append(url)
         query='news.google.com' in url
         if not query or late_query:gate.wait(2)
-        return SimpleNamespace(feed={},entries=[entry('JPM reports earnings beat',60)] if query else [])
+        return SimpleNamespace(version="rss20", bozo=False, feed={},entries=[entry('JPM reports earnings beat',60)] if query else [])
     monkeypatch.setattr(news_fetcher,'_fetch_feed',feed);monkeypatch.setattr(news_fetcher,'feedparser',object())
     svc=service(tmp_path);policy=replace(ross._ross_retrieval_policy(refresh_mode='bounded_refresh',network_allowed=True),total_budget_seconds=.2,tier_budgets={'fast':.13,'extended':.07})
     try:
@@ -104,7 +104,7 @@ def test_partial_routes_do_not_require_sample_tickers_or_certify_missing_events(
         if scenario=='fixed_article' and fixed:entries=[entry('ZZZZ announces new supply contract',60)]
         if scenario=='veto':entries=[entry('ZZZZ reports earnings beat',60),entry('ZZZZ announces ATM offering',61)]
         if scenario=='update_only':entries=[SimpleNamespace(title='ZZZZ reports earnings beat',link='https://fixture.invalid/update-only',updated_parsed=entry('',60).published_parsed)]
-        return SimpleNamespace(feed={},entries=entries)
+        return SimpleNamespace(version="rss20", bozo=False, feed={},entries=entries)
     monkeypatch.setattr(news_fetcher,'_fetch_feed',feed);monkeypatch.setattr(news_fetcher,'feedparser',object())
     svc=service(tmp_path)
     result=svc.get_news((candidate,),ross._ross_news_request(),ross._ross_retrieval_policy(refresh_mode='bounded_refresh',network_allowed=True));ctx=context(result,'ZZZZ')

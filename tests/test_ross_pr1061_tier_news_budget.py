@@ -58,7 +58,7 @@ def _reset_runtime_state(tmp_path: Path):
 
 
 def _feed(*entries):
-    return SimpleNamespace(feed={"title": "PR1061_FEED"}, entries=list(entries))
+    return SimpleNamespace(version="rss20", bozo=False, feed={"title": "PR1061_FEED"}, entries=list(entries))
 
 
 def _headline(title: str, *, age_seconds: int = 300, source_tier: str = "fast") -> scanner_runner.Headline:

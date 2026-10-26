@@ -60,7 +60,7 @@ def test_final_captured_exclusion_samples_replay_without_inventing_uncaptured_en
     calls=[]
     def captured_feed(url, *args):
         calls.append(url)
-        return NS(entries=entries, feed={'title':'Captured exclusion samples'})
+        return NS(version="rss20", bozo=False, entries=entries, feed={'title':'Captured exclusion samples'})
     monkeypatch.setattr(fetcher, '_fetch_feed', captured_feed)
     url=facts['query_url']
     from src.strategies.ross_momentum.policy.catalyst_policy import select_qualification_evidence
@@ -159,7 +159,7 @@ def test_captured_article_replay_uses_single_canonical_writer_and_readonly_consu
     def captured_feed(url,*args):
         # Duplicate the same captured item deliberately to exercise deduplication.
         # Empty primary stubs are synthetic, not a replay of inaccessible bodies.
-        return NS(entries=[entry,entry] if 'news.google.com' in url else [],feed={'title':'Offline sample'})
+        return NS(version="rss20", bozo=False, entries=[entry,entry] if 'news.google.com' in url else [],feed={'title':'Offline sample'})
     monkeypatch.setattr(fetcher,'_fetch_feed',captured_feed)
     writes=[]
     class Store(store_module.CanonicalNewsEvidenceStore):

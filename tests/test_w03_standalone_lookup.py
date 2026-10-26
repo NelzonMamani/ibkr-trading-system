@@ -81,7 +81,7 @@ def _feeds(monkeypatch, *, failing=False, empty=False):
         calls.append((url, timeout))
         if failing and (failing == "all" or url == FAST_URLS[1]):
             raise news_fetcher.requests.exceptions.ReadTimeout("controlled offline timeout")
-        return SimpleNamespace(feed={"title": "GlobeNewswire Finance"}, entries=[] if empty or url != FAST_URLS[0] else [issuer, unrelated, old])
+        return SimpleNamespace(version="rss20", bozo=False, feed={"title": "GlobeNewswire Finance"}, entries=[] if empty or url != FAST_URLS[0] else [issuer, unrelated, old])
 
     monkeypatch.setattr(news_fetcher, "feedparser", object())
     monkeypatch.setattr(news_fetcher, "_fetch_feed", fetch)
@@ -302,9 +302,9 @@ def test_lookup_cleanup_does_not_promote_late_article_into_retrieval(monkeypatch
         if url == FAST_URLS[1]:
             slow_started.set()
             assert release_slow.wait(3), "test must release its owned worker"
-            return SimpleNamespace(feed={"title": "Late publisher"}, entries=[late_article])
+            return SimpleNamespace(version="rss20", bozo=False, feed={"title": "Late publisher"}, entries=[late_article])
         assert slow_started.wait(1), "concurrent sources must be submitted together"
-        return SimpleNamespace(feed={"title": "GlobeNewswire Finance"}, entries=[fast_article])
+        return SimpleNamespace(version="rss20", bozo=False, feed={"title": "GlobeNewswire Finance"}, entries=[fast_article])
 
     def after_retrieval(payload):
         partials.append(json.loads(json.dumps(payload)))

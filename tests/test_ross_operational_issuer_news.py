@@ -90,7 +90,7 @@ def test_setting_disabled_preserves_acquisition_contract():
 def fixture_transport(monkeypatch, calls, entries):
     def fetch(url, timeout):
         calls.append((url,timeout))
-        return SimpleNamespace(feed={'title':'Fixture publisher'},entries=entries if 'news.google.com/rss/search?' in url else [])
+        return SimpleNamespace(version="rss20", bozo=False, feed={'title':'Fixture publisher'},entries=entries if 'news.google.com/rss/search?' in url else [])
     monkeypatch.setattr(news_fetcher, '_fetch_feed', fetch)
     monkeypatch.setattr(news_fetcher, 'feedparser', object())
 
@@ -203,7 +203,7 @@ def test_operational_deadline_late_worker_never_adds_evidence(monkeypatch,tmp_pa
     gate=threading.Event()
     def late(url,timeout):
         gate.wait(1)
-        return SimpleNamespace(feed={'title':'late fixture'},entries=[entry('JPM reports earnings beat',60)])
+        return SimpleNamespace(version="rss20", bozo=False, feed={'title':'late fixture'},entries=[entry('JPM reports earnings beat',60)])
     monkeypatch.setattr(news_fetcher,'_fetch_feed',late)
     monkeypatch.setattr(news_fetcher,'feedparser',object())
     svc=service(tmp_path)

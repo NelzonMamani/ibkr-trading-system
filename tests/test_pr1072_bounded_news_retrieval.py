@@ -41,7 +41,7 @@ def _entry(title: str, *, summary: str = "", age_seconds: int = 120) -> SimpleNa
 
 
 def _feed(title: str, *entries: SimpleNamespace) -> SimpleNamespace:
-    return SimpleNamespace(feed={"title": title}, entries=list(entries))
+    return SimpleNamespace(version="rss20", bozo=False, feed={"title": title}, entries=list(entries))
 
 
 def _request() -> NewsRequest:

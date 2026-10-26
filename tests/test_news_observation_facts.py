@@ -10,10 +10,10 @@ from src.news.retrieval_diagnostics import emit_retrieval_diagnostics
 
 
 @pytest.mark.parametrize("feed,expected_count,status", [
-    (SimpleNamespace(feed={}, entries=[]), 0, "available"),
-    (SimpleNamespace(feed={}, entries=[{}, {}, {}]), 3, "available"),
+    (SimpleNamespace(version="rss20", bozo=False, feed={}, entries=[]), 0, "available"),
+    (SimpleNamespace(version="rss20", bozo=False, feed={}, entries=[{}, {}, {}]), 3, "available"),
     (None, None, "unavailable"),
-    (SimpleNamespace(feed={}), None, "available"),
+    (SimpleNamespace(version="rss20", bozo=False, feed={}), None, "available"),
     (RuntimeError("private transport message"), None, "provider_error"),
 ])
 def test_ordinary_completed_source_counts_parsed_not_matched(monkeypatch, feed, expected_count, status):
@@ -123,16 +123,19 @@ def test_ordinary_transport_fetches_and_parses_once(monkeypatch):
         text = "offline feed"
         def raise_for_status(self):
             pass
-    def get(url, timeout):
+        def close(self):
+            calls.append("closed")
+    def get(url, timeout, *, allow_redirects):
+        assert allow_redirects is False
         calls.append((url, timeout))
         return Response()
     def parse(text):
         assert text == "offline feed"
         calls.append("parsed")
-        return SimpleNamespace(feed={}, entries=[{}, {}])
+        return SimpleNamespace(version="rss20", bozo=False, feed={}, entries=[{}, {}])
     monkeypatch.setattr(news_fetcher, "requests", SimpleNamespace(get=get))
     monkeypatch.setattr(news_fetcher, "feedparser", SimpleNamespace(parse=parse))
     _, summary = news_fetcher.fetch_fast_headlines_for_symbols(["SYNX"], ["https://offline.example/rss"])
-    assert len(calls) == 2 and calls[1] == "parsed"
+    assert len(calls) == 3 and calls[1:] == ["parsed", "closed"]
     assert summary.source_diagnostics[0]["feed_item_count"] == 2
     assert summary.source_diagnostics[0]["worker_completed"] is True

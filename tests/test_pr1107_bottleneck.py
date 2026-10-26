@@ -17,11 +17,11 @@ def test_incomplete_primary_defers_fallback_and_keeps_qualification_separate(mon
     def feed(url,timeout):
         calls.append(url)
         if 'news.google.com' in url:
-            return SimpleNamespace(feed={'title':'fixture query'},entries=[entry(title,60)])
+            return SimpleNamespace(version="rss20", bozo=False, feed={'title':'fixture query'},entries=[entry(title,60)])
         blocked_started.set()
         gate.wait(2)
         blocked_finished.set()
-        return SimpleNamespace(feed={},entries=[])
+        return SimpleNamespace(version="rss20", bozo=False, feed={},entries=[])
     monkeypatch.setattr(news_fetcher,'_fetch_feed',feed)
     monkeypatch.setattr(news_fetcher,'feedparser',object())
     svc=service(tmp_path)
@@ -105,7 +105,7 @@ def test_successful_primary_peer_does_not_inherit_unresolved_peer_fallback_deadl
     def feed(url,timeout):
         calls.append(url)
         if url in secondary:gate.wait(2)
-        return SimpleNamespace(feed={'title':'fixture'},entries=[entry('JPM reports earnings beat',60)] if 'news.google.com' in url else [])
+        return SimpleNamespace(version="rss20", bozo=False, feed={'title':'fixture'},entries=[entry('JPM reports earnings beat',60)] if 'news.google.com' in url else [])
     monkeypatch.setattr(news_fetcher,'_fetch_feed',feed);monkeypatch.setattr(news_fetcher,'feedparser',object())
     svc=service(tmp_path);request=ross._ross_news_request()
     policy=replace(ross._ross_retrieval_policy(refresh_mode='bounded_refresh',network_allowed=True),
@@ -131,7 +131,7 @@ def test_primary_failure_is_partial_acquisition_without_false_deadline(monkeypat
         calls.append(url)
         if 'reuters.com' in url:
             raise news_fetcher.requests.HTTPError(response=SimpleNamespace(status_code=401))
-        return SimpleNamespace(feed={'title':'fixture'},entries=[entry('JPM reports earnings beat' if positive else 'JPM generic report',60)] if 'news.google.com' in url else [])
+        return SimpleNamespace(version="rss20", bozo=False, feed={'title':'fixture'},entries=[entry('JPM reports earnings beat' if positive else 'JPM generic report',60)] if 'news.google.com' in url else [])
     monkeypatch.setattr(news_fetcher,'_fetch_feed',feed);monkeypatch.setattr(news_fetcher,'feedparser',object())
     svc=service(tmp_path)
     result=svc.get_news((CANDIDATE,),ross._ross_news_request(),ross._ross_retrieval_policy(refresh_mode='bounded_refresh',network_allowed=True))

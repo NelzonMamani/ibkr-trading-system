@@ -53,7 +53,7 @@ def entry(title='JPMorgan Chase & Co. announces results', age=60, **kw):
 
 
 def feed(entries=(), title='Feed label'):
-    return SimpleNamespace(entries=list(entries), feed={'title': title})
+    return SimpleNamespace(version="rss20", bozo=False, entries=list(entries), feed={'title': title})
 
 
 def test_explicit_contracts_encoding_and_plan_dedup():

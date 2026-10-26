@@ -110,7 +110,7 @@ def _rss_fixture(monkeypatch, published=FIXTURE_PUBLICATION):
 
     def feed(url, timeout):
         calls.append(url)
-        return SimpleNamespace(feed={"title": "GlobeNewswire - Industry News on Technology"},
+        return SimpleNamespace(version="rss20", bozo=False, feed={"title": "GlobeNewswire - Industry News on Technology"},
                                entries=[entry, unrelated] if url == TECHNOLOGY_RSS else [])
 
     monkeypatch.setattr(news_fetcher, "feedparser", object())
@@ -172,7 +172,7 @@ def test_captured_issuer_article_reaches_persisted_prep_and_ross_without_becomin
 
     def feed(url, timeout):
         calls.append(url)
-        return SimpleNamespace(feed={"title": "GlobeNewswire Finance"},
+        return SimpleNamespace(version="rss20", bozo=False, feed={"title": "GlobeNewswire Finance"},
                                entries=[entry] if url == fixture["source_url"] else [])
 
     monkeypatch.setattr(news_fetcher, "feedparser", object())

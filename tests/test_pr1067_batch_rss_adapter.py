@@ -227,7 +227,7 @@ def test_pr1067_company_summary_matching_uses_existing_fetcher(monkeypatch):
     published = time.gmtime(time.time() - 300)
 
     def fake_fetch_feed(url, timeout_s):
-        return SimpleNamespace(
+        return SimpleNamespace(version="rss20", bozo=False,
             feed={"title": "PR1067 Feed"},
             entries=[
                 SimpleNamespace(

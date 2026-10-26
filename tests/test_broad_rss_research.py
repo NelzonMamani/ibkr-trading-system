@@ -55,7 +55,7 @@ def setup(monkeypatch, tmp_path, feeds, urls=URLS):
 
 
 def feed(publisher, entries):
-    return SimpleNamespace(feed={'title':publisher}, entries=entries)
+    return SimpleNamespace(version="rss20", bozo=False, feed={'title':publisher}, entries=entries)
 
 
 def test_opt_in_exclusive_catalogue_and_default_membership():

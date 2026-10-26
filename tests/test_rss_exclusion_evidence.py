@@ -17,7 +17,7 @@ def test_old_first_feed_does_not_hide_fresh_tail_and_retains_rejection(monkeypat
     entries=[item('Old CLIK earnings',age=90000) for _ in range(20)]
     entries += [item('Unrelated current issuer event'),item('CLIK reports earnings beat')]
     url='https://fixture.invalid/issuer'
-    monkeypatch.setattr(fetcher,'_fetch_feed',lambda *args:NS(entries=entries,feed={'title':'Fixture'}))
+    monkeypatch.setattr(fetcher,'_fetch_feed',lambda *args:NS(version="rss20", bozo=False, entries=entries,feed={'title':'Fixture'}))
     from src.strategies.ross_momentum.policy.catalyst_policy import select_qualification_evidence
     from src.news.news_intelligence_contract import NewsRequest
     rows,summary=fetcher.fetch_headlines_for_symbols(['CLIK'],[url],lookback_hours=6,
@@ -81,7 +81,7 @@ def test_exclusion_survives_canonical_metadata_without_becoming_news(monkeypatch
     try:
         entry=NS(title='Unrelated fresh article',summary='Bounded original summary',link='https://fixture.invalid/a',
                  published_parsed=time.gmtime(time.time()-60))
-        monkeypatch.setattr(fetcher,'_fetch_feed',lambda url,*args:NS(
+        monkeypatch.setattr(fetcher,'_fetch_feed',lambda url,*args:NS(version="rss20", bozo=False,
             entries=[entry] if 'news.google.com' in url else [],feed={'title':'Fixture'}))
         store=CanonicalNewsEvidenceStore(tmp_path/'news.json',prep_artifact_loader=lambda:{})
         service=CanonicalNewsIntelligenceService(evidence_store=store,retrieval_provider=BatchRssNewsIntelligenceProvider(lifecycle=lifecycle))
