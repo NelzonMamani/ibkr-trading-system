@@ -342,3 +342,20 @@ Write-Output 'NESTED_REJECTION_BEFORE_CREATION_PASS'
             capture_output=True,text=True,timeout=20)
         assert result.returncode==0 and 'NESTED_REJECTION_BEFORE_CREATION_PASS' in result.stdout
         assert not (source/'evidence').exists()
+
+
+def test_malformed_recognized_rss_cannot_claim_complete_coverage(capture,monkeypatch):
+    malformed=xml(item())[:-6]  # Complete HTTP bytes, incomplete XML document.
+    monkeypatch.setattr(d.fetcher.requests,'get',lambda *a,**kw:Response(malformed))
+    session=capture.run()
+    report=d.build_report(capture.private,session,SOURCE)
+    assert all(r['offline_analysis']['recognized_feed'] for r in report['routes'])
+    assert all(r['offline_analysis']['parse_bozo'] for r in report['routes'])
+    assert not report['coverage_complete']
+
+
+def test_explicit_processing_truncation_cannot_claim_complete_coverage(capture):
+    session=capture.run()
+    session['summary']['source_diagnostics'][0]['processing_truncated']=True
+    report=d.build_report(capture.private,session,SOURCE)
+    assert not report['coverage_complete']

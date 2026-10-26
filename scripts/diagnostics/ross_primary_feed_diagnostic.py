@@ -226,6 +226,7 @@ def adjudicate(data, stamp):
             'samples': samples, 'samples_per_reason': SAMPLES_PER_REASON,
             'omitted_samples': {g: n-len(samples[g]) for g,n in counts.items()},
             'parse_bozo': bool(feed.get('bozo')), 'recognized_feed': bool(feed.get('version')),
+            'parse_error_type': type(feed.get('bozo_exception')).__name__ if feed.get('bozo') else None,
             'counts_are_entry_observations_not_unique_articles': True,
             'sampled_coverage_is_exhaustive': False}
 
@@ -274,8 +275,10 @@ def build_report(private, session, source):
         'acquisition_error': session.get('acquisition_error'), 'cleanup': session['cleanup'],
         'raw_body_count': len(captures),
         'raw_bytes_total': sum(len(data) for _, data in captures.values()),
-        'routes': rows, 'coverage_complete': all(r['adjudicable'] and r['acquisition_status']=='available'
-                                                for r in rows),
+        'routes': rows, 'coverage_complete': all(
+            r['adjudicable'] and r['acquisition_status']=='available'
+            and not r['processing_truncated'] and not r['offline_analysis']['parse_bozo']
+            for r in rows),
         'no_operational_publication': True, 'PAPER_READY': 'NO', 'PAPER_READINESS_GATE': 'FAIL'}
 
 

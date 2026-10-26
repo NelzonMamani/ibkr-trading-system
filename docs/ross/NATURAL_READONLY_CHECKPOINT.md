@@ -3317,3 +3317,14 @@ not retain enough boundary-clock data to assign its elapsed-age cause to runner
 latency versus clock movement. A later passing head does not erase the failure.
 No production defect or freshness concession is inferred. Final changed-head
 review/CI includes this narrow verification repair.
+
+Final preparation controls also demonstrated two diagnostic-summary gaps on the
+initial implementation: a recognized feed recovered from malformed XML could
+have complete HTTP bytes yet a parser error, and an explicit processing-truncated
+flag could be inconsistent with an available status. Neither now permits
+`coverage_complete=true`. Both negative controls failed before this report-only
+repair and pass after it. Parser error type/flag and recovered entry diagnostics
+remain visible; partial parser recovery is not claimed as exhaustive coverage.
+This changes only the isolated diagnostic's coverage summary, not production RSS
+parsing, acquisition, qualification or selection. The final27 diagnostic offline
+controls and new exact-head review/CI cover these cases; earlier receipts remain.
