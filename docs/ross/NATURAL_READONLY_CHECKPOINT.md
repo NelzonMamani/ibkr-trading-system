@@ -3328,3 +3328,191 @@ remain visible; partial parser recovery is not claimed as exhaustive coverage.
 This changes only the isolated diagnostic's coverage summary, not production RSS
 parsing, acquisition, qualification or selection. The final27 diagnostic offline
 controls and new exact-head review/CI cover these cases; earlier receipts remain.
+
+## Completed primary-feed diagnostic at reviewed PR1132 (26 October 2026)
+
+This is analysis of the supplied shareable receipt, not another acquisition or
+permission to execute any attached material. Preserve terminal **exit2 / partial
+coverage**. Archive SHA256
+`4b45b3392be8dec2f7fc3a84e0384b80e843b977aad5431a2479cb35e2aa6f10`
+verified; ZIP inventory is exactly `report.json`, `privacy.json`, no raw bodies.
+Both recorded source identities match reviewed PR1132 head
+`e10089a5b49367b59995cced659a9bcb1fb610ef`, tree
+`b1a68a5add62ed365d634079572d7d1164a4ed82`, production base
+`f70edc3c5c368db561b95adc6c59b71cd82cfb28`; local Git objects agree.
+Evaluation clock is `2026-10-26T21:40:21.810675+00:00`; the unchanged six-hour
+cutoff is `2026-10-26T15:40:21.810675+00:00`.
+
+Report/source arithmetic independently checks all eight exact FAST_TRADING URLs,
+eight distinct transport invocations, timeout caps at most5s and no greater than
+recorded remaining8s budget, eight complete body captures totaling666633bytes
+(each below512KiB; total below4MiB), eight completed/closed responses, zero
+unfinished/running/alive owned workers, zero response-cleanup failures and
+cleanup_complete=true. None was processing-truncated. Acquisition completion is
+not successful HTTP/feed coverage. Recorded privacy passed with zero occurrences;
+independent scan of the extracted shareable JSON also passed.
+
+`coverage_complete=false` maps to worker exit2 in exact source. The ZIP does not
+contain the outer process exit record or before/after Git command output: supplied
+terminal exit2 and source_unchanged=true remain consistent reported facts, not
+independently reconstructed OS/Git observations. Private raw bytes/manifests are
+absent, so their hashes, full parsing and full item-level rejection decisions
+cannot be rerun from this ZIP. Six bounded samples are supplied. All six title
+hashes verify; only the two CNN summaries are untruncated and independently
+hash-verifiable. Benzinga and BusinessInsider summaries are truncated; checks of
+their visible prefixes are not full-summary matching adjudication.
+
+| Exact operational URL | Recorded result | Interpretation at this window |
+|---|---|---|
+| `https://www.benzinga.com/feed` |200;10 entries, all stale;2 samples/8 omitted|Sample publications14:13:22 and14:13:21UTC, about7h27m old. The two samples are crypto price-prediction articles; no current eligible evidence. This does not prove a permanently dead feed.|
+| `https://www.globenewswire.com/RssFeed?Category=Finance` |403;383 body bytes|Access failure, not empty issuer news. Error body unavailable here; no access-cause inference or bypass.|
+| `https://www.globenewswire.com/RssFeed/industry/9000-Technology/feedTitle/GlobeNewswire%20-%20Industry%20News%20on%20Technology` |403;511 bytes|Same access limitation; a historically useful issuer-news source is currently inaccessible in this environment.|
+| `https://www.reuters.com/markets/rss` |401;771 bytes|Access failure, not verified usable coverage. No credentials/entitlement cause established.|
+| `https://www.marketwatch.com/rss/topstories` |301;zero bytes;acquisition says available|Redirect is not followed by this diagnostic. Empty parser result lacks version attribute, exposing the available-empty validation hole below. Diagnostic adjudicable=false, so exit2 remains correct.|
+| `https://feeds.businessinsider.com/custom/all` |200;20 fresh;20 unmatched per issuer;2 samples/18 omitted|Usable transport/current dates, not demonstrated AZTR/RENT/GCTK/SPRC coverage. Visible samples concern Microsoft buyouts21:25:28UTC and Instacart carts21:13:20UTC; all four supplied issuer names/tickers are absent from these titles/visible prefixes. Unseen text is not adjudicated.|
+| `https://seekingalpha.com/feed` |301;166 bytes;RSSFEEDFORMATERROR|Redirect/non-feed response, not current articles. No Location header/target is supplied; do not invent a direct replacement address.|
+| `http://rss.cnn.com/rss/edition_business.rss` |200;20 stale;2 samples/18 omitted|Samples are13February2017. Full recorded body SHA256 exactly equals W03's28September2026 body hash `8dd47037c53ed3aef23ed2394aafaadb15bdd515898af795f0b84f779fde9248`; this exact route is unsuitable for current issuer-event acquisition.|
+
+No matching/classification authority comes from successful HTTP or an empty
+result. Reported aggregate unmatched counts are not independent exhaustive
+adjudication of20 complete BusinessInsider articles. No article, redirect target,
+error body or current endpoint health has been invented or fetched.
+
+### Catalogue and saved research reconciliation
+
+`verified_rss.txt` contains161 unique URLs, introduced in commit6eafc2d6 on
+9January2026. That is a **source addition date**, not a retained network
+verification date. The catalogue has no per-URL verification date/status record.
+Six of these eight operational URLs are present; Reuters markets and GlobeNewswire
+Technology are absent. Presence therefore proves neither current access nor
+issuer coverage, and absence does not negate a separately captured valid feed.
+The catalogue's Google entries are macro searches, not issuer searches; their
+literal non-ASCII locale hyphen must not be copied into issuer query URLs.
+
+Saved W02 capture began28September2026 19:19:10UTC; W03 began22:08:37.432754UTC.
+Use `artifacts/w02/source_evidence_matrix.json`,
+`artifacts/w03/source_evidence_matrix.json`, `artifacts/w03/source_matrix.md`,
+`artifacts/w03/live_coverage_analysis.md`, and the existing broad/query research
+contracts. W03 attempted21 fixed feeds once:18 recognized feeds, Reuters401,
+France24403 and VentureBeat429, zero canonical accepted articles for its actual
+IRON/MSFT/LFCR batch. Its24h figures cannot be presented as six-hour verification.
+Offline recalculation from its recorded original publication audits gives:
+
+| Exact existing route | Last retained W03 observation at28September2026 22:08:37UTC | Limitation |
+|---|---|---|
+| `https://www.investing.com/rss/news.rss` |HTTP200, recognized feed;10/10 within6h|Financial coverage, no canonical target match in that old batch; not current access or four-issuer verification.|
+| `https://www.forbes.com/business/feed2` |HTTP200, recognized feed;25/25 within6h|Same limitation; some broad business/sports content, not guaranteed small-cap events.|
+| `https://www.marketbeat.com/feed` |HTTP200;16/100 within24h but **0/100 within6h**|Do not promote it as a verified fresh six-hour replacement.|
+| `https://markets.businessinsider.com/rss` |HTTP200;body identical to BusinessInsider|Not an independent source; do not spend a replacement slot on a historically duplicate payload.|
+
+W03 GlobeNewswire Finance/Technology were HTTP200 with20 entries each, but the
+separately verified IRON publisher article was absent from both rolling responses.
+That verification was28September2026 (article published19:02UTC), not evidence of
+coverage for these four issuers now. W03 MarketWatch/SeekingAlpha HTTP200 were
+returned by Requests with default redirect behavior; saved matrices do not retain
+redirect history/final destination. They do not prove the exact requested URL
+was a direct200. CNN's repeated hash strengthens its stale-route diagnosis.
+The opt-in161-source broad capability documentation explicitly disclaims current
+verification; no additional retained completed161-route health receipt was found
+in the supplied/repository evidence. Do not restart broad research to fill gaps.
+
+The already implemented operational Google issuer queries have stronger
+issuer-specific *routing* evidence: all four completed HTTP200 in the earlier
+26October natural receipt at the following final evaluation clocks. Exact URLs
+match those retained in `tests/fixtures/ross_086a_captured_exclusions.json`:
+
+| Issuer; prior evaluationUTC | Existing exact query URL |
+|---|---|
+|AZTR;19:13:52.515771|`https://news.google.com/rss/search?q=%28%22AZITRA+INC%22+OR+%22%24AZTR%22%29&hl=en-US&gl=US&ceid=US%3Aen`|
+|RENT;19:13:57.714872|`https://news.google.com/rss/search?q=%28%22RENT+THE+RUNWAY+INC-A%22+OR+%22%24RENT%22%29&hl=en-US&gl=US&ceid=US%3Aen`|
+|GCTK;19:13:52.393019|`https://news.google.com/rss/search?q=%28%22GLUCOTRACK+INC%22+OR+%22%24GCTK%22%29&hl=en-US&gl=US&ceid=US%3Aen`|
+|SPRC;19:13:57.815873|`https://news.google.com/rss/search?q=%28%22SCISPARC+LTD%22+OR+%22%24SPRC%22%29&hl=en-US&gl=US&ceid=US%3Aen`|
+
+Those responses had39/6/28/43 entries respectively. Only AZTR supplied a captured
+then-current attribution false negative, repaired in PR1131; its generic Form8K
+still did not classify. The other final query responses were stale. These are
+not guaranteed fresh catalysts or proof of availability at21:40. These URLs are
+already scheduled by operational issuer acquisition; adding them again as fixed
+feeds would duplicate authority/request accounting. Never hardcode these four
+issuers into the natural scanner universe or production group membership.
+
+### Demonstrated handling gaps; proposed repair only
+
+New offline controls used synthetic responses, the actual reviewed fetcher/parser,
+owned lifecycle and provider-status function, with one stubbed HTTP call and
+closed response per case. No network, broker, store or new acquisition occurred:
+
+| Mode / supplied response | Exact-source outcome |
+|---|---|
+|detailed operational_query / empty301|available-empty; parser has no version attribute|
+|ordinary fast / empty301|available-empty|
+|detailed operational_query / HTML301|provider_error / RSSFEEDFORMATERROR|
+|ordinary fast / HTML200|available-empty|
+|detailed operational_query / recognized emptyRSS200|available-empty, correctly|
+
+`_fetch_feed` leaves Requests' redirect policy unspecified (default follows).
+`raise_for_status()` does not reject3xx. The recognition check runs only in
+`detailed` mode and only if `hasattr(feed,'version')`; empty input's missing
+attribute skips it. Ordinary FAST does not perform that recognition check.
+`news_provider_status` can consequently say available with empty evidence and
+zero recorded failures for these synthetic cases. The same shared code explains
+the diagnostic's MarketWatch label, but its independent HTTP200/body checks
+correctly prevented complete diagnostic coverage. This is an acquisition-health
+classification defect, not a demonstrated catalyst or trade-admission bypass.
+Production may automatically follow a redirect before this check; the no-follow
+receipt does not establish its resulting destination or production response.
+
+Proposed narrow shared repair: explicitly disable redirect following on supported
+HTTP fetch branches, report every3xx as an unfollowed redirect failure, and require
+a recognized nonempty feed-version value across supported RSS modes rather than
+conditional attribute presence. Preserve legitimate recognized empty feeds as
+available. Preserve HTTP failures, malformed/parser-recovery uncertainty, partial
+counts, response closure, owned cleanup, total/tier deadlines and strict local
+publication/catalyst rules. Redirect Location, if captured in a later authorized
+receipt, is evidence for review, not authority to fetch a new endpoint. Existing
+raw/privacy limits stay. Add retained regression cases for all rows above and
+shared-pool/adapter propagation before any production change. No repair is
+activated by this documentation/proposal; no production or configured URL changed.
+
+### Smallest replacement proposal and decision boundary
+
+The evidence supports **two conditional one-for-one fixed-feed candidates**:
+MarketWatch -> `https://www.investing.com/rss/news.rss`; SeekingAlpha ->
+`https://www.forbes.com/business/feed2`. Both already exist in PREP_EXTENDED and
+the catalogue, with the dated six-hour W03 evidence above. Promotion would require
+single canonical source-group ownership/deduplication against fallback, changed
+source-profile fingerprints, and no second request/cache writer. They are not
+verified replacements for AZTR/RENT/GCTK/SPRC today. Do not activate them merely
+because they once returned200, and do not treat inaccessible GlobeNewswire or
+Reuters as absence of issuer events. No current verified replacement URL for each
+of those denied routes is established by this archive.
+
+For this four-issuer context only, a bounded **eight-unique-URL candidate plan**
+can instead consist of the four *already selected* Google queries above, retained
+BusinessInsider and provisionally retained Benzinga, plus those two fixed-feed
+candidates. That replaces six unusable/denied/redirecting fixed routes and keeps
+the combined request ceiling at8: it is **not eight fixed feeds plus four queries**.
+Benzinga's currently stale evidence stays rejected; its earlier current response
+makes permanent abandonment less established than CNN's repeated2017 body.
+This is a comparison/proposal, not eight verified healthy issuer-relevant routes.
+Reusing actual selected issuer identities/max-four query contract is mandatory;
+no forced symbols, added aliases or alternate-source spray.
+
+Any later approved implementation must keep the existing8s total, existing tier
+allocations,5s cap clipped to remaining, four-worker bounds,512KiB/response,
+at most8 captured bodies/4MiB and original six-hour filters. Production already
+prepends issuer queries to fixed feeds; an implementation must enforce the
+combined unique-request count and fallback accounting rather than merely add
+a new membership list. All denied/redirect/stale/unknown outcomes remain visible.
+The proposed source set is not yet an accepted production configuration or an
+instruction to run another diagnostic. First review the small no-follow/feed
+validation repair and this dated candidate plan; only then decide whether a
+separate narrow freshness/access verification is justified. No unchanged natural
+observation, broad161-route research, redirect following, access bypass, acquisition
+or trading is requested or performed here.
+
+PR1132's bounded diagnostic completed safely and provided useful partial evidence;
+it did not establish complete feed coverage, natural downstream progression or
+production readiness. Preserve all historical receipts, earlier timeout/negative-age
+cause limits, five unmatched-position ownership/entry blockers and GUI draft.
+`PAPER_READY=NO`; `PAPER_READINESS_GATE=FAIL`.
