@@ -3643,3 +3643,117 @@ provenance, and prove no network call/cache rewrite. Both pass. The wording abov
 now states that distinction; no production behavior was changed to make old
 coverage look current. Final exact-head delta review/CI supersedes this initial
 review while preserving its finding and the earlier3286/3 local suite receipt.
+
+## Accepted PR1133 merge and explicit two-route verification preparation
+
+GitHub and Git objects confirm PR1133 merged26October2026 at22:38:31UTC
+(22:38:31 Europe/London): accepted main
+`e5c5ad60a99d0b2128a05ce5d3f418bf2b7e9a98`, parents
+`f70edc3c5c368db561b95adc6c59b71cd82cfb28` and
+`b1c68fc135902abac2c420bb5f2770785e34b4f8`, tree
+`a66eb7cfedced3b48d080e7075757c2ee7e5dc05`. This equals PR1133's final
+independently reviewed tree. Carry forward review5659927932 and successful
+changed-head CI40412092398 (Linux3288passed/3skipped; Windows3290passed/1skipped,
+including maintenance/native-cache/cache/PowerShell checks). No accepted suite
+or observation was repeated merely because the merge SHA changed.
+
+PR1132 remains unmerged at reviewed
+`e10089a5b49367b59995cced659a9bcb1fb610ef`; its fixed eight-route implementation,
+old production pin, operator block and partial receipt are untouched. None is
+silently retargeted or invoked here. The new preparation is based on accepted
+PR1133 main above and does not depend on merging PR1132.
+
+`scripts/diagnostics/rss_feed_diagnostic.py` extracts the previously reviewed
+PR1132 diagnostic orchestration/report/replay/privacy components into one reusable
+implementation with an explicit immutable caller profile. It delegates acquisition,
+capture, date parsing, feed recognition, matching, event assessment and privacy
+to the same existing src owners; no alternate retrieval engine, matcher, cache,
+publication authority or second privacy implementation is introduced. The old
+standalone eight-route caller is not copied into this branch. Historical replay
+remains bound to its original source/schema; future reuse of the common core
+must declare a separate explicit scope rather than mutate the reviewed caller.
+
+The separately named `scripts/diagnostics/verify_two_route_provider.py` declares
+only `https://www.investing.com/rss/news.rss` and
+`https://www.forbes.com/business/feed2`, accepted production basee5c5ad60 and
+schema `ross.two_route_provider_verification.v1`. Four established identities are
+AZTR/AZITRA INC, RENT/RENT THE RUNWAY INC-A, GCTK/GLUCOTRACK INC and
+SPRC/SCISPARC LTD. There is no CLI URL/budget/identity override or issuer-query,
+Yahoo, extended/fallback discovery. One shared batch schedules two distinct
+requests total, not two per issuer. At most two workers can issue HTTP because
+there are exactly two source URLs; a once-per-URL guard rejects extras/repeats.
+Budget8s, request cap5s clipped to remaining,512KiB/body and1MiB total,
+six-hour original publication window, no redirects/retries,10s owned cleanup and
+45s isolated supervisor remain fixed. Timeout/unattempted/failed/truncated work is
+reported, not retried or relabelled valid. Zero operational cache/prep publication,
+broker connection, scanner/Focus execution or source activation is performed.
+The internal detailed-processing mode is not an issuer-query HTTP request.
+
+Private captures have source/schema/profile/URL/identity/clock/byte/hash/inventory
+checks before replay; eight-route or old-pin captures cannot silently become
+two-route evidence. Exact caller head/tree and accepted-base ancestry are checked,
+with a clean checkout including untracked files and source recheck before report
+publication. Output must be new and outside source; even internal worker mode
+rejects nonempty/source output. Owned workers must stop before raw inspection.
+An incomplete worker yields failure-only diagnostics, not invented cleanup or
+coverage success. Raw XML remains private and never enters the shareable ZIP.
+
+The shared report has distinct access/parsing statuses, freshness and per-issuer
+matching/qualification counts/reasons, original times, bounded sanitized samples,
+hashes, explicit omissions/truncation/redaction and separate original acquisition
+versus offline replay scope. Replay delegates RSS/Atom recognition/recovery to
+PR1133's accepted shared validator, rather than maintaining a second acceptance
+rule. Recovered/unrecognized entries are explicitly unassessed and never receive
+qualification decisions. Recognized empty feeds can complete diagnostic coverage
+without providing any issuer event. Late complete raw bytes do not establish
+in-budget completion. All classification is diagnostic-only, never permission
+to select/trade. Only scanned `report.json` and `privacy.json` are added to
+`ross-two-route-provider-shareable.zip`; ZIP contents are checked against the
+privacy-verified files. Existing two-samples-per-reason, title512/summary1024/URL512
+limits remain shared across issuers. Counts are parsed entry observations, not
+unique canonical articles or exhaustive issuer coverage. Privacy verification is
+the existing defined account-token mechanism, not a universal public-text PII claim.
+
+`scripts/diagnostics/Invoke-TwoRouteProviderVerification.ps1` provides the separate
+PowerShell5.1 entry point, exact source/tree checks, new external path checks
+(including canonical junction parents), and restricted user ACL before Python can
+write raw data. Retained local paths are:
+`C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system` and verified
+Python3.13.3 `C:\tmp\pr1091-cert-env-20260923\Scripts\python.exe`, with `C:\tmp`
+as the short-path base. The final delivery pins the reviewed preparation head/tree,
+fetches Git objects, creates a new detached worktree, verifies accepted maine5c5ad60,
+and invokes this new wrapper using those actual paths. It is prepared only;
+if accepted main advances, stop for explicit verification/repinning. Never substitute
+PR1132's f70 pin, invoke its eight-route caller or reuse an evidence directory.
+
+New offline controls use synthetic Responses only and cover two shared requests/
+maximum concurrency2, frozen profile/new accepted base,8s/5s limits,1MiB total,
+redirect/HTTP failures, recognized empty and populated Atom/RSS, parser recovery,
+missing/late/truncated evidence, cleanup, no operational writes, source/worker
+output guards, schema/hash/time/inventory rejection, original-clock replay without
+HTTP, bounded sanitized samples, fixed ZIP inventory and supervised failure.
+Windows additionally parses the5.1 wrapper and verifies source-nested rejection
+before directory creation without invoking acquisition. New synthetic positive
+event classification is explicitly diagnostic, not natural Focus/acceptance.
+Final exact-head independent review and appropriate changed-head CI receipts are
+pinned on the accompanying draft PR. No acquisition is executed in preparation.
+
+Remaining gate: after separate authorization, one two-route batch can determine
+direct no-follow access, accepted parsing, actual six-hour freshness and bounded
+issuer-event evidence for these historical candidates. HTTP200 or exit0 alone
+cannot establish issuer coverage, qualify a natural candidate or activate a feed.
+Exit2 remains useful partial evidence; do not repeat to seek a catalyst or exit0.
+The eight-total deduplicated production candidate plan remains conditional and
+separate from this two-route verification; no source membership/order changed.
+Preserve all historical/failed receipts, the original primary diagnostic exit2,
+unresolved earlier timeout/negative-age causes, GUI draft and five unmatched
+position ownership/entry blockers. No holdings action, automatic merge, source
+activation, natural rerun or trading is authorized/performed here.
+`PAPER_READY=NO`; `PAPER_READINESS_GATE=FAIL`.
+
+Local changed-head preparation validation:35 new offline controls passed; full
+suite3323passed/3skipped in203.89s. Four full-suite-generated governance/audit
+outputs were preserved as a scratch diff then restored to original committed
+bytes; they are not changes in this preparation. Final exact-head review and
+Linux/Windows CI receipts are pinned on the accompanying PR, with no operator
+acquisition or accepted observation repeated.
