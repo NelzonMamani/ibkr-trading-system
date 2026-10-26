@@ -926,8 +926,12 @@ def test_pr1082_ross_thresholds_and_volume_rvol_separation_remain_unchanged() ->
     ],
 )
 def test_trade_structure_terminal_integrity_remains_fail_closed(monkeypatch, capsys, overrides, error) -> None:
-    aaa, bbb = _row("AAA", catalyst=True), _row("BBB", catalyst=True)
-    orchestrator, _, _ = _install_runtime_harness(monkeypatch, [_payload([aaa, bbb], focus=[aaa, bbb])])
+    def acquired_scan():
+        # Fresh synthetic broker facts belong to this scanner handoff, after
+        # potentially slow orchestrator construction, not fixture setup.
+        aaa, bbb = _row("AAA", catalyst=True), _row("BBB", catalyst=True)
+        return _payload([aaa, bbb], focus=[aaa, bbb])
+    orchestrator, _, _ = _install_runtime_harness(monkeypatch, [acquired_scan])
 
     def _terminal(cycle_id):
         if overrides is None:
@@ -968,3 +972,23 @@ def test_later_catalyst_fixture_acquires_quote_after_slow_first_cycle(monkeypatc
     monkeypatch.setattr(CoreOrchestrator, 'run_once', delayed_first_cycle)
     test_pr1082_later_confirmed_catalyst_can_promote_genuine_focus(monkeypatch, capsys)
     assert len(calls) == 2
+
+
+def test_terminal_integrity_fixture_acquires_quote_after_slow_constructor(monkeypatch, capsys):
+    """Synthetic scanner data is acquired at handoff, after startup work."""
+    from src.domain import quote_freshness
+    from src.config.config_resolver import get_config
+    class Clock(datetime):
+        value = datetime(2026, 10, 26, 16, 0, tzinfo=timezone.utc)
+        @classmethod
+        def now(cls, tz=None):
+            return cls.value
+    monkeypatch.setattr(quote_freshness, 'datetime', Clock)
+    original = CoreOrchestrator.__init__
+    def slow_constructor(self, *args, **kwargs):
+        original(self, *args, **kwargs)
+        Clock.value += timedelta(seconds=int(get_config('IBKR_SNAPSHOT_MAX_AGE_SECONDS')) + 1)
+    monkeypatch.setattr(CoreOrchestrator, '__init__', slow_constructor)
+    test_trade_structure_terminal_integrity_remains_fail_closed(
+        monkeypatch, capsys, {'outcome': 'SETUP_FOUND_TRIGGER_NOT_READY'},
+        'trigger_ready_without_intent')

@@ -3905,3 +3905,47 @@ store privacy, peer-change refresh, fallback requirement and catalyst-rejection
 assertions remain. The affected research/bottleneck/new-control files pass100
 offline cases after this correction; no further production change was needed.
 Final exact-head review/changed-head CI supersedes, but does not erase, this run.
+
+Preserve second changed-head CI40421578276 at
+`acf1912e551fe6354b51b98a00ff4e4ac662553f`: Linux3295passed/3skipped;
+Windows3296passed/1skipped plus1failure in the terminal-integrity parameter
+`overrides2-trigger_ready_without_intent`. The captured Windows path explicitly
+rejects both synthetic AAA/BBB quotes as MD_STALE, empties Focus and never invokes
+the intended malformed-terminal assertion. This is not evidence that production
+accepted that malformed terminal. The fixture created quotes before constructing
+the orchestrator, then handed those same quotes to its synthetic scanner later.
+An offline clock control advances only the quote clock by configured maximum-age
+plus1s during construction: before repair it deterministically reproduces both
+MD_STALE rejections and the identical terminal-test failure. This establishes the
+local fixture ordering defect; it does not establish the exact elapsed-time or
+workstation-clock contribution in the Windows receipt, or resolve historical
+negative-age/quote-timeout causes.
+
+Narrow test-only correction: this terminal-integrity test now supplies a scanner
+payload factory that creates its explicit synthetic broker quotes at scanner
+handoff, after construction. All18 malformed-terminal cases retain their strict
+return/error/pipeline-break assertions. The new slow-constructor regression then
+reaches the intended terminal rejection without wall-clock sleep. No production
+quote timestamp is rewritten, no stale row is refreshed in production, and no
+freshness limit, ownership, READ_ONLY or terminal-admission rule changes. Windows
+cache/PowerShell gates skipped after the failed full-suite step remain required
+on the new changed head; do not count the earlier partial CI as complete success.
+
+Local validation qualification, retained rather than hidden: an initial full
+local invocation onacf1912e omitted the existing `tests/offline` PYTHONPATH startup
+guard. It reported3295passed/3skipped plus1display-test teardown error,
+`Float discovery worker shutdown incomplete`; its log includes attempted Yahoo
+access/401 responses from a MOCK scanner display fixture's background float worker.
+That invocation was not a valid offline pass and the provider-access attempt was
+outside the authorized task. The existing CI configuration already enables
+`tests/offline/sitecustomize.py`, including its Python socket audit and native
+curl_cffi transfer blocks; no production or display-test cleanup rule was changed
+to conceal the mistake. With that existing guard enabled,3display controls passed
+and the full local suite passed3295/3 in199.80s. Preserve PR validation
+receipts5660604017/5660626674 and local logs under `/workspace/work/`;
+full-suite-generated governance/audit diffs were preserved then restored to
+original committed bytes. This qualification supersedes any blanket no-acquisition
+wording for implementation validation, not the archived diagnostic's no-operational-
+publication evidence. No operator observation, broker acquisition, feed rollout,
+holdings action or trading occurred. Subsequent validation uses the hard offline
+startup guard; all operator/cache state in tests remains fixture-isolated.
