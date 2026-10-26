@@ -68,7 +68,7 @@ def test_slow_tail_cannot_spend_fresh_leaders_selection_reserve(monkeypatch, tai
 
 
 def test_multi_candidate_refresh_stop_preempts_deadline(monkeypatch):
-    rows = [dict(symbol=s, quote_timestamp_utc='2020-01-01T00:00:00+00:00', data_quality_flags=[])
+    rows = [dict(quote_timestamp_source='LAST_TRADE', symbol=s, quote_timestamp_utc='2020-01-01T00:00:00+00:00', data_quality_flags=[])
             for s in ['FIRST', 'SECOND', 'THIRD']]
     monkeypatch.setattr(scanner, '_rank_candidates', lambda contexts: contexts)
     monkeypatch.setattr(scanner, '_shortlist_selection_deadline', lambda *args: None)

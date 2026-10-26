@@ -3494,6 +3494,8 @@ class CoreOrchestrator:
             if self._ross_focus_authority_required(active_strategy):
                 from src.strategies.ross_momentum.policy.catalyst_lifecycle import filter_catalyst_rows
                 cadence.focus.rows = filter_catalyst_rows(cadence.focus.rows, stage="cached_focus", mode=self.run_mode)
+                from src.domain.quote_freshness import filter_quote_rows
+                cadence.focus.rows = filter_quote_rows(cadence.focus.rows, stage="cached_focus")
                 cadence.focus.symbols = self._symbols_from_candidates(cadence.focus.rows)
                 if cadence.focus.authority == "CANONICAL_WATCHLIST_REASSESSMENT":
                     # Later setup assembly indexes the Watchlist by symbol. Carry
@@ -3856,6 +3858,9 @@ class CoreOrchestrator:
             catalyst_handoff_rejections = {}
             strategy_inputs = filter_catalyst_rows(strategy_inputs, stage="setup_handoff", mode=self.run_mode,
                                                   rejection_reasons=catalyst_handoff_rejections)
+            from src.domain.quote_freshness import filter_quote_rows
+            strategy_inputs = filter_quote_rows(strategy_inputs, stage="setup_handoff",
+                                                rejection_reasons=catalyst_handoff_rejections, snapshots=snapshots_by_symbol)
             if catalyst_handoff_rejections:
                 permitted = set(self._symbols_from_candidates(strategy_inputs))
                 strategy_watchlist = list(strategy_inputs)
@@ -3937,6 +3942,7 @@ class CoreOrchestrator:
         else:
             _report_strategy_input_skip(watchlist_symbols, final_evaluation_symbols)
             strategy_output = []
+        from src.domain.quote_freshness import filter_ross_quote_intents, ross_intent_quote_rejection
         print(f"[PIPELINE][STRATEGY_OUTPUT] count={len(strategy_output or [])}")
         print(
             "[PIPELINE][INTENTS] "
@@ -4007,7 +4013,13 @@ class CoreOrchestrator:
                 self._trace_event("CONFIRMATION_PASS", {"strategy": strategy_key, "symbol": symbol})
                 self._trace_event("TRIGGER_READY", {"strategy": strategy_key, "symbol": symbol})
                 self._trace_event("INTENT_EMITTED", {"strategy": strategy_key, "symbol": symbol})
-                self._trace_event("RISK_APPROVED", {"strategy": strategy_key, "symbol": symbol, "decision": "PASS"})
+                quote_rejection = next((reason for intent in (strategy_output or [])
+                                        if str(getattr(intent, "symbol", "")).upper() == symbol.upper()
+                                        if (reason := ross_intent_quote_rejection(intent, self.run_mode))), None)
+                if quote_rejection is None:
+                    self._trace_event("RISK_APPROVED", {"strategy": strategy_key, "symbol": symbol, "decision": "PASS"})
+                else:
+                    self._trace_event("RISK_REJECTED", {"strategy": strategy_key, "symbol": symbol, "reason": quote_rejection})
             else:
                 print(f"[STRATEGY][NO_SIGNAL] symbol={symbol} reason=no_valid_setup_from_runner")
                 self._trace_event("NO_SETUP", {"strategy": strategy_key, "symbol": symbol})
@@ -4246,6 +4258,12 @@ class CoreOrchestrator:
                 pipeline_audit.mark_stage(symbol_upper, "INTENT", intent_emitted=True)
                 pipeline_audit.record(symbol, TerminalOutcome.INTENT_NOT_EMITTED, "TRADE_INTENT_CREATED", "intent")
 
+        quote_risk_rejections = {}
+        gated_strategy_output = filter_ross_quote_intents(
+            gated_strategy_output, self.run_mode, stage="risk_handoff", rejection_reasons=quote_risk_rejections)
+        for symbol, reason in quote_risk_rejections.items():
+            pipeline_audit.mark_stage(symbol, "RISK", risk_approved=False)
+            pipeline_audit.record(symbol, TerminalOutcome.RISK_BLOCKED, reason, "risk")
         print(
             "[PIPELINE][RISK_INPUT] "
             f"intents_count={len(gated_strategy_output)} symbols={[getattr(intent, 'symbol', None) for intent in gated_strategy_output]}"
@@ -4253,7 +4271,7 @@ class CoreOrchestrator:
         risk_allowed_symbols = [getattr(intent, "symbol", "") for intent in gated_strategy_output]
         print(
             "[PIPELINE][RISK_OUTPUT] "
-            f"approved_count={len(risk_allowed_symbols)} blocked_count=0 symbols={risk_allowed_symbols}"
+            f"approved_count={len(risk_allowed_symbols)} blocked_count={len(quote_risk_rejections)} symbols={risk_allowed_symbols}"
         )
 
         if mode_manager.allow_orders:
@@ -4286,6 +4304,9 @@ class CoreOrchestrator:
 
             if raw_strategy_output:
                 for intent in raw_strategy_output:
+                    if str(getattr(intent, "symbol", "")).upper() in quote_risk_rejections:
+                        # Retain the earlier reason-coded temporal risk veto.
+                        continue
                     reason = "SESSION_BLOCK" if self.run_mode == RunMode.READ_ONLY else "EXECUTION_DISABLED"
                     print(
                         "[PIPELINE][EXECUTION_ATTEMPT] "
@@ -5363,10 +5384,12 @@ class CoreOrchestrator:
                         trade_intent,
                         risk_multiplier=risk_multiplier,
                     )
+                    from src.domain.quote_freshness import ross_intent_quote_rejection
                     original_allowed = bool(getattr(decision, "allowed", False))
                     original_reason = str(getattr(decision, "rationale", None) or "NONE")
                     if (
                         bool(get_config("FORCE_RISK_APPROVAL_FOR_TRADE_READY"))
+                        and not ross_intent_quote_rejection(trade_intent, self.run_mode)
                         and str(getattr(trade_intent, "decision", "TRADE_READY")).upper() == "TRADE_READY"
                     ):
                         if not original_allowed:

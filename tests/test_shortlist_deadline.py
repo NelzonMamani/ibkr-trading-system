@@ -21,7 +21,7 @@ def clock(monkeypatch):
 
 
 def row():
-    return dict(symbol='ONE', con_id=123, data_quality_flags=[], eligibility_reason_codes=[],
+    return dict(quote_timestamp_source='LAST_TRADE', symbol='ONE', con_id=123, data_quality_flags=[], eligibility_reason_codes=[],
                 quote_timestamp_utc=(datetime.now(timezone.utc)-timedelta(seconds=30)).isoformat())
 
 

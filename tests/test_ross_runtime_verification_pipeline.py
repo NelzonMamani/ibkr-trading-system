@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from quote_fixtures import current_broker_quote, current_broker_time
+
 from catalyst_fixtures import canonical_catalyst_fixture
 
 from dataclasses import replace
@@ -7,12 +9,13 @@ from types import SimpleNamespace
 
 from src.config.config_resolver import set_config_overrides
 from src.core.orchestrator import CoreOrchestrator
+from src.domain.market_snapshot import MarketSnapshot
 from src.models.data_models import TradeIntent
 from src.scanner.result_models import CandidateMetrics
 
 
 def _candidate(symbol: str, rank: float) -> CandidateMetrics:
-    return CandidateMetrics(
+    return CandidateMetrics(quote_evidence=current_broker_quote(),
         symbol=symbol,
         con_id=1,
         exchange="SMART",
@@ -539,7 +542,9 @@ def test_runtime_pipeline_manual_focus_reaches_strategy_handoff_when_auto_focus_
     try:
         orchestrator = CoreOrchestrator()
         orchestrator.market_data_snapshot_manager = SimpleNamespace(
-            batch_snapshots=lambda symbols: ({}, [])
+            batch_snapshots=lambda symbols: ({symbol: MarketSnapshot(
+                symbol=symbol, bid=5., ask=5.01, last=5., asof_utc=current_broker_time(),
+                market_timestamp_utc=current_broker_time(), timestamp_source='LAST_TRADE') for symbol in symbols}, [])
         )
         orchestrator._refresh_manual_focus_if_due = lambda *_args, **_kwargs: ["TMDE", "HURA"]
         runner = orchestrator.strategy_runner._runner_registry["RossMomentumStrategyV1"]

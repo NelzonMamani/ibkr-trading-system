@@ -105,6 +105,7 @@ class CandidateMetrics:
     drop_reasons: list[str] = field(default_factory=list)
     rank_score: Optional[float] = None
     rank_components: Optional[dict[str, float]] = None
+    quote_evidence: Optional[dict[str, object]] = None
     timestamp_utc: str = ""
     gate_checks: dict[str, bool] = field(default_factory=dict)
     selection_rationale: dict[str, object] = field(default_factory=dict)

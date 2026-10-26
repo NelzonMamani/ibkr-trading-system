@@ -16,6 +16,8 @@ from test_pr1082_rth_watchlist_continuity import _install_runtime_harness, _row,
 @pytest.fixture
 def reassessment(lifecycle, monkeypatch):
     life = lifecycle
+    from src.domain import quote_freshness
+    monkeypatch.setattr(quote_freshness, 'datetime', life.clock)
     policy = replace(RossMomentumPolicy().stock_selection, spread_max_pct=1.5)
     thresholds = replace(ross._gate_thresholds(policy, ross._resolve_runtime_thresholds(policy, "RTH_OPEN")),
                          spread_max_pct=1.5)  # Explicit existing spread gate, not a production policy change.

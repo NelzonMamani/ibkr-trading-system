@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from quote_fixtures import current_broker_quote, current_broker_time
+
 import json
 import time
 from dataclasses import replace
@@ -56,7 +58,7 @@ class _RuntimeProvider:
         last = float(row.get("last", 7.0))
         prev_close = float(row.get("prev_close", 5.0))
         pct_change = round(((last - prev_close) / prev_close) * 100.0, 2)
-        return QuoteData(
+        return QuoteData(timestamp_source='LAST_TRADE',
             symbol=symbol,
             bid=float(row.get("bid", 6.99)),
             ask=float(row.get("ask", 7.01)),
@@ -68,7 +70,7 @@ class _RuntimeProvider:
             close=prev_close,
             change_percent=pct_change,
             volume=float(row.get("volume", 1_600_000)),
-            timestamp_utc=None,
+            timestamp_utc=current_broker_time().isoformat(),
             data_quality_flags=tuple(row.get("data_quality_flags", ()) or ()),
         )
 
@@ -160,7 +162,7 @@ def _policy():
 
 
 def _row(symbol: str = "PR51A") -> dict[str, Any]:
-    return {
+    return {'quote_evidence': current_broker_quote(),
         "symbol": symbol,
         "last": 7.0,
         "prev_close": 5.0,

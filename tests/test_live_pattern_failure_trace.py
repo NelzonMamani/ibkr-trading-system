@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from quote_fixtures import current_broker_quote, current_broker_time
+
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -19,7 +21,7 @@ from src.strategies.ross_momentum_strategy_v1 import RossMomentumStrategyV1
 
 
 def _manual_focus_row(symbol: str = "TMDE") -> dict:
-    return {
+    return {'quote_evidence': current_broker_quote(),
         "symbol": symbol,
         "promotion_reason": "manual_focus",
         "session_label": "AH",
@@ -35,7 +37,7 @@ def _manual_focus_row(symbol: str = "TMDE") -> dict:
 
 
 def _snapshot(symbol: str = "TMDE") -> MarketSnapshot:
-    return MarketSnapshot(
+    return MarketSnapshot(market_timestamp_utc=current_broker_time(), timestamp_source='LAST_TRADE',
         symbol=symbol,
         bid=4.2,
         ask=4.22,
@@ -164,7 +166,7 @@ def test_detected_pattern_translates_to_trade_intent(tmp_path: Path, monkeypatch
     )
     strategy = RossMomentumStrategyV1()
     strategy._failure_trace_collector = RossPatternFailureTraceCollector(evidence_root=tmp_path)
-    watchlist = [{
+    watchlist = [{'quote_evidence': current_broker_quote(),
         "symbol": "TEST",
         "promotion_reason": "manual_focus",
         "session_label": "PRE",
@@ -179,7 +181,7 @@ def test_detected_pattern_translates_to_trade_intent(tmp_path: Path, monkeypatch
     }]
     intents = strategy.process_watchlist(
         watchlist=watchlist,
-        snapshots={"TEST": MarketSnapshot(symbol="TEST", bid=11.09, ask=11.11, last=11.1, volume=12000, asof_utc=datetime.now(timezone.utc))},
+        snapshots={"TEST": MarketSnapshot(market_timestamp_utc=current_broker_time(), timestamp_source='LAST_TRADE', symbol="TEST", bid=11.09, ask=11.11, last=11.1, volume=12000, asof_utc=datetime.now(timezone.utc))},
         session_label="PRE",
         timestamp_utc="cycle-1",
         mode=RunMode.LIVE,
@@ -217,8 +219,8 @@ def test_missing_inputs_surface_in_trace(tmp_path: Path, monkeypatch) -> None:
     strategy = RossMomentumStrategyV1()
     strategy._failure_trace_collector = RossPatternFailureTraceCollector(evidence_root=tmp_path)
     strategy.process_watchlist(
-        watchlist=[{"symbol": "OCGN", "promotion_reason": "manual_focus", "session_label": "AH"}],
-        snapshots={"OCGN": MarketSnapshot(symbol="OCGN", bid=None, ask=None, last=None, volume=None, asof_utc=datetime.now(timezone.utc))},
+        watchlist=[{'quote_evidence': current_broker_quote(), "symbol": "OCGN", "promotion_reason": "manual_focus", "session_label": "AH"}],
+        snapshots={"OCGN": MarketSnapshot(market_timestamp_utc=current_broker_time(), timestamp_source='LAST_TRADE', symbol="OCGN", bid=None, ask=None, last=None, volume=None, asof_utc=datetime.now(timezone.utc))},
         session_label="AH",
         timestamp_utc="cycle-2",
         mode=RunMode.LIVE,
@@ -288,7 +290,7 @@ def test_runtime_pattern_inputs_marks_short_history_but_builds(monkeypatch) -> N
 
 
 def test_runtime_pattern_inputs_preserves_missing_bid_ask_and_marks_spread_unknown(monkeypatch) -> None:
-    row = {
+    row = {'quote_evidence': current_broker_quote(),
         "symbol": "MISS",
         "promotion_reason": "manual_focus",
         "session_label": "PRE",
@@ -297,7 +299,7 @@ def test_runtime_pattern_inputs_preserves_missing_bid_ask_and_marks_spread_unkno
         "volume": 25_000,
         "prior_close": 5.0,
     }
-    snap = MarketSnapshot(symbol="MISS", bid=None, ask=None, last=5.5, volume=25_000, asof_utc=datetime.now(timezone.utc))
+    snap = MarketSnapshot(market_timestamp_utc=current_broker_time(), timestamp_source='LAST_TRADE', symbol="MISS", bid=None, ask=None, last=5.5, volume=25_000, asof_utc=datetime.now(timezone.utc))
     monkeypatch.setattr(
         "src.strategies.ross_momentum.patterns.pattern_trace.get_intraday_bars",
         lambda **kwargs: [Candle(open=5 + idx * 0.02, high=5.05 + idx * 0.02, low=4.98 + idx * 0.02, close=5.01 + idx * 0.02, volume=800 + idx) for idx in range(20)],

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from quote_fixtures import current_broker_quote, current_broker_time
+
 from catalyst_fixtures import canonical_catalyst_fixture
 
 from dataclasses import dataclass
@@ -41,7 +43,7 @@ def _hod_break_bars() -> list[Candle]:
 
 
 def _watchlist_row(symbol: str = "TEST") -> dict:
-    return {
+    return {'quote_evidence': current_broker_quote(),
         "symbol": symbol,
         "promotion_reason": "watchlist",
         "session_label": "PRE",
@@ -58,7 +60,7 @@ def _watchlist_row(symbol: str = "TEST") -> dict:
 
 
 def _snapshot(symbol: str = "TEST") -> MarketSnapshot:
-    return MarketSnapshot(
+    return MarketSnapshot(market_timestamp_utc=current_broker_time(), timestamp_source='LAST_TRADE',
         symbol=symbol,
         bid=11.59,
         ask=11.61,
@@ -102,7 +104,7 @@ def test_ross_runner_explicit_focus_skips_non_focus_rows(capsys) -> None:
         result = runner.run(
             {
                 "watchlist": [
-                    {"symbol": "AAPL", "focus_m_symbols": ["AAPL"], "catalyst_evidence": canonical_catalyst_fixture("AAPL")},
+                    {'quote_evidence': current_broker_quote(), "symbol": "AAPL", "focus_m_symbols": ["AAPL"], "catalyst_evidence": canonical_catalyst_fixture("AAPL")},
                     {"symbol": "MSFT", "focus_m_symbols": ["AAPL"]},
                 ],
                 "snapshots": {},
@@ -255,7 +257,7 @@ def test_focus_empty_viable_watchlist_stays_diagnostic_only_in_paper(monkeypatch
     observed: dict[str, object] = {}
 
     def _scanner_cycle(**kwargs):
-        row = SimpleNamespace(symbol="AAPL", session_label="PRE", session_phase="PRE")
+        row = SimpleNamespace(symbol="AAPL", quote_evidence=current_broker_quote(), catalyst_evidence=canonical_catalyst_fixture("AAPL"), session_label="PRE", session_phase="PRE")
         return {
             "candidate_metrics": [row],
             "watchlist_k": [row],
@@ -303,7 +305,7 @@ def test_force_session_override_propagates_to_strategy_context(monkeypatch, caps
     observed: dict[str, object] = {}
 
     def _scanner_cycle(**kwargs):
-        row = SimpleNamespace(symbol="AAPL", session_label="PRE", session_phase="PRE")
+        row = SimpleNamespace(symbol="AAPL", quote_evidence=current_broker_quote(), catalyst_evidence=canonical_catalyst_fixture("AAPL"), session_label="PRE", session_phase="PRE")
         return {
             "candidate_metrics": [row],
             "watchlist_k": [row],

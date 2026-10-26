@@ -81,6 +81,8 @@ class RossMomentumRunner:
         if str(getattr(mode, "value", mode)).upper() in {"READ_ONLY", "PAPER", "LIVE"}:
             from .policy.catalyst_lifecycle import filter_catalyst_rows
             watchlist = filter_catalyst_rows(watchlist, stage="ross_runner", mode=mode)
+            from src.domain.quote_freshness import filter_quote_rows
+            watchlist = filter_quote_rows(watchlist, stage="ross_runner", snapshots=context.get("snapshots"))
         intents = self.strategy.process_watchlist(
             watchlist=watchlist,
             snapshots=context.get("snapshots", {}),

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from quote_fixtures import current_broker_quote, current_broker_time
+
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -48,7 +50,7 @@ def test_pre_candidate_pre_activation_is_observable_and_can_promote_breakout_tri
     strategy._data_contract_block_reasons = lambda **kwargs: []
 
     intents = strategy.process_watchlist(
-        watchlist=[{
+        watchlist=[{'quote_evidence': current_broker_quote(),
             "symbol": "PREX",
             "promotion_reason": "manual_focus",
             "session_label": "PRE",
@@ -63,7 +65,7 @@ def test_pre_candidate_pre_activation_is_observable_and_can_promote_breakout_tri
             "premarket_high": 10.6,
             "previous_close": 9.9,
         }],
-        snapshots={"PREX": MarketSnapshot(symbol="PREX", bid=10.61, ask=10.63, last=10.62, volume=200_000, asof_utc=datetime.now(timezone.utc))},
+        snapshots={"PREX": MarketSnapshot(market_timestamp_utc=current_broker_time(), timestamp_source='LAST_TRADE', symbol="PREX", bid=10.61, ask=10.63, last=10.62, volume=200_000, asof_utc=datetime.now(timezone.utc))},
         session_label="PRE",
         timestamp_utc="cycle-pre-ready",
         mode=RunMode.LIVE,
@@ -86,8 +88,8 @@ def test_registry_marks_session_incompatible_patterns_as_skipped(monkeypatch) ->
     )
     inputs, _flags = build_runtime_pattern_inputs(
         symbol="SKIP",
-        row={"symbol": "SKIP", "session_label": "PRE", "last_price": 10.6, "volume": 100_000, "prior_close": 9.8, "premarket_high": 10.55},
-        snapshot=MarketSnapshot(symbol="SKIP", bid=10.59, ask=10.6, last=10.6, volume=100_000, asof_utc=datetime.now(timezone.utc)),
+        row={'quote_evidence': current_broker_quote(), "symbol": "SKIP", "session_label": "PRE", "last_price": 10.6, "volume": 100_000, "prior_close": 9.8, "premarket_high": 10.55},
+        snapshot=MarketSnapshot(market_timestamp_utc=current_broker_time(), timestamp_source='LAST_TRADE', symbol="SKIP", bid=10.59, ask=10.6, last=10.6, volume=100_000, asof_utc=datetime.now(timezone.utc)),
         session_label="PRE",
         session_phase="PRE",
     )
@@ -103,7 +105,7 @@ def test_pattern_inputs_normalize_level_aliases(monkeypatch) -> None:
     )
     inputs, _ = build_runtime_pattern_inputs(
         symbol="NORM",
-        row={
+        row={'quote_evidence': current_broker_quote(),
             "symbol": "NORM",
             "session_label": "PRE",
             "last_price": 10.6,
@@ -114,7 +116,7 @@ def test_pattern_inputs_normalize_level_aliases(monkeypatch) -> None:
             "HOD": 10.65,
             "LOD": 9.85,
         },
-        snapshot=MarketSnapshot(symbol="NORM", bid=10.59, ask=10.6, last=10.6, volume=120_000, asof_utc=datetime.now(timezone.utc)),
+        snapshot=MarketSnapshot(market_timestamp_utc=current_broker_time(), timestamp_source='LAST_TRADE', symbol="NORM", bid=10.59, ask=10.6, last=10.6, volume=120_000, asof_utc=datetime.now(timezone.utc)),
         session_label="PRE",
         session_phase="PRE",
     )

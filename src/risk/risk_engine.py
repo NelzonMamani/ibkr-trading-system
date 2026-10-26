@@ -552,6 +552,19 @@ class RiskEngine:
             "execution_enabled": execution_enabled,
             "run_mode": run_mode.value,
         }
+        from src.domain.quote_freshness import ross_intent_quote_rejection
+        quote_rejection = ross_intent_quote_rejection(trade_intent, run_mode)
+        if quote_rejection:
+            decision = RiskDecision(
+                symbol=trade_intent.symbol, allowed=False, max_position_size=0, risk_level="BLOCKED",
+                rationale=f"Broker quote timestamp rejected: {quote_rejection}",
+                trader_type=trade_intent.trader_type, strategy_name=trade_intent.strategy_name,
+                direction=trade_intent.direction, reason_code=quote_rejection,
+                overall_action="BLOCK", decision_code="REJECT", risk_reasons=[quote_rejection],
+                execution_blocked=True, run_mode=run_mode.value,
+                evaluated_limits=evaluated_limits, timestamp=timestamp,
+            )
+            return self._finalize_decision(decision, decision_id)
         trade_value = self._resolve_trade_value(
             trade_intent=trade_intent,
             fallback_quantity=self._resolve_profile_size(risk_profile),

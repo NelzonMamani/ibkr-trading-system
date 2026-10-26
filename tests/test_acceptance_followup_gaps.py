@@ -22,7 +22,7 @@ def test_cached_quote_ages_without_reacquisition(monkeypatch):
     monkeypatch.setattr(module, 'datetime', Clock)
     monkeypatch.setattr(module, 'get_config', lambda key: 15)
     md = MarketDataClient(connection_manager=NS(), allow_direct_connection=False)
-    sample = NS(timestamp_utc=now.isoformat(), data_quality_flags=[])
+    sample = NS(timestamp_source="LAST_TRADE", timestamp_utc=now.isoformat(), data_quality_flags=[])
     calls = []
     monkeypatch.setattr(md, '_snapshot_stock_uncached', lambda c: (calls.append(c), sample)[1])
     with acquisition_scope(lambda: False):
@@ -60,7 +60,7 @@ def test_news_return_after_stop_discards_partial_result(monkeypatch):
 
 def test_stop_prevents_cached_quote_return(monkeypatch):
     md = MarketDataClient(connection_manager=NS(), allow_direct_connection=False)
-    sample = NS(timestamp_utc=datetime.now(timezone.utc).isoformat(), data_quality_flags=[])
+    sample = NS(timestamp_source="LAST_TRADE", timestamp_utc=datetime.now(timezone.utc).isoformat(), data_quality_flags=[])
     monkeypatch.setattr(md, '_snapshot_stock_uncached', lambda c: sample)
     stopped = False
     with pytest.raises(AcquisitionCancelled), acquisition_scope(lambda: stopped):
@@ -91,7 +91,7 @@ def test_previously_fresh_context_is_rechecked_at_selection(monkeypatch):
             return now
     monkeypatch.setattr(scanner, 'datetime', Clock)
     monkeypatch.setattr(scanner, 'get_config', lambda key: 15)
-    row = {'quote_timestamp_utc': now.isoformat(), 'data_quality_flags': []}
+    row = {'quote_timestamp_source': 'LAST_TRADE', 'quote_timestamp_utc': now.isoformat(), 'data_quality_flags': []}
     original = row['quote_timestamp_utc']
     assert scanner._stale_market_data_drop(row) is None
     now += timedelta(seconds=16)
@@ -111,7 +111,7 @@ def test_reuse_preserves_age_threshold_and_all_authority(monkeypatch, age, stale
     monkeypatch.setattr(module, 'datetime', Clock)
     monkeypatch.setattr(module, 'get_config', lambda key: 15)
     md = MarketDataClient(connection_manager=NS(), allow_direct_connection=False)
-    sample = NS(timestamp_utc=stamp.isoformat(), data_quality_flags=['MD_DELAYED'],
+    sample = NS(timestamp_source="LAST_TRADE", timestamp_utc=stamp.isoformat(), data_quality_flags=['MD_DELAYED'],
         requested_market_data_type='LIVE', returned_market_data_type='DELAYED',
         market_data_type_confirmed=True, request_id=42, snapshot_complete=True,
         received_at_utc=(stamp + timedelta(seconds=age)).isoformat(),
@@ -141,7 +141,7 @@ def test_reuse_preserves_age_threshold_and_all_authority(monkeypatch, age, stale
 @pytest.mark.parametrize('stamp', [None, 'invalid', '2026-10-16T14:00:00'])
 def test_cache_cannot_use_new_receipt_to_invent_market_timestamp(monkeypatch, stamp):
     md = MarketDataClient(connection_manager=NS(), allow_direct_connection=False)
-    sample = NS(timestamp_utc=stamp, received_at_utc=datetime.now(timezone.utc).isoformat(),
+    sample = NS(timestamp_source="LAST_TRADE", timestamp_utc=stamp, received_at_utc=datetime.now(timezone.utc).isoformat(),
                 data_quality_flags=[])
     monkeypatch.setattr(md, '_snapshot_stock_uncached', lambda c: sample)
     with acquisition_scope(lambda: False):
@@ -155,7 +155,7 @@ def test_cache_cannot_use_new_receipt_to_invent_market_timestamp(monkeypatch, st
 def test_aged_context_cannot_pass_any_scanner_consumer(monkeypatch, gate):
     from src.scanner import scanner_runner as scanner
     monkeypatch.setattr(scanner, 'get_config', lambda key: 15)
-    row = {'symbol': 'ONE', 'quote_timestamp_utc': (datetime.now(timezone.utc)-timedelta(seconds=16)).isoformat(),
+    row = {'symbol': 'ONE', 'quote_timestamp_source': 'LAST_TRADE', 'quote_timestamp_utc': (datetime.now(timezone.utc)-timedelta(seconds=16)).isoformat(),
            'quote_received_at_utc': datetime.now(timezone.utc).isoformat(), 'data_quality_flags': []}
     before = row['quote_timestamp_utc']
     if gate == 'forced_premarket':

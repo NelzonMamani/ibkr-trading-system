@@ -1,5 +1,14 @@
 from __future__ import annotations
 
+import pytest
+from quote_fixtures import install_synthetic_broker_quotes
+
+
+@pytest.fixture(autouse=True)
+def explicit_synthetic_broker_quotes(monkeypatch):
+    install_synthetic_broker_quotes(monkeypatch)
+
+
 from dataclasses import replace
 from pathlib import Path
 import sys

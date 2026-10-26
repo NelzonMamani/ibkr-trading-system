@@ -11,7 +11,7 @@ from src.scanner import scanner_runner as scanner
 
 def context(age=30, symbol='ONE'):
     return dict(symbol=symbol, quote_timestamp_utc=(datetime.now(timezone.utc)-timedelta(seconds=age)).isoformat(),
-                data_quality_flags=[], eligibility_reason_codes=[], con_id=123,
+                data_quality_flags=[], eligibility_reason_codes=[], con_id=123, quote_timestamp_source="LAST_TRADE",
                 focus_eligible=True, execution_eligible=True)
 
 

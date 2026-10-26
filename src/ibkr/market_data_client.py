@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from src.domain.quote_freshness import quote_time_rejection
+
 from src.core.acquisition import checkpoint, cycle_cache, contract_key, cooperative_await, bounded_timeout
 
 import asyncio
@@ -523,19 +525,17 @@ class MarketDataClient:
             self.last_snapshot_debug = debug
             # Reuse data, never the age decision from the earlier acquisition.
             # Keep the original broker timestamp, authority and request evidence.
-            try:
-                stamp = datetime.fromisoformat(snapshot.timestamp_utc.replace("Z", "+00:00"))
-                if stamp.tzinfo is None:
-                    raise ValueError("Unscoped market timestamp")
-                if (datetime.now(timezone.utc) - stamp).total_seconds() > int(get_config("IBKR_SNAPSHOT_MAX_AGE_SECONDS")):
-                    if "MD_STALE" not in snapshot.data_quality_flags:
-                        snapshot.data_quality_flags.append("MD_STALE")
-            except (AttributeError, TypeError, ValueError):
-                if "MD_TIMESTAMP_UNKNOWN" not in snapshot.data_quality_flags:
-                    snapshot.data_quality_flags.append("MD_TIMESTAMP_UNKNOWN")
+            reason = quote_time_rejection(snapshot.timestamp_utc, getattr(snapshot, "timestamp_source", "UNKNOWN"),
+                                          now=datetime.now(timezone.utc))
+            if reason and reason not in snapshot.data_quality_flags:
+                snapshot.data_quality_flags.append(reason)
             return snapshot
         snapshot = self._snapshot_stock_uncached(contract_or_symbol)
         checkpoint()
+        reason = quote_time_rejection(snapshot.timestamp_utc, getattr(snapshot, "timestamp_source", "UNKNOWN"),
+                                      now=datetime.now(timezone.utc))
+        if reason and reason not in snapshot.data_quality_flags:
+            snapshot.data_quality_flags.append(reason)
         if cache is not None and not any(flag in snapshot.data_quality_flags for flag in (
                 "MD_TIMEOUT", "CONTRACT_QUALIFY_FAILED", "MD_EMPTY")):
             cache[key] = (snapshot, self.last_snapshot_debug)
@@ -684,10 +684,10 @@ class MarketDataClient:
         if best_fields is None or best_debug is None:
             return self._empty_snapshot(symbol, base_flags + ["MD_EMPTY"])
         self.last_snapshot_debug.update(best_debug)
-        if snapshot_timestamp is None:
-            final_flags.append("MD_TIMESTAMP_UNKNOWN")
-        elif (datetime.now(timezone.utc) - snapshot_timestamp).total_seconds() > int(get_config("IBKR_SNAPSHOT_MAX_AGE_SECONDS")):
-            final_flags.append("MD_STALE")
+        reason = quote_time_rejection(snapshot_timestamp, "LAST_TRADE" if snapshot_timestamp is not None else "UNKNOWN",
+                                      now=datetime.now(timezone.utc))
+        if reason:
+            final_flags.append(reason)
         if any(event["code"] == 10197 for attempt in self.last_snapshot_debug["attempts"] for event in attempt["broker_errors"]):
             final_flags.append("MD_CONFLICT_10197")
         if all(best_fields[name] is None for name in ("bid", "ask", "last")):

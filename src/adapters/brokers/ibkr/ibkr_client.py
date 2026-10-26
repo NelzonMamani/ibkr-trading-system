@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from src.domain.quote_freshness import quote_time_rejection
+
 from src.core.acquisition import AcquisitionCancelled, AcquisitionDeadlineExceeded, checkpoint, wait_event, bounded_timeout
 
 import threading
@@ -1064,8 +1066,10 @@ class IbkrClient(EWrapper, EClient):
             flags.append("MD_SNAPSHOT_INCOMPLETE")
         if any(event["code"] == 10197 for event in ticker.brokerErrors):
             flags.append("MD_CONFLICT_10197")
-        if timestamp is None:
-            flags.append("MD_TIMESTAMP_UNKNOWN")
+        reason = quote_time_rejection(timestamp, "LAST_TRADE" if timestamp is not None else "UNKNOWN",
+                                      now=datetime.now(timezone.utc))
+        if reason:
+            flags.append(reason)
         fields = {name: _clean(getattr(ticker, name, None)) for name in ("bid", "ask", "last", "volume", "close", "open", "high", "low")}
         for name in ("bid", "ask", "last", "close", "open", "high", "low"):
             if fields[name] is not None and fields[name] <= 0:

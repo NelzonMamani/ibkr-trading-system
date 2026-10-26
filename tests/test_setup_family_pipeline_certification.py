@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from quote_fixtures import current_broker_quote
+
 from src.core.engines.decision_engine import DecisionEngine
 from src.core.pipeline_audit import PipelineAudit, TerminalOutcome
 from src.models.data_models import TradeIntent
@@ -69,7 +71,7 @@ def test_parabolic_exhaustion_pipeline_stays_non_entry_and_risk_blocked() -> Non
     )
     assert decision["selected_pattern_id"] is None
 
-    intent = TradeIntent(
+    intent = TradeIntent(quote_evidence={'selection': current_broker_quote(), 'snapshot': None},
         symbol="PXS",
         direction="LONG",
         strategy_name="RossMomentumStrategyV1",
@@ -129,7 +131,7 @@ def test_interaction_hod_break_suppressed_when_parabolic_exhaustion_present() ->
     assert decision["selected_pattern_id"] is None
 
     risk = RiskEngine().evaluate_trade_intent(
-        TradeIntent(
+        TradeIntent(quote_evidence={'selection': current_broker_quote(), 'snapshot': None},
             symbol="MIXD",
             direction="LONG",
             strategy_name="RossMomentumStrategyV1",

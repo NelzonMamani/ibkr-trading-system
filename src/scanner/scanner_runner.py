@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from src.domain.quote_freshness import quote_time_rejection, quote_evidence
+
 from src.core.acquisition import acquisition_cycle, checkpoint, acquisition_deadline, cycle_cache
 
 import argparse
@@ -1949,7 +1951,7 @@ def _seed_watchlist_from_prep(
                 ])),
             }
         drop_reason = _stale_market_data_drop(context) or drop_ledger.get(symbol)
-        if drop_reason in {"DROP_QUOTE_UNAVAILABLE", "DROP_MD_CONFLICT", "DROP_UNSUBSCRIBED_MARKET_DATA", "DROP_STALE_MARKET_DATA"}:
+        if drop_reason in {"DROP_QUOTE_UNAVAILABLE", "DROP_MD_CONFLICT", "DROP_UNSUBSCRIBED_MARKET_DATA", "DROP_STALE_MARKET_DATA", "DROP_FUTURE_MARKET_DATA", "DROP_UNKNOWN_MARKET_TIMESTAMP"}:
             prep_invalidated_count += 1
             print(f"[PREP][INVALIDATE] symbol={symbol} reason={drop_reason}")
             continue
@@ -1969,27 +1971,28 @@ def _seed_watchlist_from_prep(
 def _stale_market_data_drop(context: Dict[str, Any]) -> Optional[str]:
     # Long passes can age a previously fresh quote before selection consumes it.
     # Receipt/scan time must never replace the retained broker trade timestamp.
-    try:
-        stamp = datetime.fromisoformat(context["quote_timestamp_utc"].replace("Z", "+00:00"))
-        if stamp.tzinfo is not None and (datetime.now(timezone.utc) - stamp).total_seconds() > int(get_config("IBKR_SNAPSHOT_MAX_AGE_SECONDS")):
-            flags = list(context.get("data_quality_flags") or ())
-            if "MD_STALE" not in flags:
-                flags.append("MD_STALE")
-                context["data_quality_flags"] = flags
-    except (KeyError, AttributeError, TypeError, ValueError):
-        pass  # Missing/invalid timestamps retain their separate authority gates.
-    # Consume the provider's freshness decision; receipt/scan time cannot
-    # turn a stale last trade into fresh market evidence.
-    if "MD_STALE" not in (context.get("data_quality_flags") or ()):
+    flags = list(context.get("data_quality_flags") or ())
+    # Production contexts always carry these keys, including explicit None on
+    # absence. Historical prep-only monitoring has no quote permission to grant.
+    if "quote_timestamp_utc" in context or "quote_timestamp_source" in context:
+        reason = quote_time_rejection(context.get("quote_timestamp_utc"), context.get("quote_timestamp_source"),
+                                      now=datetime.now(timezone.utc))
+        if reason and reason not in flags:
+            flags.append(reason)
+            context["data_quality_flags"] = flags
+    reason = next((flag for flag in ("MD_TIMESTAMP_FUTURE", "MD_STALE", "MD_TIMESTAMP_UNKNOWN")
+                   if flag in flags), None)
+    if reason is None:
         return None
     context["watchlist_eligible"] = False
     context["focus_eligible"] = False
     context["execution_eligible"] = False
     context["execution_ready"] = False
     reasons = context.setdefault("eligibility_reason_codes", [])
-    if "MD_STALE" not in reasons:
-        reasons.append("MD_STALE")
-    return "DROP_STALE_MARKET_DATA"
+    if reason not in reasons:
+        reasons.append(reason)
+    return {"MD_STALE": "DROP_STALE_MARKET_DATA", "MD_TIMESTAMP_FUTURE": "DROP_FUTURE_MARKET_DATA",
+            "MD_TIMESTAMP_UNKNOWN": "DROP_UNKNOWN_MARKET_TIMESTAMP"}[reason]
 
 
 def _evaluate_watchlist_gates(
@@ -4123,6 +4126,7 @@ def _candidate_from_context(
         rank_score=context.get("scanner_score"),
         rank_components=context.get("scanner_score_components"),
         timestamp_utc=timestamp_utc,
+        quote_evidence=quote_evidence(context.get("quote_timestamp_utc"), context.get("quote_timestamp_source"), data_quality_flags),
         gate_checks=gate_checks,
     )
     return replace(
@@ -4742,7 +4746,7 @@ def _refresh_shortlisted_quote(context, provider, session_label, float_cache, *,
     Failed refreshes retain the original stale rejection. Cancellation escapes.
     """
     checkpoint()
-    if not _stale_market_data_drop(context):
+    if _stale_market_data_drop(context) != "DROP_STALE_MARKET_DATA":
         return
     refresh = getattr(provider, "refresh_quote", None)
     if not callable(refresh):
@@ -4760,8 +4764,10 @@ def _refresh_shortlisted_quote(context, provider, session_label, float_cache, *,
             if stamp.tzinfo is None or getattr(quote, "timestamp_source", "UNKNOWN") != "LAST_TRADE":
                 raise ValueError("refresh lacks broker market timestamp")
             if any(flag in (getattr(quote, "data_quality_flags", ()) or ()) for flag in
-                   ("MD_TIMEOUT", "SNAPSHOT_TIMEOUT", "MD_EMPTY", "MD_TIMESTAMP_UNKNOWN")):
+                   ("MD_TIMEOUT", "SNAPSHOT_TIMEOUT", "MD_EMPTY", "MD_TIMESTAMP_UNKNOWN", "MD_TIMESTAMP_FUTURE")):
                 raise ValueError("refresh unavailable")
+            if quote_time_rejection(quote.timestamp_utc, quote.timestamp_source, now=datetime.now(timezone.utc)) == "MD_TIMESTAMP_FUTURE":
+                raise ValueError("refresh has future broker timestamp")
             rebuilt = _build_symbol_context(
                 provider, symbol, session_label, float_cache=float_cache,
                 universe_rank=context.get("universe_rank"), quote_override=quote,
@@ -5114,6 +5120,8 @@ def _ross_reason_from_drop(drop_reason: str) -> str:
         "DROP_PREMARKET_VOLUME": "LIQUIDITY_FAIL",
         "DROP_QUOTE_UNAVAILABLE": "DATA_QUALITY_FAIL",
         "DROP_MD_CONFLICT": "DATA_QUALITY_FAIL",
+        "DROP_FUTURE_MARKET_DATA": "DATA_QUALITY_FAIL",
+        "DROP_UNKNOWN_MARKET_TIMESTAMP": "DATA_QUALITY_FAIL",
         "DROP_UNSUBSCRIBED_MARKET_DATA": "DATA_QUALITY_FAIL",
         "DROP_SNAPSHOT_TIMEOUT": "DATA_QUALITY_FAIL",
     }

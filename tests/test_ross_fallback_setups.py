@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from quote_fixtures import current_broker_quote, current_broker_time
+
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -24,7 +26,7 @@ class EmptyRegistry:
 
 
 def _watchlist_row(symbol: str = "TEST") -> dict:
-    return {
+    return {'quote_evidence': current_broker_quote(),
         "symbol": symbol,
         "promotion_reason": "manual_focus",
         "session_label": "PRE",
@@ -40,7 +42,7 @@ def _watchlist_row(symbol: str = "TEST") -> dict:
 
 
 def _snapshot(symbol: str = "TEST") -> MarketSnapshot:
-    return MarketSnapshot(
+    return MarketSnapshot(market_timestamp_utc=current_broker_time(), timestamp_source='LAST_TRADE',
         symbol=symbol,
         bid=11.59,
         ask=11.61,

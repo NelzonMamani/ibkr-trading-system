@@ -1,4 +1,5 @@
 """Controlled canonical facts only; no provider/broker calls or JSON writer worker."""
+from quote_fixtures import current_broker_quote
 from dataclasses import replace
 from datetime import timedelta
 import json
@@ -123,7 +124,7 @@ def test_actual_merge_direction_reassesses_both_veto_cohorts(lifecycle,new_veto)
 def test_cached_handoff_returns_current_degraded_health_not_healthy_flags(lifecycle):
     life=lifecycle
     handoff=snapshot(life)
-    row={'symbol':'JPM','catalyst_present':True,'catalyst_evidence':handoff,
+    row={'quote_evidence': current_broker_quote(), 'symbol':'JPM','catalyst_present':True,'catalyst_evidence':handoff,
          'news_acquisition_health':'healthy','news_acquisition_reason':'acquisition_available'}
     life.clock.current+=timedelta(seconds=121)
     refreshed=filter_catalyst_rows([row],store=life.store)[0]
@@ -141,7 +142,7 @@ def test_malformed_capsule_rejects_even_with_good_store(lifecycle,field,value):
 
 def test_original_manual_selection_authority_does_not_claim_catalyst(lifecycle,capsys):
     life=lifecycle
-    row={'symbol':'JPM','watchlist_source':'MANUAL_FOCUS','catalyst_present':False}
+    row={'quote_evidence': current_broker_quote(), 'symbol':'JPM','watchlist_source':'MANUAL_FOCUS','catalyst_present':False}
     assert filter_catalyst_rows([row],store=life.store)==[row]
     assert 'canonical_event_claimed=false' in capsys.readouterr().out
     assert life.provider.calls==0
@@ -208,7 +209,7 @@ def test_unqualified_same_id_never_extends_validity(lifecycle,kind):
 def test_existing_explicit_validation_authority_is_separate_from_event(lifecycle,mode,allowed):
     from src.config.config_resolver import set_config_overrides
     set_config_overrides({'ROSS_VALIDATION_OVERRIDE_ENABLED':True})
-    row={'symbol':'JPM','catalyst_present':True}
+    row={'quote_evidence': current_broker_quote(), 'symbol':'JPM','catalyst_present':True}
     assert bool(filter_catalyst_rows([row],store=lifecycle.store,mode=mode)) is allowed
 
 
@@ -218,7 +219,7 @@ def test_later_setup_row_rechecks_expiry_after_slow_first_row(lifecycle,monkeypa
     from src.strategies.ross_momentum_strategy_v1 import RossMomentumStrategyV1
     from src.strategies.ross_momentum.policy import catalyst_lifecycle
     life=lifecycle
-    rows=[{'symbol':symbol,'volume':2000000,'catalyst_evidence':canonical_catalyst_fixture(symbol,published=life.clock.fromtimestamp(PUB.timestamp(),PUB.tzinfo))}
+    rows=[{'quote_evidence': current_broker_quote(), 'symbol':symbol,'volume':2000000,'catalyst_evidence':canonical_catalyst_fixture(symbol,published=life.clock.fromtimestamp(PUB.timestamp(),PUB.tzinfo))}
           for symbol in ('JPM','EGG')]
     monkeypatch.setattr(catalyst_lifecycle,'CanonicalNewsEvidenceStore',lambda:life.store)
     strategy=RossMomentumStrategyV1()
@@ -241,7 +242,7 @@ def test_direct_ross_runner_rejects_opaque_confirmed_flags(lifecycle):
     runner=RossMomentumRunner.__new__(RossMomentumRunner)
     seen=[]
     runner.strategy=SimpleNamespace(process_watchlist=lambda **kwargs:seen.extend(kwargs['watchlist']) or [])
-    result=runner.run({'watchlist':[{'symbol':'JPM','catalyst_present':True,'catalyst_status':'CONFIRMED'}],
+    result=runner.run({'watchlist':[{'quote_evidence': current_broker_quote(), 'symbol':'JPM','catalyst_present':True,'catalyst_status':'CONFIRMED'}],
                        'mode':RunMode.READ_ONLY})
     assert seen==[] and result['trade_intents']==[]
     assert lifecycle.provider.calls==0
