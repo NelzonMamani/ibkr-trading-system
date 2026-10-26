@@ -43,6 +43,13 @@ def offline(monkeypatch):
     assert not attempts
 
 
+def expected_research_urls(candidates):
+    # Fixed membership changed one-for-one; promoted feeds have no second
+    # PREP_EXTENDED membership. Keep exact route/unique-count assertions.
+    return set(get_source_group_urls('FAST_TRADING') + get_source_group_urls('PREP_EXTENDED')) | {
+        row['source_id'] for row in query_sources(candidates)}
+
+
 def settings(tmp_path, **kw):
     return LookupSettings(profile=QUERY_PROFILE, cache_file=tmp_path/'canonical.json', **kw)
 
@@ -149,8 +156,9 @@ def test_failure_coverage_and_batch_request_counts(monkeypatch,tmp_path):
         return feed()
     monkeypatch.setattr(news_fetcher,'_fetch_feed',fetch)
     result=lookup_news(ISSUERS,settings(tmp_path,cache_mode='off'))
-    assert len(calls)==len(set(calls))==27
-    assert result['rss_request_counts']['attempted']==27
+    assert set(calls)==expected_research_urls(ISSUERS)
+    assert len(calls)==len(set(calls))==25
+    assert result['rss_request_counts']['attempted']==25
     assert result['symbols']['IRON']['query_coverage']['available']==1
     assert result['symbols']['IRON']['coverage_status']=='partial'
     assert result['symbols']['IRON']['outcome']!='completed_no_match'
@@ -171,7 +179,8 @@ def test_raw_capture_single_http_and_offline_replay(monkeypatch,tmp_path):
     monkeypatch.setattr(news_fetcher.requests,'get',transport)
     result=lookup_news(ISSUERS[:1],settings(tmp_path,cache_mode='refresh',raw_feed_directory=tmp_path/'raw'))
     records=result['raw_feed_evidence']['records']
-    assert len(calls)==len(records)==23
+    assert set(calls)==expected_research_urls(ISSUERS[:1])
+    assert len(calls)==len(records)==21
     assert result['cleanup']['cleanup_complete']
     assert all(r['body_complete'] and r['evaluation_time_utc'] for r in records)
     for record in records:
@@ -181,8 +190,8 @@ def test_raw_capture_single_http_and_offline_replay(monkeypatch,tmp_path):
     bodies={r['url']:(tmp_path/'raw'/r['body_file']).read_bytes() for r in records}
     monkeypatch.setattr(news_fetcher,'_fetch_feed',lambda url,timeout:news_fetcher.feedparser.parse(bodies[url]))
     replay=lookup_news(ISSUERS[:1],replace(settings(tmp_path,cache_mode='off'),cache_file=tmp_path/'replay.json'))
-    assert replay['symbols']['JPM']['research_observations']['issuer_match_observations']==23
-    assert result['symbols']['JPM']['research_observations']['repeated_article_observations']==22
+    assert replay['symbols']['JPM']['research_observations']['issuer_match_observations']==21
+    assert result['symbols']['JPM']['research_observations']['repeated_article_observations']==20
     store=json.loads((tmp_path/'canonical.json').read_text())
     assert xml.decode() not in json.dumps(store)
 
@@ -240,7 +249,8 @@ def test_batch_query_plan_changes_refresh_other_issuer(monkeypatch,tmp_path,chan
     warm=lookup_news((ISSUERS[0],peer),settings(tmp_path,cache_mode='use'))
     assert len(warm['symbols']['JPM']['articles'])==1
     assert warm['symbols']['JPM']['acquisition_profile']['fingerprint'] != cold['symbols']['JPM']['acquisition_profile']['fingerprint']
-    assert len(calls)==len(set(calls))==25
+    assert set(calls)==expected_research_urls((ISSUERS[0],peer))
+    assert len(calls)==len(set(calls))==23
     assert warm['symbols']['JPM']['provenance']=='provider_refresh'
 
 
@@ -278,5 +288,6 @@ def test_explicit_partial_refresh_keeps_full_query_acquisition(monkeypatch,tmp_p
     result=service.get_news(ISSUERS[:2],request,replace(policy,refresh_mode='incremental',
         metadata={**policy.metadata,'refresh_symbols':('JPM',)}))
     assert len(result.evidence_for_symbol('JPM'))==1
-    assert len(calls)==len(set(calls))==25
+    assert set(calls)==expected_research_urls(ISSUERS[:2])
+    assert len(calls)==len(set(calls))==23
     assert set(result.diagnostics.diagnostics['refresh_symbols'])=={'JPM','IRON'}

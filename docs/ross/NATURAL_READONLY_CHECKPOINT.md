@@ -3892,3 +3892,16 @@ Ross-policy/lifecycle controls passed (4 existing parser deprecation warnings),
 plus10 budget/runtime reliability controls passed. Seven new synthetic controls
 exercise the substituted membership, production accounting and cache transition.
 No acquisition or natural observation was executed.
+
+Preserve initial changed-head CI40420939181 at5177c23c: Linux reported6failed,
+3289passed/3skipped. All six failures were exact research/replay/fallback count
+assertions still including the two former PREP_EXTENDED memberships (27vs25,
+23vs21,25vs23 and22vs20). Their source-set cause is independently established
+by the promoted two URLs and the new production accounting controls; this is not
+an unchanged-head retry or an assertion that every unchanged failure is harmless.
+Update only those exact expectations and strengthen them with expected URL-union
+and no-duplicate assertions. Timeout/partial coverage, raw hashing/replay, canonical
+store privacy, peer-change refresh, fallback requirement and catalyst-rejection
+assertions remain. The affected research/bottleneck/new-control files pass100
+offline cases after this correction; no further production change was needed.
+Final exact-head review/changed-head CI supersedes, but does not erase, this run.

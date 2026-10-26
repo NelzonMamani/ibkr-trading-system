@@ -77,7 +77,13 @@ def test_completed_generic_primary_still_requires_unresolved_fallback(monkeypatc
     svc=service(tmp_path)
     result=svc.get_news((CANDIDATE,),ross._ross_news_request(),ross._ross_retrieval_policy(refresh_mode='bounded_refresh',network_allowed=True))
     raw=result.diagnostics.diagnostics['refresh_diagnostics']
-    assert raw['extended_fallback_requested'] and len(calls)==22
+    assert raw['extended_fallback_requested'] and len(calls)==20
+    urls = [url for url, _ in calls]
+    from src.news.source_groups import get_source_group_urls
+    from src.news.issuer_rss_queries import operational_queries
+    expected = set(get_source_group_urls('FAST_TRADING') + get_source_group_urls('PREP_EXTENDED')) | {
+        row['source_id'] for row in operational_queries((CANDIDATE,))}
+    assert set(urls) == expected and len(urls) == len(set(urls))
     assert not ross._ross_news_contexts_from_news_intelligence_result(result)['JPM']['ross_catalyst_valid']
     assert svc.retrieval_provider._lifecycle.wait_for_cleanup(1)['cleanup_complete']
 
