@@ -319,3 +319,48 @@ def test_preexisting_unvalidated_pool_payload_cannot_become_available(monkeypatc
         assert not rows['AZTR'] and news_provider_status(summary)=='provider_request_failure'
         assert summary.source_diagnostics[0]['failure_reason']==code and pool.requests==0
     finally:assert life.wait_for_cleanup(2)['cleanup_complete']
+
+
+@pytest.mark.parametrize('compatible',[False,True])
+def test_legacy_negative_facts_survive_separately_from_current_coverage(monkeypatch,tmp_path,compatible):
+    from dataclasses import replace
+    import hashlib,json
+    from src.news import batch_rss_adapter as adapter, news_intelligence_service as service
+    from src.news.evidence_store import CanonicalNewsEvidenceStore
+    from src.news.news_intelligence_contract import NewsCandidate,RetrievalPolicy
+    for module in (adapter,service):
+        monkeypatch.setattr(module,'get_source_group_urls',lambda group:(URL,) if group=='FAST_TRADING' else ())
+    calls=[]
+    def get(*a,**kw):calls.append(1);return Response(b'',301)
+    monkeypatch.setattr(f.requests,'get',get)
+    life=RssFetchLifecycle()
+    store=CanonicalNewsEvidenceStore(tmp_path/'news.json',prep_artifact_loader=lambda:{})
+    canonical=service.CanonicalNewsIntelligenceService(evidence_store=store,
+        retrieval_provider=adapter.BatchRssNewsIntelligenceProvider(lifecycle=life))
+    candidates=(NewsCandidate('AZTR',company_name='AZITRA INC'),)
+    policy=RetrievalPolicy(source_groups=('FAST_TRADING',),fallback_mode='none',refresh_mode='bounded_refresh',
+        network_allowed=True,refresh_interval_seconds=120,metadata={'require_compatible_acquisition':compatible})
+    try:
+        fresh=canonical.get_news(candidates,NewsRequest(),policy)
+        assert fresh.summary_for_symbol('AZTR').provider_available is False
+        data=json.loads(store.cache_path.read_text())
+        previous=data['news_intelligence']['symbols']['AZTR']['last_retrieval']
+        previous.pop('rss_availability_contract')
+        if compatible:
+            profile=previous['acquisition_profile']
+            profile['retrieval'].pop('rss_availability_contract')
+            profile.pop('fingerprint')
+            profile['fingerprint']=hashlib.sha256(json.dumps(profile,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+        store.cache_path.write_text(json.dumps(data));before=store.cache_path.read_bytes()
+        result=canonical.get_news(candidates,NewsRequest(),replace(policy,network_allowed=False,
+            refresh_mode='cache_only',allow_cache_write=False))
+        summary=result.summary_for_symbol('AZTR')
+        assert summary.provider_available is (None if compatible else False)
+        assert summary.provider_status==('coverage_unknown' if compatible else 'provider_request_failure')
+        assert summary.diagnostics['last_retrieval']['provider_available'] is False
+        assert summary.diagnostics['last_retrieval']['provider_status']=='provider_request_failure'
+        if compatible:
+            source=summary.diagnostics['last_retrieval']['coverage']['source_diagnostics'][0]
+            assert source['failure_reason']=='HTTP_301'
+        assert len(calls)==1 and store.cache_path.read_bytes()==before
+    finally:assert life.wait_for_cleanup(2)['cleanup_complete']

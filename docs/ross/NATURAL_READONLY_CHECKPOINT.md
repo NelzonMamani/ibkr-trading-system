@@ -3559,8 +3559,11 @@ Canonical RSS acquisition fingerprints and newly written retrieval metadata carr
 Old positive available-empty coverage cannot certify the stricter contract:
 profile-aware consumers treat it as incompatible/unknown, and legacy positive
 cadence metadata lacking the marker becomes coverage_unknown. Cache-only calls
-make no acquisition or cache rewrite. Known legacy negative outcomes remain
-negative; original article facts and timestamps are retained. Fresh failure
+make no acquisition or cache rewrite. Legacy negative cadence outcomes remain
+negative in non-profile-compatible mode. For profile-aware consumers, any old
+incompatible profile (positive or negative) has unknown current coverage; its
+original failure remains in last_retrieval provenance. Current-contract failures
+remain unavailable on reuse. Original article facts and timestamps are retained. Fresh failure
 status and valid empty-feed status survive adapter publication and subsequent
 canonical/shared-cache reuse. No second canonical writer or freshness authority
 is introduced. The marker is RSS-specific and constant, not quote/time metadata
@@ -3569,7 +3572,7 @@ that would defeat cadence.
 Offline negative controls on the original implementation recorded40 failures/9
 passes across the initial49-case transport matrix, plus two failures showing old
 cached positive metadata still claimed availability. These are implementation
-controls, not operator receipts. The repaired suite includes67 deterministic
+controls, not operator receipts. The repaired suite includes69 deterministic
 cases: empty301, HTML301, other3xx including304/307/308, HTML/empty/non-feed200,
 valid empty/populated RSS and Atom, HTTP401/403, parser recovery, missing parser
 version, direct/owned closure, cached invalid parser/HTTP payloads, no Requests
@@ -3630,3 +3633,13 @@ Independent exact-head review and Linux/Windows changed-head CI are required
 before integration; final pins/receipts are recorded on the accompanying PR.
 No completed historical suite was rerun without the shared production change or
 its demonstrated cache/fixture concerns.
+
+Independent review of3a6f63a1 independently passed113 targeted controls and raised
+one documentation overclaim, not a transport/admission defect: old negative
+profile-aware retrievals become current coverage_unknown after contract mismatch.
+The final two regression cases explicitly distinguish this from preserved
+negative non-profile cadence reuse, retain the original negative outcome/HTTP301
+provenance, and prove no network call/cache rewrite. Both pass. The wording above
+now states that distinction; no production behavior was changed to make old
+coverage look current. Final exact-head delta review/CI supersedes this initial
+review while preserving its finding and the earlier3286/3 local suite receipt.
