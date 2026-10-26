@@ -164,6 +164,7 @@ def _normalized_words(value: Any) -> list[str]:
 
 
 def _company_alias_from_words(words: list[str], symbol: str) -> str | None:
+    supplied_words = words
     while words and words[-1] in _LEGAL_SUFFIXES:
         # A supplied two-word issuer such as Click Holdings must not collapse
         # into a single ambiguous word. Do not admit generic wrapper names.
@@ -173,7 +174,14 @@ def _company_alias_from_words(words: list[str], symbol: str) -> str | None:
             break
         words = words[:-1]
     if len(words) < 2:
-        return None
+        # Keep a supplied full legal name, never its ambiguous one-word brand.
+        # Stripping AZITRA INC used to discard even exact "Azitra, Inc." text.
+        if (len(words) == 1 and len(supplied_words) == 2
+                and supplied_words[-1] in _LEGAL_SUFFIXES
+                and words[0] not in _LEGAL_SUFFIXES | {"THE", "A", "AN", symbol.upper()}):
+            words = supplied_words
+        else:
+            return None
     alias = " ".join(words)
     if alias == symbol.upper():
         return None
