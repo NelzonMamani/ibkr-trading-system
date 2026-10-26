@@ -313,3 +313,32 @@ def test_transport_timeouts_never_exceed_remaining_shared_budget(capture):
     assert len(session['transport_attempts'])==8
     for timing in session['transport_attempts'].values():
         assert 0 < timing['timeout_seconds'] <= min(5,timing['remaining_budget_seconds'])
+
+
+if sys.platform=='win32':
+    def test_windows_operator_rejects_nested_evidence_before_creation(tmp_path):
+        verifier=tmp_path/'reject-nested.ps1'
+        verifier.write_text('''param([string]$Target, [string]$Python, [string]$Source)
+$ErrorActionPreference = 'Stop'
+function git {
+    $global:LASTEXITCODE = 0
+    if ($args -contains 'HEAD^{tree}') { return ('b' * 40) }
+    if ($args -contains 'rev-parse') { return ('a' * 40) }
+}
+$nested = Join-Path $Source 'evidence'
+try {
+    & $Target -ExpectedCommit ('a' * 40) -ExpectedTree ('b' * 40) -Python $Python -SourceCheckout $Source -EvidenceRoot $nested
+    throw 'Nested output was unexpectedly allowed'
+} catch {
+    if ($_.Exception.Message -ne 'EvidenceRoot must be new and outside source.') { throw }
+}
+if (Test-Path -LiteralPath $nested) { throw 'Rejected output was created or ACL modified' }
+Write-Output 'NESTED_REJECTION_BEFORE_CREATION_PASS'
+''')
+        source=tmp_path/'source';source.mkdir()
+        target=d.ROOT/'scripts/diagnostics/Invoke-RossPrimaryFeedDiagnostic.ps1'
+        result=subprocess.run(['powershell.exe','-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass',
+            '-File',str(verifier),'-Target',str(target),'-Python',sys.executable,'-Source',str(source)],
+            capture_output=True,text=True,timeout=20)
+        assert result.returncode==0 and 'NESTED_REJECTION_BEFORE_CREATION_PASS' in result.stdout
+        assert not (source/'evidence').exists()

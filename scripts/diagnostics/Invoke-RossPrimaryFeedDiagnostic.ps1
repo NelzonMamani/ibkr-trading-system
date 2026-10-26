@@ -27,6 +27,10 @@ if ($evidence.Equals($source,[StringComparison]::OrdinalIgnoreCase) -or
     (Test-Path -LiteralPath $evidence)) { throw 'EvidenceRoot must be new and outside source.' }
 $version = (& $Python -I -c 'import sys; assert sys.version_info[:2] == (3,13); print(sys.version.split()[0])' | Out-String).Trim()
 if ($LASTEXITCODE -ne 0) { throw 'Use the reviewed Python 3.13 environment with installed project dependencies.' }
+# Resolve existing junction/symlink parents before creating or ACL-modifying a path.
+$canonical = (& $Python -I -B -c 'from pathlib import Path; import sys; root=Path(sys.argv[1]).resolve(); out=Path(sys.argv[2]).resolve(); assert out != root and root not in out.parents and not out.exists(); print(out)' $source $evidence | Out-String).Trim()
+if ($LASTEXITCODE -ne 0 -or -not $canonical) { throw 'EvidenceRoot canonical path is unsafe; acquisition not started.' }
+$evidence = $canonical
 New-Item -ItemType Directory -Path $evidence | Out-Null
 # Restrict the new evidence root before any raw body can be written. The child
 # output inherits this ACL. Share only the explicit ZIP, never this directory.

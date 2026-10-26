@@ -3284,3 +3284,14 @@ Neither this preparation nor a diagnostic exit0 establishes a natural qualifying
 catalyst, Focus, setup, intent or readiness. No unchanged natural observation is
 requested. All five unmatched positions and historical timeout/negative-age
 cause limits remain unchanged. No acquisition was executed in this preparation.
+
+Initial exact-head review of257b178879636c477aeae83d507b58ba417c1bb6 found
+one Windows wrapper precreation guard defect: a two-literal-backslash prefix
+failed to reject an ordinary source-nested EvidenceRoot before mkdir/ACL.
+Python still rejected its batch path before acquisition. The corrected wrapper
+uses DirectorySeparatorChar and resolves junction/symlink parents with a
+read-only Python path check before any creation/ACL change. A Windows5.1
+controlled invocation supplies mocked Git identity, attempts source-nested
+output, and proves rejection before the directory exists; it never executes
+acquisition. The initial review finding and initial changed-head CI receipt
+remain on the PR; the final corrected head requires its own review and CI.
