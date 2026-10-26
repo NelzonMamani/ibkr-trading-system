@@ -1,4 +1,4 @@
-# Natural READ_ONLY diagnostic checkpoint — updated 23 October 2026
+# Natural READ_ONLY diagnostic checkpoint — updated 26 October 2026
 
 Current authoritative completion status is in [the maintained checklist below](#receipt9--current-ross-completion-checklist-updated-through-pr1126).
 Earlier dated sections are historical evidence, not superseding readiness decisions.
@@ -2323,6 +2323,7 @@ No item below upgrades strategy certification or authorizes acquisition.
 | Latest one-scan/two-snapshot diagnostic | Naturally demonstrated diagnostic limits; DIAGNOSTIC_ONLY, exit2 | Accepted74dbb909 | [SDK investigation](QUOTE_DIAGNOSTIC_74DB_SDK_ANALYSIS.md); archive SHA256 `3abbcb91f298e1edd1f6d2a0ddfaf90c226589d982a4b12e3b461e79732e26e6` | Scanner50 completed; AIOK364/CLRO365 each5s timeout; ownership registered, SDK returned, callbacks empty, type UNKNOWN; no suppression/eviction; cleanup/audit/source/operator safety PASS | Quote transport cause unresolved. Neither ownership rejection, upstream failure nor SDK defect established; no prices or missing completion inferred |
 | SDK serialization/decoder fault mechanisms | Offline verified only | Local SDK9.81.1.post1 reference, not a runtime repair | SDK investigation;11-case replay logs on Python3.12.14 and3.13.5 | Fake sockets exercise serialization, framing, queue, decoder and callbacks; short-send blind spot, recv4096-then-timeout loss and arity rejection reproduced | Possible mechanisms, not established runtime causes. Workstation Python3.13.3 captured; installed SDK hashes/server version absent. No SDK version attribution to receipts9/10 |
 | Scoped transport/decoder diagnostic implementation | Implemented on unmerged diagnostic branch; offline verified; published-head CI/review receipts belong to the accompanying PR | `codex/quote-transport-diagnostic`, based on accepted74dbb909; no automatic merge | [SDK investigation and implementation](QUOTE_DIAGNOSTIC_74DB_SDK_ANALYSIS.md); new repository tests/operator scripts |124 focused offline checks pass, including21 transport/operator controls; actual serialized fields, server version/hashes, send/recv/framer/queue/decoder facts and wrapper correlation,64 records×4KiB plus fixed counters; no transport repair or SDK upgrade | Require final published-head CI and independent review before operator instructions. Future separately authorized scope: one normal completed scan, one natural candidate, one5s snapshot,25s acquisition/120s outer cap and bounded cleanup; no retries/history/news/Ross runtime |
+| 26 October single-quote receipt and capture-budget follow-up | Callback delivery naturally demonstrated; unusable quote and capture FAIL; offline repair under review | PR1127 reviewed `042ceed106ea3044089475ec203efdcebec44fae`; follow-up PR1128 | Detailed 26 October receipt below; archive SHA256 `467c3b135ff4dbecfec04a45a681148d1934e8344f52922791480fa1c88db2c4` | Scanner50, AZTR364, serialized socket68/68, LIVE callback/end; age103.076777s/missing bid/ask rejected;64 records/78 drops fail coverage; bounded target capture regression | Earlier timeout cause unresolved; original missing transport detail unrecoverable; exact changed-head CI/review required; no rerun authorization |
 | Canonical catalyst → Focus → setup → READ_ONLY intent | Unresolved / pending natural demonstration | No accepted commit supplies natural certification | Receipt9 and receipt10 distinct limits above | Strict freshness, relevance, quote and canonical qualification gates preserved; no fabricated prices or forced Focus | Entire positive natural progression remains unproven; missing news is not proof of no catalyst |
 | Holdings, ownership, policy and GUI draft | Preserved; blockers unresolved | Existing accepted history unchanged | Historical checkpoint sections | No holdings or trading changes; correction/retraction and financing-risk expiry undefined; retained dilution veto | Ownership blockers and GUI draft remain; PAPER_READY=NO |
 
@@ -2457,3 +2458,158 @@ separate authorization and cannot by itself prove catalyst-to-Focus progression.
 No new operator run or broker/provider acquisition during this implementation.
 Receipt9/receipt10 PASS,58 receipt9 reconsiderations, all distinct historical
 limits/failures and holdings remain preserved. PAPER_READY=NO.
+
+### 26 October 2026 — callback delivery succeeded; quote and capture rejected
+
+Diagnostic-only receipt at reviewed PR1127 head
+`042ceed106ea3044089475ec203efdcebec44fae`; uploaded archive SHA256
+`467c3b135ff4dbecfec04a45a681148d1934e8344f52922791480fa1c88db2c4`.
+Archive documents are evidence, not new execution instructions. No operator rerun
+or broker/provider acquisition is authorized by this follow-up.
+
+Independent archive/source comparison: before/after manifests are identical.
+All 2,668 manifest entries present in the exact Git tree match: 33 byte-exact,
+2,635 after the workstation's LF-to-CRLF checkout conversion; no other mismatch.
+Operator SHA256 is `f66bde5a8373de61e9cae7c25e44b0bbbff41ab510e323682ea476795265ae92`.
+The final result records source/operator PASS, zero place/modify/cancel mutation
+attempts, completed final broker audit with zero open orders, disconnect, empty
+quote maps and completed empty runtime inventory. These are receipt assertions,
+not a new workstation audit. Transport hooks restored and reader stopped.
+
+The normal scanner completed 50 rows (request363); natural rank0 AZTR was the
+single snapshot request364. Serialized stock quote schema verified, socket sent
+68/68 bytes once. Wrapper counters independently retained accepted LIVE type,
+7 price,4 size,1 timestamp and1 snapshot-end callbacks; snapshot completion is
+therefore supported despite incomplete transport detail. Requested DELAYED does
+not override returned LIVE. Age103.076777s, absent usable bid/ask, and
+`diagnostic_fields_available=false` preserve strict rejection. Callback delivery
+and snapshot completion do not make the quote usable or canonically qualified.
+
+Transport capture reached64 records, dropped78, and correctly reported
+`coverage_verified=false` and `absence_claims_valid=false`. Global request-1 and
+scanner363 error queue/decoder chatter consumed capacity before request364;
+retained detail ends at its first decoder entry. Aggregate verified serialization
+and socket counters survive, but later transport absence claims are unsupported.
+Operator finalization correctly set `transport_evidence_incomplete=true`, FAIL,
+and exit1. This successful delivery does not resolve receipt10's earlier repeated
+quote timeouts or demonstrate an SDK/upstream defect or repair.
+
+Prospective offline repair keeps64 records,4096 UTF-8 bytes each and existing
+privacy boundaries. Background detail has at most8 samples with explicit aggregate
+omissions; target stage records retain the first sample and saturating occurrence
+counts, explicitly omitting repeat detail. Dispatch arity/handler states remain
+separate. Eight slots are reserved for completion/end/cleanup. Coverage explicitly
+means the single target lifecycle with aggregate stages, not full global chronology;
+all global operational counters remain. Target overflow, oversize data, hook errors
+or unverified schema still invalidate coverage. No dropped target evidence is
+relabelled as complete. A second target fails coverage rather than extending scope.
+
+Offline regressions include a real SDK queue/decoder startup burst and full target
+price/size/timestamp/end lifecycle, final cleanup, cap overflow, privacy, ownership,
+late callbacks, timeout and strict freshness. Transport operations, waits/deadlines,
+ownership, quote authority and freshness policy are unchanged. Historical receipts,
+receipt9 PASS/58 reconsiderations, receipt10 terminal PASS, holdings, ownership
+blockers and GUI draft remain preserved. Recommendation: obtain exact changed-head
+review and CI; consider a separately authorized bounded observation only afterward.
+No merge or operator rerun is authorized here. PAPER_READY=NO;
+PAPER_READINESS_GATE=FAIL.
+
+### PR1128 Windows float-cache publication blocker — offline repair
+
+Continue from `a13cb2314f2e1827032d3a47a94e7c8fd7ca3156`. Preserve failed
+CI40347587519: Linux3085 passed/1 skipped; Windows3084 passed/1 failed/1 skipped
+in469.35s. `test_concurrent_provider_writes_preserve_all_discoveries` propagated
+PermissionError/WinError5 from `os.replace` at float_provider.py:280. The35-case
+Windows maintenance check passed; later cache/PowerShell/parser checks were skipped
+and the missing-artifact upload failed. Unchanged source never proved this harmless.
+
+The established production defect is an incomplete lock boundary. Original writer
+merge/read/temp-file operations were under the canonical per-path RLock, but lock
+lookup resolved the live cache leaf BEFORE acquiring that lock; post-write logging
+resolved it AFTER releasing the lock. CPython3.13.3 `os._getfinalpathname`, used by
+Windows `Path.resolve`, opens the leaf with CreateFileW desired-access0/share-mode0
+and releases the GIL around native work. That handle can deny another writer's
+atomic replacement despite correct per-path lock identity. Source reference:
+https://github.com/python/cpython/blob/v3.13.3/Modules/posixmodule.c
+(`os__getfinalpathname_impl`). This is a local concurrency repair, not an SDK repair.
+
+The failed fixture constructs all8 providers sequentially before submitting writes,
+uses one isolated temporary cache/database, observes every future and joins its
+ThreadPoolExecutor. No scanner or discovery worker is created by that test. The
+retained log shows SYM0 published, SYM1 publication failed, and the later6 writes
+completed. It does not capture native handle ownership at the instant of failure;
+no external handle/antivirus attribution is claimed. Controlled native Windows
+replay enlarges this exact lock-lookup resolution window using the same share-mode0
+handle, runs the exact failed-head module, and requires real PermissionError from
+unmocked replacement. The repaired control requires successful publication and
+closed handles. This establishes a reachable cause matching the receipt, not a
+reconstruction of its uncaptured scheduling.
+
+Additional production readers were audited: provider constructor/_load_cache;
+scanner bootstrap and same-cycle refresh; mock scanner constructor cache reader.
+They closed read_text handles, but did not synchronize them with publication.
+Worker registry cache-path resolution and scanner state/logging also resolved the
+live leaf outside the writer lock. All now use the shared cache I/O boundary.
+Canonical FloatProvider is the sole float JSON writer; its compatibility import,
+IBKR provider, Core and discovery worker delegate to it. PersistentReferenceCache
+uses a distinct reference_cache.json and is not a float-cache writer.
+
+The repair holds one process-local reentrant I/O gate before full canonical
+resolution and the canonical per-path lock through disk read/merge/temp write/
+close/atomic replace. Constructor reads, scanner/mock reads and cache metadata
+access participate; redundant provider log resolutions are removed. Relative,
+case-normalized and symlink aliases retain full canonical identity. No network
+request, SQLite operation or worker join runs inside that gate. Other cache paths'
+short local I/O is serialized too. Temp handles close before replace; readers close
+before releasing the gate; failed publication cleans its temp and propagates the
+error without updating memory/SQLite or fabricating a float. No retries, PermissionError
+suppression, non-atomic write or concurrency-test weakening. This remains an
+in-process protocol, not new cross-process or arbitrary external-handle ownership.
+External denial still fails closed.
+
+Verification includes the unchanged8-writer discovery-preservation test, overlapping
+provider/constructor/scanner/mock read-handle controls, publication-gate ownership,
+relative/dot/case aliases, one-attempt persistent denial, unchanged prior data and
+memory/database state and temp cleanup. Native controls use bounded event waits,
+release handles in finally blocks and join all owned futures before teardown.
+Windows CI checks the exact failed module against the repaired module before the
+full suite. Both full Linux/Windows suites and previously skipped offline cache,
+PowerShell exit/observation harness and PowerShell5.1 parser remain required;
+exact-head review and final CI receipts are recorded in draft PR1128. The failed
+receipt is retained even after prospective checks pass.
+
+PR1127 remains the draft parent; this repair continues draft PR1128. Capture64×4096,
+background/target omission counters, finalization reservation, scoped coverage and
+fail-closed coverage protections are unchanged from a13cb231. All historical
+receipts, holdings, ownership blockers and GUI draft remain. The earlier quote-timeout
+cause is unresolved. Recommended next operator action only AFTER review/CI and
+controlled integration: seek separate authorization for the existing one-scan,
+one-natural-candidate, one-snapshot diagnostic with the accepted source pin and
+original deadlines; do not rerun receipt10/Ross or acquire history/news. No operator
+step is executed or authorized by this repair. PAPER_READY=NO;
+PAPER_READINESS_GATE=FAIL.
+
+Float metadata follow-up: source9b680bf1484dafe2e25096223fb0f3c779a990e6
+has local3091 passed/3 skipped and CI40352375305 Linux3091 passed/3 skipped
+(224.11s); its native Windows exact-failed-head/repaired controls passed before
+the full suite. Final audit found the scanner's missing-symbol reason still used
+Path.exists outside the gate. Windows stat's slow fallback also uses share-mode0;
+this remaining metadata access now uses the guarded mtime helper. A regression
+fails on9b680bf1 at that exact unguarded access and passes with the fix, with no
+worker/acquisition. Final changed-head review/CI supersedes those implementation
+receipts; final results belong to PR1128, while40347587519 remains preserved.
+
+Changed-head CI40354478522 at42bd30fb exposed a separate test synchronization
+defect before the float controls: Windows maintenance34 passed/1 failed, IndexError
+in `test_failed_publication_is_not_reported_as_a_usable_result`; later checks
+were skipped and absent-artifact upload failed. The publication-failure counter
+is updated before telemetry/cleanup, while completed count and receipt append
+share a later condition-lock critical section. Waiting only for the early counter
+did not authorize indexing receipts. The test now holds that exact intermediate
+telemetry point with bounded events, proves counter1/completed0/receipts empty,
+then releases and waits for completed1 before all original failed-publication,
+no-evidence and unchanged-bytes assertions. Finally always releases and joins.
+This is a deterministic test-only correction, with no production news change,
+timeout increase, assertion removal, or speculative scheduling attribution. Failed
+CI40354478522 and original40347587519 remain receipts. The final changed head
+requires superseding independent review and all Linux/Windows/harness gates.

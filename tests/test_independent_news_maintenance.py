@@ -374,13 +374,32 @@ def test_failed_publication_is_not_reported_as_a_usable_result(store,monkeypatch
     store.write({'OLD':(fact('OLD'),)});original=store.cache_path.read_bytes()
     monkeypatch.setattr(owner_for(store.cache_path),'publish',lambda text:(_ for _ in ()).throw(OSError('controlled disk failure')))
     owner=NewsMaintenance(store=store,service_factory=factory(store,threading.Event(),[]),workers=1)
+    before_receipt, release = threading.Event(), threading.Event()
+    emit = owner._event
+    def held_event(kind, **facts):
+        if kind == 'LOOKUP_COMPLETE':
+            before_receipt.set()
+            assert release.wait(2), 'fixture receipt release missing'
+        return emit(kind, **facts)
+    monkeypatch.setattr(owner, '_event', held_event)
     try:
         owner.submit((NewsCandidate('GOOD'),),NewsRequest(),RetrievalPolicy())
-        until(lambda:owner.snapshot()['publication_failures']==1)
+        assert before_receipt.wait(2)
+        # Publication failure is visible before telemetry/cleanup and receipt
+        # finalization. Enlarge that real window instead of assuming simultaneity.
+        assert owner.snapshot()['publication_failures']==1
+        assert owner.receipts == [] and owner.snapshot()['completed']==0
+        assert owner.snapshot()['first_evidence_seconds'] is None
+        release.set()
+        # completed and receipt append share one condition-lock critical section.
+        until(lambda:owner.snapshot()['completed']==1)
+        assert owner.snapshot()['publication_failures']==1
         assert owner.snapshot()['first_evidence_seconds'] is None
         assert owner.receipts[0]['error']=='CanonicalPublicationFailed' and not owner.receipts[0]['published']
         assert store.cache_path.read_bytes()==original
-    finally:assert owner.close(2)
+    finally:
+        release.set()
+        assert owner.close(2)
 
 
 def test_cleanup_exception_stops_acquisition_and_cannot_certify_cleanup(store):

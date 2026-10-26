@@ -22,7 +22,8 @@ _COUNTERS = ('records_dropped', 'oversize', 'hook_errors', 'send_calls', 'send_r
              'decoder_return', 'decoder_exception', 'other_messages', 'sdk_logs_suppressed',
              'recv_full_chunks', 'recvmsg_empty', 'framing_buffer_max', 'queue_depth_max',
              'console_writes_suppressed', 'serialized_quotes_verified', 'unverified_quote_schema',
-             'quote_socket_calls', 'quote_send_requested', 'quote_send_returned', 'quote_send_exceptions')
+             'quote_socket_calls', 'quote_send_requested', 'quote_send_returned', 'quote_send_exceptions',
+             'background_records_omitted', 'repeated_details_omitted')
 _QUOTE = {1, 2, 4, 46, 57, 58}
 _INT = re.compile(rb'-?[0-9]{1,10}\Z')
 _SAFE = re.compile(r'[A-Za-z0-9 ._/-]{0,64}\Z')
@@ -62,6 +63,9 @@ class TransportDiagnostic:
         self.hashes = {}
         self.started = time.monotonic()
         self.quote_window = False
+        self.target_request = None
+        self.background_records = 0
+        self.aggregates = {}
         self.reader = None
         self.reader_stopped = True
         self.send_scope = threading.local()
@@ -78,10 +82,46 @@ class TransportDiagnostic:
                 if len(encoded) > 4096:
                     self.count('oversize')
                     return
-                if len(self.records) == 64:
+                # Startup/global traffic has aggregate counters but at most eight
+                # samples. The remaining 56 slots belong to the one target's
+                # lifecycle, including completion/cleanup. Never evict evidence.
+                target = (self.target_request is not None and
+                          (facts.get('request_id') == self.target_request or
+                           (self.quote_window and 'request_id' not in facts) or
+                           event in ('quote_window_start', 'quote_window_end')))
+                aggregate_events = {'socket_recv', 'recvmsg_return', 'frame_progress',
+                                    'queue_put', 'queue_get', 'decoder_entry', 'decoder_return'}
+                key = None
+                if target and event in aggregate_events:
+                    # Keep schema/dispatch failures separate from successful
+                    # observations. Values/byte lengths are first samples only.
+                    key = (event, facts.get('message_id'), facts.get('request_id'),
+                           facts.get('kind'), facts.get('complete'),
+                           facts.get('handler_kind'), facts.get('handler_known'),
+                           facts.get('arity_ok'))
+                    prior = self.aggregates.get(key)
+                    if prior is not None:
+                        prior['observations'] = min(2**63-1, prior['observations'] + 1)
+                        self.count('repeated_details_omitted')
+                        return
+                    value['observations'] = 1
+                    value['detail_policy'] = 'first_sample_only_all_occurrences_counted'
+                    encoded = json.dumps(value, ensure_ascii=True, allow_nan=False).encode()
+                if len(encoded) > 4096:
+                    self.count('oversize')
+                    return
+                if not target and (self.background_records >= 8 or len(self.records) >= 56):
+                    self.count('background_records_omitted')
+                    return
+                final_event = event in ('wrapper_completion', 'quote_window_end', 'wrapper_cleanup')
+                if len(self.records) == 64 or (target and not final_event and len(self.records) >= 56):
                     self.count('records_dropped')
                     return
                 self.records.append(value)
+                if not target:
+                    self.background_records += 1
+                if key is not None:
+                    self.aggregates[key] = value
         except BaseException:
             self.count('hook_errors')
 
@@ -285,6 +325,10 @@ class TransportDiagnostic:
                 allowed = ('kind', 'reason', 'outcome', 'requested_type',
                            'returned_type', 'snapshot', 'regulatory_snapshot', 'owner', 'tick_type',
                            'cancel_outcome', 'active_after', 'ticker_present_after', 'event_present_after')
+                if event == 'request' and owner.target_request is None:
+                    owner.target_request = req_id
+                elif event == 'request' and req_id != owner.target_request:
+                    owner.count('hook_errors')  # This capture supports one target only.
                 owner.record('wrapper_'+event, request_id=req_id, **{k: v for k, v in facts.items() if k in allowed})
                 if event == 'completion':
                     owner.record('quote_window_end', counters=dict(owner.counters))
@@ -332,7 +376,10 @@ class TransportDiagnostic:
             coverage = bool(self.installed and self.hashes and self.restored and self.reader_stopped
                             and not any(self.counters[k] for k in
                                 ('records_dropped', 'oversize', 'hook_errors', 'unverified_quote_schema')))
-            return {'records': list(self.records), 'counters': dict(self.counters),
+            return {'records': [dict(row) for row in self.records], 'counters': dict(self.counters),
+                    'coverage_scope': 'single_target_lifecycle_with_aggregate_stages',
+                    'detail_policy': 'background_max_8_samples_target_stages_first_sample_and_counts',
+                    'target_request_id': self.target_request,
                     'source_hashes': dict(self.hashes), 'reader_stopped': self.reader_stopped,
                     'hooks_restored': self.restored, 'hooks_installed_completely': self.installed,
                     'coverage_verified': coverage,

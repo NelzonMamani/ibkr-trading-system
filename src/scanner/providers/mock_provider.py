@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Optional
 
 from src.config.config_resolver import get_config
+from src.market_data.float_provider import read_float_cache_text
 from .base import IntradayStats, QuoteData, ScannerDataProvider
 
 
@@ -31,9 +32,7 @@ def _rng_for_symbol(symbol: str, seed: int) -> random.Random:
 
 def _load_float_cache(path: Path) -> dict:
     try:
-        if not path.exists():
-            return {}
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(read_float_cache_text(path))
         if isinstance(data, dict):
             return data
     except Exception:
