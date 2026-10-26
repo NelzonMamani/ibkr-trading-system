@@ -3203,3 +3203,84 @@ operator rerun, forced Focus/setup/intent, merge or trade. Only the four new off
 controls were run; prior CI/review receipts are carried forward, not rerun.
 
 `PAPER_READY=NO`; `PAPER_READINESS_GATE=FAIL`.
+
+### Primary-only diagnostic preparation (same scope; no acquisition executed)
+
+The preceding recommendation is now implemented by the isolated
+`scripts/diagnostics/ross_primary_feed_diagnostic.py` and Windows PowerShell5.1
+wrapper `scripts/diagnostics/Invoke-RossPrimaryFeedDiagnostic.ps1`. This extends
+this existing checkpoint; it is not a second acceptance checklist. Accepted
+production remains `f70edc3c5c368db561b95adc6c59b71cd82cfb28`; neither production
+acquisition code nor catalyst/selection/freshness rules changed.
+
+The caller requires explicit `--acquire` or `--replay`, an exact clean source
+commit, and a new output outside the checkout. One shared schedule covers the
+exact eight FAST_TRADING URLs for all four supplied identities. It delegates to
+the existing detailed fetch, owned lifecycle and RawFeedCapture; total8s,
+request cap5s clipped to remaining shared budget, six-hour lookback and512KiB
+per response remain. A caller-local guard forbids extra/repeated destinations,
+turns off HTTP redirects, clips actual transport timeouts and cancels streaming
+at the shared deadline. No Yahoo/query/extended route, fallback, retry, linked
+article fetch, broker instance/connection, scanner cycle, Focus selection,
+canonical store or prep publication is invoked. Reusing the existing catalyst
+policy facade imports its configuration/SDK/type dependencies; those imports
+are not broker construction or acquisition. Their configuration output is
+suppressed before the CLI output boundary.
+
+Cleanup is bounded10s. A separate supervisor kills and waits for the isolated
+worker after45s, including startup, acquisition, cleanup and report work; there
+is no retry. If workers do not stop, the caller does not read their raw captures
+or present success. Source identity is checked again before publication. A
+worker failure/timeout produces a sanitized failure-only ZIP with coverage false
+and source-after verification explicitly unestablished, never a valid report.
+
+Private `private/raw/` contains at most eight512KiB bodies (4MiB) and hashed
+manifests with the original evaluation/acquisition clock, response status,
+completeness and errors. The PowerShell wrapper restricts the new evidence root
+ACL to the executing identity before running Python. Never share this directory.
+Report/replay accepts only the fixed URL hashes/body names, matching lengths and
+SHA256, bounded manifests/bodies, a stopped lifecycle and identical capture/replay
+source identity; unexpected files, symlinks and altered clocks fail closed.
+
+The shareable ZIP has exactly `report.json` and `privacy.json`. Text samples reuse
+`retain_exclusion` sanitization-before-clipping and hashes: title512,
+summary1024, URL512, two samples per reason per feed, shared across issuers.
+Each sampled entry records all four issuer matching/classification decisions;
+there are at most six sample categories (date/title exclusions, unmatched and
+matched), not unbounded slots per issuer or arbitrary classifier reason. Counts
+cover all examined captured entries and explicitly disclose omitted samples,
+redaction, truncation and non-exhaustive sample coverage. Counts are entry
+observations, not deduplicated article counts or canonical evidence. Complete
+recognized HTTP200 bodies are replayed at their recorded evaluation clock using
+the existing timestamp, relevance and issuer-event policy helpers. No clocks,
+broker timestamps, article publication dates or classification rules are changed.
+Original in-budget completion/truncation and offline raw-body adjudicability are
+reported separately: a late complete body cannot validate acquisition coverage.
+HTTP errors, redirects, nonfeeds, missing captures, byte truncation, timeouts and
+unattempted routes remain explicit gaps. No raw error body enters the report.
+
+The report is sanitized and scanned using the existing account-privacy mechanism,
+then packaged from a fixed filename allowlist and the ZIP members are verified
+against the scanned files. This verifies that privacy mechanism's defined token
+scope; it is not a claim to detect all possible personal information in public
+article text. Raw XML is never a packaging input. Exit0 means complete diagnostic
+coverage only, exit2 partial coverage, exit1 failure; all retain
+DIAGNOSTIC_ONLY, PAPER_READY=NO and PAPER_READINESS_GATE=FAIL.
+
+Offline tests in `tests/test_ross_primary_feed_diagnostic.py` exercise synthetic
+responses only: exact/shared scope and no retries, actual timeout clipping,
+512KiB/4MiB bounds, blocked redirects, HTTP401/403, no-response failures,
+unattempted/late/truncated coverage, closed responses/stopped workers,
+recorded-clock replay, tamper rejection, bounded sanitized samples, fixed ZIP
+inventory, source pin/cleanliness, disjoint output and no operational writes,
+no live default, supervisor failure, and a fresh-process no-connection import
+control. Windows additionally parses the operator wrapper with PowerShell5.1
+without executing it. Final exact-head review/changed-head CI receipts are pinned
+on the accompanying draft PR; prior suites and failed receipts remain above.
+
+The one next action remains a separately authorized execution of this pinned
+primary-only diagnostic, then offline adjudication of its shareable report.
+Neither this preparation nor a diagnostic exit0 establishes a natural qualifying
+catalyst, Focus, setup, intent or readiness. No unchanged natural observation is
+requested. All five unmatched positions and historical timeout/negative-age
+cause limits remain unchanged. No acquisition was executed in this preparation.
