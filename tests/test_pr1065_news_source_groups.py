@@ -23,23 +23,21 @@ EXPECTED_FAST_TRADING = (
     "https://www.globenewswire.com/RssFeed?Category=Finance",
     "https://www.globenewswire.com/RssFeed/industry/9000-Technology/feedTitle/GlobeNewswire%20-%20Industry%20News%20on%20Technology",
     "https://www.reuters.com/markets/rss",
-    "https://www.marketwatch.com/rss/topstories",
+    "https://www.investing.com/rss/news.rss",
     "https://feeds.businessinsider.com/custom/all",
-    "https://seekingalpha.com/feed",
+    "https://www.forbes.com/business/feed2",
     "http://rss.cnn.com/rss/edition_business.rss",
 )
 
 EXPECTED_PREP_EXTENDED = (
     "https://feeds.a.dj.com/rss/RSSMarketsMain.xml",
     "https://fortune.com/rss",
-    "https://www.forbes.com/business/feed2",
     "https://www.forbes.com/finance/feed2",
     "https://feeds.bbci.co.uk/news/rss.xml",
     "https://www.bbc.com/news/business/rss.xml",
     "https://feeds.skynews.com/feeds/rss/world.xml",
     "https://www.france24.com/en/rss",
     "https://markets.businessinsider.com/rss",
-    "https://www.investing.com/rss/news.rss",
     "https://www.marketbeat.com/feed",
     "https://techcrunch.com/rss",
     "https://venturebeat.com/feed",
@@ -56,7 +54,7 @@ EXPECTED_MACRO_LONG_HORIZON = (
 )
 
 
-def test_pr1065_active_source_group_memberships_and_order_are_unchanged() -> None:
+def test_active_source_groups_include_verified_one_for_one_substitutions() -> None:
     assert get_source_group_urls("FAST_TRADING") == EXPECTED_FAST_TRADING
     assert get_source_group_urls("PREP_EXTENDED") == EXPECTED_PREP_EXTENDED
     assert get_source_group_urls("MACRO_LONG_HORIZON") == EXPECTED_MACRO_LONG_HORIZON

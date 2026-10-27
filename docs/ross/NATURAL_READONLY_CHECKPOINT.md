@@ -3643,3 +3643,348 @@ provenance, and prove no network call/cache rewrite. Both pass. The wording abov
 now states that distinction; no production behavior was changed to make old
 coverage look current. Final exact-head delta review/CI supersedes this initial
 review while preserving its finding and the earlier3286/3 local suite receipt.
+
+## Accepted PR1133 merge and explicit two-route verification preparation
+
+GitHub and Git objects confirm PR1133 merged26October2026 at22:38:31UTC
+(22:38:31 Europe/London): accepted main
+`e5c5ad60a99d0b2128a05ce5d3f418bf2b7e9a98`, parents
+`f70edc3c5c368db561b95adc6c59b71cd82cfb28` and
+`b1c68fc135902abac2c420bb5f2770785e34b4f8`, tree
+`a66eb7cfedced3b48d080e7075757c2ee7e5dc05`. This equals PR1133's final
+independently reviewed tree. Carry forward review5659927932 and successful
+changed-head CI40412092398 (Linux3288passed/3skipped; Windows3290passed/1skipped,
+including maintenance/native-cache/cache/PowerShell checks). No accepted suite
+or observation was repeated merely because the merge SHA changed.
+
+PR1132 remains unmerged at reviewed
+`e10089a5b49367b59995cced659a9bcb1fb610ef`; its fixed eight-route implementation,
+old production pin, operator block and partial receipt are untouched. None is
+silently retargeted or invoked here. The new preparation is based on accepted
+PR1133 main above and does not depend on merging PR1132.
+
+`scripts/diagnostics/rss_feed_diagnostic.py` extracts the previously reviewed
+PR1132 diagnostic orchestration/report/replay/privacy components into one reusable
+implementation with an explicit immutable caller profile. It delegates acquisition,
+capture, date parsing, feed recognition, matching, event assessment and privacy
+to the same existing src owners; no alternate retrieval engine, matcher, cache,
+publication authority or second privacy implementation is introduced. The old
+standalone eight-route caller is not copied into this branch. Historical replay
+remains bound to its original source/schema; future reuse of the common core
+must declare a separate explicit scope rather than mutate the reviewed caller.
+
+The separately named `scripts/diagnostics/verify_two_route_provider.py` declares
+only `https://www.investing.com/rss/news.rss` and
+`https://www.forbes.com/business/feed2`, accepted production basee5c5ad60 and
+schema `ross.two_route_provider_verification.v1`. Four established identities are
+AZTR/AZITRA INC, RENT/RENT THE RUNWAY INC-A, GCTK/GLUCOTRACK INC and
+SPRC/SCISPARC LTD. There is no CLI URL/budget/identity override or issuer-query,
+Yahoo, extended/fallback discovery. One shared batch schedules two distinct
+requests total, not two per issuer. At most two workers can issue HTTP because
+there are exactly two source URLs; a once-per-URL guard rejects extras/repeats.
+Budget8s, request cap5s clipped to remaining,512KiB/body and1MiB total,
+six-hour original publication window, no redirects/retries,10s owned cleanup and
+45s isolated supervisor remain fixed. Timeout/unattempted/failed/truncated work is
+reported, not retried or relabelled valid. Zero operational cache/prep publication,
+broker connection, scanner/Focus execution or source activation is performed.
+The internal detailed-processing mode is not an issuer-query HTTP request.
+
+Private captures have source/schema/profile/URL/identity/clock/byte/hash/inventory
+checks before replay; eight-route or old-pin captures cannot silently become
+two-route evidence. Exact caller head/tree and accepted-base ancestry are checked,
+with a clean checkout including untracked files and source recheck before report
+publication. Output must be new and outside source; even internal worker mode
+rejects nonempty/source output. Owned workers must stop before raw inspection.
+An incomplete worker yields failure-only diagnostics, not invented cleanup or
+coverage success. Raw XML remains private and never enters the shareable ZIP.
+
+The shared report has distinct access/parsing statuses, freshness and per-issuer
+matching/qualification counts/reasons, original times, bounded sanitized samples,
+hashes, explicit omissions/truncation/redaction and separate original acquisition
+versus offline replay scope. Replay delegates RSS/Atom recognition/recovery to
+PR1133's accepted shared validator, rather than maintaining a second acceptance
+rule. Recovered/unrecognized entries are explicitly unassessed and never receive
+qualification decisions. Recognized empty feeds can complete diagnostic coverage
+without providing any issuer event. Late complete raw bytes do not establish
+in-budget completion. All classification is diagnostic-only, never permission
+to select/trade. Only scanned `report.json` and `privacy.json` are added to
+`ross-two-route-provider-shareable.zip`; ZIP contents are checked against the
+privacy-verified files. Existing two-samples-per-reason, title512/summary1024/URL512
+limits remain shared across issuers. Counts are parsed entry observations, not
+unique canonical articles or exhaustive issuer coverage. Privacy verification is
+the existing defined account-token mechanism, not a universal public-text PII claim.
+
+`scripts/diagnostics/Invoke-TwoRouteProviderVerification.ps1` provides the separate
+PowerShell5.1 entry point, exact source/tree checks, new external path checks
+(including canonical junction parents), and restricted user ACL before Python can
+write raw data. Retained local paths are:
+`C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system` and verified
+Python3.13.3 `C:\tmp\pr1091-cert-env-20260923\Scripts\python.exe`, with `C:\tmp`
+as the short-path base. The final delivery pins the reviewed preparation head/tree,
+fetches Git objects, creates a new detached worktree, verifies accepted maine5c5ad60,
+and invokes this new wrapper using those actual paths. It is prepared only;
+if accepted main advances, stop for explicit verification/repinning. Never substitute
+PR1132's f70 pin, invoke its eight-route caller or reuse an evidence directory.
+
+New offline controls use synthetic Responses only and cover two shared requests/
+maximum concurrency2, frozen profile/new accepted base,8s/5s limits,1MiB total,
+redirect/HTTP failures, recognized empty and populated Atom/RSS, parser recovery,
+missing/late/truncated evidence, cleanup, no operational writes, source/worker
+output guards, schema/hash/time/inventory rejection, original-clock replay without
+HTTP, bounded sanitized samples, fixed ZIP inventory and supervised failure.
+Windows additionally parses the5.1 wrapper and verifies source-nested rejection
+before directory creation without invoking acquisition. New synthetic positive
+event classification is explicitly diagnostic, not natural Focus/acceptance.
+Final exact-head independent review and appropriate changed-head CI receipts are
+pinned on the accompanying draft PR. No acquisition is executed in preparation.
+
+Remaining gate: after separate authorization, one two-route batch can determine
+direct no-follow access, accepted parsing, actual six-hour freshness and bounded
+issuer-event evidence for these historical candidates. HTTP200 or exit0 alone
+cannot establish issuer coverage, qualify a natural candidate or activate a feed.
+Exit2 remains useful partial evidence; do not repeat to seek a catalyst or exit0.
+The eight-total deduplicated production candidate plan remains conditional and
+separate from this two-route verification; no source membership/order changed.
+Preserve all historical/failed receipts, the original primary diagnostic exit2,
+unresolved earlier timeout/negative-age causes, GUI draft and five unmatched
+position ownership/entry blockers. No holdings action, automatic merge, source
+activation, natural rerun or trading is authorized/performed here.
+`PAPER_READY=NO`; `PAPER_READINESS_GATE=FAIL`.
+
+Local changed-head preparation validation:35 new offline controls passed; full
+suite3323passed/3skipped in203.89s. Four full-suite-generated governance/audit
+outputs were preserved as a scratch diff then restored to original committed
+bytes; they are not changes in this preparation. Final exact-head review and
+Linux/Windows CI receipts are pinned on the accompanying PR, with no operator
+acquisition or accepted observation repeated.
+
+
+## Completed PR1134 two-route receipt and one-for-one production proposal
+
+The supplied `ross-two-route-provider-shareable.zip` has SHA256
+`4e89b59a788cb8f9fa598428ad2b7889f4d6e48b4ecf997bcb3c22d22352b190`,
+independently recomputed. Its exact inventory is `report.json` and `privacy.json`;
+no raw XML is included. Capture and analysis source agree on reviewed PR1134 head
+`85eaa1dc3eb6886fc3d20125c85c549c786558a5`, tree
+`388e42b07ee1357b7d3c30b3e4f769ce9b98a6e4`, production base
+`e5c5ad60a99d0b2128a05ce5d3f418bf2b7e9a98`. Carry forward independent
+review5660296620 and successful CI40417352077 (Linux3323passed/3skipped,
+Windows3327passed/1skipped including cache/PowerShell gates). PR1134 remains a
+separate diagnostic preparation; this production proposal branches directly from
+accepted maine5c5ad60 and does not merge its caller or PR1132. PR1132's original
+fixed eight-route implementation, old pin and exit2 receipt remain unchanged.
+
+At recorded evaluation clock26October2026 23:28:56.506932UTC, exactly two shared
+requests completed with5s caps inside8s: Investing HTTP200, recognized non-bozo
+feed,10/10 current entries; Forbes HTTP200, recognized non-bozo feed,25/25 current.
+No future/stale/unknown publication dates, truncation or acquisition error are
+reported. The report records zero issuer matches and zero qualifying entries for
+each of AZTR/RENT/GCTK/SPRC: every issuer has10+25 `issuer_match_unverified`
+rejections. Counts are entry observations, not unique articles or an exhaustive
+external issuer-news search. Only two sanitized samples per reason/feed are
+shared (8 and23 samples omitted); raw bodies remain private and cannot be
+independently replayed from this ZIP. Source, count, bounds and cleanup assertions
+were independently checked against the reviewed caller's report/exit logic;
+this is receipt verification, not a new acquisition or invented full-body replay.
+
+Preserve operator-reported **exit0 / complete diagnostic coverage**. The JSON
+has coverage_complete=true and is consistent with the reviewed caller's exit0
+branch; it does not itself contain an outer terminal log. Both responses closed,
+2/2 workers completed, none alive/unfinished, cleanup_complete=true with zero
+response-cleanup failures. Private raw total55360bytes (4804+50556) is below
+1MiB and both512KiB caps. Source_unchanged=true; no_operational_publication=true.
+The existing privacy scanner independently passed the two extracted shareable
+files with zero account-token occurrences, matching privacy.json; this defined
+scan is not a universal PII guarantee. No acquisition was executed during ingest.
+
+### Prepared fixed-feed substitutions and canonical ownership
+
+In `src/news/source_groups.py`, keep FAST_TRADING at eight ordered slots and
+replace only slot5 MarketWatch with
+`https://www.investing.com/rss/news.rss`, and slot7 SeekingAlpha with
+`https://www.forbes.com/business/feed2` (one-based numbering). All other FAST
+routes/order remain. Remove precisely these promoted URLs from PREP_EXTENDED,
+retaining the other11 in their previous order. They now have one source-group
+membership, not two opportunities to fetch or two publication owners. The existing
+adapter's cross-tier URL deduplication remains a second guard, including for
+injected/legacy overlapping memberships; neither promoted URL is fetched again
+by fallback. Macro/catalogue/research membership and issuer-query construction
+are unchanged; no diagnostic issuer identity enters production configuration.
+
+This improves directly observed source health over MarketWatch301/SeekingAlpha301
+non-feed; it establishes neither future availability nor target-issuer/catalyst
+coverage. GlobeNewswire403, Reuters401, CNN stale2017 and Benzinga's observed
+staleness remain explicit historical failures, not evidence of no issuer event.
+Strict no-follow/feed validation, partial/error reporting, six-hour original
+publication, mandatory attributed catalyst and canonical evidence writer remain.
+Total8s, tier5.2s/2.8s at existing .35 reserve,5s clipped request cap, four-worker
+bound, capture/privacy limits, fallback eligibility and cleanup are unchanged.
+Changing source membership automatically changes existing acquisition-profile
+fingerprints; no new invalidation implementation or cache deletion is needed.
+Offline controls seed both successful empty and failed old-profile acquisitions,
+then prove cache-only use returns coverage_unknown without network/cache rewrite,
+preserves prior receipt provenance, and bounded refresh uses new routes once;
+subsequent compatible empty/failure cadence is retained. Stored article provenance
+is not permission to claim current coverage or select/trade.
+
+### Combined accounting mismatch: separate decision remains required
+
+Source inspection and deterministic synthetic empty-feed execution confirm that
+current Ross operational scheduling prepends up to4 dynamically selected Google
+issuer queries to8 fixed FAST feeds: **up to12 unique primary URLs**, not8 total.
+If primary coverage is complete, the provider available and explicitly unresolved
+symbols remain, up to11 disjoint PREP_EXTENDED routes can run inside the same
+stage deadline: **up to23 unique routes** for four valid selected queries. Incomplete
+primary coverage defers fallback explicitly. Before this proposal the equivalent
+maximum was4+8+13=25. The substitution adds no requests; removing promoted fallback
+memberships reduces this existing maximum by2. Query-disabled combined groups
+now have19 routes instead of21. These are eligible maxima, not a claim all calls
+will execute before the deadline. The eight-body/4MiB diagnostic capture ceiling
+is not a production eight-request scheduler; do not confuse byte/capture limits,
+policy max_sources metadata or wall-clock budgets with a combined request ceiling.
+
+The earlier eight-total *candidate plan* instead described4 selected queries plus
+BusinessInsider, Benzinga, Investing and Forbes, with no extra fallback requests.
+It has NOT been activated here. Implementing it would also remove/defer the two
+GlobeNewswire routes, Reuters and CNN and impose combined primary/fallback
+accounting. That is a broader source-profile/coverage decision, not authority
+implied by two one-for-one substitutions. This proposal preserves current
+scheduler/budgets and documents the mismatch for explicit decision; it must not
+be represented as enforcing the proposed eight-total plan. No speculative source
+fanout, second fetch pool, cache writer or publication authority is added.
+
+Offline validation covers exact configuration/compatibility exports, unchanged
+other routes, unique shared primary/fallback fetches in query-enabled/disabled
+paths, injected cross-tier duplicates, actual combined eligible counts, unchanged
+budgets and old-profile positive/negative invalidation/cadence. Test transport
+returns explicitly synthetic recognized empty feeds; external sockets are blocked.
+Independent exact-head review and changed-head Linux/Windows CI receipts belong
+on the accompanying draft production PR. Completed diagnostic/accepted suites are
+not repeated; these controls validate the changed production membership.
+
+### Next natural acceptance boundary and information gain
+
+First decide whether to integrate only these two health substitutions under the
+existing12-primary/23-combined maximum, or separately authorize the documented
+8-total candidate profile and its combined/fallback accounting. Do not silently
+mix those profiles in an operator run. After accepted integration/profile review,
+the next natural Ross acceptance action is one separately authorized900s
+READ_ONLY observation using the existing bounded harness at its accepted pin,
+with actual naturally selected issuer identities and unchanged safety settings.
+Its defined information gain is production integration evidence: changed-profile
+cache invalidation, new fixed feeds actually scheduled once with truthful coverage,
+canonical qualified evidence and normal cached reconsideration for natural
+Watchlist issuers, and recorded Focus rejection/progression reasons. It is not
+another provider diagnostic or a request to obtain matches by repetition. No
+Focus/setup/intent may be forced; without a qualifying event, downstream acceptance
+remains unestablished and the bounded result must say so. The pending profile
+decision precedes this observation; no operator block is repinned/executed here.
+
+All earlier failed/partial receipts, natural900s PASS/exit0 without downstream
+progression, PR1134 diagnostic exit0, unresolved historical timeout/negative-age
+causes, GUI draft and five unmatched positions remain preserved. Positions are
+separate ownership/entry blockers; no adoption, liquidation or cancellation.
+No acquisition, automatic merge, source activation on the workstation or trading
+was performed. `PAPER_READY=NO`; `PAPER_READINESS_GATE=FAIL`.
+
+Changed-membership offline validation:144 focused source-group/adapter/RSS/
+Ross-policy/lifecycle controls passed (4 existing parser deprecation warnings),
+plus10 budget/runtime reliability controls passed. Seven new synthetic controls
+exercise the substituted membership, production accounting and cache transition.
+No acquisition or natural observation was executed.
+
+Preserve initial changed-head CI40420939181 at5177c23c: Linux reported6failed,
+3289passed/3skipped. All six failures were exact research/replay/fallback count
+assertions still including the two former PREP_EXTENDED memberships (27vs25,
+23vs21,25vs23 and22vs20). Their source-set cause is independently established
+by the promoted two URLs and the new production accounting controls; this is not
+an unchanged-head retry or an assertion that every unchanged failure is harmless.
+Update only those exact expectations and strengthen them with expected URL-union
+and no-duplicate assertions. Timeout/partial coverage, raw hashing/replay, canonical
+store privacy, peer-change refresh, fallback requirement and catalyst-rejection
+assertions remain. The affected research/bottleneck/new-control files pass100
+offline cases after this correction; no further production change was needed.
+Final exact-head review/changed-head CI supersedes, but does not erase, this run.
+
+Preserve second changed-head CI40421578276 at
+`acf1912e551fe6354b51b98a00ff4e4ac662553f`: Linux3295passed/3skipped;
+Windows3296passed/1skipped plus1failure in the terminal-integrity parameter
+`overrides2-trigger_ready_without_intent`. The captured Windows path explicitly
+rejects both synthetic AAA/BBB quotes as MD_STALE, empties Focus and never invokes
+the intended malformed-terminal assertion. This is not evidence that production
+accepted that malformed terminal. The fixture created quotes before constructing
+the orchestrator, then handed those same quotes to its synthetic scanner later.
+An offline clock control advances only the quote clock by configured maximum-age
+plus1s during construction: before repair it deterministically reproduces both
+MD_STALE rejections and the identical terminal-test failure. This establishes the
+local fixture ordering defect; it does not establish the exact elapsed-time or
+workstation-clock contribution in the Windows receipt, or resolve historical
+negative-age/quote-timeout causes.
+
+Narrow test-only correction: this terminal-integrity test now supplies a scanner
+payload factory that creates its explicit synthetic broker quotes at scanner
+handoff, after construction. All18 malformed-terminal cases retain their strict
+return/error/pipeline-break assertions. The new slow-constructor regression then
+reaches the intended terminal rejection without wall-clock sleep. No production
+quote timestamp is rewritten, no stale row is refreshed in production, and no
+freshness limit, ownership, READ_ONLY or terminal-admission rule changes. Windows
+cache/PowerShell gates skipped after the failed full-suite step remain required
+on the new changed head; do not count the earlier partial CI as complete success.
+
+Local validation qualification, retained rather than hidden: an initial full
+local invocation onacf1912e omitted the existing `tests/offline` PYTHONPATH startup
+guard. It reported3295passed/3skipped plus1display-test teardown error,
+`Float discovery worker shutdown incomplete`; its log includes attempted Yahoo
+access/401 responses from a MOCK scanner display fixture's background float worker.
+That invocation was not a valid offline pass and the provider-access attempt was
+outside the authorized task. The existing CI configuration already enables
+`tests/offline/sitecustomize.py`, including its Python socket audit and native
+curl_cffi transfer blocks; no production or display-test cleanup rule was changed
+to conceal the mistake. With that existing guard enabled,3display controls passed
+and the full local suite passed3295/3 in199.80s. Preserve PR validation
+receipts5660604017/5660626674 and local logs under `/workspace/work/`;
+full-suite-generated governance/audit diffs were preserved then restored to
+original committed bytes. This qualification supersedes any blanket no-acquisition
+wording for implementation validation, not the archived diagnostic's no-operational-
+publication evidence. No operator observation, broker acquisition, feed rollout,
+holdings action or trading occurred. Subsequent validation uses the hard offline
+startup guard; all operator/cache state in tests remains fixture-isolated.
+
+Preserve third changed-head CI40423268209 at
+`5abdccfe47d131c01a54a7cf39f7c5a3514d7e21`: Linux3296passed/3skipped;
+Windows3296passed/1skipped plus2failures in
+`test_pr1082_missing_mapping_terminal_records_internal_fault_without_halting`
+and `test_pr1082_mixed_output_rejects_trigger_ready_terminal_without_intent`.
+The mixed-output log explicitly shows AAA/BBB MD_STALE and no Focus; the mapping
+assertion's captured-output representation shows no Focus but is truncated, so
+its precise Windows rejection cause cannot be independently recovered from that
+representation. The previous single-test correction was too narrow for this shared
+fixture pattern. New guarded clock controls advance maximum-age+1s during
+construction and deterministically reproduce both failures before the shared fix.
+This establishes the shared synthetic acquisition-order defect offline without
+claiming the exact Windows latency/clock history is proved for either occurrence.
+
+The correction now belongs to the test harness's synthetic scanner boundary:
+`_row` describes a planned row with a one-shot quote factory, and the shared
+scanner callback acquires its quote only on that row's first handoff. Alias lists
+of the same row consume the factory once. It never refreshes a previously
+acquired/cached quote; newly scanned data requires a newly planned row. An
+explicitly supplied factory can return stale/future/untrusted facts unchanged;
+`quote_factory=None` represents no acquisition and preserves explicitly supplied
+facts, including missing evidence. The existing cached-Focus freshness control
+opts out of synthetic acquisition and supplies its own immutable broker fact;
+all its prior stale rejection, no-rescan and unchanged-evidence assertions remain.
+No production factory, source timestamp substitution, quote clamp, age allowance,
+Focus bypass or canonical writer is introduced.
+
+Seven additional controls cover both reported terminal paths after delayed
+construction, one-shot acquisition across aliased row lists, cached expiry without
+refresh, and preservation/rejection of future/stale/untrusted/missing facts.
+All344 guarded related cases passed in6.82s, including every importing harness
+consumer plus the production future-quote admission controls. The earlier narrow
+terminal callback and its regression remain valid. All three failed CI receipts
+and the invalid unguarded local attempt remain visible; final exact-head review
+and CI supersede them only after the complete Linux/Windows/cache/PowerShell
+checks pass. Production remains limited to the two original feed substitutions
+and removal of their duplicate extended memberships. No further acquisition,
+operator observation, feed rollout, holdings action or trading was performed.
