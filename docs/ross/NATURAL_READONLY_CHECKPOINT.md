@@ -3988,3 +3988,110 @@ and CI supersede them only after the complete Linux/Windows/cache/PowerShell
 checks pass. Production remains limited to the two original feed substitutions
 and removal of their duplicate extended memberships. No further acquisition,
 operator observation, feed rollout, holdings action or trading was performed.
+
+## PR1135 accepted merge and retained-profile 900-second observation preparation
+
+GitHub confirms PR1135 merged27October2026 at12:52:04 Europe/London (UTC).
+Accepted main is `49ba1e8eafcd728476d6d9bd495663b518c24446`, parents
+`e5c5ad60a99d0b2128a05ce5d3f418bf2b7e9a98` and
+`61f4c5dc8f3fe0c1cb6797c23b780f6e758139a7`, tree
+`c7aaff126038f2fe374bf07ed4a33e9c69adfee8`. The complete tree equals the
+reviewed final PR1135 tree, including the existing acceptance harness. Carry
+forward independent review5660762458 and successful CI40424827117; no completed
+full suite or observation is repeated for a merge-SHA-only change.
+
+**Coordination decision:** retain the existing bounded production profile for
+one next natural900-second Ross READ_ONLY observation. Do not activate the
+proposed eight-total profile, change source membership, scheduling, refresh
+cadence, tier allocations, request caps, pool/concurrency limits or ownership.
+The existing four-query-batch maximum remains12 eligible primary URLs and23
+combined eligible URLs; these are per-batch eligible counts, not guaranteed
+attempts, a whole-run request ceiling or a count of HTTP responses. Maintenance
+can acquire one issuer at a time and share fixed responses across issuers/waves.
+The existing8s stage budget and5s clipped request cap remain, with the existing
+tier reserve/default5.2s/2.8s and fallback eligibility. Runtime900s is distinct
+from each acquisition budget. No four diagnostic issuers are forced into a run.
+
+The literal operator pin is **49ba1e8eafcd728476d6d9bd495663b518c24446** and its
+accepted tree above. This separate documentation-only preparation commit records
+new merge/coordination/evidence-review information; it is NOT a replacement
+operator pin and is not needed in the observation checkout. The operator block
+reads the accepted preparation-helper blob from Git, creates a fresh detached
+accepted-pin worktree and verifies its head/tree/cleanliness before invoking the
+unchanged runner. It never runs this documentation branch or retargets to latest
+main. If fetched main has advanced, stop for coordination rather than substitute
+a SHA. The original PyCharm checkout, GUI draft, historical roots and evidence
+are preserved. This branch is published separately without launching a new PR's
+automatic full-suite CI solely for documentation; main is not changed here.
+
+Compatibility was checked by byte-identical Git tree/diff against reviewed61f4c5dc,
+inspection of the existing900s duration propagation and literal ExpectedCommit
+checks, and static Python AST parsing only (no operator imports or execution).
+The unchanged run_natural_readonly_observation.ps1 passes900 to all phases and
+sets the outer observation budget to1260s. Existing preflight90s, owned stop30s,
+package/seal90s budgets and exit/deadline propagation remain. Use Windows
+PowerShell5.1 Desktop and the retained verified Python3.13.3 environment at
+`C:\tmp\pr1091-cert-env-20260923\Scripts\python.exe`, source Git checkout
+`C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system`, base `C:\tmp`.
+Run only in the normal RTH window with the documented TWS Read-Only API session
+on127.0.0.1:7497 and dedicated client71 available. No force-session, candidate,
+Focus/setup/trigger/intent, validation bypass or trading override is introduced.
+Pre-existing runtime/session failures must stop the harness, not trigger a broad
+kill, automatic retry or changes to broker positions/orders.
+
+### Required retained evidence and counting limits
+
+All paths below are under the new root's `e` directory unless stated otherwise.
+Keep the complete privacy-verified sealed ZIP; do not extract selected successes
+or share the private root/state directory instead.
+
+| Acceptance outcome | Evidence to review separately |
+| --- | --- |
+| Terminal safety | phase-status.json and each *.process.json OS exit/deadline receipt; operator-summary.json; terminal/terminal_evidence.json, supervisor_shutdown.json, process_binding.json, runtime_inventory.json; independent-final-runtime-inventory.json, independent-mutation-validation.json, source-before/after.json, shareable-evidence-scan.json; final broker audit in terminal evidence plus terminal/audit stdout/stderr. Require owned graceful stop, both runtime/audit zero mutation attempts, complete final audit/disconnect, empty completed runtime inventories, unchanged source/operator state and sealed privacy pass. Zero open orders never means zero positions. |
+| Genuine scans and Watchlist continuity | terminal/stdout.log and stderr.log: each actual scanner request ID, matching scannerDataEnd/completion status and raw row count; TopN refresh/cadence and WATCHLIST/FOCUS authority/handoff logs.Verify the actual observation duration against the900s preflight; terminal PASS alone does not prove a full900s observation.900s targets the normal300s discovery cadence; measure actual completions rather than assume three50-row scans or150 fresh enrichments. |
+| Actual news coverage | terminal logs' [NEWS][RETRIEVAL_DIAGNOSTICS], [NEWS][MAINTENANCE] PUBLISH/RESULT/PRIORITY snapshots; cache-exports/news.json news_intelligence.symbols[SYM].last_retrieval: acquisition_profile and coverage.diagnostics.source_diagnostics (rich rows), per-issuer associations and provider details. Review eligible memberships/selected queries separately from scheduled/attempted/completed sources, HTTP/parser/timeout/unknown failures, processing truncation and fallback deferral. |
+| Canonical catalyst qualification | cache-exports/news.json actual evidence/provenance and per-symbol acquisition status; qualification decisions where retained, [ROSS][CATALYST][REVALIDATE], [ROSS][REASSESS] source=CANONICAL_CACHE and Focus rejection reasons in terminal logs. PUBLISH with publication_scope=canonical_result_marker and evidence_count0 is result-marker persistence, not an article or qualified event. Incomplete coverage is not proof no issuer event existed. |
+| Focus/setup/trigger/decision/risk/READ_ONLY intent | terminal logs' actual Focus evaluations, pattern/setup/trigger terminal reasons, TRADE_PATH/PIPELINE stages, decision/risk reason codes and intent facts. Official Focus differs from diagnostic Watchlist evaluation. Do not infer a full RiskEngine pass from the active-manager risk marker or infer natural progression from a synthetic control. No natural qualifying event leaves downstream acceptance unestablished. |
+
+In the rich retained acquisition diagnostics, distinguish
+unique_source_urls_scheduled_count/unique_source_urls_attempted_count,
+duplicate_source_fetches_avoided_count/cross_tier_duplicate_source_urls_avoided,
+fast_sources_attempted_count/extended_sources_attempted_count,
+tier_budget_seconds_by_tier,
+tier_elapsed_seconds_by_tier/tier_budget_exhausted_by_tier,
+sources_skipped_due_to_budget_count, primary_source_coverage_complete,
+stage_deadline_exhausted and fallback_skipped_reason. The rich rows are in
+last_retrieval.coverage.diagnostics.source_diagnostics; the projected
+coverage.source_diagnostics and console view omit some measurements. Per-source
+transport_cache_hit distinguishes shared-payload reuse; cache/cadence hit symbols,
+provider_invoked/refresh_allowed and [ROSS][REASSESS] distinguish canonical reuse.
+Maintenance feed_requests counts pool loader attempts and feed_reuse counts shared
+cache hits; use scoped cumulative deltas, not a sum of per-issuer source rows.
+An attempted=true row can consume a cached HTTP response and is not proof of a
+new wire request. Pool counters cover that owner, not an exhaustive audit of all
+runtime HTTP. Unknown transport measurements stay unknown. Console URL
+sanitization strips query values, so distinct Google queries collapse to one
+printed base path; use retained issuer profiles/associations rather than counting
+unique console strings. The cache export preserves latest per-issuer retrievals,
+not every earlier rich batch snapshot. Where the retained logs/export cannot
+recover historical per-route facts, explicitly report that gap; do not enable
+extra raw capture, add requests or claim exhaustive wire coverage.
+
+The harness uses fresh isolated caches/state. This observation can demonstrate
+within-run canonical/feed reuse and new fixed-feed routing; it does not naturally
+reconstruct an old-profile cache transition. That invalidation remains established
+by PR1135's offline controls. Information gain is integration under natural issuer
+selection: actual new-feed attempts/reuse/failures, truthful coverage, canonical
+qualified evidence and normal cached reconsideration, plus actual downstream
+rejections/progression. It is not another provider diagnostic seeking matches.
+
+Five unmatched positions remain visible as a separate ownership/entry blocker.
+Do not adopt, liquidate, cancel or suppress them. Mandatory attributed catalyst,
+strict future/stale/unknown quote rejection, original news publication freshness,
+READ_ONLY execution/translation/probe/fallback protections, canonical writer,
+mutation instrumentation, final audit, shutdown, source/operator-state and privacy
+checks remain untouched. No acquisition, operator preflight, runtime observation,
+merge, holdings action or trading is executed in this preparation. Preserve all
+historical PASS/exit0, DIAGNOSTIC_ONLY/exit2, failed CI and invalid local-validation
+receipts, and the unresolved earlier timeout/negative-age causes.
+`PAPER_READY=NO`; `PAPER_READINESS_GATE=FAIL`.
