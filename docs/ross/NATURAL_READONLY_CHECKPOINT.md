@@ -4520,7 +4520,7 @@ Latest fallback extended rows remain provider_error or budget_exhausted:
 HTTP301/302/308/429, TIMEOUTERROR and explicit deadline_exhausted/
 deadline_exhausted_before_attempt. No successful extended issuer event or complete
 primary coverage is claimed. The39 excluded latest records contain no attempted
-extended rows. All173 maintenance RESULT records report cleanup_complete=true;
+extended rows. All174 maintenance RESULT records report cleanup_complete=true;
 that final per-result cleanup is distinct from the prerequisite primary barrier.
 The source never upgrades failed primary coverage when fallback runs. The bounded
 fallback scheduling objective is demonstrated; successful fallback content,
