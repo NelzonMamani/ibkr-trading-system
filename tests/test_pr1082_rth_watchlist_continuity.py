@@ -33,11 +33,14 @@ def _reset_config(monkeypatch: pytest.MonkeyPatch):
     yield
     set_config_overrides(None)
 
-def _row(symbol: str, *, catalyst: bool = False, rvol: float = 3.0, rank: float = 10.0) -> SimpleNamespace:
+def _row(symbol: str, *, catalyst: bool = False, rvol: float = 3.0, rank: float = 10.0,
+         quote_factory=current_broker_quote) -> SimpleNamespace:
     status = "CONFIRMED" if catalyst else "DATA_UNAVAILABLE"
     return SimpleNamespace(
         symbol=symbol,
-        quote_evidence=current_broker_quote(),
+        # A scan plan has no acquired quote until the mocked scanner handoff.
+        quote_evidence=None,
+        _synthetic_quote_factory=quote_factory,
         session_label="RTH",
         session_phase="RTH",
         last_price=5.0,
@@ -76,6 +79,16 @@ def _row(symbol: str, *, catalyst: bool = False, rvol: float = 3.0, rank: float 
         rank_score=rank,
         rank_components={"score": rank},
     )
+
+def _acquire_scan_payload(payload):
+    """One acquisition per planned synthetic row; cached facts never refresh."""
+    for key in ('candidate_metrics', 'candidates', 'watchlist_k', 'focus_m'):
+        for row in payload.get(key, ()):
+            factory = vars(row).pop('_synthetic_quote_factory', None)
+            if factory is not None:
+                row.quote_evidence = factory()
+    return payload
+
 
 def _payload(
     rows: list[SimpleNamespace],
@@ -211,7 +224,7 @@ def _install_runtime_harness(
         if not queue:
             raise AssertionError("unexpected scanner Top N refresh")
         payload = queue.pop(0)
-        return payload() if callable(payload) else payload
+        return _acquire_scan_payload(payload() if callable(payload) else payload)
 
     monkeypatch.setattr("src.core.orchestrator.run_scanner_cycle", _scanner_cycle)
     monkeypatch.setattr("src.core.orchestrator.resolve_watchlist_selector", lambda *_args, **_kwargs: (lambda observations, _policy: observations))
@@ -992,3 +1005,69 @@ def test_terminal_integrity_fixture_acquires_quote_after_slow_constructor(monkey
     test_trade_structure_terminal_integrity_remains_fail_closed(
         monkeypatch, capsys, {'outcome': 'SETUP_FOUND_TRIGGER_NOT_READY'},
         'trigger_ready_without_intent')
+
+
+@pytest.mark.parametrize('control', [
+    test_pr1082_missing_mapping_terminal_records_internal_fault_without_halting,
+    test_pr1082_mixed_output_rejects_trigger_ready_terminal_without_intent,
+])
+def test_shared_terminal_harness_acquires_after_slow_constructor(monkeypatch, capsys, control):
+    from src.domain import quote_freshness
+    from src.config.config_resolver import get_config
+    class Clock(datetime):
+        value = datetime(2026, 10, 26, 16, 0, tzinfo=timezone.utc)
+        @classmethod
+        def now(cls, tz=None):
+            return cls.value
+    monkeypatch.setattr(quote_freshness, 'datetime', Clock)
+    original = CoreOrchestrator.__init__
+    def slow_constructor(self, *args, **kwargs):
+        original(self, *args, **kwargs)
+        Clock.value += timedelta(seconds=int(get_config('IBKR_SNAPSHOT_MAX_AGE_SECONDS')) + 1)
+    monkeypatch.setattr(CoreOrchestrator, '__init__', slow_constructor)
+    control(monkeypatch, capsys)
+
+
+def test_shared_scan_fixture_acquires_once_and_cached_quote_still_expires(monkeypatch):
+    from src.domain import quote_freshness
+    from src.config.config_resolver import get_config
+    class Clock(datetime):
+        value = datetime(2026, 10, 26, 16, 0, tzinfo=timezone.utc)
+        @classmethod
+        def now(cls, tz=None):
+            return cls.value
+    monkeypatch.setattr(quote_freshness, 'datetime', Clock)
+    calls = []
+    def acquire():
+        calls.append(Clock.value)
+        return current_broker_quote()
+    row = _row('CACHE', quote_factory=acquire)
+    payload = _payload([row], watchlist=[row], focus=[row])
+    assert row.quote_evidence is None and calls == []
+    _acquire_scan_payload(payload)
+    evidence = row.quote_evidence
+    assert len(calls) == 1 and quote_freshness.evidence_rejection(evidence) is None
+    Clock.value += timedelta(seconds=int(get_config('IBKR_SNAPSHOT_MAX_AGE_SECONDS')) + 1)
+    _acquire_scan_payload(payload)
+    assert row.quote_evidence is evidence and len(calls) == 1
+    assert quote_freshness.evidence_rejection(evidence) == 'MD_STALE'
+
+
+@pytest.mark.parametrize('kind,reason', [
+    ('future', 'MD_TIMESTAMP_FUTURE'), ('stale', 'MD_STALE'),
+    ('untrusted', 'MD_TIMESTAMP_UNKNOWN'), ('missing', 'MD_TIMESTAMP_UNKNOWN'),
+])
+def test_shared_scan_fixture_preserves_explicit_unusable_quote_facts(kind, reason):
+    from src.domain import quote_freshness
+    from src.config.config_resolver import get_config
+    now = datetime.now(timezone.utc)
+    stamp = now + timedelta(seconds=60) if kind == 'future' else now - timedelta(
+        seconds=int(get_config('IBKR_SNAPSHOT_MAX_AGE_SECONDS')) + 60) if kind == 'stale' else now
+    evidence = None if kind == 'missing' else quote_freshness.quote_evidence(
+        stamp, 'UNKNOWN' if kind == 'untrusted' else 'LAST_TRADE')
+    row = _row('REJECT', quote_factory=None if kind == 'missing' else lambda: evidence)
+    payload = _payload([row], focus=[row])
+    _acquire_scan_payload(payload)
+    _acquire_scan_payload(payload)
+    assert row.quote_evidence is evidence
+    assert quote_freshness.evidence_rejection(row.quote_evidence, now=now) == reason

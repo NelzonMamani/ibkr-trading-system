@@ -3949,3 +3949,42 @@ wording for implementation validation, not the archived diagnostic's no-operatio
 publication evidence. No operator observation, broker acquisition, feed rollout,
 holdings action or trading occurred. Subsequent validation uses the hard offline
 startup guard; all operator/cache state in tests remains fixture-isolated.
+
+Preserve third changed-head CI40423268209 at
+`5abdccfe47d131c01a54a7cf39f7c5a3514d7e21`: Linux3296passed/3skipped;
+Windows3296passed/1skipped plus2failures in
+`test_pr1082_missing_mapping_terminal_records_internal_fault_without_halting`
+and `test_pr1082_mixed_output_rejects_trigger_ready_terminal_without_intent`.
+The mixed-output log explicitly shows AAA/BBB MD_STALE and no Focus; the mapping
+assertion's captured-output representation shows no Focus but is truncated, so
+its precise Windows rejection cause cannot be independently recovered from that
+representation. The previous single-test correction was too narrow for this shared
+fixture pattern. New guarded clock controls advance maximum-age+1s during
+construction and deterministically reproduce both failures before the shared fix.
+This establishes the shared synthetic acquisition-order defect offline without
+claiming the exact Windows latency/clock history is proved for either occurrence.
+
+The correction now belongs to the test harness's synthetic scanner boundary:
+`_row` describes a planned row with a one-shot quote factory, and the shared
+scanner callback acquires its quote only on that row's first handoff. Alias lists
+of the same row consume the factory once. It never refreshes a previously
+acquired/cached quote; newly scanned data requires a newly planned row. An
+explicitly supplied factory can return stale/future/untrusted facts unchanged;
+`quote_factory=None` represents no acquisition and preserves explicitly supplied
+facts, including missing evidence. The existing cached-Focus freshness control
+opts out of synthetic acquisition and supplies its own immutable broker fact;
+all its prior stale rejection, no-rescan and unchanged-evidence assertions remain.
+No production factory, source timestamp substitution, quote clamp, age allowance,
+Focus bypass or canonical writer is introduced.
+
+Seven additional controls cover both reported terminal paths after delayed
+construction, one-shot acquisition across aliased row lists, cached expiry without
+refresh, and preservation/rejection of future/stale/untrusted/missing facts.
+All344 guarded related cases passed in6.82s, including every importing harness
+consumer plus the production future-quote admission controls. The earlier narrow
+terminal callback and its regression remain valid. All three failed CI receipts
+and the invalid unguarded local attempt remain visible; final exact-head review
+and CI supersede them only after the complete Linux/Windows/cache/PowerShell
+checks pass. Production remains limited to the two original feed substitutions
+and removal of their duplicate extended memberships. No further acquisition,
+operator observation, feed rollout, holdings action or trading was performed.

@@ -295,7 +295,10 @@ def test_actual_orchestrator_cannot_force_approve_future_intent(monkeypatch, clo
 
 def test_actual_cached_focus_revalidates_without_rescan(monkeypatch, clock, capsys):
     from test_pr1082_rth_watchlist_continuity import _row, _payload, _install_runtime_harness, _cadence
-    row = _row('FIXTURE', catalyst=True)
+    # This control owns an already-acquired immutable broker fact, rather than
+    # asking the synthetic scanner to acquire one at its first handoff.
+    row = _row('FIXTURE', catalyst=True, quote_factory=None)
+    row.quote_evidence = freshness.quote_evidence(NOW, 'LAST_TRADE')
     original = deepcopy(row.quote_evidence)
     orchestrator, scanned, processed = _install_runtime_harness(monkeypatch, [_payload([row], focus=[row])])
     assert orchestrator.run_once() is True
