@@ -475,7 +475,13 @@ POLICY_V2 = StrategyPolicyV2(
             commentary=(
                 "Catalyst is structural in Ross selection doctrine. Internal news intelligence is primary, RSS fast-list sources "
                 "support speed, and when catalyst certainty is incomplete the policy demands stronger liquidity/price-action evidence "
-                "rather than blind inclusion."
+                "rather than blind inclusion. Deliberate 27October2026 addition: confirmed regained/restored exchange-listing "
+                "compliance is eligible only under the dedicated issuer-subject completed-event rule, verified original "
+                "publisher provenance, original publication freshness, and existing uncertainty/dilution/ownership gates. "
+                "Deficiency/delisting/appeal/extension/plan/conditional/negated or indirect decisions do not qualify; "
+                "syndicated copies are not independent confirmation. No original-publisher verification authority is currently "
+                "wired; retain diagnostic evidence and reject provenance-unverified. Feed availability, Google transport and "
+                "publisher names cannot grant that authority. This adds eligibility, never automatic Focus/setup/intent."
             ),
         ),
     ),

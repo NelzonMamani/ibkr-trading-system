@@ -347,7 +347,7 @@ def _apply_non_operational_backfill_markers(
 
 from src.strategies.ross_momentum.policy.catalyst_policy import (
     CATALYST_KEYWORDS, CATALYST_KEYWORD_FORMS, DILUTION_KEYWORDS, unresolved_issuer_news,
-    classify_headline, detect_dilution, assess_issuer_event, select_qualification_evidence, issuer_event_time_state,
+    classify_headline, detect_dilution, assess_issuer_event, select_qualification_evidence, issuer_event_time_state, ROSS_ISSUER_EVENT_PROFILE,
 )
 SESSION_DEFAULT_FOCUS_THRESHOLDS: dict[str, int] = {
     "RTH_OPEN": 250_000,
@@ -2846,7 +2846,7 @@ def _ross_news_request() -> NewsRequest:
         need_velocity=True,
         need_reliability=True,
         max_evidence_per_symbol=presentation + int(enabled),
-        metadata=({"qualification_profile": "ross_issuer_event_v9", "presentation_limit": presentation,
+        metadata=({"qualification_profile": ROSS_ISSUER_EVENT_PROFILE, "presentation_limit": presentation,
                    "retention_selector": select_qualification_evidence, "fallback_resolver": unresolved_issuer_news} if enabled else {}),
         audit_reason="ross_readonly_scanner_news",
     )
@@ -2870,7 +2870,7 @@ def _ross_retrieval_policy(
         reserve = _news_extended_tier_reserve_fraction()
         tier_budgets = {"fast": total_budget_seconds * (1-reserve), "extended": total_budget_seconds * reserve}
         metadata.update(ross_issuer_query=True, require_compatible_acquisition=True,
-                        query_limit=RossPolicy().issuer_query_limit, qualification_profile="ross_issuer_event_v9",
+                        query_limit=RossPolicy().issuer_query_limit, qualification_profile=ROSS_ISSUER_EVENT_PROFILE,
                         operational_scheduling_contract=OPERATIONAL_SCHEDULING_CONTRACT)
     if normalized_refresh_symbols:
         metadata["refresh_symbols"] = normalized_refresh_symbols
@@ -3433,7 +3433,7 @@ def _ross_news_contexts_from_news_intelligence_result(
             print(f"[NEWS] symbol={normalized} catalyst_tag={context.get('catalyst_type') or 'NONE'} news_changed=False")
             continue
         context = _ross_news_context_from_evidence(normalized, evidence, summary, result)
-        if result.request and result.request.metadata.get("qualification_profile") == "ross_issuer_event_v9":
+        if result.request and result.request.metadata.get("qualification_profile") == ROSS_ISSUER_EVENT_PROFILE:
             acquisition = _refresh_diag_value(_news_intelligence_diag(result), "issuer_query", {})
             if not acquisition and summary is not None:
                 acquisition = summary.diagnostics.get("last_retrieval", {}).get("coverage", {}).get("diagnostics", {}).get("issuer_query", {})

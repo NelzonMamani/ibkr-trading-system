@@ -287,7 +287,7 @@ class CanonicalNewsEvidenceStore:
             # Ross qualification cohort. It remains bounded by its original policy.
             ross_rows = previous.get("ross_qualification_evidence", ())
             old_profile = previous.get("last_retrieval", {}).get("acquisition_profile", {}).get("request", {})
-            if not ross_rows and old_profile.get("qualification_profile") == "ross_issuer_event_v9":
+            if not ross_rows and old_profile.get("qualification_profile") in {"ross_issuer_event_v9", "ross_issuer_event_v10_listing_compliance"}:
                 ross_rows = previous.get("evidence", ())
             if request and request.query_start_utc is None and request.strategy_id == "ross_momentum":
                 ross_rows = [serialize_evidence(item) for item in merged]

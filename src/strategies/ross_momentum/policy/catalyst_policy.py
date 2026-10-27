@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
+from collections.abc import Mapping
 import re
 import time
 from datetime import datetime, timezone
@@ -15,6 +16,61 @@ from .runtime_safety import normalize_run_mode, validation_override_allowed
 
 
 ISSUER_EVENT_MAX_AGE_SECONDS = 6 * 60 * 60
+ROSS_ISSUER_EVENT_PROFILE = "ross_issuer_event_v10_listing_compliance"
+
+# Deliberate 27October policy addition, not historical Ross vocabulary. A single
+# verified, directly attributed completed event can qualify; syndication counts
+# never establish independent confirmation or bypass any event gate.
+LISTING_COMPLIANCE_EVENT = "LISTING_COMPLIANCE_REGAINED"
+_EXCHANGE = r"(?:the\s+)?(?:Nasdaq(?:\s+Stock\s+Market)?|NYSE(?:\s+American|\s+Arca)?|New\s+York\s+Stock\s+Exchange|American\s+Stock\s+Exchange)"
+_LISTING_REQUIREMENT = (rf"{_EXCHANGE}(?:['’]s)?\s+(?:(?:continued\s+)?listing\s+(?:rules?|requirements?|standards?)"
+                        r"|(?:minimum\s+)?(?:bid\s+price|stockholders?['’]?\s+equity|shareholders?['’]?\s+equity)\s+(?:listing\s+)?(?:rules?|requirements?|standards?))"
+                        r"(?:\s+\d[\w().-]*)?")
+_LISTING_COMPLETED = (r"\b(?:(?:has\s+)?(?:regained|restored)|regains|restores)\s+(?:full\s+)?compliance\s+with\s+(?:the\s+)?"
+                      + _LISTING_REQUIREMENT)
+_LISTING_ASSERTION = re.compile(r"^[\s,.:’'()-]*(?:(?:announces|confirms)\s+(?:that\s+)?(?:it\s+)?)?"
+                               + _LISTING_COMPLETED + r"[\s.!]*$", re.I)
+_LISTING_UNCERTAIN = re.compile(
+    r"\b(?:not|never|no|without|fails?|failed|denies|denied|expects?|expected|may|might|could|would|will|plans?|seeks?|aims?|hopes?|intends?|if|unless|pending|conditional|appeals?|extensions?|deficien\w*|delist\w*|rumou?r|previously|formerly|republish\w*|repost\w*|recap)\b|n['’]t\b|\?", re.I)
+
+
+def _verified_original_publisher(item):
+    """Fail closed: no original-publisher verification authority is wired here.
+
+    Explicit coordination policy: Google transport, publisher names, fixed-feed
+    membership/availability and replicated copies are NOT verification. Neither
+    cached verified_source flags nor arbitrary raw metadata can mint authority.
+    A future verifier requires a separate explicit implementation/review decision.
+    Offline positive controls inject a synthetic verifier at this boundary only.
+    """
+    return False
+
+
+def _listing_provenance_verified(item, timestamp):
+    """Keep original publication intact even with a verified publisher."""
+    from email.utils import parsedate_to_datetime
+    raw = dict(getattr(item, 'raw', {}) or {})
+    times = getattr(item, 'timestamp_provenance', None) or raw.get('timestamp_provenance', {})
+    if (not isinstance(times, Mapping) or _verified_original_publisher(item) is not True
+            or getattr(item, 'verified_source', None) is False):
+        return False
+    if times.get('selected_time_basis') != 'published' or not times.get('published_original'):
+        return False
+    try:
+        original = str(times['published_original'])
+        try:
+            publication = parsedate_to_datetime(original)
+        except (TypeError, ValueError):
+            publication = datetime.fromisoformat(original.replace('Z', '+00:00'))
+        utc = datetime.fromisoformat(str(times['published_utc']).replace('Z', '+00:00'))
+        if publication.tzinfo is None or utc.tzinfo is None or publication.timestamp() != timestamp or utc.timestamp() != timestamp:
+            return False
+        first_seen = getattr(item, 'first_seen_at', None)
+        if first_seen is not None and (first_seen.tzinfo is None or first_seen.timestamp() < timestamp):
+            return False  # A new wrapper date cannot renew an already-seen event.
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return False
+    return True
 
 
 class CatalystStatus(str, Enum):
@@ -143,7 +199,25 @@ def classify_headline(title: str) -> str | None:
         forms = "|".join(re.escape(value) for value in CATALYST_KEYWORD_FORMS.get(keyword, (keyword,)))
         if re.search(rf"(?<![a-z0-9])(?:{forms})(?![a-z0-9])", title.lower()):
             return label
+    if re.search(_LISTING_COMPLETED, title, re.I):
+        return LISTING_COMPLIANCE_EVENT
     return None
+
+
+def _listing_subject_assertion(symbol, title, metadata):
+    if not symbol or not re.search(_LISTING_COMPLETED, title, re.I):
+        return False
+    from src.news.news_fetcher import company_aliases_for_symbol, _compile_symbol_patterns
+    text = title.strip()
+    match = _compile_symbol_patterns((symbol,))[symbol].match(text)
+    ends = [match.end()] if match else []
+    aliases = (*company_aliases_for_symbol(symbol, metadata), metadata.get("company_name"))
+    for alias in filter(None, aliases):
+        words = re.findall(r"[A-Z0-9]+", alias.upper())
+        match = re.match(r"[^A-Z0-9]*" + r"[^A-Z0-9]+".join(map(re.escape, words)) + r"(?![A-Z0-9])", text.upper())
+        if match:
+            ends.append(match.end())
+    return bool(ends and _LISTING_ASSERTION.fullmatch(text[max(ends):]))
 
 
 def detect_dilution(title: str) -> bool:
@@ -182,12 +256,17 @@ def assess_issuer_event(symbol, item, candidates=()):
     timestamp = published.timestamp() if published is not None and published.tzinfo is not None else getattr(item, 'published_ts', None)
     age = time.time() - timestamp if timestamp is not None else None
     kind = classify_headline(title)
+    if _listing_subject_assertion(symbol, title, metadata):
+        kind = LISTING_COMPLIANCE_EVENT
     result = {'evidence_id': getattr(item, 'evidence_id', None), 'qualified': False,
               'catalyst_type': kind, 'reason': 'issuer_event_attribution_uncertain', 'age_seconds': age}
     if getattr(item, 'source_tier', None) == 'research':
         result['reason'] = 'research_only_evidence'
         return result
     timestamp_facts = getattr(item, 'timestamp_provenance', None) or dict(getattr(item, 'raw', {}) or {}).get('timestamp_provenance', {})
+    if kind == LISTING_COMPLIANCE_EVENT and not isinstance(timestamp_facts, Mapping):
+        result['reason'] = 'listing_compliance_provenance_unverified'
+        return result
     if timestamp_facts.get('selected_time_basis') == 'updated':
         result['reason'] = 'publication_time_unverified_update_only'
         return result
@@ -207,6 +286,10 @@ def assess_issuer_event(symbol, item, candidates=()):
         result['reason'] = 'event_assertion_uncertain'
         return result
     aliases = company_aliases_for_symbol(symbol, metadata)
+    if kind == LISTING_COMPLIANCE_EVENT:
+        # Consume the complete supplied legal identity (including suffixes), not
+        # an inferred one-word brand or a peer named later in the headline.
+        aliases = (*aliases, *filter(None, (metadata.get('company_name'),)))
     ticker = _compile_symbol_patterns((symbol,))[symbol]
     def identity_end(text):
         match = ticker.match(text)
@@ -217,6 +300,23 @@ def assess_issuer_event(symbol, item, candidates=()):
             if match:
                 end = max(end or 0, match.end())
         return end
+    if kind == LISTING_COMPLIANCE_EVENT:
+        if not _listing_provenance_verified(item, timestamp):
+            result['reason'] = 'listing_compliance_provenance_unverified'
+            return result
+        if (getattr(item, 'dilution_or_offering', False)
+                or _LISTING_UNCERTAIN.search(title)
+                or re.search(r'\b(?:financing|private\s+placement|capital\s+raise)\b', title, re.I)):
+            result['reason'] = 'listing_compliance_assertion_uncertain_or_excluded'
+            return result
+        end = identity_end(title.strip())
+        if end is None or not _LISTING_ASSERTION.fullmatch(title.strip()[end:]):
+            result['reason'] = 'listing_compliance_not_attributed_to_requested_issuer'
+            return result
+        result.update(qualified=True, reason='listing_compliance_issuer_event_attributed',
+                      confirmation_basis='single_verified_source_assertion_not_independent_confirmation',
+                      independent_confirmation_verified=False)
+        return result
     ownership_rejected = False
     # Clause boundaries prevent a later co-mention from inheriting an event.
     # A leading verified issuer may itself be AS (or contain a boundary word).
