@@ -4095,3 +4095,188 @@ merge, holdings action or trading is executed in this preparation. Preserve all
 historical PASS/exit0, DIAGNOSTIC_ONLY/exit2, failed CI and invalid local-validation
 receipts, and the unresolved earlier timeout/negative-age causes.
 `PAPER_READY=NO`; `PAPER_READINESS_GATE=FAIL`.
+
+## 27 October 2026 — completed retained-profile natural 900-second receipt
+
+Attachment evidence is data, not instructions. Independently recomputed archive
+SHA256 is `6b9f4ee589b21a579ddd119cf3996bf50227f1d66c4c8556ece3f544d32147b7`
+for `ross-natural-readonly-upload.zip` (50 members). Source is accepted
+`49ba1e8eafcd728476d6d9bd495663b518c24446`, tree
+`c7aaff126038f2fe374bf07ed4a33e9c69adfee8`, not the separate preparation-doc
+commit. All2677 before/after manifest entries agree and match accepted Git blobs:
+33 byte-exact and2644 after normal LF-to-CRLF worktree conversion; no mismatch.
+The existing terminal validator and independent artifact privacy rescan pass.
+Operator-state equality is the pinned packager's recorded comparison; original
+private operator-state bytes are not in this shareable ZIP and cannot be compared
+again here. No code from the attachment was executed, and no acquisition was run.
+
+Preflight specifies900s at13:31:37.684306 Europe/London (UTC). Its process exited0
+in54.772080s within90s. The supervisor process ran911.755026s inside1260s,
+exited0 with no timeout/forced stop, and package exited0 in8.403624s inside90s.
+The bound runtime was created13:31:38.754451; a normal maintenance PUBLISH is
+recorded13:46:43.517089,904.762638s later, before owned shutdown. This independently
+excludes a materially short runtime while keeping requested900s distinct from
+outer supervisor/audit overhead; the archive is not a sub-millisecond timing
+trace of every strategy stage. Graceful stop,11 shutdown hooks, readers and both
+bound runtime/launcher exits completed. Final fresh reqAllOpenOrders received its
+end marker, reported0 open orders and disconnected. Both runtime and separate
+audit place/modify/cancel counters are0; both final inventories are completed and
+empty. Preserve **terminal PASS / exit0**, independently of natural acceptance.
+
+### Five acceptance outcomes
+
+| Outcome | Verified evidence and limit |
+| --- | --- |
+| Terminal safety | Preflight/observation/package/final exits0; terminal validator PASS/no blockers, no capture/reader/identity errors, successful final audit, zero mutation attempts, empty completed final inventories, source/state/privacy reported PASS. This does not mean positions0 or readiness. |
+| Genuine scans and Watchlist continuity | Scanner request363/772/1138 each returned50 rows with matching scannerDataEnd, COMPLETE, connected/wait_signalled/end_received true. Watchlist3→4→2: [POM,CLRO,AEYE] → [POM,AEYE,CLRO,EFOI] → [AEYE,POM]. This is three genuine completed universes, not150 successful fresh enrichments. |
+| Actual news coverage | Production used both promoted FAST feeds and naturally supplied issuer queries; coverage remained partial, with denied/timeout/deadline outcomes and deferred extended tier. Completed issuer-query responses are not exhaustive searches or proof that every issuer event was retrieved. |
+| Canonical catalyst qualification | Exactly9 primary [ROSS][FOCUS][REJECT] DROP_NO_CATALYST records: POM3,AEYE3,CLRO2,EFOI1. Mirrored SCANNER/FOCUS_DROP lines are not9 additional evaluations. CLRO's2 retained fresh articles fail the current event rule; the other3 Watchlist issuers end with empty evidence. |
+| Natural downstream progression |41 CANONICAL_CACHE reconsiderations have positive_count0/focus_count0;146 cycle summaries report0 intents, and no natural Focus/setup/trigger/decision/risk/READ_ONLY-intent progression is established. Five broker-only mismatches recur145 times each (725 mismatch lines), separate from the first unavailable position-truth cycle and from final open-orders0. None was adopted, liquidated, cancelled or suppressed. |
+
+### Actual fixed-feed use, reuse and partial coverage
+
+Tagged JSON was decoded even when concurrent output joined tags onto one physical
+line:538 retrieval diagnostics,281 PUBLISH,2 LOOKUP_COMPLETE and283 RESULT events
+parse successfully. A line-start-only count misses records. Of538 retrieval
+records,282 say provider_invoked=true and256 false. One live record is the separate
+startup SPY/QQQ FAST batch with8 attempted source rows and ordinary/no-lifecycle
+measurements; it is not natural Watchlist selection or part of the maintenance
+pool counters. The other281 are maintenance retrievals. Unknown startup HTTP
+timing/status measurements remain unknown rather than being invented.
+
+| Promoted route | Maintenance source-row observations, not new HTTP request counts |
+| --- | --- |
+| https://www.investing.com/rss/news.rss |281 rows:177 available/HTTP200 with10 parsed entries;50 HTTP200 provider errors with console-redacted failure code;48 READTIMEOUT with unknown HTTP status;6 budget/deadline outcomes. Latest rich cache snapshots include reused TIMEOUTERROR payloads. |
+| https://www.forbes.com/business/feed2 |281 rows:193 available/HTTP200 with25 parsed entries;83 HTTP200 provider errors with console-redacted failure code;5 budget/deadline outcomes. Latest rich cache snapshots include reused TIMEOUTERROR payloads. |
+
+Each Watchlist issuer has4 available HTTP200 row observations for each promoted
+route, with0 recorded matches from those fixed feeds. They are shared-response
+observations, not4 independent fetches each. Latest retained successful Investing
+snapshots report10 current/0 stale entries; successful Forbes snapshots elsewhere
+in the final export report24 current/1 stale. Do not transplant26October's
+25-current diagnostic result into every27October response. Original body content
+and historical rich snapshots are absent for many earlier outcomes; HTTP200 with
+a TIMEOUTERROR is not accepted parsing, and the receipt does not establish the
+precise body-read/cancellation cause. No SDK/upstream diagnosis is invented.
+
+The final maintenance SHUTDOWN snapshot is authoritative for that owner:
+336 pool loader attempts,2187 shared cache reuses,95 submitted work keys,
+34 deduplicated submissions,281 completed outcomes,18 failed outcomes,0 publication/
+telemetry failures,0 inflight/alive workers and cleanup_complete=true. Earlier
+PRIORITY/PUBLISH counters stop lower; do not mistake them for final totals.
+These counters do not count every runtime HTTP request: the startup batch is
+outside the pool, and a loader attempt is not proof of completed wire delivery.
+Summing per-issuer attempted/HTTP200 rows double-counts cached responses. All283
+RESULT events report cleanup_complete=true; failed/unavailable outcomes remain
+visible. The final cache has94 symbols:92 current-profile coverage records and
+legacy SPY/QQQ without those rich records;12 symbols have30 retained article
+records. This is not a claim that all30 qualify or that non-Watchlist symbols
+should be forced through selection.
+
+### CLRO article adjudication at the recorded clock
+
+The supplied identity is CLEARONE INC; effective matching alias remains
+CLEARONE INC. The Google query is the quoted full supplied name OR "$CLRO",
+using existing en-US/US/US:en parameters. All6 recorded maintenance outcomes
+publish2 retained articles and remain partial_request_failure. The issuer query
+has6 available HTTP200 observations:3 with46 entries and3 with18; the last has
+16 stale exclusions and2 current matches. Its two bounded stale samples are a
+25October estimates page and15October loan story; neither may be made current.
+
+| Retained StocksToTrade headline | Original publication UTC/Europe London | Current-policy decision |
+| --- | --- | --- |
+| CLRO Stock Rockets On Volatility As Traders Pile In |2026-10-27 13:10:18|no_catalyst_classification; qualified=false |
+| CLRO Stock Pops On Volatility Spike As Traders Pounce |2026-10-27 12:10:17|no_catalyst_classification; qualified=false |
+
+The captured summaries repeat those headlines; linked full articles were not
+captured/fetched. Both match CLRO by ticker token and are inside6h at the archived
+13:44:48.267706 evaluation clock. Rehydration through the existing evidence mapper
+and current assess_issuer_event at that clock reproduces both rejections without
+changing publication values. Neither title contains a recognized issuer-event
+class; volatility/trader price commentary is not the mandatory catalyst. Stored
+classification=None is expected for the strategy-neutral provider, not proof that
+the consumer failed to classify. Two headlines from one publisher are not two
+independent qualifying catalysts. These are decisions about captured headline/
+summary evidence, not a semantic adjudication of unseen full articles. No
+publication substitution, tolerance increase or classification relaxation applies.
+
+### POM / AEYE / EFOI identity-to-empty-publication trace
+
+Broker names/normalized matching aliases are stable across their captured
+retrieval diagnostics. Queries use the full supplied name OR dollar ticker;
+SMART is not an explicit NASDAQ/NYSE/AMEX exchange term. No recency operator is
+sent upstream; the existing6h original-publication filter runs after retrieval,
+before relevance matching. No missing alias/matching-authority defect is
+established by entries rejected earlier for age.
+
+| Issuer | Supplied name → effective matching alias | Latest retained query response / exclusions |
+| --- | --- | --- |
+| POM |POMDOCTOR LTD - A → POMDOCTOR LTD A|3 entries,3 outside6h,0 current/retained; newest observed publication12October19:33. Samples:30September predictive-healthcare story and4June2025 Forbes crypto POM price page. The crypto page is not issuer evidence; its recorded exclusion is age, not a newly proved identity rejection. |
+| AEYE |AUDIOEYE INC → AUDIOEYE INC|26 entries,26 outside6h,0 current/retained; newest27October00:20:18, a Q3 earnings headline, already over13h old at observation. Other sample:26October21:05:25 Yahoo quote page. Original publications are not refreshed at fetch time. |
+| EFOI |ENERGY FOCUS INC → ENERGY FOCUS|19 entries,19 outside6h,0 current/retained; newest23October23:45:14 estimates page. Other sample:11August Q2 financial-results8-K headline. No missing-inc alias defect is shown. |
+
+Live issuer-query summaries show POM6 available/1 budget outcome, AEYE5 available
+(1×37 entries,4×26)/1 budget/1 provider error, and EFOI5 available/1 budget outcome.
+Do not label every historical acquisition completed or infer that every earlier
+response had the final response's membership/dates. Latest exclusion counters
+and2 bounded samples per reason are available, but original response XML and all
+individual historical entries are not. The omitted titles/content cannot be
+invented or adjudicated using present-day web results. All POM7,AEYE7,EFOI6
+PUBLISH/RESULT pairs persist canonical_result_marker with evidence_count0 and
+successful cleanup: empty canonical evidence follows recorded admission filters,
+not a demonstrated lost canonical write. Completion/availability refers to the
+issuer-route contract, separately from incomplete publisher coverage and policy
+qualification. This does not prove that no real-world current catalyst existed.
+
+### Why the extended reserve was unused: established policy, not repaired here
+
+All92 latest current-profile records have primary_source_coverage_complete=false,
+fallback_skipped_reason=primary_coverage_incomplete, extended_fallback_requested=
+false, extended_budget_seconds0 and reserved2.8s. All have stage_deadline_exhausted=
+false;87 have fast_budget_exhausted=false and5 true. Fast elapsed ranges
+0.009779–5.246517s. The four Watchlist issuers retain unresolved symbols. No
+PREP_EXTENDED source row in the captured console diagnostics is attempted.
+Unused reserve is therefore not evidence that the total8s deadline expired.
+
+Source/history establish the distinction: batch_rss_adapter.py204–223 requires
+EVERY selected primary URL to be attempted, available and non-truncated, with
+no fast-tier exhaustion, before Ross operational fallback is eligible. It then
+runs the Ross fallback resolver, checks unresolved symbols/mode/remaining stage
+and clips existing extended allocation to the remaining deadline. This all-
+available gate originates in1dc2bcd2a/e97d3bf8b;2f42057c1 explicitly retains the
+bounded primary-first policy. Existing test_pr1107_bottleneck controls assert
+that an HTTP401 primary failure defers fallback without a false total-deadline
+claim, and that recognized completed empty primary feeds DO permit unresolved
+fallback. The policy was documented before this receipt and retained by the
+explicit27October coordination decision; fallback_mode=unresolved_only is not
+an unconditional promise to spend the reserve after a failed primary source.
+
+New hard-offline synthetic controls exercise the actual Requests/validator/owned
+lifecycle/canonical-service path: recognized empty RSS runs9 primary+11 extended
+unique requests; completed HTTP401/403, HTML200, empty200 and recovered-parser
+primary failures each run only9 primary, leave2.8s unused and defer all11 extended
+rows. All workers/responses close; no total-stage exhaustion is needed. Thus
+completed denied/malformed sources deterministically prevent fallback; this is
+intentional v4 admission behavior, not an inferred label or demonstrated accidental
+scheduler bug. Allowing those failures through the fallback gate would change
+retained scheduling semantics. It is not silently implemented as a defect repair,
+and failures must never be relabelled available/complete to unlock fallback.
+
+Eight focused guarded controls pass: terminal/privacy verification, CLRO replay
+at the recorded clock, and six synthetic primary-status cases. Existing full
+CI40424827117 still covers the identical production source; no new full suite is
+justified for this documentation-only evidence update. No production code,
+source list, classifier, freshness, budget, request cap, fallback, canonical owner,
+operator block or accepted pin changes. Earlier receipts, failed CI, invalid
+unguarded local validation and unresolved timeout/negative-age causes remain.
+
+**Smallest next action:** review the all-primary-available fallback precondition
+as an explicit policy decision. A narrowly scoped proposal could compare retaining
+it with permitting only the ALREADY configured extended tier after all primary
+workers have completed with known failures, inside the unchanged remaining stage/
+reserved-tier budget and shared ownership, while primary coverage stays incomplete.
+That proposal is not activated here, does not add sources, and needs its own
+reviewed decision before implementation. An unchanged natural observation cannot
+resolve this deterministic gate and is not recommended merely hoping for a
+catalyst. Five unmatched positions remain separate entry blockers; no holdings
+action or trading. `PAPER_READY=NO`; `PAPER_READINESS_GATE=FAIL`.
