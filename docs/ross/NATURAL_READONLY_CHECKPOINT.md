@@ -4505,9 +4505,10 @@ all worker intervals or every historical barrier from console rows alone.
 There are402 console retrieval diagnostics:174 bounded-refresh/provider-invoked
 snapshots and228 cache-only snapshots. Of the174,38 show attempted extended rows;
 this is broader historical evidence than the18 latest exported issuer snapshots.
-It is not38 independent feed batches or38×11 network fetches. The final shared
-maintenance pool counters are262 actual fetches and1694 response reuses across
-both tiers and issuer queries, plus the separate startup SPY/QQQ path. In the18
+It is not38 independent feed batches or38×11 network fetches. The last live PRIORITY snapshot records262 actual fetches and1694 response reuses;
+the authoritative SHUTDOWN receipt ends at263 fetches/1696 reuses, alive_workers0,
+inflight0 and cleanup_complete=true. These pool counters span both tiers and
+issuer queries, plus the separate startup SPY/QQQ path is outside that pool. In the18
 latest fallback records,198 extended source rows include168 explicit transport
 cache hits,9 explicit HTTP attempts and21 rows without either positive fact;
 the latter include deadline exclusions and failure rows and must not be converted
