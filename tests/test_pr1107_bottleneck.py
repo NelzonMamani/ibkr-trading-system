@@ -40,7 +40,7 @@ def test_incomplete_primary_defers_fallback_and_keeps_qualification_separate(mon
         assert not pending['cleanup_complete'] and not gate.is_set()
         assert result.diagnostics.total_budget_seconds == policy.total_budget_seconds == 0.2
         raw=result.diagnostics.diagnostics['refresh_diagnostics']
-        assert raw['fallback_skipped_reason']=='primary_coverage_incomplete'
+        assert raw['fallback_skipped_reason']==('ross_policy_resolved_in_primary' if 'earnings' in title else 'primary_deadline_exhausted')
         assert not raw['primary_source_coverage_complete']
         assert not raw['extended_fallback_requested']
         assert result.diagnostics.budget_exhausted
@@ -52,7 +52,7 @@ def test_incomplete_primary_defers_fallback_and_keeps_qualification_separate(mon
         assert contexts['JPM']['ross_catalyst_valid'] == ('earnings' in title)
         assert contexts['JPM']['news_available'] == ('earnings' in title)
         deferred=[r for r in result.diagnostics.source_diagnostics if r.source_group=='PREP_EXTENDED']
-        assert deferred and all(not r.attempted and r.failure_reason=='primary_coverage_incomplete' for r in deferred)
+        assert deferred and all(not r.attempted and r.failure_reason==raw['fallback_skipped_reason'] for r in deferred)
         assert not svc.retrieval_provider._lifecycle.snapshot()['cleanup_complete']
     finally:
         gate.set()
@@ -143,8 +143,12 @@ def test_primary_failure_is_partial_acquisition_without_false_deadline(monkeypat
     result=svc.get_news((CANDIDATE,),ross._ross_news_request(),ross._ross_retrieval_policy(refresh_mode='bounded_refresh',network_allowed=True))
     raw=result.diagnostics.diagnostics['refresh_diagnostics']
     assert not raw['primary_source_coverage_complete']
-    assert raw['fallback_skipped_reason']=='primary_coverage_incomplete'
-    assert not raw['extended_fallback_requested'] and len(calls)==9
+    # v5 intentionally admits bounded fallback after completed HTTP failures.
+    assert raw['fallback_skipped_reason']==('ross_policy_resolved_in_primary' if positive else None)
+    assert raw['extended_fallback_requested'] is (not positive)
+    assert len(calls)==(9 if positive else 20)
+    assert raw['primary_fallback_barrier_verified'] is (None if positive else True)
+    assert any(row.failure_reason=='HTTP_401' for row in result.diagnostics.source_diagnostics)
     assert not result.diagnostics.budget_exhausted
     assert result.summary_for_symbol('JPM').retrieval_status=='partial'
     assert result.summary_for_symbol('JPM').provider_available

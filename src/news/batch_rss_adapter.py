@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import time
 from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Any, Mapping, Sequence
 from urllib.parse import urlparse
 
+from src.core.acquisition import bounded_timeout, checkpoint
 from src.config.config_resolver import get_config
 from src.news.news_fetcher import (
     Headline,
@@ -41,6 +43,9 @@ from src.news.source_groups import SourceGroupId, get_source_group_urls
 from src.news.rss_lifecycle import RssFetchLifecycle
 
 
+OPERATIONAL_SCHEDULING_CONTRACT = "ross_completed_primary_cleanup_fallback_v5"
+
+
 DEFAULT_SOURCE_GROUPS: tuple[str, ...] = ("FAST_TRADING", "PREP_EXTENDED")
 ADAPTED_SOURCE_GROUPS: tuple[str, ...] = ("FAST_TRADING", "PREP_EXTENDED")
 UNRESOLVED_SYMBOL_METADATA_KEYS: tuple[str, ...] = (
@@ -55,6 +60,59 @@ def _operational_tier_summary(summary, tier):
               "tier_budget_seconds_by_tier", "tier_elapsed_seconds_by_tier", "tier_budget_exhausted_by_tier")
     return replace(summary, **{name: {tier if key == "operational_query" else key: value
                                      for key, value in getattr(summary, name).items()} for name in fields})
+
+
+def _primary_fallback_barrier(lifecycle, offset, sources, summary, fast_deadline, stage_deadline):
+    """Prove in-budget completion AND owned cleanup; availability is separate.
+
+    Cleanup uses only the remaining fast allocation, never an extra wait budget.
+    A late completion cannot rehabilitate deadline/cancelled/unknown results.
+    """
+    checkpoint()
+    rows = {row.get("source_id"): row for row in summary.source_diagnostics}
+    if (summary.news_budget_exhausted or summary.tier_budget_exhausted
+            or time.monotonic() >= min(fast_deadline, stage_deadline)
+            or any(row.get("timed_out") or row.get("budget_exhausted") for row in rows.values())):
+        return "primary_deadline_exhausted", None
+    if not sources or not all(
+        rows.get(url, {}).get("attempted") is True
+        and rows[url].get("worker_completed") is True
+        and rows[url].get("retrieval_status") in {"available", "provider_error", "unavailable"}
+        and not rows[url].get("processing_truncated") for url in sources
+    ):
+        return "primary_completion_unverified", None
+
+    def in_budget(value):
+        return (isinstance(value, (int, float)) and not isinstance(value, bool)
+                and math.isfinite(value) and value < min(fast_deadline, stage_deadline))
+
+    def completed_owned(state):
+        owned = state["sources"][offset:]
+        return (len(owned) == len(sources) and {row["source_id"] for row in owned} == set(sources)
+                and all(row.get("state") == "completed" and not row.get("cancellation_requested")
+                        and in_budget(row.get("submitted_at_s")) and in_budget(row.get("started_at_s"))
+                        and in_budget(row.get("worker_completed_at_s"))
+                        and row["submitted_at_s"] <= row["started_at_s"] <= row["worker_completed_at_s"]
+                        for row in owned))
+
+    state = lifecycle.snapshot()
+    if not completed_owned(state):
+        return "primary_completion_unverified", state
+    remaining = bounded_timeout(max(0.0, min(fast_deadline, stage_deadline) - time.monotonic()))
+    state = lifecycle.wait_for_cleanup(remaining)
+    checkpoint()
+    if time.monotonic() >= min(fast_deadline, stage_deadline):
+        return "primary_deadline_exhausted", state
+    if state["cleanup_complete"] is not True:
+        return ("primary_cleanup_unverified" if state["cleanup_complete"] is None
+                else "primary_cleanup_incomplete"), state
+    if not completed_owned(state) or not all(
+        in_budget(row.get("cleanup_completed_at_s"))
+        and row["cleanup_completed_at_s"] >= row["worker_completed_at_s"]
+        and not row.get("cleanup_error") for row in state["sources"][offset:]
+    ):
+        return "primary_cleanup_unverified", state
+    return None, state
 
 
 class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
@@ -151,6 +209,7 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
         lifecycle_kwargs = {"lifecycle": self._lifecycle} if self._lifecycle is not None else {}
         if self._feed_pool is not None:
             lifecycle_kwargs["feed_pool"] = self._feed_pool
+        primary_source_offset = len(self._lifecycle.snapshot()["sources"]) if operational else 0
         fast_fetched = bool(fast_sources)
         extended_fetched = False
         if fast_sources:
@@ -207,29 +266,40 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
             and primary_rows[url].get("retrieval_status") == "available"
             and not primary_rows[url].get("processing_truncated")
             for url in fast_sources)
+        primary_cleanup = None
+        primary_fallback_barrier_verified = None
+        primary_barrier_elapsed_seconds = 0.0
         if operational:
-            if not primary_complete:
-                # Preserve the bounded primary-first scheduling contract.
-                # Preserve incomplete coverage rather than spending a second pool
-                # or pretending deferred sources were covered.
-                fallback_skipped_reason = "primary_coverage_incomplete"
-                unresolved_for_extended = list(symbols)
-            elif provider_failed:
-                fallback_skipped_reason = "primary_provider_unavailable"
-            elif callable(request.metadata.get("fallback_resolver")):
+            checkpoint()
+            if callable(request.metadata.get("fallback_resolver")):
                 needed = set(request.metadata["fallback_resolver"](headlines_by_symbol, request))
                 unresolved_for_extended = [symbol for symbol in unresolved_for_extended if symbol in needed]
-                if not unresolved_for_extended:
-                    fallback_skipped_reason = "ross_policy_resolved_in_primary"
+            if not unresolved_for_extended:
+                fallback_skipped_reason = "ross_policy_resolved_in_primary"
+            elif retrieval_policy.fallback_mode == "none" or not extended_sources:
+                fallback_skipped_reason = "fallback_disabled_or_no_sources"
+            else:
+                primary_barrier_started = time.monotonic()
+                fallback_skipped_reason, primary_cleanup = _primary_fallback_barrier(
+                    self._lifecycle, primary_source_offset, fast_sources, fast_summary,
+                    fast_deadline_s, stage_deadline_s)
+                primary_barrier_elapsed_seconds = max(0.0, time.monotonic() - primary_barrier_started)
+                primary_fallback_barrier_verified = fallback_skipped_reason is None
 
         if (
-            not provider_failed
+            (operational or not provider_failed)
             and not fallback_skipped_reason
             and retrieval_policy.fallback_mode != "none"
             and unresolved_for_extended
             and extended_sources
         ):
             budget_remaining_s = stage_remaining_seconds(stage_deadline_s)
+            if operational:
+                budget_remaining_s = min(budget_remaining_s, extended_budget_reserved_seconds)
+                explicit = retrieval_policy.budget_for_tier("extended")
+                if explicit is not None:
+                    budget_remaining_s = min(budget_remaining_s, max(0.0, explicit))
+                budget_remaining_s = bounded_timeout(budget_remaining_s)
             budget_exhausted_before_extended = bool(
                 getattr(fast_summary, "news_budget_exhausted", False)
             ) or budget_remaining_s <= 0.0
@@ -238,6 +308,8 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
                 extended_fallback_symbol_count = len(unresolved_for_extended)
                 extended_started_at_s = time.monotonic()
                 extended_budget_seconds = stage_remaining_seconds(stage_deadline_s)
+                if operational:
+                    extended_budget_seconds = bounded_timeout(min(extended_budget_seconds, budget_remaining_s))
                 explicit_extended_budget_seconds = retrieval_policy.budget_for_tier("extended")
                 if explicit_extended_budget_seconds is not None:
                     extended_budget_seconds = min(extended_budget_seconds, max(0.0, explicit_extended_budget_seconds))
@@ -246,6 +318,8 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
                     for symbol in unresolved_for_extended
                     if symbol_metadata.get(symbol)
                 }
+                if operational:
+                    checkpoint()
                 extended_headlines_by_symbol, extended_summary = self._extended_fetcher(
                     unresolved_for_extended,
                     extended_sources,
@@ -513,7 +587,11 @@ class BatchRssNewsIntelligenceProvider(NewsIntelligenceProvider):
             ),
         }
         if operational:
-            diagnostics_payload.update(acquisition_contract="completed_issuer_route_or_matched_entry_v1",
+            diagnostics_payload.update(operational_scheduling_contract=OPERATIONAL_SCHEDULING_CONTRACT,
+                                       primary_fallback_barrier_verified=primary_fallback_barrier_verified,
+                                       primary_barrier_elapsed_seconds=primary_barrier_elapsed_seconds,
+                                       primary_cleanup_complete=(primary_cleanup.get("cleanup_complete") if primary_cleanup else None),
+                                       acquisition_contract="completed_issuer_route_or_matched_entry_v1",
                                        primary_source_coverage_complete=primary_complete,
                                        operational_acquisition_by_symbol=acquisition_by_symbol,
                                        fallback_skipped_reason=fallback_skipped_reason,

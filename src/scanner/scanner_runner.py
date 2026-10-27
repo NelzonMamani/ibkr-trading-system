@@ -38,7 +38,7 @@ from src.market_data.float_discovery_worker import get_float_discovery_worker
 from src.market_data.float_provider import (
     read_float_cache_text, resolve_float_cache_path, float_cache_mtime_ns,
 )
-from src.news.batch_rss_adapter import BatchRssNewsIntelligenceProvider
+from src.news.batch_rss_adapter import BatchRssNewsIntelligenceProvider, OPERATIONAL_SCHEDULING_CONTRACT
 from src.news.news_fetcher import Headline, RssFailureSummary, fetch_fast_headlines_for_symbols, fetch_headlines_for_symbols, symbol_relevance_match
 from src.news.news_intelligence_contract import (
     NewsBatchResult,
@@ -2871,7 +2871,7 @@ def _ross_retrieval_policy(
         tier_budgets = {"fast": total_budget_seconds * (1-reserve), "extended": total_budget_seconds * reserve}
         metadata.update(ross_issuer_query=True, require_compatible_acquisition=True,
                         query_limit=RossPolicy().issuer_query_limit, qualification_profile="ross_issuer_event_v9",
-                        operational_scheduling_contract="ross_issuer_acquisition_v4")
+                        operational_scheduling_contract=OPERATIONAL_SCHEDULING_CONTRACT)
     if normalized_refresh_symbols:
         metadata["refresh_symbols"] = normalized_refresh_symbols
         metadata["unresolved_symbols"] = normalized_refresh_symbols

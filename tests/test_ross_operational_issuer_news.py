@@ -250,17 +250,28 @@ def test_witness_is_excluded_from_all_presentation_metrics():
     assert len(ctx['news_intelligence_source_provenance'])==5
 
 
-def test_actual_consumer_never_waits_for_cleanup(monkeypatch,tmp_path):
+def test_actual_consumer_cleanup_barrier_stays_inside_fast_budget(monkeypatch,tmp_path):
     calls=[];fixture_transport(monkeypatch,calls,[])
-    svc=service(tmp_path);life=svc.retrieval_provider._lifecycle
-    def forbidden(*a,**k):
-        raise AssertionError('Scanner must not synchronously wait after news budget')
-    original=life.wait_for_cleanup
-    monkeypatch.setattr(life,'wait_for_cleanup',forbidden)
+    svc=service(tmp_path);provider=svc.retrieval_provider;life=provider._lifecycle
+    original=life.wait_for_cleanup;fetch=provider._extended_fetcher;deadlines=[];waits=[]
+    def observed_fetch(*args,**kwargs):
+        if not deadlines:
+            deadlines.append(kwargs['tier_deadline_s'])
+        else:
+            assert life.snapshot()['cleanup_complete'] is True
+        return fetch(*args,**kwargs)
+    def inside_budget(timeout):
+        assert time.monotonic() < deadlines[0]
+        assert 0<=timeout<=deadlines[0]-time.monotonic()+.01
+        waits.append(timeout)
+        return original(timeout)
+    monkeypatch.setattr(provider,'_extended_fetcher',observed_fetch)
+    monkeypatch.setattr(life,'wait_for_cleanup',inside_budget)
     monkeypatch.setattr(ross,'_news_intelligence_service_for_scanner',lambda:svc)
     try:
         _,diag=ross._enrich_news_context(['JPM'],'RSS',{'JPM':{'company_name':CANDIDATE.company_name}})
-        assert diag.news_intelligence_diagnostics['rss_cleanup']['cleanup_elapsed_seconds']==0
+        assert len(waits)==1
+        assert diag.news_intelligence_diagnostics['rss_cleanup']['cleanup_elapsed_seconds']<5.2
     finally:
         assert original(2)['cleanup_complete']
 

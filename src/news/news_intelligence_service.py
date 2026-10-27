@@ -11,7 +11,7 @@ from typing import Any, Mapping, Sequence
 from src.news.batch_rss_adapter import (
     BatchRssNewsIntelligenceProvider, _extended_tier_reserve_fraction, _lookback_hours,
     _max_entries_per_symbol, _request_timeout_seconds, _source_groups_for_policy,
-    _total_budget_seconds,
+    _total_budget_seconds, OPERATIONAL_SCHEDULING_CONTRACT,
 )
 from src.news.retrieval_diagnostics import emit_retrieval_diagnostics
 from src.news.evidence_store import (
@@ -117,7 +117,8 @@ def _acquisition_profile(candidate: NewsCandidate, request: NewsRequest, policy:
         profile["retrieval"]["source_urls_by_group"][OPERATIONAL_GROUP] = sorted(query_urls)
         profile["retrieval"]["operational_selected_query_urls"] = sorted(query_urls[:limit])
         profile["retrieval"]["operational_query_limit"] = limit
-        profile["retrieval"]["operational_scheduling_contract"] = policy.metadata.get("operational_scheduling_contract")
+        profile["retrieval"]["operational_scheduling_contract"] = (OPERATIONAL_SCHEDULING_CONTRACT
+            if provider_id == "rss_batch" else policy.metadata.get("operational_scheduling_contract"))
         profile["request"]["qualification_profile"] = request.metadata.get("qualification_profile")
     if request.query_start_utc is not None:
         profile["request"].update(query_start_utc=request.query_start_utc.isoformat(),
