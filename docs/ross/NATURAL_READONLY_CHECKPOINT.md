@@ -4842,3 +4842,231 @@ are unchanged; no test is skipped, no PermissionError suppressed and no retry is
 introduced. New-head independent review and CI must include this deterministic
 control and the previously skipped cache/PowerShell gates. Final results belong
 on the same draft PR; no unchanged-head CI rerun is requested.
+
+## Minimal original-publisher contract for listing compliance (documentation only)
+
+Accepted main `f4def1608e7ff57ef53e383c1f8a1c8423e75d24`, tree
+`a792d85c764ccaf3e821a3fe891cd555c48457e9`, is the actual PR1138 integration.
+PR1138 merged at2026-10-27T17:33:59Z. Reviewed head
+`4fab1586efcc983497f535235ea44acc538c21f1` has that same tree.
+Independent agent review5671236395 approved the exact final head; source review
+5671058469 carries forward. Final CI40547209474 passed Linux3426/3skipped and
+Windows3428/1skipped, including native cache, cache-startup and all PowerShell
+steps (39 observation-harness controls; artifact12753503789). Failed first
+CI40545024798 and its deterministic worker-order test repair remain recorded above.
+This section defines a proposed minimum contract only. It does not implement a
+verifier, verify any domain, activate a source or open the production gate.
+
+### Evidence inventory at the accepted source
+
+| Fact | What is retained | What it cannot prove |
+| --- | --- | --- |
+| Requested feed/query URL | source_id/source in retrieval diagnostics; optional raw sidecar url; SharedFeedPool uses requested URL as key | Article-to-response binding is not complete merely because a source row and article appear in one batch |
+| Final/effective URL | No response.url/final URL or redirect-chain field is persisted; all supported Requests paths disable redirects and reject3xx | No independently recorded final-response origin; no redirect target is accepted or silently resolved |
+| Publisher/article links | Article link/reference_id; detailed source_provenance has feed_label, publisher_label_basis, publisher_url and source_group; raw_title retained for detailed paths | Google item.source href is a claimed publisher link, often a site root, not authenticated original-article provenance; canonical-link declarations are also claims |
+| Response identity | HTTP status, request/parse durations, worker completion and response closure in source diagnostics; reuse/attempt facts in rich entry diagnostics | No immutable response receipt ID, authenticated publisher/entity binding, retained response headers or TLS-peer/association proof |
+| Original publication | Detailed published_original/UTC, updated_original/UTC and selected_time_basis; canonical published_at, first_seen_at/fetched_at; ordinary paths can lack the detailed provenance | Dates are source assertions; neither retrieval time nor updated/syndication time proves original publication |
+| Article identity | Operational RSS ID is truncated SHA256 of symbol/title/publisher/URL (publication participates only without URL); ordinary RSS uses truncated SHA1; canonical dedup additionally keys normalized article fields | These are deduplication identifiers, not signatures or full cryptographic provenance; an unchanged URL/ID can acquire a different wrapper date |
+| Content hashes | Opt-in RawFeedCapture saves full captured feed-byte SHA256, bytes/limit/body_complete, requested URL and acquisition/evaluation clocks. Exclusion samples hash original title/summary/URL and a diagnostic article identity | Feed-body hash is not an original article-body hash. Diagnostic field hashes do not authenticate authorship, and clipped/redacted samples are not complete content |
+| Entity identifiers | Diagnostics can carry supplied CIK/LEI and security IDs/conId/ISIN/FIGI/exchange metadata | Supplied IDs are not automatically verified legal-entity/domain associations; ticker/exchange routing/name similarity is insufficient |
+
+Exact owners are news_fetcher._fetch_feed / _entry_date_facts, rss_raw_capture,
+feed_pool, rss_exclusion_evidence, batch_rss_adapter._evidence_id and evidence_store.
+Detailed operational acquisition covers direct fixed RSS and Google query routes;
+ordinary FAST paths retain less detail. Optional raw capture is not enabled merely
+because the bounded streaming path enforces512KiB. A sidecar's body_complete means
+captured EOF, not publisher verification or complete issuer/search coverage.
+SharedFeedPool caches parsed results/timings/errors by URL; reused rows are not new
+requests or new independent responses. Sidecar filenames hash the requested URL
+and can be overwritten for that URL: they are not immutable per-response IDs.
+No current canonical field binds a specific article entry to an immutable full
+response receipt and independently verified domain-association record.
+
+### Enforceable decision rule; authority bootstrap is a prerequisite
+
+Apply this contract ONLY to LISTING_COMPLIANCE_REGAINED. Default is
+listing_compliance_provenance_unverified. No cached boolean, domain list, publisher
+label, verified_rss catalogue entry, feed health, HTTPS certificate/hostname or
+number of copies can establish a positive result. No existing original-publisher
+trust authority or verified IPST/domain mapping was found or is created here.
+
+A positive provenance decision requires BOTH of these independently reviewable
+objects, bound to one issuer and one original document/event:
+
+1. **Entity/domain association evidence.** An exact, retained authoritative record
+   identifies the issuer by a stable legal-entity identifier and legal name, and
+   explicitly designates the specific official announcement/IR host, or identifies
+   the exchange itself and its official notice host. An issuer record could be
+   a regulator filing or exchange-maintained issuer directory explicitly linking
+   that entity to its official site; an exchange notice additionally identifies
+   the subject issuer by a stable listing/entity ID. These are acceptable TYPES
+   of evidence, not declarations that any particular URL/domain is verified.
+   The record's own origin must be authenticated against a separately accepted
+   regulator/exchange identity reference or authenticated supplied original.
+   That trust-anchor reference, method of authentication, bytes/hash, relevant
+   excerpt, applicable date and independent review/acceptance receipt must be
+   explicit. A website asserting its own identity, two websites copying one
+   another, DNS ownership, a logo or an ordinary TLS certificate is circular or
+   insufficient. No accepted anchor/reference currently exists in this case;
+   without one the verifier MUST remain closed, even if two GETs succeed.
+2. **Specific original announcement/notice.** Capture the complete bounded original
+   document from the exact host/path scope designated by that association, with
+   original document/version ID, title, original publication and the actual
+   issuer/regained-listing assertion. Record requested and observed final URL,
+   response status/identity, acquisition clock, complete-body hash and entry or
+   paragraph identity. Unexpected host/path, redirect, incomplete body, parser
+   recovery, missing original time or unresolved identity conflicts cannot pass.
+   A self-declared rel=canonical, source href, copied attribution or a publisher
+   root URL is not the original document. The actual unaltered title must still
+   pass the dedicated issuer-subject rule; an authenticated but generic exchange
+   notice or8-K is not automatically a qualifying catalyst.
+   A complete official RSS/Atom entry may itself be the original notice if it
+   contains the required assertion, original time and document/entry identity;
+   an aggregator excerpt is not equivalent. A linked article is never fetched
+   automatically merely because the entry provides a link.
+
+Acceptance of the association is a case-specific, evidence-backed decision; this
+contract does not designate an approver, bootstrap trust from a new allowlist or
+pretend that repository approval alone authenticates source bytes. A separately
+explicit decision must name the authentic reference and approval responsibility
+before implementation can enable positive verification. If those cannot be
+provided, stop with unverified evidence; do not start open-ended domain research.
+
+The minimum proposed receipt has: schema/policy version; legal issuer ID/name and
+symbol-as-of date; exchange/listing identifier; association-record identity/hash,
+exact authorized host/path/time scope and authenticated-anchor/review references;
+requested/observed final original-document URL; per-response identity/status/
+acquisition clock/completeness/body SHA256; original document/version and entry
+identity; original publication raw/UTC; preserved issuer/listing assertion and
+its content hash; event key; and verification state/reason/decision clock.
+The event key binds issuer, exchange/listing requirement and original announcement
+identity/time, not a ticker or recurring headline alone. The receipt's full binding
+hash covers all of those source/association/article/event/policy facts.
+
+Consumers MUST recompute/match this binding to the exact retained article facts,
+recheck the accepted association's scope/version and any conflict/revocation,
+and reapply original-publication/future/expiry, attribution and financing vetoes
+on every canonical read, cache reuse, Focus/setup handoff and decision boundary.
+A source record can be an input to another review, but its verified=true flag can
+never authorize another article, URL version, issuer, event or replacement date.
+Knowledge acquired later cannot establish that proof existed during an earlier
+operator window. Acquisition/verification timestamps never renew event freshness.
+Preserve the earliest established original publication for the same announcement;
+a later copy/update/reprint cannot reset it. An unknown original or contradictory
+original dates is unverified/conflicting, never replaced with the freshest date.
+
+### Four evidence states and examples
+
+| State | Required facts / example | Eligibility consequence |
+| --- | --- | --- |
+| direct_original_verified | Accepted, non-circular entity/domain association plus the bound original issuer announcement or exchange notice; e.g. a SYNTHETIC regulator-record→issuer-host mapping and complete original "Issuer X regains compliance with Nasdaq Listing Rule" notice | Provenance requirement can pass; original title/time/attribution/veto and all market/ownership gates still apply |
+| corroborated_syndication | A retained copy is explicitly linked to that verified original document/version, same issuer and same listing event/original publication; source references/assertion correspondence are retained and conflicts resolved | Evidence is derivative of ONE original event. Use the original proof as witness; copies cannot add independent confirmation or refresh publication |
+| unverified_aggregation | Google title/publisher label/root link; a healthy direct RSS feed with no authenticated original association; two copies of the same title; or bare verified_source flag | Diagnostic only; listing_compliance_provenance_unverified |
+| conflicting_provenance | Issuer ID or authorized host differs; source says restoration but original says deficiency/appeal; original publication predates the presented fresh wrapper; altered body/entry against the bound hash | Reject the affected binding/event claim; retain both observations and a specific conflict reason; do not silently choose the favorable copy or erase unrelated valid catalyst facts |
+
+A legitimate notice that is stale/future, conditional, negated, a plan/extension,
+peer-owned or subject to a retained financing veto remains ineligible even with
+verified provenance. Identical body hashes prove matching bytes, not independent
+reporting; differing hashes due only to formatting do not by themselves prove a
+conflict, but require documented correspondence rather than guessed equivalence.
+A source-verified generic filing still fails the dedicated event rule. All other
+catalyst classes retain their current policy; this does not impose a new trust
+framework on earnings/FDA/contract/etc.
+
+### Existing IPST evidence cannot satisfy the contract
+
+All four captured links are Google article links. Their publisher_url values are
+claimed publisher-site roots; none is an authenticated original issuer/exchange
+announcement URL. No case-specific authenticated domain association, original
+issuer/exchange document body/version/hash, original-response identity/final URL
+or accepted verification receipt is retained. The summaries repeat headlines and
+publisher labels. Optional private feed captures from other diagnostics are not
+present in these shareable receipts and must not be assumed available; even a
+Google feed body would establish aggregator bytes, not issuer/exchange ownership.
+Investing/Forbes diagnostic health receipts establish feed health, not this proof.
+The four IPST items therefore remain ineligible: generic8-K/indirect decision have
+no qualifying assertion, and the two restoration headlines remain provenance-
+unverified. No archived Focus0/zero-intent result or earlier receipt is upgraded.
+
+### Smallest optional acquisition, only after explicit prerequisites
+
+The missing objects are precisely an authenticated case-specific association
+record and the exact original announcement/notice, with the binding fields above.
+First require an accepted anchor/association reference and explicitly supplied
+exact document URLs plus issuer identity. Do not guess an issuer website, resolve
+the opaque Google link, search for a notice or discover links under this task.
+If an authenticated association document is already supplied offline, only ONE
+original-document GET may be needed. Otherwise the smallest proposed acquisition
+is TWO exact GETs: the supplied association-record URL and supplied original-
+document URL, conditional on the independently accepted bootstrap reference.
+These are prerequisites, not assertions that such URLs/records are currently known.
+An exchange notice still needs the authenticated exchange-host association and
+subject issuer binding; it does not evade the bootstrap requirement.
+
+For a separately authorized future caller: at most2 requests, one per exact URL,
+shared/deduplicated for the case; max1 concurrent; one8s absolute acquisition budget;
+5s per-request cap clipped to remaining;512KiB per body/1MiB total; owned cleanup10s
+and supervisor45s. No redirects, retries, query/fallback fanout, linked-article
+fetches, broker/scanner/Focus invocation or operational publication. A failed,
+truncated, unavailable or unsupported document remains explicit incomplete
+coverage. Original6h publication/future rules apply at eventual qualification,
+not at an artificially chosen replay/fetch clock. The existing fixed eight-route
+and Investing/Forbes two-route callers must not have their literal scope silently
+replaced by this case. No such caller is implemented or executed here.
+
+Reuse the bounded transport/lifecycle, opt-in raw sidecar, sanitizer and recorded-
+clock parser replay ownership. HTML/PDF is not valid RSS: a future minimal capture-
+only document adapter would need explicit format/size validation and a bounded
+extractor; do not feed it to the RSS parser or call non-feed content available-
+empty. Unsupported/oversized documents stop the attempt rather than trigger more
+fetches. Raw source/association bodies remain private; a separately privacy-scanned
+report contains bounded sanitized excerpts (existing512-title/1024-summary limits),
+identities/hashes/timestamps, decision reasons and explicit missing/truncated
+coverage. Do not package the raw bodies into a shareable ZIP or retain cookies,
+authorization headers or unrelated response secrets.
+
+### Minimal implementation plan and proportionality decision
+
+If and only if the case prerequisites are explicitly accepted, implement one
+listing-only receipt validator at the existing _verified_original_publisher seam.
+Keep defaultFalse for absent/unverified/conflicting receipts. Extend the existing
+bounded acquisition/capture owner to record observed final URL, immutable response
+identity and document/entry hashes; do not add another acquisition engine or
+canonical writer. The canonical service/evidence store alone may publish the
+article plus its bounded proof references after validation. A diagnostic sidecar
+or user-supplied raw flag cannot self-publish authority. On reads/handoffs, validate
+the receipt against the independently accepted reference and actual article/event,
+not against its own boolean. Version the listing-only verification contract and
+coverage fingerprint; preserve original timestamps and historical facts.
+
+Offline implementation controls would cover exact binding and case approval,
+changed hash/URL/issuer/version/date, missing or circular association, conflict/
+revocation, incomplete/redirect/non-feed documents, copied versus independent
+claims, original-date expiry/future boundaries and cached/handoff revalidation.
+Reuse existing canonical single-writer, lifecycle cleanup and market-gate tests.
+Keep positive proof explicitly synthetic until an actual accepted case exists.
+No source, verifier or production profile is changed by this documentation task.
+
+**Recommendation: park implementation/acquisition of this optional class now.**
+The finite contract above exposes an absent authority/bootstrap and absent source
+objects; further speculative plumbing to qualify IPST would be disproportionate.
+No live lookup is justified merely by repeated captured headlines. Reopen only
+with the named case-specific reference and exact original-document evidence/URLs;
+then the one/two-request verification has a defined information gain: authentic
+issuer/exchange origin and immutable event binding, not another source-health or
+issuer-match count. Do not block acceptance work for already-supported catalysts
+on completion of this optional class. Their existing rules and acceptance gates
+continue unchanged; this contract authorizes no observation or forced progression.
+Five unmatched positions remain untouched and separately blocked. Preserve all
+historical failures/ineligibility and unresolved timeout/negative-age causes.
+`PAPER_READY=NO`; `PAPER_READINESS_GATE=FAIL`.
+
+Documentation-only verification: exact source inspection above; git diff --check;
+source/tests/scripts/workflow/requirements unchanged from accepted f4def160.
+A guarded replay of the four retained IPST articles at189 recorded clocks made756
+negative decisions:378 no_catalyst_classification and378
+listing_compliance_provenance_unverified, with every original publication preserved
+and the production verifier stillFalse. Fixture SHA256 remains
+`7641374e4727e71011599e114dd1c013f94961cbee10ddff1294ff09a063c17f`.
+No acquisition occurred. Existing source review/CI receipts above are carried
+forward; full suites are not repeated for this prose-only contract.
