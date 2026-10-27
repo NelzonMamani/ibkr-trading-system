@@ -284,12 +284,21 @@ def test_actual_orchestrator_cannot_force_approve_future_intent(monkeypatch, clo
     intent.quote_evidence['selection']['timestamp_utc'] = (NOW + timedelta(microseconds=1)).isoformat()
     orchestrator.strategy_runner.process = lambda **kwargs: [intent]
     orchestrator.portfolio_arbitrator.select_trades = lambda intents, _: intents
+    def forbidden(*args, **kwargs):
+        raise AssertionError('Future quote cannot reach artifact creation or actual risk')
+    monkeypatch.setattr(orchestrator.risk_engine, 'evaluate_trade_intent', forbidden)
+    monkeypatch.setattr('src.core.orchestrator.build_decision_artifact', forbidden)
     assert get_config('FORCE_RISK_APPROVAL_FOR_TRADE_READY') is True
     assert orchestrator.run_once() is True
     out = capsys.readouterr().out
     assert '[ROSS][QUOTE][INTENT_REJECT] stage=risk_handoff symbol=FIXTURE reason=MD_TIMESTAMP_FUTURE' in out
     assert '[RISK][OVERRIDE] symbol=FIXTURE' not in out
-    assert '[PIPELINE][RISK_OUTPUT] approved_count=0 blocked_count=1' in out
+    # A quote handoff veto is retained in the audit, never counted as an
+    # actual RiskDecision. Core must not mint an artifact or call risk here.
+    assert '[PIPELINE][RISK_INPUT] intents_count=0' in out
+    assert '[PIPELINE][RISK_OUTPUT] approved_count=0 blocked_count=0' in out
+    assert '[RISK][DECISION]' not in out
+    assert intent.decision_id is None
 
 
 
@@ -345,10 +354,19 @@ def test_actual_risk_handoff_reages_emitted_intent_after_arbitration(monkeypatch
         clock.value += timedelta(seconds=int(get_config('IBKR_SNAPSHOT_MAX_AGE_SECONDS')), microseconds=1)
         return result
     monkeypatch.setattr(core, '_apply_position_truth_entry_guard', delayed)
+    def forbidden(*args, **kwargs):
+        raise AssertionError('Expired quote cannot reach artifact creation or actual risk')
+    monkeypatch.setattr(core.risk_engine, 'evaluate_trade_intent', forbidden)
+    monkeypatch.setattr('src.core.orchestrator.build_decision_artifact', forbidden)
     assert core.run_once() is True
     out = capsys.readouterr().out
     assert 'stage=risk_handoff symbol=FIXTURE reason=MD_STALE' in out
-    assert '[PIPELINE][RISK_OUTPUT] approved_count=0 blocked_count=1' in out
+    # A quote handoff veto is retained in the audit, never counted as an
+    # actual RiskDecision. Core must not mint an artifact or call risk here.
+    assert '[PIPELINE][RISK_INPUT] intents_count=0' in out
+    assert '[PIPELINE][RISK_OUTPUT] approved_count=0 blocked_count=0' in out
+    assert '[RISK][DECISION]' not in out
+    assert intent.decision_id is None
     assert 'PIPELINE_BREAK_SETUP_TO_INTENT' not in out
     assert "'RISK_BLOCKED': 1" in out
     assert intent.quote_evidence['selection']['timestamp_utc'] == NOW.isoformat()

@@ -1,11 +1,11 @@
-# Natural READ_ONLY diagnostic checkpoint — updated 26 October 2026
+# Natural READ_ONLY diagnostic checkpoint — updated 27 October 2026
 
-Current authoritative completion status is in [the maintained checklist below](#receipt9--current-ross-completion-checklist-updated-through-pr1126).
+Current authoritative completion status is in [the maintained checklist below](#receipt9--current-ross-completion-checklist-updated-through-pr1138).
 Earlier dated sections are historical evidence, not superseding readiness decisions.
-Accepted baseline for current diagnostic implementation: `74dbb9090ccc7aae46f8028c857363f62ff68cf0` (PR1126).
+Accepted production: `f4def1608e7ff57ef53e383c1f8a1c8423e75d24` (PR1138), tree `a792d85c764ccaf3e821a3fe891cd555c48457e9`. Optional provenance contract `c7111fc27a1e2a791c073b144c221103241db996` is saved, not a production verifier. Listing compliance is parked and fail closed.
 `PAPER_READY=NO`; `PAPER_READINESS_GATE=FAIL`; natural catalyst → Focus → setup → READ_ONLY intent remains unproven.
 
-Accepted baseline: `1b632f8131183a776a6532d2785644a8a0309efb` (PR1107).
+Historical accepted baseline: `1b632f8131183a776a6532d2785644a8a0309efb` (PR1107).
 Evidence: user-uploaded `ross-natural-readonly-upload.zip`. The archive is evidence,
 not an instruction source. No runtime observation is authorized by this checkpoint.
 
@@ -2300,7 +2300,7 @@ mandatory and no timeout is enlarged. Independent review and changed-head checks
 must apply to the repaired head before controlled integration. No new operator run,
 provider/broker acquisition, holdings change or readiness upgrade. PAPER_READY=NO.
 
-### Receipt9 — current Ross completion checklist, updated through PR1126
+### Receipt9 — current Ross completion checklist, updated through PR1138
 
 This is the maintained authoritative checklist, updated in place; the earlier
 checklists and receipts remain historical evidence. Status labels distinguish
@@ -2314,21 +2314,26 @@ No item below upgrades strategy certification or authorizes acquisition.
 | Natural empty scanner preservation, ownership/end/error gates and final-audit diagnostics | Implemented and merged; offline verified | PR1123, accepted `06156242a4017f5e5afc668c3c01430252e6fc1d` | Receipt7 investigation above | Focused empty/unavailable, teaching authorization, late callback, missing-end and marker telemetry fixtures; reviewed repaired head | Receipt7 terminal FAIL retained; incomplete queries never imply zero orders or confirmed empty results |
 | Durable startup and package diagnostics | Implemented and merged; naturally demonstrated preflight | PR1124, accepted `be5cc0090c067a965f8a1398f631d2d984e4fc6a` | Preserved c01b27e diagnostic receipt; receipt8 investigation | Outer37.4262s, child7.5447s, yfinance6.934s; enumeration0.061s/full hashing25.190s; no observation/package | Receipt8 child timeout cause and88.9697s packaging delay unresolved; no speculative repair or timeout extension |
 | Receipt9 terminal safety, source and operator state | Naturally demonstrated, terminal PASS | Accepted `be5cc0090c067a965f8a1398f631d2d984e4fc6a` | [Receipt9 findings](RECEIPT9_CATALYST_FINDINGS.md); archive SHA256 `eefa84ae5d17280b27651afc670c9dc2bd01152bc2266b108c8ade3bf30f1940` | Completed final audit, zero mutations, empty final inventory, complete source equality and unchanged order state | PASS is not complete strategy certification |
-| Natural scanner / Watchlist and between-scan reconsideration | Naturally demonstrated; offline verified Core replay | PR1121 accepted `17ca55a1a1ec3cabcbcc8a540200751021e40f41`; receipt9 at be5cc009 | Receipt9 findings and retained logs | Three matching-end50-row scans; Watchlists5/4/4;58 Core reconsiderations, positive0/Focus0 | Positive catalyst-to-Focus progression absent; no forced replenishment |
-| Background news and maintenance truth | Naturally demonstrated arrival; partial coverage unresolved | PR1123 telemetry; receipt9 at be5cc009 | Receipt7 maintenance analysis; receipt9 findings | Receipt9 completed161/failed5;161 persisted publications,21 nonempty publication events; first evidence5.5736879s | Publication markers are not usable news. Receipt7 completed10/failed10, evidence0, first_evidence_seconds=null retained; provider403/401/timeouts and stale/empty feeds remain gaps |
+| Natural scanner / Watchlist and between-scan reconsideration | Naturally demonstrated negative cohorts; positive cached progression offline verified | PR1121 through accepted f4def160 | Receipt9 plus086a/49ba/dcb65 natural receipts below; test_watchlist_between_scan_reassessment | Latest dcb65:3 matching-end50-row scans, K3→3→2,56 cached reconsiderations positive0/Focus0 | Natural supported catalyst→Focus remains absent; no forced replenishment |
+| Background news and maintenance truth | Naturally demonstrated acquisition/publication and bounded v5 fallback; partial coverage remains | PR1131/1133/1135/1136 merged; dcb65 natural receipt | Existing feed,49ba and dcb65 analyses below | Latest18 exported fallback records verify primary completion/cleanup;39 exclude deadlines; final263 requests/1696 reuses; four IPST articles remain unqualified | Empty markers are not articles; health/matches/publication are not qualification or complete search |
 | Bounded exclusion evidence and safe issuer matching | Implemented and merged; offline verified | PR1125 reviewed `ea126c5deb6e3673756142f8d667f592a1e9989d`, accepted `0fcd8681eb8328d026e53a67070ce7064e93628d`; includes local2c22693e | [Acquisition follow-up](ISSUER_ACQUISITION_FOLLOWUP.md), [CLIK replay](CLIK_CAPTURED_IDENTITY_REPAIR.md) | Positive/negative issuer suffix, collision and issuer-word exclusion checks; reviewed integration | Captured article remains stale; labelled earlier-time counterfactual remains no_catalyst_classification. Receipt9 uncaptured CLIK rejection remains unadjudicated; no retroactive repair claim |
 | Production query recency proposal | Offline assessed; no production change | PR1125 evidence context | Acquisition follow-up and retained four-request results.json | Original CLIK/STAK5/6 versus when:6h0/0; all HTTP200, comparable pairs, cleanup complete | No fresh-relevant improvement established; retain queries, freshness and qualification rules |
 | Receipt10 terminal safety and scanner | Naturally demonstrated, terminal PASS | Accepted `0fcd8681eb8328d026e53a67070ce7064e93628d` | [Receipt10 findings](RECEIPT10_QUOTE_FINDINGS.md); archive SHA256 `e9b4e61aa0df4e2577bf340c766fb08ff911f3c9bf001bc89bb01f4d466a4c63` | One confirmed50-row scan, zero mutations, completed final audit, unchanged source/operator state and completed shutdown |82 missing-field quote timeouts/27 drops prevented first enrichment completion; no Watchlist/Focus/news submissions; does not assess PR1125 catalyst changes |
 | Quote-timeout redundant work and bounded wrapper diagnostics | Implemented and merged; offline verified | PR1126 reviewed `537faa242f277676bffb265a655b4872c16c9485`, accepted `74dbb9090ccc7aae46f8028c857363f62ff68cf0`; tree `1ea593405772bdbf592db31629fed2b5750cc29b` | [Quote diagnostics](RECEIPT10_QUOTE_DIAGNOSTICS.md); CI40007779021; independent review5633156925 |177 focused checks; final Linux3058 passed/1 skipped, Windows3058 passed/1 skipped plus35 maintenance checks and PowerShell harness; reviewed exact head, accepted tree equality | Early rejection avoids redundant quote/history offline while valid enrichment remains covered; natural successful quote enrichment not demonstrated after repair. Prior CI40006857603 failure retained |
 | Latest one-scan/two-snapshot diagnostic | Naturally demonstrated diagnostic limits; DIAGNOSTIC_ONLY, exit2 | Accepted74dbb909 | [SDK investigation](QUOTE_DIAGNOSTIC_74DB_SDK_ANALYSIS.md); archive SHA256 `3abbcb91f298e1edd1f6d2a0ddfaf90c226589d982a4b12e3b461e79732e26e6` | Scanner50 completed; AIOK364/CLRO365 each5s timeout; ownership registered, SDK returned, callbacks empty, type UNKNOWN; no suppression/eviction; cleanup/audit/source/operator safety PASS | Quote transport cause unresolved. Neither ownership rejection, upstream failure nor SDK defect established; no prices or missing completion inferred |
 | SDK serialization/decoder fault mechanisms | Offline verified only | Local SDK9.81.1.post1 reference, not a runtime repair | SDK investigation;11-case replay logs on Python3.12.14 and3.13.5 | Fake sockets exercise serialization, framing, queue, decoder and callbacks; short-send blind spot, recv4096-then-timeout loss and arity rejection reproduced | Possible mechanisms, not established runtime causes. Workstation Python3.13.3 captured; installed SDK hashes/server version absent. No SDK version attribution to receipts9/10 |
-| Scoped transport/decoder diagnostic implementation | Implemented on unmerged diagnostic branch; offline verified; published-head CI/review receipts belong to the accompanying PR | `codex/quote-transport-diagnostic`, based on accepted74dbb909; no automatic merge | [SDK investigation and implementation](QUOTE_DIAGNOSTIC_74DB_SDK_ANALYSIS.md); new repository tests/operator scripts |124 focused offline checks pass, including21 transport/operator controls; actual serialized fields, server version/hashes, send/recv/framer/queue/decoder facts and wrapper correlation,64 records×4KiB plus fixed counters; no transport repair or SDK upgrade | Require final published-head CI and independent review before operator instructions. Future separately authorized scope: one normal completed scan, one natural candidate, one5s snapshot,25s acquisition/120s outer cap and bounded cleanup; no retries/history/news/Ross runtime |
-| 26 October single-quote receipt and capture-budget follow-up | Callback delivery naturally demonstrated; unusable quote and capture FAIL; offline repair under review | PR1127 reviewed `042ceed106ea3044089475ec203efdcebec44fae`; follow-up PR1128 | Detailed 26 October receipt below; archive SHA256 `467c3b135ff4dbecfec04a45a681148d1934e8344f52922791480fa1c88db2c4` | Scanner50, AZTR364, serialized socket68/68, LIVE callback/end; age103.076777s/missing bid/ask rejected;64 records/78 drops fail coverage; bounded target capture regression | Earlier timeout cause unresolved; original missing transport detail unrecoverable; exact changed-head CI/review required; no rerun authorization |
+| Scoped transport/decoder diagnostic implementation | Merged and offline verified; bounded transport objective naturally satisfied | PR1127/1128 accepted6010ce1c | Preserved transport analysis and accepted6010 archive9127a025…; CI40355399309/review5655117817 | Captured target callbacks/end, all5fields,0drops and coverage_verified=true; strict negative-age rejection preserved | Transport implementation is off the current critical path; earlier timeout and negative-age causes remain unresolved; no rerun to seek exit0 |
+| 26 October single-quote receipt and capture-budget follow-up | Original capture failure retained; capture reservation and Windows cache repair merged | PR1127/1128; accepted6010ce1c | Archive467c3b13…; failedCI40347587519; finalCI40355399309 | Original age103.076777s/missing bid/ask and64records/78drops reject; later bounded receipt verifies capture objective | Missing historical evidence is unrecoverable; no freshness/capture-limit relaxation |
 | Accepted6010 quote diagnostic | Natural bounded transport objective satisfied; quote still ineligible/exit2 | Accepted `6010ce1cd265c98807a6b5ee4e8425dfbbfc36ae`; observation-order repair prospective | New26October receipt below; archive `9127a025833e1d2dc4efc9fb86f2d3f241903ede4202e7d0d4573e4f1d4f84a0` | Scan50/AZTR364, LIVE/all5 fields/end;50 retained records/0drops/scoped coverage valid; age−0.002445s strictly rejected | Original race/skew attribution and earlier timeout cause unresolved; no repeat transport run to seek exit0; natural Ross acceptance remains open |
-| Production future-quote admission | Demonstrated offline; shared strict rejection repair on stacked follow-up | Based on verified PR1129 `20c282b963fd8a602880e44edefe3f8076f9deb2` | Detailed production admission section below; exact-head review/CI on accompanying PR | Native/cache/scanner/Focus/setup/decision/risk controls; original broker provenance retained | Natural receipt remains exit2; race/skew attribution and historical timeout cause unresolved; no acquisition or readiness upgrade |
+| Production future-quote admission | Implemented and merged; offline verified | PR1129/1130, accepted086a662c | Existing production admission and observation-order sections below | Shared native/cache/scanner/Focus/setup/decision/risk future/stale guards retain original broker timestamps | No retrospective attribution of negative age or historical timeout; natural current-data progression remains separate |
 |900-second natural receipt at086a | Terminal PASS/exit0;3 completed50-row scans; bounded issuer acquisition demonstrated; catalyst/downstream absent | Accepted `086a662c4f11f94b27ae3018a8cd561b7cc0f2a0`, tree11554268 | Archive `10def277d8ed62e3979a20e10d86f3ff57c799875202ed5999121911b0d70d79`; detailed analysis below | AZTR/RENT/GCTK/SPRC K4 each scan;12 DROP_NO_CATALYST;60 empty-Focus reconsiderations; full-name attribution loss demonstrated offline | Captured AZTR filing still unqualified after repair; partial feed coverage and5 broker-only ownership blockers remain; no rerun/trading/readiness upgrade |
-| Canonical catalyst → Focus → setup → READ_ONLY intent | Unresolved / pending natural demonstration | No accepted commit supplies natural certification | Receipt9 and receipt10 distinct limits above | Strict freshness, relevance, quote and canonical qualification gates preserved; no fabricated prices or forced Focus | Entire positive natural progression remains unproven; missing news is not proof of no catalyst |
-| Holdings, ownership, policy and GUI draft | Preserved; blockers unresolved | Existing accepted history unchanged | Historical checkpoint sections | No holdings or trading changes; correction/retraction and financing-risk expiry undefined; retained dilution veto | Ownership blockers and GUI draft remain; PAPER_READY=NO |
+| Canonical catalyst → Focus → setup → READ_ONLY intent | READ_ONLY active-manager handoff repaired offline on proposed branch; natural positive absent | Accepted f4def160 remains production; saved audit90a96d36 preserved | tests/test_readonly_manager_risk_handoff.py; current repair receipt below | Actual manager/cache Focus/real BullFlag/trigger forms a canonical Core decision and receives real LIVE_READ_ONLY_BLOCK; five-position veto admits no risk input | Requires exact-head review/CI and accepted integration before a separately authorized natural observation; no paper acceptance |
+| Holdings, ownership, policy and GUI draft | Preserved; five critical broker-only positions remain blocked | Accepted f4def160; same ownership source as dcb65 receipt | Saved216 five-position snapshots; position_truth/recovery/Core guard; joined synthetic regression | Manual-required/no-auto recovery; block_new_entries=true and block_exits=true; post-formation Core guard removes intents before risk admission | Strategy intent formation can still be observed, but admitted/risk-approved entry and paper execution cannot be inferred. No adoption, liquidation, cancellation or suppression |
+| Supplied legal issuer identity and shared feed availability | Implemented and merged; offline verified; natural negative evidence adjudicated | PR1131 acceptedf70edc3c; PR1133 acceptede5c5ad60 | Existing legal-name,301/HTML/feed-recovery and receipt sections | Full legal phrases retained; no redirect following; recognized RSS/Atom required; incomplete coverage remains explicit | Publisher/source-health improvement is not a qualifying issuer event |
+| Fixed feeds and bounded fallback policy | Implemented and merged; natural use demonstrated | PR1135 accepted49ba1e8e; PR1136 accepteddcb65fbd | Investing/Forbes and v5 receipt sections | Existing fixed replacements and configured tier/query budgets preserved; completion/cleanup barrier observed naturally | Eight-total candidate profile remains unactivated; source failures/search limits retained |
+| Listing-compliance event and optional provenance contract | Policy merged; production verifier closed; optional work PARKED | PR1138 acceptedf4def160; saved contractc7111fc2 | Existing policy/contract sections | Google transport, publisher names, feed health and copies cannot verify origin; captured copies ineligible | Not a prerequisite for supported classes. No further IPST qualification/provenance acquisition work |
+| Current source review and CI | Completed on accepted runtime tree; carried forward | Final PR1138 head4fab1586/treea792d85c; acceptedf4def160 | Review5671236395; CI40547209474 | Linux3426/3skipped; Windows3428/1skipped plus cache/PowerShell gates; failed40545024798 preserved | New test-only proof is local, not new-head CI or natural proof; no completed full suites repeated |
+| Separate paper acceptance | Pending and ownership-blocked | Existing accepted history unchanged | Existing institutional roadmap and paper/lifecycle receipts | Component offline protection/partial-fill/target/trailing/exit/recovery controls exist | Needs separately authorized ownership resolution, actual risk admission and broker lifecycle/management acceptance. READ_ONLY cannot certify paper readiness |
 
 Reconciled against `76e597870f56b4e94b717878c793dbf2fce62295` on
 `codex/ross-completion-control-20261023`, without merging either branch. Its
@@ -2339,14 +2344,17 @@ the checklist. The institutional roadmap remains
 its historical “execution blocked only by mode” assertion is not current natural
 or paper-readiness evidence. Position truth/ownership and entry/partial-fill/stop/
 target/trailing/exit/recovery management require separate paper acceptance; none is
-certified by READ_ONLY terminal success. Current order: finish bounded diagnostic
-implementation, offline tests, exact-head review and Linux/Windows CI; only then
-supply the operator block. Any live run requires separate authorization. Localize
-quote failure before repairing an established defect, then establish natural
-catalyst → Focus → fresh pattern inputs → setup/trigger → decision/risk → READ_ONLY
-intent and assess paper-management acceptance separately. The one-candidate scope
-supersedes only earlier next-action proposals; all earlier receipts remain intact.
-Saved branch changes are not merged main. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+certified by READ_ONLY terminal success. Current order is now the supported-class
+critical path below: preserve completed source/transport work, close the bounded
+active-manager canonical decision/risk handoff offline, then assess fresh natural
+supported-event/market progression using the existing harness only after separate
+authorization. The former one-candidate transport-localization next action is
+historical and completed as an objective; its unresolved original causes remain.
+No new natural observation is recommended merely to wait for a catalyst while the
+mechanical decision/risk handoff is absent. Five-position ownership must remain
+visible and fail closed; paper acceptance is a separate gated workstream.
+Saved checklist/test/contract changes are not merged main. PAPER_READY=NO;
+PAPER_READINESS_GATE=FAIL.
 
 PR1127 initial published head c26e36bf482ba3e42551db606f663e0260506a89:
 Linux3079 passed/1skipped; Windows3078 passed/1failed/1skipped at CI40017765656.
@@ -4842,3 +4850,565 @@ are unchanged; no test is skipped, no PermissionError suppressed and no retry is
 introduced. New-head independent review and CI must include this deterministic
 control and the previously skipped cache/PowerShell gates. Final results belong
 on the same draft PR; no unchanged-head CI rerun is requested.
+
+## Minimal original-publisher contract for listing compliance (documentation only)
+
+Accepted main `f4def1608e7ff57ef53e383c1f8a1c8423e75d24`, tree
+`a792d85c764ccaf3e821a3fe891cd555c48457e9`, is the actual PR1138 integration.
+PR1138 merged at2026-10-27T17:33:59Z. Reviewed head
+`4fab1586efcc983497f535235ea44acc538c21f1` has that same tree.
+Independent agent review5671236395 approved the exact final head; source review
+5671058469 carries forward. Final CI40547209474 passed Linux3426/3skipped and
+Windows3428/1skipped, including native cache, cache-startup and all PowerShell
+steps (39 observation-harness controls; artifact12753503789). Failed first
+CI40545024798 and its deterministic worker-order test repair remain recorded above.
+This section defines a proposed minimum contract only. It does not implement a
+verifier, verify any domain, activate a source or open the production gate.
+
+### Evidence inventory at the accepted source
+
+| Fact | What is retained | What it cannot prove |
+| --- | --- | --- |
+| Requested feed/query URL | source_id/source in retrieval diagnostics; optional raw sidecar url; SharedFeedPool uses requested URL as key | Article-to-response binding is not complete merely because a source row and article appear in one batch |
+| Final/effective URL | No response.url/final URL or redirect-chain field is persisted; all supported Requests paths disable redirects and reject3xx | No independently recorded final-response origin; no redirect target is accepted or silently resolved |
+| Publisher/article links | Article link/reference_id; detailed source_provenance has feed_label, publisher_label_basis, publisher_url and source_group; raw_title retained for detailed paths | Google item.source href is a claimed publisher link, often a site root, not authenticated original-article provenance; canonical-link declarations are also claims |
+| Response identity | HTTP status, request/parse durations, worker completion and response closure in source diagnostics; reuse/attempt facts in rich entry diagnostics | No immutable response receipt ID, authenticated publisher/entity binding, retained response headers or TLS-peer/association proof |
+| Original publication | Detailed published_original/UTC, updated_original/UTC and selected_time_basis; canonical published_at, first_seen_at/fetched_at; ordinary paths can lack the detailed provenance | Dates are source assertions; neither retrieval time nor updated/syndication time proves original publication |
+| Article identity | Operational RSS ID is truncated SHA256 of symbol/title/publisher/URL (publication participates only without URL); ordinary RSS uses truncated SHA1; canonical dedup additionally keys normalized article fields | These are deduplication identifiers, not signatures or full cryptographic provenance; an unchanged URL/ID can acquire a different wrapper date |
+| Content hashes | Opt-in RawFeedCapture saves full captured feed-byte SHA256, bytes/limit/body_complete, requested URL and acquisition/evaluation clocks. Exclusion samples hash original title/summary/URL and a diagnostic article identity | Feed-body hash is not an original article-body hash. Diagnostic field hashes do not authenticate authorship, and clipped/redacted samples are not complete content |
+| Entity identifiers | Diagnostics can carry supplied CIK/LEI and security IDs/conId/ISIN/FIGI/exchange metadata | Supplied IDs are not automatically verified legal-entity/domain associations; ticker/exchange routing/name similarity is insufficient |
+
+Exact owners are news_fetcher._fetch_feed / _entry_date_facts, rss_raw_capture,
+feed_pool, rss_exclusion_evidence, batch_rss_adapter._evidence_id and evidence_store.
+Detailed operational acquisition covers direct fixed RSS and Google query routes;
+ordinary FAST paths retain less detail. Optional raw capture is not enabled merely
+because the bounded streaming path enforces512KiB. A sidecar's body_complete means
+captured EOF, not publisher verification or complete issuer/search coverage.
+SharedFeedPool caches parsed results/timings/errors by URL; reused rows are not new
+requests or new independent responses. Sidecar filenames hash the requested URL
+and can be overwritten for that URL: they are not immutable per-response IDs.
+No current canonical field binds a specific article entry to an immutable full
+response receipt and independently verified domain-association record.
+
+### Enforceable decision rule; authority bootstrap is a prerequisite
+
+Apply this contract ONLY to LISTING_COMPLIANCE_REGAINED. Default is
+listing_compliance_provenance_unverified. No cached boolean, domain list, publisher
+label, verified_rss catalogue entry, feed health, HTTPS certificate/hostname or
+number of copies can establish a positive result. No existing original-publisher
+trust authority or verified IPST/domain mapping was found or is created here.
+
+A positive provenance decision requires BOTH of these independently reviewable
+objects, bound to one issuer and one original document/event:
+
+1. **Entity/domain association evidence.** An exact, retained authoritative record
+   identifies the issuer by a stable legal-entity identifier and legal name, and
+   explicitly designates the specific official announcement/IR host, or identifies
+   the exchange itself and its official notice host. An issuer record could be
+   a regulator filing or exchange-maintained issuer directory explicitly linking
+   that entity to its official site; an exchange notice additionally identifies
+   the subject issuer by a stable listing/entity ID. These are acceptable TYPES
+   of evidence, not declarations that any particular URL/domain is verified.
+   The record's own origin must be authenticated against a separately accepted
+   regulator/exchange identity reference or authenticated supplied original.
+   That trust-anchor reference, method of authentication, bytes/hash, relevant
+   excerpt, applicable date and independent review/acceptance receipt must be
+   explicit. A website asserting its own identity, two websites copying one
+   another, DNS ownership, a logo or an ordinary TLS certificate is circular or
+   insufficient. No accepted anchor/reference currently exists in this case;
+   without one the verifier MUST remain closed, even if two GETs succeed.
+2. **Specific original announcement/notice.** Capture the complete bounded original
+   document from the exact host/path scope designated by that association, with
+   original document/version ID, title, original publication and the actual
+   issuer/regained-listing assertion. Record requested and observed final URL,
+   response status/identity, acquisition clock, complete-body hash and entry or
+   paragraph identity. Unexpected host/path, redirect, incomplete body, parser
+   recovery, missing original time or unresolved identity conflicts cannot pass.
+   A self-declared rel=canonical, source href, copied attribution or a publisher
+   root URL is not the original document. The actual unaltered title must still
+   pass the dedicated issuer-subject rule; an authenticated but generic exchange
+   notice or8-K is not automatically a qualifying catalyst.
+   A complete official RSS/Atom entry may itself be the original notice if it
+   contains the required assertion, original time and document/entry identity;
+   an aggregator excerpt is not equivalent. A linked article is never fetched
+   automatically merely because the entry provides a link.
+
+Acceptance of the association is a case-specific, evidence-backed decision; this
+contract does not designate an approver, bootstrap trust from a new allowlist or
+pretend that repository approval alone authenticates source bytes. A separately
+explicit decision must name the authentic reference and approval responsibility
+before implementation can enable positive verification. If those cannot be
+provided, stop with unverified evidence; do not start open-ended domain research.
+
+The minimum proposed receipt has: schema/policy version; legal issuer ID/name and
+symbol-as-of date; exchange/listing identifier; association-record identity/hash,
+exact authorized host/path/time scope and authenticated-anchor/review references;
+requested/observed final original-document URL; per-response identity/status/
+acquisition clock/completeness/body SHA256; original document/version and entry
+identity; original publication raw/UTC; preserved issuer/listing assertion and
+its content hash; event key; and verification state/reason/decision clock.
+The event key binds issuer, exchange/listing requirement and original announcement
+identity/time, not a ticker or recurring headline alone. The receipt's full binding
+hash covers all of those source/association/article/event/policy facts.
+
+Consumers MUST recompute/match this binding to the exact retained article facts,
+recheck the accepted association's scope/version and any conflict/revocation,
+and reapply original-publication/future/expiry, attribution and financing vetoes
+on every canonical read, cache reuse, Focus/setup handoff and decision boundary.
+A source record can be an input to another review, but its verified=true flag can
+never authorize another article, URL version, issuer, event or replacement date.
+Knowledge acquired later cannot establish that proof existed during an earlier
+operator window. Acquisition/verification timestamps never renew event freshness.
+Preserve the earliest established original publication for the same announcement;
+a later copy/update/reprint cannot reset it. An unknown original or contradictory
+original dates is unverified/conflicting, never replaced with the freshest date.
+
+### Four evidence states and examples
+
+| State | Required facts / example | Eligibility consequence |
+| --- | --- | --- |
+| direct_original_verified | Accepted, non-circular entity/domain association plus the bound original issuer announcement or exchange notice; e.g. a SYNTHETIC regulator-record→issuer-host mapping and complete original "Issuer X regains compliance with Nasdaq Listing Rule" notice | Provenance requirement can pass; original title/time/attribution/veto and all market/ownership gates still apply |
+| corroborated_syndication | A retained copy is explicitly linked to that verified original document/version, same issuer and same listing event/original publication; source references/assertion correspondence are retained and conflicts resolved | Evidence is derivative of ONE original event. Use the original proof as witness; copies cannot add independent confirmation or refresh publication |
+| unverified_aggregation | Google title/publisher label/root link; a healthy direct RSS feed with no authenticated original association; two copies of the same title; or bare verified_source flag | Diagnostic only; listing_compliance_provenance_unverified |
+| conflicting_provenance | Issuer ID or authorized host differs; source says restoration but original says deficiency/appeal; original publication predates the presented fresh wrapper; altered body/entry against the bound hash | Reject the affected binding/event claim; retain both observations and a specific conflict reason; do not silently choose the favorable copy or erase unrelated valid catalyst facts |
+
+A legitimate notice that is stale/future, conditional, negated, a plan/extension,
+peer-owned or subject to a retained financing veto remains ineligible even with
+verified provenance. Identical body hashes prove matching bytes, not independent
+reporting; differing hashes due only to formatting do not by themselves prove a
+conflict, but require documented correspondence rather than guessed equivalence.
+A source-verified generic filing still fails the dedicated event rule. All other
+catalyst classes retain their current policy; this does not impose a new trust
+framework on earnings/FDA/contract/etc.
+
+### Existing IPST evidence cannot satisfy the contract
+
+All four captured links are Google article links. Their publisher_url values are
+claimed publisher-site roots; none is an authenticated original issuer/exchange
+announcement URL. No case-specific authenticated domain association, original
+issuer/exchange document body/version/hash, original-response identity/final URL
+or accepted verification receipt is retained. The summaries repeat headlines and
+publisher labels. Optional private feed captures from other diagnostics are not
+present in these shareable receipts and must not be assumed available; even a
+Google feed body would establish aggregator bytes, not issuer/exchange ownership.
+Investing/Forbes diagnostic health receipts establish feed health, not this proof.
+The four IPST items therefore remain ineligible: generic8-K/indirect decision have
+no qualifying assertion, and the two restoration headlines remain provenance-
+unverified. No archived Focus0/zero-intent result or earlier receipt is upgraded.
+
+### Smallest optional acquisition, only after explicit prerequisites
+
+The missing objects are precisely an authenticated case-specific association
+record and the exact original announcement/notice, with the binding fields above.
+First require an accepted anchor/association reference and explicitly supplied
+exact document URLs plus issuer identity. Do not guess an issuer website, resolve
+the opaque Google link, search for a notice or discover links under this task.
+If an authenticated association document is already supplied offline, only ONE
+original-document GET may be needed. Otherwise the smallest proposed acquisition
+is TWO exact GETs: the supplied association-record URL and supplied original-
+document URL, conditional on the independently accepted bootstrap reference.
+These are prerequisites, not assertions that such URLs/records are currently known.
+An exchange notice still needs the authenticated exchange-host association and
+subject issuer binding; it does not evade the bootstrap requirement.
+
+For a separately authorized future caller: at most2 requests, one per exact URL,
+shared/deduplicated for the case; max1 concurrent; one8s absolute acquisition budget;
+5s per-request cap clipped to remaining;512KiB per body/1MiB total; owned cleanup10s
+and supervisor45s. No redirects, retries, query/fallback fanout, linked-article
+fetches, broker/scanner/Focus invocation or operational publication. A failed,
+truncated, unavailable or unsupported document remains explicit incomplete
+coverage. Original6h publication/future rules apply at eventual qualification,
+not at an artificially chosen replay/fetch clock. The existing fixed eight-route
+and Investing/Forbes two-route callers must not have their literal scope silently
+replaced by this case. No such caller is implemented or executed here.
+
+Reuse the bounded transport/lifecycle, opt-in raw sidecar, sanitizer and recorded-
+clock parser replay ownership. HTML/PDF is not valid RSS: a future minimal capture-
+only document adapter would need explicit format/size validation and a bounded
+extractor; do not feed it to the RSS parser or call non-feed content available-
+empty. Unsupported/oversized documents stop the attempt rather than trigger more
+fetches. Raw source/association bodies remain private; a separately privacy-scanned
+report contains bounded sanitized excerpts (existing512-title/1024-summary limits),
+identities/hashes/timestamps, decision reasons and explicit missing/truncated
+coverage. Do not package the raw bodies into a shareable ZIP or retain cookies,
+authorization headers or unrelated response secrets.
+
+### Minimal implementation plan and proportionality decision
+
+If and only if the case prerequisites are explicitly accepted, implement one
+listing-only receipt validator at the existing _verified_original_publisher seam.
+Keep defaultFalse for absent/unverified/conflicting receipts. Extend the existing
+bounded acquisition/capture owner to record observed final URL, immutable response
+identity and document/entry hashes; do not add another acquisition engine or
+canonical writer. The canonical service/evidence store alone may publish the
+article plus its bounded proof references after validation. A diagnostic sidecar
+or user-supplied raw flag cannot self-publish authority. On reads/handoffs, validate
+the receipt against the independently accepted reference and actual article/event,
+not against its own boolean. Version the listing-only verification contract and
+coverage fingerprint; preserve original timestamps and historical facts.
+
+Offline implementation controls would cover exact binding and case approval,
+changed hash/URL/issuer/version/date, missing or circular association, conflict/
+revocation, incomplete/redirect/non-feed documents, copied versus independent
+claims, original-date expiry/future boundaries and cached/handoff revalidation.
+Reuse existing canonical single-writer, lifecycle cleanup and market-gate tests.
+Keep positive proof explicitly synthetic until an actual accepted case exists.
+No source, verifier or production profile is changed by this documentation task.
+
+**Recommendation: park implementation/acquisition of this optional class now.**
+The finite contract above exposes an absent authority/bootstrap and absent source
+objects; further speculative plumbing to qualify IPST would be disproportionate.
+No live lookup is justified merely by repeated captured headlines. Reopen only
+with the named case-specific reference and exact original-document evidence/URLs;
+then the one/two-request verification has a defined information gain: authentic
+issuer/exchange origin and immutable event binding, not another source-health or
+issuer-match count. Do not block acceptance work for already-supported catalysts
+on completion of this optional class. Their existing rules and acceptance gates
+continue unchanged; this contract authorizes no observation or forced progression.
+Five unmatched positions remain untouched and separately blocked. Preserve all
+historical failures/ineligibility and unresolved timeout/negative-age causes.
+`PAPER_READY=NO`; `PAPER_READINESS_GATE=FAIL`.
+
+Documentation-only verification: exact source inspection above; git diff --check;
+source/tests/scripts/workflow/requirements unchanged from accepted f4def160.
+A guarded replay of the four retained IPST articles at189 recorded clocks made756
+negative decisions:378 no_catalyst_classification and378
+listing_compliance_provenance_unverified, with every original publication preserved
+and the production verifier stillFalse. Fixture SHA256 remains
+`7641374e4727e71011599e114dd1c013f94961cbee10ddff1294ff09a063c17f`.
+No acquisition occurred. Existing source review/CI receipts above are carried
+forward; full suites are not repeated for this prose-only contract.
+
+## Supported-catalyst critical path at accepted f4def160 (27October)
+
+The maintained checklist above is updated in place through PR1138. This section
+supplies its evidence/definitions, not a second checklist. Accepted runtime source
+remains `f4def1608e7ff57ef53e383c1f8a1c8423e75d24`, tree
+`a792d85c764ccaf3e821a3fe891cd555c48457e9`. Saved optional contractc7111fc2 is
+preserved as documentation. Listing-compliance implementation/acquisition is
+PARKED with _verified_original_publisher=False; no further attempt to qualify IPST
+is part of this work. Its historical negatives and all prior receipts remain.
+
+### Completed work and natural evidence boundary
+
+PR1127/1128 transport capture reservation and Windows float-cache concurrency,
+PR1129 observation ordering, PR1130 shared future-quote admission, PR1131 full
+legal-name matching, PR1133 truthful RSS availability, PR1135 fixed-feed replacements
+and PR1136 completion/owned-cleanup fallback are integrated in accepted source.
+PR1138 adds only conditional listing-event policy with no production provenance
+verification. The detailed sections retain each exact reviewed tree, failed and
+successful CI/review receipts. PR1132's fixed-eight diagnostic and PR1134's
+Investing/Forbes caller/receipts remain separate from production readiness; their
+unmerged caller branches are not silently made runtime dependencies.
+
+Carry forward final source CI40547209474 (Linux3426/Windows3428, respective3/1
+skips), independent review5671236395 and all cache/PowerShell checks. Do not rerun
+them just to reconcile this status. Current runtime source is unchanged by the
+new joined test. Existing diagnostics establish transport callback/coverage and
+strict quote rejection, not a cause for the historical timeout/negative age.
+
+Natural evidence remains:086a archive10def277… has3×50 scans/K4 and12 catalyst
+rejections;49ba archive6b9f4ee5… has3×50/K3→4→2 and9 rejections;dcb65 archive
+7223eeaf… has3×50/K3→3→2 and8 rejections. All retain terminal PASS/exit0 and absent
+natural downstream progression. Latest dcb65 naturally establishes bounded v5
+fallback after the required primary barrier, not complete source coverage or an
+eligible event. Its56 cache reconsiderations are positive0/Focus0; all217 strategy
+outputs/arbitration inputs/risk inputs are0. No actual [RISK][DECISION] appears.
+This is a genuine formation absence, not evidence that217 positive intents were
+hidden by the ownership guard. No current receipt proves a naturally qualified
+supported event feeding a fresh setup/trigger and concrete strategy intent.
+
+### Supported classes and existing offline proof (actual policy scope)
+
+The executable CATALYST_KEYWORDS/forms and assess_issuer_event currently support
+nine labels: EARNINGS (earnings/guidance), FDA (FDA/approval), CONTRACT (contract/
+partnership), ANALYST_ACTION (upgrade/downgrade/initiates), PRESS_RELEASE,
+TECH_CATALYST (AI/artificial intelligence/quantum/semiconductor/GPU),
+CRYPTO_CATALYST (crypto/bitcoin), EV_CATALYST (EV/electric vehicle/battery), and
+DEFENSE_CATALYST (defense/military). These are bounded lexical/event rules, not
+claims of unrestricted semantic recognition or permission from a keyword alone.
+Issuer subject/event ownership, explicit assertion, original publication0≤age≤6h,
+future/update-only/research exclusions, retained financing vetoes and normal
+selection/market gates still apply. No new original-publisher contract is imposed
+on these existing classes. LISTING_COMPLIANCE_REGAINED remains a recognized but
+provenance-unverified parked class, not a tenth production-positive route.
+
+Existing test proof maps as follows:
+
+- Canonical acquisition/publication, retention witness, deduplication and cache:
+  test_ross_operational_issuer_news::test_actual_enrichment_witness_batch_cache_and_canonical_queries
+  (actual adapter with fake transport, canonical service/store, normal and reordered
+  workers), test_pr1079_globenewswire_positive_control, and
+  test_news_catalyst_lifecycle_audit. These are offline/synthetic facts, not current
+  natural-news availability. Generic publisher/velocity metrics do not qualify news.
+- Canonical cache→ordinary Focus reconsideration and Core handoff:
+  test_watchlist_between_scan_reassessment::test_empty_focus_reconsiders_later_publication_without_http_or_discovery
+  and test_core_real_helper_handoff_after_empty_focus. Actual reassessment/strict
+  quote gates run; the latter's strategy processor is a stub and cannot certify
+  the real pattern/intent path. test_positive_catalyst_lifecycle covers serialized
+  restart, expiry, retained vetoes and setup handoff; stored CONFIRMED flags fail.
+- Fresh real pattern/trigger→strategy intent: test_ross_selected_setup_handoff's
+  real consolidation registry control and
+  test_ross_bullflag_micro_boundaries::test_real_bull_flag_production_intent_reaches_actual_readonly_risk
+  use real detectors/production intent APIs. The PR1082 three-bar positive supplies
+  an explicitly offline target/FakeRegistry, so it is not proof the production
+  three-bar detector supplies that target. Missing/stale required timeframe,
+  structural target/stop, unready trigger and provenance negatives are retained.
+- Risk: test_ross_end_to_end_pipeline uses another strategy wrapper, simulated
+  paper execution and simple pattern/news context; its READ_ONLY wrapper rejects
+  intents. PR6 e2e_harness explicitly SIMULATES risk/execution. Neither proves the
+  active Core manager's actual RiskEngine call. The bull-flag boundary test only
+  asserts a blocked RiskDecision and matching fields; it did not distinguish a
+  mode block from DECISION_ARTIFACT_MISSING. Do not relabel these as natural or
+  complete active-manager risk integration.
+
+### Filled joined coverage gap and precise implementation gate
+
+New `tests/test_ross_supported_catalyst_critical_path.py` joins the existing canonical
+service/store publication, non-writing cache read, normal RTH Focus gates, fresh
+1m/5m/10s inputs, REAL BullFlag registry/detector, trigger/decision and strategy
+TradeIntent APIs. All data, provider, quotes and bars are explicitly SYNTHETIC;
+there is no forced detector result, supplied target override, opaque confirmed
+flag or runtime candidate injection. Nine positive templates cover the nine
+supported labels; generic news, offering and stale-bar negatives make12 cases.
+The stub provider is called once, the cached consumer performs no acquisition or
+write, and EClient placeOrder/cancelOrder are forbidden by the controls.
+
+The first fixture alignment attempt correctly produced UNKNOWN position truth
+because its fake position clock differed from the news/quote clock; the fixture
+now puts position collection on the same controlled clock, without changing source
+freshness. An initial analyst template with unsupported attribution grammar was
+changed to the existing accepted "JPM receives upgrade" form; policy was not
+broadened. Final12 NEW cases pass with the hard Python/native-curl offline
+guard. Existing suites/audits were not repeated. The log is
+`/workspace/work/ross-critical-path-final-proof.log`. This is local new-case proof,
+not a CI receipt for this test branch or natural acceptance.
+
+The joined proof establishes concrete strategy intent formation, but deliberately
+DOES NOT call it a complete risk pass. Passing those actual raw intents to actual
+RiskEngine.evaluate_trade_intent returns DECISION_ARTIFACT_MISSING for every
+supported label. The strategy correctly leaves canonical artifact ownership to
+Core; it must not mint arbitrary decision IDs to satisfy risk. Source trace at
+accepted f4def160 establishes the missing active integration:
+
+- _run_once_inner unconditionally returns _run_manager_pipeline (line2357).
+- Active _run_manager_pipeline contains neither build_decision_artifact nor
+  RiskEngine.evaluate_trade_intent. Its RISK_INPUT/RISK_OUTPUT logs describe
+  post-guard quote/intent filtering, not an actual RiskDecision.
+- The existing canonical artifact builder/ID assignment (line5289/5300) and real
+  risk call (line5383) lie after the unconditional return atline4490 in
+  _select_watchlist_for_policy. That tail is unreachable. This is not proof of
+  current manager risk evaluation, even though those owners exist elsewhere in
+  source. No broad dead-code cleanup or architecture migration is proposed here.
+
+This is a demonstrated decision/risk HANDOFF integration gap, not a catalyst,
+provider, optional-listing or natural-opportunity defect. No production code is
+changed by this critical-path assessment. The new negative risk assertion retains
+that gate rather than fabricating an artifact, synthesizing approval or weakening
+RiskEngine's fail-closed contract.
+
+### Five-position blocker: exact stage scope
+
+Saved dcb65 evidence records five nonzero broker-only symbols with system
+quantity0. Each appears in216 completed five-position cycle snapshots;
+the earlier startup snapshot is UNKNOWN, not confirmed empty. This is historical
+snapshot evidence, not a fresh broker inquiry. Position-truth/guard/recovery source is
+byte-identical between that receipt and accepted f4def160.
+
+position_truth.reconcile_position_truth sets critical_mismatch_count5,
+block_new_entries=true and block_exits=true for this saved shape. recovery_engine
+marks manual-required and performs no automatic adoption/liquidation/cancellation.
+Its printed blocked=true does not by itself return from the strategy pipeline.
+Startup/daily/autonomous-recovery guards can independently stop earlier work, but
+the five-position verdict in this observed manager path is not a pre-scanner or
+pre-strategy suppression: the saved run completed scans/Focus evaluations.
+
+Core's _apply_position_truth_entry_guard runs AFTER strategy formation/integrity
+and BEFORE final arbitration/quote-risk admission. It returns[] for every new-entry
+intent when block_new_entries is true, including READ_ONLY; there is no natural
+IBKR-path exemption. Mock/validation overrides are not a permitted workaround.
+The joined synthetic proof forms a real strategy intent, obtains an actual five-
+critical verdict from a fake completed position snapshot, then proves this exact
+Core guard removes it without mutating the raw input. The block is GLOBAL for
+new-entry admission, not limited to trading those five symbols: the synthetic
+JPM intent is removed even though its symbol differs from all five fixture
+positions. No real holding values are embedded in the new test. This distinguishes:
+
+- A naturally created PRE-GUARD strategy READ_ONLY intent can be observed and
+  retained diagnostically while the five positions remain blocked.
+- A final Core-admitted intent/risk input, approved entry or paper execution is
+  blocked. It is inaccurate to describe this as only a broker-send lock. Current
+  [INTENT]/[DECISION]/CYCLE_END raw formation counters are not proof of admission;
+  inspect STRATEGY_OUTPUT, ARBITRATION_INPUT/OUTPUT, POSITION/TRUTH/BLOCK and
+  reason-coded downstream risk/execution together.
+- With those blockers intact, a natural observation cannot certify positive
+  admitted entry/risk/paper behavior. Even after a supported event appears, a
+  guarded empty risk-input is expected; do not suppress the positions to make a
+  target pass. Their disposition belongs to a separately authorized manual
+  ownership/reconciliation process, not this task.
+
+### Offline versus fresh-natural requirements and previous audit recommendation
+
+Deterministic/offline: supported-class positive/negative semantics, original-time
+boundaries/cache/handoff, joined canonical→Focus→real-pattern→raw-intent contracts,
+five-position guard scope, missing artifact/risk call, and the repair's actual
+canonical-owner/real-RiskEngine invocation and no-mutation controls. Those last
+active-manager integration checks remain the finite implementation gate; completed
+source suites and audits need not be rerun merely to rediscover them.
+
+Requires fresh natural market evidence after that gate: a genuinely current
+supported issuer event acquired/published through existing bounded sources; natural
+TopN/Watchlist/Focus selection; current broker quotes and genuine timeframe bars;
+actual pattern/confirmation/trigger; concrete strategy intent with canonical
+decision provenance; and honest ownership/mode/risk disposition. Synthetic data
+cannot establish any of those natural facts. Terminal safety alone, source health,
+partial coverage or another unqualified headline cannot substitute.
+
+**Audit90a96d36 recommendation (implemented by the proposed repair below): implement and review the narrow active-manager READ_ONLY
+canonical decision-artifact → actual RiskEngine handoff, using the existing
+Core artifact builder and risk owner, without changing ownership or trading policy.**
+Completion criterion: an unblocked synthetic supported-event→real-pattern case
+executed through the ACTUAL manager has a real canonical decision ID and an actual
+RiskEngine invocation with explicit READ_ONLY execution denial, rather than missing-
+artifact rejection or marker-only "approval". The five-position case must retain
+pre-guard formation evidence, produce no admitted new entry/risk bypass, and emit
+its exact ownership rejection. Keep quote/catalyst expiry gates, no force flags,
+no broker mutations and no execution submissions. Do not retrofit a random ID,
+mock risk approval or invoke risk/execution around the ownership guard. Obtain
+changed-head review/appropriate CI when that production handoff is repaired.
+
+A new900s natural observation is NOT the recommended next action now: it cannot
+repair the mechanical handoff or certify admitted/risk behavior with the five
+positions blocked. After that bounded offline gate is closed, any separately
+authorized observation must use the existing natural READ_ONLY harness, a literal
+accepted integration pin and RuntimeSeconds900 (existing1260s supervisor), normal
+session/no forced candidates/news/setup/intent, unchanged budgets/ownership and
+all terminal/privacy protections. Its information gain would be genuine supported-
+event→fresh-pattern→intent formation and the exact expected guard/mode disposition;
+absence of an opportunity remains negative evidence, not authorization for blind
+unchanged reruns. Paper acceptance separately requires authorized ownership
+resolution and real risk/broker-fill/protection/partial/target/trailing/exit/recovery
+acceptance. Nothing here authorizes that work or upgrades readiness.
+
+All historical receipts, five-position blockers and GUI draft remain preserved.
+No acquisition, observation, holdings action, trading or production source change
+occurred. `PAPER_READY=NO`; `PAPER_READINESS_GATE=FAIL`.
+
+
+## Active-manager READ_ONLY canonical decision → RiskEngine repair (27 October)
+
+Production main was rechecked remotely at `f4def1608e7ff57ef53e383c1f8a1c8423e75d24`;
+its tree remains `a792d85c764ccaf3e821a3fe891cd555c48457e9`. Saved audit branch
+`docs/ross-supported-critical-path` remains exactly
+`90a96d36352d1ba2ef3bbfa5ed5689e42ec89a9a`, clean before this work. Proposed branch
+`fix/readonly-manager-risk-handoff` descends from that audit, retaining its twelve
+local synthetic controls and optional contractc7111fc2. Those twelve cases remain
+local audit proof, not CI or natural acceptance. No earlier receipt is superseded.
+
+The active `_run_manager_pipeline` now creates a canonical artifact with the existing
+`build_decision_artifact` owner ONLY for READ_ONLY intents surviving execution
+integrity, position truth, arbitration and the final strict quote handoff filter.
+Core assigns the resulting decision_id, emits the established
+DECISION_ARTIFACT_CREATED event and DECISION trace (strategy/mode/session/original
+intent payload hash, creation time and cycle identity), then invokes its actual
+RiskEngine.evaluate_trade_intent. RiskEngine retains its existing RISK_DECISION
+lifecycle, linked to that ID. No arbitrary IDs, parallel risk authority, legacy
+pipeline revival or retirement occurred. DEPRECATION_LEDGER is unchanged because
+no owner or retirement changed. PAPER/LIVE retain the prior manager path; this
+repair does not claim to complete their decision/risk integration.
+
+READ_ONLY approval/denial traces and RISK_OUTPUT now derive from actual
+RiskDecision results. A pre-risk temporal veto is labelled QUOTE_REJECTED, not a
+fabricated risk decision. Guard losses are identified separately from arbitration
+conflicts. POSITION_TRUTH_BLOCK_NEW_ENTRIES remains the final ownership reason,
+including the persisted trade-path summary; generic integrity/conflict/session/
+ORDER_SIMULATED outcomes cannot overwrite it. Raw strategy formation diagnostics
+remain visible. The old mock-survival override is disabled for READ_ONLY, so it
+cannot repopulate intents removed by ownership or integrity. No risk call occurs
+around that veto. Existing mode authority independently forbids order dispatch.
+
+### Changed-path offline evidence and review boundary
+
+`tests/test_readonly_manager_risk_handoff.py` supplies explicitly SYNTHETIC provider,
+position snapshots, quotes and bar streams with hard network denial and forbidden
+broker placeOrder/cancelOrder and execution submission. It uses the existing
+canonical service/store, a non-writing cache read and actual cached reconsideration
+inside Core.run_once → active manager → real StrategyRunner/registered Ross runner
+→ REAL BullFlag registry/detector/trigger/strategy intent. No forced pattern, target,
+setup, catalyst, intent, risk result or artifact ID is supplied. Startup housekeeping
+and acquisition are fixture boundaries, not evidence of broker operations.
+
+Nine new cases establish: canonical supported-event → cached Focus → fresh real
+BullFlag → trigger → raw intent → Core artifact → actual RiskEngine, whose explicit
+reason is LIVE_READ_ONLY_BLOCK ("READ_ONLY mode forbids new executions"), not
+DECISION_ARTIFACT_MISSING. The event collector links both canonical creation and
+real RiskEngine decision to the same ID. Clearing the ID independently retains
+missing-artifact rejection. A completed synthetic five-broker-only-position verdict
+retains raw formation, exact ownership rejection and zero admitted risk/artifact
+creation; no quantities are adopted or changed. Generic news, stale required bars,
+stale Focus quotes, quote expiry AFTER real formation and execution-integrity
+rejection all fail closed. PAPER and LIVE boundary controls prove the READ_ONLY
+branch is not entered and no new artifact/risk call or execution submission occurs.
+Their controlled raw-intent checks are not full PAPER/LIVE strategy acceptance.
+
+Local focused new/affected validation passed110 cases; after the final reporting-only
+per-decision count refinement, all9 new manager cases passed again (8.70s). These
+are local synthetic results, not remote CI or natural acceptance. Validation uses
+the hard offline guard and includes the saved
+critical-path regression, Watchlist continuity, cached reassessment, canonical
+artifact and execution-handoff controls. Local logs are retained under
+`/workspace/work/readonly-manager-*.log`; exact reviewed-head CI/review receipts
+belong to the accompanying repair PR. A wrong expected fixture reason QUOTE_STALE
+was corrected to the existing production MD_STALE; freshness was not relaxed.
+The completed accepted-source CI40547209474 and review5671236395 remain historical,
+not receipts for this change. Appropriate changed-head Linux/Windows CI and
+independent exact-head review are required before integration, rather than
+repeating earlier completed suites for status alone.
+
+### Remaining gate and ONE next action
+
+**ONE next action: review and accept this bounded repair only after its exact-head
+independent review and changed-head Linux/Windows checks pass.** Completion means
+integrating the reviewed tree with a literal accepted pin; no automatic merge is
+authorized here. After that integration, the finite mechanical READ_ONLY handoff
+gap is closed offline. A separately authorized existing-harness900s natural Ross
+READ_ONLY observation would then have defined information gain: current supported
+issuer-event → ordinary cached Focus → fresh real setup/trigger → raw strategy
+intent and its honest ownership/mode/risk disposition. This task neither prepares
+nor executes that acquisition. Do not repeat an unchanged run merely to await news.
+
+The five unmatched positions still globally block entry admission after formation.
+Thus a fresh natural raw intent plus exact ownership veto can establish formation,
+but cannot certify an admitted risk input or paper execution while that blocker
+remains. Separate paper acceptance still requires explicitly authorized manual
+ownership resolution and actual risk/broker lifecycle/management evidence. Natural
+positive catalyst-to-intent progression remains UNPROVEN; archived Focus0/zero-intent
+receipts remain unchanged. Listing-compliance provenance remains PARKED and fail
+closed; no effort or acquisition to qualify IPST was performed.
+
+No acquisition, runtime observation, automatic rerun, holdings action, trading or
+GUI-draft change occurred. `PAPER_READY=NO`; `PAPER_READINESS_GATE=FAIL`.
+
+
+### Preserved first repair-head CI and stronger temporal handoff assertions
+
+PR1139's first exact repair head `c05ee81206e5b07a612ca941edb8a03822c6fe5a`
+(tree `4f5c083ceca869da6df96f190fa6a17e5b1b1861`) received independent exact-head
+agent review5672886005 without blockers; its separate guarded artifact/manager
+run passed12 cases. This is agent/local proof, not human approval or CI.
+CI40567147213 Linux finished2failed/3445passed/3skipped in232.72s. Both failures
+were existing `test_quote_future_admission` assertions expecting a pre-risk quote
+veto to increment RISK_OUTPUT.blocked_count. A guarded unchanged-head local control
+reproduced precisely those2 failures; source inspection and existing assertions
+confirmed MD_TIMESTAMP_FUTURE/MD_STALE rejection and the retained temporal audit.
+The failure is preserved, not retried or treated as a successful suite.
+
+Those two controls now explicitly require zero actual risk input/decision count
+and no canonical decision ID, and forbid invoking the real-risk/artifact owners
+around the quote veto. Their original future-by-one-microsecond, strict expiry,
+no force approval, original broker timestamp and final RISK_BLOCKED audit assertions
+remain. Production source is unchanged from the independently reviewed c05ee812
+repair. This updates the reporting contract deliberately; it does not weaken quote
+admission. Changed-head CI/review must cover these stronger controls as well as
+all9 actual-manager cases. Windows first-run and final-head receipts are retained
+on the same PR. No unchanged-head CI rerun is requested.
