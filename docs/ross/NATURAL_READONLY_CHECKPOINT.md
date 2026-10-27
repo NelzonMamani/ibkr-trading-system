@@ -4808,3 +4808,37 @@ Five unmatched positions remain untouched and separately blocked. Historical
 failed/partial receipts and unresolved earlier timeout/negative-age causes remain
 preserved. No acquisition, operator rerun, holdings action, trading or readiness
 upgrade occurred. `PAPER_READY=NO`; `PAPER_READINESS_GATE=FAIL`.
+
+### Preserved first changed-head CI failure and deterministic worker-order control
+
+CI40545024798 at first reviewed head
+`7abfd3ea84c5c39d3840edafc030296d2c125bfe` passed Linux3425/3skipped, but Windows
+finished1failed/3426passed/1skipped. The failure was
+`test_ross_operational_issuer_news::test_actual_enrichment_witness_batch_cache_and_canonical_queries`:
+its fetch-stub invocation list began with Benzinga rather than Google News. All
+nine URLs remained unique and the preceding original assertions for retained
+qualification witness, canonical publication and owned cleanup passed. Native
+float-cache/ownership controls passed separately; downstream cache-startup and
+PowerShell steps were skipped after the suite failure, and harness artifact upload
+failed because those artifacts were not produced. This failed receipt is retained;
+it is not reported as a successful Windows run or silently retried.
+
+Exact source gives queries priority in ordered source SUBMISSION. Its concurrent
+ThreadPoolExecutor does not promise the OS starts those workers in that same
+order. Source being unchanged is not the reason this is a test defect: a guarded
+Event-controlled offline replay deliberately holds the submitted query until a
+fixed-feed worker runs, reproducing the exact old `urls[0]` assertion failure while
+all nine requests, witness and cleanup checks hold. Scratch reproduction
+`/workspace/work/listing-windows-order-before.log` records that demonstrated cause.
+
+The affected test now checks first-query priority against actual lifecycle
+submission order, exact nine unique fetch/submission URLs, one query, <=4 workers,
+and every existing retention/qualification/cache/no-Yahoo/cleanup assertion.
+It is parametrized for normal and deliberately reversed worker start, with only
+a bounded two-second fixture rendezvous inside the existing fast allocation.
+The reversed case requires a fixed-feed stub to run first while Google remains
+first SUBMITTED. Production executor ordering, request scheduling and deadlines
+are unchanged; no test is skipped, no PermissionError suppressed and no retry is
+introduced. New-head independent review and CI must include this deterministic
+control and the previously skipped cache/PowerShell gates. Final results belong
+on the same draft PR; no unchanged-head CI rerun is requested.

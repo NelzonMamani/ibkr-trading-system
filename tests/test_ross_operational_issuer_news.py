@@ -2,6 +2,7 @@
 from dataclasses import replace
 from datetime import datetime, timezone
 from types import SimpleNamespace
+from threading import Event
 import socket
 import time
 
@@ -105,9 +106,23 @@ def service(tmp_path):
         retrieval_provider=BatchRssNewsIntelligenceProvider(lifecycle=RssFetchLifecycle()))
 
 
-def test_actual_enrichment_witness_batch_cache_and_canonical_queries(monkeypatch,tmp_path):
+@pytest.mark.parametrize("reverse_worker_start", [False, True])
+def test_actual_enrichment_witness_batch_cache_and_canonical_queries(monkeypatch,tmp_path,reverse_worker_start):
     calls=[]
     fixture_transport(monkeypatch,calls,[entry('JPM market roundup '+str(n),n+1) for n in range(7)] + [entry('JPM reports earnings beat',600)])
+    if reverse_worker_start:
+        # Query priority governs submission, not OS scheduling of concurrent
+        # workers. Deterministically exercise the observed Windows start order.
+        fixed_completed = Event()
+        fetch = news_fetcher._fetch_feed
+        def fixed_first(url, timeout):
+            if 'news.google.com/rss/search?' in url:
+                assert fixed_completed.wait(2), 'bounded offline rendezvous failed'
+            result = fetch(url, timeout)
+            if 'news.google.com/rss/search?' not in url:
+                fixed_completed.set()
+            return result
+        monkeypatch.setattr(news_fetcher, '_fetch_feed', fixed_first)
     svc=service(tmp_path)
     monkeypatch.setattr(ross,'_news_intelligence_service_for_scanner',lambda:svc)
     metadata={'JPM':{'company_name':CANDIDATE.company_name,'aliases':CANDIDATE.aliases,'exchange':'NYSE'}}
@@ -118,7 +133,14 @@ def test_actual_enrichment_witness_batch_cache_and_canonical_queries(monkeypatch
     assert diag.news_intelligence_diagnostics['rss_cleanup']['cleanup_elapsed_seconds'] == 0
     assert svc.retrieval_provider._lifecycle.wait_for_cleanup(1)['cleanup_complete'] is True
     urls=[url for url,_ in calls]
-    assert len(urls)==len(set(urls)) and urls[0].startswith('https://news.google.com/rss/search?')
+    submitted = [row['source_id'] for row in svc.retrieval_provider._lifecycle.snapshot()['sources']]
+    assert len(urls)==len(set(urls))==len(submitted)==9
+    assert set(urls)==set(submitted)
+    assert submitted[0].startswith('https://news.google.com/rss/search?')
+    assert sum(url.startswith('https://news.google.com/rss/search?') for url in urls)==1
+    assert svc.retrieval_provider._lifecycle.snapshot()['worker_count'] <= 4
+    if reverse_worker_start:
+        assert not urls[0].startswith('https://news.google.com/rss/search?')
     assert not any('yahoo' in url for url in urls)
     policy=ross._ross_retrieval_policy(refresh_mode='bounded_refresh',network_allowed=True)
     assert policy.total_budget_seconds==8 and policy.tier_budgets=={'fast':5.2,'extended':2.8}
