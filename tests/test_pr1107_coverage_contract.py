@@ -43,7 +43,13 @@ def test_query_acquisition_partial_coverage_and_qualification_are_separate(monke
     if not qualified:assert decision.status.value=='DATA_UNAVAILABLE'
     if veto:assert ctx['ross_catalyst_notes']=='partial_coverage_dilution_veto'
     raw=result.diagnostics.diagnostics['refresh_diagnostics']
-    assert not raw['extended_fallback_requested'] and raw['issuer_query']['search_completeness_established'] is False
+    # v5 changes scheduling, not acquisition/coverage/qualification authority.
+    fallback_expected = not qualified and not veto
+    assert raw['extended_fallback_requested'] is fallback_expected
+    assert raw['issuer_query']['search_completeness_established'] is False
+    assert not raw['primary_source_coverage_complete']
+    assert len(calls)==(20 if fallback_expected else 9)
+    assert sum(r.failure_reason=='HTTP_403' for r in result.diagnostics.source_diagnostics)==(19 if fallback_expected else 8)
     assert len(calls)==len(set(calls))
     before=len(calls)
     # Same canonical acquisition persists partial coverage and negative facts.
