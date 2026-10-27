@@ -4659,3 +4659,152 @@ relaxation, trading or holdings action occurred in this analysis.
 Five unmatched positions remain separate ownership/entry blockers, untouched.
 Earlier timeout/negative-age causes and all historical failures/partial receipts
 remain unresolved/preserved. `PAPER_READY=NO`; `PAPER_READINESS_GATE=FAIL`.
+
+## 27October deliberate listing-compliance policy addition, provenance fail closed
+
+Accepted main `dca4fb31b8c2b10b235e63534d5308366993d392`, tree
+`b845306952f2446b96e8e7fb9cc1482117daa524`, is PR1137's actual merge at
+2026-10-27T16:21:20Z from reviewed head
+`63e21d5b90c37c8f886645ea4a015e2066d300b2`. Exact-head independent agent
+review5670242435 approved without blockers. CI40536270864 passed Linux3340/3skipped
+and Windows3342/1skipped, including native float-cache, cache startup and the
+PowerShell5.1 gates. Its test-merge tree equals the reviewed checkpoint tree.
+This merge is documentation only; the archived natural observation remains the
+accepted-dcb65 receipt, never a new observation at dca4 or the policy-change head.
+
+The explicit coordination decision NOW makes confirmed regained/restored exchange
+listing compliance an eligible issuer-event class. This is a deliberate addition,
+not historically defined Ross policy and not a repair of the archived classifier's
+failure to infer an undefined class. `strategy_policy.py`'s authoritative catalyst
+commentary records the addition; `policy/catalyst_policy.py` implements the separate
+LISTING_COMPLIANCE_REGAINED rule. Mandatory catalyst, all other event classes,
+uncertainty/dilution/ownership protections and strict six-hour original-publication
+limits are retained. Eligibility never establishes automatic Focus/setup/trigger/
+decision/risk/READ_ONLY intent acceptance.
+
+### Explicit original-publisher constraint; no invented trust authority
+
+The follow-up coordination instruction requires VERIFIED ORIGINAL-PUBLISHER
+provenance. Google News transport, a recognized publisher name, feed availability,
+fixed-feed membership, verified_source/credibility flags and multiple syndicated
+copies cannot supply this proof. The existing common provider and Ross classifier
+have no original-publisher verification authority. The historical verified_rss.txt
+catalogue is availability research, not such an authority. No publisher allowlist,
+feed-route trust inference, live resolution/fetch or arbitrary raw verification
+flag is introduced.
+
+Accordingly the dedicated `_verified_original_publisher` boundary is deliberately
+fail closed: it returnsFalse in production. A future verifier needs a separate
+explicit implementation/review decision. Under this change the new event can be
+recognized and retained diagnostically, but cannot become production-eligible
+without verified provenance. The precise rejection is
+listing_compliance_provenance_unverified. Other catalyst classes do not acquire
+this new provenance requirement or change their existing source semantics.
+This limitation is explicit, not a hidden assumption that future Google copies
+or newly healthy fixed feeds will pass. No captured publisher is newly verified.
+
+The title rule requires a direct named-issuer assertion such as "regains" or
+"has regained/restored compliance with Nasdaq Listing Rule". It supports bounded
+Nasdaq/NYSE/NYSE American/NYSE Arca/New York Stock Exchange/American Stock Exchange
+listing-rule/requirement forms, including the minimum bid-price/equity listing
+requirements. It does not use a broad compliance keyword. The supplied complete
+legal issuer phrase may establish the subject, without inferring a bare brand.
+Deficiency/delisting/appeal/extension/plan/seeks/conditional/negated/uncertain and
+peer-owned assertions fail closed. Generic8-K and indirect Nasdaq-decision text
+are not earnings or FDA approval. A distinct existing eligible FDA/earnings/etc.
+assertion is not shadowed by a listing mention or by the issuer's theme name.
+
+Even with a future verified publisher, original published_original/UTC and the
+actual evidence timestamp must agree exactly; update-only dates cannot substitute.
+An already-seen older event cannot gain a new lifetime through a wrapper date.
+The existing age<0 and age>21600 rejection remains strict, including one
+microsecond boundaries; age0 and exact21600 remain eligible time boundaries.
+No clamping, local timestamp substitution or skew tolerance is added. Existing
+financing/offering vetoes remain; new-class financing/private-placement/uncertainty
+text and retained offering flags cannot supply a positive witness. A single-source
+conditional positive decision explicitly reports independent_confirmation_verified
+=false; neither replication counts nor cached classification tags establish
+independent confirmation. Presentation counts are not corroboration authority.
+
+### Captured four-article replay: no eligible IPST item
+
+`tests/fixtures/ipst_listing_compliance_receipt.json` contains only the4 already
+shareable captured facts and189 recorded retrieval start/completion, query
+assessment and cached reconsideration clocks. It preserves original publication,
+headline/summary, URL and source/timestamp provenance from archive
+SHA256 `7223eeafe07f3de0f8126de707d7ae17e09426009c0f1e945d56f08c9c1af3ae`.
+There are no raw bodies or invented original-publisher verification records.
+At every recorded clock, all4 remain fresh and issuer-matched, but NONE meets
+every new requirement:
+
+| Original27October publication UTC | Captured item | New-policy replay |
+| --- | --- | --- |
+|13:27:28|Form8K IP Strategy Holdings Inc For:27October…|no_catalyst_classification; no substantive completed listing assertion |
+|13:11:45|An October23 quarterly report leads to a Nasdaq decision…|no_catalyst_classification; indirect decision is not an asserted restoration |
+|13:02:23|IP Strategy Holdings, Inc. Regains Compliance with Nasdaq Listing Rule — The Globe and Mail|new event wording recognized; listing_compliance_provenance_unverified |
+|13:01:48|Same compliance title — Corsicana Daily Sun|new event wording recognized; listing_compliance_provenance_unverified |
+
+No body, original issuer statement, rule-specific verified publication or trusted
+verification record has been supplied for those two copies. Their names, Google
+URLs and repeated headline do not fill this gap. They remain separate captured
+article facts, not independent confirmation and not a retroactive positive event.
+The archived Focus0, eight DROP_NO_CATALYST rejections,56 zero-positive cached
+reconsiderations and zero intents are unchanged; no replay result is relabelled
+natural acceptance.
+
+### Guarded conditional proof and preserved gates
+
+Positive controls are explicitly **CONDITIONAL SYNTHETIC**: only tests inject a
+hypothetical verification witness at the fail-closed publisher boundary. That is
+not a production verification implementation, not a trusted-source catalogue and
+not verification of any captured IPST publisher. The normal fake-feed → existing
+RSS adapter → single canonical writer → cache-only consumer path publishes one
+synthetic completed event, deduplicates its duplicate and reads it without new
+HTTP or canonical writes. Normal selection gates use explicitly synthetic valid
+market inputs. Separate controls execute the actual existing
+reassess_ross_watchlist path on a retained synthetic shortlist with synthetic
+quote refresh, not just a mocked Focus result. It may select the synthetic row
+only with the hypothetical provenance witness and all normal market gates passing.
+Production default rejects it before quote refresh. No scanner candidate, actual
+Focus, setup or intent is injected into an operator observation.
+
+Negative controls retain stale/future/missing/update-only/mismatched-original and
+old-wrapper dates; uncertain/negated/deficiency/appeal/extension and peer events;
+source/flag/replication spoofing; handoff revalidation; retained financing vetoes;
+and actual stale/untrusted/wrong-symbol quote, spread, halt, float and RVOL gates.
+The conditional positive expires at the original six-hour boundary, even after
+cache restart/handoff. All source/canonical cleanup and ownership remain with
+existing owners. No acquisition routes, source membership, request caps, worker
+limits, total8s or5.2s/2.8s allocations, scheduling, privacy/capture budgets,
+canonical writer or operational harness are changed.
+
+Qualification profile becomes `ross_issuer_event_v10_listing_compliance` in request
+and acquisition fingerprints. Old v9 coverage cannot certify the new policy;
+cache-only reads remain provider-free/non-writing with coverage_unknown. Existing
+article facts, older qualification cohorts and other valid catalyst classes are
+preserved and reclassified; normal bounded refresh/cadence creates/reuses v10.
+The existing profile-specific regression assertion is explicitly updated, not
+weakened. Source/retrieval failures and incomplete coverage remain honest.
+
+Guarded affected validation passed393 cases before four final production-no-trust
+controls were added. Final85 new-class controls pass, including serialized
+restart/handoff revalidation. Changed-head CI receipts are recorded on the
+resulting draft PR. All commands use the existing Python and
+native-curl offline startup guard. Development-only initial fixture failures
+(serialization using a mismatched datetime subclass and RFC formatting that lost
+synthetic microseconds) were fixed in fixtures, never by relaxing production time
+checks; their scratch logs are retained. No full local suite is repeated after
+related controls pass. Independent exact-head review and appropriate changed-head
+Linux/Windows CI, including native cache and PowerShell gates, are required before
+controlled integration; final receipts belong on that PR.
+
+**Smallest next action:** define and review a bounded original-publisher
+verification contract and identify what existing captured evidence could satisfy
+it, without treating a source name/feed health/syndication as proof. There is no
+reason to repeat an unchanged natural observation to make IPST pass. Any future
+verification implementation or bounded acquisition is a separate explicit task;
+no live fetching is performed merely to manufacture a positive example.
+Five unmatched positions remain untouched and separately blocked. Historical
+failed/partial receipts and unresolved earlier timeout/negative-age causes remain
+preserved. No acquisition, operator rerun, holdings action, trading or readiness
+upgrade occurred. `PAPER_READY=NO`; `PAPER_READINESS_GATE=FAIL`.
