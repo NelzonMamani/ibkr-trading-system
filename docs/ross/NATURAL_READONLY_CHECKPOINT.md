@@ -4429,3 +4429,232 @@ success; no production fix was required in response to those test expectations.
 Final related guarded validation after the explicit expectation updates:154passed
 in6.59s, including the37 new v5 controls and all affected old coverage/consumer
 controls. No source or operator acquisition was executed.
+
+## 27October accepted-v5 natural receipt: fallback verified; IPST event policy unresolved
+
+Receipt SHA256 `7223eeafe07f3de0f8126de707d7ae17e09426009c0f1e945d56f08c9c1af3ae`
+(`ross-natural-readonly-upload.zip`,50 members) is independently verified. Accepted
+production source is `dcb65fbd54178f9bdc82f63061b69b4fe6877653`, tree
+`42b3833ca0b80f5b74439ca5442a7c2a5cca5a18`. PR1136 actually merged at
+2026-10-27T15:13:36Z, from reviewed head
+`0b307bc0a1ca13c705085988acc4bace750bded0`; its merge tree equals the reviewed tree.
+Independent agent review5669156421 reported no blockers and137 guarded controls
+passed. Changed-head CI40525137379 passed Linux3340/3skipped and
+Windows3342/1skipped, including native float-cache, cache-startup, PowerShell5.1
+status/observation harness39 controls and quote-transport parser. These are linked
+PR1136 receipts, not repeated suites or natural acceptance evidence.
+
+All2678 archived tracked-file digests match exact accepted source:33 byte-exact,
+2645 matching only the normal Windows CRLF worktree conversion; no mismatches.
+Before/after manifests are equal. The bound runtime creation token yields
+2026-10-27T15:14:53.941414Z. Supervisor elapsed909.704559s (1260s ceiling), with
+timely normal exit0, no outer timeout or forced stop. A final ordinary canonical
+publication at15:29:56.920598Z is902.979184s after runtime creation: the normal
+observation spans at least900s, independently of packaging/audit duration.
+
+Five acceptance outcomes remain separate:
+
+- Terminal safety: **PASS/exit0**, preserved. Preflight/observation/package/final
+  exits0; terminal validator and privacy replay pass. Owned shutdown completed;
+  runtime and separate audit mutation counters each record place/modify/cancel0;
+  final broker query completed/disconnected with0open orders. Initial/final
+  independent and terminal inventories contain no Ross runtime. Source and
+  operator order-state validation pass. Zero orders alone is not mutation proof.
+- Genuine scans/Watchlist continuity: three COMPLETE/end-received50-row broker
+  scans, req363/775/1035. Watchlist3→3→2: IPST/NUWE/AEYE;
+  IPST/AEYE/AARD; IPST/AEYE. These are real selected rows, not injected candidates.
+- Actual news acquisition: partial, not complete issuer/search coverage. Bounded
+  fallback is naturally observed under v5, with retained primary errors and
+  deadline exclusions as detailed below. Empty canonical markers are not articles.
+- Canonical catalyst qualification: none established for the Watchlist. IPST has
+  four retained current issuer-matched articles, but none belongs to an existing
+  qualifying class. Other Watchlist issuers have zero retained articles. Eight
+  recorded Focus evaluations reject DROP_NO_CATALYST (IPST3,AEYE3,NUWE1,AARD1).
+- Natural downstream progression: absent. Three Focus summaries accept0; all56
+  canonical-cache reconsiderations report positive_count0/focus_count0, and all217
+  cycle-end records have intent_count0. Diagnostic Watchlist views are explicitly
+  execution-ineligible and do not establish Focus/setup/trigger/decision/risk/
+  READ_ONLY intent acceptance.
+
+### Bounded fallback, snapshots and actual requests
+
+Latest export has57 issuer coverage records (SPY/QQQ separately lack that rich
+coverage), of which18 request fallback and39 exclude it with
+primary_deadline_exhausted. Every one of those18 records reports
+primary_fallback_barrier_verified=true and primary_cleanup_complete=true, while
+primary_source_coverage_complete=false and stage_deadline_exhausted=false. All57
+retain total8s, fast5.2s and reserved extended2.8s. For the18, maximum primary
+elapsed5.008981s; primary elapsed plus barrier elapsed remains below5.2s in every
+case; granted extended allocation is at most2.8s; maximum total adapter
+elapsed7.833617s. No renewed budget is recorded. Extended measured coordinator
+elapsed can reach2.821510s; this includes deadline detection/return overhead,
+not an increased allocation or permission to admit late evidence.
+
+Exact source `src/news/batch_rss_adapter.py::_primary_fallback_barrier` requires
+all selected source outcomes and lifecycle ownership/timestamps to be known,
+completed, uncancelled and within the original fast/stage deadline, then verifies
+owned response/executor cleanup inside only the remaining fast/parent allocation.
+Stop/timeout/truncation/unfinished/unknown outcomes fail closed. Immediately before
+extended fetch it rechecks the inherited deadline, and the fetcher clips each
+request and admission to the original stage and extended deadlines. The recorded
+barrier flags are positive evidence from that authority, not inferred from HTTP
+status or a later successful shutdown. The archive does not retain every raw
+per-worker monotonic lifecycle snapshot, so it cannot independently reconstruct
+all worker intervals or every historical barrier from console rows alone.
+
+There are402 console retrieval diagnostics:174 bounded-refresh/provider-invoked
+snapshots and228 cache-only snapshots. Of the174,38 show attempted extended rows;
+this is broader historical evidence than the18 latest exported issuer snapshots.
+It is not38 independent feed batches or38×11 network fetches. The final shared
+maintenance pool counters are262 actual fetches and1694 response reuses across
+both tiers and issuer queries, plus the separate startup SPY/QQQ path. In the18
+latest fallback records,198 extended source rows include168 explicit transport
+cache hits,9 explicit HTTP attempts and21 rows without either positive fact;
+the latter include deadline exclusions and failure rows and must not be converted
+into inferred network requests. These latest rows do not constitute a run-wide
+per-route request ledger. Console rows also preserve historical timing on reuse;
+request_elapsed_seconds is not proof of another request.
+
+Latest fallback extended rows remain provider_error or budget_exhausted:
+HTTP301/302/308/429, TIMEOUTERROR and explicit deadline_exhausted/
+deadline_exhausted_before_attempt. No successful extended issuer event or complete
+primary coverage is claimed. The39 excluded latest records contain no attempted
+extended rows. All173 maintenance RESULT records report cleanup_complete=true;
+that final per-result cleanup is distinct from the prerequisite primary barrier.
+The source never upgrades failed primary coverage when fallback runs. The bounded
+fallback scheduling objective is demonstrated; successful fallback content,
+complete issuer search and natural catalyst/downstream acceptance are not.
+
+### IPST: four captured articles, original publication and actual authority
+
+Supplied identity is IPST / IP STRATEGY HOLDINGS INC (SMART), matching alias
+IP STRATEGY. Actual shared issuer query is the existing Google News RSS expression
+`("IP STRATEGY HOLDINGS INC" OR "$IPST")`, not a new source or linked-article fetch.
+Seven normal maintenance publications retain4 articles each, from15:17:06.970694Z
+through15:29:42.737449Z. The latest query evaluation clock is
+15:29:41.052084Z; HTTP200/available/worker completed/response closed,16 examined,
+4 current matched and12 outside the six-hour window. Earlier recorded query
+responses have16 or20 entries and the same4 matches. The retained facts are:
+
+| Captured headline | Original publication,27October UTC | Publisher label / match |
+| --- | --- | --- |
+| Form 8K IP Strategy Holdings Inc For: 27 October By Investing.com |13:27:28|Investing.com Nigeria / company_name |
+| An October 23 quarterly report leads to a Nasdaq decision for IP Strategy Holdings (Nasdaq: IPST). |13:11:45|Stock Titan / ticker_token |
+| IP Strategy Holdings, Inc. Regains Compliance with Nasdaq Listing Rule |13:02:23|The Globe and Mail / company_name |
+| IP Strategy Holdings, Inc. Regains Compliance with Nasdaq Listing Rule |13:01:48|Corsicana Daily Sun / company_name |
+
+These retain published_original/UTC with selected_time_basis=published and no
+update substitution. All are current at their recorded acquisition and cached
+reconsideration clocks. The first headline identifies a filing, not its substantive
+event. The second is an indirect summary, not proof of earnings beats or regulatory
+approval. The last two explicitly assert regained Nasdaq listing compliance, but
+lack the underlying rule, filing facts and full article text. Their supplied
+summaries repeat title/publisher rather than add substantive content. Raw feed or
+linked article bodies are absent. No present-day research or invented event detail
+is used to fill these gaps.
+
+`catalyst_policy.classify_headline` returnsNone for all4. Issuer matching succeeds,
+publication is current, and no dilution/offering or research-only veto applies;
+`assess_issuer_event` then rejects all4 as no_catalyst_classification BEFORE any
+positive subject-event attribution. This is not issuer identity loss, a stale
+article or a primary-coverage veto. Common-provider event_class/classifier_version/
+catalyst_classification are intentionallynull (strategy adapter is authority),
+not evidence of failed publication. The RSS adapter and canonical store retain
+all4 unclassified facts; the scanner reclassifies facts on each read and produces
+qualification_reason=no_valid_canonical_event / ross_catalyst_valid=false.
+Acquisition stays degraded separately and would not erase a genuinely qualifying
+issuer event. Cache/handoff revalidation reaches the same result without HTTP or
+canonical writes. The56 real reconsiderations produce no positive Focus.
+
+The two listing-compliance headlines are retained separately under existing
+publisher+title/URL identity, not semantically deduplicated into a single event.
+publication_count/independent_source_count=4 are stored presentation metrics,
+not proof of four independent events, original reporting or catalyst qualification.
+Do not infer the repeated syndicated headline is independent confirmation.
+Stale query exclusions include23October earnings text; that is neither the27October
+listing event nor current earnings evidence and must not be republished as fresh.
+
+### Authoritative policy comparison: no demonstrated implementation defect
+
+`src/strategies/ross_momentum/strategy_policy.py` requires a real catalyst
+(require_catalyst=true, F_CATALYST_REQUIRED), prefers PR/SEC/major-outlet quality
+and never permits blind inclusion on price/RVOL alone. `CatalystModelV2` describes
+quality and source preference but does NOT enumerate a listing-compliance class.
+Its broad "news/earnings/sector move/upgrade" examples are not a rule that any
+issuer news/SEC filing qualifies. The shared executable catalyst authority has
+specific existing earnings/FDA/contract/analyst/press-release/theme vocabulary,
+strict issuer-event assertions and publication checks. It contains no listing,
+regained-compliance, Nasdaq-decision or generic8-K rule. No authoritative policy
+located explicitly declares regained listing compliance a qualifying class, nor
+specifically prohibits it as an enumerated class. It is **undefined for positive
+qualification**, and therefore intentionally fails closed under the existing
+recognized-event contract. Calling this a broken classifier or mapping it to FDA
+"approval" or generic PRESS_RELEASE would be an unauthorized policy expansion.
+The receipt establishes a concrete policy question, not a production repair.
+
+### Other Watchlist issuers and limits of captured exclusions
+
+AEYE / AUDIOEYE INC uses the supplied full legal phrase and `$AEYE` query. Latest
+HTTP200 query examines28 entries:28 stale,0 current,0 relevance rejections. Latest
+publication00:20:18Z (earnings headline), well before the09:29:32.864743Z window.
+Earlier responses contain28 or37 entries and0 retained matches. AARD / AARDVARK
+THERAPEUTICS INC uses full legal-name query, effective matching alias AARDVARK
+THERAPEUTICS; latest20/20 entries stale, newest26October12:51:57Z,0 current/matches.
+Earlier responses20/78/79 entries likewise have0 matches. Neither marker publication
+proves an article, a complete search or no real-world issuer news.
+
+NUWE / NUWELLIS INC uses full legal-name/`$NUWE` query. Latest29 entries:28 stale,
+1 current,1 issuer_match_unverified,0 retained. Captured current title is
+"Nuwellis Announces Acceptance of Multicenter Pediatric Aquadex Study in Pediatric
+Nephrology" (The Manila Times), published12:06:17Z, evaluated15:25:20.800656Z.
+The title/summary have only the one-word brand Nuwellis, not the supplied legal
+phrase Nuwellis Inc or ticker notation. The bounded exclusion captures actual
+patterns and unredacted, untruncated title/summary (URL sample truncated). Existing
+`company_aliases_for_symbol` deliberately preserves NUWELLIS INC while refusing
+its ambiguous one-word core, the same conservative contract documented in PR1131.
+Offline replay reproduces issuer_match_unverified. This is not recurrence of the
+repaired loss of the FULL legal name. The captured headline also has no current
+recognized catalyst class; "Acceptance" of a study in a publication cannot be
+silently converted to FDA approval. Prior responses18/19/29 entries also retain0.
+No matching or classification expansion is justified by this receipt alone.
+
+Successful fixed-feed Investing/Forbes acquisition is distinct from issuer event
+coverage: historical console rows include one Forbes deadline-exhausted response;
+latest57 records show recognized current Investing10/Forbes25 entries with no
+new Watchlist event. Denied, redirecting, timed-out and deadline-truncated sources
+remain failures. Only bounded exclusion samples are retained, not full responses;
+unsampled exclusions and unavailable bodies cannot be exhaustively adjudicated.
+
+### Offline evidence checks and smallest next action
+
+Ten private hard-guarded receipt controls pass in3.84s at accepted source. They
+replay terminal/privacy/inventory validation;18 positive barriers and39 deadline
+exclusions; all4 original IPST articles at every captured IPST retrieval completion
+and reconsideration clock; actual scanner qualification and cached canonical
+handoff rejection with unchanged private cache bytes; and AEYE/AARD/NUWE captured
+exclusions. Tests live in scratch `/workspace/work/test_ipst_receipt_offline.py`,
+log `/workspace/work/ipst-offline-controls-final.log`; source-manifest and structured
+log verification are additionally recorded in `/workspace/work/ipst-summary.txt`.
+These are captured-fact replay, not synthetic positive-event proof. No code,
+configuration, acquisition profile, request budget, source membership, classifier
+or runtime harness is changed; full runtime suites are not repeated for prose.
+Independent exact-head review and proportionate documentation CI receipts belong
+on the resulting checkpoint-only PR; this does not alter the literal accepted
+operator pin or authorize another observation.
+
+**Smallest next action:** make an explicit Ross catalyst-policy decision about
+whether, and with what bounded factual/attribution requirements, regained exchange
+listing compliance can qualify. Use the captured IPST text and the absent rule/body
+facts as the concrete decision case; keep generic8-K and indirect Nasdaq-decision
+headlines separate. Do not implement a positive class merely to create Focus.
+If policy accepts a new class, specify acceptance/rejection examples and evidence
+requirements first, then implement/review deterministic offline controls; any
+missing factual verification remains a separately bounded authorization. If policy
+retains the current vocabulary, preserve IPST's negative result. Neither choice
+justifies an unchanged observation hoping for another catalyst or another provider
+probe solely for matches. No new acquisition, forced selection, freshness
+relaxation, trading or holdings action occurred in this analysis.
+
+Five unmatched positions remain separate ownership/entry blockers, untouched.
+Earlier timeout/negative-age causes and all historical failures/partial receipts
+remain unresolved/preserved. `PAPER_READY=NO`; `PAPER_READINESS_GATE=FAIL`.
