@@ -1,8 +1,8 @@
 # Natural READ_ONLY diagnostic checkpoint — updated 27 October 2026
 
-Current authoritative completion status is in [the maintained checklist below](#receipt9--current-ross-completion-checklist-updated-through-pr1138).
+Current authoritative completion status is in [the maintained checklist below](#receipt9--current-ross-completion-checklist-updated-through-pr1139).
 Earlier dated sections are historical evidence, not superseding readiness decisions.
-Accepted production: `f4def1608e7ff57ef53e383c1f8a1c8423e75d24` (PR1138), tree `a792d85c764ccaf3e821a3fe891cd555c48457e9`. Optional provenance contract `c7111fc27a1e2a791c073b144c221103241db996` is saved, not a production verifier. Listing compliance is parked and fail closed.
+Accepted production: `07491e89a3d5e8a36db19cbd4996ba2acc77aae7` (PR1139), tree `58b19a6397f6e9a1018ea8ac3364459f92217d88`. Optional provenance contract `c7111fc27a1e2a791c073b144c221103241db996` is saved, not a production verifier. Listing compliance is parked and fail closed.
 `PAPER_READY=NO`; `PAPER_READINESS_GATE=FAIL`; natural catalyst → Focus → setup → READ_ONLY intent remains unproven.
 
 Historical accepted baseline: `1b632f8131183a776a6532d2785644a8a0309efb` (PR1107).
@@ -2300,7 +2300,7 @@ mandatory and no timeout is enlarged. Independent review and changed-head checks
 must apply to the repaired head before controlled integration. No new operator run,
 provider/broker acquisition, holdings change or readiness upgrade. PAPER_READY=NO.
 
-### Receipt9 — current Ross completion checklist, updated through PR1138
+### Receipt9 — current Ross completion checklist, updated through PR1139
 
 This is the maintained authoritative checklist, updated in place; the earlier
 checklists and receipts remain historical evidence. Status labels distinguish
@@ -2327,12 +2327,12 @@ No item below upgrades strategy certification or authorizes acquisition.
 | Accepted6010 quote diagnostic | Natural bounded transport objective satisfied; quote still ineligible/exit2 | Accepted `6010ce1cd265c98807a6b5ee4e8425dfbbfc36ae`; observation-order repair prospective | New26October receipt below; archive `9127a025833e1d2dc4efc9fb86f2d3f241903ede4202e7d0d4573e4f1d4f84a0` | Scan50/AZTR364, LIVE/all5 fields/end;50 retained records/0drops/scoped coverage valid; age−0.002445s strictly rejected | Original race/skew attribution and earlier timeout cause unresolved; no repeat transport run to seek exit0; natural Ross acceptance remains open |
 | Production future-quote admission | Implemented and merged; offline verified | PR1129/1130, accepted086a662c | Existing production admission and observation-order sections below | Shared native/cache/scanner/Focus/setup/decision/risk future/stale guards retain original broker timestamps | No retrospective attribution of negative age or historical timeout; natural current-data progression remains separate |
 |900-second natural receipt at086a | Terminal PASS/exit0;3 completed50-row scans; bounded issuer acquisition demonstrated; catalyst/downstream absent | Accepted `086a662c4f11f94b27ae3018a8cd561b7cc0f2a0`, tree11554268 | Archive `10def277d8ed62e3979a20e10d86f3ff57c799875202ed5999121911b0d70d79`; detailed analysis below | AZTR/RENT/GCTK/SPRC K4 each scan;12 DROP_NO_CATALYST;60 empty-Focus reconsiderations; full-name attribution loss demonstrated offline | Captured AZTR filing still unqualified after repair; partial feed coverage and5 broker-only ownership blockers remain; no rerun/trading/readiness upgrade |
-| Canonical catalyst → Focus → setup → READ_ONLY intent | READ_ONLY active-manager handoff repaired offline on proposed branch; natural positive absent | Accepted f4def160 remains production; saved audit90a96d36 preserved | tests/test_readonly_manager_risk_handoff.py; current repair receipt below | Actual manager/cache Focus/real BullFlag/trigger forms a canonical Core decision and receives real LIVE_READ_ONLY_BLOCK; five-position veto admits no risk input | Requires exact-head review/CI and accepted integration before a separately authorized natural observation; no paper acceptance |
-| Holdings, ownership, policy and GUI draft | Preserved; five critical broker-only positions remain blocked | Accepted f4def160; same ownership source as dcb65 receipt | Saved216 five-position snapshots; position_truth/recovery/Core guard; joined synthetic regression | Manual-required/no-auto recovery; block_new_entries=true and block_exits=true; post-formation Core guard removes intents before risk admission | Strategy intent formation can still be observed, but admitted/risk-approved entry and paper execution cannot be inferred. No adoption, liquidation, cancellation or suppression |
+| Canonical catalyst → Focus → setup → READ_ONLY intent | Active-manager canonical decision → actual RiskEngine READ_ONLY handoff integrated and proven offline; natural positive UNPROVEN | PR1139 accepted07491e89/tree58b19a63; saved audit90a96d36 retained | Actual-manager regression; review5672966290; CI40568163589; accepted observation preparation below | Eligible post-guard synthetic intents receive canonical ID and LIVE_READ_ONLY_BLOCK; five-position case retains raw formation but admits no artifact/risk input | Next: user starts one prepared natural900s observation in eligible RTH. Formation plus ownership veto is distinct from risk admission; no paper certification |
+| Holdings, ownership, policy and GUI draft | Preserved; five critical broker-only positions remain blocked | Accepted07491e89; same position-truth policy as dcb65 receipt | Saved216 five-position snapshots; position_truth/recovery/Core guard; joined synthetic regression | Manual-required/no-auto recovery; block_new_entries=true and block_exits=true; post-formation Core guard removes intents before risk admission | Strategy intent formation can still be observed, but admitted/risk-approved entry and paper execution cannot be inferred. No adoption, liquidation, cancellation or suppression |
 | Supplied legal issuer identity and shared feed availability | Implemented and merged; offline verified; natural negative evidence adjudicated | PR1131 acceptedf70edc3c; PR1133 acceptede5c5ad60 | Existing legal-name,301/HTML/feed-recovery and receipt sections | Full legal phrases retained; no redirect following; recognized RSS/Atom required; incomplete coverage remains explicit | Publisher/source-health improvement is not a qualifying issuer event |
 | Fixed feeds and bounded fallback policy | Implemented and merged; natural use demonstrated | PR1135 accepted49ba1e8e; PR1136 accepteddcb65fbd | Investing/Forbes and v5 receipt sections | Existing fixed replacements and configured tier/query budgets preserved; completion/cleanup barrier observed naturally | Eight-total candidate profile remains unactivated; source failures/search limits retained |
 | Listing-compliance event and optional provenance contract | Policy merged; production verifier closed; optional work PARKED | PR1138 acceptedf4def160; saved contractc7111fc2 | Existing policy/contract sections | Google transport, publisher names, feed health and copies cannot verify origin; captured copies ineligible | Not a prerequisite for supported classes. No further IPST qualification/provenance acquisition work |
-| Current source review and CI | Completed on accepted runtime tree; carried forward | Final PR1138 head4fab1586/treea792d85c; acceptedf4def160 | Review5671236395; CI40547209474 | Linux3426/3skipped; Windows3428/1skipped plus cache/PowerShell gates; failed40545024798 preserved | New test-only proof is local, not new-head CI or natural proof; no completed full suites repeated |
+| Current source review and CI | Completed on reviewed tree, identical accepted merge tree | PR1139 head22947082, accepted07491e89/tree58b19a63 | Independent agent review5672966290; CI40568163589 | Linux3447/3skipped; Windows3449/1skipped; native cache, cache-startup, PowerShell exit,39-check stub harness,5.1 parser and upload passed | Failed40567147213 and all earlier receipts preserved. No suites/CI repeated for merge-SHA-only or this documentation preparation |
 | Separate paper acceptance | Pending and ownership-blocked | Existing accepted history unchanged | Existing institutional roadmap and paper/lifecycle receipts | Component offline protection/partial-fill/target/trailing/exit/recovery controls exist | Needs separately authorized ownership resolution, actual risk admission and broker lifecycle/management acceptance. READ_ONLY cannot certify paper readiness |
 
 Reconciled against `76e597870f56b4e94b717878c793dbf2fce62295` on
@@ -2344,16 +2344,18 @@ the checklist. The institutional roadmap remains
 its historical “execution blocked only by mode” assertion is not current natural
 or paper-readiness evidence. Position truth/ownership and entry/partial-fill/stop/
 target/trailing/exit/recovery management require separate paper acceptance; none is
-certified by READ_ONLY terminal success. Current order is now the supported-class
-critical path below: preserve completed source/transport work, close the bounded
-active-manager canonical decision/risk handoff offline, then assess fresh natural
-supported-event/market progression using the existing harness only after separate
-authorization. The former one-candidate transport-localization next action is
-historical and completed as an objective; its unresolved original causes remain.
-No new natural observation is recommended merely to wait for a catalyst while the
-mechanical decision/risk handoff is absent. Five-position ownership must remain
-visible and fail closed; paper acceptance is a separate gated workstream.
-Saved checklist/test/contract changes are not merged main. PAPER_READY=NO;
+certified by READ_ONLY terminal success. PR1139 has now closed the bounded
+active-manager READ_ONLY decision/risk handoff offline and integrated the reviewed
+tree. The current next action is the single accepted-pin natural observation
+prepared below, started only by the user in normal eligible RTH. It seeks supported
+catalyst → Focus → fresh real setup/trigger → RAW strategy-intent evidence; it is
+not a new provider diagnostic or a promise that a qualifying opportunity exists.
+Five-position ownership remains a global admission veto after formation, before
+artifact/risk. No ownership workaround or positive risk/paper certification is
+implied. No opportunity is negative evidence, not authority to rerun. The former
+transport/optional-listing and pre-integration next-action sections remain dated
+history. Saved audit/test/contract evidence is preserved and carried into PR1139;
+listing provenance stays PARKED/fail closed. PAPER_READY=NO;
 PAPER_READINESS_GATE=FAIL.
 
 PR1127 initial published head c26e36bf482ba3e42551db606f663e0260506a89:
@@ -5365,9 +5367,9 @@ not receipts for this change. Appropriate changed-head Linux/Windows CI and
 independent exact-head review are required before integration, rather than
 repeating earlier completed suites for status alone.
 
-### Remaining gate and ONE next action
+### Previous pre-integration gate and recommendation (superseded by accepted receipt below)
 
-**ONE next action: review and accept this bounded repair only after its exact-head
+**Then-recommended action: review and accept this bounded repair only after its exact-head
 independent review and changed-head Linux/Windows checks pass.** Completion means
 integrating the reviewed tree with a literal accepted pin; no automatic merge is
 authorized here. After that integration, the finite mechanical READ_ONLY handoff
@@ -5412,3 +5414,188 @@ repair. This updates the reporting contract deliberately; it does not weaken quo
 admission. Changed-head CI/review must cover these stronger controls as well as
 all9 actual-manager cases. Windows first-run and final-head receipts are retained
 on the same PR. No unchanged-head CI rerun is requested.
+
+
+## PR1139 accepted integration and one natural READ_ONLY observation preparation
+
+Verified27October2026: GitHub main is exactly
+`07491e89a3d5e8a36db19cbd4996ba2acc77aae7`, tree
+`58b19a6397f6e9a1018ea8ac3364459f92217d88`. PR1139 actually merged at
+2026-10-27T19:35:58Z (19:35:58 Europe/London), parents acceptedf4def160 and final
+reviewed head `2294708237f5cbdf37b717ca428e98b483455fdd`. A complete Git diff
+between accepted07491 and reviewed22947082 is empty: this is the reviewed tree,
+not a new production implementation requiring repeated full suites.
+
+[Independent exact-head agent review5672966290](https://github.com/NelzonMamani/ibkr-trading-system/pull/1139#pullrequestreview-5672966290)
+found no actionable blocker. It checked the final temporal controls (2 guarded
+passes), carrying forward12 independent manager/artifact checks on byte-identical
+production source; agent review is not human approval or natural evidence.
+[CI40568163589](https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/40568163589)
+completed successfully at22947082: Linux3447passed/3skipped,225.66s;
+Windows3449passed/1skipped,570.91s. Native Windows news ownership/maintenance and
+float-cache, cache startup, PowerShell exit propagation,39-check stub observation
+harness, PowerShell5.1 quote-operator parser and evidence upload all passed. Its
+controlled intentionally failing child tests test exit propagation and are not
+suite failures. Evidence artifact12764143259 has SHA256
+`fc7656650a7432c078a9c01f3a1f88ed24152915a9a70ab9385b07dfa677492d`.
+
+First CI40567147213 remains FAILED atc05ee812: Linux2failed/3445passed/3skipped;
+Windows2failed/3447passed/1skipped. Both failed the old pre-risk quote-veto counter
+assertions; Windows later cache/PowerShell phases were skipped and upload failed
+because their artifacts did not exist. The strengthened final controls and all
+prior failed/historical receipts remain preserved. Saved branches
+`docs/ross-supported-critical-path` at90a96d36352d1ba2ef3bbfa5ed5689e42ec89a9a and
+`fix/readonly-manager-risk-handoff` at2294708237f5cbdf37b717ca428e98b483455fdd were
+rechecked unchanged. The saved optional contractc7111fc2 and audit regression are
+also present in accepted main; neither authorizes original-publisher verification.
+
+### Current acceptance boundary and information gain
+
+The active-manager canonical decision → actual RiskEngine READ_ONLY handoff is
+INTEGRATED and proven OFFLINE. Natural qualifying SUPPORTED catalyst → ordinary
+Focus/cached reconsideration → fresh genuine timeframe inputs → real setup/trigger
+→ raw strategy intent remains UNPROVEN. No historical zero-Focus/zero-intent receipt
+is relabelled positive. Listing provenance remains PARKED and production fail closed.
+PAPER/LIVE canonical risk integration is NOT certified by this bounded repair.
+
+Five unmatched positions remain untouched and globally veto new-entry admission
+AFTER raw strategy formation, BEFORE canonical artifact/risk admission. Natural
+raw formation together with POSITION_TRUTH_BLOCK_NEW_ENTRIES can establish the
+formation target. Expected zero post-guard risk input/artifact under that veto does
+not refute a retained raw intent. Conversely raw counts do not prove admission.
+No risk call may bypass ownership to generate a READ_ONLY result. This observation
+cannot certify positive risk admission, broker execution, ownership resolution or
+PAPER readiness. If no qualifying opportunity appears, retain the negative facts;
+that outcome does not authorize an unchanged rerun.
+
+Review the same five acceptance outcomes separately: terminal safety; genuine
+scans/Watchlist continuity; actual news coverage; canonical catalyst qualification;
+and Focus/fresh-input/setup/trigger/raw-intent/guard/risk disposition. The retained
+profile and all existing total/tier budgets, route membership, deduplication,
+request caps, strict original-news/quote freshness and genuine timeframe guards
+remain. No proposed eight-total source profile or forced candidate/catalyst/setup/
+trigger/intent/approval is enabled. Source health/publication markers are not
+qualified evidence. Existing rich source diagnostics and scoped request/reuse/
+budget counters described in the PR1135 preparation remain the review authorities.
+
+For progression, correlate terminal/stdout.log STRATEGY_OUTPUT, ARBITRATION_INPUT,
+GUARD_OUTPUT, exact POSITION_TRUTH_BLOCK_NEW_ENTRIES, SYMBOL_TRACE, RISK_INPUT and
+RISK_OUTPUT with the persisted TRADE_PATH final reason and pattern/trigger/cycle
+identity. Inspect canonical DECISION_ARTIFACT_CREATED/DECISION and actual
+RiskEngine RISK_DECISION/[RISK][DECISION] only if an intent legitimately passes all
+prior guards. With the five positions still vetoing entries, absence of those
+artifact/risk events is expected. Never infer execution from raw INTENT/DECISION
+formation logs or turn zero open orders into zero holdings.
+
+### Existing harness, conditions and single operator block
+
+Inspected accepted source: preparation helper
+`docs/ross/PR1108_NATURAL_READONLY_ACCEPTANCE.ps1`; runner
+`scripts/certification/run_natural_readonly_observation.ps1`; owned boundary
+`Invoke-ReadonlyObservation.ps1`; existing `natural_readonly_operator.py` and terminal
+supervisor. The runner's actual parameters are Python, Root, ExpectedCommit and
+RuntimeSeconds. RuntimeSeconds900 propagates to preflight/observation/package/seal;
+existing outer observation budget is900+360=1260s. Preflight90s, owned stop30s and
+package/seal90s budgets remain. Native OS exits/deadlines, owned graceful shutdown,
+no broad kill or automatic retry, final independent broker audit/disconnect, zero
+SDK mutation attempts, complete empty runtime inventories, source/operator-state
+equality and final privacy sealing are mandatory. A ZIP merely existing on disk
+is not a final privacy-seal pass.
+
+Use Windows PowerShell5.1 Desktop and the saved Python3.13.3 interpreter shown in
+the block. Normal configured weekday RTH (America/New_York09:30–16:00, respecting
+holidays/early close), enough remaining session for preflight plus all900 seconds,
+PAPER TWS authenticated normally with Read-Only API enabled,127.0.0.1:7497,
+client71 available and normal market/scanner subscriptions are prerequisites.
+No existing Ross runtime may be active. Do not change holdings, adopt/liquidate,
+cancel orders or suppress the five mismatches. Session/state/inventory or broker
+failures must fail closed; no force-session or restart workaround is provided.
+
+The block reads the EXISTING preparation helper from the literal accepted Git
+blob, then invokes the EXISTING runner exactly once. It verifies fetched main is
+still the literal pin and verifies accepted/prepared tree and cleanliness; future
+main advancement stops for delta review rather than substituting a runtime SHA.
+A fresh detached C:\tmp\ro-xxxxxxxx\s worktree leaves PyCharm source/GUI draft,
+old evidence and operator state unchanged. Caches and operational state are
+isolated by the existing harness; original order-ID state is copied privately,
+never reset. The new checkpoint documentation commit is NOT a runtime pin and is
+not required in that observation checkout. Expected sealed ZIP is
+`C:\tmp\ro-xxxxxxxx\ross-natural-readonly-upload.zip`; share it only after the
+harness's final DIAGNOSTIC ZIP announcement. Keep private state/root files private.
+
+```powershell
+# User-started once, during normal RTH with time for preflight and the full 900s.
+$ErrorActionPreference = 'Stop'
+if ($PSVersionTable.PSEdition -ne 'Desktop' -or
+    $PSVersionTable.PSVersion.Major -ne 5 -or $PSVersionTable.PSVersion.Minor -ne 1) {
+    throw 'Use Windows PowerShell 5.1 Desktop.'
+}
+$SourceCheckout = 'C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system'
+$Python = 'C:\tmp\pr1091-cert-env-20260923\Scripts\python.exe'
+$RuntimePin = '07491e89a3d5e8a36db19cbd4996ba2acc77aae7'
+$ExpectedTree = '58b19a6397f6e9a1018ea8ac3364459f92217d88'
+
+& git -C $SourceCheckout fetch origin main
+if ($LASTEXITCODE -ne 0) { throw 'Fetch failed; nothing launched.' }
+$fetchedMain = (& git -C $SourceCheckout rev-parse refs/remotes/origin/main | Out-String).Trim()
+if ($LASTEXITCODE -ne 0 -or $fetchedMain -cne $RuntimePin) {
+    throw 'Main differs from the accepted pin. Stop for delta review; do not substitute a pin.'
+}
+$pinTree = (& git -C $SourceCheckout rev-parse ($RuntimePin + '^{tree}') | Out-String).Trim()
+if ($LASTEXITCODE -ne 0 -or $pinTree -cne $ExpectedTree) { throw 'Accepted tree mismatch.' }
+
+$beforeWorktrees = @(& git -C $SourceCheckout worktree list --porcelain)
+if ($LASTEXITCODE -ne 0) { throw 'Cannot inventory existing worktrees.' }
+$prepareText = (& git -C $SourceCheckout show ($RuntimePin + ':docs/ross/PR1108_NATURAL_READONLY_ACCEPTANCE.ps1') | Out-String)
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($prepareText)) { throw 'Pinned preparation helper unavailable.' }
+$prepareArgs = @{
+    ExpectedCommit = $RuntimePin
+    Python = $Python
+    SourceCheckout = $SourceCheckout
+    BaseDirectory = 'C:\tmp'
+    RuntimeSeconds = 900
+}
+& ([scriptblock]::Create($prepareText)) @prepareArgs
+
+$afterWorktrees = @(& git -C $SourceCheckout worktree list --porcelain)
+if ($LASTEXITCODE -ne 0) { throw 'Cannot verify prepared worktree; nothing launched.' }
+$addedWorktrees = @($afterWorktrees | Where-Object {
+    $_.StartsWith('worktree ') -and $beforeWorktrees -notcontains $_
+} | ForEach-Object { $_.Substring(9) })
+if ($addedWorktrees.Count -ne 1) { throw 'Expected exactly one new worktree; preserve roots and inspect.' }
+$checkout = [IO.Path]::GetFullPath($addedWorktrees[0])
+$root = Split-Path -Parent $checkout
+$actualHead = (& git -C $checkout rev-parse HEAD | Out-String).Trim()
+if ($LASTEXITCODE -ne 0 -or $actualHead -cne $RuntimePin) { throw 'Prepared head mismatch.' }
+$actualTree = (& git -C $checkout rev-parse 'HEAD^{tree}' | Out-String).Trim()
+if ($LASTEXITCODE -ne 0 -or $actualTree -cne $ExpectedTree) { throw 'Prepared tree mismatch.' }
+$dirty = @(& git -C $checkout status --porcelain)
+if ($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0) { throw 'Prepared checkout is not clean.' }
+$runner = Join-Path $checkout 'scripts\certification\run_natural_readonly_observation.ps1'
+if (!(Test-Path -LiteralPath $runner -PathType Leaf)) { throw 'Existing runner missing.' }
+Write-Host "Runtime pin: $RuntimePin; root: $root"
+Write-Host ("Expected ZIP after successful final privacy sealing: {0}" -f (Join-Path $root 'ross-natural-readonly-upload.zip'))
+Write-Host 'Use only the final DIAGNOSTIC ZIP announcement; preserve all exits and evidence.'
+Write-Host 'This block invokes the runner once below. Do not also run the preparation helper printed command.'
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $runner -Python $Python -Root $root -ExpectedCommit $RuntimePin -RuntimeSeconds 900
+$operatorExit = $LASTEXITCODE
+Write-Host "Operator exit: $operatorExit. No automatic retry. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL."
+$global:LASTEXITCODE = $operatorExit
+```
+
+Proportional preparation checks: accepted/reviewed complete-tree equality, unchanged
+harness/source/DEPRECATION_LEDGER, existing parameter/budget/safety-path inspection,
+Git whitespace/only-checkpoint diff and static inspection of this PowerShell5.1
+block. No operator module import/execution, preflight, acquisition, full suite or
+CI rerun is needed for this documentation-only update. Actual Windows5.1 harness
+validation is carried forward from successful CI40568163589, not claimed as a new
+execution of this block. No module, harness or competing checklist was created;
+DEPRECATION_LEDGER is unchanged because no retirement or ownership changed.
+
+**ONE next action: the user starts this single prepared accepted-pin observation
+when those normal session/TWS conditions hold.** Completion means retaining the
+sealed full evidence and honest five-outcome review, whether or not a qualifying
+opportunity occurs; no automatic rerun is authorized. Preparation has executed no
+preflight acquisition, observation, holdings action or trading. Historical receipts,
+five-position protections and GUI draft remain. `PAPER_READY=NO`;
+`PAPER_READINESS_GATE=FAIL`.
