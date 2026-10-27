@@ -5388,3 +5388,27 @@ closed; no effort or acquisition to qualify IPST was performed.
 
 No acquisition, runtime observation, automatic rerun, holdings action, trading or
 GUI-draft change occurred. `PAPER_READY=NO`; `PAPER_READINESS_GATE=FAIL`.
+
+
+### Preserved first repair-head CI and stronger temporal handoff assertions
+
+PR1139's first exact repair head `c05ee81206e5b07a612ca941edb8a03822c6fe5a`
+(tree `4f5c083ceca869da6df96f190fa6a17e5b1b1861`) received independent exact-head
+agent review5672886005 without blockers; its separate guarded artifact/manager
+run passed12 cases. This is agent/local proof, not human approval or CI.
+CI40567147213 Linux finished2failed/3445passed/3skipped in232.72s. Both failures
+were existing `test_quote_future_admission` assertions expecting a pre-risk quote
+veto to increment RISK_OUTPUT.blocked_count. A guarded unchanged-head local control
+reproduced precisely those2 failures; source inspection and existing assertions
+confirmed MD_TIMESTAMP_FUTURE/MD_STALE rejection and the retained temporal audit.
+The failure is preserved, not retried or treated as a successful suite.
+
+Those two controls now explicitly require zero actual risk input/decision count
+and no canonical decision ID, and forbid invoking the real-risk/artifact owners
+around the quote veto. Their original future-by-one-microsecond, strict expiry,
+no force approval, original broker timestamp and final RISK_BLOCKED audit assertions
+remain. Production source is unchanged from the independently reviewed c05ee812
+repair. This updates the reporting contract deliberately; it does not weaken quote
+admission. Changed-head CI/review must cover these stronger controls as well as
+all9 actual-manager cases. Windows first-run and final-head receipts are retained
+on the same PR. No unchanged-head CI rerun is requested.
