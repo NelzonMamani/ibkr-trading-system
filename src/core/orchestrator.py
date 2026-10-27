@@ -4016,10 +4016,11 @@ class CoreOrchestrator:
                 quote_rejection = next((reason for intent in (strategy_output or [])
                                         if str(getattr(intent, "symbol", "")).upper() == symbol.upper()
                                         if (reason := ross_intent_quote_rejection(intent, self.run_mode))), None)
-                if quote_rejection is None:
+                if quote_rejection is None and self.run_mode != RunMode.READ_ONLY:
                     self._trace_event("RISK_APPROVED", {"strategy": strategy_key, "symbol": symbol, "decision": "PASS"})
-                else:
-                    self._trace_event("RISK_REJECTED", {"strategy": strategy_key, "symbol": symbol, "reason": quote_rejection})
+                elif quote_rejection is not None:
+                    self._trace_event("QUOTE_REJECTED" if self.run_mode == RunMode.READ_ONLY else "RISK_REJECTED",
+                                      {"strategy": strategy_key, "symbol": symbol, "reason": quote_rejection})
             else:
                 print(f"[STRATEGY][NO_SIGNAL] symbol={symbol} reason=no_valid_setup_from_runner")
                 self._trace_event("NO_SETUP", {"strategy": strategy_key, "symbol": symbol})
@@ -4192,12 +4193,25 @@ class CoreOrchestrator:
                 )
                 raise Exception("PIPELINE_BREAK_SETUP_TO_INTENT")
         gated_strategy_output = self._enforce_ross_execution_integrity(raw_strategy_output)
+        readonly_gate_rejections = {}
+        if self.run_mode == RunMode.READ_ONLY:
+            integrity_ids = {id(intent) for intent in gated_strategy_output}
+            readonly_gate_rejections = {
+                intent.symbol.upper(): "INTENT_REJECTED_BY_EXECUTION_INTEGRITY"
+                for intent in raw_strategy_output if id(intent) not in integrity_ids
+            }
+            if position_truth_verdict.block_new_entries:
+                readonly_gate_rejections.update({
+                    intent.symbol.upper(): "POSITION_TRUTH_BLOCK_NEW_ENTRIES"
+                    for intent in gated_strategy_output
+                })
         gated_strategy_output = self._apply_position_truth_entry_guard(
             gated_strategy_output,
             position_truth_verdict,
         )
         if (
-            self._mock_scanner_mode_enabled()
+            self.run_mode != RunMode.READ_ONLY
+            and self._mock_scanner_mode_enabled()
             and pre_arbitration_intents
             and not gated_strategy_output
         ):
@@ -4209,6 +4223,10 @@ class CoreOrchestrator:
             if str(getattr(intent, "symbol", "")).strip()
         )
         filtered_by_conflict = max(len(pre_arbitration_intents) - len(gated_strategy_output), 0)
+        if self.run_mode == RunMode.READ_ONLY:
+            # These losses are guard vetoes, not arbitration conflicts.
+            filtered_by_conflict = 0
+            print(f"[PIPELINE][GUARD_OUTPUT] rejections={readonly_gate_rejections}")
         filtered_by_limits = 0
         final_intents_count = len(gated_strategy_output)
         print(
@@ -4230,7 +4248,7 @@ class CoreOrchestrator:
             if arbitration_kept:
                 reason = "kept"
             elif intent_created:
-                reason = "conflict_or_limit"
+                reason = readonly_gate_rejections.get(symbol_upper, "conflict_or_limit")
             elif strategy_detected:
                 reason = "setup_no_intent"
             else:
@@ -4246,13 +4264,14 @@ class CoreOrchestrator:
                 continue
             symbol_upper = symbol.upper()
             if symbol_upper not in gated_symbols:
+                rejection_reason = readonly_gate_rejections.get(symbol_upper, "INTENT_REJECTED_BY_EXECUTION_INTEGRITY")
                 print(
                     f"[TRADE_PATH][INTENT] symbol={symbol_upper} "
-                    "verdict=INTENT_REJECTED_BY_POLICY reason=INTENT_REJECTED_BY_EXECUTION_INTEGRITY"
+                    f"verdict=INTENT_REJECTED_BY_POLICY reason={rejection_reason}"
                 )
                 pipeline_audit.mark_stage(symbol_upper, "TRIGGER", trigger_fired=True)
                 pipeline_audit.mark_stage(symbol_upper, "INTENT", intent_emitted=False)
-                pipeline_audit.record(symbol, TerminalOutcome.INTENT_REJECTED_BY_POLICY, "INTENT_REJECTED_BY_EXECUTION_INTEGRITY", "trigger")
+                pipeline_audit.record(symbol, TerminalOutcome.INTENT_REJECTED_BY_POLICY, rejection_reason, "trigger")
             else:
                 pipeline_audit.mark_stage(symbol_upper, "TRIGGER", trigger_fired=True)
                 pipeline_audit.mark_stage(symbol_upper, "INTENT", intent_emitted=True)
@@ -4268,10 +4287,63 @@ class CoreOrchestrator:
             "[PIPELINE][RISK_INPUT] "
             f"intents_count={len(gated_strategy_output)} symbols={[getattr(intent, 'symbol', None) for intent in gated_strategy_output]}"
         )
+        readonly_risk_rejections = {}
+        readonly_risk_blocked_count = 0
         risk_allowed_symbols = [getattr(intent, "symbol", "") for intent in gated_strategy_output]
+        if self.run_mode == RunMode.READ_ONLY:
+            # Core owns canonical decision identity. Only post-integrity,
+            # post-ownership and fresh-quote intents enter this lifecycle.
+            risk_allowed_symbols = []
+            if gated_strategy_output:
+                artifact = build_decision_artifact(
+                    strategy_name=strategy_key,
+                    run_mode=self.run_mode.value,
+                    session_phase=session_phase,
+                    intents=gated_strategy_output,
+                    source="CoreOrchestrator",
+                    created_at=datetime.now(timezone.utc).isoformat(),
+                    metadata={"cycle_id": self._ensure_cycle_id()},
+                )
+                for intent in gated_strategy_output:
+                    intent.decision_id = artifact.decision_id
+                artifact_payload = {
+                    "decision_id": artifact.decision_id,
+                    "strategy_name": artifact.strategy_name,
+                    "intent_count": len(artifact.intents),
+                    "run_mode": artifact.run_mode,
+                    "session_phase": artifact.session_phase,
+                    "created_at": artifact.created_at,
+                    "cycle_id": self._ensure_cycle_id(),
+                }
+                self.event_collector.emit(
+                    event_type="DECISION_ARTIFACT_CREATED",
+                    source="CoreOrchestrator", payload=artifact_payload,
+                )
+                self._trace_event("DECISION", artifact_payload,
+                                  summary=f"decision_id={artifact.decision_id} intents={len(artifact.intents)}")
+                for intent in gated_strategy_output:
+                    decision = self.risk_engine.evaluate_trade_intent(intent)
+                    approved = bool(decision.allowed) and decision.risk_level != "BLOCKED" and not decision.execution_blocked
+                    reason = decision.reason_code or decision.rationale
+                    print(f"[RISK][DECISION] symbol={intent.symbol} approved={approved} "
+                          f"reason={reason} decision_id={decision.decision_id}")
+                    self._trace_event("RISK_APPROVED" if approved else "RISK_REJECTED", {
+                        "strategy": strategy_key, "symbol": intent.symbol,
+                        "decision_id": decision.decision_id, "reason": reason,
+                    })
+                    pipeline_audit.mark_stage(intent.symbol, "RISK", risk_approved=approved)
+                    if approved:
+                        risk_allowed_symbols.append(intent.symbol)
+                    else:
+                        readonly_risk_blocked_count += 1
+                        readonly_risk_rejections[intent.symbol.upper()] = reason
+                        pipeline_audit.record(intent.symbol, TerminalOutcome.RISK_BLOCKED, reason, "risk")
+            # READ_ONLY never dispatches orders, including an unexpectedly allowed
+            # RiskDecision. The mode authority remains an independent barrier.
+        blocked_risk_count = readonly_risk_blocked_count if self.run_mode == RunMode.READ_ONLY else len(quote_risk_rejections)
         print(
             "[PIPELINE][RISK_OUTPUT] "
-            f"approved_count={len(risk_allowed_symbols)} blocked_count={len(quote_risk_rejections)} symbols={risk_allowed_symbols}"
+            f"approved_count={len(risk_allowed_symbols)} blocked_count={blocked_risk_count} symbols={risk_allowed_symbols}"
         )
 
         if mode_manager.allow_orders:
@@ -4304,8 +4376,10 @@ class CoreOrchestrator:
 
             if raw_strategy_output:
                 for intent in raw_strategy_output:
-                    if str(getattr(intent, "symbol", "")).upper() in quote_risk_rejections:
-                        # Retain the earlier reason-coded temporal risk veto.
+                    if str(getattr(intent, "symbol", "")).upper() in {
+                        **quote_risk_rejections, **readonly_gate_rejections, **readonly_risk_rejections
+                    }:
+                        # Retain the exact guard/quote/actual-risk veto.
                         continue
                     reason = "SESSION_BLOCK" if self.run_mode == RunMode.READ_ONLY else "EXECUTION_DISABLED"
                     print(
@@ -4337,13 +4411,17 @@ class CoreOrchestrator:
                     "reason": "NO_INTENTS_PRODUCED"
                 })
 
-        if final_intents_count == 0:
+        if final_intents_count == 0 or (self.run_mode == RunMode.READ_ONLY and not risk_allowed_symbols):
             no_trade_reason = {
                 "no_intents_generated": len(pre_arbitration_intents) == 0,
                 "all_blocked_by_risk": False,
                 "all_removed_by_arbitration": len(pre_arbitration_intents) > 0,
                 "execution_disabled": not mode_manager.allow_orders,
             }
+            if self.run_mode == RunMode.READ_ONLY:
+                no_trade_reason["all_blocked_by_risk"] = bool(quote_risk_rejections or readonly_risk_rejections) and not readonly_gate_rejections
+                no_trade_reason["all_removed_by_arbitration"] = False
+                print(f"[PIPELINE][NO_TRADE_GATES] rejections={readonly_gate_rejections}")
             print(
                 "[PIPELINE][NO_TRADE_REASON] "
                 f"no_intents_generated={no_trade_reason['no_intents_generated']} "

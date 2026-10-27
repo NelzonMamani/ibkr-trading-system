@@ -2327,7 +2327,7 @@ No item below upgrades strategy certification or authorizes acquisition.
 | Accepted6010 quote diagnostic | Natural bounded transport objective satisfied; quote still ineligible/exit2 | Accepted `6010ce1cd265c98807a6b5ee4e8425dfbbfc36ae`; observation-order repair prospective | New26October receipt below; archive `9127a025833e1d2dc4efc9fb86f2d3f241903ede4202e7d0d4573e4f1d4f84a0` | Scan50/AZTR364, LIVE/all5 fields/end;50 retained records/0drops/scoped coverage valid; age−0.002445s strictly rejected | Original race/skew attribution and earlier timeout cause unresolved; no repeat transport run to seek exit0; natural Ross acceptance remains open |
 | Production future-quote admission | Implemented and merged; offline verified | PR1129/1130, accepted086a662c | Existing production admission and observation-order sections below | Shared native/cache/scanner/Focus/setup/decision/risk future/stale guards retain original broker timestamps | No retrospective attribution of negative age or historical timeout; natural current-data progression remains separate |
 |900-second natural receipt at086a | Terminal PASS/exit0;3 completed50-row scans; bounded issuer acquisition demonstrated; catalyst/downstream absent | Accepted `086a662c4f11f94b27ae3018a8cd561b7cc0f2a0`, tree11554268 | Archive `10def277d8ed62e3979a20e10d86f3ff57c799875202ed5999121911b0d70d79`; detailed analysis below | AZTR/RENT/GCTK/SPRC K4 each scan;12 DROP_NO_CATALYST;60 empty-Focus reconsiderations; full-name attribution loss demonstrated offline | Captured AZTR filing still unqualified after repair; partial feed coverage and5 broker-only ownership blockers remain; no rerun/trading/readiness upgrade |
-| Canonical catalyst → Focus → setup → READ_ONLY intent | Supported-class formation offline joined proof; natural positive absent; active-manager decision/risk handoff incomplete | Runtime accepted f4def160; new test-only critical-path control | tests/test_ross_supported_catalyst_critical_path.py and source trace below | Nine supported labels reach real BullFlag detector/trigger/strategy intent on synthetic data; guard rejects five-position case; real RiskEngine rejects missing decision ID | Active manager does not create canonical decision artifact or invoke actual RiskEngine; markers cannot certify risk. Fix that offline before another full-target observation |
+| Canonical catalyst → Focus → setup → READ_ONLY intent | READ_ONLY active-manager handoff repaired offline on proposed branch; natural positive absent | Accepted f4def160 remains production; saved audit90a96d36 preserved | tests/test_readonly_manager_risk_handoff.py; current repair receipt below | Actual manager/cache Focus/real BullFlag/trigger forms a canonical Core decision and receives real LIVE_READ_ONLY_BLOCK; five-position veto admits no risk input | Requires exact-head review/CI and accepted integration before a separately authorized natural observation; no paper acceptance |
 | Holdings, ownership, policy and GUI draft | Preserved; five critical broker-only positions remain blocked | Accepted f4def160; same ownership source as dcb65 receipt | Saved216 five-position snapshots; position_truth/recovery/Core guard; joined synthetic regression | Manual-required/no-auto recovery; block_new_entries=true and block_exits=true; post-formation Core guard removes intents before risk admission | Strategy intent formation can still be observed, but admitted/risk-approved entry and paper execution cannot be inferred. No adoption, liquidation, cancellation or suppression |
 | Supplied legal issuer identity and shared feed availability | Implemented and merged; offline verified; natural negative evidence adjudicated | PR1131 acceptedf70edc3c; PR1133 acceptede5c5ad60 | Existing legal-name,301/HTML/feed-recovery and receipt sections | Full legal phrases retained; no redirect following; recognized RSS/Atom required; incomplete coverage remains explicit | Publisher/source-health improvement is not a qualifying issuer event |
 | Fixed feeds and bounded fallback policy | Implemented and merged; natural use demonstrated | PR1135 accepted49ba1e8e; PR1136 accepteddcb65fbd | Investing/Forbes and v5 receipt sections | Existing fixed replacements and configured tier/query budgets preserved; completion/cleanup barrier observed naturally | Eight-total candidate profile remains unactivated; source failures/search limits retained |
@@ -5247,7 +5247,7 @@ positions. No real holding values are embedded in the new test. This distinguish
   target pass. Their disposition belongs to a separately authorized manual
   ownership/reconciliation process, not this task.
 
-### Offline versus fresh-natural requirements and ONE next action
+### Offline versus fresh-natural requirements and previous audit recommendation
 
 Deterministic/offline: supported-class positive/negative semantics, original-time
 boundaries/cache/handoff, joined canonical→Focus→real-pattern→raw-intent contracts,
@@ -5264,7 +5264,7 @@ decision provenance; and honest ownership/mode/risk disposition. Synthetic data
 cannot establish any of those natural facts. Terminal safety alone, source health,
 partial coverage or another unqualified headline cannot substitute.
 
-**ONE next action: implement and review the narrow active-manager READ_ONLY
+**Audit90a96d36 recommendation (implemented by the proposed repair below): implement and review the narrow active-manager READ_ONLY
 canonical decision-artifact → actual RiskEngine handoff, using the existing
 Core artifact builder and risk owner, without changing ownership or trading policy.**
 Completion criterion: an unblocked synthetic supported-event→real-pattern case
@@ -5293,3 +5293,98 @@ acceptance. Nothing here authorizes that work or upgrades readiness.
 All historical receipts, five-position blockers and GUI draft remain preserved.
 No acquisition, observation, holdings action, trading or production source change
 occurred. `PAPER_READY=NO`; `PAPER_READINESS_GATE=FAIL`.
+
+
+## Active-manager READ_ONLY canonical decision → RiskEngine repair (27 October)
+
+Production main was rechecked remotely at `f4def1608e7ff57ef53e383c1f8a1c8423e75d24`;
+its tree remains `a792d85c764ccaf3e821a3fe891cd555c48457e9`. Saved audit branch
+`docs/ross-supported-critical-path` remains exactly
+`90a96d36352d1ba2ef3bbfa5ed5689e42ec89a9a`, clean before this work. Proposed branch
+`fix/readonly-manager-risk-handoff` descends from that audit, retaining its twelve
+local synthetic controls and optional contractc7111fc2. Those twelve cases remain
+local audit proof, not CI or natural acceptance. No earlier receipt is superseded.
+
+The active `_run_manager_pipeline` now creates a canonical artifact with the existing
+`build_decision_artifact` owner ONLY for READ_ONLY intents surviving execution
+integrity, position truth, arbitration and the final strict quote handoff filter.
+Core assigns the resulting decision_id, emits the established
+DECISION_ARTIFACT_CREATED event and DECISION trace (strategy/mode/session/original
+intent payload hash, creation time and cycle identity), then invokes its actual
+RiskEngine.evaluate_trade_intent. RiskEngine retains its existing RISK_DECISION
+lifecycle, linked to that ID. No arbitrary IDs, parallel risk authority, legacy
+pipeline revival or retirement occurred. DEPRECATION_LEDGER is unchanged because
+no owner or retirement changed. PAPER/LIVE retain the prior manager path; this
+repair does not claim to complete their decision/risk integration.
+
+READ_ONLY approval/denial traces and RISK_OUTPUT now derive from actual
+RiskDecision results. A pre-risk temporal veto is labelled QUOTE_REJECTED, not a
+fabricated risk decision. Guard losses are identified separately from arbitration
+conflicts. POSITION_TRUTH_BLOCK_NEW_ENTRIES remains the final ownership reason,
+including the persisted trade-path summary; generic integrity/conflict/session/
+ORDER_SIMULATED outcomes cannot overwrite it. Raw strategy formation diagnostics
+remain visible. The old mock-survival override is disabled for READ_ONLY, so it
+cannot repopulate intents removed by ownership or integrity. No risk call occurs
+around that veto. Existing mode authority independently forbids order dispatch.
+
+### Changed-path offline evidence and review boundary
+
+`tests/test_readonly_manager_risk_handoff.py` supplies explicitly SYNTHETIC provider,
+position snapshots, quotes and bar streams with hard network denial and forbidden
+broker placeOrder/cancelOrder and execution submission. It uses the existing
+canonical service/store, a non-writing cache read and actual cached reconsideration
+inside Core.run_once → active manager → real StrategyRunner/registered Ross runner
+→ REAL BullFlag registry/detector/trigger/strategy intent. No forced pattern, target,
+setup, catalyst, intent, risk result or artifact ID is supplied. Startup housekeeping
+and acquisition are fixture boundaries, not evidence of broker operations.
+
+Nine new cases establish: canonical supported-event → cached Focus → fresh real
+BullFlag → trigger → raw intent → Core artifact → actual RiskEngine, whose explicit
+reason is LIVE_READ_ONLY_BLOCK ("READ_ONLY mode forbids new executions"), not
+DECISION_ARTIFACT_MISSING. The event collector links both canonical creation and
+real RiskEngine decision to the same ID. Clearing the ID independently retains
+missing-artifact rejection. A completed synthetic five-broker-only-position verdict
+retains raw formation, exact ownership rejection and zero admitted risk/artifact
+creation; no quantities are adopted or changed. Generic news, stale required bars,
+stale Focus quotes, quote expiry AFTER real formation and execution-integrity
+rejection all fail closed. PAPER and LIVE boundary controls prove the READ_ONLY
+branch is not entered and no new artifact/risk call or execution submission occurs.
+Their controlled raw-intent checks are not full PAPER/LIVE strategy acceptance.
+
+Local focused new/affected validation passed110 cases; after the final reporting-only
+per-decision count refinement, all9 new manager cases passed again (8.70s). These
+are local synthetic results, not remote CI or natural acceptance. Validation uses
+the hard offline guard and includes the saved
+critical-path regression, Watchlist continuity, cached reassessment, canonical
+artifact and execution-handoff controls. Local logs are retained under
+`/workspace/work/readonly-manager-*.log`; exact reviewed-head CI/review receipts
+belong to the accompanying repair PR. A wrong expected fixture reason QUOTE_STALE
+was corrected to the existing production MD_STALE; freshness was not relaxed.
+The completed accepted-source CI40547209474 and review5671236395 remain historical,
+not receipts for this change. Appropriate changed-head Linux/Windows CI and
+independent exact-head review are required before integration, rather than
+repeating earlier completed suites for status alone.
+
+### Remaining gate and ONE next action
+
+**ONE next action: review and accept this bounded repair only after its exact-head
+independent review and changed-head Linux/Windows checks pass.** Completion means
+integrating the reviewed tree with a literal accepted pin; no automatic merge is
+authorized here. After that integration, the finite mechanical READ_ONLY handoff
+gap is closed offline. A separately authorized existing-harness900s natural Ross
+READ_ONLY observation would then have defined information gain: current supported
+issuer-event → ordinary cached Focus → fresh real setup/trigger → raw strategy
+intent and its honest ownership/mode/risk disposition. This task neither prepares
+nor executes that acquisition. Do not repeat an unchanged run merely to await news.
+
+The five unmatched positions still globally block entry admission after formation.
+Thus a fresh natural raw intent plus exact ownership veto can establish formation,
+but cannot certify an admitted risk input or paper execution while that blocker
+remains. Separate paper acceptance still requires explicitly authorized manual
+ownership resolution and actual risk/broker lifecycle/management evidence. Natural
+positive catalyst-to-intent progression remains UNPROVEN; archived Focus0/zero-intent
+receipts remain unchanged. Listing-compliance provenance remains PARKED and fail
+closed; no effort or acquisition to qualify IPST was performed.
+
+No acquisition, runtime observation, automatic rerun, holdings action, trading or
+GUI-draft change occurred. `PAPER_READY=NO`; `PAPER_READINESS_GATE=FAIL`.
