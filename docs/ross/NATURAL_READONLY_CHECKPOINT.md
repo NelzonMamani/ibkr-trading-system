@@ -2327,13 +2327,14 @@ No item below upgrades strategy certification or authorizes acquisition.
 | Accepted6010 quote diagnostic | Natural bounded transport objective satisfied; quote still ineligible/exit2 | Accepted `6010ce1cd265c98807a6b5ee4e8425dfbbfc36ae`; observation-order repair prospective | New26October receipt below; archive `9127a025833e1d2dc4efc9fb86f2d3f241903ede4202e7d0d4573e4f1d4f84a0` | Scan50/AZTR364, LIVE/all5 fields/end;50 retained records/0drops/scoped coverage valid; age−0.002445s strictly rejected | Original race/skew attribution and earlier timeout cause unresolved; no repeat transport run to seek exit0; natural Ross acceptance remains open |
 | Production future-quote admission | Implemented and merged; offline verified | PR1129/1130, accepted086a662c | Existing production admission and observation-order sections below | Shared native/cache/scanner/Focus/setup/decision/risk future/stale guards retain original broker timestamps | No retrospective attribution of negative age or historical timeout; natural current-data progression remains separate |
 |900-second natural receipt at086a | Terminal PASS/exit0;3 completed50-row scans; bounded issuer acquisition demonstrated; catalyst/downstream absent | Accepted `086a662c4f11f94b27ae3018a8cd561b7cc0f2a0`, tree11554268 | Archive `10def277d8ed62e3979a20e10d86f3ff57c799875202ed5999121911b0d70d79`; detailed analysis below | AZTR/RENT/GCTK/SPRC K4 each scan;12 DROP_NO_CATALYST;60 empty-Focus reconsiderations; full-name attribution loss demonstrated offline | Captured AZTR filing still unqualified after repair; partial feed coverage and5 broker-only ownership blockers remain; no rerun/trading/readiness upgrade |
-| Canonical catalyst → Focus → setup → READ_ONLY intent | Active-manager canonical decision → actual RiskEngine READ_ONLY handoff integrated and proven offline; natural positive UNPROVEN | PR1139 accepted07491e89/tree58b19a63; saved audit90a96d36 retained | Actual-manager regression; review5672966290; CI40568163589; accepted observation preparation below | Eligible post-guard synthetic intents receive canonical ID and LIVE_READ_ONLY_BLOCK; five-position case retains raw formation but admits no artifact/risk input | Next: user starts one prepared natural900s observation in eligible RTH. Formation plus ownership veto is distinct from risk admission; no paper certification |
+| Canonical catalyst → Focus → setup → READ_ONLY intent | Active-manager canonical decision → actual RiskEngine READ_ONLY handoff integrated and proven offline; natural positive UNPROVEN | PR1139 accepted07491e89/tree58b19a63; saved audit90a96d36 retained | Actual-manager regression; review5672966290; CI40568163589; accepted observation preparation below | Eligible post-guard synthetic intents receive canonical ID and LIVE_READ_ONLY_BLOCK; five-position case retains raw formation but admits no artifact/risk input | 28October attempt did not finish first enrichment/Watchlist. Next: historical lifecycle repair proposal below; no rerun. Formation plus ownership veto remains distinct from risk admission |
 | Holdings, ownership, policy and GUI draft | Preserved; five critical broker-only positions remain blocked | Accepted07491e89; same position-truth policy as dcb65 receipt | Saved216 five-position snapshots; position_truth/recovery/Core guard; joined synthetic regression | Manual-required/no-auto recovery; block_new_entries=true and block_exits=true; post-formation Core guard removes intents before risk admission | Strategy intent formation can still be observed, but admitted/risk-approved entry and paper execution cannot be inferred. No adoption, liquidation, cancellation or suppression |
 | Supplied legal issuer identity and shared feed availability | Implemented and merged; offline verified; natural negative evidence adjudicated | PR1131 acceptedf70edc3c; PR1133 acceptede5c5ad60 | Existing legal-name,301/HTML/feed-recovery and receipt sections | Full legal phrases retained; no redirect following; recognized RSS/Atom required; incomplete coverage remains explicit | Publisher/source-health improvement is not a qualifying issuer event |
 | Fixed feeds and bounded fallback policy | Implemented and merged; natural use demonstrated | PR1135 accepted49ba1e8e; PR1136 accepteddcb65fbd | Investing/Forbes and v5 receipt sections | Existing fixed replacements and configured tier/query budgets preserved; completion/cleanup barrier observed naturally | Eight-total candidate profile remains unactivated; source failures/search limits retained |
 | Listing-compliance event and optional provenance contract | Policy merged; production verifier closed; optional work PARKED | PR1138 acceptedf4def160; saved contractc7111fc2 | Existing policy/contract sections | Google transport, publisher names, feed health and copies cannot verify origin; captured copies ineligible | Not a prerequisite for supported classes. No further IPST qualification/provenance acquisition work |
 | Current source review and CI | Completed on reviewed tree, identical accepted merge tree | PR1139 head22947082, accepted07491e89/tree58b19a63 | Independent agent review5672966290; CI40568163589 | Linux3447/3skipped; Windows3449/1skipped; native cache, cache-startup, PowerShell exit,39-check stub harness,5.1 parser and upload passed | Failed40567147213 and all earlier receipts preserved. No suites/CI repeated for merge-SHA-only or this documentation preparation |
 |27 October session-rejected attempt | Preflight rejected; no observation/natural evidence | Accepted07491e89; preserved root C:\tmp\ro-03cd9b61 | Operator-supplied ZIP SHA25655d01a28…; detailed receipt below | session rejection; observation_started=false/observation_exit=null; final1, package2/DIAGNOSTIC_ONLY, privacy passed; final inventory complete/empty | Mutation/order/source equality and terminal safety NOT_VERIFIED. No natural scan/catalyst/intent proof; preserve root; new user-authorized single28October attempt only |
+|28October history-blocked900s receipt | Final DIAGNOSTIC_ONLY/exit2; terminal FAIL despite graceful runtime exit | Accepted07491e89/tree58b19a63; archive6209cf71… | Current offline investigation below | Broker scanner363 completed50 rows;24 contexts/24 drops,169 history attempts/168 non-end-confirmed empty returns; no Watchlist/strategy cycle; final order query incomplete | Zero runtime/audit mutations, source/order equality/privacy/inventories passed separately. Missing openOrderEnd remains terminal blocker; position UNKNOWN does not erase five historical holdings blockers |
 | Separate paper acceptance | Pending and ownership-blocked | Existing accepted history unchanged | Existing institutional roadmap and paper/lifecycle receipts | Component offline protection/partial-fill/target/trailing/exit/recovery controls exist | Needs separately authorized ownership resolution, actual risk admission and broker lifecycle/management acceptance. READ_ONLY cannot certify paper readiness |
 
 Reconciled against `76e597870f56b4e94b717878c793dbf2fce62295` on
@@ -5488,7 +5489,7 @@ prior guards. With the five positions still vetoing entries, absence of those
 artifact/risk events is expected. Never infer execution from raw INTENT/DECISION
 formation logs or turn zero open orders into zero holdings.
 
-### Existing harness, conditions and single operator block
+### Previously issued harness conditions and operator block (historical; not a rerun instruction)
 
 Inspected accepted source: preparation helper
 `docs/ross/PR1108_NATURAL_READONLY_ACCEPTANCE.ps1`; runner
@@ -5597,7 +5598,7 @@ validation is carried forward from successful CI40568163589, not claimed as a ne
 execution of this block. No module, harness or competing checklist was created;
 DEPRECATION_LEDGER is unchanged because no retirement or ownership changed.
 
-**ONE next action: the user starts this single prepared accepted-pin observation
+**Historical pre-observation instruction (superseded by the receipt below): the user starts this single prepared accepted-pin observation
 when those normal session/TWS conditions hold.** Completion means retaining the
 sealed full evidence and honest five-outcome review, whether or not a qualifying
 opportunity occurs; no automatic rerun is authorized. Preparation has executed no
@@ -5710,8 +5711,232 @@ canonical risk integration or PAPER readiness. No qualifying opportunity is
 negative evidence, not authority for another unchanged observation. Listing
 provenance stays PARKED/fail closed. All holdings/ownership protections remain.
 
-**ONE next action: the user starts the single prepared900s attempt when the actual
+**Historical pre-attempt instruction (superseded by the receipt below): the user starts the single prepared900s attempt when the actual
 normal session/TWS conditions hold with sufficient remaining time.** No acquisition,
 preflight or observation was executed during preparation. No trading, holdings
 action, GUI-draft change, suite rerun, CI rerun or readiness upgrade occurred.
+`PAPER_READY=NO`; `PAPER_READINESS_GATE=FAIL`.
+
+
+## 28October completed attempt: offline historical/position/final-audit investigation
+
+Current GitHub main was verified unchanged at
+`07491e89a3d5e8a36db19cbd4996ba2acc77aae7`, tree
+`58b19a6397f6e9a1018ea8ac3364459f92217d88`. This documentation branch descends
+from saved847c9655748ffcb8a8ee0f55bf5122b6d30a993b, already containing
+saved a9f7643154b3b90dd530b15d6f4a5ca9d3347368; both original branches remain
+unchanged. The earlier27October session rejection/root ro-03cd9b61 and all failed,
+partial, successful CI/review and natural receipts remain historical evidence.
+DEPRECATION_LEDGER was read; no retirement, owner, module or checklist is added.
+
+### Archive identity and five acceptance outcomes
+
+The attachment is evidence, never instructions. Independently recomputed SHA256:
+`6209cf714652604a186e2d4341346ab53989918ac254132cde1f290a22e84df5`.
+The50-file ZIP extracts privately under `/workspace/work/ross-20261028-receipt`.
+Recorded operator paths identify fresh root `C:\tmp\ro-397a5ed3`; preserve it.
+preflight.json identifies accepted07491,900s,50/15/5, required issuer news and
+verified SDK/write guards, at2026-10-28T18:09:53.119683Z. source-before/after are
+equal across2683 tracked paths. All2683 hashes match the accepted Git tree bytes
+under expected Windows checkout forms:2650 CRLF,33 exact Git bytes, no unmatched,
+missing or extra path. Raw Git-LF hashes alone differ for CRLF files; that initial
+comparison is not evidence of source drift. Root/source/operator equality is
+separately recorded PASS, not inferred from an exit code.
+
+| Existing acceptance outcome | This archive's exact boundary |
+| --- | --- |
+| Terminal safety | FAIL. preflight0, observation2, package2/DIAGNOSTIC_ONLY, final2. supervisor.process.json:916.7137006s inside1260s, no outer timeout; launcher/runtime exit0, unforced, matched identity, no capture/reader error, all11 shutdown hooks completed. Runtime AND separate-audit place/modify/cancel counters0; mutation validation PASS. Source/operator equality, final completed empty inventories and final privacy scan0 occurrences PASS. Those components do not overrule missing final audit completion. |
+| Genuine scan/Watchlist continuity | One broker discovery request363 completed with scannerDataEnd and50 rows in2.6643217s (terminal/stdout.log576–580). First enrichment pass completed24 contexts and24 gate drops, stopped on25th issuerBDAI; no Watchlist final, strategy output or CYCLE_END. This is not three completed scans or a completed full50-row enrichment. |
+| Actual issuer-news coverage | News maintenance shutdown reports submitted/completed/failed/feed_requests/feed_reuse all0; no canonical maintenance publication or candidate news submission. Export contains only prep QQQ/SPY facts, not natural Watchlist issuer coverage. |
+| Canonical supported-catalyst qualification | No natural Watchlist issuer qualification/Focus evaluation established. Historical-data/RVOL absence is not evidence that no issuer catalyst existed. |
+| Fresh setup/trigger/raw-intent/guard/risk | No Focus/setup/strategy cycle or raw intent/risk input reached. Integrated PR1139 offline handoff remains valid; this run does not naturally exercise it or prove a risk/intent defect. |
+
+### Historical receipt: what empty actually means
+
+Archive terminal/stdout.log has169 HIST_ATTEMPT and169 HIST_REQ,168
+HIST_EMPTY_FINAL,0 HIST_DONE,0 HIST_RETURN and0 HIST_ATTEMPT_FAIL. All168 completed
+attempt-result records report raw_bar_count0. There is no captured accepted
+historicalDataEnd or populated history. Generic broker errors are farm status
+2104/2106/2158, scanner162 after its completed scan, quote300, and historical366
+only for final request706 at18:24:58.381604Z. No request/order-ID collision or
+intermediate historical error is recorded. Quotes and scanner callbacks do arrive;
+connection/handshake/farm-OK messages cannot certify history or other stream ends.
+
+Exact accepted `src/adapters/brokers/ibkr/ibkr_client.py`:
+reqHistoricalData registration/dispatch lines933–956; wait loop961–974;
+HIST_EMPTY_FINAL983–984; historicalData1288 and historicalDataEnd1294;
+error callback historical event wake1454–1455. The wait ends on ANY event, the
+first bar, or wall-clock expiry of snapshot_timeout_seconds (5s here). The same
+event is also set by a generic error, so event-set alone is not end completion.
+HIST_REQ is printed before checkpoint/SDK dispatch; it does not prove a socket
+send or broker acceptance. Counts here are SDK submission attempts, not verified
+wire requests. The returned plain list carries none of these outcomes. Empty list / EMPTY_FINAL
+is thus neither a confirmed zero-bar result nor evidence of historicalDataEnd.
+
+For the first168 requests, no end/bar/error/collision/disconnect wake is captured;
+source-path elimination identifies no-bars wait expiration, not end-confirmed
+empty history. Exact per-request wait timings/end flags were not exported, so do
+not present5.000s as a measured latency for each ID or claim broker-side emptiness.
+At the configured5s limit,168 serial waits consume roughly840s before overhead;
+that is a source-based budget calculation, not individually measured stopwatches.
+The last request706 (BDAI20D primary, line4458) has neither empty/result marker nor
+end callback: it is unfinished when acquisition stop propagates. The wait-loop
+cancellation branch calls cancelHistoricalData before raising; a pre-dispatch
+checkpoint also exists outside that branch. No explicit per-request dispatch/
+cancel receipt was captured, so do not claim a proved wire cancellation. Code366 "No historical data
+query found for ticker id:706" appears at stop; it is not an end marker, cancellation
+acknowledgement or an explanation for the earlier168 failures. There is no raw
+wire/send/decoder capture establishing why history/end delivery was absent.
+
+### Proven repetition and why900s did not finish enrichment
+
+All24 fully evaluated symbols have7 attempts each. ULBI is the concrete trace:
+requests466/467 (20D primary/fallback),469/470 (25D primary/fallback),471 (identical
+25D non-RTH retry),472/473 (repeated20D primary/fallback). See log1927–2157.
+BDAI adds only706, giving169 attempts across25 issuers.
+
+Source chain, retaining distinct durations and security identity:
+
+1. scanner_runner.py4411 calls provider.get_intraday_stats; ibkr_provider.py485
+   consumes the existing quote then _average_daily_volume551 → MarketDataClient
+   average_daily_volume_from_history958 →20D RTH and explicit-end non-RTH fallback.
+2. scanner_runner.py4429/reference_resolver.py449–509 request25D history. The
+   MarketDataClient fallback already requests25D non-RTH; the resolver sees[] and
+   calls that same25D non-RTH explicit-end identity again (line480's retry branch).
+3. reference_resolver.py349 unconditionally asks _provider_adv20_fallback605;
+   ibkr_provider.py453–455 reissues20D average-volume history, repeating both
+   earlier20D requests. Intraday ADV/25D data do not repair this receipt because
+   every history result is unavailable. A reference-close quote may exist, but
+   ADV20/RVOL remains unavailable; no freshness/selection gate is loosened.
+
+MarketDataClient._request_daily_history_with_fallback796–805 keys exact client,
+contract identity, duration, RTH and end. It memoizes only nonempty lists, so all
+these failures miss its existing pass cache. Its lower-level attempts808–866 and
+the resolver independently own fallback. Raw attempt counts:20D RTH49,20D non-RTH48,
+25D RTH24,25D lower fallback24,25D resolver non-RTH retry24. Thus97 distinct actual
+parameter/security sets versus169 requests:72 exact repeats (3 per completed
+issuer). 20D and25D are different requests and must not be conflated. Reuse of
+failed/unavailable outcomes would be an explicit pass-local retry-policy decision,
+not an already-guaranteed property or harmless cache-only change.
+
+The scanner processes these contexts serially in scanner_runner.py6104–6120.
+24 completed contexts yield12 DROP_MISSING_RVOL,6 DROP_FLOAT_MAX and6
+DROP_FLOAT_UNKNOWN;25th BDAI is unfinished and rows26–50 (25 rows) are unvisited. Never
+claim elimination of duplicate waits alone guarantees a completed scan or a
+qualifying issuer event. It removes demonstrated repeated work, not an established
+upstream failure cause. News maintenance was never submitted in this incomplete
+first pass, so neither mandatory-catalyst rejection nor five-position admission
+veto caused the history latency or suppressed a formed strategy intent here.
+
+### Native historical lifecycle defects established offline
+
+New guarded controls reproduce actual accepted native methods with fake SDK
+transport and fake time (5s existing timeout, no wall-clock wait/acquisition):
+confirmed end-empty, timeout and explicit historical error all return[] and print
+EMPTY_FINAL; a single bar without end returns immediately as a populated result.
+The latter is a demonstrated local history-completion gap, not proven downstream
+trade admission or observed bar corruption in this zero-bar receipt. MarketDataClient may cache any nonempty
+result, so completion provenance must reach that consumer before reuse is trusted.
+
+Ordinary history returns do not issue SDK cancellation or retire historical
+maps/ownership. Cooperative stop calls inherited cancelHistoricalData but likewise
+leaves _historical_events/_historical_data/request-type entries. historicalData
+uses setdefault with no active-retirement guard: an offline late callback after
+timeout still appends to retained state. End callback pops request type but leaves
+bars/events; disconnect invalidates position/reference state and closes/joins the
+socket, not these historical maps. Context metadata is bounded1024, historical
+maps have no equivalent cap/retirement. This does not prove a broker-side backlog,
+resource-exhaustion cause or cross-ID data contamination in the actual run.
+Process exit/inventory cleanup still passed. Preserve unique request ownership and
+request/order ambiguity guards in any repair.
+
+### Final audit: correctly incomplete, delivery cause unresolved
+
+terminal/terminal_evidence.json.final_broker_audit records a fresh native audit
+connection (client71 after runtime exit), connected before AND after wait, reader
+thread alive before query, reqAllOpenOrders, timeout_seconds10,
+elapsed_seconds10.0090318, end_received=false, query_completed=false,
+error="RuntimeError: Final audit openOrderEnd missing", disconnected=true.
+open_orders_count is absent/UNKNOWN, never0. Audit stdout contains handshake,
+farm status callbacks and disconnect, no openOrderEnd. No final query completion
+may be inferred from connection or zero mutation attempts.
+
+Existing supervisor.final_broker_audit153–195 clears its event/snapshot before
+query, waits10s and requires the end event; native openOrderEnd1714–1716 sets that
+event. Finally always attempts owned disconnect and records independent mutation
+counters. Terminal blockers are exactly "Incomplete final callback: broker_audit"
+and "Unconfirmed FINAL_BROKER_QUERY". Fake-client controls against the ACTUAL
+final_broker_audit show connected/no-end produces incomplete with no order count;
+end-confirmed empty produces completed/count0, with disconnect in both cases.
+No source defect is established in that fail-closed audit boundary. Missing
+callback origin/send/server/decoder details remain absent; no timeout extension,
+SDK/upstream attribution, market-data retry or broker inquiry is justified here.
+
+### Position truth: unavailable interface before connection, not zero holdings
+
+Log497–503 records one position-truth cycle: positions_unavailable,
+broker0/system0/matched0/mismatches0/critical1, healthy=false/block_new_entries=true.
+This exact message is collect_broker_position_snapshot(position_truth.py139–145)
+when the argument lacks a callable position_snapshot. Core calls
+_resolve_position_truth_cycle at3165 BEFORE ensure_connected3196; it requests
+ConnectionManager.get_ibkr_client(ensure_connected=False) at3035. That manager's
+get_ibkr_client89–94 returnsNone before its owned adapter is initialized. Log511's
+native connection follows the unavailable verdict. A new offline control against
+these actual owners reproducesNone → unavailable collection → UNKNOWN/critical1 /
+entry veto, with both dictionary counts0. This is not a captured position timeout
+or a proved missing positionMultiEnd; no truth-query interface was invoked there.
+The single incomplete first scanner cycle never reaches a later position cycle.
+
+When a native position_snapshot IS invoked, lines536–585 require one account,
+connection epoch/transport and request-scoped reqPositionsMulti end, mark timeout/
+failed/disconnected distinctly, retire query ownership before cancelPositionsMulti
+in finally, and reject stale/unscoped/ambiguous results. A zero-time fake timeout
+control retains TIMEOUT (never COMPLETE-empty) and confirms owned cancellation/
+query retirement. There is no legacy reqPositions subscription cancellation here.
+Its fail-closed handling remains correct. Startup internal count0 and the final
+missing order end do not prove the earlier five unmatched broker holdings vanished.
+Do not adopt/liquidate/cancel/suppress them or bypass the global entry veto.
+
+### Narrow controls, justified proposal and ONE next action
+
+NEW scratch-only control `/workspace/work/test_ross_28_receipt_controls.py`:
+12passed in1.69s, hard Python/native-curl offline guard, all EClient connection and
+place/cancel/global-cancel mutations forbidden, fake SDK history sends only.
+Controls cover5 history outcomes, late callback, cooperative cancellation, actual
+MarketDataClient/provider/reference-resolver seven-call chain (7 sends/4 identities),
+absent-manager position truth, scoped position timeout and actual final-audit
+end/no-end. No production module was added or changed, no completed suite rerun,
+no live harness/operator invocation or new acquisition. Source identity verification
+report: `/workspace/work/ross-20261028-source-identity.json`; control log:
+`/workspace/work/ross-20261028-controls.log`. The archive does not include raw
+historical frames, per-request elapsed/end/cancel receipts or a fresh end-confirmed
+holdings snapshot. These are explicit limits, not reasons to infer one shared cause.
+
+**ONE next action: implement/review a narrow historical outcome-and-ownership
+contract in the EXISTING native/market-data owners, with bounded offline regression.**
+This is a repair PROPOSAL, not implemented here. Require actual end-confirmed
+completion before populated/empty history is eligible; preserve original bars and
+dates, existing5s waits and deadlines, stop propagation, request-ID ambiguity and
+privacy limits. Distinguish completed-empty, timeout, error and cancellation;
+retire owned state and stop accepting late callbacks on every exit; cancel only
+owned historical work where applicable (never orders). Carry unavailable/completion
+provenance through existing callers so timeout/error cannot masquerade as confirmed
+absence and restart layered fallbacks. Review same-pass exact-request suppression
+against the demonstrated duplicates; any failure-reuse/fallback-policy change must
+be explicit and bounded, not persistent negative caching, cross-duration
+substitution or renewed retries/budgets. Preserve healthy end-confirmed behavior
+and all strict quote/RVOL/catalyst/ownership gates. No general architecture/module
+migration, SDK change, timeout extension or speculative audit/position repair.
+
+Completion criterion for that proposed next task: deterministic complete-empty/
+complete-bars/partial/no-end/error/cancel/late-callback controls with retired owned
+state, truthful unavailable outcomes and no repeated identical request in the
+same intended bounded enrichment attempt, while20D/25D and valid later attempts
+remain distinguishable; independent review/appropriate changed-head CI before any
+future acquisition decision. Missing historical and final-order delivery causes
+remain unresolved. Do not run an unchanged observation hoping for callbacks or
+catalysts, and do not infer a shared cause from three unavailable observations.
+Natural supported-catalyst-to-intent progression remains UNPROVEN; PAPER/LIVE
+canonical risk integration is uncertified; listing provenance remains PARKED and
+fail closed. Five-position protections, GUI draft and all receipts remain.
 `PAPER_READY=NO`; `PAPER_READINESS_GATE=FAIL`.
