@@ -544,13 +544,16 @@ def test_late_conflict_after_attempt_revalidates_actual_scanner_projection(chain
     assert not scope and scope.closed
     context={'symbol':'SYNTH','last_price':11.,'session':'RTH_MID','pct_change':20.,
         '_enrichment_reference_snapshot':snapshot,'reference_source':snapshot['reference_source'],
-        'avg_volume_20d':100,'rvol':20.,'relative_volume':20.,'prev_close':snapshot['prev_close']}
+        'avg_volume_20d':100,'scanner_rvol':20.,'time_normalized_rvol':20.,
+        'rvol':20.,'relative_volume':20.,'prev_close':snapshot['prev_close']}
     if late_outcome=='conflict':
         for req in tuple(x.owner.sent):c.openOrder(req,contract(),Order(),OrderState())
     else:c.connectionClosed()
     before=list(x.owner.sent)
     ross._populate_pct_change(context,x.provider)
     assert context['avg_volume_20d'] is None and context['rvol'] is None and context['relative_volume'] is None
+    assert ross._resolve_rvol_for_focus_gate(context)[1] is None
+    assert context['time_normalized_rvol'] is None
     assert context['historical_outcome']==('REQUEST_ID_CONFLICT' if late_outcome=='conflict' else 'DISCONNECTED')
     stored=x.resolver.cache.get(x.identity.key,trading_date=None)
     if quote_close is None:assert stored is None

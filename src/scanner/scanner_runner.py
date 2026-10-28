@@ -1773,11 +1773,13 @@ def _populate_pct_change(
         # quarantine IDs whose history had already ended. Never reacquire here.
         failure = guard.unavailable_reason()
         for key in ("avg_volume_20d", "average_daily_volume_window_days", "rvol",
-                    "relative_volume", "rvol_discovery", "rvol_phase", "persisted_rvol"):
+                    "relative_volume", "rvol_discovery", "rvol_phase", "persisted_rvol",
+                    "scanner_rvol", "time_normalized_rvol", "rvol_baseline",
+                    "expected_phase_volume", "phase_volume_ratio"):
             context[key] = None
         context.update(historical_outcome=failure, historical_end_received=False,
                        adv20_outcome=failure, adv20_resolved=False,
-                       adv20_source="UNAVAILABLE", rvol_failure_reason=failure)
+                       adv20_source="UNAVAILABLE", rvol_status="UNKNOWN", rvol_failure_reason=failure)
         if context.get("reference_source") not in {"IBKR_PREV_CLOSE", "QUOTE_CLOSE_FALLBACK",
                 "SCANNER_PCT_SYNTHETIC_FALLBACK", "SNAPSHOT_LAST_PRICE_FALLBACK"}:
             for key in ("prev_close", "ref_close_rth", "reference_price", "pct_change", "pct_change_resolved"):

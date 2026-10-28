@@ -6053,3 +6053,20 @@ checks, timeout increase or unchanged-head retry was used. Superseding exact-hea
 review and Linux/Windows CI are linked on draft PR1140; historical failures remain
 there and above. PR1140 is unmerged. The single next action and readiness/ownership
 limits stated above remain unchanged.
+
+A final actual-gate check found one omitted alias in post-attempt invalidation:
+`_resolve_rvol_for_focus_gate` prioritizes `scanner_rvol`. Keeping that derived
+value could bypass the intended unavailable-history RVOL rejection even after
+other RVOL fields were cleared. The strengthened four post-attempt controls
+first failed against40526533, then passed after clearing `scanner_rvol`, normalized
+RVOL, baseline and expected-volume aliases and setting RVOL status UNKNOWN.
+The controls now assert the ACTUAL Focus RVOL selector returns no value; quote-only
+references still survive. Focus/selection rules themselves are unchanged.
+Affected guarded set118passed3.71s; before/after logs remain in
+`/workspace/work/history-rvol-selector-{before,after}.log`.
+Run40757036669 at40526533 passed Linux and Windows (including cache and PowerShell
+steps), but is superseded by this demonstrated selector fix and is NOT the final
+head certification. Independent review5688727612 likewise belongs to40526533.
+Final replacement-head review/CI receipts remain linked on the same draft PR1140.
+No unchanged-head retry or acquisition was performed; all remaining gates and the
+single controlled-integration-review next action remain unchanged.
