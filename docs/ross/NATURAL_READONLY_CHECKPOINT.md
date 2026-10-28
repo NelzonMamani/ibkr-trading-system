@@ -6070,3 +6070,26 @@ head certification. Independent review5688727612 likewise belongs to40526533.
 Final replacement-head review/CI receipts remain linked on the same draft PR1140.
 No unchanged-head retry or acquisition was performed; all remaining gates and the
 single controlled-integration-review next action remain unchanged.
+
+CI follow-up at97346e7e: run40759347776 Linux1failed/3508passed/3skipped,
+at the existing shared-feed concurrency fixture (empty headline result). Inspection
+found that fixture generated its publication string before acquisition but its
+`published_parsed` from a later wall clock after sleeping. A second-boundary
+crossing can therefore make the parsed publication newer than the fetcher's
+recorded evaluation clock. This fixture inconsistency is demonstrated offline;
+the original CI output lacks per-entry exclusion timing, so its precise exclusion
+is not claimed as independently captured. Production strict future rejection is
+unchanged and correct for those synthetic inputs. There is no RSS production
+repair or freshness relaxation in this follow-up.
+
+The fixture now records one coherent original publication and a fixed evaluation
+clock while retaining real monotonic request budgets and concurrent shared-pool
+work. A second case deliberately places parsed publication one millisecond into
+the future and requires rejection; both cases retain one actual fake fetch,
+per-issuer attribution, response reuse and owned cleanup assertions. Guarded
+news/history set98passed4.77s. This establishes a real fixture repair, not an
+unchanged-head retry hoping for success. The failed run remains on PR1140;
+97346e7e independent review5688914062 is carried forward for source-identical
+production code. Final test-delta review and changed-head Linux/Windows receipts
+are linked on the same draft PR. All acquisition, readiness and ownership gates
+and the single next action remain unchanged.

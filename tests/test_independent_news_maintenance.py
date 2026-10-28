@@ -286,16 +286,23 @@ def test_universe_rotation_retires_obsolete_pending_work_but_preserves_active(st
     assert owner.snapshot()['retired']==1
 
 
-def test_real_fetcher_reuses_shared_feed_and_keeps_per_issuer_attribution(monkeypatch):
+@pytest.mark.parametrize("parsed_offset", [0, 1], ids=["coherent_publication", "future_parsed_publication"])
+def test_real_fetcher_reuses_shared_feed_and_keeps_per_issuer_attribution(monkeypatch, parsed_offset):
     from types import SimpleNamespace
     from src.news import news_fetcher
     from src.news.rss_lifecycle import RssFetchLifecycle
     from src.strategies.ross_momentum.policy.catalyst_policy import select_qualification_evidence
     pool=SharedFeedPool();calls=[]
-    published=datetime.now(timezone.utc).strftime('%a, %d %b %Y %H:%M:%S GMT')
+    # One recorded original publication, never a new publication synthesized at
+    # response time. Reproduce the old second-boundary mismatch explicitly.
+    original=datetime.now(timezone.utc).replace(microsecond=0)-timedelta(seconds=1)
+    published=original.strftime('%a, %d %b %Y %H:%M:%S GMT')
+    parsed=(original+timedelta(seconds=parsed_offset)).utctimetuple()
+    monkeypatch.setattr(news_fetcher,'time',SimpleNamespace(
+        time=lambda:original.timestamp()+.999,monotonic=time.monotonic))
     def fetch(url,timeout):
         calls.append(url);time.sleep(.03)
-        return SimpleNamespace(version='rss20', bozo=False, entries=[{'title':f'{symbol} reports earnings beat','published':published,'published_parsed':time.gmtime(),
+        return SimpleNamespace(version='rss20', bozo=False, entries=[{'title':f'{symbol} reports earnings beat','published':published,'published_parsed':parsed,
               'link':f'https://fixture.invalid/{symbol}'} for symbol in ('JPM','EGG')])
     monkeypatch.setattr(news_fetcher,'_fetch_feed',fetch)
     request=NewsRequest(freshness_seconds=21600,metadata={'presentation_limit':5})
@@ -308,7 +315,10 @@ def test_real_fetcher_reuses_shared_feed_and_keeps_per_issuer_attribution(monkey
         with ThreadPoolExecutor(max_workers=2) as workers:results=list(workers.map(acquire,range(2)))
         assert len(calls)==1
         for symbol,(headlines,summary) in zip(('JPM','EGG'),results):
-            assert len(headlines[symbol])==1 and headlines[symbol][0].title==f'{symbol} reports earnings beat'
+            if parsed_offset:
+                assert headlines[symbol]==[]  # Strict future rejection remains mandatory.
+            else:
+                assert len(headlines[symbol])==1 and headlines[symbol][0].title==f'{symbol} reports earnings beat'
         diag=[summary.source_diagnostics[0]['entry_diagnostics'] for _,summary in results]
         assert sorted(row['transport_cache_hit'] for row in diag)==[False,True]
         assert sorted(row['http_request_attempted'] for row in diag)==[False,True]
