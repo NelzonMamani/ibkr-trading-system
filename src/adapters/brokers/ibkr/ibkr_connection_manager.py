@@ -7,6 +7,7 @@ from threading import Lock
 from typing import Optional
 
 from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
+from src.core.acquisition import AcquisitionCancelled, AcquisitionDeadlineExceeded, checkpoint
 from src.config.runtime_config import (
     RuntimeConfigError,
     get_execution_enabled,
@@ -105,10 +106,17 @@ class IbkrConnectionManager:
                 readonly_enabled=config.readonly_enabled,
             )
             try:
+                checkpoint()
                 client.connect()
+                checkpoint()
+            except (AcquisitionCancelled, AcquisitionDeadlineExceeded) as exc:
+                self._last_error = type(exc).__name__
+                self._retire_unpublished_client(client)
+                raise
             except Exception as exc:
-                self._last_error = str(exc)
-                if self._is_client_id_conflict(exc):
+                retired = self._retire_unpublished_client(client)
+                self._last_error = str(exc) if retired else "CONNECT_CLEANUP_FAILED"
+                if retired and self._is_client_id_conflict(exc):
                     print(
                         "[IBKR][MANAGER] connect_retry "
                         f"client_id={client_id} reason={exc}"
@@ -123,6 +131,8 @@ class IbkrConnectionManager:
                 ) from exc
 
             if not client.is_connected():
+                if not self._retire_unpublished_client(client):
+                    raise RuntimeError("IBKR CONNECTION CLEANUP FAILED — SYSTEM NOT SAFE TO RUN")
                 self._last_error = "connect() returned without active connection"
                 print(
                     "[IBKR][MANAGER] connect_retry "
@@ -137,7 +147,20 @@ class IbkrConnectionManager:
                 "[IBKR][MANAGER] connected "
                 f"client_id={client_id} generation={self._connection_generation}"
             )
-            account_id = self._resolve_account_id(client)
+            try:
+                checkpoint()
+                account_id = self._resolve_account_id(client)
+                checkpoint()
+            except (AcquisitionCancelled, AcquisitionDeadlineExceeded):
+                # Initialization has not returned to any facade yet. Remove only
+                # this attempt's publication before retiring its native resources.
+                if self._client is client:
+                    self._client = None
+                    self._connected_client_id = None
+                if getattr(self._market_data_client, "ib", None) is client:
+                    self._market_data_client.ib = None
+                self._retire_unpublished_client(client)
+                raise
             from src.ibkr.evidence_safety import register_account
             register_account(account_id)
             print(
@@ -151,6 +174,17 @@ class IbkrConnectionManager:
             f"(host={config.host} port={config.port} "
             f"base_client_id={config.base_client_id} last_error={self._last_error})"
         )
+
+    def _retire_unpublished_client(self, client: IbkrClient) -> bool:
+        # This attempt has not published the local client. Its existing native
+        # disconnect owns reader/query cleanup even if connect raised control flow.
+        try:
+            client.disconnect()
+            return True
+        except Exception as exc:
+            self._last_error = "CONNECT_CLEANUP_FAILED"
+            print(f"[IBKR][MANAGER] failed_connect_cleanup error_type={type(exc).__name__}")
+            return False  # No further retry/publication in this call over unknown cleanup.
 
     def disconnect(self, reason: str = "manual") -> None:
         with self._lock:
@@ -255,6 +289,8 @@ class IbkrConnectionManager:
     def _resolve_account_id(client: IbkrClient) -> str:
         try:
             account_id = client.get_primary_account()
+        except (AcquisitionCancelled, AcquisitionDeadlineExceeded):
+            raise
         except Exception:
             account_id = None
         return account_id or "UNKNOWN"

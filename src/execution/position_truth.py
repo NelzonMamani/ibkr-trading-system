@@ -6,6 +6,7 @@ from typing import Any
 import math
 
 from src.ibkr.position_snapshot import BrokerPositionResult
+from src.core.acquisition import AcquisitionCancelled, AcquisitionDeadlineExceeded
 from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
 
 from src.config.runtime_config import RunMode
@@ -171,6 +172,8 @@ def collect_broker_position_snapshot(ibkr_client: Any, *, as_of: datetime,
                 market_value=_optional_float(_read_value(row, "marketValue")),
                 source="ibkr.positions", as_of=result.completed_at,
                 con_id=_read_value(row, "con_id", _read_value(_read_value(row, "contract"), "conId")))
+    except (AcquisitionCancelled, AcquisitionDeadlineExceeded):
+        raise
     except Exception:
         collection.status = "FAILED"
     return collection

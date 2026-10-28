@@ -6093,3 +6093,75 @@ unchanged-head retry hoping for success. The failed run remains on PR1140;
 production code. Final test-delta review and changed-head Linux/Windows receipts
 are linked on the same draft PR. All acquisition, readiness and ownership gates
 and the single next action remain unchanged.
+
+## 28 October 2026 — PR1140 accepted; position-truth initialization repair
+
+PR1140 is now merged, superseding the earlier draft-status notes without removing
+any failed receipt: final head `6d490b15a424ad69adbe44f49594b1704cdd4a15`,
+merge/main `3a0bbbd1a0ab92dfeddbdc55e04e4f8f20dc889d`, tree
+`49c117ce2c67a977c6f9b3d2572aeb41ca1c89b6`, merged 2026-10-28T20:24:48Z.
+Independent review5689025196 and successful CI40760689475 belong to that final
+head. Linux3510passed/3skipped; Windows3512passed/1skipped, including cache,
+float/news and PowerShell checks. Historical failed runs and saved investigation
+branches remain preserved. This repair starts from that exact accepted tree.
+
+Source diagnosis: active Core evaluated position truth before its existing
+connection initialization. The passive Core getter therefore returned no native
+client on the first cycle. The MarketDataClient facade has no position-snapshot
+interface and is not a substitute authority. The existing native
+`IbkrClient.position_snapshot` owns account-scoped position requests, completion,
+errors and cleanup; its typed `BrokerPositionResult` is consumed by the existing
+collector and reconciliation owner. Connection alone is insufficient. Only a
+fresh, account-scoped COMPLETE result permits reconciliation as complete, including
+confirmed empty. Missing interface, list-only adapters, partial/no-end, timeout,
+error and disconnect remain UNKNOWN/unavailable; broker0/system0 under UNKNOWN
+never establishes flat holdings.
+
+The bounded repair moves existing initialization before position truth/recovery,
+without a second session or snapshot implementation. Failed initialization feeds
+unavailable truth and suppresses stale-client/relationship queries. LIVE halts
+after unavailable-truth recovery before management; SIM remains connection-free.
+Native position waiting now uses the existing stop/deadline-aware wait helper
+within its unchanged five-second deadline. Owned request state retires on every
+exit; only owned, sent, unambiguous requests in the same connected epoch are
+cancelled. Collector cancellation/deadline control flow propagates unchanged.
+The existing shared connection owner also retires unpublished clients after
+failed/cancelled initialization, preserves original control exceptions and
+checks stop/deadline after handshake and account resolution. Interrupted account
+initialization removes only its own publication. Successful reuse and configured
+client-ID-conflict retry bounds remain intact; failed cleanup prevents further
+retry/publication in that call. No claim is made that cleanup failure is success.
+
+Deterministic failing-before controls established ordering, swallowed collector
+deadline, LIVE failure early-return, unpublished-client cleanup and post-handshake/
+account-resolution control-boundary defects. Guarded affected regressions passed
+206 tests (including PR1140 history, position authority and actual READ_ONLY risk
+handoff). After the additional shared-initialization controls/repair, the focused
+new/connection-owner set passed49 tests:39 new controls plus10 existing controls.
+These overlapping local results are not additive, CI or natural proof. Controls
+forbid real network/broker connections, order mutations and execution submission.
+They exercise actual Core/facade/shared/native/collector/reconciliation owners
+with synthetic callback data, complete empty/nonempty results, all unavailable
+outcomes, stop/cleanup, five unmatched positions and SIM/READ_ONLY/PAPER/LIVE
+boundaries. The five-position fixture retains five critical mismatches and the
+global entry veto; no ownership adoption or suppression occurs. Existing downstream
+fixture adaptation changes only its private truth-stub signature.
+
+Independent exact-head review and changed-head Linux/Windows CI receipts are to
+be recorded on the accompanying draft PR, linked to its immutable head. No local
+full-suite repetition is required for status alone. DEPRECATION_LEDGER was read
+and remains unchanged: no module or ownership retirement occurred. No applicable
+AGENTS.md was present in this checkout or its workspace ancestors.
+
+Remaining gates: actual position/history callback delivery remains unproven;
+this offline repair does not explain the historical missing callbacks. The final
+order audit's missing openOrderEnd cause is unresolved and its fail-closed audit
+is unchanged. Natural supported-catalyst→Focus→fresh pattern→raw intent remains
+unproven. Five unmatched holdings remain untouched and globally veto new-entry
+admission after formation, before canonical artifact/risk admission. PAPER/LIVE
+canonical risk integration is not certified. Listing provenance remains PARKED
+and fail closed; GUI draft and all historical receipts are preserved.
+
+ONE next action: review the exact draft integration head after independent review
+and changed-head Linux/Windows CI complete; no runtime attempt is authorized here.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.

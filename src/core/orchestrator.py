@@ -112,7 +112,7 @@ from src.strategy_policy_v2.consumption import (
 from src.strategy_policy_v2.flags import is_policy_v2_enabled_for_strategy
 from src.strategy_policy_v2.policy_v2 import StrategyPolicyV2
 from src.strategy_policy_v2.registry import resolve_policy_v2
-from src.core.acquisition import AcquisitionCancelled, acquisition_scope
+from src.core.acquisition import AcquisitionCancelled, AcquisitionDeadlineExceeded, acquisition_scope, checkpoint
 from src.scanner.scanner_runner import run_scanner_cycle, reassess_ross_watchlist
 from src.scanner.providers.base import ProviderConnectionError
 from src.scanner.providers.mock_provider import MockScannerProvider
@@ -3005,6 +3005,7 @@ class CoreOrchestrator:
         self,
         *,
         as_of: datetime,
+        broker_connection_ready: bool = True,
     ) -> PositionTruthVerdict:
         print("[POSITION][TRUTH][START]")
         if self.run_mode == RunMode.SIM:
@@ -3031,13 +3032,14 @@ class CoreOrchestrator:
             self._latest_position_truth_verdict = healthy_position_truth_verdict()
             return self._latest_position_truth_verdict
 
+        checkpoint()
         broker_required = self.run_mode in {RunMode.PAPER, RunMode.LIVE, RunMode.READ_ONLY}
         relationship_manager = getattr(self, "trade_management_engine", None)
-        if relationship_manager is not None and relationship_manager._relationship_plans:
+        if broker_connection_ready and relationship_manager is not None and relationship_manager._relationship_plans:
             self.execution_engine.refresh_relationship_order_snapshot()
             as_of = max(as_of, datetime.now(timezone.utc))
         broker_positions = collect_broker_position_snapshot(
-            self.connection_manager.get_ibkr_client(ensure_connected=False),
+            self.connection_manager.get_ibkr_client(ensure_connected=False) if broker_connection_ready else None,
             as_of=as_of,
             config=PositionTruthConfig(
                 broker_required=broker_required,
@@ -3167,25 +3169,9 @@ class CoreOrchestrator:
         self.runtime_mode_manager = RuntimeModeManager.resolve()
         mode_manager = self.runtime_mode_manager
         print(f"[RUNTIME] {mode_manager.describe()}")
-        position_truth_verdict = self._resolve_position_truth_cycle(as_of=cycle_started_at)
-        fill_verdict = self._resolve_fill_authority_cycle()
-        self._resolve_lifecycle_authority_cycle()
-        recovery_plan = build_recovery_plan(
-            self._latest_position_truth_snapshot or empty_position_truth_snapshot(as_of=cycle_started_at),
-            position_truth_verdict,
-            fill_verdict,
-        )
-        apply_recovery_actions(recovery_plan, self)
-        if not self._startup_recovery_allows_strategy_execution():
-            return False
-        self._run_position_management_tick(cycle_started_at)
-        if not self._autonomous_recovery_allows_new_entries(cycle_started_at=cycle_started_at):
-            return True
-        if not self._daily_risk_allows_new_entries(cycle_started_at=cycle_started_at):
-            return True
-        active_strategy_keys = self._enabled_strategy_keys()
-        strategy_key = self.primary_strategy_key
-
+        # Initialize the existing session owner before position truth/recovery.
+        # Connectivity permits a query, never certifies its completion.
+        connectivity_failed = False
         force_mock_provider = self.run_mode == RunMode.SIM
         if force_mock_provider:
             print(
@@ -3198,17 +3184,45 @@ class CoreOrchestrator:
             elif self.run_mode == RunMode.LIVE:
                 print("[CONNECTIVITY][LIVE] broker-connected production path enabled")
             try:
+                checkpoint()
                 self.connection_manager.ensure_connected()
+                checkpoint()
+            except (AcquisitionCancelled, AcquisitionDeadlineExceeded):
+                raise
             except Exception as exc:
+                connectivity_failed = True
                 print("STATE=DEGRADED")
                 print(f"[CONNECTIVITY] IBKR connection failed: {exc}")
                 self._trace_halt(reason_code="CONNECTIVITY_FAILURE", message=str(exc), stage="CONNECTIVITY")
                 if self.run_mode == RunMode.LIVE:
                     print("[CRITICAL] IBKR connection lost in LIVE mode")
                     print("[CRITICAL] trading halted")
-                    return False
-                fallback_enabled = bool(get_config("IBKR_FALLBACK_ENABLED"))
-                force_mock_provider = fallback_enabled or str(get_config("SCANNER_DATA_SOURCE") or "").upper() == "MOCK"
+                else:
+                    fallback_enabled = bool(get_config("IBKR_FALLBACK_ENABLED"))
+                    force_mock_provider = fallback_enabled or str(get_config("SCANNER_DATA_SOURCE") or "").upper() == "MOCK"
+
+        position_truth_verdict = self._resolve_position_truth_cycle(
+            as_of=cycle_started_at, broker_connection_ready=not connectivity_failed)
+        fill_verdict = self._resolve_fill_authority_cycle()
+        self._resolve_lifecycle_authority_cycle()
+        recovery_plan = build_recovery_plan(
+            self._latest_position_truth_snapshot or empty_position_truth_snapshot(as_of=cycle_started_at),
+            position_truth_verdict,
+            fill_verdict,
+        )
+        apply_recovery_actions(recovery_plan, self)
+        if connectivity_failed and self.run_mode == RunMode.LIVE:
+            return False
+
+        if not self._startup_recovery_allows_strategy_execution():
+            return False
+        self._run_position_management_tick(cycle_started_at)
+        if not self._autonomous_recovery_allows_new_entries(cycle_started_at=cycle_started_at):
+            return True
+        if not self._daily_risk_allows_new_entries(cycle_started_at=cycle_started_at):
+            return True
+        active_strategy_keys = self._enabled_strategy_keys()
+        strategy_key = self.primary_strategy_key
 
         if self.market_data_snapshot_manager is None:
             self.market_data_snapshot_manager = MarketDataSnapshotManager(self.connection_manager.optional_client)

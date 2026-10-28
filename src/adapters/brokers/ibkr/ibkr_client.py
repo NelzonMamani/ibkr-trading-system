@@ -545,6 +545,7 @@ class IbkrClient(EWrapper, EClient):
         # The legacy reqPositions stream has no correlation token. Never cancel or
         # reassign its subscription here. reqPositionsMulti has request-scoped end
         # markers and cancellation, on the SAME canonical socket/account authority.
+        checkpoint()
         with self._lock:
             accounts = tuple(self._managed_accounts)
             if not self.is_connected() or self._stop_event.is_set() or not self._position_transport_available:
@@ -562,10 +563,18 @@ class IbkrClient(EWrapper, EClient):
                     or self._stop_event.is_set() or not self._position_transport_available):
                 return BrokerPositionResult(status="DISCONNECTED")
             self._position_queries[req_id] = context
+        sent = False
         try:
             self._register_request(req_id, "POSITIONS_MULTI")
+            checkpoint()
+            with self._lock:
+                if (epoch != self._position_connection_epoch or not self.is_connected()
+                        or self._stop_event.is_set() or not self._position_transport_available):
+                    return BrokerPositionResult(status="DISCONNECTED", account=accounts[0])
+                self._raise_if_request_id_conflicted(req_id)
+                sent = True
             self.reqPositionsMulti(req_id, accounts[0], "")
-            context["event"].wait(timeout=max(0, timeout))
+            wait_event(context["event"], max(0, context["deadline"] - time.monotonic()))
             with self._lock:
                 if epoch != self._position_connection_epoch or not self.is_connected():
                     context["status"] = "DISCONNECTED"
@@ -580,18 +589,25 @@ class IbkrClient(EWrapper, EClient):
                         context["status"] = "STALE"
                 return BrokerPositionResult(tuple(context["rows"].values()), context["status"],
                                             context["account"], context["completed_at"])
+        except (AcquisitionCancelled, AcquisitionDeadlineExceeded):
+            raise
         except Exception:
             return BrokerPositionResult(status="FAILED", account=accounts[0])
         finally:
             # Retire before cancellation: even synchronous/late callbacks cannot
             # mutate returned evidence or complete another query.
             with self._lock:
-                self._position_queries.pop(req_id, None)
-                self._request_type_by_req_id.pop(req_id, None)
-            try:
-                self.cancelPositionsMulti(req_id)
-            except Exception:
-                pass
+                owned = self._position_queries.get(req_id) is context
+                if owned:
+                    self._position_queries.pop(req_id, None)
+                    self._request_type_by_req_id.pop(req_id, None)
+                can_cancel = (owned and sent and epoch == self._position_connection_epoch
+                              and self.is_connected() and not self._request_id_conflicted(req_id))
+            if can_cancel:
+                try:
+                    self.cancelPositionsMulti(req_id)
+                except Exception:
+                    pass
 
     def positions(self, timeout_seconds: Optional[int] = None) -> list[object]:
         result = self.position_snapshot(timeout_seconds)
