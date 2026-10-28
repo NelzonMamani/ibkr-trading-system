@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from src.domain.quote_freshness import quote_time_rejection
 
-from src.core.acquisition import checkpoint, cycle_cache, contract_key, cooperative_await, bounded_timeout
+from src.core.acquisition import AcquisitionCancelled, AcquisitionDeadlineExceeded, checkpoint, cycle_cache, contract_key, cooperative_await, bounded_timeout, history_attempt_cache, historical_enrichment_attempt, history_enrichment, HISTORY_ATTEMPT_MAX_REQUESTS
 
 import asyncio
 import copy
-from contextlib import nullcontext
-from dataclasses import dataclass, field
+from contextlib import nullcontext, contextmanager
+from dataclasses import dataclass, field, replace
+from collections.abc import Sequence
 from datetime import datetime, timezone
 import math
 import json
@@ -34,6 +35,71 @@ from src.config.runtime_config import (
 
 if TYPE_CHECKING:
     from src.adapters.brokers.ibkr.ibkr_connection_manager import IbkrConnectionManager
+
+
+@dataclass(frozen=True)
+class HistoricalDataResult(Sequence):
+    """End-confirmed history facts. Incomplete partial bars are never exposed.
+
+    Sequence compatibility preserves bar consumers, not completion authority:
+    adapters must retain this object (or explicitly project its outcome).
+    """
+    status: str
+    bars: tuple = ()
+    end_received: bool = False
+    request_id: int | None = None
+    error_code: int | None = None
+    partial_count: int = 0
+    fallback_attempted: bool = False
+    reused: bool = False
+
+    def __post_init__(self):
+        if self.status in {"COMPLETE_BARS", "COMPLETE_EMPTY"} and not self.end_received:
+            object.__setattr__(self, "status", "UNVERIFIED")
+        if self.status == "COMPLETE_EMPTY" and self.bars:
+            object.__setattr__(self, "status", "UNVERIFIED")
+        if not self.completed:
+            object.__setattr__(self, "bars", ())
+        else:
+            object.__setattr__(self, "bars", tuple(self.bars))
+
+    @property
+    def completed(self):
+        return self.end_received and self.status in {"COMPLETE_BARS", "COMPLETE_EMPTY"}
+
+    def __len__(self):
+        return len(self.bars)
+
+    def __getitem__(self, index):
+        return self.bars[index]
+
+
+@dataclass(frozen=True)
+class HistoricalVolumeResult(Sequence):
+    average: int | None
+    window: int | None
+    history: HistoricalDataResult
+
+    def __post_init__(self):
+        if not isinstance(self.history, HistoricalDataResult):
+            object.__setattr__(self, "history", HistoricalDataResult("UNVERIFIED"))
+        if not self.history.completed or not self.history:
+            object.__setattr__(self, "average", None)
+            object.__setattr__(self, "window", None)
+
+    def __len__(self):
+        return 2
+
+    def __getitem__(self, index):
+        return (self.average, self.window)[index]
+
+
+def historical_result(value):
+    # A plain list has no end witness, including an empty list. Never manufacture
+    # completion from truthiness, SDK return, publisher flags or a cached value.
+    if isinstance(value, HistoricalDataResult):
+        return value
+    return HistoricalDataResult("UNVERIFIED")
 
 
 def _market_data_type_code(market_data_type: str) -> int:
@@ -793,77 +859,154 @@ class MarketDataClient:
             return None
         return qualified[0]
 
+    @history_enrichment
     def _request_daily_history_with_fallback(self, contract, *, lookback_days: int, use_rth: bool = True, end_datetime: str = ""):
-        checkpoint()
-        cache = cycle_cache()
-        key = ("daily", id(self), contract_key(contract), lookback_days, use_rth, end_datetime)
-        if cache is not None and key in cache:
-            return list(cache[key])
-        bars = self._daily_history_uncached(contract, lookback_days=lookback_days, use_rth=use_rth, end_datetime=end_datetime)
-        checkpoint()
-        if cache is not None and bars:
-            cache[key] = list(bars)
-        return bars
+        return historical_result(self._daily_history_uncached(contract,
+            lookback_days=lookback_days, use_rth=use_rth, end_datetime=end_datetime))
 
-    def _daily_history_uncached(self, contract, *, lookback_days: int, use_rth: bool = True, end_datetime: str = ""):
-        attempts = [
-            {
-                "label": "primary",
-                "useRTH": use_rth,
-                "endDateTime": end_datetime,
-                "durationStr": f"{max(lookback_days, 3)} D",
-            }
-        ]
-        explicit_end = end_datetime or f"{datetime.now().strftime('%Y%m%d')} 09:29:59 US/Eastern"
-        if use_rth:
-            attempts.append(
-                {
-                    "label": "fallback_useRTH_false",
-                    "useRTH": False,
-                    "endDateTime": explicit_end,
-                    "durationStr": f"{max(lookback_days, 3)} D",
-                }
-            )
-        for attempt in attempts:
-            print(
-                "[IBKR][HIST_ATTEMPT] "
-                f"symbol={getattr(contract, 'symbol', None)} conId={getattr(contract, 'conId', None)} "
-                f"secType={getattr(contract, 'secType', None)} exchange={getattr(contract, 'exchange', None)} "
-                f"primaryExchange={getattr(contract, 'primaryExchange', None)} tradingClass={getattr(contract, 'tradingClass', None)} "
-                f"localSymbol={getattr(contract, 'localSymbol', None)} currency={getattr(contract, 'currency', None)} "
-                f"label={attempt['label']} useRTH={attempt['useRTH']} endDateTime='{attempt['endDateTime']}' durationStr={attempt['durationStr']} whatToShow=TRADES"
-            )
+    def history_ownership_guard(self, identity):
+        """Ephemeral, identity-scoped native request witness; never sends/caches data."""
+        cache = history_attempt_cache()
+        client = self.ib
+        conflict = getattr(client, "_request_id_conflicted", None)
+        if cache is None or not callable(conflict):
+            return None
+        con_id = getattr(identity, "con_id", None) or getattr(identity, "conId", None)
+        symbol = str(getattr(identity, "symbol", "")).upper()
+        with cache.lock:
+            ids = tuple(value.request_id for key, value in cache.items()
+                if key[0] == id(self) and key[1] == id(client)
+                and ((con_id and key[3][0] == con_id) or
+                     (not con_id and str(key[3][1]).upper() == symbol))
+                and value.request_id is not None)
+        if not ids:
+            return None
+        epoch = getattr(client, "_position_connection_epoch", None)
+        def unavailable_reason():
+            if (self.ib is not client or not client.isConnected()
+                    or epoch != getattr(client, "_position_connection_epoch", None)
+                    or client._stop_event.is_set()):
+                return "DISCONNECTED"
+            return "REQUEST_ID_CONFLICT" if any(conflict(req_id) for req_id in ids) else None
+        def valid():
+            return unavailable_reason() is None
+        valid.unavailable_reason = unavailable_reason
+        return valid
+
+    def _history_request(self, contract, **params):
+        checkpoint()
+        with historical_enrichment_attempt() as cache:
             try:
                 client = self._resolve_ib_client()
-                async_history = getattr(client, "reqHistoricalDataAsync", None)
-                request = (lambda *args, **kwargs: self._cancellable_insync_history(client, *args, **kwargs)) if callable(async_history) else client.reqHistoricalData
-                checkpoint()
-                bars = request(
-                    contract,
-                    endDateTime=attempt["endDateTime"],
-                    durationStr=attempt["durationStr"],
-                    barSizeSetting="1 day",
-                    whatToShow="TRADES",
-                    useRTH=attempt["useRTH"],
-                    formatDate=1,
-                )
-                if callable(async_history):
-                    bars = self._run_async(cooperative_await(bars))
-                checkpoint()
-                bars = bars or []
-            except Exception as exc:
-                print(
-                    "[IBKR][HIST_ATTEMPT_FAIL] "
-                    f"symbol={getattr(contract, 'symbol', None)} conId={getattr(contract, 'conId', None)} label={attempt['label']} error={exc}"
-                )
-                bars = []
-            print(
-                "[IBKR][HIST_ATTEMPT_RESULT] "
-                f"symbol={getattr(contract, 'symbol', None)} conId={getattr(contract, 'conId', None)} label={attempt['label']} raw_bar_count={len(bars)}"
-            )
-            if bars:
-                return bars
-        return []
+            except Exception:
+                return HistoricalDataResult("DISCONNECTED")
+            if callable(getattr(client, "isConnected", None)) and not client.isConnected():
+                return HistoricalDataResult("DISCONNECTED")
+            key = (id(self), id(client), getattr(client, "_position_connection_epoch", None),
+                   contract_key(contract), tuple(sorted(params.items())), False, ())
+            with cache.lock:
+                if cache.closed:
+                    return HistoricalDataResult("ATTEMPT_CLOSED")
+                if key in cache:
+                    value = cache[key]
+                    conflict = getattr(client, "_request_id_conflicted", None)
+                    if value.request_id is not None and callable(conflict) and conflict(value.request_id):
+                        value = HistoricalDataResult("REQUEST_ID_CONFLICT", request_id=value.request_id)
+                        cache[key] = value
+                    result = replace(value, reused=True)
+                    print(f"[IBKR][HIST_REUSE] outcome={result.status} req_id={result.request_id}")
+                    return result
+                if len(cache) >= HISTORY_ATTEMPT_MAX_REQUESTS:
+                    return HistoricalDataResult("ATTEMPT_CAPACITY")
+                # Reserve before dispatch: reentrant/concurrent consumers cannot
+                # create another send or renew the owner's deadline.
+                cache[key] = HistoricalDataResult("IN_PROGRESS")
+            try:
+                if callable(getattr(client, "reqHistoricalDataAsync", None)):
+                    result = self._run_async(cooperative_await(self._cancellable_insync_history(client, contract, **params)))
+                else:
+                    result = client.reqHistoricalData(contract, **params)
+                result = historical_result(result)
+            except (AcquisitionCancelled, AcquisitionDeadlineExceeded) as exc:
+                with cache.lock:
+                    if not cache.closed:
+                        cache[key] = HistoricalDataResult("CANCELLED" if isinstance(exc, AcquisitionCancelled) else "TIMEOUT")
+                raise
+            except Exception:
+                result = HistoricalDataResult("ERROR")
+            checkpoint()
+            with cache.lock:
+                if cache.closed:
+                    return HistoricalDataResult("ATTEMPT_CLOSED")
+                cache[key] = result
+            return result
+
+    def _daily_history_uncached(self, contract, *, lookback_days: int, use_rth: bool = True, end_datetime: str = ""):
+        result = self._history_request(contract, endDateTime=end_datetime,
+            durationStr=f"{max(lookback_days, 3)} D", barSizeSetting="1 day",
+            whatToShow="TRADES", useRTH=use_rth, formatDate=1)
+        # Deliberate retry-policy change: unavailable is not confirmed absence.
+        # Only an end-confirmed empty primary may request the existing fallback.
+        if result.status == "COMPLETE_EMPTY" and result.completed and use_rth:
+            explicit_end = end_datetime or f"{datetime.now().strftime('%Y%m%d')} 09:29:59 US/Eastern"
+            result = self._history_request(contract, endDateTime=explicit_end,
+                durationStr=f"{max(lookback_days, 3)} D", barSizeSetting="1 day",
+                whatToShow="TRADES", useRTH=False, formatDate=1)
+            result = replace(result, fallback_attempted=True)
+        print(f"[IBKR][HIST_ATTEMPT_RESULT] symbol={getattr(contract, 'symbol', None)} "
+              f"outcome={result.status} end_received={result.end_received} bars={len(result)}")
+        return result
+
+    @contextmanager
+    def _insync_history_completion(self, wrapper, req_id, state):
+        # ib_insync resolves request futures for BOTH end and error. Observe the
+        # actual per-request callbacks; a resolved list/future is not an end witness.
+        # All registration/restoration runs on its owning event loop without await.
+        tracker = getattr(wrapper, "_ross_history_completion", None)
+        if tracker is None:
+            original_end = getattr(wrapper, "historicalDataEnd", None)
+            original_error = getattr(wrapper, "error", None)
+            if not callable(original_end) or not callable(original_error):
+                yield False
+                return
+            tracker = {"owners": {}, "end": original_end, "error": original_error,
+                       "end_instance": "historicalDataEnd" in vars(wrapper),
+                       "error_instance": "error" in vars(wrapper)}
+            def ended(request_id, *args):
+                owner = tracker["owners"].get(request_id)
+                if owner is not None and owner["status"] == "PENDING" and time.monotonic() <= owner["deadline"]:
+                    owner.update(status="COMPLETE", end_received=True)
+                return original_end(request_id, *args)
+            def errored(request_id, error_code, *args, **kwargs):
+                owner = tracker["owners"].get(request_id)
+                if owner is not None and owner["status"] == "PENDING":
+                    owner.update(status="ERROR", error_code=error_code)
+                return original_error(request_id, error_code, *args, **kwargs)
+            tracker.update(end_hook=ended, error_hook=errored)
+            wrapper._ross_history_completion = tracker
+            wrapper.historicalDataEnd = ended
+            wrapper.error = errored
+        if req_id in tracker["owners"] or len(tracker["owners"]) >= 128:
+            yield False
+            return
+        tracker["owners"][req_id] = state
+        try:
+            yield True
+        finally:
+            if tracker["owners"].get(req_id) is state:
+                tracker["owners"].pop(req_id, None)
+            if not tracker["owners"]:
+                if wrapper.historicalDataEnd is tracker["end_hook"]:
+                    if tracker["end_instance"]:
+                        wrapper.historicalDataEnd = tracker["end"]
+                    else:
+                        del wrapper.historicalDataEnd
+                if wrapper.error is tracker["error_hook"]:
+                    if tracker["error_instance"]:
+                        wrapper.error = tracker["error"]
+                    else:
+                        del wrapper.error
+                del wrapper._ross_history_completion
 
     async def _cancellable_insync_history(self, ib, contract, **params):
         """Own one ib_insync history request so cancellation also stops its wire work.
@@ -878,23 +1021,68 @@ class MarketDataClient:
         bars.reqId, bars.contract = req_id, contract
         for key, value in {**params, "keepUpToDate": False, "chartOptions": []}.items():
             setattr(bars, key, value)
-        future = ib.wrapper.startReq(req_id, contract, container=bars)
-        try:
-            ib.client.reqHistoricalData(
-                req_id, contract, util.formatIBDatetime(params["endDateTime"]),
-                params["durationStr"], params["barSizeSetting"], params["whatToShow"],
-                params["useRTH"], params["formatDate"], False, [])
-            await asyncio.wait_for(future, 60)
-        except asyncio.TimeoutError:
-            ib.client.cancelHistoricalData(req_id)
-            bars.clear()
-        except (asyncio.CancelledError, AcquisitionCancelled):
-            ib.client.cancelHistoricalData(req_id)
-            raise
-        finally:
-            # startReq's future/container must not survive cancellation/timeout.
-            ib.wrapper._endReq(req_id)
-        return bars
+        state = {"status": "PENDING", "end_received": False, "error_code": None,
+                 "deadline": time.monotonic() + 60}
+        future = None
+        sent = False
+        epoch = getattr(ib.client, "_startTime", None)
+        if req_id in getattr(ib.wrapper, "_futures", {}):
+            return HistoricalDataResult("REQUEST_ID_CONFLICT", request_id=req_id)
+        with self._insync_history_completion(ib.wrapper, req_id, state) as observed:
+            if not observed:
+                return HistoricalDataResult("UNVERIFIED", request_id=req_id)
+            try:
+                future = ib.wrapper.startReq(req_id, contract, container=bars)
+                checkpoint()
+                sent = True
+                ib.client.reqHistoricalData(
+                    req_id, contract, util.formatIBDatetime(params["endDateTime"]),
+                    params["durationStr"], params["barSizeSetting"], params["whatToShow"],
+                    params["useRTH"], params["formatDate"], False, [])
+                await asyncio.wait_for(future, 60)
+                if state["status"] == "COMPLETE":
+                    state["status"] = "COMPLETE_BARS" if bars else "COMPLETE_EMPTY"
+                elif state["status"] == "PENDING":
+                    state["status"] = "UNVERIFIED"
+            except asyncio.TimeoutError:
+                state["status"] = "TIMEOUT"
+            except (asyncio.CancelledError, AcquisitionCancelled):
+                state["status"] = "CANCELLED"
+                raise
+            except AcquisitionDeadlineExceeded:
+                state["status"] = "TIMEOUT"
+                raise
+            except Exception as exc:
+                connected = getattr(ib, "isConnected", lambda: True)()
+                state["status"] = "DISCONNECTED" if isinstance(exc, ConnectionError) or not connected else "ERROR"
+            finally:
+                # Retire the result container before SDK cancellation can deliver
+                # a synchronous/late callback. Preserve the original stop/error.
+                futures = getattr(ib.wrapper, "_futures", {})
+                current = futures.get(req_id)
+                foreign = current is not None and current is not future
+                if future is not None and current is future:
+                    if not future.done():
+                        future.cancel()
+                    ib.wrapper._endReq(req_id)
+                # SDK error completion may already remove the future while
+                # leaving our bars. Never remove a newer/foreign container.
+                results = getattr(ib.wrapper, "_results", {})
+                if results.get(req_id) is bars:
+                    results.pop(req_id, None)
+                contracts = getattr(ib.wrapper, "_reqId2Contract", {})
+                if not foreign and contracts.get(req_id) is contract:
+                    contracts.pop(req_id, None)
+                if futures.get(req_id) is future:
+                    futures.pop(req_id, None)
+                same_epoch = epoch == getattr(ib.client, "_startTime", None)
+                if sent and not state["end_received"] and state["status"] != "DISCONNECTED" and not foreign and same_epoch:
+                    try:
+                        ib.client.cancelHistoricalData(req_id)
+                    except Exception as exc:
+                        print(f"[IBKR][HIST_CANCEL_ERROR] req_id={req_id} error_type={type(exc).__name__}")
+        return HistoricalDataResult(state["status"], tuple(bars), state["end_received"],
+                                    req_id, state["error_code"], len(bars) if not state["end_received"] else 0)
 
     def prev_close_from_history(self, symbol: str, use_rth: bool = True) -> Optional[float]:
         try:
@@ -912,7 +1100,7 @@ class MarketDataClient:
     def daily_bars_from_history(self, contract_or_symbol, *, lookback_days: int = 25, use_rth: bool = True, end_datetime: str = ""):
         contract = self._canonicalize_history_contract(contract_or_symbol)
         if contract is None:
-            return []
+            return HistoricalDataResult("UNVERIFIED")
         return self._request_daily_history_with_fallback(
             contract,
             lookback_days=lookback_days,
@@ -935,34 +1123,20 @@ class MarketDataClient:
         )
         contract = self._canonicalize_history_contract(contract_or_symbol)
         if contract is None:
-            return []
-        try:
-            bars = self._resolve_ib_client().reqHistoricalData(
-                contract,
-                endDateTime=end_datetime,
-                durationStr=f"{request.duration_seconds} S",
-                barSizeSetting=request.bar_size_setting,
-                whatToShow="TRADES",
-                useRTH=use_rth,
-                formatDate=1,
-            ) or []
-        except Exception as exc:
-            print(
-                "[IBKR][INTRADAY_HIST_FAIL] "
-                f"symbol={getattr(contract, 'symbol', None)} timeframe={timeframe} "
-                f"lookback_bars={request.requested_bars} error={exc}"
-            )
-            return []
-        return list(bars[-request.requested_bars:])
+            return HistoricalDataResult("UNVERIFIED")
+        bars = self._history_request(contract, endDateTime=end_datetime,
+            durationStr=f"{request.duration_seconds} S", barSizeSetting=request.bar_size_setting,
+            whatToShow="TRADES", useRTH=use_rth, formatDate=1)
+        return replace(bars, bars=tuple(bars.bars[-request.requested_bars:]))
 
     def average_daily_volume_from_history(self, contract_or_symbol, *, window: int = 20, use_rth: bool = True) -> tuple[Optional[int], Optional[int]]:
         bars = self.daily_bars_from_history(contract_or_symbol, lookback_days=max(window, 3), use_rth=use_rth)
         volumes = [_clean(getattr(bar, "volume", None)) for bar in bars]
         volumes = [int(v) for v in volumes if v is not None]
         if not volumes:
-            return None, None
+            return HistoricalVolumeResult(None, None, bars)
         sample = volumes[-min(window, len(volumes)):]
-        return int(sum(sample) / len(sample)), len(sample)
+        return HistoricalVolumeResult(int(sum(sample) / len(sample)), len(sample), bars)
 
     def _empty_snapshot(
         self,

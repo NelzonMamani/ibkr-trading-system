@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from src.ibkr.market_data_client import HistoricalDataResult
+
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -614,7 +616,8 @@ def test_rth_history_qualification_does_not_fail_when_primary_exchange_is_smart(
         source_name = "IBKR"
 
         def get_daily_bars(self, identity, lookback_days: int, *, use_rth: bool = True, end_datetime: str = ""):
-            return super().get_daily_bars(identity, lookback_days, use_rth=use_rth, end_datetime=end_datetime)
+            bars=super().get_daily_bars(identity, lookback_days, use_rth=use_rth, end_datetime=end_datetime)
+            return HistoricalDataResult("COMPLETE_BARS" if bars else "COMPLETE_EMPTY",tuple(bars),True)
 
         def qualifyContracts(self, contract):
             contract.conId = 12345

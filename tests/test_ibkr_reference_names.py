@@ -233,7 +233,16 @@ def test_disconnect_synchronizes_context_invalidation_and_always_closes(monkeypa
     closed = []
     class CheckedContext(dict):
         def pop(self, key, *args):
-            assert client._lock.locked(), "invalidation races request registration"
+            # Prove another thread cannot enter while invalidation holds the
+            # callback-reentrant owner lock (RLock has no locked() on Python3.12).
+            import threading
+            excluded=[]
+            def probe():
+                entered=client._lock.acquire(blocking=False)
+                excluded.append(not entered)
+                if entered:client._lock.release()
+            worker=threading.Thread(target=probe);worker.start();worker.join(1)
+            assert not worker.is_alive() and excluded==[True], "invalidation races request registration"
             return super().pop(key, *args)
     client._request_context_by_req_id = {k: CheckedContext(v) for k,v in client._request_context_by_req_id.items()}
     monkeypatch.setattr(EClient, "disconnect", lambda self: closed.append(True))

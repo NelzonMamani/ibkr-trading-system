@@ -19,6 +19,7 @@ def client(monkeypatch, tmp_path):
     c._managed_accounts = ['TEST']
     c._position_transport_available = True
     c.is_connected = lambda: True
+    c.isConnected = lambda: True
     c.cancelPositionsMulti = lambda req: None
     return c
 
@@ -443,14 +444,21 @@ def _raw_request(client, method, req):
 def test_raw_request_ids_advance_shared_order_boundary(client, monkeypatch, method):
     from ibapi.client import EClient
     sent=[]
-    monkeypatch.setattr(EClient,method,lambda *args,**kwargs:sent.append(args[1]))
+    def dispatch(self, req, *args, **kwargs):
+        sent.append(req)
+        if method=='reqHistoricalData':self.historicalDataEnd(req,'','')
+    monkeypatch.setattr(EClient,method,dispatch)
     client.nextValidId(100)
     _raw_request(client,method,100)
     order=client.reserve_order_id()
     assert sent==[100] and order>100
     client.error(order,103,'test duplicate order')
-    event=(client._market_events if method=='reqMktData' else client._historical_events)[100]
-    assert not event.is_set()
+    if method=='reqMktData':
+        assert not client._market_events[100].is_set()
+    else:
+        assert not client._historical_events and not client._historical_data
+        assert client._request_context_by_req_id[100]['request_type']=='HISTORICAL_DATA'
+
     assert client._order_errors[order][0]==103 and client._order_status_events[order].is_set()
 
 

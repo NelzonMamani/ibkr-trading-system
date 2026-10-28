@@ -8,9 +8,9 @@ import pytest
 from ibapi.client import EClient
 from ibapi.contract import Contract
 
-from src.core.acquisition import AcquisitionCancelled, acquisition_scope, checkpoint, wait_event
+from src.core.acquisition import historical_enrichment_attempt, AcquisitionCancelled, acquisition_scope, checkpoint, wait_event
 from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
-from src.ibkr.market_data_client import MarketDataClient
+from src.ibkr.market_data_client import MarketDataClient, HistoricalDataResult
 from src.scanner.providers.ibkr_provider import IbkrScannerProvider
 
 
@@ -44,7 +44,7 @@ def test_stop_interrupts_real_native_wait_and_cleans_market_requests(monkeypatch
         operation = lambda: client.resolve_contract('ONE')
     elif boundary == 'history':
         monkeypatch.setattr(EClient, 'reqHistoricalData', request)
-        monkeypatch.setattr(client, 'cancelHistoricalData', lambda req: cleanup.append(req))
+        monkeypatch.setattr(EClient, 'cancelHistoricalData', lambda self, req: cleanup.append(req))
         operation = lambda: client.reqHistoricalData(contract(), durationStr='25 D')
     elif boundary == 'scanner':
         monkeypatch.setattr(client, 'reqScannerSubscription', request)
@@ -138,15 +138,15 @@ def test_exact_requests_reused_and_cycle_identity_boundaries_isolated(monkeypatc
         return sample
     def history(c, **params):
         calls['history'].append((c.conId, params))
-        return [NS(date='20261014', close=10., volume=100)]
+        return HistoricalDataResult('COMPLETE_BARS',(NS(date='20261014', close=10., volume=100),),True)
     monkeypatch.setattr(md, '_snapshot_stock_uncached', quote)
-    monkeypatch.setattr(md, '_daily_history_uncached', history)
+    md.ib.reqHistoricalData = history
     provider = object.__new__(IbkrScannerProvider)
     provider.market_data_client = md
     provider.last_scan_details = {'symbol_details': {'ONE': {
         'conId': 123, 'exchange': 'SMART', 'currency': 'USD',
         'primaryExchange': 'NASDAQ', 'localSymbol': 'ONE', 'tradingClass': 'SCM'}}}
-    with acquisition_scope(lambda: False):
+    with acquisition_scope(lambda: False), historical_enrichment_attempt():
         q = provider.get_quote('ONE')
         stats = provider.get_intraday_stats('ONE')
         assert q.volume == stats.current_intraday_volume
@@ -161,7 +161,7 @@ def test_exact_requests_reused_and_cycle_identity_boundaries_isolated(monkeypatc
         provider.get_daily_bars(contract(), 25, end_datetime='explicit')
         provider.get_daily_bars(contract(456), 25)
         assert len(calls['history']) == 5
-    with acquisition_scope(lambda: False):
+    with acquisition_scope(lambda: False), historical_enrichment_attempt():
         provider.get_quote('ONE')
         provider.get_intraday_stats('ONE')
         assert calls['quote'] == 2 and len(calls['history']) == 6
@@ -206,7 +206,14 @@ def test_async_stop_cancels_and_drains_request(monkeypatch, kind):
             ib = NS(client=NS(getReqId=lambda: 42, reqHistoricalData=lambda *a: None,
                               cancelHistoricalData=lambda req: cancelled.append(req)),
                     wrapper=NS(startReq=lambda *a, **kw: future,
+                               _futures={42:future}, _results={}, _reqId2Contract={},
+                               historicalDataEnd=lambda *a: None, error=lambda *a: None,
                                _endReq=lambda req: cancelled.append(('end', req))))
+            ib.wrapper._futures.clear()
+            def start(*args,**kwargs):
+                ib.wrapper._futures[42]=future
+                return future
+            ib.wrapper.startReq=start
             with acquisition_scope(lambda: stopped):
                 await cooperative_await(md._cancellable_insync_history(ib, contract(),
                     endDateTime='', durationStr='25 D', barSizeSetting='1 day',
@@ -218,7 +225,7 @@ def test_async_stop_cancels_and_drains_request(monkeypatch, kind):
     with pytest.raises(AcquisitionCancelled):
         asyncio.run(run())
     assert time.monotonic() - started < 1
-    assert cancelled == (['qualification'] if kind == 'qualification' else [42, ('end', 42)])
+    assert cancelled == (['qualification'] if kind == 'qualification' else [('end', 42), 42])
 
 
 def test_float_stop_does_not_start_next_http_fallback(monkeypatch):
@@ -236,16 +243,20 @@ def test_float_stop_does_not_start_next_http_fallback(monkeypatch):
     assert len(calls) == 1
 
 
-def test_empty_history_keeps_same_cycle_retry(monkeypatch):
+def test_history_retries_only_in_a_later_enrichment_attempt(monkeypatch):
     md = MarketDataClient(connection_manager=NS(), allow_direct_connection=False)
-    answers = iter([[], [NS(date='20261014', close=10, volume=100)]])
     calls = []
     def history(*a, **kw):
         calls.append(True)
-        return next(answers)
-    monkeypatch.setattr(md, '_daily_history_uncached', history)
-    with acquisition_scope(lambda: False):
-        assert md._request_daily_history_with_fallback(contract(), lookback_days=25) == []
-        assert len(md._request_daily_history_with_fallback(contract(), lookback_days=25)) == 1
-        assert len(md._request_daily_history_with_fallback(contract(), lookback_days=25)) == 1
-    assert len(calls) == 2
+        return (HistoricalDataResult("TIMEOUT") if len(calls)==1 else
+                HistoricalDataResult("COMPLETE_BARS", (NS(date='20261014',close=10,volume=100),), True))
+    md.ib=NS(isConnected=lambda:True,reqHistoricalData=history)
+    with acquisition_scope(lambda:False):
+        with historical_enrichment_attempt():
+            assert md.daily_bars_from_history(contract()).status=='TIMEOUT'
+            assert md.daily_bars_from_history(contract()).status=='TIMEOUT'
+            assert len(calls)==1
+        with historical_enrichment_attempt():
+            assert md.daily_bars_from_history(contract()).completed
+            assert len(md.daily_bars_from_history(contract()))==1
+    assert len(calls)==2

@@ -10,6 +10,7 @@ from functools import wraps
 from pathlib import Path
 import os
 import time
+import threading
 
 
 class AcquisitionCancelled(BaseException):
@@ -93,6 +94,51 @@ def wait_event(event, timeout):
             return True
         if remaining <= 0:
             return False
+
+
+_history_attempt = ContextVar("history_enrichment_attempt", default=None)
+HISTORY_ATTEMPT_MAX_REQUESTS = 128
+
+
+class _HistoryAttemptCache(dict):
+    def __init__(self):
+        super().__init__()
+        self.lock = threading.RLock()
+        self.closed = False
+
+
+@contextmanager
+def historical_enrichment_attempt():
+    """One enrichment only: exact history outcomes, including failures, no retries.
+
+    Nested consumers share their owner's bounded cache. No state survives the
+    owner, including successful results; a later attempt starts independently.
+    """
+    existing = _history_attempt.get()
+    if existing is not None:
+        yield existing
+        return
+    state = _HistoryAttemptCache()
+    token = _history_attempt.set(state)
+    try:
+        yield state
+    finally:
+        with state.lock:
+            state.closed = True
+            state.clear()
+        _history_attempt.reset(token)
+
+
+def history_attempt_cache():
+    return _history_attempt.get()
+
+
+def history_enrichment(function):
+    @wraps(function)
+    def wrapped(*args, **kwargs):
+        with historical_enrichment_attempt():
+            return function(*args, **kwargs)
+    return wrapped
 
 
 def contract_key(contract):

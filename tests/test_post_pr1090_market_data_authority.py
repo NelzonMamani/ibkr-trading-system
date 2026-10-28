@@ -115,8 +115,10 @@ def test_native_timeout_is_not_snapshot_completion(native, monkeypatch):
 
 
 def test_historical_integer_request_retains_contract_context(native, monkeypatch):
-    monkeypatch.setattr(EClient, "reqHistoricalData", lambda *args, **kwargs: None)
-    native.reqHistoricalData(99, contract(), "", "1 D", "1 min", "TRADES", 1, 1, False, [])
+    monkeypatch.setattr(native, "isConnected", lambda: True)
+    monkeypatch.setattr(EClient, "reqHistoricalData", lambda self, req, *args: self.historicalDataEnd(req, "", ""))
+    result = native.reqHistoricalData(99, contract(), "", "1 D", "1 min", "TRADES", 1, 1, False, [])
+    assert result.completed and not native._historical_events
     native.error(99, 200, "No security definition")
     assert native._broker_error_events[-1]["symbol"] == "AEMD"
     assert native._broker_error_events[-1]["request_type"] == "HISTORICAL_DATA"
