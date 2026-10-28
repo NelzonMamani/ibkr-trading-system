@@ -6020,3 +6020,36 @@ always unavailable. New migration controls plus affected identity controls:
 72passed3.06s. Initial changed-head CI run40755035354 belongs to09909533 and cannot
 certify this changed head; its receipt remains preserved on the PR. The final
 replacement-head review/CI receipts are recorded on the same draft PR1140.
+
+Final review follow-up: an actual end-confirmed request can later become
+request/order-ID ambiguous. A guarded review control demonstrated that the
+resolver's same-attempt positive result could bypass the MarketDataClient cache
+recheck. The existing owner now supplies a bounded, identity-scoped runtime
+validator over the original native IDs/client/connection epoch. Resolver reuse,
+supplied derived ADV and the scanner's post-attempt projection revalidate it.
+Conflicted or disconnected historical values/RVOL become unavailable, without
+new historical requests. Explicit independent quote references survive. Tainted
+positive persistent history is removed (not replaced by a persistent negative
+cache); positive quote records lose only their historical ADV. The runtime
+validator is deliberately outside dataclass serialization and persistent JSON;
+it confers no reusable stored authority. The attempt's acquisition cache still
+closes/clears at exit. These checks do not diagnose callback delivery.
+
+Additional direct-native-cancel control confirms CANCELLED, hidden partial bars,
+retired state, one owned SDK cancellation and no foreign cancellation. The actual
+resolver late-conflict and scanner post-attempt conflict/disconnect controls
+retain quote-only reference behavior and prohibit extra sends. New/affected
+handoff, scanner, identity, cached reconsideration and order-observability set:
+141passed4.66s under the hard offline guard. This is local synthetic proof only.
+
+Preserved failed CI receipts: run40755035354 at09909533 had Linux1failed/
+3495passed/3skipped and Windows1failed/3497passed/1skipped. Run40755406880 at
+fd7f7745 had Linux1failed/3502passed/3skipped; its Windows receipt remains on the
+same run. The failure in both completed suites was the existing order-callback
+observability test's `__new__` fixture omitting the newly required empty history
+owner map. That fixture is now initialized correctly; its order assertions are
+unchanged (targeted controls pass). No PermissionError suppression, skipped new
+checks, timeout increase or unchanged-head retry was used. Superseding exact-head
+review and Linux/Windows CI are linked on draft PR1140; historical failures remain
+there and above. PR1140 is unmerged. The single next action and readiness/ownership
+limits stated above remain unchanged.

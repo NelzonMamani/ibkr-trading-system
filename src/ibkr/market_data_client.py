@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from src.domain.quote_freshness import quote_time_rejection
 
-from src.core.acquisition import AcquisitionCancelled, AcquisitionDeadlineExceeded, checkpoint, cycle_cache, contract_key, cooperative_await, bounded_timeout, historical_enrichment_attempt, history_enrichment, HISTORY_ATTEMPT_MAX_REQUESTS
+from src.core.acquisition import AcquisitionCancelled, AcquisitionDeadlineExceeded, checkpoint, cycle_cache, contract_key, cooperative_await, bounded_timeout, history_attempt_cache, historical_enrichment_attempt, history_enrichment, HISTORY_ATTEMPT_MAX_REQUESTS
 
 import asyncio
 import copy
@@ -863,6 +863,35 @@ class MarketDataClient:
     def _request_daily_history_with_fallback(self, contract, *, lookback_days: int, use_rth: bool = True, end_datetime: str = ""):
         return historical_result(self._daily_history_uncached(contract,
             lookback_days=lookback_days, use_rth=use_rth, end_datetime=end_datetime))
+
+    def history_ownership_guard(self, identity):
+        """Ephemeral, identity-scoped native request witness; never sends/caches data."""
+        cache = history_attempt_cache()
+        client = self.ib
+        conflict = getattr(client, "_request_id_conflicted", None)
+        if cache is None or not callable(conflict):
+            return None
+        con_id = getattr(identity, "con_id", None) or getattr(identity, "conId", None)
+        symbol = str(getattr(identity, "symbol", "")).upper()
+        with cache.lock:
+            ids = tuple(value.request_id for key, value in cache.items()
+                if key[0] == id(self) and key[1] == id(client)
+                and ((con_id and key[3][0] == con_id) or
+                     (not con_id and str(key[3][1]).upper() == symbol))
+                and value.request_id is not None)
+        if not ids:
+            return None
+        epoch = getattr(client, "_position_connection_epoch", None)
+        def unavailable_reason():
+            if (self.ib is not client or not client.isConnected()
+                    or epoch != getattr(client, "_position_connection_epoch", None)
+                    or client._stop_event.is_set()):
+                return "DISCONNECTED"
+            return "REQUEST_ID_CONFLICT" if any(conflict(req_id) for req_id in ids) else None
+        def valid():
+            return unavailable_reason() is None
+        valid.unavailable_reason = unavailable_reason
+        return valid
 
     def _history_request(self, contract, **params):
         checkpoint()

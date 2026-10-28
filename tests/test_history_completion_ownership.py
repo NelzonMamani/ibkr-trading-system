@@ -476,3 +476,85 @@ def test_persistent_broker_history_requires_end_or_independent_quote_origin(chai
         rth_open_price=None,rth_close_price=None,ibkr_change_pct=None,persisted_pct_change=None)
     assert (result.reference_price==9.) is eligible
     assert result.avg_volume_20d is None
+
+
+def test_explicit_native_cancel_retires_only_owned_history(owner,monkeypatch):
+    c=owner.client
+    c.cancelHistoricalData(999)  # Foreign/unowned IDs are never sent to the SDK.
+    def send(self,req,*args):
+        owner.sent.append(req)
+        c.historicalData(req,NS(date='20261027',close=10.,volume=100))
+        c.cancelHistoricalData(req)
+        c.cancelHistoricalData(req)
+        c.historicalDataEnd(req,'late','late')
+    monkeypatch.setattr(EClient,'reqHistoricalData',send)
+    result=c.reqHistoricalData(contract())
+    assert result.status=='CANCELLED' and not result.completed and not result
+    assert result.partial_count==1 and owner.cancel==owner.sent
+    retired(c)
+
+
+def test_review_late_conflict_resolver_cycle(chain, monkeypatch):
+    x=chain; c=x.owner.client
+    def send(self, req, con, *args):
+        x.owner.sent.append(req)
+        c.historicalData(req,NS(date='20261027',close=10.,volume=100))
+        c.historicalDataEnd(req,'','')
+    monkeypatch.setattr(EClient,'reqHistoricalData',send)
+    with historical_enrichment_attempt():
+        stats=x.provider.get_intraday_stats('SYNTH')
+        kwargs=dict(identity=x.identity,provider=x.provider,session_label='RTH_MID',current_volume=2000,
+            intraday_avg_volume_20d=stats.average_daily_volume_20d,intraday_history_end_received=stats.historical_end_received,
+            current_last_price=10.,rth_open_price=9.,rth_close_price=9.,ibkr_change_pct=None,persisted_pct_change=None)
+        first=x.resolver.resolve(**kwargs)
+        from ibapi.order import Order
+        from ibapi.order_state import OrderState
+        for req in tuple(x.owner.sent):
+            c.openOrder(req,contract(),Order(),OrderState())
+        assert all(c._request_id_conflicted(req) for req in x.owner.sent)
+        later=x.resolver.resolve(**kwargs)
+        assert later.avg_volume_20d is None, 'known ambiguous history admitted through resolver same-attempt cache'
+
+
+@pytest.mark.parametrize('quote_close',[9.,None])
+@pytest.mark.parametrize('late_outcome',['conflict','disconnect'])
+def test_late_conflict_after_attempt_revalidates_actual_scanner_projection(chain,monkeypatch,quote_close,late_outcome):
+    from dataclasses import asdict
+    from src.scanner import scanner_runner as ross
+    from ibapi.order import Order
+    from ibapi.order_state import OrderState
+    x=chain;c=x.owner.client
+    monkeypatch.setattr(ross,'_REFERENCE_RESOLVER',x.resolver)
+    monkeypatch.setattr(x.provider,'get_quote',lambda *a,**kw:NS(close=quote_close,volume=2000))
+    def send(self,req,con,*args):
+        x.owner.sent.append(req)
+        c.historicalData(req,NS(date='20261027',close=10.,volume=100))
+        c.historicalDataEnd(req,'','')
+    monkeypatch.setattr(EClient,'reqHistoricalData',send)
+    with historical_enrichment_attempt() as scope:
+        stats=x.provider.get_intraday_stats('SYNTH')
+        snapshot=ross._resolve_reference_snapshot(provider=x.provider,symbol='SYNTH',session_label='RTH_MID',
+            scan_detail={'conId':123,'exchange':'SMART','primaryExchange':'NASDAQ'},last_price=11.,
+            current_volume=2000,intraday_avg_volume_20d=stats.average_daily_volume_20d,
+            intraday_history_end_received=True,rth_open_price=None,rth_close_price=None,
+            ibkr_change_pct=None,persisted_pct_change=None)
+        cached=x.resolver._cycle_cache[x.identity.key]
+        assert '_history_ownership_guard' not in asdict(cached)
+        assert snapshot['average_daily_volume_20d']==100
+    assert not scope and scope.closed
+    context={'symbol':'SYNTH','last_price':11.,'session':'RTH_MID','pct_change':20.,
+        '_enrichment_reference_snapshot':snapshot,'reference_source':snapshot['reference_source'],
+        'avg_volume_20d':100,'rvol':20.,'relative_volume':20.,'prev_close':snapshot['prev_close']}
+    if late_outcome=='conflict':
+        for req in tuple(x.owner.sent):c.openOrder(req,contract(),Order(),OrderState())
+    else:c.connectionClosed()
+    before=list(x.owner.sent)
+    ross._populate_pct_change(context,x.provider)
+    assert context['avg_volume_20d'] is None and context['rvol'] is None and context['relative_volume'] is None
+    assert context['historical_outcome']==('REQUEST_ID_CONFLICT' if late_outcome=='conflict' else 'DISCONNECTED')
+    stored=x.resolver.cache.get(x.identity.key,trading_date=None)
+    if quote_close is None:assert stored is None
+    else:assert stored['reference_price']==9. and stored['avg_volume_20d'] is None
+    assert context['prev_close']==(9. if quote_close is not None else None)
+    ross._populate_pct_change(context,x.provider)
+    assert x.owner.sent==before

@@ -1281,6 +1281,7 @@ def _resolve_reference_snapshot(
             f"rvol_phase={result.rvol_phase} history_attempts={trace.get('history_attempts', [])}"
         )
     return {
+        "_history_ownership_guard": getattr(result, "_history_ownership_guard", None),
         "identity": identity,
         "qualified_identity": result.qualified_identity,
         "prev_close": result.reference_price,
@@ -1763,6 +1764,28 @@ def _populate_pct_change(
     # An unavailable projection is authoritative for this context too: later
     # gates must not start another acquisition merely because pct is still None.
     reference_snapshot = context.pop("_enrichment_reference_snapshot", None)
+    guard = context.get("_history_ownership_guard")
+    if reference_snapshot is not None:
+        guard = reference_snapshot.get("_history_ownership_guard")
+        context["_history_ownership_guard"] = guard
+    if callable(guard) and not guard():
+        # Recheck after the attempt cache is gone: a later order callback may
+        # quarantine IDs whose history had already ended. Never reacquire here.
+        failure = guard.unavailable_reason()
+        for key in ("avg_volume_20d", "average_daily_volume_window_days", "rvol",
+                    "relative_volume", "rvol_discovery", "rvol_phase", "persisted_rvol"):
+            context[key] = None
+        context.update(historical_outcome=failure, historical_end_received=False,
+                       adv20_outcome=failure, adv20_resolved=False,
+                       adv20_source="UNAVAILABLE", rvol_failure_reason=failure)
+        if context.get("reference_source") not in {"IBKR_PREV_CLOSE", "QUOTE_CLOSE_FALLBACK",
+                "SCANNER_PCT_SYNTHETIC_FALLBACK", "SNAPSHOT_LAST_PRICE_FALLBACK"}:
+            for key in ("prev_close", "ref_close_rth", "reference_price", "pct_change", "pct_change_resolved"):
+                context[key] = None
+            context.update(reference_resolved=False, qualification_usable_reference=False,
+                           execution_usable_reference=False, pct_change_qualification_usable=False,
+                           pct_change_execution_usable=False, reference_failure_reason=failure)
+        return
     if context.get("_enrichment_reference_projected"):
         return
     if reference_snapshot is not None:

@@ -99,6 +99,13 @@ class PersistentReferenceCache:
             return None
         return payload
 
+    def discard(self, keys: tuple[str, ...]) -> None:
+        self._load()
+        for key in keys:
+            self._store.pop(key, None)
+        if self.path.exists():
+            self.path.write_text(json.dumps(self._store, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
     def put(self, keys: tuple[str, ...], record: dict[str, Any]) -> None:
         self._load()
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -223,6 +230,45 @@ class CanonicalReferenceResolver:
             f"localSymbol={identity.local_symbol} tradingClass={identity.trading_class} currency={identity.currency}"
         )
 
+    @staticmethod
+    def _ownership_guard(provider, identity):
+        if getattr(provider, "source_name", "") != "IBKR":
+            return None
+        owner = getattr(provider, "market_data_client", None)
+        factory = getattr(owner, "history_ownership_guard", None)
+        return factory(identity) if callable(factory) else None
+
+    def _guard_result(self, result, provider, identity):
+        # Runtime-only owner witness: intentionally NOT a dataclass/persisted
+        # field. Cache JSON remains scalar evidence, never callable authority.
+        owner_guard = self._ownership_guard(provider, identity)
+        guard = None
+        if owner_guard is not None:
+            retired = False
+            def unavailable_reason():
+                nonlocal retired
+                reason = owner_guard.unavailable_reason()
+                if reason and not retired:
+                    keys = self._cache_keys(identity, provider)
+                    payload = next((self.cache.get(key, trading_date=None) for key in keys
+                                    if self.cache.get(key, trading_date=None) is not None), None)
+                    if payload is not None:
+                        if payload.get("reference_source") in {"IBKR_PREV_CLOSE", "QUOTE_CLOSE_FALLBACK",
+                                "SCANNER_PCT_SYNTHETIC_FALLBACK", "SNAPSHOT_LAST_PRICE_FALLBACK"}:
+                            payload = dict(payload)
+                            payload.update(avg_volume_20d=None, adv20_resolved=False, adv20_end_received=False,
+                                           historical_end_received=False, historical_outcome=reason, adv20_outcome=reason)
+                            self.cache.put(keys, payload)
+                        else:
+                            self.cache.discard(keys)
+                    retired = True
+                return reason
+            def guard():
+                return unavailable_reason() is None
+            guard.unavailable_reason = unavailable_reason
+        object.__setattr__(result, "_history_ownership_guard", guard)
+        return result
+
     @history_enrichment
     def resolve(
         self,
@@ -241,11 +287,17 @@ class CanonicalReferenceResolver:
     ) -> CanonicalReferenceResult:
         if getattr(provider, "source_name", "") == "IBKR" and intraday_history_end_received is not True:
             intraday_avg_volume_20d = None
+        guard = self._ownership_guard(provider, identity)
+        history_failure = guard.unavailable_reason() if guard is not None else None
+        history_conflict = history_failure is not None
+        if history_conflict:
+            intraday_avg_volume_20d = None
+            intraday_history_end_received = False
         trading_date = get_us_eastern_now().date().isoformat()
         cache_keys = self._cache_keys(identity, provider)
         for key in cache_keys:
             hit = self._cycle_cache.get(key)
-            if hit is not None and (getattr(provider, "source_name", "") != "IBKR"
+            if not history_conflict and hit is not None and (getattr(provider, "source_name", "") != "IBKR"
                                     or self._history_attempt_by_key.get(key) is history_attempt_cache()):
                 self._verify_cache_hit(identity=identity, lookup_key=key, result_identity_key=hit.identity_key, source="cycle")
                 print(f"[REFERENCE][CACHE_HIT] symbol={identity.symbol} identity_key={identity.key} source=cycle lookup_key={key}")
@@ -263,14 +315,23 @@ class CanonicalReferenceResolver:
                     if getattr(provider, "source_name", "") == "IBKR":
                         # Older serialized history had no end witness. Independent
                         # quote-close provenance remains usable; old history cannot.
-                        if payload.get("historical_end_received") is not True and payload.get("reference_source") not in {
+                        if (history_conflict or payload.get("historical_end_received") is not True) and payload.get("reference_source") not in {
                             "IBKR_PREV_CLOSE", "QUOTE_CLOSE_FALLBACK",
                             "SCANNER_PCT_SYNTHETIC_FALLBACK", "SNAPSHOT_LAST_PRICE_FALLBACK",
                         }:
                             payload["reference_price"] = None
-                        if payload.get("adv20_end_received") is not True:
+                        if history_conflict or payload.get("adv20_end_received") is not True:
                             payload["avg_volume_20d"] = None
                             payload["adv20_resolved"] = False
+                    if history_conflict:
+                        payload.update(historical_outcome=history_failure, historical_end_received=False,
+                                       adv20_outcome=history_failure, rvol_failure_reason=history_failure)
+                    if history_conflict:
+                        # Remove tainted positive history, not a negative cache.
+                        if _to_float(payload.get("reference_price")) is None:
+                            self.cache.discard(cache_keys)
+                        else:
+                            self.cache.put(cache_keys, payload)
                     if _to_float(payload.get("reference_price")) is not None:
                         payload["reference_source"] = "PERSISTENT_CACHE_PREV_CLOSE"
                     persistent_payload = payload
@@ -301,7 +362,8 @@ class CanonicalReferenceResolver:
             },
             "history_attempts": [],
         }
-        bars = self._request_historical_daily_bars(provider, history_identity, session_label=session_label, trace=history_trace) if qualified_ok else []
+        bars = (HistoricalDataResult(history_failure) if history_conflict else
+                self._request_historical_daily_bars(provider, history_identity, session_label=session_label, trace=history_trace) if qualified_ok else [])
         prev_close, reference_trading_date, reference_is_previous_completed_session = self._last_completed_close(
             bars,
             current_trading_date=trading_date,
@@ -320,7 +382,7 @@ class CanonicalReferenceResolver:
         elif prev_close is not None:
             reference_source = "HISTORICAL_LAST_RTH_CLOSE"
             reference_semantics = "PREVIOUS_COMPLETED_RTH_CLOSE" if reference_is_previous_completed_session else "CURRENT_SESSION_CLOSE"
-        elif (provider_prev_close := self._provider_prev_close_fallback(provider, history_identity)) is not None:
+        elif not history_conflict and (provider_prev_close := self._provider_prev_close_fallback(provider, history_identity)) is not None:
             prev_close = provider_prev_close
             reference_source = "PROVIDER_PREV_CLOSE_FALLBACK"
             reference_semantics = "DEGRADED_FALLBACK"
@@ -358,7 +420,7 @@ class CanonicalReferenceResolver:
                 }
             print(f"[REFERENCE][CACHE_HIT] symbol={identity.symbol} identity_key={identity.key} source=persistent lookup_key={persistent_lookup_key}")
             print(f"[RVOL][CACHE_HIT] symbol={identity.symbol} identity_key={identity.key} source=persistent lookup_key={persistent_lookup_key}")
-            return result
+            return self._guard_result(result, provider, identity)
         elif normalize_session_label(session_label) in {"RTH", "RTH_OPEN", "RTH_MID", "RTH_LATE"} and (
             synthetic_reference := self._scanner_pct_synthetic_fallback(current_last_price=current_last_price, ibkr_change_pct=ibkr_change_pct)
         ) is not None:
@@ -370,7 +432,8 @@ class CanonicalReferenceResolver:
             reference_source = "SNAPSHOT_LAST_PRICE_FALLBACK"
             reference_semantics = "CURRENT_SESSION_CLOSE" if normalize_session_label(session_label) == "PRE" else "DEGRADED_FALLBACK"
         avg_volume, window_days = self._average_volume(bars)
-        provider_volume = self._provider_adv20_fallback(provider, history_identity)
+        provider_volume = (HistoricalVolumeResult(None, None, bars) if history_conflict else
+                           self._provider_adv20_fallback(provider, history_identity))
         provider_avg_volume, provider_window = provider_volume
         reference_failure_reason = None
         if reference_source == "REFERENCE_MISSING_HARD_FAIL":
@@ -465,7 +528,7 @@ class CanonicalReferenceResolver:
             self._cycle_cache[key] = result
             self._history_attempt_by_key[key] = history_attempt_cache()
             self._last_resolution_trace[key] = dict(history_trace)
-        return result
+        return self._guard_result(result, provider, identity)
 
     def _snapshot_reference_fallback(self, *, session_label: str, rth_close_price: Optional[float], current_last_price: Optional[float]) -> Optional[float]:
         if normalize_session_label(session_label) != "PRE":
