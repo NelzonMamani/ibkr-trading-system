@@ -1,4 +1,4 @@
-# Natural READ_ONLY diagnostic checkpoint — updated 27 October 2026
+# Natural READ_ONLY diagnostic checkpoint — updated 28 October 2026
 
 Current authoritative completion status is in [the maintained checklist below](#receipt9--current-ross-completion-checklist-updated-through-pr1139).
 Earlier dated sections are historical evidence, not superseding readiness decisions.
@@ -2333,6 +2333,7 @@ No item below upgrades strategy certification or authorizes acquisition.
 | Fixed feeds and bounded fallback policy | Implemented and merged; natural use demonstrated | PR1135 accepted49ba1e8e; PR1136 accepteddcb65fbd | Investing/Forbes and v5 receipt sections | Existing fixed replacements and configured tier/query budgets preserved; completion/cleanup barrier observed naturally | Eight-total candidate profile remains unactivated; source failures/search limits retained |
 | Listing-compliance event and optional provenance contract | Policy merged; production verifier closed; optional work PARKED | PR1138 acceptedf4def160; saved contractc7111fc2 | Existing policy/contract sections | Google transport, publisher names, feed health and copies cannot verify origin; captured copies ineligible | Not a prerequisite for supported classes. No further IPST qualification/provenance acquisition work |
 | Current source review and CI | Completed on reviewed tree, identical accepted merge tree | PR1139 head22947082, accepted07491e89/tree58b19a63 | Independent agent review5672966290; CI40568163589 | Linux3447/3skipped; Windows3449/1skipped; native cache, cache-startup, PowerShell exit,39-check stub harness,5.1 parser and upload passed | Failed40567147213 and all earlier receipts preserved. No suites/CI repeated for merge-SHA-only or this documentation preparation |
+|27 October session-rejected attempt | Preflight rejected; no observation/natural evidence | Accepted07491e89; preserved root C:\tmp\ro-03cd9b61 | Operator-supplied ZIP SHA25655d01a28…; detailed receipt below | session rejection; observation_started=false/observation_exit=null; final1, package2/DIAGNOSTIC_ONLY, privacy passed; final inventory complete/empty | Mutation/order/source equality and terminal safety NOT_VERIFIED. No natural scan/catalyst/intent proof; preserve root; new user-authorized single28October attempt only |
 | Separate paper acceptance | Pending and ownership-blocked | Existing accepted history unchanged | Existing institutional roadmap and paper/lifecycle receipts | Component offline protection/partial-fill/target/trailing/exit/recovery controls exist | Needs separately authorized ownership resolution, actual risk admission and broker lifecycle/management acceptance. READ_ONLY cannot certify paper readiness |
 
 Reconciled against `76e597870f56b4e94b717878c793dbf2fce62295` on
@@ -5416,7 +5417,7 @@ all9 actual-manager cases. Windows first-run and final-head receipts are retaine
 on the same PR. No unchanged-head CI rerun is requested.
 
 
-## PR1139 accepted integration and one natural READ_ONLY observation preparation
+## PR1139 accepted integration and current one-attempt READ_ONLY preparation
 
 Verified27October2026: GitHub main is exactly
 `07491e89a3d5e8a36db19cbd4996ba2acc77aae7`, tree
@@ -5524,7 +5525,8 @@ not required in that observation checkout. Expected sealed ZIP is
 harness's final DIAGNOSTIC ZIP announcement. Keep private state/root files private.
 
 ```powershell
-# User-started once, during normal RTH with time for preflight and the full 900s.
+# User-started once on 28 October: normal RTH is 13:30-20:00 Europe/London.
+# Clock time is not eligibility authority; the existing preflight must pass.
 $ErrorActionPreference = 'Stop'
 if ($PSVersionTable.PSEdition -ne 'Desktop' -or
     $PSVersionTable.PSVersion.Major -ne 5 -or $PSVersionTable.PSVersion.Minor -ne 1) {
@@ -5565,6 +5567,9 @@ $addedWorktrees = @($afterWorktrees | Where-Object {
 if ($addedWorktrees.Count -ne 1) { throw 'Expected exactly one new worktree; preserve roots and inspect.' }
 $checkout = [IO.Path]::GetFullPath($addedWorktrees[0])
 $root = Split-Path -Parent $checkout
+if ([string]::Equals($root, 'C:\tmp\ro-03cd9b61', [StringComparison]::OrdinalIgnoreCase)) {
+    throw 'Refusing to reuse the preserved 27 October root.'
+}
 $actualHead = (& git -C $checkout rev-parse HEAD | Out-String).Trim()
 if ($LASTEXITCODE -ne 0 -or $actualHead -cne $RuntimePin) { throw 'Prepared head mismatch.' }
 $actualTree = (& git -C $checkout rev-parse 'HEAD^{tree}' | Out-String).Trim()
@@ -5599,3 +5604,114 @@ opportunity occurs; no automatic rerun is authorized. Preparation has executed n
 preflight acquisition, observation, holdings action or trading. Historical receipts,
 five-position protections and GUI draft remain. `PAPER_READY=NO`;
 `PAPER_READINESS_GATE=FAIL`.
+
+
+## 28 October — session-rejected receipt preserved; one new user-started attempt
+
+GitHub main was rechecked at accepted
+`07491e89a3d5e8a36db19cbd4996ba2acc77aae7`, tree
+`58b19a6397f6e9a1018ea8ac3364459f92217d88`; no advancement or runtime-pin
+substitution. PR1139 remains merged from reviewed22947082. Read and carried forward
+saved documentation branch `docs/pr1139-accepted-observation` at
+`a9f7643154b3b90dd530b15d6f4a5ca9d3347368`; it remains unchanged. This update
+continues that checkpoint, not a competing checklist or implementation. Integrated
+offline handoff proof, review5672966290, CI40568163589, prior failed receipts,
+saved audit/contract and GUI draft remain preserved. No completed suite/CI rerun.
+
+### Supplied27October receipt: rejected before observation
+
+Preserve `C:\tmp\ro-03cd9b61`, including its existing evidence/state and ZIP.
+Operator-supplied ZIP SHA256:
+`55d01a28b86aa4dd89d9ab74593cc6e16716df2c4db40df5866c90f4b999fa28`.
+No archive was attached to this turn; the hash/receipt are recorded as supplied,
+not claimed independently recomputed. Reported preflight stage=session rejected:
+"Requires the normal configured RTH window; no session override."
+observation_started=false; observation_exit=null. Final exit1, package exit2 /
+DIAGNOSTIC_ONLY, privacy scan passed. Final process inventory completed with no
+remaining runtimes. Mutation verification, operator/order-state equality, source
+equality and terminal safety remain NOT_VERIFIED, not PASS or zero attempts.
+
+There is NO natural scanner, catalyst, Focus/setup/trigger/raw-intent evidence from
+this attempt. Final inventory/privacy success does not certify terminal safety or
+holdings truth. The accepted preflight checks session before write-guard verification
+and baseline finalization; do not infer those later steps completed. No exact
+preflight clock was supplied here, so do not attribute the rejection to a timezone
+bug, workstation skew or a particular late start. No defect or gate relaxation is
+established. Yesterday's root is never reused, cleaned, overwritten or removed by
+the current operator block. Today's explicit user request authorizes preparing one
+fresh attempt; this is not an automatic retry of that failed preflight.
+
+### Accepted session authority and28October London window
+
+At the literal accepted pin, `natural_readonly_operator.py` preflight requires
+`src.config.system_config.get_current_market_session() == 'RTH'`. That function
+converts an aware UTC clock through `to_ny_time` / ZoneInfo America/New_York,
+rejects weekends/configured holidays, applies configured half-day close and uses
+REGULAR_START09:30 inclusive / REGULAR_END16:00 exclusive from
+MARKET_SESSION_WINDOWS_LOCAL. The operator clears registry-backed inherited
+configuration before rebuilding the existing safe READ_ONLY environment; no
+session override or calendar edit is added. The accepted defaults have empty
+holiday/half-day sets;28October2026 is Wednesday. This is the actual configured
+gate, not a fresh live exchange-calendar certification.
+
+On28October2026 Europe/London is GMT/UTC+00 and New York remains EDT/UTC-04.
+The permitted normal RTH interval is therefore **13:30 inclusive to20:00 exclusive
+Europe/London**, not14:30–21:00. At approximately18:00 London it is14:00 New York,
+with7200seconds (two hours) remaining. Existing preflight90s + runtime900s =990s
+(16m30s), ending18:16:30 if started at18:00. Even the conservative existing outer
+phase allowances90+1260+90+90=1530s (25m30s) fit before20:00; this does not renew or
+enlarge any budget. Allow preparation/startup time as well. These calculations
+show adequate clock time at18:00, not actual workstation/session/TWS eligibility.
+
+New proportionate hard-offline date controls called the actual pure session
+function:13:29:59.999999→PRE,13:30→RTH,18:00→RTH,19:59:59.999999→RTH,20:00→AH;
+configured holiday and half-day counterfactuals remain CLOSED at18:00. This is
+new date-specific offline calculation, not acquisition, preflight or repetition
+of completed strategy suites. Log `/workspace/work/ross-session-window-20261028.log`.
+No operator module was imported or executed. Static source inspection confirms
+RuntimeSeconds900, existing1260s supervisor ceiling,90s preflight,30s owned stop
+and90s package/seal caps. Source/harness/DEPRECATION_LEDGER remain unchanged.
+
+### One prepared attempt and evidence boundary
+
+The single current copy-paste block above is updated in place for28October and
+explicitly refuses yesterday's root. It reads the existing accepted preparation
+helper, creates a fresh isolated C:\tmp\ro-xxxxxxxx\s, verifies literal pin/tree,
+cleanliness and unchanged fetched main, and invokes the existing runner exactly
+once. Source checkout, GUI draft, old roots and historical receipts are retained.
+It never invokes a separately printed helper command a second time. The
+separately published documentation commit is not the runtime pin.
+
+Actual preflight must still pass on the user's workstation. Use Windows
+PowerShell5.1 Desktop, retained Python3.13.3 environment, normal PAPER TWS at
+127.0.0.1:7497 with Read-Only API enabled and client71 available, normal data/scanner
+subscriptions and no pre-existing Ross runtime. Normal session, sufficient
+remaining time and all source/inventory/write-guard/cache protections must hold;
+clock time alone is insufficient. Do not broaden the gate, reset/adopt/liquidate
+holdings, cancel orders, suppress mismatches or automatically retry failure.
+Existing natural50/15/5 selection, mandatory supported catalyst, strict original
+publication/quote freshness, genuine timeframe inputs, total/tier acquisition
+budgets and no forced candidates/news/patterns/triggers/intents/approvals remain.
+
+Keep the existing zero-mutation instrumentation, final independent audit/disconnect,
+owned shutdown/cleanup, complete process inventories, source/operator-state equality,
+privacy scan and final ZIP sealing. Expected new sealed output is
+`C:\tmp\ro-xxxxxxxx\ross-natural-readonly-upload.zip`, announced only by the
+existing final DIAGNOSTIC ZIP path after successful sealing; preserve actual exit
+codes including diagnostic/failure outcomes. Do not share private root/state files.
+
+Natural raw intent plus exact POSITION_TRUTH_BLOCK_NEW_ENTRIES may establish
+formation when correlated with qualifying canonical evidence, fresh inputs and
+real setup/trigger. Five unmatched positions remain a GLOBAL new-entry admission
+veto AFTER formation, BEFORE canonical artifact/actual risk admission. Zero
+downstream risk admission is expected with those blockers. Neither this nor a
+terminal PASS certifies positive risk admission, broker execution, PAPER/LIVE
+canonical risk integration or PAPER readiness. No qualifying opportunity is
+negative evidence, not authority for another unchanged observation. Listing
+provenance stays PARKED/fail closed. All holdings/ownership protections remain.
+
+**ONE next action: the user starts the single prepared900s attempt when the actual
+normal session/TWS conditions hold with sufficient remaining time.** No acquisition,
+preflight or observation was executed during preparation. No trading, holdings
+action, GUI-draft change, suite rerun, CI rerun or readiness upgrade occurred.
+`PAPER_READY=NO`; `PAPER_READINESS_GATE=FAIL`.
