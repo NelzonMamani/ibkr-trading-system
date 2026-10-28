@@ -447,3 +447,32 @@ def test_derived_volume_never_exposes_unavailable_or_empty_history(chain,monkeyp
     monkeypatch.setattr(chain.provider,'_average_daily_volume',lambda *a:(999,20))
     stats=chain.provider.get_intraday_stats('SYNTH')
     assert stats.average_daily_volume_20d is None and stats.historical_end_received is None
+
+
+@pytest.mark.parametrize('source,witness,eligible', [
+    ('HISTORICAL_LAST_RTH_CLOSE',False,False),
+    ('PROVIDER_PREV_CLOSE_FALLBACK',False,False),
+    ('PERSISTENT_CACHE_PREV_CLOSE',False,False),
+    ('UNKNOWN',False,False),
+    ('HISTORICAL_LAST_RTH_CLOSE',True,True),
+    ('IBKR_PREV_CLOSE',False,True),
+    ('QUOTE_CLOSE_FALLBACK',False,True),
+])
+def test_persistent_broker_history_requires_end_or_independent_quote_origin(chain,monkeypatch,source,witness,eligible):
+    from src.market_data.reference_resolver import get_us_eastern_now
+    x=chain
+    monkeypatch.setattr(x.provider,'get_quote',lambda *a,**kw:NS(close=None))
+    monkeypatch.setattr(x.provider,'get_previous_rth_close',lambda *a:None)
+    monkeypatch.setattr(x.provider,'get_prev_close',lambda *a:None)
+    day=get_us_eastern_now().date().isoformat()
+    keys=x.resolver._cache_keys(x.identity,x.provider)
+    x.resolver.cache.put(keys,{'identity_key':x.identity.key,'symbol':'SYNTH',
+        'reference_price':9.,'reference_source':source,'historical_end_received':witness,
+        'cache_trading_date':day,'asof_trading_date':day,'reference_trading_date':day,
+        'reference_semantics':'PREVIOUS_COMPLETED_RTH_CLOSE','reference_is_previous_completed_session':True,
+        'avg_volume_20d':999,'adv20_end_received':False})
+    result=x.resolver.resolve(identity=x.identity,provider=x.provider,session_label='RTH_MID',
+        current_volume=2000,intraday_avg_volume_20d=None,current_last_price=10.,
+        rth_open_price=None,rth_close_price=None,ibkr_change_pct=None,persisted_pct_change=None)
+    assert (result.reference_price==9.) is eligible
+    assert result.avg_volume_20d is None

@@ -6008,3 +6008,15 @@ unmatched positions remain separate global entry blockers after formation and
 before canonical/risk admission. PAPER/LIVE risk certification remains outstanding;
 listing provenance is PARKED/fail closed, GUI draft preserved.
 `PAPER_READY=NO`; `PAPER_READINESS_GATE=FAIL`.
+
+Independent review of initial repair `099095332234e127db514040fd5607d306338d8c`
+ran49 guarded controls (49passed2.28s) and found one remaining migration gap:
+legacy PROVIDER_PREV_CLOSE_FALLBACK/PERSISTENT/unknown cache origins could hide
+unwitnessed historical values. The follow-up rejects those unwitnessed reference
+origins as well as explicit historical origins; only explicit independent
+quote/snapshot/scanner-price origins retain their existing semantics/gates.
+End-confirmed historical cache values remain usable. Unwitnessed cached ADV is
+always unavailable. New migration controls plus affected identity controls:
+72passed3.06s. Initial changed-head CI run40755035354 belongs to09909533 and cannot
+certify this changed head; its receipt remains preserved on the PR. The final
+replacement-head review/CI receipts are recorded on the same draft PR1140.

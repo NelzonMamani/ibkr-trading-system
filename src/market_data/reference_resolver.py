@@ -263,7 +263,10 @@ class CanonicalReferenceResolver:
                     if getattr(provider, "source_name", "") == "IBKR":
                         # Older serialized history had no end witness. Independent
                         # quote-close provenance remains usable; old history cannot.
-                        if payload.get("historical_end_received") is not True and payload.get("reference_source") == "HISTORICAL_LAST_RTH_CLOSE":
+                        if payload.get("historical_end_received") is not True and payload.get("reference_source") not in {
+                            "IBKR_PREV_CLOSE", "QUOTE_CLOSE_FALLBACK",
+                            "SCANNER_PCT_SYNTHETIC_FALLBACK", "SNAPSHOT_LAST_PRICE_FALLBACK",
+                        }:
                             payload["reference_price"] = None
                         if payload.get("adv20_end_received") is not True:
                             payload["avg_volume_20d"] = None
