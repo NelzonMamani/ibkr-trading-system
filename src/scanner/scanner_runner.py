@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from src.domain.quote_freshness import quote_time_rejection, quote_evidence
 
-from src.core.acquisition import acquisition_cycle, checkpoint, acquisition_deadline, cycle_cache
+from src.core.acquisition import history_enrichment, acquisition_cycle, checkpoint, acquisition_deadline, cycle_cache
 
 import argparse
 from copy import deepcopy
@@ -1230,6 +1230,7 @@ def _resolve_reference_snapshot(
     rth_close_price: Optional[float],
     ibkr_change_pct: Optional[float],
     persisted_pct_change: Optional[float],
+    intraday_history_end_received: Optional[bool] = None,
 ) -> Dict[str, Any]:
     trace_enabled = _should_trace_scanner_symbol(symbol)
     identity = CandidateIdentity.from_mapping({
@@ -1265,6 +1266,7 @@ def _resolve_reference_snapshot(
             rth_close_price=rth_close_price,
             ibkr_change_pct=ibkr_change_pct,
             persisted_pct_change=persisted_pct_change,
+            intraday_history_end_received=intraday_history_end_received,
         )
     finally:
         setattr(provider, "debug_reference_trace", previous_debug_trace)
@@ -1284,6 +1286,9 @@ def _resolve_reference_snapshot(
         "prev_close": result.reference_price,
         "average_daily_volume_20d": result.avg_volume_20d,
         "average_daily_volume_window_days": result.average_daily_volume_window_days,
+        "historical_outcome": result.historical_outcome,
+        "historical_end_received": result.historical_end_received,
+        "adv20_outcome": result.adv20_outcome,
         "lookup_key": result.history_lookup_key_used or result.identity_key,
         "reference_source": result.reference_source,
         "reference_quality_tier": result.reference_quality_tier,
@@ -1754,6 +1759,14 @@ def _populate_pct_change(
     context: Dict[str, Any],
     provider: ScannerDataProvider,
 ) -> None:
+    # _build_symbol_context already resolved this exact enrichment's history.
+    # An unavailable projection is authoritative for this context too: later
+    # gates must not start another acquisition merely because pct is still None.
+    reference_snapshot = context.pop("_enrichment_reference_snapshot", None)
+    if context.get("_enrichment_reference_projected"):
+        return
+    if reference_snapshot is not None:
+        context["_enrichment_reference_projected"] = True
     if context.get("pct_change") is not None:
         return
     last_price = _safe_float(context.get("last_price"), None)
@@ -1766,19 +1779,21 @@ def _populate_pct_change(
         "currency": context.get("currency") or "USD",
         "localSymbol": context.get("local_symbol") or context.get("symbol"),
     }
-    reference_snapshot = _resolve_reference_snapshot(
-        provider=provider,
-        symbol=context["symbol"],
-        session_label=str(context.get("session") or ""),
-        scan_detail=scan_detail,
-        last_price=last_price,
-        current_volume=_safe_float(context.get("volume"), None),
-        intraday_avg_volume_20d=_safe_float(context.get("avg_volume_20d"), None),
-        rth_open_price=_safe_float(context.get("rth_open_price"), None),
-        rth_close_price=_safe_float(context.get("rth_close_price"), None),
-        ibkr_change_pct=_safe_float(context.get("ibkr_change_pct"), None),
-        persisted_pct_change=_safe_float(context.get("persisted_pct_change"), None),
-    )
+    if reference_snapshot is None:
+        reference_snapshot = _resolve_reference_snapshot(
+            provider=provider,
+            symbol=context["symbol"],
+            session_label=str(context.get("session") or ""),
+            scan_detail=scan_detail,
+            last_price=last_price,
+            current_volume=_safe_float(context.get("volume"), None),
+            intraday_avg_volume_20d=_safe_float(context.get("avg_volume_20d"), None),
+            intraday_history_end_received=context.get("intraday_history_end_received"),
+            rth_open_price=_safe_float(context.get("rth_open_price"), None),
+            rth_close_price=_safe_float(context.get("rth_close_price"), None),
+            ibkr_change_pct=_safe_float(context.get("ibkr_change_pct"), None),
+            persisted_pct_change=_safe_float(context.get("persisted_pct_change"), None),
+        )
     prev_close = reference_snapshot.get("prev_close")
     context["prev_close"] = prev_close
     context["ref_close_rth"] = prev_close
@@ -4307,6 +4322,7 @@ def _supplied_issuer_context(scan_detail):
     }
 
 
+@history_enrichment
 def _build_symbol_context(
     provider: ScannerDataProvider,
     symbol: str,
@@ -4416,6 +4432,9 @@ def _build_symbol_context(
     volume = intraday.current_intraday_volume if intraday and intraday.current_intraday_volume is not None else quote_volume
     avg_volume_20d = intraday.average_daily_volume_20d if intraday else None
     avg_volume_window_days = intraday.average_daily_volume_window_days if intraday else None
+    intraday_history_end_received = getattr(intraday, "historical_end_received", None)
+    if getattr(provider, "source_name", "") == "IBKR" and intraday_history_end_received is not True:
+        avg_volume_20d, avg_volume_window_days = None, None
     day_high = _safe_float(getattr(intraday, "day_high", None), None) if intraday else None
     persisted_rvol = _safe_float(getattr(quote, "persisted_rvol", None), None)
     if intraday is None:
@@ -4434,6 +4453,7 @@ def _build_symbol_context(
         last_price=last_price,
         current_volume=volume,
         intraday_avg_volume_20d=avg_volume_20d,
+        intraday_history_end_received=intraday_history_end_received,
         rth_open_price=session_open,
         rth_close_price=session_close,
         ibkr_change_pct=ibkr_change_pct,
@@ -4609,8 +4629,12 @@ def _build_symbol_context(
         "persisted_rvol": persisted_rvol,
         "ibkr_change_pct": ibkr_change_pct,
         "volume": volume,
+        "_enrichment_reference_snapshot": reference_snapshot,
         "avg_volume_20d": avg_volume_20d,
         "average_daily_volume_window_days": avg_volume_window_days,
+        "intraday_history_end_received": intraday_history_end_received,
+        "historical_outcome": reference_snapshot.get("historical_outcome"),
+        "historical_end_received": reference_snapshot.get("historical_end_received"),
         "reference_source": reference_snapshot.get("reference_source"),
         "reference_resolved": reference_snapshot.get("reference_resolved"),
         "continuity_usable_reference": reference_snapshot.get("continuity_usable_reference"),
@@ -5331,11 +5355,11 @@ def _is_payload_cacheable(payload: Dict[str, Any]) -> bool:
 
 
 def _shortlist_request_cache(client, symbols):
-    """Bound historical/identity baselines to one compatible natural TopN view."""
+    """Retain successful identity qualification, never prior-attempt history."""
     wanted = set(symbols)
     return deepcopy({key: value for key, value in (cycle_cache() or {}).items()
                      if isinstance(key, tuple) and len(key) >= 3
-                     and key[0] in {"qualified", "daily"} and key[1] == id(client)
+                     and key[0] == "qualified" and key[1] == id(client)
                      and isinstance(key[2], tuple) and len(key[2]) > 1 and key[2][1] in wanted
                      and value})
 
@@ -5377,8 +5401,8 @@ def _reassess_ross_watchlist(payload, symbols, *, news_maintenance, market_data_
         return []
     cache = cycle_cache()
     if cache is not None:
-        # Only successful same-client identity/daily-history requests from this
-        # fresh TopN snapshot. Never carry snapshot quotes or failed requests.
+        # Only successful same-client identity qualification from this TopN
+        # snapshot. History outcomes belong to one enrichment attempt only.
         cache.update(deepcopy(bundle.get("request_cache", {})))
     contexts = deepcopy([row for row in bundle["contexts"] if row["symbol"] in set(symbols)])
     candidates = _news_candidates_for_symbols([row["symbol"] for row in contexts],

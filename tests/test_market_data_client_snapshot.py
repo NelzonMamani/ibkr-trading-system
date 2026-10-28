@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from src.ibkr.market_data_client import HistoricalDataResult
+
 import asyncio
 from datetime import datetime, timedelta, timezone
 
@@ -162,8 +164,8 @@ class HistoryDummyIB(DummyIB):
     def reqHistoricalData(self, contract, endDateTime="", durationStr="3 D", barSizeSetting="1 day", whatToShow="TRADES", useRTH=True, formatDate=1):
         self.history_calls.append({"endDateTime": endDateTime, "durationStr": durationStr, "useRTH": useRTH})
         if useRTH:
-            return []
-        return [type("Bar", (), {"close": 99.0, "volume": 1000})()]
+            return HistoricalDataResult("COMPLETE_EMPTY",end_received=True)
+        return HistoricalDataResult("COMPLETE_BARS",(type("Bar", (), {"close": 99.0, "volume": 1000})(),),True)
 
 
 def test_history_helpers_retry_with_use_rth_false_when_primary_returns_zero_bars():

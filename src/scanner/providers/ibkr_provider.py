@@ -19,7 +19,7 @@ from src.adapters.brokers.ibkr.ibkr_connection_manager import (
     IbkrConnectionManager,
     get_shared_ibkr_connection_manager,
 )
-from src.ibkr.market_data_client import MarketDataClient
+from src.ibkr.market_data_client import MarketDataClient, historical_result, HistoricalVolumeResult
 from src.market_data.float_provider import FloatProvider
 from src.scanner.scanner_contract import ScannerRequest
 from src.market_data.candidate_identity import CandidateIdentity
@@ -470,15 +470,15 @@ class IbkrScannerProvider(ScannerDataProvider):
             f"exchange={getattr(contract, 'exchange', None) if contract is not None else None} "
             f"primaryExchange={getattr(contract, 'primaryExchange', None) if contract is not None else None}"
         )
-        bars = self.market_data_client.daily_bars_from_history(
+        bars = historical_result(self.market_data_client.daily_bars_from_history(
             contract if contract is not None else getattr(identity, "symbol", identity),
             lookback_days=lookback_days,
             use_rth=use_rth,
             end_datetime=end_datetime,
-        )
+        ))
         print(
             "[IBKR][PROVIDER][HISTORY][RESULT] "
-            f"symbol={candidate.symbol} raw_bars={len(bars)} normalized_bars={len(bars)}"
+            f"symbol={candidate.symbol} raw_bars={len(bars)} normalized_bars={len(bars)} outcome={bars.status} end_received={bars.end_received}"
         )
         return bars
 
@@ -487,8 +487,13 @@ class IbkrScannerProvider(ScannerDataProvider):
         volume = int(snapshot.volume) if snapshot.volume is not None else None
         avg_volume = None
         window_days = None
+        history = None
         try:
-            avg_volume, window_days = self._average_daily_volume(symbol)
+            volume_result = self._average_daily_volume(symbol)
+            avg_volume, window_days = volume_result
+            history = volume_result.history if isinstance(volume_result, HistoricalVolumeResult) else None
+            if history is None or not history.completed:
+                avg_volume, window_days = None, None
         except Exception:
             avg_volume, window_days = None, None
         return IntradayStats(
@@ -501,6 +506,8 @@ class IbkrScannerProvider(ScannerDataProvider):
             volume_velocity_5m=None,
             volume_velocity_15m=None,
             volume_data_quality_flag="IBKR_SNAPSHOT",
+            historical_outcome=history.status if history is not None else None,
+            historical_end_received=history.end_received if history is not None else None,
         )
 
     def get_float(self, symbol: str) -> Optional[int]:

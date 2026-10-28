@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from src.ibkr.market_data_client import HistoricalDataResult
+
 from types import SimpleNamespace
 
 from src.core.orchestrator import CoreOrchestrator
@@ -15,7 +17,7 @@ class _ClientStub:
         assert timeframe == "1m"
         assert lookback_bars >= 2
         assert use_rth is False
-        return self._bars
+        return HistoricalDataResult("COMPLETE_BARS" if self._bars else "COMPLETE_EMPTY",tuple(self._bars),True)
 
     def daily_bars_from_history(self, *args, **kwargs):
         self.daily_called = True

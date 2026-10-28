@@ -2754,7 +2754,12 @@ class CoreOrchestrator:
         except Exception as exc:
             print(f"[DATA][MISSING_INTRADAY_CANDLES] symbol={symbol} reason={exc}")
             return [], "none"
-        intraday_bars = list(bars or [])
+        from src.ibkr.market_data_client import historical_result
+        history = historical_result(bars)
+        if not history.completed:
+            print(f"[DATA][MISSING_INTRADAY_CANDLES] symbol={symbol} reason=history_{history.status}")
+            return [], "none"
+        intraday_bars = list(history)
         if not intraday_bars:
             print(f"[DATA][MISSING_INTRADAY_CANDLES] symbol={symbol} reason=empty_intraday_history")
             return [], "none"

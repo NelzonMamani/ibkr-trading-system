@@ -25,6 +25,7 @@ from src.ibkr.position_snapshot import BrokerPositionResult
 from src.domain.market_snapshot import MarketSnapshot
 from src.ibkr.market_data_client import (
     MarketDataSnapshot,
+    HistoricalDataResult,
     _clean,
     _market_data_type_flags,
     _returned_market_data_type,
@@ -82,11 +83,13 @@ class IbkrClient(EWrapper, EClient):
         self.market_data_type = market_data_type.upper()
         self.readonly_enabled = readonly_enabled
         self._req_id = 0
-        self._lock = threading.Lock()
+        self._pending_request_allocations: set[int] = set()
+        self._lock = threading.RLock()
         self._contract_events: Dict[int, threading.Event] = {}
         self._contract_details: Dict[int, List[ContractDetails]] = {}
         self._market_events: Dict[int, threading.Event] = {}
         self._market_data: Dict[int, Dict[str, Optional[float]]] = {}
+        self._historical_states: dict[int, dict] = {}
         self._historical_events: Dict[int, threading.Event] = {}
         self._historical_data: Dict[int, List[object]] = {}
         self._errors: Dict[int, Tuple[int, str]] = {}
@@ -218,6 +221,7 @@ class IbkrClient(EWrapper, EClient):
     def disconnect(self) -> None:  # type: ignore[override]
         print(f"[IBKR] Disconnecting client_id={self.client_id}")
         self._stop_event.set()
+        self._invalidate_historical_requests()
         self._invalidate_position_queries()
         try:
             try:
@@ -282,6 +286,9 @@ class IbkrClient(EWrapper, EClient):
                                self._next_valid_order_id or 0,
                                max(self._order_status_events, default=0),
                                max(self._order_state_registry, default=0)) + 1
+            self._pending_request_allocations.add(self._req_id)
+            if len(self._pending_request_allocations) > 1024:
+                self._pending_request_allocations.remove(min(self._pending_request_allocations))
             return self._req_id
 
     def _register_request(self, req_id: int, request_type: str, contract=None) -> None:
@@ -293,6 +300,7 @@ class IbkrClient(EWrapper, EClient):
                 raise RuntimeError("Request ID is already reserved for an order.")
             # Raw compatibility calls may supply their own positive request ID.
             # Registration must reserve that ID before a concurrent order can.
+            self._pending_request_allocations.discard(req_id)
             self._req_id = max(self._req_id, req_id)
             if request_type == "CONTRACT_DETAILS" and self._stop_event.is_set():
                 raise RuntimeError("Contract resolution stopped during disconnect.")
@@ -931,73 +939,134 @@ class IbkrClient(EWrapper, EClient):
             if kwargs:
                 raise TypeError(f"Unexpected reqHistoricalData kwargs: {sorted(kwargs.keys())}")
 
-            req_id = self._next_req_id()
-            event = threading.Event()
-            self._historical_events[req_id] = event
-            self._historical_data[req_id] = []
-            self._register_request(req_id, "HISTORICAL_DATA", contract)
-            print(
-                f"[IBKR][HIST_REQ] req_id={req_id} symbol={getattr(contract, 'symbol', None)}"
-            )
-
-            checkpoint()
-            super().reqHistoricalData(
-                req_id,
-                contract,
-                end_date_time,
-                duration_str,
-                bar_size_setting,
-                what_to_show,
-                int(bool(use_rth)),
-                int(format_date),
-                bool(keep_up_to_date),
-                chart_options,
-            )
-
-            self._raise_if_request_id_conflicted(req_id)
-            start = time.time()
-            timeout = self.snapshot_timeout_seconds
-
-            try:
-                while True:
-                    checkpoint()
-                    if event.is_set():
-                        break
-
-                    data = self._historical_data.get(req_id, [])
-                    if data:
-                        break
-
-                    if time.time() - start > timeout:
-                        break
-
-                    time.sleep(bounded_timeout(0.01))
-            except (AcquisitionCancelled, AcquisitionDeadlineExceeded):
-                # Market-data cancellation only; never an order cancellation.
-                self.cancelHistoricalData(req_id)
-                raise
-
-            with self._lock:
-                self._raise_if_request_id_conflicted(req_id)
-                data = list(self._historical_data.get(req_id, []))
-            if not data:
-                print(f"[IBKR][HIST_EMPTY_FINAL] req_id={req_id}")
-            else:
-                print(f"[IBKR][HIST_RETURN] req_id={req_id} bars={len(data)}")
-
-            return list(data)
+            return self._owned_historical_request(
+                self._next_req_id(), contract, end_date_time, duration_str,
+                bar_size_setting, what_to_show, int(bool(use_rth)), int(format_date),
+                bool(keep_up_to_date), chart_options)
 
         if args and isinstance(args[0], int):
-            req_id = int(args[0])
-            contract = args[1] if len(args) > 1 else kwargs.get("contract")
-            self._register_request(req_id, "HISTORICAL_DATA", contract)
-            self._historical_events.setdefault(req_id, threading.Event())
-            self._historical_data.setdefault(req_id, [])
-            return super().reqHistoricalData(*args, **kwargs)
+            return self._owned_historical_request(*args, **kwargs)
 
         raise TypeError(
             "reqHistoricalData requires either (contract, ...) or (reqId, contract, ...)"
         )
+
+    def _owned_historical_request(self, req_id, contract, endDateTime="",
+                                  durationStr="25 D", barSizeSetting="1 day",
+                                  whatToShow="TRADES", useRTH=1, formatDate=1,
+                                  keepUpToDate=False, chartOptions=None):
+        # Raw reqId compatibility now uses the same bounded result contract;
+        # there are no production fire-and-forget history consumers.
+        event = threading.Event()
+        state = {"status": "PENDING", "end_received": False, "bars": [],
+                 "event": event, "sent": False, "error_code": None,
+                 "streaming": bool(keepUpToDate),
+                 "deadline": time.monotonic() + self.snapshot_timeout_seconds}
+        with self._lock:
+            # Explicit raw IDs can never reuse retired/active IDs, even after
+            # bounded diagnostic metadata has been evicted. Allocated IDs come
+            # from the existing shared monotonic request/order allocator.
+            if (req_id in self._order_status_events or req_id in self._order_state_registry
+                    or req_id == self._last_reserved_order_id):
+                raise RuntimeError("Request ID is already reserved for an order.")
+            if req_id <= self._req_id and req_id not in self._pending_request_allocations:
+                raise RuntimeError("Historical request ID is already used or retired.")
+            if req_id in self._historical_states:
+                raise RuntimeError("Historical request ID already has an owner.")
+            self._register_request(req_id, "HISTORICAL_DATA", contract)
+            if self._stop_event.is_set() or not self.isConnected():
+                self._request_type_by_req_id.pop(req_id, None)
+                return HistoricalDataResult("DISCONNECTED", request_id=req_id)
+            if len(self._historical_states) >= 128:
+                self._request_type_by_req_id.pop(req_id, None)
+                return HistoricalDataResult("ATTEMPT_CAPACITY", request_id=req_id)
+            self._historical_states[req_id] = state
+            self._historical_events[req_id] = event
+            self._historical_data[req_id] = state["bars"]
+        print(f"[IBKR][HIST_REQ] req_id={req_id} symbol={getattr(contract, 'symbol', None)}")
+        try:
+            checkpoint()
+            # Atomic with disconnect/invalidation and order-ID discovery. SDK
+            # synchronous error/end callbacks may re-enter this same owner lock.
+            with self._lock:
+                self._raise_if_request_id_conflicted(req_id)
+                if (self._historical_states.get(req_id) is not state
+                        or state["status"] != "PENDING" or self._stop_event.is_set()
+                        or not self.isConnected()):
+                    state["status"] = "DISCONNECTED"
+                else:
+                    state["sent"] = True
+                    super().reqHistoricalData(req_id, contract, endDateTime, durationStr,
+                        barSizeSetting, whatToShow, int(bool(useRTH)), int(formatDate),
+                        bool(keepUpToDate), chartOptions or [])
+            # Wait only for a terminal owner state, never a first bar/error event
+            # interpreted as completion. Preserve the existing 5s native budget.
+            while True:
+                checkpoint()
+                with self._lock:
+                    self._raise_if_request_id_conflicted(req_id)
+                    if state["status"] != "PENDING":
+                        break
+                    if time.monotonic() >= state["deadline"]:
+                        state["status"] = "TIMEOUT"
+                        break
+                time.sleep(bounded_timeout(min(.01, max(0, state["deadline"] - time.monotonic()))))
+        except AcquisitionCancelled:
+            state["status"] = "CANCELLED"
+            raise
+        except AcquisitionDeadlineExceeded:
+            state["status"] = "TIMEOUT"
+            raise
+        except Exception:
+            state["status"] = "ERROR"
+            self._raise_if_request_id_conflicted(req_id)
+        finally:
+            self._retire_historical_request(req_id, state)
+        return HistoricalDataResult(state["status"], tuple(state["bars"]),
+            state["end_received"], req_id, state["error_code"], len(state["bars"]) if not state["end_received"] else 0)
+
+    def _retire_historical_request(self, req_id, state):
+        with self._lock:
+            owned = self._historical_states.get(req_id) is state
+            if owned:
+                self._historical_states.pop(req_id, None)
+                self._historical_events.pop(req_id, None)
+                self._historical_data.pop(req_id, None)
+                self._request_type_by_req_id.pop(req_id, None)
+            ambiguous = self._request_id_conflicted(req_id)
+            state["event"].set()
+        cancellation = "NOT_OUTSTANDING"
+        if owned and state["sent"] and (not state["end_received"] or state["streaming"]) and state["status"] != "DISCONNECTED":
+            if ambiguous:
+                cancellation = "SKIPPED_AMBIGUOUS_ID"
+            else:
+                try:
+                    super().cancelHistoricalData(req_id)
+                    cancellation = "SDK_CANCEL_RETURNED_NOT_BROKER_ACK"
+                except Exception as exc:
+                    cancellation = "SDK_CANCEL_ERROR_" + type(exc).__name__
+        print(f"[IBKR][HIST_RESULT] req_id={req_id} outcome={state['status']} "
+              f"end_received={state['end_received']} received_count={len(state['bars'])} "
+              f"retired=true cancellation={cancellation}")
+
+    def cancelHistoricalData(self, req_id):  # type: ignore[override]
+        with self._lock:
+            state = self._historical_states.get(req_id)
+            if state is None:
+                return None
+            state["status"] = "CANCELLED"
+        self._retire_historical_request(req_id, state)
+
+    def _invalidate_historical_requests(self):
+        with self._lock:
+            for state in self._historical_states.values():
+                state["status"] = "DISCONNECTED"
+                state["event"].set()
+            self._historical_states.clear()
+            for req_id in tuple(self._historical_events):
+                self._request_type_by_req_id.pop(req_id, None)
+            self._historical_events.clear()
+            self._historical_data.clear()
 
     def waitOnUpdate(self, timeout: float = 0.0) -> bool:
         updated = self._market_update_event.wait(timeout=timeout)
@@ -1287,21 +1356,22 @@ class IbkrClient(EWrapper, EClient):
 
     def historicalData(self, reqId: int, bar):  # type: ignore[override]
         with self._lock:
-            if self._request_id_conflicted(reqId):
+            state = self._historical_states.get(reqId)
+            if (state is None or state["status"] != "PENDING" or self._request_id_conflicted(reqId)
+                    or time.monotonic() > state["deadline"]):
                 return
-            self._historical_data.setdefault(reqId, []).append(bar)
+            state["bars"].append(bar)
 
     def historicalDataEnd(self, reqId: int, start: str, end: str):  # type: ignore[override]
         with self._lock:
-            if self._request_id_conflicted(reqId):
+            state = self._historical_states.get(reqId)
+            if (state is None or state["status"] != "PENDING" or self._request_id_conflicted(reqId)
+                    or time.monotonic() > state["deadline"]):
                 return
-            print(
-                f"[IBKR][HIST_DONE] req_id={reqId} bars={len(self._historical_data.get(reqId, []))}"
-            )
-            event = self._historical_events.get(reqId)
-            if event:
-                event.set()
-            getattr(self, "_request_type_by_req_id", {}).pop(reqId, None)
+            state["end_received"] = True
+            state["status"] = "COMPLETE_BARS" if state["bars"] else "COMPLETE_EMPTY"
+            state["event"].set()
+            print(f"[IBKR][HIST_DONE] req_id={reqId} bars={len(state['bars'])}")
 
     def accountSummary(
         self,
@@ -1451,8 +1521,11 @@ class IbkrClient(EWrapper, EClient):
                 if reqId in self._market_events:
                     self._market_events[reqId].set()
                     self._market_update_event.set()
-                if reqId in self._historical_events:
-                    self._historical_events[reqId].set()
+                history = self._historical_states.get(reqId)
+                if history is not None and history["status"] == "PENDING":
+                    history["status"] = "ERROR"
+                    history["error_code"] = errorCode
+                    history["event"].set()
                 if reqId in self._account_summary_events:
                     self._account_summary_events[reqId].set()
                 if reqId in self._scanner_events:
@@ -1752,6 +1825,7 @@ class IbkrClient(EWrapper, EClient):
         self._emit_execution_callback({"event_type": "positionEnd"})
 
     def connectionClosed(self):  # type: ignore[override]
+        self._invalidate_historical_requests()
         self._invalidate_position_queries()
         self._last_disconnect_reason = "connectionClosed"
         self._connection_event.clear()

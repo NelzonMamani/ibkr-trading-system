@@ -138,7 +138,7 @@ def test_native_history_deadline_cancels_request_without_wire_fallback(monkeypat
     monkeypatch.setattr(client, 'isConnected', lambda: True)
     requests, cancelled, waits = [], [], []
     monkeypatch.setattr(EClient, 'reqHistoricalData', lambda *args, **kwargs: requests.append(args))
-    monkeypatch.setattr(client, 'cancelHistoricalData', lambda req: cancelled.append(req))
+    monkeypatch.setattr(EClient, 'cancelHistoricalData', lambda self, req: cancelled.append(req))
     def sleep(seconds):
         waits.append(seconds)
         clock[0] += seconds

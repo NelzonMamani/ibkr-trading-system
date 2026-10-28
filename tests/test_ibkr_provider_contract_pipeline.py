@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from src.ibkr.market_data_client import HistoricalDataResult
 from types import SimpleNamespace
 
 from src.market_data.candidate_identity import CandidateIdentity
@@ -56,7 +57,7 @@ class DummyMarketDataClient:
 
     def daily_bars_from_history(self, contract_or_symbol, *, lookback_days: int = 25, use_rth: bool = True, end_datetime: str = ""):
         self.history_calls.append(contract_or_symbol)
-        return [SimpleNamespace(date="2026-03-17", close=10.0, volume=1000)]
+        return HistoricalDataResult("COMPLETE_BARS",(SimpleNamespace(date="2026-03-17", close=10.0, volume=1000),),True)
 
 
 def test_provider_get_daily_bars_uses_identity_backed_contract():

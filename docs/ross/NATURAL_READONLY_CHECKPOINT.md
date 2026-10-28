@@ -5940,3 +5940,71 @@ Natural supported-catalyst-to-intent progression remains UNPROVEN; PAPER/LIVE
 canonical risk integration is uncertified; listing provenance remains PARKED and
 fail closed. Five-position protections, GUI draft and all receipts remain.
 `PAPER_READY=NO`; `PAPER_READINESS_GATE=FAIL`.
+
+### Historical completion/ownership repair — bounded implementation (28 October)
+
+The saved investigation `9cdd603d467428d7678bde8d70353e2b1bd9d5f0`
+remains the evidence baseline, including the failed final audit and unavailable
+pre-connection position truth. Accepted main was independently rechecked at
+`07491e89a3d5e8a36db19cbd4996ba2acc77aae7`, tree
+`58b19a6397f6e9a1018ea8ac3364459f92217d88`, before implementation.
+The callback-delivery causes and missing final `openOrderEnd` remain unresolved;
+this repair neither diagnoses them nor promises successful enrichment.
+
+The existing native history owner now requires an actual `historicalDataEnd`
+before exposing bars or confirmed absence. First-bar arrival cannot finish a
+request. Typed outcomes distinguish COMPLETE_BARS/COMPLETE_EMPTY, TIMEOUT, ERROR,
+CANCELLED and DISCONNECTED; unavailable/unverified outcomes expose no bars.
+Native requests retain their existing5s wait and acquisition deadline. Both native
+API signatures now use this bounded, end-confirmed contract; the raw reqId form
+is no longer fire-and-forget. No production fire-and-forget consumer was found.
+Active ownership retires before cancellation on every exit. Late callbacks cannot
+recreate state; active/retired raw ID reuse and ambiguous order/request IDs fail
+closed. Only owned outstanding history (or an owned streaming subscription after
+its initial end) is cancelled. Disconnection does not cancel foreign work.
+
+MarketDataClient preserves completion provenance through provider, reference
+resolver, ADV and intraday consumers. Its existing ib_insync path observes real
+end/error callbacks, cleans up only its own future/container/hooks, and protects
+foreign replacement requests and connection epochs. Bare IBKR history lists and
+unwitnessed derived ADV values are unavailable. Original bar dates and all quote,
+RVOL, catalyst, position-truth and execution gates remain unchanged.
+
+**Explicit retry-policy change:** a single enrichment attempt reserves exact
+client/connection/contract/request-parameter identities before dispatch, with a
+128-entry ceiling, no eviction and fail-closed capacity. Nested existing owners
+share that attempt. Exact successes and failures are reused only in that attempt;
+the locked cache is closed and cleared on exit. There is no persistent negative
+cache or renewed budget. Distinct20D/25D, RTH/non-RTH, end times and contracts remain
+independent, as do legitimate later attempts. Only confirmed-empty RTH results
+permit the existing non-RTH fallback, once. Identity qualification may retain its
+existing cache; historical requests no longer inherit that longer-lived cache.
+Scanner gates project the already resolved context once, including authoritative
+unavailability, rather than reacquiring when percentage change remains missing.
+
+Guarded new controls exercise actual native → MarketDataClient → provider →
+resolver and actual scanner-cycle paths, not just standalone cache helpers.
+They cover complete/empty/partial/no-end/error/cancel/disconnect, stop propagation,
+late callbacks, ownership ambiguity, concurrent ib_insync requests, streaming
+cleanup, replaced futures, exact deduplication/capacity/closed scopes, distinct
+requests/later attempts and healthy fallback. Network, broker connections, order
+mutations and submissions are forbidden. Affected synthetic IBKR fixtures now
+supply explicit end witnesses; safety assertions were retained. Local affected
+sets:205passed6.36s; consuming set208passed9.03s; final unavailable-projection and
+history controls87passed2.82s. These overlap and are not additive or CI/natural
+acceptance. Development failures and logs remain in `/workspace/work/history-*`;
+no completed broad suite was rerun locally. Independent exact-head review and
+changed-head Linux/Windows CI receipts belong to this repair's accompanying draft
+PR; integration is gated on their success. DEPRECATION_LEDGER is unchanged:
+ownership remains in the existing modules, with no module retirement/migration.
+
+**ONE next action:** review and, only after successful exact-head review and
+Linux/Windows checks, integrate this bounded repair. No observation is authorized
+here; a later acquisition decision must separately account for the outstanding
+pre-connection position-truth item and unresolved final-audit completion. Historical
+receipts remain unchanged; no retroactive natural progression is claimed. Natural
+supported-catalyst → fresh setup/trigger → raw intent is still UNPROVEN. Five
+unmatched positions remain separate global entry blockers after formation and
+before canonical/risk admission. PAPER/LIVE risk certification remains outstanding;
+listing provenance is PARKED/fail closed, GUI draft preserved.
+`PAPER_READY=NO`; `PAPER_READINESS_GATE=FAIL`.

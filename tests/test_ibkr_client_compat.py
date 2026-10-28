@@ -138,9 +138,10 @@ def test_snapshot_enricher_uses_ib_style_req_mkt_data_without_signature_error(mo
     assert snapshots["AAPL"]["volume"] == 2000.0
 
 
-def test_req_historical_data_returns_bars_when_data_arrives_before_end_signal(monkeypatch):
+def test_req_historical_data_requires_end_after_bar_arrival(monkeypatch):
     client = _build_client()
     client.snapshot_timeout_seconds = 0.2
+    monkeypatch.setattr(client, "isConnected", lambda: True)
 
     contract = Contract()
     contract.symbol = "AAPL"
@@ -164,6 +165,7 @@ def test_req_historical_data_returns_bars_when_data_arrives_before_end_signal(mo
         def deliver():
             time.sleep(0.05)
             client.historicalData(req_id, {"close": 123.45})
+            client.historicalDataEnd(req_id, "", "")
 
         threading.Thread(target=deliver, daemon=True).start()
 
@@ -171,7 +173,9 @@ def test_req_historical_data_returns_bars_when_data_arrives_before_end_signal(mo
 
     bars = client.reqHistoricalData(contract)
 
-    assert bars == [{"close": 123.45}]
+    assert bars.completed and bars.end_received
+    assert list(bars) == [{"close": 123.45}]
+    assert not client._historical_data and not client._historical_events
 
 
 def test_disconnect_skips_join_when_called_from_network_thread(monkeypatch):

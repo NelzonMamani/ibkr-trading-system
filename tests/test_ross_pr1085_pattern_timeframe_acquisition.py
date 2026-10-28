@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from src.ibkr.market_data_client import HistoricalDataResult
+
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
@@ -45,7 +47,7 @@ class _HistoricalProviderClient:
                 "formatDate": formatDate,
             }
         )
-        return self.bars
+        return HistoricalDataResult("COMPLETE_BARS" if self.bars else "COMPLETE_EMPTY",tuple(self.bars),True)
 
 
 class _HistoryIB:
@@ -68,7 +70,7 @@ class _HistoryIB:
                 "formatDate": formatDate,
             }
         )
-        return self.bars
+        return HistoricalDataResult("COMPLETE_BARS" if self.bars else "COMPLETE_EMPTY",tuple(self.bars),True)
 
 
 @pytest.fixture(autouse=True)

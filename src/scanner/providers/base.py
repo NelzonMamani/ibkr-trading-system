@@ -45,6 +45,8 @@ class IntradayStats:
     volume_velocity_5m: Optional[int]
     volume_velocity_15m: Optional[int]
     volume_data_quality_flag: Optional[str]
+    historical_outcome: Optional[str] = None
+    historical_end_received: Optional[bool] = None
 
 
 class ScannerDataProvider(Protocol):

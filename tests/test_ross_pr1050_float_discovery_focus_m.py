@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from src.ibkr.market_data_client import HistoricalDataResult
+
 from quote_fixtures import current_broker_time
 
 import json
@@ -86,7 +88,7 @@ class _ControlledRuntimeProvider:
         volume = int(row.get("volume", 1_600_000))
         avg_volume = int(row.get("avg_volume", 200_000))
         rvol = round(volume / avg_volume, 2) if avg_volume else None
-        return IntradayStats(
+        return IntradayStats(historical_outcome="COMPLETE_BARS", historical_end_received=True,
             current_intraday_volume=volume,
             current_volume_source_label="PR1050_TEST",
             average_daily_volume_20d=avg_volume,
@@ -114,10 +116,11 @@ class _ControlledRuntimeProvider:
         symbol = str(getattr(identity, "symbol", identity)).upper()
         prev_close = self.get_prev_close(symbol)
         avg_volume, window = self.get_average_daily_volume(symbol, lookback_days)
-        return [
+        bars = [
             SimpleNamespace(date=f"2026-01-{idx + 1:02d}", close=prev_close, volume=avg_volume)
             for idx in range(window)
         ]
+        return HistoricalDataResult("COMPLETE_BARS" if bars else "COMPLETE_EMPTY",tuple(bars),True)
 
 
 class _DiscoveryWorkerStub:

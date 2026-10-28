@@ -171,7 +171,7 @@ def test_current_policy_tightening_rejects_old_authority(reassessment, tightenin
     assert c.run(policy=policy) == [] and c.calls == []
 
 
-def test_reassessment_reuses_only_exact_successful_history_identity_requests(reassessment, monkeypatch):
+def test_reassessment_reuses_identity_but_not_prior_attempt_history(reassessment, monkeypatch):
     from src.core.acquisition import cycle_cache
     from src.ibkr.market_data_client import MarketDataClient
     from src.scanner.providers.ibkr_provider import IbkrScannerProvider
@@ -196,9 +196,10 @@ def test_reassessment_reuses_only_exact_successful_history_identity_requests(rea
         return sample
     def history(*args, **kwargs):
         calls['history'] += 1
-        return [NS(date='20261019', close=5., volume=100_000)]
+        from src.ibkr.market_data_client import HistoricalDataResult
+        return HistoricalDataResult('COMPLETE_BARS',(NS(date='20261019', close=5., volume=100_000),),True)
     monkeypatch.setattr(md, '_snapshot_stock_uncached', quote)
-    monkeypatch.setattr(md, '_daily_history_uncached', history)
+    md.ib.reqHistoricalData=history
     provider = object.__new__(IbkrScannerProvider)
     provider.market_data_client = md
     provider.last_scan_details = {'symbol_details': {'JPM': {
@@ -213,15 +214,15 @@ def test_reassessment_reuses_only_exact_successful_history_identity_requests(rea
         assert ross._shortlist_request_cache(object(), ['JPM']) == {}
         assert ross._shortlist_request_cache(md, ['OTHER']) == {}
     c.payload['ross_watchlist_reassessment']['request_cache'] = retained
-    # Real provider/client wrappers below consume the helper-seeded cache; only
-    # the final context transformation is controlled to isolate request counts.
+    # Identity qualification is retained; history completion/outcome cache is
+    # attempt-local and must not survive into a later cached reconsideration.
     def rebuild(provider, symbol, session, **kwargs):
         provider.get_intraday_stats(symbol)
         return dict(deepcopy(c.row), quote_timestamp_utc=kwargs['quote_override'].timestamp_utc)
     monkeypatch.setattr(ross, '_build_symbol_context', rebuild)
     for _ in range(2):
         assert [r.symbol for r in c.run(market_data_client=md)] == ['JPM']
-    assert calls == dict(quote=3, history=1, qualify=1)
+    assert calls == dict(quote=3, history=3, qualify=1)
     with acquisition_scope(lambda: False):
         cycle_cache().update(retained)
         # Different history parameters and identities remain separate requests.
@@ -229,11 +230,11 @@ def test_reassessment_reuses_only_exact_successful_history_identity_requests(rea
         provider.get_daily_bars(target, 25)
         provider.get_daily_bars(target, 25, use_rth=False)
         provider.get_daily_bars(target, 25, end_datetime='explicit')
-        assert calls['history'] == 4
+        assert calls['history'] == 6
     # Leaving the original TopN snapshot restores the ordinary fresh-cycle path.
     with acquisition_scope(lambda: False):
         provider.get_intraday_stats('JPM')
-    assert calls == dict(quote=4, history=5, qualify=2)
+    assert calls == dict(quote=4, history=7, qualify=2)
 
 
 def test_multiple_positive_rows_slow_tail_keeps_leader_inside_outer_deadline(reassessment, monkeypatch):
