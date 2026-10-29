@@ -12,6 +12,7 @@ import inspect
 import json
 import logging
 import re
+import queue as queue_module
 import threading
 import time
 import sys
@@ -79,7 +80,7 @@ class TransportDiagnostic:
                 'order_send_exceptions', 'order_full_send', 'order_callback_entry', 'order_callback_return',
                 'end_callback_entry', 'end_callback_return', 'error_callback_entry',
                 'error_callback_return', 'reader_start', 'reader_exit', 'loop_start',
-                'loop_exit', 'reader_logged_exception', 'unknown_messages') + tuple(
+                'loop_exit', 'reader_logged_exception', 'reader_abnormal_exit', 'queue_exceptions', 'unknown_messages') + tuple(
                     stage+'_'+kind for stage in ('frame','put','get','decode','decoded')
                     for kind in ('ORDER','ORDER_END','ORDER_STATUS','ERROR')), 0))
         self.lock = threading.RLock()
@@ -121,7 +122,7 @@ class TransportDiagnostic:
                     'decoder_exception', 'frame_progress', 'queue_put', 'queue_get', 'order_query_begin',
                     'order_query_exception', 'order_query_end', 'order_callback', 'end_callback',
                     'error_callback', 'callback_exception', 'loop_start', 'loop_exit', 'order_cleanup',
-                    'socket_send_exception', 'socket_send', 'socket_recv_exception', 'socket_recv'}
+                    'socket_send_exception', 'socket_send', 'socket_recv_exception', 'socket_recv', 'queue_exception'}
                 if event not in events:
                     self.count('hook_errors')
                     event = 'unrecognized_observation'
@@ -225,6 +226,12 @@ class TransportDiagnostic:
     def _queue_depth(self, queue):
         with self.lock:
             self.counters['queue_depth_max'] = max(self.counters['queue_depth_max'], queue.qsize())
+
+    def _reader_exit_state(self, reader):
+        connected = reader.conn.isConnected()
+        if connected and not self.client._stop_event.is_set():
+            self.count('reader_abnormal_exit')
+        self.record('reader_exit', alive=connected)
 
     def _order_stage(self, stage, facts):
         if self.profile == 'final-orders' and self.order_window and facts.get('kind') != 'OTHER':
@@ -363,7 +370,7 @@ class TransportDiagnostic:
                     try:
                         return super().run()
                     finally:
-                        owner._safe('count', 'reader_exit'); owner._safe('record', 'reader_exit')
+                        owner._safe('count', 'reader_exit'); owner._safe('_reader_exit_state', reader)
             self.patch(sdk.reader, 'EReader', ObservedReader)
             base_decoder = sdk.decoder.Decoder
             class ObservedDecoder(base_decoder):
@@ -439,7 +446,13 @@ class TransportDiagnostic:
             queue = self.client.msg_queue
             original_put, original_get = queue.put, queue.get
             def put(item, *args, **kwargs):
-                result = original_put(item, *args, **kwargs)
+                try:
+                    result = original_put(item, *args, **kwargs)
+                except BaseException as exc:
+                    if owner.profile == 'final-orders':
+                        owner._safe('count', 'queue_exceptions')
+                        owner._safe('record', 'queue_exception', exception_class=type(exc).__name__)
+                    raise
                 owner._safe('count', 'queue_put')
                 owner._safe('_queue_depth', queue)
                 fact = owner._safe('observe', owner._facts, item)
@@ -449,7 +462,15 @@ class TransportDiagnostic:
                     owner._safe('record', 'queue_put', **fact)
                 return result
             def get(*args, **kwargs):
-                item = original_get(*args, **kwargs)
+                try:
+                    item = original_get(*args, **kwargs)
+                except queue_module.Empty:
+                    raise  # Ordinary SDK polling; not lost evidence.
+                except BaseException as exc:
+                    if owner.profile == 'final-orders':
+                        owner._safe('count', 'queue_exceptions')
+                        owner._safe('record', 'queue_exception', exception_class=type(exc).__name__)
+                    raise
                 owner._safe('count', 'queue_get')
                 fact = owner._safe('observe', owner._facts, item)
                 if fact:
@@ -615,7 +636,7 @@ class TransportDiagnostic:
                     and self.counters['reader_start'] == self.counters['reader_exit'] == 1
                     and self.counters['loop_start'] == self.counters['loop_exit'] == 1
                     and not any(self.counters[k] for k in
-                    ('order_schema_unknown', 'reader_logged_exception', 'unknown_messages', 'decoder_exception')))
+                    ('order_schema_unknown', 'reader_logged_exception', 'unknown_messages', 'decoder_exception', 'reader_abnormal_exit', 'queue_exceptions', 'recv_exceptions')))
                 sent = (self.counters['order_query_calls'] == self.counters['order_serialized'] ==
                         self.counters['order_socket_calls'] == 1 and self.counters['order_send_requested'] > 0
                         and self.counters['order_send_requested'] == self.counters['order_send_returned']

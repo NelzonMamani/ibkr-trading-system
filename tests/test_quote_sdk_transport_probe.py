@@ -456,14 +456,18 @@ def test_order_end_processing_gaps_report_last_positive_stage(orders_prepared,ga
     assert ('end_callback_not_observed' in proof['unknowns'])==(gap!='decode')
 
 
-def test_order_reader_exception_logs_no_payload_and_invalidates_absence(orders_prepared,caplog,tmp_path):
+@pytest.mark.parametrize('sdk_logging',[True,False])
+def test_order_reader_exception_logs_no_payload_and_invalidates_absence(orders_prepared,caplog,tmp_path,sdk_logging):
     c,d,raw=orders_prepared;c.reqAllOpenOrders()
     secret='PRIVATE_PAYLOAD_ACCOUNT_ORDER_SYMBOL'
+    caplog.set_level(logging.ERROR if sdk_logging else logging.CRITICAL+1,logger='ibapi.reader')
     raw.chunks=[RuntimeError(secret)]
     reader=sdk.reader.EReader(c.conn,c.msg_queue);reader.start();reader.join(2)
     assert not reader.is_alive()
     c.disconnect();d.close();proof=d.snapshot()
-    assert d.counters['reader_logged_exception']==1 and not proof['coverage_verified']
+    assert d.counters['reader_logged_exception']==int(sdk_logging)
+    assert d.counters.get('reader_abnormal_exit',0)==1
+    assert d.counters['recv_exceptions']==1 and not proof['coverage_verified']
     assert secret not in caplog.text and secret not in json.dumps(proof)
     from src.ibkr.evidence_safety import write_json,scan_artifacts
     write_json(tmp_path/'evidence.json',proof)

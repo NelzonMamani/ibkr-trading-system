@@ -6561,3 +6561,37 @@ wire/operator/audit controls remain green; the final Windows control is a change
 head CI requirement, not a local execution claim. New exact-head delta review
 and replacement CI receipts will be linked on the same draft PR1143. No inquiry,
 merge or readiness upgrade; the single next action above remains unchanged.
+
+CI follow-up: preserve run40859787829 at9ca2f888 (Linux1failed/3601passed/
+3skipped, reader-log control) and run40860190569 at81706076 (Windows targeted
+news-maintenance1failed/35passed, full Windows/cache/PowerShell later steps skipped;
+Linux outcome remains on that immutable run). The reader control depended on SDK
+logging being enabled; the existing operator console protection intentionally
+suppresses that logger. New deterministic enabled/disabled controls first failed
+because an abnormal reader exit had no independent marker. The diagnostic now
+records abnormal EReader exit while its connection remains live, and independently
+invalidates coverage on receive/queue exceptions. Actual original queue return/
+exception behavior is preserved; ordinary empty-queue polling is not an error.
+SDK logger configuration is NOT changed. Guarded affected set247passed2.79s;
+before/after logs remain /workspace/work/final-orders-disabled-logging-before.log
+and final-orders-logging-after.log. This is a diagnostic observability repair,
+not a historical callback-delivery claim or a relaxed test.
+
+The Windows cache failure is in existing
+test_independent_news_maintenance.test_thread_writers_merge_and_readers_never_see_partial_json:
+at least one writer returned cache_write_failed. The original assertion omitted
+its diagnostic payload, so it does NOT establish TimeoutError, PermissionError,
+production safety or harmless flakiness. Existing per-path/thread/process cache
+owner/read/publication source was inspected; none is changed in this bounded
+diagnostic task. Strengthen ONLY that assertion to retain failed rows/error types
+on any subsequent failure; all concurrency/read/merge/cleanup assertions remain.
+Do not suppress exceptions, enlarge cache timeouts or retry an unchanged head.
+The existing CI workflow now runs the three focused final-order modules and actual
+PowerShell5.1 parameter/argument checks BEFORE that independent cache barrier,
+so a cache failure cannot hide the requested Windows diagnostic evidence. It does
+not skip/weaken that barrier or make the job green if it fails. This targeted
+verification is justified by the newly blocked Windows evidence, not a status-only
+suite repetition. Any remaining cache failure is a separate unresolved gate;
+no cache repair is inferred or silently added. Final exact-head review and CI
+receipts remain on PR1143; all previous failures remain preserved. No broker
+inquiry, merge, ownership change or readiness upgrade is authorized.
