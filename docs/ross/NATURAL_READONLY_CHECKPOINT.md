@@ -7277,3 +7277,198 @@ semantics and PARKED/fail-closed listing provenance remain preserved. No broker
 inquiry, acquisition, preflight, observation, runtime rerun, holdings action,
 SDK change, timeout extension, gate relaxation or trading occurred.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## 29 October 2026 — One natural READ_ONLY observation prepared for 30 October
+
+PREPARATION ONLY: no helper, preflight, broker inquiry, acquisition or observation
+was executed. Main verified unchanged at literal accepted
+`a501c88bcc926bef87875f6352f210b19b6e438b`, tree
+`e66b6daa84f04ec95dce1155fde2a9a4e156cf14`; PR1144 integration verified. This
+checkpoint descends from BOTH saved1ec652debcb71d41b92edef8158f5a02fe80ef07 and
+6b8ecdbe9ed57e77d3d6fcf4a3d38070cdaed706. Their complete receipts/coverage
+decision and every historical root/outcome remain preserved. AGENTS search found
+none applicable; DEPRECATION_LEDGER read/unchanged. Original checkout/GUI draft
+and saved branches remain untouched. Documentation-only preparation is not merged
+and DOES NOT change the runtime pin. No completed suite or CI repeated.
+
+### Date, session and bounded time allowance
+
+At preparation the verified UTC/London clock was29October19:25:29 (rechecked
+19:27:14). Normal29October RTH ends20:00London. The full conservative child
+allowance is90s preflight +1260s observation supervisor (includes900s runtime and
+existing shutdown allowance) +90s package +90s seal, plus four30s owned-stop
+allowances and up to four10s pipe-drain allowances:1690s/28m10s, before operator
+review/preparation/network/filesystem slack. Remaining time is too tight for a
+reliable reviewed preparation with margin; this is NOT a claim that the current
+session gate itself has closed. Choose the NEXT eligible weekday instead.
+
+Intended date: FRIDAY30October2026. Accepted get_current_market_session uses
+America/New_York local09:30 <= clock <16:00 on weekdays, with configured holiday/
+early-close handling. Accepted default holiday/half-day sets are empty;30October
+is a Friday. New York remains EDT and London is GMT on this date, giving NORMAL
+permitted window13:30 <= Europe/London <20:00. No calendar/session override.
+Actual preflight remains authoritative; clock alone proves neither eligibility
+nor broker/environment/ownership safety.
+
+The prepared block is date-specific and further restricts STARTS to30October
+13:30–19:20London, checked BEFORE preparation and AGAIN immediately before the
+runner. At the latest permitted start40minutes remain, exceeding1690s child
+allowance by11m50s. This is conservative operator scheduling only; runtime gates,
+deadlines and budgets are unchanged. The block does not wait, loop or retry.
+Wrong date/time or main advancement stops for review; never silently change pin
+or date. If a prepared root is left after a stop, retain it, never reuse/delete it.
+
+### Actual accepted helper/runner and mandatory protections
+
+Preparation helper: docs/ross/PR1108_NATURAL_READONLY_ACCEPTANCE.ps1.
+Actual parameters: ExpectedCommit, Python, SourceCheckout, BaseDirectory,
+RuntimeSeconds. It checks Python3.13.3, local commit and space, creates a fresh
+C:\tmp\ro-<8hex>\s detached worktree, preserves old roots/original checkout, and
+prints a later runner command; it DOES NOT execute preflight/observation.
+The block loads this helper from the accepted Git blob and invokes it ONCE.
+
+Runner: scripts/certification/run_natural_readonly_observation.ps1.
+Actual parameters ONLY Python, Root, ExpectedCommit, RuntimeSeconds. The block
+passes900; existing supervisor budget is900+360=1260s. It invokes the runner ONCE;
+DO NOT additionally execute the helper's printed command. No ExpectedTree runner
+parameter is invented: block verifies literal tree before and after preparation,
+prepared HEAD/cleanliness and fresh worktree identity before launch.
+
+Use Windows PowerShell5.1 Desktop, existing
+C:\tmp\pr1091-cert-env-20260923\Scripts\python.exe (Python3.13.3, pinnedSDK and
+repository dependencies), PAPER TWS normally authenticated at127.0.0.1:7497 with
+Read-Only API enabled, UNUSED client71, normal scanner/market-data subscriptions,
+no running Ross runtime and all existing session/environment/inventory guards.
+The existing harness isolates caches/state, privately copies original order-ID
+state, preserves source/operator equality, READ_ONLY mutation auditing, genuine
+fresh timeframe inputs, normal TopN50/Watchlist15/Focus5 limits and mandatory
+canonical catalyst. Existing production news/source profile, total/tier/request
+budgets and freshness rules unchanged. No forced candidates/news/patterns/setups/
+triggers/intents/approvals. Preserve all five positions and their ownership veto.
+
+Owned graceful stop, final independent authoritative audit/disconnect, runtime
+identity/OS exits, empty final runtime inventory, zero mutations, equality and
+privacy/sealing remain mandatory. The natural harness uses its OWN default audit,
+not TransportDiagnostic; no further final-order diagnostic/instrumentation is
+needed. Standalone count0 audit AND transport FAIL/exit1 remain historical facts,
+not substitutes for the future observation's own terminal proof.
+
+### ONE complete operator block — prepared only, NOT executed here
+
+```powershell
+# ONE user-started observation on Friday30October2026; no automatic retry.
+& {
+    $ErrorActionPreference = 'Stop'
+    if ($PSVersionTable.PSEdition -ne 'Desktop' -or
+        $PSVersionTable.PSVersion.Major -ne 5 -or
+        $PSVersionTable.PSVersion.Minor -ne 1) {
+        throw 'Use Windows PowerShell5.1 Desktop.'
+    }
+    $LondonZone = [TimeZoneInfo]::FindSystemTimeZoneById('GMT Standard Time')
+    $EarliestStart = [datetime]::new(2026,10,30,13,30,0)
+    $LatestStart = [datetime]::new(2026,10,30,19,20,0)
+    $LondonNow = [TimeZoneInfo]::ConvertTimeFromUtc([datetime]::UtcNow, $LondonZone)
+    if ($LondonNow -lt $EarliestStart -or $LondonNow -gt $LatestStart) {
+        throw 'Prepared for30October2026,13:30-19:20 London only; nothing launched.'
+    }
+
+    $SourceCheckout = 'C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system'
+    $Python = 'C:\tmp\pr1091-cert-env-20260923\Scripts\python.exe'
+    $RuntimePin = 'a501c88bcc926bef87875f6352f210b19b6e438b'
+    $ExpectedTree = 'e66b6daa84f04ec95dce1155fde2a9a4e156cf14'
+    if (!(Test-Path -LiteralPath $SourceCheckout -PathType Container) -or
+        !(Test-Path -LiteralPath $Python -PathType Leaf)) {
+        throw 'Verified checkout/Python path missing; nothing launched.'
+    }
+    & git -C $SourceCheckout fetch origin main
+    if ($LASTEXITCODE -ne 0) { throw 'Fetch failed; nothing launched.' }
+    $fetchedMain = (& git -C $SourceCheckout rev-parse refs/remotes/origin/main | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or $fetchedMain -cne $RuntimePin) {
+        throw 'Main differs: stop for delta review; do not substitute a pin.'
+    }
+    $pinTree = (& git -C $SourceCheckout rev-parse ($RuntimePin + '^{tree}') | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or $pinTree -cne $ExpectedTree) {
+        throw 'Accepted tree mismatch; nothing launched.'
+    }
+
+    $beforeWorktrees = @(& git -C $SourceCheckout worktree list --porcelain)
+    if ($LASTEXITCODE -ne 0) { throw 'Cannot inventory existing worktrees.' }
+    $prepareText = (& git -C $SourceCheckout show ($RuntimePin + ':docs/ross/PR1108_NATURAL_READONLY_ACCEPTANCE.ps1') | Out-String)
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($prepareText)) {
+        throw 'Pinned preparation helper unavailable.'
+    }
+    $prepareArgs = @{
+        ExpectedCommit = $RuntimePin
+        Python = $Python
+        SourceCheckout = $SourceCheckout
+        BaseDirectory = 'C:\tmp'
+        RuntimeSeconds = 900
+    }
+    & ([scriptblock]::Create($prepareText)) @prepareArgs
+
+    $afterWorktrees = @(& git -C $SourceCheckout worktree list --porcelain)
+    if ($LASTEXITCODE -ne 0) { throw 'Cannot verify prepared worktree; preserve roots.' }
+    $addedWorktrees = @($afterWorktrees | Where-Object {
+        $_.StartsWith('worktree ') -and $beforeWorktrees -notcontains $_
+    } | ForEach-Object { $_.Substring(9) })
+    if ($addedWorktrees.Count -ne 1) {
+        throw 'Expected exactly one new worktree; preserve roots and inspect.'
+    }
+    $checkout = [IO.Path]::GetFullPath($addedWorktrees[0])
+    if ($checkout -notmatch '^C:\\tmp\\ro-[0-9a-f]{8}\\s$') {
+        throw 'Unexpected prepared path; preserve it without launching.'
+    }
+    $root = Split-Path -Parent $checkout
+    $actualHead = (& git -C $checkout rev-parse HEAD | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or $actualHead -cne $RuntimePin) { throw 'Prepared head mismatch.' }
+    $actualTree = (& git -C $checkout rev-parse 'HEAD^{tree}' | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or $actualTree -cne $ExpectedTree) { throw 'Prepared tree mismatch.' }
+    $dirty = @(& git -C $checkout status --porcelain)
+    if ($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0) { throw 'Prepared checkout is not clean.' }
+    $runner = Join-Path $checkout 'scripts\certification\run_natural_readonly_observation.ps1'
+    if (!(Test-Path -LiteralPath $runner -PathType Leaf)) { throw 'Existing runner missing.' }
+
+    $LondonNow = [TimeZoneInfo]::ConvertTimeFromUtc([datetime]::UtcNow, $LondonZone)
+    if ($LondonNow -lt $EarliestStart -or $LondonNow -gt $LatestStart) {
+        throw 'Start window expired; retain the prepared root. No preflight launched.'
+    }
+    Write-Host "Runtime pin: $RuntimePin; retained root: $root"
+    Write-Host 'PAPER127.0.0.1:7497; Read-Only API; unused client71; no Ross runtime.'
+    Write-Host 'This invokes ONCE. Do not also run the preparation helper printed command.'
+    Write-Host 'Use only the final DIAGNOSTIC ZIP announcement after successful privacy sealing.'
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $runner -Python $Python -Root $root -ExpectedCommit $RuntimePin -RuntimeSeconds 900
+    $operatorExit = $LASTEXITCODE
+    Write-Host "Operator exit: $operatorExit. Preserve all evidence; no automatic retry."
+    $global:LASTEXITCODE = $operatorExit
+}
+```
+
+Expected final sealed ZIP pattern:
+C:\tmp\ro-<8hex>\ross-natural-readonly-upload.zip.
+The helper's fresh root determines the absolute path. Share only the final
+DIAGNOSTIC ZIP announcement after successful sealing; raw state/root files stay
+private. Nonzero/preflight-rejected/partial receipts must be retained; packaging
+success alone never means observation success. Missing/failed seal means no
+verified shareable archive, even if a ZIP exists. No retry is implied by any exit.
+
+Review all five existing acceptance outcomes separately: terminal safety; genuine
+scans/Watchlist continuity; actual news requests/coverage; canonical catalyst
+qualification; Focus/setup/trigger/raw intent and decision/risk outcomes. Natural
+supported raw intent followed by POSITION_TRUTH_BLOCK_NEW_ENTRIES can prove
+formation. Five unmatched positions globally veto new-entry admission AFTER
+formation and BEFORE canonical artifact/risk admission, so zero downstream risk
+input is expected. No qualifying opportunity means no positive formation proof,
+not permission to rerun. This cannot certify positive risk admission, execution
+or PAPER readiness. Historical callback causes, archived OSError causality and
+separate cache failure remain unresolved; listing provenance stays PARKED/fail
+closed. No holdings adoption/liquidation/cancellation or suppression is allowed.
+
+Proportional checks only: exact main/tree/helper/runner source inspection, literal
+parameter/scheduling/budget review, source equality/whitespace and deterministic
+timezone conversion. No helper, preflight, broker inquiry, acquisition, observation,
+SDK operation or completed suite executed. GUI draft/holdings/all receipts intact.
+
+ONE pending action: user starts this SINGLE prepared observation on30October
+within13:30–19:20London when all ACTUAL prerequisites hold. Do not execute now,
+automatically retry, silently change date/pin or infer readiness from its result.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
