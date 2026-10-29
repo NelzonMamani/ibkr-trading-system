@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import MISSING, fields
 from pathlib import Path
 import sys
 
@@ -22,24 +23,29 @@ def _reset_scanner_state():
     set_config_overrides({})
 
 
-def test_watchlist_print_format(capsys):
-    set_config_overrides(
-        {
-            "RUN_MODE": "PAPER",
-            "SCANNER_DATA_SOURCE": "MOCK",
-            "SCANNER_MODE": "TEACHING",
-            "SCANNER_DEFAULT_SYMBOLS": ["AAPL", "TSLA"],
-            "ROSS_REQUIRE_NEWS": False,
-        }
-    )
-    scanner_runner.run_scanner_cycle(mode="READONLY")
+@pytest.mark.parametrize("populated", [True, False])
+def test_watchlist_print_format(capsys, populated):
+    # Formatting has no authority to create a natural candidate. Test both
+    # legitimate inputs directly instead of depending on wall-clock selection.
+    metrics = scanner_runner.CandidateMetrics
+    values = {"symbol": "SYNTH", "session_label": "RTH", "last_price": 5.0,
+              "gap_pct": 25.0, "gap_pct_resolved": 25.0, "rvol": 3.0, "data_quality_ok": True}
+    candidate = metrics(**{field.name: values.get(field.name) for field in fields(metrics)
+                           if field.default is MISSING and field.default_factory is MISSING})
+    rows = [candidate] if populated else []
+    scanner_runner._print_watchlist_and_focus(rows, rows, session_label="RTH")
     output = capsys.readouterr().out
     assert "[SCANNER][WATCHLIST]" in output
-    if "EMPTY WATCHLIST (valid)" not in output:
-        assert "price=$" in output
-        assert ("gap=" in output) or ("gap_pct_resolved=" in output)
-    assert "rvol=" in output
     assert "[SCANNER][FOCUS]" in output
+    assert output.count("count=" + str(len(rows))) == 2
+    if populated:
+        assert output.count("SYNTH session=") == 2
+        assert output.count("price=$5.00") == 2
+        assert output.count("gap=25.00%") == 2
+        assert output.count("rvol=3.00 ") == 2
+    else:
+        assert len(output.splitlines()) == 2
+        assert "price=$" not in output and "rvol=" not in output
 
 
 def test_watchlist_print_suppressed_when_unchanged(capsys):

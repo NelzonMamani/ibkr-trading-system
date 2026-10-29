@@ -229,7 +229,7 @@ def test_final_audit_always_disconnects_without_real_broker(monkeypatch, query_o
         def __init__(self, **kwargs):
             assert kwargs["readonly_enabled"] is True
             self.connected = False
-            self._thread = None
+            self._thread = SimpleNamespace(is_alive=lambda: self.connected)
             self._open_orders_snapshot = {}
             self._open_orders_event = SimpleNamespace(clear=lambda: None, wait=lambda timeout: query_ok)
         def connect(self):

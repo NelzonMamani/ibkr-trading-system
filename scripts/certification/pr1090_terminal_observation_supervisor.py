@@ -170,14 +170,19 @@ def final_broker_audit():
         result["connected_before_query"] = client.is_connected()
         thread = getattr(client, "_thread", None)
         result["network_thread_alive_before_query"] = bool(thread and thread.is_alive())
+        if not result["connected_before_query"] or not result["network_thread_alive_before_query"]:
+            raise RuntimeError("Final audit transport unavailable before query")
         query_started = time.monotonic()
         client.reqAllOpenOrders()
         result["end_received"] = bool(client._open_orders_event.wait(timeout=10))
         result["elapsed_seconds"] = time.monotonic() - query_started
         result["connected_after_wait"] = client.is_connected()
+        result["network_thread_alive_after_wait"] = bool(thread and thread.is_alive())
         result["broker_errors"] = list(getattr(client, "_broker_error_events", ()))
         if not result["end_received"]:
             raise RuntimeError("Final audit openOrderEnd missing")
+        if not result["connected_after_wait"] or not result["network_thread_alive_after_wait"]:
+            raise RuntimeError("Final audit transport unavailable after query")
         result["query_completed"] = True
         result["open_orders_count"] = len(client._open_orders_snapshot)
     except BaseException as exc:
