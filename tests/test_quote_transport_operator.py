@@ -122,7 +122,7 @@ def test_final_orders_requires_explicit_tree_before_any_probe(monkeypatch):
     with pytest.raises(RuntimeError,match='explicit reviewed tree'):payload.main()
 
 
-def test_final_orders_operator_filesystem_sealing_no_acquisition_or_operator_write(monkeypatch,tmp_path):
+def test_final_orders_operator_filesystem_sealing_no_acquisition_or_operator_write(monkeypatch,tmp_path,capsys):
     """Run existing operator phases with stub audit result and hard I/O tripwires.
 
     Only platform/offline-entry checks are modeled; all acquisition entry points
@@ -147,7 +147,19 @@ def test_final_orders_operator_filesystem_sealing_no_acquisition_or_operator_wri
     original=tmp_path/'original-order-state.json';original.write_text('PRIVATE_OPERATOR_CANARY')
     env=dict(os.environ,IBKR_ORDER_ID_STATE_PATH=str(original))
     monkeypatch.setattr(payload,'os',NS(name='nt',environ=env,chdir=lambda *a:None))
-    fake_sys=NS(argv=['operator','probe',str(root),'a'*40,'final-orders','b'*40],
+    import sys as actual_sys
+    monkeypatch.setattr(actual_sys,'stdout',actual_sys.stdout)
+    monkeypatch.setattr(actual_sys,'stderr',actual_sys.stderr)
+    class SysView(NS):
+        @property
+        def stdout(self):return actual_sys.stdout
+        @stdout.setter
+        def stdout(self,value):actual_sys.stdout=value
+        @property
+        def stderr(self):return actual_sys.stderr
+        @stderr.setter
+        def stderr(self,value):actual_sys.stderr=value
+    fake_sys=SysView(argv=['operator','probe',str(root),'a'*40,'final-orders','b'*40],
                 version_info=(3,13,3),path=[],modules={'sitecustomize':NS()})
     monkeypatch.setattr(payload,'sys',fake_sys)
     monkeypatch.setattr(payload.subprocess,'check_output',lambda *a,**kw:('b'*40+'\n').encode())
@@ -165,7 +177,20 @@ def test_final_orders_operator_filesystem_sealing_no_acquisition_or_operator_wri
         put('transport-diagnostic.json',proof)
         return False,proof
     monkeypatch.setattr(payload,'final_orders',audit)
+    from src.ibkr import evidence_safety
+    original_scan=evidence_safety.scan_artifacts
+    late=[False]
+    def scan(directory):
+        if not late[0]:
+            late[0]=True
+            print('PRIVATE_LATE_ORDER_SYMBOL_ID')  # Synthetic late callback after observer scope.
+        return original_scan(directory)
+    monkeypatch.setattr(evidence_safety,'scan_artifacts',scan)
     assert payload.main()==2  # Honest incomplete audit even with complete capture.
+    captured=capsys.readouterr()
+    (evidence/'probe-process.stdout.log').write_text(captured.out)
+    (evidence/'probe-process.stderr.log').write_text(captured.err)
+    assert 'PRIVATE_LATE_ORDER_SYMBOL_ID' not in captured.out+captured.err
     report=json.loads((evidence/'result.json').read_text())
     assert report['scope']=='FINAL_ORDERS_DIAGNOSTIC_ONLY' and report['status']=='DIAGNOSTIC_ONLY'
     assert report['source_state']==report['operator_state']=='PASS' and not report['scanner_attempted']
@@ -176,6 +201,6 @@ def test_final_orders_operator_filesystem_sealing_no_acquisition_or_operator_wri
         assert payload.main()==0
     archive=root/'final-orders-diagnostic-upload.zip'
     with zipfile.ZipFile(archive) as z:
-        assert all(b'PRIVATE_OPERATOR_CANARY' not in z.read(n) for n in z.namelist())
+        assert all(b'PRIVATE_OPERATOR_CANARY' not in z.read(n) and b'PRIVATE_LATE_ORDER_SYMBOL_ID' not in z.read(n) for n in z.namelist())
         assert not any('state' in n or n.startswith('quote-trace') for n in z.namelist())
     assert calls==[True]  # Packaging is filesystem only, never another audit.

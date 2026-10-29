@@ -6613,3 +6613,20 @@ pattern, preserving early failure evidence without masking the failing job.
 The independent news-cache failure remains separately unresolved; no cache source
 change is made. This new test correction requires changed-head review/CI, not an
 unchanged-head retry. All prior receipts and readiness/ownership limits remain.
+
+Late-output privacy control: a synthetic callback print injected during the
+post-context privacy scan first failed the existing operator filesystem control
+(/workspace/work/final-orders-late-console-before.log). The temporary silent
+context previously restored ordinary streams before that scan/return; a reader
+that failed cleanup could therefore print order identifiers/symbols into outer
+process logs after observer restoration. This is a demonstrated local diagnostic
+privacy gap, not evidence of such a leak in a historical receipt. Final-orders
+probe now installs process-lifetime silent sinks BEFORE broker construction;
+the temporary context restores to those sinks, with no unsuppressed transition.
+Package/seal phases remain filesystem-only and quote defaults are unchanged.
+The offline control captures simulated outer stdout/stderr artifacts and verifies
+both operator-state and late-order canaries absent from EVERY ZIP member. Three
+focused Python modules82passed; log final-orders-late-console-after.log. Original
+SDK behavior, ten-second wait, query ownership and source/operator checks are
+unchanged. Suppressed text is not transport proof. New exact-head review/CI will
+supersede cdd43d3c; no inquiry, automatic merge or readiness upgrade is authorized.

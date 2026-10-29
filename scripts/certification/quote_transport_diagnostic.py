@@ -198,6 +198,12 @@ def main():
             return len(text)
         def flush(self):
             pass
+    if profile == 'final-orders':
+        # This is a dedicated child. Even a failed/late reader must not write
+        # private order details after cleanup or during the final privacy scan.
+        # The nested context below restores to these silent process-lifetime sinks.
+        sys.stdout = SilentConsole()
+        sys.stderr = SilentConsole()
     # Native/SDK exception paths may print arbitrary payloads. The isolated
     # diagnostic retains structured evidence only, never those console strings.
     with contextlib.redirect_stdout(SilentConsole()), contextlib.redirect_stderr(SilentConsole()):
