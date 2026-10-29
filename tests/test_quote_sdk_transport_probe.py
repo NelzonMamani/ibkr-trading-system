@@ -605,3 +605,16 @@ def test_order_missing_handler_and_decoder_failure_are_incomplete(orders_prepare
     proof=drain_orders(c,d,raw,frame([53,1]))
     assert not proof['coverage_verified'] and not proof['absence_claims_valid']
     assert not c._open_orders_event.is_set()
+
+
+@pytest.mark.parametrize('operation',['put','get'])
+def test_order_original_queue_failure_preserves_exception_identity(orders_prepared,monkeypatch,operation):
+    c,d,raw=orders_prepared;c.reqAllOpenOrders()
+    failure=RuntimeError('PRIVATE_QUEUE_FAILURE')
+    def fail(*args):raise failure
+    if operation=='get':c.msg_queue.put(b'53\0' + b'1\0')
+    monkeypatch.setattr(c.msg_queue,'_'+operation,fail)
+    with pytest.raises(RuntimeError) as caught:
+        c.msg_queue.put(b'53\0' + b'1\0') if operation=='put' else c.msg_queue.get_nowait()
+    assert caught.value is failure and d.counters['queue_exceptions']==1
+    assert not d.snapshot()['coverage_verified'] and 'PRIVATE_QUEUE_FAILURE' not in json.dumps(d.snapshot())
