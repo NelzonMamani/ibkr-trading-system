@@ -204,7 +204,7 @@ def _install_runtime_harness(
     monkeypatch.setattr(CoreOrchestrator, "_maybe_force_flatten_all_positions_on_startup", lambda self: None)
     monkeypatch.setattr(CoreOrchestrator, "_maybe_run_scheduled_prep_update", lambda self, *args, **kwargs: None)
     healthy_position_truth = SimpleNamespace(block_new_entries=False, block_exits=False, healthy=True, require_reconciliation=False)
-    monkeypatch.setattr(CoreOrchestrator, "_resolve_position_truth_cycle", lambda self, as_of: healthy_position_truth)
+    monkeypatch.setattr(CoreOrchestrator, "_resolve_position_truth_cycle", lambda self, as_of, broker_connection_ready=True: healthy_position_truth)
     monkeypatch.setattr(CoreOrchestrator, "_resolve_fill_authority_cycle", lambda self: None)
     monkeypatch.setattr(CoreOrchestrator, "_resolve_lifecycle_authority_cycle", lambda self: None)
     monkeypatch.setattr(CoreOrchestrator, "_startup_recovery_allows_strategy_execution", lambda self: True)
