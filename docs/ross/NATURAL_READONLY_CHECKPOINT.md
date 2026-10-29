@@ -7133,3 +7133,147 @@ broker inquiry, observation, holdings action or trading was executed here.
 ONE next action: user reviews this pinned block and starts that SINGLE inquiry
 when all actual conditions hold. No retry or follow-on inquiry is authorized by
 its result. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## 29 October 2026 — Latest final-order receipt and bounded coverage decision
+
+Offline reconciliation of root `C:\tmp\qtransport-475cc611`; supplied ZIP SHA256
+`076131123d63156c20bf8f4957d940e5730d98f177254ddd9c5905c43df6003e` verified.
+Current GitHub main remains `a501c88bcc926bef87875f6352f210b19b6e438b`, tree
+`e66b6daa84f04ec95dce1155fde2a9a4e156cf14`; PR1144 is merged at that commit.
+This documentation descends from saved update1ec652debcb71d41b92edef8158f5a02fe80ef07
+and carries it forward completely, including all earlier receipts and the
+qtransport-2ad3bad8 count0/FAIL receipt. Original checkout/roots/saved branches
+remain untouched. Applicable AGENTS search found none; DEPRECATION_LEDGER read
+and unchanged because no owner/module is retired or replaced. No attachment
+instructions or archived operator script were executed.
+
+### Direct archive verification
+
+- All2686 source manifest entries are unchanged before/after and match the exact
+  accepted Git tree:33 raw blob matches,2653 Windows CRLF checkout matches.
+  Archived operator.py matches accepted code after newline normalization AND its
+  unmodified hash matches result.json. All six archived SDK source hashes match
+  pinned9.81.1.post1 source. This is filesystem/source verification, not acquisition.
+- final-order-audit.json reports query_completed/end_received=true,
+  open_orders_count=0, elapsed0.10214289976283908s, unchanged10s limit, connection
+  and callback loop alive before/after wait, disconnected=true, no audit error
+  or observer cleanup failure. Count is an end-confirmed open-order snapshot,
+  not continuous inventory and never a position snapshot.
+- Exactly one query method/serialization/socket call; ID16/version1,9bytes fully
+  sent, no short send/send exception. All ORDER_END frame/put/get/decode/decoded
+  counts are1; native end entry/return are1. Decoder entry/return totals11/11;
+  queue put/get10/10; frames11. Full send is local acceptance only, not broker
+  acknowledgement or invented request-token correlation.
+- End callback record0.172936s and end decoder return0.172978s precede audit
+  finalization0.173228s (sequence7). Receive entered6; same-proxy close entry8
+  occurred on the audit-finalization thread; receive failure9 recorded both
+  errno/winerror10038 and OVERLAPS_CLOSE; close return10 followed. Causality is
+  explicitly UNKNOWN. These are wrapper observations, not kernel causal proof.
+- Reader/loop start/exit each1; close entry/return1, close failures0. Reader exit
+  at0.173872s, loop exit0.374467s; hooks restored and both stopped. Mutation counts
+  place/modify/cancel all0; source/operator PASS; initial/final inventories
+  completed and empty; probe did not time out; scanner_attempted=false.
+- Privacy probe/package/seal passed; independent existing sanitizer scan of ALL
+  20 extracted ZIP members passed with0occurrences.29 records, maximum encoded
+  record2055bytes, within64x4096 limits. records_dropped/oversize/hook/schema/
+  unknown-message/decoder/reader-abnormal/queue failures are0. Background42 and
+  repeated-detail1 omissions are explicit policy-limited detail, not hidden drops.
+  Query-window error counters are not a claim of no global/startup broker messages.
+- The SOLE nonzero coverage-invalidating counter is recv_exceptions=1.
+  coverage_verified/absence_claims_valid=false, transport_evidence_incomplete=true;
+  result/outer-status preserve overall FAIL/probe exit1/final exit1. No archive is
+  rewritten, no exit0 inferred and no earlier failure is retroactively explained.
+
+Receipt-specific offline assertions and source/privacy verification are saved at
+/workspace/scratch/final-order-coverage-decision/receipt-verification.json.
+They are not CI, runtime reruns or newly certified production behavior.
+
+### Explicit three-boundary contract (existing owners, no relaxed gate)
+
+| Boundary | Authority, pass evidence and honest failure meaning |
+| --- | --- |
+| Query delivery/completion through authoritative acceptance | final_broker_audit153-195 owns fresh client/event reset, sole dispatch,10s wait, native end and live connection/callback-loop checks. query_completed/count are its snapshot authority. Diagnostic method/send/frame/queue/decoder/native callback RETURN facts are separate corroboration. A full send or end-entry alone never suffices. Missing end, inactive transport at acceptance, dispatch failure or stale-instance completion stays unavailable. Missing/failed decoder or callback return cannot certify a complete query trace even if a native event was set. |
+| Post-completion transport observations | Preserve EVERY receive/error/schema/queue/reader/capture counter and its available ordering. In this receipt there is a complete positive end chain before finalization and then an unresolved receive error during close. Do not call it harmless, assign syscall causality or certify uninterrupted transport. Current whole-lifecycle coverage predicate still fails on that error; transport absence claims remain invalid. A query-success fact is not an exemption for later failures. |
+| Owned cleanup and final safety | Disconnect, both reader/loop stops, hook restoration, verified process exit/inventory, zero mutations, source/operator equality and privacy sealing each require their own evidence. Close failure, leak, restoration failure, missing inventory or unsafe mutation/equality/privacy evidence fails the relevant safety/terminal/package gate even when the query completed. This receipt confirms the bounded probe's cleanup/safety facts, not natural-runtime terminal acceptance. |
+
+No new runtime query_coverage_verified boolean is fabricated from the archive or
+added to production. Positive end/return facts are not transport-absence claims.
+In particular absence_claims_valid=false is NOT an assertion that the native
+end-confirmed zero-order snapshot is unavailable; its scope is transport negative
+inference, not holdings or inventory authority.
+
+Source assessment: TransportDiagnostic.snapshot655-689 intentionally covers the
+WHOLE observed lifecycle through restoration/reader cleanup. PR1144 explicitly
+preserved its all-non-timeout-receive-error precondition; caller
+quote_transport_diagnostic.py280-288/338-361 preserves audit result separately and
+sets overall failure on invalid transport coverage. It does combine domains for
+a conservative DIAGNOSTIC overall result; it does NOT erase query_completed/count.
+That is the reviewed contract, not a demonstrated implementation defect. A claim
+that post-end10038 is harmless, or changing the lifecycle predicate to exclude it,
+would be a further policy change unsupported by syscall causality. No such
+correction is justified or needed to interpret this successful audit honestly.
+No production/test/launcher changes or added instrumentation are made.
+
+### Adversarial assessment and carried-forward proof
+
+| Case | Required disposition under the separated contract |
+| --- | --- |
+| Independent receive failure before end | Query unavailable without authoritative end/live acceptance; all error evidence retained; transport gate fails. Never infer0 from partial/empty data. |
+| Error after end signal but before accepted live-after-wait check | End signal alone does not authorize completion; failed live check rejects query. Do not classify by end timing. |
+| Independent receive loss after accepted complete end/returns | Preserve the historical query snapshot fact, retain unexpected post-completion failure/UNKNOWN cause and FAIL whole-lifecycle transport. It does not become harmless or authority for selection/execution. |
+| Incomplete decoder/native callback return or handler error | Do not certify complete positive query trace from entry/event alone; current exception/hook/schema failures invalidate transport. An ambiguous cut point cannot be repaired by deleting later counters. |
+| Close failure, reader leak, failed hook restoration | Query fact does not rescue cleanup. Actual audit disconnect errors leave disconnected=false; observer cleanup failure/reader non-stop invalidates diagnostic coverage; terminal safety requires its own successful cleanup/process proof. |
+| Lost/oversize records, observation failure or unplaceable events | Absence/coverage invalid, including loss only discovered during finalization. Do not assume all missing evidence was after end; preserve explicit counters/unknowns. |
+| Late/stale end or order event | Old instance cannot complete the fresh audit; pre-dispatch event is cleared. Events after the snapshot cannot create reusable authority or a continuous zero-orders claim; contradictory/unplaceable evidence remains incomplete. |
+
+Relevant guarded source controls ALREADY passed at reviewed PR1144 head/CI40929046617
+and are carried forward, not rerun for status: tests/test_final_order_audit_completion.py
+completed/partial/no-end/error/inactive/late-instance/observer-failure/stop cases;
+tests/test_quote_sdk_transport_probe.py independent-before/after-end and owned/
+concurrent-close controls, decoder/handler and dispatch gaps, reader join failure,
+restoration retry, saturation, instance isolation and quote defaults. All95 focused
+controls passed locally/independently and on Windows; Linux3618/3skip and
+Windows3620/1skip receipts remain on PR1144. Windows closed-socket10038 proves
+that specific local error behavior, not causality of either archived receive error.
+No failing-before production defect is claimed; no new repair PR, repair review
+or changed-head production CI is warranted for this documentation decision.
+
+### Natural Ross critical path — stop the transport-diagnostic loop
+
+The EXISTING natural supervisor calls final_broker_audit() WITHOUT an observer
+(pr1090_terminal_observation_supervisor.py383-385). Existing
+src/ibkr/shutdown_evidence.py285-291 requires query_completed AND disconnected;
+its validate_terminal/finalize_report also enforce ordered hooks, process identity/
+exit/inventory, mutation checks and artifact/privacy proof. natural_readonly_operator.py
+validates that terminal receipt separately. It does NOT require a final-orders
+TransportDiagnostic exit0 or erase its safety gates because this standalone query
+completed. Therefore no coverage-policy change or additional targeted inquiry is
+needed as a prerequisite merely to PREPARE natural validation. Every future
+natural observation must still produce its OWN authoritative final audit and ALL
+terminal safety evidence; this receipt cannot be transplanted into it.
+
+ONE next action: prepare ONE900-second natural Ross READ_ONLY observation for
+user review at literal accepted a501c88bcc926bef87875f6352f210b19b6e438b/tree
+e66b6daa84f04ec95dce1155fde2a9a4e156cf14 with EXISTING
+scripts/certification/run_natural_readonly_observation.ps1 (RuntimeSeconds900,
+existing1260s supervisor), preserving all normal-session, natural-selection,
+freshness, acquisition budgets, ownership/mutation/equality/shutdown/privacy
+bounds. Do NOT execute it in this task. Defined information gain: first saved
+joint natural validation at this pin of PR1140 end-confirmed history/attempt-local
+deduplication, PR1141 initialized authoritative position truth and repaired final
+audit lifecycle after a real bounded Ross session. This is not an unchanged run
+solely hoping for a catalyst. Review terminal safety, real scans/Watchlist,
+actual news coverage, canonical qualification and downstream formation separately.
+If a natural supported opportunity occurs, raw intent plus
+POSITION_TRUTH_BLOCK_NEW_ENTRIES may prove formation; five unmatched positions
+must still block canonical/risk new-entry admission. Positive risk admission,
+execution and PAPER readiness are NOT certified. No opportunity remains negative
+evidence, never authority for automatic retry. No additional diagnostic inquiry,
+source expansion or forced progression is proposed.
+
+Archived count0/FAIL receipts, historical callback cause, separate unclassified
+cache failure, five positions/global ownership veto, GUI draft, PR1140-1143
+semantics and PARKED/fail-closed listing provenance remain preserved. No broker
+inquiry, acquisition, preflight, observation, runtime rerun, holdings action,
+SDK change, timeout extension, gate relaxation or trading occurred.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
