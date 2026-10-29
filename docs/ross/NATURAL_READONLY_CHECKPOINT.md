@@ -6630,3 +6630,152 @@ focused Python modules82passed; log final-orders-late-console-after.log. Origina
 SDK behavior, ten-second wait, query ownership and source/operator checks are
 unchanged. Suppressed text is not transport proof. New exact-head review/CI will
 supersede cdd43d3c; no inquiry, automatic merge or readiness upgrade is authorized.
+
+## 29 October 2026 — PR1143 acceptance/integration; prepared inquiry NOT AUTHORIZED
+
+Controlled integration was explicitly authorized only after acceptance review.
+Verified unchanged base5e03ce25b646181c51eccf029c2957c18c3470b8, PR1143 head
+c15c1f98fb54a455f8f3bde99bf92e0b98f9cc0b, independent agent review5696795396,
+no newer blocking findings/unresolved threads, successful CI40863612966 and tested
+merge4dbd7c2288d6da7abf0833c787e9cf0689ca3b04. Tested/reviewed tree is
+ab7d9f40cee17273c7236cc46b617d21f0aadc0a. Linux3605passed/3skipped;
+Windows3607passed/1skipped, including focused82, actual PowerShell5.1, news/cache,
+float, inventory, exit propagation and stub harness checks. Existing receipts
+were used; no completed suite was rerun for reconciliation. The saved plan
+148ca350, all historical failures/superseded reviews and the corrected PowerShell
+inference remain preserved above.
+
+Acceptance comparison:
+
+| Saved contract | Source/receipt disposition |
+| --- | --- |
+| Sole actual client/query,10s/end authority | supervisor.final_broker_audit153 constructs one native client, sends one query and alone requires end+active transport. Observer cannot supply completion. Default audit unchanged. |
+| No scanner/quotes/extra cleanup query/retry | quote_transport_diagnostic.final_orders110 calls that owner once; explicit profile branch279 bypasses acquire(), quote client and quote cleanup. No news maintenance or cache publication starts. |
+| Bounded honest stage evidence | TransportDiagnostic keeps64x4096 record bounds, startup cap/reserved final records, aggregation/omission/drop counters and unknown reasons. Actual SDK controls cover schema/handler/queue/decoder/reader gaps; short send never establishes full local acceptance. |
+| Cleanup and equality | Owned audit finally disconnect, observer restoration/reader checks, mutation counters, source/operator manifests and final process inventory remain mandatory. Fault/stop/restore controls stay fail closed. |
+| Privacy including late callbacks | Final-orders lifetime silent sinks installed before broker construction; whitelist outputs and every-member sealed-ZIP canaries cover late cleanup/post-context output. No raw order/account payload exports. |
+| Windows parameters/pins | Accepted launcher exposes ONLY ExpectedCommit, DiagnosticProfile, ExpectedTree; real5.1 binding/actual three child6/8 argument checks passed. Final-orders requires literal commit/tree; no old branch fallback. |
+| Default quotes | Default remains quotes; existing quote controls pass; no raw broker run performed to certify it. |
+
+### Explicit disposition of the unclassified Windows news-cache failure
+
+Failed run40860190569 (head81706076), Windows job123401239153, test
+`tests/test_independent_news_maintenance.py::test_thread_writers_merge_and_readers_never_see_partial_json`:
+1failed/35passed. At least one of24 concurrent synthetic writers returned
+cache_write_failed while another thread read a seeded store. The old assertion
+omitted failed-row diagnostics; the captured log does NOT identify error type,
+which write failed, OS denial versus lock timeout, or its precise cause. Production
+CanonicalNewsEvidenceStore.write224/store_owner behavior was inspected and is
+unchanged. The test now prints failed diagnostics without weakening any read,
+merge, completion or cleanup assertion. Later passing targeted/full checks do
+NOT classify the earlier failure or establish that it is harmless/resolved.
+
+Scope-based acceptance decision: this uncertainty does NOT block integration of
+PR1143 and does NOT itself block a LATER separately authorized final-orders-only
+PAPER diagnostic. That explicit route never calls CanonicalNewsEvidenceStore,
+starts NewsMaintenance, scans, fetches quotes/news or publishes operational cache;
+its own source/operator/mutation/cleanup/privacy owners and single audit are
+independently covered, with no running Ross runtime permitted. Its source scope
+cannot exercise or rely on the concurrent news-store writer that failed. This
+is NOT general news-cache certification. The failure remains a separate news/
+concurrency/natural-runtime and PAPER-readiness acceptance gap; investigate it
+before claiming those broader properties. No speculative cache repair, suppressed
+error, timeout increase or relaxed concurrency test was made.
+
+After acceptance, marked ready and merged with expected-head guardc15c1f98 and
+merge method. Accepted main/merge: `7e918815f623d5f34bf349d9af72f0098d6a3ec1`.
+Fetched main tree: `ab7d9f40cee17273c7236cc46b617d21f0aadc0a`, exactly the
+reviewed/tested tree. PR1143 acceptance review receipt6495962289; integration
+receipt6496016532. The actual accepted launcher was inspected after integration.
+DEPRECATION_LEDGER was read and remains unchanged; no applicable AGENTS.md was
+found in checkout/workspace ancestors. Original checkout, GUI draft and saved
+plan/history/position/diagnostic branches remain untouched. This checkpoint-only
+branch is NOT merged and does not alter the accepted runtime pin above.
+
+### ONE prepared operator block — NOT YET AUTHORIZED TO RUN
+
+There is NO execution authorization in this task. The gate is deliberately false.
+Do not change it or execute an inquiry until separate explicit authorization.
+Later conditions must include Windows PowerShell5.1 Desktop, configured normal
+RTH without override, PAPER TWS127.0.0.1:7497 with Read-Only API, unused client71,
+no running Ross runtime, and the existing verified Python3.13.3/SDK environment.
+The block obtains the existing accepted launcher from its immutable Git object,
+not the potentially older original working-tree file. It changes no original
+checkout files or historical roots. Only the existing launcher creates the fresh
+isolated qtransport root; its own120s/30s probe supervision,10s audit wait,
+cleanup/equality/mutation/inventory/privacy and90s package/seal bounds remain.
+Exactly one launcher invocation, no retry or second audit. No new harness.
+
+```powershell
+# PREPARED ONLY — NOT YET AUTHORIZED TO RUN.
+& {
+    $ErrorActionPreference = 'Stop'
+    $PaperInquiryAuthorized = $false
+    if (-not $PaperInquiryAuthorized) {
+        throw 'NOT AUTHORIZED: separate approval for this single PAPER inquiry is required.'
+    }
+    if ($PSVersionTable.PSEdition -ne 'Desktop' -or
+        $PSVersionTable.PSVersion.Major -ne 5 -or $PSVersionTable.PSVersion.Minor -ne 1) {
+        throw 'Use Windows PowerShell5.1 Desktop.'
+    }
+    $SourceCheckout = 'C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system'
+    $Python = 'C:\tmp\pr1091-cert-env-20260923\Scripts\python.exe'
+    $RuntimePin = '7e918815f623d5f34bf349d9af72f0098d6a3ec1'
+    $ExpectedTree = 'ab7d9f40cee17273c7236cc46b617d21f0aadc0a'
+    if (!(Test-Path -LiteralPath $SourceCheckout -PathType Container) -or
+        !(Test-Path -LiteralPath $Python -PathType Leaf)) {
+        throw 'Verified original checkout/Python path missing; nothing launched.'
+    }
+    & git -C $SourceCheckout fetch origin main
+    if ($LASTEXITCODE -ne 0) { throw 'Fetch failed; nothing launched.' }
+    $currentMain = (& git -C $SourceCheckout rev-parse refs/remotes/origin/main | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or $currentMain -cne $RuntimePin) {
+        throw 'Main advanced/differs: stop for delta review; do not substitute a pin.'
+    }
+    $actualTree = (& git -C $SourceCheckout rev-parse ($RuntimePin + '^{tree}') | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or $actualTree -cne $ExpectedTree) { throw 'Accepted tree mismatch.' }
+    $launcherText = (& git -C $SourceCheckout show ($RuntimePin + ':scripts/certification/run_quote_transport_diagnostic.ps1') | Out-String)
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($launcherText)) {
+        throw 'Accepted existing launcher unavailable; nothing launched.'
+    }
+    Write-Host 'ONE final-orders diagnostic only; no automatic retry.'
+    Write-Host 'Normal RTH; PAPER127.0.0.1:7497; Read-Only API; unused client71; no Ross runtime.'
+    Write-Host 'Fresh root/absolute ZIP will be announced by the existing launcher.'
+    $launchArgs = @{
+        ExpectedCommit = $RuntimePin
+        DiagnosticProfile = 'final-orders'
+        ExpectedTree = $ExpectedTree
+    }
+    & ([scriptblock]::Create($launcherText)) @launchArgs
+    if ($global:LASTEXITCODE -ne 0) {
+        throw 'Nonzero launcher exit: retain all evidence; do not retry automatically.'
+    }
+}
+```
+
+Expected ZIP basename is EXACTLY `final-orders-diagnostic-upload.zip`, under the
+launcher's fresh `C:\tmp\qtransport-<8-hex>\` root. The random suffix cannot be known
+before execution because the accepted launcher has no Root parameter; do not
+invent one. Its privacy-verified final announcement supplies the concrete absolute
+path. Preserve every old root and all new exits/artifacts, including nonzero ones.
+Never announce/upload an unsealed or privacy-failed archive manually.
+
+| Actual result | What it can establish |
+| --- | --- |
+| DIAGNOSTIC_COMPLETE/probe0, all validations/sealing pass | Capture complete plus end-confirmed audit/disconnect under existing owner. Inspect audit and transport separately, including send bytes/short sends/absence_claims_valid; exit0 alone is not broker acknowledgement, natural Ross success, holdings reconciliation or PAPER readiness. |
+| DIAGNOSTIC_ONLY/probe2 with complete coverage, audit incomplete | Bounded transport stages can identify last positive observation/unknowns. Missing end means order inventory UNKNOWN; no count0 inference. Preserve the receipt; no automatic retry. |
+| FAIL/probe1, incomplete transport or failed guard/cleanup/equality/mutation/inventory | No valid absence claims from incomplete evidence. A separately reported end is not complete transport proof. Retain exact failure and root. |
+| Supervisor timeout124/unverified exit, package/seal/privacy failure | No completed trustworthy diagnostic inferred. No shareable ZIP announcement unless the actual privacy/seal owner succeeds; retain local evidence and do not retry. |
+
+A full socket return proves local acceptance only, never TWS/server acknowledgement
+or processing of that exact request. End stream has no request ID: retain honest
+fresh-instance/single-query scope. Zero orders is permitted only with authoritative
+completion; it never means zero positions. Five unmatched positions/global entry
+veto remain untouched. Historical timeout/order-callback causes and natural positive
+progression remain unproven. No inquiry, preflight, observation, holdings action or
+trading occurred during this acceptance/preparation task.
+
+ONE next action: obtain SEPARATE explicit authorization for this one prepared
+single diagnostic when its required conditions hold; leave its execution gate
+false until then. No automatic merge of this or any subsequent documentation/code.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
