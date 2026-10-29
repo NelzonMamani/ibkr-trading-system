@@ -329,3 +329,274 @@ def test_aggregate_dispatch_states_and_oversize_remain_explicit(prepared):
     assert d.counters['oversize'] == 1
     c.disconnect(); d.close()
     assert not d.snapshot()['coverage_verified']
+
+
+@pytest.fixture
+def orders_prepared(monkeypatch):
+    """Actual SDK wire methods, only an in-memory socket; real connects forbidden."""
+    violations = []
+    def forbidden(*a, **kw):
+        violations.append(True)
+        raise AssertionError('No network, acquisition, mutation or execution')
+    monkeypatch.setattr(sdk.EClient, 'connect', forbidden)
+    for name in ('reqMktData','reqScannerSubscription','reqHistoricalData','reqPositions',
+                 'reqPositionsMulti','placeOrder','cancelOrder','reqGlobalCancel'):
+        monkeypatch.setattr(sdk.EClient, name, forbidden)
+    c = IbkrClient('offline', 0, 71, 10, 'DELAYED', True)
+    raw = MemorySocket()
+    monkeypatch.setattr(Connection, 'connect', lambda conn:setattr(conn, 'socket', raw))
+    original = (sdk.Connection, sdk.decoder.Decoder, sdk.reader.EReader, comm.read_msg)
+    d = TransportDiagnostic(c, profile='final-orders'); d.__enter__()
+    c.conn = sdk.Connection('offline', 0); c.conn.connect()
+    c.setConnState(sdk.EClient.CONNECTED); c.serverVersion_ = 151
+    c.decoder = sdk.decoder.Decoder(c, 151)
+    yield c,d,raw
+    c.disconnect(); d.close()
+    assert original == (sdk.Connection,sdk.decoder.Decoder,sdk.reader.EReader,comm.read_msg)
+    assert not violations
+    assert 'reqAllOpenOrders' not in vars(c) and 'openOrderEnd' not in vars(c)
+
+
+def drain_orders(c,d,raw,data):
+    raw.chunks = [data[:2],data[2:5],data[5:],b'']
+    reader = sdk.reader.EReader(c.conn,c.msg_queue)
+    reader.start(); reader.join(2)
+    assert not reader.is_alive()
+    c._run_loop()  # Actual native callback loop -> SDK decoder -> original callback.
+    d.close()
+    return d.snapshot()
+
+
+def test_orders_actual_serializer_fragmented_end_and_complete_stage_chain(orders_prepared):
+    c,d,raw = orders_prepared
+    c.reqAllOpenOrders()
+    assert len(raw.sent)==1 and raw.sent[0][0] == frame([16,1])
+    proof = drain_orders(c,d,raw,frame([53,1]))
+    assert c._open_orders_event.is_set()
+    assert proof['coverage_verified'] and proof['absence_claims_valid']
+    assert proof['last_positive_stage']=='end_callback'
+    for stage in ('frame','put','get','decode','decoded'):
+        assert proof['counters'][stage+'_ORDER_END']==1
+    assert proof['counters']['order_full_send']==1
+    assert proof['reader_stopped'] and proof['callback_loop_stopped'] and proof['hooks_restored']
+
+
+@pytest.mark.parametrize('outcome',['short','exception','no_end','partial_frame','unknown','bad_end','bad_order','bad_error'])
+def test_order_wire_and_schema_failures_are_honest(orders_prepared,outcome):
+    c,d,raw = orders_prepared
+    if outcome=='short':raw.short=True
+    if outcome=='exception':
+        raw.send=lambda *a,**kw:(_ for _ in ()).throw(OSError('PRIVATE_PAYLOAD'))
+        with pytest.raises(OSError):c.reqAllOpenOrders()
+    else:c.reqAllOpenOrders()
+    data = {'partial_frame':frame([53,1])[:5], 'unknown':frame([999,'PRIVATE_PAYLOAD']),
+            'bad_end':frame([53,1,'PRIVATE_PAYLOAD']), 'bad_order':frame([5]),
+            'bad_error':frame([4,2])}.get(outcome,b'')
+    proof=drain_orders(c,d,raw,data)
+    if outcome=='bad_order':
+        assert d.counters['decoder_exception']==1
+    if outcome=='no_end':
+        assert proof['coverage_verified'] and proof['absence_claims_valid']
+    elif outcome in ('short','exception'):
+        assert not proof['absence_claims_valid']
+        assert proof['last_positive_stage'] != 'local_socket_accepted'
+    else:assert not proof['coverage_verified'] and not proof['absence_claims_valid']
+    assert not c._open_orders_event.is_set()
+    assert d.counters['order_query_calls']==1
+
+
+@pytest.mark.parametrize('broken',['record','count','_facts','_wire','_order_stage'])
+def test_order_observer_failure_cannot_change_sdk_dispatch(orders_prepared,monkeypatch,broken):
+    c,d,raw=orders_prepared
+    def fail(*a,**kw):raise RuntimeError('PRIVATE_PAYLOAD')
+    monkeypatch.setattr(d,broken,fail)
+    c.reqAllOpenOrders()
+    assert len(raw.sent)==1
+    drain_orders(c,d,raw,frame([53,1]))
+    assert c._open_orders_event.is_set()  # Observer is never completion authority.
+    assert not d.snapshot()['coverage_verified']
+
+
+def test_order_privacy_caps_aggregation_and_final_reservation(orders_prepared,tmp_path):
+    c,d,raw=orders_prepared
+    secret='PRIVATE_PAYLOAD_ACCOUNT_ORDER_SYMBOL'
+    for _ in range(200):d.record('socket_send',requested=1,returned=1)
+    c.reqAllOpenOrders()
+    for _ in range(1000):d.record('order_callback',symbol=secret,orderId=secret,errorString=secret)
+    for _ in range(100):
+        d.record('decoder_entry',kind='ORDER',message_id=5,field_count=8,handler_known=True)
+    # Force distinct allowed detail records beyond target budget, no evidence eviction.
+    for i in range(70):d.record('socket_send',requested=i,returned=i)
+    d.record('end_callback');d.record('order_cleanup',counters=dict(d.counters))
+    proof=drain_orders(c,d,raw,frame([53,1]))
+    assert len(proof['records'])<=64
+    assert all(len(json.dumps(r,ensure_ascii=True).encode())<=4096 for r in proof['records'])
+    assert d.counters['background_records_omitted']>0 and d.counters['repeated_details_omitted']>0
+    assert d.counters['records_dropped']>0 and not proof['coverage_verified']
+    assert any(r['event']=='order_cleanup' for r in proof['records'])
+    from src.ibkr.evidence_safety import write_json,scan_artifacts
+    write_json(tmp_path/'proof.json',proof)
+    assert secret not in (tmp_path/'proof.json').read_text()
+    assert scan_artifacts(tmp_path)['passed']
+
+
+@pytest.mark.parametrize('gap',['frame','put','get','decode'])
+def test_order_end_processing_gaps_report_last_positive_stage(orders_prepared,gap):
+    c,d,raw=orders_prepared;c.reqAllOpenOrders()
+    body=comm.read_fields(comm.read_msg(frame([53,1]))[1])
+    if gap in ('put','get','decode'):c.msg_queue.put(b'53\0' + b'1\0')
+    if gap in ('get','decode'):
+        fields=comm.read_fields(c.msg_queue.get())
+    if gap=='decode':c.decoder.interpret(fields)
+    c.disconnect();d.close();proof=d.snapshot()
+    expected={'frame':'end_frame','put':'end_queued','get':'end_dequeued','decode':'end_callback'}[gap]
+    assert proof['last_positive_stage']==expected
+    assert not proof['coverage_verified']  # These intentionally bypass reader/loop lifecycle.
+    assert ('end_callback_not_observed' in proof['unknowns'])==(gap!='decode')
+
+
+def test_order_reader_exception_logs_no_payload_and_invalidates_absence(orders_prepared,caplog,tmp_path):
+    c,d,raw=orders_prepared;c.reqAllOpenOrders()
+    secret='PRIVATE_PAYLOAD_ACCOUNT_ORDER_SYMBOL'
+    raw.chunks=[RuntimeError(secret)]
+    reader=sdk.reader.EReader(c.conn,c.msg_queue);reader.start();reader.join(2)
+    assert not reader.is_alive()
+    c.disconnect();d.close();proof=d.snapshot()
+    assert d.counters['reader_logged_exception']==1 and not proof['coverage_verified']
+    assert secret not in caplog.text and secret not in json.dumps(proof)
+    from src.ibkr.evidence_safety import write_json,scan_artifacts
+    write_json(tmp_path/'evidence.json',proof)
+    assert scan_artifacts(tmp_path)['passed']
+
+
+def test_order_successful_nonempty_error_provenance_never_exports_payload(orders_prepared):
+    c,d,raw=orders_prepared;c.reqAllOpenOrders()
+    secret='PRIVATE_PAYLOAD_ACCOUNT_ORDER_SYMBOL'
+    # Error transport through actual SDK signature handler, with original text
+    # processed privately by native owner. No error text or request/order ID retained.
+    proof=drain_orders(c,d,raw,frame([4,2,987654,321,secret])+frame([53,1]))
+    assert proof['counters']['error_callback_return']==1
+    assert proof['counters']['get_ERROR']==proof['counters']['decode_ERROR']==1
+    assert secret not in json.dumps(proof) and '987654' not in json.dumps(proof)
+    assert proof['coverage_verified']
+
+
+def test_order_startup_burst_and_many_rows_do_not_consume_final_budget(orders_prepared):
+    c,d,raw=orders_prepared
+    for _ in range(500):d.record('socket_send',requested=1,returned=1)
+    c.reqAllOpenOrders()
+    # Equivalent callback/detail bursts have first-sample detail plus counts.
+    for _ in range(1000):
+        d.record('order_callback')
+        for event in ('frame_progress','queue_put','queue_get','decoder_entry','decoder_return'):
+            d.record(event,kind='ORDER',message_id=5,field_count=100,complete=True)
+    proof=drain_orders(c,d,raw,frame([53,1]))
+    assert proof['coverage_verified'] and d.counters['records_dropped']==0
+    assert d.counters['background_records_omitted'] and d.counters['repeated_details_omitted']
+    assert len(d.records)<56 and any(r['event']=='order_cleanup' for r in d.records)
+
+
+def test_order_queue_observer_failure_preserves_item_and_return(orders_prepared,monkeypatch):
+    c,d,raw=orders_prepared;c.reqAllOpenOrders()
+    def fail(*a,**kw):raise RuntimeError('PRIVATE_PAYLOAD')
+    monkeypatch.setattr(c.msg_queue,'qsize',fail)
+    item=b'53\0' + b'1\0'
+    assert c.msg_queue.put(item) is None
+    assert c.msg_queue.get() is item
+    assert not d.snapshot()['coverage_verified'] and d.observation_failed
+
+
+@pytest.mark.parametrize('kind',['status','order'])
+@pytest.mark.parametrize('trailing',[False,True])
+def test_order_custom_sdk_schema_consumption_and_nonempty_native_callback(orders_prepared,kind,trailing):
+    c,d,raw=orders_prepared;c.reqAllOpenOrders()
+    if kind=='status':
+        values=[3,123,'Submitted',0,1,0,0,0,0,71,'',0]
+    else:
+        # Explicitly synthetic minimal SDK151 OPEN_ORDER shape: no optional legs,
+        # conditions or algorithms. Actual pinned SDK must consume all130 fields.
+        values=[5]+[0]*129
+        values[3]='PRIVATE_SYMBOL_CANARY';values[20]='PRIVATE_ACCOUNT_CANARY'
+    if trailing:values+=['PRIVATE_TRAILING_CANARY']
+    proof=drain_orders(c,d,raw,frame(values)+frame([53,1]))
+    assert c._open_orders_event.is_set()  # Original callback/authority unaffected.
+    if kind=='order':assert len(c._open_orders_snapshot)==1 and d.counters['order_callback_return']==1
+    else:assert c._order_status[123]['status']=='Submitted'
+    assert proof['coverage_verified']==(not trailing)
+    assert proof['absence_claims_valid']==(not trailing)
+    assert 'PRIVATE_' not in json.dumps(proof)
+
+
+def test_order_old_decoder_and_callbacks_cannot_complete_new_instance(orders_prepared,monkeypatch):
+    old,diagnostic,raw=orders_prepared
+    old.reqAllOpenOrders();old_decoder=old.decoder
+    drain_orders(old,diagnostic,raw,b'')
+    fresh=IbkrClient('offline',0,71,10,'DELAYED',True);socket2=MemorySocket()
+    monkeypatch.setattr(Connection,'connect',lambda conn:setattr(conn,'socket',socket2))
+    observer=TransportDiagnostic(fresh,profile='final-orders');observer.__enter__()
+    try:
+        fresh.conn=sdk.Connection('offline',0);fresh.conn.connect()
+        fresh.setConnState(sdk.EClient.CONNECTED);fresh.serverVersion_=151
+        fresh.decoder=sdk.decoder.Decoder(fresh,151);fresh.reqAllOpenOrders()
+        old_decoder.interpret([b'53',b'1']);old.openOrderEnd()
+        assert not fresh._open_orders_event.is_set() and observer.counters['end_callback_entry']==0
+        proof=drain_orders(fresh,observer,socket2,b'')
+        assert proof['coverage_verified'] and proof['absence_claims_valid']
+    finally:fresh.disconnect();observer.close()
+
+
+def test_order_partial_install_and_restoration_failure_never_valid_absence(monkeypatch):
+    c=IbkrClient('offline',0,71,10,'DELAYED',True)
+    originals=(sdk.Connection,sdk.decoder.Decoder,sdk.reader.EReader,comm.read_msg)
+    d=TransportDiagnostic(c,profile='final-orders');patch=d.patch
+    def fail(obj,name,value):
+        if name=='reqAllOpenOrders':raise RuntimeError('PRIVATE_PAYLOAD')
+        return patch(obj,name,value)
+    monkeypatch.setattr(d,'patch',fail)
+    with pytest.raises(RuntimeError):d.__enter__()
+    assert originals==(sdk.Connection,sdk.decoder.Decoder,sdk.reader.EReader,comm.read_msg)
+    assert d.restored and not d.snapshot()['absence_claims_valid']
+
+
+def test_order_restore_retry_is_still_incomplete_after_any_failure(orders_prepared,monkeypatch):
+    c,d,raw=orders_prepared;c.reqAllOpenOrders()
+    from types import SimpleNamespace
+    class RestoreTripwire(SimpleNamespace):
+        blocked=True
+        def __setattr__(self,name,value):
+            if name=='value' and self.blocked:raise RuntimeError('PRIVATE_PAYLOAD')
+            return super().__setattr__(name,value)
+    obj=RestoreTripwire();obj.blocked=False;obj.value='patched';obj.blocked=True
+    d.patches.append((obj,'value',True,'original'))
+    c.disconnect();d.close()
+    assert not d.restored and not d.snapshot()['coverage_verified']
+    obj.blocked=False;d.close()
+    assert d.restored and obj.value=='original' and not d.snapshot()['absence_claims_valid']
+
+
+def test_order_reader_join_failure_still_restores_all_hooks(orders_prepared):
+    c,d,raw=orders_prepared;c.reqAllOpenOrders()
+    class Reader:
+        ident=123
+        def join(self,timeout):
+            assert timeout==2
+            raise RuntimeError('PRIVATE_PAYLOAD')
+        def is_alive(self):return True
+    d.reader=Reader();c.disconnect();d.close()
+    assert 'reqAllOpenOrders' not in vars(c) and 'get' not in vars(c.msg_queue)
+    assert not d.reader_stopped and not d.snapshot()['coverage_verified']
+    d.reader=None;d.close()  # Retire only this synthetic failing-reader fixture.
+
+
+@pytest.mark.parametrize('failure',['missing','none','decoder'])
+def test_order_missing_handler_and_decoder_failure_are_incomplete(orders_prepared,failure):
+    c,d,raw=orders_prepared;c.reqAllOpenOrders()
+    if failure=='missing':c.decoder.msgId2handleInfo.pop(53)
+    else:
+        def process(*args):
+            if failure=='decoder':raise RuntimeError('PRIVATE_PAYLOAD')
+        c.decoder.msgId2handleInfo[53]=NS(wrapperMeth=None,wrapperParams=None,
+            processMeth=process if failure=='decoder' else None)
+    proof=drain_orders(c,d,raw,frame([53,1]))
+    assert not proof['coverage_verified'] and not proof['absence_claims_valid']
+    assert not c._open_orders_event.is_set()

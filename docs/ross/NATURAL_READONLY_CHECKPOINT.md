@@ -6450,3 +6450,97 @@ observation, broker inquiry, instrumentation implementation or trading occurred.
 PR1140/PR1141 semantics, five unmatched positions/global ownership veto, GUI draft,
 all historical receipts and PARKED/fail-closed listing provenance remain preserved.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## 29 October 2026 — OFFLINE implementation of bounded final-orders profile
+
+User authorized implementation/testing only, not broker execution or merge.
+Main was verified unchanged at5e03ce25b646181c51eccf029c2957c18c3470b8,
+tree501d03fc3a92b8edcfcfcf78e5b04110f70e80cc. This branch descends from the
+complete saved plan148ca3502da73f7353f00002b499415d6751b3a2; its contract and all
+historical receipts above remain intact. Original checkout and saved branches
+are preserved. No applicable AGENTS.md was found; DEPRECATION_LEDGER was read
+and remains unchanged because no module/owner is retired or replaced.
+
+Implemented in the four planned existing owners:
+- TransportDiagnostic has an explicit final-orders profile; default quote profile
+  retains its existing schema, output contract and operations. The new profile
+  observes actual ID16/version1 serialization and local socket byte returns;
+  recognizes order/status/error/end framing, queue, SDK decoder and native callback
+  stages; and separately observes EReader and native callback-loop lifecycle.
+  Observation failures cannot prevent/replace original sends, queue operations,
+  decoder dispatch or callbacks. Exceptions/unknown handlers/arity/SDK ERROR logs,
+  partial framing, missing lifecycle proof and capture/restoration failures make
+  coverage/absence proof invalid. Per-decoder copied custom handlers call the
+  original SDK parser once and detect otherwise ignored trailing fields; no SDK
+  parser or global handler authority is replaced. Last positive order/end stages
+  and bounded unobserved-stage reasons remain explicit. Full socket return means
+  local acceptance only, never broker acknowledgement.
+- final_broker_audit has an opt-in observer factory around its OWN newly constructed
+  client, installed before connection and closed after finally-disconnect. Default
+  call behavior is unchanged. Opt-in waiting uses the existing cooperative helper
+  with the same ten seconds; stop/deadline propagates only after owned cleanup.
+  The observer never supplies an end event, inventory or query_completed result.
+  Observer cleanup failure is separate from authoritative query outcome.
+- Existing Python diagnostic caller has an explicit final-orders profile using
+  that single actual audit. It never invokes acquire(), a scanner/quote request,
+  a second client or the quote cleanup query. It exports only a whitelist of the
+  audit's structured booleans/counts/timings, with no free-form errors or IDs.
+  Complete transport plus incomplete audit remains DIAGNOSTIC_ONLY/exit2. Guard,
+  source/operator equality, inventory, mutation checks and package/seal ownership
+  remain; any observer cleanup/snapshot failure remains incomplete. Raw native
+  console text is suppressed, not exported or treated as evidence.
+- Existing PowerShell entry has explicit DiagnosticProfile and ExpectedTree
+  parameters. Final-orders requires the reviewed literal commit AND tree, fetches
+  that commit without the old quote-branch fallback and passes scope/tree to every
+  phase. Quote defaults remain unchanged. New profile uses its own clearly named
+  final-orders-diagnostic-upload.zip; no old scope or pin is silently substituted.
+
+Capture retains64 records/4096 UTF-8 bytes per record, fixed saturating counters,
+startup/global maximum8 samples, first-sample stage aggregation/counts with
+explicit omissions and reserved finalization records. Overflow never evicts or
+hides evidence and invalidates absence claims. Order profile events/fields are
+whitelisted: no raw frames/field arrays, account/order IDs, symbols, quantities,
+prices, broker text or payload hashes. Only SDK/source hashes are exported.
+Unknown exception classes are fixed OTHER_EXCEPTION. SDK logging is observed
+without formatting its payload. Existing120s/30s child supervision and90s
+package/seal budgets, two-second reader cleanup bounds and10s query wait remain.
+No retry, reconnect, source expansion, operational cache publication or new
+canonical writer exists. Native private order objects remain under their owner.
+
+Guarded affected local validation:246passed2.97s in the three planned Python test
+modules plus existing evidence-safety/P1 regressions. Log:
+/workspace/work/final-orders-final-pin-controls.log. These are synthetic controls,
+not CI or a broker receipt. They cover real SDK serialization/framing/decoding,
+full/short/failed sends, fragmented/partial frames, actual native nonempty/empty
+callbacks, error/status/end, stage gaps, unknown/trailing schemas and missing/
+failing handlers. They also cover swallowed SDK-reader errors, observer faults
+at count/record/parser/queue boundaries without changing original operations,
+stop propagation, cleanup/partial-install/restoration failure and instance-isolated
+late callbacks. Startup bursts/many rows retain final capacity; deliberate drops
+invalidate coverage. Privacy canaries traverse native/error/SDK logging paths;
+structured artifacts and a sealed synthetic ZIP contain none. The operator's
+probe/package/seal filesystem control forbids acquisition, models platform/session
+and READ_ONLY setup, preserves original operator state, proves source equality,
+no scanner/quote activity and no package-time second audit. Existing quote tests
+still pass. PowerShell5.1 validation extends the existing parser test to bind ONLY
+the real parameter block and pre-body guard: default quote mode, explicit order
+scope/tree, rejection of missing tree and unknown profile, without invoking the
+entry or a child. Actual Windows execution of these checks remains a CI receipt,
+not a local claim. Independent exact-head review and changed-head Linux/Windows/
+PowerShell receipts will be posted on the accompanying draft PR at its immutable
+head; no status-only full-suite repetition or subsequent automatic merge.
+
+Remaining limits: this instrumentation does NOT repair or diagnose the historical
+missing openOrderEnd by itself. No new acquisition, preflight, observation or
+broker inquiry was executed. The saved28October inventory remains UNKNOWN, never0.
+An end observed on a fresh single-query client has no protocol request token;
+instance scope is not reusable provenance. Full local send cannot establish
+server receipt/processing. Lost evidence makes absence unknown even if a callback
+is observed. Natural positive catalyst-to-raw-intent progression remains unproven;
+five unmatched positions/global ownership veto and PR1140/1141/1142 semantics,
+GUI draft, all receipts and PARKED/fail-closed listing provenance are preserved.
+
+ONE next action: review the new exact-head draft and offline/CI evidence. A later
+single PAPER inquiry needs SEPARATE explicit authorization and a reviewed pinned
+operator block; none is provided or authorized here. No merge or readiness upgrade.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.

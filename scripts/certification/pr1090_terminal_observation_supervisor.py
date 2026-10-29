@@ -150,7 +150,7 @@ def no_ross_runtime_remains(evidence_path=None):
     return evidence["completed"] and not evidence["runtimes"]
 
 
-def final_broker_audit():
+def final_broker_audit(*, observer_factory=None):
     """Fresh end-marker-confirmed query on a separate READ_ONLY audit client."""
     from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
     from src.config.runtime_config import resolve_ibkr_connection
@@ -163,7 +163,11 @@ def final_broker_audit():
     client.readonly_enabled = True
     result = {"query_completed": False, "disconnected": False, "query_type": "reqAllOpenOrders",
               "timeout_seconds": 10, "end_received": False}
+    observer = None
     try:
+        if observer_factory is not None:
+            observer = observer_factory(client)
+            observer.__enter__()
         client.connect()
         client._open_orders_event.clear()
         client._open_orders_snapshot = {}
@@ -174,7 +178,11 @@ def final_broker_audit():
             raise RuntimeError("Final audit transport unavailable before query")
         query_started = time.monotonic()
         client.reqAllOpenOrders()
-        result["end_received"] = bool(client._open_orders_event.wait(timeout=10))
+        if observer_factory is None:
+            result["end_received"] = bool(client._open_orders_event.wait(timeout=10))
+        else:
+            from src.core.acquisition import wait_event
+            result["end_received"] = bool(wait_event(client._open_orders_event, 10))
         result["elapsed_seconds"] = time.monotonic() - query_started
         result["connected_after_wait"] = client.is_connected()
         result["network_thread_alive_after_wait"] = bool(thread and thread.is_alive())
@@ -189,6 +197,10 @@ def final_broker_audit():
         # Cleanup continues, but no partial query success survives any abort.
         result["query_completed"] = False
         result["error"] = type(exc).__name__ + ": " + str(exc)
+        if observer_factory is not None:
+            from src.core.acquisition import AcquisitionCancelled, AcquisitionDeadlineExceeded
+            if isinstance(exc, (AcquisitionCancelled, AcquisitionDeadlineExceeded)):
+                raise
     finally:
         try:
             client.disconnect()
@@ -197,6 +209,12 @@ def final_broker_audit():
         except BaseException as exc:
             result["disconnect_error"] = type(exc).__name__ + ": " + str(exc)
         result["mutation_attempts"] = snapshot()
+        if observer is not None:
+            try:
+                observer.close()
+            except BaseException as exc:
+                # Observer cleanup does not rewrite the authoritative audit result.
+                result["observer_cleanup_error_type"] = type(exc).__name__
     return result
 
 

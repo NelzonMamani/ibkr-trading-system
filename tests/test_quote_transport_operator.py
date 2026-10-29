@@ -88,3 +88,94 @@ def test_completed_live_quote_still_rejects_stale_or_missing_fields(monkeypatch,
     assert not quote['diagnostic_fields_available']
     assert quote['canonical_qualification'] == 'NOT_PERFORMED'
     assert f.completions == ['snapshot_end'] and not f._market_events
+
+
+@pytest.mark.parametrize('completed',[True,False])
+def test_final_orders_caller_one_audit_whitelist_no_quote_acquisition(monkeypatch,completed):
+    from scripts.certification import pr1090_terminal_observation_supervisor as owner
+    calls=[];artifacts={};observers=[]
+    class Observer:
+        def __init__(self,c):self.client=c;self.closed=False;observers.append(self)
+        def __enter__(self):return self
+        def close(self):self.closed=True
+        def snapshot(self):
+            assert self.closed
+            return {'coverage_verified':True,'absence_claims_valid':True}
+    client=object()
+    def audit(*,observer_factory):
+        calls.append(client);o=observer_factory(client);o.__enter__();o.close()
+        return {'query_completed':completed,'disconnected':True,'error':'PRIVATE_PAYLOAD',
+                'broker_errors':[{'message':'PRIVATE_PAYLOAD','req_id':999}],
+                'timeout_seconds':10,**({'open_orders_count':0} if completed else {})}
+    monkeypatch.setattr(owner,'final_broker_audit',audit)
+    monkeypatch.setattr(payload,'acquire',lambda *a:pytest.fail('No scanner/quote acquisition'))
+    success,proof=payload.final_orders(lambda n,v:artifacts.__setitem__(n,v),Observer)
+    assert success==completed and len(calls)==1 and observers[0].client is client
+    assert 'PRIVATE_PAYLOAD' not in str(artifacts) and 'broker_errors' not in artifacts['final-order-audit.json']
+    assert ('open_orders_count' in artifacts['final-order-audit.json'])==completed
+    assert artifacts['final-order-audit.json']['error_present']
+
+
+def test_final_orders_requires_explicit_tree_before_any_probe(monkeypatch):
+    import sys
+    monkeypatch.setattr(sys,'argv',['operator','probe','unused','a'*40,'final-orders',''])
+    with pytest.raises(RuntimeError,match='explicit reviewed tree'):payload.main()
+
+
+def test_final_orders_operator_filesystem_sealing_no_acquisition_or_operator_write(monkeypatch,tmp_path):
+    """Run existing operator phases with stub audit result and hard I/O tripwires.
+
+    Only platform/offline-entry checks are modeled; all acquisition entry points
+    remain forbidden. This is synthetic packaging proof, not a broker receipt.
+    """
+    import os,shutil,json,zipfile
+    from pathlib import Path
+    from scripts.certification import pr1090_terminal_observation_supervisor as safety
+    from src.config import system_config
+    from src.ibkr import read_only_guard
+    from src.adapters.brokers.ibkr import ibkr_client
+    original_class=ibkr_client.IbkrClient
+    class NoClient:
+        submit_order=original_class.submit_order
+        def __init__(self,*a,**kw):pytest.fail('No diagnostic/second client in operator caller')
+    monkeypatch.setattr(ibkr_client,'IbkrClient',NoClient)
+    monkeypatch.setattr(payload,'acquire',lambda *a:pytest.fail('No scanner/quote activity'))
+    root=tmp_path/'run';repo=root/'s';evidence=root/'e';evidence.mkdir(parents=True);repo.mkdir()
+    source=Path(payload.__file__).resolve().parents[2]
+    for name in ('src/config/config_registry.py','scripts/certification/pr1040_real_readonly_runtime_observation_adapter.py'):
+        target=repo/name;target.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(source/name,target)
+    original=tmp_path/'original-order-state.json';original.write_text('PRIVATE_OPERATOR_CANARY')
+    env=dict(os.environ,IBKR_ORDER_ID_STATE_PATH=str(original))
+    monkeypatch.setattr(payload,'os',NS(name='nt',environ=env,chdir=lambda *a:None))
+    fake_sys=NS(argv=['operator','probe',str(root),'a'*40,'final-orders','b'*40],
+                version_info=(3,13,3),path=[],modules={'sitecustomize':NS()})
+    monkeypatch.setattr(payload,'sys',fake_sys)
+    monkeypatch.setattr(payload.subprocess,'check_output',lambda *a,**kw:('b'*40+'\n').encode())
+    monkeypatch.setattr(payload,'manifest',lambda repo:{'tracked':'c'*64})
+    pins=[]
+    monkeypatch.setattr(safety,'require_clean_certification_worktree',lambda pin:pins.append(pin))
+    monkeypatch.setattr(safety,'runtime_inventory',lambda:{'completed':True,'runtimes':[]})
+    monkeypatch.setattr(system_config,'get_current_market_session',lambda:'RTH')
+    monkeypatch.setattr(read_only_guard,'get_ibkr_readonly_enabled',lambda:True)
+    calls=[]
+    def audit(put,observer_factory=None):
+        calls.append(True)
+        put('final-order-audit.json',{'query_completed':False,'end_received':False,'timeout_seconds':10})
+        proof={'coverage_verified':True,'absence_claims_valid':True}
+        put('transport-diagnostic.json',proof)
+        return False,proof
+    monkeypatch.setattr(payload,'final_orders',audit)
+    assert payload.main()==2  # Honest incomplete audit even with complete capture.
+    report=json.loads((evidence/'result.json').read_text())
+    assert report['scope']=='FINAL_ORDERS_DIAGNOSTIC_ONLY' and report['status']=='DIAGNOSTIC_ONLY'
+    assert report['source_state']==report['operator_state']=='PASS' and not report['scanner_attempted']
+    assert calls==[True] and pins==['a'*40,'a'*40]
+    assert original.read_text()=='PRIVATE_OPERATOR_CANARY'
+    for phase in ('package','seal'):
+        fake_sys.argv[1]=phase
+        assert payload.main()==0
+    archive=root/'final-orders-diagnostic-upload.zip'
+    with zipfile.ZipFile(archive) as z:
+        assert all(b'PRIVATE_OPERATOR_CANARY' not in z.read(n) for n in z.namelist())
+        assert not any('state' in n or n.startswith('quote-trace') for n in z.namelist())
+    assert calls==[True]  # Packaging is filesystem only, never another audit.
