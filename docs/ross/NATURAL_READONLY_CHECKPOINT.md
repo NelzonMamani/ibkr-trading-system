@@ -6998,3 +6998,138 @@ preflight, observation, runtime rerun, holdings action or trading occurred.
 ONE next action: review the exact draft implementation and its offline/Windows
 receipts for controlled integration; no merge or subsequent PAPER inquiry is
 authorized here. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## 29 October 2026 — PR1144 accepted; one pinned final-orders block prepared
+
+Explicit controlled-integration authorization applied to PR1144 only. Verified
+unchanged main7e918815f623d5f34bf349d9af72f0098d6a3ec1, exact PR head
+e21bc436a842bb62d3f07ff0bd535754604727b2 and reviewed tree
+e66b6daa84f04ec95dce1155fde2a9a4e156cf14. Independent agent review5702801668
+(no blockers,95guarded controls independently passed) and successfulCI40929046617
+were verified; Linux3618passed/3skipped and Windows3620passed/1skipped, focused95,
+actual Windows closed-socket10038, cache and PowerShell checks all passed. No new
+blocking findings/unresolved threads. Tested merge2d094a5761b9c760dc3ed0aaa636b752853e7d3c
+was fetched and its tree exactly equaled reviewed head. No completed suite rerun.
+Acceptance receipt: PR1144 issuecomment6505354959. Marked ready and merged with
+expected-head guarde21bc436 and merge method.
+
+Accepted merge/main: `a501c88bcc926bef87875f6352f210b19b6e438b`.
+Fetched main tree: `e66b6daa84f04ec95dce1155fde2a9a4e156cf14`, exactly the
+reviewed/tested tree (empty diff). Integration receipt: PR1144
+issuecomment6505366918. Original checkout/saved branches/all receipts preserved.
+AGENTS search found none applicable; DEPRECATION_LEDGER read and unchanged, with
+no retirement or owner change. This checkpoint-only branch is NOT merged and
+DOES NOT alter the literal accepted runtime pin above. It contains this new
+accepted-pin preparation, not a status-only repetition of prior verification.
+No subsequent merge is authorized here.
+
+### Required conditions and actual existing caller
+
+Accepted existing launcher:
+`scripts/certification/run_quote_transport_diagnostic.ps1`.
+Only parameters are ExpectedCommit, DiagnosticProfile (quotes/final-orders),
+ExpectedTree. Final-orders requires explicit reviewed tree. No Root, Python or
+RuntimeSeconds parameter exists. Its own fresh qtransport GUID root is required;
+never reuse/delete C:\tmp\qtransport-2ad3bad8 or another historical root.
+
+Use Windows PowerShell5.1 Desktop and existing Windows Python3.13.3 at
+C:\tmp\pr1091-cert-env-20260923\Scripts\python.exe with SDK9.81.1.post1. Source
+checkout remains C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system.
+PAPER TWS at127.0.0.1:7497, Read-Only API enabled, unused client71, no running Ross
+runtime, valid existing session/environment and disk/inventory guards mandatory.
+No overrides or guard bypass. Current accepted session owner uses New York local
+09:30 <= clock <16:00 on a permitted weekday (holiday/half-day rules apply).
+For29October2026 the normal window converts to13:30 <= Europe/London <20:00;
+clock time alone does not prove eligibility. Let startup and the ten-second audit
+fit in the normal session; the existing child gate remains authoritative. No
+broker/session preflight was executed while preparing this block.
+
+The block reads the EXISTING launcher from the immutable accepted Git object,
+not a possibly stale working-tree file. It performs one invocation only. Launcher
+retains fresh detached worktree, isolated operator-state copy, normal RTH and
+READ_ONLY checks, one actual fresh audit client/query, ten-second native end
+requirement,120s probe/30s stop supervision and90s package/seal budgets with their
+existing stop bounds. No quote/scanner acquisition, extra query, retry or reconnect.
+All cleanup/mutation/source/operator/inventory/privacy/sealing owners remain.
+
+### ONE copy-paste Windows PowerShell5.1 block — prepared, NOT executed here
+
+```powershell
+# Prepared for ONE user-started final-orders inquiry when all conditions hold.
+& {
+    $ErrorActionPreference = 'Stop'
+    if ($PSVersionTable.PSEdition -ne 'Desktop' -or
+        $PSVersionTable.PSVersion.Major -ne 5 -or
+        $PSVersionTable.PSVersion.Minor -ne 1) {
+        throw 'Use Windows PowerShell5.1 Desktop.'
+    }
+
+    $SourceCheckout = 'C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system'
+    $Python = 'C:\tmp\pr1091-cert-env-20260923\Scripts\python.exe'
+    $RuntimePin = 'a501c88bcc926bef87875f6352f210b19b6e438b'
+    $ExpectedTree = 'e66b6daa84f04ec95dce1155fde2a9a4e156cf14'
+
+    if (!(Test-Path -LiteralPath $SourceCheckout -PathType Container) -or
+        !(Test-Path -LiteralPath $Python -PathType Leaf)) {
+        throw 'Verified original checkout/Python path missing; nothing launched.'
+    }
+
+    & git -C $SourceCheckout fetch origin main
+    if ($LASTEXITCODE -ne 0) { throw 'Fetch failed; nothing launched.' }
+    $currentMain = (& git -C $SourceCheckout rev-parse refs/remotes/origin/main | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or $currentMain -cne $RuntimePin) {
+        throw 'Main advanced/differs: stop for delta review; do not substitute a pin.'
+    }
+    $actualTree = (& git -C $SourceCheckout rev-parse ($RuntimePin + '^{tree}') | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or $actualTree -cne $ExpectedTree) {
+        throw 'Accepted tree mismatch; nothing launched.'
+    }
+
+    $launcherText = (& git -C $SourceCheckout show ($RuntimePin + ':scripts/certification/run_quote_transport_diagnostic.ps1') | Out-String)
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($launcherText)) {
+        throw 'Accepted existing launcher unavailable; nothing launched.'
+    }
+
+    Write-Host 'ONE final-orders inquiry; no automatic retry.'
+    Write-Host 'Normal RTH; PAPER127.0.0.1:7497; Read-Only API; unused client71; no Ross runtime.'
+    Write-Host 'Retain the fresh root and the final privacy-verified ZIP, including nonzero results.'
+    $launchArgs = @{
+        ExpectedCommit = $RuntimePin
+        DiagnosticProfile = 'final-orders'
+        ExpectedTree = $ExpectedTree
+    }
+    & ([scriptblock]::Create($launcherText)) @launchArgs
+    if ($global:LASTEXITCODE -ne 0) {
+        throw 'Nonzero launcher exit: preserve all evidence; do not retry automatically.'
+    }
+}
+```
+
+Expected ZIP pattern:
+`C:\tmp\qtransport-<8-hex>\final-orders-diagnostic-upload.zip`.
+The existing launcher announces its exact absolute path only after packaging and
+privacy sealing succeed. Random root is not predictable or a caller parameter.
+A nonzero probe can still produce a correctly sealed diagnostic ZIP before the
+launcher throws: retain it and root; never retry automatically. Failed privacy/
+sealing or unverified process exit means no trustworthy announced shareable ZIP.
+
+Information gain is bounded: new records can distinguish audit-finalization
+entry, same-proxy close entry/return/failure and wrapper-level receive ordering,
+plus safe OS categories. They cannot establish kernel syscall/broker causality;
+concurrent close/receive and all causal assessments may remain UNKNOWN. A full
+socket send remains local acceptance only, never broker acknowledgement. ANY
+non-timeout receive error still invalidates coverage under the unchanged
+predicate; do not expect/promise exit0. A nonzero diagnostic exit can coexist
+with end-confirmed query_completed=true/count0. Read audit and transport outcomes
+separately. Missing end is UNKNOWN, never zero orders. Historical missing callback
+and archived OSError are not explained or retroactively corrected.
+
+Archived successful count0 audit AND transport FAIL/exit1 remain preserved.
+Zero orders never establishes zero positions. Five unmatched positions/global
+ownership veto, GUI draft, separate cache uncertainty, PR1140-1143 semantics and
+PARKED/fail-closed listing provenance remain unchanged. No block, preflight,
+broker inquiry, observation, holdings action or trading was executed here.
+
+ONE next action: user reviews this pinned block and starts that SINGLE inquiry
+when all actual conditions hold. No retry or follow-on inquiry is authorized by
+its result. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
