@@ -129,3 +129,62 @@ def test_late_old_callback_cannot_complete_new_audit(audits):
     new,second = audits(late)
     assert old is not new and old.wrapper is old and new.wrapper is new
     assert not second['query_completed'] and 'open_orders_count' not in second
+
+
+def test_opt_in_observer_uses_actual_audit_client_once_and_cannot_supply_completion(monkeypatch,audits):
+    from src.core import acquisition
+    # Keep the fixture's immediate synthetic wait while checking the real owner's
+    # opt-in stop-aware wait receives exactly the unchanged ten-second bound.
+    waits=[]
+    monkeypatch.setattr(acquisition,'wait_event',lambda event,timeout:waits.append(timeout) or event.wait(timeout))
+    seen=[]
+    class Observer:
+        def __init__(self,c):seen.append(c);self.entered=False;self.closed=False
+        def __enter__(self):self.entered=True;return self
+        def close(self):self.closed=True
+    original=supervisor.final_broker_audit
+    observers=[]
+    def factory(c):
+        o=Observer(c);observers.append(o);return o
+    monkeypatch.setattr(supervisor,'final_broker_audit',lambda:original(observer_factory=factory))
+    c,r=audits('no_end')
+    assert seen==[c] and c.sent==1 and waits==[10]
+    assert observers[0].entered and observers[0].closed
+    assert not r['query_completed'] and 'open_orders_count' not in r
+
+
+def test_order_audit_observer_close_failure_does_not_rewrite_authority(monkeypatch,audits):
+    from src.core import acquisition
+    monkeypatch.setattr(acquisition,'wait_event',lambda event,timeout:event.wait(timeout))
+    original=supervisor.final_broker_audit
+    class Observer:
+        def __enter__(self):return self
+        def close(self):raise RuntimeError('PRIVATE_PAYLOAD')
+    monkeypatch.setattr(supervisor,'final_broker_audit',lambda:original(observer_factory=lambda c:Observer()))
+    c,r=audits('empty')
+    assert r['query_completed'] and r['open_orders_count']==0 and r['disconnected']
+    assert r['observer_cleanup_error_type']=='RuntimeError' and c.sent==1
+
+
+def test_opt_in_audit_propagates_stop_and_still_disconnects(monkeypatch):
+    from src.core import acquisition
+    clients=[]
+    class Client:
+        def __init__(self,**kw):
+            clients.append(self);self.connected=False;self.sent=0
+            self._thread=NS(is_alive=lambda:self.connected)
+            self._open_orders_snapshot={};self._open_orders_event=NS(clear=lambda:None)
+        def connect(self):self.connected=True
+        def is_connected(self):return self.connected
+        def reqAllOpenOrders(self):self.sent+=1
+        def disconnect(self):self.connected=False
+    class Observer:
+        closed=False
+        def __enter__(self):return self
+        def close(self):self.closed=True
+    o=Observer()
+    monkeypatch.setattr(native,'IbkrClient',Client)
+    def stop(*args):raise acquisition.AcquisitionCancelled()
+    monkeypatch.setattr(acquisition,'wait_event',stop)
+    with pytest.raises(acquisition.AcquisitionCancelled):supervisor.final_broker_audit(observer_factory=lambda c:o)
+    assert clients[0].sent==1 and not clients[0].connected and o.closed

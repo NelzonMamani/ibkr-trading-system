@@ -107,8 +107,48 @@ def acquire(client, put):
     return result
 
 
+def final_orders(put, observer_factory=None):
+    """One actual audit; exports a whitelist, never its free-form error payloads."""
+    from scripts.certification.pr1090_terminal_observation_supervisor import final_broker_audit
+    from src.ibkr.transport_diagnostic import TransportDiagnostic
+    holder = []
+    def observe(client):
+        diagnostic = (observer_factory or (lambda c: TransportDiagnostic(c, profile='final-orders')))(client)
+        holder.append(diagnostic)
+        return diagnostic
+    result = None
+    try:
+        result = final_broker_audit(observer_factory=observe)
+        allowed = ('query_completed', 'disconnected', 'query_type', 'timeout_seconds',
+                   'end_received', 'elapsed_seconds', 'connected_before_query',
+                   'connected_after_wait', 'network_thread_alive_before_query',
+                   'network_thread_alive_after_wait', 'open_orders_count', 'mutation_attempts')
+        proof = {k: v for k, v in result.items() if k in allowed}
+        proof['error_present'] = 'error' in result
+        proof['observer_cleanup_failed'] = 'observer_cleanup_error_type' in result
+        put('final-order-audit.json', proof)
+    finally:
+        try:
+            transport = holder[0].snapshot() if holder else {'coverage_verified': False, 'absence_claims_valid': False}
+        except BaseException:
+            transport = {'coverage_verified': False, 'absence_claims_valid': False, 'snapshot_failed': True}
+        if result and 'observer_cleanup_error_type' in result:
+            transport = dict(transport, coverage_verified=False, absence_claims_valid=False, cleanup_failed=True)
+        put('transport-diagnostic.json', transport)
+    return bool(result and result['query_completed'] and result['disconnected']), transport
+
+
 def main():
-    phase, root_text, expected = sys.argv[1:]
+    args = sys.argv[1:]
+    if len(args) not in (3, 5):
+        raise RuntimeError('Expected phase/root/commit and optional explicit profile/tree')
+    phase, root_text, expected = args[:3]
+    profile, expected_tree = args[3:] if len(args) == 5 else ('quotes', None)
+    if profile not in ('quotes', 'final-orders'):
+        raise RuntimeError('Unknown diagnostic profile')
+    if profile == 'final-orders' and (not expected_tree or len(expected_tree) != 40 or
+                                     any(c not in '0123456789abcdef' for c in expected_tree)):
+        raise RuntimeError('Final orders requires explicit reviewed tree')
     root = Path(root_text); repo = root/'s'; evidence = root/'e'
     sys.path.insert(0, str(repo)); os.chdir(repo)
     from src.ibkr.evidence_safety import install_console_protection, scan_artifacts, write_json
@@ -119,6 +159,10 @@ def main():
         proof = json.loads((evidence/'privacy-probe.json').read_text(encoding='utf-8'))
         if not proof.get('passed'):
             raise RuntimeError('Probe privacy verification absent/failed; retain local evidence')
+        if profile == 'final-orders':
+            result = json.loads((evidence/'result.json').read_text(encoding='utf-8'))
+            if result.get('scope') != 'FINAL_ORDERS_DIAGNOSTIC_ONLY' or result.get('accepted') != expected:
+                raise RuntimeError('Package scope/pin differs')
         shutil.copy2(__file__, evidence/'operator.py')
         scan = scan_artifacts(evidence)
         put('privacy-'+phase+'.json', scan)
@@ -126,7 +170,7 @@ def main():
             raise RuntimeError('Privacy scan failed; no shareable archive')
         if phase == 'package':
             return 0
-        archive = root/'quote-diagnostic-upload.zip'
+        archive = root/('final-orders-diagnostic-upload.zip' if profile == 'final-orders' else 'quote-diagnostic-upload.zip')
         with zipfile.ZipFile(archive, 'x', zipfile.ZIP_DEFLATED) as z:
             for path in sorted(evidence.rglob('*')):
                 if (evidence/'PACKAGE_STOP_REQUESTED').exists():
@@ -142,7 +186,7 @@ def main():
         timings.append({'stage': name, 'utc': datetime.now(timezone.utc).isoformat(),
                         'elapsed_seconds': time.monotonic()-started})
         put('startup-stages.json', timings)
-    report = {'status': 'FAIL', 'PAPER_READY': False, 'PAPER_READINESS_GATE': 'FAIL', 'scope': 'QUOTE_DIAGNOSTIC_ONLY',
+    report = {'status': 'FAIL', 'PAPER_READY': False, 'PAPER_READINESS_GATE': 'FAIL', 'scope': 'FINAL_ORDERS_DIAGNOSTIC_ONLY' if profile == 'final-orders' else 'QUOTE_DIAGNOSTIC_ONLY',
               'accepted': expected, 'operator_sha256': digest(Path(__file__)), 'scanner_attempted': False, 'broker_audit_completed': False,
               'source_state': 'NOT_VERIFIED', 'operator_state': 'NOT_VERIFIED'}
     diagnostic = None
@@ -154,6 +198,12 @@ def main():
             return len(text)
         def flush(self):
             pass
+    if profile == 'final-orders':
+        # This is a dedicated child. Even a failed/late reader must not write
+        # private order details after cleanup or during the final privacy scan.
+        # The nested context below restores to these silent process-lifetime sinks.
+        sys.stdout = SilentConsole()
+        sys.stderr = SilentConsole()
     # Native/SDK exception paths may print arbitrary payloads. The isolated
     # diagnostic retains structured evidence only, never those console strings.
     with contextlib.redirect_stdout(SilentConsole()), contextlib.redirect_stderr(SilentConsole()):
@@ -201,6 +251,10 @@ def main():
             from ibapi.client import EClient
             stage('imports_complete_source_begin')
             safety.require_clean_certification_worktree(expected)
+            if profile == 'final-orders':
+                actual_tree = subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], cwd=repo, timeout=10).decode().strip()
+                if actual_tree != expected_tree:
+                    raise RuntimeError('Reviewed tree differs')
             before = manifest(repo); put('source-before.json', before)
             stage('source_hashed_inventory')
             inventory = safety.runtime_inventory(); put('initial-runtime-inventory.json', inventory)
@@ -222,21 +276,34 @@ def main():
                 raise RuntimeError('Native submission audit instrumentation absent')
             require_zero_attempts(snapshot())
             stage('guards_complete_connect')
-            client = IbkrClient('127.0.0.1', 7497, 71, 5, 'DELAYED', True)
-            from src.ibkr.transport_diagnostic import TransportDiagnostic
-            diagnostic = TransportDiagnostic(client)
-            diagnostic.__enter__()
-            with acquisition_scope():
-                client.connect()  # One connection, no manager/reconnect wrapper.
-                diagnostic.record('negotiated', server_version=client.serverVersion())
-                stage('connected_acquisition_begin')
-                report['scanner_attempted'] = True
-                result = acquire(client, put)
-            stage('acquisition_finished')
-            complete = bool(result['selected'] and len(result['quotes']) == len(result['selected'])
-                            and all(q['diagnostic_fields_available'] for q in result['quotes']))
-            report['status'] = 'DIAGNOSTIC_COMPLETE' if complete else 'DIAGNOSTIC_ONLY'
-            rc = 0 if complete else 2
+            if profile == 'final-orders':
+                def order_observer(owned_client):
+                    nonlocal diagnostic
+                    from src.ibkr.transport_diagnostic import TransportDiagnostic
+                    diagnostic = TransportDiagnostic(owned_client, profile='final-orders')
+                    return diagnostic
+                with acquisition_scope():
+                    complete, transport = final_orders(put, observer_factory=order_observer)
+                report['broker_audit_completed'] = complete
+                report['transport_evidence_incomplete'] = not transport['coverage_verified']
+                rc = 0 if complete and transport['coverage_verified'] else 2
+                report['status'] = 'DIAGNOSTIC_COMPLETE' if rc == 0 else 'DIAGNOSTIC_ONLY'
+            else:
+                client = IbkrClient('127.0.0.1', 7497, 71, 5, 'DELAYED', True)
+                from src.ibkr.transport_diagnostic import TransportDiagnostic
+                diagnostic = TransportDiagnostic(client)
+                diagnostic.__enter__()
+                with acquisition_scope():
+                    client.connect()  # One connection, no manager/reconnect wrapper.
+                    diagnostic.record('negotiated', server_version=client.serverVersion())
+                    stage('connected_acquisition_begin')
+                    report['scanner_attempted'] = True
+                    result = acquire(client, put)
+                stage('acquisition_finished')
+                complete = bool(result['selected'] and len(result['quotes']) == len(result['selected'])
+                                and all(q['diagnostic_fields_available'] for q in result['quotes']))
+                report['status'] = 'DIAGNOSTIC_COMPLETE' if complete else 'DIAGNOSTIC_ONLY'
+                rc = 0 if complete else 2
         except BaseException as exc:
             report.update(status='FAIL', error_type=type(exc).__name__)
             rc = 1
@@ -275,8 +342,19 @@ def main():
                     except BaseException as exc:
                         report['disconnect_error_type'] = type(exc).__name__; rc = 1
             if diagnostic is not None:
-                diagnostic.close()
-                transport = diagnostic.snapshot()
+                if profile == 'final-orders':
+                    try:
+                        diagnostic.close()
+                        transport = diagnostic.snapshot()
+                        if report.get('transport_evidence_incomplete'):
+                            transport = dict(transport, coverage_verified=False, absence_claims_valid=False)
+                    except BaseException:
+                        transport = {'coverage_verified': False, 'absence_claims_valid': False, 'cleanup_failed': True}
+                    if transport.get('cleanup_failed') or transport.get('snapshot_failed'):
+                        rc = 1
+                else:
+                    diagnostic.close()
+                    transport = diagnostic.snapshot()
                 put('transport-diagnostic.json', transport)
                 if not transport['coverage_verified']:
                     report['transport_evidence_incomplete'] = True

@@ -54,7 +54,7 @@ def test_thread_writers_merge_and_readers_never_see_partial_json(store):
     try:
         with ThreadPoolExecutor(max_workers=8) as pool:
             outcomes=list(pool.map(lambda i:CanonicalNewsEvidenceStore(store.cache_path).write({f'S{i}':(fact(f'S{i}'),)}),range(24)))
-        assert not any(row['cache_write_failed'] for row in outcomes)
+        assert not any(row['cache_write_failed'] for row in outcomes), [row for row in outcomes if row['cache_write_failed']]
     finally:stop.set();thread.join(2)
     assert not errors and not thread.is_alive()
     symbols=json.loads(store.cache_path.read_text())['news_intelligence']['symbols']
