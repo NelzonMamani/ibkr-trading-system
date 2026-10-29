@@ -6595,3 +6595,21 @@ suite repetition. Any remaining cache failure is a separate unresolved gate;
 no cache repair is inferred or silently added. Final exact-head review and CI
 receipts remain on PR1143; all previous failures remain preserved. No broker
 inquiry, merge, ownership change or readiness upgrade is authorized.
+
+Windows receipt correction (supersedes the earlier empty-if hazard claim):
+run40861219229 at923e5c7a passed82 focused Windows Python controls, then the new
+PowerShell hypothetical "legacy array must contain7/null" assertion failed.
+Actual Windows5.1 does NOT support the earlier source-only inference of a null
+append. That inference was overstated, including in review; it is withdrawn,
+not attributed to SDK/operator failure. Explicit array initialization remains a
+clear implementation of the requested new mode, but is NOT a demonstrated
+historical quote bug repair. The false7/null requirement is removed; informational
+legacy count is printed without assuming its result. Meaningful assertions on
+ALL THREE actual child expressions remain exact6 nonempty quote arguments and8
+order arguments with literal scope/tree. No production gate is relaxed. The failed
+run also reported no artifact because it stopped before the older harness stages;
+focused CI output now writes real pytest/PowerShell logs into the existing artifact
+pattern, preserving early failure evidence without masking the failing job.
+The independent news-cache failure remains separately unresolved; no cache source
+change is made. This new test correction requires changed-head review/CI, not an
+unchanged-head retry. All prior receipts and readiness/ownership limits remain.

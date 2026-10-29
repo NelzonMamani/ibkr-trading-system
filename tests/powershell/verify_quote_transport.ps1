@@ -27,7 +27,7 @@ if (!$rejected) { throw 'Unknown profile accepted.' }
 # argument expressions (not Invoke-ObservationChild, Git or the entry body).
 $legacyEmpty = if ($false) { @('unused') } else { @() }
 $legacyArgs = @('-E','-u','payload','probe','root','pin') + $legacyEmpty
-if ($legacyArgs.Count -ne 7 -or $null -ne $legacyArgs[-1]) { throw 'Empty-if null control changed.' }
+Write-Host ('LEGACY_EMPTY_BRANCH_ARGUMENT_COUNT=' + $legacyArgs.Count + '; informational only, no assumed null append.')
 $assignments = @($ast.FindAll({ param($n)
     $n -is [Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -ceq '$profileArgs'
 }, $true))

@@ -123,9 +123,14 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}/tests/offline;${{ github.workspace }}
         run: |
-          python -m pytest -q tests/test_quote_sdk_transport_probe.py tests/test_quote_transport_operator.py tests/test_final_order_audit_completion.py
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & .\tests\powershell\verify_quote_transport.ps1
+          $focusedRoot = Join-Path $env:RUNNER_TEMP ('ps-status-final-orders-' + [guid]::NewGuid().ToString('N'))
+          New-Item -ItemType Directory -Path $focusedRoot | Out-Null
+          python -m pytest -q tests/test_quote_sdk_transport_probe.py tests/test_quote_transport_operator.py tests/test_final_order_audit_completion.py *> (Join-Path $focusedRoot 'pytest.log')
+          $focusedExit = $LASTEXITCODE
+          Get-Content (Join-Path $focusedRoot 'pytest.log')
+          if ($focusedExit -ne 0) { exit $focusedExit }
+          & .\tests\powershell\verify_quote_transport.ps1 *> (Join-Path $focusedRoot 'powershell.log')
+          Get-Content (Join-Path $focusedRoot 'powershell.log')
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Controlled Windows news ownership and maintenance regressions
         if: needs.verification-scope.outputs.harness_only != 'true'
