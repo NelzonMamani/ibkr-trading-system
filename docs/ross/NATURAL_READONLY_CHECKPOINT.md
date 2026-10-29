@@ -6916,3 +6916,85 @@ provenance remain unchanged. No broker inquiry, acquisition, preflight, runtime
 rerun, holdings action, SDK change, timeout extension, gate relaxation or trading
 occurred. Natural supported catalyst-to-intent progression remains unproven.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## 29 October 2026 — PR1144 bounded shutdown-attribution evidence (OFFLINE ONLY)
+
+Explicit authorization covers offline implementation of the proposal above, not
+broker execution or integration. Current main remains7e918815f623d5f34bf349d9af72f0098d6a3ec1,
+treeab7d9f40cee17273c7236cc46b617d21f0aadc0a. Continued on the EXISTING PR1144
+branch fromffc1f17354b9bf8759760b967245a2bc1e3be630, retaining42c28a and the
+complete saved checkpoint/proposal. Applicable instructions/ledger were checked;
+no AGENTS.md found; no owner retired or replaced, ledger unchanged. Original
+checkout, all receipts and saved branches remain preserved.
+
+Implemented only in existing TransportDiagnostic and final_broker_audit owners:
+
+- Optional audit_finalization observer seam runs immediately before the audit
+  owner's existing finally-disconnect, including aborted queries. It records
+  entry only, cannot supply completion/count or change the ten-second wait.
+  Seam failure is an observer cleanup failure; disconnect still runs and actual
+  query authority is preserved. Default audit without an observer is unchanged.
+- Final-orders socket proxy records close entry/return/failure and receive entry/
+  failure with a bounded, instance-local observation sequence. Same-proxy close
+  sequences accompany receive errors. No socket addresses/object identities or
+  invented broker request tokens export. A thread-local marker says only whether
+  that close invocation is on the thread that entered audit finalization; it does
+  NOT prove causal ownership of any receive failure.
+- Relationships BEFORE_CLOSE/OVERLAPS_CLOSE/AFTER_CLOSE_RETURN/AFTER_CLOSE_FAILURE
+  describe observed wrapper spans, not kernel syscall linearization or causality.
+  Every exported causal assessment remains UNKNOWN. A close wrapper entry can
+  precede the actual OS call, and concurrent close/recv cannot prove causality.
+  Missing/failed/dropped observation invalidates absence proof as before.
+- Error fields expose only allowlisted numeric errno/winerror categories (0 means
+  absent/unallowlisted), never arbitrary codes or free-form exception messages.
+  Allowlist: platform EBADF/ENOTSOCK/ECONNRESET/ECONNABORTED/ENOTCONN/ESHUTDOWN/
+  EINTR/EPIPE/ETIMEDOUT and Windows995/10004/10009/10038/10053/10054/10057/10058/
+  10060. A category alone is never provenance or permission to disregard failure.
+- ALL existing receive-error counters remain. The coverage/absence snapshot
+  predicate is AST-identical to the accepted runtime: ANY non-timeout receive
+  exception still invalidates coverage, even with an end and owned finalization.
+  Default quote close is an unobserved passthrough; quote controls remain intact.
+- Existing64-record/4096-byte limits, eight startup samples, finalization reserve,
+  saturating counters and explicit omissions remain. Finalization/close evidence
+  uses the existing reserved slots; repeated receive entries are first-sample
+  details plus occurrence counts. No eviction or silent overflow promotion.
+  No extra query, connection, retry, reconnect, scanner or acquisition owner.
+
+Guarded proportional validation extends the EXISTING three diagnostic test
+modules, with actual SDK serializer/Connection/EReader/Decoder/native disconnect
+and the audit seam. New controls cover independent receive failures before/after
+end, owned close unblocking recv, deliberately concurrent close/receive (UNKNOWN),
+close failure and original return/exception identity, observation failure,
+instance isolation/late callbacks, reserved final evidence under saturation,
+quote passthrough and every sealed ZIP member including late-output canaries.
+Actual OS closed-socket control creates/closes a local socket, then calls recv:
+NO bind/listen/connect/socketpair, broker or network permission exemption. Existing
+global offline guards are unchanged; test additionally forbids network operations.
+Windows CI must confirm actual10038 behavior; Linux EBADF is not Windows proof.
+All order mutations, execution, acquisition and broker connections are forbidden
+by the existing guarded fixtures. No production timeouts or waits are extended.
+
+Local development receipts are retained, not CI: initial82existing controls passed;
+first new run1failed/92passed because its assertion expected the sticky flag,
+where existing observe() instead increments hook_errors (coverage already invalid).
+Corrected that test to assert the real hook-error/coverage contract. Next run
+1failed/94passed because a packaging stub bypassed the existing observer factory,
+so it could not model the actual finalizer's exit1. Connected the synthetic stub
+to that factory; no production exit policy changed. Failed output retained at
+/workspace/scratch/final-orders-investigation/shutdown-attribution-focused.log.
+Final affected validation/review/changed-head Linux/Windows receipts will be
+recorded on PR1144 at its immutable head, without status-only source commits.
+CI selection/configuration is unchanged; full changed-head checks are justified
+by this new transport/audit source, not documentation status reconciliation.
+
+Archived count0/end-confirmed successful audit AND transport FAIL/exit1 remain
+unaltered. Neither the archived OSError nor historical missing openOrderEnd is
+explained by this addition. Five unmatched positions/global ownership veto,
+PR1140 history/PR1141 position authority/PR1142 audit semantics, GUI draft,
+separate unclassified news-cache failure and PARKED/fail-closed listing provenance
+remain intact. Zero orders never establishes zero positions. No inquiry,
+preflight, observation, runtime rerun, holdings action or trading occurred.
+
+ONE next action: review the exact draft implementation and its offline/Windows
+receipts for controlled integration; no merge or subsequent PAPER inquiry is
+authorized here. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.

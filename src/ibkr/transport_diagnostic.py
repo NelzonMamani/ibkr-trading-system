@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import builtins
 import copy
+import errno
 import hashlib
 import inspect
 import json
@@ -80,7 +81,9 @@ class TransportDiagnostic:
                 'order_send_exceptions', 'order_full_send', 'order_callback_entry', 'order_callback_return',
                 'end_callback_entry', 'end_callback_return', 'error_callback_entry',
                 'error_callback_return', 'reader_start', 'reader_exit', 'loop_start',
-                'loop_exit', 'reader_logged_exception', 'reader_abnormal_exit', 'queue_exceptions', 'unknown_messages') + tuple(
+                'loop_exit', 'reader_logged_exception', 'reader_abnormal_exit', 'queue_exceptions', 'unknown_messages', 'audit_finalization_entries',
+                'socket_close_entries', 'socket_close_returns', 'socket_close_failures',
+                'socket_receive_entries') + tuple(
                     stage+'_'+kind for stage in ('frame','put','get','decode','decoded')
                     for kind in ('ORDER','ORDER_END','ORDER_STATUS','ERROR')), 0))
         self.lock = threading.RLock()
@@ -97,6 +100,9 @@ class TransportDiagnostic:
         self.reader = None
         self.reader_stopped = True
         self.send_scope = threading.local()
+        self.shutdown_scope = threading.local()
+        self.lifecycle_sequence = 0
+        self.audit_finalization_sequence = 0
 
     def _safe(self, method, *args, **kwargs):
         # Diagnostic failures cannot suppress or replace a transport operation.
@@ -113,6 +119,19 @@ class TransportDiagnostic:
         with self.lock:
             self.counters[name] = min(2**63-1, self.counters[name] + amount)
 
+    def audit_finalization(self):
+        """Observation seam only; never establishes query or shutdown success."""
+        if self.profile == 'final-orders':
+            self._safe('_audit_finalization')
+
+    def _audit_finalization(self):
+        with self.lock:
+            self.lifecycle_sequence = min(2**63-1, self.lifecycle_sequence + 1)
+            self.shutdown_scope.sequence = self.lifecycle_sequence
+            self.audit_finalization_sequence = self.lifecycle_sequence
+            self.count('audit_finalization_entries')
+            self.record('audit_finalization', sequence=self.lifecycle_sequence)
+
     def record(self, event, **facts):
         try:
             if self.profile == 'final-orders':
@@ -122,16 +141,24 @@ class TransportDiagnostic:
                     'decoder_exception', 'frame_progress', 'queue_put', 'queue_get', 'order_query_begin',
                     'order_query_exception', 'order_query_end', 'order_callback', 'end_callback',
                     'error_callback', 'callback_exception', 'loop_start', 'loop_exit', 'order_cleanup',
-                    'socket_send_exception', 'socket_send', 'socket_recv_exception', 'socket_recv', 'queue_exception'}
+                    'socket_send_exception', 'socket_send', 'socket_recv_exception', 'socket_recv', 'queue_exception',
+                    'audit_finalization', 'socket_close_entry', 'socket_close_return',
+                    'socket_close_failure', 'socket_recv_entry'}
                 if event not in events:
                     self.count('hook_errors')
                     event = 'unrecognized_observation'
                     facts = {}
                 numeric = {'requested', 'returned', 'bytes', 'field_count', 'message_id',
-                           'buffered', 'remaining', 'server_version', 'error_code'}
-                flags = {'complete', 'handler_known', 'arity_ok', 'schema_known', 'alive'}
+                           'buffered', 'remaining', 'server_version', 'error_code',
+                           'sequence', 'receive_entry_sequence', 'close_entry_sequence',
+                           'close_return_sequence', 'close_failure_sequence',
+                           'audit_finalization_sequence', 'errno_category', 'winerror_category'}
+                flags = {'complete', 'handler_known', 'arity_ok', 'schema_known', 'alive', 'audit_finalization_thread'}
                 enums = {'kind': {'ORDER', 'ORDER_END', 'ORDER_STATUS', 'ERROR', 'OTHER'},
-                         'handler_kind': {'SIGNATURE', 'CUSTOM', 'NONE'}}
+                         'handler_kind': {'SIGNATURE', 'CUSTOM', 'NONE'},
+                         'close_relation': {'BEFORE_CLOSE', 'OVERLAPS_CLOSE', 'AFTER_CLOSE_RETURN',
+                                            'AFTER_CLOSE_FAILURE', 'UNKNOWN'},
+                         'causality': {'UNKNOWN'}}
                 safe = {k: v for k, v in facts.items() if
                         (k in numeric and type(v) is int and abs(v) <= 2**63-1) or
                         (k in flags and type(v) is bool) or
@@ -158,7 +185,7 @@ class TransportDiagnostic:
                            (self.quote_window and 'request_id' not in facts) or
                            event in ('quote_window_start', 'quote_window_end')))
                 aggregate_events = {'socket_recv', 'recvmsg_return', 'frame_progress',
-                                    'queue_put', 'queue_get', 'decoder_entry', 'decoder_return'}
+                                    'queue_put', 'queue_get', 'decoder_entry', 'decoder_return', 'socket_recv_entry'}
                 if self.profile == 'final-orders':
                     aggregate_events |= {'order_callback', 'error_callback', 'end_callback'}
                 key = None
@@ -183,7 +210,7 @@ class TransportDiagnostic:
                 if not target and (self.background_records >= 8 or len(self.records) >= 56):
                     self.count('background_records_omitted')
                     return
-                final_event = event in ('wrapper_completion', 'quote_window_end', 'wrapper_cleanup', 'order_query_end', 'order_cleanup', 'end_callback', 'reader_exit', 'loop_exit')
+                final_event = event in ('wrapper_completion', 'quote_window_end', 'wrapper_cleanup', 'order_query_end', 'order_cleanup', 'end_callback', 'reader_exit', 'loop_exit', 'audit_finalization', 'socket_close_entry', 'socket_close_return', 'socket_close_failure')
                 if len(self.records) == 64 or (target and not final_event and len(self.records) >= 56):
                     self.count('records_dropped')
                     return
@@ -670,12 +697,79 @@ class TransportDiagnostic:
                                             and self.counters['quote_socket_calls'] == 1)}
 
 
+def _os_error_category(exc, attribute):
+    allowed = ({errno.EBADF, errno.ENOTSOCK, errno.ECONNRESET, errno.ECONNABORTED,
+                errno.ENOTCONN, errno.ESHUTDOWN, errno.EINTR, errno.EPIPE, errno.ETIMEDOUT}
+               if attribute == 'errno' else {995, 10004, 10009, 10038, 10053, 10054, 10057, 10058, 10060})
+    value = getattr(exc, attribute, None)
+    return value if type(value) is int and value in allowed else 0
+
+
 class _Socket:
     def __init__(self, original, owner):
         self.original, self.owner = original, owner
+        self.close_entry_sequence = 0
+        self.close_return_sequence = 0
+        self.close_failure_sequence = 0
 
     def __getattr__(self, name):
         return getattr(self.original, name)
+
+    def _stage(self, event, receive_entry_sequence=0, exc=None):
+        owner = self.owner
+        with owner.lock:
+            owner.lifecycle_sequence = min(2**63-1, owner.lifecycle_sequence + 1)
+            sequence = owner.lifecycle_sequence
+            if event == 'socket_close_entry':
+                self.close_entry_sequence = sequence
+                self.close_return_sequence = self.close_failure_sequence = 0
+                owner.count('socket_close_entries')
+            elif event == 'socket_close_return':
+                self.close_return_sequence = sequence
+                owner.count('socket_close_returns')
+            elif event == 'socket_close_failure':
+                self.close_failure_sequence = sequence
+                owner.count('socket_close_failures')
+            elif event == 'socket_recv_entry':
+                owner.count('socket_receive_entries')
+            relation = 'UNKNOWN'
+            if receive_entry_sequence:
+                if not self.close_entry_sequence:
+                    relation = 'BEFORE_CLOSE'
+                elif self.close_failure_sequence and self.close_failure_sequence < receive_entry_sequence:
+                    relation = 'AFTER_CLOSE_FAILURE'
+                elif self.close_return_sequence and self.close_return_sequence < receive_entry_sequence:
+                    relation = 'AFTER_CLOSE_RETURN'
+                else:
+                    relation = 'OVERLAPS_CLOSE'
+            facts = dict(sequence=sequence, receive_entry_sequence=receive_entry_sequence,
+                         close_entry_sequence=self.close_entry_sequence,
+                         close_return_sequence=self.close_return_sequence,
+                         close_failure_sequence=self.close_failure_sequence,
+                         audit_finalization_sequence=owner.audit_finalization_sequence,
+                         audit_finalization_thread=bool(getattr(owner.shutdown_scope, 'sequence', 0)),
+                         close_relation=relation, causality='UNKNOWN')
+            if exc is not None:
+                # Fixed numeric categories only; arbitrary values/text never export.
+                # 0 means absent/unallowlisted, not a successful operation.
+                facts.update(exception_class=type(exc).__name__,
+                    errno_category=_os_error_category(exc, 'errno'),
+                    winerror_category=_os_error_category(exc, 'winerror'))
+            owner.record(event, **facts)
+            return sequence
+
+    def close(self, *args, **kwargs):
+        owner = self.owner
+        if owner.profile != 'final-orders':
+            return self.original.close(*args, **kwargs)
+        owner._safe('observe', self._stage, 'socket_close_entry')
+        try:
+            result = self.original.close(*args, **kwargs)
+        except BaseException as exc:
+            owner._safe('observe', self._stage, 'socket_close_failure', exc=exc)
+            raise
+        owner._safe('observe', self._stage, 'socket_close_return')
+        return result
 
     def send(self, data, *args, **kwargs):
         owner = self.owner
@@ -713,13 +807,19 @@ class _Socket:
         import socket
         owner = self.owner
         owner._safe('count', 'recv_calls')
+        entry = (owner._safe('observe', self._stage, 'socket_recv_entry')
+                 if owner.profile == 'final-orders' else None)
         try:
             result = self.original.recv(size, *args, **kwargs)
         except BaseException as exc:
             owner._safe('count', 'recv_timeouts' if isinstance(exc, socket.timeout) else 'recv_exceptions')
             # Fixed counters for frequent socket timeouts, detail only exceptions.
             if not isinstance(exc, socket.timeout) or owner.counters['recv_timeouts'] == 1:
-                owner._safe('record', 'socket_recv_exception', exception_class=type(exc).__name__)
+                if owner.profile == 'final-orders':
+                    owner._safe('observe', self._stage, 'socket_recv_exception',
+                                receive_entry_sequence=entry or 0, exc=exc)
+                else:
+                    owner._safe('record', 'socket_recv_exception', exception_class=type(exc).__name__)
             raise
         owner._safe('count', 'recv_bytes', len(result))
         if len(result) == size:

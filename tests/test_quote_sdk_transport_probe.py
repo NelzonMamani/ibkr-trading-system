@@ -618,3 +618,210 @@ def test_order_original_queue_failure_preserves_exception_identity(orders_prepar
         c.msg_queue.put(b'53\0' + b'1\0') if operation=='put' else c.msg_queue.get_nowait()
     assert caught.value is failure and d.counters['queue_exceptions']==1
     assert not d.snapshot()['coverage_verified'] and 'PRIVATE_QUEUE_FAILURE' not in json.dumps(d.snapshot())
+
+
+@pytest.mark.parametrize('outcome', ['before_end', 'after_end', 'owned_blocked', 'concurrent'])
+def test_order_shutdown_attribution_never_infers_receive_causality(orders_prepared, outcome):
+    """Actual native disconnect/SDK reader; gates establish ordering, not causality."""
+    import errno
+    c, d, raw = orders_prepared
+    c.reqAllOpenOrders()
+    gate, waiting, close_entered, finish_close = (threading.Event() for _ in range(4))
+    packets = [] if outcome == 'before_end' else [frame([53, 1])]
+    def recv(size, *args, **kwargs):
+        if packets:
+            return packets.pop(0)
+        waiting.set()
+        assert gate.wait(2), 'Synthetic receive failed to unblock'
+        raise OSError(errno.EBADF, 'PRIVATE_ACCOUNT_ORDER_SOCKET_CANARY')
+    def close():
+        close_entered.set()
+        raw.closed = True
+        gate.set()
+        if outcome == 'concurrent':
+            assert finish_close.wait(2), 'Synthetic close failed to unblock'
+    raw.recv, raw.close = recv, close
+    reader = sdk.reader.EReader(c.conn, c.msg_queue)
+    reader.start()
+    c._thread = threading.Thread(target=c._run_loop)
+    c._thread.start()
+    disconnect_thread = None
+    try:
+        assert waiting.wait(2)
+        if packets == [] and outcome != 'before_end':
+            assert c._open_orders_event.wait(2)
+        if outcome in ('owned_blocked', 'concurrent'):
+            # Same marker and native owner used by the actual audit seam.
+            def finalizing():
+                d.audit_finalization()
+                c.disconnect()
+            disconnect_thread = threading.Thread(target=finalizing)
+            disconnect_thread.start()
+            assert close_entered.wait(2)
+        else:
+            gate.set()  # Independent failure, no close has been called yet.
+        # For concurrent close, wait for the receive failure while close is blocked.
+        if outcome == 'concurrent':
+            for _ in range(200):
+                if d.counters['recv_exceptions']:
+                    break
+                threading.Event().wait(.005)
+            assert d.counters['recv_exceptions'] == 1
+            finish_close.set()
+        reader.join(2)
+        if disconnect_thread:
+            disconnect_thread.join(2)
+            assert not disconnect_thread.is_alive()
+        else:
+            d.audit_finalization()
+            c.disconnect()
+        assert not reader.is_alive() and not c._thread.is_alive()
+        d.close()
+        proof = d.snapshot()
+        failure = next(row for row in d.records if row['event'] == 'socket_recv_exception')
+        assert failure['errno_category'] == errno.EBADF
+        assert failure['causality'] == 'UNKNOWN'
+        assert failure['receive_entry_sequence'] < failure['sequence']
+        if outcome in ('owned_blocked', 'concurrent'):
+            assert failure['close_relation'] == 'OVERLAPS_CLOSE'
+            assert failure['receive_entry_sequence'] < failure['close_entry_sequence'] < failure['sequence']
+            close_row = next(row for row in d.records if row['event'] == 'socket_close_entry')
+            assert close_row['audit_finalization_thread']
+            assert 0 < close_row['audit_finalization_sequence'] < close_row['sequence']
+        else:
+            assert failure['close_relation'] == 'BEFORE_CLOSE'
+            assert failure['close_entry_sequence'] == 0
+            close_row = next(row for row in d.records if row['event'] == 'socket_close_entry')
+            assert not close_row['audit_finalization_thread']  # SDK failure cleanup on reader.
+        assert d.counters['recv_exceptions'] == 1
+        assert d.counters['audit_finalization_entries'] == 1
+        assert d.counters['end_callback_return'] == int(outcome != 'before_end')
+        assert not proof['coverage_verified'] and not proof['absence_claims_valid']
+        assert proof['hooks_restored'] and proof['reader_stopped'] and proof['callback_loop_stopped']
+        assert len(raw.sent) == 1 and raw.sent[0][0] == frame([16, 1])
+        assert 'PRIVATE_' not in json.dumps(proof)
+    finally:
+        gate.set(); finish_close.set()
+        if disconnect_thread:
+            disconnect_thread.join(2)
+        c.disconnect(); reader.join(2)
+
+
+@pytest.mark.parametrize('failure', [False, True])
+def test_order_socket_close_ordering_error_allowlist_and_original_behavior(orders_prepared, failure):
+    import errno
+    c, d, raw = orders_prepared
+    c.reqAllOpenOrders()
+    proxy = c.conn.socket
+    marker = object()
+    error = OSError(errno.ECONNRESET, 'PRIVATE_CLOSE_PAYLOAD')
+    error.winerror = 10054
+    def close():
+        if failure:
+            raise error
+        return marker
+    original_close = raw.close
+    raw.close = close
+    try:
+        d.audit_finalization()
+        if failure:
+            with pytest.raises(OSError) as caught:
+                proxy.close()
+            assert caught.value is error
+        else:
+            assert proxy.close() is marker
+        # Receive begins after close returns/fails. Still never infer causality.
+        raw.chunks = [OSError(987654321, 'PRIVATE_RECEIVE_PAYLOAD')]
+        raw.chunks[0].winerror = 987654321
+        with pytest.raises(OSError):
+            proxy.recv(4096)
+        row = next(row for row in d.records if row['event'] == 'socket_recv_exception')
+        assert row['close_relation'] == ('AFTER_CLOSE_FAILURE' if failure else 'AFTER_CLOSE_RETURN')
+        assert row['errno_category'] == row['winerror_category'] == 0
+        assert row['causality'] == 'UNKNOWN'
+        if failure:
+            row = next(row for row in d.records if row['event'] == 'socket_close_failure')
+            assert row['errno_category'] == errno.ECONNRESET and row['winerror_category'] == 10054
+        assert d.counters['recv_exceptions'] == 1 and not d.snapshot()['coverage_verified']
+        assert 'PRIVATE_' not in json.dumps(d.snapshot())
+        assert '987654321' not in json.dumps(d.snapshot())
+    finally:
+        raw.close = original_close
+
+
+def test_order_actual_local_closed_socket_no_connect_or_guard_exemption(orders_prepared, monkeypatch, tmp_path):
+    """Runs on Windows CI too: socket creation/close/recv only, no bind/listen/connect."""
+    import errno
+    c, d, raw = orders_prepared
+    c.reqAllOpenOrders()
+    violations = []
+    def forbidden(*args, **kwargs):
+        violations.append(True)
+        raise AssertionError('No local or external network operation')
+    # Existing global offline guards remain active. No socketpair exemption needed.
+    for name in ('connect', 'connect_ex', 'bind', 'listen', 'sendto'):
+        monkeypatch.setattr(socket.socket, name, forbidden)
+    local = socket.socket()
+    proxy = _Socket(local, d)
+    try:
+        d.audit_finalization()
+        proxy.close()
+        with pytest.raises(OSError) as caught:
+            proxy.recv(4096)
+        assert caught.value.errno in (errno.EBADF, errno.ENOTSOCK, 10038)
+        row = next(row for row in d.records if row['event'] == 'socket_recv_exception')
+        assert row['close_relation'] == 'AFTER_CLOSE_RETURN' and row['causality'] == 'UNKNOWN'
+        if __import__('sys').platform == 'win32':
+            assert caught.value.winerror == 10038 and row['winerror_category'] == 10038
+        assert d.counters['recv_exceptions'] == 1 and not d.snapshot()['coverage_verified']
+        assert not violations
+        from src.ibkr.evidence_safety import write_json, scan_artifacts
+        write_json(tmp_path/'closed-socket.json', d.snapshot())
+        assert scan_artifacts(tmp_path)['passed']
+    finally:
+        local.close()
+
+
+def test_order_shutdown_saturation_preserves_final_records_and_omissions(orders_prepared):
+    c, d, raw = orders_prepared
+    c.reqAllOpenOrders()
+    for i in range(90):
+        d.record('socket_send', requested=i, returned=i)
+    d.audit_finalization()
+    c.disconnect()
+    d.close()
+    proof = d.snapshot()
+    events = {row['event'] for row in proof['records']}
+    assert {'audit_finalization', 'socket_close_entry', 'socket_close_return', 'order_cleanup'} <= events
+    assert len(proof['records']) <= 64 and d.counters['records_dropped'] > 0
+    assert not proof['coverage_verified']
+    assert all(len(json.dumps(row, ensure_ascii=True).encode()) <= 4096 for row in proof['records'])
+
+
+def test_order_shutdown_instance_isolation_and_observer_failure(orders_prepared, monkeypatch):
+    c, d, raw = orders_prepared
+    c.reqAllOpenOrders()
+    fresh = TransportDiagnostic(NS(), profile='final-orders')
+    d.audit_finalization()
+    proxy = c.conn.socket
+    # Fault inside observation must not change actual close or recreate another owner.
+    monkeypatch.setattr(proxy, '_stage', lambda *a, **kw: (_ for _ in ()).throw(RuntimeError('PRIVATE_STAGE')))
+    proxy.close()
+    assert raw.closed and d.counters['hook_errors'] > 0
+    assert fresh.lifecycle_sequence == fresh.audit_finalization_sequence == 0
+    assert fresh.counters['socket_close_entries'] == fresh.counters['audit_finalization_entries'] == 0
+    c.openOrderEnd()  # Late native callback stays on original instance.
+    assert fresh.counters['end_callback_entry'] == 0
+    c.disconnect(); d.close()
+    assert d.restored and not d.snapshot()['coverage_verified']
+    assert 'PRIVATE_' not in json.dumps(d.snapshot())
+
+
+def test_quote_profile_close_remains_passthrough(prepared):
+    c, d, raw = prepared
+    marker = object()
+    raw.close = lambda: marker
+    before = dict(d.counters)
+    assert c.conn.socket.close() is marker
+    assert before == d.counters and d.lifecycle_sequence == 0
+    assert not any(row['event'].startswith('socket_close') for row in d.records)

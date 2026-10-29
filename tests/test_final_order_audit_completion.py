@@ -188,3 +188,31 @@ def test_opt_in_audit_propagates_stop_and_still_disconnects(monkeypatch):
     monkeypatch.setattr(acquisition,'wait_event',stop)
     with pytest.raises(acquisition.AcquisitionCancelled):supervisor.final_broker_audit(observer_factory=lambda c:o)
     assert clients[0].sent==1 and not clients[0].connected and o.closed
+
+
+@pytest.mark.parametrize('fails', [False, True])
+def test_audit_owned_finalization_seam_precedes_cleanup_without_changing_authority(monkeypatch, audits, fails):
+    from src.core import acquisition
+    monkeypatch.setattr(acquisition, 'wait_event', lambda event, timeout: event.wait(timeout))
+    original = supervisor.final_broker_audit
+    seen = []
+    class Observer:
+        def __init__(self, client):
+            self.client = client
+        def __enter__(self):
+            return self
+        def audit_finalization(self):
+            assert self.client.sent == 1 and not self.client.closed
+            assert self.client._open_orders_event.is_set()
+            seen.append('finalization')
+            if fails:
+                raise RuntimeError('PRIVATE_FINALIZATION_PAYLOAD')
+        def close(self):
+            assert self.client.closed
+            seen.append('observer_close')
+    monkeypatch.setattr(supervisor, 'final_broker_audit', lambda: original(observer_factory=Observer))
+    c, result = audits('empty')
+    assert seen == ['finalization', 'observer_close']
+    assert result['query_completed'] and result['open_orders_count'] == 0 and result['disconnected']
+    assert c.sent == 1 and c.waits == [10]
+    assert ('observer_cleanup_error_type' in result) == fails

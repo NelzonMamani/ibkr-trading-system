@@ -202,6 +202,14 @@ def final_broker_audit(*, observer_factory=None):
             if isinstance(exc, (AcquisitionCancelled, AcquisitionDeadlineExceeded)):
                 raise
     finally:
+        if observer is not None:
+            try:
+                finalizing = getattr(observer, "audit_finalization", None)
+                if finalizing is not None:
+                    finalizing()
+            except BaseException as exc:
+                # Observation cannot prevent the existing owner's disconnect.
+                result["observer_cleanup_error_type"] = type(exc).__name__
         try:
             client.disconnect()
             thread = getattr(client, "_thread", None)

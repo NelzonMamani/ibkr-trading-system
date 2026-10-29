@@ -122,7 +122,8 @@ def test_final_orders_requires_explicit_tree_before_any_probe(monkeypatch):
     with pytest.raises(RuntimeError,match='explicit reviewed tree'):payload.main()
 
 
-def test_final_orders_operator_filesystem_sealing_no_acquisition_or_operator_write(monkeypatch,tmp_path,capsys):
+@pytest.mark.parametrize('shutdown_error', [False, True])
+def test_final_orders_operator_filesystem_sealing_no_acquisition_or_operator_write(monkeypatch,tmp_path,capsys,shutdown_error):
     """Run existing operator phases with stub audit result and hard I/O tripwires.
 
     Only platform/offline-entry checks are modeled; all acquisition entry points
@@ -174,6 +175,20 @@ def test_final_orders_operator_filesystem_sealing_no_acquisition_or_operator_wri
         calls.append(True)
         put('final-order-audit.json',{'query_completed':False,'end_received':False,'timeout_seconds':10})
         proof={'coverage_verified':True,'absence_claims_valid':True}
+        if shutdown_error:
+            from src.ibkr.transport_diagnostic import TransportDiagnostic, _Socket
+            diagnostic = observer_factory(NS())
+            class PrivateSocket:
+                def close(self):
+                    raise OSError(9, 'PRIVATE_SHUTDOWN_ACCOUNT_ORDER_ADDRESS')
+                def recv(self, size):
+                    raise OSError(9, 'PRIVATE_SHUTDOWN_ACCOUNT_ORDER_ADDRESS')
+            proxy = _Socket(PrivateSocket(), diagnostic)
+            diagnostic.audit_finalization()
+            with pytest.raises(OSError): proxy.close()
+            with pytest.raises(OSError): proxy.recv(4096)
+            proof = diagnostic.snapshot()
+            assert proof['counters']['recv_exceptions'] == 1
         put('transport-diagnostic.json',proof)
         return False,proof
     monkeypatch.setattr(payload,'final_orders',audit)
@@ -186,13 +201,13 @@ def test_final_orders_operator_filesystem_sealing_no_acquisition_or_operator_wri
             print('PRIVATE_LATE_ORDER_SYMBOL_ID')  # Synthetic late callback after observer scope.
         return original_scan(directory)
     monkeypatch.setattr(evidence_safety,'scan_artifacts',scan)
-    assert payload.main()==2  # Honest incomplete audit even with complete capture.
+    assert payload.main()==(1 if shutdown_error else 2)  # Preserve receive failures and incomplete audit.
     captured=capsys.readouterr()
     (evidence/'probe-process.stdout.log').write_text(captured.out)
     (evidence/'probe-process.stderr.log').write_text(captured.err)
     assert 'PRIVATE_LATE_ORDER_SYMBOL_ID' not in captured.out+captured.err
     report=json.loads((evidence/'result.json').read_text())
-    assert report['scope']=='FINAL_ORDERS_DIAGNOSTIC_ONLY' and report['status']=='DIAGNOSTIC_ONLY'
+    assert report['scope']=='FINAL_ORDERS_DIAGNOSTIC_ONLY' and report['status']==('FAIL' if shutdown_error else 'DIAGNOSTIC_ONLY')
     assert report['source_state']==report['operator_state']=='PASS' and not report['scanner_attempted']
     assert calls==[True] and pins==['a'*40,'a'*40]
     assert original.read_text()=='PRIVATE_OPERATOR_CANARY'
@@ -201,6 +216,7 @@ def test_final_orders_operator_filesystem_sealing_no_acquisition_or_operator_wri
         assert payload.main()==0
     archive=root/'final-orders-diagnostic-upload.zip'
     with zipfile.ZipFile(archive) as z:
-        assert all(b'PRIVATE_OPERATOR_CANARY' not in z.read(n) and b'PRIVATE_LATE_ORDER_SYMBOL_ID' not in z.read(n) for n in z.namelist())
+        assert all(b'PRIVATE_OPERATOR_CANARY' not in z.read(n) and b'PRIVATE_LATE_ORDER_SYMBOL_ID' not in z.read(n)
+                   and b'PRIVATE_SHUTDOWN_ACCOUNT_ORDER_ADDRESS' not in z.read(n) for n in z.namelist())
         assert not any('state' in n or n.startswith('quote-trace') for n in z.namelist())
     assert calls==[True]  # Packaging is filesystem only, never another audit.
