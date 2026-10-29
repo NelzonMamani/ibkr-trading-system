@@ -371,6 +371,7 @@ def test_orders_actual_serializer_fragmented_end_and_complete_stage_chain(orders
     c,d,raw = orders_prepared
     c.reqAllOpenOrders()
     assert len(raw.sent)==1 and raw.sent[0][0] == frame([16,1])
+    assert next(r for r in d.records if r['event']=='serialized_order_query')['server_version']==151
     proof = drain_orders(c,d,raw,frame([53,1]))
     assert c._open_orders_event.is_set()
     assert proof['coverage_verified'] and proof['absence_claims_valid']

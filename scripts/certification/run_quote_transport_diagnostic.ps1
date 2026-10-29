@@ -50,7 +50,8 @@ if ($DiagnosticProfile -eq 'final-orders' -and !$ExpectedTree) { throw 'Final or
     Write-Host "$DiagnosticProfile diagnostic only. Fresh root: $root"
     Write-Host 'Normal RTH and PAPER TWS Read-Only API127.0.0.1:7497; unused client71 required.'
     Write-Host "Cooperative stop: New-Item -ItemType File -Force '$evidence\STOP_REQUESTED'"
-    $profileArgs = if ($DiagnosticProfile -eq 'final-orders') { @($DiagnosticProfile,$ExpectedTree) } else { @() }
+    $profileArgs = @()
+    if ($DiagnosticProfile -eq 'final-orders') { $profileArgs = @($DiagnosticProfile,$ExpectedTree) }
     $probe = Invoke-ObservationChild -Python $python `
         -ChildArguments (@('-E','-u',$payload,'probe',$root,$pin) + $profileArgs) `
         -LogPrefix (Join-Path $evidence 'probe-process') `

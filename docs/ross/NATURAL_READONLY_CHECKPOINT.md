@@ -6544,3 +6544,20 @@ ONE next action: review the new exact-head draft and offline/CI evidence. A late
 single PAPER inquiry needs SEPARATE explicit authorization and a reviewed pinned
 operator block; none is provided or authorized here. No merge or readiness upgrade.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+Final review follow-up before certification: preserve review5696428360 and
+run40859787829 at9ca2f888 as superseded receipts. Additional PowerShell source
+review identified that assigning an if-expression's empty @() branch yields
+$null, which array concatenation can append as an empty child argument. The
+profile-argument array is now initialized explicitly before optional order
+arguments. Extended actual PowerShell5.1 controls reproduce that old pure-array
+hazard and evaluate the real probe/package/seal argument expressions WITHOUT
+invoking any child: quote mode must have6 nonempty arguments; order mode8 with
+its exact profile/tree. This strengthens default-quote compatibility rather than
+retrying an unchanged head. Also export negotiated server_version with verified
+order serialization to bind decoder-schema interpretation to the observed SDK
+session; no additional request or private field is introduced. Targeted Python
+wire/operator/audit controls remain green; the final Windows control is a changed-
+head CI requirement, not a local execution claim. New exact-head delta review
+and replacement CI receipts will be linked on the same draft PR1143. No inquiry,
+merge or readiness upgrade; the single next action above remains unchanged.

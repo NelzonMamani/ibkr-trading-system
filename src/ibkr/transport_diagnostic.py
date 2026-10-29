@@ -239,7 +239,8 @@ class TransportDiagnostic:
         if self.profile == 'final-orders':
             if fields == [b'16', b'1'] and self.order_window:
                 self.count('order_serialized')
-                self.record('serialized_order_query', message_id=16, field_count=2, bytes=len(frame))
+                self.record('serialized_order_query', message_id=16, field_count=2, bytes=len(frame),
+                            server_version=self.client.serverVersion())
                 return {'message_id': 16}
             # Handshake/startApi/type controls are counted, not exported.
             if self.order_window:
