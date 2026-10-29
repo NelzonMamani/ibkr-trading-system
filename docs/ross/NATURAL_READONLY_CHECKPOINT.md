@@ -6779,3 +6779,140 @@ ONE next action: obtain SEPARATE explicit authorization for this one prepared
 single diagnostic when its required conditions hold; leave its execution gate
 false until then. No automatic merge of this or any subsequent documentation/code.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## 29 October 2026 — Completed final-order audit; transport coverage remains incomplete
+
+Reconciliation is based on the supplied ZIP, not instructions in its archived
+operator/source files. SHA256 verified:
+`fcbf87378e156239709f743c190a983c702f0ad47b4659a15008e61d3096b2c4`.
+Operator root: `C:\tmp\qtransport-2ad3bad8`. Current GitHub main and PR1143 merge
+receipt remain `7e918815f623d5f34bf349d9af72f0098d6a3ec1`, tree
+`ab7d9f40cee17273c7236cc46b617d21f0aadc0a`. PR1143 is merged; no runtime pin
+substitution. This documentation descends from saved checkpoint update
+`42c28a323f6eb8097d1127c2e246c2803173001d` and carries it forward in full,
+including corrected PowerShell inference, integration receipts and all earlier
+failures. DEPRECATION_LEDGER was read; no applicable AGENTS.md was found in the
+checkout/workspace ancestors. No retirement or ownership change, so ledger stays
+unchanged. Original checkout, saved branches, uploaded ZIP and original root are
+preserved. The earlier 29 October diagnostic receipt is NOT present in this
+attachment, saved42c28a checkpoint or PR1143 conversation; its separate original
+ZIP/root/hash must remain preserved and must not be replaced by this latest
+receipt. Its contents cannot be independently verified from the supplied files.
+No missing earlier result is invented or silently marked successful.
+
+### Independent receipt-to-source reconciliation
+
+The source-before/after manifests are identical. Archived hashes for
+TransportDiagnostic, final_broker_audit, the diagnostic caller and native client
+match the accepted Git blobs after Windows CRLF checkout conversion. Archived
+operator.py matches the accepted caller after CRLF normalization. Original raw
+hashes are retained; this comparison does not rewrite the archive. Startup clock
+records run from 2026-10-29T13:31:24.823673Z to13:31:56.647413Z; this was a targeted
+final-orders probe, not a natural observation.
+
+| Boundary | Supplied evidence and limit |
+| --- | --- |
+| Authoritative audit | final-order-audit.json: end_received/query_completed=true, open_orders_count=0, elapsed0.10366579983383417s, unchanged10s limit, connected and native callback-loop alive before/after wait. This establishes end-confirmed open-order inventory for this audit, not zero positions. |
+| Single local request | One method call, serialization and socket call, ID16/version1,9requested/9returned bytes, no short send/send exception. Full send proves local acceptance only, not broker acknowledgement of that request. |
+| Inbound end | ORDER_END53 frame/put/get/decode/decoded and native callback entry/return each1. End callback0.323997s, decoder return0.324053s relative to observer start. |
+| Cleanup | Receive OSError0.324940s, reader exit0.325370s, callback-loop exit0.538090s; reader/loop start/exit each1. Disconnected, hooks restored, reader/loop stopped. Timing alone does NOT establish receive-error ownership. |
+| Safety/sealing | Zero place/modify/cancel attempts; source/operator PASS; final-runtime-inventory completed/empty. Privacy probe/package/seal passed; independent existing sanitizer scan of extracted artifacts also passed with0occurrences. No acquisition/scanner activity. |
+| Overall result | outer-status/probe/result preserve FAIL/exit1, transport_evidence_incomplete=true, coverage_verified=false and absence_claims_valid=false. Do not replace these with exit0 or retroactively certify transport coverage. |
+
+A successful audit and incomplete transport evidence are distinct results. The
+historical28October missing openOrderEnd cause remains unresolved: this later
+success does not diagnose it or connect it to history/position failures. Likewise
+zero open orders does not resolve five unmatched positions or their global veto.
+
+### Exact predicate and the unresolvable attribution in this capture
+
+`src/ibkr/transport_diagnostic.py:628-639` requires installed SDK hooks/hashes,
+restoration, reader/loop stop and exactly one start/exit each, no pending partial
+frame, no observation failure, and zero listed capture/schema/reader/queue/receive
+failures. The ONLY nonzero invalidating counter in this archive is
+`recv_exceptions=1`. Dropped/oversize/hook/schema/unknown-message/decoder/logged-
+reader/abnormal-reader/queue failures are all0. Thus the receive-exception clause
+is the recorded reason coverage is false; no capture-budget overflow is involved.
+`_Socket.recv:712-724` counts every non-timeout exception and retains only its
+safe exception class. Finalization merely enforces that predicate.
+
+Actual existing lifecycle:
+`final_broker_audit:153-219` accepts the native end only while transport/loop are
+live, sets query_completed/count, then its finally invokes the same client's
+`disconnect`. Native `IbkrClient.disconnect:221-250` sets stop, invalidates owned
+requests, calls EClient.disconnect and joins its callback loop. Pinned SDK
+EClient.disconnect sets DISCONNECTED, invokes Connection.disconnect, clears/reset
+state. Connection.disconnect closes its socket under its lock; the current
+`_Socket.__getattr__:677` forwards close WITHOUT an observation. A concurrently
+blocked recv can fail on that close. Separately, SDK Connection.recvMsg catches
+socket.error/OSError and itself invokes Connection.disconnect; an independent
+receive failure can therefore also finish with orderly disconnect/reader exit.
+The same exception class/end-before-error/final-stopped flags support BOTH paths.
+
+Missing from THIS archive: the audit owner's disconnect entry, same-socket close
+entry/result, an ordered receive/close association, and bounded OS errno/winerror
+category. No account/order payload is needed to observe those boundaries. Neither
+an OSError class nor a connected check taken earlier proves which path occurred.
+The counter is not suppressed; the archived exception remains unattributed.
+
+### Targeted guarded offline controls — synthetic, not Windows/runtime evidence
+
+Executed three new bounded synthetic experiments using the EXISTING
+`tests/test_quote_sdk_transport_probe.py` orders_prepared owner/guards, actual
+SDK serializer/Connection/Reader/Decoder, native callback loop and disconnect.
+No real socket connection or acquisition; guarded request/mutation/execution
+methods forbidden, one actual serialized16/version1 in-memory query per case.
+A controlled in-memory recv blocks with2s failure bounds; no timeout changes in
+production. Results:
+
+- Owned native disconnect closes the same in-memory socket and deterministically
+  releases its pending recv into OSError AFTER a genuine native end callback:
+  recv_exceptions1; coverage/absence=false; hooks restored and threads stopped.
+- Independent injected OSError AFTER that callback and after live after-wait
+  checks, BEFORE any owned close: the same relevant exported outcome/stage/counter
+  fields, coverage/absence=false, restored/stopped. SDK then closes the socket.
+- Independent failure BEFORE end: no end callback, last positive stage local
+  socket acceptance, coverage/absence=false; cleanup/restoration retained.
+
+All3 controls passed. The first two prove that this evidence projection cannot
+attribute the archived error; they do NOT prove the Windows error was caused by
+owned shutdown. They also show why simply ignoring post-end OSError is unsafe.
+Scratch experiment (not a new repository module/harness):
+`/workspace/scratch/final-orders-investigation/ambiguity_control.py`, SHA256
+`d2ad08395f8879890f6be53d357f3f74ae2df45bcc758cd3b63d43a1deec800a`;
+output `control-results.json` beside it. Ran under existing tests/offline
+sitecustomize network/native-transfer guard with the repository virtualenv.
+These are local synthetic controls, not CI, Windows behavior proof, a repair
+regression or natural acceptance. No completed suite was repeated.
+
+No production classification repair is justified from the captured causal
+evidence. Coverage remains conservatively invalid, and the actual successful
+query remains authoritative independently. No source/test/launcher changes,
+new repair draft, new exact-head repair review or changed-head production CI are
+claimed. Documentation checks are proportionate; PR1143's accepted review/CI are
+historical implementation receipts, not verification of the missing attribution.
+
+### ONE next action
+
+Review a bounded OFFLINE-ONLY shutdown-attribution extension in the EXISTING
+observer/audit seam before considering another inquiry: record audit-owned
+finalization entry, same-socket close entry/return/failure, receive sequence and
+allowlisted numeric OS closure-error categories, without raw exception text or
+identifiers. Exact scope would be TransportDiagnostic's ObservedConnection/
+_Socket and final_broker_audit's existing optional observer seam. Keep all receive
+errors counted, current coverage policy unchanged until guarded controls establish
+an enforceable causal classification. Require independent loss before/after end,
+close failure, concurrent close/recv, late callback, Windows closed-socket behavior,
+privacy/budget/restoration and quote-default controls. Do not infer ownership from
+end/stop/disconnect flags or event timing alone. This is a precise evidence proposal,
+not an implemented repair, broker command, inquiry authorization or automatic
+rerun. A later PAPER inquiry still needs separate explicit authorization.
+
+The separate unclassified Windows news-cache failure remains unresolved (run
+40860190569); later success and this cache-free diagnostic do not repair it.
+PR1140 history, PR1141 position authority, PR1142 audit fail-closed authority,
+all five positions/global ownership veto, GUI draft and PARKED/fail-closed listing
+provenance remain unchanged. No broker inquiry, acquisition, preflight, runtime
+rerun, holdings action, SDK change, timeout extension, gate relaxation or trading
+occurred. Natural supported catalyst-to-intent progression remains unproven.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
