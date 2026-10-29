@@ -6260,3 +6260,30 @@ ONE next action: review the new exact-head draft's bounded final-audit lifecycle
 repair and its independent/CI receipts for controlled integration; do not start
 an observation or broker diagnostic from this task.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+PR1142 CI follow-up: preserve failed run40852278977 at
+1dc46337d371301d166edb2c511232422b809bb5. Linux1failed/3559passed/3skipped:
+existing test_scanner_watchlist_prints.test_watchlist_print_format expected a
+price row unless output contained an obsolete EMPTY WATCHLIST marker. The actual
+formatter legitimately prints count0 headers without that marker. The fixture
+ran the full wall-clock-dependent scanner and did not guarantee a populated
+Watchlist. Isolated original test passed locally, so the exact CI selection path
+is not independently reconstructed. A deterministic empty-display control against
+the original assertion fails at the same price requirement; this demonstrates a
+fixture contract error, not a production selection failure or an audit regression.
+The original Windows job remains preserved on the same run.
+
+The format test now directly exercises the existing printer with explicit
+synthetic populated AND empty inputs. It requires exact price/gap/RVOL rows twice
+(Watchlist and Focus) for populated input and exactly two count0 headers with no
+fabricated rows for empty input. Other pipeline/suppression/order tests remain.
+No production scanner, session, catalyst or freshness rule changes. This removes
+acquisition/clock dependence from a format test while strengthening both display
+contracts. Guarded affected set182passed3.64s; empty-before proof is saved in
+/workspace/work/final-order-format-empty-before.log, final result in
+/workspace/work/final-order-format-final.log. The local isolated original-test pass
+is retained in final-order-format-before.log. Original audit production repair is
+source-identical to independent review5695727757; exact replacement-head review
+and changed-head CI receipts will be linked on PR1142. No unchanged-head retry.
+The one next action and all remaining ownership/natural/readiness gates above
+remain unchanged.
