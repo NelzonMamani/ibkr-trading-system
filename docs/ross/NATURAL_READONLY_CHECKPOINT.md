@@ -6287,3 +6287,166 @@ source-identical to independent review5695727757; exact replacement-head review
 and changed-head CI receipts will be linked on PR1142. No unchanged-head retry.
 The one next action and all remaining ownership/natural/readiness gates above
 remain unchanged.
+
+## 29 October 2026 — PR1142 accepted; bounded final-order evidence proposal ONLY
+
+Explicit controlled-integration authorization was limited to PR1142. Main was
+unchanged atfb0b9e9c3c7a2f7774a1fe73276e7d43e832f8e7; PR head remained
+2110fbcf3276c19c0e42c9ad68ece54820fb7566, reviewed tree
+501d03fc3a92b8edcfcfcf78e5b04110f70e80cc. Independent agent review5695826928,
+successful CI40853211181 and absence of new blocking findings/unresolved threads
+were verified. CI's tested merge2aeafdd8e4fdc1bc216ecb9a516c6d98771e99f3 has
+exactly the reviewed tree: Linux3561passed/3skipped; Windows3563passed/1skipped,
+including cache and PowerShell checks. No completed suite was repeated for status.
+Marked ready and merged using expected-head guard2110fbcf and merge method.
+Accepted merge/main: `5e03ce25b646181c51eccf029c2957c18c3470b8`.
+Fetched accepted tree: `501d03fc3a92b8edcfcfcf78e5b04110f70e80cc`, equal to the
+reviewed and tested tree. Integration receipt: PR1142 issuecomment6493912707.
+All earlier draft status/next-integration notes remain historical and are
+superseded by this receipt. Original checkout and saved history/position/audit
+branches remain unchanged. DEPRECATION_LEDGER was read and remains unchanged;
+no applicable AGENTS.md was found in checkout/workspace ancestors. This new
+checkpoint-only branch does not replace the accepted runtime pin or authorize
+any subsequent merge.
+
+### Existing observable stages and precise evidence gap
+
+The saved28October terminal_evidence.json and audit stdout/stderr were inspected
+again: reqAllOpenOrders,10-second configured wait,10.0090318s elapsed, connected
+before/after wait, native callback-loop thread alive before dispatch, no end,
+query_completed=false, no open_orders_count, disconnect confirmed, zero mutation
+attempts. Broker codes2104/2106/2158 are farm-status observations, not order-query
+acknowledgements; stdout has no openOrderEnd, stderr is empty. The original ZIP
+and UNKNOWN result remain preserved. PR1142 adds enforced socket/callback-loop
+checks and records callback-loop liveness after wait; this latter field did not
+exist in the archived receipt. None proves outbound send or inbound completion.
+
+Existing TransportDiagnostic (src/ibkr/transport_diagnostic.py) already observes
+SDK identity, Connection/socket sends and receives, framing, queue put/get,
+decoder entry/return/exception, SDK reader identity, hook restoration and reader
+stop. However _wire accepts outgoing quote/control IDs1/2/59, not
+OUT.REQ_ALL_OPEN_ORDERS16; _message recognizes only quote message IDs, not
+IN.OPEN_ORDER5 or IN.OPEN_ORDER_END53. Its active window, target/reservation,
+wrapper hooks and absence predicate require a quote request. Other-message
+aggregate counts cannot adjudicate order delivery. Simply wrapping the audit in
+that unchanged capture is NOT an order-coverage proof. The existing quote caller
+also runs scanner/quotes and a separate five-second cleanup query; it must NOT be
+executed unchanged or treated as the ten-second final-audit owner.
+
+SDK9.81.1.post1 source: EClient.reqAllOpenOrders emits ID16/version1 with no
+request correlation token. EClient.connect creates Decoder(wrapper=self), starts
+EReader/socket receive/framing into msg_queue; native _thread runs EClient.run
+queue draining and Decoder.interpret into native openOrder/openOrderEnd. A live
+_thread is not a separate EReader health receipt. Existing captured evidence
+lacks verified ID16 serialization/socket return, per-stage order/end counts,
+separate socket-reader transitions, and a complete queue/decode/dispatch trace.
+There is no basis to infer a shared history/position/order cause.
+
+### ONE proposed evidence step, pending implementation and execution authorization
+
+Prepare ONE explicit final-orders profile in the EXISTING isolated diagnostic
+caller, calling the EXISTING supervisor.final_broker_audit exactly once. This
+is a proposal only; no instrumentation or live operator command is implemented
+here. No second connection owner, audit implementation or harness is proposed.
+Its later user-started execution would use one fresh READ_ONLY native client,
+PAPER TWS127.0.0.1:7497/client71, one reqAllOpenOrders, existing ten-second query
+wait, no retry/reconnect and no second finalization query. No scanner, quote,
+history, positions, news, strategy or execution operation is in scope. Retain
+existing normal-session/environment checks, isolated root/state copy, source and
+original-operator equality, mutation counters, process inventory, owned cleanup
+and package sealing. Retain existing diagnostic120s child/30s stop supervision
+and90s package/seal bounds; those outer bounds do not extend the10s query wait.
+No900s observation is needed or authorized. The existing PowerShell entrypoint's
+hardcoded old diagnostic branch must not silently select an old production pin.
+An explicit final-orders mode must verify the future reviewed literal commit/tree;
+existing quote mode remains separate and behaviorally unchanged.
+
+Proposed exact source scope (approval required BEFORE implementation):
+
+- src/ibkr/transport_diagnostic.py: opt-in order profile, default quote unchanged.
+  Observe method-enter/return/exception and validate exactly one ID16/version1
+  serialized frame against the pinned SDK schema, with its socket requested/
+  returned bytes, short send and exception counts. Distinguish method entry from
+  actual wire dispatch; no added send, buffering, retry or SDK operation changes.
+  Recognize message IDs5/53, orderStatus3 and error4 at framing/queue/decoder
+  boundaries using reviewed schemas. Count handler availability/arity/dispatch
+  and exception class, never retain order/error payloads. Add instance-scoped
+  openOrder/openOrderEnd/error callback entry/return counters around the original
+  methods invoked exactly once; original completion/event authority remains.
+  Observe EReader and native callback-loop start/exit/liveness plus safe numeric
+  SDK error codes/exception classes (including SDK-swallowed reader exceptions
+  via existing SDK log filter, without formatting log text). Unknown schemas,
+  hook failures and unobservable stages remain explicit, never valid absence.
+- scripts/certification/pr1090_terminal_observation_supervisor.py: minimal opt-in
+  observer-context seam around final_broker_audit's OWN constructed client, before
+  its connect and through finally-disconnect. Default audit unchanged. A query
+  stage marker establishes observation before the single call. The diagnostic
+  caller receives structured proof after observer close; it must not create or
+  connect a second client, copy the query or replace query_completed authority.
+- scripts/certification/quote_transport_diagnostic.py: explicit order-audit phase/
+  profile reusing current environment, source/operator checks, console suppression,
+  sanitizer, privacy verification and sealed packaging. Bypass acquire() and the
+  quote-specific cleanup query entirely; use the one actual final_broker_audit
+  result. Separate transport completeness from audit completion and readiness.
+- scripts/certification/run_quote_transport_diagnostic.ps1: explicit scoped mode
+  and reviewed-pin selection, reusing current isolated checkout, child supervisor
+  and packaging owners; no new competing launcher or automatic retry. This is
+  proposed functionality, not an existing runnable command.
+
+Privacy/capture contract: preserve64 records,4096 UTF-8 bytes per record (at most
+256KiB of encoded records), saturating aggregate counters, at most8 background
+samples and reserved target/finalization capacity. Repeated target stages use
+first-sample details plus counts and explicit omissions; never evict/hide drops.
+An order attempt is an instance-local diagnostic scope, NOT an invented broker
+request ID. End the scope after wait/cleanup, not at an early callback. Retain
+only monotonic timings, lengths, message classes, field counts, schema/dispatch
+booleans, bounded codes/exception classes, SDK/source hashes and aggregate counts.
+No raw frames, field arrays, account/order IDs, symbols, quantities, prices,
+article content, free-form broker messages or payload hashes are written or put
+in the ZIP. SDK/native console details remain suppressed by existing diagnostic
+mechanisms; write only sanitized whitelisted structured artifacts. Private order
+objects remain transient under the existing native owner, never evidence exports.
+Privacy scan failure prevents ZIP announcement. Lost/restoration/oversize/schema
+or budget evidence invalidates transport absence claims, even if an end arrives.
+Keep explicit transport coverage separate from query_completed; full socket send
+means local socket acceptance, NOT broker acknowledgement or server processing.
+
+Proposed guarded offline acceptance BEFORE any live authorization: extend
+EXISTING tests/test_quote_sdk_transport_probe.py,
+tests/test_final_order_audit_completion.py and tests/test_quote_transport_operator.py,
+plus existing PowerShell parser/stub-child checks. Forbid all real network,
+broker connections/queries, mutation and execution submissions. Use MemorySocket,
+actual SDK serializer/framer/Decoder and native callback fixtures. Verify exact
+one16/version1 request, full/short/failed send without retry, fragmented frames,
+frame->queue->decoder->wrapper stage gaps, known/unknown schemas, arity/decoder
+failure, partial/no-end, end-confirmed empty/nonempty, error and disconnect,
+reader/callback-loop exit, stale/late other-instance events, stop and cleanup.
+Assert ten-second wait unchanged and unavailable inventory never count0. Startup
+burst/full lifecycle and deliberate overflow must prove reserved final records,
+explicit omissions and invalid coverage on lost evidence. Inject synthetic
+account/order/symbol/message canaries into all SDK logging/exception paths and
+scan every artifact/ZIP. Verify all hooks restore on partial install/failure,
+both readers stop within existing cleanup, source/operator equality, no extra
+queries/cache writes and no scanner/quotes in order mode. Existing quote-profile
+controls must retain their meaning. Obtain independent exact-head review and
+appropriate changed-head Linux/Windows/PowerShell checks on the eventual draft;
+do not merge that subsequent change automatically.
+
+Defined information gain for a later separately authorized ONE query: distinguish
+method not reached; serialization/send not reached or failed/short; local full
+send with no recognized inbound order/end frame; framed-but-not-queued;
+queued-but-not-dequeued; decoder/handler failure; callback received but no accepted
+completion; or genuine completed query with final cleanup proof. Record last
+positively observed stage and honest unknowns. A full send with no end cannot
+separate TWS/server behavior from an unobserved upstream path. No negative result
+or complete diagnostic grants automatic rerun, natural success, risk admission or
+PAPER readiness.
+
+ONE next action: authorize OFFLINE-ONLY implementation of this bounded profile
+and the above acceptance contract for review. A later single PAPER broker inquiry
+requires separate explicit user authorization and a complete reviewed/pinned
+operator block; this task authorizes neither. No acquisition, preflight,
+observation, broker inquiry, instrumentation implementation or trading occurred.
+PR1140/PR1141 semantics, five unmatched positions/global ownership veto, GUI draft,
+all historical receipts and PARKED/fail-closed listing provenance remain preserved.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
