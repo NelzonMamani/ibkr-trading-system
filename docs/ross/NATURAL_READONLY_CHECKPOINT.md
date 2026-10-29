@@ -6165,3 +6165,98 @@ and fail closed; GUI draft and all historical receipts are preserved.
 ONE next action: review the exact draft integration head after independent review
 and changed-head Linux/Windows CI complete; no runtime attempt is authorized here.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## 29 October 2026 — PR1141 accepted; separate final-order completion investigation
+
+PR1141 was explicitly authorized for controlled integration. Before merging,
+GitHub main remained3a0bbbd1a0ab92dfeddbdc55e04e4f8f20dc889d; PR head remained
+660971ce14eef21e310eccfcd2306b84706dd927, tree
+ ae7a4cb69523df0c6aaf3b7c86849b643224d494. Independent agent review5690635549
+reported no blockers; no newer review findings or unresolved threads existed.
+Successful CI40780578651 tested merge ref
+f918060373f3d9a6f9699e25acdf16b4d1501beb with exactly that same tree: Linux
+3549passed/3skipped; Windows3551passed/1skipped plus cache/news/float and
+PowerShell checks. Completed suites were not repeated for reconciliation.
+Marked ready and merged using GitHub's expected-head guard and merge method.
+Accepted merge/main is `fb0b9e9c3c7a2f7774a1fe73276e7d43e832f8e7`; fetched main
+tree is `ae7a4cb69523df0c6aaf3b7c86849b643224d494`, exactly the reviewed tree.
+Integration receipt: PR1141 issuecomment6493282079. Saved branches and the
+original checkout remain preserved. Earlier draft/unmerged statements above are
+historical, superseded by this receipt. PR1140 history and PR1141 position
+semantics remain intact. DEPRECATION_LEDGER was read and is unchanged; no module
+or ownership retirement occurs. No applicable AGENTS.md was found in the checkout
+or workspace ancestors.
+
+The original 28 October ZIP remains available at
+`/workspace/attachments/0d9260b8-fd74-43f1-828b-7bbddad93ca2/ross-natural-readonly-upload.zip`.
+SHA256 reverified6209cf714652604a186e2d4341346ab53989918ac254132cde1f290a22e84df5.
+The extracted terminal/terminal_evidence.json and audit stdout/stderr bytes match
+the ZIP. Audit evidence remains: query_completed=false, end_received=false,
+connected before/after wait, reader alive before dispatch,10.0090318s elapsed,
+RuntimeError: Final audit openOrderEnd missing, owned disconnect confirmed, zero
+place/modify/cancel attempts. open_orders_count is absent/UNKNOWN, not0. Audit
+stdout records handshake and informational farm callbacks2104/2106/2158, then
+disconnect; stderr is empty. These status callbacks are not query completion or
+proof of an order-query response. The historical terminal failure is preserved.
+
+Actual owners/lifecycle: supervisor `final_broker_audit` constructs a NEW native
+IbkrClient for each call, explicitly READ_ONLY, after owned runtime shutdown.
+Native constructor binds EClient(wrapper=self); connect starts its existing
+reader/event loop and waits for handshake. The audit clears its instance-local
+order event and snapshot AFTER connection, dispatches exactly one
+reqAllOpenOrders and waits10 seconds. Native openOrder records rows; native
+openOrderEnd sets that instance's event. SDK decoder dispatches OPEN_ORDER_END
+into this same native wrapper. There is no repeated query/reconnect within this
+audit, no request ID on the open-order end stream and no second order authority.
+The supervisor consumes the count only after an end marker and always attempts
+disconnect; native disconnect stops/joins its existing reader. ShutdownEvidence
+requires both query_completed and disconnected, otherwise FINAL_BROKER_QUERY /
+final-callback proof remains unconfirmed. Broker errors are retained; a rejection
+without an end never becomes an empty inventory. No guessed error-code routing
+or treatment of farm-status callbacks as failures is added.
+
+New guarded controls demonstrate a LOCAL boundary defect separate from the
+missing-end receipt: the audit recorded transport flags without enforcing them.
+It could dispatch with disconnected/no-reader initialization, or certify an end
+marker even after socket disconnection/reader exit. Before repair4 controls
+failed and7 passed. The minimal production change is five guard/reporting lines
+in the EXISTING supervisor owner: require connected+live reader before dispatch,
+record reader liveness after wait and require connected+live reader before
+certifying an end-confirmed inventory. Ten-second wait, missing-end error,
+UNKNOWN/no-count semantics, finally-disconnect, mutation instrumentation and
+source/operator equality owners remain unchanged. This is not a claimed cause of
+the captured missing end; that receipt already failed closed correctly.
+
+New synthetic controls use actual native callback methods and installed SDK
+Decoder with no socket: completed empty/nonempty inventories, partial/no-end,
+error/no-end, dispatch exception, inactive transport and stale/late events. A
+pre-query stale event is cleared; a late end/row delivered to a retired audit's
+wrapper cannot complete or populate another fresh audit. No shared completion
+state crosses audit instances. Within an active request the protocol has no end
+correlation token; the fresh-client/single-query boundary is preserved rather
+than inventing reusable completion authority. Existing fixture updates supply
+realistic synthetic reader/connectivity state; partial-count exceptions still
+must be the actual failure, now explicitly asserted. All SDK network/broker
+requests, mutation/execution entry points and Python/native network acquisition
+are forbidden by guards. Affected tests178passed2.12s; final strengthened guard
+controls11passed0.87s. Logs: /workspace/work/final-order-before.log,
+final-order-affected.log and final-order-final-local.log. Local results are
+synthetic, not CI, a broker response or natural acceptance. New draft PR will
+carry independent exact-head review and changed-head CI receipts tied to its
+immutable head; no new repair is authorized for automatic merge.
+
+Remaining uncertainty: the receipt lacks the serialized outbound order-query
+frame/send acknowledgement, inbound frame/decode/dispatch trace and reader
+liveness after the wait. It does not establish whether the query was sent,
+received, answered or decoded, nor that history/position/order failures share a
+cause. The narrow lifecycle guards do not resolve that uncertainty. No SDK
+upgrade, timeout extension, runtime rerun or live broker inquiry is justified or
+performed. No fresh holdings snapshot or disappearance of five positions may be
+inferred. Five unmatched positions/global new-entry veto, GUI draft, all receipts
+and PARKED/fail-closed listing provenance remain preserved. Natural positive
+supported-catalyst→raw-intent progression remains unproven.
+
+ONE next action: review the new exact-head draft's bounded final-audit lifecycle
+repair and its independent/CI receipts for controlled integration; do not start
+an observation or broker diagnostic from this task.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.

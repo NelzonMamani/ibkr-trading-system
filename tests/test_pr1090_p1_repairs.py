@@ -630,20 +630,23 @@ def test_partial_final_query_failure_clears_success_and_disconnects(monkeypatch,
             raise failure("query result unavailable")
     class Client:
         def __init__(self, **kwargs):
-            self._thread = None
+            self.connected = False
+            self._thread = SimpleNamespace(is_alive=lambda: self.connected)
             self._open_orders_event = SimpleNamespace(clear=lambda: None, wait=lambda timeout: True)
         def connect(self):
-            pass
+            self.connected = True
         def reqAllOpenOrders(self):
             self._open_orders_snapshot = Orders()
         def disconnect(self):
             calls.append("disconnect")
+            self.connected = False
         def is_connected(self):
-            return False
+            return self.connected
     monkeypatch.setattr(ibkr_client, "IbkrClient", Client)
     monkeypatch.setattr(runtime_config, "resolve_ibkr_connection", lambda: ("fake", 0, 123, "READ_ONLY"))
     result = supervisor.final_broker_audit()
     assert result["query_completed"] is False
+    assert result["error"] == failure.__name__ + ": query result unavailable"
     assert result["disconnected"] is True
     assert calls == ["disconnect"]
 
