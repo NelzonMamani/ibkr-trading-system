@@ -6630,3 +6630,371 @@ focused Python modules82passed; log final-orders-late-console-after.log. Origina
 SDK behavior, ten-second wait, query ownership and source/operator checks are
 unchanged. Suppressed text is not transport proof. New exact-head review/CI will
 supersede cdd43d3c; no inquiry, automatic merge or readiness upgrade is authorized.
+
+## 29 October 2026 — PR1143 acceptance/integration; prepared inquiry NOT AUTHORIZED
+
+Controlled integration was explicitly authorized only after acceptance review.
+Verified unchanged base5e03ce25b646181c51eccf029c2957c18c3470b8, PR1143 head
+c15c1f98fb54a455f8f3bde99bf92e0b98f9cc0b, independent agent review5696795396,
+no newer blocking findings/unresolved threads, successful CI40863612966 and tested
+merge4dbd7c2288d6da7abf0833c787e9cf0689ca3b04. Tested/reviewed tree is
+ab7d9f40cee17273c7236cc46b617d21f0aadc0a. Linux3605passed/3skipped;
+Windows3607passed/1skipped, including focused82, actual PowerShell5.1, news/cache,
+float, inventory, exit propagation and stub harness checks. Existing receipts
+were used; no completed suite was rerun for reconciliation. The saved plan
+148ca350, all historical failures/superseded reviews and the corrected PowerShell
+inference remain preserved above.
+
+Acceptance comparison:
+
+| Saved contract | Source/receipt disposition |
+| --- | --- |
+| Sole actual client/query,10s/end authority | supervisor.final_broker_audit153 constructs one native client, sends one query and alone requires end+active transport. Observer cannot supply completion. Default audit unchanged. |
+| No scanner/quotes/extra cleanup query/retry | quote_transport_diagnostic.final_orders110 calls that owner once; explicit profile branch279 bypasses acquire(), quote client and quote cleanup. No news maintenance or cache publication starts. |
+| Bounded honest stage evidence | TransportDiagnostic keeps64x4096 record bounds, startup cap/reserved final records, aggregation/omission/drop counters and unknown reasons. Actual SDK controls cover schema/handler/queue/decoder/reader gaps; short send never establishes full local acceptance. |
+| Cleanup and equality | Owned audit finally disconnect, observer restoration/reader checks, mutation counters, source/operator manifests and final process inventory remain mandatory. Fault/stop/restore controls stay fail closed. |
+| Privacy including late callbacks | Final-orders lifetime silent sinks installed before broker construction; whitelist outputs and every-member sealed-ZIP canaries cover late cleanup/post-context output. No raw order/account payload exports. |
+| Windows parameters/pins | Accepted launcher exposes ONLY ExpectedCommit, DiagnosticProfile, ExpectedTree; real5.1 binding/actual three child6/8 argument checks passed. Final-orders requires literal commit/tree; no old branch fallback. |
+| Default quotes | Default remains quotes; existing quote controls pass; no raw broker run performed to certify it. |
+
+### Explicit disposition of the unclassified Windows news-cache failure
+
+Failed run40860190569 (head81706076), Windows job123401239153, test
+`tests/test_independent_news_maintenance.py::test_thread_writers_merge_and_readers_never_see_partial_json`:
+1failed/35passed. At least one of24 concurrent synthetic writers returned
+cache_write_failed while another thread read a seeded store. The old assertion
+omitted failed-row diagnostics; the captured log does NOT identify error type,
+which write failed, OS denial versus lock timeout, or its precise cause. Production
+CanonicalNewsEvidenceStore.write224/store_owner behavior was inspected and is
+unchanged. The test now prints failed diagnostics without weakening any read,
+merge, completion or cleanup assertion. Later passing targeted/full checks do
+NOT classify the earlier failure or establish that it is harmless/resolved.
+
+Scope-based acceptance decision: this uncertainty does NOT block integration of
+PR1143 and does NOT itself block a LATER separately authorized final-orders-only
+PAPER diagnostic. That explicit route never calls CanonicalNewsEvidenceStore,
+starts NewsMaintenance, scans, fetches quotes/news or publishes operational cache;
+its own source/operator/mutation/cleanup/privacy owners and single audit are
+independently covered, with no running Ross runtime permitted. Its source scope
+cannot exercise or rely on the concurrent news-store writer that failed. This
+is NOT general news-cache certification. The failure remains a separate news/
+concurrency/natural-runtime and PAPER-readiness acceptance gap; investigate it
+before claiming those broader properties. No speculative cache repair, suppressed
+error, timeout increase or relaxed concurrency test was made.
+
+After acceptance, marked ready and merged with expected-head guardc15c1f98 and
+merge method. Accepted main/merge: `7e918815f623d5f34bf349d9af72f0098d6a3ec1`.
+Fetched main tree: `ab7d9f40cee17273c7236cc46b617d21f0aadc0a`, exactly the
+reviewed/tested tree. PR1143 acceptance review receipt6495962289; integration
+receipt6496016532. The actual accepted launcher was inspected after integration.
+DEPRECATION_LEDGER was read and remains unchanged; no applicable AGENTS.md was
+found in checkout/workspace ancestors. Original checkout, GUI draft and saved
+plan/history/position/diagnostic branches remain untouched. This checkpoint-only
+branch is NOT merged and does not alter the accepted runtime pin above.
+
+### ONE prepared operator block — NOT YET AUTHORIZED TO RUN
+
+There is NO execution authorization in this task. The gate is deliberately false.
+Do not change it or execute an inquiry until separate explicit authorization.
+Later conditions must include Windows PowerShell5.1 Desktop, configured normal
+RTH without override, PAPER TWS127.0.0.1:7497 with Read-Only API, unused client71,
+no running Ross runtime, and the existing verified Python3.13.3/SDK environment.
+The block obtains the existing accepted launcher from its immutable Git object,
+not the potentially older original working-tree file. It changes no original
+checkout files or historical roots. Only the existing launcher creates the fresh
+isolated qtransport root; its own120s/30s probe supervision,10s audit wait,
+cleanup/equality/mutation/inventory/privacy and90s package/seal bounds remain.
+Exactly one launcher invocation, no retry or second audit. No new harness.
+
+```powershell
+# PREPARED ONLY — NOT YET AUTHORIZED TO RUN.
+& {
+    $ErrorActionPreference = 'Stop'
+    $PaperInquiryAuthorized = $false
+    if (-not $PaperInquiryAuthorized) {
+        throw 'NOT AUTHORIZED: separate approval for this single PAPER inquiry is required.'
+    }
+    if ($PSVersionTable.PSEdition -ne 'Desktop' -or
+        $PSVersionTable.PSVersion.Major -ne 5 -or $PSVersionTable.PSVersion.Minor -ne 1) {
+        throw 'Use Windows PowerShell5.1 Desktop.'
+    }
+    $SourceCheckout = 'C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system'
+    $Python = 'C:\tmp\pr1091-cert-env-20260923\Scripts\python.exe'
+    $RuntimePin = '7e918815f623d5f34bf349d9af72f0098d6a3ec1'
+    $ExpectedTree = 'ab7d9f40cee17273c7236cc46b617d21f0aadc0a'
+    if (!(Test-Path -LiteralPath $SourceCheckout -PathType Container) -or
+        !(Test-Path -LiteralPath $Python -PathType Leaf)) {
+        throw 'Verified original checkout/Python path missing; nothing launched.'
+    }
+    & git -C $SourceCheckout fetch origin main
+    if ($LASTEXITCODE -ne 0) { throw 'Fetch failed; nothing launched.' }
+    $currentMain = (& git -C $SourceCheckout rev-parse refs/remotes/origin/main | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or $currentMain -cne $RuntimePin) {
+        throw 'Main advanced/differs: stop for delta review; do not substitute a pin.'
+    }
+    $actualTree = (& git -C $SourceCheckout rev-parse ($RuntimePin + '^{tree}') | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or $actualTree -cne $ExpectedTree) { throw 'Accepted tree mismatch.' }
+    $launcherText = (& git -C $SourceCheckout show ($RuntimePin + ':scripts/certification/run_quote_transport_diagnostic.ps1') | Out-String)
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($launcherText)) {
+        throw 'Accepted existing launcher unavailable; nothing launched.'
+    }
+    Write-Host 'ONE final-orders diagnostic only; no automatic retry.'
+    Write-Host 'Normal RTH; PAPER127.0.0.1:7497; Read-Only API; unused client71; no Ross runtime.'
+    Write-Host 'Fresh root/absolute ZIP will be announced by the existing launcher.'
+    $launchArgs = @{
+        ExpectedCommit = $RuntimePin
+        DiagnosticProfile = 'final-orders'
+        ExpectedTree = $ExpectedTree
+    }
+    & ([scriptblock]::Create($launcherText)) @launchArgs
+    if ($global:LASTEXITCODE -ne 0) {
+        throw 'Nonzero launcher exit: retain all evidence; do not retry automatically.'
+    }
+}
+```
+
+Expected ZIP basename is EXACTLY `final-orders-diagnostic-upload.zip`, under the
+launcher's fresh `C:\tmp\qtransport-<8-hex>\` root. The random suffix cannot be known
+before execution because the accepted launcher has no Root parameter; do not
+invent one. Its privacy-verified final announcement supplies the concrete absolute
+path. Preserve every old root and all new exits/artifacts, including nonzero ones.
+Never announce/upload an unsealed or privacy-failed archive manually.
+
+| Actual result | What it can establish |
+| --- | --- |
+| DIAGNOSTIC_COMPLETE/probe0, all validations/sealing pass | Capture complete plus end-confirmed audit/disconnect under existing owner. Inspect audit and transport separately, including send bytes/short sends/absence_claims_valid; exit0 alone is not broker acknowledgement, natural Ross success, holdings reconciliation or PAPER readiness. |
+| DIAGNOSTIC_ONLY/probe2 with complete coverage, audit incomplete | Bounded transport stages can identify last positive observation/unknowns. Missing end means order inventory UNKNOWN; no count0 inference. Preserve the receipt; no automatic retry. |
+| FAIL/probe1, incomplete transport or failed guard/cleanup/equality/mutation/inventory | No valid absence claims from incomplete evidence. A separately reported end is not complete transport proof. Retain exact failure and root. |
+| Supervisor timeout124/unverified exit, package/seal/privacy failure | No completed trustworthy diagnostic inferred. No shareable ZIP announcement unless the actual privacy/seal owner succeeds; retain local evidence and do not retry. |
+
+A full socket return proves local acceptance only, never TWS/server acknowledgement
+or processing of that exact request. End stream has no request ID: retain honest
+fresh-instance/single-query scope. Zero orders is permitted only with authoritative
+completion; it never means zero positions. Five unmatched positions/global entry
+veto remain untouched. Historical timeout/order-callback causes and natural positive
+progression remain unproven. No inquiry, preflight, observation, holdings action or
+trading occurred during this acceptance/preparation task.
+
+ONE next action: obtain SEPARATE explicit authorization for this one prepared
+single diagnostic when its required conditions hold; leave its execution gate
+false until then. No automatic merge of this or any subsequent documentation/code.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## 29 October 2026 — Completed final-order audit; transport coverage remains incomplete
+
+Reconciliation is based on the supplied ZIP, not instructions in its archived
+operator/source files. SHA256 verified:
+`fcbf87378e156239709f743c190a983c702f0ad47b4659a15008e61d3096b2c4`.
+Operator root: `C:\tmp\qtransport-2ad3bad8`. Current GitHub main and PR1143 merge
+receipt remain `7e918815f623d5f34bf349d9af72f0098d6a3ec1`, tree
+`ab7d9f40cee17273c7236cc46b617d21f0aadc0a`. PR1143 is merged; no runtime pin
+substitution. This documentation descends from saved checkpoint update
+`42c28a323f6eb8097d1127c2e246c2803173001d` and carries it forward in full,
+including corrected PowerShell inference, integration receipts and all earlier
+failures. DEPRECATION_LEDGER was read; no applicable AGENTS.md was found in the
+checkout/workspace ancestors. No retirement or ownership change, so ledger stays
+unchanged. Original checkout, saved branches, uploaded ZIP and original root are
+preserved. The earlier 29 October diagnostic receipt is NOT present in this
+attachment, saved42c28a checkpoint or PR1143 conversation; its separate original
+ZIP/root/hash must remain preserved and must not be replaced by this latest
+receipt. Its contents cannot be independently verified from the supplied files.
+No missing earlier result is invented or silently marked successful.
+
+### Independent receipt-to-source reconciliation
+
+The source-before/after manifests are identical. Archived hashes for
+TransportDiagnostic, final_broker_audit, the diagnostic caller and native client
+match the accepted Git blobs after Windows CRLF checkout conversion. Archived
+operator.py matches the accepted caller after CRLF normalization. Original raw
+hashes are retained; this comparison does not rewrite the archive. Startup clock
+records run from 2026-10-29T13:31:24.823673Z to13:31:56.647413Z; this was a targeted
+final-orders probe, not a natural observation.
+
+| Boundary | Supplied evidence and limit |
+| --- | --- |
+| Authoritative audit | final-order-audit.json: end_received/query_completed=true, open_orders_count=0, elapsed0.10366579983383417s, unchanged10s limit, connected and native callback-loop alive before/after wait. This establishes end-confirmed open-order inventory for this audit, not zero positions. |
+| Single local request | One method call, serialization and socket call, ID16/version1,9requested/9returned bytes, no short send/send exception. Full send proves local acceptance only, not broker acknowledgement of that request. |
+| Inbound end | ORDER_END53 frame/put/get/decode/decoded and native callback entry/return each1. End callback0.323997s, decoder return0.324053s relative to observer start. |
+| Cleanup | Receive OSError0.324940s, reader exit0.325370s, callback-loop exit0.538090s; reader/loop start/exit each1. Disconnected, hooks restored, reader/loop stopped. Timing alone does NOT establish receive-error ownership. |
+| Safety/sealing | Zero place/modify/cancel attempts; source/operator PASS; final-runtime-inventory completed/empty. Privacy probe/package/seal passed; independent existing sanitizer scan of extracted artifacts also passed with0occurrences. No acquisition/scanner activity. |
+| Overall result | outer-status/probe/result preserve FAIL/exit1, transport_evidence_incomplete=true, coverage_verified=false and absence_claims_valid=false. Do not replace these with exit0 or retroactively certify transport coverage. |
+
+A successful audit and incomplete transport evidence are distinct results. The
+historical28October missing openOrderEnd cause remains unresolved: this later
+success does not diagnose it or connect it to history/position failures. Likewise
+zero open orders does not resolve five unmatched positions or their global veto.
+
+### Exact predicate and the unresolvable attribution in this capture
+
+`src/ibkr/transport_diagnostic.py:628-639` requires installed SDK hooks/hashes,
+restoration, reader/loop stop and exactly one start/exit each, no pending partial
+frame, no observation failure, and zero listed capture/schema/reader/queue/receive
+failures. The ONLY nonzero invalidating counter in this archive is
+`recv_exceptions=1`. Dropped/oversize/hook/schema/unknown-message/decoder/logged-
+reader/abnormal-reader/queue failures are all0. Thus the receive-exception clause
+is the recorded reason coverage is false; no capture-budget overflow is involved.
+`_Socket.recv:712-724` counts every non-timeout exception and retains only its
+safe exception class. Finalization merely enforces that predicate.
+
+Actual existing lifecycle:
+`final_broker_audit:153-219` accepts the native end only while transport/loop are
+live, sets query_completed/count, then its finally invokes the same client's
+`disconnect`. Native `IbkrClient.disconnect:221-250` sets stop, invalidates owned
+requests, calls EClient.disconnect and joins its callback loop. Pinned SDK
+EClient.disconnect sets DISCONNECTED, invokes Connection.disconnect, clears/reset
+state. Connection.disconnect closes its socket under its lock; the current
+`_Socket.__getattr__:677` forwards close WITHOUT an observation. A concurrently
+blocked recv can fail on that close. Separately, SDK Connection.recvMsg catches
+socket.error/OSError and itself invokes Connection.disconnect; an independent
+receive failure can therefore also finish with orderly disconnect/reader exit.
+The same exception class/end-before-error/final-stopped flags support BOTH paths.
+
+Missing from THIS archive: the audit owner's disconnect entry, same-socket close
+entry/result, an ordered receive/close association, and bounded OS errno/winerror
+category. No account/order payload is needed to observe those boundaries. Neither
+an OSError class nor a connected check taken earlier proves which path occurred.
+The counter is not suppressed; the archived exception remains unattributed.
+
+### Targeted guarded offline controls — synthetic, not Windows/runtime evidence
+
+Executed three new bounded synthetic experiments using the EXISTING
+`tests/test_quote_sdk_transport_probe.py` orders_prepared owner/guards, actual
+SDK serializer/Connection/Reader/Decoder, native callback loop and disconnect.
+No real socket connection or acquisition; guarded request/mutation/execution
+methods forbidden, one actual serialized16/version1 in-memory query per case.
+A controlled in-memory recv blocks with2s failure bounds; no timeout changes in
+production. Results:
+
+- Owned native disconnect closes the same in-memory socket and deterministically
+  releases its pending recv into OSError AFTER a genuine native end callback:
+  recv_exceptions1; coverage/absence=false; hooks restored and threads stopped.
+- Independent injected OSError AFTER that callback and after live after-wait
+  checks, BEFORE any owned close: the same relevant exported outcome/stage/counter
+  fields, coverage/absence=false, restored/stopped. SDK then closes the socket.
+- Independent failure BEFORE end: no end callback, last positive stage local
+  socket acceptance, coverage/absence=false; cleanup/restoration retained.
+
+All3 controls passed. The first two prove that this evidence projection cannot
+attribute the archived error; they do NOT prove the Windows error was caused by
+owned shutdown. They also show why simply ignoring post-end OSError is unsafe.
+Scratch experiment (not a new repository module/harness):
+`/workspace/scratch/final-orders-investigation/ambiguity_control.py`, SHA256
+`d2ad08395f8879890f6be53d357f3f74ae2df45bcc758cd3b63d43a1deec800a`;
+output `control-results.json` beside it. Ran under existing tests/offline
+sitecustomize network/native-transfer guard with the repository virtualenv.
+These are local synthetic controls, not CI, Windows behavior proof, a repair
+regression or natural acceptance. No completed suite was repeated.
+
+No production classification repair is justified from the captured causal
+evidence. Coverage remains conservatively invalid, and the actual successful
+query remains authoritative independently. No source/test/launcher changes,
+new repair draft, new exact-head repair review or changed-head production CI are
+claimed. Documentation checks are proportionate; PR1143's accepted review/CI are
+historical implementation receipts, not verification of the missing attribution.
+
+### ONE next action
+
+Review a bounded OFFLINE-ONLY shutdown-attribution extension in the EXISTING
+observer/audit seam before considering another inquiry: record audit-owned
+finalization entry, same-socket close entry/return/failure, receive sequence and
+allowlisted numeric OS closure-error categories, without raw exception text or
+identifiers. Exact scope would be TransportDiagnostic's ObservedConnection/
+_Socket and final_broker_audit's existing optional observer seam. Keep all receive
+errors counted, current coverage policy unchanged until guarded controls establish
+an enforceable causal classification. Require independent loss before/after end,
+close failure, concurrent close/recv, late callback, Windows closed-socket behavior,
+privacy/budget/restoration and quote-default controls. Do not infer ownership from
+end/stop/disconnect flags or event timing alone. This is a precise evidence proposal,
+not an implemented repair, broker command, inquiry authorization or automatic
+rerun. A later PAPER inquiry still needs separate explicit authorization.
+
+The separate unclassified Windows news-cache failure remains unresolved (run
+40860190569); later success and this cache-free diagnostic do not repair it.
+PR1140 history, PR1141 position authority, PR1142 audit fail-closed authority,
+all five positions/global ownership veto, GUI draft and PARKED/fail-closed listing
+provenance remain unchanged. No broker inquiry, acquisition, preflight, runtime
+rerun, holdings action, SDK change, timeout extension, gate relaxation or trading
+occurred. Natural supported catalyst-to-intent progression remains unproven.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## 29 October 2026 — PR1144 bounded shutdown-attribution evidence (OFFLINE ONLY)
+
+Explicit authorization covers offline implementation of the proposal above, not
+broker execution or integration. Current main remains7e918815f623d5f34bf349d9af72f0098d6a3ec1,
+treeab7d9f40cee17273c7236cc46b617d21f0aadc0a. Continued on the EXISTING PR1144
+branch fromffc1f17354b9bf8759760b967245a2bc1e3be630, retaining42c28a and the
+complete saved checkpoint/proposal. Applicable instructions/ledger were checked;
+no AGENTS.md found; no owner retired or replaced, ledger unchanged. Original
+checkout, all receipts and saved branches remain preserved.
+
+Implemented only in existing TransportDiagnostic and final_broker_audit owners:
+
+- Optional audit_finalization observer seam runs immediately before the audit
+  owner's existing finally-disconnect, including aborted queries. It records
+  entry only, cannot supply completion/count or change the ten-second wait.
+  Seam failure is an observer cleanup failure; disconnect still runs and actual
+  query authority is preserved. Default audit without an observer is unchanged.
+- Final-orders socket proxy records close entry/return/failure and receive entry/
+  failure with a bounded, instance-local observation sequence. Same-proxy close
+  sequences accompany receive errors. No socket addresses/object identities or
+  invented broker request tokens export. A thread-local marker says only whether
+  that close invocation is on the thread that entered audit finalization; it does
+  NOT prove causal ownership of any receive failure.
+- Relationships BEFORE_CLOSE/OVERLAPS_CLOSE/AFTER_CLOSE_RETURN/AFTER_CLOSE_FAILURE
+  describe observed wrapper spans, not kernel syscall linearization or causality.
+  Every exported causal assessment remains UNKNOWN. A close wrapper entry can
+  precede the actual OS call, and concurrent close/recv cannot prove causality.
+  Missing/failed/dropped observation invalidates absence proof as before.
+- Error fields expose only allowlisted numeric errno/winerror categories (0 means
+  absent/unallowlisted), never arbitrary codes or free-form exception messages.
+  Allowlist: platform EBADF/ENOTSOCK/ECONNRESET/ECONNABORTED/ENOTCONN/ESHUTDOWN/
+  EINTR/EPIPE/ETIMEDOUT and Windows995/10004/10009/10038/10053/10054/10057/10058/
+  10060. A category alone is never provenance or permission to disregard failure.
+- ALL existing receive-error counters remain. The coverage/absence snapshot
+  predicate is AST-identical to the accepted runtime: ANY non-timeout receive
+  exception still invalidates coverage, even with an end and owned finalization.
+  Default quote close is an unobserved passthrough; quote controls remain intact.
+- Existing64-record/4096-byte limits, eight startup samples, finalization reserve,
+  saturating counters and explicit omissions remain. Finalization/close evidence
+  uses the existing reserved slots; repeated receive entries are first-sample
+  details plus occurrence counts. No eviction or silent overflow promotion.
+  No extra query, connection, retry, reconnect, scanner or acquisition owner.
+
+Guarded proportional validation extends the EXISTING three diagnostic test
+modules, with actual SDK serializer/Connection/EReader/Decoder/native disconnect
+and the audit seam. New controls cover independent receive failures before/after
+end, owned close unblocking recv, deliberately concurrent close/receive (UNKNOWN),
+close failure and original return/exception identity, observation failure,
+instance isolation/late callbacks, reserved final evidence under saturation,
+quote passthrough and every sealed ZIP member including late-output canaries.
+Actual OS closed-socket control creates/closes a local socket, then calls recv:
+NO bind/listen/connect/socketpair, broker or network permission exemption. Existing
+global offline guards are unchanged; test additionally forbids network operations.
+Windows CI must confirm actual10038 behavior; Linux EBADF is not Windows proof.
+All order mutations, execution, acquisition and broker connections are forbidden
+by the existing guarded fixtures. No production timeouts or waits are extended.
+
+Local development receipts are retained, not CI: initial82existing controls passed;
+first new run1failed/92passed because its assertion expected the sticky flag,
+where existing observe() instead increments hook_errors (coverage already invalid).
+Corrected that test to assert the real hook-error/coverage contract. Next run
+1failed/94passed because a packaging stub bypassed the existing observer factory,
+so it could not model the actual finalizer's exit1. Connected the synthetic stub
+to that factory; no production exit policy changed. Failed output retained at
+/workspace/scratch/final-orders-investigation/shutdown-attribution-focused.log.
+Final affected validation/review/changed-head Linux/Windows receipts will be
+recorded on PR1144 at its immutable head, without status-only source commits.
+CI selection/configuration is unchanged; full changed-head checks are justified
+by this new transport/audit source, not documentation status reconciliation.
+
+Archived count0/end-confirmed successful audit AND transport FAIL/exit1 remain
+unaltered. Neither the archived OSError nor historical missing openOrderEnd is
+explained by this addition. Five unmatched positions/global ownership veto,
+PR1140 history/PR1141 position authority/PR1142 audit semantics, GUI draft,
+separate unclassified news-cache failure and PARKED/fail-closed listing provenance
+remain intact. Zero orders never establishes zero positions. No inquiry,
+preflight, observation, runtime rerun, holdings action or trading occurred.
+
+ONE next action: review the exact draft implementation and its offline/Windows
+receipts for controlled integration; no merge or subsequent PAPER inquiry is
+authorized here. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
