@@ -370,11 +370,13 @@ def benchmark_block(revision):
     text=(HERE.parent.parent/'docs/ross/NATURAL_READONLY_CHECKPOINT.md').read_text(encoding='utf-8')
     if revision=='v1':
         section=text.split('## 30 October 2026 — Actual Windows containment passed;',1)[1]
-    else:
+    elif revision=='v2':
         section=text.split('### Corrected full-path benchmark candidate V2',1)[1]
+    else:
+        section=text.split('### Stage50 evidence-only candidate V3',1)[1]
     block=section.split('```powershell\n',1)[1].split('\n```',1)[0]+'\n'
-    if revision=='v1' and hashlib.sha256(block.encode()).hexdigest()!='8226316440f5b1dac0b25b79a3b8b0a8e18a35012c375e4c855335d890089b3d':
-        raise AssertionError('Frozen released block changed')
+    expected={'v1':'8226316440f5b1dac0b25b79a3b8b0a8e18a35012c375e4c855335d890089b3d','v2':'e9ce86b3622979bf24d722cae494f8c6cc84ded2ac58b1355c11b5233aa7abee'}.get(revision)
+    if expected and hashlib.sha256(block.encode()).hexdigest()!=expected: raise AssertionError('Frozen released block changed')
     return block
 
 
@@ -559,6 +561,45 @@ class FullBenchmarkPath(unittest.TestCase):
             self.assertEqual(list(manifest),sorted(expected))
             self.assertEqual(len(manifest),2686)
             print('FULL_WINDOWS_EQUIVALENCE 2686 fresh synthetic hashes identical',flush=True)
+
+
+@unittest.skipUnless(os.name=='nt','Actual accepted-checkout Windows work-loop required')
+class AcceptedCheckoutWorkLoop(FullBenchmarkPath):
+    def test_accepted_checkout_entrypoint(self):
+        # Short canonical CI scratch path matches operator-style checkout lengths;
+        # do not introduce long-TEMP aliases or different Git ownership assumptions.
+        with tempfile.TemporaryDirectory(prefix='ml-',dir=os.environ['RUNNER_TEMP']) as text:
+            root=Path(text).resolve(); repo=root/'source'; hooks=root/'empty-hooks'; hooks.mkdir()
+            git=shutil.which('git'); self.assertIsNotNone(git)
+            pin='a501c88bcc926bef87875f6352f210b19b6e438b'
+            tree='e66b6daa84f04ec95dce1155fde2a9a4e156cf14'
+            original=HERE.parent.parent
+            self.assertEqual(native_fixture_run([git,'-c','core.hooksPath='+str(hooks),'worktree','add','--detach',str(repo),pin],original),0)
+            try:
+                env=root/'venv'
+                self.assertEqual(native_fixture_run([sys.executable,'-I','-S','-B','-m','venv','--without-pip',str(env)],root),0)
+                python=env/'Scripts/python.exe'
+                old_code,old,old_private=self.run_block(root,repo,pin,tree,python,'v2')
+                diag_code,diag,diag_private=self.run_block(root,repo,pin,tree,python,'v3')
+                print('ACCEPTED_WORKLOOP_RESULTS',json.dumps({'released_exit':old_code,'diagnostic_exit':diag_code}),flush=True)
+                # This control makes no speculative correction. A failed released
+                # path must remain failed with bounded V3 evidence for review.
+                if old_code!=0:
+                    self.assertEqual(old['status'],'FAIL')
+                    self.assertFalse((old_private/'manifest.COMPLETE.PRIVATE.json').exists())
+                self.assertEqual(diag_code,0,'Accepted checkout did not complete; inspect bounded diagnostics')
+                self.assertEqual(diag['status'],'COMPLETE')
+                mapping=json.loads((diag_private/'manifest.COMPLETE.PRIVATE.json').read_text())
+                owner=(repo/'scripts/certification/natural_readonly_operator.py').read_text(encoding='utf-8')
+                node=next(n for n in ast.parse(owner).body if isinstance(n,ast.FunctionDef) and n.name=='digest')
+                scope={'hashlib':hashlib}
+                exec(compile(ast.Module(body=[node],type_ignores=[]),'<accepted-digest>','exec'),scope)
+                expected={p.relative_to(repo).as_posix():scope['digest'](p) for p in repo.rglob('*') if p.is_file() and '.git' not in p.relative_to(repo).parts}
+                self.assertEqual(len(mapping),2686); self.assertEqual(mapping,expected)
+                self.assertEqual(list(mapping),sorted(expected))
+                print('ACCEPTED_CHECKOUT_EQUIVALENCE 2686 actual checkout hashes/order identical',flush=True)
+            finally:
+                self.assertEqual(native_fixture_run([git,'-c','core.hooksPath='+str(hooks),'worktree','remove',str(repo)],original),0)
 
 
 @unittest.skipUnless(os.name == 'nt', 'Actual Windows APIs required; Linux is not validation')
