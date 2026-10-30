@@ -336,7 +336,7 @@ public class ObservationFaultStream : Stream {
         New-Item -ItemType Directory $onlyRoot | Out-Null
         $onlyChild = Invoke-ObservationChild -Python (Get-Command powershell.exe).Source -ChildArguments @('-NoProfile','-ExecutionPolicy','Bypass','-File',(Join-Path $preflightScripts 'run_natural_readonly_preflight.ps1'),'-Python',$Python,'-Root',$onlyRoot,'-ExpectedCommit',('a'*40)) -LogPrefix (Join-Path $scratch ('only-entry-'+$case)) -BudgetSeconds 20
         $onlyExit = $onlyChild.ExitCode
-        Check ($onlyExit -eq $(if ($case -eq 'success') { 0 } else { 1 })) 'Preflight-only exit propagation failed'
+        Check ($onlyExit -eq $(if ($case -eq 'success') { 0 } else { 1 })) "Preflight-only $case exit propagation failed: actual $onlyExit"
         Check (((Get-Content (Join-Path $onlyRoot 'e\phases')) -join ',') -ceq 'prepare,preflight') 'Preflight-only runner continued beyond preflight'
         $onlyStatus = Get-Content (Join-Path $onlyRoot 'e\preflight-only-status.json') -Raw | ConvertFrom-Json
         Check (!$onlyStatus.observation_attempted -and !$onlyStatus.PAPER_READY) 'Preflight-only authority changed'

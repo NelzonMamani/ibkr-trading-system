@@ -11276,3 +11276,17 @@ Local focused34 controls and12 synthetic package cases passed; six cache and
 inventory controls passed. No actual preflight/runtime was executed; AST phase-body
 controls use synthetic files and replaced external boundaries. Native full-path
 Windows evidence and final exact-head review remain pending.
+
+Changed-head CI41131362127 at294d42519afe898e518c0bf9440b246abeca4ccb:
+Linux passed; Windows job124322899424 passed32 admission controls, cache controls
+and real PowerShell exit controls. The full real PowerShell->venv orchestration
+including existing native controller ancestry PASSED (prepare/preflight/observe/
+package/seal); fixture ZIP was synthetic, not an operator diagnostic. Run FAILED
+later at preflight-only exit propagation: rewritten wrapper returned raw inner2,
+where its existing public failure contract was1. Restore the wrapper's0/1 mapping
+while phase-status retains actual child exits. Do not weaken the assertion.
+Artifact13012918159 retains controlled-process evidence; local artifact retrieval
+was unavailable (403), so no claim to have inspected its members. Job logs and
+exact wrapper source establish the exit-contract difference. Earlier failures,
+including failed first-run artifact upload, remain preserved. Changed-head
+Windows/PowerShell validation is required before accepting this correction.

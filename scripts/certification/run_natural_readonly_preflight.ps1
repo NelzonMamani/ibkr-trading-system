@@ -6,8 +6,9 @@ $ErrorActionPreference = 'Stop'
 try {
     . (Join-Path $PSScriptRoot 'Invoke-ReadonlyObservation.ps1')
     $operator = Join-Path $PSScriptRoot 'natural_readonly_operator.py'
-    $code = Invoke-ReadonlyObservation -Python $Python -Operator $operator -Root $Root -ExpectedCommit $ExpectedCommit -PreflightOnly
-    @{ final_exit=$code; observation_attempted=$false; PAPER_READY=$false; scope='PREFLIGHT_ONLY';
+    $result = Invoke-ReadonlyObservation -Python $Python -Operator $operator -Root $Root -ExpectedCommit $ExpectedCommit -PreflightOnly
+    $code = if ($result -eq 0) { 0 } else { 1 }
+    @{ preflight_exit=$result; final_exit=$code; observation_attempted=$false; PAPER_READY=$false; scope='PREFLIGHT_ONLY';
        source_order_mutation_validation='NOT_VERIFIED_BY_PREFLIGHT' } |
         ConvertTo-Json | Set-Content -Encoding UTF8 (Join-Path $Root 'e/preflight-only-status.json')
     exit $code
