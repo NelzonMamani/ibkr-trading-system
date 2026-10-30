@@ -8325,3 +8325,50 @@ historical callback uncertainty and PARKED/fail-closed listing provenance.
 No acquisition, broker inquiry, preflight, observation, holdings action, SDK/security
 change, timeout extension, gate relaxation or trading occurred.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## 30 October 2026 — Disposable Windows containment control prepared; OS validation pending
+
+Continues c05cdc8bb9089f5e7a8e47152124bc6e5b4203ce in this SAME checkpoint.
+GitHub main remains a501c88bcc926bef87875f6352f210b19b6e438b/tree
+e66b6daa84f04ec95dce1155fde2a9a4e156cf14; no advancement or changed runtime pin.
+AGENTS search found none; DEPRECATION_LEDGER read/unchanged. No production, source
+manifest, preflight, process-identity or operator owner was modified. Earlier
+thread/coordinator blockers and every receipt remain preserved above.
+
+User authorized actual synthetic Windows CI, not a workstation benchmark. Added
+one explicitly disposable test fixture under tests/test_manifest_windows_containment_feasibility.py.
+It runs directly with isolated stdlib (-I -S -B), importing no production/broker/
+provider owner. Its native kernel32 control follows retained-handle patterns from
+process_identity.py:88-137 without adding or importing a parallel production owner.
+Private unnamed Job Object sets KILL_ON_JOB_CLOSE and active member cap5, with no
+breakaway flags. Coordinator created suspended, retained process/thread handles,
+assigned and IsProcessInJob-verified before ResumeThread. Descendants inherit the
+job. External controller queries capped membership and owns deadlines independently
+of child IPC. Separate shared cleanup deadline requires job empty, owned process
+waits and checked closure of every owned handle. Failed cleanup cannot publish a
+success; deliberate failure-fixture recovery is separately labelled and cannot
+rewrite its failed result. Intended90s/30s remains unchanged; tests use short bounds.
+
+Controls prepared: healthy completion; stalled coordinator/startup/IPC; two worker
+descendants; partial startup; explicit breakaway denial; cancellation/deadline;
+assignment failure without resuming the suspended process; injected termination,
+query, wait and close failures; actual invalid-handle API failures; controller
+os._exit causing OS kill-on-close with externally retained creation-bound member
+handles; and an unrelated private leaf that must remain alive. All such processes
+are synthetic/private; only owned handles may be terminated. Socket and operational
+imports are forbidden. No hashing or benchmark is in this fixture.
+
+Existing CI gains one exact-file-scope disposable path (only this fixture, workflow
+and checkpoint may differ from accepted pin), using Windows/Python3.13.3 and actual
+PowerShell5.1 to run the isolated control. Production/scripts/offline guards and
+requirements must compare unchanged. Other changes continue through existing full
+selection; this scoped fixture does NOT rerun unrelated completed suites. No
+workflow dependency installs or operational imports needed for these stdlib tests.
+Local Linux syntax/import check yields4 explicit Windows-only skips, NOT Windows
+validation or a successful containment proof. Independent exact-head review and
+actual Windows CI remain pending; no benchmark block released or run.
+
+Five-position global veto, GUI draft, failed roots, separate news-cache and
+historical callback uncertainty, successful count0 audit AND transport FAIL/exit1,
+PR1140-1143 semantics and PARKED/fail-closed provenance remain intact.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
