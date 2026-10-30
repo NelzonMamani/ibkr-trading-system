@@ -25,7 +25,7 @@ def forbidden(*args, **kwargs):
 supervisor.main = forbidden
 supervisor.final_broker_audit = forbidden
 original_env = dict(os.environ)
-for case in ('valid', 'missing-terminal', 'mutation', 'source', 'order-state', 'inventory', 'privacy', 'bad-cache', 'preflight-timeout', 'preflight-late-pass'):
+for case in ('valid', 'missing-terminal', 'mutation', 'source', 'order-state', 'inventory', 'privacy', 'bad-cache', 'preflight-timeout', 'preflight-late-pass', 'm0-mismatch', 'restored-mtime'):
     os.environ.clear()
     os.environ.update(original_env)
     root = scratch / ('real-package-' + case)
@@ -72,6 +72,12 @@ for case in ('valid', 'missing-terminal', 'mutation', 'source', 'order-state', '
         write_json(evidence/'initial-runtime-inventory.json', {'completed':False,'runtimes':[],'error_type':'TimeoutExpired'})
     if case == 'source':
         tracked.write_text('unreviewed source')
+    if case == 'm0-mismatch':
+        write_json(root/'preparation/source-prepared.json', {'tracked.txt':'0'*64})
+    if case == 'restored-mtime':
+        old = tracked.stat()
+        tracked.write_bytes(b'x'*old.st_size)
+        os.utime(tracked, ns=(old.st_atime_ns,old.st_mtime_ns))
     if case == 'order-state':
         original.write_text('changed')
     if case == 'privacy':
@@ -137,7 +143,7 @@ for case in ('valid', 'missing-terminal', 'mutation', 'source', 'order-state', '
             raise AssertionError('Unsafe final receipt was sealed')
         assert hashlib.sha256(archive.read_bytes()).hexdigest() == preserved_hash
 
-print('REAL_PACKAGE_CHECKS_PASS: 10 synthetic cases; no acquisition')
+print('REAL_PACKAGE_CHECKS_PASS: 12 synthetic cases; no acquisition')
 
 if os.name == 'nt':
     # Exercise real preflight with synthetic inventory/session/native classes.

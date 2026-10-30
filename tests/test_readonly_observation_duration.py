@@ -87,7 +87,7 @@ def observe_block():
     return compile(ast.Module(body=node.body,type_ignores=[]),str(OWNER),'exec')
 
 
-@pytest.mark.parametrize('case',['valid','stale','reused','parent','operator','hook','late','session'])
+@pytest.mark.parametrize('case',['valid','stale','reused','parent','operator','hook','late','session','interrupted'])
 def test_real_observe_entry_only_dispatches_after_single_use_admission(tmp_path,monkeypatch,case):
     ns=functions(tmp_path);save(ns)
     controller={'pid':os.getppid(),'token':'fixture'}
@@ -105,6 +105,7 @@ def test_real_observe_entry_only_dispatches_after_single_use_admission(tmp_path,
     (tmp_path/'e/preflight-process.process.json').write_text(json.dumps(dict(exited=True,timely_exit_verified=case!='late',exit_code=0)))
     (tmp_path/'e/preflight-result.json').write_text('{"status":"PASS"}')
     (tmp_path/'e/preflight.json').write_text(json.dumps(dict(seconds=900,head=ns['expected'])))
+    if case=='interrupted':(tmp_path/'e/preflight.stop').touch()
     if case=='operator':original.write_bytes(b'changed')
     if case=='hook':(tmp_path/'state/startup/sitecustomize.py').write_text('changed')
     if case=='parent':monkeypatch.setenv('READONLY_ADMISSION_TOKEN','wrong')
@@ -191,3 +192,22 @@ def test_entire_final_preflight_body_requires_fresh_manifest_and_final_guards(tm
 def test_actual_wrong_source_pin_rejected(tmp_path):
     ns=functions(tmp_path);ns['expected']='a'*40
     with pytest.raises(SystemExit):ns['binding']()
+
+
+def test_actual_prepare_body_is_filesystem_only_and_captures_full_m0(tmp_path):
+    ns=functions(tmp_path)
+    shutil.rmtree(tmp_path/'e');shutil.rmtree(tmp_path/'state')
+    def forbidden(*args,**kwargs):raise AssertionError('Session/operator/broker admission forbidden in preparation')
+    writes=[]
+    def write(path,value):writes.append(path.name);path.parent.mkdir(parents=True,exist_ok=True);path.write_text(json.dumps(value))
+    ns.update(phase='prepare',os=types.SimpleNamespace(name='nt'),
+        sys=types.SimpleNamespace(version_info=(3,13,3),executable=sys.executable),
+        supervisor=types.SimpleNamespace(require_clean_certification_worktree=lambda _:None),
+        session_check=forbidden,require_controller=forbidden,write_json=write)
+    node=next(n for n in ast.walk(ast.parse(OWNER.read_text())) if isinstance(n,ast.If) and ast.unparse(n.test)=="phase == 'prepare'")
+    exec(compile(ast.Module(body=node.body,type_ignores=[]),str(OWNER),'exec'),ns)
+    m0=json.loads((tmp_path/'preparation/source-prepared.json').read_text())
+    assert m0==ns['complete_manifest']()
+    assert not (tmp_path/'e').exists() and not (tmp_path/'operator-state-source.json').exists()
+    assert not (tmp_path/'state/order-id.json').exists()
+    assert writes==['source-prepared.json','prepared.json']

@@ -290,6 +290,8 @@ elif phase == 'preflight':
             print('Preflight initialization/reporting failed; no observation launch.', file=sys.stderr)
         raise
 elif phase == 'observe':
+    if any(path.exists() for path in (evidence/'preflight.stop', evidence/'terminal/STOP_REQUESTED', root/'preparation/STOP_REQUESTED')):
+        raise SystemExit('Interrupted admission cannot launch a runtime.')
     controller = require_controller()
     admission = json.loads((root/'admission.json').read_text())
     outer = json.loads((evidence/'preflight-process.process.json').read_text(encoding='utf-8-sig'))

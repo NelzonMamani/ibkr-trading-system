@@ -11260,3 +11260,19 @@ Natural supported catalyst->raw intent remains UNPROVEN. No readiness upgrade.
 ONE next action after review/CI: user reviews this draft implementation for
 controlled integration; no preflight/observation is authorized by this task.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+Initial implementation head1e6ac9e5dbaa1c5c7df4129440bacaaa145b110c/tree
+2fc241b7bdc232700f08a247bb5e8f01d584665a: independent exact-head static review
+(no blockers; native CI pending),31 local guarded controls passed. CI41131098648
+Linux job124321972988 passed. Windows job124321973042 FAILED:7 observe-fixture
+cases omitted the Windows controller creation_token;24 controls passed. This is
+a demonstrated test-fixture portability defect, not evidence of runtime acceptance.
+The fixture now uses an actual retained parent handle's creation token; production
+checks were not weakened. Preserve failed run and evidence-upload failure (no
+PowerShell fixture had yet run, so no artifact path existed). Subsequent changed
+heads additionally enforce actual source-root HEAD equality and prevent every
+later phase on unavailable cache-child cleanup. Interrupted STOP admission rejects.
+Local focused34 controls and12 synthetic package cases passed; six cache and
+inventory controls passed. No actual preflight/runtime was executed; AST phase-body
+controls use synthetic files and replaced external boundaries. Native full-path
+Windows evidence and final exact-head review remain pending.
