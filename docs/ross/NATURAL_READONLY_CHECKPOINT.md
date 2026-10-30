@@ -7925,7 +7925,7 @@ if __name__=='__main__':
     if (!$receipt.exited) { throw "Cleanup/exit unverified; retain $scratch privately. Do not retry or share." }
     $profilePath = Join-Path $scratch 'profile.json'
     if (!(Test-Path -LiteralPath $profilePath)) { throw "No bounded profile report; retain $scratch privately." }
-    $profile = Get-Content -LiteralPath $profilePath -Raw | ConvertFrom-Json
+    $profileData = Get-Content -LiteralPath $profilePath -Raw | ConvertFrom-Json
     # Independent output allowlist: no paths, payloads, messages or arbitrary strings.
     $safeKeys = @('schema','status','error','pin','tree','owner_blob','owner_sha256',
         'elapsed_at_checkpoint_ns','metrics','overhead','manifest_call_ns','labelled_intervals_ns',
@@ -7954,22 +7954,22 @@ if __name__=='__main__':
             Assert-SafeValue $property.Value
         }
     }
-    Assert-SafeValue $profile
-    if ($profile.schema -cne 'manifest-profile.v1' -or $profile.pin -cne $Pin -or
-        $profile.tree -cne $Tree -or $profile.owner_blob -cne $Blob) { throw 'Report identity differs.' }
+    Assert-SafeValue $profileData
+    if ($profileData.schema -cne 'manifest-profile.v1' -or $profileData.pin -cne $Pin -or
+        $profileData.tree -cne $Tree -or $profileData.owner_blob -cne $Blob) { throw 'Report identity differs.' }
     $afterHead = (& $Git --no-optional-locks -C $SourceRoot rev-parse HEAD | Out-String).Trim()
     $headOK = $LASTEXITCODE -eq 0 -and $afterHead -ceq $Pin
     $afterDirty = @(& $Git --no-optional-locks -c core.fsmonitor=false -C $SourceRoot status --porcelain)
     $sourceOK = $headOK -and $LASTEXITCODE -eq 0 -and $afterDirty.Count -eq 0
     $complete = !$controlFailed -and $receipt.timely_exit_verified -and !$receipt.timed_out -and
-        $receipt.exit_code -eq 0 -and $profile.status -ceq 'COMPLETE' -and
-        $profile.handles_open -eq 0 -and $profile.namespace_released -and $sourceOK
+        $receipt.exit_code -eq 0 -and $profileData.status -ceq 'COMPLETE' -and
+        $profileData.handles_open -eq 0 -and $profileData.namespace_released -and $sourceOK
     $envelope = [ordered]@{
         schema = 'manifest-profile-envelope.v1'; completed = [bool]$complete
         source_identity_after = [bool]$sourceOK
         budget_seconds = 90; cleanup_budget_seconds = 30
         child_exit = $receipt.exit_code; timed_out = $receipt.timed_out
-        timely_exit_verified = $receipt.timely_exit_verified; profile = $profile
+        timely_exit_verified = $receipt.timely_exit_verified; profile = $profileData
     }
     $json = $envelope | ConvertTo-Json -Depth 10 -Compress
     if ([Text.Encoding]::UTF8.GetByteCount($json) -gt 8192) { throw 'Report exceeds8KiB; no shareable output.' }
