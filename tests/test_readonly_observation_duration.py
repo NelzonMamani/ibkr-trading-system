@@ -91,6 +91,11 @@ def observe_block():
 def test_real_observe_entry_only_dispatches_after_single_use_admission(tmp_path,monkeypatch,case):
     ns=functions(tmp_path);save(ns)
     controller={'pid':os.getppid(),'token':'fixture'}
+    if os.name == 'nt':
+        from src.runtime.process_identity import WindowsProcessHandle
+        handle = WindowsProcessHandle(controller['pid'])
+        try: controller['creation_token'] = handle.creation_token
+        finally: handle.close()
     (tmp_path/'runner.json').write_text(json.dumps(controller));monkeypatch.setenv('READONLY_ADMISSION_TOKEN','fixture')
     original=tmp_path/'original';original.write_bytes(b'state')
     (tmp_path/'operator-state-source.json').write_text(json.dumps({'path':str(original),'sha256':ns['digest'](original)}))
@@ -181,3 +186,8 @@ def test_entire_final_preflight_body_requires_fresh_manifest_and_final_guards(tm
         assert len(sessions)==2 and len(guards)==2 and len(inventories)==2
         assert json.loads((tmp_path/'e/source-before.json').read_text())==m0
         assert (tmp_path/'state/order-id.json').read_bytes()==b'operator'
+
+
+def test_actual_wrong_source_pin_rejected(tmp_path):
+    ns=functions(tmp_path);ns['expected']='a'*40
+    with pytest.raises(SystemExit):ns['binding']()

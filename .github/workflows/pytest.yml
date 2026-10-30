@@ -51,7 +51,7 @@ jobs:
           with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
               out.write(f'harness_only={str(focused).lower()}\n')
           print('HARNESS_ONLY=' + str(focused))
-          print('Full-suite receipt: actions/runs/40929046617 at ' + baseline)
+          print('Accepted baseline CI receipt: actions/runs/40929046617 at ' + baseline)
           print('Changed files: ' + ', '.join(sorted(paths)))
 
   test:

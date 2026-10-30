@@ -200,6 +200,15 @@ function Invoke-ReadonlyObservation {
         }
         throw
     } finally {
+        # A failed probe may have left its own child alive even after the
+        # operator exits. Unknown probe ownership forbids every later phase.
+        $probePath = Join-Path $evidence 'child-cache-probe.json'
+        if (Test-Path $probePath) {
+            try {
+                $probe = Get-Content -Raw $probePath | ConvertFrom-Json
+                if ($probe.child_exited -ne $true) { $canPackage = $false; if ($result -eq 0) { $result = 1 } }
+            } catch { $canPackage = $false; if ($result -eq 0) { $result = 1 } }
+        }
         if (!(Test-Path $evidence)) { [IO.Directory]::CreateDirectory($evidence) | Out-Null }
         if ($canPackage -and !$PreflightOnly) {
             $phaseStatus.package_status = 'RUNNING'

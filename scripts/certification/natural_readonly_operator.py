@@ -101,7 +101,10 @@ def canonical_config(value):
 
 def binding():
     from src.config.config_resolver import get_config
-    return {'root': str(root.resolve()), 'head': expected,
+    actual_head = subprocess.check_output(['git','rev-parse','HEAD'], cwd=repo, text=True).strip()
+    if actual_head != expected:
+        raise SystemExit('Pinned source root does not match expected commit.')
+    return {'root': str(root.resolve()), 'head': actual_head,
         'tree': subprocess.check_output(['git','rev-parse','HEAD^{tree}'], cwd=repo, text=True).strip(),
         'seconds': runtime_seconds, 'config': {key: canonical_config(get_config(key)) for key in CONFIG_REGISTRY},
         'hook': digest(state/'startup/sitecustomize.py'),

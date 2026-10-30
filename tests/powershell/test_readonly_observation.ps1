@@ -34,6 +34,8 @@ if case=='venv-handoff' and phase in ('prepare','preflight','observe'):
     exec(compile(ast.Module(body=[node],type_ignores=[]),str(source),'exec'),ns)
     ns['require_controller']()
 if phase == 'preflight':
+    if case=='cache-unowned':
+        (e/'child-cache-probe.json').write_text(json.dumps(dict(child_exited=False)));sys.exit(1)
     if case=='preflight-late-pass':
         time.sleep(1); (e/'preflight-result.json').write_text(json.dumps(dict(status='PASS',stage='complete',exit_code=0)))
     if case in ('preflight','preflight-package-failure'):
@@ -204,6 +206,12 @@ try {
         if ($case -eq 'prepare-stuck') { Stop-Process -Id ([int](Get-Content (Join-Path $root 'e/pid'))) -ErrorAction SilentlyContinue }
         $passed++
     }
+    $env:OBS_TEST_CASE='cache-unowned';$root=Join-Path $scratch 'cache-unowned'
+    New-Item -ItemType Directory $root | Out-Null
+    $code=Invoke-ReadonlyObservation -Python $Python -Operator $stub -Root $root -ExpectedCommit ('a'*40)
+    $phases=Get-Content (Join-Path $root 'e/phases')
+    Check ($code -ne 0 -and !(($phases -contains 'observe') -or ($phases -contains 'package') -or ($phases -contains 'seal'))) 'Unknown cache cleanup progressed'
+    $passed++
     # Literal150s boundary proof without waiting150s; OS exit remains authority.
     $start=[datetime]::UtcNow;$deadline=$start.AddSeconds(150)
     Check (!(Test-ObservationExitDeadline $deadline ($deadline.AddTicks(1)))) 'New150s budget accepted late zero exit'
