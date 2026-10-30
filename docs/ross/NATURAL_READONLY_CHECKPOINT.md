@@ -10862,3 +10862,108 @@ if __name__=='__main__':
     if ($measurementExit -ne 0) { throw 'Measurement failed; retain evidence and stop. No natural preflight/observation authorized.' }
 }
 ```
+
+## 30 October 2026 — Stage50 localized and guarded mailbox publication repair verified
+
+Current main remainsa501c88bcc926bef87875f6352f210b19b6e438b/treee66b6daa84f04ec95dce1155fde2a9a4e156cf14.
+Existing PR1145 stays DRAFT/unmerged, branch test/windows-manifest-containment-feasibility.
+Exact corrected head `4d2a6568178bef9460ea9620268490dbf0426c05`, tree
+`d81e03dd29a449a5f1e10da11b56ad028b717335`. Independent post-Windows exact-head
+review `5718429765`: no blockers, reviewer independently retrieved native CI/logs.
+Prior static review5718398087 remains preserved, not substituted for OS validation.
+DEPRECATION_LEDGER read/unchanged; no ownership retirement or production change.
+
+### What is established; what is not
+
+The new uploaded FAIL1.2844277s/cleanuptrue/peak9/stage50 receipt and its private
+rootC:\tmp\manifest-contained-1ccc4446 remain unchanged. Transcript V2 AST equality
+was checked; only trailing spaces differ. Local receipt alone cannot identify its
+precise stage50 exception or Windows actor. No root/raw task/manifest was requested.
+
+Actual Windows CI41123758149 reproduced the released failure on the EXACT accepted
+checkout: V2 FAIL stage50, and evidence V3 localized a PermissionError to result
+small/read (work_step3),933 completed/935 dispatched,winerror0=unclassified,
+cleanuptrue. This is a demonstrated LOCAL work-loop failure, not another assumed
+native-process budget failure. Earlier flat tiny synthetic inputs did not exercise
+this accepted-checkout scheduling/data distribution. Bytes are data only; no
+source/provider/broker module top level executes.
+
+The protocol defect is using payload pathname visibility as publication-completion
+authority. An owner may still be inside put/write/rename while a consumer observes
+the path and tries to read. Guarded native Windows sharing denial across actual
+rename reproduced the SAME PermissionError/result-read path while publication
+remained pending. This establishes a permitted failing interleaving and the missing
+ordering contract. It does NOT identify the original workstation handle holder,
+prove an antivirus/storage cause, or establish the complete archived causal chain.
+Those uncertainties remain separate; no historical failure rewritten as success.
+
+### Narrow repair and full-entrypoint acceptance
+
+V4 adds per-task readiness markers only AFTER put returns in both directions.
+Consumer marker checks are metadata-only; marker contents are never opened.
+Publishers alone delete their own markers after creation returned. Generational
+names and monotonic task indices prevent stale reuse, with max2empty markers per
+worker and bounded enumeration. No new persistent supervisor/harness/manifest
+owner, processes or connections. Two workers/two outstanding/native cap10,8192byte
+requests/1024byte results,90s shared measurement and30s shared cleanup unchanged.
+Fresh exact accepted digest/enumeration, source identity, complete mapping/order,
+privacy and cleanup-gated publication remain. Read errors AFTER readiness still
+FAIL immediately; no PermissionError suppression/retry, warm-up or renewed budget.
+All additional metadata is bounded numeric categories/counts, with explicit missing
+worker evidence and sample omissions; no raw path/task/exception text/ID/hash export.
+
+SUCCESS: Windows CI `41124820829`, job `124300420942`, exact4d2a6568.
+Windows Server2025/Python3.13.3/actual PowerShell5.1/real Windows virtual environment.
+One focused regression method, FIVE full-entrypoint cases,31.460s, SUCCESS:
+
+| Full accepted-checkout case | Result |
+| --- | --- |
+| Old V3, native sharing denial while result publication is pending | FAIL0.6607s;stage50/work_step3/PermissionError2;no COMPLETE mapping;cleanup verified. |
+| V4, SAME pending result publication window | COMPLETE7.9070s;publication-return ordering honored;cleanup verified. |
+| V4, pending TASK publication window | COMPLETE8.9162s;both directions covered;cleanup verified. |
+| V4, sharing denial AFTER readiness | FAIL0.6754s;stage50/work_step3/PermissionError2;no COMPLETE mapping;cleanup verified. |
+| V4, ordinary accepted-checkout path | COMPLETE7.0198s;cleanup verified. |
+
+All THREE positive runs returned2686files/17,844,040bytes/missing0,peak_native9,
+peak_pending2,source_identity=true. EVERY returned hash and insertion order matched
+fresh serial execution of the exact accepted digest over the full accepted
+checkout, including nested paths, binary/text and real size distribution. Faults
+are test-only native handles closed in finally or verified owned-job termination;
+no operator fault flag is exposed. An arbitrary post-ready PermissionError is still
+rejected, not treated as shutdown noise or ignored. All source-worktree cleanup
+and production-unchanged CI checks passed.
+
+The test ran the full PowerShell and embedded Python entrypoint; only data source
+path/Python path/scratch path binding changed for the private CI fixture, with
+literal accepted commit/tree/owner unchanged. Kernel and fixed input limits did not
+increase. Source hashing here is an OFFLINE CI correctness control, not a new
+workstation measurement or performance comparison;7-9s timings do not certify
+workstation speedup or90s natural-preflight success. The earlier1.284s FAIL and all
+prior timing/transport/cache/history receipts remain preserved. Production preflight
+is untouched and remains fail closed; natural positive intent remains unproven.
+
+Frozen tested V4 full block SHA256:
+155816b70e68b1b77bef5445731a861dc98c3cf76c79222916a1e649516be6df.
+Embedded Python SHA256 (excluding here-string surrounding newline):
+3cd34953bcde2e3c679e5c44af0ab302437f9003b34e5a67b27a4297567b5383.
+V2/V3 text and failed CI41123758149 remain intact. No operator block is released or
+executed in this task. V4 is a reviewed/tested corrected feasibility candidate,
+not authority for another workstation run. No unrelated completed suites repeated;
+only new/affected guarded full-entrypoint regressions ran. Linux1skip is NOT
+Windows proof. No automatic merge.
+
+This receipt-only update remains on existing docs/windows-manifest-containment-results,
+appending the SAME checkpoint beyond exact tested PR head. No competing checklist,
+additional code/test/CI changes or CI repeat merely for saving prose.
+
+ONE next action: review/accept PR1145's corrected publication protocol candidate
+and the exact-head Windows/review receipts BEFORE separately preparing any further
+filesystem-only measurement. Completion criterion is acceptance of the demonstrated
+bounded correction, not a workstation retry or natural observation from this receipt.
+
+All failed roots/original checkout/GUI draft/historical receipts remain preserved;
+five unmatched positions/global ownership veto untouched, separate news-cache and
+historical callback uncertainties unresolved, listing provenance PARKED/fail closed.
+No broker inquiry, acquisition, preflight, observation, holdings action, SDK change,
+timeout extension, guard relaxation, trading or readiness upgrade occurred.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
