@@ -260,12 +260,14 @@ elif phase == 'preflight':
                 raise SystemExit('Final runtime inventory unavailable or occupied.')
             verify_write_guards()
             preflight_timing('operator_state_begin')
-            if original_state.exists():
+            operator_before = digest(original_state)
+            if operator_before is not None:
                 shutil.copy2(original_state, state/'order-id.json')
-            (root/'operator-state-source.json').write_text(json.dumps({'path': str(original_state), 'sha256': digest(original_state)}))
-            preflight_timing('operator_state_complete')
-            if original_state.exists() and digest(state/'order-id.json') != digest(original_state):
+            operator_after = digest(original_state)
+            if operator_before != operator_after or digest(state/'order-id.json') != operator_after:
                 raise SystemExit('Operator state changed during capture.')
+            (root/'operator-state-source.json').write_text(json.dumps({'path': str(original_state), 'sha256': operator_after}))
+            preflight_timing('operator_state_complete')
             write_json(evidence/'source-before.json', m1)
             preflight_timing('source_before_persisted')
             write_json(evidence/'preflight.json', {'head': expected, 'utc': datetime.now(timezone.utc).isoformat(),

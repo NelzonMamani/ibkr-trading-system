@@ -11290,3 +11290,12 @@ was unavailable (403), so no claim to have inspected its members. Job logs and
 exact wrapper source establish the exit-contract difference. Earlier failures,
 including failed first-run artifact upload, remain preserved. Changed-head
 Windows/PowerShell validation is required before accepting this correction.
+
+An additional guarded capture control exposed a local admission race: deleting
+original operator state after copy but before the old digest/exists check could
+record absence while retaining a stale isolated copy. Final capture now compares
+fresh original digests before AND after copy with the isolated bytes; edit/delete
+reject before receipt/admission. This uses existing copy/digest owners, adds no
+operator writes or lock/ownership policy. Both deterministic controls fail before
+and pass after the correction. Existing actual duration-parser rejection controls
+remain covered. Local focused40 controls pass. No source freeze is claimed.

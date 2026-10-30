@@ -149,7 +149,7 @@ print(json.dumps(canonical_config({'dates':{date(2026,12,25),date(2026,11,26)},'
     results = [subprocess.check_output([sys.executable,'-c',code,str(OWNER)],env=dict(os.environ,PYTHONHASHSEED=str(seed)),text=True) for seed in (1,2,3)]
     assert len(set(results))==1
 
-@pytest.mark.parametrize('case',['valid','content-edit','missing','session-expired','inventory','cache-unowned','hook-change'])
+@pytest.mark.parametrize('case',['valid','content-edit','missing','session-expired','inventory','cache-unowned','hook-change','operator-delete','operator-edit'])
 def test_entire_final_preflight_body_requires_fresh_manifest_and_final_guards(tmp_path,monkeypatch,case):
     for key in ('NEWS_ENABLED','NEWS_MAINTENANCE_ENABLED','ROSS_ISSUER_QUERY_ENABLED'):
         monkeypatch.setenv(key,'true')
@@ -172,6 +172,11 @@ def test_entire_final_preflight_body_requires_fresh_manifest_and_final_guards(tm
         inventories.append(True)
         return {'completed':not(case=='inventory' and len(inventories)==2),'runtimes':[]}
     def write(path,value):path.parent.mkdir(parents=True,exist_ok=True);path.write_text(json.dumps(value))
+    def copy_state(source,target):
+        shutil.copy2(source,target)
+        if case=='operator-delete':original.unlink()
+        if case=='operator-edit':original.write_bytes(b'changed')
+    ns['shutil']=types.SimpleNamespace(copy2=copy_state)
     ns.update(os=types.SimpleNamespace(name='nt'),sys=types.SimpleNamespace(version_info=(3,13,3),executable=sys.executable),
         require_controller=lambda:{'pid':1,'token':'fixture'},require_prepared=lambda:json.loads((tmp_path/'preparation/prepared.json').read_text()),
         session_check=session,verify_write_guards=lambda:guards.append(True),
@@ -211,3 +216,13 @@ def test_actual_prepare_body_is_filesystem_only_and_captures_full_m0(tmp_path):
     assert not (tmp_path/'e').exists() and not (tmp_path/'operator-state-source.json').exists()
     assert not (tmp_path/'state/order-id.json').exists()
     assert writes==['source-prepared.json','prepared.json']
+
+
+@pytest.mark.parametrize('duration',['179','1801','nan','900.0'])
+def test_actual_operator_duration_parser_remains_fail_closed(tmp_path,duration):
+    result=subprocess.run([sys.executable,str(OWNER),'observe',str(tmp_path),'a'*40,duration],
+                          capture_output=True,text=True,timeout=10)
+    assert result.returncode != 0
+    assert ('Runtime duration must be between180 and1800' in result.stderr or
+            'invalid literal for int()' in result.stderr)
+    assert not (tmp_path/'e').exists()
