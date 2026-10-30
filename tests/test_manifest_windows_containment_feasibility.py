@@ -17,7 +17,8 @@ import time
 import unittest
 
 HERE = Path(__file__).resolve()
-MAX_MEMBERS = 5  # coordinator + at most four worker descendants
+MAX_MEMBERS = 10  # bounded native members, including observed Python launch processes
+# Logical work remains one coordinator + at most four workers; no extra tasks.
 INTENDED_BUDGETS = (90, 30)
 
 
@@ -84,6 +85,7 @@ class API:
             'CreateProcessW': ([W.LPCWSTR, W.LPWSTR, ctypes.c_void_p, ctypes.c_void_p, W.BOOL, W.DWORD, ctypes.c_void_p, W.LPCWSTR, ctypes.POINTER(STARTUPINFO), ctypes.POINTER(PROCESSINFO)], W.BOOL),
             'ResumeThread': ([W.HANDLE], W.DWORD),
             'OpenProcess': ([W.DWORD, W.BOOL, W.DWORD], W.HANDLE),
+            'QueryFullProcessImageNameW': ([W.HANDLE, W.DWORD, W.LPWSTR, ctypes.POINTER(W.DWORD)], W.BOOL),
             'WaitForSingleObject': ([W.HANDLE, W.DWORD], W.DWORD),
             'GetExitCodeProcess': ([W.HANDLE, ctypes.POINTER(W.DWORD)], W.BOOL),
             'GetProcessTimes': ([W.HANDLE] + [ctypes.POINTER(W.FILETIME)] * 4, W.BOOL),
@@ -153,6 +155,12 @@ class API:
     def open(self, pid):
         return self.own(self.k.OpenProcess(0x1000 | 0x100000 | 0x1, False, pid))
 
+    def image_kind(self, handle):
+        length=W.DWORD(32768); text=ctypes.create_unicode_buffer(length.value)
+        self.checked(self.k.QueryFullProcessImageNameW(handle,0,text,ctypes.byref(length)))
+        image=Path(text.value)
+        return {'image_class':'PYTHON' if image.name.lower() in ('python.exe','python3.exe','pythonw.exe') else 'OTHER', 'same_as_controller_executable':os.path.normcase(str(image))==os.path.normcase(sys.executable)}
+
     def token(self, handle):
         fields = [W.FILETIME() for _ in range(4)]
         self.checked(self.k.GetProcessTimes(handle, *(ctypes.byref(f) for f in fields)))
@@ -185,6 +193,9 @@ def read_small(path):
 def child(root, role, mode):
     """Synthetic child script: no hashing, config, providers or operator imports."""
     api = API()
+    temporary=root/('role-'+str(os.getpid())+'.tmp')
+    temporary.write_text(json.dumps({'pid':os.getpid(),'role':role,'mode':mode}))
+    temporary.replace(root/('role-'+str(os.getpid())+'.json'))
     if role == 'leaf':
         (root/('leaf-' + str(os.getpid()))).write_text('ready')
         while True: time.sleep(.01)  # intentional owned blocked worker
@@ -201,9 +212,15 @@ def child(root, role, mode):
                 api.fault='assign'
             api.assign(job, p); api.resume(p)
             end = time.monotonic()+10
-            while not (root/'ready').exists() and time.monotonic()<end: time.sleep(.005)
-            ids = api.members(job)
-            if len(ids) != 3: raise RuntimeError('DESCENDANTS_NOT_READY')
+            while time.monotonic()<end:
+                ids=api.members(job)
+                roles=[read_small(path) for path in root.glob('role-*.json')]
+                members=[r for r in roles if r['pid'] in ids]
+                if sum(r['role']=='leaf' for r in members)==2: break
+                time.sleep(.005)
+            else: raise RuntimeError('LEAF_ROLES_NOT_READY')
+            if not 3 <= len(ids) <= MAX_MEMBERS: raise RuntimeError('DESCENDANTS_NOT_READY')
+            if sum(r['role']=='coordinator' for r in members)!=1: raise RuntimeError('COORDINATOR_NOT_MEMBER')
             proof = []
             for pid in ids:
                 h = api.open(pid)
@@ -263,7 +280,7 @@ def contain(root, mode='healthy', *, budget=.8, cleanup=2., fault=None):
     api = API(); job = None; coordinator = None; owned = {}
     status = 'COMPLETE'; cleanup_verified = True; issues = []
     started = time.monotonic(); deadline = started+budget
-    max_members = 0; observed_descendants = 0
+    max_members = 0; observed_descendants = 0; image_kinds=[]
     try:
         job = api.create_job()
         coordinator = api.spawn(root,'coordinator',mode)
@@ -283,6 +300,7 @@ def contain(root, mode='healthy', *, budget=.8, cleanup=2., fault=None):
                     h = api.open(pid)
                     if not api.member(job,h): raise RuntimeError('MEMBERSHIP_UNKNOWN')
                     owned[pid] = h; observed_descendants += 1
+                    image_kinds.append(api.image_kind(h))
             if not ids:
                 if not api.wait(coordinator['process'],deadline): raise RuntimeError('EXIT_UNKNOWN')
                 if api.exit_code(coordinator['process']) != 0: raise RuntimeError('CHILD_FAILED')
@@ -316,7 +334,7 @@ def contain(root, mode='healthy', *, budget=.8, cleanup=2., fault=None):
                     cleanup_verified = False; issues.append(type(exc).__name__)
         if api.handles or time.monotonic()>cleanup_deadline: cleanup_verified=False
         result = {'status':status,'cleanup_verified':cleanup_verified,'success':status=='COMPLETE' and cleanup_verified and time.monotonic()<=deadline,
-                  'issues':issues,'maximum_members':max_members,'descendants_observed':observed_descendants,
+                  'issues':issues,'image_kinds':image_kinds,'maximum_members':max_members,'descendants_observed':observed_descendants,
                   'handles_remaining_at_boundary':len(api.handles),'elapsed':time.monotonic()-started,
                   'cleanup_elapsed':time.monotonic()-cleanup_started}
         # Fixture recovery only: never changes the candidate result. Check real
@@ -333,6 +351,11 @@ def contain(root, mode='healthy', *, budget=.8, cleanup=2., fault=None):
         for h in list(api.handles): api.close(h)
         result['fixture_handles_remaining']=len(api.handles)
         result['fixture_recovery_verified']=True
+        # Optional test metadata ONLY after all worker exits and handle cleanup;
+        # never read coordinator IPC on the deadline/cleanup enforcement path.
+        roles=[read_small(path) for path in root.glob('role-*.json')]
+        result['leaf_roles']=sum(r['role']=='leaf' for r in roles)
+        result['roles_in_job']=all(r['pid'] in owned for r in roles)
     return result
 
 
@@ -349,8 +372,8 @@ class WindowsContainment(unittest.TestCase):
                     self.assertTrue(r['cleanup_verified']); self.assertEqual(r['fixture_handles_remaining'],0)
                     if mode=='healthy': self.assertTrue(r['success'])
                     else: self.assertEqual(r['status'],'CANCELLED' if mode=='cancel' else 'DEADLINE'); self.assertFalse(r['success'])
-                    if mode=='descendants': self.assertEqual(r['maximum_members'],3); self.assertEqual(r['descendants_observed'],2)
-                    if mode=='partial': self.assertEqual(r['maximum_members'],2)
+                    if mode=='descendants': self.assertGreaterEqual(r['maximum_members'],3); self.assertLessEqual(r['maximum_members'],MAX_MEMBERS); self.assertEqual(r['leaf_roles'],2); self.assertTrue(r['roles_in_job'])
+                    if mode=='partial': self.assertGreaterEqual(r['maximum_members'],2); self.assertLessEqual(r['maximum_members'],MAX_MEMBERS); self.assertEqual(r['leaf_roles'],1); self.assertTrue(r['roles_in_job'])
                     if mode=='breakaway': self.assertTrue((root/'breakaway-denied').exists())
 
     def test_failure_paths_never_publish_success(self):
@@ -376,7 +399,7 @@ class WindowsContainment(unittest.TestCase):
                 end=time.monotonic()+15
                 while not (root/'controller-ready').exists() and time.monotonic()<end: time.sleep(.01)
                 proof=read_small(root/'controller-ready')
-                self.assertEqual(len(proof),3)
+                self.assertGreaterEqual(len(proof),3); self.assertLessEqual(len(proof),MAX_MEMBERS)
                 for row in proof:
                     h=api.open(row['pid']); held.append(h)
                     self.assertEqual(api.token(h),row['creation'])
@@ -385,7 +408,7 @@ class WindowsContainment(unittest.TestCase):
                 self.assertTrue(api.wait(controller['process'],end))
                 for h in held: self.assertTrue(api.wait(h,end))
                 self.assertFalse(api.wait(unrelated['process'],time.monotonic()+.03))
-                print('WINDOWS_KILL_ON_CLOSE controller_and_3_members_exited unrelated_alive',flush=True)
+                print('WINDOWS_KILL_ON_CLOSE',len(proof),'members_exited unrelated_alive',flush=True)
             finally:
                 for p in processes:
                     if not api.wait(p['process'],time.monotonic()): api.checked(api.k.TerminateProcess(p['process'],99))

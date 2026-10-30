@@ -8381,3 +8381,24 @@ exit-controller assignment denial (creation-bound external child handle) and
 native second-process creation failure (first leaf must retire). Failed/superseded
 review remains preserved, not presented as acceptance. Revised Linux check now
 has6 explicit Windows-only skips, still no Windows proof.
+
+First actual Windows CI41113839270/job124262890777 at ca0399f9 FAILED:
+4methods,3subtest failures/1error (21.732s). Healthy/stalled cases observed2 native
+job members per single logical coordinator; partial observed4; two-leaf cases
+reached cap5 and failed before the controller-exit proof. Reported cleanup verified;
+injected cleanup failures remained failed and required separately labelled fixture
+recovery. This receipt is preserved, not a containment acceptance. Revised-head
+CI41114114490 remains pending and superseded by the next code change, not rerun
+unchanged hoping to pass. Independent review5717557667 approved d0e1985c for CI,
+not a Windows success or benchmark release.
+
+The fixture's one-native-process-per-logical-Python assumption was unsupported.
+Next revision records only owned job member image classes/equality booleans and
+actual logical child-role membership (private atomic IPC, read after owned cleanup
+for ordinary cases); no raw process paths/IDs exported. Disposable native job cap
+is explicitly10 rather than5, allowing bounded observed launch/native descendants
+while logical work remains one coordinator/at most four workers; ALL native job
+members still require cleanup. No production/capture/request limit is changed.
+No assertion hides extra native members or treats them as unrelated. The next
+actual Windows result must establish the revised physical/logical model and full
+cleanup; no workstation performance/OS cause is inferred from counts alone.
