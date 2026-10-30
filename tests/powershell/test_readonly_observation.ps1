@@ -197,13 +197,17 @@ try {
         $env:OBS_TEST_CASE=$case
         $root=Join-Path $scratch $case;New-Item -ItemType Directory $root | Out-Null
         $failed=$false
-        try { $code=Invoke-ReadonlyObservation -Python $Python -Operator $stub -Root $root -ExpectedCommit ('a'*40) -PreparationSeconds $(if ($case -eq 'package-late') {150} else {.2}) -PackageSeconds .2 -StopSeconds .3 } catch { $failed=$true }
+        try { $code=Invoke-ReadonlyObservation -Python $Python -Operator $stub -Root $root -ExpectedCommit ('a'*40) -PreparationSeconds $(if ($case -eq 'package-late') {150} else {.2}) -PackageSeconds .2 -StopSeconds $(if ($case -in @('prepare-late','package-late')) {2} else {.3}) } catch { $failed=$true }
         $phases=Get-Content (Join-Path $root 'e/phases')
         if ($case -eq 'package-late') {
             Check (!($phases -contains 'seal')) 'Late packaging was sealed'
         } else { Check (!($phases -contains 'preflight')) 'Failed/unknown preparation admitted preflight' }
         Check ($failed -or $code -ne 0) 'Invalid preparation/package accepted'
-        if ($case -eq 'prepare-stuck') { Stop-Process -Id ([int](Get-Content (Join-Path $root 'e/pid'))) -ErrorAction SilentlyContinue }
+        if ($case -eq 'prepare-stuck') {
+            $owned=[Diagnostics.Process]::GetProcessById([int](Get-Content (Join-Path $root 'e/pid')))
+            try { $null=$owned.Handle; $owned.Kill(); Check ($owned.WaitForExit(3000)) 'Owned synthetic prepare child not reaped' }
+            finally { $owned.Dispose() }
+        }
         $passed++
     }
     $env:OBS_TEST_CASE='cache-unowned';$root=Join-Path $scratch 'cache-unowned'

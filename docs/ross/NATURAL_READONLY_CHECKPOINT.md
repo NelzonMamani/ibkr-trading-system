@@ -11296,6 +11296,50 @@ original operator state after copy but before the old digest/exists check could
 record absence while retaining a stale isolated copy. Final capture now compares
 fresh original digests before AND after copy with the isolated bytes; edit/delete
 reject before receipt/admission. This uses existing copy/digest owners, adds no
-operator writes or lock/ownership policy. Both deterministic controls fail before
-and pass after the correction. Existing actual duration-parser rejection controls
+operator writes or lock/ownership policy. The deletion control demonstrably fails against8fa source and passes after
+the correction; editing remains rejected as before. Existing actual duration-parser rejection controls
 remain covered. Local focused40 controls pass. No source freeze is claimed.
+
+### PR1146 implementation verification and remaining acceptance gate
+
+Branch fix/serial-readonly-admission; NEW DRAFT PR1146 (not PR1145). Implementation
+192fa8793a4118eadec353b72048525dabfacf4d/tree48229cc1dbab11f193d0b0698f8fbec22df9020b
+has independent exact-head review5718970386 (/root/exact_head_review; no code
+blockers,40 independently passed controls). The acknowledged prose correction
+above distinguishes new deletion failure from existing edit rejection.
+CI41132389343 SUCCESS on this implementation: Linux124326355544 and Windows
+124326355557, plus scope124326284398. Actual Windows Python3.13.3/PowerShell5.1:
+40 guarded manifest/admission controls25.32s; six cache controls; existing exit
+propagation controls;46 PowerShell harness controls including full actual venv
+phase orchestration, late exits, unknown cleanup and isolated helper worktree;
+12 real-package synthetic cases; five real-preflight synthetic cases; inventory
+and quote-default PowerShell checks. No broker/runtime connection or acquisition.
+Real preflight phase-body controls use synthetic files and fake SDK/native classes;
+they are OFFLINE proof, never a successful workstation preflight/observation.
+
+Earlier corrected-wrapper head8faabfc60cbef632bfa5a7d4c37ed05094bfc94c also passed
+CI41131948482 (Linux124324850379/Windows124324850301). Superseded review5718875238
+belongs to initial1e6 head only. Preserve FAILED41131098648 (fixture token missing),
+41131362127 and41131544495 (preflight-only exit mapping); later successes do not
+rewrite them. The last failed run at ee9 had34 passing Windows Python controls
+before the same wrapper assertion. No unchanged-head retry was requested.
+
+Final receipt/fixture-only follow-up also makes new delayed synthetic children
+finish inside their test cleanup allowance and explicitly retains/terminates/waits
+for the deliberately stalled owned prepare child. This does not add production
+termination behavior or relax unknown-cleanup rejection. Final exact-head review
+and changed-head Linux/Windows/PowerShell receipts are attached to PR1146's
+Conversation/Checks; this checkpoint cannot contain its own future commit SHA.
+Production src, offline global guards, dependencies and DEPRECATION_LEDGER remain
+unchanged. No PR1145 implementation/scoped workflow is present; its draft remains
+OPEN/UNMERGED at4d2a6568178bef9460ea9620268490dbf0426c05. Main remains literal
+ a501c88bcc926bef87875f6352f210b19b6e438b/tree e66b6daa84f04ec95dce1155fde2a9a4e156cf14.
+
+ONE next action: user reviews the final PR1146 candidate/receipts for controlled
+integration. No automatic merge; no workstation benchmark, preflight, inquiry or
+natural observation during this task. A separately accepted new harness pin and
+prepared single observation are still required. No runtime performance promise,
+immutable-filesystem claim or natural positive formation proof. Preserve every
+failed root, original checkout, five unmatched positions/global veto, GUI draft,
+separate cache uncertainty, historical callback uncertainty and PARKED provenance.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
