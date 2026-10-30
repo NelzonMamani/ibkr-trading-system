@@ -8009,3 +8009,162 @@ all failed/historical receipts, separate cache uncertainty and PARKED/fail-close
 listing provenance. No acquisition/broker inquiry/preflight/observation/holdings
 operation/SDK change/timeout extension/gate relaxation/trading occurred.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## 30 October 2026 — Measured open bottleneck; bounded-concurrency lifecycle assessment
+
+OFFLINE only. Current GitHub main remains accepted
+`a501c88bcc926bef87875f6352f210b19b6e438b`, tree
+`e66b6daa84f04ec95dce1155fde2a9a4e156cf14`. Continued from saved profile
+preparation8cb5185667e9134ae1de21a0bb30ad5aa3910e81, carrying the entire saved
+checkpoint/history forward. Applicable AGENTS search found none;
+DEPRECATION_LEDGER read/unchanged. Original failed roots/GUI/saved branches and
+all receipts preserved; no owner/module retirement or production change.
+
+### Supplied profile verified; private artifacts remain private
+
+Supplied manifest-profile-shareable.json SHA256 computed:
+`28d755d8e1d8404519f15fbf133c6d72830e9693eed5d7462006dc967d010271`.
+Reported root C:\tmp\manifest-profile-240c8b91. Envelope completed/source-identity-
+after/timely-exit=true, child_exit0, timed_out=false;90s measurement/30s cleanup.
+Profile statusCOMPLETE/errorNONE,2686files,17,844,040bytes read and SHA256 input,
+no missing paths,0open handles and released namespace. One Git enumeration;
+metadata/open/read/close/SHA256/hexdigest calls each2686. Pinned owner blob
+4bec6f8974062cbd68f5c88bbf9baa671a075237 and sourceSHA256
+ e76b26879b0cf884e91d785a0e1c52d573ab2d0627a392037cdc7febe0721200
+match the exact accepted natural_readonly_operator.py Git object. No attached
+instructions executed. Private manifest, logs and scratch files were neither
+requested nor read/uploaded; individual returned hash values cannot be independently
+revalidated from this aggregate JSON alone. The prepared equivalence controls and
+verified owner identity carry forward; this is not a reusable source baseline.
+
+| Measured Python-level operation | Wall seconds |
+| --- | --- |
+| Complete manifest call (inclusive) |50.1053387|
+| File open |46.5722628|
+| Metadata/is_file |1.5255701|
+| Read |0.5525086|
+| Close |0.4470427|
+| SHA256 constructor/content computation |0.1635843|
+| Hexdigest |0.0292141|
+| read_bytes (INCLUSIVE; overlaps open/read/close) |47.8679997|
+| Git enumeration |0.2271147|
+
+Open wall time is92.9487% of the inclusive manifest call; maximum observed open
+0.2967345s. These are scoped Python-call observations, NOT a kernel/antivirus/
+storage diagnosis, and that observed maximum is not an upper bound on future OS
+calls. Timing JSON/write/replace remain small in THIS profile. Wrapper/report/
+stop/private-output costs and inclusive categories overlap as documented above;
+do not sum blindly. The earlier73.1587372s preflight-labelled interval remains a
+SEPARATE historical measurement with different context, not replaced by50.105s
+or explained by this result. Parent CPU does not include other processes/Git CPU.
+No thread/process performance speedup is established by a serial profile.
+
+### Equivalence and lifecycle requirements established before a code decision
+
+A candidate must preserve the accepted source_manifest/digest owner semantics:
+one exact Git tracked-name enumeration; fresh byte-content SHA256 (including
+Windows checkout bytes), explicit missing/nonregular None key and propagated read
+errors; mapping insertion order must follow the original Git path order regardless
+of completion order. Every before/after call must independently re-enumerate/read;
+no metadata substitution, Git-blob substitution, skipped files or persistent hash
+cache/baseline reuse. Source HEAD/clean-state and complete before/after comparisons
+stay authoritative under the existing90s outer deadline; late/unknown exit is FAIL.
+
+For this assessment the smallest candidate resource contract was fixed4workers,
+maximum4outstanding futures and4simultaneous file opens/handles. Use an explicit
+window; Python3.13 Executor.map eagerly queues the iterable and is not a bounded
+window merely because max_workers=4. On error/stop/deadline, no successful partial
+mapping; cancel not-started work, retire ALL owned workers and handles and VERIFY
+cleanup inside one bounded allowance before allowing further work/process success.
+No detached/daemon workers, wait=False-as-cleanup, hidden thread escape or longer
+preflight/cleanup timeout is acceptable.
+
+### Guarded synthetic candidate controls and concrete rejection
+
+Evaluated ONLY a scratch scheduler using the EXACT accepted digest AST body and
+small temporary Git fixtures, under existing offline network/native-transfer
+guards. No production function was replaced and no real Windows benchmark was
+run. Eight new control groups passed:
+
+1. Concurrent healthy result equals serial actual-owner hashes, with deterministic
+   Git-name insertion order despite completion order.
+2. Changed byte content is detected on an independent fresh call; no hash cache.
+3. Missing tracked file retains its key with None.
+4. Synthetic delayed-open calls overlap; fixed4workers/window limit all outstanding
+   work/open calls/handles to4; all healthy-fixture handles retire. This is
+   concurrency behavior evidence ONLY, not Windows performance proof.
+5. Read PermissionError is the original propagated exception; healthy siblings join.
+6. Stop and deadline exceptions propagate without a successful partial mapping
+   when the controlled running operations can finish cooperatively.
+7. Adversarial already-running blocked-open Future.cancel returnsFALSE;
+   shutdown(wait=False,cancel_futures=True) returns while that future remains
+   running; bounded wait cannot verify cleanup. Test uses a scaled25ms cut point,
+   NOT a claimed actual30s Windows failure. The fixture's Event is explicitly
+   released in finally, then wait=True joins the worker for safe test cleanup.
+8. All evaluation worker threads verified gone after explicit fixture release.
+
+Exact scratch source/results:
+/workspace/scratch/manifest-concurrency-assessment/controls.py and control-results.json.
+Result: running_cancel_returned=false, done_after_bounded_join=false,
+cleanup_verified_before_fixture_release=false. This demonstrates Python worker
+lifecycle/cancellation semantics, not that the measured Windows opens actually
+hung or caused a leak. No measurement/source/runtime/preflight acquisition ran.
+
+CONCRETE BLOCKER: ThreadPoolExecutor.shutdown(wait=True) has no timeout and waits
+for running work; Future.cancel/cancel_futures cannot interrupt synchronous
+Path.open/read already executing. A cooperative stop check before/between calls
+cannot bound a blocked OS call. wait=False or daemonization would merely leave
+work/resources running. The accepted PowerShell Invoke-ObservationChild60-67
+waits for the actual child under90s+30s and fails closed if exit is unverified; it
+does not forcibly retire a Python pool or independently own its worker threads.
+A thread pool's interpreter-exit join can also prevent the preflight process from
+exiting. Observed subsecond opens are not a safe future-operation bound.
+Therefore the minimal THREAD candidate CANNOT meet the requested verified bounded-
+cleanup contract. It is rejected, not integrated or advertised as an optimization.
+
+A drop-in ProcessPoolExecutor is NOT justified either: existing
+natural_readonly_operator.py6-64 has top-level argument handling, environment/
+repository/broker imports and phase execution, not an import-safe spawn worker
+entrypoint. Windows spawn must not rerun preflight/state initialization. Existing
+src/runtime/process_identity.py process-handle ownership is tied to verified ROSS
+runtime identity, not automatically generic hash-worker authority. Do not silently
+repurpose it or introduce a second unreviewed process owner into production.
+
+No production/test/CI/helper changes, new repair draft PR, exact-head repair review
+or changed-head production CI are claimed. Only this authoritative checkpoint is
+updated. No unrelated completed suites repeated. Accepted serial owner and90s
+preflight fail-closed semantics remain intact; the failed natural attempt remains
+blocked, not authority to rerun warm. All prior profile/late-PASS/transport/cache
+failures and saved preparations remain preserved.
+
+### ONE next action — separately prepare process-isolated filesystem feasibility
+
+Prepare ONE filesystem-only fixed-process candidate/benchmark for review, NOT a
+preflight retry and NOT executed in this task. Use the same pinned digest authority
+without importing/executing the operational module top level: stdlib-only isolated
+workers and parent-only single enumeration, at most4workers/4outstanding tasks/
+4source handles, deterministic full mapping, fresh bytes/missing/error behavior.
+Explicitly bind/retain each created worker's OWN process handle before dispatch;
+cooperative stop followed only by bounded termination of those OWN workers, with
+ALL exits/handle closure VERIFIED against ONE shared cleanup deadline (not30s per
+worker). Test an intentionally blocked worker and read failure before any
+workstation performance claim. Unknown/failed worker exit is a failed feasibility
+gate and cannot approve production concurrency or another natural observation.
+A process boundary supplies a scoped abort/exit-observation mechanism threads lack,
+not a guarantee that the OS will terminate promptly or that performance improves.
+
+Completion criterion: manifest equivalence/resource bounds/stop-deadline/owned
+worker cleanup proved under guarded controls, then one SEPARATELY PREPARED Windows
+filesystem-only comparison if still justified; no implicit permission to execute
+it, relax90s, re-use a warm baseline or replace the current owner. Keep prototype
+artifacts private/temporary and source/root contents unchanged. Do not build a
+new permanent operational harness or worker module merely to get a benchmark.
+If process ownership cannot meet the same verification contract, retain serial
+behavior and report that further blocker instead of detaching work.
+
+All five positions/global veto, GUI draft, historical roots/receipts, separate
+news-cache uncertainty, count0 audit AND transport FAIL/exit1, PR1140-1143 semantics
+and PARKED/fail-closed listing provenance remain unchanged. No acquisition, broker
+inquiry, preflight, observation, holdings action, SDK/security-setting change,
+timeout extension, gate relaxation or trading occurred.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
