@@ -29,6 +29,9 @@ $checkout = Join-Path $root 's'
 if ($global:LASTEXITCODE -ne 0) { throw "Worktree preparation failed; retained $root. Existing evidence untouched." }
 $actual = (& git -C $checkout rev-parse HEAD | Out-String).Trim()
 if ($global:LASTEXITCODE -ne 0 -or $actual -cne $ExpectedCommit) { throw 'Checkout identity mismatch.' }
+# Checkout/interpreter setup above is outside the conservative2000s runner wait allowance.
+# Runner: prepare150/30, preflight150/30, observe1260/30 (900 runtime),
+# package150/30, seal90/30; two5s pipe drains per phase. Not hard real-time.
 $runner = Join-Path $checkout 'scripts\certification\run_natural_readonly_observation.ps1'
 Write-Host "Prepared $checkout at $actual. Nothing observed. PAPER_READY=NO."
 Write-Host 'After the documented TWS/session setup, separately run:'

@@ -53,6 +53,6 @@ def set_cache_location(location):
         if case in ('bad-location', 'hook-failure'):
             assert receipt['exit_code'] == 78 and stages[-1] == 'sitecustomize_failed'
 runner = (REPO / 'scripts/certification/run_natural_readonly_preflight.ps1').read_text()
-assert "'preflight',$Root,$ExpectedCommit" in runner
-assert "'observe'" not in runner and 'Invoke-ReadonlyObservation -' not in runner
+assert "-PreflightOnly" in runner
+assert "'observe'" not in runner
 print('Six offline cache subprocess fixtures passed; preflight-only dispatch verified.')

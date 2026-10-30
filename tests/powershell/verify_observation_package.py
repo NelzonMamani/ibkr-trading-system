@@ -8,6 +8,10 @@ import subprocess
 import sys
 import zipfile
 
+def forbid_network(event, args):
+    if event in ('socket.connect', 'socket.bind', 'socket.getaddrinfo'):
+        raise AssertionError('Network forbidden in serial admission/package fixtures')
+sys.addaudithook(forbid_network)
 repo, scratch = map(Path, sys.argv[1:])
 sys.path.insert(0, str(repo))
 from scripts.certification import pr1090_terminal_observation_supervisor as supervisor
@@ -21,7 +25,7 @@ def forbidden(*args, **kwargs):
 supervisor.main = forbidden
 supervisor.final_broker_audit = forbidden
 original_env = dict(os.environ)
-for case in ('valid', 'missing-terminal', 'mutation', 'source', 'order-state', 'inventory', 'privacy', 'bad-cache', 'preflight-timeout', 'preflight-late-pass'):
+for case in ('valid', 'missing-terminal', 'mutation', 'source', 'order-state', 'inventory', 'privacy', 'bad-cache', 'preflight-timeout', 'preflight-late-pass', 'm0-mismatch', 'restored-mtime'):
     os.environ.clear()
     os.environ.update(original_env)
     root = scratch / ('real-package-' + case)
@@ -37,7 +41,9 @@ for case in ('valid', 'missing-terminal', 'mutation', 'source', 'order-state', '
     subprocess.run(['git', '-C', str(checkout), 'add', '.'], check=True)
     subprocess.run(['git', '-C', str(checkout), '-c', 'user.name=Harness', '-c', 'user.email=harness@example.invalid', 'commit', '-qm', 'fixture'], check=True)
     expected = subprocess.check_output(['git', '-C', str(checkout), 'rev-parse', 'HEAD'], text=True).strip()
-    write_json(evidence / 'source-before.json', {'tracked.txt': hashlib.sha256(tracked.read_bytes()).hexdigest()})
+    manifest = {'tracked.txt': hashlib.sha256(tracked.read_bytes()).hexdigest()}
+    write_json(evidence / 'source-before.json', manifest)
+    write_json(root/'preparation/source-prepared.json', manifest)
     original = root / 'operator-order-id.json'
     original.write_text('{"last_reserved_order_id":361}')
     (root / 'operator-state-source.json').write_text(json.dumps({'path': str(original), 'sha256': hashlib.sha256(original.read_bytes()).hexdigest()}))
@@ -66,6 +72,12 @@ for case in ('valid', 'missing-terminal', 'mutation', 'source', 'order-state', '
         write_json(evidence/'initial-runtime-inventory.json', {'completed':False,'runtimes':[],'error_type':'TimeoutExpired'})
     if case == 'source':
         tracked.write_text('unreviewed source')
+    if case == 'm0-mismatch':
+        write_json(root/'preparation/source-prepared.json', {'tracked.txt':'0'*64})
+    if case == 'restored-mtime':
+        old = tracked.stat()
+        tracked.write_bytes(b'x'*old.st_size)
+        os.utime(tracked, ns=(old.st_atime_ns,old.st_mtime_ns))
     if case == 'order-state':
         original.write_text('changed')
     if case == 'privacy':
@@ -131,7 +143,7 @@ for case in ('valid', 'missing-terminal', 'mutation', 'source', 'order-state', '
             raise AssertionError('Unsafe final receipt was sealed')
         assert hashlib.sha256(archive.read_bytes()).hexdigest() == preserved_hash
 
-print('REAL_PACKAGE_CHECKS_PASS: 10 synthetic cases; no acquisition')
+print('REAL_PACKAGE_CHECKS_PASS: 12 synthetic cases; no acquisition')
 
 if os.name == 'nt':
     # Exercise real preflight with synthetic inventory/session/native classes.
@@ -164,13 +176,23 @@ if os.name == 'nt':
         subprocess.run(['git', '-C', str(checkout), 'add', '.'], check=True)
         subprocess.run(['git', '-C', str(checkout), '-c', 'user.name=Harness', '-c', 'user.email=harness@example.invalid', 'commit', '-qm', 'fixture'], check=True)
         expected = subprocess.check_output(['git', '-C', str(checkout), 'rev-parse', 'HEAD'], text=True).strip()
-        if case == 'dirty': hook.write_text('unreviewed')
+
         supervisor.ROOT = checkout
         supervisor.runtime_inventory = lambda: {'completed':case!='inventory-timeout', 'runtimes':[{'pid':987}] if case=='inventory' else [], **({'error_type':'TimeoutExpired'} if case=='inventory-timeout' else {})}
-        system_config.get_current_market_session = lambda: 'CLOSED' if case == 'session' else 'RTH'
+        system_config.get_current_market_session = lambda now=None: 'CLOSED' if case == 'session' else 'RTH'
         original = root / 'original-order-state.json'
         original.write_text('{"last_reserved_order_id":361}')
         os.environ['IBKR_ORDER_ID_STATE_PATH'] = str(original)
+        os.environ['READONLY_ADMISSION_TOKEN'] = 'fixture'
+        from src.runtime.process_identity import WindowsProcessHandle
+        controller = WindowsProcessHandle(os.getppid())
+        write_json(root/'runner.json', {'pid':os.getppid(),'token':'fixture','creation_token':controller.creation_token})
+        controller.close()
+        sys.argv = ['operator', 'prepare', str(root), expected]
+        runpy.run_path(str(repo / 'scripts/certification/natural_readonly_operator.py'), run_name='__main__')
+        write_json(root/'preparation/prepare-process.process.json', {'exited':True,'timely_exit_verified':True,'exit_code':0})
+        os.environ['IBKR_ORDER_ID_STATE_PATH'] = str(original)
+        if case == 'dirty': hook.write_text('unreviewed')
         sys.argv = ['operator', 'preflight', str(root), expected]
         failed = False
         try:

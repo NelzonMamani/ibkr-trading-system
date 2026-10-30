@@ -6998,3 +6998,4348 @@ preflight, observation, runtime rerun, holdings action or trading occurred.
 ONE next action: review the exact draft implementation and its offline/Windows
 receipts for controlled integration; no merge or subsequent PAPER inquiry is
 authorized here. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## 29 October 2026 — PR1144 accepted; one pinned final-orders block prepared
+
+Explicit controlled-integration authorization applied to PR1144 only. Verified
+unchanged main7e918815f623d5f34bf349d9af72f0098d6a3ec1, exact PR head
+e21bc436a842bb62d3f07ff0bd535754604727b2 and reviewed tree
+e66b6daa84f04ec95dce1155fde2a9a4e156cf14. Independent agent review5702801668
+(no blockers,95guarded controls independently passed) and successfulCI40929046617
+were verified; Linux3618passed/3skipped and Windows3620passed/1skipped, focused95,
+actual Windows closed-socket10038, cache and PowerShell checks all passed. No new
+blocking findings/unresolved threads. Tested merge2d094a5761b9c760dc3ed0aaa636b752853e7d3c
+was fetched and its tree exactly equaled reviewed head. No completed suite rerun.
+Acceptance receipt: PR1144 issuecomment6505354959. Marked ready and merged with
+expected-head guarde21bc436 and merge method.
+
+Accepted merge/main: `a501c88bcc926bef87875f6352f210b19b6e438b`.
+Fetched main tree: `e66b6daa84f04ec95dce1155fde2a9a4e156cf14`, exactly the
+reviewed/tested tree (empty diff). Integration receipt: PR1144
+issuecomment6505366918. Original checkout/saved branches/all receipts preserved.
+AGENTS search found none applicable; DEPRECATION_LEDGER read and unchanged, with
+no retirement or owner change. This checkpoint-only branch is NOT merged and
+DOES NOT alter the literal accepted runtime pin above. It contains this new
+accepted-pin preparation, not a status-only repetition of prior verification.
+No subsequent merge is authorized here.
+
+### Required conditions and actual existing caller
+
+Accepted existing launcher:
+`scripts/certification/run_quote_transport_diagnostic.ps1`.
+Only parameters are ExpectedCommit, DiagnosticProfile (quotes/final-orders),
+ExpectedTree. Final-orders requires explicit reviewed tree. No Root, Python or
+RuntimeSeconds parameter exists. Its own fresh qtransport GUID root is required;
+never reuse/delete C:\tmp\qtransport-2ad3bad8 or another historical root.
+
+Use Windows PowerShell5.1 Desktop and existing Windows Python3.13.3 at
+C:\tmp\pr1091-cert-env-20260923\Scripts\python.exe with SDK9.81.1.post1. Source
+checkout remains C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system.
+PAPER TWS at127.0.0.1:7497, Read-Only API enabled, unused client71, no running Ross
+runtime, valid existing session/environment and disk/inventory guards mandatory.
+No overrides or guard bypass. Current accepted session owner uses New York local
+09:30 <= clock <16:00 on a permitted weekday (holiday/half-day rules apply).
+For29October2026 the normal window converts to13:30 <= Europe/London <20:00;
+clock time alone does not prove eligibility. Let startup and the ten-second audit
+fit in the normal session; the existing child gate remains authoritative. No
+broker/session preflight was executed while preparing this block.
+
+The block reads the EXISTING launcher from the immutable accepted Git object,
+not a possibly stale working-tree file. It performs one invocation only. Launcher
+retains fresh detached worktree, isolated operator-state copy, normal RTH and
+READ_ONLY checks, one actual fresh audit client/query, ten-second native end
+requirement,120s probe/30s stop supervision and90s package/seal budgets with their
+existing stop bounds. No quote/scanner acquisition, extra query, retry or reconnect.
+All cleanup/mutation/source/operator/inventory/privacy/sealing owners remain.
+
+### ONE copy-paste Windows PowerShell5.1 block — prepared, NOT executed here
+
+```powershell
+# Prepared for ONE user-started final-orders inquiry when all conditions hold.
+& {
+    $ErrorActionPreference = 'Stop'
+    if ($PSVersionTable.PSEdition -ne 'Desktop' -or
+        $PSVersionTable.PSVersion.Major -ne 5 -or
+        $PSVersionTable.PSVersion.Minor -ne 1) {
+        throw 'Use Windows PowerShell5.1 Desktop.'
+    }
+
+    $SourceCheckout = 'C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system'
+    $Python = 'C:\tmp\pr1091-cert-env-20260923\Scripts\python.exe'
+    $RuntimePin = 'a501c88bcc926bef87875f6352f210b19b6e438b'
+    $ExpectedTree = 'e66b6daa84f04ec95dce1155fde2a9a4e156cf14'
+
+    if (!(Test-Path -LiteralPath $SourceCheckout -PathType Container) -or
+        !(Test-Path -LiteralPath $Python -PathType Leaf)) {
+        throw 'Verified original checkout/Python path missing; nothing launched.'
+    }
+
+    & git -C $SourceCheckout fetch origin main
+    if ($LASTEXITCODE -ne 0) { throw 'Fetch failed; nothing launched.' }
+    $currentMain = (& git -C $SourceCheckout rev-parse refs/remotes/origin/main | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or $currentMain -cne $RuntimePin) {
+        throw 'Main advanced/differs: stop for delta review; do not substitute a pin.'
+    }
+    $actualTree = (& git -C $SourceCheckout rev-parse ($RuntimePin + '^{tree}') | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or $actualTree -cne $ExpectedTree) {
+        throw 'Accepted tree mismatch; nothing launched.'
+    }
+
+    $launcherText = (& git -C $SourceCheckout show ($RuntimePin + ':scripts/certification/run_quote_transport_diagnostic.ps1') | Out-String)
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($launcherText)) {
+        throw 'Accepted existing launcher unavailable; nothing launched.'
+    }
+
+    Write-Host 'ONE final-orders inquiry; no automatic retry.'
+    Write-Host 'Normal RTH; PAPER127.0.0.1:7497; Read-Only API; unused client71; no Ross runtime.'
+    Write-Host 'Retain the fresh root and the final privacy-verified ZIP, including nonzero results.'
+    $launchArgs = @{
+        ExpectedCommit = $RuntimePin
+        DiagnosticProfile = 'final-orders'
+        ExpectedTree = $ExpectedTree
+    }
+    & ([scriptblock]::Create($launcherText)) @launchArgs
+    if ($global:LASTEXITCODE -ne 0) {
+        throw 'Nonzero launcher exit: preserve all evidence; do not retry automatically.'
+    }
+}
+```
+
+Expected ZIP pattern:
+`C:\tmp\qtransport-<8-hex>\final-orders-diagnostic-upload.zip`.
+The existing launcher announces its exact absolute path only after packaging and
+privacy sealing succeed. Random root is not predictable or a caller parameter.
+A nonzero probe can still produce a correctly sealed diagnostic ZIP before the
+launcher throws: retain it and root; never retry automatically. Failed privacy/
+sealing or unverified process exit means no trustworthy announced shareable ZIP.
+
+Information gain is bounded: new records can distinguish audit-finalization
+entry, same-proxy close entry/return/failure and wrapper-level receive ordering,
+plus safe OS categories. They cannot establish kernel syscall/broker causality;
+concurrent close/receive and all causal assessments may remain UNKNOWN. A full
+socket send remains local acceptance only, never broker acknowledgement. ANY
+non-timeout receive error still invalidates coverage under the unchanged
+predicate; do not expect/promise exit0. A nonzero diagnostic exit can coexist
+with end-confirmed query_completed=true/count0. Read audit and transport outcomes
+separately. Missing end is UNKNOWN, never zero orders. Historical missing callback
+and archived OSError are not explained or retroactively corrected.
+
+Archived successful count0 audit AND transport FAIL/exit1 remain preserved.
+Zero orders never establishes zero positions. Five unmatched positions/global
+ownership veto, GUI draft, separate cache uncertainty, PR1140-1143 semantics and
+PARKED/fail-closed listing provenance remain unchanged. No block, preflight,
+broker inquiry, observation, holdings action or trading was executed here.
+
+ONE next action: user reviews this pinned block and starts that SINGLE inquiry
+when all actual conditions hold. No retry or follow-on inquiry is authorized by
+its result. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## 29 October 2026 — Latest final-order receipt and bounded coverage decision
+
+Offline reconciliation of root `C:\tmp\qtransport-475cc611`; supplied ZIP SHA256
+`076131123d63156c20bf8f4957d940e5730d98f177254ddd9c5905c43df6003e` verified.
+Current GitHub main remains `a501c88bcc926bef87875f6352f210b19b6e438b`, tree
+`e66b6daa84f04ec95dce1155fde2a9a4e156cf14`; PR1144 is merged at that commit.
+This documentation descends from saved update1ec652debcb71d41b92edef8158f5a02fe80ef07
+and carries it forward completely, including all earlier receipts and the
+qtransport-2ad3bad8 count0/FAIL receipt. Original checkout/roots/saved branches
+remain untouched. Applicable AGENTS search found none; DEPRECATION_LEDGER read
+and unchanged because no owner/module is retired or replaced. No attachment
+instructions or archived operator script were executed.
+
+### Direct archive verification
+
+- All2686 source manifest entries are unchanged before/after and match the exact
+  accepted Git tree:33 raw blob matches,2653 Windows CRLF checkout matches.
+  Archived operator.py matches accepted code after newline normalization AND its
+  unmodified hash matches result.json. All six archived SDK source hashes match
+  pinned9.81.1.post1 source. This is filesystem/source verification, not acquisition.
+- final-order-audit.json reports query_completed/end_received=true,
+  open_orders_count=0, elapsed0.10214289976283908s, unchanged10s limit, connection
+  and callback loop alive before/after wait, disconnected=true, no audit error
+  or observer cleanup failure. Count is an end-confirmed open-order snapshot,
+  not continuous inventory and never a position snapshot.
+- Exactly one query method/serialization/socket call; ID16/version1,9bytes fully
+  sent, no short send/send exception. All ORDER_END frame/put/get/decode/decoded
+  counts are1; native end entry/return are1. Decoder entry/return totals11/11;
+  queue put/get10/10; frames11. Full send is local acceptance only, not broker
+  acknowledgement or invented request-token correlation.
+- End callback record0.172936s and end decoder return0.172978s precede audit
+  finalization0.173228s (sequence7). Receive entered6; same-proxy close entry8
+  occurred on the audit-finalization thread; receive failure9 recorded both
+  errno/winerror10038 and OVERLAPS_CLOSE; close return10 followed. Causality is
+  explicitly UNKNOWN. These are wrapper observations, not kernel causal proof.
+- Reader/loop start/exit each1; close entry/return1, close failures0. Reader exit
+  at0.173872s, loop exit0.374467s; hooks restored and both stopped. Mutation counts
+  place/modify/cancel all0; source/operator PASS; initial/final inventories
+  completed and empty; probe did not time out; scanner_attempted=false.
+- Privacy probe/package/seal passed; independent existing sanitizer scan of ALL
+  20 extracted ZIP members passed with0occurrences.29 records, maximum encoded
+  record2055bytes, within64x4096 limits. records_dropped/oversize/hook/schema/
+  unknown-message/decoder/reader-abnormal/queue failures are0. Background42 and
+  repeated-detail1 omissions are explicit policy-limited detail, not hidden drops.
+  Query-window error counters are not a claim of no global/startup broker messages.
+- The SOLE nonzero coverage-invalidating counter is recv_exceptions=1.
+  coverage_verified/absence_claims_valid=false, transport_evidence_incomplete=true;
+  result/outer-status preserve overall FAIL/probe exit1/final exit1. No archive is
+  rewritten, no exit0 inferred and no earlier failure is retroactively explained.
+
+Receipt-specific offline assertions and source/privacy verification are saved at
+/workspace/scratch/final-order-coverage-decision/receipt-verification.json.
+They are not CI, runtime reruns or newly certified production behavior.
+
+### Explicit three-boundary contract (existing owners, no relaxed gate)
+
+| Boundary | Authority, pass evidence and honest failure meaning |
+| --- | --- |
+| Query delivery/completion through authoritative acceptance | final_broker_audit153-195 owns fresh client/event reset, sole dispatch,10s wait, native end and live connection/callback-loop checks. query_completed/count are its snapshot authority. Diagnostic method/send/frame/queue/decoder/native callback RETURN facts are separate corroboration. A full send or end-entry alone never suffices. Missing end, inactive transport at acceptance, dispatch failure or stale-instance completion stays unavailable. Missing/failed decoder or callback return cannot certify a complete query trace even if a native event was set. |
+| Post-completion transport observations | Preserve EVERY receive/error/schema/queue/reader/capture counter and its available ordering. In this receipt there is a complete positive end chain before finalization and then an unresolved receive error during close. Do not call it harmless, assign syscall causality or certify uninterrupted transport. Current whole-lifecycle coverage predicate still fails on that error; transport absence claims remain invalid. A query-success fact is not an exemption for later failures. |
+| Owned cleanup and final safety | Disconnect, both reader/loop stops, hook restoration, verified process exit/inventory, zero mutations, source/operator equality and privacy sealing each require their own evidence. Close failure, leak, restoration failure, missing inventory or unsafe mutation/equality/privacy evidence fails the relevant safety/terminal/package gate even when the query completed. This receipt confirms the bounded probe's cleanup/safety facts, not natural-runtime terminal acceptance. |
+
+No new runtime query_coverage_verified boolean is fabricated from the archive or
+added to production. Positive end/return facts are not transport-absence claims.
+In particular absence_claims_valid=false is NOT an assertion that the native
+end-confirmed zero-order snapshot is unavailable; its scope is transport negative
+inference, not holdings or inventory authority.
+
+Source assessment: TransportDiagnostic.snapshot655-689 intentionally covers the
+WHOLE observed lifecycle through restoration/reader cleanup. PR1144 explicitly
+preserved its all-non-timeout-receive-error precondition; caller
+quote_transport_diagnostic.py280-288/338-361 preserves audit result separately and
+sets overall failure on invalid transport coverage. It does combine domains for
+a conservative DIAGNOSTIC overall result; it does NOT erase query_completed/count.
+That is the reviewed contract, not a demonstrated implementation defect. A claim
+that post-end10038 is harmless, or changing the lifecycle predicate to exclude it,
+would be a further policy change unsupported by syscall causality. No such
+correction is justified or needed to interpret this successful audit honestly.
+No production/test/launcher changes or added instrumentation are made.
+
+### Adversarial assessment and carried-forward proof
+
+| Case | Required disposition under the separated contract |
+| --- | --- |
+| Independent receive failure before end | Query unavailable without authoritative end/live acceptance; all error evidence retained; transport gate fails. Never infer0 from partial/empty data. |
+| Error after end signal but before accepted live-after-wait check | End signal alone does not authorize completion; failed live check rejects query. Do not classify by end timing. |
+| Independent receive loss after accepted complete end/returns | Preserve the historical query snapshot fact, retain unexpected post-completion failure/UNKNOWN cause and FAIL whole-lifecycle transport. It does not become harmless or authority for selection/execution. |
+| Incomplete decoder/native callback return or handler error | Do not certify complete positive query trace from entry/event alone; current exception/hook/schema failures invalidate transport. An ambiguous cut point cannot be repaired by deleting later counters. |
+| Close failure, reader leak, failed hook restoration | Query fact does not rescue cleanup. Actual audit disconnect errors leave disconnected=false; observer cleanup failure/reader non-stop invalidates diagnostic coverage; terminal safety requires its own successful cleanup/process proof. |
+| Lost/oversize records, observation failure or unplaceable events | Absence/coverage invalid, including loss only discovered during finalization. Do not assume all missing evidence was after end; preserve explicit counters/unknowns. |
+| Late/stale end or order event | Old instance cannot complete the fresh audit; pre-dispatch event is cleared. Events after the snapshot cannot create reusable authority or a continuous zero-orders claim; contradictory/unplaceable evidence remains incomplete. |
+
+Relevant guarded source controls ALREADY passed at reviewed PR1144 head/CI40929046617
+and are carried forward, not rerun for status: tests/test_final_order_audit_completion.py
+completed/partial/no-end/error/inactive/late-instance/observer-failure/stop cases;
+tests/test_quote_sdk_transport_probe.py independent-before/after-end and owned/
+concurrent-close controls, decoder/handler and dispatch gaps, reader join failure,
+restoration retry, saturation, instance isolation and quote defaults. All95 focused
+controls passed locally/independently and on Windows; Linux3618/3skip and
+Windows3620/1skip receipts remain on PR1144. Windows closed-socket10038 proves
+that specific local error behavior, not causality of either archived receive error.
+No failing-before production defect is claimed; no new repair PR, repair review
+or changed-head production CI is warranted for this documentation decision.
+
+### Natural Ross critical path — stop the transport-diagnostic loop
+
+The EXISTING natural supervisor calls final_broker_audit() WITHOUT an observer
+(pr1090_terminal_observation_supervisor.py383-385). Existing
+src/ibkr/shutdown_evidence.py285-291 requires query_completed AND disconnected;
+its validate_terminal/finalize_report also enforce ordered hooks, process identity/
+exit/inventory, mutation checks and artifact/privacy proof. natural_readonly_operator.py
+validates that terminal receipt separately. It does NOT require a final-orders
+TransportDiagnostic exit0 or erase its safety gates because this standalone query
+completed. Therefore no coverage-policy change or additional targeted inquiry is
+needed as a prerequisite merely to PREPARE natural validation. Every future
+natural observation must still produce its OWN authoritative final audit and ALL
+terminal safety evidence; this receipt cannot be transplanted into it.
+
+ONE next action: prepare ONE900-second natural Ross READ_ONLY observation for
+user review at literal accepted a501c88bcc926bef87875f6352f210b19b6e438b/tree
+e66b6daa84f04ec95dce1155fde2a9a4e156cf14 with EXISTING
+scripts/certification/run_natural_readonly_observation.ps1 (RuntimeSeconds900,
+existing1260s supervisor), preserving all normal-session, natural-selection,
+freshness, acquisition budgets, ownership/mutation/equality/shutdown/privacy
+bounds. Do NOT execute it in this task. Defined information gain: first saved
+joint natural validation at this pin of PR1140 end-confirmed history/attempt-local
+deduplication, PR1141 initialized authoritative position truth and repaired final
+audit lifecycle after a real bounded Ross session. This is not an unchanged run
+solely hoping for a catalyst. Review terminal safety, real scans/Watchlist,
+actual news coverage, canonical qualification and downstream formation separately.
+If a natural supported opportunity occurs, raw intent plus
+POSITION_TRUTH_BLOCK_NEW_ENTRIES may prove formation; five unmatched positions
+must still block canonical/risk new-entry admission. Positive risk admission,
+execution and PAPER readiness are NOT certified. No opportunity remains negative
+evidence, never authority for automatic retry. No additional diagnostic inquiry,
+source expansion or forced progression is proposed.
+
+Archived count0/FAIL receipts, historical callback cause, separate unclassified
+cache failure, five positions/global ownership veto, GUI draft, PR1140-1143
+semantics and PARKED/fail-closed listing provenance remain preserved. No broker
+inquiry, acquisition, preflight, observation, runtime rerun, holdings action,
+SDK change, timeout extension, gate relaxation or trading occurred.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## 29 October 2026 — One natural READ_ONLY observation prepared for 30 October
+
+PREPARATION ONLY: no helper, preflight, broker inquiry, acquisition or observation
+was executed. Main verified unchanged at literal accepted
+`a501c88bcc926bef87875f6352f210b19b6e438b`, tree
+`e66b6daa84f04ec95dce1155fde2a9a4e156cf14`; PR1144 integration verified. This
+checkpoint descends from BOTH saved1ec652debcb71d41b92edef8158f5a02fe80ef07 and
+6b8ecdbe9ed57e77d3d6fcf4a3d38070cdaed706. Their complete receipts/coverage
+decision and every historical root/outcome remain preserved. AGENTS search found
+none applicable; DEPRECATION_LEDGER read/unchanged. Original checkout/GUI draft
+and saved branches remain untouched. Documentation-only preparation is not merged
+and DOES NOT change the runtime pin. No completed suite or CI repeated.
+
+### Date, session and bounded time allowance
+
+At preparation the verified UTC/London clock was29October19:25:29 (rechecked
+19:27:14). Normal29October RTH ends20:00London. The full conservative child
+allowance is90s preflight +1260s observation supervisor (includes900s runtime and
+existing shutdown allowance) +90s package +90s seal, plus four30s owned-stop
+allowances and up to four10s pipe-drain allowances:1690s/28m10s, before operator
+review/preparation/network/filesystem slack. Remaining time is too tight for a
+reliable reviewed preparation with margin; this is NOT a claim that the current
+session gate itself has closed. Choose the NEXT eligible weekday instead.
+
+Intended date: FRIDAY30October2026. Accepted get_current_market_session uses
+America/New_York local09:30 <= clock <16:00 on weekdays, with configured holiday/
+early-close handling. Accepted default holiday/half-day sets are empty;30October
+is a Friday. New York remains EDT and London is GMT on this date, giving NORMAL
+permitted window13:30 <= Europe/London <20:00. No calendar/session override.
+Actual preflight remains authoritative; clock alone proves neither eligibility
+nor broker/environment/ownership safety.
+
+The prepared block is date-specific and further restricts STARTS to30October
+13:30–19:20London, checked BEFORE preparation and AGAIN immediately before the
+runner. At the latest permitted start40minutes remain, exceeding1690s child
+allowance by11m50s. This is conservative operator scheduling only; runtime gates,
+deadlines and budgets are unchanged. The block does not wait, loop or retry.
+Wrong date/time or main advancement stops for review; never silently change pin
+or date. If a prepared root is left after a stop, retain it, never reuse/delete it.
+
+### Actual accepted helper/runner and mandatory protections
+
+Preparation helper: docs/ross/PR1108_NATURAL_READONLY_ACCEPTANCE.ps1.
+Actual parameters: ExpectedCommit, Python, SourceCheckout, BaseDirectory,
+RuntimeSeconds. It checks Python3.13.3, local commit and space, creates a fresh
+C:\tmp\ro-<8hex>\s detached worktree, preserves old roots/original checkout, and
+prints a later runner command; it DOES NOT execute preflight/observation.
+The block loads this helper from the accepted Git blob and invokes it ONCE.
+
+Runner: scripts/certification/run_natural_readonly_observation.ps1.
+Actual parameters ONLY Python, Root, ExpectedCommit, RuntimeSeconds. The block
+passes900; existing supervisor budget is900+360=1260s. It invokes the runner ONCE;
+DO NOT additionally execute the helper's printed command. No ExpectedTree runner
+parameter is invented: block verifies literal tree before and after preparation,
+prepared HEAD/cleanliness and fresh worktree identity before launch.
+
+Use Windows PowerShell5.1 Desktop, existing
+C:\tmp\pr1091-cert-env-20260923\Scripts\python.exe (Python3.13.3, pinnedSDK and
+repository dependencies), PAPER TWS normally authenticated at127.0.0.1:7497 with
+Read-Only API enabled, UNUSED client71, normal scanner/market-data subscriptions,
+no running Ross runtime and all existing session/environment/inventory guards.
+The existing harness isolates caches/state, privately copies original order-ID
+state, preserves source/operator equality, READ_ONLY mutation auditing, genuine
+fresh timeframe inputs, normal TopN50/Watchlist15/Focus5 limits and mandatory
+canonical catalyst. Existing production news/source profile, total/tier/request
+budgets and freshness rules unchanged. No forced candidates/news/patterns/setups/
+triggers/intents/approvals. Preserve all five positions and their ownership veto.
+
+Owned graceful stop, final independent authoritative audit/disconnect, runtime
+identity/OS exits, empty final runtime inventory, zero mutations, equality and
+privacy/sealing remain mandatory. The natural harness uses its OWN default audit,
+not TransportDiagnostic; no further final-order diagnostic/instrumentation is
+needed. Standalone count0 audit AND transport FAIL/exit1 remain historical facts,
+not substitutes for the future observation's own terminal proof.
+
+### ONE complete operator block — prepared only, NOT executed here
+
+```powershell
+# ONE user-started observation on Friday30October2026; no automatic retry.
+& {
+    $ErrorActionPreference = 'Stop'
+    if ($PSVersionTable.PSEdition -ne 'Desktop' -or
+        $PSVersionTable.PSVersion.Major -ne 5 -or
+        $PSVersionTable.PSVersion.Minor -ne 1) {
+        throw 'Use Windows PowerShell5.1 Desktop.'
+    }
+    $LondonZone = [TimeZoneInfo]::FindSystemTimeZoneById('GMT Standard Time')
+    $EarliestStart = [datetime]::new(2026,10,30,13,30,0)
+    $LatestStart = [datetime]::new(2026,10,30,19,20,0)
+    $LondonNow = [TimeZoneInfo]::ConvertTimeFromUtc([datetime]::UtcNow, $LondonZone)
+    if ($LondonNow -lt $EarliestStart -or $LondonNow -gt $LatestStart) {
+        throw 'Prepared for30October2026,13:30-19:20 London only; nothing launched.'
+    }
+
+    $SourceCheckout = 'C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system'
+    $Python = 'C:\tmp\pr1091-cert-env-20260923\Scripts\python.exe'
+    $RuntimePin = 'a501c88bcc926bef87875f6352f210b19b6e438b'
+    $ExpectedTree = 'e66b6daa84f04ec95dce1155fde2a9a4e156cf14'
+    if (!(Test-Path -LiteralPath $SourceCheckout -PathType Container) -or
+        !(Test-Path -LiteralPath $Python -PathType Leaf)) {
+        throw 'Verified checkout/Python path missing; nothing launched.'
+    }
+    & git -C $SourceCheckout fetch origin main
+    if ($LASTEXITCODE -ne 0) { throw 'Fetch failed; nothing launched.' }
+    $fetchedMain = (& git -C $SourceCheckout rev-parse refs/remotes/origin/main | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or $fetchedMain -cne $RuntimePin) {
+        throw 'Main differs: stop for delta review; do not substitute a pin.'
+    }
+    $pinTree = (& git -C $SourceCheckout rev-parse ($RuntimePin + '^{tree}') | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or $pinTree -cne $ExpectedTree) {
+        throw 'Accepted tree mismatch; nothing launched.'
+    }
+
+    $beforeWorktrees = @(& git -C $SourceCheckout worktree list --porcelain)
+    if ($LASTEXITCODE -ne 0) { throw 'Cannot inventory existing worktrees.' }
+    $prepareText = (& git -C $SourceCheckout show ($RuntimePin + ':docs/ross/PR1108_NATURAL_READONLY_ACCEPTANCE.ps1') | Out-String)
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($prepareText)) {
+        throw 'Pinned preparation helper unavailable.'
+    }
+    $prepareArgs = @{
+        ExpectedCommit = $RuntimePin
+        Python = $Python
+        SourceCheckout = $SourceCheckout
+        BaseDirectory = 'C:\tmp'
+        RuntimeSeconds = 900
+    }
+    & ([scriptblock]::Create($prepareText)) @prepareArgs
+
+    $afterWorktrees = @(& git -C $SourceCheckout worktree list --porcelain)
+    if ($LASTEXITCODE -ne 0) { throw 'Cannot verify prepared worktree; preserve roots.' }
+    $addedWorktrees = @($afterWorktrees | Where-Object {
+        $_.StartsWith('worktree ') -and $beforeWorktrees -notcontains $_
+    } | ForEach-Object { $_.Substring(9) })
+    if ($addedWorktrees.Count -ne 1) {
+        throw 'Expected exactly one new worktree; preserve roots and inspect.'
+    }
+    $checkout = [IO.Path]::GetFullPath($addedWorktrees[0])
+    if ($checkout -notmatch '^C:\\tmp\\ro-[0-9a-f]{8}\\s$') {
+        throw 'Unexpected prepared path; preserve it without launching.'
+    }
+    $root = Split-Path -Parent $checkout
+    $actualHead = (& git -C $checkout rev-parse HEAD | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or $actualHead -cne $RuntimePin) { throw 'Prepared head mismatch.' }
+    $actualTree = (& git -C $checkout rev-parse 'HEAD^{tree}' | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or $actualTree -cne $ExpectedTree) { throw 'Prepared tree mismatch.' }
+    $dirty = @(& git -C $checkout status --porcelain)
+    if ($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0) { throw 'Prepared checkout is not clean.' }
+    $runner = Join-Path $checkout 'scripts\certification\run_natural_readonly_observation.ps1'
+    if (!(Test-Path -LiteralPath $runner -PathType Leaf)) { throw 'Existing runner missing.' }
+
+    $LondonNow = [TimeZoneInfo]::ConvertTimeFromUtc([datetime]::UtcNow, $LondonZone)
+    if ($LondonNow -lt $EarliestStart -or $LondonNow -gt $LatestStart) {
+        throw 'Start window expired; retain the prepared root. No preflight launched.'
+    }
+    Write-Host "Runtime pin: $RuntimePin; retained root: $root"
+    Write-Host 'PAPER127.0.0.1:7497; Read-Only API; unused client71; no Ross runtime.'
+    Write-Host 'This invokes ONCE. Do not also run the preparation helper printed command.'
+    Write-Host 'Use only the final DIAGNOSTIC ZIP announcement after successful privacy sealing.'
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $runner -Python $Python -Root $root -ExpectedCommit $RuntimePin -RuntimeSeconds 900
+    $operatorExit = $LASTEXITCODE
+    Write-Host "Operator exit: $operatorExit. Preserve all evidence; no automatic retry."
+    $global:LASTEXITCODE = $operatorExit
+}
+```
+
+Expected final sealed ZIP pattern:
+C:\tmp\ro-<8hex>\ross-natural-readonly-upload.zip.
+The helper's fresh root determines the absolute path. Share only the final
+DIAGNOSTIC ZIP announcement after successful sealing; raw state/root files stay
+private. Nonzero/preflight-rejected/partial receipts must be retained; packaging
+success alone never means observation success. Missing/failed seal means no
+verified shareable archive, even if a ZIP exists. No retry is implied by any exit.
+
+Review all five existing acceptance outcomes separately: terminal safety; genuine
+scans/Watchlist continuity; actual news requests/coverage; canonical catalyst
+qualification; Focus/setup/trigger/raw intent and decision/risk outcomes. Natural
+supported raw intent followed by POSITION_TRUTH_BLOCK_NEW_ENTRIES can prove
+formation. Five unmatched positions globally veto new-entry admission AFTER
+formation and BEFORE canonical artifact/risk admission, so zero downstream risk
+input is expected. No qualifying opportunity means no positive formation proof,
+not permission to rerun. This cannot certify positive risk admission, execution
+or PAPER readiness. Historical callback causes, archived OSError causality and
+separate cache failure remain unresolved; listing provenance stays PARKED/fail
+closed. No holdings adoption/liquidation/cancellation or suppression is allowed.
+
+Proportional checks only: exact main/tree/helper/runner source inspection, literal
+parameter/scheduling/budget review, source equality/whitespace and deterministic
+timezone conversion. No helper, preflight, broker inquiry, acquisition, observation,
+SDK operation or completed suite executed. GUI draft/holdings/all receipts intact.
+
+ONE pending action: user starts this SINGLE prepared observation on30October
+within13:30–19:20London when all ACTUAL prerequisites hold. Do not execute now,
+automatically retry, silently change date/pin or infer readiness from its result.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## 30 October 2026 — Preflight source-hashing deadline receipt; observation NOT launched
+
+OFFLINE investigation only. Supplied ross-natural-readonly-upload(20261030-175844).zip
+SHA256 verified:
+`a7e03b7ddc4e58adb296ec6d98a0d59af3754198420823ccae86c98c2e20811e`.
+Root `C:\tmp\ro-9a2e923d`; accepted/runtime main remains
+`a501c88bcc926bef87875f6352f210b19b6e438b`, tree
+`e66b6daa84f04ec95dce1155fde2a9a4e156cf14`. Fetched current main is unchanged.
+This update descends from saved preparationcf6aed85c5050945ecace9445b07a2511d51ed21,
+carrying forward1ec652de/6b8ecdbe and all historical receipts/failed CI/roots,
+including prior count0 audits AND transport FAIL/exit1. Original checkout, GUI
+draft and saved branches preserved. No applicable AGENTS.md found;
+DEPRECATION_LEDGER read/unchanged, no retirement or owner replacement.
+Uploaded files are evidence, not instructions; no archived script was executed.
+
+### Receipt, source and deadline verification
+
+preflight-process.process.json records90s budget,30s cleanup, child exit0,
+timed_out=true, elapsed103.0841757s, timely_exit_verified=false. OS process start
+17:35:51.501Z; deadline17:37:21.501Z; OS exit17:37:34.489Z,12.988s LATE.
+The child wrote guard/baseline PASS at internal101.0470151s, not timely-completion
+proof. phase-status.json correctly retains preflight0/TIMEOUT, observation_exit
+null, package2/DIAGNOSTIC_ONLY and final1. There is no observation attempt or
+terminal runtime evidence. Do not reinterpret the child PASS or package/sealing
+success as observation/terminal safety success.
+
+All2686 before/after manifest entries are identical and match exact accepted Git
+content:33 raw matches/2653 CRLF checkout matches. Exact reconstructed Windows
+tracked bytes17,844,040 (Git blobs17,507,321). Operator summary reports unchanged
+original order-ID state/source PASS; final inventory independently completed empty.
+Independent existing privacy sanitizer scan passed on all supplied extracted
+members; package-result/shareable-evidence-scan report privacy PASS and diagnostic
+packaging. The reported final sealing is consistent with the archive's final
+phase-status/package logs and privacy scan; no separate seal-process exit receipt
+is packaged, so one is not invented. independent-mutation-validation remains
+NOT_VERIFIED/passed=null; terminal_status NOT_VERIFIED. Zero runtime inventory
+and guard verification do NOT substitute for runtime/supervisor mutation evidence.
+No natural scan/Watchlist/news/catalyst/formation evidence was produced.
+
+### Existing owner, actual work and measured intervals
+
+Existing owner is scripts/certification/natural_readonly_operator.py:
+
+- source_manifest67-73: ONE `git ls-files -z` subprocess per manifest, UTF-8 decode,
+  NUL-split retaining all nonempty tracked paths, one digest(repo/name) per path.
+  No Git command per file, archive extraction or recursive untracked-file scan.
+- digest65-66: Path.is_file metadata/type guard, then read_bytes (binary open/read/
+  close) and SHA256 of actual bytes. Missing/non-file path remains an explicit
+  None-valued tracked key; read/enumeration failures propagate. The guard also
+  avoids treating nonregular paths as ordinary source. Removing it speculatively
+  is not a proven equivalent optimization.
+- Preflight142 computes source-before ONCE after cache isolation/operator-state
+  copy. Packaging178 computes source-after ONCE in a fresh process and compares
+  complete manifests plus accepted HEAD/clean status183-184. These are independent
+  required reads, not an unnecessary repeat within preflight. No trusted baseline
+  reuse/persistent digest cache. Other digest calls cover isolated startup hook
+  and original order state; those occur outside the reported manifest interval.
+- preflight_timing19-27 timestamps BEFORE serializing/writing/replacing its timing
+  JSON. Thus a start-to-complete-labelled interval includes the START marker's
+  JSON write/replace, as well as metadata/open/read/close/SHA work; it is NOT an
+  isolated SHA CPU timer. Receipt has no per-file/per-operation split.
+
+| Existing receipt interval | Preflight | Package |
+| --- | --- | --- |
+| Enumeration-labelled (includes preceding timing write) |0.2226163s|0.1661731s|
+| Hash-labelled (includes preceding timing write) |73.1587372s|4.9469133s|
+
+Preflight hash marker runs27.3191268→100.4778640s; source-before persisted at
+100.9472023s; guard/baseline complete101.0470151s. At the hash-start wall timestamp
+17:36:20.599561Z only60.901439s remain to the outer deadline; the labelled interval
+exceeds that by about12.257s. Source hashing is the dominant measured stage here,
+not the enumeration subprocess. But the interval does not attribute the delay to
+CPU hashing, file metadata, opens, content reads, close or timing-receipt I/O.
+
+The earlier child-cache source-isolation probe reports total14.6390252s, with
+13.4277114s specifically between yfinance_cache_import_begin/complete. It exited0
+and verified private cache locations. This is a dependency-import cost, NOT the
+separate unclassified concurrent NEWS-store write failure. No common cause is
+inferred. Startup/guards/copy/record writes account for the remaining costs.
+
+Prior evidence was read before proposing measurement: checkpoint Receipt6
+(21October, ZIP2d3a200d...) recorded a similar ~82s baseline interval but lacked
+these exact stage/process times. Its cold-files/antivirus/disk explanations were
+explicitly unproven. Same-root packaging here repeats the same byte-content owner
+in4.947s with identical hashes. This establishes substantial variability, not a
+specific cache/antivirus/disk/CPU cause or permission to hope a warm retry passes.
+Existing Windows fixture tests/powershell/test_readonly_observation.ps1 covers
+actual OS timely/late-PASS exits and no-observation on timeout;
+verify_observation_package.py includes preflight-timeout/preflight-late-pass and
+source/order-state mismatch cases. Their existing accepted CI receipts carry
+forward; completed suites were NOT rerun to rediscover these properties.
+
+### New proportional guarded owner controls; no production repair justified
+
+Seven new synthetic controls compile ONLY the accepted digest/source_manifest
+AST functions, never the operator entrypoint. They run under existing global
+network/native-transfer guards with temporary local Git fixtures and whitelisted
+`git ls-files -z` calls only. They establish exact tracked coverage/byte hashes
+(including binary and space-named paths, excluding untracked data), exactly one explicit
+is_file/read_bytes/SHA256 call per regular tracked file and one Git enumeration
+per pass (CPython I/O can perform additional internal metadata/buffering work);
+fresh enumeration/reads on the next call; changed-byte comparison; missing key
+retained as None; nonregular path guard; propagated read PermissionError and Git
+enumeration failure. An eighth receipt-specific negative assertion verifies actual
+late exit0 remains TIMEOUT/final1 with no observation. All8 controls passed.
+These are operation/semantic controls and archive assertions, NOT Windows latency
+profiling, new CI or execution of preflight. Saved scratch source/results:
+/workspace/scratch/preflight-hashing-investigation/owner_controls.py and
+owner-control-results.json; source/privacy/OS-exit proof receipt-verification.json.
+
+No demonstrated implementation inefficiency has been isolated. The owner performs
+one required fresh content pass, not per-file subprocesses or duplicate preflight
+passes. Timing cannot identify which component consumed the73s; Linux fixture or
+hot-read timings would not establish the Windows cause. A parallel-hash rewrite,
+type-check removal, metadata substitution, skipped paths, persistent digest cache,
+baseline reuse, import/gate removal or larger timeout would therefore be
+speculative/out of scope. No production/test/CI/helper changes are made. No repair
+PR/head/review/changed-head production CI is claimed; documentation-only checks
+are proportional. Failed receipt and strict90s launch gate remain unchanged.
+
+### ONE next action — bounded local filesystem-only component measurement
+
+Before another natural attempt, arrange ONE instrumented source-manifest pass on
+the Windows filesystem containing preserved C:\tmp\ro-9a2e923d\s. It must NOT
+invoke the preflight entrypoint or preparation/observation helper. Read-only
+source inspection only; write bounded measurement output to a NEW private sibling
+root, never overwrite the failed root/evidence. Verify local accepted HEAD/tree
+and clean tracked state. No broker/provider/config/runtime imports, connection,
+cache probe, acquisition or operational-state reads/writes.
+
+Exact measurement scope: use the accepted existing digest/source_manifest/
+preflight_timing function bodies only (select AST functions without executing
+operator top level), under existing owned child supervision with90s measurement
+budget/30s cleanup. Do not extend PREFLIGHT or observation budgets. Add measurement
+wrappers that check owned stop between file operations and separately count/time:
+Git enumeration; is_file metadata; open; read; close; SHA256 CPU/wall; timing-JSON
+serialization/write/replace. Retain file/byte totals, aggregate/max/bucket timing,
+completion/error class and complete-vs-aborted status; at most an8KiB sanitized
+shareable aggregate report. Any detailed slow relative paths stay private, bounded
+to10; export no file contents, operator paths/state or arbitrary exception text.
+Partial/unexited measurements remain incomplete, never approved manifests. No
+network guard exemptions and no broad process kill. No second warm pass/retry.
+
+Every tracked file must still be enumerated and read/hash freshly on that pass;
+comparison with archived source hashes is diagnostic equivalence checking ONLY,
+never a trusted operational baseline or cache for a later preflight. Include
+measurement-overhead totals and the timing-marker file I/O so this capture can
+separate the coarse73s interval's components. A fast result cannot reconstruct
+past workstation conditions; report non-reproduction honestly. Completion
+criterion: a complete manifest with exact coverage plus an attributed component
+cost distribution, or a bounded incomplete result identifying the active stage/
+unknowns. Review that evidence for a specific optimization BEFORE preparing any
+new preflight/observation; do not request an unchanged attempt hoping it is warm.
+This is the single recommended evidence step, not a broker/runtime rerun, and no
+Windows measurement is executed during this task.
+
+The earlier30October operator block is now a HISTORICAL consumed attempt:
+preflight rejection is not permission to paste it again just because observation
+never started. Natural Ross validation remains pending. Preserve all five
+positions/global ownership veto, GUI draft, all earlier receipts and count0 audit
+AND transport FAIL/exit1, separate news-cache uncertainty and PARKED/fail-closed
+listing provenance. No acquisition, broker inquiry, preflight rerun, observation,
+holdings action, SDK change, timeout extension, gate relaxation or trading occurred.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+
+## 30 October 2026 — One bounded Windows manifest profile prepared (NOT executed)
+
+Preparation only. Current GitHub main verified unchanged at
+`a501c88bcc926bef87875f6352f210b19b6e438b`, tree
+`e66b6daa84f04ec95dce1155fde2a9a4e156cf14`. This branch descends from saved
+investigationd45e8972669a4ccfe93e1f6af5e820985efa26e4 and preserves cf6aed85 and
+all previous updates/receipts. No applicable AGENTS.md found; DEPRECATION_LEDGER
+read/unchanged. No production/helper/CI/test-module changes or new permanent
+harness. Only this SAME checkpoint changes. Original checkout/GUI/holdings and
+C:\tmp\ro-9a2e923d, including its failed evidence, stay unchanged.
+
+The failed receipt remains preflight child0/outer90sTIMEOUT103.084s,
+observation_exit=null, packageDIAGNOSTIC_ONLY2/final1, privacy passed. Source/order
+state PASS and empty runtime inventory do not upgrade terminal/mutation evidence:
+both remain NOT_VERIFIED. No retry or natural observation is authorized by this
+profile; earlier30October natural block is historical/consumed.
+
+### Exact bounded measurement and privacy contract
+
+ONE block below; run it once only, no warm-up/retry. It needs no TWS, market
+session or broker client. All Git commands are local (NO fetch/network). It
+verifies the preserved worktree's accepted HEAD/tree/clean state, reads immutable
+Git objects, creates a NEW C:\tmp\manifest-profile-<8hex> scratch root and writes
+only there. Git optional index writes/fsmonitor are disabled for identity checks;
+source reads use existing owner semantics. Python is the actual saved
+C:\tmp\pr1091-cert-env-20260923\Scripts\python.exe; child requires3.13.3.
+-I/-S/-B avoid environment/site imports and bytecode writes. No repository module,
+config, provider or broker imports; no preflight/operational entrypoint executes.
+
+Actual accepted digest/source_manifest/preflight_timing AST bodies are selected
+from the pinned Git blob; the Git blob identity is verified byte-for-byte. One
+fresh actual source_manifest call retains all tracked paths, byte hashes and
+missing/read-failure behavior. Path proxies call actual Path.read_bytes and its
+normal open/read/close context; scoped namespace proxies time Git, metadata,
+source opens/reads/closes, SHA256/hexdigest and timing JSON/write/replace. No
+stdlib/module/class monkeypatches or caller environment changes. Namespace and
+owned handles retire in finally; network/extra-process audit guard is dedicated
+child-lifetime only. Stop polls at most once per second between operations;
+close is never skipped for a stop. A blocked OS call cannot be interrupted by
+Python instrumentation: existing parent supervision remains90s plus30s owned
+cleanup, with UNKNOWN/unverified exit failing closed and no shareable announcement.
+No broad kill and no invented success from an inner COMPLETE/exit0 after deadline.
+
+Existing pinned Invoke-ReadonlyObservation.ps1/Invoke-ObservationChild owns
+measurement process supervision,90s/30s, stdout/stderr draining and actual OS exit
+receipt. The one-off Python payload exists ONLY in private scratch, not repository
+source or a new permanent diagnostic harness. No second manifest pass or persistent
+trusted hash cache. Actual returned manifest is saved as manifest.PRIVATE.json
+for diagnostic equivalence only; never use it as a future preflight baseline.
+
+Share ONLY manifest-profile-shareable.json, maximum8192 UTF-8 bytes; no ZIP or
+whole scratch upload. It contains source commit/tree/blob/SHA identity, finite
+operation categories/counts/bytes/timings, completion/cleanup/deadline/source-status
+and whitelisted error classes. Parent independently allowlists field/string values.
+No file content, arbitrary exception text, source/operator paths, per-file timing
+or raw logs export. No private slow-path list is generated. All other artifacts
+remain private. Unexpected schema/report overflow/unverified exit prevents output.
+Timed-out but exited/cleaned child may produce a clearly INCOMPLETE bounded report;
+this never certifies manifest/source/runtime readiness.
+
+### Timing interpretation and disclosed perturbation
+
+- Measurements are Python-call wall/process-CPU observations, not kernel/syscall
+  decomposition. CPU is CURRENT PROCESS ONLY, excluding Git child CPU.
+- read_bytes_INCLUSIVE includes open/read/close and nested wrapper/report work;
+  do NOT add it to those components. timing_write_INCLUSIVE includes Path.write_text's
+  internal open/write/close. Labelled source intervals are also inclusive/overlap
+  these operations; they preserve the original before-write timestamp semantics.
+- Thirteen explicitly SYNTHETIC timing-prefix rows approximate the earlier timing
+  history size, not historical events or identical bytes. Three actual source
+  timing markers write ONLY scratch timing files. Their actual byte totals are
+  reported. This does not replay the old preflight timeline or cache-import phase.
+- Wrapper-housekeeping estimate includes stop checks/report I/O and overlaps those
+  reported costs; it is NOT additive total overhead. Proxy dispatch/clock costs
+  are not completely separable. Heartbeat reports at most every5s add disclosed
+  I/O; private manifest-output time is separate. Final report's own I/O cannot
+  measure itself and is explicitly excluded; parent OS-exit budget still includes
+  it. Child bootstrap/Git-blob extraction/AST setup and private output affect the
+  outer time and are not source-read leaf costs.
+- Reading itself can warm OS caches; no flush, warm-up, repeat pass or speculation
+  about antivirus/disk contention. A fast pass cannot reconstruct the earlier73s
+  interval's cause. Never use this report to enlarge the90s natural preflight gate.
+
+### ONE copy-paste Windows PowerShell5.1 block — NOT executed here
+
+```powershell
+# ONE filesystem-only profile. No preflight, TWS or session is required.
+& {
+    $ErrorActionPreference = 'Stop'
+    if ($PSVersionTable.PSEdition -ne 'Desktop' -or
+        $PSVersionTable.PSVersion.Major -ne 5 -or $PSVersionTable.PSVersion.Minor -ne 1) {
+        throw 'Use Windows PowerShell5.1 Desktop.'
+    }
+    $Python = 'C:\tmp\pr1091-cert-env-20260923\Scripts\python.exe'
+    $SourceRoot = 'C:\tmp\ro-9a2e923d\s'
+    $Pin = 'a501c88bcc926bef87875f6352f210b19b6e438b'
+    $Tree = 'e66b6daa84f04ec95dce1155fde2a9a4e156cf14'
+    $Git = (Get-Command git.exe -CommandType Application | Select-Object -First 1).Source
+    if (!(Test-Path -LiteralPath $Python -PathType Leaf) -or
+        !(Test-Path -LiteralPath $SourceRoot -PathType Container)) { throw 'Verified paths missing.' }
+    $head = (& $Git --no-optional-locks -C $SourceRoot rev-parse HEAD | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or $head -cne $Pin) { throw 'Preserved checkout head differs.' }
+    $actualTree = (& $Git --no-optional-locks -C $SourceRoot rev-parse 'HEAD^{tree}' | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or $actualTree -cne $Tree) { throw 'Preserved tree differs.' }
+    $dirty = @(& $Git --no-optional-locks -c core.fsmonitor=false -C $SourceRoot status --porcelain)
+    if ($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0) { throw 'Preserved checkout is not clean; stop.' }
+    $Blob = (& $Git --no-optional-locks -C $SourceRoot rev-parse ($Pin + ':scripts/certification/natural_readonly_operator.py') | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or $Blob -cnotmatch '^[0-9a-f]{40}$') { throw 'Owner identity unavailable.' }
+    $supervisorText = (& $Git --no-optional-locks -C $SourceRoot show ($Pin + ':scripts/certification/Invoke-ReadonlyObservation.ps1') | Out-String)
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($supervisorText)) { throw 'Pinned supervisor unavailable.' }
+    $scratch = Join-Path 'C:\tmp' ('manifest-profile-' + [guid]::NewGuid().ToString('N').Substring(0,8))
+    New-Item -ItemType Directory -Path $scratch | Out-Null
+    $payload = Join-Path $scratch 'profile.PRIVATE.py'
+    $program = @'
+import ast, builtins, hashlib, json, os, re, subprocess, sys, time
+from datetime import datetime, timezone
+from pathlib import Path
+from types import SimpleNamespace
+
+NAMES = ('git_enum','metadata','open','read','close','read_bytes_INCLUSIVE',
+         'sha256','hexdigest','timing_mkdir','timing_json','timing_write_INCLUSIVE','timing_replace')
+class Stopped(Exception): pass
+
+def profile(source, repo, out, pin, tree, blob, git):
+    start = time.perf_counter_ns()
+    metrics = {n:dict(calls=0,wall_ns=0,cpu_ns=0,max_ns=0,bytes=0) for n in NAMES}
+    stats = dict(report_writes=0,report_io_ns=0,wrapper_housekeeping_estimate_ns=0,stop_polls=0,stop_poll_ns=0)
+    manifest_call_ns = None
+    labelled_intervals_ns = {}
+    stack, handles = [], []
+    status, error, manifest = 'RUNNING', 'NONE', None
+    last_report = 0
+    last_stop_check = 0
+    stop_path = out/'STOP_REQUESTED'
+    ns = {}
+    def snapshot():
+        return dict(schema='manifest-profile.v1',status=status,error=error,
+            pin=pin,tree=tree,owner_blob=blob,owner_sha256=hashlib.sha256(source).hexdigest(),
+            elapsed_at_checkpoint_ns=time.perf_counter_ns()-start, metrics=metrics,overhead=stats,
+            manifest_call_ns=manifest_call_ns,labelled_intervals_ns=labelled_intervals_ns,
+            final_report_io_not_included=True,cpu_model='CURRENT_PROCESS_ONLY',
+            active_at_checkpoint=stack[-1] if stack else 'IDLE',
+            file_count=len(manifest) if manifest is not None else None,
+            missing_count=sum(v is None for v in manifest.values()) if manifest is not None else None,
+            handles_open=sum(not f.closed for f in handles),namespace_released=not bool(ns),
+            timing_model='INCLUSIVE_OVERLAP_NOT_SYSCALL',timing_seed_rows=13)
+    def publish():
+        nonlocal last_report
+        t=time.perf_counter_ns(); report=snapshot()
+        data=json.dumps(report,separators=(',',':'),allow_nan=False)
+        if len(data.encode('utf-8'))>7000: raise RuntimeError('report bound')
+        tmp=out/'profile.partial.tmp'; tmp.write_text(data,encoding='utf-8'); tmp.replace(out/'profile.json')
+        stats['report_writes']+=1; stats['report_io_ns']+=time.perf_counter_ns()-t
+        last_report=time.perf_counter_ns()
+    def measured(name, fn, *args, **kw):
+        nonlocal last_stop_check
+        outer=time.perf_counter_ns()
+        if name!='close' and outer-last_stop_check>=1_000_000_000:
+            last_stop_check=outer
+            t_stop=time.perf_counter_ns(); requested=stop_path.exists()
+            stats['stop_polls']+=1; stats['stop_poll_ns']+=time.perf_counter_ns()-t_stop
+            if requested: raise Stopped()
+        stack.append(name)
+        try:
+            if outer-last_report>5_000_000_000: publish()
+            t=time.perf_counter_ns(); cpu=time.process_time_ns()
+            try: return fn(*args,**kw)
+            finally:
+                elapsed=time.perf_counter_ns()-t; m=metrics[name]
+                m['calls']+=1; m['wall_ns']+=elapsed; m['cpu_ns']+=time.process_time_ns()-cpu
+                m['max_ns']=max(m['max_ns'],elapsed)
+                stats['wrapper_housekeeping_estimate_ns']+=time.perf_counter_ns()-outer-elapsed
+        finally: stack.pop()
+    class File:
+        def __init__(self,f): self.f=f; handles.append(f)
+        def __enter__(self): self.f.__enter__(); return self
+        def __exit__(self,*exc):
+            try: return measured('close',self.f.__exit__,*exc)
+            finally:
+                if self.f.closed: handles.remove(self.f)
+        def read(self,*a,**kw):
+            result=measured('read',self.f.read,*a,**kw)
+            metrics['read']['bytes']+=len(result); return result
+    class P:
+        def __init__(self,p): self.p=Path(p)
+        def __fspath__(self): return os.fspath(self.p)
+        def __truediv__(self,n): return P(self.p/n)
+        def is_file(self): return measured('metadata',self.p.is_file)
+        def open(self,*a,**kw): return File(measured('open',self.p.open,*a,**kw))
+        def read_bytes(self): return measured('read_bytes_INCLUSIVE',Path.read_bytes,self)
+        def mkdir(self,*a,**kw): return measured('timing_mkdir',self.p.mkdir,*a,**kw)
+        def with_suffix(self,s): return P(self.p.with_suffix(s))
+        def write_text(self,text,*a,**kw):
+            result=measured('timing_write_INCLUSIVE',self.p.write_text,text,*a,**kw)
+            metrics['timing_write_INCLUSIVE']['bytes']+=len(text.encode('utf-8')); return result
+        def replace(self,target): return measured('timing_replace',self.p.replace,os.fspath(target))
+    class Hash:
+        def __init__(self,h): self.h=h
+        def hexdigest(self): return measured('hexdigest',self.h.hexdigest)
+    def sha(data):
+        h=measured('sha256',hashlib.sha256,data); metrics['sha256']['bytes']+=len(data); return Hash(h)
+    def dumps(value,**kw): return measured('timing_json',json.dumps,value,**kw)
+    def enumeration(args,**kw):
+        if args!=['git','ls-files','-z'] or Path(os.fspath(kw['cwd']))!=repo:
+            raise RuntimeError('subprocess scope')
+        env=dict(os.environ,GIT_OPTIONAL_LOCKS='0')
+        return measured('git_enum',subprocess.check_output,[git,'ls-files','-z'],cwd=repo,env=env)
+    try:
+        expected=hashlib.sha1(b'blob '+str(len(source)).encode()+b'\0'+source).hexdigest()
+        if expected!=blob: raise RuntimeError('owner identity')
+        funcs=[n for n in ast.parse(source).body if isinstance(n,ast.FunctionDef)
+               and n.name in ('preflight_timing','digest','source_manifest')]
+        if len(funcs)!=3: raise RuntimeError('owner shape')
+        # Synthetic prefix approximates the old timing-history size; not historical events.
+        seed=[dict(stage='SYNTHETIC_PREFIX',utc='2000-01-01T00:00:00+00:00',elapsed_seconds=0.0) for _ in range(13)]
+        ns.update(repo=P(repo),evidence=P(out/'timing'),phase='preflight',
+            _timing_started=time.monotonic(),_timing_rows=seed,
+            time=time,datetime=datetime,timezone=timezone,os=os,
+            hashlib=SimpleNamespace(sha256=sha),json=SimpleNamespace(dumps=dumps),
+            subprocess=SimpleNamespace(check_output=enumeration))
+        exec(compile(ast.Module(body=funcs,type_ignores=[]),'pinned_manifest_functions','exec'),ns)
+        t=time.perf_counter_ns()
+        manifest=ns['source_manifest']()  # EXACTLY ONE fresh pass; no reference/warm-up pass.
+        manifest_call_ns=time.perf_counter_ns()-t
+        if stop_path.exists(): raise Stopped()
+        rows=ns['_timing_rows'][-3:]
+        labelled_intervals_ns=dict(enumeration=int((rows[1]['elapsed_seconds']-rows[0]['elapsed_seconds'])*1e9),
+                                  hashing=int((rows[2]['elapsed_seconds']-rows[1]['elapsed_seconds'])*1e9))
+        status='COMPLETE'
+    except BaseException as exc:
+        status='CANCELLED' if isinstance(exc,Stopped) else 'ERROR'
+        name=type(exc).__name__
+        allowed={'PermissionError','FileNotFoundError','NotADirectoryError','IsADirectoryError','OSError',
+                 'RuntimeError','ValueError','TypeError','MemoryError','OverflowError','UnicodeDecodeError',
+                 'AssertionError','KeyboardInterrupt','SystemExit','Exception','TimeoutError'}
+        error=name if name in allowed and getattr(builtins,name,None) is type(exc) else ('STOPPED' if isinstance(exc,Stopped) else 'OTHER')
+    finally:
+        ns.clear()  # No global patches; only child-local namespace/proxies existed.
+        for f in handles:
+            if not f.closed:
+                try: f.close()
+                except BaseException: status='ERROR'; error='CLEANUP_FAILED'
+        # Private returned mapping: never a trusted cache/preflight baseline or shared report.
+        if manifest is not None:
+            t=time.perf_counter_ns()
+            (out/'manifest.PRIVATE.json').write_text(json.dumps(manifest),encoding='utf-8')
+            stats['private_manifest_write_ns']=time.perf_counter_ns()-t
+        publish()
+    return snapshot(),manifest
+
+def main():
+    git,repo_text,out_text,pin,tree,blob=sys.argv[1:]
+    repo,out=Path(repo_text),Path(out_text)
+    if sys.version_info[:3]!=(3,13,3): raise RuntimeError('interpreter')
+    if not all(re.fullmatch('[0-9a-f]{40}',s) for s in (pin,tree,blob)): raise RuntimeError('identity')
+    show=[git,'--no-optional-locks','-C',str(repo),'show',pin+':scripts/certification/natural_readonly_operator.py']
+    def guard(event,args):
+        if event.startswith(('socket.','ctypes.')): raise RuntimeError('network/native disabled')
+        if event=='subprocess.Popen':
+            allowed=(show,[git,'ls-files','-z'],subprocess.list2cmdline(show),subprocess.list2cmdline([git,'ls-files','-z']))
+            if args[1] not in allowed: raise RuntimeError('subprocess disabled')
+        if event in ('os.system','os.exec','os.posix_spawn'): raise RuntimeError('execution disabled')
+    sys.addaudithook(guard)  # Dedicated-child lifetime; no guard changes in the calling shell.
+    source=subprocess.check_output(show,timeout=10)
+    report,_=profile(source,repo,out,pin,tree,blob,git)
+    return 0 if report['status']=='COMPLETE' and report['handles_open']==0 else 2
+if __name__=='__main__':
+    try: code=main()
+    except BaseException: code=2  # No arbitrary exception text/traceback into any artifact.
+    raise SystemExit(code)
+'@
+    [IO.File]::WriteAllText($payload, $program, (New-Object Text.UTF8Encoding($false)))
+    . ([scriptblock]::Create($supervisorText))
+    $controlFailed = $false
+    try {
+        $child = Invoke-ObservationChild -Python $Python `
+            -ChildArguments @('-I','-S','-B','-u',$payload,$Git,$SourceRoot,$scratch,$Pin,$Tree,$Blob) `
+            -LogPrefix (Join-Path $scratch 'profile-process') `
+            -StopPath (Join-Path $scratch 'STOP_REQUESTED') -BudgetSeconds 90 -StopSeconds 30
+    } catch { $controlFailed = $true; Write-Host 'Profile control failed; retain private scratch evidence.' }
+    $receiptPath = Join-Path $scratch 'profile-process.process.json'
+    if (!(Test-Path -LiteralPath $receiptPath)) { throw "No exit receipt; retain $scratch privately." }
+    $receipt = Get-Content -LiteralPath $receiptPath -Raw | ConvertFrom-Json
+    if (!$receipt.exited) { throw "Cleanup/exit unverified; retain $scratch privately. Do not retry or share." }
+    $profilePath = Join-Path $scratch 'profile.json'
+    if (!(Test-Path -LiteralPath $profilePath)) { throw "No bounded profile report; retain $scratch privately." }
+    $profileData = Get-Content -LiteralPath $profilePath -Raw | ConvertFrom-Json
+    # Independent output allowlist: no paths, payloads, messages or arbitrary strings.
+    $safeKeys = @('schema','status','error','pin','tree','owner_blob','owner_sha256',
+        'elapsed_at_checkpoint_ns','metrics','overhead','manifest_call_ns','labelled_intervals_ns',
+        'final_report_io_not_included','cpu_model','active_at_checkpoint','file_count','missing_count',
+        'handles_open','namespace_released','timing_model','timing_seed_rows','calls','wall_ns',
+        'cpu_ns','max_ns','bytes','report_writes','report_io_ns','wrapper_housekeeping_estimate_ns',
+        'stop_polls','stop_poll_ns','private_manifest_write_ns','enumeration','hashing','git_enum','metadata','open','read','close',
+        'read_bytes_INCLUSIVE','sha256','hexdigest','timing_mkdir','timing_json','timing_write_INCLUSIVE','timing_replace')
+    $safeText = @('manifest-profile.v1','RUNNING','COMPLETE','ERROR','CANCELLED','NONE','OTHER',
+        'STOPPED','CLEANUP_FAILED','IDLE','INCLUSIVE_OVERLAP_NOT_SYSCALL','CURRENT_PROCESS_ONLY',
+        'PermissionError','FileNotFoundError','NotADirectoryError','IsADirectoryError','OSError',
+        'RuntimeError','ValueError','TypeError','MemoryError','OverflowError','UnicodeDecodeError',
+        'AssertionError','KeyboardInterrupt','SystemExit','Exception','TimeoutError') + $safeKeys
+    function Assert-SafeValue($value) {
+        if ($null -eq $value -or $value -is [bool]) { return }
+        if ($value -is [string]) {
+            if ($safeText -notcontains $value -and $value -cnotmatch '^([0-9a-f]{40}|[0-9a-f]{64})$') {
+                throw 'Unallowlisted report string; no shareable output.'
+            }
+            return
+        }
+        if ($value -is [ValueType]) { return }
+        if ($value -isnot [pscustomobject]) { throw 'Unsupported report value.' }
+        foreach ($property in $value.PSObject.Properties) {
+            if ($safeKeys -notcontains $property.Name) { throw 'Unallowlisted report field.' }
+            Assert-SafeValue $property.Value
+        }
+    }
+    Assert-SafeValue $profileData
+    if ($profileData.schema -cne 'manifest-profile.v1' -or $profileData.pin -cne $Pin -or
+        $profileData.tree -cne $Tree -or $profileData.owner_blob -cne $Blob) { throw 'Report identity differs.' }
+    $afterHead = (& $Git --no-optional-locks -C $SourceRoot rev-parse HEAD | Out-String).Trim()
+    $headOK = $LASTEXITCODE -eq 0 -and $afterHead -ceq $Pin
+    $afterDirty = @(& $Git --no-optional-locks -c core.fsmonitor=false -C $SourceRoot status --porcelain)
+    $sourceOK = $headOK -and $LASTEXITCODE -eq 0 -and $afterDirty.Count -eq 0
+    $complete = !$controlFailed -and $receipt.timely_exit_verified -and !$receipt.timed_out -and
+        $receipt.exit_code -eq 0 -and $profileData.status -ceq 'COMPLETE' -and
+        $profileData.handles_open -eq 0 -and $profileData.namespace_released -and $sourceOK
+    $envelope = [ordered]@{
+        schema = 'manifest-profile-envelope.v1'; completed = [bool]$complete
+        source_identity_after = [bool]$sourceOK
+        budget_seconds = 90; cleanup_budget_seconds = 30
+        child_exit = $receipt.exit_code; timed_out = $receipt.timed_out
+        timely_exit_verified = $receipt.timely_exit_verified; profile = $profileData
+    }
+    $json = $envelope | ConvertTo-Json -Depth 10 -Compress
+    if ([Text.Encoding]::UTF8.GetByteCount($json) -gt 8192) { throw 'Report exceeds8KiB; no shareable output.' }
+    $share = Join-Path $scratch 'manifest-profile-shareable.json'
+    [IO.File]::WriteAllText($share, $json, (New-Object Text.UTF8Encoding($false)))
+    Write-Host "SHARE ONLY: $share"
+    Write-Host "Completed: $complete. Keep all other scratch files PRIVATE; no retry."
+    $global:LASTEXITCODE = if ($complete) { 0 } else { 1 }
+}
+```
+
+Expected shareable output:
+`C:\tmp\manifest-profile-<8hex>\manifest-profile-shareable.json`.
+Only use the SHARE ONLY announcement; all other scratch artifacts stay private.
+If no announcement occurs, preserve scratch and do not retry. No existing source,
+cache files, operator state or failed evidence is modified by the prepared block.
+
+Guarded offline validation (small temporary Git fixtures ONLY, not the actual
+Windows measurement): six owner/equivalence groups passed for exact returned
+hashes/operation counts, missing key, changed bytes/no cache, read denial/privacy,
+owned stop, in-read error/resource cleanup. Additional Windows/list-form argv
+allowlist and forbidden network/native/extra-process controls passed, plus close
+failure/scope restoration/content-message canary control: eight groups total.
+Static checks verify one child invocation, exact90/30, embedded payload identity,
+immutable source selection and no fetch/preflight/observation invocation. Original
+Path methods remain unchanged; namespace clears and handles close on error.
+No completed suite repeated. Actual new PowerShell block/Windows profile was NOT
+executed; existing Windows supervisor checks carry forward, not claimed as a new
+profile run. Scratch preparation/control artifacts are under
+/workspace/scratch/manifest-profile-preparation (not a repository harness).
+
+ONE pending action: user runs this SINGLE filesystem-only block once and shares
+only its bounded announced JSON. Completion criterion is an attributed complete
+manifest pass, or an honestly bounded incomplete result; review it before any
+natural preflight/observation. Preserve all five positions/global veto, GUI draft,
+all failed/historical receipts, separate cache uncertainty and PARKED/fail-closed
+listing provenance. No acquisition/broker inquiry/preflight/observation/holdings
+operation/SDK change/timeout extension/gate relaxation/trading occurred.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## 30 October 2026 — Measured open bottleneck; bounded-concurrency lifecycle assessment
+
+OFFLINE only. Current GitHub main remains accepted
+`a501c88bcc926bef87875f6352f210b19b6e438b`, tree
+`e66b6daa84f04ec95dce1155fde2a9a4e156cf14`. Continued from saved profile
+preparation8cb5185667e9134ae1de21a0bb30ad5aa3910e81, carrying the entire saved
+checkpoint/history forward. Applicable AGENTS search found none;
+DEPRECATION_LEDGER read/unchanged. Original failed roots/GUI/saved branches and
+all receipts preserved; no owner/module retirement or production change.
+
+### Supplied profile verified; private artifacts remain private
+
+Supplied manifest-profile-shareable.json SHA256 computed:
+`28d755d8e1d8404519f15fbf133c6d72830e9693eed5d7462006dc967d010271`.
+Reported root C:\tmp\manifest-profile-240c8b91. Envelope completed/source-identity-
+after/timely-exit=true, child_exit0, timed_out=false;90s measurement/30s cleanup.
+Profile statusCOMPLETE/errorNONE,2686files,17,844,040bytes read and SHA256 input,
+no missing paths,0open handles and released namespace. One Git enumeration;
+metadata/open/read/close/SHA256/hexdigest calls each2686. Pinned owner blob
+4bec6f8974062cbd68f5c88bbf9baa671a075237 and sourceSHA256
+ e76b26879b0cf884e91d785a0e1c52d573ab2d0627a392037cdc7febe0721200
+match the exact accepted natural_readonly_operator.py Git object. No attached
+instructions executed. Private manifest, logs and scratch files were neither
+requested nor read/uploaded; individual returned hash values cannot be independently
+revalidated from this aggregate JSON alone. The prepared equivalence controls and
+verified owner identity carry forward; this is not a reusable source baseline.
+
+| Measured Python-level operation | Wall seconds |
+| --- | --- |
+| Complete manifest call (inclusive) |50.1053387|
+| File open |46.5722628|
+| Metadata/is_file |1.5255701|
+| Read |0.5525086|
+| Close |0.4470427|
+| SHA256 constructor/content computation |0.1635843|
+| Hexdigest |0.0292141|
+| read_bytes (INCLUSIVE; overlaps open/read/close) |47.8679997|
+| Git enumeration |0.2271147|
+
+Open wall time is92.9487% of the inclusive manifest call; maximum observed open
+0.2967345s. These are scoped Python-call observations, NOT a kernel/antivirus/
+storage diagnosis, and that observed maximum is not an upper bound on future OS
+calls. Timing JSON/write/replace remain small in THIS profile. Wrapper/report/
+stop/private-output costs and inclusive categories overlap as documented above;
+do not sum blindly. The earlier73.1587372s preflight-labelled interval remains a
+SEPARATE historical measurement with different context, not replaced by50.105s
+or explained by this result. Parent CPU does not include other processes/Git CPU.
+No thread/process performance speedup is established by a serial profile.
+
+### Equivalence and lifecycle requirements established before a code decision
+
+A candidate must preserve the accepted source_manifest/digest owner semantics:
+one exact Git tracked-name enumeration; fresh byte-content SHA256 (including
+Windows checkout bytes), explicit missing/nonregular None key and propagated read
+errors; mapping insertion order must follow the original Git path order regardless
+of completion order. Every before/after call must independently re-enumerate/read;
+no metadata substitution, Git-blob substitution, skipped files or persistent hash
+cache/baseline reuse. Source HEAD/clean-state and complete before/after comparisons
+stay authoritative under the existing90s outer deadline; late/unknown exit is FAIL.
+
+For this assessment the smallest candidate resource contract was fixed4workers,
+maximum4outstanding futures and4simultaneous file opens/handles. Use an explicit
+window; Python3.13 Executor.map eagerly queues the iterable and is not a bounded
+window merely because max_workers=4. On error/stop/deadline, no successful partial
+mapping; cancel not-started work, retire ALL owned workers and handles and VERIFY
+cleanup inside one bounded allowance before allowing further work/process success.
+No detached/daemon workers, wait=False-as-cleanup, hidden thread escape or longer
+preflight/cleanup timeout is acceptable.
+
+### Guarded synthetic candidate controls and concrete rejection
+
+Evaluated ONLY a scratch scheduler using the EXACT accepted digest AST body and
+small temporary Git fixtures, under existing offline network/native-transfer
+guards. No production function was replaced and no real Windows benchmark was
+run. Eight new control groups passed:
+
+1. Concurrent healthy result equals serial actual-owner hashes, with deterministic
+   Git-name insertion order despite completion order.
+2. Changed byte content is detected on an independent fresh call; no hash cache.
+3. Missing tracked file retains its key with None.
+4. Synthetic delayed-open calls overlap; fixed4workers/window limit all outstanding
+   work/open calls/handles to4; all healthy-fixture handles retire. This is
+   concurrency behavior evidence ONLY, not Windows performance proof.
+5. Read PermissionError is the original propagated exception; healthy siblings join.
+6. Stop and deadline exceptions propagate without a successful partial mapping
+   when the controlled running operations can finish cooperatively.
+7. Adversarial already-running blocked-open Future.cancel returnsFALSE;
+   shutdown(wait=False,cancel_futures=True) returns while that future remains
+   running; bounded wait cannot verify cleanup. Test uses a scaled25ms cut point,
+   NOT a claimed actual30s Windows failure. The fixture's Event is explicitly
+   released in finally, then wait=True joins the worker for safe test cleanup.
+8. All evaluation worker threads verified gone after explicit fixture release.
+
+Exact scratch source/results:
+/workspace/scratch/manifest-concurrency-assessment/controls.py and control-results.json.
+Result: running_cancel_returned=false, done_after_bounded_join=false,
+cleanup_verified_before_fixture_release=false. This demonstrates Python worker
+lifecycle/cancellation semantics, not that the measured Windows opens actually
+hung or caused a leak. No measurement/source/runtime/preflight acquisition ran.
+
+CONCRETE BLOCKER: ThreadPoolExecutor.shutdown(wait=True) has no timeout and waits
+for running work; Future.cancel/cancel_futures cannot interrupt synchronous
+Path.open/read already executing. A cooperative stop check before/between calls
+cannot bound a blocked OS call. wait=False or daemonization would merely leave
+work/resources running. The accepted PowerShell Invoke-ObservationChild60-67
+waits for the actual child under90s+30s and fails closed if exit is unverified; it
+does not forcibly retire a Python pool or independently own its worker threads.
+A thread pool's interpreter-exit join can also prevent the preflight process from
+exiting. Observed subsecond opens are not a safe future-operation bound.
+Therefore the minimal THREAD candidate CANNOT meet the requested verified bounded-
+cleanup contract. It is rejected, not integrated or advertised as an optimization.
+
+A drop-in ProcessPoolExecutor is NOT justified either: existing
+natural_readonly_operator.py6-64 has top-level argument handling, environment/
+repository/broker imports and phase execution, not an import-safe spawn worker
+entrypoint. Windows spawn must not rerun preflight/state initialization. Existing
+src/runtime/process_identity.py process-handle ownership is tied to verified ROSS
+runtime identity, not automatically generic hash-worker authority. Do not silently
+repurpose it or introduce a second unreviewed process owner into production.
+
+No production/test/CI/helper changes, new repair draft PR, exact-head repair review
+or changed-head production CI are claimed. Only this authoritative checkpoint is
+updated. No unrelated completed suites repeated. Accepted serial owner and90s
+preflight fail-closed semantics remain intact; the failed natural attempt remains
+blocked, not authority to rerun warm. All prior profile/late-PASS/transport/cache
+failures and saved preparations remain preserved.
+
+### ONE next action — separately prepare process-isolated filesystem feasibility
+
+Prepare ONE filesystem-only fixed-process candidate/benchmark for review, NOT a
+preflight retry and NOT executed in this task. Use the same pinned digest authority
+without importing/executing the operational module top level: stdlib-only isolated
+workers and parent-only single enumeration, at most4workers/4outstanding tasks/
+4source handles, deterministic full mapping, fresh bytes/missing/error behavior.
+Explicitly bind/retain each created worker's OWN process handle before dispatch;
+cooperative stop followed only by bounded termination of those OWN workers, with
+ALL exits/handle closure VERIFIED against ONE shared cleanup deadline (not30s per
+worker). Test an intentionally blocked worker and read failure before any
+workstation performance claim. Unknown/failed worker exit is a failed feasibility
+gate and cannot approve production concurrency or another natural observation.
+A process boundary supplies a scoped abort/exit-observation mechanism threads lack,
+not a guarantee that the OS will terminate promptly or that performance improves.
+
+Completion criterion: manifest equivalence/resource bounds/stop-deadline/owned
+worker cleanup proved under guarded controls, then one SEPARATELY PREPARED Windows
+filesystem-only comparison if still justified; no implicit permission to execute
+it, relax90s, re-use a warm baseline or replace the current owner. Keep prototype
+artifacts private/temporary and source/root contents unchanged. Do not build a
+new permanent operational harness or worker module merely to get a benchmark.
+If process ownership cannot meet the same verification contract, retain serial
+behavior and report that further blocker instead of detaching work.
+
+All five positions/global veto, GUI draft, historical roots/receipts, separate
+news-cache uncertainty, count0 audit AND transport FAIL/exit1, PR1140-1143 semantics
+and PARKED/fail-closed listing provenance remain unchanged. No acquisition, broker
+inquiry, preflight, observation, holdings action, SDK/security-setting change,
+timeout extension, gate relaxation or trading occurred.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## 30 October 2026 — Process-isolated manifest feasibility; coordinator lifecycle blocker
+
+OFFLINE synthetic filesystem/process controls only, continuing saved assessment
+6236d4817c0648e2d3aab62149b86bb9a01215ff. GitHub main was independently fetched
+through the GitHub connector and checked using origin/main's remote ref: still
+`a501c88bcc926bef87875f6352f210b19b6e438b`, tree
+`e66b6daa84f04ec95dce1155fde2a9a4e156cf14`. No advancement/substitute pin.
+Workspace/checkout AGENTS search again found none; DEPRECATION_LEDGER read and
+unchanged. This section carries the saved profile preparation and entire existing
+checkpoint forward; no competing checklist, permanent harness, production worker
+or manifest owner was created. Original checkout remains clean; source, caches,
+operator state, private manifests and historical roots were not modified.
+
+### Temporary candidate and equivalence boundary
+
+Evaluated a scratch-only fixed-four subprocess design on Linux/Python3.12.14:
+
+- Parent runs the EXACT enumeration assignment from the pinned source_manifest
+  owner (natural_readonly_operator.py69), freshly ONCE per candidate attempt.
+  Original Git decoding/order/filtering semantics retained; no persistent list,
+  content cache, baseline substitution or Git-blob-content hashing.
+- Workers execute ONLY the accepted digest function AST (same owner65-66), with
+  hashlib binding. They launch as explicit stdlib-only scripts under -I -S -B -u;
+  no operational module import, multiprocessing re-import of __main__, preflight,
+  adapter/config/SDK/news/broker imports or environment setup. A poisoned operator
+  top level with an observable write and raise never executes. This demonstrates
+  entrypoint separation, NOT actual Windows spawn/handle verification.
+- Four direct Popen children, each retained before task dispatch; no PID-based
+  rediscovery or kill-by-name. One outstanding task per worker, peak4 observed.
+  One sequential digest per worker bounds SOURCE content handles to4 by design;
+  control files and null standard streams are additional bounded handles, not
+  falsely included in a claim of four total OS handles. IPC uses four reusable
+  private filesystem mailboxes, not sockets, queues or an unbounded task list.
+  Requests cap8192bytes; responses cap1024bytes with bounded cap+1 reads and
+  rejection. Index/schema/hash checks reject invalid results. No free-form worker
+  exceptions/path details are exported; PermissionError/errno13 are retained for
+  read-failure assessment. This is not a complete arbitrary-exception serializer.
+- Results stage by enumeration index; only a complete mapping in original Git
+  order can be returned, AFTER successful cleanup. Changed bytes and newly tracked
+  names are independently read/re-enumerated on a later attempt; missing/nonregular
+  entries retain None; read errors yield no usable mapping. No partial baseline
+  file is written, including on abort or unverified cleanup.
+- One monotonic measurement deadline begins BEFORE enumeration/startup. Separate
+  cleanup allowance is ONE shared deadline for all children: cooperative stop,
+  short bounded grace, terminate owned live children, wait/reap and verify every
+  owned exit. It is never a fresh allowance per worker. Failures remain explicit;
+  a process boundary or successful terminate call is not an exit proof.
+
+Existing supervision was inspected rather than duplicated in production:
+Invoke-ReadonlyObservation.ps1:6-132 retains its child handle and enforces OS-exit
+90s/30s authority; its timeout path requests cooperative stop and does NOT forcibly
+retire a blocked coordinator or descendants. process_identity.py:88-137 supplies
+retained Windows handle/creation/exit/terminate patterns for its existing runtime
+owner, not a generic manifest-worker containment contract. No Windows Job Object
+containment exists in src/scripts/tests. Neither owner was modified or silently
+repurposed. Existing90s preflight deadline remains unchanged and fail closed.
+
+### Guarded controls:16 passed assertions; candidate NOT accepted
+
+Exact temporary artifacts (not permanent repository modules):
+`/workspace/scratch/manifest-process-feasibility/controls.py`, guard_runner.py,
+results.json and results.log. Final command used the existing offline PYTHONPATH
+and /workspace/ibkr-trading-system/.venv/bin/python running guard_runner.py.
+Additional parent audit guard forbids all socket/native execution, shells and
+subprocesses except exact local Git operations and the isolated scratch workers.
+Each isolated worker installs its own socket/ctypes/extra-process/fork/exec guard;
+-I/-S does not silently discard the safety boundary. Only synthetic temporary Git
+files and controlled waits were used; no broker/order/provider objects imported.
+
+| Control | Observed result and publication/cleanup authority |
+| --- | --- |
+| Serial/candidate hashes and mapping order | Exact equality on synthetic binary files;4 workers/4 pending; all children reaped before returning complete mapping. |
+| Changed bytes/fresh pass | Different fresh hash; full serial equality; cleanup verified. |
+| Missing tracked file | Key retained with None; cleanup verified. |
+| Read failure | PermissionError/errno13; no mapping; owned workers reaped. |
+| Worker crash | WORKER_EXIT; no mapping; siblings stopped/reaped. |
+| Invalid response schema | IPC failure; no mapping; cleanup verified. |
+| Oversized IPC response | Bounded1025byte read rejects >1024; no mapping; cleanup verified. |
+| Serialization failure | Actual json.dumps TypeError controlled as SERIALIZATION; no mapping; cleanup verified. |
+| Partial startup | Injected failure before third launch; both retained children retired; no mapping. |
+| Cancellation with blocked worker | CANCELLED; owned blocked worker terminated/reaped; no mapping. |
+| Shared measurement deadline with blocked worker | DEADLINE; no mapping; all children retired within shared cleanup allowance. |
+| Terminate failure | Explicit injected denial; cleanup_verified=false, JOIN_UNVERIFIED/CLEANUP_DEADLINE, child still live at evaluation boundary; NO mapping/progression. |
+| Join failure | Explicit injected wait/verification failure; cleanup_verified=false, JOIN_UNVERIFIED; NO mapping even if termination later succeeds. |
+| New tracked-file coverage | Fresh owner enumeration includes new tracked name; full serial equivalence and verified cleanup. |
+| Safe standalone worker entry | Poisoned operational top-level side effects/raise never execute; exact digest still works; verified cleanup. |
+| Blocked coordinator IPC | Global measurement+cleanup bounds NOT enforced while coordinator blocked; no result or cleanup entry until fixture release; candidate rejected. |
+
+Ordinary verified cleanups in this final run ranged0.0085-0.0332s, using a1s shared
+synthetic allowance, not a Windows performance estimate. Blocked-worker deadline
+case used0.3s measurement; terminate-failure used0.15s cleanup and correctly failed
+verification at that boundary. OS exit/reap was checked for EVERY retained direct
+child, not inferred from a worker's report. Deliberately injected terminate/join
+failures have a SEPARATE test-fixture recovery finally: kill/wait only those owned
+children, verify all reaped. This recovery NEVER changes the failed result or
+permits publication. All fixture children were reaped after every test, including
+failure cases; no worker left running after the evaluation. The evaluation does
+not claim that cleanup always succeeds on an OS.
+
+Final scratch SHA256 receipts:
+- controls.py:53050d772f4b439bcbbf8071fae7f91e70c92c5c0b78c909b7e27fcda07b51cc
+- guard_runner.py:1423b03f9177337c558617b00a1d55e467809bcc0a3ba397b70676429393b777
+- results.json:d50af80b1bf4bd835f74c0d90c8deb564b22847498afbcc2b2c8a664a0c94917
+
+These are16 passed feasibility ASSERTIONS, including assertions that unsafe paths
+FAIL; they are NOT16 accepted lifecycle cases, changed-head CI, Windows results,
+full-suite certification or natural Ross acceptance. No unrelated suite repeated.
+
+### Concrete blocker and bounded alternative
+
+The smallest filesystem-mailbox candidate does NOT meet the complete requested
+lifecycle contract. Its coordinator performs synchronous filesystem IPC, exact
+Git enumeration and Popen startup. Checks before/after these operations cannot
+interrupt them. In the explicit parent-IPC control, a controlled wait stands in
+for a stalled synchronous open/write: with0.15s measurement and0.1s cleanup, the
+coordinator was still blocked after0.35s, had four owned children and had not
+entered cleanup or returned a result. The fixture explicitly released it, then
+it detected DEADLINE, withheld the mapping and retired its children. The fixture
+thread is test containment/recovery ONLY, not a proposed production watchdog.
+
+This demonstrates a missing enforcement boundary, NOT that Windows filesystem
+IPC, Popen, Git or the measured source opens actually hang. It is not proof that
+all process designs are unsafe. Switching to ordinary blocking pipes merely
+moves the same concern unless bounded I/O and independent ownership are proven.
+An outer cooperative-stop supervisor cannot establish cleanup of a coordinator
+that cannot service stop. Worker isolation alone therefore cannot justify the
+Windows feasibility/benchmark block. Windows-specific handle-close branch and
+actual Windows creation/termination semantics remain UNEXECUTED/UNVERIFIED; no
+Windows speedup claim. No workstation block released and no production change,
+repair PR/review/CI or natural/preflight retry authorized by these controls.
+
+ONE next action: review a narrowly bounded, temporary WINDOWS CONTAINMENT-ONLY
+synthetic control design, before any benchmark. Put the coordinator AND its
+workers inside one externally owned kill-on-close Windows Job Object, with the
+coordinator created suspended and assigned before resume (fail closed if job
+assignment/ownership cannot be proved). The external controller must retain its
+own coordinator/job handles, enforce the existing90s measurement plus ONE30s
+cleanup allowance independently of filesystem IPC, terminate only that owned job,
+and verify zero active members/owned exits plus handle closure before progression.
+Test blocked coordinator/startup/IPC, partial assignment, terminate/query/join/
+handle-close failures, and child-creation containment; unverified cleanup must
+still fail. This is a concrete feasibility alternative, NOT an existing verified
+owner, a production recommendation, or permission to execute a workstation run.
+Keep it scratch-only, synthetic and filesystem-only; reuse existing retained-handle
+patterns without creating a parallel permanent operational process owner. Actual
+Windows containment validation is needed before preparing/reviewing any aggregate
+privacy-safe filesystem benchmark block. No warm preflight retry as a substitute.
+
+Earlier50.105s/open46.572s profile and73.1587372s historical interval remain distinct;
+no antivirus/disk/OS cause or Windows speedup inferred. Preserve all failed roots,
+count0 authoritative order audits AND transport FAIL/exit1, five unmatched positions
+and global veto, GUI draft, separate news-cache uncertainty, PR1140-1143 semantics,
+historical callback uncertainty and PARKED/fail-closed listing provenance.
+No acquisition, broker inquiry, preflight, observation, holdings action, SDK/security
+change, timeout extension, gate relaxation or trading occurred.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## 30 October 2026 — Disposable Windows containment control prepared; OS validation pending
+
+Continues c05cdc8bb9089f5e7a8e47152124bc6e5b4203ce in this SAME checkpoint.
+GitHub main remains a501c88bcc926bef87875f6352f210b19b6e438b/tree
+e66b6daa84f04ec95dce1155fde2a9a4e156cf14; no advancement or changed runtime pin.
+AGENTS search found none; DEPRECATION_LEDGER read/unchanged. No production, source
+manifest, preflight, process-identity or operator owner was modified. Earlier
+thread/coordinator blockers and every receipt remain preserved above.
+
+User authorized actual synthetic Windows CI, not a workstation benchmark. Added
+one explicitly disposable test fixture under tests/test_manifest_windows_containment_feasibility.py.
+It runs directly with isolated stdlib (-I -S -B), importing no production/broker/
+provider owner. Its native kernel32 control follows retained-handle patterns from
+process_identity.py:88-137 without adding or importing a parallel production owner.
+Private unnamed Job Object sets KILL_ON_JOB_CLOSE and active member cap5, with no
+breakaway flags. Coordinator created suspended, retained process/thread handles,
+assigned and IsProcessInJob-verified before ResumeThread. Descendants inherit the
+job. External controller queries capped membership and owns deadlines independently
+of child IPC. Separate shared cleanup deadline requires job empty, owned process
+waits and checked closure of every owned handle. Failed cleanup cannot publish a
+success; deliberate failure-fixture recovery is separately labelled and cannot
+rewrite its failed result. Intended90s/30s remains unchanged; tests use short bounds.
+
+Controls prepared: healthy completion; stalled coordinator/startup/IPC; two worker
+descendants; partial startup; explicit breakaway denial; cancellation/deadline;
+assignment failure without resuming the suspended process; injected termination,
+query, wait and close failures; actual invalid-handle API failures; controller
+os._exit causing OS kill-on-close with externally retained creation-bound member
+handles; and an unrelated private leaf that must remain alive. All such processes
+are synthetic/private; only owned handles may be terminated. Socket and operational
+imports are forbidden. No hashing or benchmark is in this fixture.
+
+Existing CI gains one exact-file-scope disposable path (only this fixture, workflow
+and checkpoint may differ from accepted pin), using Windows/Python3.13.3 and actual
+PowerShell5.1 to run the isolated control. Production/scripts/offline guards and
+requirements must compare unchanged. Other changes continue through existing full
+selection; this scoped fixture does NOT rerun unrelated completed suites. No
+workflow dependency installs or operational imports needed for these stdlib tests.
+Local Linux syntax/import check yields4 explicit Windows-only skips, NOT Windows
+validation or a successful containment proof. Independent exact-head review and
+actual Windows CI remain pending; no benchmark block released or run.
+
+Five-position global veto, GUI draft, failed roots, separate news-cache and
+historical callback uncertainty, successful count0 audit AND transport FAIL/exit1,
+PR1140-1143 semantics and PARKED/fail-closed provenance remain intact.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+Independent review of ca0399f91e15bf8514222eb759eb7b98fdab5060 requested changes:
+unassigned suspended coordinator recovery in the controller-exit fixture; cleanup
+scope beginning before the unrelated leaf's first spawn; atomic JSON proof
+publication. All three are corrected, with actual-Windows controls added for
+exit-controller assignment denial (creation-bound external child handle) and
+native second-process creation failure (first leaf must retire). Failed/superseded
+review remains preserved, not presented as acceptance. Revised Linux check now
+has6 explicit Windows-only skips, still no Windows proof.
+
+First actual Windows CI41113839270/job124262890777 at ca0399f9 FAILED:
+4methods,3subtest failures/1error (21.732s). Healthy/stalled cases observed2 native
+job members per single logical coordinator; partial observed4; two-leaf cases
+reached cap5 and failed before the controller-exit proof. Reported cleanup verified;
+injected cleanup failures remained failed and required separately labelled fixture
+recovery. This receipt is preserved, not a containment acceptance. Revised-head
+CI41114114490 remains pending and superseded by the next code change, not rerun
+unchanged hoping to pass. Independent review5717557667 approved d0e1985c for CI,
+not a Windows success or benchmark release.
+
+The fixture's one-native-process-per-logical-Python assumption was unsupported.
+Next revision records only owned job member image classes/equality booleans and
+actual logical child-role membership (private atomic IPC, read after owned cleanup
+for ordinary cases); no raw process paths/IDs exported. Disposable native job cap
+is explicitly10 rather than5, allowing bounded observed launch/native descendants
+while logical work remains one coordinator/at most four workers; ALL native job
+members still require cleanup. No production/capture/request limit is changed.
+No assertion hides extra native members or treats them as unrelated. The next
+actual Windows result must establish the revised physical/logical model and full
+cleanup; no workstation performance/OS cause is inferred from counts alone.
+
+## 30 October 2026 — Actual Windows containment passed; one filesystem benchmark PREPARED ONLY
+
+Actual native OS validation, not Linux/mock inference:
+- Disposable draft PR1145, test/windows-manifest-containment-feasibility head
+  `5a464746f636e2e2d9f2b4d53d4070bbca3dfac8`, tree
+  `cd7871975fecd63288e3925527243b9504197ff8`.
+- Independent exact-control review5717670590: no blockers. Superseded review
+  ca0399f9 requested changes; review5717557667 at d0e1985c approved for CI only.
+- Changed-head CI41114616767 SUCCESS, Windows job124265563941 SUCCESS:
+  Windows Server2025, native Python3.13.3, Windows PowerShell5.1. Six methods,
+ 9.106s; scope verification succeeded; unrelated Linux/Windows suites deliberately
+ skipped. Production/scripts/offline guards/conftest/requirements unchanged.
+- Preserve failed41113839270/ca0399f9 and41114114490/d0e1985c (second6methods,
+ 21.879s,3subtest failures/1error) and all earlier receipts. No unchanged-head retry.
+
+Observed controls: healthy complete/success=true with verified zero remaining
+handles; stalled coordinator/startup/IPC reached their shared1s synthetic deadline
+and failed success while cleanup verified. Cancellation similarly fails success.
+Two logical worker leaves produced6 native members; partial one leaf produced4;
+breakaway was denied. ALL members, including extra native OTHER image classes,
+were included in the fixed10-native-member cap and cleanup. Native images differed
+from the controller executable; these limited classes/booleans do NOT establish
+why the extra processes exist or authorize excluding them. No OS/security cause
+or workstation process topology is inferred. A different topology hitting cap10
+must fail, not silently enlarge it or omit a process.
+
+Controller os._exit/OS kill-on-close test:6 creation-bound native member handles
+all signalled exit inside one shared3s synthetic allowance; unrelated private leaf
+remained alive. Exit-controller assignment failure retired its unassigned suspended
+child without resume. Actual second CreateProcess failure retired the first leaf.
+Native invalid assignment/terminate/query/wait/close calls fail. Injected terminate,
+query, wait, close failures retained cleanup_verified=false and success=false;
+fixture recovery separately verified no remaining owned handles and did not rewrite
+those failed results. Ordinary final-run cleanup observations0.0002-0.0058s are
+synthetic CI lifecycle evidence only, NOT workstation performance or a hard real-time
+OS termination guarantee. Test fixtures' startup/IPC waits simulate a stalled child;
+they do not prove that actual Windows CreateProcess or filesystem syscalls hung.
+Controller/native API failure or unverified exit/handle cleanup still fails closed.
+
+### One reviewed filesystem-only operator block — NOT EXECUTED
+
+The block below is a TEMPORARY benchmark, not a new permanent launcher/manifest
+owner, preflight, acquisition or observation. Intended existing environment/source:
+C:\tmp\pr1091-cert-env-20260923\Scripts\python.exe and C:\tmp\ro-9a2e923d\s.
+It preserves the failed root and original checkout; no fetch/checkout/index refresh,
+operator/cache publication, warm-up or automatic retry. Actual accepted commit/tree
+are checked inside the owned coordinator before and after work. The exact accepted
+digest and enumeration are extracted from immutable Git owner blob4bec6f8974062cbd68f5c88bbf9baa671a075237,
+without importing its operational module top level. ONE fresh tracked manifest pass,
+2686 tracked names, deterministic Git order, four logical workers/four outstanding
+mailboxes, bounded8192/1024byte IPC; missing/read failure cannot be promoted into a
+usable accepted-source result. SHA256 consumes actual fresh checkout bytes. Private
+hash mapping stages only; COMPLETE rename occurs only after authoritative cleanup.
+No hashes or per-file paths leave the private root.
+
+Native API/structure slice is copied VERBATIM from independently reviewed/tested
+5a464746; the temporary script adds benchmark work, not a new production owner.
+External controller monitors only native job/process handles on its enforcement
+path; potentially stalled Git/source/IPC work resides inside the job. All workers
+stop before final Git checks to respect native membership bounds. One90s measurement
+deadline (including coordinator startup/work), separate shared30s cleanup; no success
+after deadline or uncertain cleanup. Script/config setup before child creation is
+EXCLUDED and labelled; cleanup is separately verified. Native syscall termination
+cannot be promised as hard real-time: any unknown/failure remains FAIL. Kill-on-close
+is containment, not evidence that an unverified termination already completed.
+
+Expected sole shareable output:
+C:\tmp\manifest-contained-<8hex>\manifest-process-shareable.json (<=8192bytes).
+Python constructs a fixed-field aggregate; PowerShell independently checks exported
+keys/string literals/scalar types. No ZIP. All other scratch files, hashes, task and
+result bodies, staged/private manifests and code/config remain PRIVATE. A failed
+or absent report means stop and preserve evidence; no natural/preflight rerun.
+
+Interpretation: one candidate observation can measure elapsed time/counts/bytes and
+verify owned lifecycle on THIS workstation, or reveal a bounded failure. No synthetic
+CI result proves Windows source-hashing speedup, and this one pass is not a paired
+cold/warm serial comparison, a source-certification baseline or authority to change
+production. Exact manifest-equivalence/changed/missing/read-failure controls from the
+prior process assessment carry forward. Production still requires independent full
+before/after byte-content manifests; no benchmark output substitutes for them.
+
+The complete block is saved below for separate user review/execution, never run here.
+
+```powershell
+# PREPARED FILESYSTEM-ONLY BENCHMARK; ONE invocation; no automatic retry.
+# No preflight, source modification, network/acquisition, broker or observation.
+& {
+    $ErrorActionPreference = 'Stop'
+    if ($PSVersionTable.PSEdition -ne 'Desktop' -or
+        $PSVersionTable.PSVersion.Major -ne 5 -or $PSVersionTable.PSVersion.Minor -ne 1) {
+        throw 'Requires Windows PowerShell5.1 Desktop.'
+    }
+    $Python = 'C:\tmp\pr1091-cert-env-20260923\Scripts\python.exe'
+    $SourceCheckout = 'C:\tmp\ro-9a2e923d\s'
+    if (!(Test-Path -LiteralPath $Python -PathType Leaf) -or
+        !(Test-Path -LiteralPath $SourceCheckout -PathType Container)) {
+        throw 'Pinned existing environment/source missing; stop without substitution.'
+    }
+    # No fetch, checkout, cache writes, warm-up or baseline reuse.
+    $ScratchRoot = Join-Path 'C:\tmp' ('manifest-contained-' + [guid]::NewGuid().ToString('N').Substring(0,8))
+    if (Test-Path -LiteralPath $ScratchRoot) { throw 'Fresh root collision; no retry.' }
+    New-Item -ItemType Directory -Path $ScratchRoot | Out-Null
+    $utf8 = New-Object System.Text.UTF8Encoding($false)
+    [IO.File]::WriteAllText((Join-Path $ScratchRoot 'config.PRIVATE.json'),
+        (@{source=$SourceCheckout} | ConvertTo-Json -Compress), $utf8)
+    $payload = @'
+# PREPARED ONLY; filesystem-only, one invocation, no operational imports.
+import ast, ctypes, hashlib, json, os, subprocess, sys, time
+from ctypes import wintypes as W
+from pathlib import Path
+HERE=Path(__file__).resolve()
+MAX_MEMBERS=10
+class STARTUPINFO(ctypes.Structure):
+    _fields_ = [('cb', W.DWORD), ('lpReserved', W.LPWSTR), ('lpDesktop', W.LPWSTR),
+                ('lpTitle', W.LPWSTR), ('dwX', W.DWORD), ('dwY', W.DWORD),
+                ('dwXSize', W.DWORD), ('dwYSize', W.DWORD), ('dwXCountChars', W.DWORD),
+                ('dwYCountChars', W.DWORD), ('dwFillAttribute', W.DWORD),
+                ('dwFlags', W.DWORD), ('wShowWindow', W.WORD), ('cbReserved2', W.WORD),
+                ('lpReserved2', ctypes.POINTER(W.BYTE)), ('hStdInput', W.HANDLE),
+                ('hStdOutput', W.HANDLE), ('hStdError', W.HANDLE)]
+
+
+class PROCESSINFO(ctypes.Structure):
+    _fields_ = [('hProcess', W.HANDLE), ('hThread', W.HANDLE),
+                ('dwProcessId', W.DWORD), ('dwThreadId', W.DWORD)]
+
+
+class LIMITS(ctypes.Structure):
+    _fields_ = [('PerProcessUserTimeLimit', ctypes.c_int64), ('PerJobUserTimeLimit', ctypes.c_int64),
+                ('LimitFlags', W.DWORD), ('MinimumWorkingSetSize', ctypes.c_size_t),
+                ('MaximumWorkingSetSize', ctypes.c_size_t), ('ActiveProcessLimit', W.DWORD),
+                ('Affinity', ctypes.c_size_t), ('PriorityClass', W.DWORD), ('SchedulingClass', W.DWORD)]
+
+
+class IOCOUNTERS(ctypes.Structure):
+    _fields_ = [(n, ctypes.c_uint64) for n in ('ReadOperationCount', 'WriteOperationCount',
+                'OtherOperationCount', 'ReadTransferCount', 'WriteTransferCount', 'OtherTransferCount')]
+
+
+class EXTENDED(ctypes.Structure):
+    _fields_ = [('BasicLimitInformation', LIMITS), ('IoInfo', IOCOUNTERS),
+                ('ProcessMemoryLimit', ctypes.c_size_t), ('JobMemoryLimit', ctypes.c_size_t),
+                ('PeakProcessMemoryUsed', ctypes.c_size_t), ('PeakJobMemoryUsed', ctypes.c_size_t)]
+
+
+class PIDLIST(ctypes.Structure):
+    _fields_ = [('assigned', W.DWORD), ('count', W.DWORD), ('pids', ctypes.c_size_t * MAX_MEMBERS)]
+
+
+class API:
+    """Retained native handles, following process_identity's wait/exit pattern."""
+    def __init__(self):
+        self.k = ctypes.WinDLL('kernel32', use_last_error=True)
+        specs = {
+            'CreateJobObjectW': ([ctypes.c_void_p, W.LPCWSTR], W.HANDLE),
+            'SetInformationJobObject': ([W.HANDLE, ctypes.c_int, ctypes.c_void_p, W.DWORD], W.BOOL),
+            'QueryInformationJobObject': ([W.HANDLE, ctypes.c_int, ctypes.c_void_p, W.DWORD, ctypes.c_void_p], W.BOOL),
+            'AssignProcessToJobObject': ([W.HANDLE, W.HANDLE], W.BOOL),
+            'IsProcessInJob': ([W.HANDLE, W.HANDLE, ctypes.POINTER(W.BOOL)], W.BOOL),
+            'TerminateJobObject': ([W.HANDLE, W.UINT], W.BOOL),
+            'CreateProcessW': ([W.LPCWSTR, W.LPWSTR, ctypes.c_void_p, ctypes.c_void_p, W.BOOL, W.DWORD, ctypes.c_void_p, W.LPCWSTR, ctypes.POINTER(STARTUPINFO), ctypes.POINTER(PROCESSINFO)], W.BOOL),
+            'ResumeThread': ([W.HANDLE], W.DWORD),
+            'OpenProcess': ([W.DWORD, W.BOOL, W.DWORD], W.HANDLE),
+            'QueryFullProcessImageNameW': ([W.HANDLE, W.DWORD, W.LPWSTR, ctypes.POINTER(W.DWORD)], W.BOOL),
+            'WaitForSingleObject': ([W.HANDLE, W.DWORD], W.DWORD),
+            'GetExitCodeProcess': ([W.HANDLE, ctypes.POINTER(W.DWORD)], W.BOOL),
+            'GetProcessTimes': ([W.HANDLE] + [ctypes.POINTER(W.FILETIME)] * 4, W.BOOL),
+            'TerminateProcess': ([W.HANDLE, W.UINT], W.BOOL),
+            'CloseHandle': ([W.HANDLE], W.BOOL),
+        }
+        for name, (arguments, result) in specs.items():
+            fn = getattr(self.k, name); fn.argtypes = arguments; fn.restype = result
+        self.handles = set()
+        self.fault = None
+
+    def fail(self, operation):
+        if self.fault == operation:
+            self.fault = None  # one injected denial; recovery never rewrites result
+            raise OSError('INJECTED_' + operation)
+
+    def checked(self, result):
+        if not result: raise ctypes.WinError(ctypes.get_last_error())
+        return result
+
+    def own(self, handle):
+        self.checked(handle); self.handles.add(int(handle)); return int(handle)
+
+    def close(self, handle):
+        self.fail('close')
+        self.checked(self.k.CloseHandle(handle)); self.handles.remove(handle)
+
+    def create_job(self):
+        job = self.own(self.k.CreateJobObjectW(None, None))
+        limits = EXTENDED()
+        limits.BasicLimitInformation.LimitFlags = 0x2000 | 0x8  # KILL_ON_JOB_CLOSE, ACTIVE_PROCESS
+        limits.BasicLimitInformation.ActiveProcessLimit = MAX_MEMBERS
+        self.checked(self.k.SetInformationJobObject(job, 9, ctypes.byref(limits), ctypes.sizeof(limits)))
+        return job
+
+    def spawn(self, root, role, mode, *, suspended=True, breakaway=False):
+        command = subprocess.list2cmdline([sys.executable, '-I', '-S', '-B', '-u', str(HERE), '--child', str(root), role, mode])
+        startup = STARTUPINFO(); startup.cb = ctypes.sizeof(startup)
+        info = PROCESSINFO()
+        self.checked(self.k.CreateProcessW(sys.executable, ctypes.create_unicode_buffer(command), None, None,
+                     False, 0x08000000 | (0x4 if suspended else 0) | (0x01000000 if breakaway else 0), None, str(root), ctypes.byref(startup), ctypes.byref(info)))
+        # Registration has no I/O; retain process AND primary thread immediately.
+        return {'process': self.own(info.hProcess), 'thread': self.own(info.hThread), 'pid': info.dwProcessId, 'assigned': False}
+
+    def assign(self, job, process):
+        self.fail('assign')
+        self.checked(self.k.AssignProcessToJobObject(job, process['process']))
+        process['assigned'] = True
+        if not self.member(job, process['process']): raise RuntimeError('MEMBERSHIP_UNKNOWN')
+
+    def resume(self, process):
+        if not process['assigned']: raise RuntimeError('Never resume before assignment')
+        if self.k.ResumeThread(process['thread']) == 0xFFFFFFFF: raise ctypes.WinError(ctypes.get_last_error())
+
+    def member(self, job, process):
+        present = W.BOOL()
+        self.checked(self.k.IsProcessInJob(process, job, ctypes.byref(present)))
+        return bool(present.value)
+
+    def members(self, job):
+        self.fail('query')
+        info = PIDLIST()
+        self.checked(self.k.QueryInformationJobObject(job, 3, ctypes.byref(info), ctypes.sizeof(info), None))
+        if info.count > MAX_MEMBERS or info.assigned != info.count: raise RuntimeError('MEMBERSHIP_INCOMPLETE')
+        return list(info.pids[:info.count])
+
+    def open(self, pid):
+        return self.own(self.k.OpenProcess(0x1000 | 0x100000 | 0x1, False, pid))
+
+    def image_kind(self, handle):
+        length=W.DWORD(32768); text=ctypes.create_unicode_buffer(length.value)
+        self.checked(self.k.QueryFullProcessImageNameW(handle,0,text,ctypes.byref(length)))
+        image=Path(text.value)
+        return {'image_class':'PYTHON' if image.name.lower() in ('python.exe','python3.exe','pythonw.exe') else 'OTHER', 'same_as_controller_executable':os.path.normcase(str(image))==os.path.normcase(sys.executable)}
+
+    def token(self, handle):
+        fields = [W.FILETIME() for _ in range(4)]
+        self.checked(self.k.GetProcessTimes(handle, *(ctypes.byref(f) for f in fields)))
+        return (fields[0].dwHighDateTime << 32) | fields[0].dwLowDateTime
+
+    def wait(self, handle, deadline):
+        self.fail('wait')
+        remaining = max(0., deadline-time.monotonic())
+        value = self.k.WaitForSingleObject(handle, int(min(remaining*1000, 0xFFFFFFFE)))
+        if value == 258: return False
+        if value != 0: raise ctypes.WinError(ctypes.get_last_error())
+        code = W.DWORD(); self.checked(self.k.GetExitCodeProcess(handle, ctypes.byref(code)))
+        return True
+
+    def exit_code(self, handle):
+        code = W.DWORD(); self.checked(self.k.GetExitCodeProcess(handle,ctypes.byref(code)))
+        return code.value
+
+    def terminate(self, job):
+        self.fail('terminate')
+        self.checked(self.k.TerminateJobObject(job, 97))
+
+
+# Temporary benchmark only. API above is copied verbatim from reviewed5a464746.
+PIN='a501c88bcc926bef87875f6352f210b19b6e438b'
+TREE='e66b6daa84f04ec95dce1155fde2a9a4e156cf14'
+OWNER='4bec6f8974062cbd68f5c88bbf9baa671a075237'
+ROOT=Path(sys.argv[2] if sys.argv[1]=='--child' else sys.argv[1]).resolve()
+CONFIG=json.loads((ROOT/'config.PRIVATE.json').read_text())
+SOURCE=Path(CONFIG['source'])
+
+def guard(event,args):
+    if event.startswith('socket.') or event in ('os.system','os.fork'):
+        raise RuntimeError('FILESYSTEM_ONLY')
+    if event=='import' and str(args[0]).split('.')[0] in {'src','ibapi','ib_insync','requests','curl_cffi','yfinance'}:
+        raise RuntimeError('NO_OPERATIONAL_IMPORTS')
+    if event=='ctypes.dlopen' and str(args[0]).lower()!='kernel32':
+        raise RuntimeError('NO_NATIVE_TRANSFER')
+    if event=='subprocess.Popen':
+        allowed=[['git','ls-files','-z'],['git','show',PIN+':scripts/certification/natural_readonly_operator.py']]
+        for command in (['rev-parse','HEAD'],['rev-parse',PIN+'^{tree}'],['status','--porcelain=v1','--untracked-files=all']):
+            allowed.append(['git','--no-optional-locks','-c','core.fsmonitor=false',*command])
+        argv=args[1]
+        okay=argv in allowed if isinstance(argv,(list,tuple)) else argv in [subprocess.list2cmdline(a) for a in allowed]
+        if not okay or Path(args[2]).resolve()!=SOURCE: raise RuntimeError('ONLY_EXACT_LOCAL_GIT')
+sys.addaudithook(guard)
+os.environ['GIT_OPTIONAL_LOCKS']='0'
+
+
+def small(path,cap):
+    with path.open('rb') as stream: raw=stream.read(cap+1)
+    if len(raw)>cap: raise RuntimeError('IPC_LIMIT')
+    return json.loads(raw)
+
+
+def put(path,data,cap):
+    raw=json.dumps(data,ensure_ascii=True).encode()
+    if len(raw)>cap: raise RuntimeError('IPC_LIMIT')
+    temporary=path.with_suffix('.tmp')
+    temporary.write_bytes(raw); temporary.replace(path)
+
+
+def authority():
+    source=subprocess.check_output(['git','show',PIN+':scripts/certification/natural_readonly_operator.py'],cwd=SOURCE)
+    blob=hashlib.sha1(b'blob '+str(len(source)).encode()+b'\0'+source).hexdigest()
+    if blob!=OWNER: raise RuntimeError('OWNER_IDENTITY')
+    nodes=ast.parse(source).body
+    digest=next(n for n in nodes if isinstance(n,ast.FunctionDef) and n.name=='digest')
+    owner=next(n for n in nodes if isinstance(n,ast.FunctionDef) and n.name=='source_manifest')
+    enumeration=next(n for n in owner.body if isinstance(n,ast.Assign) and isinstance(n.targets[0],ast.Name) and n.targets[0].id=='paths')
+    return ast.unparse(digest),ast.unparse(enumeration)
+
+
+def identity():
+    def git(*args):
+        return subprocess.check_output(['git','--no-optional-locks','-c','core.fsmonitor=false',*args],cwd=SOURCE).decode().strip()
+    if git('rev-parse','HEAD')!=PIN or git('rev-parse',PIN+'^{tree}')!=TREE or git('status','--porcelain=v1','--untracked-files=all'):
+        raise RuntimeError('SOURCE_IDENTITY')
+
+
+def worker(slot):
+    namespace={'hashlib':hashlib}
+    exec(compile((ROOT/'digest.PRIVATE.py').read_text(),'<accepted-digest>','exec'),namespace)
+    while not (ROOT/'stop-workers').exists():
+        request=slot/'task.json'
+        if not request.exists(): time.sleep(.002); continue
+        task=small(request,8192); request.unlink()
+        class Target:
+            size=0
+            def is_file(self): return Path(task['path']).is_file()
+            def read_bytes(self):
+                data=Path(task['path']).read_bytes(); self.size=len(data); return data
+        target=Target()
+        try:
+            value=namespace['digest'](target)
+            result={'index':task['index'],'ok':True,'value':value,'bytes':target.size}
+        except OSError:
+            result={'index':task['index'],'ok':False}
+        put(slot/'result.json',result,1024)
+
+
+def coordinator():
+    identity(); code,enumeration=authority()
+    (ROOT/'digest.PRIVATE.py').write_text(code,encoding='utf-8')
+    started=time.monotonic()
+    scope={'subprocess':subprocess,'repo':SOURCE}
+    exec(compile(enumeration,'<accepted-enumeration>','exec'),scope)
+    names=[n for n in scope['paths'] if n]
+    # Accepted tracked coverage; reject unexpected expansion, never skip it.
+    if len(names)!=2686 or len(names)!=len(set(names)): raise RuntimeError('TRACKED_COVERAGE')
+    api=API(); workers=[]; slots=[]; busy={}; values={}; byte_count=0; peak=0
+    for index in range(4):
+        slot=ROOT/('worker'+str(index)); slot.mkdir(); slots.append(slot)
+        p=api.spawn(ROOT,'worker',str(index),suspended=False)
+        workers.append(p)
+    cursor=0
+    while cursor<len(names) or busy:
+        for index,(p,slot) in enumerate(zip(workers,slots)):
+            if api.wait(p['process'],time.monotonic()): raise RuntimeError('WORKER_EXIT')
+            if index in busy and (slot/'result.json').exists():
+                result=small(slot/'result.json',1024); (slot/'result.json').unlink()
+                wanted=busy.pop(index)
+                if result.get('index')!=wanted or result.get('ok') is not True: raise RuntimeError('HASH_UNAVAILABLE')
+                value=result.get('value')
+                if value is not None and (not isinstance(value,str) or len(value)!=64 or any(c not in '0123456789abcdef' for c in value)): raise RuntimeError('HASH_SCHEMA')
+                size=result.get('bytes')
+                if type(size) is not int or size<0: raise RuntimeError('BYTE_SCHEMA')
+                values[wanted]=value; byte_count+=size
+            if index not in busy and cursor<len(names):
+                put(slot/'task.json',{'index':cursor,'path':str(SOURCE/names[cursor])},8192)
+                busy[index]=cursor; cursor+=1
+        peak=max(peak,len(busy)); time.sleep(.002)
+    (ROOT/'stop-workers').write_text('1')
+    # Retire workers before final Git calls: avoid extra live work/native members.
+    # External controller independently kills the entire job at its deadline.
+    for p in workers:
+        while not api.wait(p['process'],time.monotonic()+.02): pass
+        if api.exit_code(p['process'])!=0: raise RuntimeError('WORKER_FAILED')
+    for h in list(api.handles): api.close(h)
+    identity()
+    manifest={name:values[index] for index,name in enumerate(names)}
+    # STAGED private output is never reusable/published as a successful baseline.
+    put(ROOT/'manifest.STAGED.PRIVATE.json',manifest,2097152)
+    put(ROOT/'candidate.PRIVATE.json',{'file_count':len(names),'bytes':byte_count,
+        'missing':sum(v is None for v in manifest.values()),'workers':4,'peak_pending':peak,
+        'candidate_seconds':time.monotonic()-started,'source_identity':True},4096)
+
+
+def controller():
+    api=API(); job=None; p=None; owned={}; status='ERROR'; clean=True; peak=0
+    began=time.monotonic(); deadline=began+90
+    try:
+        job=api.create_job()
+        p=api.spawn(ROOT,'coordinator','benchmark')
+        owned[p['pid']]=p['process']
+        api.assign(job,p); api.resume(p)
+        while True:
+            if time.monotonic()>=deadline: status='DEADLINE'; break
+            if api.wait(p['process'],time.monotonic()) and api.exit_code(p['process'])!=0: raise RuntimeError('CHILD_FAILED')
+            ids=api.members(job); peak=max(peak,len(ids))
+            for pid in ids:
+                if pid not in owned:
+                    h=api.open(pid)
+                    if not api.member(job,h): raise RuntimeError('MEMBERSHIP')
+                    owned[pid]=h
+            if not ids:
+                if not api.wait(p['process'],deadline) or api.exit_code(p['process'])!=0: raise RuntimeError('CHILD_FAILED')
+                status='COMPLETE'; break
+            time.sleep(.005)
+    except BaseException:
+        status='ERROR'
+    finally:
+        cleanup_start=time.monotonic(); cleanup_deadline=cleanup_start+30
+        try:
+            if p and not p['assigned']: api.checked(api.k.TerminateProcess(p['process'],98))
+            if job:
+                api.terminate(job)
+                while api.members(job):
+                    if time.monotonic()>=cleanup_deadline: raise RuntimeError('JOB_EXIT_UNVERIFIED')
+                    time.sleep(.005)
+            for h in owned.values():
+                if not api.wait(h,cleanup_deadline): raise RuntimeError('PROCESS_EXIT_UNVERIFIED')
+        except BaseException:
+            clean=False
+        # Preserve UNKNOWN on failed verification; no fixture rescue in benchmark.
+        # The last handle's OS close retains kill-on-close safety, not exit proof.
+        for h in [h for h in api.handles if h!=job]+([job] if job else []):
+            try: api.close(h)
+            except BaseException: clean=False
+        if api.handles or time.monotonic()>cleanup_deadline: clean=False
+        elapsed=time.monotonic()-began
+        result={'schema':'manifest-process-benchmark.v1','pin':PIN,'tree':TREE,
+            'status':status,'measurement_budget_seconds':90,'cleanup_budget_seconds':30,
+            'measurement_and_cleanup_seconds':elapsed,'cleanup_verified':clean,
+            'native_member_cap':MAX_MEMBERS,'peak_native_members':peak,
+            'setup_excluded':True,'performance_speedup_established':False,
+            'reusable_source_baseline':False,'PAPER_READY':'NO','PAPER_READINESS_GATE':'FAIL'}
+        if status=='COMPLETE' and clean and elapsed<=90:
+            candidate=small(ROOT/'candidate.PRIVATE.json',4096)
+            if set(candidate)!={'file_count','bytes','missing','workers','peak_pending','candidate_seconds','source_identity'}:
+                raise RuntimeError('REPORT_SCHEMA')
+            if (candidate['file_count']!=2686 or candidate['workers']!=4 or not 0<=candidate['peak_pending']<=4 or
+                candidate['source_identity'] is not True or candidate['missing']!=0 or
+                type(candidate['bytes']) is not int or candidate['bytes']<0 or
+                not isinstance(candidate['candidate_seconds'],(int,float)) or not 0<=candidate['candidate_seconds']<=90):
+                raise RuntimeError('REPORT_INVALID')
+            result.update(candidate)
+            (ROOT/'manifest.STAGED.PRIVATE.json').replace(ROOT/'manifest.COMPLETE.PRIVATE.json')
+        else:
+            result['status']='FAIL'
+        # Whitelisted aggregate only; no filenames, mapping/hashes, IDs, handles,
+        # image paths, exception strings, stdout/stderr or other scratch artifacts.
+        put(ROOT/'manifest-process-shareable.json',result,8192)
+        print('COMPLETE' if result['status']=='COMPLETE' else 'FAIL_NO_RETRY',flush=True)
+    return 0 if result['status']=='COMPLETE' else 1
+
+
+if __name__=='__main__':
+    try:
+        if os.name!='nt' or sys.version_info[:3]!=(3,13,3): raise RuntimeError('ENVIRONMENT')
+        if sys.argv[1]=='--child':
+            if sys.argv[3]=='coordinator': coordinator()
+            elif sys.argv[3]=='worker': worker(ROOT/('worker'+str(int(sys.argv[4]))))
+            else: raise RuntimeError('ROLE')
+        else: raise SystemExit(controller())
+    except Exception:
+        # Fixed text only; any private staged files remain unusable on failure.
+        print('FAIL_NO_RETRY; no raw exception exported',flush=True)
+        raise SystemExit(1)
+'@
+    $Driver = Join-Path $ScratchRoot 'benchmark.PRIVATE.py'
+    [IO.File]::WriteAllText($Driver, $payload, $utf8)
+    Write-Host 'ONE filesystem-only pass, 4 workers/4 outstanding; 90s shared measurement + 30s shared owned cleanup.'
+    Write-Host 'Private scratch retained; never upload the root, driver, task/results or manifest.'
+    & $Python -I -S -B -u $Driver $ScratchRoot
+    $measurementExit = $LASTEXITCODE
+    $Shareable = Join-Path $ScratchRoot 'manifest-process-shareable.json'
+    if (!(Test-Path -LiteralPath $Shareable -PathType Leaf)) {
+        throw "No verified shareable result; NO RETRY. Private root: $ScratchRoot"
+    }
+    if ((Get-Item -LiteralPath $Shareable).Length -gt 8192) { throw 'Aggregate privacy bound failed; do not share.' }
+    $reportData = [IO.File]::ReadAllText($Shareable) | ConvertFrom-Json
+    $allowedNames = @('schema','pin','tree','status','measurement_budget_seconds','cleanup_budget_seconds',
+        'measurement_and_cleanup_seconds','cleanup_verified','native_member_cap','peak_native_members',
+        'setup_excluded','performance_speedup_established','reusable_source_baseline','PAPER_READY','PAPER_READINESS_GATE',
+        'file_count','bytes','missing','workers','peak_pending','candidate_seconds','source_identity')
+    foreach ($field in $reportData.PSObject.Properties.Name) {
+        if ($allowedNames -cnotcontains $field) { throw 'Unexpected exported field; do not share.' }
+    }
+    if ($reportData.schema -cne 'manifest-process-benchmark.v1' -or
+        $reportData.pin -cne 'a501c88bcc926bef87875f6352f210b19b6e438b' -or
+        $reportData.tree -cne 'e66b6daa84f04ec95dce1155fde2a9a4e156cf14' -or
+        @('COMPLETE','FAIL') -cnotcontains $reportData.status -or
+        $reportData.PAPER_READY -cne 'NO' -or $reportData.PAPER_READINESS_GATE -cne 'FAIL') {
+        throw 'Unexpected exported string; do not share.'
+    }
+    $stringFields = @('schema','pin','tree','status','PAPER_READY','PAPER_READINESS_GATE')
+    foreach ($property in $reportData.PSObject.Properties) {
+        if ($stringFields -ccontains $property.Name) { continue }
+        if ($null -eq $property.Value -or
+            ($property.Value -isnot [bool] -and $property.Value -isnot [int] -and
+             $property.Value -isnot [long] -and $property.Value -isnot [double] -and
+             $property.Value -isnot [decimal])) { throw 'Nonaggregate output; do not share.' }
+    }
+    Write-Host ("Privacy-verified aggregate ONLY: " + $Shareable)
+    Write-Host 'Do not ZIP or share any other scratch artifact; no repeat/warm retry.'
+    if ($measurementExit -ne 0) { throw 'Measurement failed; retain evidence and stop. No natural preflight/observation authorized.' }
+}
+```
+
+Prepared-block independent agent review: no blocking findings, exact native API
+slice/embedded payload verified; Python AST syntax only, NOT benchmark execution
+or an actual full-block PowerShell run. Frozen artifact SHA256:
+benchmark.py c1598d74acc91111b3854a7a30bd2013afdfd3933bac77f2c86a90fa27a16eca;
+benchmark.ps1 8226316440f5b1dac0b25b79a3b8b0a8e18a35012c375e4c855335d890089b3d.
+Setup/Git checks may warm metadata; setup exclusion and absence of a serial/cold
+comparison remain explicit. No performance speedup or production optimization is
+certified. Local checks: exact API slice comparison, exact payload/block embedding,
+AST parse, saved checkpoint prefix preservation, unchanged production/control files
+and whitespace. No workstation block executed; no repeated unrelated suite.
+
+ONE next action: user reviews and runs the single prepared filesystem-only block
+ONCE, then returns ONLY manifest-process-shareable.json. Completion criterion:
+complete fresh tracked mapping, source identity, <=4outstanding and verified empty
+owned job/process exits/handle closure within90s+30s, with honest aggregate elapsed
+measurement (or explicit failure). Any failure means preserve scratch and STOP;
+no automatic retry, preflight or observation. A later production change still
+requires its own demonstrated justification/review/CI; this is not that change.
+
+This results/preparation update is saved separately from PR1145's tested control
+head; only the SAME checkpoint differs from5a464746. PR1145 remains DRAFT/unmerged;
+accepted main/runtime remainsa501c88bcc926bef87875f6352f210b19b6e438b/treee66b6daa84f04ec95dce1155fde2a9a4e156cf14.
+No automatic merge or runtime action. Preserve failed roots, five-position global
+ownership veto, GUI draft, all historical/superseded receipts, separate news-cache
+uncertainty, historical callback uncertainty and PARKED/fail-closed provenance.
+No source benchmark, preflight, acquisition, broker inquiry, observation, holdings
+action, SDK/security-setting change, timeout extension, gate relaxation or trading.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## 30 October 2026 — Early contained benchmark FAIL; full-path reproduction pending
+
+Continues e284081a443c1cfa210794045d9b24a61dbef52b within existing draft PR1145.
+Main remainsa501c88bcc926bef87875f6352f210b19b6e438b/treee66b6daa84f04ec95dce1155fde2a9a4e156cf14;
+AGENTS search none; DEPRECATION_LEDGER read/unchanged. Failed/private root
+C:\tmp\manifest-contained-bc3e6f77 preserved; no private manifest/task/result/root
+requested. Uploaded aggregate SHA256
+7590fda34356e4f67e6b551f2f4f2e98ae61012f07e6991b4c0ebdbd39b034b7,
+515bytes, confirms FAIL,0.7115019001066685s,cleanup_verified=true,cap10,peak10,
+accepted pin/tree, no completed manifest/performance result. No additional terminal
+transcript beyond the stated receipt was supplied in this message. The aggregate
+lacks failure-stage/error data: cap saturation alone does NOT prove the precise
+archived error. No performance or workstation OS/security-cause inference.
+
+Validation gap acknowledged: CI41114616767 exercised the SEPARATE containment
+fixture (two logical leaf children), not the released four-worker benchmark's
+complete PowerShell/embedded Python entrypoint or its environment launcher/Git
+interactions. Static block review was insufficient to establish that complete
+topology. Prior successful containment remains valid only for its tested scope;
+NOT retrospectively an integrated benchmark pass. The old block above is now
+SUPERSEDED/DO NOT RUN; preserve its text/receipt/hash unchanged.
+
+### Corrected full-path benchmark candidate V2
+
+NOT RELEASED pending full Windows path validation/review. Fixed native cap10,
+logical workers/window reduced to2 (no cap enlargement), same exact digest,
+enumeration/mapping and90s/30s authority. Allowlisted numeric failure-stage,
+winerror category, subprocess code and logical worker counts added;0 means absent/
+unclassified, never a success assertion. Errors/counters are not hidden. Actual
+Windows tests bind ONLY accepted-pin/tree/path DATA to a synthetic2686-file Git
+fixture containing the identical owner blob, and run the entire PowerShell block
+and embedded Python through an actual Windows environment launcher. Test-only
+four-worker diagnostic variant isolates worker-count effect; no production owner,
+benchmark scheduler function or privacy guard is mocked. All synthetic file
+contents/mappings remain private; compare returned synthetic hashes offline inside
+fixture. Additional outer test job cap16 contains host PowerShell/controller plus
+the INNER benchmark cap10; this is test-fixture containment, not a change to the
+benchmark's unchanged10-member bound. No workstation benchmark/preflight run here.
+
+```powershell
+# PREPARED FILESYSTEM-ONLY BENCHMARK; ONE invocation; no automatic retry.
+# No preflight, source modification, network/acquisition, broker or observation.
+& {
+    $ErrorActionPreference = 'Stop'
+    if ($PSVersionTable.PSEdition -ne 'Desktop' -or
+        $PSVersionTable.PSVersion.Major -ne 5 -or $PSVersionTable.PSVersion.Minor -ne 1) {
+        throw 'Requires Windows PowerShell5.1 Desktop.'
+    }
+    $Python = 'C:\tmp\pr1091-cert-env-20260923\Scripts\python.exe'
+    $SourceCheckout = 'C:\tmp\ro-9a2e923d\s'
+    if (!(Test-Path -LiteralPath $Python -PathType Leaf) -or
+        !(Test-Path -LiteralPath $SourceCheckout -PathType Container)) {
+        throw 'Pinned existing environment/source missing; stop without substitution.'
+    }
+    # No fetch, checkout, cache writes, warm-up or baseline reuse.
+    $ScratchRoot = Join-Path 'C:\tmp' ('manifest-contained-' + [guid]::NewGuid().ToString('N').Substring(0,8))
+    if (Test-Path -LiteralPath $ScratchRoot) { throw 'Fresh root collision; no retry.' }
+    New-Item -ItemType Directory -Path $ScratchRoot | Out-Null
+    $utf8 = New-Object System.Text.UTF8Encoding($false)
+    [IO.File]::WriteAllText((Join-Path $ScratchRoot 'config.PRIVATE.json'),
+        (@{source=$SourceCheckout} | ConvertTo-Json -Compress), $utf8)
+    $payload = @'
+# PREPARED ONLY; filesystem-only, one invocation, no operational imports.
+import ast, ctypes, hashlib, json, os, subprocess, sys, time
+from ctypes import wintypes as W
+from pathlib import Path
+HERE=Path(__file__).resolve()
+MAX_MEMBERS=10
+class STARTUPINFO(ctypes.Structure):
+    _fields_ = [('cb', W.DWORD), ('lpReserved', W.LPWSTR), ('lpDesktop', W.LPWSTR),
+                ('lpTitle', W.LPWSTR), ('dwX', W.DWORD), ('dwY', W.DWORD),
+                ('dwXSize', W.DWORD), ('dwYSize', W.DWORD), ('dwXCountChars', W.DWORD),
+                ('dwYCountChars', W.DWORD), ('dwFillAttribute', W.DWORD),
+                ('dwFlags', W.DWORD), ('wShowWindow', W.WORD), ('cbReserved2', W.WORD),
+                ('lpReserved2', ctypes.POINTER(W.BYTE)), ('hStdInput', W.HANDLE),
+                ('hStdOutput', W.HANDLE), ('hStdError', W.HANDLE)]
+
+
+class PROCESSINFO(ctypes.Structure):
+    _fields_ = [('hProcess', W.HANDLE), ('hThread', W.HANDLE),
+                ('dwProcessId', W.DWORD), ('dwThreadId', W.DWORD)]
+
+
+class LIMITS(ctypes.Structure):
+    _fields_ = [('PerProcessUserTimeLimit', ctypes.c_int64), ('PerJobUserTimeLimit', ctypes.c_int64),
+                ('LimitFlags', W.DWORD), ('MinimumWorkingSetSize', ctypes.c_size_t),
+                ('MaximumWorkingSetSize', ctypes.c_size_t), ('ActiveProcessLimit', W.DWORD),
+                ('Affinity', ctypes.c_size_t), ('PriorityClass', W.DWORD), ('SchedulingClass', W.DWORD)]
+
+
+class IOCOUNTERS(ctypes.Structure):
+    _fields_ = [(n, ctypes.c_uint64) for n in ('ReadOperationCount', 'WriteOperationCount',
+                'OtherOperationCount', 'ReadTransferCount', 'WriteTransferCount', 'OtherTransferCount')]
+
+
+class EXTENDED(ctypes.Structure):
+    _fields_ = [('BasicLimitInformation', LIMITS), ('IoInfo', IOCOUNTERS),
+                ('ProcessMemoryLimit', ctypes.c_size_t), ('JobMemoryLimit', ctypes.c_size_t),
+                ('PeakProcessMemoryUsed', ctypes.c_size_t), ('PeakJobMemoryUsed', ctypes.c_size_t)]
+
+
+class PIDLIST(ctypes.Structure):
+    _fields_ = [('assigned', W.DWORD), ('count', W.DWORD), ('pids', ctypes.c_size_t * MAX_MEMBERS)]
+
+
+class API:
+    """Retained native handles, following process_identity's wait/exit pattern."""
+    def __init__(self):
+        self.k = ctypes.WinDLL('kernel32', use_last_error=True)
+        specs = {
+            'CreateJobObjectW': ([ctypes.c_void_p, W.LPCWSTR], W.HANDLE),
+            'SetInformationJobObject': ([W.HANDLE, ctypes.c_int, ctypes.c_void_p, W.DWORD], W.BOOL),
+            'QueryInformationJobObject': ([W.HANDLE, ctypes.c_int, ctypes.c_void_p, W.DWORD, ctypes.c_void_p], W.BOOL),
+            'AssignProcessToJobObject': ([W.HANDLE, W.HANDLE], W.BOOL),
+            'IsProcessInJob': ([W.HANDLE, W.HANDLE, ctypes.POINTER(W.BOOL)], W.BOOL),
+            'TerminateJobObject': ([W.HANDLE, W.UINT], W.BOOL),
+            'CreateProcessW': ([W.LPCWSTR, W.LPWSTR, ctypes.c_void_p, ctypes.c_void_p, W.BOOL, W.DWORD, ctypes.c_void_p, W.LPCWSTR, ctypes.POINTER(STARTUPINFO), ctypes.POINTER(PROCESSINFO)], W.BOOL),
+            'ResumeThread': ([W.HANDLE], W.DWORD),
+            'OpenProcess': ([W.DWORD, W.BOOL, W.DWORD], W.HANDLE),
+            'QueryFullProcessImageNameW': ([W.HANDLE, W.DWORD, W.LPWSTR, ctypes.POINTER(W.DWORD)], W.BOOL),
+            'WaitForSingleObject': ([W.HANDLE, W.DWORD], W.DWORD),
+            'GetExitCodeProcess': ([W.HANDLE, ctypes.POINTER(W.DWORD)], W.BOOL),
+            'GetProcessTimes': ([W.HANDLE] + [ctypes.POINTER(W.FILETIME)] * 4, W.BOOL),
+            'TerminateProcess': ([W.HANDLE, W.UINT], W.BOOL),
+            'CloseHandle': ([W.HANDLE], W.BOOL),
+        }
+        for name, (arguments, result) in specs.items():
+            fn = getattr(self.k, name); fn.argtypes = arguments; fn.restype = result
+        self.handles = set()
+        self.fault = None
+
+    def fail(self, operation):
+        if self.fault == operation:
+            self.fault = None  # one injected denial; recovery never rewrites result
+            raise OSError('INJECTED_' + operation)
+
+    def checked(self, result):
+        if not result: raise ctypes.WinError(ctypes.get_last_error())
+        return result
+
+    def own(self, handle):
+        self.checked(handle); self.handles.add(int(handle)); return int(handle)
+
+    def close(self, handle):
+        self.fail('close')
+        self.checked(self.k.CloseHandle(handle)); self.handles.remove(handle)
+
+    def create_job(self):
+        job = self.own(self.k.CreateJobObjectW(None, None))
+        limits = EXTENDED()
+        limits.BasicLimitInformation.LimitFlags = 0x2000 | 0x8  # KILL_ON_JOB_CLOSE, ACTIVE_PROCESS
+        limits.BasicLimitInformation.ActiveProcessLimit = MAX_MEMBERS
+        self.checked(self.k.SetInformationJobObject(job, 9, ctypes.byref(limits), ctypes.sizeof(limits)))
+        return job
+
+    def spawn(self, root, role, mode, *, suspended=True, breakaway=False):
+        command = subprocess.list2cmdline([sys.executable, '-I', '-S', '-B', '-u', str(HERE), '--child', str(root), role, mode])
+        startup = STARTUPINFO(); startup.cb = ctypes.sizeof(startup)
+        info = PROCESSINFO()
+        self.checked(self.k.CreateProcessW(sys.executable, ctypes.create_unicode_buffer(command), None, None,
+                     False, 0x08000000 | (0x4 if suspended else 0) | (0x01000000 if breakaway else 0), None, str(root), ctypes.byref(startup), ctypes.byref(info)))
+        # Registration has no I/O; retain process AND primary thread immediately.
+        return {'process': self.own(info.hProcess), 'thread': self.own(info.hThread), 'pid': info.dwProcessId, 'assigned': False}
+
+    def assign(self, job, process):
+        self.fail('assign')
+        self.checked(self.k.AssignProcessToJobObject(job, process['process']))
+        process['assigned'] = True
+        if not self.member(job, process['process']): raise RuntimeError('MEMBERSHIP_UNKNOWN')
+
+    def resume(self, process):
+        if not process['assigned']: raise RuntimeError('Never resume before assignment')
+        if self.k.ResumeThread(process['thread']) == 0xFFFFFFFF: raise ctypes.WinError(ctypes.get_last_error())
+
+    def member(self, job, process):
+        present = W.BOOL()
+        self.checked(self.k.IsProcessInJob(process, job, ctypes.byref(present)))
+        return bool(present.value)
+
+    def members(self, job):
+        self.fail('query')
+        info = PIDLIST()
+        self.checked(self.k.QueryInformationJobObject(job, 3, ctypes.byref(info), ctypes.sizeof(info), None))
+        if info.count > MAX_MEMBERS or info.assigned != info.count: raise RuntimeError('MEMBERSHIP_INCOMPLETE')
+        return list(info.pids[:info.count])
+
+    def open(self, pid):
+        return self.own(self.k.OpenProcess(0x1000 | 0x100000 | 0x1, False, pid))
+
+    def image_kind(self, handle):
+        length=W.DWORD(32768); text=ctypes.create_unicode_buffer(length.value)
+        self.checked(self.k.QueryFullProcessImageNameW(handle,0,text,ctypes.byref(length)))
+        image=Path(text.value)
+        return {'image_class':'PYTHON' if image.name.lower() in ('python.exe','python3.exe','pythonw.exe') else 'OTHER', 'same_as_controller_executable':os.path.normcase(str(image))==os.path.normcase(sys.executable)}
+
+    def token(self, handle):
+        fields = [W.FILETIME() for _ in range(4)]
+        self.checked(self.k.GetProcessTimes(handle, *(ctypes.byref(f) for f in fields)))
+        return (fields[0].dwHighDateTime << 32) | fields[0].dwLowDateTime
+
+    def wait(self, handle, deadline):
+        self.fail('wait')
+        remaining = max(0., deadline-time.monotonic())
+        value = self.k.WaitForSingleObject(handle, int(min(remaining*1000, 0xFFFFFFFE)))
+        if value == 258: return False
+        if value != 0: raise ctypes.WinError(ctypes.get_last_error())
+        code = W.DWORD(); self.checked(self.k.GetExitCodeProcess(handle, ctypes.byref(code)))
+        return True
+
+    def exit_code(self, handle):
+        code = W.DWORD(); self.checked(self.k.GetExitCodeProcess(handle,ctypes.byref(code)))
+        return code.value
+
+    def terminate(self, job):
+        self.fail('terminate')
+        self.checked(self.k.TerminateJobObject(job, 97))
+
+
+# Temporary benchmark only. API above is copied verbatim from reviewed5a464746.
+PIN='a501c88bcc926bef87875f6352f210b19b6e438b'
+TREE='e66b6daa84f04ec95dce1155fde2a9a4e156cf14'
+OWNER='4bec6f8974062cbd68f5c88bbf9baa671a075237'
+WORKERS=2
+STAGE=0
+STARTED_WORKERS=0
+
+def stage(number):
+    global STAGE
+    STAGE=number
+
+def error_code(exc):
+    value=getattr(exc,'winerror',None)
+    return value if type(value) is int and value in (5,6,8,32,87,122,234,1816) else 0
+ROOT=Path(sys.argv[2] if sys.argv[1]=='--child' else sys.argv[1]).resolve()
+CONFIG=json.loads((ROOT/'config.PRIVATE.json').read_text())
+SOURCE=Path(CONFIG['source'])
+
+def guard(event,args):
+    if event.startswith('socket.') or event in ('os.system','os.fork'):
+        raise RuntimeError('FILESYSTEM_ONLY')
+    if event=='import' and str(args[0]).split('.')[0] in {'src','ibapi','ib_insync','requests','curl_cffi','yfinance'}:
+        raise RuntimeError('NO_OPERATIONAL_IMPORTS')
+    if event=='ctypes.dlopen' and str(args[0]).lower()!='kernel32':
+        raise RuntimeError('NO_NATIVE_TRANSFER')
+    if event=='subprocess.Popen':
+        allowed=[['git','ls-files','-z'],['git','show',PIN+':scripts/certification/natural_readonly_operator.py']]
+        for command in (['rev-parse','HEAD'],['rev-parse',PIN+'^{tree}'],['status','--porcelain=v1','--untracked-files=all']):
+            allowed.append(['git','--no-optional-locks','-c','core.fsmonitor=false',*command])
+        argv=args[1]
+        okay=argv in allowed if isinstance(argv,(list,tuple)) else argv in [subprocess.list2cmdline(a) for a in allowed]
+        if not okay or Path(args[2]).resolve()!=SOURCE: raise RuntimeError('ONLY_EXACT_LOCAL_GIT')
+sys.addaudithook(guard)
+os.environ['GIT_OPTIONAL_LOCKS']='0'
+
+
+def small(path,cap):
+    with path.open('rb') as stream: raw=stream.read(cap+1)
+    if len(raw)>cap: raise RuntimeError('IPC_LIMIT')
+    return json.loads(raw)
+
+
+def put(path,data,cap):
+    raw=json.dumps(data,ensure_ascii=True).encode()
+    if len(raw)>cap: raise RuntimeError('IPC_LIMIT')
+    temporary=path.with_suffix('.tmp')
+    temporary.write_bytes(raw); temporary.replace(path)
+
+
+def authority():
+    source=subprocess.check_output(['git','show',PIN+':scripts/certification/natural_readonly_operator.py'],cwd=SOURCE)
+    blob=hashlib.sha1(b'blob '+str(len(source)).encode()+b'\0'+source).hexdigest()
+    if blob!=OWNER: raise RuntimeError('OWNER_IDENTITY')
+    nodes=ast.parse(source).body
+    digest=next(n for n in nodes if isinstance(n,ast.FunctionDef) and n.name=='digest')
+    owner=next(n for n in nodes if isinstance(n,ast.FunctionDef) and n.name=='source_manifest')
+    enumeration=next(n for n in owner.body if isinstance(n,ast.Assign) and isinstance(n.targets[0],ast.Name) and n.targets[0].id=='paths')
+    return ast.unparse(digest),ast.unparse(enumeration)
+
+
+def identity():
+    def git(*args):
+        return subprocess.check_output(['git','--no-optional-locks','-c','core.fsmonitor=false',*args],cwd=SOURCE).decode().strip()
+    if git('rev-parse','HEAD')!=PIN or git('rev-parse',PIN+'^{tree}')!=TREE or git('status','--porcelain=v1','--untracked-files=all'):
+        raise RuntimeError('SOURCE_IDENTITY')
+
+
+def worker(slot):
+    namespace={'hashlib':hashlib}
+    exec(compile((ROOT/'digest.PRIVATE.py').read_text(),'<accepted-digest>','exec'),namespace)
+    while not (ROOT/'stop-workers').exists():
+        request=slot/'task.json'
+        if not request.exists(): time.sleep(.002); continue
+        task=small(request,8192); request.unlink()
+        class Target:
+            size=0
+            def is_file(self): return Path(task['path']).is_file()
+            def read_bytes(self):
+                data=Path(task['path']).read_bytes(); self.size=len(data); return data
+        target=Target()
+        try:
+            value=namespace['digest'](target)
+            result={'index':task['index'],'ok':True,'value':value,'bytes':target.size}
+        except OSError as exc:
+            result={'index':task['index'],'ok':False,'error_winerror':error_code(exc)}
+        put(slot/'result.json',result,1024)
+
+
+def coordinator():
+    global STARTED_WORKERS
+    stage(10); identity()
+    stage(20); code,enumeration=authority()
+    (ROOT/'digest.PRIVATE.py').write_text(code,encoding='utf-8')
+    started=time.monotonic()
+    stage(30)
+    scope={'subprocess':subprocess,'repo':SOURCE}
+    exec(compile(enumeration,'<accepted-enumeration>','exec'),scope)
+    names=[n for n in scope['paths'] if n]
+    # Accepted tracked coverage; reject unexpected expansion, never skip it.
+    if len(names)!=2686 or len(names)!=len(set(names)): raise RuntimeError('TRACKED_COVERAGE')
+    api=API(); workers=[]; slots=[]; busy={}; values={}; byte_count=0; peak=0
+    stage(40)
+    for index in range(WORKERS):
+        slot=ROOT/('worker'+str(index)); slot.mkdir(); slots.append(slot)
+        p=api.spawn(ROOT,'worker',str(index),suspended=False)
+        workers.append(p); STARTED_WORKERS+=1
+    stage(50)
+    cursor=0
+    while cursor<len(names) or busy:
+        for index,(p,slot) in enumerate(zip(workers,slots)):
+            controller_stage=7
+            if api.wait(p['process'],time.monotonic()): raise RuntimeError('WORKER_EXIT')
+            if index in busy and (slot/'result.json').exists():
+                result=small(slot/'result.json',1024); (slot/'result.json').unlink()
+                wanted=busy.pop(index)
+                if result.get('index')!=wanted: raise RuntimeError('HASH_SCHEMA')
+                if result.get('ok') is not True:
+                    exc=OSError(0,'')
+                    exc.winerror=result.get('error_winerror',0)
+                    raise exc
+                value=result.get('value')
+                if value is not None and (not isinstance(value,str) or len(value)!=64 or any(c not in '0123456789abcdef' for c in value)): raise RuntimeError('HASH_SCHEMA')
+                size=result.get('bytes')
+                if type(size) is not int or size<0: raise RuntimeError('BYTE_SCHEMA')
+                values[wanted]=value; byte_count+=size
+            if index not in busy and cursor<len(names):
+                put(slot/'task.json',{'index':cursor,'path':str(SOURCE/names[cursor])},8192)
+                busy[index]=cursor; cursor+=1
+        peak=max(peak,len(busy)); time.sleep(.002)
+    stage(60)
+    (ROOT/'stop-workers').write_text('1')
+    # Retire workers before final Git calls: avoid extra live work/native members.
+    # External controller independently kills the entire job at its deadline.
+    for p in workers:
+        while not api.wait(p['process'],time.monotonic()+.02): pass
+        if api.exit_code(p['process'])!=0: raise RuntimeError('WORKER_FAILED')
+    for h in list(api.handles): api.close(h)
+    stage(70); identity()
+    stage(80)
+    manifest={name:values[index] for index,name in enumerate(names)}
+    # STAGED private output is never reusable/published as a successful baseline.
+    put(ROOT/'manifest.STAGED.PRIVATE.json',manifest,2097152)
+    put(ROOT/'candidate.PRIVATE.json',{'file_count':len(names),'bytes':byte_count,
+        'missing':sum(v is None for v in manifest.values()),'workers':WORKERS,'peak_pending':peak,
+        'candidate_seconds':time.monotonic()-started,'source_identity':True},4096)
+    stage(90)
+
+
+def controller():
+    api=API(); job=None; p=None; owned={}; status='ERROR'; clean=True; peak=0
+    controller_stage=0; controller_winerror=0; controller_failure_stage=0; controller_reason=0
+    began=time.monotonic(); deadline=began+90
+    try:
+        controller_stage=1; job=api.create_job()
+        controller_stage=2
+        p=api.spawn(ROOT,'coordinator','benchmark')
+        owned[p['pid']]=p['process']
+        controller_stage=3; api.assign(job,p); api.resume(p)
+        while True:
+            if time.monotonic()>=deadline: status='DEADLINE'; break
+            controller_stage=7
+            if api.wait(p['process'],time.monotonic()) and api.exit_code(p['process'])!=0: raise RuntimeError('CHILD_FAILED')
+            controller_stage=4; ids=api.members(job); peak=max(peak,len(ids))
+            for pid in ids:
+                if pid not in owned:
+                    controller_stage=5; h=api.open(pid)
+                    if not api.member(job,h): raise RuntimeError('MEMBERSHIP')
+                    owned[pid]=h
+            if not ids:
+                controller_stage=6
+                if not api.wait(p['process'],deadline) or api.exit_code(p['process'])!=0: raise RuntimeError('CHILD_FAILED')
+                status='COMPLETE'; break
+            time.sleep(.005)
+    except BaseException as exc:
+        status='ERROR'; controller_failure_stage=controller_stage; controller_winerror=error_code(exc)
+        controller_reason={'MEMBERSHIP_INCOMPLETE':1,'CHILD_FAILED':2,'MEMBERSHIP':3}.get(str(exc),0) if type(exc) is RuntimeError else 0
+    finally:
+        cleanup_start=time.monotonic(); cleanup_deadline=cleanup_start+30
+        try:
+            if p and not p['assigned']: api.checked(api.k.TerminateProcess(p['process'],98))
+            if job:
+                api.terminate(job)
+                while api.members(job):
+                    if time.monotonic()>=cleanup_deadline: raise RuntimeError('JOB_EXIT_UNVERIFIED')
+                    time.sleep(.005)
+            for h in owned.values():
+                if not api.wait(h,cleanup_deadline): raise RuntimeError('PROCESS_EXIT_UNVERIFIED')
+        except BaseException:
+            clean=False
+        # Preserve UNKNOWN on failed verification; no fixture rescue in benchmark.
+        # The last handle's OS close retains kill-on-close safety, not exit proof.
+        for h in [h for h in api.handles if h!=job]+([job] if job else []):
+            try: api.close(h)
+            except BaseException: clean=False
+        if api.handles or time.monotonic()>cleanup_deadline: clean=False
+        elapsed=time.monotonic()-began
+        result={'schema':'manifest-process-benchmark.v1','pin':PIN,'tree':TREE,
+            'status':status,'measurement_budget_seconds':90,'cleanup_budget_seconds':30,
+            'measurement_and_cleanup_seconds':elapsed,'cleanup_verified':clean,
+            'native_member_cap':MAX_MEMBERS,'peak_native_members':peak,
+            'setup_excluded':True,'performance_speedup_established':False,
+            'reusable_source_baseline':False,'logical_workers_configured':WORKERS,
+            'logical_workers_started':0,'failure_evidence_available':False,'failure_stage':0,'failure_winerror':0,
+            'failure_subprocess_code':0,'controller_failure_stage':controller_failure_stage,
+            'controller_winerror':controller_winerror,'controller_reason':controller_reason,'PAPER_READY':'NO','PAPER_READINESS_GATE':'FAIL'}
+        if status=='COMPLETE' and clean and elapsed<=90:
+            candidate=small(ROOT/'candidate.PRIVATE.json',4096)
+            if set(candidate)!={'file_count','bytes','missing','workers','peak_pending','candidate_seconds','source_identity'}:
+                raise RuntimeError('REPORT_SCHEMA')
+            if (candidate['file_count']!=2686 or candidate['workers']!=WORKERS or not 0<=candidate['peak_pending']<=WORKERS or
+                candidate['source_identity'] is not True or candidate['missing']!=0 or
+                type(candidate['bytes']) is not int or candidate['bytes']<0 or
+                not isinstance(candidate['candidate_seconds'],(int,float)) or not 0<=candidate['candidate_seconds']<=90):
+                raise RuntimeError('REPORT_INVALID')
+            result.update(candidate)
+            result['logical_workers_started']=WORKERS
+            (ROOT/'manifest.STAGED.PRIVATE.json').replace(ROOT/'manifest.COMPLETE.PRIVATE.json')
+        else:
+            result['status']='FAIL'
+            failure_path=ROOT/'failure.PRIVATE.json'
+            if failure_path.exists():
+                failure=small(failure_path,1024)
+                if set(failure)!={'stage','started','winerror','subprocess_code'}: raise RuntimeError('FAILURE_SCHEMA')
+                if (type(failure['stage']) is not int or failure['stage'] not in (0,10,20,30,40,50,60,70,80,90) or
+                    type(failure['started']) is not int or not 0<=failure['started']<=WORKERS or
+                    type(failure['winerror']) is not int or failure['winerror'] not in (0,5,6,8,32,87,122,234,1816) or
+                    type(failure['subprocess_code']) is not int or not -255<=failure['subprocess_code']<=255): raise RuntimeError('FAILURE_INVALID')
+                result.update(failure_evidence_available=True,failure_stage=failure['stage'],
+                    logical_workers_started=failure['started'],failure_winerror=failure['winerror'],failure_subprocess_code=failure['subprocess_code'])
+        # Whitelisted aggregate only; no filenames, mapping/hashes, IDs, handles,
+        # image paths, exception strings, stdout/stderr or other scratch artifacts.
+        put(ROOT/'manifest-process-shareable.json',result,8192)
+        print('COMPLETE' if result['status']=='COMPLETE' else 'FAIL_NO_RETRY',flush=True)
+    return 0 if result['status']=='COMPLETE' else 1
+
+
+if __name__=='__main__':
+    try:
+        if os.name!='nt' or sys.version_info[:3]!=(3,13,3): raise RuntimeError('ENVIRONMENT')
+        if sys.argv[1]=='--child':
+            if sys.argv[3]=='coordinator':
+                try: coordinator()
+                except Exception as exc:
+                    code=exc.returncode if isinstance(exc,subprocess.CalledProcessError) and type(exc.returncode) is int and -255<=exc.returncode<=255 else 0
+                    put(ROOT/'failure.PRIVATE.json',{'stage':STAGE,'started':STARTED_WORKERS,'winerror':error_code(exc),'subprocess_code':code},1024)
+                    raise
+            elif sys.argv[3]=='worker': worker(ROOT/('worker'+str(int(sys.argv[4]))))
+            else: raise RuntimeError('ROLE')
+        else: raise SystemExit(controller())
+    except Exception:
+        # Fixed text only; any private staged files remain unusable on failure.
+        print('FAIL_NO_RETRY; no raw exception exported',flush=True)
+        raise SystemExit(1)
+'@
+    $Driver = Join-Path $ScratchRoot 'benchmark.PRIVATE.py'
+    [IO.File]::WriteAllText($Driver, $payload, $utf8)
+    Write-Host 'ONE filesystem-only pass, 2 workers/2 outstanding; 90s shared measurement + 30s shared owned cleanup.'
+    Write-Host 'Private scratch retained; never upload the root, driver, task/results or manifest.'
+    & $Python -I -S -B -u $Driver $ScratchRoot
+    $measurementExit = $LASTEXITCODE
+    $Shareable = Join-Path $ScratchRoot 'manifest-process-shareable.json'
+    if (!(Test-Path -LiteralPath $Shareable -PathType Leaf)) {
+        throw "No verified shareable result; NO RETRY. Private root: $ScratchRoot"
+    }
+    if ((Get-Item -LiteralPath $Shareable).Length -gt 8192) { throw 'Aggregate privacy bound failed; do not share.' }
+    $reportData = [IO.File]::ReadAllText($Shareable) | ConvertFrom-Json
+    $allowedNames = @('schema','pin','tree','status','measurement_budget_seconds','cleanup_budget_seconds',
+        'measurement_and_cleanup_seconds','cleanup_verified','native_member_cap','peak_native_members',
+        'setup_excluded','performance_speedup_established','reusable_source_baseline','PAPER_READY','PAPER_READINESS_GATE',
+        'file_count','bytes','missing','workers','peak_pending','candidate_seconds','source_identity',
+        'logical_workers_configured','logical_workers_started','failure_evidence_available','failure_stage','failure_winerror','failure_subprocess_code','controller_failure_stage','controller_winerror','controller_reason')
+    foreach ($field in $reportData.PSObject.Properties.Name) {
+        if ($allowedNames -cnotcontains $field) { throw 'Unexpected exported field; do not share.' }
+    }
+    if ($reportData.schema -cne 'manifest-process-benchmark.v1' -or
+        $reportData.pin -cne 'a501c88bcc926bef87875f6352f210b19b6e438b' -or
+        $reportData.tree -cne 'e66b6daa84f04ec95dce1155fde2a9a4e156cf14' -or
+        @('COMPLETE','FAIL') -cnotcontains $reportData.status -or
+        $reportData.PAPER_READY -cne 'NO' -or $reportData.PAPER_READINESS_GATE -cne 'FAIL') {
+        throw 'Unexpected exported string; do not share.'
+    }
+    $stringFields = @('schema','pin','tree','status','PAPER_READY','PAPER_READINESS_GATE')
+    foreach ($property in $reportData.PSObject.Properties) {
+        if ($stringFields -ccontains $property.Name) { continue }
+        if ($null -eq $property.Value -or
+            ($property.Value -isnot [bool] -and $property.Value -isnot [int] -and
+             $property.Value -isnot [long] -and $property.Value -isnot [double] -and
+             $property.Value -isnot [decimal])) { throw 'Nonaggregate output; do not share.' }
+    }
+    Write-Host ("Privacy-verified aggregate ONLY: " + $Shareable)
+    Write-Host 'Do not ZIP or share any other scratch artifact; no repeat/warm retry.'
+    if ($measurementExit -ne 0) { throw 'Measurement failed; retain evidence and stop. No natural preflight/observation authorized.' }
+}
+```
+
+Full-path controls remain PENDING, not a reproduced archived cause:
+- ecb53d2e/CI41118162631 failed a TEST scratch-root binding assertion (0roots
+  where1expected); independent review identified Python backslash-TAB literal.
+- Fixed12f3d74f, independent review5717899057 approved for CI only;
+  CI41118286895/job124278193054 failed early with peak3 rather than10, so it
+  did NOT reproduce the claimed native-cap path. No inference from that failure.
+- Next control collects all bounded v2 stage/code outcomes BEFORE asserting cap
+  exhaustion, so a synthetic prerequisite failure remains visible and cannot be
+  mistaken for the workstation receipt. Superseded failures/reviews preserved.
+
+CI41118865706 at7ce6c82e collected all cases: old peak3, v2 four/two workers
+both failed atstage10 before any worker start, cleanup verified. This is a
+synthetic prerequisite failure, not the archived peak10 reproduction. The fixture
+passed Windows TEMP's possibly8.3 spelling as SOURCE, while the unchanged benchmark
+scope guard compares resolved cwd against that configured spelling. Next fixture
+binds canonical resolved source paths (operator's literal C:\tmp path is canonical)
+and asserts the binding; no operator policy/guard loosened. Parent/controller-only
+failures additionally gain bounded numeric stage/allowlisted winerror fields, so
+absence of coordinator failure data remains explicit instead of hiding the path.
+
+CI41119297510/eba950d8: canonical binding observedTRUE. Released old block now
+reproduced early FAIL/peak10/cleanuptrue on synthetic files through real Windows
+venv. Diagnostic4worker case failed in EXTERNAL census (controllerstage4, no
+coordinator failure file); two-worker V2 completed fullPS/Python path in6.4348s,
+2686files,89,205synthetic bytes,peak9,window2,cleanuptrue. The CI was still FAIL
+because the test wrongly required coordinator-only failure evidence and stopped
+before full mapping comparison. Preserve this partial success/failed-run receipt;
+NOT an overall acceptance or a Windows performance claim.
+
+Next revision records fixed controller reasons (incomplete membership census,
+child exit, membership mismatch) and allowlisted122/234 buffer categories; phase7
+marks explicit child-exit observation instead of stale last phase. All remain
+fail closed; no census gap/query failure is ignored. A separate held synthetic
+venv topology (one coordinator/four worker leaves) uses explicit TEST-only cap16
+to measure ALL held native members; the benchmark cap remains10. This can prove
+required topology exceeds10 without pretending a sampled peak always catches
+the quota instant. Failed old/diagnostic runs must publish no COMPLETE manifest;
+controller OR coordinator failure must have bounded explicit attribution. Fresh
+complete two-worker output must match every serial synthetic hash and mapping
+order. No test weakens cleanup/coverage or converts any failed benchmark to PASS.
+
+## 30 October 2026 — Full Windows benchmark topology diagnosed; fixed-cap two-worker candidate verified
+
+Accepted main reverified unchanged:
+`a501c88bcc926bef87875f6352f210b19b6e438b`, tree
+`e66b6daa84f04ec95dce1155fde2a9a4e156cf14`. Original/private failed root
+C:\tmp\manifest-contained-bc3e6f77 and uploaded FAIL receipt remain preserved.
+No private manifest, task/result file, root or additional broker evidence requested.
+The reported0.7115019001066685s/peak10/cleanuptrue remains a FAILED attempt with no
+completed manifest/performance result. Nothing rewrites that receipt to success.
+
+### Demonstrated defect and precise archival uncertainty
+
+The released block's four-worker topology was underbudgeted. Earlier Windows
+CI41114616767 covered a SEPARATE two-leaf containment fixture, not its complete
+PowerShell/embedded Python/environment-launcher path. The static review/reused
+native API did not establish full benchmark acceptance. This validation gap is
+acknowledged and corrected by actual full-path tests, not explained away.
+
+Actual held-process control now establishes: one coordinator plus FOUR logical
+workers under a real Windows virtual environment produced FIFTEEN native members,
+all verified as owned job members, with authoritative empty-job/process-exit/handle
+cleanup. This already exceeds benchmark cap10 without overlapping any Git calls.
+The auxiliary held control's explicit cap16 is TEST containment only; benchmark
+Job Object/PID-list cap stays10. All extra launch/native members remain included;
+no unrelated PID/name kill, silent breakaway or excluded helper. Limited image
+classes/counts do not identify a Windows/security/upstream cause for every helper.
+
+Full released four-worker block failed early in the same synthetic venv path.
+Its observed sampled peak was8 in final CI (10 in the prior run), with cleanup
+verified and NO COMPLETE manifest. Diagnostic four-worker path reported external
+controller stage4/job enumeration, allowlisted winerror234 (ERROR_MORE_DATA), no
+coordinator failure file, and remained FAIL. A sampled peak need not catch the
+kernel's quota/census instant; neither partial census nor error234 is ignored or
+used to certify success. Required native topology15>10 proves the budget defect;
+it does not prove the original workstation's exact failing native operation.
+
+PRECISE REMAINING UNCERTAINTY: uploaded aggregate had no stage/error code. It is
+consistent with this demonstrated topology/census failure, but cannot establish
+whether its immediate exception was job enumeration, process creation, another
+native lifecycle operation or a coordinator error. No archived errno is invented.
+In V2, logical_workers_started is authoritative ONLY for COMPLETE output or when
+failure_evidence_available=true supplies the coordinator's actual launch count.
+Otherwise default0 is UNKNOWN, NEVER proof that zero workers started. Controller
+stage/reason fields describe observed wrapper phase/allowlisted category, not
+syscall causality. No missing evidence is promoted to absence/valid coverage.
+
+### Minimal correction and actual full-path validation
+
+Same disposable draft PR1145; branch test/windows-manifest-containment-feasibility.
+Exact reviewed/tested head `6be633e149ddf489b6b7e18cdb01d69d32cb547b`, tree
+`a6c6cdee01b19d106fe2374ac5ac62e1b2edb1df`.
+Independent post-Windows exact-head review `5718045297`: no blockers; reviewer
+independently retrieved CI/logs. Earlier static-only/superseded reviews remain.
+
+Correction is limited to the TEMPORARY benchmark template/feasibility fixture:
+TWO logical workers/TWO outstanding tasks, unchanged native cap10; bounded numeric
+failure stage/error/logical/native evidence. Exact pinned digest and enumeration,
+fresh bytes, deterministic complete mapping, existing missing/read-error behavior,
+90s shared measurement/30s shared cleanup, no partial baseline publication and all
+source/cleanup/privacy gates remain. Nothing in src/scripts/production manifest,
+preflight90s, broker/position/history/order owners or DEPRECATION_LEDGER changes.
+Actual Git subprocesses remain inside the owned job; worker retirement precedes
+final Git identity checks. Unknown/query/census/cleanup failures still fail closed.
+
+SUCCESSFUL changed-head CI `41119986992`, Windows job `124284057519`:
+Windows Server2025, Python3.13.3, actual Windows PowerShell5.1 and a newly created
+Windows virtual environment (--without-pip, no network/package installation).
+FullBenchmarkPath matrix:1 test,36.201s, SUCCESS. Includes:
+- Held four-worker native topology15, all members owned and cleanup verified.
+- Full frozen released PowerShell block (SHA2568226316440f5b1dac0b25b79a3b8b0a8e18a35012c375e4c855335d890089b3d): FAIL, no COMPLETE mapping.
+- Full four-worker diagnostic block: FAIL with bounded controller234 evidence,
+  no COMPLETE mapping; cleanup verified.
+- Full corrected TWO-worker PowerShell/embedded Python path: COMPLETE,
+ 2686synthetic files,89,205bytes,missing0,peak_native9,pending2,
+ measurement+cleanup6.8646506s,candidate6.6284907s,source_identity=true,
+ cleanup_verified=true. EVERY fresh synthetic hash and mapping insertion order
+ matched the exact serial accepted-owner digest. Private synthetic contents/
+ mappings were inspected ONLY inside the controlled fixture, not from user root.
+
+Only pin/tree/path DATA were rebound to the synthetic Git fixture; worker,
+controller, privacy guard, publication, PowerShell and embedded Python paths were
+actually executed. Synthetic repository retains the identical accepted owner blob
+4bec6f8974062cbd68f5c88bbf9baa671a075237. No source hashing benchmark on actual
+workstation data, preflight or observation occurred. Passing containment alone is
+not again substituted for a passing benchmark. No Windows performance improvement,
+serial comparison, cold-cache claim or natural acceptance is inferred from these
+synthetic6.86s/89KB results versus the17.8MB workstation profile.
+
+The final V2 block embedded above is the SAME body exercised by CI, except explicit
+synthetic test data and the clearly labelled four-worker negative variant.
+Frozen V2 block SHA256:e9ce86b3622979bf24d722cae494f8c6cc84ded2ac58b1355c11b5233aa7abee.
+Embedded Python SHA256 (without surrounding here-string newline):
+2552aa7d568cf37c75a095333a9c48a25c926d0db1a887ac75765a98bfdb0db5.
+No new operator block or workstation rerun is issued/authorized by this task.
+Old V1 remains SUPERSEDED/DO NOT RUN. V2 is the reviewed, full-path-tested candidate
+for acceptance, not a production optimization or successful workstation benchmark.
+
+All failed CI receipts preserved:41118162631 (scratch-binding fixture bug),
+41118286895/41118865706 (synthetic prerequisite failure),41119297510 (partial
+positive path but invalid coordinator-only test expectation), plus earlier
+containment failures/receipts. Fixing canonical TEST data binding preserved the
+original strict source guard. Corrected assertions still demand explicit actual
+failure-owner evidence, no successful mapping on failure, complete positive hash/
+order equivalence and verified cleanup; none converts failure to PASS. No unchanged-
+head retry or unrelated completed suite repeated. Prior six native containment
+controls are carried forward; new CI ran only the affected full-path matrix.
+
+Results are saved on existing docs/windows-manifest-containment-results branch,
+with only this SAME checkpoint appended beyond the tested PR head. No additional
+production/test/CI changes, no repeat CI solely to save receipt prose. PR1145 stays
+DRAFT/unmerged; original checkout and saved branches remain intact.
+
+ONE NEXT ACTION: review/accept PR1145's fixed-cap two-worker feasibility correction
+and its actual Windows/review receipts. Completion criterion is acceptance of this
+bounded candidate for any later separately prepared/authorized filesystem-only
+measurement. Do NOT start another workstation run, preflight or natural observation
+from this receipt. Natural observation remains pending; this task is not authority
+to retry it or merge automatically.
+
+Preserve five-position global ownership veto, GUI draft, all failed roots and
+historical receipts, separate news-cache uncertainty, unresolved historical
+callback causes, PR1140-1143 semantics and PARKED/fail-closed listing provenance.
+No broker inquiry, acquisition, observation, holdings action, SDK/security-setting
+change, timeout extension, gate relaxation or trading occurred.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## 30 October 2026 — Accepted V2 candidate; ONE Windows filesystem measurement prepared
+
+User accepted PR1145's corrected candidate for ONE filesystem-only measurement
+PREPARATION. This does not authorize merge, production changes, preflight or
+observation; assistant executed no workstation block. Pending action is now the
+user's single filesystem measurement, replacing the preceding review-only action.
+
+Verified GitHub PR1145 remains DRAFT/unmerged at exact
+6be633e149ddf489b6b7e18cdb01d69d32cb547b/treea6c6cdee01b19d106fe2374ac5ac62e1b2edb1df;
+review5718045297 is the independent post-Windows exact-head receipt, and successful
+CI41119986992 remains attached to that head. Current main unchanged at accepted
+a501c88bcc926bef87875f6352f210b19b6e438b/treee66b6daa84f04ec95dce1155fde2a9a4e156cf14.
+Read SAME checkpoint through saved beaf22471369051e32a7d2215f41baa3e23d37cd;
+DEPRECATION_LEDGER read/unchanged; AGENTS search none. Historical receipts, original
+checkout, failed roots, saved branches and GUI draft preserved.
+
+Prepared block is extracted VERBATIM from the V2 code fence at tested6be633e1;
+independently compared with the saved/current checkpoint fence, byte-for-byte.
+It is NOT reconstructed or modified for delivery. Exact UTF-8/LF identities:
+- Complete472-line PowerShell block (including final newline):
+  e9ce86b3622979bf24d722cae494f8c6cc84ded2ac58b1355c11b5233aa7abee.
+- Embedded Python, excluding surrounding here-string newline:
+  2552aa7d568cf37c75a095333a9c48a25c926d0db1a887ac75765a98bfdb0db5.
+- Delivery scratch copy: /workspace/scratch/manifest-benchmark-failure/accepted-measurement.ps1.
+  Complete same block returned inline; no additional variant/launcher created.
+
+Literal existing Python C:\tmp\pr1091-cert-env-20260923\Scripts\python.exe;
+existing source C:\tmp\ro-9a2e923d\s. Pinned source/tree checks, two workers/two
+outstanding tasks, native cap10, shared90s measurement and separate shared30s
+cleanup, exact tracked enumeration/fresh hashes, external job containment, verified
+owned cleanup, bounded numeric failure evidence, private staged mapping and
+independent PowerShell aggregate privacy allowlist remain exactly as tested.
+The full-path Windows test bound only synthetic pin/tree/path data; these literal
+operator bindings are the frozen reviewed V2 source. No completed CI repeated.
+Proportional preparation checks: exact source/block/payload identity, accepted tree
+identities, historical checkpoint prefix, checkpoint-only diff and whitespace.
+
+ONE next action: user pastes the ENTIRE prepared block into Windows PowerShell5.1
+Desktop in PyCharm and runs it ONCE. No warm-up or automatic retry. Fresh output
+root C:\tmp\manifest-contained-<8hex>; share ONLY
+C:\tmp\manifest-contained-<8hex>\manifest-process-shareable.json after the block
+announces aggregate privacy validation. Do not ZIP/share the root, private mapping,
+task/result files, driver/config or any other scratch artifact. Preserve every
+earlier root, including manifest-contained-bc3e6f77 and ro-9a2e923d unchanged.
+A failure, absent shareable report or unverified cleanup means retain evidence and
+STOP. Unsupported zero worker-start placeholders remain UNKNOWN as documented.
+This measurement is not a preflight/runtime retry or production performance claim.
+
+No broker, acquisition, preflight, observation, holdings action or trading.
+No production/timeout/security-setting changes, merge or readiness upgrade.
+Five-position global veto, separate news-cache uncertainty, unresolved historical
+callback causes and PARKED/fail-closed listing provenance remain unchanged.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## 30 October 2026 — Two-worker stage50 FAIL; offline work-loop localization
+
+Continue existing draft PR1145 and saved preparation556bfc3f; main remains
+accepted a501c88bcc926bef87875f6352f210b19b6e438b/treee66b6daa84f04ec95dce1155fde2a9a4e156cf14.
+AGENTS search none; DEPRECATION_LEDGER read/unchanged. Preserve private failed root
+C:\tmp\manifest-contained-1ccc4446; no raw manifest/tasks/root requested.
+Uploaded JSON SHA2563c482ff2324af1a286cfa56732c8aebac440be03b3792a4288d2ea21b2bf223f
+(767bytes); terminal transcript SHA256e9787669a89505102f9150834907a60f222f60b7c554b9580b64fc9f1bb40bf1.
+Both confirm FAIL1.284427700098604s,cleanuptrue,two configured/launched workers,
+peak9/cap10,failure_stage50,winerror0,subprocess0,controller7/CHILD_FAILED2.
+No completed mapping/performance result. The pasted payload differs from frozen
+released V2 only by10 trailing spaces on2lines; ASTs equal, so no behavioral
+clipboard variant demonstrated. No attached instructions executed.
+
+Stage50 includes polling/worker exit, result existence/read/unlink/schema, worker
+read error propagation, hash/byte schema, dispatch/atomic mailbox publication and
+idle. Receipt lacks substage/class/reason/worker-exit authority; it does NOT prove
+cap pressure, storage/security failure, failed hashes or any particular exception.
+The prior successful CI used2685flat tiny synthetic files plus exact owner, not the
+full accepted checkout's nested paths/binary/text/size distribution. No assumption
+that the broader input is defective; this is an uncovered input/environment boundary.
+
+### Stage50 evidence-only candidate V3
+
+NOT AN OPERATOR RELEASE. No functional correction yet: bounded numeric work-loop
+substeps, exception/reason categories, progress counts, worker startup/digest/read/
+mailbox phases and allowlisted exit/error categories added to existing temporary
+candidate. Worker diagnostic samples cap1024bytes each; no paths/task contents/raw
+messages/IDs/hash values export. Original source/guard/digest/hash mapping, two
+workers/two outstanding, native10,90s/30s, cleanup and privacy authority unchanged.
+No errors ignored. Worker progress0 without work_progress_available remains
+UNKNOWN; missing worker evidence is NOT absence. At most one worker-error sample
+is exported with explicit other-sample omission count.
+
+Windows CI will run the full released V2 and evidence V3 PowerShell/embedded Python
+paths over a fresh exact accepted-pin Git worktree, using existing native fixture
+ownership and real Windows venv. No broker/provider/source module imports occur;
+only known digest/enumeration AST executes. No production change or workstation
+benchmark. Short canonical CI source paths avoid unrelated long-TEMP alias effects.
+Fresh exact hashes/order checked serially offline. No failing local path is claimed
+repaired unless demonstrated by guarded full-entrypoint evidence. Current V3 is
+EVIDENCE ONLY; do not execute it or issue another operator block.
+
+```powershell
+# PREPARED FILESYSTEM-ONLY BENCHMARK; ONE invocation; no automatic retry.
+# No preflight, source modification, network/acquisition, broker or observation.
+& {
+    $ErrorActionPreference = 'Stop'
+    if ($PSVersionTable.PSEdition -ne 'Desktop' -or
+        $PSVersionTable.PSVersion.Major -ne 5 -or $PSVersionTable.PSVersion.Minor -ne 1) {
+        throw 'Requires Windows PowerShell5.1 Desktop.'
+    }
+    $Python = 'C:\tmp\pr1091-cert-env-20260923\Scripts\python.exe'
+    $SourceCheckout = 'C:\tmp\ro-9a2e923d\s'
+    if (!(Test-Path -LiteralPath $Python -PathType Leaf) -or
+        !(Test-Path -LiteralPath $SourceCheckout -PathType Container)) {
+        throw 'Pinned existing environment/source missing; stop without substitution.'
+    }
+    # No fetch, checkout, cache writes, warm-up or baseline reuse.
+    $ScratchRoot = Join-Path 'C:\tmp' ('manifest-contained-' + [guid]::NewGuid().ToString('N').Substring(0,8))
+    if (Test-Path -LiteralPath $ScratchRoot) { throw 'Fresh root collision; no retry.' }
+    New-Item -ItemType Directory -Path $ScratchRoot | Out-Null
+    $utf8 = New-Object System.Text.UTF8Encoding($false)
+    [IO.File]::WriteAllText((Join-Path $ScratchRoot 'config.PRIVATE.json'),
+        (@{source=$SourceCheckout} | ConvertTo-Json -Compress), $utf8)
+    $payload = @'
+# PREPARED ONLY; filesystem-only, one invocation, no operational imports.
+import ast, ctypes, hashlib, json, os, subprocess, sys, time
+from ctypes import wintypes as W
+from pathlib import Path
+HERE=Path(__file__).resolve()
+MAX_MEMBERS=10
+class STARTUPINFO(ctypes.Structure):
+    _fields_ = [('cb', W.DWORD), ('lpReserved', W.LPWSTR), ('lpDesktop', W.LPWSTR),
+                ('lpTitle', W.LPWSTR), ('dwX', W.DWORD), ('dwY', W.DWORD),
+                ('dwXSize', W.DWORD), ('dwYSize', W.DWORD), ('dwXCountChars', W.DWORD),
+                ('dwYCountChars', W.DWORD), ('dwFillAttribute', W.DWORD),
+                ('dwFlags', W.DWORD), ('wShowWindow', W.WORD), ('cbReserved2', W.WORD),
+                ('lpReserved2', ctypes.POINTER(W.BYTE)), ('hStdInput', W.HANDLE),
+                ('hStdOutput', W.HANDLE), ('hStdError', W.HANDLE)]
+
+
+class PROCESSINFO(ctypes.Structure):
+    _fields_ = [('hProcess', W.HANDLE), ('hThread', W.HANDLE),
+                ('dwProcessId', W.DWORD), ('dwThreadId', W.DWORD)]
+
+
+class LIMITS(ctypes.Structure):
+    _fields_ = [('PerProcessUserTimeLimit', ctypes.c_int64), ('PerJobUserTimeLimit', ctypes.c_int64),
+                ('LimitFlags', W.DWORD), ('MinimumWorkingSetSize', ctypes.c_size_t),
+                ('MaximumWorkingSetSize', ctypes.c_size_t), ('ActiveProcessLimit', W.DWORD),
+                ('Affinity', ctypes.c_size_t), ('PriorityClass', W.DWORD), ('SchedulingClass', W.DWORD)]
+
+
+class IOCOUNTERS(ctypes.Structure):
+    _fields_ = [(n, ctypes.c_uint64) for n in ('ReadOperationCount', 'WriteOperationCount',
+                'OtherOperationCount', 'ReadTransferCount', 'WriteTransferCount', 'OtherTransferCount')]
+
+
+class EXTENDED(ctypes.Structure):
+    _fields_ = [('BasicLimitInformation', LIMITS), ('IoInfo', IOCOUNTERS),
+                ('ProcessMemoryLimit', ctypes.c_size_t), ('JobMemoryLimit', ctypes.c_size_t),
+                ('PeakProcessMemoryUsed', ctypes.c_size_t), ('PeakJobMemoryUsed', ctypes.c_size_t)]
+
+
+class PIDLIST(ctypes.Structure):
+    _fields_ = [('assigned', W.DWORD), ('count', W.DWORD), ('pids', ctypes.c_size_t * MAX_MEMBERS)]
+
+
+class API:
+    """Retained native handles, following process_identity's wait/exit pattern."""
+    def __init__(self):
+        self.k = ctypes.WinDLL('kernel32', use_last_error=True)
+        specs = {
+            'CreateJobObjectW': ([ctypes.c_void_p, W.LPCWSTR], W.HANDLE),
+            'SetInformationJobObject': ([W.HANDLE, ctypes.c_int, ctypes.c_void_p, W.DWORD], W.BOOL),
+            'QueryInformationJobObject': ([W.HANDLE, ctypes.c_int, ctypes.c_void_p, W.DWORD, ctypes.c_void_p], W.BOOL),
+            'AssignProcessToJobObject': ([W.HANDLE, W.HANDLE], W.BOOL),
+            'IsProcessInJob': ([W.HANDLE, W.HANDLE, ctypes.POINTER(W.BOOL)], W.BOOL),
+            'TerminateJobObject': ([W.HANDLE, W.UINT], W.BOOL),
+            'CreateProcessW': ([W.LPCWSTR, W.LPWSTR, ctypes.c_void_p, ctypes.c_void_p, W.BOOL, W.DWORD, ctypes.c_void_p, W.LPCWSTR, ctypes.POINTER(STARTUPINFO), ctypes.POINTER(PROCESSINFO)], W.BOOL),
+            'ResumeThread': ([W.HANDLE], W.DWORD),
+            'OpenProcess': ([W.DWORD, W.BOOL, W.DWORD], W.HANDLE),
+            'QueryFullProcessImageNameW': ([W.HANDLE, W.DWORD, W.LPWSTR, ctypes.POINTER(W.DWORD)], W.BOOL),
+            'WaitForSingleObject': ([W.HANDLE, W.DWORD], W.DWORD),
+            'GetExitCodeProcess': ([W.HANDLE, ctypes.POINTER(W.DWORD)], W.BOOL),
+            'GetProcessTimes': ([W.HANDLE] + [ctypes.POINTER(W.FILETIME)] * 4, W.BOOL),
+            'TerminateProcess': ([W.HANDLE, W.UINT], W.BOOL),
+            'CloseHandle': ([W.HANDLE], W.BOOL),
+        }
+        for name, (arguments, result) in specs.items():
+            fn = getattr(self.k, name); fn.argtypes = arguments; fn.restype = result
+        self.handles = set()
+        self.fault = None
+
+    def fail(self, operation):
+        if self.fault == operation:
+            self.fault = None  # one injected denial; recovery never rewrites result
+            raise OSError('INJECTED_' + operation)
+
+    def checked(self, result):
+        if not result: raise ctypes.WinError(ctypes.get_last_error())
+        return result
+
+    def own(self, handle):
+        self.checked(handle); self.handles.add(int(handle)); return int(handle)
+
+    def close(self, handle):
+        self.fail('close')
+        self.checked(self.k.CloseHandle(handle)); self.handles.remove(handle)
+
+    def create_job(self):
+        job = self.own(self.k.CreateJobObjectW(None, None))
+        limits = EXTENDED()
+        limits.BasicLimitInformation.LimitFlags = 0x2000 | 0x8  # KILL_ON_JOB_CLOSE, ACTIVE_PROCESS
+        limits.BasicLimitInformation.ActiveProcessLimit = MAX_MEMBERS
+        self.checked(self.k.SetInformationJobObject(job, 9, ctypes.byref(limits), ctypes.sizeof(limits)))
+        return job
+
+    def spawn(self, root, role, mode, *, suspended=True, breakaway=False):
+        command = subprocess.list2cmdline([sys.executable, '-I', '-S', '-B', '-u', str(HERE), '--child', str(root), role, mode])
+        startup = STARTUPINFO(); startup.cb = ctypes.sizeof(startup)
+        info = PROCESSINFO()
+        self.checked(self.k.CreateProcessW(sys.executable, ctypes.create_unicode_buffer(command), None, None,
+                     False, 0x08000000 | (0x4 if suspended else 0) | (0x01000000 if breakaway else 0), None, str(root), ctypes.byref(startup), ctypes.byref(info)))
+        # Registration has no I/O; retain process AND primary thread immediately.
+        return {'process': self.own(info.hProcess), 'thread': self.own(info.hThread), 'pid': info.dwProcessId, 'assigned': False}
+
+    def assign(self, job, process):
+        self.fail('assign')
+        self.checked(self.k.AssignProcessToJobObject(job, process['process']))
+        process['assigned'] = True
+        if not self.member(job, process['process']): raise RuntimeError('MEMBERSHIP_UNKNOWN')
+
+    def resume(self, process):
+        if not process['assigned']: raise RuntimeError('Never resume before assignment')
+        if self.k.ResumeThread(process['thread']) == 0xFFFFFFFF: raise ctypes.WinError(ctypes.get_last_error())
+
+    def member(self, job, process):
+        present = W.BOOL()
+        self.checked(self.k.IsProcessInJob(process, job, ctypes.byref(present)))
+        return bool(present.value)
+
+    def members(self, job):
+        self.fail('query')
+        info = PIDLIST()
+        self.checked(self.k.QueryInformationJobObject(job, 3, ctypes.byref(info), ctypes.sizeof(info), None))
+        if info.count > MAX_MEMBERS or info.assigned != info.count: raise RuntimeError('MEMBERSHIP_INCOMPLETE')
+        return list(info.pids[:info.count])
+
+    def open(self, pid):
+        return self.own(self.k.OpenProcess(0x1000 | 0x100000 | 0x1, False, pid))
+
+    def image_kind(self, handle):
+        length=W.DWORD(32768); text=ctypes.create_unicode_buffer(length.value)
+        self.checked(self.k.QueryFullProcessImageNameW(handle,0,text,ctypes.byref(length)))
+        image=Path(text.value)
+        return {'image_class':'PYTHON' if image.name.lower() in ('python.exe','python3.exe','pythonw.exe') else 'OTHER', 'same_as_controller_executable':os.path.normcase(str(image))==os.path.normcase(sys.executable)}
+
+    def token(self, handle):
+        fields = [W.FILETIME() for _ in range(4)]
+        self.checked(self.k.GetProcessTimes(handle, *(ctypes.byref(f) for f in fields)))
+        return (fields[0].dwHighDateTime << 32) | fields[0].dwLowDateTime
+
+    def wait(self, handle, deadline):
+        self.fail('wait')
+        remaining = max(0., deadline-time.monotonic())
+        value = self.k.WaitForSingleObject(handle, int(min(remaining*1000, 0xFFFFFFFE)))
+        if value == 258: return False
+        if value != 0: raise ctypes.WinError(ctypes.get_last_error())
+        code = W.DWORD(); self.checked(self.k.GetExitCodeProcess(handle, ctypes.byref(code)))
+        return True
+
+    def exit_code(self, handle):
+        code = W.DWORD(); self.checked(self.k.GetExitCodeProcess(handle,ctypes.byref(code)))
+        return code.value
+
+    def terminate(self, job):
+        self.fail('terminate')
+        self.checked(self.k.TerminateJobObject(job, 97))
+
+
+# Temporary benchmark only. API above is copied verbatim from reviewed5a464746.
+PIN='a501c88bcc926bef87875f6352f210b19b6e438b'
+TREE='e66b6daa84f04ec95dce1155fde2a9a4e156cf14'
+OWNER='4bec6f8974062cbd68f5c88bbf9baa671a075237'
+WORKERS=2
+STAGE=0
+STARTED_WORKERS=0
+WORK_STEP=0
+WORKER_STEP=0
+DISPATCHED=0
+COMPLETED=0
+OBSERVED_WORKER_EXIT=0
+
+def exception_category(exc):
+    names=('OSError','PermissionError','FileNotFoundError','RuntimeError','ValueError','TypeError','JSONDecodeError','UnicodeDecodeError','SyntaxError','NameError','AttributeError','KeyError','IndexError','MemoryError')
+    return names.index(type(exc).__name__)+1 if type(exc).__name__ in names else 15
+
+def fixed_reason(exc):
+    reasons=('WORKER_EXIT','HASH_SCHEMA','BYTE_SCHEMA','IPC_LIMIT','WORKER_FAILED','TRACKED_COVERAGE','SOURCE_IDENTITY','OWNER_IDENTITY','MEMBERSHIP_INCOMPLETE','CHILD_FAILED','MEMBERSHIP')
+    return reasons.index(str(exc))+1 if type(exc) is RuntimeError and str(exc) in reasons else 0
+
+def work_step(value):
+    global WORK_STEP
+    WORK_STEP=value
+
+def worker_step(value):
+    global WORKER_STEP
+    WORKER_STEP=value
+
+def stage(number):
+    global STAGE
+    STAGE=number
+
+def error_code(exc):
+    value=getattr(exc,'winerror',None)
+    return value if type(value) is int and value in (5,6,8,32,87,122,234,1816) else 0
+ROOT=Path(sys.argv[2] if sys.argv[1]=='--child' else sys.argv[1]).resolve()
+CONFIG=json.loads((ROOT/'config.PRIVATE.json').read_text())
+SOURCE=Path(CONFIG['source'])
+
+def guard(event,args):
+    if event.startswith('socket.') or event in ('os.system','os.fork'):
+        raise RuntimeError('FILESYSTEM_ONLY')
+    if event=='import' and str(args[0]).split('.')[0] in {'src','ibapi','ib_insync','requests','curl_cffi','yfinance'}:
+        raise RuntimeError('NO_OPERATIONAL_IMPORTS')
+    if event=='ctypes.dlopen' and str(args[0]).lower()!='kernel32':
+        raise RuntimeError('NO_NATIVE_TRANSFER')
+    if event=='subprocess.Popen':
+        allowed=[['git','ls-files','-z'],['git','show',PIN+':scripts/certification/natural_readonly_operator.py']]
+        for command in (['rev-parse','HEAD'],['rev-parse',PIN+'^{tree}'],['status','--porcelain=v1','--untracked-files=all']):
+            allowed.append(['git','--no-optional-locks','-c','core.fsmonitor=false',*command])
+        argv=args[1]
+        okay=argv in allowed if isinstance(argv,(list,tuple)) else argv in [subprocess.list2cmdline(a) for a in allowed]
+        if not okay or Path(args[2]).resolve()!=SOURCE: raise RuntimeError('ONLY_EXACT_LOCAL_GIT')
+sys.addaudithook(guard)
+os.environ['GIT_OPTIONAL_LOCKS']='0'
+
+
+def small(path,cap):
+    with path.open('rb') as stream: raw=stream.read(cap+1)
+    if len(raw)>cap: raise RuntimeError('IPC_LIMIT')
+    return json.loads(raw)
+
+
+def put(path,data,cap):
+    raw=json.dumps(data,ensure_ascii=True).encode()
+    if len(raw)>cap: raise RuntimeError('IPC_LIMIT')
+    temporary=path.with_suffix('.tmp')
+    temporary.write_bytes(raw); temporary.replace(path)
+
+
+def authority():
+    source=subprocess.check_output(['git','show',PIN+':scripts/certification/natural_readonly_operator.py'],cwd=SOURCE)
+    blob=hashlib.sha1(b'blob '+str(len(source)).encode()+b'\0'+source).hexdigest()
+    if blob!=OWNER: raise RuntimeError('OWNER_IDENTITY')
+    nodes=ast.parse(source).body
+    digest=next(n for n in nodes if isinstance(n,ast.FunctionDef) and n.name=='digest')
+    owner=next(n for n in nodes if isinstance(n,ast.FunctionDef) and n.name=='source_manifest')
+    enumeration=next(n for n in owner.body if isinstance(n,ast.Assign) and isinstance(n.targets[0],ast.Name) and n.targets[0].id=='paths')
+    return ast.unparse(digest),ast.unparse(enumeration)
+
+
+def identity():
+    def git(*args):
+        return subprocess.check_output(['git','--no-optional-locks','-c','core.fsmonitor=false',*args],cwd=SOURCE).decode().strip()
+    if git('rev-parse','HEAD')!=PIN or git('rev-parse',PIN+'^{tree}')!=TREE or git('status','--porcelain=v1','--untracked-files=all'):
+        raise RuntimeError('SOURCE_IDENTITY')
+
+
+def worker(slot):
+    worker_step(1)
+    namespace={'hashlib':hashlib}
+    exec(compile((ROOT/'digest.PRIVATE.py').read_text(),'<accepted-digest>','exec'),namespace)
+    while not (ROOT/'stop-workers').exists():
+        worker_step(2)
+        request=slot/'task.json'
+        if not request.exists(): time.sleep(.002); continue
+        worker_step(3); task=small(request,8192)
+        worker_step(4); request.unlink()
+        class Target:
+            size=0
+            def is_file(self):
+                worker_step(6)
+                return Path(task['path']).is_file()
+            def read_bytes(self):
+                worker_step(7)
+                data=Path(task['path']).read_bytes(); self.size=len(data); return data
+        target=Target()
+        try:
+            worker_step(5)
+            value=namespace['digest'](target)
+            worker_step(8)
+            result={'index':task['index'],'ok':True,'value':value,'bytes':target.size}
+        except OSError as exc:
+            result={'index':task['index'],'ok':False,'error_winerror':error_code(exc),'error_class':exception_category(exc),'error_worker_step':WORKER_STEP}
+        worker_step(9); put(slot/'result.json',result,1024)
+
+
+def coordinator():
+    global STARTED_WORKERS,DISPATCHED,COMPLETED,OBSERVED_WORKER_EXIT
+    stage(10); identity()
+    stage(20); code,enumeration=authority()
+    (ROOT/'digest.PRIVATE.py').write_text(code,encoding='utf-8')
+    started=time.monotonic()
+    stage(30)
+    scope={'subprocess':subprocess,'repo':SOURCE}
+    exec(compile(enumeration,'<accepted-enumeration>','exec'),scope)
+    names=[n for n in scope['paths'] if n]
+    # Accepted tracked coverage; reject unexpected expansion, never skip it.
+    if len(names)!=2686 or len(names)!=len(set(names)): raise RuntimeError('TRACKED_COVERAGE')
+    api=API(); workers=[]; slots=[]; busy={}; values={}; byte_count=0; peak=0
+    stage(40)
+    for index in range(WORKERS):
+        slot=ROOT/('worker'+str(index)); slot.mkdir(); slots.append(slot)
+        p=api.spawn(ROOT,'worker',str(index),suspended=False)
+        workers.append(p); STARTED_WORKERS+=1
+    stage(50)
+    cursor=0
+    while cursor<len(names) or busy:
+        for index,(p,slot) in enumerate(zip(workers,slots)):
+            work_step(1)
+            if api.wait(p['process'],time.monotonic()):
+                code=api.exit_code(p['process'])
+                OBSERVED_WORKER_EXIT=code if code in (0,1,2,3,0xC0000005,0xC0000135,0xC0000142,0xC0000409) else 0
+                raise RuntimeError('WORKER_EXIT')
+            work_step(2)
+            if index in busy and (slot/'result.json').exists():
+                work_step(3); result=small(slot/'result.json',1024)
+                work_step(4); (slot/'result.json').unlink()
+                wanted=busy.pop(index)
+                work_step(5)
+                if result.get('index')!=wanted: raise RuntimeError('HASH_SCHEMA')
+                work_step(6)
+                if result.get('ok') is not True:
+                    exc=OSError(0,'')
+                    exc.winerror=result.get('error_winerror',0)
+                    put(ROOT/'worker-result-failure.PRIVATE.json',{'step':result.get('error_worker_step',0),'class':result.get('error_class',0),'reason':0,'winerror':error_code(exc)},1024)
+                    raise exc
+                work_step(7); value=result.get('value')
+                if value is not None and (not isinstance(value,str) or len(value)!=64 or any(c not in '0123456789abcdef' for c in value)): raise RuntimeError('HASH_SCHEMA')
+                work_step(8); size=result.get('bytes')
+                if type(size) is not int or size<0: raise RuntimeError('BYTE_SCHEMA')
+                values[wanted]=value; byte_count+=size; COMPLETED+=1
+            if index not in busy and cursor<len(names):
+                work_step(9)
+                put(slot/'task.json',{'index':cursor,'path':str(SOURCE/names[cursor])},8192)
+                busy[index]=cursor; cursor+=1; DISPATCHED+=1
+        work_step(10); peak=max(peak,len(busy)); time.sleep(.002)
+    stage(60)
+    (ROOT/'stop-workers').write_text('1')
+    # Retire workers before final Git calls: avoid extra live work/native members.
+    # External controller independently kills the entire job at its deadline.
+    for p in workers:
+        while not api.wait(p['process'],time.monotonic()+.02): pass
+        if api.exit_code(p['process'])!=0: raise RuntimeError('WORKER_FAILED')
+    for h in list(api.handles): api.close(h)
+    stage(70); identity()
+    stage(80)
+    manifest={name:values[index] for index,name in enumerate(names)}
+    # STAGED private output is never reusable/published as a successful baseline.
+    put(ROOT/'manifest.STAGED.PRIVATE.json',manifest,2097152)
+    put(ROOT/'candidate.PRIVATE.json',{'file_count':len(names),'bytes':byte_count,
+        'missing':sum(v is None for v in manifest.values()),'workers':WORKERS,'peak_pending':peak,
+        'candidate_seconds':time.monotonic()-started,'source_identity':True},4096)
+    stage(90)
+
+
+def controller():
+    api=API(); job=None; p=None; owned={}; status='ERROR'; clean=True; peak=0
+    controller_stage=0; controller_winerror=0; controller_failure_stage=0; controller_reason=0
+    began=time.monotonic(); deadline=began+90
+    try:
+        controller_stage=1; job=api.create_job()
+        controller_stage=2
+        p=api.spawn(ROOT,'coordinator','benchmark')
+        owned[p['pid']]=p['process']
+        controller_stage=3; api.assign(job,p); api.resume(p)
+        while True:
+            if time.monotonic()>=deadline: status='DEADLINE'; break
+            controller_stage=7
+            if api.wait(p['process'],time.monotonic()) and api.exit_code(p['process'])!=0: raise RuntimeError('CHILD_FAILED')
+            controller_stage=4; ids=api.members(job); peak=max(peak,len(ids))
+            for pid in ids:
+                if pid not in owned:
+                    controller_stage=5; h=api.open(pid)
+                    if not api.member(job,h): raise RuntimeError('MEMBERSHIP')
+                    owned[pid]=h
+            if not ids:
+                controller_stage=6
+                if not api.wait(p['process'],deadline) or api.exit_code(p['process'])!=0: raise RuntimeError('CHILD_FAILED')
+                status='COMPLETE'; break
+            time.sleep(.005)
+    except BaseException as exc:
+        status='ERROR'; controller_failure_stage=controller_stage; controller_winerror=error_code(exc)
+        controller_reason={'MEMBERSHIP_INCOMPLETE':1,'CHILD_FAILED':2,'MEMBERSHIP':3}.get(str(exc),0) if type(exc) is RuntimeError else 0
+    finally:
+        cleanup_start=time.monotonic(); cleanup_deadline=cleanup_start+30
+        try:
+            if p and not p['assigned']: api.checked(api.k.TerminateProcess(p['process'],98))
+            if job:
+                api.terminate(job)
+                while api.members(job):
+                    if time.monotonic()>=cleanup_deadline: raise RuntimeError('JOB_EXIT_UNVERIFIED')
+                    time.sleep(.005)
+            for h in owned.values():
+                if not api.wait(h,cleanup_deadline): raise RuntimeError('PROCESS_EXIT_UNVERIFIED')
+        except BaseException:
+            clean=False
+        # Preserve UNKNOWN on failed verification; no fixture rescue in benchmark.
+        # The last handle's OS close retains kill-on-close safety, not exit proof.
+        for h in [h for h in api.handles if h!=job]+([job] if job else []):
+            try: api.close(h)
+            except BaseException: clean=False
+        if api.handles or time.monotonic()>cleanup_deadline: clean=False
+        elapsed=time.monotonic()-began
+        result={'schema':'manifest-process-benchmark.v1','pin':PIN,'tree':TREE,
+            'status':status,'measurement_budget_seconds':90,'cleanup_budget_seconds':30,
+            'measurement_and_cleanup_seconds':elapsed,'cleanup_verified':clean,
+            'native_member_cap':MAX_MEMBERS,'peak_native_members':peak,
+            'setup_excluded':True,'performance_speedup_established':False,
+            'reusable_source_baseline':False,'logical_workers_configured':WORKERS,
+            'logical_workers_started':0,'failure_evidence_available':False,'failure_stage':0,'failure_winerror':0,
+            'failure_subprocess_code':0,'controller_failure_stage':controller_failure_stage,
+            'controller_winerror':controller_winerror,'controller_reason':controller_reason,
+            'work_progress_available':False,'work_step':0,'failure_class':0,'failure_reason':0,
+            'tasks_dispatched':0,'tasks_completed':0,'worker_exit_category':0,
+            'worker_evidence_count':0,'worker_evidence_omitted':0,'worker_error_step':0,'worker_error_class':0,'worker_error_reason':0,'worker_error_winerror':0,'PAPER_READY':'NO','PAPER_READINESS_GATE':'FAIL'}
+        if status=='COMPLETE' and clean and elapsed<=90:
+            candidate=small(ROOT/'candidate.PRIVATE.json',4096)
+            if set(candidate)!={'file_count','bytes','missing','workers','peak_pending','candidate_seconds','source_identity'}:
+                raise RuntimeError('REPORT_SCHEMA')
+            if (candidate['file_count']!=2686 or candidate['workers']!=WORKERS or not 0<=candidate['peak_pending']<=WORKERS or
+                candidate['source_identity'] is not True or candidate['missing']!=0 or
+                type(candidate['bytes']) is not int or candidate['bytes']<0 or
+                not isinstance(candidate['candidate_seconds'],(int,float)) or not 0<=candidate['candidate_seconds']<=90):
+                raise RuntimeError('REPORT_INVALID')
+            result.update(candidate)
+            result['logical_workers_started']=WORKERS
+            result.update(work_progress_available=True,tasks_dispatched=candidate['file_count'],tasks_completed=candidate['file_count'])
+            (ROOT/'manifest.STAGED.PRIVATE.json').replace(ROOT/'manifest.COMPLETE.PRIVATE.json')
+        else:
+            result['status']='FAIL'
+            failure_path=ROOT/'failure.PRIVATE.json'
+            if failure_path.exists():
+                failure=small(failure_path,1024)
+                if set(failure)!={'stage','started','winerror','subprocess_code','step','class','reason','dispatched','completed','worker_exit'}: raise RuntimeError('FAILURE_SCHEMA')
+                if (type(failure['stage']) is not int or failure['stage'] not in (0,10,20,30,40,50,60,70,80,90) or
+                    type(failure['started']) is not int or not 0<=failure['started']<=WORKERS or
+                    type(failure['winerror']) is not int or failure['winerror'] not in (0,5,6,8,32,87,122,234,1816) or
+                    type(failure['subprocess_code']) is not int or not -255<=failure['subprocess_code']<=255 or
+                    type(failure['step']) is not int or not 0<=failure['step']<=10 or
+                    type(failure['class']) is not int or not 0<=failure['class']<=15 or
+                    type(failure['reason']) is not int or not 0<=failure['reason']<=11 or
+                    type(failure['dispatched']) is not int or not 0<=failure['completed']<=failure['dispatched']<=2686 or
+                    type(failure['completed']) is not int or
+                    type(failure['worker_exit']) is not int or failure['worker_exit'] not in (0,1,2,3,0xC0000005,0xC0000135,0xC0000142,0xC0000409)): raise RuntimeError('FAILURE_INVALID')
+                result.update(failure_evidence_available=True,failure_stage=failure['stage'],
+                    logical_workers_started=failure['started'],failure_winerror=failure['winerror'],failure_subprocess_code=failure['subprocess_code'],
+                    work_progress_available=True,work_step=failure['step'],failure_class=failure['class'],failure_reason=failure['reason'],
+                    tasks_dispatched=failure['dispatched'],tasks_completed=failure['completed'],worker_exit_category=failure['worker_exit'])
+        worker_errors=[]
+        for path in [ROOT/('worker'+str(i))/'failure.PRIVATE.json' for i in range(WORKERS)]+[ROOT/'worker-result-failure.PRIVATE.json']:
+            if not path.exists(): continue
+            error=small(path,1024)
+            if set(error)!={'step','class','reason','winerror'} or any(type(v) is not int for v in error.values()): raise RuntimeError('WORKER_EVIDENCE_SCHEMA')
+            if not 0<=error['step']<=9 or not 0<=error['class']<=15 or not 0<=error['reason']<=11 or error['winerror'] not in (0,5,6,8,32,87,122,234,1816): raise RuntimeError('WORKER_EVIDENCE_INVALID')
+            worker_errors.append(error)
+        if worker_errors:
+            result.update(worker_evidence_count=len(worker_errors),worker_evidence_omitted=len(worker_errors)-1,
+                worker_error_step=worker_errors[0]['step'],worker_error_class=worker_errors[0]['class'],
+                worker_error_reason=worker_errors[0]['reason'],worker_error_winerror=worker_errors[0]['winerror'])
+        # Whitelisted aggregate only; no filenames, mapping/hashes, IDs, handles,
+        # image paths, exception strings, stdout/stderr or other scratch artifacts.
+        put(ROOT/'manifest-process-shareable.json',result,8192)
+        print('COMPLETE' if result['status']=='COMPLETE' else 'FAIL_NO_RETRY',flush=True)
+    return 0 if result['status']=='COMPLETE' else 1
+
+
+if __name__=='__main__':
+    try:
+        if os.name!='nt' or sys.version_info[:3]!=(3,13,3): raise RuntimeError('ENVIRONMENT')
+        if sys.argv[1]=='--child':
+            if sys.argv[3]=='coordinator':
+                try: coordinator()
+                except Exception as exc:
+                    code=exc.returncode if isinstance(exc,subprocess.CalledProcessError) and type(exc.returncode) is int and -255<=exc.returncode<=255 else 0
+                    put(ROOT/'failure.PRIVATE.json',{'stage':STAGE,'started':STARTED_WORKERS,'winerror':error_code(exc),'subprocess_code':code,'step':WORK_STEP,'class':exception_category(exc),'reason':fixed_reason(exc),'dispatched':DISPATCHED,'completed':COMPLETED,'worker_exit':OBSERVED_WORKER_EXIT},1024)
+                    raise
+            elif sys.argv[3]=='worker':
+                slot=ROOT/('worker'+str(int(sys.argv[4])))
+                try: worker(slot)
+                except Exception as exc:
+                    put(slot/'failure.PRIVATE.json',{'step':WORKER_STEP,'class':exception_category(exc),'reason':fixed_reason(exc),'winerror':error_code(exc)},1024)
+                    raise
+            else: raise RuntimeError('ROLE')
+        else: raise SystemExit(controller())
+    except Exception:
+        # Fixed text only; any private staged files remain unusable on failure.
+        print('FAIL_NO_RETRY; no raw exception exported',flush=True)
+        raise SystemExit(1)
+'@
+    $Driver = Join-Path $ScratchRoot 'benchmark.PRIVATE.py'
+    [IO.File]::WriteAllText($Driver, $payload, $utf8)
+    Write-Host 'ONE filesystem-only pass, 2 workers/2 outstanding; 90s shared measurement + 30s shared owned cleanup.'
+    Write-Host 'Private scratch retained; never upload the root, driver, task/results or manifest.'
+    & $Python -I -S -B -u $Driver $ScratchRoot
+    $measurementExit = $LASTEXITCODE
+    $Shareable = Join-Path $ScratchRoot 'manifest-process-shareable.json'
+    if (!(Test-Path -LiteralPath $Shareable -PathType Leaf)) {
+        throw "No verified shareable result; NO RETRY. Private root: $ScratchRoot"
+    }
+    if ((Get-Item -LiteralPath $Shareable).Length -gt 8192) { throw 'Aggregate privacy bound failed; do not share.' }
+    $reportData = [IO.File]::ReadAllText($Shareable) | ConvertFrom-Json
+    $allowedNames = @('schema','pin','tree','status','measurement_budget_seconds','cleanup_budget_seconds',
+        'measurement_and_cleanup_seconds','cleanup_verified','native_member_cap','peak_native_members',
+        'setup_excluded','performance_speedup_established','reusable_source_baseline','PAPER_READY','PAPER_READINESS_GATE',
+        'file_count','bytes','missing','workers','peak_pending','candidate_seconds','source_identity',
+        'logical_workers_configured','logical_workers_started','failure_evidence_available','failure_stage','failure_winerror','failure_subprocess_code','controller_failure_stage','controller_winerror','controller_reason','work_progress_available','work_step','failure_class','failure_reason',
+        'tasks_dispatched','tasks_completed','worker_exit_category','worker_evidence_count','worker_evidence_omitted','worker_error_step','worker_error_class','worker_error_reason','worker_error_winerror')
+    foreach ($field in $reportData.PSObject.Properties.Name) {
+        if ($allowedNames -cnotcontains $field) { throw 'Unexpected exported field; do not share.' }
+    }
+    if ($reportData.schema -cne 'manifest-process-benchmark.v1' -or
+        $reportData.pin -cne 'a501c88bcc926bef87875f6352f210b19b6e438b' -or
+        $reportData.tree -cne 'e66b6daa84f04ec95dce1155fde2a9a4e156cf14' -or
+        @('COMPLETE','FAIL') -cnotcontains $reportData.status -or
+        $reportData.PAPER_READY -cne 'NO' -or $reportData.PAPER_READINESS_GATE -cne 'FAIL') {
+        throw 'Unexpected exported string; do not share.'
+    }
+    $stringFields = @('schema','pin','tree','status','PAPER_READY','PAPER_READINESS_GATE')
+    foreach ($property in $reportData.PSObject.Properties) {
+        if ($stringFields -ccontains $property.Name) { continue }
+        if ($null -eq $property.Value -or
+            ($property.Value -isnot [bool] -and $property.Value -isnot [int] -and
+             $property.Value -isnot [long] -and $property.Value -isnot [double] -and
+             $property.Value -isnot [decimal])) { throw 'Nonaggregate output; do not share.' }
+    }
+    Write-Host ("Privacy-verified aggregate ONLY: " + $Shareable)
+    Write-Host 'Do not ZIP or share any other scratch artifact; no repeat/warm retry.'
+    if ($measurementExit -ne 0) { throw 'Measurement failed; retain evidence and stop. No natural preflight/observation authorized.' }
+}
+```
+
+CI41123758149 at6851da99 reproduced the released V2 FAIL on the EXACT accepted
+checkout, stage50/peak9/twostarted/cleanuptrue0.6105s. Evidence V3 also failed:
+work_step3 (result small/read), exception_category2=PermissionError,933completed/
+935dispatched,winerror0,cleanuptrue. This CI FAIL is preserved. Thus the old flat
+synthetic fixture missed an actually reproducible accepted-checkout work-loop
+path; no cap/storage/security explanation is assumed. Original local receipt
+still lacks exception/substep, so exact archived syscall/cause is not invented.
+
+### Publication-return barrier candidate V4
+
+PENDING guarded Windows full-entrypoint validation/review; NOT OPERATOR RELEASE.
+Demonstrated protocol gap: old consumers used payload pathname.exists as authority
+to open, without knowing whether publisher put/write/replace had RETURNED. Atomic
+path visibility alone does not prove publisher completion/handle availability.
+The V3 accepted-checkout PermissionError localizes the immediate CI failure to
+result reading; it does not identify an external OS/storage actor.
+
+Narrow candidate: same put payload owner, add zero-content readiness markers only
+AFTER put returns, in BOTH task/result directions. Consumers only stat/enumerate
+markers, never open their contents. Only each marker's publisher deletes it after
+its own creation returned; per-task generations prevent stale reuse. Payloads
+still require index/hash/byte/schema validation. All read errors AFTER readiness
+still FAIL immediately; no PermissionError retry, suppression or timeout change.
+Maximum2extra empty markers per worker (one task/one result), bounded enumeration
+of at most3names (detect violation), same2workers/2outstanding/native10,8192/1024
+payload caps,90s/30s authority. No extra processes, sources, caches or production
+owner; private marker ordinals are never exported. No persistent or growing marker
+history; owners retire previous-generation markers. Final private bounded files
+are retained only as existing scratch evidence, with no open handles/runtime.
+
+Guarded Windows acceptance uses exact accepted checkout and full PowerShell/
+embedded Python paths: native sharing-denied handle across actual rename while
+publisher remains pending. Old V3 must fail result read with PermissionError;
+V4 must wait for publication RETURN, then complete exact hashes. Task direction
+gets the same controlled publication window. A separate AFTER-ready sharing denial
+must STILL fail with no COMPLETE mapping, proving no blanket error bypass. Normal
+V4 must also complete. Native handles are owned/closed in fixture finally; faults
+are injected only by test code, never exposed as an operator option. No limits
+increased. Any regression fails CI; nothing permits workstation retry by default.
+
+```powershell
+# PREPARED FILESYSTEM-ONLY BENCHMARK; ONE invocation; no automatic retry.
+# No preflight, source modification, network/acquisition, broker or observation.
+& {
+    $ErrorActionPreference = 'Stop'
+    if ($PSVersionTable.PSEdition -ne 'Desktop' -or
+        $PSVersionTable.PSVersion.Major -ne 5 -or $PSVersionTable.PSVersion.Minor -ne 1) {
+        throw 'Requires Windows PowerShell5.1 Desktop.'
+    }
+    $Python = 'C:\tmp\pr1091-cert-env-20260923\Scripts\python.exe'
+    $SourceCheckout = 'C:\tmp\ro-9a2e923d\s'
+    if (!(Test-Path -LiteralPath $Python -PathType Leaf) -or
+        !(Test-Path -LiteralPath $SourceCheckout -PathType Container)) {
+        throw 'Pinned existing environment/source missing; stop without substitution.'
+    }
+    # No fetch, checkout, cache writes, warm-up or baseline reuse.
+    $ScratchRoot = Join-Path 'C:\tmp' ('manifest-contained-' + [guid]::NewGuid().ToString('N').Substring(0,8))
+    if (Test-Path -LiteralPath $ScratchRoot) { throw 'Fresh root collision; no retry.' }
+    New-Item -ItemType Directory -Path $ScratchRoot | Out-Null
+    $utf8 = New-Object System.Text.UTF8Encoding($false)
+    [IO.File]::WriteAllText((Join-Path $ScratchRoot 'config.PRIVATE.json'),
+        (@{source=$SourceCheckout} | ConvertTo-Json -Compress), $utf8)
+    $payload = @'
+# PREPARED ONLY; filesystem-only, one invocation, no operational imports.
+import ast, ctypes, hashlib, itertools, json, os, subprocess, sys, time
+from ctypes import wintypes as W
+from pathlib import Path
+HERE=Path(__file__).resolve()
+MAX_MEMBERS=10
+class STARTUPINFO(ctypes.Structure):
+    _fields_ = [('cb', W.DWORD), ('lpReserved', W.LPWSTR), ('lpDesktop', W.LPWSTR),
+                ('lpTitle', W.LPWSTR), ('dwX', W.DWORD), ('dwY', W.DWORD),
+                ('dwXSize', W.DWORD), ('dwYSize', W.DWORD), ('dwXCountChars', W.DWORD),
+                ('dwYCountChars', W.DWORD), ('dwFillAttribute', W.DWORD),
+                ('dwFlags', W.DWORD), ('wShowWindow', W.WORD), ('cbReserved2', W.WORD),
+                ('lpReserved2', ctypes.POINTER(W.BYTE)), ('hStdInput', W.HANDLE),
+                ('hStdOutput', W.HANDLE), ('hStdError', W.HANDLE)]
+
+
+class PROCESSINFO(ctypes.Structure):
+    _fields_ = [('hProcess', W.HANDLE), ('hThread', W.HANDLE),
+                ('dwProcessId', W.DWORD), ('dwThreadId', W.DWORD)]
+
+
+class LIMITS(ctypes.Structure):
+    _fields_ = [('PerProcessUserTimeLimit', ctypes.c_int64), ('PerJobUserTimeLimit', ctypes.c_int64),
+                ('LimitFlags', W.DWORD), ('MinimumWorkingSetSize', ctypes.c_size_t),
+                ('MaximumWorkingSetSize', ctypes.c_size_t), ('ActiveProcessLimit', W.DWORD),
+                ('Affinity', ctypes.c_size_t), ('PriorityClass', W.DWORD), ('SchedulingClass', W.DWORD)]
+
+
+class IOCOUNTERS(ctypes.Structure):
+    _fields_ = [(n, ctypes.c_uint64) for n in ('ReadOperationCount', 'WriteOperationCount',
+                'OtherOperationCount', 'ReadTransferCount', 'WriteTransferCount', 'OtherTransferCount')]
+
+
+class EXTENDED(ctypes.Structure):
+    _fields_ = [('BasicLimitInformation', LIMITS), ('IoInfo', IOCOUNTERS),
+                ('ProcessMemoryLimit', ctypes.c_size_t), ('JobMemoryLimit', ctypes.c_size_t),
+                ('PeakProcessMemoryUsed', ctypes.c_size_t), ('PeakJobMemoryUsed', ctypes.c_size_t)]
+
+
+class PIDLIST(ctypes.Structure):
+    _fields_ = [('assigned', W.DWORD), ('count', W.DWORD), ('pids', ctypes.c_size_t * MAX_MEMBERS)]
+
+
+class API:
+    """Retained native handles, following process_identity's wait/exit pattern."""
+    def __init__(self):
+        self.k = ctypes.WinDLL('kernel32', use_last_error=True)
+        specs = {
+            'CreateJobObjectW': ([ctypes.c_void_p, W.LPCWSTR], W.HANDLE),
+            'SetInformationJobObject': ([W.HANDLE, ctypes.c_int, ctypes.c_void_p, W.DWORD], W.BOOL),
+            'QueryInformationJobObject': ([W.HANDLE, ctypes.c_int, ctypes.c_void_p, W.DWORD, ctypes.c_void_p], W.BOOL),
+            'AssignProcessToJobObject': ([W.HANDLE, W.HANDLE], W.BOOL),
+            'IsProcessInJob': ([W.HANDLE, W.HANDLE, ctypes.POINTER(W.BOOL)], W.BOOL),
+            'TerminateJobObject': ([W.HANDLE, W.UINT], W.BOOL),
+            'CreateProcessW': ([W.LPCWSTR, W.LPWSTR, ctypes.c_void_p, ctypes.c_void_p, W.BOOL, W.DWORD, ctypes.c_void_p, W.LPCWSTR, ctypes.POINTER(STARTUPINFO), ctypes.POINTER(PROCESSINFO)], W.BOOL),
+            'ResumeThread': ([W.HANDLE], W.DWORD),
+            'OpenProcess': ([W.DWORD, W.BOOL, W.DWORD], W.HANDLE),
+            'QueryFullProcessImageNameW': ([W.HANDLE, W.DWORD, W.LPWSTR, ctypes.POINTER(W.DWORD)], W.BOOL),
+            'WaitForSingleObject': ([W.HANDLE, W.DWORD], W.DWORD),
+            'GetExitCodeProcess': ([W.HANDLE, ctypes.POINTER(W.DWORD)], W.BOOL),
+            'GetProcessTimes': ([W.HANDLE] + [ctypes.POINTER(W.FILETIME)] * 4, W.BOOL),
+            'TerminateProcess': ([W.HANDLE, W.UINT], W.BOOL),
+            'CloseHandle': ([W.HANDLE], W.BOOL),
+        }
+        for name, (arguments, result) in specs.items():
+            fn = getattr(self.k, name); fn.argtypes = arguments; fn.restype = result
+        self.handles = set()
+        self.fault = None
+
+    def fail(self, operation):
+        if self.fault == operation:
+            self.fault = None  # one injected denial; recovery never rewrites result
+            raise OSError('INJECTED_' + operation)
+
+    def checked(self, result):
+        if not result: raise ctypes.WinError(ctypes.get_last_error())
+        return result
+
+    def own(self, handle):
+        self.checked(handle); self.handles.add(int(handle)); return int(handle)
+
+    def close(self, handle):
+        self.fail('close')
+        self.checked(self.k.CloseHandle(handle)); self.handles.remove(handle)
+
+    def create_job(self):
+        job = self.own(self.k.CreateJobObjectW(None, None))
+        limits = EXTENDED()
+        limits.BasicLimitInformation.LimitFlags = 0x2000 | 0x8  # KILL_ON_JOB_CLOSE, ACTIVE_PROCESS
+        limits.BasicLimitInformation.ActiveProcessLimit = MAX_MEMBERS
+        self.checked(self.k.SetInformationJobObject(job, 9, ctypes.byref(limits), ctypes.sizeof(limits)))
+        return job
+
+    def spawn(self, root, role, mode, *, suspended=True, breakaway=False):
+        command = subprocess.list2cmdline([sys.executable, '-I', '-S', '-B', '-u', str(HERE), '--child', str(root), role, mode])
+        startup = STARTUPINFO(); startup.cb = ctypes.sizeof(startup)
+        info = PROCESSINFO()
+        self.checked(self.k.CreateProcessW(sys.executable, ctypes.create_unicode_buffer(command), None, None,
+                     False, 0x08000000 | (0x4 if suspended else 0) | (0x01000000 if breakaway else 0), None, str(root), ctypes.byref(startup), ctypes.byref(info)))
+        # Registration has no I/O; retain process AND primary thread immediately.
+        return {'process': self.own(info.hProcess), 'thread': self.own(info.hThread), 'pid': info.dwProcessId, 'assigned': False}
+
+    def assign(self, job, process):
+        self.fail('assign')
+        self.checked(self.k.AssignProcessToJobObject(job, process['process']))
+        process['assigned'] = True
+        if not self.member(job, process['process']): raise RuntimeError('MEMBERSHIP_UNKNOWN')
+
+    def resume(self, process):
+        if not process['assigned']: raise RuntimeError('Never resume before assignment')
+        if self.k.ResumeThread(process['thread']) == 0xFFFFFFFF: raise ctypes.WinError(ctypes.get_last_error())
+
+    def member(self, job, process):
+        present = W.BOOL()
+        self.checked(self.k.IsProcessInJob(process, job, ctypes.byref(present)))
+        return bool(present.value)
+
+    def members(self, job):
+        self.fail('query')
+        info = PIDLIST()
+        self.checked(self.k.QueryInformationJobObject(job, 3, ctypes.byref(info), ctypes.sizeof(info), None))
+        if info.count > MAX_MEMBERS or info.assigned != info.count: raise RuntimeError('MEMBERSHIP_INCOMPLETE')
+        return list(info.pids[:info.count])
+
+    def open(self, pid):
+        return self.own(self.k.OpenProcess(0x1000 | 0x100000 | 0x1, False, pid))
+
+    def image_kind(self, handle):
+        length=W.DWORD(32768); text=ctypes.create_unicode_buffer(length.value)
+        self.checked(self.k.QueryFullProcessImageNameW(handle,0,text,ctypes.byref(length)))
+        image=Path(text.value)
+        return {'image_class':'PYTHON' if image.name.lower() in ('python.exe','python3.exe','pythonw.exe') else 'OTHER', 'same_as_controller_executable':os.path.normcase(str(image))==os.path.normcase(sys.executable)}
+
+    def token(self, handle):
+        fields = [W.FILETIME() for _ in range(4)]
+        self.checked(self.k.GetProcessTimes(handle, *(ctypes.byref(f) for f in fields)))
+        return (fields[0].dwHighDateTime << 32) | fields[0].dwLowDateTime
+
+    def wait(self, handle, deadline):
+        self.fail('wait')
+        remaining = max(0., deadline-time.monotonic())
+        value = self.k.WaitForSingleObject(handle, int(min(remaining*1000, 0xFFFFFFFE)))
+        if value == 258: return False
+        if value != 0: raise ctypes.WinError(ctypes.get_last_error())
+        code = W.DWORD(); self.checked(self.k.GetExitCodeProcess(handle, ctypes.byref(code)))
+        return True
+
+    def exit_code(self, handle):
+        code = W.DWORD(); self.checked(self.k.GetExitCodeProcess(handle,ctypes.byref(code)))
+        return code.value
+
+    def terminate(self, job):
+        self.fail('terminate')
+        self.checked(self.k.TerminateJobObject(job, 97))
+
+
+# Temporary benchmark only. API above is copied verbatim from reviewed5a464746.
+PIN='a501c88bcc926bef87875f6352f210b19b6e438b'
+TREE='e66b6daa84f04ec95dce1155fde2a9a4e156cf14'
+OWNER='4bec6f8974062cbd68f5c88bbf9baa671a075237'
+WORKERS=2
+STAGE=0
+STARTED_WORKERS=0
+WORK_STEP=0
+WORKER_STEP=0
+DISPATCHED=0
+COMPLETED=0
+OBSERVED_WORKER_EXIT=0
+
+def exception_category(exc):
+    names=('OSError','PermissionError','FileNotFoundError','RuntimeError','ValueError','TypeError','JSONDecodeError','UnicodeDecodeError','SyntaxError','NameError','AttributeError','KeyError','IndexError','MemoryError')
+    return names.index(type(exc).__name__)+1 if type(exc).__name__ in names else 15
+
+def fixed_reason(exc):
+    reasons=('WORKER_EXIT','HASH_SCHEMA','BYTE_SCHEMA','IPC_LIMIT','WORKER_FAILED','TRACKED_COVERAGE','SOURCE_IDENTITY','OWNER_IDENTITY','MEMBERSHIP_INCOMPLETE','CHILD_FAILED','MEMBERSHIP')
+    return reasons.index(str(exc))+1 if type(exc) is RuntimeError and str(exc) in reasons else 0
+
+def work_step(value):
+    global WORK_STEP
+    WORK_STEP=value
+
+def worker_step(value):
+    global WORKER_STEP
+    WORKER_STEP=value
+
+def stage(number):
+    global STAGE
+    STAGE=number
+
+def error_code(exc):
+    value=getattr(exc,'winerror',None)
+    return value if type(value) is int and value in (5,6,8,32,87,122,234,1816) else 0
+ROOT=Path(sys.argv[2] if sys.argv[1]=='--child' else sys.argv[1]).resolve()
+CONFIG=json.loads((ROOT/'config.PRIVATE.json').read_text())
+SOURCE=Path(CONFIG['source'])
+
+def guard(event,args):
+    if event.startswith('socket.') or event in ('os.system','os.fork'):
+        raise RuntimeError('FILESYSTEM_ONLY')
+    if event=='import' and str(args[0]).split('.')[0] in {'src','ibapi','ib_insync','requests','curl_cffi','yfinance'}:
+        raise RuntimeError('NO_OPERATIONAL_IMPORTS')
+    if event=='ctypes.dlopen' and str(args[0]).lower()!='kernel32':
+        raise RuntimeError('NO_NATIVE_TRANSFER')
+    if event=='subprocess.Popen':
+        allowed=[['git','ls-files','-z'],['git','show',PIN+':scripts/certification/natural_readonly_operator.py']]
+        for command in (['rev-parse','HEAD'],['rev-parse',PIN+'^{tree}'],['status','--porcelain=v1','--untracked-files=all']):
+            allowed.append(['git','--no-optional-locks','-c','core.fsmonitor=false',*command])
+        argv=args[1]
+        okay=argv in allowed if isinstance(argv,(list,tuple)) else argv in [subprocess.list2cmdline(a) for a in allowed]
+        if not okay or Path(args[2]).resolve()!=SOURCE: raise RuntimeError('ONLY_EXACT_LOCAL_GIT')
+sys.addaudithook(guard)
+os.environ['GIT_OPTIONAL_LOCKS']='0'
+
+
+def small(path,cap):
+    with path.open('rb') as stream: raw=stream.read(cap+1)
+    if len(raw)>cap: raise RuntimeError('IPC_LIMIT')
+    return json.loads(raw)
+
+
+def put(path,data,cap):
+    raw=json.dumps(data,ensure_ascii=True).encode()
+    if len(raw)>cap: raise RuntimeError('IPC_LIMIT')
+    temporary=path.with_suffix('.tmp')
+    temporary.write_bytes(raw); temporary.replace(path)
+
+
+def authority():
+    source=subprocess.check_output(['git','show',PIN+':scripts/certification/natural_readonly_operator.py'],cwd=SOURCE)
+    blob=hashlib.sha1(b'blob '+str(len(source)).encode()+b'\0'+source).hexdigest()
+    if blob!=OWNER: raise RuntimeError('OWNER_IDENTITY')
+    nodes=ast.parse(source).body
+    digest=next(n for n in nodes if isinstance(n,ast.FunctionDef) and n.name=='digest')
+    owner=next(n for n in nodes if isinstance(n,ast.FunctionDef) and n.name=='source_manifest')
+    enumeration=next(n for n in owner.body if isinstance(n,ast.Assign) and isinstance(n.targets[0],ast.Name) and n.targets[0].id=='paths')
+    return ast.unparse(digest),ast.unparse(enumeration)
+
+
+def identity():
+    def git(*args):
+        return subprocess.check_output(['git','--no-optional-locks','-c','core.fsmonitor=false',*args],cwd=SOURCE).decode().strip()
+    if git('rev-parse','HEAD')!=PIN or git('rev-parse',PIN+'^{tree}')!=TREE or git('status','--porcelain=v1','--untracked-files=all'):
+        raise RuntimeError('SOURCE_IDENTITY')
+
+
+def worker(slot):
+    worker_step(1)
+    namespace={'hashlib':hashlib}
+    exec(compile((ROOT/'digest.PRIVATE.py').read_text(),'<accepted-digest>','exec'),namespace)
+    last_task=-1; previous_result_ready=None
+    while not (ROOT/'stop-workers').exists():
+        worker_step(2)
+        markers=list(itertools.islice(slot.glob('task-ready-*'),3))
+        if len(markers)>2: raise RuntimeError('IPC_LIMIT')
+        candidates=[]
+        for marker in markers:
+            text=marker.name[len('task-ready-'):]
+            if not text.isdecimal() or len(text)>4 or not 0<=int(text)<2686: raise RuntimeError('HASH_SCHEMA')
+            if int(text)>last_task: candidates.append(int(text))
+        if not candidates: time.sleep(.002); continue
+        if len(candidates)!=1: raise RuntimeError('HASH_SCHEMA')
+        expected_index=candidates[0]
+        request=slot/'task.json'
+        worker_step(3); task=small(request,8192)
+        if task.get('index')!=expected_index: raise RuntimeError('HASH_SCHEMA')
+        worker_step(4); request.unlink()
+        if previous_result_ready is not None: previous_result_ready.unlink()
+        last_task=expected_index
+        class Target:
+            size=0
+            def is_file(self):
+                worker_step(6)
+                return Path(task['path']).is_file()
+            def read_bytes(self):
+                worker_step(7)
+                data=Path(task['path']).read_bytes(); self.size=len(data); return data
+        target=Target()
+        try:
+            worker_step(5)
+            value=namespace['digest'](target)
+            worker_step(8)
+            result={'index':task['index'],'ok':True,'value':value,'bytes':target.size}
+        except OSError as exc:
+            result={'index':task['index'],'ok':False,'error_winerror':error_code(exc),'error_class':exception_category(exc),'error_worker_step':WORKER_STEP}
+        worker_step(9); put(slot/'result.json',result,1024)
+        # Marker is created only AFTER publication returns. Consumers never open
+        # marker contents; only its owner deletes it, after its creation returned.
+        previous_result_ready=slot/('result-ready-'+str(task['index']))
+        previous_result_ready.touch(exist_ok=False)
+
+
+def coordinator():
+    global STARTED_WORKERS,DISPATCHED,COMPLETED,OBSERVED_WORKER_EXIT
+    stage(10); identity()
+    stage(20); code,enumeration=authority()
+    (ROOT/'digest.PRIVATE.py').write_text(code,encoding='utf-8')
+    started=time.monotonic()
+    stage(30)
+    scope={'subprocess':subprocess,'repo':SOURCE}
+    exec(compile(enumeration,'<accepted-enumeration>','exec'),scope)
+    names=[n for n in scope['paths'] if n]
+    # Accepted tracked coverage; reject unexpected expansion, never skip it.
+    if len(names)!=2686 or len(names)!=len(set(names)): raise RuntimeError('TRACKED_COVERAGE')
+    api=API(); workers=[]; slots=[]; busy={}; values={}; byte_count=0; peak=0
+    stage(40)
+    for index in range(WORKERS):
+        slot=ROOT/('worker'+str(index)); slot.mkdir(); slots.append(slot)
+        p=api.spawn(ROOT,'worker',str(index),suspended=False)
+        workers.append(p); STARTED_WORKERS+=1
+    stage(50)
+    cursor=0
+    while cursor<len(names) or busy:
+        for index,(p,slot) in enumerate(zip(workers,slots)):
+            work_step(1)
+            if api.wait(p['process'],time.monotonic()):
+                code=api.exit_code(p['process'])
+                OBSERVED_WORKER_EXIT=code if code in (0,1,2,3,0xC0000005,0xC0000135,0xC0000142,0xC0000409) else 0
+                raise RuntimeError('WORKER_EXIT')
+            work_step(2)
+            if index in busy and (slot/('result-ready-'+str(busy[index]))).exists():
+                work_step(3); result=small(slot/'result.json',1024)
+                work_step(4); (slot/'result.json').unlink()
+                # Coordinator owns this marker; its creation has returned.
+                (slot/('task-ready-'+str(busy[index]))).unlink()
+                wanted=busy.pop(index)
+                work_step(5)
+                if result.get('index')!=wanted: raise RuntimeError('HASH_SCHEMA')
+                work_step(6)
+                if result.get('ok') is not True:
+                    exc=OSError(0,'')
+                    exc.winerror=result.get('error_winerror',0)
+                    put(ROOT/'worker-result-failure.PRIVATE.json',{'step':result.get('error_worker_step',0),'class':result.get('error_class',0),'reason':0,'winerror':error_code(exc)},1024)
+                    raise exc
+                work_step(7); value=result.get('value')
+                if value is not None and (not isinstance(value,str) or len(value)!=64 or any(c not in '0123456789abcdef' for c in value)): raise RuntimeError('HASH_SCHEMA')
+                work_step(8); size=result.get('bytes')
+                if type(size) is not int or size<0: raise RuntimeError('BYTE_SCHEMA')
+                values[wanted]=value; byte_count+=size; COMPLETED+=1
+            if index not in busy and cursor<len(names):
+                work_step(9)
+                put(slot/'task.json',{'index':cursor,'path':str(SOURCE/names[cursor])},8192)
+                (slot/('task-ready-'+str(cursor))).touch(exist_ok=False)
+                busy[index]=cursor; cursor+=1; DISPATCHED+=1
+        work_step(10); peak=max(peak,len(busy)); time.sleep(.002)
+    stage(60)
+    (ROOT/'stop-workers').write_text('1')
+    # Retire workers before final Git calls: avoid extra live work/native members.
+    # External controller independently kills the entire job at its deadline.
+    for p in workers:
+        while not api.wait(p['process'],time.monotonic()+.02): pass
+        if api.exit_code(p['process'])!=0: raise RuntimeError('WORKER_FAILED')
+    for h in list(api.handles): api.close(h)
+    stage(70); identity()
+    stage(80)
+    manifest={name:values[index] for index,name in enumerate(names)}
+    # STAGED private output is never reusable/published as a successful baseline.
+    put(ROOT/'manifest.STAGED.PRIVATE.json',manifest,2097152)
+    put(ROOT/'candidate.PRIVATE.json',{'file_count':len(names),'bytes':byte_count,
+        'missing':sum(v is None for v in manifest.values()),'workers':WORKERS,'peak_pending':peak,
+        'candidate_seconds':time.monotonic()-started,'source_identity':True},4096)
+    stage(90)
+
+
+def controller():
+    api=API(); job=None; p=None; owned={}; status='ERROR'; clean=True; peak=0
+    controller_stage=0; controller_winerror=0; controller_failure_stage=0; controller_reason=0
+    began=time.monotonic(); deadline=began+90
+    try:
+        controller_stage=1; job=api.create_job()
+        controller_stage=2
+        p=api.spawn(ROOT,'coordinator','benchmark')
+        owned[p['pid']]=p['process']
+        controller_stage=3; api.assign(job,p); api.resume(p)
+        while True:
+            if time.monotonic()>=deadline: status='DEADLINE'; break
+            controller_stage=7
+            if api.wait(p['process'],time.monotonic()) and api.exit_code(p['process'])!=0: raise RuntimeError('CHILD_FAILED')
+            controller_stage=4; ids=api.members(job); peak=max(peak,len(ids))
+            for pid in ids:
+                if pid not in owned:
+                    controller_stage=5; h=api.open(pid)
+                    if not api.member(job,h): raise RuntimeError('MEMBERSHIP')
+                    owned[pid]=h
+            if not ids:
+                controller_stage=6
+                if not api.wait(p['process'],deadline) or api.exit_code(p['process'])!=0: raise RuntimeError('CHILD_FAILED')
+                status='COMPLETE'; break
+            time.sleep(.005)
+    except BaseException as exc:
+        status='ERROR'; controller_failure_stage=controller_stage; controller_winerror=error_code(exc)
+        controller_reason={'MEMBERSHIP_INCOMPLETE':1,'CHILD_FAILED':2,'MEMBERSHIP':3}.get(str(exc),0) if type(exc) is RuntimeError else 0
+    finally:
+        cleanup_start=time.monotonic(); cleanup_deadline=cleanup_start+30
+        try:
+            if p and not p['assigned']: api.checked(api.k.TerminateProcess(p['process'],98))
+            if job:
+                api.terminate(job)
+                while api.members(job):
+                    if time.monotonic()>=cleanup_deadline: raise RuntimeError('JOB_EXIT_UNVERIFIED')
+                    time.sleep(.005)
+            for h in owned.values():
+                if not api.wait(h,cleanup_deadline): raise RuntimeError('PROCESS_EXIT_UNVERIFIED')
+        except BaseException:
+            clean=False
+        # Preserve UNKNOWN on failed verification; no fixture rescue in benchmark.
+        # The last handle's OS close retains kill-on-close safety, not exit proof.
+        for h in [h for h in api.handles if h!=job]+([job] if job else []):
+            try: api.close(h)
+            except BaseException: clean=False
+        if api.handles or time.monotonic()>cleanup_deadline: clean=False
+        elapsed=time.monotonic()-began
+        result={'schema':'manifest-process-benchmark.v1','pin':PIN,'tree':TREE,
+            'status':status,'measurement_budget_seconds':90,'cleanup_budget_seconds':30,
+            'measurement_and_cleanup_seconds':elapsed,'cleanup_verified':clean,
+            'native_member_cap':MAX_MEMBERS,'peak_native_members':peak,
+            'setup_excluded':True,'performance_speedup_established':False,
+            'reusable_source_baseline':False,'logical_workers_configured':WORKERS,
+            'logical_workers_started':0,'failure_evidence_available':False,'failure_stage':0,'failure_winerror':0,
+            'failure_subprocess_code':0,'controller_failure_stage':controller_failure_stage,
+            'controller_winerror':controller_winerror,'controller_reason':controller_reason,
+            'work_progress_available':False,'work_step':0,'failure_class':0,'failure_reason':0,
+            'tasks_dispatched':0,'tasks_completed':0,'worker_exit_category':0,
+            'worker_evidence_count':0,'worker_evidence_omitted':0,'worker_error_step':0,'worker_error_class':0,'worker_error_reason':0,'worker_error_winerror':0,'PAPER_READY':'NO','PAPER_READINESS_GATE':'FAIL'}
+        if status=='COMPLETE' and clean and elapsed<=90:
+            candidate=small(ROOT/'candidate.PRIVATE.json',4096)
+            if set(candidate)!={'file_count','bytes','missing','workers','peak_pending','candidate_seconds','source_identity'}:
+                raise RuntimeError('REPORT_SCHEMA')
+            if (candidate['file_count']!=2686 or candidate['workers']!=WORKERS or not 0<=candidate['peak_pending']<=WORKERS or
+                candidate['source_identity'] is not True or candidate['missing']!=0 or
+                type(candidate['bytes']) is not int or candidate['bytes']<0 or
+                not isinstance(candidate['candidate_seconds'],(int,float)) or not 0<=candidate['candidate_seconds']<=90):
+                raise RuntimeError('REPORT_INVALID')
+            result.update(candidate)
+            result['logical_workers_started']=WORKERS
+            result.update(work_progress_available=True,tasks_dispatched=candidate['file_count'],tasks_completed=candidate['file_count'])
+            (ROOT/'manifest.STAGED.PRIVATE.json').replace(ROOT/'manifest.COMPLETE.PRIVATE.json')
+        else:
+            result['status']='FAIL'
+            failure_path=ROOT/'failure.PRIVATE.json'
+            if failure_path.exists():
+                failure=small(failure_path,1024)
+                if set(failure)!={'stage','started','winerror','subprocess_code','step','class','reason','dispatched','completed','worker_exit'}: raise RuntimeError('FAILURE_SCHEMA')
+                if (type(failure['stage']) is not int or failure['stage'] not in (0,10,20,30,40,50,60,70,80,90) or
+                    type(failure['started']) is not int or not 0<=failure['started']<=WORKERS or
+                    type(failure['winerror']) is not int or failure['winerror'] not in (0,5,6,8,32,87,122,234,1816) or
+                    type(failure['subprocess_code']) is not int or not -255<=failure['subprocess_code']<=255 or
+                    type(failure['step']) is not int or not 0<=failure['step']<=10 or
+                    type(failure['class']) is not int or not 0<=failure['class']<=15 or
+                    type(failure['reason']) is not int or not 0<=failure['reason']<=11 or
+                    type(failure['dispatched']) is not int or not 0<=failure['completed']<=failure['dispatched']<=2686 or
+                    type(failure['completed']) is not int or
+                    type(failure['worker_exit']) is not int or failure['worker_exit'] not in (0,1,2,3,0xC0000005,0xC0000135,0xC0000142,0xC0000409)): raise RuntimeError('FAILURE_INVALID')
+                result.update(failure_evidence_available=True,failure_stage=failure['stage'],
+                    logical_workers_started=failure['started'],failure_winerror=failure['winerror'],failure_subprocess_code=failure['subprocess_code'],
+                    work_progress_available=True,work_step=failure['step'],failure_class=failure['class'],failure_reason=failure['reason'],
+                    tasks_dispatched=failure['dispatched'],tasks_completed=failure['completed'],worker_exit_category=failure['worker_exit'])
+        worker_errors=[]
+        for path in [ROOT/('worker'+str(i))/'failure.PRIVATE.json' for i in range(WORKERS)]+[ROOT/'worker-result-failure.PRIVATE.json']:
+            if not path.exists(): continue
+            error=small(path,1024)
+            if set(error)!={'step','class','reason','winerror'} or any(type(v) is not int for v in error.values()): raise RuntimeError('WORKER_EVIDENCE_SCHEMA')
+            if not 0<=error['step']<=9 or not 0<=error['class']<=15 or not 0<=error['reason']<=11 or error['winerror'] not in (0,5,6,8,32,87,122,234,1816): raise RuntimeError('WORKER_EVIDENCE_INVALID')
+            worker_errors.append(error)
+        if worker_errors:
+            result.update(worker_evidence_count=len(worker_errors),worker_evidence_omitted=len(worker_errors)-1,
+                worker_error_step=worker_errors[0]['step'],worker_error_class=worker_errors[0]['class'],
+                worker_error_reason=worker_errors[0]['reason'],worker_error_winerror=worker_errors[0]['winerror'])
+        # Whitelisted aggregate only; no filenames, mapping/hashes, IDs, handles,
+        # image paths, exception strings, stdout/stderr or other scratch artifacts.
+        put(ROOT/'manifest-process-shareable.json',result,8192)
+        print('COMPLETE' if result['status']=='COMPLETE' else 'FAIL_NO_RETRY',flush=True)
+    return 0 if result['status']=='COMPLETE' else 1
+
+
+if __name__=='__main__':
+    try:
+        if os.name!='nt' or sys.version_info[:3]!=(3,13,3): raise RuntimeError('ENVIRONMENT')
+        if sys.argv[1]=='--child':
+            if sys.argv[3]=='coordinator':
+                try: coordinator()
+                except Exception as exc:
+                    code=exc.returncode if isinstance(exc,subprocess.CalledProcessError) and type(exc.returncode) is int and -255<=exc.returncode<=255 else 0
+                    put(ROOT/'failure.PRIVATE.json',{'stage':STAGE,'started':STARTED_WORKERS,'winerror':error_code(exc),'subprocess_code':code,'step':WORK_STEP,'class':exception_category(exc),'reason':fixed_reason(exc),'dispatched':DISPATCHED,'completed':COMPLETED,'worker_exit':OBSERVED_WORKER_EXIT},1024)
+                    raise
+            elif sys.argv[3]=='worker':
+                slot=ROOT/('worker'+str(int(sys.argv[4])))
+                try: worker(slot)
+                except Exception as exc:
+                    put(slot/'failure.PRIVATE.json',{'step':WORKER_STEP,'class':exception_category(exc),'reason':fixed_reason(exc),'winerror':error_code(exc)},1024)
+                    raise
+            else: raise RuntimeError('ROLE')
+        else: raise SystemExit(controller())
+    except Exception:
+        # Fixed text only; any private staged files remain unusable on failure.
+        print('FAIL_NO_RETRY; no raw exception exported',flush=True)
+        raise SystemExit(1)
+'@
+    $Driver = Join-Path $ScratchRoot 'benchmark.PRIVATE.py'
+    [IO.File]::WriteAllText($Driver, $payload, $utf8)
+    Write-Host 'ONE filesystem-only pass, 2 workers/2 outstanding; 90s shared measurement + 30s shared owned cleanup.'
+    Write-Host 'Private scratch retained; never upload the root, driver, task/results or manifest.'
+    & $Python -I -S -B -u $Driver $ScratchRoot
+    $measurementExit = $LASTEXITCODE
+    $Shareable = Join-Path $ScratchRoot 'manifest-process-shareable.json'
+    if (!(Test-Path -LiteralPath $Shareable -PathType Leaf)) {
+        throw "No verified shareable result; NO RETRY. Private root: $ScratchRoot"
+    }
+    if ((Get-Item -LiteralPath $Shareable).Length -gt 8192) { throw 'Aggregate privacy bound failed; do not share.' }
+    $reportData = [IO.File]::ReadAllText($Shareable) | ConvertFrom-Json
+    $allowedNames = @('schema','pin','tree','status','measurement_budget_seconds','cleanup_budget_seconds',
+        'measurement_and_cleanup_seconds','cleanup_verified','native_member_cap','peak_native_members',
+        'setup_excluded','performance_speedup_established','reusable_source_baseline','PAPER_READY','PAPER_READINESS_GATE',
+        'file_count','bytes','missing','workers','peak_pending','candidate_seconds','source_identity',
+        'logical_workers_configured','logical_workers_started','failure_evidence_available','failure_stage','failure_winerror','failure_subprocess_code','controller_failure_stage','controller_winerror','controller_reason','work_progress_available','work_step','failure_class','failure_reason',
+        'tasks_dispatched','tasks_completed','worker_exit_category','worker_evidence_count','worker_evidence_omitted','worker_error_step','worker_error_class','worker_error_reason','worker_error_winerror')
+    foreach ($field in $reportData.PSObject.Properties.Name) {
+        if ($allowedNames -cnotcontains $field) { throw 'Unexpected exported field; do not share.' }
+    }
+    if ($reportData.schema -cne 'manifest-process-benchmark.v1' -or
+        $reportData.pin -cne 'a501c88bcc926bef87875f6352f210b19b6e438b' -or
+        $reportData.tree -cne 'e66b6daa84f04ec95dce1155fde2a9a4e156cf14' -or
+        @('COMPLETE','FAIL') -cnotcontains $reportData.status -or
+        $reportData.PAPER_READY -cne 'NO' -or $reportData.PAPER_READINESS_GATE -cne 'FAIL') {
+        throw 'Unexpected exported string; do not share.'
+    }
+    $stringFields = @('schema','pin','tree','status','PAPER_READY','PAPER_READINESS_GATE')
+    foreach ($property in $reportData.PSObject.Properties) {
+        if ($stringFields -ccontains $property.Name) { continue }
+        if ($null -eq $property.Value -or
+            ($property.Value -isnot [bool] -and $property.Value -isnot [int] -and
+             $property.Value -isnot [long] -and $property.Value -isnot [double] -and
+             $property.Value -isnot [decimal])) { throw 'Nonaggregate output; do not share.' }
+    }
+    Write-Host ("Privacy-verified aggregate ONLY: " + $Shareable)
+    Write-Host 'Do not ZIP or share any other scratch artifact; no repeat/warm retry.'
+    if ($measurementExit -ne 0) { throw 'Measurement failed; retain evidence and stop. No natural preflight/observation authorized.' }
+}
+```
+
+## 30 October 2026 — Stage50 localized and guarded mailbox publication repair verified
+
+Current main remainsa501c88bcc926bef87875f6352f210b19b6e438b/treee66b6daa84f04ec95dce1155fde2a9a4e156cf14.
+Existing PR1145 stays DRAFT/unmerged, branch test/windows-manifest-containment-feasibility.
+Exact corrected head `4d2a6568178bef9460ea9620268490dbf0426c05`, tree
+`d81e03dd29a449a5f1e10da11b56ad028b717335`. Independent post-Windows exact-head
+review `5718429765`: no blockers, reviewer independently retrieved native CI/logs.
+Prior static review5718398087 remains preserved, not substituted for OS validation.
+DEPRECATION_LEDGER read/unchanged; no ownership retirement or production change.
+
+### What is established; what is not
+
+The new uploaded FAIL1.2844277s/cleanuptrue/peak9/stage50 receipt and its private
+rootC:\tmp\manifest-contained-1ccc4446 remain unchanged. Transcript V2 AST equality
+was checked; only trailing spaces differ. Local receipt alone cannot identify its
+precise stage50 exception or Windows actor. No root/raw task/manifest was requested.
+
+Actual Windows CI41123758149 reproduced the released failure on the EXACT accepted
+checkout: V2 FAIL stage50, and evidence V3 localized a PermissionError to result
+small/read (work_step3),933 completed/935 dispatched,winerror0=unclassified,
+cleanuptrue. This is a demonstrated LOCAL work-loop failure, not another assumed
+native-process budget failure. Earlier flat tiny synthetic inputs did not exercise
+this accepted-checkout scheduling/data distribution. Bytes are data only; no
+source/provider/broker module top level executes.
+
+The protocol defect is using payload pathname visibility as publication-completion
+authority. An owner may still be inside put/write/rename while a consumer observes
+the path and tries to read. Guarded native Windows sharing denial across actual
+rename reproduced the SAME PermissionError/result-read path while publication
+remained pending. This establishes a permitted failing interleaving and the missing
+ordering contract. It does NOT identify the original workstation handle holder,
+prove an antivirus/storage cause, or establish the complete archived causal chain.
+Those uncertainties remain separate; no historical failure rewritten as success.
+
+### Narrow repair and full-entrypoint acceptance
+
+V4 adds per-task readiness markers only AFTER put returns in both directions.
+Consumer marker checks are metadata-only; marker contents are never opened.
+Publishers alone delete their own markers after creation returned. Generational
+names and monotonic task indices prevent stale reuse, with max2empty markers per
+worker and bounded enumeration. No new persistent supervisor/harness/manifest
+owner, processes or connections. Two workers/two outstanding/native cap10,8192byte
+requests/1024byte results,90s shared measurement and30s shared cleanup unchanged.
+Fresh exact accepted digest/enumeration, source identity, complete mapping/order,
+privacy and cleanup-gated publication remain. Read errors AFTER readiness still
+FAIL immediately; no PermissionError suppression/retry, warm-up or renewed budget.
+All additional metadata is bounded numeric categories/counts, with explicit missing
+worker evidence and sample omissions; no raw path/task/exception text/ID/hash export.
+
+SUCCESS: Windows CI `41124820829`, job `124300420942`, exact4d2a6568.
+Windows Server2025/Python3.13.3/actual PowerShell5.1/real Windows virtual environment.
+One focused regression method, FIVE full-entrypoint cases,31.460s, SUCCESS:
+
+| Full accepted-checkout case | Result |
+| --- | --- |
+| Old V3, native sharing denial while result publication is pending | FAIL0.6607s;stage50/work_step3/PermissionError2;no COMPLETE mapping;cleanup verified. |
+| V4, SAME pending result publication window | COMPLETE7.9070s;publication-return ordering honored;cleanup verified. |
+| V4, pending TASK publication window | COMPLETE8.9162s;both directions covered;cleanup verified. |
+| V4, sharing denial AFTER readiness | FAIL0.6754s;stage50/work_step3/PermissionError2;no COMPLETE mapping;cleanup verified. |
+| V4, ordinary accepted-checkout path | COMPLETE7.0198s;cleanup verified. |
+
+All THREE positive runs returned2686files/17,844,040bytes/missing0,peak_native9,
+peak_pending2,source_identity=true. EVERY returned hash and insertion order matched
+fresh serial execution of the exact accepted digest over the full accepted
+checkout, including nested paths, binary/text and real size distribution. Faults
+are test-only native handles closed in finally or verified owned-job termination;
+no operator fault flag is exposed. An arbitrary post-ready PermissionError is still
+rejected, not treated as shutdown noise or ignored. All source-worktree cleanup
+and production-unchanged CI checks passed.
+
+The test ran the full PowerShell and embedded Python entrypoint; only data source
+path/Python path/scratch path binding changed for the private CI fixture, with
+literal accepted commit/tree/owner unchanged. Kernel and fixed input limits did not
+increase. Source hashing here is an OFFLINE CI correctness control, not a new
+workstation measurement or performance comparison;7-9s timings do not certify
+workstation speedup or90s natural-preflight success. The earlier1.284s FAIL and all
+prior timing/transport/cache/history receipts remain preserved. Production preflight
+is untouched and remains fail closed; natural positive intent remains unproven.
+
+Frozen tested V4 full block SHA256:
+155816b70e68b1b77bef5445731a861dc98c3cf76c79222916a1e649516be6df.
+Embedded Python SHA256 (excluding here-string surrounding newline):
+3cd34953bcde2e3c679e5c44af0ab302437f9003b34e5a67b27a4297567b5383.
+V2/V3 text and failed CI41123758149 remain intact. No operator block is released or
+executed in this task. V4 is a reviewed/tested corrected feasibility candidate,
+not authority for another workstation run. No unrelated completed suites repeated;
+only new/affected guarded full-entrypoint regressions ran. Linux1skip is NOT
+Windows proof. No automatic merge.
+
+This receipt-only update remains on existing docs/windows-manifest-containment-results,
+appending the SAME checkpoint beyond exact tested PR head. No competing checklist,
+additional code/test/CI changes or CI repeat merely for saving prose.
+
+ONE next action: review/accept PR1145's corrected publication protocol candidate
+and the exact-head Windows/review receipts BEFORE separately preparing any further
+filesystem-only measurement. Completion criterion is acceptance of the demonstrated
+bounded correction, not a workstation retry or natural observation from this receipt.
+
+All failed roots/original checkout/GUI draft/historical receipts remain preserved;
+five unmatched positions/global ownership veto untouched, separate news-cache and
+historical callback uncertainties unresolved, listing provenance PARKED/fail closed.
+No broker inquiry, acquisition, preflight, observation, holdings action, SDK change,
+timeout extension, guard relaxation, trading or readiness upgrade occurred.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## 30 October 2026 — Accepted V4; ONE corrected filesystem measurement prepared
+
+User accepted PR1145's corrected feasibility candidate for ONE filesystem-only
+measurement PREPARATION. No merge, production change, preflight or observation
+authorized. Assistant did not execute the workstation block. Pending action now
+supersedes the prior review-only action: user starts the single corrected filesystem
+measurement, with no warm-up/retry and no TWS/market-session requirement.
+
+Verified GitHub PR1145 remains DRAFT/unmerged at exact
+4d2a6568178bef9460ea9620268490dbf0426c05/treed81e03dd29a449a5f1e10da11b56ad028b717335;
+independent post-Windows review5718429765 and successfulCI41124820829 apply to that
+head. Main/source pin unchanged at a501c88bcc926bef87875f6352f210b19b6e438b/tree
+e66b6daa84f04ec95dce1155fde2a9a4e156cf14. Read SAME checkpoint including saved
+4cae11267ff533b802c3ca9abd3ad48c999df3ca. AGENTS search none; ledger unchanged.
+
+Delivery is extracted VERBATIM from tested4d2a6568's V4 code fence, NOT reconstructed.
+Compared byte-for-byte with saved/current checkpoint fence. Exact UTF-8/LF identity:
+- Complete block including final newline SHA256
+  155816b70e68b1b77bef5445731a861dc98c3cf76c79222916a1e649516be6df.
+- Embedded Python excluding surrounding here-string newline SHA256
+  3cd34953bcde2e3c679e5c44af0ab302437f9003b34e5a67b27a4297567b5383.
+- Delivery scratch copy: /workspace/scratch/manifest-workloop-failure/accepted-v4-measurement.ps1.
+  Entire identical block returned inline. No alternative/untested launcher.
+
+Literal source C:\tmp\ro-9a2e923d\s and Python
+C:\tmp\pr1091-cert-env-20260923\Scripts\python.exe unchanged. Both-direction
+publication-RETURN readiness, immediate post-ready error rejection (no suppression/
+retry),2workers/2outstanding/native10,90s shared measurement/30s shared cleanup,
+exact fresh tracked hashes/source identity/private bounded IPC/aggregate privacy
+validation/cleanup-before-success remain EXACTLY tested. No new source commit,
+production owner, SDK/security-setting/timeout change or repeatedCI for status.
+Checks limited to pinned refs/review/CI retrieval, exact script/payload identities,
+historical prefix preservation, checkpoint-only diff and whitespace.
+
+ONE next action: user pastes the ENTIRE prepared V4 block into PyCharm Windows
+PowerShell5.1 Desktop and runs it ONCE. No TWS or market session required. Fresh
+scratch C:\tmp\manifest-contained-<8hex>; preserve all previous roots, especially
+manifest-contained-bc3e6f77,manifest-contained-1ccc4446 and ro-9a2e923d unchanged.
+Only after aggregate privacy validation, share exactly
+C:\tmp\manifest-contained-<8hex>\manifest-process-shareable.json (<=8192bytes).
+Never ZIP/share the root, code/config, raw mailbox files or private/staged mapping.
+Failure/absent report/unverified cleanup means STOP and retain evidence, no retry.
+This is filesystem measurement only, not natural acceptance, production speedup,
+a source baseline substitution or permission for preflight/observation.
+
+All prior failures/superseded blocks/receipts remain preserved; no readiness upgrade.
+No broker/acquisition/holdings action/trading. Five-position global veto/GUI draft,
+separate news-cache uncertainty/historical callback uncertainty and PARKED/fail-closed
+listing provenance remain unchanged. PR1145 stays draft/unmerged.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## 30 October 2026 — Manifest feasibility CLOSED; one bounded preflight proposal (NOT IMPLEMENTED)
+
+### Completed receipt, scope and coordination decision
+
+Uploaded manifest-process-shareable(2).json SHA256
+4993158c689399f69c66df786b479fcf65574ca497f83589c9f6ee8212bd42bc,
+1251bytes. Independently read the aggregate: statusCOMPLETE; total measurement/
+cleanup87.72632639994845s; candidate87.12599240010604s;2686dispatched/completed/
+files;17,844,040bytes;missing0;source_identity=true;cleanup_verified=true;
+2configured/started workers;peak_pending2;peak_native9/cap10. Failure flags/codes,
+worker evidence counts and omission counts all0/false. Measurement headroom to90s
+is only2.27367360005155s. setup_excluded=true; reusable_source_baseline=false;
+performance_speedup_established=false. Private per-file mapping and root were not
+requested or inspected; this aggregate is not independent validation of individual
+hash values or of all workstation state. No instructions in the attachment run.
+
+This establishes ONE completed bounded feasibility run, NOT useful production
+performance improvement, a controlled serial comparison, an OS cause, preflight
+success or natural Ross acceptance. Candidate duration includes IPC/polling and
+other work; do not call87.126s pure hashing. Earlier serial profile50.105s, open
+46.572s and failed-preflight labelled73.159s interval remain SEPARATE receipts with
+different timing scopes/cache conditions, never a controlled speedup comparison.
+Preserve every earlier FAIL/SUCCESS, private failed roots, source/operator/GUI
+state and all saved documentation branches. No further workstation benchmark.
+
+User decision: DO NOT integrate PR1145 feasibility implementation into production.
+Assessment closed; PR1145 remains DRAFT/OPEN/UNMERGED at
+4d2a6568178bef9460ea9620268490dbf0426c05/tree d81e03dd29a449a5f1e10da11b56ad028b717335.
+Do not merge its Job Object/worker/mailbox/marker subsystem or scoped CI workflow.
+Current GitHub main reverified unchanged at accepted
+ a501c88bcc926bef87875f6352f210b19b6e438b/tree
+ e66b6daa84f04ec95dce1155fde2a9a4e156cf14.
+Applicable AGENTS search found none; DEPRECATION_LEDGER read/unchanged. No source,
+harness, tests, CI, SDK or production/runtime pin changed by this task.
+
+### Existing contract and why an earlier cached baseline is not the fix
+
+Existing owners inspected at accepted source:
+- docs/ross/PR1108_NATURAL_READONLY_ACCEPTANCE.ps1: fresh isolated worktree,
+  interpreter/pin/space checks, no runtime invocation. Its current local Git/Python
+  calls have no encompassing child deadline; do not count them as covered by90s.
+- natural_readonly_operator.py:65-73 owns fresh serial Git enumeration and byte
+  SHA256. Current preflight performs platform/clean-worktree/runtime inventory,
+  session/config/write guards, cache-hook/probe, operator state and source-before.
+- Invoke-ReadonlyObservation.ps1:6-132 owns actual child handle/OS-exit deadline,
+ 30s stop wait and bounded5s stdout/5s stderr drain; late inner exit0 stays TIMEOUT.
+ 131-134 sets preflight90, package90; CURRENT seal shares PackageSeconds too.
+- run_natural_readonly_observation.ps1 sets900runtime ->1260supervisor envelope.
+- natural_readonly_operator.py:169ff fresh source-after/package/privacy; separate
+  terminal supervisor owns runtime cleanup and sole final broker audit.
+
+Evidence: failed preflight103.084s exceeded90 despite child0; its source interval
+73.1587s and cache-probe14.6390s (yfinance import13.4277s) were real elapsed costs,
+not explained OS causes. Latest87.726s feasibility pass gives no basis to expect
+source hashing PLUS all final guards inside90. Removing/moving some setup alone
+cannot prove that. A pre-session source map cannot be launch permission: source
+bytes may change between phases. Final admission MUST freshly enumerate/read/hash
+ALL tracked contents and compare, including same-size/mtime-preserving edits.
+No baseline cache, skipped files, metadata-only/Git-status substitution, persistent
+trusted hashes, or reuse of a failed attempt.2686 is observed, not a new hardcoded
+production coverage cap. Rejecting an unreadable/missing/incomplete manifest remains
+mandatory. Quiescent dedicated checkout remains required; no atomic OS source-freeze
+or immunity to arbitrary concurrent check-after-use modification is claimed.
+
+### ONE proposal — bounded filesystem preparation plus freshly revalidated launch admission
+
+PROPOSAL ONLY. Requires explicit acceptance, implementation, focused offline
+regressions, review/CI and a newly accepted harness pin before any operator block.
+Do NOT apply it to the literal accepted source by changing caller flags now.
+
+1. Add a filesystem-only prepare phase in EXISTING natural_readonly_operator.py,
+   supervised by EXISTING Invoke-ObservationChild. Start from the existing helper's
+   freshly created pinned worktree; no new harness/module/parallel manifest owner.
+   Allocate150s child work +30s owned stop allowance. This stage may run outside
+   RTH: verify platform/Python/pin/tree/clean state; create isolated state/cache-hook
+   files; capture a full fresh SERIAL source-prepared map M0 with current owner.
+   Keep preparation logs/receipt under root/preparation, not root/e, so the existing
+   one-attempt evidence-directory guard can remain meaningful. Preparation receipt
+   binds exact root/pin/tree/runtime-duration and hook/config identities, and must
+   be complete/timely with verified child cleanup. It is comparison evidence ONLY,
+   not a success/permission token. No operator order-state snapshot, position/order
+   query, provider fetch or market/session override occurs here.
+
+2. Final preflight stays a separate session-sensitive child in EXISTING runner,
+   but proposal EXPLICITLY changes its work allowance from90s to150s, with30s
+   cleanup unchanged. This is a prospective BUDGET POLICY CHANGE, not an
+   optimization or reinterpretation of the historical90s failure. Until approved
+   and implemented,90s remains authoritative.150s is a finite planning allowance
+   informed by observed103.084s complete work and source costs, with46.916s margin
+   over that receipt; it is not a guaranteed workstation maximum/performance claim.
+   Revalidate exact platform/interpreter/SDK/mutation guards/config/root/ownership
+   assumptions, no pre-existing Ross runtime, normal RTH and child cache isolation
+   using EXISTING owners. Actual cache probe remains here (30s+5s child bound is
+   INSIDE this150s, not extra), not trusted from an earlier boolean. Recompute M1
+   by fresh enumeration + full byte-content SHA256; require M1==M0 and same pinned
+   clean tree. This is unavoidable duplicate reading for a separated baseline,
+   explicitly accepted for freshness rather than hidden as a cheap metadata check.
+   Source differences/absence/read failure abort; never refresh M0 to make it pass.
+   After hashing, repeat current session/runtime-inventory/config checks and freshly
+   capture/copy/hash operator order-state bytes using the existing state owner.
+   Retain M1 as source-before for final comparison. No manual pause/resume after
+   PASS: existing runner immediately hands off; observe entry rechecks pin/clean
+   worktree and original operator-state digest/config/duration/root before any
+   runtime creation. These handoff checks SUPPLEMENT mandatory fresh M1, not replace
+   it. Preparation cannot be used to bypass failed/late final preflight. An
+   interrupted/reused handoff is rejected, not resumed or automatically retried.
+
+3. Preserve runtime900/supervisor1260, all natural selection/news/freshness,
+   mutation prevention, ownership and final-audit owners/deadlines. No holdings
+   changes or approval overrides. Fresh source-after M2 must equal launch M1 (and
+   M0); current operator state must equal freshly captured launch state; runtime
+   inventory, terminal audit, independent mutation validation/privacy still pass.
+   Any source/state changes during the run invalidate acceptance. This is the
+   existing check-before-use + post-run-audit model, NOT a new source-lock system.
+   Between prepare and final gate, full M1 catches byte edits even if metadata is
+   restored; final rechecks catch ordinary handoff changes; no claim that Git
+   status alone proves byte equality or creates immutable files. If enforcing an
+   atomic immutable-source boundary is required, that is an additional unresolved
+   requirement, not something this proposal silently asserts.
+
+4. Give existing package/source-after work150s+30s, explicitly replacing its90s
+   work allowance: it contains the SAME fresh serial source pass and cannot assume
+   the earlier4.947s warm package interval will recur. Keep seal90s+30s; introduce
+   a separate SealSeconds=90 argument in EXISTING runner rather than accidentally
+   increasing seal when PackageSeconds changes (currently shared). No privacy
+   weakening: no ZIP announcement before complete owned exit, full source/operator
+   equality, zero-mutation/terminal safety authority and final privacy sealing.
+   Failed/no-observation runs keep DIAGNOSTIC_ONLY/NOT_VERIFIED distinctions.
+
+### Complete scope/time/cleanup accounting for that proposal
+
+From a fresh helper-prepared source root (helper Git checkout elapsed is OUTSIDE
+these phase budgets, not represented as bounded):
+
+| Existing owner / proposed phase | Work allowance | Additional owned stop allowance |
+| --- | --- | --- |
+| Filesystem prepare (new phase, same operator) |150s|30s|
+| Final session preflight (existing phase) |150s, explicit90->150 proposal|30s|
+| Observation supervisor / natural runtime |1260s, includes900runtime and existing startup/finalization|30s|
+| Package / fresh after-manifest |150s, explicit90->150 proposal|30s|
+| Seal / privacy archive validation |90s, unchanged and decoupled from package|30s|
+
+Scheduled work sum1800s; conservative sum including all five stop allowances1950s;
+existing two5s pipe drains per child add at most50s of bounded WAIT allowance:
+2000s (33m20s) after root preparation. Early failure does not continue to observation;
+this is conservative summed scheduling, not a hard real-time bound on kernel
+Start/Flush/file calls. Original helper currently has no outer watchdog; its local
+checkout time must be planned separately and must finish before this sequence.
+Do not claim the entire helper+runner block has a2000s hard bound. No new process
+termination framework is introduced solely for helper setup. OS/timer/exit-time
+uncertainty is failure, not an excuse to label late work timely.
+
+OS exit timestamp, not child PASS JSON, remains timing authority for EVERY phase.
+150/30 does NOT mean unknown cleanup is acceptable: verified child/cache-probe
+exit and closed streams are prerequisites to further phases/package. If existing
+owner cannot establish exit by stop budget, abort progression and preserve raw
+private evidence; no broad kill, leaked-worker success, auto retry or shareable
+success. Existing cache-probe30+5 and terminal shutdown/audit waits are nested in
+those phase envelopes; do not add them again or silently renew them. No PR1145
+workers/Job Object/mailboxes/readiness markers/pool imports enter production.
+
+This split moves expensive non-session setup and its first full snapshot outside
+session admission, but does NOT pretend an earlier snapshot eliminates fresh
+launch verification. Explicit bounded budget changes are necessary for the chosen
+practical design; refusing them means the known90s capacity issue remains, not
+permission to omit verification. A preparation timeout is distinguishable from a
+session rejection. Final RTH eligibility/time remaining must be checked AFTER
+source work; schedule enough for actual900s plus existing startup/finalization,
+not clock time alone. This proposal never guarantees a qualifying market event.
+
+Simpler than feasibility: existing serial digest owner, two ordinary sequential
+phase children, existing process receipts, complete before/after comparisons and
+finite policy budgets. No concurrent file-open scheduling, worker startup topology,
+IPC protocol, native job census or private marker lifecycle. The price of safe
+phase separation is fresh re-reading, made explicit rather than optimized away.
+
+Future acceptance checks (not run now): byte-identical serial manifest output;
+tracked/missing/read-error behavior; same-size/restored-mtime edits between M0/M1
+reject; wrong root/pin/probe/hook/config reject; operator-state changes between
+snapshot/handoff reject; stale/resumed receipts reject; out-of-session/insufficient
+remaining session reject; inner0 after90 remains historicalFAIL and inner0 after
+NEW150 stillFAIL; unknown child/cache cleanup blocks every later phase; full fresh
+M2/source/operator/privacy sealing still mandatory. Focused Linux/Windows/PowerShell
+phase tests and independent exact-head review required before any integration.
+
+ONE next action: review/accept this explicit phase-and-budget proposal before
+implementation. No executable measurement/preflight/observation block in this task.
+No further benchmark, acquisition, broker inquiry, holdings action or trading.
+Five-position global ownership veto/GUI draft/historical receipts, separate news-
+cache uncertainty, historical callback uncertainty and PARKED/fail-closed listing
+provenance preserved. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## 30 October 2026 — Accepted serial preparation/admission contract IMPLEMENTED OFFLINE (draft, not accepted runtime)
+
+User explicitly accepted b952a825948326f9fe2a9801499ef1bd6efc77b0's proposal:
+prepare150/30; final preflight150/30 (prospective90->150); package150/30
+(prospective90->150); separate seal90/30; runtime900/supervisor1260 unchanged.
+Historical90s late exits remain FAIL. This is budget policy, NOT a speedup claim.
+Main verified unchanged a501c88bcc926bef87875f6352f210b19b6e438b/tree
+ e66b6daa84f04ec95dce1155fde2a9a4e156cf14. PR1145 remains draft/unmerged;
+its workers, Job Objects, mailboxes and scoped workflow are NOT incorporated.
+All saved documentation through b952 is carried forward verbatim above.
+
+Existing operator owns serial M0 (private preparation) and freshly enumerated/
+full-content M1 (final admission), requiring exact equality; missing/nonregular
+tracked files and read errors reject. Preparation binds root/commit/tree/config/
+hook/interpreter/runtime duration, has no session/operator-state admission or
+broker operation. Calendar sets are serialized deterministically. Existing runner
+supervises preparation before final preflight. It creates an exclusive per-root
+attempt record, inherited nonce and creation-bound controller identity; existing
+process-identity owner supports bounded Windows venv ancestry inspection.
+
+Actual cache probe remains final-preflight30+5, nested within150. After full M1:
+clean pin/binding, session plus1260s remaining for900runtime, inventory and write
+instrumentation guards are checked again; operator state freshly copied/hashed.
+Observe requires successful timely OS preflight receipt, unchanged binding and
+operator state, live original controller, <=15s monotonic/wall handoff age, normal
+remaining session, then exclusive single-use claim before supervisor creation.
+No resumed/reused/delayed admission; no assertion of an immutable filesystem.
+Fresh full serial M2 must match BOTH M1 and M0; all terminal/mutation/operator/
+inventory/privacy requirements remain. Packaging no longer announces an unsealed
+ZIP; only runner sealing success does. Unknown child/log/cache cleanup prevents
+progression. Cooperative stops are checked between serial files; blocked OS calls
+are not claimed cancellable or hard real-time. Existing retained-handle supervision
+remains fail closed; no broad kill or replacement supervisor is introduced.
+Preflight-only caller now performs prepare+preflight and can never resume/observe.
+
+Conservative runner wait allowance2000s for900runtime: work1800 + five30s stop
+allowances150 + two5s pipe drains per phase50. Helper checkout/interpreter setup
+lies OUTSIDE this allowance. This is summed bounded waits, not a hard real-time
+claim about native Start/Flush/filesystem calls. Original helper remains local
+checkout only and prints a separate runner invocation. No operator block or runtime
+attempt is delivered/executed during implementation.
+
+Validation/review/CI receipts pending below. Five-position global entry veto,
+GUI draft, archived audits AND transport failures, separate news-cache uncertainty,
+historical callback uncertainty and PARKED/fail-closed listing provenance remain.
+Natural supported catalyst->raw intent remains UNPROVEN. No readiness upgrade.
+ONE next action after review/CI: user reviews this draft implementation for
+controlled integration; no preflight/observation is authorized by this task.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+Initial implementation head1e6ac9e5dbaa1c5c7df4129440bacaaa145b110c/tree
+2fc241b7bdc232700f08a247bb5e8f01d584665a: independent exact-head static review
+(no blockers; native CI pending),31 local guarded controls passed. CI41131098648
+Linux job124321972988 passed. Windows job124321973042 FAILED:7 observe-fixture
+cases omitted the Windows controller creation_token;24 controls passed. This is
+a demonstrated test-fixture portability defect, not evidence of runtime acceptance.
+The fixture now uses an actual retained parent handle's creation token; production
+checks were not weakened. Preserve failed run and evidence-upload failure (no
+PowerShell fixture had yet run, so no artifact path existed). Subsequent changed
+heads additionally enforce actual source-root HEAD equality and prevent every
+later phase on unavailable cache-child cleanup. Interrupted STOP admission rejects.
+Local focused34 controls and12 synthetic package cases passed; six cache and
+inventory controls passed. No actual preflight/runtime was executed; AST phase-body
+controls use synthetic files and replaced external boundaries. Native full-path
+Windows evidence and final exact-head review remain pending.
+
+Changed-head CI41131362127 at294d42519afe898e518c0bf9440b246abeca4ccb:
+Linux passed; Windows job124322899424 passed32 admission controls, cache controls
+and real PowerShell exit controls. The full real PowerShell->venv orchestration
+including existing native controller ancestry PASSED (prepare/preflight/observe/
+package/seal); fixture ZIP was synthetic, not an operator diagnostic. Run FAILED
+later at preflight-only exit propagation: rewritten wrapper returned raw inner2,
+where its existing public failure contract was1. Restore the wrapper's0/1 mapping
+while phase-status retains actual child exits. Do not weaken the assertion.
+Artifact13012918159 retains controlled-process evidence; local artifact retrieval
+was unavailable (403), so no claim to have inspected its members. Job logs and
+exact wrapper source establish the exit-contract difference. Earlier failures,
+including failed first-run artifact upload, remain preserved. Changed-head
+Windows/PowerShell validation is required before accepting this correction.
+
+An additional guarded capture control exposed a local admission race: deleting
+original operator state after copy but before the old digest/exists check could
+record absence while retaining a stale isolated copy. Final capture now compares
+fresh original digests before AND after copy with the isolated bytes; edit/delete
+reject before receipt/admission. This uses existing copy/digest owners, adds no
+operator writes or lock/ownership policy. The deletion control demonstrably fails against8fa source and passes after
+the correction; editing remains rejected as before. Existing actual duration-parser rejection controls
+remain covered. Local focused40 controls pass. No source freeze is claimed.
+
+### PR1146 implementation verification and remaining acceptance gate
+
+Branch fix/serial-readonly-admission; NEW DRAFT PR1146 (not PR1145). Implementation
+192fa8793a4118eadec353b72048525dabfacf4d/tree48229cc1dbab11f193d0b0698f8fbec22df9020b
+has independent exact-head review5718970386 (/root/exact_head_review; no code
+blockers,40 independently passed controls). The acknowledged prose correction
+above distinguishes new deletion failure from existing edit rejection.
+CI41132389343 SUCCESS on this implementation: Linux124326355544 and Windows
+124326355557, plus scope124326284398. Actual Windows Python3.13.3/PowerShell5.1:
+40 guarded manifest/admission controls25.32s; six cache controls; existing exit
+propagation controls;46 PowerShell harness controls including full actual venv
+phase orchestration, late exits, unknown cleanup and isolated helper worktree;
+12 real-package synthetic cases; five real-preflight synthetic cases; inventory
+and quote-default PowerShell checks. No broker/runtime connection or acquisition.
+Real preflight phase-body controls use synthetic files and fake SDK/native classes;
+they are OFFLINE proof, never a successful workstation preflight/observation.
+
+Earlier corrected-wrapper head8faabfc60cbef632bfa5a7d4c37ed05094bfc94c also passed
+CI41131948482 (Linux124324850379/Windows124324850301). Superseded review5718875238
+belongs to initial1e6 head only. Preserve FAILED41131098648 (fixture token missing),
+41131362127 and41131544495 (preflight-only exit mapping); later successes do not
+rewrite them. The last failed run at ee9 had34 passing Windows Python controls
+before the same wrapper assertion. No unchanged-head retry was requested.
+
+Final receipt/fixture-only follow-up also makes new delayed synthetic children
+finish inside their test cleanup allowance and explicitly retains/terminates/waits
+for the deliberately stalled owned prepare child. This does not add production
+termination behavior or relax unknown-cleanup rejection. Final exact-head review
+and changed-head Linux/Windows/PowerShell receipts are attached to PR1146's
+Conversation/Checks; this checkpoint cannot contain its own future commit SHA.
+Production src, offline global guards, dependencies and DEPRECATION_LEDGER remain
+unchanged. No PR1145 implementation/scoped workflow is present; its draft remains
+OPEN/UNMERGED at4d2a6568178bef9460ea9620268490dbf0426c05. Main remains literal
+ a501c88bcc926bef87875f6352f210b19b6e438b/tree e66b6daa84f04ec95dce1155fde2a9a4e156cf14.
+
+ONE next action: user reviews the final PR1146 candidate/receipts for controlled
+integration. No automatic merge; no workstation benchmark, preflight, inquiry or
+natural observation during this task. A separately accepted new harness pin and
+prepared single observation are still required. No runtime performance promise,
+immutable-filesystem claim or natural positive formation proof. Preserve every
+failed root, original checkout, five unmatched positions/global veto, GUI draft,
+separate cache uncertainty, historical callback uncertainty and PARKED provenance.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.

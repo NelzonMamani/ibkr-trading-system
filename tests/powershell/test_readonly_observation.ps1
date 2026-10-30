@@ -11,14 +11,31 @@ $passed = 0
 function Check($ok, $text) { if (!$ok) { throw $text } }
 $stub = Join-Path $scratch "stub 'quoted'.py"
 @'
-import json, os, pathlib, sys, time, zipfile
+import ast, json, os, pathlib, sys, time, zipfile
+def no_network(event,args):
+    if event in ('socket.connect','socket.bind','socket.getaddrinfo'):raise AssertionError('Network forbidden')
+sys.addaudithook(no_network)
 phase, root, head, *duration_args = sys.argv[1:]
 p = pathlib.Path(root); e=p/'e'; e.mkdir(exist_ok=True)
 with (e/'durations').open('a') as durations: durations.write(phase+':'+(duration_args[0] if duration_args else '180')+'\n')
 with (e/'phases').open('a') as out: out.write(phase+'\n')
 case=os.environ.get('OBS_TEST_CASE','success')
 print('STDOUT '+phase, flush=True); print('STDERR '+phase, file=sys.stderr, flush=True)
+if phase == 'prepare':
+    if case=='prepare-failure':sys.exit(3)
+    if case=='prepare-late':time.sleep(1)
+    if case=='prepare-stuck':
+        (e/'pid').write_text(str(os.getpid()));time.sleep(15)
+if case=='venv-handoff' and phase in ('prepare','preflight','observe'):
+    source=pathlib.Path(os.environ['OBS_TEST_REPO'])/'scripts/certification/natural_readonly_operator.py'
+    sys.path.insert(0,os.environ['OBS_TEST_REPO'])
+    node=next(n for n in ast.parse(source.read_text()).body if isinstance(n,ast.FunctionDef) and n.name=='require_controller')
+    ns=dict(root=p,os=os,json=json,time=time)
+    exec(compile(ast.Module(body=[node],type_ignores=[]),str(source),'exec'),ns)
+    ns['require_controller']()
 if phase == 'preflight':
+    if case=='cache-unowned':
+        (e/'child-cache-probe.json').write_text(json.dumps(dict(child_exited=False)));sys.exit(1)
     if case=='preflight-late-pass':
         time.sleep(1); (e/'preflight-result.json').write_text(json.dumps(dict(status='PASS',stage='complete',exit_code=0)))
     if case in ('preflight','preflight-package-failure'):
@@ -43,6 +60,7 @@ if phase == 'seal':
     sys.exit(0)
 if phase == 'package':
     if case in ('package','preflight-package-failure'): sys.exit(9)
+    if case=='package-late':time.sleep(1)
     with zipfile.ZipFile(p/'stub.zip','w') as z: z.write(e/'phases','phases')
     (p/'ross-natural-readonly-upload.zip').write_bytes((p/'stub.zip').read_bytes())
     sys.exit(0)
@@ -147,7 +165,7 @@ try {
         $result=Invoke-ReadonlyObservation -Python $Python -Operator $stub -Root $root -ExpectedCommit ('a'*40) -RuntimeSeconds $seconds
         Check ($result -eq 0) "Duration $seconds failed"
         $durations=@(Get-Content (Join-Path $root 'e\durations'))
-        Check ($durations.Count -eq 4) 'Duration phases missing'
+        Check ($durations.Count -eq 5) 'Duration phases missing'
         foreach ($line in $durations) { Check ($line.EndsWith(':'+[string]$seconds)) 'Duration lost across child boundary' }
         $passed++
     }
@@ -163,6 +181,44 @@ try {
     $failed=$false
     try { Invoke-ReadonlyObservation -Python $Python -Operator $stub -Root $preserved -ExpectedCommit ('a'*40) | Out-Null } catch { $failed=$true }
     Check ($failed -and (Get-Content -Raw (Join-Path $preserved 'e\receipt.txt')) -match 'KEEP') 'Existing evidence was overwritten.'
+    $passed++
+
+    # Full orchestration through actual Windows venv redirectors, using the
+    # released controller-binding function in each child. No runtime/broker.
+    $venv = Join-Path $scratch 'handoff-venv'
+    & $Python -m venv --without-pip $venv
+    Check ($LASTEXITCODE -eq 0) 'Synthetic venv creation failed'
+    $env:OBS_TEST_REPO=$repo; $env:OBS_TEST_CASE='venv-handoff'
+    $root=Join-Path $scratch 'venv-handoff';New-Item -ItemType Directory $root | Out-Null
+    $result=Invoke-ReadonlyObservation -Python (Join-Path $venv 'Scripts/python.exe') -Operator $stub -Root $root -ExpectedCommit ('a'*40)
+    Check ($result -eq 0) 'Actual PowerShell/venv controller handoff failed'
+    $passed++
+    foreach ($case in @('prepare-failure','prepare-late','prepare-stuck','package-late')) {
+        $env:OBS_TEST_CASE=$case
+        $root=Join-Path $scratch $case;New-Item -ItemType Directory $root | Out-Null
+        $failed=$false
+        try { $code=Invoke-ReadonlyObservation -Python $Python -Operator $stub -Root $root -ExpectedCommit ('a'*40) -PreparationSeconds $(if ($case -eq 'package-late') {150} else {.2}) -PackageSeconds .2 -StopSeconds $(if ($case -in @('prepare-late','package-late')) {2} else {.3}) } catch { $failed=$true }
+        $phases=Get-Content (Join-Path $root 'e/phases')
+        if ($case -eq 'package-late') {
+            Check (!($phases -contains 'seal')) 'Late packaging was sealed'
+        } else { Check (!($phases -contains 'preflight')) 'Failed/unknown preparation admitted preflight' }
+        Check ($failed -or $code -ne 0) 'Invalid preparation/package accepted'
+        if ($case -eq 'prepare-stuck') {
+            $owned=[Diagnostics.Process]::GetProcessById([int](Get-Content (Join-Path $root 'e/pid')))
+            try { $null=$owned.Handle; $owned.Kill(); Check ($owned.WaitForExit(3000)) 'Owned synthetic prepare child not reaped' }
+            finally { $owned.Dispose() }
+        }
+        $passed++
+    }
+    $env:OBS_TEST_CASE='cache-unowned';$root=Join-Path $scratch 'cache-unowned'
+    New-Item -ItemType Directory $root | Out-Null
+    $code=Invoke-ReadonlyObservation -Python $Python -Operator $stub -Root $root -ExpectedCommit ('a'*40)
+    $phases=Get-Content (Join-Path $root 'e/phases')
+    Check ($code -ne 0 -and !(($phases -contains 'observe') -or ($phases -contains 'package') -or ($phases -contains 'seal'))) 'Unknown cache cleanup progressed'
+    $passed++
+    # Literal150s boundary proof without waiting150s; OS exit remains authority.
+    $start=[datetime]::UtcNow;$deadline=$start.AddSeconds(150)
+    Check (!(Test-ObservationExitDeadline $deadline ($deadline.AddTicks(1)))) 'New150s budget accepted late zero exit'
     $passed++
     # Launch and log-open failures must not start the child.
     foreach ($case in @('launch','log-open')) {
@@ -284,8 +340,8 @@ public class ObservationFaultStream : Stream {
         New-Item -ItemType Directory $onlyRoot | Out-Null
         $onlyChild = Invoke-ObservationChild -Python (Get-Command powershell.exe).Source -ChildArguments @('-NoProfile','-ExecutionPolicy','Bypass','-File',(Join-Path $preflightScripts 'run_natural_readonly_preflight.ps1'),'-Python',$Python,'-Root',$onlyRoot,'-ExpectedCommit',('a'*40)) -LogPrefix (Join-Path $scratch ('only-entry-'+$case)) -BudgetSeconds 20
         $onlyExit = $onlyChild.ExitCode
-        Check ($onlyExit -eq $(if ($case -eq 'success') { 0 } else { 1 })) 'Preflight-only exit propagation failed'
-        Check (((Get-Content (Join-Path $onlyRoot 'e\phases')) -join ',') -ceq 'preflight') 'Preflight-only runner continued beyond preflight'
+        Check ($onlyExit -eq $(if ($case -eq 'success') { 0 } else { 1 })) "Preflight-only $case exit propagation failed: actual $onlyExit"
+        Check (((Get-Content (Join-Path $onlyRoot 'e\phases')) -join ',') -ceq 'prepare,preflight') 'Preflight-only runner continued beyond preflight'
         $onlyStatus = Get-Content (Join-Path $onlyRoot 'e\preflight-only-status.json') -Raw | ConvertFrom-Json
         Check (!$onlyStatus.observation_attempted -and !$onlyStatus.PAPER_READY) 'Preflight-only authority changed'
         $passed++
