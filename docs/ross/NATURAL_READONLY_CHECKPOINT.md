@@ -8940,3 +8940,510 @@ uncertainty, historical callback uncertainty and PARKED/fail-closed provenance.
 No source benchmark, preflight, acquisition, broker inquiry, observation, holdings
 action, SDK/security-setting change, timeout extension, gate relaxation or trading.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## 30 October 2026 — Early contained benchmark FAIL; full-path reproduction pending
+
+Continues e284081a443c1cfa210794045d9b24a61dbef52b within existing draft PR1145.
+Main remainsa501c88bcc926bef87875f6352f210b19b6e438b/treee66b6daa84f04ec95dce1155fde2a9a4e156cf14;
+AGENTS search none; DEPRECATION_LEDGER read/unchanged. Failed/private root
+C:\tmp\manifest-contained-bc3e6f77 preserved; no private manifest/task/result/root
+requested. Uploaded aggregate SHA256
+7590fda34356e4f67e6b551f2f4f2e98ae61012f07e6991b4c0ebdbd39b034b7,
+515bytes, confirms FAIL,0.7115019001066685s,cleanup_verified=true,cap10,peak10,
+accepted pin/tree, no completed manifest/performance result. No additional terminal
+transcript beyond the stated receipt was supplied in this message. The aggregate
+lacks failure-stage/error data: cap saturation alone does NOT prove the precise
+archived error. No performance or workstation OS/security-cause inference.
+
+Validation gap acknowledged: CI41114616767 exercised the SEPARATE containment
+fixture (two logical leaf children), not the released four-worker benchmark's
+complete PowerShell/embedded Python entrypoint or its environment launcher/Git
+interactions. Static block review was insufficient to establish that complete
+topology. Prior successful containment remains valid only for its tested scope;
+NOT retrospectively an integrated benchmark pass. The old block above is now
+SUPERSEDED/DO NOT RUN; preserve its text/receipt/hash unchanged.
+
+### Corrected full-path benchmark candidate V2
+
+NOT RELEASED pending full Windows path validation/review. Fixed native cap10,
+logical workers/window reduced to2 (no cap enlargement), same exact digest,
+enumeration/mapping and90s/30s authority. Allowlisted numeric failure-stage,
+winerror category, subprocess code and logical worker counts added;0 means absent/
+unclassified, never a success assertion. Errors/counters are not hidden. Actual
+Windows tests bind ONLY accepted-pin/tree/path DATA to a synthetic2686-file Git
+fixture containing the identical owner blob, and run the entire PowerShell block
+and embedded Python through an actual Windows environment launcher. Test-only
+four-worker diagnostic variant isolates worker-count effect; no production owner,
+benchmark scheduler function or privacy guard is mocked. All synthetic file
+contents/mappings remain private; compare returned synthetic hashes offline inside
+fixture. Additional outer test job cap16 contains host PowerShell/controller plus
+the INNER benchmark cap10; this is test-fixture containment, not a change to the
+benchmark's unchanged10-member bound. No workstation benchmark/preflight run here.
+
+```powershell
+# PREPARED FILESYSTEM-ONLY BENCHMARK; ONE invocation; no automatic retry.
+# No preflight, source modification, network/acquisition, broker or observation.
+& {
+    $ErrorActionPreference = 'Stop'
+    if ($PSVersionTable.PSEdition -ne 'Desktop' -or
+        $PSVersionTable.PSVersion.Major -ne 5 -or $PSVersionTable.PSVersion.Minor -ne 1) {
+        throw 'Requires Windows PowerShell5.1 Desktop.'
+    }
+    $Python = 'C:\tmp\pr1091-cert-env-20260923\Scripts\python.exe'
+    $SourceCheckout = 'C:\tmp\ro-9a2e923d\s'
+    if (!(Test-Path -LiteralPath $Python -PathType Leaf) -or
+        !(Test-Path -LiteralPath $SourceCheckout -PathType Container)) {
+        throw 'Pinned existing environment/source missing; stop without substitution.'
+    }
+    # No fetch, checkout, cache writes, warm-up or baseline reuse.
+    $ScratchRoot = Join-Path 'C:\tmp' ('manifest-contained-' + [guid]::NewGuid().ToString('N').Substring(0,8))
+    if (Test-Path -LiteralPath $ScratchRoot) { throw 'Fresh root collision; no retry.' }
+    New-Item -ItemType Directory -Path $ScratchRoot | Out-Null
+    $utf8 = New-Object System.Text.UTF8Encoding($false)
+    [IO.File]::WriteAllText((Join-Path $ScratchRoot 'config.PRIVATE.json'),
+        (@{source=$SourceCheckout} | ConvertTo-Json -Compress), $utf8)
+    $payload = @'
+# PREPARED ONLY; filesystem-only, one invocation, no operational imports.
+import ast, ctypes, hashlib, json, os, subprocess, sys, time
+from ctypes import wintypes as W
+from pathlib import Path
+HERE=Path(__file__).resolve()
+MAX_MEMBERS=10
+class STARTUPINFO(ctypes.Structure):
+    _fields_ = [('cb', W.DWORD), ('lpReserved', W.LPWSTR), ('lpDesktop', W.LPWSTR),
+                ('lpTitle', W.LPWSTR), ('dwX', W.DWORD), ('dwY', W.DWORD),
+                ('dwXSize', W.DWORD), ('dwYSize', W.DWORD), ('dwXCountChars', W.DWORD),
+                ('dwYCountChars', W.DWORD), ('dwFillAttribute', W.DWORD),
+                ('dwFlags', W.DWORD), ('wShowWindow', W.WORD), ('cbReserved2', W.WORD),
+                ('lpReserved2', ctypes.POINTER(W.BYTE)), ('hStdInput', W.HANDLE),
+                ('hStdOutput', W.HANDLE), ('hStdError', W.HANDLE)]
+
+
+class PROCESSINFO(ctypes.Structure):
+    _fields_ = [('hProcess', W.HANDLE), ('hThread', W.HANDLE),
+                ('dwProcessId', W.DWORD), ('dwThreadId', W.DWORD)]
+
+
+class LIMITS(ctypes.Structure):
+    _fields_ = [('PerProcessUserTimeLimit', ctypes.c_int64), ('PerJobUserTimeLimit', ctypes.c_int64),
+                ('LimitFlags', W.DWORD), ('MinimumWorkingSetSize', ctypes.c_size_t),
+                ('MaximumWorkingSetSize', ctypes.c_size_t), ('ActiveProcessLimit', W.DWORD),
+                ('Affinity', ctypes.c_size_t), ('PriorityClass', W.DWORD), ('SchedulingClass', W.DWORD)]
+
+
+class IOCOUNTERS(ctypes.Structure):
+    _fields_ = [(n, ctypes.c_uint64) for n in ('ReadOperationCount', 'WriteOperationCount',
+                'OtherOperationCount', 'ReadTransferCount', 'WriteTransferCount', 'OtherTransferCount')]
+
+
+class EXTENDED(ctypes.Structure):
+    _fields_ = [('BasicLimitInformation', LIMITS), ('IoInfo', IOCOUNTERS),
+                ('ProcessMemoryLimit', ctypes.c_size_t), ('JobMemoryLimit', ctypes.c_size_t),
+                ('PeakProcessMemoryUsed', ctypes.c_size_t), ('PeakJobMemoryUsed', ctypes.c_size_t)]
+
+
+class PIDLIST(ctypes.Structure):
+    _fields_ = [('assigned', W.DWORD), ('count', W.DWORD), ('pids', ctypes.c_size_t * MAX_MEMBERS)]
+
+
+class API:
+    """Retained native handles, following process_identity's wait/exit pattern."""
+    def __init__(self):
+        self.k = ctypes.WinDLL('kernel32', use_last_error=True)
+        specs = {
+            'CreateJobObjectW': ([ctypes.c_void_p, W.LPCWSTR], W.HANDLE),
+            'SetInformationJobObject': ([W.HANDLE, ctypes.c_int, ctypes.c_void_p, W.DWORD], W.BOOL),
+            'QueryInformationJobObject': ([W.HANDLE, ctypes.c_int, ctypes.c_void_p, W.DWORD, ctypes.c_void_p], W.BOOL),
+            'AssignProcessToJobObject': ([W.HANDLE, W.HANDLE], W.BOOL),
+            'IsProcessInJob': ([W.HANDLE, W.HANDLE, ctypes.POINTER(W.BOOL)], W.BOOL),
+            'TerminateJobObject': ([W.HANDLE, W.UINT], W.BOOL),
+            'CreateProcessW': ([W.LPCWSTR, W.LPWSTR, ctypes.c_void_p, ctypes.c_void_p, W.BOOL, W.DWORD, ctypes.c_void_p, W.LPCWSTR, ctypes.POINTER(STARTUPINFO), ctypes.POINTER(PROCESSINFO)], W.BOOL),
+            'ResumeThread': ([W.HANDLE], W.DWORD),
+            'OpenProcess': ([W.DWORD, W.BOOL, W.DWORD], W.HANDLE),
+            'QueryFullProcessImageNameW': ([W.HANDLE, W.DWORD, W.LPWSTR, ctypes.POINTER(W.DWORD)], W.BOOL),
+            'WaitForSingleObject': ([W.HANDLE, W.DWORD], W.DWORD),
+            'GetExitCodeProcess': ([W.HANDLE, ctypes.POINTER(W.DWORD)], W.BOOL),
+            'GetProcessTimes': ([W.HANDLE] + [ctypes.POINTER(W.FILETIME)] * 4, W.BOOL),
+            'TerminateProcess': ([W.HANDLE, W.UINT], W.BOOL),
+            'CloseHandle': ([W.HANDLE], W.BOOL),
+        }
+        for name, (arguments, result) in specs.items():
+            fn = getattr(self.k, name); fn.argtypes = arguments; fn.restype = result
+        self.handles = set()
+        self.fault = None
+
+    def fail(self, operation):
+        if self.fault == operation:
+            self.fault = None  # one injected denial; recovery never rewrites result
+            raise OSError('INJECTED_' + operation)
+
+    def checked(self, result):
+        if not result: raise ctypes.WinError(ctypes.get_last_error())
+        return result
+
+    def own(self, handle):
+        self.checked(handle); self.handles.add(int(handle)); return int(handle)
+
+    def close(self, handle):
+        self.fail('close')
+        self.checked(self.k.CloseHandle(handle)); self.handles.remove(handle)
+
+    def create_job(self):
+        job = self.own(self.k.CreateJobObjectW(None, None))
+        limits = EXTENDED()
+        limits.BasicLimitInformation.LimitFlags = 0x2000 | 0x8  # KILL_ON_JOB_CLOSE, ACTIVE_PROCESS
+        limits.BasicLimitInformation.ActiveProcessLimit = MAX_MEMBERS
+        self.checked(self.k.SetInformationJobObject(job, 9, ctypes.byref(limits), ctypes.sizeof(limits)))
+        return job
+
+    def spawn(self, root, role, mode, *, suspended=True, breakaway=False):
+        command = subprocess.list2cmdline([sys.executable, '-I', '-S', '-B', '-u', str(HERE), '--child', str(root), role, mode])
+        startup = STARTUPINFO(); startup.cb = ctypes.sizeof(startup)
+        info = PROCESSINFO()
+        self.checked(self.k.CreateProcessW(sys.executable, ctypes.create_unicode_buffer(command), None, None,
+                     False, 0x08000000 | (0x4 if suspended else 0) | (0x01000000 if breakaway else 0), None, str(root), ctypes.byref(startup), ctypes.byref(info)))
+        # Registration has no I/O; retain process AND primary thread immediately.
+        return {'process': self.own(info.hProcess), 'thread': self.own(info.hThread), 'pid': info.dwProcessId, 'assigned': False}
+
+    def assign(self, job, process):
+        self.fail('assign')
+        self.checked(self.k.AssignProcessToJobObject(job, process['process']))
+        process['assigned'] = True
+        if not self.member(job, process['process']): raise RuntimeError('MEMBERSHIP_UNKNOWN')
+
+    def resume(self, process):
+        if not process['assigned']: raise RuntimeError('Never resume before assignment')
+        if self.k.ResumeThread(process['thread']) == 0xFFFFFFFF: raise ctypes.WinError(ctypes.get_last_error())
+
+    def member(self, job, process):
+        present = W.BOOL()
+        self.checked(self.k.IsProcessInJob(process, job, ctypes.byref(present)))
+        return bool(present.value)
+
+    def members(self, job):
+        self.fail('query')
+        info = PIDLIST()
+        self.checked(self.k.QueryInformationJobObject(job, 3, ctypes.byref(info), ctypes.sizeof(info), None))
+        if info.count > MAX_MEMBERS or info.assigned != info.count: raise RuntimeError('MEMBERSHIP_INCOMPLETE')
+        return list(info.pids[:info.count])
+
+    def open(self, pid):
+        return self.own(self.k.OpenProcess(0x1000 | 0x100000 | 0x1, False, pid))
+
+    def image_kind(self, handle):
+        length=W.DWORD(32768); text=ctypes.create_unicode_buffer(length.value)
+        self.checked(self.k.QueryFullProcessImageNameW(handle,0,text,ctypes.byref(length)))
+        image=Path(text.value)
+        return {'image_class':'PYTHON' if image.name.lower() in ('python.exe','python3.exe','pythonw.exe') else 'OTHER', 'same_as_controller_executable':os.path.normcase(str(image))==os.path.normcase(sys.executable)}
+
+    def token(self, handle):
+        fields = [W.FILETIME() for _ in range(4)]
+        self.checked(self.k.GetProcessTimes(handle, *(ctypes.byref(f) for f in fields)))
+        return (fields[0].dwHighDateTime << 32) | fields[0].dwLowDateTime
+
+    def wait(self, handle, deadline):
+        self.fail('wait')
+        remaining = max(0., deadline-time.monotonic())
+        value = self.k.WaitForSingleObject(handle, int(min(remaining*1000, 0xFFFFFFFE)))
+        if value == 258: return False
+        if value != 0: raise ctypes.WinError(ctypes.get_last_error())
+        code = W.DWORD(); self.checked(self.k.GetExitCodeProcess(handle, ctypes.byref(code)))
+        return True
+
+    def exit_code(self, handle):
+        code = W.DWORD(); self.checked(self.k.GetExitCodeProcess(handle,ctypes.byref(code)))
+        return code.value
+
+    def terminate(self, job):
+        self.fail('terminate')
+        self.checked(self.k.TerminateJobObject(job, 97))
+
+
+# Temporary benchmark only. API above is copied verbatim from reviewed5a464746.
+PIN='a501c88bcc926bef87875f6352f210b19b6e438b'
+TREE='e66b6daa84f04ec95dce1155fde2a9a4e156cf14'
+OWNER='4bec6f8974062cbd68f5c88bbf9baa671a075237'
+WORKERS=2
+STAGE=0
+STARTED_WORKERS=0
+
+def stage(number):
+    global STAGE
+    STAGE=number
+
+def error_code(exc):
+    value=getattr(exc,'winerror',None)
+    return value if type(value) is int and value in (5,6,8,32,87,1816) else 0
+ROOT=Path(sys.argv[2] if sys.argv[1]=='--child' else sys.argv[1]).resolve()
+CONFIG=json.loads((ROOT/'config.PRIVATE.json').read_text())
+SOURCE=Path(CONFIG['source'])
+
+def guard(event,args):
+    if event.startswith('socket.') or event in ('os.system','os.fork'):
+        raise RuntimeError('FILESYSTEM_ONLY')
+    if event=='import' and str(args[0]).split('.')[0] in {'src','ibapi','ib_insync','requests','curl_cffi','yfinance'}:
+        raise RuntimeError('NO_OPERATIONAL_IMPORTS')
+    if event=='ctypes.dlopen' and str(args[0]).lower()!='kernel32':
+        raise RuntimeError('NO_NATIVE_TRANSFER')
+    if event=='subprocess.Popen':
+        allowed=[['git','ls-files','-z'],['git','show',PIN+':scripts/certification/natural_readonly_operator.py']]
+        for command in (['rev-parse','HEAD'],['rev-parse',PIN+'^{tree}'],['status','--porcelain=v1','--untracked-files=all']):
+            allowed.append(['git','--no-optional-locks','-c','core.fsmonitor=false',*command])
+        argv=args[1]
+        okay=argv in allowed if isinstance(argv,(list,tuple)) else argv in [subprocess.list2cmdline(a) for a in allowed]
+        if not okay or Path(args[2]).resolve()!=SOURCE: raise RuntimeError('ONLY_EXACT_LOCAL_GIT')
+sys.addaudithook(guard)
+os.environ['GIT_OPTIONAL_LOCKS']='0'
+
+
+def small(path,cap):
+    with path.open('rb') as stream: raw=stream.read(cap+1)
+    if len(raw)>cap: raise RuntimeError('IPC_LIMIT')
+    return json.loads(raw)
+
+
+def put(path,data,cap):
+    raw=json.dumps(data,ensure_ascii=True).encode()
+    if len(raw)>cap: raise RuntimeError('IPC_LIMIT')
+    temporary=path.with_suffix('.tmp')
+    temporary.write_bytes(raw); temporary.replace(path)
+
+
+def authority():
+    source=subprocess.check_output(['git','show',PIN+':scripts/certification/natural_readonly_operator.py'],cwd=SOURCE)
+    blob=hashlib.sha1(b'blob '+str(len(source)).encode()+b'\0'+source).hexdigest()
+    if blob!=OWNER: raise RuntimeError('OWNER_IDENTITY')
+    nodes=ast.parse(source).body
+    digest=next(n for n in nodes if isinstance(n,ast.FunctionDef) and n.name=='digest')
+    owner=next(n for n in nodes if isinstance(n,ast.FunctionDef) and n.name=='source_manifest')
+    enumeration=next(n for n in owner.body if isinstance(n,ast.Assign) and isinstance(n.targets[0],ast.Name) and n.targets[0].id=='paths')
+    return ast.unparse(digest),ast.unparse(enumeration)
+
+
+def identity():
+    def git(*args):
+        return subprocess.check_output(['git','--no-optional-locks','-c','core.fsmonitor=false',*args],cwd=SOURCE).decode().strip()
+    if git('rev-parse','HEAD')!=PIN or git('rev-parse',PIN+'^{tree}')!=TREE or git('status','--porcelain=v1','--untracked-files=all'):
+        raise RuntimeError('SOURCE_IDENTITY')
+
+
+def worker(slot):
+    namespace={'hashlib':hashlib}
+    exec(compile((ROOT/'digest.PRIVATE.py').read_text(),'<accepted-digest>','exec'),namespace)
+    while not (ROOT/'stop-workers').exists():
+        request=slot/'task.json'
+        if not request.exists(): time.sleep(.002); continue
+        task=small(request,8192); request.unlink()
+        class Target:
+            size=0
+            def is_file(self): return Path(task['path']).is_file()
+            def read_bytes(self):
+                data=Path(task['path']).read_bytes(); self.size=len(data); return data
+        target=Target()
+        try:
+            value=namespace['digest'](target)
+            result={'index':task['index'],'ok':True,'value':value,'bytes':target.size}
+        except OSError as exc:
+            result={'index':task['index'],'ok':False,'error_winerror':error_code(exc)}
+        put(slot/'result.json',result,1024)
+
+
+def coordinator():
+    global STARTED_WORKERS
+    stage(10); identity()
+    stage(20); code,enumeration=authority()
+    (ROOT/'digest.PRIVATE.py').write_text(code,encoding='utf-8')
+    started=time.monotonic()
+    stage(30)
+    scope={'subprocess':subprocess,'repo':SOURCE}
+    exec(compile(enumeration,'<accepted-enumeration>','exec'),scope)
+    names=[n for n in scope['paths'] if n]
+    # Accepted tracked coverage; reject unexpected expansion, never skip it.
+    if len(names)!=2686 or len(names)!=len(set(names)): raise RuntimeError('TRACKED_COVERAGE')
+    api=API(); workers=[]; slots=[]; busy={}; values={}; byte_count=0; peak=0
+    stage(40)
+    for index in range(WORKERS):
+        slot=ROOT/('worker'+str(index)); slot.mkdir(); slots.append(slot)
+        p=api.spawn(ROOT,'worker',str(index),suspended=False)
+        workers.append(p); STARTED_WORKERS+=1
+    stage(50)
+    cursor=0
+    while cursor<len(names) or busy:
+        for index,(p,slot) in enumerate(zip(workers,slots)):
+            if api.wait(p['process'],time.monotonic()): raise RuntimeError('WORKER_EXIT')
+            if index in busy and (slot/'result.json').exists():
+                result=small(slot/'result.json',1024); (slot/'result.json').unlink()
+                wanted=busy.pop(index)
+                if result.get('index')!=wanted: raise RuntimeError('HASH_SCHEMA')
+                if result.get('ok') is not True:
+                    exc=OSError(0,'')
+                    exc.winerror=result.get('error_winerror',0)
+                    raise exc
+                value=result.get('value')
+                if value is not None and (not isinstance(value,str) or len(value)!=64 or any(c not in '0123456789abcdef' for c in value)): raise RuntimeError('HASH_SCHEMA')
+                size=result.get('bytes')
+                if type(size) is not int or size<0: raise RuntimeError('BYTE_SCHEMA')
+                values[wanted]=value; byte_count+=size
+            if index not in busy and cursor<len(names):
+                put(slot/'task.json',{'index':cursor,'path':str(SOURCE/names[cursor])},8192)
+                busy[index]=cursor; cursor+=1
+        peak=max(peak,len(busy)); time.sleep(.002)
+    stage(60)
+    (ROOT/'stop-workers').write_text('1')
+    # Retire workers before final Git calls: avoid extra live work/native members.
+    # External controller independently kills the entire job at its deadline.
+    for p in workers:
+        while not api.wait(p['process'],time.monotonic()+.02): pass
+        if api.exit_code(p['process'])!=0: raise RuntimeError('WORKER_FAILED')
+    for h in list(api.handles): api.close(h)
+    stage(70); identity()
+    stage(80)
+    manifest={name:values[index] for index,name in enumerate(names)}
+    # STAGED private output is never reusable/published as a successful baseline.
+    put(ROOT/'manifest.STAGED.PRIVATE.json',manifest,2097152)
+    put(ROOT/'candidate.PRIVATE.json',{'file_count':len(names),'bytes':byte_count,
+        'missing':sum(v is None for v in manifest.values()),'workers':WORKERS,'peak_pending':peak,
+        'candidate_seconds':time.monotonic()-started,'source_identity':True},4096)
+    stage(90)
+
+
+def controller():
+    api=API(); job=None; p=None; owned={}; status='ERROR'; clean=True; peak=0
+    began=time.monotonic(); deadline=began+90
+    try:
+        job=api.create_job()
+        p=api.spawn(ROOT,'coordinator','benchmark')
+        owned[p['pid']]=p['process']
+        api.assign(job,p); api.resume(p)
+        while True:
+            if time.monotonic()>=deadline: status='DEADLINE'; break
+            if api.wait(p['process'],time.monotonic()) and api.exit_code(p['process'])!=0: raise RuntimeError('CHILD_FAILED')
+            ids=api.members(job); peak=max(peak,len(ids))
+            for pid in ids:
+                if pid not in owned:
+                    h=api.open(pid)
+                    if not api.member(job,h): raise RuntimeError('MEMBERSHIP')
+                    owned[pid]=h
+            if not ids:
+                if not api.wait(p['process'],deadline) or api.exit_code(p['process'])!=0: raise RuntimeError('CHILD_FAILED')
+                status='COMPLETE'; break
+            time.sleep(.005)
+    except BaseException:
+        status='ERROR'
+    finally:
+        cleanup_start=time.monotonic(); cleanup_deadline=cleanup_start+30
+        try:
+            if p and not p['assigned']: api.checked(api.k.TerminateProcess(p['process'],98))
+            if job:
+                api.terminate(job)
+                while api.members(job):
+                    if time.monotonic()>=cleanup_deadline: raise RuntimeError('JOB_EXIT_UNVERIFIED')
+                    time.sleep(.005)
+            for h in owned.values():
+                if not api.wait(h,cleanup_deadline): raise RuntimeError('PROCESS_EXIT_UNVERIFIED')
+        except BaseException:
+            clean=False
+        # Preserve UNKNOWN on failed verification; no fixture rescue in benchmark.
+        # The last handle's OS close retains kill-on-close safety, not exit proof.
+        for h in [h for h in api.handles if h!=job]+([job] if job else []):
+            try: api.close(h)
+            except BaseException: clean=False
+        if api.handles or time.monotonic()>cleanup_deadline: clean=False
+        elapsed=time.monotonic()-began
+        result={'schema':'manifest-process-benchmark.v1','pin':PIN,'tree':TREE,
+            'status':status,'measurement_budget_seconds':90,'cleanup_budget_seconds':30,
+            'measurement_and_cleanup_seconds':elapsed,'cleanup_verified':clean,
+            'native_member_cap':MAX_MEMBERS,'peak_native_members':peak,
+            'setup_excluded':True,'performance_speedup_established':False,
+            'reusable_source_baseline':False,'logical_workers_configured':WORKERS,
+            'logical_workers_started':0,'failure_evidence_available':False,'failure_stage':0,'failure_winerror':0,
+            'failure_subprocess_code':0,'PAPER_READY':'NO','PAPER_READINESS_GATE':'FAIL'}
+        if status=='COMPLETE' and clean and elapsed<=90:
+            candidate=small(ROOT/'candidate.PRIVATE.json',4096)
+            if set(candidate)!={'file_count','bytes','missing','workers','peak_pending','candidate_seconds','source_identity'}:
+                raise RuntimeError('REPORT_SCHEMA')
+            if (candidate['file_count']!=2686 or candidate['workers']!=WORKERS or not 0<=candidate['peak_pending']<=WORKERS or
+                candidate['source_identity'] is not True or candidate['missing']!=0 or
+                type(candidate['bytes']) is not int or candidate['bytes']<0 or
+                not isinstance(candidate['candidate_seconds'],(int,float)) or not 0<=candidate['candidate_seconds']<=90):
+                raise RuntimeError('REPORT_INVALID')
+            result.update(candidate)
+            result['logical_workers_started']=WORKERS
+            (ROOT/'manifest.STAGED.PRIVATE.json').replace(ROOT/'manifest.COMPLETE.PRIVATE.json')
+        else:
+            result['status']='FAIL'
+            failure_path=ROOT/'failure.PRIVATE.json'
+            if failure_path.exists():
+                failure=small(failure_path,1024)
+                if set(failure)!={'stage','started','winerror','subprocess_code'}: raise RuntimeError('FAILURE_SCHEMA')
+                if (type(failure['stage']) is not int or failure['stage'] not in (0,10,20,30,40,50,60,70,80,90) or
+                    type(failure['started']) is not int or not 0<=failure['started']<=WORKERS or
+                    type(failure['winerror']) is not int or failure['winerror'] not in (0,5,6,8,32,87,1816) or
+                    type(failure['subprocess_code']) is not int or not -255<=failure['subprocess_code']<=255): raise RuntimeError('FAILURE_INVALID')
+                result.update(failure_evidence_available=True,failure_stage=failure['stage'],
+                    logical_workers_started=failure['started'],failure_winerror=failure['winerror'],failure_subprocess_code=failure['subprocess_code'])
+        # Whitelisted aggregate only; no filenames, mapping/hashes, IDs, handles,
+        # image paths, exception strings, stdout/stderr or other scratch artifacts.
+        put(ROOT/'manifest-process-shareable.json',result,8192)
+        print('COMPLETE' if result['status']=='COMPLETE' else 'FAIL_NO_RETRY',flush=True)
+    return 0 if result['status']=='COMPLETE' else 1
+
+
+if __name__=='__main__':
+    try:
+        if os.name!='nt' or sys.version_info[:3]!=(3,13,3): raise RuntimeError('ENVIRONMENT')
+        if sys.argv[1]=='--child':
+            if sys.argv[3]=='coordinator':
+                try: coordinator()
+                except Exception as exc:
+                    code=exc.returncode if isinstance(exc,subprocess.CalledProcessError) and type(exc.returncode) is int and -255<=exc.returncode<=255 else 0
+                    put(ROOT/'failure.PRIVATE.json',{'stage':STAGE,'started':STARTED_WORKERS,'winerror':error_code(exc),'subprocess_code':code},1024)
+                    raise
+            elif sys.argv[3]=='worker': worker(ROOT/('worker'+str(int(sys.argv[4]))))
+            else: raise RuntimeError('ROLE')
+        else: raise SystemExit(controller())
+    except Exception:
+        # Fixed text only; any private staged files remain unusable on failure.
+        print('FAIL_NO_RETRY; no raw exception exported',flush=True)
+        raise SystemExit(1)
+'@
+    $Driver = Join-Path $ScratchRoot 'benchmark.PRIVATE.py'
+    [IO.File]::WriteAllText($Driver, $payload, $utf8)
+    Write-Host 'ONE filesystem-only pass, 2 workers/2 outstanding; 90s shared measurement + 30s shared owned cleanup.'
+    Write-Host 'Private scratch retained; never upload the root, driver, task/results or manifest.'
+    & $Python -I -S -B -u $Driver $ScratchRoot
+    $measurementExit = $LASTEXITCODE
+    $Shareable = Join-Path $ScratchRoot 'manifest-process-shareable.json'
+    if (!(Test-Path -LiteralPath $Shareable -PathType Leaf)) {
+        throw "No verified shareable result; NO RETRY. Private root: $ScratchRoot"
+    }
+    if ((Get-Item -LiteralPath $Shareable).Length -gt 8192) { throw 'Aggregate privacy bound failed; do not share.' }
+    $reportData = [IO.File]::ReadAllText($Shareable) | ConvertFrom-Json
+    $allowedNames = @('schema','pin','tree','status','measurement_budget_seconds','cleanup_budget_seconds',
+        'measurement_and_cleanup_seconds','cleanup_verified','native_member_cap','peak_native_members',
+        'setup_excluded','performance_speedup_established','reusable_source_baseline','PAPER_READY','PAPER_READINESS_GATE',
+        'file_count','bytes','missing','workers','peak_pending','candidate_seconds','source_identity',
+        'logical_workers_configured','logical_workers_started','failure_evidence_available','failure_stage','failure_winerror','failure_subprocess_code')
+    foreach ($field in $reportData.PSObject.Properties.Name) {
+        if ($allowedNames -cnotcontains $field) { throw 'Unexpected exported field; do not share.' }
+    }
+    if ($reportData.schema -cne 'manifest-process-benchmark.v1' -or
+        $reportData.pin -cne 'a501c88bcc926bef87875f6352f210b19b6e438b' -or
+        $reportData.tree -cne 'e66b6daa84f04ec95dce1155fde2a9a4e156cf14' -or
+        @('COMPLETE','FAIL') -cnotcontains $reportData.status -or
+        $reportData.PAPER_READY -cne 'NO' -or $reportData.PAPER_READINESS_GATE -cne 'FAIL') {
+        throw 'Unexpected exported string; do not share.'
+    }
+    $stringFields = @('schema','pin','tree','status','PAPER_READY','PAPER_READINESS_GATE')
+    foreach ($property in $reportData.PSObject.Properties) {
+        if ($stringFields -ccontains $property.Name) { continue }
+        if ($null -eq $property.Value -or
+            ($property.Value -isnot [bool] -and $property.Value -isnot [int] -and
+             $property.Value -isnot [long] -and $property.Value -isnot [double] -and
+             $property.Value -isnot [decimal])) { throw 'Nonaggregate output; do not share.' }
+    }
+    Write-Host ("Privacy-verified aggregate ONLY: " + $Shareable)
+    Write-Host 'Do not ZIP or share any other scratch artifact; no repeat/warm retry.'
+    if ($measurementExit -ne 0) { throw 'Measurement failed; retain evidence and stop. No natural preflight/observation authorized.' }
+}
+```

@@ -8,6 +8,10 @@ from __future__ import annotations
 import ctypes
 from ctypes import wintypes as W
 import json
+import ast
+import hashlib
+import shutil
+import zlib
 import os
 from pathlib import Path
 import subprocess
@@ -122,10 +126,13 @@ class API:
         return job
 
     def spawn(self, root, role, mode, *, suspended=True, breakaway=False):
-        command = subprocess.list2cmdline([sys.executable, '-I', '-S', '-B', '-u', str(HERE), '--child', str(root), role, mode])
+        return self.spawn_argv(root,[sys.executable,'-I','-S','-B','-u',str(HERE),'--child',str(root),role,mode],suspended=suspended,breakaway=breakaway)
+
+    def spawn_argv(self, root, argv, *, suspended=True, breakaway=False):
+        command = subprocess.list2cmdline(argv)
         startup = STARTUPINFO(); startup.cb = ctypes.sizeof(startup)
         info = PROCESSINFO()
-        self.checked(self.k.CreateProcessW(sys.executable, ctypes.create_unicode_buffer(command), None, None,
+        self.checked(self.k.CreateProcessW(argv[0], ctypes.create_unicode_buffer(command), None, None,
                      False, 0x08000000 | (0x4 if suspended else 0) | (0x01000000 if breakaway else 0), None, str(root), ctypes.byref(startup), ctypes.byref(info)))
         # Registration has no I/O; retain process AND primary thread immediately.
         return {'process': self.own(info.hProcess), 'thread': self.own(info.hThread), 'pid': info.dwProcessId, 'assigned': False}
@@ -357,6 +364,135 @@ def contain(root, mode='healthy', *, budget=.8, cleanup=2., fault=None):
         result['leaf_roles']=sum(r['role']=='leaf' for r in roles)
         result['roles_in_job']=all(r['pid'] in owned for r in roles)
     return result
+
+
+def benchmark_block(revision):
+    text=(HERE.parent.parent/'docs/ross/NATURAL_READONLY_CHECKPOINT.md').read_text(encoding='utf-8')
+    if revision=='v1':
+        section=text.split('## 30 October 2026 — Actual Windows containment passed;',1)[1]
+    else:
+        section=text.split('### Corrected full-path benchmark candidate V2',1)[1]
+    block=section.split('```powershell\n',1)[1].split('\n```',1)[0]+'\n'
+    if revision=='v1' and hashlib.sha256(block.encode()).hexdigest()!='8226316440f5b1dac0b25b79a3b8b0a8e18a35012c375e4c855335d890089b3d':
+        raise AssertionError('Frozen released block changed')
+    return block
+
+
+def native_fixture_run(argv,root,*,budget=30):
+    """Bounded outer TEST ownership, not the benchmark's fixed10-member job.
+
+    Host PowerShell + environment-controller launchers can add <=6 members to
+    inner capped10. Outer16 is explicit fixture containment, not a benchmark cap
+    increase. No network or operational source executed.
+    """
+    api=API(); job=None; process=None
+    end=time.monotonic()+budget
+    try:
+        job=api.create_job()
+        limits=EXTENDED(); limits.BasicLimitInformation.LimitFlags=0x2000|0x8
+        limits.BasicLimitInformation.ActiveProcessLimit=16
+        api.checked(api.k.SetInformationJobObject(job,9,ctypes.byref(limits),ctypes.sizeof(limits)))
+        process=api.spawn_argv(root,argv)
+        api.assign(job,process); api.resume(process)
+        if not api.wait(process['process'],end): raise AssertionError('Synthetic host exceeded budget')
+        return api.exit_code(process['process'])
+    finally:
+        cleanup_end=time.monotonic()+5
+        if process and not process['assigned']: api.checked(api.k.TerminateProcess(process['process'],99))
+        if job:
+            api.checked(api.k.TerminateJobObject(job,99))
+            class OuterMembers(ctypes.Structure):
+                _fields_=[('assigned',W.DWORD),('count',W.DWORD),('pids',ctypes.c_size_t*16)]
+            while True:
+                info=OuterMembers()
+                api.checked(api.k.QueryInformationJobObject(job,3,ctypes.byref(info),ctypes.sizeof(info),None))
+                if info.count==0: break
+                if time.monotonic()>=cleanup_end: raise AssertionError('Synthetic outer job leaked')
+                time.sleep(.005)
+        if process and not api.wait(process['process'],cleanup_end): raise AssertionError('Synthetic host exit unknown')
+        for h in list(api.handles): api.close(h)
+        if api.handles: raise AssertionError('Synthetic host handles leaked')
+
+
+@unittest.skipUnless(os.name=='nt','Actual full Windows PowerShell/benchmark path required')
+class FullBenchmarkPath(unittest.TestCase):
+    def fixture(self,root):
+        repo=root/'source'; repo.mkdir()
+        owner=(HERE.parent.parent/'scripts/certification/natural_readonly_operator.py').read_bytes()
+        # Checkout CRLF normalization may differ; accepted Git blob uses LF.
+        owner=owner.replace(b'\r\n',b'\n')
+        self.assertEqual(hashlib.sha1(b'blob '+str(len(owner)).encode()+b'\0'+owner).hexdigest(),'4bec6f8974062cbd68f5c88bbf9baa671a075237')
+        path=repo/'scripts/certification'; path.mkdir(parents=True)
+        (path/'natural_readonly_operator.py').write_bytes(owner)
+        for index in range(2685): (repo/('synthetic-%04d'%index)).write_bytes(b'PRIVATE_CONTENT_CANARY\x00'+str(index).encode())
+        git=shutil.which('git')
+        self.assertIsNotNone(git)
+        for args in (['-c','init.defaultBranch=main','init','-q'],['-c','core.autocrlf=false','add','.'],['-c','user.name=Synthetic','-c','user.email=synthetic@example.invalid','commit','-qm','synthetic']):
+            self.assertEqual(native_fixture_run([git,*args],repo),0)
+        pin=(repo/'.git/refs/heads/main').read_text().strip()
+        obj=zlib.decompress((repo/'.git/objects'/pin[:2]/pin[2:]).read_bytes())
+        tree=obj.split(b'\0',1)[1].splitlines()[0].decode().split()[1]
+        env=root/'venv'
+        self.assertEqual(native_fixture_run([sys.executable,'-I','-S','-B','-m','venv','--without-pip',str(env)],root),0)
+        return repo,pin,tree,env/'Scripts/python.exe'
+
+    def run_block(self,root,repo,pin,tree,python,revision,*,workers=None):
+        case=root/('case-'+revision+'-'+str(workers)); case.mkdir()
+        block=benchmark_block(revision)
+        # Test data binding ONLY: same full PowerShell and embedded Python paths,
+        # constants/paths rebound to a synthetic2686-file Git fixture, never source.
+        substitutions={r'C:\tmp\pr1091-cert-env-20260923\Scripts\python.exe':str(python),
+                       r'C:\tmp\ro-9a2e923d\s':str(repo),
+                       "Join-Path 'C:\\tmp'":"Join-Path '"+str(case).replace("'","''")+"'",
+                       'a501c88bcc926bef87875f6352f210b19b6e438b':pin,
+                       'e66b6daa84f04ec95dce1155fde2a9a4e156cf14':tree}
+        # Explicit single known scratch-base literal avoids arbitrary code edits.
+        block=block.replace("Join-Path 'C:\tmp'", "Join-Path '"+str(case).replace("'","''")+"'")
+        for old,new in list(substitutions.items()):
+            if old.startswith('Join-Path'): continue
+            self.assertIn(old,block); block=block.replace(old,new)
+        if workers is not None:
+            self.assertIn('WORKERS=2',block)
+            block=block.replace('WORKERS=2','WORKERS='+str(workers))
+        script=case/'block.ps1'; script.write_text(block,encoding='utf-8-sig')
+        def quote(path): return "'"+str(path).replace("'","''")+"'"
+        wrapper=case/'invoke.ps1'
+        wrapper.write_text("$ErrorActionPreference='Stop'\ntry { & "+quote(script)+" *> "+quote(case/'console.PRIVATE.log')+"; exit 0 } catch { exit 1 }\n",encoding='utf-8-sig')
+        powershell=str(Path(os.environ['SystemRoot'])/'System32/WindowsPowerShell/v1.0/powershell.exe')
+        code=native_fixture_run([powershell,'-NoProfile','-NonInteractive','-File',str(wrapper)],case,budget=140)
+        roots=list(case.glob('manifest-contained-*')); self.assertEqual(len(roots),1)
+        output=roots[0]/'manifest-process-shareable.json'
+        report=read_small(output)  # <4096 for these aggregate fixtures
+        self.assertNotIn('PRIVATE_CONTENT_CANARY',output.read_text())
+        self.assertLessEqual(output.stat().st_size,8192)
+        self.assertEqual(report['native_member_cap'],10)
+        self.assertTrue(report['cleanup_verified'])
+        self.assertLessEqual(report['peak_native_members'],10)
+        print('FULL_WINDOWS_BENCHMARK',revision,workers,json.dumps(report),flush=True)
+        return code,report,roots[0]
+
+    def test_full_powershell_venv_topology_and_reduced_workers(self):
+        with tempfile.TemporaryDirectory(prefix='full-manifest-path-') as text:
+            root=Path(text); repo,pin,tree,python=self.fixture(root)
+            old_code,old,_=self.run_block(root,repo,pin,tree,python,'v1')
+            self.assertNotEqual(old_code,0); self.assertEqual(old['status'],'FAIL')
+            self.assertEqual(old['peak_native_members'],10)
+            diagnosed_code,diagnosed,_=self.run_block(root,repo,pin,tree,python,'v2',workers=4)
+            self.assertNotEqual(diagnosed_code,0); self.assertEqual(diagnosed['status'],'FAIL')
+            self.assertTrue(diagnosed['failure_evidence_available'])
+            good_code,good,private=self.run_block(root,repo,pin,tree,python,'v2')
+            self.assertEqual(good_code,0); self.assertEqual(good['status'],'COMPLETE')
+            self.assertEqual(good['logical_workers_configured'],2)
+            self.assertEqual(good['workers'],2); self.assertLessEqual(good['peak_pending'],2)
+            manifest=json.loads((private/'manifest.COMPLETE.PRIVATE.json').read_text())
+            owner=(repo/'scripts/certification/natural_readonly_operator.py').read_text()
+            node=next(n for n in ast.parse(owner).body if isinstance(n,ast.FunctionDef) and n.name=='digest')
+            namespace={'hashlib':hashlib}
+            exec(compile(ast.Module(body=[node],type_ignores=[]),'<actual-digest>','exec'),namespace)
+            expected={p.relative_to(repo).as_posix():namespace['digest'](p) for p in sorted(repo.rglob('*')) if p.is_file() and '.git' not in p.relative_to(repo).parts}
+            self.assertEqual(manifest,expected)
+            self.assertEqual(len(manifest),2686)
+            print('FULL_WINDOWS_EQUIVALENCE 2686 fresh synthetic hashes identical',flush=True)
 
 
 @unittest.skipUnless(os.name == 'nt', 'Actual Windows APIs required; Linux is not validation')
