@@ -9447,3 +9447,13 @@ if __name__=='__main__':
     if ($measurementExit -ne 0) { throw 'Measurement failed; retain evidence and stop. No natural preflight/observation authorized.' }
 }
 ```
+
+Full-path controls remain PENDING, not a reproduced archived cause:
+- ecb53d2e/CI41118162631 failed a TEST scratch-root binding assertion (0roots
+  where1expected); independent review identified Python backslash-TAB literal.
+- Fixed12f3d74f, independent review5717899057 approved for CI only;
+  CI41118286895/job124278193054 failed early with peak3 rather than10, so it
+  did NOT reproduce the claimed native-cap path. No inference from that failure.
+- Next control collects all bounded v2 stage/code outcomes BEFORE asserting cap
+  exhaustion, so a synthetic prerequisite failure remains visible and cannot be
+  mistaken for the workstation receipt. Superseded failures/reviews preserved.

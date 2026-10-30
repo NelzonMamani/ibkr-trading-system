@@ -475,12 +475,15 @@ class FullBenchmarkPath(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='full-manifest-path-') as text:
             root=Path(text); repo,pin,tree,python=self.fixture(root)
             old_code,old,_=self.run_block(root,repo,pin,tree,python,'v1')
-            self.assertNotEqual(old_code,0); self.assertEqual(old['status'],'FAIL')
-            self.assertEqual(old['peak_native_members'],10)
             diagnosed_code,diagnosed,_=self.run_block(root,repo,pin,tree,python,'v2',workers=4)
+            good_code,good,private=self.run_block(root,repo,pin,tree,python,'v2')
+            # Collect all bounded diagnostics before assertions; an early fixture
+            # prerequisite error is NOT a reproduction of cap exhaustion.
+            self.assertNotEqual(old_code,0); self.assertEqual(old['status'],'FAIL')
             self.assertNotEqual(diagnosed_code,0); self.assertEqual(diagnosed['status'],'FAIL')
             self.assertTrue(diagnosed['failure_evidence_available'])
-            good_code,good,private=self.run_block(root,repo,pin,tree,python,'v2')
+            self.assertGreaterEqual(diagnosed['failure_stage'],40,'Synthetic prerequisite failed before worker topology')
+            self.assertEqual(old['peak_native_members'],10)
             self.assertEqual(good_code,0); self.assertEqual(good['status'],'COMPLETE')
             self.assertEqual(good['logical_workers_configured'],2)
             self.assertEqual(good['workers'],2); self.assertLessEqual(good['peak_pending'],2)
