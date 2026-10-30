@@ -8168,3 +8168,160 @@ and PARKED/fail-closed listing provenance remain unchanged. No acquisition, brok
 inquiry, preflight, observation, holdings action, SDK/security-setting change,
 timeout extension, gate relaxation or trading occurred.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## 30 October 2026 — Process-isolated manifest feasibility; coordinator lifecycle blocker
+
+OFFLINE synthetic filesystem/process controls only, continuing saved assessment
+6236d4817c0648e2d3aab62149b86bb9a01215ff. GitHub main was independently fetched
+through the GitHub connector and checked using origin/main's remote ref: still
+`a501c88bcc926bef87875f6352f210b19b6e438b`, tree
+`e66b6daa84f04ec95dce1155fde2a9a4e156cf14`. No advancement/substitute pin.
+Workspace/checkout AGENTS search again found none; DEPRECATION_LEDGER read and
+unchanged. This section carries the saved profile preparation and entire existing
+checkpoint forward; no competing checklist, permanent harness, production worker
+or manifest owner was created. Original checkout remains clean; source, caches,
+operator state, private manifests and historical roots were not modified.
+
+### Temporary candidate and equivalence boundary
+
+Evaluated a scratch-only fixed-four subprocess design on Linux/Python3.12.14:
+
+- Parent runs the EXACT enumeration assignment from the pinned source_manifest
+  owner (natural_readonly_operator.py69), freshly ONCE per candidate attempt.
+  Original Git decoding/order/filtering semantics retained; no persistent list,
+  content cache, baseline substitution or Git-blob-content hashing.
+- Workers execute ONLY the accepted digest function AST (same owner65-66), with
+  hashlib binding. They launch as explicit stdlib-only scripts under -I -S -B -u;
+  no operational module import, multiprocessing re-import of __main__, preflight,
+  adapter/config/SDK/news/broker imports or environment setup. A poisoned operator
+  top level with an observable write and raise never executes. This demonstrates
+  entrypoint separation, NOT actual Windows spawn/handle verification.
+- Four direct Popen children, each retained before task dispatch; no PID-based
+  rediscovery or kill-by-name. One outstanding task per worker, peak4 observed.
+  One sequential digest per worker bounds SOURCE content handles to4 by design;
+  control files and null standard streams are additional bounded handles, not
+  falsely included in a claim of four total OS handles. IPC uses four reusable
+  private filesystem mailboxes, not sockets, queues or an unbounded task list.
+  Requests cap8192bytes; responses cap1024bytes with bounded cap+1 reads and
+  rejection. Index/schema/hash checks reject invalid results. No free-form worker
+  exceptions/path details are exported; PermissionError/errno13 are retained for
+  read-failure assessment. This is not a complete arbitrary-exception serializer.
+- Results stage by enumeration index; only a complete mapping in original Git
+  order can be returned, AFTER successful cleanup. Changed bytes and newly tracked
+  names are independently read/re-enumerated on a later attempt; missing/nonregular
+  entries retain None; read errors yield no usable mapping. No partial baseline
+  file is written, including on abort or unverified cleanup.
+- One monotonic measurement deadline begins BEFORE enumeration/startup. Separate
+  cleanup allowance is ONE shared deadline for all children: cooperative stop,
+  short bounded grace, terminate owned live children, wait/reap and verify every
+  owned exit. It is never a fresh allowance per worker. Failures remain explicit;
+  a process boundary or successful terminate call is not an exit proof.
+
+Existing supervision was inspected rather than duplicated in production:
+Invoke-ReadonlyObservation.ps1:6-132 retains its child handle and enforces OS-exit
+90s/30s authority; its timeout path requests cooperative stop and does NOT forcibly
+retire a blocked coordinator or descendants. process_identity.py:88-137 supplies
+retained Windows handle/creation/exit/terminate patterns for its existing runtime
+owner, not a generic manifest-worker containment contract. No Windows Job Object
+containment exists in src/scripts/tests. Neither owner was modified or silently
+repurposed. Existing90s preflight deadline remains unchanged and fail closed.
+
+### Guarded controls:16 passed assertions; candidate NOT accepted
+
+Exact temporary artifacts (not permanent repository modules):
+`/workspace/scratch/manifest-process-feasibility/controls.py`, guard_runner.py,
+results.json and results.log. Final command used the existing offline PYTHONPATH
+and /workspace/ibkr-trading-system/.venv/bin/python running guard_runner.py.
+Additional parent audit guard forbids all socket/native execution, shells and
+subprocesses except exact local Git operations and the isolated scratch workers.
+Each isolated worker installs its own socket/ctypes/extra-process/fork/exec guard;
+-I/-S does not silently discard the safety boundary. Only synthetic temporary Git
+files and controlled waits were used; no broker/order/provider objects imported.
+
+| Control | Observed result and publication/cleanup authority |
+| --- | --- |
+| Serial/candidate hashes and mapping order | Exact equality on synthetic binary files;4 workers/4 pending; all children reaped before returning complete mapping. |
+| Changed bytes/fresh pass | Different fresh hash; full serial equality; cleanup verified. |
+| Missing tracked file | Key retained with None; cleanup verified. |
+| Read failure | PermissionError/errno13; no mapping; owned workers reaped. |
+| Worker crash | WORKER_EXIT; no mapping; siblings stopped/reaped. |
+| Invalid response schema | IPC failure; no mapping; cleanup verified. |
+| Oversized IPC response | Bounded1025byte read rejects >1024; no mapping; cleanup verified. |
+| Serialization failure | Actual json.dumps TypeError controlled as SERIALIZATION; no mapping; cleanup verified. |
+| Partial startup | Injected failure before third launch; both retained children retired; no mapping. |
+| Cancellation with blocked worker | CANCELLED; owned blocked worker terminated/reaped; no mapping. |
+| Shared measurement deadline with blocked worker | DEADLINE; no mapping; all children retired within shared cleanup allowance. |
+| Terminate failure | Explicit injected denial; cleanup_verified=false, JOIN_UNVERIFIED/CLEANUP_DEADLINE, child still live at evaluation boundary; NO mapping/progression. |
+| Join failure | Explicit injected wait/verification failure; cleanup_verified=false, JOIN_UNVERIFIED; NO mapping even if termination later succeeds. |
+| New tracked-file coverage | Fresh owner enumeration includes new tracked name; full serial equivalence and verified cleanup. |
+| Safe standalone worker entry | Poisoned operational top-level side effects/raise never execute; exact digest still works; verified cleanup. |
+| Blocked coordinator IPC | Global measurement+cleanup bounds NOT enforced while coordinator blocked; no result or cleanup entry until fixture release; candidate rejected. |
+
+Ordinary verified cleanups in this final run ranged0.0085-0.0332s, using a1s shared
+synthetic allowance, not a Windows performance estimate. Blocked-worker deadline
+case used0.3s measurement; terminate-failure used0.15s cleanup and correctly failed
+verification at that boundary. OS exit/reap was checked for EVERY retained direct
+child, not inferred from a worker's report. Deliberately injected terminate/join
+failures have a SEPARATE test-fixture recovery finally: kill/wait only those owned
+children, verify all reaped. This recovery NEVER changes the failed result or
+permits publication. All fixture children were reaped after every test, including
+failure cases; no worker left running after the evaluation. The evaluation does
+not claim that cleanup always succeeds on an OS.
+
+Final scratch SHA256 receipts:
+- controls.py:53050d772f4b439bcbbf8071fae7f91e70c92c5c0b78c909b7e27fcda07b51cc
+- guard_runner.py:1423b03f9177337c558617b00a1d55e467809bcc0a3ba397b70676429393b777
+- results.json:d50af80b1bf4bd835f74c0d90c8deb564b22847498afbcc2b2c8a664a0c94917
+
+These are16 passed feasibility ASSERTIONS, including assertions that unsafe paths
+FAIL; they are NOT16 accepted lifecycle cases, changed-head CI, Windows results,
+full-suite certification or natural Ross acceptance. No unrelated suite repeated.
+
+### Concrete blocker and bounded alternative
+
+The smallest filesystem-mailbox candidate does NOT meet the complete requested
+lifecycle contract. Its coordinator performs synchronous filesystem IPC, exact
+Git enumeration and Popen startup. Checks before/after these operations cannot
+interrupt them. In the explicit parent-IPC control, a controlled wait stands in
+for a stalled synchronous open/write: with0.15s measurement and0.1s cleanup, the
+coordinator was still blocked after0.35s, had four owned children and had not
+entered cleanup or returned a result. The fixture explicitly released it, then
+it detected DEADLINE, withheld the mapping and retired its children. The fixture
+thread is test containment/recovery ONLY, not a proposed production watchdog.
+
+This demonstrates a missing enforcement boundary, NOT that Windows filesystem
+IPC, Popen, Git or the measured source opens actually hang. It is not proof that
+all process designs are unsafe. Switching to ordinary blocking pipes merely
+moves the same concern unless bounded I/O and independent ownership are proven.
+An outer cooperative-stop supervisor cannot establish cleanup of a coordinator
+that cannot service stop. Worker isolation alone therefore cannot justify the
+Windows feasibility/benchmark block. Windows-specific handle-close branch and
+actual Windows creation/termination semantics remain UNEXECUTED/UNVERIFIED; no
+Windows speedup claim. No workstation block released and no production change,
+repair PR/review/CI or natural/preflight retry authorized by these controls.
+
+ONE next action: review a narrowly bounded, temporary WINDOWS CONTAINMENT-ONLY
+synthetic control design, before any benchmark. Put the coordinator AND its
+workers inside one externally owned kill-on-close Windows Job Object, with the
+coordinator created suspended and assigned before resume (fail closed if job
+assignment/ownership cannot be proved). The external controller must retain its
+own coordinator/job handles, enforce the existing90s measurement plus ONE30s
+cleanup allowance independently of filesystem IPC, terminate only that owned job,
+and verify zero active members/owned exits plus handle closure before progression.
+Test blocked coordinator/startup/IPC, partial assignment, terminate/query/join/
+handle-close failures, and child-creation containment; unverified cleanup must
+still fail. This is a concrete feasibility alternative, NOT an existing verified
+owner, a production recommendation, or permission to execute a workstation run.
+Keep it scratch-only, synthetic and filesystem-only; reuse existing retained-handle
+patterns without creating a parallel permanent operational process owner. Actual
+Windows containment validation is needed before preparing/reviewing any aggregate
+privacy-safe filesystem benchmark block. No warm preflight retry as a substitute.
+
+Earlier50.105s/open46.572s profile and73.1587372s historical interval remain distinct;
+no antivirus/disk/OS cause or Windows speedup inferred. Preserve all failed roots,
+count0 authoritative order audits AND transport FAIL/exit1, five unmatched positions
+and global veto, GUI draft, separate news-cache uncertainty, PR1140-1143 semantics,
+historical callback uncertainty and PARKED/fail-closed listing provenance.
+No acquisition, broker inquiry, preflight, observation, holdings action, SDK/security
+change, timeout extension, gate relaxation or trading occurred.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
