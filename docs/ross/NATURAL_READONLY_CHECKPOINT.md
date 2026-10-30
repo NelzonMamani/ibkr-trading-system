@@ -9495,3 +9495,129 @@ the quota instant. Failed old/diagnostic runs must publish no COMPLETE manifest;
 controller OR coordinator failure must have bounded explicit attribution. Fresh
 complete two-worker output must match every serial synthetic hash and mapping
 order. No test weakens cleanup/coverage or converts any failed benchmark to PASS.
+
+## 30 October 2026 — Full Windows benchmark topology diagnosed; fixed-cap two-worker candidate verified
+
+Accepted main reverified unchanged:
+`a501c88bcc926bef87875f6352f210b19b6e438b`, tree
+`e66b6daa84f04ec95dce1155fde2a9a4e156cf14`. Original/private failed root
+C:\tmp\manifest-contained-bc3e6f77 and uploaded FAIL receipt remain preserved.
+No private manifest, task/result file, root or additional broker evidence requested.
+The reported0.7115019001066685s/peak10/cleanuptrue remains a FAILED attempt with no
+completed manifest/performance result. Nothing rewrites that receipt to success.
+
+### Demonstrated defect and precise archival uncertainty
+
+The released block's four-worker topology was underbudgeted. Earlier Windows
+CI41114616767 covered a SEPARATE two-leaf containment fixture, not its complete
+PowerShell/embedded Python/environment-launcher path. The static review/reused
+native API did not establish full benchmark acceptance. This validation gap is
+acknowledged and corrected by actual full-path tests, not explained away.
+
+Actual held-process control now establishes: one coordinator plus FOUR logical
+workers under a real Windows virtual environment produced FIFTEEN native members,
+all verified as owned job members, with authoritative empty-job/process-exit/handle
+cleanup. This already exceeds benchmark cap10 without overlapping any Git calls.
+The auxiliary held control's explicit cap16 is TEST containment only; benchmark
+Job Object/PID-list cap stays10. All extra launch/native members remain included;
+no unrelated PID/name kill, silent breakaway or excluded helper. Limited image
+classes/counts do not identify a Windows/security/upstream cause for every helper.
+
+Full released four-worker block failed early in the same synthetic venv path.
+Its observed sampled peak was8 in final CI (10 in the prior run), with cleanup
+verified and NO COMPLETE manifest. Diagnostic four-worker path reported external
+controller stage4/job enumeration, allowlisted winerror234 (ERROR_MORE_DATA), no
+coordinator failure file, and remained FAIL. A sampled peak need not catch the
+kernel's quota/census instant; neither partial census nor error234 is ignored or
+used to certify success. Required native topology15>10 proves the budget defect;
+it does not prove the original workstation's exact failing native operation.
+
+PRECISE REMAINING UNCERTAINTY: uploaded aggregate had no stage/error code. It is
+consistent with this demonstrated topology/census failure, but cannot establish
+whether its immediate exception was job enumeration, process creation, another
+native lifecycle operation or a coordinator error. No archived errno is invented.
+In V2, logical_workers_started is authoritative ONLY for COMPLETE output or when
+failure_evidence_available=true supplies the coordinator's actual launch count.
+Otherwise default0 is UNKNOWN, NEVER proof that zero workers started. Controller
+stage/reason fields describe observed wrapper phase/allowlisted category, not
+syscall causality. No missing evidence is promoted to absence/valid coverage.
+
+### Minimal correction and actual full-path validation
+
+Same disposable draft PR1145; branch test/windows-manifest-containment-feasibility.
+Exact reviewed/tested head `6be633e149ddf489b6b7e18cdb01d69d32cb547b`, tree
+`a6c6cdee01b19d106fe2374ac5ac62e1b2edb1df`.
+Independent post-Windows exact-head review `5718045297`: no blockers; reviewer
+independently retrieved CI/logs. Earlier static-only/superseded reviews remain.
+
+Correction is limited to the TEMPORARY benchmark template/feasibility fixture:
+TWO logical workers/TWO outstanding tasks, unchanged native cap10; bounded numeric
+failure stage/error/logical/native evidence. Exact pinned digest and enumeration,
+fresh bytes, deterministic complete mapping, existing missing/read-error behavior,
+90s shared measurement/30s shared cleanup, no partial baseline publication and all
+source/cleanup/privacy gates remain. Nothing in src/scripts/production manifest,
+preflight90s, broker/position/history/order owners or DEPRECATION_LEDGER changes.
+Actual Git subprocesses remain inside the owned job; worker retirement precedes
+final Git identity checks. Unknown/query/census/cleanup failures still fail closed.
+
+SUCCESSFUL changed-head CI `41119986992`, Windows job `124284057519`:
+Windows Server2025, Python3.13.3, actual Windows PowerShell5.1 and a newly created
+Windows virtual environment (--without-pip, no network/package installation).
+FullBenchmarkPath matrix:1 test,36.201s, SUCCESS. Includes:
+- Held four-worker native topology15, all members owned and cleanup verified.
+- Full frozen released PowerShell block (SHA2568226316440f5b1dac0b25b79a3b8b0a8e18a35012c375e4c855335d890089b3d): FAIL, no COMPLETE mapping.
+- Full four-worker diagnostic block: FAIL with bounded controller234 evidence,
+  no COMPLETE mapping; cleanup verified.
+- Full corrected TWO-worker PowerShell/embedded Python path: COMPLETE,
+ 2686synthetic files,89,205bytes,missing0,peak_native9,pending2,
+ measurement+cleanup6.8646506s,candidate6.6284907s,source_identity=true,
+ cleanup_verified=true. EVERY fresh synthetic hash and mapping insertion order
+ matched the exact serial accepted-owner digest. Private synthetic contents/
+ mappings were inspected ONLY inside the controlled fixture, not from user root.
+
+Only pin/tree/path DATA were rebound to the synthetic Git fixture; worker,
+controller, privacy guard, publication, PowerShell and embedded Python paths were
+actually executed. Synthetic repository retains the identical accepted owner blob
+4bec6f8974062cbd68f5c88bbf9baa671a075237. No source hashing benchmark on actual
+workstation data, preflight or observation occurred. Passing containment alone is
+not again substituted for a passing benchmark. No Windows performance improvement,
+serial comparison, cold-cache claim or natural acceptance is inferred from these
+synthetic6.86s/89KB results versus the17.8MB workstation profile.
+
+The final V2 block embedded above is the SAME body exercised by CI, except explicit
+synthetic test data and the clearly labelled four-worker negative variant.
+Frozen V2 block SHA256:e9ce86b3622979bf24d722cae494f8c6cc84ded2ac58b1355c11b5233aa7abee.
+Embedded Python SHA256 (without surrounding here-string newline):
+2552aa7d568cf37c75a095333a9c48a25c926d0db1a887ac75765a98bfdb0db5.
+No new operator block or workstation rerun is issued/authorized by this task.
+Old V1 remains SUPERSEDED/DO NOT RUN. V2 is the reviewed, full-path-tested candidate
+for acceptance, not a production optimization or successful workstation benchmark.
+
+All failed CI receipts preserved:41118162631 (scratch-binding fixture bug),
+41118286895/41118865706 (synthetic prerequisite failure),41119297510 (partial
+positive path but invalid coordinator-only test expectation), plus earlier
+containment failures/receipts. Fixing canonical TEST data binding preserved the
+original strict source guard. Corrected assertions still demand explicit actual
+failure-owner evidence, no successful mapping on failure, complete positive hash/
+order equivalence and verified cleanup; none converts failure to PASS. No unchanged-
+head retry or unrelated completed suite repeated. Prior six native containment
+controls are carried forward; new CI ran only the affected full-path matrix.
+
+Results are saved on existing docs/windows-manifest-containment-results branch,
+with only this SAME checkpoint appended beyond the tested PR head. No additional
+production/test/CI changes, no repeat CI solely to save receipt prose. PR1145 stays
+DRAFT/unmerged; original checkout and saved branches remain intact.
+
+ONE NEXT ACTION: review/accept PR1145's fixed-cap two-worker feasibility correction
+and its actual Windows/review receipts. Completion criterion is acceptance of this
+bounded candidate for any later separately prepared/authorized filesystem-only
+measurement. Do NOT start another workstation run, preflight or natural observation
+from this receipt. Natural observation remains pending; this task is not authority
+to retry it or merge automatically.
+
+Preserve five-position global ownership veto, GUI draft, all failed roots and
+historical receipts, separate news-cache uncertainty, unresolved historical
+callback causes, PR1140-1143 semantics and PARKED/fail-closed listing provenance.
+No broker inquiry, acquisition, observation, holdings action, SDK/security-setting
+change, timeout extension, gate relaxation or trading occurred.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
