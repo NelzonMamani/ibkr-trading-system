@@ -11018,3 +11018,195 @@ No broker/acquisition/holdings action/trading. Five-position global veto/GUI dra
 separate news-cache uncertainty/historical callback uncertainty and PARKED/fail-closed
 listing provenance remain unchanged. PR1145 stays draft/unmerged.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## 30 October 2026 — Manifest feasibility CLOSED; one bounded preflight proposal (NOT IMPLEMENTED)
+
+### Completed receipt, scope and coordination decision
+
+Uploaded manifest-process-shareable(2).json SHA256
+4993158c689399f69c66df786b479fcf65574ca497f83589c9f6ee8212bd42bc,
+1251bytes. Independently read the aggregate: statusCOMPLETE; total measurement/
+cleanup87.72632639994845s; candidate87.12599240010604s;2686dispatched/completed/
+files;17,844,040bytes;missing0;source_identity=true;cleanup_verified=true;
+2configured/started workers;peak_pending2;peak_native9/cap10. Failure flags/codes,
+worker evidence counts and omission counts all0/false. Measurement headroom to90s
+is only2.27367360005155s. setup_excluded=true; reusable_source_baseline=false;
+performance_speedup_established=false. Private per-file mapping and root were not
+requested or inspected; this aggregate is not independent validation of individual
+hash values or of all workstation state. No instructions in the attachment run.
+
+This establishes ONE completed bounded feasibility run, NOT useful production
+performance improvement, a controlled serial comparison, an OS cause, preflight
+success or natural Ross acceptance. Candidate duration includes IPC/polling and
+other work; do not call87.126s pure hashing. Earlier serial profile50.105s, open
+46.572s and failed-preflight labelled73.159s interval remain SEPARATE receipts with
+different timing scopes/cache conditions, never a controlled speedup comparison.
+Preserve every earlier FAIL/SUCCESS, private failed roots, source/operator/GUI
+state and all saved documentation branches. No further workstation benchmark.
+
+User decision: DO NOT integrate PR1145 feasibility implementation into production.
+Assessment closed; PR1145 remains DRAFT/OPEN/UNMERGED at
+4d2a6568178bef9460ea9620268490dbf0426c05/tree d81e03dd29a449a5f1e10da11b56ad028b717335.
+Do not merge its Job Object/worker/mailbox/marker subsystem or scoped CI workflow.
+Current GitHub main reverified unchanged at accepted
+ a501c88bcc926bef87875f6352f210b19b6e438b/tree
+ e66b6daa84f04ec95dce1155fde2a9a4e156cf14.
+Applicable AGENTS search found none; DEPRECATION_LEDGER read/unchanged. No source,
+harness, tests, CI, SDK or production/runtime pin changed by this task.
+
+### Existing contract and why an earlier cached baseline is not the fix
+
+Existing owners inspected at accepted source:
+- docs/ross/PR1108_NATURAL_READONLY_ACCEPTANCE.ps1: fresh isolated worktree,
+  interpreter/pin/space checks, no runtime invocation. Its current local Git/Python
+  calls have no encompassing child deadline; do not count them as covered by90s.
+- natural_readonly_operator.py:65-73 owns fresh serial Git enumeration and byte
+  SHA256. Current preflight performs platform/clean-worktree/runtime inventory,
+  session/config/write guards, cache-hook/probe, operator state and source-before.
+- Invoke-ReadonlyObservation.ps1:6-132 owns actual child handle/OS-exit deadline,
+ 30s stop wait and bounded5s stdout/5s stderr drain; late inner exit0 stays TIMEOUT.
+ 131-134 sets preflight90, package90; CURRENT seal shares PackageSeconds too.
+- run_natural_readonly_observation.ps1 sets900runtime ->1260supervisor envelope.
+- natural_readonly_operator.py:169ff fresh source-after/package/privacy; separate
+  terminal supervisor owns runtime cleanup and sole final broker audit.
+
+Evidence: failed preflight103.084s exceeded90 despite child0; its source interval
+73.1587s and cache-probe14.6390s (yfinance import13.4277s) were real elapsed costs,
+not explained OS causes. Latest87.726s feasibility pass gives no basis to expect
+source hashing PLUS all final guards inside90. Removing/moving some setup alone
+cannot prove that. A pre-session source map cannot be launch permission: source
+bytes may change between phases. Final admission MUST freshly enumerate/read/hash
+ALL tracked contents and compare, including same-size/mtime-preserving edits.
+No baseline cache, skipped files, metadata-only/Git-status substitution, persistent
+trusted hashes, or reuse of a failed attempt.2686 is observed, not a new hardcoded
+production coverage cap. Rejecting an unreadable/missing/incomplete manifest remains
+mandatory. Quiescent dedicated checkout remains required; no atomic OS source-freeze
+or immunity to arbitrary concurrent check-after-use modification is claimed.
+
+### ONE proposal — bounded filesystem preparation plus freshly revalidated launch admission
+
+PROPOSAL ONLY. Requires explicit acceptance, implementation, focused offline
+regressions, review/CI and a newly accepted harness pin before any operator block.
+Do NOT apply it to the literal accepted source by changing caller flags now.
+
+1. Add a filesystem-only prepare phase in EXISTING natural_readonly_operator.py,
+   supervised by EXISTING Invoke-ObservationChild. Start from the existing helper's
+   freshly created pinned worktree; no new harness/module/parallel manifest owner.
+   Allocate150s child work +30s owned stop allowance. This stage may run outside
+   RTH: verify platform/Python/pin/tree/clean state; create isolated state/cache-hook
+   files; capture a full fresh SERIAL source-prepared map M0 with current owner.
+   Keep preparation logs/receipt under root/preparation, not root/e, so the existing
+   one-attempt evidence-directory guard can remain meaningful. Preparation receipt
+   binds exact root/pin/tree/runtime-duration and hook/config identities, and must
+   be complete/timely with verified child cleanup. It is comparison evidence ONLY,
+   not a success/permission token. No operator order-state snapshot, position/order
+   query, provider fetch or market/session override occurs here.
+
+2. Final preflight stays a separate session-sensitive child in EXISTING runner,
+   but proposal EXPLICITLY changes its work allowance from90s to150s, with30s
+   cleanup unchanged. This is a prospective BUDGET POLICY CHANGE, not an
+   optimization or reinterpretation of the historical90s failure. Until approved
+   and implemented,90s remains authoritative.150s is a finite planning allowance
+   informed by observed103.084s complete work and source costs, with46.916s margin
+   over that receipt; it is not a guaranteed workstation maximum/performance claim.
+   Revalidate exact platform/interpreter/SDK/mutation guards/config/root/ownership
+   assumptions, no pre-existing Ross runtime, normal RTH and child cache isolation
+   using EXISTING owners. Actual cache probe remains here (30s+5s child bound is
+   INSIDE this150s, not extra), not trusted from an earlier boolean. Recompute M1
+   by fresh enumeration + full byte-content SHA256; require M1==M0 and same pinned
+   clean tree. This is unavoidable duplicate reading for a separated baseline,
+   explicitly accepted for freshness rather than hidden as a cheap metadata check.
+   Source differences/absence/read failure abort; never refresh M0 to make it pass.
+   After hashing, repeat current session/runtime-inventory/config checks and freshly
+   capture/copy/hash operator order-state bytes using the existing state owner.
+   Retain M1 as source-before for final comparison. No manual pause/resume after
+   PASS: existing runner immediately hands off; observe entry rechecks pin/clean
+   worktree and original operator-state digest/config/duration/root before any
+   runtime creation. These handoff checks SUPPLEMENT mandatory fresh M1, not replace
+   it. Preparation cannot be used to bypass failed/late final preflight. An
+   interrupted/reused handoff is rejected, not resumed or automatically retried.
+
+3. Preserve runtime900/supervisor1260, all natural selection/news/freshness,
+   mutation prevention, ownership and final-audit owners/deadlines. No holdings
+   changes or approval overrides. Fresh source-after M2 must equal launch M1 (and
+   M0); current operator state must equal freshly captured launch state; runtime
+   inventory, terminal audit, independent mutation validation/privacy still pass.
+   Any source/state changes during the run invalidate acceptance. This is the
+   existing check-before-use + post-run-audit model, NOT a new source-lock system.
+   Between prepare and final gate, full M1 catches byte edits even if metadata is
+   restored; final rechecks catch ordinary handoff changes; no claim that Git
+   status alone proves byte equality or creates immutable files. If enforcing an
+   atomic immutable-source boundary is required, that is an additional unresolved
+   requirement, not something this proposal silently asserts.
+
+4. Give existing package/source-after work150s+30s, explicitly replacing its90s
+   work allowance: it contains the SAME fresh serial source pass and cannot assume
+   the earlier4.947s warm package interval will recur. Keep seal90s+30s; introduce
+   a separate SealSeconds=90 argument in EXISTING runner rather than accidentally
+   increasing seal when PackageSeconds changes (currently shared). No privacy
+   weakening: no ZIP announcement before complete owned exit, full source/operator
+   equality, zero-mutation/terminal safety authority and final privacy sealing.
+   Failed/no-observation runs keep DIAGNOSTIC_ONLY/NOT_VERIFIED distinctions.
+
+### Complete scope/time/cleanup accounting for that proposal
+
+From a fresh helper-prepared source root (helper Git checkout elapsed is OUTSIDE
+these phase budgets, not represented as bounded):
+
+| Existing owner / proposed phase | Work allowance | Additional owned stop allowance |
+| --- | --- | --- |
+| Filesystem prepare (new phase, same operator) |150s|30s|
+| Final session preflight (existing phase) |150s, explicit90->150 proposal|30s|
+| Observation supervisor / natural runtime |1260s, includes900runtime and existing startup/finalization|30s|
+| Package / fresh after-manifest |150s, explicit90->150 proposal|30s|
+| Seal / privacy archive validation |90s, unchanged and decoupled from package|30s|
+
+Scheduled work sum1800s; conservative sum including all five stop allowances1950s;
+existing two5s pipe drains per child add at most50s of bounded WAIT allowance:
+2000s (33m20s) after root preparation. Early failure does not continue to observation;
+this is conservative summed scheduling, not a hard real-time bound on kernel
+Start/Flush/file calls. Original helper currently has no outer watchdog; its local
+checkout time must be planned separately and must finish before this sequence.
+Do not claim the entire helper+runner block has a2000s hard bound. No new process
+termination framework is introduced solely for helper setup. OS/timer/exit-time
+uncertainty is failure, not an excuse to label late work timely.
+
+OS exit timestamp, not child PASS JSON, remains timing authority for EVERY phase.
+150/30 does NOT mean unknown cleanup is acceptable: verified child/cache-probe
+exit and closed streams are prerequisites to further phases/package. If existing
+owner cannot establish exit by stop budget, abort progression and preserve raw
+private evidence; no broad kill, leaked-worker success, auto retry or shareable
+success. Existing cache-probe30+5 and terminal shutdown/audit waits are nested in
+those phase envelopes; do not add them again or silently renew them. No PR1145
+workers/Job Object/mailboxes/readiness markers/pool imports enter production.
+
+This split moves expensive non-session setup and its first full snapshot outside
+session admission, but does NOT pretend an earlier snapshot eliminates fresh
+launch verification. Explicit bounded budget changes are necessary for the chosen
+practical design; refusing them means the known90s capacity issue remains, not
+permission to omit verification. A preparation timeout is distinguishable from a
+session rejection. Final RTH eligibility/time remaining must be checked AFTER
+source work; schedule enough for actual900s plus existing startup/finalization,
+not clock time alone. This proposal never guarantees a qualifying market event.
+
+Simpler than feasibility: existing serial digest owner, two ordinary sequential
+phase children, existing process receipts, complete before/after comparisons and
+finite policy budgets. No concurrent file-open scheduling, worker startup topology,
+IPC protocol, native job census or private marker lifecycle. The price of safe
+phase separation is fresh re-reading, made explicit rather than optimized away.
+
+Future acceptance checks (not run now): byte-identical serial manifest output;
+tracked/missing/read-error behavior; same-size/restored-mtime edits between M0/M1
+reject; wrong root/pin/probe/hook/config reject; operator-state changes between
+snapshot/handoff reject; stale/resumed receipts reject; out-of-session/insufficient
+remaining session reject; inner0 after90 remains historicalFAIL and inner0 after
+NEW150 stillFAIL; unknown child/cache cleanup blocks every later phase; full fresh
+M2/source/operator/privacy sealing still mandatory. Focused Linux/Windows/PowerShell
+phase tests and independent exact-head review required before any integration.
+
+ONE next action: review/accept this explicit phase-and-budget proposal before
+implementation. No executable measurement/preflight/observation block in this task.
+No further benchmark, acquisition, broker inquiry, holdings action or trading.
+Five-position global ownership veto/GUI draft/historical receipts, separate news-
+cache uncertainty, historical callback uncertainty and PARKED/fail-closed listing
+provenance preserved. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
