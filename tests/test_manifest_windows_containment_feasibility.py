@@ -441,15 +441,15 @@ class FullBenchmarkPath(unittest.TestCase):
         block=benchmark_block(revision)
         # Test data binding ONLY: same full PowerShell and embedded Python paths,
         # constants/paths rebound to a synthetic2686-file Git fixture, never source.
-        substitutions={r'C:\tmp\pr1091-cert-env-20260923\Scripts\python.exe':str(python),
-                       r'C:\tmp\ro-9a2e923d\s':str(repo),
-                       "Join-Path 'C:\\tmp'":"Join-Path '"+str(case).replace("'","''")+"'",
+        substitutions={r'C:\tmp\pr1091-cert-env-20260923\Scripts\python.exe':str(python).replace("'","''"),
+                       r'C:\tmp\ro-9a2e923d\s':str(repo).replace("'","''"),
                        'a501c88bcc926bef87875f6352f210b19b6e438b':pin,
                        'e66b6daa84f04ec95dce1155fde2a9a4e156cf14':tree}
-        # Explicit single known scratch-base literal avoids arbitrary code edits.
-        block=block.replace("Join-Path 'C:\tmp'", "Join-Path '"+str(case).replace("'","''")+"'")
-        for old,new in list(substitutions.items()):
-            if old.startswith('Join-Path'): continue
+        scratch_literal=r"Join-Path 'C:\tmp'"
+        self.assertEqual(block.count(scratch_literal),1)
+        block=block.replace(scratch_literal,"Join-Path '"+str(case).replace("'","''")+"'")
+        self.assertNotIn(scratch_literal,block)
+        for old,new in substitutions.items():
             self.assertIn(old,block); block=block.replace(old,new)
         if workers is not None:
             self.assertIn('WORKERS=2',block)
@@ -491,6 +491,7 @@ class FullBenchmarkPath(unittest.TestCase):
             exec(compile(ast.Module(body=[node],type_ignores=[]),'<actual-digest>','exec'),namespace)
             expected={p.relative_to(repo).as_posix():namespace['digest'](p) for p in sorted(repo.rglob('*')) if p.is_file() and '.git' not in p.relative_to(repo).parts}
             self.assertEqual(manifest,expected)
+            self.assertEqual(list(manifest),sorted(expected))
             self.assertEqual(len(manifest),2686)
             print('FULL_WINDOWS_EQUIVALENCE 2686 fresh synthetic hashes identical',flush=True)
 
