@@ -9621,3 +9621,57 @@ callback causes, PR1140-1143 semantics and PARKED/fail-closed listing provenance
 No broker inquiry, acquisition, observation, holdings action, SDK/security-setting
 change, timeout extension, gate relaxation or trading occurred.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## 30 October 2026 — Accepted V2 candidate; ONE Windows filesystem measurement prepared
+
+User accepted PR1145's corrected candidate for ONE filesystem-only measurement
+PREPARATION. This does not authorize merge, production changes, preflight or
+observation; assistant executed no workstation block. Pending action is now the
+user's single filesystem measurement, replacing the preceding review-only action.
+
+Verified GitHub PR1145 remains DRAFT/unmerged at exact
+6be633e149ddf489b6b7e18cdb01d69d32cb547b/treea6c6cdee01b19d106fe2374ac5ac62e1b2edb1df;
+review5718045297 is the independent post-Windows exact-head receipt, and successful
+CI41119986992 remains attached to that head. Current main unchanged at accepted
+a501c88bcc926bef87875f6352f210b19b6e438b/treee66b6daa84f04ec95dce1155fde2a9a4e156cf14.
+Read SAME checkpoint through saved beaf22471369051e32a7d2215f41baa3e23d37cd;
+DEPRECATION_LEDGER read/unchanged; AGENTS search none. Historical receipts, original
+checkout, failed roots, saved branches and GUI draft preserved.
+
+Prepared block is extracted VERBATIM from the V2 code fence at tested6be633e1;
+independently compared with the saved/current checkpoint fence, byte-for-byte.
+It is NOT reconstructed or modified for delivery. Exact UTF-8/LF identities:
+- Complete472-line PowerShell block (including final newline):
+  e9ce86b3622979bf24d722cae494f8c6cc84ded2ac58b1355c11b5233aa7abee.
+- Embedded Python, excluding surrounding here-string newline:
+  2552aa7d568cf37c75a095333a9c48a25c926d0db1a887ac75765a98bfdb0db5.
+- Delivery scratch copy: /workspace/scratch/manifest-benchmark-failure/accepted-measurement.ps1.
+  Complete same block returned inline; no additional variant/launcher created.
+
+Literal existing Python C:\tmp\pr1091-cert-env-20260923\Scripts\python.exe;
+existing source C:\tmp\ro-9a2e923d\s. Pinned source/tree checks, two workers/two
+outstanding tasks, native cap10, shared90s measurement and separate shared30s
+cleanup, exact tracked enumeration/fresh hashes, external job containment, verified
+owned cleanup, bounded numeric failure evidence, private staged mapping and
+independent PowerShell aggregate privacy allowlist remain exactly as tested.
+The full-path Windows test bound only synthetic pin/tree/path data; these literal
+operator bindings are the frozen reviewed V2 source. No completed CI repeated.
+Proportional preparation checks: exact source/block/payload identity, accepted tree
+identities, historical checkpoint prefix, checkpoint-only diff and whitespace.
+
+ONE next action: user pastes the ENTIRE prepared block into Windows PowerShell5.1
+Desktop in PyCharm and runs it ONCE. No warm-up or automatic retry. Fresh output
+root C:\tmp\manifest-contained-<8hex>; share ONLY
+C:\tmp\manifest-contained-<8hex>\manifest-process-shareable.json after the block
+announces aggregate privacy validation. Do not ZIP/share the root, private mapping,
+task/result files, driver/config or any other scratch artifact. Preserve every
+earlier root, including manifest-contained-bc3e6f77 and ro-9a2e923d unchanged.
+A failure, absent shareable report or unverified cleanup means retain evidence and
+STOP. Unsupported zero worker-start placeholders remain UNKNOWN as documented.
+This measurement is not a preflight/runtime retry or production performance claim.
+
+No broker, acquisition, preflight, observation, holdings action or trading.
+No production/timeout/security-setting changes, merge or readiness upgrade.
+Five-position global veto, separate news-cache uncertainty, unresolved historical
+callback causes and PARKED/fail-closed listing provenance remain unchanged.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
