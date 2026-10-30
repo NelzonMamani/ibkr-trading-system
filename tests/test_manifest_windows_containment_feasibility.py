@@ -372,8 +372,10 @@ def benchmark_block(revision):
         section=text.split('## 30 October 2026 — Actual Windows containment passed;',1)[1]
     elif revision=='v2':
         section=text.split('### Corrected full-path benchmark candidate V2',1)[1]
-    else:
+    elif revision=='v3':
         section=text.split('### Stage50 evidence-only candidate V3',1)[1]
+    else:
+        section=text.split('### Publication-return barrier candidate V4',1)[1]
     block=section.split('```powershell\n',1)[1].split('\n```',1)[0]+'\n'
     expected={'v1':'8226316440f5b1dac0b25b79a3b8b0a8e18a35012c375e4c855335d890089b3d','v2':'e9ce86b3622979bf24d722cae494f8c6cc84ded2ac58b1355c11b5233aa7abee'}.get(revision)
     if expected and hashlib.sha256(block.encode()).hexdigest()!=expected: raise AssertionError('Frozen released block changed')
@@ -438,8 +440,8 @@ class FullBenchmarkPath(unittest.TestCase):
         self.assertEqual(native_fixture_run([sys.executable,'-I','-S','-B','-m','venv','--without-pip',str(env)],root),0)
         return repo,pin,tree,env/'Scripts/python.exe'
 
-    def run_block(self,root,repo,pin,tree,python,revision,*,workers=None):
-        case=root/('case-'+revision+'-'+str(workers)); case.mkdir()
+    def run_block(self,root,repo,pin,tree,python,revision,*,workers=None,fault=None):
+        case=root/('case-'+revision+'-'+str(workers)+'-'+str(len(list(root.glob('case-*'))))); case.mkdir()
         block=benchmark_block(revision)
         # Test data binding ONLY: same full PowerShell and embedded Python paths,
         # constants/paths rebound to a synthetic2686-file Git fixture, never source.
@@ -456,6 +458,45 @@ class FullBenchmarkPath(unittest.TestCase):
         if workers is not None:
             self.assertIn('WORKERS=2',block)
             block=block.replace('WORKERS=2','WORKERS='+str(workers))
+        if fault is not None:
+            self.assertIn(fault,('result_pending','task_pending','result_after_ready'))
+            injected = r"""
+# GUARDED WINDOWS FIXTURE ONLY: hold native sharing denial while publication
+# remains pending. No fault parameter or native sharing hook exists in operator.
+_original_put=put
+_fault_used=False
+def put(path,data,cap):
+    global _fault_used
+    target='task.json' if FIXTURE_FAULT=='task_pending' else 'result.json'
+    selected=(sys.argv[1]=='--child' and ((target=='task.json' and sys.argv[3]=='coordinator') or
+              (target=='result.json' and sys.argv[3]=='worker' and sys.argv[4]=='0')))
+    if _fault_used or not selected or path.name!=target:
+        return _original_put(path,data,cap)
+    _fault_used=True
+    raw=json.dumps(data,ensure_ascii=True).encode()
+    if len(raw)>cap: raise RuntimeError('IPC_LIMIT')
+    temp=path.with_suffix('.tmp'); temp.write_bytes(raw)
+    api=API(); create=api.k.CreateFileW
+    create.argtypes=[W.LPCWSTR,W.DWORD,W.DWORD,ctypes.c_void_p,W.DWORD,W.DWORD,W.HANDLE]
+    create.restype=W.HANDLE
+    # Allow DELETE so actual rename works; forbid READ sharing until return.
+    h=create(str(temp),0x80000000,4,None,3,0,None)
+    if h==ctypes.c_void_p(-1).value: raise ctypes.WinError(ctypes.get_last_error())
+    api.own(h)
+    try:
+        temp.replace(path)
+        if FIXTURE_FAULT=='result_after_ready':
+            (path.parent/('result-ready-'+str(data['index']))).touch(exist_ok=False)
+        # Visibility precedes return, giving the consumer a deterministic chance
+        # to open a real Windows sharing-denied file. One fault/instance only.
+        end=time.monotonic()+2
+        while time.monotonic()<end and not (ROOT/'failure.PRIVATE.json').exists(): time.sleep(.002)
+    finally:
+        api.close(h)
+"""
+            injected='\nFIXTURE_FAULT='+repr(fault)+'\n'+injected+'\n'
+            self.assertEqual(block.count("if __name__=='__main__':"),1)
+            block=block.replace("if __name__=='__main__':",injected+"if __name__=='__main__':")
         script=case/'block.ps1'; script.write_text(block,encoding='utf-8-sig')
         def quote(path): return "'"+str(path).replace("'","''")+"'"
         wrapper=case/'invoke.ps1'
@@ -565,7 +606,7 @@ class FullBenchmarkPath(unittest.TestCase):
 
 @unittest.skipUnless(os.name=='nt','Actual accepted-checkout Windows work-loop required')
 class AcceptedCheckoutWorkLoop(FullBenchmarkPath):
-    def test_accepted_checkout_entrypoint(self):
+    def test_publication_barrier_regressions(self):
         # Short canonical CI scratch path matches operator-style checkout lengths;
         # do not introduce long-TEMP aliases or different Git ownership assumptions.
         with tempfile.TemporaryDirectory(prefix='ml-',dir=os.environ['RUNNER_TEMP']) as text:
@@ -579,25 +620,30 @@ class AcceptedCheckoutWorkLoop(FullBenchmarkPath):
                 env=root/'venv'
                 self.assertEqual(native_fixture_run([sys.executable,'-I','-S','-B','-m','venv','--without-pip',str(env)],root),0)
                 python=env/'Scripts/python.exe'
-                old_code,old,old_private=self.run_block(root,repo,pin,tree,python,'v2')
-                diag_code,diag,diag_private=self.run_block(root,repo,pin,tree,python,'v3')
-                print('ACCEPTED_WORKLOOP_RESULTS',json.dumps({'released_exit':old_code,'diagnostic_exit':diag_code}),flush=True)
-                # This control makes no speculative correction. A failed released
-                # path must remain failed with bounded V3 evidence for review.
-                if old_code!=0:
-                    self.assertEqual(old['status'],'FAIL')
-                    self.assertFalse((old_private/'manifest.COMPLETE.PRIVATE.json').exists())
-                self.assertEqual(diag_code,0,'Accepted checkout did not complete; inspect bounded diagnostics')
-                self.assertEqual(diag['status'],'COMPLETE')
-                mapping=json.loads((diag_private/'manifest.COMPLETE.PRIVATE.json').read_text())
+                bad_code,bad,bad_private=self.run_block(root,repo,pin,tree,python,'v3',fault='result_pending')
+                good_code,good,diag_private=self.run_block(root,repo,pin,tree,python,'v4',fault='result_pending')
+                task_code,task,task_private=self.run_block(root,repo,pin,tree,python,'v4',fault='task_pending')
+                after_code,after,after_private=self.run_block(root,repo,pin,tree,python,'v4',fault='result_after_ready')
+                plain_code,plain,plain_private=self.run_block(root,repo,pin,tree,python,'v4')
+                self.assertNotEqual(bad_code,0); self.assertEqual(bad['failure_stage'],50)
+                self.assertEqual(bad['work_step'],3); self.assertEqual(bad['failure_class'],2)
+                self.assertFalse((bad_private/'manifest.COMPLETE.PRIVATE.json').exists())
+                self.assertEqual(good_code,0); self.assertEqual(good['status'],'COMPLETE')
+                self.assertEqual(task_code,0); self.assertEqual(task['status'],'COMPLETE')
+                self.assertEqual(plain_code,0); self.assertEqual(plain['status'],'COMPLETE')
+                self.assertNotEqual(after_code,0); self.assertEqual(after['failure_stage'],50)
+                self.assertEqual(after['work_step'],3); self.assertEqual(after['failure_class'],2)
+                self.assertFalse((after_private/'manifest.COMPLETE.PRIVATE.json').exists())
                 owner=(repo/'scripts/certification/natural_readonly_operator.py').read_text(encoding='utf-8')
                 node=next(n for n in ast.parse(owner).body if isinstance(n,ast.FunctionDef) and n.name=='digest')
                 scope={'hashlib':hashlib}
                 exec(compile(ast.Module(body=[node],type_ignores=[]),'<accepted-digest>','exec'),scope)
                 expected={p.relative_to(repo).as_posix():scope['digest'](p) for p in repo.rglob('*') if p.is_file() and '.git' not in p.relative_to(repo).parts}
-                self.assertEqual(len(mapping),2686); self.assertEqual(mapping,expected)
-                self.assertEqual(list(mapping),sorted(expected))
-                print('ACCEPTED_CHECKOUT_EQUIVALENCE 2686 actual checkout hashes/order identical',flush=True)
+                for private in (diag_private,task_private,plain_private):
+                    mapping=json.loads((private/'manifest.COMPLETE.PRIVATE.json').read_text())
+                    self.assertEqual(len(mapping),2686); self.assertEqual(mapping,expected)
+                    self.assertEqual(list(mapping),sorted(expected))
+                print('ACCEPTED_CHECKOUT_EQUIVALENCE 3positive full-entrypoint mappings identical to2686 serial hashes/order',flush=True)
             finally:
                 self.assertEqual(native_fixture_run([git,'-c','core.hooksPath='+str(hooks),'worktree','remove',str(repo)],original),0)
 

@@ -212,7 +212,7 @@ jobs:
       - name: Accepted checkout stage50 full PowerShell/embedded path (offline)
         shell: powershell
         run: |
-          python -I -S -B -u tests/test_manifest_windows_containment_feasibility.py AcceptedCheckoutWorkLoop.test_accepted_checkout_entrypoint
+          python -I -S -B -u tests/test_manifest_windows_containment_feasibility.py AcceptedCheckoutWorkLoop.test_publication_barrier_regressions
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           git diff --exit-code
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
