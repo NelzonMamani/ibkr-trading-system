@@ -7637,3 +7637,375 @@ AND transport FAIL/exit1, separate news-cache uncertainty and PARKED/fail-closed
 listing provenance. No acquisition, broker inquiry, preflight rerun, observation,
 holdings action, SDK change, timeout extension, gate relaxation or trading occurred.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+
+## 30 October 2026 — One bounded Windows manifest profile prepared (NOT executed)
+
+Preparation only. Current GitHub main verified unchanged at
+`a501c88bcc926bef87875f6352f210b19b6e438b`, tree
+`e66b6daa84f04ec95dce1155fde2a9a4e156cf14`. This branch descends from saved
+investigationd45e8972669a4ccfe93e1f6af5e820985efa26e4 and preserves cf6aed85 and
+all previous updates/receipts. No applicable AGENTS.md found; DEPRECATION_LEDGER
+read/unchanged. No production/helper/CI/test-module changes or new permanent
+harness. Only this SAME checkpoint changes. Original checkout/GUI/holdings and
+C:\tmp\ro-9a2e923d, including its failed evidence, stay unchanged.
+
+The failed receipt remains preflight child0/outer90sTIMEOUT103.084s,
+observation_exit=null, packageDIAGNOSTIC_ONLY2/final1, privacy passed. Source/order
+state PASS and empty runtime inventory do not upgrade terminal/mutation evidence:
+both remain NOT_VERIFIED. No retry or natural observation is authorized by this
+profile; earlier30October natural block is historical/consumed.
+
+### Exact bounded measurement and privacy contract
+
+ONE block below; run it once only, no warm-up/retry. It needs no TWS, market
+session or broker client. All Git commands are local (NO fetch/network). It
+verifies the preserved worktree's accepted HEAD/tree/clean state, reads immutable
+Git objects, creates a NEW C:\tmp\manifest-profile-<8hex> scratch root and writes
+only there. Git optional index writes/fsmonitor are disabled for identity checks;
+source reads use existing owner semantics. Python is the actual saved
+C:\tmp\pr1091-cert-env-20260923\Scripts\python.exe; child requires3.13.3.
+-I/-S/-B avoid environment/site imports and bytecode writes. No repository module,
+config, provider or broker imports; no preflight/operational entrypoint executes.
+
+Actual accepted digest/source_manifest/preflight_timing AST bodies are selected
+from the pinned Git blob; the Git blob identity is verified byte-for-byte. One
+fresh actual source_manifest call retains all tracked paths, byte hashes and
+missing/read-failure behavior. Path proxies call actual Path.read_bytes and its
+normal open/read/close context; scoped namespace proxies time Git, metadata,
+source opens/reads/closes, SHA256/hexdigest and timing JSON/write/replace. No
+stdlib/module/class monkeypatches or caller environment changes. Namespace and
+owned handles retire in finally; network/extra-process audit guard is dedicated
+child-lifetime only. Stop polls at most once per second between operations;
+close is never skipped for a stop. A blocked OS call cannot be interrupted by
+Python instrumentation: existing parent supervision remains90s plus30s owned
+cleanup, with UNKNOWN/unverified exit failing closed and no shareable announcement.
+No broad kill and no invented success from an inner COMPLETE/exit0 after deadline.
+
+Existing pinned Invoke-ReadonlyObservation.ps1/Invoke-ObservationChild owns
+measurement process supervision,90s/30s, stdout/stderr draining and actual OS exit
+receipt. The one-off Python payload exists ONLY in private scratch, not repository
+source or a new permanent diagnostic harness. No second manifest pass or persistent
+trusted hash cache. Actual returned manifest is saved as manifest.PRIVATE.json
+for diagnostic equivalence only; never use it as a future preflight baseline.
+
+Share ONLY manifest-profile-shareable.json, maximum8192 UTF-8 bytes; no ZIP or
+whole scratch upload. It contains source commit/tree/blob/SHA identity, finite
+operation categories/counts/bytes/timings, completion/cleanup/deadline/source-status
+and whitelisted error classes. Parent independently allowlists field/string values.
+No file content, arbitrary exception text, source/operator paths, per-file timing
+or raw logs export. No private slow-path list is generated. All other artifacts
+remain private. Unexpected schema/report overflow/unverified exit prevents output.
+Timed-out but exited/cleaned child may produce a clearly INCOMPLETE bounded report;
+this never certifies manifest/source/runtime readiness.
+
+### Timing interpretation and disclosed perturbation
+
+- Measurements are Python-call wall/process-CPU observations, not kernel/syscall
+  decomposition. CPU is CURRENT PROCESS ONLY, excluding Git child CPU.
+- read_bytes_INCLUSIVE includes open/read/close and nested wrapper/report work;
+  do NOT add it to those components. timing_write_INCLUSIVE includes Path.write_text's
+  internal open/write/close. Labelled source intervals are also inclusive/overlap
+  these operations; they preserve the original before-write timestamp semantics.
+- Thirteen explicitly SYNTHETIC timing-prefix rows approximate the earlier timing
+  history size, not historical events or identical bytes. Three actual source
+  timing markers write ONLY scratch timing files. Their actual byte totals are
+  reported. This does not replay the old preflight timeline or cache-import phase.
+- Wrapper-housekeeping estimate includes stop checks/report I/O and overlaps those
+  reported costs; it is NOT additive total overhead. Proxy dispatch/clock costs
+  are not completely separable. Heartbeat reports at most every5s add disclosed
+  I/O; private manifest-output time is separate. Final report's own I/O cannot
+  measure itself and is explicitly excluded; parent OS-exit budget still includes
+  it. Child bootstrap/Git-blob extraction/AST setup and private output affect the
+  outer time and are not source-read leaf costs.
+- Reading itself can warm OS caches; no flush, warm-up, repeat pass or speculation
+  about antivirus/disk contention. A fast pass cannot reconstruct the earlier73s
+  interval's cause. Never use this report to enlarge the90s natural preflight gate.
+
+### ONE copy-paste Windows PowerShell5.1 block — NOT executed here
+
+```powershell
+# ONE filesystem-only profile. No preflight, TWS or session is required.
+& {
+    $ErrorActionPreference = 'Stop'
+    if ($PSVersionTable.PSEdition -ne 'Desktop' -or
+        $PSVersionTable.PSVersion.Major -ne 5 -or $PSVersionTable.PSVersion.Minor -ne 1) {
+        throw 'Use Windows PowerShell5.1 Desktop.'
+    }
+    $Python = 'C:\tmp\pr1091-cert-env-20260923\Scripts\python.exe'
+    $SourceRoot = 'C:\tmp\ro-9a2e923d\s'
+    $Pin = 'a501c88bcc926bef87875f6352f210b19b6e438b'
+    $Tree = 'e66b6daa84f04ec95dce1155fde2a9a4e156cf14'
+    $Git = (Get-Command git.exe -CommandType Application | Select-Object -First 1).Source
+    if (!(Test-Path -LiteralPath $Python -PathType Leaf) -or
+        !(Test-Path -LiteralPath $SourceRoot -PathType Container)) { throw 'Verified paths missing.' }
+    $head = (& $Git --no-optional-locks -C $SourceRoot rev-parse HEAD | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or $head -cne $Pin) { throw 'Preserved checkout head differs.' }
+    $actualTree = (& $Git --no-optional-locks -C $SourceRoot rev-parse 'HEAD^{tree}' | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or $actualTree -cne $Tree) { throw 'Preserved tree differs.' }
+    $dirty = @(& $Git --no-optional-locks -c core.fsmonitor=false -C $SourceRoot status --porcelain)
+    if ($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0) { throw 'Preserved checkout is not clean; stop.' }
+    $Blob = (& $Git --no-optional-locks -C $SourceRoot rev-parse ($Pin + ':scripts/certification/natural_readonly_operator.py') | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or $Blob -cnotmatch '^[0-9a-f]{40}$') { throw 'Owner identity unavailable.' }
+    $supervisorText = (& $Git --no-optional-locks -C $SourceRoot show ($Pin + ':scripts/certification/Invoke-ReadonlyObservation.ps1') | Out-String)
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($supervisorText)) { throw 'Pinned supervisor unavailable.' }
+    $scratch = Join-Path 'C:\tmp' ('manifest-profile-' + [guid]::NewGuid().ToString('N').Substring(0,8))
+    New-Item -ItemType Directory -Path $scratch | Out-Null
+    $payload = Join-Path $scratch 'profile.PRIVATE.py'
+    $program = @'
+import ast, builtins, hashlib, json, os, re, subprocess, sys, time
+from datetime import datetime, timezone
+from pathlib import Path
+from types import SimpleNamespace
+
+NAMES = ('git_enum','metadata','open','read','close','read_bytes_INCLUSIVE',
+         'sha256','hexdigest','timing_mkdir','timing_json','timing_write_INCLUSIVE','timing_replace')
+class Stopped(Exception): pass
+
+def profile(source, repo, out, pin, tree, blob, git):
+    start = time.perf_counter_ns()
+    metrics = {n:dict(calls=0,wall_ns=0,cpu_ns=0,max_ns=0,bytes=0) for n in NAMES}
+    stats = dict(report_writes=0,report_io_ns=0,wrapper_housekeeping_estimate_ns=0,stop_polls=0,stop_poll_ns=0)
+    manifest_call_ns = None
+    labelled_intervals_ns = {}
+    stack, handles = [], []
+    status, error, manifest = 'RUNNING', 'NONE', None
+    last_report = 0
+    last_stop_check = 0
+    stop_path = out/'STOP_REQUESTED'
+    ns = {}
+    def snapshot():
+        return dict(schema='manifest-profile.v1',status=status,error=error,
+            pin=pin,tree=tree,owner_blob=blob,owner_sha256=hashlib.sha256(source).hexdigest(),
+            elapsed_at_checkpoint_ns=time.perf_counter_ns()-start, metrics=metrics,overhead=stats,
+            manifest_call_ns=manifest_call_ns,labelled_intervals_ns=labelled_intervals_ns,
+            final_report_io_not_included=True,cpu_model='CURRENT_PROCESS_ONLY',
+            active_at_checkpoint=stack[-1] if stack else 'IDLE',
+            file_count=len(manifest) if manifest is not None else None,
+            missing_count=sum(v is None for v in manifest.values()) if manifest is not None else None,
+            handles_open=sum(not f.closed for f in handles),namespace_released=not bool(ns),
+            timing_model='INCLUSIVE_OVERLAP_NOT_SYSCALL',timing_seed_rows=13)
+    def publish():
+        nonlocal last_report
+        t=time.perf_counter_ns(); report=snapshot()
+        data=json.dumps(report,separators=(',',':'),allow_nan=False)
+        if len(data.encode('utf-8'))>7000: raise RuntimeError('report bound')
+        tmp=out/'profile.partial.tmp'; tmp.write_text(data,encoding='utf-8'); tmp.replace(out/'profile.json')
+        stats['report_writes']+=1; stats['report_io_ns']+=time.perf_counter_ns()-t
+        last_report=time.perf_counter_ns()
+    def measured(name, fn, *args, **kw):
+        nonlocal last_stop_check
+        outer=time.perf_counter_ns()
+        if name!='close' and outer-last_stop_check>=1_000_000_000:
+            last_stop_check=outer
+            t_stop=time.perf_counter_ns(); requested=stop_path.exists()
+            stats['stop_polls']+=1; stats['stop_poll_ns']+=time.perf_counter_ns()-t_stop
+            if requested: raise Stopped()
+        stack.append(name)
+        try:
+            if outer-last_report>5_000_000_000: publish()
+            t=time.perf_counter_ns(); cpu=time.process_time_ns()
+            try: return fn(*args,**kw)
+            finally:
+                elapsed=time.perf_counter_ns()-t; m=metrics[name]
+                m['calls']+=1; m['wall_ns']+=elapsed; m['cpu_ns']+=time.process_time_ns()-cpu
+                m['max_ns']=max(m['max_ns'],elapsed)
+                stats['wrapper_housekeeping_estimate_ns']+=time.perf_counter_ns()-outer-elapsed
+        finally: stack.pop()
+    class File:
+        def __init__(self,f): self.f=f; handles.append(f)
+        def __enter__(self): self.f.__enter__(); return self
+        def __exit__(self,*exc):
+            try: return measured('close',self.f.__exit__,*exc)
+            finally:
+                if self.f.closed: handles.remove(self.f)
+        def read(self,*a,**kw):
+            result=measured('read',self.f.read,*a,**kw)
+            metrics['read']['bytes']+=len(result); return result
+    class P:
+        def __init__(self,p): self.p=Path(p)
+        def __fspath__(self): return os.fspath(self.p)
+        def __truediv__(self,n): return P(self.p/n)
+        def is_file(self): return measured('metadata',self.p.is_file)
+        def open(self,*a,**kw): return File(measured('open',self.p.open,*a,**kw))
+        def read_bytes(self): return measured('read_bytes_INCLUSIVE',Path.read_bytes,self)
+        def mkdir(self,*a,**kw): return measured('timing_mkdir',self.p.mkdir,*a,**kw)
+        def with_suffix(self,s): return P(self.p.with_suffix(s))
+        def write_text(self,text,*a,**kw):
+            result=measured('timing_write_INCLUSIVE',self.p.write_text,text,*a,**kw)
+            metrics['timing_write_INCLUSIVE']['bytes']+=len(text.encode('utf-8')); return result
+        def replace(self,target): return measured('timing_replace',self.p.replace,os.fspath(target))
+    class Hash:
+        def __init__(self,h): self.h=h
+        def hexdigest(self): return measured('hexdigest',self.h.hexdigest)
+    def sha(data):
+        h=measured('sha256',hashlib.sha256,data); metrics['sha256']['bytes']+=len(data); return Hash(h)
+    def dumps(value,**kw): return measured('timing_json',json.dumps,value,**kw)
+    def enumeration(args,**kw):
+        if args!=['git','ls-files','-z'] or Path(os.fspath(kw['cwd']))!=repo:
+            raise RuntimeError('subprocess scope')
+        env=dict(os.environ,GIT_OPTIONAL_LOCKS='0')
+        return measured('git_enum',subprocess.check_output,[git,'ls-files','-z'],cwd=repo,env=env)
+    try:
+        expected=hashlib.sha1(b'blob '+str(len(source)).encode()+b'\0'+source).hexdigest()
+        if expected!=blob: raise RuntimeError('owner identity')
+        funcs=[n for n in ast.parse(source).body if isinstance(n,ast.FunctionDef)
+               and n.name in ('preflight_timing','digest','source_manifest')]
+        if len(funcs)!=3: raise RuntimeError('owner shape')
+        # Synthetic prefix approximates the old timing-history size; not historical events.
+        seed=[dict(stage='SYNTHETIC_PREFIX',utc='2000-01-01T00:00:00+00:00',elapsed_seconds=0.0) for _ in range(13)]
+        ns.update(repo=P(repo),evidence=P(out/'timing'),phase='preflight',
+            _timing_started=time.monotonic(),_timing_rows=seed,
+            time=time,datetime=datetime,timezone=timezone,os=os,
+            hashlib=SimpleNamespace(sha256=sha),json=SimpleNamespace(dumps=dumps),
+            subprocess=SimpleNamespace(check_output=enumeration))
+        exec(compile(ast.Module(body=funcs,type_ignores=[]),'pinned_manifest_functions','exec'),ns)
+        t=time.perf_counter_ns()
+        manifest=ns['source_manifest']()  # EXACTLY ONE fresh pass; no reference/warm-up pass.
+        manifest_call_ns=time.perf_counter_ns()-t
+        if stop_path.exists(): raise Stopped()
+        rows=ns['_timing_rows'][-3:]
+        labelled_intervals_ns=dict(enumeration=int((rows[1]['elapsed_seconds']-rows[0]['elapsed_seconds'])*1e9),
+                                  hashing=int((rows[2]['elapsed_seconds']-rows[1]['elapsed_seconds'])*1e9))
+        status='COMPLETE'
+    except BaseException as exc:
+        status='CANCELLED' if isinstance(exc,Stopped) else 'ERROR'
+        name=type(exc).__name__
+        allowed={'PermissionError','FileNotFoundError','NotADirectoryError','IsADirectoryError','OSError',
+                 'RuntimeError','ValueError','TypeError','MemoryError','OverflowError','UnicodeDecodeError',
+                 'AssertionError','KeyboardInterrupt','SystemExit','Exception','TimeoutError'}
+        error=name if name in allowed and getattr(builtins,name,None) is type(exc) else ('STOPPED' if isinstance(exc,Stopped) else 'OTHER')
+    finally:
+        ns.clear()  # No global patches; only child-local namespace/proxies existed.
+        for f in handles:
+            if not f.closed:
+                try: f.close()
+                except BaseException: status='ERROR'; error='CLEANUP_FAILED'
+        # Private returned mapping: never a trusted cache/preflight baseline or shared report.
+        if manifest is not None:
+            t=time.perf_counter_ns()
+            (out/'manifest.PRIVATE.json').write_text(json.dumps(manifest),encoding='utf-8')
+            stats['private_manifest_write_ns']=time.perf_counter_ns()-t
+        publish()
+    return snapshot(),manifest
+
+def main():
+    git,repo_text,out_text,pin,tree,blob=sys.argv[1:]
+    repo,out=Path(repo_text),Path(out_text)
+    if sys.version_info[:3]!=(3,13,3): raise RuntimeError('interpreter')
+    if not all(re.fullmatch('[0-9a-f]{40}',s) for s in (pin,tree,blob)): raise RuntimeError('identity')
+    show=[git,'--no-optional-locks','-C',str(repo),'show',pin+':scripts/certification/natural_readonly_operator.py']
+    def guard(event,args):
+        if event.startswith(('socket.','ctypes.')): raise RuntimeError('network/native disabled')
+        if event=='subprocess.Popen':
+            allowed=(show,[git,'ls-files','-z'],subprocess.list2cmdline(show),subprocess.list2cmdline([git,'ls-files','-z']))
+            if args[1] not in allowed: raise RuntimeError('subprocess disabled')
+        if event in ('os.system','os.exec','os.posix_spawn'): raise RuntimeError('execution disabled')
+    sys.addaudithook(guard)  # Dedicated-child lifetime; no guard changes in the calling shell.
+    source=subprocess.check_output(show,timeout=10)
+    report,_=profile(source,repo,out,pin,tree,blob,git)
+    return 0 if report['status']=='COMPLETE' and report['handles_open']==0 else 2
+if __name__=='__main__':
+    try: code=main()
+    except BaseException: code=2  # No arbitrary exception text/traceback into any artifact.
+    raise SystemExit(code)
+'@
+    [IO.File]::WriteAllText($payload, $program, (New-Object Text.UTF8Encoding($false)))
+    . ([scriptblock]::Create($supervisorText))
+    $controlFailed = $false
+    try {
+        $child = Invoke-ObservationChild -Python $Python `
+            -ChildArguments @('-I','-S','-B','-u',$payload,$Git,$SourceRoot,$scratch,$Pin,$Tree,$Blob) `
+            -LogPrefix (Join-Path $scratch 'profile-process') `
+            -StopPath (Join-Path $scratch 'STOP_REQUESTED') -BudgetSeconds 90 -StopSeconds 30
+    } catch { $controlFailed = $true; Write-Host 'Profile control failed; retain private scratch evidence.' }
+    $receiptPath = Join-Path $scratch 'profile-process.process.json'
+    if (!(Test-Path -LiteralPath $receiptPath)) { throw "No exit receipt; retain $scratch privately." }
+    $receipt = Get-Content -LiteralPath $receiptPath -Raw | ConvertFrom-Json
+    if (!$receipt.exited) { throw "Cleanup/exit unverified; retain $scratch privately. Do not retry or share." }
+    $profilePath = Join-Path $scratch 'profile.json'
+    if (!(Test-Path -LiteralPath $profilePath)) { throw "No bounded profile report; retain $scratch privately." }
+    $profile = Get-Content -LiteralPath $profilePath -Raw | ConvertFrom-Json
+    # Independent output allowlist: no paths, payloads, messages or arbitrary strings.
+    $safeKeys = @('schema','status','error','pin','tree','owner_blob','owner_sha256',
+        'elapsed_at_checkpoint_ns','metrics','overhead','manifest_call_ns','labelled_intervals_ns',
+        'final_report_io_not_included','cpu_model','active_at_checkpoint','file_count','missing_count',
+        'handles_open','namespace_released','timing_model','timing_seed_rows','calls','wall_ns',
+        'cpu_ns','max_ns','bytes','report_writes','report_io_ns','wrapper_housekeeping_estimate_ns',
+        'stop_polls','stop_poll_ns','private_manifest_write_ns','enumeration','hashing','git_enum','metadata','open','read','close',
+        'read_bytes_INCLUSIVE','sha256','hexdigest','timing_mkdir','timing_json','timing_write_INCLUSIVE','timing_replace')
+    $safeText = @('manifest-profile.v1','RUNNING','COMPLETE','ERROR','CANCELLED','NONE','OTHER',
+        'STOPPED','CLEANUP_FAILED','IDLE','INCLUSIVE_OVERLAP_NOT_SYSCALL','CURRENT_PROCESS_ONLY',
+        'PermissionError','FileNotFoundError','NotADirectoryError','IsADirectoryError','OSError',
+        'RuntimeError','ValueError','TypeError','MemoryError','OverflowError','UnicodeDecodeError',
+        'AssertionError','KeyboardInterrupt','SystemExit','Exception','TimeoutError') + $safeKeys
+    function Assert-SafeValue($value) {
+        if ($null -eq $value -or $value -is [bool]) { return }
+        if ($value -is [string]) {
+            if ($safeText -notcontains $value -and $value -cnotmatch '^([0-9a-f]{40}|[0-9a-f]{64})$') {
+                throw 'Unallowlisted report string; no shareable output.'
+            }
+            return
+        }
+        if ($value -is [ValueType]) { return }
+        if ($value -isnot [pscustomobject]) { throw 'Unsupported report value.' }
+        foreach ($property in $value.PSObject.Properties) {
+            if ($safeKeys -notcontains $property.Name) { throw 'Unallowlisted report field.' }
+            Assert-SafeValue $property.Value
+        }
+    }
+    Assert-SafeValue $profile
+    if ($profile.schema -cne 'manifest-profile.v1' -or $profile.pin -cne $Pin -or
+        $profile.tree -cne $Tree -or $profile.owner_blob -cne $Blob) { throw 'Report identity differs.' }
+    $afterHead = (& $Git --no-optional-locks -C $SourceRoot rev-parse HEAD | Out-String).Trim()
+    $headOK = $LASTEXITCODE -eq 0 -and $afterHead -ceq $Pin
+    $afterDirty = @(& $Git --no-optional-locks -c core.fsmonitor=false -C $SourceRoot status --porcelain)
+    $sourceOK = $headOK -and $LASTEXITCODE -eq 0 -and $afterDirty.Count -eq 0
+    $complete = !$controlFailed -and $receipt.timely_exit_verified -and !$receipt.timed_out -and
+        $receipt.exit_code -eq 0 -and $profile.status -ceq 'COMPLETE' -and
+        $profile.handles_open -eq 0 -and $profile.namespace_released -and $sourceOK
+    $envelope = [ordered]@{
+        schema = 'manifest-profile-envelope.v1'; completed = [bool]$complete
+        source_identity_after = [bool]$sourceOK
+        budget_seconds = 90; cleanup_budget_seconds = 30
+        child_exit = $receipt.exit_code; timed_out = $receipt.timed_out
+        timely_exit_verified = $receipt.timely_exit_verified; profile = $profile
+    }
+    $json = $envelope | ConvertTo-Json -Depth 10 -Compress
+    if ([Text.Encoding]::UTF8.GetByteCount($json) -gt 8192) { throw 'Report exceeds8KiB; no shareable output.' }
+    $share = Join-Path $scratch 'manifest-profile-shareable.json'
+    [IO.File]::WriteAllText($share, $json, (New-Object Text.UTF8Encoding($false)))
+    Write-Host "SHARE ONLY: $share"
+    Write-Host "Completed: $complete. Keep all other scratch files PRIVATE; no retry."
+    $global:LASTEXITCODE = if ($complete) { 0 } else { 1 }
+}
+```
+
+Expected shareable output:
+`C:\tmp\manifest-profile-<8hex>\manifest-profile-shareable.json`.
+Only use the SHARE ONLY announcement; all other scratch artifacts stay private.
+If no announcement occurs, preserve scratch and do not retry. No existing source,
+cache files, operator state or failed evidence is modified by the prepared block.
+
+Guarded offline validation (small temporary Git fixtures ONLY, not the actual
+Windows measurement): six owner/equivalence groups passed for exact returned
+hashes/operation counts, missing key, changed bytes/no cache, read denial/privacy,
+owned stop, in-read error/resource cleanup. Additional Windows/list-form argv
+allowlist and forbidden network/native/extra-process controls passed, plus close
+failure/scope restoration/content-message canary control: eight groups total.
+Static checks verify one child invocation, exact90/30, embedded payload identity,
+immutable source selection and no fetch/preflight/observation invocation. Original
+Path methods remain unchanged; namespace clears and handles close on error.
+No completed suite repeated. Actual new PowerShell block/Windows profile was NOT
+executed; existing Windows supervisor checks carry forward, not claimed as a new
+profile run. Scratch preparation/control artifacts are under
+/workspace/scratch/manifest-profile-preparation (not a repository harness).
+
+ONE pending action: user runs this SINGLE filesystem-only block once and shares
+only its bounded announced JSON. Completion criterion is an attributed complete
+manifest pass, or an honestly bounded incomplete result; review it before any
+natural preflight/observation. Preserve all five positions/global veto, GUI draft,
+all failed/historical receipts, separate cache uncertainty and PARKED/fail-closed
+listing provenance. No acquisition/broker inquiry/preflight/observation/holdings
+operation/SDK change/timeout extension/gate relaxation/trading occurred.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
