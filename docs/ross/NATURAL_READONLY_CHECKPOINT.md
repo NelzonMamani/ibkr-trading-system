@@ -9309,27 +9309,30 @@ def coordinator():
 
 def controller():
     api=API(); job=None; p=None; owned={}; status='ERROR'; clean=True; peak=0
+    controller_stage=0; controller_winerror=0; controller_failure_stage=0
     began=time.monotonic(); deadline=began+90
     try:
-        job=api.create_job()
+        controller_stage=1; job=api.create_job()
+        controller_stage=2
         p=api.spawn(ROOT,'coordinator','benchmark')
         owned[p['pid']]=p['process']
-        api.assign(job,p); api.resume(p)
+        controller_stage=3; api.assign(job,p); api.resume(p)
         while True:
             if time.monotonic()>=deadline: status='DEADLINE'; break
             if api.wait(p['process'],time.monotonic()) and api.exit_code(p['process'])!=0: raise RuntimeError('CHILD_FAILED')
-            ids=api.members(job); peak=max(peak,len(ids))
+            controller_stage=4; ids=api.members(job); peak=max(peak,len(ids))
             for pid in ids:
                 if pid not in owned:
-                    h=api.open(pid)
+                    controller_stage=5; h=api.open(pid)
                     if not api.member(job,h): raise RuntimeError('MEMBERSHIP')
                     owned[pid]=h
             if not ids:
+                controller_stage=6
                 if not api.wait(p['process'],deadline) or api.exit_code(p['process'])!=0: raise RuntimeError('CHILD_FAILED')
                 status='COMPLETE'; break
             time.sleep(.005)
-    except BaseException:
-        status='ERROR'
+    except BaseException as exc:
+        status='ERROR'; controller_failure_stage=controller_stage; controller_winerror=error_code(exc)
     finally:
         cleanup_start=time.monotonic(); cleanup_deadline=cleanup_start+30
         try:
@@ -9357,7 +9360,8 @@ def controller():
             'setup_excluded':True,'performance_speedup_established':False,
             'reusable_source_baseline':False,'logical_workers_configured':WORKERS,
             'logical_workers_started':0,'failure_evidence_available':False,'failure_stage':0,'failure_winerror':0,
-            'failure_subprocess_code':0,'PAPER_READY':'NO','PAPER_READINESS_GATE':'FAIL'}
+            'failure_subprocess_code':0,'controller_failure_stage':controller_failure_stage,
+            'controller_winerror':controller_winerror,'PAPER_READY':'NO','PAPER_READINESS_GATE':'FAIL'}
         if status=='COMPLETE' and clean and elapsed<=90:
             candidate=small(ROOT/'candidate.PRIVATE.json',4096)
             if set(candidate)!={'file_count','bytes','missing','workers','peak_pending','candidate_seconds','source_identity'}:
@@ -9423,7 +9427,7 @@ if __name__=='__main__':
         'measurement_and_cleanup_seconds','cleanup_verified','native_member_cap','peak_native_members',
         'setup_excluded','performance_speedup_established','reusable_source_baseline','PAPER_READY','PAPER_READINESS_GATE',
         'file_count','bytes','missing','workers','peak_pending','candidate_seconds','source_identity',
-        'logical_workers_configured','logical_workers_started','failure_evidence_available','failure_stage','failure_winerror','failure_subprocess_code')
+        'logical_workers_configured','logical_workers_started','failure_evidence_available','failure_stage','failure_winerror','failure_subprocess_code','controller_failure_stage','controller_winerror')
     foreach ($field in $reportData.PSObject.Properties.Name) {
         if ($allowedNames -cnotcontains $field) { throw 'Unexpected exported field; do not share.' }
     }
@@ -9457,3 +9461,13 @@ Full-path controls remain PENDING, not a reproduced archived cause:
 - Next control collects all bounded v2 stage/code outcomes BEFORE asserting cap
   exhaustion, so a synthetic prerequisite failure remains visible and cannot be
   mistaken for the workstation receipt. Superseded failures/reviews preserved.
+
+CI41118865706 at7ce6c82e collected all cases: old peak3, v2 four/two workers
+both failed atstage10 before any worker start, cleanup verified. This is a
+synthetic prerequisite failure, not the archived peak10 reproduction. The fixture
+passed Windows TEMP's possibly8.3 spelling as SOURCE, while the unchanged benchmark
+scope guard compares resolved cwd against that configured spelling. Next fixture
+binds canonical resolved source paths (operator's literal C:\tmp path is canonical)
+and asserts the binding; no operator policy/guard loosened. Parent/controller-only
+failures additionally gain bounded numeric stage/allowlisted winerror fields, so
+absence of coordinator failure data remains explicit instead of hiding the path.

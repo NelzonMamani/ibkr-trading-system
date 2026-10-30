@@ -473,7 +473,11 @@ class FullBenchmarkPath(unittest.TestCase):
 
     def test_full_powershell_venv_topology_and_reduced_workers(self):
         with tempfile.TemporaryDirectory(prefix='full-manifest-path-') as text:
-            root=Path(text); repo,pin,tree,python=self.fixture(root)
+            # Windows TEMP may use8.3aliases. The unchanged benchmark guard
+            # requires its configured source spelling to equal resolved cwd.
+            root=Path(text).resolve(); repo,pin,tree,python=self.fixture(root)
+            self.assertEqual(repo,repo.resolve())
+            print('FIXTURE_SOURCE_CANONICAL',Path(text)!=root,flush=True)
             old_code,old,_=self.run_block(root,repo,pin,tree,python,'v1')
             diagnosed_code,diagnosed,_=self.run_block(root,repo,pin,tree,python,'v2',workers=4)
             good_code,good,private=self.run_block(root,repo,pin,tree,python,'v2')
