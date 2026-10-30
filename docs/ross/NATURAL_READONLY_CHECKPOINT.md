@@ -10967,3 +10967,54 @@ historical callback uncertainties unresolved, listing provenance PARKED/fail clo
 No broker inquiry, acquisition, preflight, observation, holdings action, SDK change,
 timeout extension, guard relaxation, trading or readiness upgrade occurred.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## 30 October 2026 — Accepted V4; ONE corrected filesystem measurement prepared
+
+User accepted PR1145's corrected feasibility candidate for ONE filesystem-only
+measurement PREPARATION. No merge, production change, preflight or observation
+authorized. Assistant did not execute the workstation block. Pending action now
+supersedes the prior review-only action: user starts the single corrected filesystem
+measurement, with no warm-up/retry and no TWS/market-session requirement.
+
+Verified GitHub PR1145 remains DRAFT/unmerged at exact
+4d2a6568178bef9460ea9620268490dbf0426c05/treed81e03dd29a449a5f1e10da11b56ad028b717335;
+independent post-Windows review5718429765 and successfulCI41124820829 apply to that
+head. Main/source pin unchanged at a501c88bcc926bef87875f6352f210b19b6e438b/tree
+e66b6daa84f04ec95dce1155fde2a9a4e156cf14. Read SAME checkpoint including saved
+4cae11267ff533b802c3ca9abd3ad48c999df3ca. AGENTS search none; ledger unchanged.
+
+Delivery is extracted VERBATIM from tested4d2a6568's V4 code fence, NOT reconstructed.
+Compared byte-for-byte with saved/current checkpoint fence. Exact UTF-8/LF identity:
+- Complete block including final newline SHA256
+  155816b70e68b1b77bef5445731a861dc98c3cf76c79222916a1e649516be6df.
+- Embedded Python excluding surrounding here-string newline SHA256
+  3cd34953bcde2e3c679e5c44af0ab302437f9003b34e5a67b27a4297567b5383.
+- Delivery scratch copy: /workspace/scratch/manifest-workloop-failure/accepted-v4-measurement.ps1.
+  Entire identical block returned inline. No alternative/untested launcher.
+
+Literal source C:\tmp\ro-9a2e923d\s and Python
+C:\tmp\pr1091-cert-env-20260923\Scripts\python.exe unchanged. Both-direction
+publication-RETURN readiness, immediate post-ready error rejection (no suppression/
+retry),2workers/2outstanding/native10,90s shared measurement/30s shared cleanup,
+exact fresh tracked hashes/source identity/private bounded IPC/aggregate privacy
+validation/cleanup-before-success remain EXACTLY tested. No new source commit,
+production owner, SDK/security-setting/timeout change or repeatedCI for status.
+Checks limited to pinned refs/review/CI retrieval, exact script/payload identities,
+historical prefix preservation, checkpoint-only diff and whitespace.
+
+ONE next action: user pastes the ENTIRE prepared V4 block into PyCharm Windows
+PowerShell5.1 Desktop and runs it ONCE. No TWS or market session required. Fresh
+scratch C:\tmp\manifest-contained-<8hex>; preserve all previous roots, especially
+manifest-contained-bc3e6f77,manifest-contained-1ccc4446 and ro-9a2e923d unchanged.
+Only after aggregate privacy validation, share exactly
+C:\tmp\manifest-contained-<8hex>\manifest-process-shareable.json (<=8192bytes).
+Never ZIP/share the root, code/config, raw mailbox files or private/staged mapping.
+Failure/absent report/unverified cleanup means STOP and retain evidence, no retry.
+This is filesystem measurement only, not natural acceptance, production speedup,
+a source baseline substitution or permission for preflight/observation.
+
+All prior failures/superseded blocks/receipts remain preserved; no readiness upgrade.
+No broker/acquisition/holdings action/trading. Five-position global veto/GUI draft,
+separate news-cache uncertainty/historical callback uncertainty and PARKED/fail-closed
+listing provenance remain unchanged. PR1145 stays draft/unmerged.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
