@@ -8372,3 +8372,12 @@ Five-position global veto, GUI draft, failed roots, separate news-cache and
 historical callback uncertainty, successful count0 audit AND transport FAIL/exit1,
 PR1140-1143 semantics and PARKED/fail-closed provenance remain intact.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+Independent review of ca0399f91e15bf8514222eb759eb7b98fdab5060 requested changes:
+unassigned suspended coordinator recovery in the controller-exit fixture; cleanup
+scope beginning before the unrelated leaf's first spawn; atomic JSON proof
+publication. All three are corrected, with actual-Windows controls added for
+exit-controller assignment denial (creation-bound external child handle) and
+native second-process creation failure (first leaf must retire). Failed/superseded
+review remains preserved, not presented as acceptance. Revised Linux check now
+has6 explicit Windows-only skips, still no Windows proof.

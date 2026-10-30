@@ -189,23 +189,46 @@ def child(root, role, mode):
         (root/('leaf-' + str(os.getpid()))).write_text('ready')
         while True: time.sleep(.01)  # intentional owned blocked worker
     if role == 'exit-controller':
-        job = api.create_job()
-        p = api.spawn(root, 'coordinator', 'descendants')
-        api.assign(job, p); api.resume(p)
-        end = time.monotonic()+10
-        while not (root/'ready').exists() and time.monotonic()<end: time.sleep(.005)
-        ids = api.members(job)
-        if len(ids) != 3: raise RuntimeError('DESCENDANTS_NOT_READY')
-        proof = []
-        for pid in ids:
-            h = api.open(pid)
-            if not api.member(job,h): raise RuntimeError('NOT_MEMBER')
-            proof.append({'pid':pid, 'creation':api.token(h)})
-            api.close(h)
-        (root/'controller-ready').write_text(json.dumps(proof))
-        while not (root/'exit-controller').exists(): time.sleep(.005)
-        # Deliberately bypass finally: OS handle closure must kill the job.
-        os._exit(0)
+        job = None; p = None
+        try:
+            job = api.create_job()
+            p = api.spawn(root, 'coordinator', 'descendants')
+            if mode == 'assign-fail':
+                temporary=root/'unassigned.tmp'
+                temporary.write_text(json.dumps({'pid':p['pid'],'creation':api.token(p['process'])}))
+                temporary.replace(root/'unassigned')
+                while not (root/'continue-assignment').exists(): time.sleep(.005)
+                api.fault='assign'
+            api.assign(job, p); api.resume(p)
+            end = time.monotonic()+10
+            while not (root/'ready').exists() and time.monotonic()<end: time.sleep(.005)
+            ids = api.members(job)
+            if len(ids) != 3: raise RuntimeError('DESCENDANTS_NOT_READY')
+            proof = []
+            for pid in ids:
+                h = api.open(pid)
+                if not api.member(job,h): raise RuntimeError('NOT_MEMBER')
+                proof.append({'pid':pid, 'creation':api.token(h)})
+                api.close(h)
+            temporary = root/'controller-ready.tmp'
+            temporary.write_text(json.dumps(proof))
+            temporary.replace(root/'controller-ready')
+            while not (root/'exit-controller').exists(): time.sleep(.005)
+            # Deliberately bypass finally: OS handle closure must kill the job.
+            os._exit(0)
+        finally:
+            # Setup/assignment failure MUST retire the suspended child even if
+            # it never became a member; kill-on-close alone cannot cover it.
+            end = time.monotonic()+3
+            if p and not p['assigned']:
+                api.checked(api.k.TerminateProcess(p['process'],99))
+            if job: api.checked(api.k.TerminateJobObject(job,99))
+            if p and not api.wait(p['process'],end): raise RuntimeError('SETUP_PROCESS_LEAK')
+            if job:
+                while api.members(job):
+                    if time.monotonic() >= end: raise RuntimeError('SETUP_JOB_LEAK')
+                    time.sleep(.005)
+            for h in list(api.handles): api.close(h)
     if role != 'coordinator': raise RuntimeError('ROLE')
     if mode in ('startup', 'ipc'):
         (root/'ready').write_text('1')
@@ -347,9 +370,9 @@ class WindowsContainment(unittest.TestCase):
         api=API(); processes=[]; held=[]
         with tempfile.TemporaryDirectory(prefix='manifest-containment-') as text:
             root=Path(text)
-            unrelated=api.spawn(root,'leaf','unrelated',suspended=False); processes.append(unrelated)
-            controller=api.spawn(root,'exit-controller','exit',suspended=False); processes.append(controller)
             try:
+                unrelated=api.spawn(root,'leaf','unrelated',suspended=False); processes.append(unrelated)
+                controller=api.spawn(root,'exit-controller','exit',suspended=False); processes.append(controller)
                 end=time.monotonic()+15
                 while not (root/'controller-ready').exists() and time.monotonic()<end: time.sleep(.01)
                 proof=read_small(root/'controller-ready')
@@ -370,9 +393,54 @@ class WindowsContainment(unittest.TestCase):
                 for h in list(api.handles): api.close(h)
                 self.assertFalse(api.handles)
 
+    def test_exit_controller_assignment_failure_retires_unassigned_child(self):
+        api=API(); controller=None; held=None
+        with tempfile.TemporaryDirectory(prefix='manifest-containment-') as text:
+            root=Path(text)
+            try:
+                controller=api.spawn(root,'exit-controller','assign-fail',suspended=False)
+                end=time.monotonic()+10
+                while not (root/'unassigned').exists() and time.monotonic()<end: time.sleep(.005)
+                proof=read_small(root/'unassigned')
+                held=api.open(proof['pid'])
+                self.assertEqual(api.token(held),proof['creation'])
+                (root/'continue-assignment').write_text('1')
+                end=time.monotonic()+3
+                self.assertTrue(api.wait(controller['process'],end))
+                self.assertNotEqual(api.exit_code(controller['process']),0)
+                self.assertTrue(api.wait(held,end))
+                self.assertFalse((root/'ready').exists())
+                print('WINDOWS_ASSIGN_FAILURE unassigned_suspended_child_retired',flush=True)
+            finally:
+                if held and not api.wait(held,time.monotonic()):
+                    api.checked(api.k.TerminateProcess(held,99))
+                    self.assertTrue(api.wait(held,time.monotonic()+3))
+                if controller and not api.wait(controller['process'],time.monotonic()):
+                    api.checked(api.k.TerminateProcess(controller['process'],99))
+                    self.assertTrue(api.wait(controller['process'],time.monotonic()+3))
+                for h in list(api.handles): api.close(h)
+                self.assertFalse(api.handles)
+
+    def test_second_native_start_failure_does_not_leak_first_leaf(self):
+        api=API(); first=None
+        with tempfile.TemporaryDirectory(prefix='manifest-containment-') as text:
+            root=Path(text)
+            try:
+                first=api.spawn(root,'leaf','unrelated',suspended=False)
+                with self.assertRaises(OSError):
+                    api.spawn(root/'nonexistent-current-directory','exit-controller','exit',suspended=False)
+            finally:
+                if first:
+                    api.checked(api.k.TerminateProcess(first['process'],99))
+                    self.assertTrue(api.wait(first['process'],time.monotonic()+3))
+                for h in list(api.handles): api.close(h)
+                self.assertFalse(api.handles)
+            print('WINDOWS_PARTIAL_START first_leaf_retired_after_second_create_failure',flush=True)
+
     def test_native_invalid_handle_errors_are_not_success(self):
         api=API()
-        for operation in (lambda:api.k.TerminateJobObject(None,1),
+        for operation in (lambda:api.k.AssignProcessToJobObject(None,None),
+                          lambda:api.k.TerminateJobObject(None,1),
                           lambda:api.k.QueryInformationJobObject(None,3,None,0,None),
                           lambda:api.k.CloseHandle(None)):
             self.assertFalse(operation())
