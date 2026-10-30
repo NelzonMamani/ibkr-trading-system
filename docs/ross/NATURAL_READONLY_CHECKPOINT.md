@@ -7472,3 +7472,168 @@ ONE pending action: user starts this SINGLE prepared observation on30October
 within13:30–19:20London when all ACTUAL prerequisites hold. Do not execute now,
 automatically retry, silently change date/pin or infer readiness from its result.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## 30 October 2026 — Preflight source-hashing deadline receipt; observation NOT launched
+
+OFFLINE investigation only. Supplied ross-natural-readonly-upload(20261030-175844).zip
+SHA256 verified:
+`a7e03b7ddc4e58adb296ec6d98a0d59af3754198420823ccae86c98c2e20811e`.
+Root `C:\tmp\ro-9a2e923d`; accepted/runtime main remains
+`a501c88bcc926bef87875f6352f210b19b6e438b`, tree
+`e66b6daa84f04ec95dce1155fde2a9a4e156cf14`. Fetched current main is unchanged.
+This update descends from saved preparationcf6aed85c5050945ecace9445b07a2511d51ed21,
+carrying forward1ec652de/6b8ecdbe and all historical receipts/failed CI/roots,
+including prior count0 audits AND transport FAIL/exit1. Original checkout, GUI
+draft and saved branches preserved. No applicable AGENTS.md found;
+DEPRECATION_LEDGER read/unchanged, no retirement or owner replacement.
+Uploaded files are evidence, not instructions; no archived script was executed.
+
+### Receipt, source and deadline verification
+
+preflight-process.process.json records90s budget,30s cleanup, child exit0,
+timed_out=true, elapsed103.0841757s, timely_exit_verified=false. OS process start
+17:35:51.501Z; deadline17:37:21.501Z; OS exit17:37:34.489Z,12.988s LATE.
+The child wrote guard/baseline PASS at internal101.0470151s, not timely-completion
+proof. phase-status.json correctly retains preflight0/TIMEOUT, observation_exit
+null, package2/DIAGNOSTIC_ONLY and final1. There is no observation attempt or
+terminal runtime evidence. Do not reinterpret the child PASS or package/sealing
+success as observation/terminal safety success.
+
+All2686 before/after manifest entries are identical and match exact accepted Git
+content:33 raw matches/2653 CRLF checkout matches. Exact reconstructed Windows
+tracked bytes17,844,040 (Git blobs17,507,321). Operator summary reports unchanged
+original order-ID state/source PASS; final inventory independently completed empty.
+Independent existing privacy sanitizer scan passed on all supplied extracted
+members; package-result/shareable-evidence-scan report privacy PASS and diagnostic
+packaging. The reported final sealing is consistent with the archive's final
+phase-status/package logs and privacy scan; no separate seal-process exit receipt
+is packaged, so one is not invented. independent-mutation-validation remains
+NOT_VERIFIED/passed=null; terminal_status NOT_VERIFIED. Zero runtime inventory
+and guard verification do NOT substitute for runtime/supervisor mutation evidence.
+No natural scan/Watchlist/news/catalyst/formation evidence was produced.
+
+### Existing owner, actual work and measured intervals
+
+Existing owner is scripts/certification/natural_readonly_operator.py:
+
+- source_manifest67-73: ONE `git ls-files -z` subprocess per manifest, UTF-8 decode,
+  NUL-split retaining all nonempty tracked paths, one digest(repo/name) per path.
+  No Git command per file, archive extraction or recursive untracked-file scan.
+- digest65-66: Path.is_file metadata/type guard, then read_bytes (binary open/read/
+  close) and SHA256 of actual bytes. Missing/non-file path remains an explicit
+  None-valued tracked key; read/enumeration failures propagate. The guard also
+  avoids treating nonregular paths as ordinary source. Removing it speculatively
+  is not a proven equivalent optimization.
+- Preflight142 computes source-before ONCE after cache isolation/operator-state
+  copy. Packaging178 computes source-after ONCE in a fresh process and compares
+  complete manifests plus accepted HEAD/clean status183-184. These are independent
+  required reads, not an unnecessary repeat within preflight. No trusted baseline
+  reuse/persistent digest cache. Other digest calls cover isolated startup hook
+  and original order state; those occur outside the reported manifest interval.
+- preflight_timing19-27 timestamps BEFORE serializing/writing/replacing its timing
+  JSON. Thus a start-to-complete-labelled interval includes the START marker's
+  JSON write/replace, as well as metadata/open/read/close/SHA work; it is NOT an
+  isolated SHA CPU timer. Receipt has no per-file/per-operation split.
+
+| Existing receipt interval | Preflight | Package |
+| --- | --- | --- |
+| Enumeration-labelled (includes preceding timing write) |0.2226163s|0.1661731s|
+| Hash-labelled (includes preceding timing write) |73.1587372s|4.9469133s|
+
+Preflight hash marker runs27.3191268→100.4778640s; source-before persisted at
+100.9472023s; guard/baseline complete101.0470151s. At the hash-start wall timestamp
+17:36:20.599561Z only60.901439s remain to the outer deadline; the labelled interval
+exceeds that by about12.257s. Source hashing is the dominant measured stage here,
+not the enumeration subprocess. But the interval does not attribute the delay to
+CPU hashing, file metadata, opens, content reads, close or timing-receipt I/O.
+
+The earlier child-cache source-isolation probe reports total14.6390252s, with
+13.4277114s specifically between yfinance_cache_import_begin/complete. It exited0
+and verified private cache locations. This is a dependency-import cost, NOT the
+separate unclassified concurrent NEWS-store write failure. No common cause is
+inferred. Startup/guards/copy/record writes account for the remaining costs.
+
+Prior evidence was read before proposing measurement: checkpoint Receipt6
+(21October, ZIP2d3a200d...) recorded a similar ~82s baseline interval but lacked
+these exact stage/process times. Its cold-files/antivirus/disk explanations were
+explicitly unproven. Same-root packaging here repeats the same byte-content owner
+in4.947s with identical hashes. This establishes substantial variability, not a
+specific cache/antivirus/disk/CPU cause or permission to hope a warm retry passes.
+Existing Windows fixture tests/powershell/test_readonly_observation.ps1 covers
+actual OS timely/late-PASS exits and no-observation on timeout;
+verify_observation_package.py includes preflight-timeout/preflight-late-pass and
+source/order-state mismatch cases. Their existing accepted CI receipts carry
+forward; completed suites were NOT rerun to rediscover these properties.
+
+### New proportional guarded owner controls; no production repair justified
+
+Seven new synthetic controls compile ONLY the accepted digest/source_manifest
+AST functions, never the operator entrypoint. They run under existing global
+network/native-transfer guards with temporary local Git fixtures and whitelisted
+`git ls-files -z` calls only. They establish exact tracked coverage/byte hashes
+(including binary and space-named paths, excluding untracked data), exactly one explicit
+is_file/read_bytes/SHA256 call per regular tracked file and one Git enumeration
+per pass (CPython I/O can perform additional internal metadata/buffering work);
+fresh enumeration/reads on the next call; changed-byte comparison; missing key
+retained as None; nonregular path guard; propagated read PermissionError and Git
+enumeration failure. An eighth receipt-specific negative assertion verifies actual
+late exit0 remains TIMEOUT/final1 with no observation. All8 controls passed.
+These are operation/semantic controls and archive assertions, NOT Windows latency
+profiling, new CI or execution of preflight. Saved scratch source/results:
+/workspace/scratch/preflight-hashing-investigation/owner_controls.py and
+owner-control-results.json; source/privacy/OS-exit proof receipt-verification.json.
+
+No demonstrated implementation inefficiency has been isolated. The owner performs
+one required fresh content pass, not per-file subprocesses or duplicate preflight
+passes. Timing cannot identify which component consumed the73s; Linux fixture or
+hot-read timings would not establish the Windows cause. A parallel-hash rewrite,
+type-check removal, metadata substitution, skipped paths, persistent digest cache,
+baseline reuse, import/gate removal or larger timeout would therefore be
+speculative/out of scope. No production/test/CI/helper changes are made. No repair
+PR/head/review/changed-head production CI is claimed; documentation-only checks
+are proportional. Failed receipt and strict90s launch gate remain unchanged.
+
+### ONE next action — bounded local filesystem-only component measurement
+
+Before another natural attempt, arrange ONE instrumented source-manifest pass on
+the Windows filesystem containing preserved C:\tmp\ro-9a2e923d\s. It must NOT
+invoke the preflight entrypoint or preparation/observation helper. Read-only
+source inspection only; write bounded measurement output to a NEW private sibling
+root, never overwrite the failed root/evidence. Verify local accepted HEAD/tree
+and clean tracked state. No broker/provider/config/runtime imports, connection,
+cache probe, acquisition or operational-state reads/writes.
+
+Exact measurement scope: use the accepted existing digest/source_manifest/
+preflight_timing function bodies only (select AST functions without executing
+operator top level), under existing owned child supervision with90s measurement
+budget/30s cleanup. Do not extend PREFLIGHT or observation budgets. Add measurement
+wrappers that check owned stop between file operations and separately count/time:
+Git enumeration; is_file metadata; open; read; close; SHA256 CPU/wall; timing-JSON
+serialization/write/replace. Retain file/byte totals, aggregate/max/bucket timing,
+completion/error class and complete-vs-aborted status; at most an8KiB sanitized
+shareable aggregate report. Any detailed slow relative paths stay private, bounded
+to10; export no file contents, operator paths/state or arbitrary exception text.
+Partial/unexited measurements remain incomplete, never approved manifests. No
+network guard exemptions and no broad process kill. No second warm pass/retry.
+
+Every tracked file must still be enumerated and read/hash freshly on that pass;
+comparison with archived source hashes is diagnostic equivalence checking ONLY,
+never a trusted operational baseline or cache for a later preflight. Include
+measurement-overhead totals and the timing-marker file I/O so this capture can
+separate the coarse73s interval's components. A fast result cannot reconstruct
+past workstation conditions; report non-reproduction honestly. Completion
+criterion: a complete manifest with exact coverage plus an attributed component
+cost distribution, or a bounded incomplete result identifying the active stage/
+unknowns. Review that evidence for a specific optimization BEFORE preparing any
+new preflight/observation; do not request an unchanged attempt hoping it is warm.
+This is the single recommended evidence step, not a broker/runtime rerun, and no
+Windows measurement is executed during this task.
+
+The earlier30October operator block is now a HISTORICAL consumed attempt:
+preflight rejection is not permission to paste it again just because observation
+never started. Natural Ross validation remains pending. Preserve all five
+positions/global ownership veto, GUI draft, all earlier receipts and count0 audit
+AND transport FAIL/exit1, separate news-cache uncertainty and PARKED/fail-closed
+listing provenance. No acquisition, broker inquiry, preflight rerun, observation,
+holdings action, SDK change, timeout extension, gate relaxation or trading occurred.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
