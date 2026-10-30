@@ -11,6 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       harness_only: ${{ steps.scope.outputs.harness_only }}
+      containment_only: ${{ steps.scope.outputs.containment_only }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -20,6 +21,20 @@ jobs:
         shell: python
         run: |
           import os, subprocess
+          # Disposable synthetic Windows containment controls only. This branch
+          # changes no production owner; do not repeat unrelated complete suites.
+          containment_base = 'a501c88bcc926bef87875f6352f210b19b6e438b'
+          containment_allowed = {'.github/workflows/pytest.yml',
+              'tests/test_manifest_windows_containment_feasibility.py',
+              'docs/ross/NATURAL_READONLY_CHECKPOINT.md'}
+          containment_ancestor = subprocess.run(['git','merge-base','--is-ancestor',containment_base,'HEAD']).returncode == 0
+          containment_paths = set(subprocess.check_output(['git','diff','--name-only',containment_base,'HEAD']).decode().splitlines()) if containment_ancestor else set()
+          containment_only = (containment_ancestor and
+              'tests/test_manifest_windows_containment_feasibility.py' in containment_paths and
+              containment_paths <= containment_allowed)
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+              out.write(f'containment_only={str(containment_only).lower()}\n')
+          print('CONTAINMENT_ONLY=' + str(containment_only))
           baseline = '06156242a4017f5e5afc668c3c01430252e6fc1d'
           # This fixed source receipt has successful 2987-pass Linux/Windows
           # suites. The earlier workstation2759 receipt remains separate. Any change
@@ -55,6 +70,7 @@ jobs:
           print('Changed files: ' + ', '.join(sorted(paths)))
 
   test:
+    if: needs.verification-scope.outputs.containment_only != 'true'
     needs: verification-scope
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -97,6 +113,7 @@ jobs:
           echo "Production/offline Python source unchanged; full-suite receipts carried forward, not rerun."
 
   windows-offline:
+    if: needs.verification-scope.outputs.containment_only != 'true'
     needs: verification-scope
     runs-on: windows-latest
     timeout-minutes: 30
@@ -174,3 +191,28 @@ jobs:
             ${{ runner.temp }}/ps-status-*/
             ${{ runner.temp }}/ps-observation-*/
           if-no-files-found: error
+
+  windows-containment-feasibility:
+    needs: verification-scope
+    if: needs.verification-scope.outputs.containment_only == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13.3'
+      - name: Prove production and existing safety owners unchanged
+        shell: bash
+        run: |
+          git diff --exit-code a501c88bcc926bef87875f6352f210b19b6e438b HEAD -- src scripts tests/offline tests/conftest.py requirements.txt
+          git diff --check a501c88bcc926bef87875f6352f210b19b6e438b HEAD
+      - name: Accepted checkout stage50 full PowerShell/embedded path (offline)
+        shell: powershell
+        run: |
+          python -I -S -B -u tests/test_manifest_windows_containment_feasibility.py AcceptedCheckoutWorkLoop.test_publication_barrier_regressions
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git diff --exit-code
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
