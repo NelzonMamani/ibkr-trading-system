@@ -257,7 +257,7 @@ def child(root, role, mode):
     if mode in ('startup', 'ipc'):
         (root/'ready').write_text('1')
         while True: time.sleep(.01)  # controlled startup/IPC wait, not actual OS hang
-    if mode in ('descendants', 'partial', 'breakaway'):
+    if mode in ('descendants', 'partial', 'breakaway', 'four_workers'):
         children = []
         if mode == 'breakaway':
             try:
@@ -269,7 +269,7 @@ def child(root, role, mode):
                 api.wait(escaped['process'],time.monotonic()+3)
                 api.close(escaped['thread']); api.close(escaped['process'])
                 raise RuntimeError('BREAKAWAY_UNEXPECTEDLY_ALLOWED')
-        for index in range(2):
+        for index in range(4 if mode=='four_workers' else 2):
             if mode == 'partial' and index == 1: break
             # Descendants inherit their parent's job WITHOUT breakaway flags.
             p = api.spawn(root, 'leaf', 'block', suspended=False)
@@ -471,6 +471,53 @@ class FullBenchmarkPath(unittest.TestCase):
         print('FULL_WINDOWS_BENCHMARK',revision,workers,json.dumps(report),flush=True)
         return code,report,roots[0]
 
+    def held_topology(self,root,python):
+        # Synthetic topology only:16-member TEST job, not an enlarged benchmark.
+        api=API(); job=None; process=None; retained=[]; count=0; verified=False
+        topology=root/'held-topology'; topology.mkdir()
+        class Members(ctypes.Structure):
+            _fields_=[('assigned',W.DWORD),('count',W.DWORD),('pids',ctypes.c_size_t*16)]
+        try:
+            job=api.create_job(); limits=EXTENDED()
+            limits.BasicLimitInformation.LimitFlags=0x2000|0x8
+            limits.BasicLimitInformation.ActiveProcessLimit=16
+            api.checked(api.k.SetInformationJobObject(job,9,ctypes.byref(limits),ctypes.sizeof(limits)))
+            process=api.spawn_argv(topology,[str(python),'-I','-S','-B','-u',str(HERE),'--child',str(topology),'coordinator','four_workers'])
+            api.assign(job,process); api.resume(process)
+            end=time.monotonic()+10
+            while time.monotonic()<end:
+                info=Members()
+                api.checked(api.k.QueryInformationJobObject(job,3,ctypes.byref(info),ctypes.sizeof(info),None))
+                roles=[read_small(path) for path in topology.glob('role-*.json')]
+                if sum(r['role']=='leaf' for r in roles)==4 and info.assigned==info.count:
+                    ids=list(info.pids[:info.count]); count=len(ids)
+                    self.assertGreater(count,10,'No demonstrated four-worker native bound overflow')
+                    self.assertLessEqual(count,16)
+                    self.assertTrue({r['pid'] for r in roles}<=set(ids))
+                    for pid in ids:
+                        h=api.open(pid); retained.append(h)
+                        self.assertTrue(api.member(job,h))
+                    break
+                time.sleep(.005)
+            else: self.fail('Held native topology did not complete')
+        finally:
+            end=time.monotonic()+5
+            if process and not process['assigned']: api.checked(api.k.TerminateProcess(process['process'],99))
+            if job:
+                api.checked(api.k.TerminateJobObject(job,99))
+                while True:
+                    info=Members()
+                    api.checked(api.k.QueryInformationJobObject(job,3,ctypes.byref(info),ctypes.sizeof(info),None))
+                    if info.count==0: break
+                    if time.monotonic()>=end: raise AssertionError('Held topology job leak')
+                    time.sleep(.005)
+            for h in retained+([process['process']] if process else []):
+                self.assertTrue(api.wait(h,end))
+            for h in list(api.handles): api.close(h)
+            self.assertFalse(api.handles); verified=True
+        print('HELD_WINDOWS_TOPOLOGY',json.dumps({'logical_coordinators':1,'logical_workers':4,'native_members':count,'test_member_cap':16,'all_members_owned':True,'cleanup_verified':verified}),flush=True)
+        return count
+
     def test_full_powershell_venv_topology_and_reduced_workers(self):
         with tempfile.TemporaryDirectory(prefix='full-manifest-path-') as text:
             # Windows TEMP may use8.3aliases. The unchanged benchmark guard
@@ -478,16 +525,27 @@ class FullBenchmarkPath(unittest.TestCase):
             root=Path(text).resolve(); repo,pin,tree,python=self.fixture(root)
             self.assertEqual(repo,repo.resolve())
             print('FIXTURE_SOURCE_CANONICAL',Path(text)!=root,flush=True)
-            old_code,old,_=self.run_block(root,repo,pin,tree,python,'v1')
-            diagnosed_code,diagnosed,_=self.run_block(root,repo,pin,tree,python,'v2',workers=4)
+            native_bound=self.held_topology(root,python)
+            old_code,old,old_private=self.run_block(root,repo,pin,tree,python,'v1')
+            diagnosed_code,diagnosed,bad_private=self.run_block(root,repo,pin,tree,python,'v2',workers=4)
             good_code,good,private=self.run_block(root,repo,pin,tree,python,'v2')
             # Collect all bounded diagnostics before assertions; an early fixture
             # prerequisite error is NOT a reproduction of cap exhaustion.
             self.assertNotEqual(old_code,0); self.assertEqual(old['status'],'FAIL')
             self.assertNotEqual(diagnosed_code,0); self.assertEqual(diagnosed['status'],'FAIL')
-            self.assertTrue(diagnosed['failure_evidence_available'])
-            self.assertGreaterEqual(diagnosed['failure_stage'],40,'Synthetic prerequisite failed before worker topology')
-            self.assertEqual(old['peak_native_members'],10)
+            self.assertGreater(native_bound,10)
+            # Cap enforcement may fail in coordinator startup OR external census.
+            # Require explicit bounded evidence for the owner that actually failed.
+            if diagnosed['failure_evidence_available']:
+                self.assertGreaterEqual(diagnosed['failure_stage'],40)
+            else:
+                self.assertGreater(diagnosed['controller_failure_stage'],0)
+                self.assertTrue(diagnosed['controller_winerror'] or diagnosed['controller_reason'])
+            # Census peaks are sampled, not a guarantee of observing the exact
+            # instant of quota failure. Held topology establishes required bound.
+            self.assertGreater(old['peak_native_members'],0)
+            self.assertFalse((old_private/'manifest.COMPLETE.PRIVATE.json').exists())
+            self.assertFalse((bad_private/'manifest.COMPLETE.PRIVATE.json').exists())
             self.assertEqual(good_code,0); self.assertEqual(good['status'],'COMPLETE')
             self.assertEqual(good['logical_workers_configured'],2)
             self.assertEqual(good['workers'],2); self.assertLessEqual(good['peak_pending'],2)

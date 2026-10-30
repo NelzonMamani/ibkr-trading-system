@@ -9173,7 +9173,7 @@ def stage(number):
 
 def error_code(exc):
     value=getattr(exc,'winerror',None)
-    return value if type(value) is int and value in (5,6,8,32,87,1816) else 0
+    return value if type(value) is int and value in (5,6,8,32,87,122,234,1816) else 0
 ROOT=Path(sys.argv[2] if sys.argv[1]=='--child' else sys.argv[1]).resolve()
 CONFIG=json.loads((ROOT/'config.PRIVATE.json').read_text())
 SOURCE=Path(CONFIG['source'])
@@ -9270,6 +9270,7 @@ def coordinator():
     cursor=0
     while cursor<len(names) or busy:
         for index,(p,slot) in enumerate(zip(workers,slots)):
+            controller_stage=7
             if api.wait(p['process'],time.monotonic()): raise RuntimeError('WORKER_EXIT')
             if index in busy and (slot/'result.json').exists():
                 result=small(slot/'result.json',1024); (slot/'result.json').unlink()
@@ -9309,7 +9310,7 @@ def coordinator():
 
 def controller():
     api=API(); job=None; p=None; owned={}; status='ERROR'; clean=True; peak=0
-    controller_stage=0; controller_winerror=0; controller_failure_stage=0
+    controller_stage=0; controller_winerror=0; controller_failure_stage=0; controller_reason=0
     began=time.monotonic(); deadline=began+90
     try:
         controller_stage=1; job=api.create_job()
@@ -9319,6 +9320,7 @@ def controller():
         controller_stage=3; api.assign(job,p); api.resume(p)
         while True:
             if time.monotonic()>=deadline: status='DEADLINE'; break
+            controller_stage=7
             if api.wait(p['process'],time.monotonic()) and api.exit_code(p['process'])!=0: raise RuntimeError('CHILD_FAILED')
             controller_stage=4; ids=api.members(job); peak=max(peak,len(ids))
             for pid in ids:
@@ -9333,6 +9335,7 @@ def controller():
             time.sleep(.005)
     except BaseException as exc:
         status='ERROR'; controller_failure_stage=controller_stage; controller_winerror=error_code(exc)
+        controller_reason={'MEMBERSHIP_INCOMPLETE':1,'CHILD_FAILED':2,'MEMBERSHIP':3}.get(str(exc),0) if type(exc) is RuntimeError else 0
     finally:
         cleanup_start=time.monotonic(); cleanup_deadline=cleanup_start+30
         try:
@@ -9361,7 +9364,7 @@ def controller():
             'reusable_source_baseline':False,'logical_workers_configured':WORKERS,
             'logical_workers_started':0,'failure_evidence_available':False,'failure_stage':0,'failure_winerror':0,
             'failure_subprocess_code':0,'controller_failure_stage':controller_failure_stage,
-            'controller_winerror':controller_winerror,'PAPER_READY':'NO','PAPER_READINESS_GATE':'FAIL'}
+            'controller_winerror':controller_winerror,'controller_reason':controller_reason,'PAPER_READY':'NO','PAPER_READINESS_GATE':'FAIL'}
         if status=='COMPLETE' and clean and elapsed<=90:
             candidate=small(ROOT/'candidate.PRIVATE.json',4096)
             if set(candidate)!={'file_count','bytes','missing','workers','peak_pending','candidate_seconds','source_identity'}:
@@ -9382,7 +9385,7 @@ def controller():
                 if set(failure)!={'stage','started','winerror','subprocess_code'}: raise RuntimeError('FAILURE_SCHEMA')
                 if (type(failure['stage']) is not int or failure['stage'] not in (0,10,20,30,40,50,60,70,80,90) or
                     type(failure['started']) is not int or not 0<=failure['started']<=WORKERS or
-                    type(failure['winerror']) is not int or failure['winerror'] not in (0,5,6,8,32,87,1816) or
+                    type(failure['winerror']) is not int or failure['winerror'] not in (0,5,6,8,32,87,122,234,1816) or
                     type(failure['subprocess_code']) is not int or not -255<=failure['subprocess_code']<=255): raise RuntimeError('FAILURE_INVALID')
                 result.update(failure_evidence_available=True,failure_stage=failure['stage'],
                     logical_workers_started=failure['started'],failure_winerror=failure['winerror'],failure_subprocess_code=failure['subprocess_code'])
@@ -9427,7 +9430,7 @@ if __name__=='__main__':
         'measurement_and_cleanup_seconds','cleanup_verified','native_member_cap','peak_native_members',
         'setup_excluded','performance_speedup_established','reusable_source_baseline','PAPER_READY','PAPER_READINESS_GATE',
         'file_count','bytes','missing','workers','peak_pending','candidate_seconds','source_identity',
-        'logical_workers_configured','logical_workers_started','failure_evidence_available','failure_stage','failure_winerror','failure_subprocess_code','controller_failure_stage','controller_winerror')
+        'logical_workers_configured','logical_workers_started','failure_evidence_available','failure_stage','failure_winerror','failure_subprocess_code','controller_failure_stage','controller_winerror','controller_reason')
     foreach ($field in $reportData.PSObject.Properties.Name) {
         if ($allowedNames -cnotcontains $field) { throw 'Unexpected exported field; do not share.' }
     }
@@ -9471,3 +9474,24 @@ binds canonical resolved source paths (operator's literal C:\tmp path is canonic
 and asserts the binding; no operator policy/guard loosened. Parent/controller-only
 failures additionally gain bounded numeric stage/allowlisted winerror fields, so
 absence of coordinator failure data remains explicit instead of hiding the path.
+
+CI41119297510/eba950d8: canonical binding observedTRUE. Released old block now
+reproduced early FAIL/peak10/cleanuptrue on synthetic files through real Windows
+venv. Diagnostic4worker case failed in EXTERNAL census (controllerstage4, no
+coordinator failure file); two-worker V2 completed fullPS/Python path in6.4348s,
+2686files,89,205synthetic bytes,peak9,window2,cleanuptrue. The CI was still FAIL
+because the test wrongly required coordinator-only failure evidence and stopped
+before full mapping comparison. Preserve this partial success/failed-run receipt;
+NOT an overall acceptance or a Windows performance claim.
+
+Next revision records fixed controller reasons (incomplete membership census,
+child exit, membership mismatch) and allowlisted122/234 buffer categories; phase7
+marks explicit child-exit observation instead of stale last phase. All remain
+fail closed; no census gap/query failure is ignored. A separate held synthetic
+venv topology (one coordinator/four worker leaves) uses explicit TEST-only cap16
+to measure ALL held native members; the benchmark cap remains10. This can prove
+required topology exceeds10 without pretending a sampled peak always catches
+the quota instant. Failed old/diagnostic runs must publish no COMPLETE manifest;
+controller OR coordinator failure must have bounded explicit attribution. Fresh
+complete two-worker output must match every serial synthetic hash and mapping
+order. No test weakens cleanup/coverage or converts any failed benchmark to PASS.
