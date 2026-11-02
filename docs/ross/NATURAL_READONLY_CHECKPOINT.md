@@ -11343,3 +11343,919 @@ immutable-filesystem claim or natural positive formation proof. Preserve every
 failed root, original checkout, five unmatched positions/global veto, GUI draft,
 separate cache uncertainty, historical callback uncertainty and PARKED provenance.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+
+## 30 October 2026 — PR1146 ACCEPTED; one natural observation prepared for2November (NOT EXECUTED)
+
+### Controlled integration receipt
+
+User authorized PR1146 integration only. Reverified unchanged maina501c88bcc926bef87875f6352f210b19b6e438b,
+head0e869f3a183655c0a4e6d7d0ab5e22513eadb024/tree846cbeeba42cfc708177b7bb390bc9c450b1cefa,
+independent exact-head review5719020082, successful CI41133061124: scope124328649726,
+Linux124328729976, Windows124328729983 (40 controls/46 PS checks/12 package/five
+synthetic preflight cases). No unresolved threads or new findings. Ten-file scope
+is existing harness/helper, affected tests/CI and this SAME checkpoint; production
+src/dependencies/DEPRECATION_LEDGER/global offline guards unchanged. No completed
+suites repeated. Applicable AGENTS search found none; DEPRECATION_LEDGER read.
+
+Marked ready; merge method MERGE with expected-head0e869 guard. Accepted GitHub
+main MERGE e39200729102df3e329ce75bbc3372a2e2d61faf, parentsa501+0e869. Fetched main
+and independently verified tree846cbeeba42cfc708177b7bb390bc9c450b1cefa EXACTLY equals
+reviewed head and CI-tested merge57eea259f88dea38aa6cd6f231dabe67f725bfcb tree.
+Integration recorded on PR1146 comment6534291824. PR1145 verified DRAFT/OPEN/UNMERGED
+at4d2a6568178bef9460ea9620268490dbf0426c05; no workers/Job Objects/mailboxes/scoped
+feasibility workflow integrated. Every failed/superseded receipt above remains.
+
+This documentation-only update lives on docs/pr1146-accepted-natural-observation,
+separate from main. It does NOT replace the literal accepted runtime pin e3920072.
+Original checkout, saved branches, all failed roots and GUI draft are preserved.
+No preparation helper, filesystem M0 preparation, preflight, acquisition, broker
+inquiry or observation executed during integration/preparation. Local Git worktree
+for editing these docs is not an operator root or an execution of the helper.
+
+### Date-specific session, prerequisites and complete planning allowance
+
+NEXT eligible weekday after30October is MONDAY2NOVEMBER2026. The accepted owner
+src/config/system_config.py:get_current_market_session uses configured New York
+09:30 inclusive to16:00 exclusive, excludes weekends/holidays and supports half-days.
+Registry defaults holiday/half-day sets are empty (not a general verified exchange
+calendar); no calendar override is added. Independently checked official NYSE
+2026 holiday/early-close calendar:2November is neither holiday nor half-day.
+Source: https://www.nyse.com/trade/hours-calendars (checked30October2026).
+No market/provider article acquisition or broker inquiry was used for this check.
+
+IANA America/New_York/Europe/London conversion and actual accepted session function
+checked offline:31October09:30NY =13:30London but Saturday CLOSED;1November09:30NY
+=14:30London but Sunday CLOSED;2November09:29:59NY =14:29:59London PRE;
+09:30NY =14:30London RTH;15:59:59NY =20:59:59London RTH;16:00NY =21:00London AH.
+US daylight saving ends1November; New York is UTC-5 on2November. London is GMT/UTC+0.
+Thus permitted normal session is14:30 <= Europe/London <21:00, NOT October13:30.
+Actual current harness/config/session guards still decide eligibility; clock time
+alone does not certify market availability, subscriptions, connectivity or safety.
+
+The block starts only2November14:30 through20:21:40 London. Calculation:
+21:00 minus2000s runner conservative wait allowance minus300s helper/fetch margin
+=20:21:40. The five-minute helper margin is explicit PLANNING, not an observed
+maximum or watchdog. Existing helper checkout/Python/Git work lies OUTSIDE the2000s;
+no hard real-time guarantee is claimed. Recheck immediately after helper: runner
+must start by20:26:40 (21:00-2000s), otherwise retain root and do not invoke it.
+No paused/resumed admission: final preflight and observe are immediate phases of
+one existing runner. If helper takes longer than planned, the later check can
+reject; do not change the date, pin, gate or invoke the helper's printed command.
+
+Existing helper: docs/ross/PR1108_NATURAL_READONLY_ACCEPTANCE.ps1 (parameters
+ExpectedCommit,Python,SourceCheckout,BaseDirectory,RuntimeSeconds). It only prepares
+fresh isolated checkout and prints command. Existing launcher:
+scripts/certification/run_natural_readonly_observation.ps1 (ONLY Python,Root,
+ExpectedCommit,RuntimeSeconds). Pass900, yielding1260 supervisor. No invented
+ExpectedTree/budget launcher flags: block verifies tree; accepted runner defaults
+prepare150/preflight150/package150/seal90 with30 owned cleanup each. Work sum1800,
+all five stop allowances150, two5s pipe drains per child50 ->2000s summed waits.
+Actual OS exit receipts remain deadline authority; inner PASS cannot revive late
+work. Serial M0/M1/M2 equality, missing/read-failure rejection, actual cache probe,
+post-hash guards, single-use/controller-bound <=15s admission and fresh operator
+capture remain mandatory. No immutable-filesystem or speedup claim.
+
+Required BEFORE user starts: Windows PowerShell5.1 Desktop; verified existing
+Python3.13.3/dependencies at C:\tmp\pr1091-cert-env-20260923\Scripts\python.exe;
+PAPER TWS normally authenticated at127.0.0.1:7497, Read-Only API enabled, unused
+client71, normal scanner/market-data permissions, no Ross runtime. Keep all five
+positions unchanged; never adopt/liquidate/cancel/suppress. Existing total/tier/
+request budgets, natural TopN/Watchlist/Focus and mandatory catalyst/strict freshness/
+genuine timeframes unchanged. No forced candidates/news/setups/triggers/intents/
+approvals. Preserve zero-mutation audits, authoritative final audit, owned cleanup,
+source/operator equality, inventory and privacy sealing. This natural harness owns
+its own terminal audit; no new order-transport inquiry/instrumentation is needed.
+
+### ONE complete user-operated block — prepared, NOT EXECUTED HERE
+
+```powershell
+# ONE user-started observation on Monday2November2026; no automatic retry.
+& {
+    $ErrorActionPreference = 'Stop'
+    if ($PSVersionTable.PSEdition -ne 'Desktop' -or
+        $PSVersionTable.PSVersion.Major -ne 5 -or
+        $PSVersionTable.PSVersion.Minor -ne 1) {
+        throw 'Use Windows PowerShell5.1 Desktop.'
+    }
+    # NY EST after1November; London GMT. Next normal session is2November.
+    # Helper/fetch planning margin300s; runner conservative allowance2000s.
+    $LondonZone = [TimeZoneInfo]::FindSystemTimeZoneById('GMT Standard Time')
+    $EarliestStart = [datetime]::new(2026,11,2,14,30,0)
+    $LatestStart = [datetime]::new(2026,11,2,20,21,40)
+    $LatestRunnerStart = [datetime]::new(2026,11,2,20,26,40)
+    $LondonNow = [TimeZoneInfo]::ConvertTimeFromUtc([datetime]::UtcNow, $LondonZone)
+    if ($LondonNow -lt $EarliestStart -or $LondonNow -gt $LatestStart) {
+        throw 'Prepared for2November2026,14:30-20:21:40 London only; nothing launched.'
+    }
+
+    $SourceCheckout = 'C:\Users\nelzo\PycharmProjectsDec2025\ibkr-trading-system'
+    $Python = 'C:\tmp\pr1091-cert-env-20260923\Scripts\python.exe'
+    $RuntimePin = 'e39200729102df3e329ce75bbc3372a2e2d61faf'
+    $ExpectedTree = '846cbeeba42cfc708177b7bb390bc9c450b1cefa'
+    if (!(Test-Path -LiteralPath $SourceCheckout -PathType Container) -or
+        !(Test-Path -LiteralPath $Python -PathType Leaf)) {
+        throw 'Verified checkout/Python path missing; nothing launched.'
+    }
+    & git -C $SourceCheckout fetch origin main
+    if ($global:LASTEXITCODE -ne 0) { throw 'Fetch failed; nothing launched.' }
+    $fetchedMain = (& git -C $SourceCheckout rev-parse refs/remotes/origin/main | Out-String).Trim()
+    if ($global:LASTEXITCODE -ne 0 -or $fetchedMain -cne $RuntimePin) {
+        throw 'Main differs: stop for delta review; do not substitute a pin.'
+    }
+    $pinTree = (& git -C $SourceCheckout rev-parse ($RuntimePin + '^{tree}') | Out-String).Trim()
+    if ($global:LASTEXITCODE -ne 0 -or $pinTree -cne $ExpectedTree) {
+        throw 'Accepted tree mismatch; nothing launched.'
+    }
+
+    $beforeWorktrees = @(& git -C $SourceCheckout worktree list --porcelain)
+    if ($global:LASTEXITCODE -ne 0) { throw 'Cannot inventory existing worktrees.' }
+    $prepareText = (& git -C $SourceCheckout show ($RuntimePin + ':docs/ross/PR1108_NATURAL_READONLY_ACCEPTANCE.ps1') | Out-String)
+    if ($global:LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($prepareText)) {
+        throw 'Pinned preparation helper unavailable.'
+    }
+    $prepareArgs = @{
+        ExpectedCommit = $RuntimePin
+        Python = $Python
+        SourceCheckout = $SourceCheckout
+        BaseDirectory = 'C:\tmp'
+        RuntimeSeconds = 900
+    }
+    & ([scriptblock]::Create($prepareText)) @prepareArgs
+
+    $afterWorktrees = @(& git -C $SourceCheckout worktree list --porcelain)
+    if ($global:LASTEXITCODE -ne 0) { throw 'Cannot verify prepared worktree; preserve roots.' }
+    $addedWorktrees = @($afterWorktrees | Where-Object {
+        $_.StartsWith('worktree ') -and $beforeWorktrees -notcontains $_
+    } | ForEach-Object { $_.Substring(9) })
+    if ($addedWorktrees.Count -ne 1) {
+        throw 'Expected exactly one new worktree; preserve roots and inspect.'
+    }
+    $checkout = [IO.Path]::GetFullPath($addedWorktrees[0])
+    if ($checkout -notmatch '^C:\\tmp\\ro-[0-9a-f]{8}\\s$') {
+        throw 'Unexpected prepared path; preserve it without launching.'
+    }
+    $root = Split-Path -Parent $checkout
+    $actualHead = (& git -C $checkout rev-parse HEAD | Out-String).Trim()
+    if ($global:LASTEXITCODE -ne 0 -or $actualHead -cne $RuntimePin) { throw 'Prepared head mismatch.' }
+    $actualTree = (& git -C $checkout rev-parse 'HEAD^{tree}' | Out-String).Trim()
+    if ($global:LASTEXITCODE -ne 0 -or $actualTree -cne $ExpectedTree) { throw 'Prepared tree mismatch.' }
+    $dirty = @(& git -C $checkout status --porcelain)
+    if ($global:LASTEXITCODE -ne 0 -or $dirty.Count -ne 0) { throw 'Prepared checkout is not clean.' }
+    foreach ($name in @('e','state','preparation','runner.json')) {
+        if (Test-Path -LiteralPath (Join-Path $root $name)) {
+            throw 'Prepared root already used; preserve it, no launch.'
+        }
+    }
+    $runner = Join-Path $checkout 'scripts\certification\run_natural_readonly_observation.ps1'
+    if (!(Test-Path -LiteralPath $runner -PathType Leaf)) { throw 'Existing runner missing.' }
+
+    $LondonNow = [TimeZoneInfo]::ConvertTimeFromUtc([datetime]::UtcNow, $LondonZone)
+    if ($LondonNow -lt $EarliestStart -or $LondonNow -gt $LatestRunnerStart) {
+        throw 'Start window expired; retain the prepared root. No preflight launched.'
+    }
+    Write-Host 'Serial M0/M1/M2; prepare150/preflight150/package150/seal90; cleanup30 each.'
+    Write-Host 'Runtime900/supervisor1260; immediate single-use admission; no pause/resume.'
+    Write-Host 'Runner allowance2000s plus planned helper margin300s; not a hard real-time guarantee.'
+    Write-Host "Runtime pin: $RuntimePin; retained root: $root"
+    Write-Host 'PAPER127.0.0.1:7497; Read-Only API; unused client71; no Ross runtime.'
+    Write-Host 'This invokes ONCE. Do not also run the preparation helper printed command.'
+    Write-Host 'Use only the final DIAGNOSTIC ZIP announcement after successful privacy sealing.'
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $runner -Python $Python -Root $root -ExpectedCommit $RuntimePin -RuntimeSeconds 900
+    $operatorExit = $global:LASTEXITCODE
+    Write-Host "Operator exit: $operatorExit. Preserve all evidence; no automatic retry."
+    $global:LASTEXITCODE = $operatorExit
+}
+```
+
+Prepared block SHA256 (UTF8/LF, with final newline):
+4c756cc118b8f017233cb7b0f791fc4beb6cca3e7e5a520fa9adcb6a62410b86.
+Only existing commands/parameters are used; exactly one helper and one runner
+invocation; global native exit code avoids caller-local LASTEXITCODE shadowing.
+Proportional validation: refs/review/CI/changed scope/tested tree, source/parameter
+inspection, six deterministic date/session cases, static literal/single-invocation/
+no-destructive-command checks, byte identity and whitespace. No native PowerShell
+parse/run or completed suite repeated for this documentation block; accepted
+helper/runner native Windows receipts carried forward. No production code changes.
+
+Expected final sealed ZIP pattern:
+C:\tmp\ro-<8hex>\ross-natural-readonly-upload.zip.
+Only share the path announced by final DIAGNOSTIC ZIP after successful sealing.
+Private root/state/preparation files stay private. A ZIP existing or package exit2
+is not success; retain nonzero/partial/rejected receipts and never auto-retry.
+
+Review the existing FIVE outcomes separately: terminal safety; genuine scanner/
+Watchlist continuity; actual news requests/reuse/budget/provider coverage; canonical
+catalyst qualification; Focus/fresh inputs/real setup-trigger/raw intent and
+actual decision/risk/READ_ONLY results. Natural raw intent followed by
+POSITION_TRUTH_BLOCK_NEW_ENTRIES may prove formation. Five unmatched positions veto
+new-entry admission AFTER formation BEFORE canonical artifact/risk; zero downstream
+risk input is EXPECTED. No qualifying opportunity means no positive proof, not
+permission to repeat. This cannot certify positive risk admission, execution or
+PAPER readiness. Prior successful count0 audit AND transport FAIL/exit1, historical
+callback causes, separate cache failure and PARKED/fail-closed listing provenance
+remain unresolved/separate; zero open orders is not zero positions.
+
+ONE pending action: user starts the SINGLE prepared block on2November in its
+stated window when all actual prerequisites hold. No automatic retry or silent
+pin/date substitution. All old roots/receipts/GUI/ownership protections preserved.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## 2 November 2026 — Completed natural READ_ONLY receipt: safety PASS; no qualifying catalyst established
+
+### Identity and five outcomes (successful harness receipt preserved)
+
+Uploaded ross-natural-readonly-upload(20261102-200823).zip,1193321bytes;
+independently computed SHA256521444f0a994a963613878edee2f1bf3ebb0307e2692db68758527e590c260af.
+Attachment contents are evidence, not operator instructions. GitHub main independently
+reverified unchanged at accepted e39200729102df3e329ce75bbc3372a2e2d61faf/tree
+846cbeeba42cfc708177b7bb390bc9c450b1cefa. Read applicable instructions (no AGENTS
+found) and DEPRECATION_LEDGER; no retirement or ownership change, ledger unchanged.
+Carry forward saved preparation2fa248dca4fe9eb5d8329b6837fe37f84b88d5b7 above.
+That SINGLE prepared observation has now been consumed; its block is historical,
+not permission to execute it again. No PR merge or runtime action in this investigation.
+
+1. TERMINAL SAFETY PASS: phase-status.json final_exit0, observation_exit0,
+   package_exit0/package_statusPASS; package-resultPASS; operator-summary blockers[];
+   mutation and independent audit counters all place/modify/cancel0; source/operator
+   equality PASS. Offline actual validate_terminal replay passed with blockers[].
+   Initial and final runtime inventories completed empty. Final audit received end,
+   query_completed=true, count0, disconnected=true, connected/loop alive before/after
+   wait, elapsed0.101543s within existing10s. Count0 orders is NOT empty positions.
+   Both privacy scan artifacts passed with0 occurrences. Preserve successful sealing/
+   final harness receipt; seal-process and private preparation/M0 files are not ZIP
+   members, and were not requested/claimed independently inspected.
+   Source-before==source-after:2686 tracked paths independently matched exact Git
+   tree/content SHA256 (33 raw blobs,2653 Windows CRLF forms), no missing/extra paths.
+   Reported prepare exit0/not timed out; preflight OS exit0/timely28.9390401s under150;
+   package OS exit0/timely35.7819859s under150. This is ONE receipt, not a controlled
+   speedup comparison; previous90s timeouts and feasibility failures remain FAIL.
+2. GENUINE SCANS/WATCHLIST: three COMPLETE50-row scanner results at stdout619,
+   20128,32368. Natural Watchlist2->1->1: SEGG+BTOC, then SEGG, then SEGG
+   (WATCHLIST_K_SELECTED6136,21708,33568).225 runtime cycles recorded. Requested
+   runtime900s; supervisor OS envelope921.4641201s, including initialization/audit/
+   cleanup, below1260. Runtime launch identity creation19:42:56.571237Z and graceful
+   maintenance shutdown19:58:02.756447Z corroborate the interval; do not label921.464
+   the pure observation wait. Actual supervisor waits900 after binding then finalizes.
+3. ACTUAL NEWS COVERAGE: acquisition occurred with completed successes, completed
+   HTTP denials/redirects, timeout/deadline exclusions and shared response reuse.
+   Coverage stayed PARTIAL, not exhaustive issuer search or confirmed absence.
+4. CANONICAL CATALYST: SEGG eventually retained ONE fresh issuer-matched article,
+   nonqualifying under the current title/event rule. BTOC retained0; completed query
+   results were unmatched and final refresh incomplete. Neither established a valid
+   canonical issuer event. Publication markers are not qualification assertions.
+5. NATURAL DOWNSTREAM: four explicit Focus evaluations (SEGG3/BTOC1), all
+   DROP_NO_CATALYST;58 between-scan cached reconsiderations positive_count0/focus0.
+   The four scan Focus evaluations precede SEGG's first article PUBLISH; they saw
+   empty/incomplete news, not this later article. The article explains only the
+   later eleven captured reassessments, never retroactive earlier rejection.
+   All225 cycles report final Focus0/evaluated0/setup-trigger0/intents0/submissions0.
+   No natural positive setup/trigger/raw intent or risk admission proof. Existing
+   position truth reports broker5/system0, five critical BROKER_ONLY_POSITION
+   mismatches and global new-entry/exit blocks; preserve all ownership protections.
+   The earlier recovery count0 is not authoritative empty holdings.
+
+### Exact issuer paths and article adjudication
+
+SEGG supplied identity SPORTS ENTERTAINMENT GAMING, aliases[], SMART security with
+NASDAQ primary identity. Effective RSS matching alias is SPORTS ENTERTAINMENT
+GAMING. Existing operational Google query is
+https://news.google.com/rss/search?q=%28%22SPORTS+ENTERTAINMENT+GAMING%22+OR+%22%24SEGG%22%29&hl=en-US&gl=US&ceid=US%3Aen
+(no Yahoo, extra search route, or new name was invented). Canonical maintenance
+publication times19:45:26/19:47:32/19:49:38/19:51:44/19:53:47/19:55:52/19:57:58Z,
+counts0/0/0/0/0/1/1. All published=true with canonical_result_marker scope; source
+health remained partial. Query completed200 entry/match counts15/0,15/0,15/0,
+then deadline-incomplete,39/0,40/1,15/0. Do not infer why the same query returned
+these different result sets: raw responses are not retained here.
+
+Retained article: "Sports Entertainment Gaming Shares Rise After Q2 Loss Narrows,
+Revenue Rises"; publication2026-11-02T18:06:17Z, original RSS published string
+Mon,02Nov2026 18:06:17GMT (spacing normalized here only); selected_time_basis=published,
+no updated timestamp. Google transport URL, marketscreener.com entry publisher
+label/root link, operational_query; match_typecompany_name/title, confidence1.0.
+Summary repeats the headline; no full article or original financial announcement
+body was captured/fetched by this investigation. fetched_at field19:55:49.926706Z;
+first canonical PUBLISH19:55:52.599051Z, first subsequent reassessment19:55:56.239244Z.
+first_seen_at equals publication in stored normalization; do NOT call18:06 the
+first observed delivery to this runtime. Final store contains one evidence ID
+rss-operational:SEGG:13ce7b375c79ceaf783dc7f3 (also in the protected qualification
+cohort, not a second independent article). Original publication was not refreshed.
+
+Exact policy replay at ALL11 captured SEGG reassessment clocks AFTER first PUBLISH,
+19:55:56.239244 through19:57:58.588988Z: qualified=false, catalyst_typeNone,
+reason=no_catalyst_classification. Last age6701.588988s, well within inclusive6h;
+not stale, future, dilution, failed issuer matching, publisher-provenance rejection
+or solely HTTP401/403. catalyst_policy.py:147-204 recognizes existing earnings/
+guidance vocabulary; this title's Q2 loss/revenue/reaction phrasing is not a matched
+class. assess_issuer_event:243-285 explicitly fails unknown classification closed;
+its title-clause ownership rules:330ff also conservatively handle "after" clauses.
+Do not silently broaden vocabulary, infer a beat/materiality from missing article
+content, or claim a semantic-policy addition is an implementation fix. Authoritative
+strategy_policy.py:558 requires a real catalyst; unknown syntax is not permission.
+Whether to add this financial-result/reaction form is a SEPARATE policy question,
+not historically proven eligible Ross news and not a change authorized here.
+Common evidence fields classificationNone/is_qualifying_event_classFalse are
+objective-provider projections; the strategy reclassifies original facts. They
+are not a lost approval flag or a second classification writer.
+
+Latest SEGG refresh19:57:57 had zero new query matches but retained the previous
+fresh article: the existing canonical owner merges, never overwrites fresh facts
+with empty incoming results. Last detailed Google response:15 examined/all15
+outside six-hour lookback,0 current,0 issuer relevance rejections; newest reported
+publication1November14:45:58Z, oldest8July2025. Only TWO bounded stale samples are
+present; aggregate counts are captured parser evidence, not independent inspection
+of every omitted title. This does not erase the stored2November18:06 article.
+Log43448 reads it from cache (network_allowed=false, provider_invoked=false),43449
+reports generic news/headlines1,43451 reconsiders it and retains no_valid_canonical_event.
+
+BTOC supplied ARMLOGI HOLDING CORP, aliases[], SMART/NASDAQ primary security;
+effective matching alias ARMLOGI HOLDING (normal corporate-suffix handling).
+Existing operational query is
+https://news.google.com/rss/search?q=%28%22ARMLOGI+HOLDING+CORP%22+OR+%22%24BTOC%22%29&hl=en-US&gl=US&ceid=US%3Aen
+Retained source is the supplied broker identity, not an independently verified
+legal-name/brand mapping. Three completed Google200 responses each22entries/0matches
+at diagnostic lines6489,16794,23953; final query28872 deadline_exhausted,
+worker_completed=false, HTTP/feed counts unknown. Canonical publications6490,
+16795,23954,28875 (19:45:27.898952/19:47:32.312530/19:49:39.156576/
+19:51:45.303670Z), all0 article evidence. Result markers/cadence still publish;
+no canonical article was silently lost on the facts available. No later BTOC
+PUBLISH is recorded; the active Watchlist changes to SEGG. Existing maintenance
+retires completed out-of-universe work, but no BTOC-specific retirement event is
+exported; do not invent that event. Scan2 also drops BTOC for
+DROP_STALE_MARKET_DATA (21756), a SEPARATE reason from its earlier catalyst rejection.
+Do not claim catalyst alone would guarantee Focus or that unrelated GTN A caused it.
+
+### Acquisition/scheduling, source failures and precise evidence limits
+
+Existing owners: issuer_rss_queries.py:operational_queries generates the bounded
+Google route; news_fetcher performs matching/date filtering; batch_rss_adapter.py
+owns5.2s primary/2.8s extended within8s,5s requests clipped, existing completion/
+owned-cleanup barrier; maintenance.py:220-282 schedules per-issuer work/cadence and
+calls the SINGLE canonical service/store writer. evidence_store.py:224-310 retains
+facts and latest retrieval receipt under store_owner transaction. Between scans,
+maintenance.read is cache-only (per-issuer profiles), scanner_runner.py:3451-3512
+reclassifies and separates coverage; :5408-5471 filters eligible canonical positives
+before fresh shortlist/Focus; catalyst_lifecycle.py:40ff revalidates handoffs.
+
+Final SEGG refresh:20 eligible unique route rows (8 fixed+1 query+11 extended),
+17 marked attempted/submitted,3 not attempted; primary barrier/cleanup verifiedtrue
+in0.0013686s after2.1147995s primary, extended2.8032405s, overall4.921966s. Extended
+finished with failures and unfinished/deadline-excluded rows; primary coverage
+remained incomplete. Latest BTOC primary5.334809s crossed5.2 fast allocation;
+fallback correctly skipped primary_deadline_exhausted even with unused extended
+reservation. Nine primary route rows submitted,11 extended not_requested.
+SEGG's top last_retrieval budget_exhausted=false/partial reflects retained fresh
+facts; nested coverage still records budget_exhausted=true and extended exclusions.
+Both source coverage and acquisition health remain partial/degraded. An empty
+transport unresolved_symbols list is not canonical event qualification or complete
+coverage authority; no dropped failure is rehabilitated by retaining an article. Do not
+remove the cleanup/deadline barrier or renew budget because it could hide a loss.
+An attempted/submitted route is not proof of an actual HTTP request or completed
+response. In-progress default http_request_attempted=false is not authoritative
+absence of wire activity; counts/status are unknown until source completion.
+
+Captured GLBN403 (two routes), Reuters401, Fortune308, provider/parse TIMEOUTERROR
+and deadline exclusions explain SPECIFIC source availability failures only. Final
+SEGG cache-reused GLBN/Reuters statuses have transport_cache_hit=true and
+http_request_attempted=false: reused failures are not fresh HTTP denials per issuer.
+Other SEGG primary routes completed200 (Benzinga10, Investing10, BusinessInsider20,
+Forbes25,CNN20 entries), all0 matched. That is not a guarantee of fresh or exhaustive
+issuer content. Overall maintenance shutdown completed130/failed13, publication_
+failures0, telemetry_failures0, workers0/cleanup_complete=true; feed_pool214 loader
+dispatches and1567 cache reuse hits across the whole runtime, NOT214 per-issuer
+requests or definitive214 wire sends. No broker/provider connection cause is inferred.
+GTN A's five yfinance404 stderr messages concern its own lookup; no evidence they
+caused SEGG/BTOC canonical rejection. Three scanner completions contradict a claim
+that those messages halted every scan.
+
+Why DATA_UNAVAILABLE rather than confident ABSENT: scanner_runner.py:3451-3512
+keeps incomplete-source NEGATIVES unavailable while retaining qualified positives;
+assess_catalyst:112-123 returns DATA_UNAVAILABLE/news_unavailable if no confirmed
+positive and news_available=false. USABLE_MARKET_DATA_BUT_CATALYST_NEWS_FAILURE is
+an aggregate branch over DROP_NO_CATALYST (:1060-1103), NOT a diagnosis of an SDK,
+a particular HTTP error, or lost news callback. A verified positive could survive
+partial coverage; no such positive is established in this receipt.
+
+PRECISE MISSING EVIDENCE: BTOC's three completed22-entry query responses lack retained
+per-entry titles/original dates/relevance exclusion counters/samples. The exported
+bucket preserves only the LATEST19:51 incomplete acquisition; earlier stdout
+retrieval_diagnostics.py:155-190 intentionally exports a bounded flattened source
+summary, not entry_diagnostics. Raw captures are null/not packaged. Therefore no
+basis to distinguish stale dates vs identity exclusions for EVERY earlier BTOC
+entry, no full-body/issuer-news exhaustiveness claim and no invented articles or
+present-day web substitutions. Earlier SEGG15/39 response exclusion details are
+similarly missing except the final retained15-entry receipt. Reasons for response
+variation, HTTP denial policy and unfinished I/O remain unknown, not one shared
+cause. This is an evidence-retention limit, not a demonstrated production defect.
+
+### Proportional offline controls, disposition and next decision
+
+Captured-fact replay used exact source owners, frozen last recorded clock
+19:57:58.588988Z and11 recorded post-delivery clocks; a PRIVATE scratch copy of the
+canonical cache, existing serial store/service/context/handoff functions, socket
+and existing offline network guards, and a forbidden retrieval provider (calls0).
+It reproduced SEGG fresh1/nonqualifying/partial_or_unknown_source_coverage and
+BTOC empty/degraded/acquisition_unavailable, context reuse and fail-closed handoff.
+An empty refresh retained SEGG's original article. A title-only SYNTHETIC control
+"Sports Entertainment Gaming reports earnings beat" classified EARNINGS/qualified
+at the same original timestamp; that is vocabulary/authority proof ONLY, not an
+observed headline, Focus, market-input, setup, intent or readiness proof.
+Scratch controls/logs retained outside repository; supplied archive unchanged.
+
+Relevant guarded pytest6passed1.32s, with no broker/provider acquisition:
+- news_catalyst_lifecycle_audit: reported_refresh_failure_preserves_verified_event_and_degraded_health;
+  cache_reuses_context_without_crossing_publication_boundary.
+- positive_catalyst_lifecycle: failed_and_empty_refresh_keep_original_positive_but_expose_health.
+- ross_operational_issuer_news: empty_failure_cadence_query_cap_and_batch_identity.
+- completed_primary_fallback: unfinished_primary_deadline_never_starts_fallback_or_admits_late_article;
+  fallback_failure_preserves_primary_failure_and_partial_coverage.
+Actual terminal validation replay passed. No full-suite/status reruns, SDK upgrade,
+production repair, new permanent test/harness, CI claim or PR merge. No code defect
+established: retain current fail-closed rules. Expanding financial-result vocabulary
+would require an explicit policy decision plus attribution/uncertainty controls,
+not a repair merely to make this SEGG example qualify.
+
+Smallest next evidence decision, before another natural run: review/authorize
+whether existing bounded per-source exclusion evidence should be retained PER
+maintenance result rather than only latest cache receipt. That would preserve
+BTOC's missing stale-vs-identity breakdown without raw bodies, new source fanout or
+relaxed rules. No instrumentation/acquisition is implemented/authorized here; no
+unchanged observation is recommended hoping for a catalyst. Preserve all holdings,
+five-position ownership veto, GUI draft, every historical failure, separate cache
+uncertainty, callback uncertainty and PARKED/fail-closed listing provenance.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## 2 November 2026 — Bounded maintenance exclusion evidence: SCOPE PROPOSAL ONLY
+
+Continue saved checkpoint8244a25d84f976810f822e52d0ba0e1054c1abbf. Reviewed locally
+available accepted sourcee39200729102df3e329ce75bbc3372a2e2d61faf/tree
+846cbeeba42cfc708177b7bb390bc9c450b1cefa; no remote lookup or other network call in
+this task. Applicable AGENTS search previously found none; DEPRECATION_LEDGER read,
+no retirement/ownership change. This section is a reviewable proposal, NOT an
+implementation, collection authorization, classifier change or another observation.
+Keep the completed2November final exit0/packagePASS/terminal safetyPASS, zero
+mutations and source/operator equality above. Preserve SEGG's captured article,
+original18:06:17Z publication and current no_catalyst_classification outcome,
+all five-position protections, prior failures/GUI and PARKED listing provenance.
+
+### What exists, where facts stop, and what can be measured honestly
+
+Exact existing owners at the accepted source:
+- news_fetcher.py:637-675/915-1085 owns detailed parsing/date/relevance/dedup/retention.
+  Detailed mode is research OR operational_query. SourceDiagnostic rows already
+  contain feed_item_count; ResearchSourceDiagnostic additionally carries
+  entries_examined_count, processing_truncated and entry_diagnostics. Date facets
+  include usable_dates, within_window, missing_invalid_dates, future_entries,
+  stale_entries, missing_titles, published_time_used, updated_time_used, UTC date
+  ranges and evaluation/window clocks. Relevance rejections are per requested
+  symbol AFTER title/time screening. These are NOT disjoint whole-feed buckets.
+- rss_exclusion_evidence.py:REASONS/retain_exclusion owns existing
+  news.rss_exclusions.v1, diagnostic_only_not_canonical. EXACT reason codes:
+  missing_title; missing_publication_time (also unusable/invalid selected date);
+  future_publication_time; outside_lookback_window; issuer_match_unverified.
+  Histograms count observed first rejection paths; samples cap2/reason with
+  title512/summary1024/url512, sanitizer BEFORE clipping. Current collector runs
+  for ROSS_ISSUER_QUERY only; ordinary fixed feeds have date/relevance facets but
+  do not thereby acquire the issuer-route sample/histogram contract.
+- batch_rss_adapter.py:731-768 preserves these existing measurement fields into
+  ResearchSourceDiagnostic, including operational routes. No second parser needed.
+- CanonicalNewsIntelligenceService.get_news:438 calls existing
+  retrieval_diagnostics.emit_retrieval_diagnostics for each returned result.
+  That event already contains issuer identity, result begin/end time, provider
+  invocation/request mode, source rows and cache state. It is emitted per actual
+  result BEFORE maintenance PUBLISH/RESULT; the final cache is not the only export.
+- retrieval_diagnostics.py:155-190 currently flattens each source to completion,
+  HTTP/status, matched_count, timings etc.; it OMITS detailed entry counters and
+  reasons. Its news.retrieval_diagnostics.v1 is explicitly CONTENT-FREE. _source
+  removes query values/authentication/fragments; _label/_failure/_number constrain
+  public values. Do not simply JSON-serialize entry_diagnostics here.
+- NewsMaintenance._run:234-290 already emits PUBLISH then post-owned-cleanup RESULT,
+  including publication_scope=canonical_result_marker, qualification_evaluated=false
+  at PUBLISH, evidence_count and separate failures/cleanup. Its existing receipts
+  ring retains128 compact results. No parallel result store/log/connection needed.
+- CanonicalNewsEvidenceStore._write_owned:224ff merges article facts and stores
+  only latest last_retrieval per issuer; this is canonical ownership, not an
+  archival diagnostics ledger. Preserve it; do not add an operational history cache.
+- scanner_runner.py:_ross_news_context_from_evidence/:3451ff and catalyst_policy.py:
+  assess_issuer_event own LATER canonical attribution/classification; lifecycle
+  revalidates retained facts. Maintenance is not authorized to classify for them.
+
+Availability matrix (null means UNKNOWN/not collected, never an invented0):
+
+| Requested observation | Existing authority / correct meaning | Proposed first export |
+| --- | --- | --- |
+| Entries received/parsed | feed_item_count is len(parser.entries) returned by the fetch/parse worker, NOT a count of raw XML items received over the wire or all publisher articles | Existing feed_item_count plus explicit parser-entry scope; raw pre-parser count UNKNOWN |
+| Entries examined | entries_examined_count from the current traversal | Copy when present; otherwise null |
+| Issuer matched | matched_count/source_matches in operational mode increments AFTER the existing duplicate skip and before bounded retention; not pre-dedup matches, retained canonical cohort size or independent-source count | Keep existing value/semantics; do not relabel as exhaustive pre-dedup matching |
+| Identity exclusion | relevance_rejections_by_symbol for time-valid entries actually compared; issuer_match_unverified histogram on supported issuer routes | Copy measured fields only, restricted to current result symbols |
+| Stale/future/missing/invalid dates | Existing date facets and the five exact first-rejection reasons above | Copy available counts; missing_invalid_dates stays COMBINED; separate invalid-vs-missing counts UNKNOWN |
+| Missing title | Existing facet may overlap date facets; actual first-rejection histogram has its own semantics | Copy separately, never sum overlapping facets as disjoint exclusions |
+| Duplicate article exclusion | Operational branch1048 skips already-retained identities but records NO duplicate count; research-only repeated_article_observations has different bounded-observation semantics | null/not_collected_operational; do NOT derive matched-before-dedup or treat request_key deduplicated/feed_reuse as article duplicates |
+| Unsupported classification | Not an acquisition exclusion. Canonical policy may return exact no_catalyst_classification; fetched/matched articles can still be nonqualifying | qualification_evaluated=false/not_evaluated at maintenance; classification exclusion count null, never merge with RSS reasons |
+| Other outcomes | Existing source failure/timeout/not-requested/deadline/processing_truncated statuses are transport/processing outcomes, not discarded-article counts | Preserve existing exact status/allowlisted failure values with stage scope; unrepresented reasons UNKNOWN |
+
+Operational seen_by_symbol is pruned to bounded retained identities after each
+append. A future counter at its duplicate branch could measure OBSERVED skips,
+not all syndicated copies or global unique duplicates. Such a counter is NOT
+part of the smallest projection proposal and must not be silently added. Likewise
+numeric pre-dedup match counts or canonical reason histograms would require an
+explicitly approved measurement delta at their existing owners. Do not invent
+new RSS reason "unsupported_classification" or run a classifier in maintenance.
+
+### ONE recommended smallest change (not implemented)
+
+Extend ONLY the existing content-free per-result retrieval diagnostic projection
+in src/news/retrieval_diagnostics.py, with affected existing tests. Reuse
+news.retrieval_diagnostics.v1 as an additive optional measurement field and the
+existing news.rss_exclusions.v1 reason names/authority. NO new schema authority,
+service, harness, file, cache writer or maintenance-result ring expansion.
+No fetcher, classifier, scheduling, transport, matching or canonical-store change.
+
+Add a bounded count-only source projection (e.g. entry_counts) to the SAME
+[NEWS][RETRIEVAL_DIAGNOSTICS] result, indexed to that event's existing source row.
+It carries only present finite nonnegative counters from the matrix, existing
+UTC evaluation/window/publication-range facts where valid, count units/scopes,
+and observed availability. Per-symbol maps refer only to the current result's
+sanitized symbols (indices may avoid repeating names). Never serialize arbitrary
+keys/objects. Existing source fields already carry worker_completed, response_closed,
+provider/status, timed_out, budget_exhausted and request/parse timing; keep their
+tri-state semantics. Add processing_truncated/entries_examined_count without
+coercing an absent field tofalse/0. Keep query values private via existing source
+projection; include NO entry title, summary, article URL, identity pattern, publisher
+free text, raw response, text hash, account, raw exception or raw entry_diagnostics.
+This first change is COUNTS ONLY: existing bounded samples remain under their
+current owner/privacy contract and are NOT copied into the new event.
+
+Proposed hard reporting bounds for review: expand at most24 source rows per result,
+at most8192 UTF8 bytes for the ADDITIONAL projection including its fixed omission
+metadata (not a claim the pre-existing entire event is8KiB). Current single-issuer
+production profile has20 eligible rows, so it fits the row cap. Iterate fixed
+allowlisted fields/current symbols only; validate counts, no unbounded dict walk
+or serialization of raw objects. Enforce bytes before emission. Drop whole optional
+source-count projections when necessary, retaining original diagnostic event;
+report total eligible rows, expanded rows, omitted rows/bytes-known-if-measured,
+truncated/unknown status. Do not truncate integer digits, silently drop reasons,
+or clip data into a misleading0. Counters absent/invalid remain null with explicit
+availability; no estimating missing byte counts after discarding unknown objects.
+These are REPORT bounds only, not changes to acquisition limits or outcomes.
+
+Use the existing result's symbols and started_at_utc/completed_at_utc to scope
+facts; counts remain INSIDE that result's own event. Maintenance RESULT separately
+owns post-cleanup completion and canonical-marker publication. Do not join counts
+to a different/latest cache receipt, claim PUBLISH equals article evidence, or
+infer an unambiguous cross-thread identity from adjacency alone. No new request
+or article IDs/hashes are required. Do not duplicate the blob in both retrieval
+and maintenance logs/ring. Reused feed responses identify transport_cache_hit when
+known; cache-only reads must not advertise past entry counts as a new fetch.
+
+Exhaustiveness must be metric-specific:
+- all_parser_entries only when recognized completed parsing/traversal is positively
+  recorded, examined==feed_item_count and processing truncation is explicitlyfalse.
+  It means all entries of THAT returned parsed feed, never complete issuer search.
+- examined_prefix for known truncated/cancelled/deadline-limited processing;
+  unknown if receipt/schema/count/completion evidence is missing. HTTP200 or
+  worker completion alone cannot establish full entry traversal.
+- Date facets describe examined entries; relevance comparisons cover only entries
+  that reached relevance; exact reason histograms cover the instrumented first
+  rejection paths ONLY. Counts can overlap, so no invented conservation equation.
+- Body cap/recovered/non-feed failures, unfinished workers, unattempted sources,
+  schema gaps, count projection omissions and reporting errors remain visible.
+  Source/cleanup incompleteness never becomes healthy/available-empty because
+  some counter is0. A source response can be exhaustively examined while overall
+  source coverage and search completeness remain incomplete.
+
+Canonical qualification remains separately reported by existing strategy owner.
+For SEGG the captured-fact replay already establishes no_catalyst_classification;
+this does not authorize copying that later finding into an earlier maintenance
+result. If separately requested later, expose bounded actual reason counts from
+ALREADY computed assess_issuer_event results in existing scanner diagnostic/context,
+with canonical-cohort/evaluation-clock scope and cached-vs-current attribution.
+Never re-run/add classification in a fetch worker, mix its denominators with
+feed exclusions, or make reporting fields input to selection/risk. That optional
+canonical telemetry and new operational duplicate counters are OUT OF FIRST scope.
+
+### Can BTOC's old zero-match outcome be resolved now? NO
+
+Re-read the supplied2November ZIP locally, without collection. Only the BTOC cache
+bucket mentions BTOC; no sibling bucket retains an earlier BTOC response. Its three
+original source-event rows6489/16794/23953 each have Google available/HTTP200,
+feed_item_count22/matched_count0, but neither entries_examined_count nor
+entry_diagnostics. Latest28872 is budget_exhausted, count null, worker unfinished;
+latest canonical receipt only has empty_feed=null/http_request_attempted=false/
+raw_capture=null/transport_cache_hit=null and no traversal details. That default
+false is not proof no HTTP work occurred. Earlier title/date/relevance/exclusion
+facts cannot be recovered from these totals. BTOC stale-vs-identity-vs-other
+breakdown remains UNKNOWN; a zero-match summary is not an exhaustive negative.
+The proposal cannot retroactively manufacture or recover those missing facts.
+SEGG's later article and conservative rejection remain intact, as do the earlier
+successful safety receipt and separate stale-market-data BTOC Watchlist removal.
+
+### Focused OFFLINE acceptance before any future implementation is accepted
+
+Extend existing tests/test_rss_exclusion_evidence.py and the existing retrieval/
+maintenance fixtures in tests/test_independent_news_maintenance.py; use synthetic
+feeds, private temp paths and global network/native broker mutation guards.
+No real acquisition, broker connection, observation or operational publication.
+Required failing-before/passing-after CONTROLS FOR THE PROJECTION, not new gates:
+1. Through actual fake fetch->adapter->service->existing diagnostic event, preserve
+   measured date/relevance/reason counters per result. Emit A then overwrite latest
+   cache with B: A's own log facts survive; B stays independent. Two interleaved
+   issuers/results cannot inherit each other's counters/cleanup/coverage.
+2. Known complete empty RSS/Atom0 vs HTTP failure/non-feed/redirect/missing schema
+   null. Stale/missing-or-invalid/future/title/relevance mixtures and partial prefix
+   processing preserve exact existing semantics and overlap; no invented split.
+3. Duplicate-bearing operational fixture must report duplicate count UNKNOWN
+   (existing matched_count semantics unchanged). Research repetition, feed reuse,
+   queue deduplication and canonical evidence deduplication cannot be conflated.
+4. Completed empty/matched/failure, deadline-before-attempt, unfinished/late worker,
+   processing cutoff and cleanup failure remain distinct; completeness never follows
+   from HTTP200 alone. Reused responses and cache-only reads never create a new
+   HTTP request count or fresh coverage. Preserve end/deadline/stop/cleanup owners.
+5. Multi-source/multi-symbol overflows, exact24-source/8192-byte bounds, malformed
+   types, huge/unexpected keys, source omissions and telemetry errors produce explicit
+   partial/unknown projection, never a partial canonical result mistaken for complete.
+   Keep existing diagnostic/log failure visibility and never change article outcomes.
+6. Privacy canaries in title/summary/URL query/path/identity patterns/exceptions/account
+   fields cannot appear via added projection; no unrestricted text, hashes or raw
+   objects are copied. Existing sanitizer/scan_artifacts/final seal remain mandatory.
+7. Captured SEGG replay stays fresh1/nonqualifying/no_catalyst_classification and
+   BTOC's old missing exclusions stay UNKNOWN. No extra classifier/provider calls,
+   cache/profile/cadence changes, retries, source fanout, second writer, new intent,
+   broker submission or ownership bypass; before/after article/context outcomes equal.
+
+Current-owner validation ONLY (not the proposed implementation):3 targeted existing
+rss_exclusion_evidence controls passed0.97s: old-first feed with fresh tail records
+20 stale/one unmatched/one retained; full sample slots keep counting without more
+summary processing; bounded samples/privacy workflow pass. No full-suite repeats,
+new fixtures/production code, source changes, remote calls or CI claims this task.
+Static inspection establishes the projection gap. Review these bounds and explicit
+UNKNOWN/non-goal fields BEFORE authorizing implementation. No future collection
+or unchanged observation retry is authorized by accepting this document alone.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## 2 November 2026 — Bounded per-result exclusion projection IMPLEMENTED LOCALLY; no collection
+
+User authorized implementation of local proposal56b8ef4a4eea3f55e52b65b852c61dc83446a0ee.
+Local branch fix/bounded-maintenance-entry-counts; no push, merge, provider/broker
+call, observation/preflight or data refresh. Applicable AGENTS search found none;
+DEPRECATION_LEDGER read/unchanged (no retirement or canonical ownership change).
+All historical checkpoint content above is preserved byte-for-byte.
+
+### Exact change and unchanged owners
+
+Production change ONLY src/news/retrieval_diagnostics.py. The existing
+[NEWS][RETRIEVAL_DIAGNOSTICS] per-result event (already emitted by the canonical
+service during maintenance) receives additive entry_counts under the SAME
+news.retrieval_diagnostics.v1 envelope. No new event stream, result store, schema
+owner, parser, provider or classification pipeline. Existing maintenance PUBLISH/
+RESULT events and128-result ring are unchanged: no duplicate projection blob.
+Post-cleanup RESULT still owns completed/published/failed/cleanup distinctions;
+PUBLISH remains canonical_result_marker, not an article/qualification assertion.
+
+Projection uses existing fetcher/adapter ResearchSourceDiagnostic measurements:
+parser_entries, entries_examined, measured date facets, five existing RSS first-
+rejection reasons, per-current-symbol relevance rejection counts, and safe parsed
+UTC evaluation/window/publication-range facts. Source indices refer to the same
+event's existing source rows; symbol indices refer to its existing sanitized symbol
+list (max50 in the added projection). No adjacency/latest-cache join is needed.
+Original source completion/HTTP/timeout/deadline/response-closure/status/timing
+fields are untouched. Parser count is not pre-parser/wire items or exhaustive
+issuer search. Existing operational matched_count semantics stay post-dedup/
+before retention; when no examination is measured, the new matched_count is null,
+not the legacy default0. Original source matched_count remains unchanged.
+
+Missing/bad/noninteger/negative/boolean/nonfinite/oversized counter values are
+null; missing reason keys are not fabricated0. Absent or non-dictionary metadata
+is UNKNOWN without calling custom mapping/string methods. Invalid/naive/free-text
+UTC facts are omitted, never used to replace canonical timestamps. Date, relevance
+and instrumented-first-rejection scopes remain separate. all_parser_entries
+requires positive worker completion, available status, known equal parsed/examined
+counts and explicitly false processing_truncated. Known partial processing is
+examined_prefix; missing completion/schema is unknown. Date-facet contradictions
+keep reported counts but cannot claim exhaustive date scope. Relevance covers
+compared time-valid entries, not every article; reason histograms only the existing
+instrumented first-rejection paths. Overlapping facets are never summed into an
+invented exclusive accounting equation. No source/search coverage gate is inferred.
+
+Operational duplicates, pre-dedup issuer matches and classification exclusions
+remain null/not collected by this projection. qualification_evaluated=false is
+explicit; no classifier call is added and canonical policy/handoff remains separate.
+Known transport-cache reuse is distinct from a fresh request. A missing/default
+http_request_attempted=false with unknown transport_cache_hit becomes UNKNOWN in
+the added projection, never proof of no send. Cache-only/provider-not-invoked
+results emit not_collected_this_result, not stale counts as fresh parsing evidence.
+
+Hard bounds: at most24 source rows INSPECTED/expanded and8192 UTF8 bytes for the
+ADDITIONAL projection including its key/wrapper/omission metadata; not a claim the
+entire pre-existing event is8KiB. Only the first24 source candidates are inspected;
+issuer-query candidates among these are ordered first for REPORT capacity only,
+so ordinary fixed-feed fields cannot starve the BTOC-style issuer row. Actual
+source/request order, membership, concurrency, fanout and budgets are unchanged.
+Whole optional rows are omitted on byte pressure, never clipped counters. Final
+metadata size is rechecked. Sources total/emitted/omitted, row/byte/error omissions,
+symbol omissions, truncation and unknown omitted-byte total are explicit. All
+original source-status rows remain in the original event even when added count
+rows are omitted. A projection error emits a fixed content-free projection_error
+marker, not private exception text or a changed acquisition outcome; original
+stdout/log failure behavior and owned cleanup remain unchanged.
+
+The added projection serializes NO titles, summaries, bodies, article URLs,
+queries, identity patterns, hashes, account identifiers or free-form errors. It
+reads fixed fields only, not exclusion samples or arbitrary raw objects. Existing
+query-stripped source labels, privacy scanning/sealing and canonical-store privacy
+contracts remain; no raw capture or operational cache export is added.
+
+### Focused offline controls and results (local, not CI/natural acceptance)
+
+Affected existing modules extended: tests/test_rss_exclusion_evidence.py and
+ tests/test_independent_news_maintenance.py. Synthetic parser responses/private
+fixture caches only, with existing offline network/native-broker guards. No real
+provider requests, broker connections, mutations or execution submissions.
+
+26 focused controls passed1.00s: entire RSS exclusion module plus new actual
+maintenance/service/adapter result control and affected unavailable-marker,
+failed-publication, cleanup-exception and telemetry-failure controls. Separately,
+14 existing diagnostic/identity compatibility controls passed0.90s:
+ tests/test_post_pr1090_news_diagnostics.py;
+ news_observation_facts::source_measurements_survive_canonical_emission;
+ news_observation_facts::empty_result_retains_supplied_and_effective_identity_without_extra_metadata;
+ scanner_news_identity_handoff::missing_names_stay_missing_and_security_ids_are_not_issuer_names.
+Total40 distinct focused test cases; no full/unrelated suite repetition or CI claim.
+
+Controls cover measured/unknown/empty/partial/deadline/source-failure results,
+metric-specific scopes, malformed values and non-dictionary payloads,24-source/
+50-symbol bounded work, exact8192-byte acceptance and8193-byte rejection including
+final metadata, explicit row/byte omissions, privacy canaries and projection
+failure. Actual fake fetch->adapter->service->existing event->canonical publication
+runs twice: first duplicate-bearing/matched/unmatched result preserves measured
+relevance reasons; second empty result replaces latest receipt while earlier event
+counts survive and fresh canonical article remains. Two issuer/result projections
+keep independent indices/counters. Operational duplicate count stays UNKNOWN.
+Actual maintenance emits one existing retrieval event, one PUBLISH, one RESULT;
+its compact receipts and canonical cache do not gain a second count store. Source
+result dataclass is unchanged before/after emission, extra classifier calls are
+forbidden, and all fixture worker cleanup is verified.
+
+Guarded historical-owner control executed the saved56b source IN MEMORY with a
+synthetic already-measured stale22 result: the required entry_counts field was
+absent (expected failing-before KeyError). Current projection retains measured
+counts. This proves a reporting gap, NOT a recovered BTOC observation or a changed
+classification/eligibility rule. Whitespace checks pass; no remote tools used.
+
+### Remaining limits and disposition
+
+BTOC's historical three22-entry/zero-match responses STILL have no retained
+examined/date/relevance breakdown. A historical-shaped fixture remains UNKNOWN;
+new projection cannot reconstruct old excluded entries. SEGG's captured fresh
+article still returns no_catalyst_classification at its original evaluation clock;
+no classifier broadening, timestamp change or partial-coverage approval is added.
+The successful2November final exit0/packagePASS/terminal safetyPASS, zero mutations
+and source/operator equality stand; prior failures remain failures. Natural
+positive catalyst->Focus->setup/trigger/raw-intent proof remains unestablished.
+Five unmatched positions/global ownership veto, GUI draft, separate cache and
+historical callback uncertainty, and PARKED/fail-closed listing provenance remain.
+
+This is a reviewable LOCAL implementation only; no push/PR merge/collection/run is
+authorized or performed. Review the local diff/head and focused controls before
+any later integration decision. No new operator block or observation retry.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## 2 November 2026 — Local review of bounded maintenance counts; reporting blockers corrected
+
+Reviewed requested clean local head41cfc17cc533886432ecc7342ef5c13d139509f7/tree
+a5e79d745201c77846d28fa08189a9e9f67a984f on fix/bounded-maintenance-entry-counts.
+Comparison to accepted runtimee39200729102df3e329ce75bbc3372a2e2d61faf separates
+649 inherited checkpoint lines (saved preparation/receipt/proposal through56b)
+from the implementation's127 checkpoint lines, one production file
+src/news/retrieval_diagnostics.py and two affected existing test modules. No other
+runtime owner, dependency or DEPRECATION_LEDGER change. Applicable instructions
+reviewed; no remote/network lookup, push, merge, acquisition or broker operation.
+Original40-test local receipt (26+14) and test definitions inspected/carried
+forward; NOT re-run for status or presented as CI/independent Windows validation.
+
+Three concrete reporting findings, not acquisition/classification defects:
+1. Research source_matches increments BEFORE duplicate/article-cap filtering,
+   while operational_query increments AFTER its duplicate skip. The submitted
+   projection used not_pre_dedup for both. Actual synthetic fetcher/adapter replay
+   of two identical entries returns one article but research matches2 vs
+   operational matches1. Fix ONLY the diagnostic scope: research
+   before_duplicate_and_article_cap_filtering; operational
+   after_duplicate_skip_before_retention; unmeasured/other tiers explicitly
+   unknown/unverified. Match units are entry_symbol_match_observations, never
+   a claim of unique articles or independent confirmations.
+2. An actual one-entry/two-unmatched-issuer fixture records issuer_match_unverified2
+   and per-symbol1/1. The values were measured correctly, but lacked units and
+   could be read as two distinct excluded articles. Added explicit units:
+   issuer_match_unverified and per-issuer relevance are entry_symbol_rejection_
+   observations; title/date first-rejection reasons are entry_rejection_observations;
+   date facets are entry_observations. No cross-category sum is introduced, and
+   a matched-to-one/unmatched-to-another article is never relabelled globally absent.
+3. The previous exhaustive-date check only bounded each facet by examined count.
+   A contradictory four-usable/zero-missing/five-examined receipt could still say
+   all_parser_entries. Date scope now also validates the THREE partitions explicitly
+   guaranteed by the existing fetcher: usable+missing_invalid=examined;
+   within_window+stale+future=usable; published_used+updated_used=usable. Missing
+   or inconsistent facets yield date scopeUNKNOWN. Original values remain visible,
+   without clamping or rewriting. Missing-title/relevance/rejection facets overlap
+   these partitions and are NOT summed into a false exclusion/article total.
+
+The definitive four-case review control failed before correction (research scope,
+more precise operational scope, missing rejection units, inconsistent date scope)
+and passed afterward. Initial fixture setup needed its existing presentation_limit
+and adapter source-group binding; those fixture errors are not production findings.
+Only reporting metadata/validation in the existing projector changed. Fetcher,
+adapter, service, maintenance, canonical store, catalyst policy/lifecycle and
+all selection/ownership/deadline rules remain byte-identical to submitted41c.
+
+Additional focused review validation:9 passed0.85s,15 deselected. Four new controls
+above plus five affected existing controls: exact8192-byte boundary/final metadata;
+row/byte omissions; privacy/malformed objects; two actual synthetic service results
+with canonical retention/latest-receipt change; empty/failure/partial/unknown scope.
+No original40-suite repetition or unrelated tests. Existing original-result
+immutability, cleanup/publication, classifier-call prohibition and historical
+BTOC/SEGG controls were inspected and remain unchanged.
+
+Final audit of behavior/safety contract:
+- Copy actual parser/examined/date/relevance measurements; UNKNOWN is not default0.
+  Ordinary/old schemas and incomplete traversal cannot certify exhaustive counts.
+  Operational duplicates/pre-dedup/classification counts stayUNKNOWN. Existing
+  mixed units remain distinct; no summed exclusion statistic or new article count.
+- At most24 candidates inspected/expanded; actual additional key/wrapper, rows,
+  unit labels and final omission metadata pass8192 UTF8 bytes. Whole rows are
+  omitted under pressure, with row/byte/error/symbol omission counters. No bytes
+  are silently clipped. Issuer-query reporting priority is not request scheduling.
+  Cap applies to added projection only, not the inherited entire diagnostic event.
+- New text is fixed unit/scope labels or validated UTC facts; other values are
+  finite bounded counts/indices/booleans/null. No arbitrary key/object/sample,
+  article content/query/hash/account or raw exception serialization was added.
+- Projection exceptions remain a visible fixed error marker; source result object,
+  matching, canonical publication and classification are untouched. Existing
+  stdout failure/owned cleanup behavior is not bypassed. Bounded reporting work
+  has a cost, but no deadline is changed/renewed or performance improvement claimed.
+- qualification_evaluated=false remains explicit; no second event stream, store,
+  canonical writer, classifier invocation or trading permission. No new runtime run.
+
+Local acceptance recommendation: accept the corrected code for subsequent
+integration review; no remaining demonstrated local code blocker. Exact fixed
+implementation head/tree and final documentation-only receipt are recorded below.
+Remote CI/Windows acceptance and integration are NOT claimed/authorized here.
+BTOC historical UNKNOWN, SEGG's original no_catalyst_classification, successful
+2November exit0/packagePASS/terminal safetyPASS/zero mutations/source/operator
+equality, five-position global veto, GUI draft, all failed receipts, separate
+cache/callback uncertainties and PARKED listing provenance remain unchanged.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+Exact corrected implementation review receipt (LOCAL):
+head e4a9f331146a0a324ff1bbeb102f86eb18c20843;
+tree d4623cf18703ab2fdad6c482892088ad35a61dc7.
+Reviewed its committed diff after the nine focused controls: fixed scope labels,
+per-reason units and date-partition consistency only; no remaining local blocker.
+Verified literal24/8192 limits, original event/status serialization and guarded
+projection error boundary, unchanged acquisition/matching/canonical/classifier/
+maintenance/ownership owner blobs against accepted runtime, and original41c
+checkpoint prefix retained byte-for-byte. Only the diagnostic owner, its two
+existing test modules and this SAME checkpoint differ from accepted runtime.
+The final delivery adds this receipt as a documentation-only commit; source/test
+blob identity is checked again at that exact final head, without redundant tests.
+Final delivery head/tree are provided in the accompanying review response.
+Recommendation: locally acceptable corrected candidate for a separately authorized
+integration process; no push, CI run, merge, collection or observation authorized.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## 2 November 2026 — reviewed maintenance diagnostics published for CI acceptance
+
+Authorized publication only: draft PR1147,
+https://github.com/NelzonMamani/ibkr-trading-system/pull/1147.
+Verified clean published implementation head
+23c4d3e45a8b4da54fcee66dbd97cd66c3877f30 and tree
+8ec8c8aaff05448a853a2c81cd6834fb939ae5f7. Fresh fetch found main unchanged
+from accepted e39200729102df3e329ce75bbc3372a2e2d61faf / tree
+846cbeeba42cfc708177b7bb390bc9c450b1cefa. No rebase or baseline substitution.
+The PR contains only the existing diagnostic owner, two existing test modules
+and this checkpoint. Inherited preparation/receipt/proposal documentation is
+separate from the bounded diagnostic implementation and its local review.
+
+Carry forward the original40 local checks and nine additional review checks
+above; no redundant local suite rerun. Three review corrections preserve actual
+research/operational counting stages, distinguish entry from entry-symbol units,
+and withhold exhaustive date scope for inconsistent producer partitions.
+These are LOCAL review/test receipts, not independent approval or CI acceptance.
+
+Required unchanged repository workflow run41529030727 was triggered on the
+published implementation. Verification-scope passed; full Linux and Windows
+jobs were still running when this publication receipt was written. Windows
+coverage includes news maintenance, cache controls and actual PowerShell stub
+orchestration. No Windows/CI success is claimed while pending. Final run/job
+results and exact final candidate identity are to be recorded on PR1147 and
+in the delivery receipt; this documentation-only follow-up does not change
+reviewed source/test blobs. Preserve failed runs if any; a later pass does not
+resolve the separately documented unclassified Windows cache failure.
+
+No merge, provider/broker collection, preflight or observation was performed.
+BTOC's historical exclusion breakdown remains UNKNOWN; SEGG's captured article
+and conservative no_catalyst_classification outcome remain unchanged. Preserve
+the successful2November safety/exit0 receipt, all historical failures, five
+unmatched-position protections, GUI draft, separate cache/callback uncertainty
+and PARKED/fail-closed listing provenance. Next gate: inspect required exact-head
+CI results and return this draft candidate for integration review, without merge.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
