@@ -167,22 +167,38 @@ def _entry_row(item, index, symbols):
     reason_measured = any(value is not None for value in reason_counts.values())
     issuer_measured = any(row['count'] is not None for row in issuer_counts)
     utc_facts = {key: _utc_fact(raw.get(key)) for key in _DATE_FACTS}
+    # Only these date facets are producer-defined partitions. Title/relevance/
+    # rejection facets overlap and must never be added into an article total.
+    dates_consistent = (examined is not None
+        and all(v is not None and v <= examined for v in dates.values())
+        and dates['usable_dates'] + dates['missing_invalid_dates'] == examined
+        and dates['within_window'] + dates['stale_entries'] + dates['future_entries'] == dates['usable_dates']
+        and dates['published_time_used'] + dates['updated_time_used'] == dates['usable_dates'])
+    matched = _count(item.matched_count) if examined is not None else None
+    match_scope = ('unknown' if matched is None else
+                   'before_duplicate_and_article_cap_filtering' if item.source_tier == 'research' else
+                   'after_duplicate_skip_before_retention' if item.source_tier == 'operational_query' else
+                   'existing_source_counter_semantics_unverified')
     return {
         'source_index': index,
         'parser_entries': parsed, 'entries_examined': examined,
         'processing_truncated': truncated, 'traversal_scope': traversal,
         'date_counts': dates if any(v is not None for v in dates.values()) else None,
-        'date_counts_scope': traversal if (examined is not None and
-            all(v is not None and v <= examined for v in dates.values())) else 'unknown',
+        'date_counts_scope': traversal if dates_consistent else 'unknown',
+        'date_count_units': 'entry_observations',
         'utc_facts': {key: value for key, value in utc_facts.items() if value is not None} or None,
         'issuer_rejections': issuer_counts if issuer_measured else None,
         'issuer_rejections_scope': 'compared_time_valid_entries' if issuer_measured else 'unknown',
+        'issuer_rejection_units': 'entry_symbol_rejection_observations',
         'issuer_rejections_traversal_scope': traversal if issuer_measured else 'unknown',
         'reason_counts': reason_counts if reason_measured else None,
         'reason_counts_scope': 'instrumented_first_rejections' if reason_measured else 'unknown',
+        'reason_count_units': {key: ('entry_symbol_rejection_observations' if key == 'issuer_match_unverified'
+                                    else 'entry_rejection_observations') for key in sorted(REASONS)}
+                              if reason_measured else None,
         'reason_counts_traversal_scope': traversal if reason_measured else 'unknown',
-        'matched_count': _count(item.matched_count) if examined is not None else None,
-        'matched_count_scope': 'existing_source_match_semantics_not_pre_dedup',
+        'matched_count': matched, 'matched_count_scope': match_scope,
+        'matched_count_units': 'entry_symbol_match_observations' if matched is not None else None,
         'duplicate_exclusions': None, 'pre_dedup_issuer_matches': None,
         'classification_exclusions': None, 'unmeasured_counts_scope': 'not_collected_by_this_projection',
         'transport_cache_hit': _flag(raw.get('transport_cache_hit')),

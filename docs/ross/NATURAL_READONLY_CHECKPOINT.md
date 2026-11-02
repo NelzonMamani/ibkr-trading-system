@@ -12119,3 +12119,88 @@ This is a reviewable LOCAL implementation only; no push/PR merge/collection/run 
 authorized or performed. Review the local diff/head and focused controls before
 any later integration decision. No new operator block or observation retry.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## 2 November 2026 — Local review of bounded maintenance counts; reporting blockers corrected
+
+Reviewed requested clean local head41cfc17cc533886432ecc7342ef5c13d139509f7/tree
+a5e79d745201c77846d28fa08189a9e9f67a984f on fix/bounded-maintenance-entry-counts.
+Comparison to accepted runtimee39200729102df3e329ce75bbc3372a2e2d61faf separates
+649 inherited checkpoint lines (saved preparation/receipt/proposal through56b)
+from the implementation's127 checkpoint lines, one production file
+src/news/retrieval_diagnostics.py and two affected existing test modules. No other
+runtime owner, dependency or DEPRECATION_LEDGER change. Applicable instructions
+reviewed; no remote/network lookup, push, merge, acquisition or broker operation.
+Original40-test local receipt (26+14) and test definitions inspected/carried
+forward; NOT re-run for status or presented as CI/independent Windows validation.
+
+Three concrete reporting findings, not acquisition/classification defects:
+1. Research source_matches increments BEFORE duplicate/article-cap filtering,
+   while operational_query increments AFTER its duplicate skip. The submitted
+   projection used not_pre_dedup for both. Actual synthetic fetcher/adapter replay
+   of two identical entries returns one article but research matches2 vs
+   operational matches1. Fix ONLY the diagnostic scope: research
+   before_duplicate_and_article_cap_filtering; operational
+   after_duplicate_skip_before_retention; unmeasured/other tiers explicitly
+   unknown/unverified. Match units are entry_symbol_match_observations, never
+   a claim of unique articles or independent confirmations.
+2. An actual one-entry/two-unmatched-issuer fixture records issuer_match_unverified2
+   and per-symbol1/1. The values were measured correctly, but lacked units and
+   could be read as two distinct excluded articles. Added explicit units:
+   issuer_match_unverified and per-issuer relevance are entry_symbol_rejection_
+   observations; title/date first-rejection reasons are entry_rejection_observations;
+   date facets are entry_observations. No cross-category sum is introduced, and
+   a matched-to-one/unmatched-to-another article is never relabelled globally absent.
+3. The previous exhaustive-date check only bounded each facet by examined count.
+   A contradictory four-usable/zero-missing/five-examined receipt could still say
+   all_parser_entries. Date scope now also validates the THREE partitions explicitly
+   guaranteed by the existing fetcher: usable+missing_invalid=examined;
+   within_window+stale+future=usable; published_used+updated_used=usable. Missing
+   or inconsistent facets yield date scopeUNKNOWN. Original values remain visible,
+   without clamping or rewriting. Missing-title/relevance/rejection facets overlap
+   these partitions and are NOT summed into a false exclusion/article total.
+
+The definitive four-case review control failed before correction (research scope,
+more precise operational scope, missing rejection units, inconsistent date scope)
+and passed afterward. Initial fixture setup needed its existing presentation_limit
+and adapter source-group binding; those fixture errors are not production findings.
+Only reporting metadata/validation in the existing projector changed. Fetcher,
+adapter, service, maintenance, canonical store, catalyst policy/lifecycle and
+all selection/ownership/deadline rules remain byte-identical to submitted41c.
+
+Additional focused review validation:9 passed0.85s,15 deselected. Four new controls
+above plus five affected existing controls: exact8192-byte boundary/final metadata;
+row/byte omissions; privacy/malformed objects; two actual synthetic service results
+with canonical retention/latest-receipt change; empty/failure/partial/unknown scope.
+No original40-suite repetition or unrelated tests. Existing original-result
+immutability, cleanup/publication, classifier-call prohibition and historical
+BTOC/SEGG controls were inspected and remain unchanged.
+
+Final audit of behavior/safety contract:
+- Copy actual parser/examined/date/relevance measurements; UNKNOWN is not default0.
+  Ordinary/old schemas and incomplete traversal cannot certify exhaustive counts.
+  Operational duplicates/pre-dedup/classification counts stayUNKNOWN. Existing
+  mixed units remain distinct; no summed exclusion statistic or new article count.
+- At most24 candidates inspected/expanded; actual additional key/wrapper, rows,
+  unit labels and final omission metadata pass8192 UTF8 bytes. Whole rows are
+  omitted under pressure, with row/byte/error/symbol omission counters. No bytes
+  are silently clipped. Issuer-query reporting priority is not request scheduling.
+  Cap applies to added projection only, not the inherited entire diagnostic event.
+- New text is fixed unit/scope labels or validated UTC facts; other values are
+  finite bounded counts/indices/booleans/null. No arbitrary key/object/sample,
+  article content/query/hash/account or raw exception serialization was added.
+- Projection exceptions remain a visible fixed error marker; source result object,
+  matching, canonical publication and classification are untouched. Existing
+  stdout failure/owned cleanup behavior is not bypassed. Bounded reporting work
+  has a cost, but no deadline is changed/renewed or performance improvement claimed.
+- qualification_evaluated=false remains explicit; no second event stream, store,
+  canonical writer, classifier invocation or trading permission. No new runtime run.
+
+Local acceptance recommendation: accept the corrected code for subsequent
+integration review; no remaining demonstrated local code blocker. Exact fixed
+implementation head/tree and final documentation-only receipt are recorded below.
+Remote CI/Windows acceptance and integration are NOT claimed/authorized here.
+BTOC historical UNKNOWN, SEGG's original no_catalyst_classification, successful
+2November exit0/packagePASS/terminal safetyPASS/zero mutations/source/operator
+equality, five-position global veto, GUI draft, all failed receipts, separate
+cache/callback uncertainties and PARKED listing provenance remain unchanged.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.

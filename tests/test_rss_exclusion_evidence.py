@@ -1,8 +1,10 @@
 """Controlled response replay: unchanged freshness/matching and bounded diagnostics."""
 from datetime import datetime, timezone
+from dataclasses import replace
 from email.utils import formatdate
 import json
 import time
+import pytest
 from types import SimpleNamespace as NS
 
 from src.news import news_fetcher as fetcher
@@ -411,3 +413,64 @@ def test_inconsistent_date_measurement_cannot_claim_exhaustive_date_counts():
     row=_entry_counts_projection(_count_result([source]),True)['rows'][0]
     assert row['date_counts']['within_window']==999  # preserve reported fact, no clamping
     assert row['date_counts_scope']=='unknown'
+
+
+# Additional exact-head review controls: units and cross-facet consistency.
+
+
+@pytest.mark.parametrize('tier,expected,scope',[
+    ('research',2,'before_duplicate_and_article_cap_filtering'),
+    ('operational_query',1,'after_duplicate_skip_before_retention'),
+])
+def test_review_match_counter_scope_follows_actual_fetcher_mode(monkeypatch,tier,expected,scope):
+    from src.news.batch_rss_adapter import _source_diagnostics_from_summary
+    from src.news.retrieval_diagnostics import _entry_counts_projection
+    from src.news.news_intelligence_contract import NewsRequest
+    from src.strategies.ross_momentum.policy.catalyst_policy import select_qualification_evidence
+    entry=NS(title='CLIK reports earnings beat',link='https://fixture.invalid/a',
+             published_parsed=time.gmtime(time.time()-60))
+    monkeypatch.setattr(fetcher,'_fetch_feed',lambda *args:NS(version='rss20',bozo=False,
+        entries=[entry,entry],feed={}))
+    url='https://fixture.invalid/feed'
+    articles,summary=fetcher.fetch_headlines_for_symbols(['CLIK'],[url],lookback_hours=6,
+        source_tier=tier,source_groups_by_url={url:'ROSS_ISSUER_QUERY'},
+        retention_selector=select_qualification_evidence,
+        retention_request=NewsRequest(max_evidence_per_symbol=5,metadata={'presentation_limit':5}),
+        symbol_metadata={'CLIK':{'company_name':'Click Holdings'}})
+    assert len(articles['CLIK'])==1
+    row=_entry_counts_projection(_count_result(_source_diagnostics_from_summary(summary)),True)['rows'][0]
+    assert row['matched_count']==expected
+    assert row['matched_count_scope']==scope
+    assert row['matched_count_units']=='entry_symbol_match_observations'
+    assert row['duplicate_exclusions'] is None
+
+
+def test_review_multiissuer_rejections_are_comparisons_not_unique_articles(monkeypatch):
+    from src.news.batch_rss_adapter import _source_diagnostics_from_summary
+    from src.news.retrieval_diagnostics import _entry_counts_projection
+    from src.news.news_intelligence_contract import NewsRequest
+    from src.strategies.ross_momentum.policy.catalyst_policy import select_qualification_evidence
+    entry=NS(title='Different company reports earnings',link='https://fixture.invalid/a',
+             published_parsed=time.gmtime(time.time()-60))
+    monkeypatch.setattr(fetcher,'_fetch_feed',lambda *args:NS(version='rss20',bozo=False,entries=[entry],feed={}))
+    url='https://fixture.invalid/feed'
+    _,summary=fetcher.fetch_headlines_for_symbols(['CLIK','OTHER'],[url],lookback_hours=6,
+        source_tier='operational_query',source_groups_by_url={url:'ROSS_ISSUER_QUERY'},
+        retention_selector=select_qualification_evidence,retention_request=NewsRequest(),
+        symbol_metadata={'CLIK':{'company_name':'Click Holdings'},'OTHER':{'company_name':'Other Issuer'}})
+    sources=tuple(replace(source,source_group='ROSS_ISSUER_QUERY')
+                  for source in _source_diagnostics_from_summary(summary))
+    row=_entry_counts_projection(_count_result(sources,('CLIK','OTHER')),True)['rows'][0]
+    assert row['entries_examined']==1 and row['reason_counts']['issuer_match_unverified']==2
+    assert [x['count'] for x in row['issuer_rejections']]==[1,1]
+    assert row['reason_count_units']['issuer_match_unverified']=='entry_symbol_rejection_observations'
+    assert row['reason_count_units']['missing_title']=='entry_rejection_observations'
+
+
+def test_review_contradictory_date_partitions_do_not_certify_exhaustive_scope():
+    from src.news.retrieval_diagnostics import _entry_counts_projection
+    source=_measured_source()
+    source.entry_diagnostics['missing_invalid_dates']=0  # four usable+zero missing !=five examined
+    row=_entry_counts_projection(_count_result([source]),True)['rows'][0]
+    assert row['date_counts_scope']=='unknown'
+    assert row['date_counts']['missing_invalid_dates']==0  # no clamping/rewriting
