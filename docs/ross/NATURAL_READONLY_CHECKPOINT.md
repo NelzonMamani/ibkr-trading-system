@@ -12221,3 +12221,41 @@ Final delivery head/tree are provided in the accompanying review response.
 Recommendation: locally acceptable corrected candidate for a separately authorized
 integration process; no push, CI run, merge, collection or observation authorized.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## 2 November 2026 — reviewed maintenance diagnostics published for CI acceptance
+
+Authorized publication only: draft PR1147,
+https://github.com/NelzonMamani/ibkr-trading-system/pull/1147.
+Verified clean published implementation head
+23c4d3e45a8b4da54fcee66dbd97cd66c3877f30 and tree
+8ec8c8aaff05448a853a2c81cd6834fb939ae5f7. Fresh fetch found main unchanged
+from accepted e39200729102df3e329ce75bbc3372a2e2d61faf / tree
+846cbeeba42cfc708177b7bb390bc9c450b1cefa. No rebase or baseline substitution.
+The PR contains only the existing diagnostic owner, two existing test modules
+and this checkpoint. Inherited preparation/receipt/proposal documentation is
+separate from the bounded diagnostic implementation and its local review.
+
+Carry forward the original40 local checks and nine additional review checks
+above; no redundant local suite rerun. Three review corrections preserve actual
+research/operational counting stages, distinguish entry from entry-symbol units,
+and withhold exhaustive date scope for inconsistent producer partitions.
+These are LOCAL review/test receipts, not independent approval or CI acceptance.
+
+Required unchanged repository workflow run41529030727 was triggered on the
+published implementation. Verification-scope passed; full Linux and Windows
+jobs were still running when this publication receipt was written. Windows
+coverage includes news maintenance, cache controls and actual PowerShell stub
+orchestration. No Windows/CI success is claimed while pending. Final run/job
+results and exact final candidate identity are to be recorded on PR1147 and
+in the delivery receipt; this documentation-only follow-up does not change
+reviewed source/test blobs. Preserve failed runs if any; a later pass does not
+resolve the separately documented unclassified Windows cache failure.
+
+No merge, provider/broker collection, preflight or observation was performed.
+BTOC's historical exclusion breakdown remains UNKNOWN; SEGG's captured article
+and conservative no_catalyst_classification outcome remain unchanged. Preserve
+the successful2November safety/exit0 receipt, all historical failures, five
+unmatched-position protections, GUI draft, separate cache/callback uncertainty
+and PARKED/fail-closed listing provenance. Next gate: inspect required exact-head
+CI results and return this draft candidate for integration review, without merge.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
