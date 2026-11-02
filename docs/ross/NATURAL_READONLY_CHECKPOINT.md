@@ -12297,3 +12297,62 @@ Windows cache-write failure. BTOC historical UNKNOWN, SEGG conservative outcome,
 GUI draft, callback uncertainty and PARKED listing provenance remain preserved.
 No provider/broker collection, preflight or observation was run.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+### PR1147 independent exact-head integration review — 2 November 2026
+
+Independent reviewer /root/pr1147_independent examined literal candidate
+d5476ee86d6d481696642ccf8cb76721cd8ac81c / tree
+04a58818e178764c28e0fecab472fe1dbbbc0154 against exact base
+e39200729102df3e329ce75bbc3372a2e2d61faf. GitHub PR1147 remains draft/open,
+head/base unchanged; clean local candidate. Independent review COMMENT5744817370
+records the separate agent assessment, not the previous local receipt5743678736
+and not a human or GitHub APPROVE vote. No integration-blocking finding.
+
+Producer trace: news_fetcher.py process_feed research observations increment
+before duplicate/article-cap filtering; operational matching increments after
+duplicate skip/before retention. Issuer rejections are entry-symbol comparisons,
+not unique articles; date/title facets overlap and are not summed into an invented
+exclusion total. Default matched_count0 cannot become a measured zero on current
+failure paths: only completed process_feed returns carry examined measurements,
+and the caller explicitly supplies actual matched_count; HTTP/deadline/missing
+feed/outstanding rows have no examined count and project UNKNOWN. A truncated
+process_feed return remains partial, not certified exhaustive.
+
+Independent checks confirmed retrieval_diagnostics.py date partition validation
+withholds exhaustive scope for missing/malformed/contradictory facets without
+rewriting producer numbers. Partial traversal is labelled examined_prefix;
+operational duplicates and classification stay UNKNOWN and qualification remains
+unevaluated. At most24 source candidates/50 symbol indices are inspected; the
+complete added projection key/wrapper, row fields and final omission metadata
+fit8192 UTF8 bytes. Metadata growth can evict whole rows with explicit omissions;
+wrapper accounting is conservatively one byte larger than actual event addition.
+Fixed labels/bounded numbers/booleans/null and normalized UTC facts only: no
+article text/body/query/hash/account/free-form exception or arbitrary mapping
+keys enter the added fields. Content-free projection failures leave acquisition,
+matching, publication, classification, deadlines and decisions with their existing
+owners. No second stream/store/canonical writer or policy/ownership change.
+
+Reviewed diff separates649 inherited preparation/receipt/proposal checkpoint
+lines from267 subsequent implementation/local-review/publication lines. Only167
+production lines in the existing diagnostic owner and two existing test modules
+change outside documentation. DEPRECATION_LEDGER unchanged; no actual retirement.
+Original40 and additional9 local controls, byte-boundary/privacy/error controls
+and actual service/maintenance integration tests were inspected. No concrete gap
+justified rerunning passing suites; no test/source changes were made this review.
+
+Fresh GitHub check: required CI41529402297 SUCCESS, verification-scope125565408519,
+Linux125565722440 and Windows125565722607 all successful. Linux3669 passed/3 skipped;
+Windows3671 passed/1 skipped plus required focused news/cache and actual PowerShell
+controls, as recorded above. Exact tested merge0ce7f7ec8f4b2c376cc65106929df30221fa2ca0
+has expected base/candidate parents and tree04a58818e178764c28e0fecab472fe1dbbbc0154.
+No CI rerun, baseline substitution, merge, collection, preflight or observation.
+
+Recommendation: accept exact d5476ee8/tree04a58818 for separately authorized
+controlled integration, rechecking refs before acting. No demonstrated remaining
+code blocker. This receipt stays on the existing docs/pr1147-ci-acceptance branch
+so the independently reviewed/tested PR head is unchanged; no competing checklist
+or second PR. Natural qualifying catalyst-to-raw-intent formation remains unproven.
+Preserve BTOC historical UNKNOWN, SEGG conservative outcome, successful observation,
+five-position global veto, all failures/saved branches, GUI draft, unresolved
+cache/callback causes and PARKED/fail-closed listing provenance.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
