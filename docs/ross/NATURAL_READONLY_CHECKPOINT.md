@@ -12356,3 +12356,62 @@ Preserve BTOC historical UNKNOWN, SEGG conservative outcome, successful observat
 five-position global veto, all failures/saved branches, GUI draft, unresolved
 cache/callback causes and PARKED/fail-closed listing provenance.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+### PR1147 controlled integration receipt — 2 November 2026
+
+Explicit user authorization applied to PR1147 only. Immediately before marking
+ready/merging, GitHub head d5476ee86d6d481696642ccf8cb76721cd8ac81c and base
+e39200729102df3e329ce75bbc3372a2e2d61faf remained exact. Independent review
+5744817370 was fetched by numeric ID and verified commit_id=d5476ee8, with no
+blocker; it remains an independent-agent COMMENT, not a human APPROVE vote.
+No unresolved review threads or REQUEST_CHANGES findings. All current check-runs
+(verification-scope, test, windows-offline) SUCCESS; CI41529402297 completed
+SUCCESS. Tested merge0ce7f7ec tree04a58818 equalled candidate tree. Branch metadata
+reported main unprotected/status enforcement off with no required contexts;
+repository rulesets empty, mergeable_state=clean. No protection was changed or
+bypassed. Repository allows merge commits, consistent with prior accepted merges.
+No passing suites were repeated and no baseline/head was substituted.
+
+Marked ready; used GitHub merge method MERGE with literal expected-head guard
+d5476ee86d6d481696642ccf8cb76721cd8ac81c. GitHub confirms merged at
+2026-11-02T23:23:17Z (Europe/London GMT). Accepted main/runtime pin:
+a66b43f2b44d98405d1dc30bc62f8c359a5f3fbc.
+Accepted tree:04a58818e178764c28e0fecab472fe1dbbbc0154.
+Fresh fetch confirms main equals that merge commit; parents are exact former
+base e3920072 and reviewed head d5476ee8. Full tree diff against candidate is
+empty. This integrates the bounded diagnostics only, not a readiness upgrade.
+
+Carry forward complete CI and independent-review receipts from the existing
+docs/pr1147-ci-acceptance branch (44c25e23 and5d081916), with this receipt appended
+to the SAME checkpoint. Documentation branch remains separate from accepted main;
+no second merge/PR or competing checklist/module is authorized here. Original
+checkout, GUI draft, saved branches and historical evidence are preserved.
+
+ONE next evidence step (recommendation only, not executed/authorized by this
+integration): prepare a single900-second natural READ_ONLY observation using the
+existing acceptance preparation/helper/harness at literal a66b43f2/tree04a58818,
+for a separately selected eligible normal session. Defined information gain is
+the newly retained bounded per-result parsed/examined/date/issuer-rejection facts:
+separate provider/deadline coverage failure from measured stale/date/identity
+exclusions and UNKNOWNs, then correlate canonical qualification and cached
+reconsideration with natural Focus, genuine fresh timeframe inputs, real setup/
+trigger and raw intent. This is a changed-evidence observation, not an unchanged
+run solely hoping for a catalyst. Retain explicit partial/truncated/unknown
+coverage; acquisition exclusions are not canonical catalyst classification.
+
+Completion criterion for the future evidence review: a sealed safety-valid
+receipt with per-result exclusion scopes, source coverage and stage progression
+accounted for. Natural raw intent followed by POSITION_TRUTH_BLOCK_NEW_ENTRIES
+may prove formation; zero downstream risk admission remains expected under the
+five unmatched positions' global veto AFTER formation/BEFORE canonical artifact
+and risk admission. Absence of a qualifying opportunity establishes no positive
+formation proof and grants no automatic retry. No execution/positive risk/PAPER
+certification. No operator block, preflight, acquisition, broker call, observation,
+holdings action or trading was executed during this integration.
+
+BTOC historical UNKNOWN and SEGG's captured no_catalyst_classification remain
+unchanged; successful2November exit0/packagePASS/terminal safetyPASS/zero mutations
+and source/operator equality are preserved. Keep all historical failures, five
+positions and ownership policy, separate unclassified news-cache failure,
+unresolved historical callback causes, GUI draft and PARKED/fail-closed provenance.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
