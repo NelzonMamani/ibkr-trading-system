@@ -12259,3 +12259,41 @@ unmatched-position protections, GUI draft, separate cache/callback uncertainty
 and PARKED/fail-closed listing provenance. Next gate: inspect required exact-head
 CI results and return this draft candidate for integration review, without merge.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+### PR1147 final CI acceptance receipt — 2 November 2026
+
+Final published draft candidate: fix/bounded-maintenance-entry-counts,
+head d5476ee86d6d481696642ccf8cb76721cd8ac81c,
+tree 04a58818e178764c28e0fecab472fe1dbbbc0154.
+Only checkpoint publication documentation differs from reviewed23c4d3e4;
+source/test blobs remain identical. Local exact-head COMMENT review5743678736
+records that check and the carried-forward40+9 controls; it is not independent
+approval. No additional implementation defect was demonstrated by CI.
+
+Required workflow41529402297 completed SUCCESS on the final candidate's tested
+merge0ce7f7ec8f4b2c376cc65106929df30221fa2ca0. Fetched merge tree exactly equals
+04a58818e178764c28e0fecab472fe1dbbbc0154. Main remains accepted e39200729102df3e329ce75bbc3372a2e2d61faf.
+- Verification-scope125565408519: success; full required selection retained.
+- Linux125565722440:3669 passed,3 skipped,4 warnings in227.38s.
+- Windows125565722607:3671 passed,1 skipped,268 warnings in525.45s.
+  Focused final-order controls95 passed; news maintenance37 passed; float-cache
+  controls9 passed; serial manifest/admission40 passed. Required cache startup,
+  actual Windows PowerShell exit propagation and observation stub orchestration
+  (46 checks), real package12/preflight5 synthetic cases, and quote parser passed.
+  Expected child failures inside fail-closed harness controls are not failed jobs.
+- Earlier published23c workflow41529030727 also succeeded (Linux3669/3 skipped;
+  Windows3671/1 skipped), retained as a separate receipt. No manual unchanged-head
+  rerun or workflow-selection change was made. Automatic publication-follow-up CI
+  tested the documentation-only final head as well.
+
+This final receipt is saved on docs/pr1147-ci-acceptance so the tested PR1147
+head remains unchanged; it updates this SAME authoritative checkpoint, not a
+competing checklist. PR1147 conversation carries these final receipts. No merge
+is authorized/performed. Recommend integration review of literal d5476ee8/tree
+04a58818, checking main/head remain unchanged before any separately authorized
+integration. Passing cache controls do not classify or resolve the historical
+Windows cache-write failure. BTOC historical UNKNOWN, SEGG conservative outcome,
+2November successful observation, five-position veto, all failed receipts,
+GUI draft, callback uncertainty and PARKED listing provenance remain preserved.
+No provider/broker collection, preflight or observation was run.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
