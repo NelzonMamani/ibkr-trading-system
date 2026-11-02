@@ -11992,3 +11992,130 @@ Static inspection establishes the projection gap. Review these bounds and explic
 UNKNOWN/non-goal fields BEFORE authorizing implementation. No future collection
 or unchanged observation retry is authorized by accepting this document alone.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## 2 November 2026 — Bounded per-result exclusion projection IMPLEMENTED LOCALLY; no collection
+
+User authorized implementation of local proposal56b8ef4a4eea3f55e52b65b852c61dc83446a0ee.
+Local branch fix/bounded-maintenance-entry-counts; no push, merge, provider/broker
+call, observation/preflight or data refresh. Applicable AGENTS search found none;
+DEPRECATION_LEDGER read/unchanged (no retirement or canonical ownership change).
+All historical checkpoint content above is preserved byte-for-byte.
+
+### Exact change and unchanged owners
+
+Production change ONLY src/news/retrieval_diagnostics.py. The existing
+[NEWS][RETRIEVAL_DIAGNOSTICS] per-result event (already emitted by the canonical
+service during maintenance) receives additive entry_counts under the SAME
+news.retrieval_diagnostics.v1 envelope. No new event stream, result store, schema
+owner, parser, provider or classification pipeline. Existing maintenance PUBLISH/
+RESULT events and128-result ring are unchanged: no duplicate projection blob.
+Post-cleanup RESULT still owns completed/published/failed/cleanup distinctions;
+PUBLISH remains canonical_result_marker, not an article/qualification assertion.
+
+Projection uses existing fetcher/adapter ResearchSourceDiagnostic measurements:
+parser_entries, entries_examined, measured date facets, five existing RSS first-
+rejection reasons, per-current-symbol relevance rejection counts, and safe parsed
+UTC evaluation/window/publication-range facts. Source indices refer to the same
+event's existing source rows; symbol indices refer to its existing sanitized symbol
+list (max50 in the added projection). No adjacency/latest-cache join is needed.
+Original source completion/HTTP/timeout/deadline/response-closure/status/timing
+fields are untouched. Parser count is not pre-parser/wire items or exhaustive
+issuer search. Existing operational matched_count semantics stay post-dedup/
+before retention; when no examination is measured, the new matched_count is null,
+not the legacy default0. Original source matched_count remains unchanged.
+
+Missing/bad/noninteger/negative/boolean/nonfinite/oversized counter values are
+null; missing reason keys are not fabricated0. Absent or non-dictionary metadata
+is UNKNOWN without calling custom mapping/string methods. Invalid/naive/free-text
+UTC facts are omitted, never used to replace canonical timestamps. Date, relevance
+and instrumented-first-rejection scopes remain separate. all_parser_entries
+requires positive worker completion, available status, known equal parsed/examined
+counts and explicitly false processing_truncated. Known partial processing is
+examined_prefix; missing completion/schema is unknown. Date-facet contradictions
+keep reported counts but cannot claim exhaustive date scope. Relevance covers
+compared time-valid entries, not every article; reason histograms only the existing
+instrumented first-rejection paths. Overlapping facets are never summed into an
+invented exclusive accounting equation. No source/search coverage gate is inferred.
+
+Operational duplicates, pre-dedup issuer matches and classification exclusions
+remain null/not collected by this projection. qualification_evaluated=false is
+explicit; no classifier call is added and canonical policy/handoff remains separate.
+Known transport-cache reuse is distinct from a fresh request. A missing/default
+http_request_attempted=false with unknown transport_cache_hit becomes UNKNOWN in
+the added projection, never proof of no send. Cache-only/provider-not-invoked
+results emit not_collected_this_result, not stale counts as fresh parsing evidence.
+
+Hard bounds: at most24 source rows INSPECTED/expanded and8192 UTF8 bytes for the
+ADDITIONAL projection including its key/wrapper/omission metadata; not a claim the
+entire pre-existing event is8KiB. Only the first24 source candidates are inspected;
+issuer-query candidates among these are ordered first for REPORT capacity only,
+so ordinary fixed-feed fields cannot starve the BTOC-style issuer row. Actual
+source/request order, membership, concurrency, fanout and budgets are unchanged.
+Whole optional rows are omitted on byte pressure, never clipped counters. Final
+metadata size is rechecked. Sources total/emitted/omitted, row/byte/error omissions,
+symbol omissions, truncation and unknown omitted-byte total are explicit. All
+original source-status rows remain in the original event even when added count
+rows are omitted. A projection error emits a fixed content-free projection_error
+marker, not private exception text or a changed acquisition outcome; original
+stdout/log failure behavior and owned cleanup remain unchanged.
+
+The added projection serializes NO titles, summaries, bodies, article URLs,
+queries, identity patterns, hashes, account identifiers or free-form errors. It
+reads fixed fields only, not exclusion samples or arbitrary raw objects. Existing
+query-stripped source labels, privacy scanning/sealing and canonical-store privacy
+contracts remain; no raw capture or operational cache export is added.
+
+### Focused offline controls and results (local, not CI/natural acceptance)
+
+Affected existing modules extended: tests/test_rss_exclusion_evidence.py and
+ tests/test_independent_news_maintenance.py. Synthetic parser responses/private
+fixture caches only, with existing offline network/native-broker guards. No real
+provider requests, broker connections, mutations or execution submissions.
+
+26 focused controls passed1.00s: entire RSS exclusion module plus new actual
+maintenance/service/adapter result control and affected unavailable-marker,
+failed-publication, cleanup-exception and telemetry-failure controls. Separately,
+14 existing diagnostic/identity compatibility controls passed0.90s:
+ tests/test_post_pr1090_news_diagnostics.py;
+ news_observation_facts::source_measurements_survive_canonical_emission;
+ news_observation_facts::empty_result_retains_supplied_and_effective_identity_without_extra_metadata;
+ scanner_news_identity_handoff::missing_names_stay_missing_and_security_ids_are_not_issuer_names.
+Total40 distinct focused test cases; no full/unrelated suite repetition or CI claim.
+
+Controls cover measured/unknown/empty/partial/deadline/source-failure results,
+metric-specific scopes, malformed values and non-dictionary payloads,24-source/
+50-symbol bounded work, exact8192-byte acceptance and8193-byte rejection including
+final metadata, explicit row/byte omissions, privacy canaries and projection
+failure. Actual fake fetch->adapter->service->existing event->canonical publication
+runs twice: first duplicate-bearing/matched/unmatched result preserves measured
+relevance reasons; second empty result replaces latest receipt while earlier event
+counts survive and fresh canonical article remains. Two issuer/result projections
+keep independent indices/counters. Operational duplicate count stays UNKNOWN.
+Actual maintenance emits one existing retrieval event, one PUBLISH, one RESULT;
+its compact receipts and canonical cache do not gain a second count store. Source
+result dataclass is unchanged before/after emission, extra classifier calls are
+forbidden, and all fixture worker cleanup is verified.
+
+Guarded historical-owner control executed the saved56b source IN MEMORY with a
+synthetic already-measured stale22 result: the required entry_counts field was
+absent (expected failing-before KeyError). Current projection retains measured
+counts. This proves a reporting gap, NOT a recovered BTOC observation or a changed
+classification/eligibility rule. Whitespace checks pass; no remote tools used.
+
+### Remaining limits and disposition
+
+BTOC's historical three22-entry/zero-match responses STILL have no retained
+examined/date/relevance breakdown. A historical-shaped fixture remains UNKNOWN;
+new projection cannot reconstruct old excluded entries. SEGG's captured fresh
+article still returns no_catalyst_classification at its original evaluation clock;
+no classifier broadening, timestamp change or partial-coverage approval is added.
+The successful2November final exit0/packagePASS/terminal safetyPASS, zero mutations
+and source/operator equality stand; prior failures remain failures. Natural
+positive catalyst->Focus->setup/trigger/raw-intent proof remains unestablished.
+Five unmatched positions/global ownership veto, GUI draft, separate cache and
+historical callback uncertainty, and PARKED/fail-closed listing provenance remain.
+
+This is a reviewable LOCAL implementation only; no push/PR merge/collection/run is
+authorized or performed. Review the local diff/head and focused controls before
+any later integration decision. No new operator block or observation retry.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.

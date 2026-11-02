@@ -616,3 +616,47 @@ def test_unavailable_marker_publication_is_completed_and_failed_without_evidence
         assert owner.snapshot()['failed']==1
         assert owner.snapshot()['first_evidence_seconds'] is None
     finally:assert owner.close(2)
+
+
+def test_existing_maintenance_result_emits_bounded_source_counts_without_second_publication(store,monkeypatch,capsys):
+    """Actual owner/service/adapter; parser transport is a synthetic fixture only."""
+    from types import SimpleNamespace as NS
+    from src.news import news_fetcher
+    from src.scanner import scanner_runner as ross
+    from src.config.config_resolver import set_config_overrides
+    set_config_overrides({'ROSS_ISSUER_QUERY_ENABLED':True,'NEWS_ENABLED':True})
+    clock=time.time();calls=[]
+    def feed(url,*args):
+        calls.append(url)
+        entries=[NS(title='Unrelated fresh headline',summary='private article body',
+                    link='https://fixture.invalid/a?account=DU1234567',
+                    published_parsed=time.gmtime(clock-60))] if 'news.google.com' in url else []
+        return NS(version='rss20',bozo=False,entries=entries,feed={})
+    monkeypatch.setattr(news_fetcher,'_fetch_feed',feed)
+    owner=NewsMaintenance(store=store,workers=1)
+    try:
+        owner.submit((NewsCandidate('CLIK',company_name='Click Holdings'),),
+                     ross._ross_news_request(),ross._ross_retrieval_policy(refresh_mode='force_refresh',network_allowed=True))
+        until(lambda:owner.snapshot()['completed']==1)
+    finally:
+        assert owner.close(2)
+        set_config_overrides({})
+    log=capsys.readouterr().out
+    events=[json.loads(line.split('] ',1)[1]) for line in log.splitlines()
+            if line.startswith('[NEWS][RETRIEVAL_DIAGNOSTICS] ')]
+    assert len(events)==1  # existing event, no second stream/result store
+    event=events[0]
+    row=next(r for r in event['entry_counts']['rows'] if
+             event['sources'][r['source_index']]['source_group']=='ROSS_ISSUER_QUERY')
+    assert row['reason_counts']['issuer_match_unverified']==1
+    assert row['traversal_scope']=='all_parser_entries'
+    assert event['entry_counts']['qualification_evaluated'] is False
+    receipt=owner.receipts[0]
+    assert receipt['completed'] and receipt['published'] and receipt['cleanup_complete']
+    assert receipt['evidence_count']==0 and receipt['publication_scope']=='canonical_result_marker'
+    assert 'entry_counts' not in receipt  # existing128-row ring stays compact
+    assert 'entry_counts' not in store.cache_path.read_text()
+    assert log.count('[NEWS][MAINTENANCE][PUBLISH]')==1
+    assert log.count('[NEWS][MAINTENANCE][RESULT]')==1
+    assert 'Unrelated fresh headline' not in log and 'private article body' not in log and 'DU1234567' not in log
+    assert sum('news.google.com' in url for url in calls)==1

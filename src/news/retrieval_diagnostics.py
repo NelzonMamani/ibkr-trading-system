@@ -6,6 +6,10 @@ import math
 import re
 from typing import Any, Mapping
 from urllib.parse import urlsplit, urlunsplit
+from datetime import datetime, timezone
+from itertools import islice
+
+from src.news.rss_exclusion_evidence import REASONS
 
 from src.news.news_intelligence_contract import NewsBatchResult
 
@@ -104,6 +108,144 @@ def _candidate_identity(candidate: Any) -> Mapping[str, Any]:
                                 company_aliases_for_symbol(candidate.normalized_symbol, effective)],
         },
     }
+
+
+# These limits bound only the additive count projection, not the pre-existing event.
+_ENTRY_ROWS = 24
+_ENTRY_BYTES = 8192
+_DATE_COUNTS = ('usable_dates', 'within_window', 'missing_invalid_dates', 'stale_entries',
+                'future_entries', 'missing_titles', 'published_time_used', 'updated_time_used')
+_DATE_FACTS = ('evaluation_time_utc', 'window_start_utc',
+               'observed_publication_min_utc', 'observed_publication_max_utc')
+
+
+def _count(value):
+    # Reject booleans, hostile objects and oversized integers, never stringify them.
+    return value if type(value) is int and 0 <= value <= 2**63 - 1 else None
+
+
+def _flag(value):
+    return value if type(value) is bool else None
+
+
+def _utc_fact(value):
+    if type(value) is not str or len(value) > 40:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace('Z', '+00:00'))
+        return parsed.astimezone(timezone.utc).isoformat() if parsed.tzinfo is not None else None
+    except (ValueError, OverflowError):
+        return None
+
+
+def _entry_row(item, index, symbols):
+    raw = getattr(item, 'entry_diagnostics', None)
+    raw = raw if type(raw) is dict else {}
+    parsed = _count(item.feed_item_count)
+    examined = _count(getattr(item, 'entries_examined_count', None))
+    truncated = _flag(getattr(item, 'processing_truncated', None))
+    complete = (item.worker_completed is True and item.retrieval_status == 'available'
+                and parsed is not None and examined == parsed and truncated is False)
+    prefix = (examined is not None and (truncated is True or item.worker_completed is False
+              or item.retrieval_status in {'partial', 'timeout', 'budget_exhausted'}
+              or (truncated is False and item.worker_completed is True
+                  and parsed is not None and examined < parsed)))
+    traversal = 'all_parser_entries' if complete else 'examined_prefix' if prefix else 'unknown'
+    dates = {key: _count(raw.get(key)) for key in _DATE_COUNTS}
+    relevance = raw.get('relevance_rejections_by_symbol')
+    relevance = relevance if type(relevance) is dict else {}
+    # Do not iterate arbitrary input keys, or emit ticker/query/account strings.
+    issuer_counts = [{'symbol_index': i, 'count': _count(relevance.get(symbol))}
+                     for i, symbol in enumerate(islice(symbols, 50))]
+    exclusions = raw.get('exclusion_evidence')
+    exclusions = exclusions if type(exclusions) is dict else {}
+    reasons = exclusions.get('counts')
+    reasons = reasons if (exclusions.get('schema') == 'news.rss_exclusions.v1'
+                          and item.source_group == 'ROSS_ISSUER_QUERY'
+                          and type(reasons) is dict) else {}
+    reason_counts = {key: _count(reasons.get(key)) for key in sorted(REASONS)}
+    reason_measured = any(value is not None for value in reason_counts.values())
+    issuer_measured = any(row['count'] is not None for row in issuer_counts)
+    utc_facts = {key: _utc_fact(raw.get(key)) for key in _DATE_FACTS}
+    return {
+        'source_index': index,
+        'parser_entries': parsed, 'entries_examined': examined,
+        'processing_truncated': truncated, 'traversal_scope': traversal,
+        'date_counts': dates if any(v is not None for v in dates.values()) else None,
+        'date_counts_scope': traversal if (examined is not None and
+            all(v is not None and v <= examined for v in dates.values())) else 'unknown',
+        'utc_facts': {key: value for key, value in utc_facts.items() if value is not None} or None,
+        'issuer_rejections': issuer_counts if issuer_measured else None,
+        'issuer_rejections_scope': 'compared_time_valid_entries' if issuer_measured else 'unknown',
+        'issuer_rejections_traversal_scope': traversal if issuer_measured else 'unknown',
+        'reason_counts': reason_counts if reason_measured else None,
+        'reason_counts_scope': 'instrumented_first_rejections' if reason_measured else 'unknown',
+        'reason_counts_traversal_scope': traversal if reason_measured else 'unknown',
+        'matched_count': _count(item.matched_count) if examined is not None else None,
+        'matched_count_scope': 'existing_source_match_semantics_not_pre_dedup',
+        'duplicate_exclusions': None, 'pre_dedup_issuer_matches': None,
+        'classification_exclusions': None, 'unmeasured_counts_scope': 'not_collected_by_this_projection',
+        'transport_cache_hit': _flag(raw.get('transport_cache_hit')),
+        # Never promote the fetcher's missing/default false into proof of no send.
+        'http_request_attempted': _flag(raw.get('http_request_attempted'))
+            if type(raw.get('transport_cache_hit')) is bool else None,
+    }
+
+
+def _entry_projection_bytes(projection):
+    # Count the key/wrapper too; this conservatively bounds the actual event delta.
+    return len(json.dumps({'entry_counts': projection}, sort_keys=True,
+                          separators=(',', ':'), allow_nan=False).encode('utf-8'))
+
+
+def _entry_counts_projection(result, provider_invoked):
+    sources = result.diagnostics.source_diagnostics
+    total = len(sources) if type(sources) in (tuple, list) else None
+    projection = {'authority': 'diagnostic_only_not_canonical',
+                  'qualification_evaluated': False,
+                  'max_source_rows': _ENTRY_ROWS, 'max_added_bytes': _ENTRY_BYTES,
+                  'sources_total': total, 'sources_emitted': 0, 'sources_omitted': total,
+                  'symbol_counts_omitted': max(0, len(result.symbols) - 50),
+                  'omitted_bytes': None, 'truncated': False,
+                  'status': 'not_collected_this_result',
+                  'omissions': {'row_limit': 0, 'byte_limit': 0, 'projection_error': 0, 'not_collected': total},
+                  'rows': []}
+    # Historical/cache-only facts are not a fresh parsing result. Existing source
+    # status fields remain in the original event unchanged.
+    if not provider_invoked or total is None:
+        if total is None:
+            projection['status'] = 'unknown_source_schema'
+            projection['truncated'] = None
+        return projection
+    projection['status'] = 'projected'
+    projection['omissions']['not_collected'] = 0
+    projection['omissions']['row_limit'] = max(0, total - _ENTRY_ROWS)
+    # Reserve report capacity for issuer exclusions without changing source/request
+    # order. Inspect and sort only the same bounded24 candidate rows.
+    selected = list(enumerate(islice(sources, _ENTRY_ROWS)))
+    selected.sort(key=lambda pair: (getattr(pair[1], 'source_group', None) != 'ROSS_ISSUER_QUERY', pair[0]))
+    for index, item in selected:
+        try:
+            row = _entry_row(item, index, result.symbols)
+            projection['rows'].append(row)
+            if _entry_projection_bytes(projection) > _ENTRY_BYTES:
+                projection['rows'].pop()
+                projection['omissions']['byte_limit'] += 1
+        except Exception:
+            # No exception text, object repr or additional I/O in a diagnostic.
+            if len(projection['rows']) and projection['rows'][-1].get('source_index') == index:
+                projection['rows'].pop()
+            projection['omissions']['projection_error'] += 1
+    # Final metadata growth (e.g. omission counters) must also fit the budget.
+    while True:
+        projection['sources_emitted'] = len(projection['rows'])
+        projection['sources_omitted'] = total - len(projection['rows'])
+        projection['truncated'] = bool(projection['sources_omitted'] or projection['symbol_counts_omitted'])
+        projection['status'] = 'partial_projection' if projection['truncated'] else 'projected'
+        if _entry_projection_bytes(projection) <= _ENTRY_BYTES:
+            return projection
+        projection['rows'].pop()
+        projection['omissions']['byte_limit'] += 1
 
 
 def emit_retrieval_diagnostics(
@@ -213,4 +355,13 @@ def emit_retrieval_diagnostics(
             for symbol, summary in result.summaries_by_symbol.items()
         },
     }
+    try:
+        payload['entry_counts'] = _entry_counts_projection(result, provider_invoked)
+    except Exception:
+        # Projection failure is visible, but cannot turn a completed acquisition
+        # into a different result. Original event/log failure behavior is unchanged.
+        payload['entry_counts'] = {'authority': 'diagnostic_only_not_canonical',
+            'qualification_evaluated': False, 'status': 'projection_error',
+            'sources_total': None, 'sources_emitted': 0, 'sources_omitted': None,
+            'omitted_bytes': None, 'truncated': True, 'rows': []}
     print(_PREFIX + json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False), flush=True)
