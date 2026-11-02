@@ -11560,3 +11560,227 @@ ONE pending action: user starts the SINGLE prepared block on2November in its
 stated window when all actual prerequisites hold. No automatic retry or silent
 pin/date substitution. All old roots/receipts/GUI/ownership protections preserved.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## 2 November 2026 — Completed natural READ_ONLY receipt: safety PASS; no qualifying catalyst established
+
+### Identity and five outcomes (successful harness receipt preserved)
+
+Uploaded ross-natural-readonly-upload(20261102-200823).zip,1193321bytes;
+independently computed SHA256521444f0a994a963613878edee2f1bf3ebb0307e2692db68758527e590c260af.
+Attachment contents are evidence, not operator instructions. GitHub main independently
+reverified unchanged at accepted e39200729102df3e329ce75bbc3372a2e2d61faf/tree
+846cbeeba42cfc708177b7bb390bc9c450b1cefa. Read applicable instructions (no AGENTS
+found) and DEPRECATION_LEDGER; no retirement or ownership change, ledger unchanged.
+Carry forward saved preparation2fa248dca4fe9eb5d8329b6837fe37f84b88d5b7 above.
+That SINGLE prepared observation has now been consumed; its block is historical,
+not permission to execute it again. No PR merge or runtime action in this investigation.
+
+1. TERMINAL SAFETY PASS: phase-status.json final_exit0, observation_exit0,
+   package_exit0/package_statusPASS; package-resultPASS; operator-summary blockers[];
+   mutation and independent audit counters all place/modify/cancel0; source/operator
+   equality PASS. Offline actual validate_terminal replay passed with blockers[].
+   Initial and final runtime inventories completed empty. Final audit received end,
+   query_completed=true, count0, disconnected=true, connected/loop alive before/after
+   wait, elapsed0.101543s within existing10s. Count0 orders is NOT empty positions.
+   Both privacy scan artifacts passed with0 occurrences. Preserve successful sealing/
+   final harness receipt; seal-process and private preparation/M0 files are not ZIP
+   members, and were not requested/claimed independently inspected.
+   Source-before==source-after:2686 tracked paths independently matched exact Git
+   tree/content SHA256 (33 raw blobs,2653 Windows CRLF forms), no missing/extra paths.
+   Reported prepare exit0/not timed out; preflight OS exit0/timely28.9390401s under150;
+   package OS exit0/timely35.7819859s under150. This is ONE receipt, not a controlled
+   speedup comparison; previous90s timeouts and feasibility failures remain FAIL.
+2. GENUINE SCANS/WATCHLIST: three COMPLETE50-row scanner results at stdout619,
+   20128,32368. Natural Watchlist2->1->1: SEGG+BTOC, then SEGG, then SEGG
+   (WATCHLIST_K_SELECTED6136,21708,33568).225 runtime cycles recorded. Requested
+   runtime900s; supervisor OS envelope921.4641201s, including initialization/audit/
+   cleanup, below1260. Runtime launch identity creation19:42:56.571237Z and graceful
+   maintenance shutdown19:58:02.756447Z corroborate the interval; do not label921.464
+   the pure observation wait. Actual supervisor waits900 after binding then finalizes.
+3. ACTUAL NEWS COVERAGE: acquisition occurred with completed successes, completed
+   HTTP denials/redirects, timeout/deadline exclusions and shared response reuse.
+   Coverage stayed PARTIAL, not exhaustive issuer search or confirmed absence.
+4. CANONICAL CATALYST: SEGG eventually retained ONE fresh issuer-matched article,
+   nonqualifying under the current title/event rule. BTOC retained0; completed query
+   results were unmatched and final refresh incomplete. Neither established a valid
+   canonical issuer event. Publication markers are not qualification assertions.
+5. NATURAL DOWNSTREAM: four explicit Focus evaluations (SEGG3/BTOC1), all
+   DROP_NO_CATALYST;58 between-scan cached reconsiderations positive_count0/focus0.
+   The four scan Focus evaluations precede SEGG's first article PUBLISH; they saw
+   empty/incomplete news, not this later article. The article explains only the
+   later eleven captured reassessments, never retroactive earlier rejection.
+   All225 cycles report final Focus0/evaluated0/setup-trigger0/intents0/submissions0.
+   No natural positive setup/trigger/raw intent or risk admission proof. Existing
+   position truth reports broker5/system0, five critical BROKER_ONLY_POSITION
+   mismatches and global new-entry/exit blocks; preserve all ownership protections.
+   The earlier recovery count0 is not authoritative empty holdings.
+
+### Exact issuer paths and article adjudication
+
+SEGG supplied identity SPORTS ENTERTAINMENT GAMING, aliases[], SMART security with
+NASDAQ primary identity. Effective RSS matching alias is SPORTS ENTERTAINMENT
+GAMING. Existing operational Google query is
+https://news.google.com/rss/search?q=%28%22SPORTS+ENTERTAINMENT+GAMING%22+OR+%22%24SEGG%22%29&hl=en-US&gl=US&ceid=US%3Aen
+(no Yahoo, extra search route, or new name was invented). Canonical maintenance
+publication times19:45:26/19:47:32/19:49:38/19:51:44/19:53:47/19:55:52/19:57:58Z,
+counts0/0/0/0/0/1/1. All published=true with canonical_result_marker scope; source
+health remained partial. Query completed200 entry/match counts15/0,15/0,15/0,
+then deadline-incomplete,39/0,40/1,15/0. Do not infer why the same query returned
+these different result sets: raw responses are not retained here.
+
+Retained article: "Sports Entertainment Gaming Shares Rise After Q2 Loss Narrows,
+Revenue Rises"; publication2026-11-02T18:06:17Z, original RSS published string
+Mon,02Nov2026 18:06:17GMT (spacing normalized here only); selected_time_basis=published,
+no updated timestamp. Google transport URL, marketscreener.com entry publisher
+label/root link, operational_query; match_typecompany_name/title, confidence1.0.
+Summary repeats the headline; no full article or original financial announcement
+body was captured/fetched by this investigation. fetched_at field19:55:49.926706Z;
+first canonical PUBLISH19:55:52.599051Z, first subsequent reassessment19:55:56.239244Z.
+first_seen_at equals publication in stored normalization; do NOT call18:06 the
+first observed delivery to this runtime. Final store contains one evidence ID
+rss-operational:SEGG:13ce7b375c79ceaf783dc7f3 (also in the protected qualification
+cohort, not a second independent article). Original publication was not refreshed.
+
+Exact policy replay at ALL11 captured SEGG reassessment clocks AFTER first PUBLISH,
+19:55:56.239244 through19:57:58.588988Z: qualified=false, catalyst_typeNone,
+reason=no_catalyst_classification. Last age6701.588988s, well within inclusive6h;
+not stale, future, dilution, failed issuer matching, publisher-provenance rejection
+or solely HTTP401/403. catalyst_policy.py:147-204 recognizes existing earnings/
+guidance vocabulary; this title's Q2 loss/revenue/reaction phrasing is not a matched
+class. assess_issuer_event:243-285 explicitly fails unknown classification closed;
+its title-clause ownership rules:330ff also conservatively handle "after" clauses.
+Do not silently broaden vocabulary, infer a beat/materiality from missing article
+content, or claim a semantic-policy addition is an implementation fix. Authoritative
+strategy_policy.py:558 requires a real catalyst; unknown syntax is not permission.
+Whether to add this financial-result/reaction form is a SEPARATE policy question,
+not historically proven eligible Ross news and not a change authorized here.
+Common evidence fields classificationNone/is_qualifying_event_classFalse are
+objective-provider projections; the strategy reclassifies original facts. They
+are not a lost approval flag or a second classification writer.
+
+Latest SEGG refresh19:57:57 had zero new query matches but retained the previous
+fresh article: the existing canonical owner merges, never overwrites fresh facts
+with empty incoming results. Last detailed Google response:15 examined/all15
+outside six-hour lookback,0 current,0 issuer relevance rejections; newest reported
+publication1November14:45:58Z, oldest8July2025. Only TWO bounded stale samples are
+present; aggregate counts are captured parser evidence, not independent inspection
+of every omitted title. This does not erase the stored2November18:06 article.
+Log43448 reads it from cache (network_allowed=false, provider_invoked=false),43449
+reports generic news/headlines1,43451 reconsiders it and retains no_valid_canonical_event.
+
+BTOC supplied ARMLOGI HOLDING CORP, aliases[], SMART/NASDAQ primary security;
+effective matching alias ARMLOGI HOLDING (normal corporate-suffix handling).
+Existing operational query is
+https://news.google.com/rss/search?q=%28%22ARMLOGI+HOLDING+CORP%22+OR+%22%24BTOC%22%29&hl=en-US&gl=US&ceid=US%3Aen
+Retained source is the supplied broker identity, not an independently verified
+legal-name/brand mapping. Three completed Google200 responses each22entries/0matches
+at diagnostic lines6489,16794,23953; final query28872 deadline_exhausted,
+worker_completed=false, HTTP/feed counts unknown. Canonical publications6490,
+16795,23954,28875 (19:45:27.898952/19:47:32.312530/19:49:39.156576/
+19:51:45.303670Z), all0 article evidence. Result markers/cadence still publish;
+no canonical article was silently lost on the facts available. No later BTOC
+PUBLISH is recorded; the active Watchlist changes to SEGG. Existing maintenance
+retires completed out-of-universe work, but no BTOC-specific retirement event is
+exported; do not invent that event. Scan2 also drops BTOC for
+DROP_STALE_MARKET_DATA (21756), a SEPARATE reason from its earlier catalyst rejection.
+Do not claim catalyst alone would guarantee Focus or that unrelated GTN A caused it.
+
+### Acquisition/scheduling, source failures and precise evidence limits
+
+Existing owners: issuer_rss_queries.py:operational_queries generates the bounded
+Google route; news_fetcher performs matching/date filtering; batch_rss_adapter.py
+owns5.2s primary/2.8s extended within8s,5s requests clipped, existing completion/
+owned-cleanup barrier; maintenance.py:220-282 schedules per-issuer work/cadence and
+calls the SINGLE canonical service/store writer. evidence_store.py:224-310 retains
+facts and latest retrieval receipt under store_owner transaction. Between scans,
+maintenance.read is cache-only (per-issuer profiles), scanner_runner.py:3451-3512
+reclassifies and separates coverage; :5408-5471 filters eligible canonical positives
+before fresh shortlist/Focus; catalyst_lifecycle.py:40ff revalidates handoffs.
+
+Final SEGG refresh:20 eligible unique route rows (8 fixed+1 query+11 extended),
+17 marked attempted/submitted,3 not attempted; primary barrier/cleanup verifiedtrue
+in0.0013686s after2.1147995s primary, extended2.8032405s, overall4.921966s. Extended
+finished with failures and unfinished/deadline-excluded rows; primary coverage
+remained incomplete. Latest BTOC primary5.334809s crossed5.2 fast allocation;
+fallback correctly skipped primary_deadline_exhausted even with unused extended
+reservation. Nine primary route rows submitted,11 extended not_requested.
+SEGG's top last_retrieval budget_exhausted=false/partial reflects retained fresh
+facts; nested coverage still records budget_exhausted=true and extended exclusions.
+Both source coverage and acquisition health remain partial/degraded. An empty
+transport unresolved_symbols list is not canonical event qualification or complete
+coverage authority; no dropped failure is rehabilitated by retaining an article. Do not
+remove the cleanup/deadline barrier or renew budget because it could hide a loss.
+An attempted/submitted route is not proof of an actual HTTP request or completed
+response. In-progress default http_request_attempted=false is not authoritative
+absence of wire activity; counts/status are unknown until source completion.
+
+Captured GLBN403 (two routes), Reuters401, Fortune308, provider/parse TIMEOUTERROR
+and deadline exclusions explain SPECIFIC source availability failures only. Final
+SEGG cache-reused GLBN/Reuters statuses have transport_cache_hit=true and
+http_request_attempted=false: reused failures are not fresh HTTP denials per issuer.
+Other SEGG primary routes completed200 (Benzinga10, Investing10, BusinessInsider20,
+Forbes25,CNN20 entries), all0 matched. That is not a guarantee of fresh or exhaustive
+issuer content. Overall maintenance shutdown completed130/failed13, publication_
+failures0, telemetry_failures0, workers0/cleanup_complete=true; feed_pool214 loader
+dispatches and1567 cache reuse hits across the whole runtime, NOT214 per-issuer
+requests or definitive214 wire sends. No broker/provider connection cause is inferred.
+GTN A's five yfinance404 stderr messages concern its own lookup; no evidence they
+caused SEGG/BTOC canonical rejection. Three scanner completions contradict a claim
+that those messages halted every scan.
+
+Why DATA_UNAVAILABLE rather than confident ABSENT: scanner_runner.py:3451-3512
+keeps incomplete-source NEGATIVES unavailable while retaining qualified positives;
+assess_catalyst:112-123 returns DATA_UNAVAILABLE/news_unavailable if no confirmed
+positive and news_available=false. USABLE_MARKET_DATA_BUT_CATALYST_NEWS_FAILURE is
+an aggregate branch over DROP_NO_CATALYST (:1060-1103), NOT a diagnosis of an SDK,
+a particular HTTP error, or lost news callback. A verified positive could survive
+partial coverage; no such positive is established in this receipt.
+
+PRECISE MISSING EVIDENCE: BTOC's three completed22-entry query responses lack retained
+per-entry titles/original dates/relevance exclusion counters/samples. The exported
+bucket preserves only the LATEST19:51 incomplete acquisition; earlier stdout
+retrieval_diagnostics.py:155-190 intentionally exports a bounded flattened source
+summary, not entry_diagnostics. Raw captures are null/not packaged. Therefore no
+basis to distinguish stale dates vs identity exclusions for EVERY earlier BTOC
+entry, no full-body/issuer-news exhaustiveness claim and no invented articles or
+present-day web substitutions. Earlier SEGG15/39 response exclusion details are
+similarly missing except the final retained15-entry receipt. Reasons for response
+variation, HTTP denial policy and unfinished I/O remain unknown, not one shared
+cause. This is an evidence-retention limit, not a demonstrated production defect.
+
+### Proportional offline controls, disposition and next decision
+
+Captured-fact replay used exact source owners, frozen last recorded clock
+19:57:58.588988Z and11 recorded post-delivery clocks; a PRIVATE scratch copy of the
+canonical cache, existing serial store/service/context/handoff functions, socket
+and existing offline network guards, and a forbidden retrieval provider (calls0).
+It reproduced SEGG fresh1/nonqualifying/partial_or_unknown_source_coverage and
+BTOC empty/degraded/acquisition_unavailable, context reuse and fail-closed handoff.
+An empty refresh retained SEGG's original article. A title-only SYNTHETIC control
+"Sports Entertainment Gaming reports earnings beat" classified EARNINGS/qualified
+at the same original timestamp; that is vocabulary/authority proof ONLY, not an
+observed headline, Focus, market-input, setup, intent or readiness proof.
+Scratch controls/logs retained outside repository; supplied archive unchanged.
+
+Relevant guarded pytest6passed1.32s, with no broker/provider acquisition:
+- news_catalyst_lifecycle_audit: reported_refresh_failure_preserves_verified_event_and_degraded_health;
+  cache_reuses_context_without_crossing_publication_boundary.
+- positive_catalyst_lifecycle: failed_and_empty_refresh_keep_original_positive_but_expose_health.
+- ross_operational_issuer_news: empty_failure_cadence_query_cap_and_batch_identity.
+- completed_primary_fallback: unfinished_primary_deadline_never_starts_fallback_or_admits_late_article;
+  fallback_failure_preserves_primary_failure_and_partial_coverage.
+Actual terminal validation replay passed. No full-suite/status reruns, SDK upgrade,
+production repair, new permanent test/harness, CI claim or PR merge. No code defect
+established: retain current fail-closed rules. Expanding financial-result vocabulary
+would require an explicit policy decision plus attribution/uncertainty controls,
+not a repair merely to make this SEGG example qualify.
+
+Smallest next evidence decision, before another natural run: review/authorize
+whether existing bounded per-source exclusion evidence should be retained PER
+maintenance result rather than only latest cache receipt. That would preserve
+BTOC's missing stale-vs-identity breakdown without raw bodies, new source fanout or
+relaxed rules. No instrumentation/acquisition is implemented/authorized here; no
+unchanged observation is recommended hoping for a catalyst. Preserve all holdings,
+five-position ownership veto, GUI draft, every historical failure, separate cache
+uncertainty, callback uncertainty and PARKED/fail-closed listing provenance.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
