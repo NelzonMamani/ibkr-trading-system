@@ -11784,3 +11784,211 @@ unchanged observation is recommended hoping for a catalyst. Preserve all holding
 five-position ownership veto, GUI draft, every historical failure, separate cache
 uncertainty, callback uncertainty and PARKED/fail-closed listing provenance.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## 2 November 2026 — Bounded maintenance exclusion evidence: SCOPE PROPOSAL ONLY
+
+Continue saved checkpoint8244a25d84f976810f822e52d0ba0e1054c1abbf. Reviewed locally
+available accepted sourcee39200729102df3e329ce75bbc3372a2e2d61faf/tree
+846cbeeba42cfc708177b7bb390bc9c450b1cefa; no remote lookup or other network call in
+this task. Applicable AGENTS search previously found none; DEPRECATION_LEDGER read,
+no retirement/ownership change. This section is a reviewable proposal, NOT an
+implementation, collection authorization, classifier change or another observation.
+Keep the completed2November final exit0/packagePASS/terminal safetyPASS, zero
+mutations and source/operator equality above. Preserve SEGG's captured article,
+original18:06:17Z publication and current no_catalyst_classification outcome,
+all five-position protections, prior failures/GUI and PARKED listing provenance.
+
+### What exists, where facts stop, and what can be measured honestly
+
+Exact existing owners at the accepted source:
+- news_fetcher.py:637-675/915-1085 owns detailed parsing/date/relevance/dedup/retention.
+  Detailed mode is research OR operational_query. SourceDiagnostic rows already
+  contain feed_item_count; ResearchSourceDiagnostic additionally carries
+  entries_examined_count, processing_truncated and entry_diagnostics. Date facets
+  include usable_dates, within_window, missing_invalid_dates, future_entries,
+  stale_entries, missing_titles, published_time_used, updated_time_used, UTC date
+  ranges and evaluation/window clocks. Relevance rejections are per requested
+  symbol AFTER title/time screening. These are NOT disjoint whole-feed buckets.
+- rss_exclusion_evidence.py:REASONS/retain_exclusion owns existing
+  news.rss_exclusions.v1, diagnostic_only_not_canonical. EXACT reason codes:
+  missing_title; missing_publication_time (also unusable/invalid selected date);
+  future_publication_time; outside_lookback_window; issuer_match_unverified.
+  Histograms count observed first rejection paths; samples cap2/reason with
+  title512/summary1024/url512, sanitizer BEFORE clipping. Current collector runs
+  for ROSS_ISSUER_QUERY only; ordinary fixed feeds have date/relevance facets but
+  do not thereby acquire the issuer-route sample/histogram contract.
+- batch_rss_adapter.py:731-768 preserves these existing measurement fields into
+  ResearchSourceDiagnostic, including operational routes. No second parser needed.
+- CanonicalNewsIntelligenceService.get_news:438 calls existing
+  retrieval_diagnostics.emit_retrieval_diagnostics for each returned result.
+  That event already contains issuer identity, result begin/end time, provider
+  invocation/request mode, source rows and cache state. It is emitted per actual
+  result BEFORE maintenance PUBLISH/RESULT; the final cache is not the only export.
+- retrieval_diagnostics.py:155-190 currently flattens each source to completion,
+  HTTP/status, matched_count, timings etc.; it OMITS detailed entry counters and
+  reasons. Its news.retrieval_diagnostics.v1 is explicitly CONTENT-FREE. _source
+  removes query values/authentication/fragments; _label/_failure/_number constrain
+  public values. Do not simply JSON-serialize entry_diagnostics here.
+- NewsMaintenance._run:234-290 already emits PUBLISH then post-owned-cleanup RESULT,
+  including publication_scope=canonical_result_marker, qualification_evaluated=false
+  at PUBLISH, evidence_count and separate failures/cleanup. Its existing receipts
+  ring retains128 compact results. No parallel result store/log/connection needed.
+- CanonicalNewsEvidenceStore._write_owned:224ff merges article facts and stores
+  only latest last_retrieval per issuer; this is canonical ownership, not an
+  archival diagnostics ledger. Preserve it; do not add an operational history cache.
+- scanner_runner.py:_ross_news_context_from_evidence/:3451ff and catalyst_policy.py:
+  assess_issuer_event own LATER canonical attribution/classification; lifecycle
+  revalidates retained facts. Maintenance is not authorized to classify for them.
+
+Availability matrix (null means UNKNOWN/not collected, never an invented0):
+
+| Requested observation | Existing authority / correct meaning | Proposed first export |
+| --- | --- | --- |
+| Entries received/parsed | feed_item_count is len(parser.entries) returned by the fetch/parse worker, NOT a count of raw XML items received over the wire or all publisher articles | Existing feed_item_count plus explicit parser-entry scope; raw pre-parser count UNKNOWN |
+| Entries examined | entries_examined_count from the current traversal | Copy when present; otherwise null |
+| Issuer matched | matched_count/source_matches in operational mode increments AFTER the existing duplicate skip and before bounded retention; not pre-dedup matches, retained canonical cohort size or independent-source count | Keep existing value/semantics; do not relabel as exhaustive pre-dedup matching |
+| Identity exclusion | relevance_rejections_by_symbol for time-valid entries actually compared; issuer_match_unverified histogram on supported issuer routes | Copy measured fields only, restricted to current result symbols |
+| Stale/future/missing/invalid dates | Existing date facets and the five exact first-rejection reasons above | Copy available counts; missing_invalid_dates stays COMBINED; separate invalid-vs-missing counts UNKNOWN |
+| Missing title | Existing facet may overlap date facets; actual first-rejection histogram has its own semantics | Copy separately, never sum overlapping facets as disjoint exclusions |
+| Duplicate article exclusion | Operational branch1048 skips already-retained identities but records NO duplicate count; research-only repeated_article_observations has different bounded-observation semantics | null/not_collected_operational; do NOT derive matched-before-dedup or treat request_key deduplicated/feed_reuse as article duplicates |
+| Unsupported classification | Not an acquisition exclusion. Canonical policy may return exact no_catalyst_classification; fetched/matched articles can still be nonqualifying | qualification_evaluated=false/not_evaluated at maintenance; classification exclusion count null, never merge with RSS reasons |
+| Other outcomes | Existing source failure/timeout/not-requested/deadline/processing_truncated statuses are transport/processing outcomes, not discarded-article counts | Preserve existing exact status/allowlisted failure values with stage scope; unrepresented reasons UNKNOWN |
+
+Operational seen_by_symbol is pruned to bounded retained identities after each
+append. A future counter at its duplicate branch could measure OBSERVED skips,
+not all syndicated copies or global unique duplicates. Such a counter is NOT
+part of the smallest projection proposal and must not be silently added. Likewise
+numeric pre-dedup match counts or canonical reason histograms would require an
+explicitly approved measurement delta at their existing owners. Do not invent
+new RSS reason "unsupported_classification" or run a classifier in maintenance.
+
+### ONE recommended smallest change (not implemented)
+
+Extend ONLY the existing content-free per-result retrieval diagnostic projection
+in src/news/retrieval_diagnostics.py, with affected existing tests. Reuse
+news.retrieval_diagnostics.v1 as an additive optional measurement field and the
+existing news.rss_exclusions.v1 reason names/authority. NO new schema authority,
+service, harness, file, cache writer or maintenance-result ring expansion.
+No fetcher, classifier, scheduling, transport, matching or canonical-store change.
+
+Add a bounded count-only source projection (e.g. entry_counts) to the SAME
+[NEWS][RETRIEVAL_DIAGNOSTICS] result, indexed to that event's existing source row.
+It carries only present finite nonnegative counters from the matrix, existing
+UTC evaluation/window/publication-range facts where valid, count units/scopes,
+and observed availability. Per-symbol maps refer only to the current result's
+sanitized symbols (indices may avoid repeating names). Never serialize arbitrary
+keys/objects. Existing source fields already carry worker_completed, response_closed,
+provider/status, timed_out, budget_exhausted and request/parse timing; keep their
+tri-state semantics. Add processing_truncated/entries_examined_count without
+coercing an absent field tofalse/0. Keep query values private via existing source
+projection; include NO entry title, summary, article URL, identity pattern, publisher
+free text, raw response, text hash, account, raw exception or raw entry_diagnostics.
+This first change is COUNTS ONLY: existing bounded samples remain under their
+current owner/privacy contract and are NOT copied into the new event.
+
+Proposed hard reporting bounds for review: expand at most24 source rows per result,
+at most8192 UTF8 bytes for the ADDITIONAL projection including its fixed omission
+metadata (not a claim the pre-existing entire event is8KiB). Current single-issuer
+production profile has20 eligible rows, so it fits the row cap. Iterate fixed
+allowlisted fields/current symbols only; validate counts, no unbounded dict walk
+or serialization of raw objects. Enforce bytes before emission. Drop whole optional
+source-count projections when necessary, retaining original diagnostic event;
+report total eligible rows, expanded rows, omitted rows/bytes-known-if-measured,
+truncated/unknown status. Do not truncate integer digits, silently drop reasons,
+or clip data into a misleading0. Counters absent/invalid remain null with explicit
+availability; no estimating missing byte counts after discarding unknown objects.
+These are REPORT bounds only, not changes to acquisition limits or outcomes.
+
+Use the existing result's symbols and started_at_utc/completed_at_utc to scope
+facts; counts remain INSIDE that result's own event. Maintenance RESULT separately
+owns post-cleanup completion and canonical-marker publication. Do not join counts
+to a different/latest cache receipt, claim PUBLISH equals article evidence, or
+infer an unambiguous cross-thread identity from adjacency alone. No new request
+or article IDs/hashes are required. Do not duplicate the blob in both retrieval
+and maintenance logs/ring. Reused feed responses identify transport_cache_hit when
+known; cache-only reads must not advertise past entry counts as a new fetch.
+
+Exhaustiveness must be metric-specific:
+- all_parser_entries only when recognized completed parsing/traversal is positively
+  recorded, examined==feed_item_count and processing truncation is explicitlyfalse.
+  It means all entries of THAT returned parsed feed, never complete issuer search.
+- examined_prefix for known truncated/cancelled/deadline-limited processing;
+  unknown if receipt/schema/count/completion evidence is missing. HTTP200 or
+  worker completion alone cannot establish full entry traversal.
+- Date facets describe examined entries; relevance comparisons cover only entries
+  that reached relevance; exact reason histograms cover the instrumented first
+  rejection paths ONLY. Counts can overlap, so no invented conservation equation.
+- Body cap/recovered/non-feed failures, unfinished workers, unattempted sources,
+  schema gaps, count projection omissions and reporting errors remain visible.
+  Source/cleanup incompleteness never becomes healthy/available-empty because
+  some counter is0. A source response can be exhaustively examined while overall
+  source coverage and search completeness remain incomplete.
+
+Canonical qualification remains separately reported by existing strategy owner.
+For SEGG the captured-fact replay already establishes no_catalyst_classification;
+this does not authorize copying that later finding into an earlier maintenance
+result. If separately requested later, expose bounded actual reason counts from
+ALREADY computed assess_issuer_event results in existing scanner diagnostic/context,
+with canonical-cohort/evaluation-clock scope and cached-vs-current attribution.
+Never re-run/add classification in a fetch worker, mix its denominators with
+feed exclusions, or make reporting fields input to selection/risk. That optional
+canonical telemetry and new operational duplicate counters are OUT OF FIRST scope.
+
+### Can BTOC's old zero-match outcome be resolved now? NO
+
+Re-read the supplied2November ZIP locally, without collection. Only the BTOC cache
+bucket mentions BTOC; no sibling bucket retains an earlier BTOC response. Its three
+original source-event rows6489/16794/23953 each have Google available/HTTP200,
+feed_item_count22/matched_count0, but neither entries_examined_count nor
+entry_diagnostics. Latest28872 is budget_exhausted, count null, worker unfinished;
+latest canonical receipt only has empty_feed=null/http_request_attempted=false/
+raw_capture=null/transport_cache_hit=null and no traversal details. That default
+false is not proof no HTTP work occurred. Earlier title/date/relevance/exclusion
+facts cannot be recovered from these totals. BTOC stale-vs-identity-vs-other
+breakdown remains UNKNOWN; a zero-match summary is not an exhaustive negative.
+The proposal cannot retroactively manufacture or recover those missing facts.
+SEGG's later article and conservative rejection remain intact, as do the earlier
+successful safety receipt and separate stale-market-data BTOC Watchlist removal.
+
+### Focused OFFLINE acceptance before any future implementation is accepted
+
+Extend existing tests/test_rss_exclusion_evidence.py and the existing retrieval/
+maintenance fixtures in tests/test_independent_news_maintenance.py; use synthetic
+feeds, private temp paths and global network/native broker mutation guards.
+No real acquisition, broker connection, observation or operational publication.
+Required failing-before/passing-after CONTROLS FOR THE PROJECTION, not new gates:
+1. Through actual fake fetch->adapter->service->existing diagnostic event, preserve
+   measured date/relevance/reason counters per result. Emit A then overwrite latest
+   cache with B: A's own log facts survive; B stays independent. Two interleaved
+   issuers/results cannot inherit each other's counters/cleanup/coverage.
+2. Known complete empty RSS/Atom0 vs HTTP failure/non-feed/redirect/missing schema
+   null. Stale/missing-or-invalid/future/title/relevance mixtures and partial prefix
+   processing preserve exact existing semantics and overlap; no invented split.
+3. Duplicate-bearing operational fixture must report duplicate count UNKNOWN
+   (existing matched_count semantics unchanged). Research repetition, feed reuse,
+   queue deduplication and canonical evidence deduplication cannot be conflated.
+4. Completed empty/matched/failure, deadline-before-attempt, unfinished/late worker,
+   processing cutoff and cleanup failure remain distinct; completeness never follows
+   from HTTP200 alone. Reused responses and cache-only reads never create a new
+   HTTP request count or fresh coverage. Preserve end/deadline/stop/cleanup owners.
+5. Multi-source/multi-symbol overflows, exact24-source/8192-byte bounds, malformed
+   types, huge/unexpected keys, source omissions and telemetry errors produce explicit
+   partial/unknown projection, never a partial canonical result mistaken for complete.
+   Keep existing diagnostic/log failure visibility and never change article outcomes.
+6. Privacy canaries in title/summary/URL query/path/identity patterns/exceptions/account
+   fields cannot appear via added projection; no unrestricted text, hashes or raw
+   objects are copied. Existing sanitizer/scan_artifacts/final seal remain mandatory.
+7. Captured SEGG replay stays fresh1/nonqualifying/no_catalyst_classification and
+   BTOC's old missing exclusions stay UNKNOWN. No extra classifier/provider calls,
+   cache/profile/cadence changes, retries, source fanout, second writer, new intent,
+   broker submission or ownership bypass; before/after article/context outcomes equal.
+
+Current-owner validation ONLY (not the proposed implementation):3 targeted existing
+rss_exclusion_evidence controls passed0.97s: old-first feed with fresh tail records
+20 stale/one unmatched/one retained; full sample slots keep counting without more
+summary processing; bounded samples/privacy workflow pass. No full-suite repeats,
+new fixtures/production code, source changes, remote calls or CI claims this task.
+Static inspection establishes the projection gap. Review these bounds and explicit
+UNKNOWN/non-goal fields BEFORE authorizing implementation. No future collection
+or unchanged observation retry is authorized by accepting this document alone.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
