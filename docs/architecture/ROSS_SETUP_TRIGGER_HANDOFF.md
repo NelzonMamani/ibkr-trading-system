@@ -535,3 +535,27 @@ Corrected candidate recommended for authorized draft publication and independent
 exact-head review/CI; no push/merge/provider/broker/observation. No other family
 repair, corporate/SEC or parked listing work. PAPER_READY=NO;
 PAPER_READINESS_GATE=FAIL.
+
+## PR1149 published candidate — 3 November 2026
+
+Draft PR1149 publishes exact3608d6cf9a1da4016bf9e1dd0aba47b0b53750c8 /
+b58b2db9d0c977569d20dadefb28e684d6e49704 against unchanged accepted basee21e8eb3.
+Test mergefe44059444ef31326933503e1fbe2404aeae9fac has the identical tree.
+Independent agent COMMENT review5760597105: no blockers; not human approval.
+Reviewed canonical occurrence binding, separate acceptance invalidation/stop,
+unchanged other-family/safety boundaries, negative controls and descriptive target
+scope. Prior failing-before/13/122/92+3 local receipts remain preserved.
+
+CI41734010206 SUCCESS on exact matching merge tree: Linux3732passed/3skipped;
+Windows3734passed/1skipped. Native cache, serial admission, six cache subprocess
+fixtures, actual PowerShell exit propagation13checks/observation46checks and parser
+passed. No code changes after publication or redundant suite reruns. No scoped
+blocker remains; recommend separately authorized controlled integration review,
+with fresh requirements/ref/check verification. Agent COMMENT is not human approval.
+
+The SAME checkpoint contains full external receipts. Receipt-only edits live on
+separate LOCAL docs/pr1149-ci-acceptance; they do not replace the tested PR head.
+No family target/management policy added: C still means synthetic actual V1 raw
+handoff, not natural progression, numeric management or PAPER readiness.
+Five-position veto and PARKED corporate/SEC/listing provenance unchanged. PR draft,
+no merge/provider/broker/observation. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.

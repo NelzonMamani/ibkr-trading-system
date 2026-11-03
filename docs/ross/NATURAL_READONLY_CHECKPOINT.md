@@ -12772,3 +12772,70 @@ management and natural progression remain unproven, other-family gaps/duplicate
 invocation unchanged. Preserve all historical receipts, five-position protections,
 GUI draft and PARKED corporate/SEC/listing provenance. No collection, broker call,
 observation, push or merge. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## PR1149 publication and exact-head CI/review — 3 November 2026
+
+Published ONE draft PR1149:
+https://github.com/NelzonMamani/ibkr-trading-system/pull/1149
+Exact clean head3608d6cf9a1da4016bf9e1dd0aba47b0b53750c8, tree
+b58b2db9d0c977569d20dadefb28e684d6e49704. Fetched main unchanged at accepted
+basee21e8eb365d53dccb61107cea8a4cda054e514d8, treeb8eebc29f9f9b591fcbf9b05738fefea32d59c0d.
+No rebase or baseline substitution. Test mergefe44059444ef31326933503e1fbe2404aeae9fac
+has EXACT candidate tree and parents accepted base + reviewed head.
+
+Production diff only adds KEY_LEVEL_BREAK to the existing V1 canonical bridge and
+preserves the selected occurrence's distinct acceptance invalidation on its raw
+intent. Existing registered evaluator, canonical validation, occurrence metadata,
+ranking/suppression/one-winner, Core/ownership/risk/execution owners unchanged.
+No new target policy/detector/management engine. Two existing docs include inherited
+PR1148 audit/acceptance receipts; no parked corporate/SEC production implementation
+or private contact literals added. No workflow-selection/requirements changes.
+
+Preserve original local failing-before and13/122/review92+3 receipts above;
+no redundant local suite rerun to publish. Descriptive target supports existing
+raw-intent contract, numeric take_profit remainsNone/unproven; original-source
+associations/corporate/listing policy remain PARKED/fail closed. Unchanged five-
+position global veto remains after formation before artifact/risk admission.
+
+Independent agent exact-head review5760597105:
+https://github.com/NelzonMamani/ibkr-trading-system/pull/1149#pullrequestreview-5760597105
+No blocking findings. Reviewer verified clean local/published head/tree/base and
+traced occurrence binding through detector, dispatch, selection and raw contract;
+distinct stop/acceptance anchors, unchanged family behavior/safety gates, malformed
+and stale rejection, honest descriptive target limits. Inspected original local
+and corrective receipts; no redundant tests or edits. COMMENT is independent
+agent review, not human/formal approval or Windows/CI acceptance.
+
+CI41734010206 completed SUCCESS:
+https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/41734010206
+All three jobs successful. Existing unchanged scope selected HARNESS_ONLY=False.
+Linux3732passed/3skipped/4warnings226.66s; Windows3734passed/1skipped/268warnings
+723.23s. Both job logs confirm checkoutfe440594, with exact reviewed candidate tree.
+Windows focused diagnostics95, news maintenance37, native float-cache9, serial
+admission40 passed; six cache subprocess fixtures, PowerShell5.1 exit propagation13
+controlled checks, actual observation harness46 checks (12 package/5 preflight
+synthetic cases), inventory/cache checks and diagnostic parser succeeded. Evidence
+upload passed. Harness-only alternatives/install step were intentionally skipped
+because the full suites ran, not omitted required cache/PowerShell verification.
+No local full-suite repetition, unchanged-head retry, CI selection change or code
+change after publication. Original failing-before and previous validation receipts
+remain unchanged. These CI results certify offline checks, not a natural run.
+
+Updated existing checkpoint/family map on separate LOCAL docs/pr1149-ci-acceptance
+so receipt-only edits do not replace the exact published/tested PR head. No second
+PR or competing checklist. PR body/conversation carries public receipts. Local
+receipt updates do not constitute independent review or CI themselves.
+
+Recommendation: no remaining scoped code/review/CI blocker; proceed to controlled
+integration review of exact3608d6cf/treeb58b2db9 only when separately authorized.
+Reverify main/head/tested tree, required checks/protections/approvals and threads
+then. Final metadata: basee21e8eb3 unchanged, PR draft/open/unmerged/mergeable, no
+review threads. Independent agent COMMENT is not human approval. No automatic
+merge or runtime step. Natural progression, numeric target/management, positive
+risk admission/PAPER readiness and other family gaps remain unproven.
+
+No merge, provider/broker collection, preflight or observation. Preserve GUI draft,
+historical failures/UNKNOWNs and successful safety receipts, five-position veto,
+other family target/bridge/duplicate gaps, separate cache/callback uncertainty and
+PARKED corporate/SEC/listing provenance. PAPER_READY=NO;
+PAPER_READINESS_GATE=FAIL.
