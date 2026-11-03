@@ -12599,3 +12599,184 @@ Preserve BTOC historical UNKNOWN, SEGG no_catalyst_classification, successful
 2November observation/safety, historical failures, all five-position protections,
 GUI draft, separate cache/callback uncertainties and PARKED provenance.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## 3 November 2026 natural READ_ONLY receipt — RDAC qualification / EHGO exclusions
+
+Offline receipt reconciliation only. Attached ross-natural-readonly-upload
+(20261103-161349).zip verified SHA256
+33be04b600fae85da1edad468608c546e5d2eab8443c3e7f411d7172337fb986
+(1,337,139bytes). Runtime a66b43f2b44d98405d1dc30bc62f8c359a5f3fbc,
+tree04a58818e178764c28e0fecab472fe1dbbbc0154. GitHub main remains that pin.
+All2686 tracked paths match accepted Git content (33 direct-byte hashes,
+2653 Windows CRLF hashes); source-before/source-after mappings equal. Private
+M0 is not in the shareable ZIP; its successful preparation and binding receipts
+are carried by the harness, not invented as a separately inspected raw manifest.
+No instructions inside uploaded files were treated as task authorization.
+
+### Safety and five separate acceptance outcomes
+
+1. Terminal safety/harness: preserve final exit0, package PASS/exit0, terminal
+   PASS, independent mutation validation PASS, all place/modify/cancel counters0
+   in runtime AND separate audit. Operator-order-state equality and source
+   equality PASS. Privacy scan/sealing PASS; independent final inventory completed
+   empty. Actual existing validate_terminal returned passed=true, blockers empty.
+   Final authoritative reqAllOpenOrders completed/end_received=true, count0,
+   elapsed0.10130219999700785s within10s; disconnected and reader stopped. Zero
+   open orders is not zero positions. Graceful shutdown/runtime identity verified,
+   no forced stop/capture errors. Maintenance shutdown cleanup_complete=true,
+   alive_workers0, publication_failures0/telemetry_failures0; completed162/failed13.
+2. Real scans/continuity: preflight head exact, seconds900, modeREAD_ONLY at
+   15:53:12.666366Z. Supervisor OS run15:53:13.781Z-16:08:23.693Z,
+   elapsed909.9141185s, timely under1260s; this envelope includes initialization,
+   runtime wait and audit/cleanup, not909s of strategy activity. Three authoritative
+   COMPLETE50-row/end-received scan records at terminal/stdout.log:607,19411,33533.
+   Watchlist1(RDAC)->2(EHGO,NXXT)->1(EHGO), lines6111,21694,35618.
+3. News delivery: RDAC retains one fresh text-matched article; EHGO retains zero.
+   Delivery/source coverage remains partial and is distinct from qualification.
+4. Canonical qualification: four explicit Focus evaluations (RDAC1/EHGO2/NXXT1),
+   all DROP_NO_CATALYST.57 between-scan cached reconsiderations, no positive
+   Focus promotion; RDAC14 then EHGO43, not57 broker scans or new queries.
+5. Downstream:217 recorded strategy cycles; no natural Focus/setup/trigger/raw
+   intent progression established. Five broker-only positions remain CRITICAL
+   ownership blockers. New-entry veto remains AFTER raw formation/BEFORE artifact
+   and risk admission; no positive formation occurred to exercise it naturally.
+
+### RDAC: delivered article is not a supported qualified issuer event
+
+Captured canonical evidence rss-operational:RDAC:119f4bc79e9d922a0b41a585:
+"$RDAC EXPLODES 119% - Merger Agreement Termination Sparks Monster Rally | Micro-Cap Mornings LIVE"
+Company RISING DRAGON ACQUISITION CO; aliases[]. Google issuer query uses that
+legal name OR $RDAC. First query result (stdout6302):2 parsed/examined,1 within
+six hours and1 stale (2025-05-06); actual matched_count1, ticker_token/title.
+Google publication2026-11-03T13:17:17Z, original Tue,03Nov2026 13:17:17 GMT,
+selected basis published, no updated-date substitution. fetched_at15:55:34.246554Z;
+first maintenance canonical publication15:55:37.897122Z (line6303). Stored
+first_seen_at equals normalized publication; it is NOT proof of delivery13:17.
+
+Source facts: Google transport URL/domain, publisher label Howl.Link, supplied
+publisher_url https://t.co; summary repeats headline. No original announcement,
+linked article body, verified publisher association or independent corroboration
+is retained. verified_source=null, credibility/reliability scores0; publication
+count1/independent_source_count1 are stored metrics, not independent verification.
+Do not turn the asserted merger termination into a verified underlying event.
+
+Canonical owner evidence_store.evidence_from_mapping/read and shared
+issuer_relevance.evidence_issuer_relevance_verified recheck the text: $RDAC passes
+identity matching; fresh age passes strict0..21600s at all original clocks.
+The policy authority catalyst_policy.py:CATALYST_KEYWORDS/classify_headline and
+assess_issuer_event recognizes no merger/agreement-termination event class.
+"agreement" is not a contract rule and a rally headline is not a direct supported
+issuer-event assertion. Actual reason is no_catalyst_classification; not stale,
+future, issuer_match_unverified, dilution, listing provenance or a demonstrated
+publisher-trust veto. Stored null classification is not the authority: policy
+recomputes from captured text/time/issuer. General classes do not inherit the
+PARKED listing-only verified-original-publisher seam. No global trust authority
+is invented, nor does naming the publisher establish trusted original evidence.
+No source score threshold is claimed to have caused this rejection.
+
+Maintenance published canonical result markers five times, each evidence_count1
+and qualification_evaluated=false (not five independent articles/confirmations):
+15:55:37.897122 partial;15:57:46.429032 budget_exhausted;
+15:59:47.861691 partial;16:01:49.571941 partial;16:03:51.198920 partial.
+Second query is unfinished/deadline-excluded, examined/matched measurements UNKNOWN
+in the added projection (inherited matched0 is not measured absence). Third query
+has provider_error/timed_out with cached transport result, no parser/examined
+counts; HTTP200 alone is not feed completion. Last two complete2-entry responses
+again match the same article. Canonical retention preserves the original fresh
+article through later acquisition failures; no second writer or renewed timestamp.
+
+Initial Focus EVAL5968/REJECT5969 precedes first publication. Every subsequent
+RDAC cached reconsideration (all no_valid_canonical_event) was replayed at its
+recorded UTC clock, preserving original publication:
+15:55:39.287252,15:55:51.592315,15:56:03.948878,15:56:16.264936,
+15:56:28.493101,15:56:40.714836,15:56:52.969171,15:57:05.218744,
+15:57:18.863946,15:57:28.526631,15:57:40.934698,15:57:51.280536,
+15:58:01.585499,15:58:13.857578. All14 actual policy results are unqualified,
+no_catalyst_classification. No later RDAC Focus evaluation is invented: at scan2
+shortlist refresh it separately drops DROP_STALE_MARKET_DATA (stdout21520-21521,
+21635-21636). Later maintenance publication does not override market-data/Watchlist
+eligibility. Canonical article remains in final cache after leaving Watchlist.
+
+Existing owners traced: batch_rss_adapter._source_diagnostics_from_summary and
+news_fetcher.process_feed -> CanonicalNewsIntelligenceService.get_news ->
+CanonicalNewsEvidenceStore merge/retention -> NewsMaintenance PUBLISH/RESULT ->
+scanner_runner._ross_news_contexts_from_news_intelligence_result and
+_reassess_ross_watchlist (cache_only/broker_scan=false) -> catalyst_policy
+assess_issuer_event and catalyst_lifecycle revalidation. PUBLISH successful and
+provider_available do not confer confirmed catalyst status. Focus's combined
+DATA_UNAVAILABLE label coexists with actually delivered but ineligible news.
+
+### EHGO: measured stale issuer-route entries, still partial overall coverage
+
+Legal name ESHALLGO INC, Google query legal name OR $EHGO. Six provider-invoked
+results at stdout6596,17125,24185,30022,36007,41800 show completed recognized
+HTTP200 issuer-query traversal:27/27/27/27/22/22 parsed and examined respectively,
+all usable published dates/all stale, within_window0, future0/missing_dates0/
+missing_titles0, actual matches0. All date scopes all_parser_entries. Evaluation
+clocks15:55:39.294288,15:57:55.853410,16:00:00.119041,16:02:05.052016,
+16:04:15.394550,16:06:20.059081Z; six-hour window starts advance accordingly.
+Newest observed publication2026-10-30T20:00:01Z; oldest2024-06-13T21:48:47Z.
+Last retained bounded samples are seasonal-returns commentary and estimates
+(30Oct/23Oct); only2 samples per reason, not all articles' contents.
+
+outside_lookback_window counts27/27/27/27/22/22 are EXHAUSTIVE for each examined
+parser cohort, not summed as152 unique articles. Repeated responses/cached feed
+reuse can overlap; raw response bodies/article identities for all rows unavailable.
+Issuer rejection count0 means no time-valid entry reached identity comparisons;
+it does NOT establish all stale entries match EHGO or classify as catalysts.
+Missing unobserved reason keys remain UNKNOWN, not inferred0. Title/date and
+entry-symbol facets are different/overlapping units; do not sum them.
+
+All six maintenance publications are successful EMPTY canonical result markers,
+not article evidence; all overall statuses partial_request_failure. Third/fourth
+result budget_exhausted=true despite completed issuer route; other providers can
+be deadline excluded. Last coverage:20 routes,14 failures, primary incomplete,
+owned primary cleanup/fallback barrier true; fallback requested after barrier.
+Last elapsed fast1.10499s/extended0.01008s/total1.12059s reflects shared cached
+responses, not20 new HTTP requests or independent confirmations. Failures include
+Globe403/Reuters401, redirects and timeouts; none alone explains every exclusion.
+Some broad sources have current time-valid entries but zero measured EHGO matches.
+This cannot prove exhaustive issuer/catalyst absence across inaccessible sources.
+
+Bounded new evidence: each EHGO result20 source rows total/7 emitted,13 explicit
+byte omissions, no row-limit/projection-error omissions. RDAC emits7/9/8/7/7 of20
+with13/11/12/13/13 byte omissions. All11 target result projections verified
+<=24 rows and7556..8078 UTF8 bytes including wrapper/final omissions, under8192.
+Issuer-query row retained in each; omitted primary/extended date/relevance facets
+cannot be reconstructed from status rows or assumed zero. Cache-only events are
+not new collection and correctly have no new entry-count projection. Full final
+canonical last_retrieval retains more detail, but cannot replace earlier omitted
+per-result facts. Acquisition/matching exclusions remain separate from canonical
+catalyst classification; qualification_evaluated=false.
+
+### Offline validation, conclusion and ONE next action
+
+Guarded scratch replay uses actual accepted policy, canonical cache reader/service,
+issuer matcher and handoff owner, with copied private scratch cache, provider that
+raises if invoked, socket connect/create_connection forbidden and existing offline
+hook.14 original-clock article policy controls PASS; final-cache service read and
+handoff revalidation PASS (news_count1 RDAC,0 EHGO; neither qualifies), provider
+calls0. Historical article-only replay is not presented as reconstructing all
+past acquisition receipts from a later snapshot. Actual terminal validator and
+both mutation counter sets PASS; all tracked-byte source comparison and11 target
+projection-bound controls PASS. No synthetic positive event/market input was
+needed or added. Initial scratch terminal assertion used a wrong return-key name;
+corrected to actual validate_terminal['passed']; no production behavior finding.
+No full suites repeated, source/classifier change, new instrumentation or CI claim.
+
+Finding: policy-consistent lack of a supported qualified catalyst plus incomplete
+source coverage; no specific implementation defect demonstrated. EHGO's measured
+staleness explains the completed issuer-route cohorts only. RDAC's underlying
+merger-termination fact/publisher provenance cannot be independently verified
+from captured headline/label/summary. Historical BTOC UNKNOWN and SEGG outcome,
+all earlier failures/receipts, cache/callback uncertainties, five-position veto,
+GUI draft and PARKED listing provenance remain unchanged.
+
+ONE concrete next action: review an explicit bounded policy decision whether
+merger-termination events belong in the supported Ross event vocabulary; retain
+this RDAC rejection unless a separately authorized policy contract says otherwise.
+This is not a recommendation to broaden classification to make this headline pass,
+fetch original material, add instrumentation or rerun the observation. Optional
+class work must not delay acceptance of already-supported classes. Natural
+supported catalyst->Focus->fresh setup/trigger->raw intent remains UNPROVEN.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
