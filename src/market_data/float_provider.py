@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import json
 import os
 import sqlite3
@@ -11,16 +12,18 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
-import requests
-from bs4 import BeautifulSoup
-
 from src.config.config_resolver import get_config
 from src.config.runtime_config import get_persistence_sqlite_path
 
-try:
-    import yfinance as yf
-except Exception:
-    yf = None
+
+def _optional_provider_module(name: str):
+    """Load only the selected source; a broken installed package is not absence."""
+    try:
+        return importlib.import_module(name)
+    except ModuleNotFoundError as exc:
+        if exc.name != name:
+            raise
+        return None
 
 
 _CACHE_LOCKS: dict[str, threading.RLock] = {}
@@ -185,6 +188,7 @@ class FloatProvider:
 
     def provider_yahoo(self, symbol: str) -> tuple[Optional[int], str]:
 
+        yf = _optional_provider_module("yfinance")
         if yf is None:
             return None, "YFINANCE_UNAVAILABLE"
 
@@ -207,6 +211,14 @@ class FloatProvider:
         return None, "FIELD_NOT_FOUND"
 
     def provider_finviz(self, symbol: str) -> tuple[Optional[int], str]:
+
+        requests = _optional_provider_module("requests")
+        if requests is None:
+            return None, "REQUESTS_UNAVAILABLE"
+        bs4 = _optional_provider_module("bs4")
+        if bs4 is None:
+            return None, "BEAUTIFULSOUP_UNAVAILABLE"
+        BeautifulSoup = bs4.BeautifulSoup
 
         url = f"https://finviz.com/quote.ashx?t={symbol}"
 
