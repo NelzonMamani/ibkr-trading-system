@@ -652,3 +652,26 @@ review and required CI pending. Descriptive target/raw intent is still not numer
 management, intrabar ordering, natural progression or PAPER readiness.
 PR draft/unmerged, five-position veto and parked corporate/SEC/listing unchanged.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## PR1150 published exact-head review and CI — 3 November 2026
+
+PR1150 initialec4551f4 review5761032145 found NaN numeric-authority blocker;
+original receipts retained. Correctede2de4179110c4d757c910935f08eec2b4183e6ab /
+9a5b15b8946c0758c5e31af87f251b41706516c6 adds bounded actual RF six-bar OHLC
+rejection before derivation; no valid semantic or other-family change. Matching
+merge0d2b9ebd827133cae3d33c3e385ad551508b1af4, unchanged base6eca86a2.
+Independent agent COMMENT review5761052907: no blockers, not human approval.
+Prior25/99/1/ten controls and new143-pass changed-source receipt preserved.
+
+Corrected-head CI41740948445 SUCCESS: Linux3775passed/3skipped, Windows3777passed/
+1skipped, matching reviewed merge tree. Windows native cache/serial admission,
+six cache subprocess fixtures, actual PowerShell exit13/observation46 checks and
+parser passed. No remaining scoped blocker; recommend separately authorized
+controlled integration review with fresh ref/check/requirements verification.
+Initial blocked review/old-head CI remain historical, not retrospectively cleared.
+
+Complete receipts in SAME checkpoint. Separate local docs/pr1150-ci-acceptance
+keeps final PR head stable; no competing checklist/PR. Descriptive raw target is
+not numeric management/intrabar/natural certification. Five-position veto intact;
+corporate/SEC/listing parked. Draft/unmerged, no provider/broker/observation.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.

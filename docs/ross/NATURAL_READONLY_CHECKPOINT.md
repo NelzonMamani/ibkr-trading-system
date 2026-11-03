@@ -13120,3 +13120,73 @@ Changed exact-head independent review and Linux/Windows/PowerShell/cache CI are
 required before integration recommendation. PR remains DRAFT/unmerged; no merge
 authorized. Five-position veto and PARKED corporate/SEC/listing provenance intact.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## PR1150 final published candidate and acceptance receipts — 3 November 2026
+
+ONE draft PR1150: https://github.com/NelzonMamani/ibkr-trading-system/pull/1150
+Original verified cleanec4551f4/tree4c499099 was published against unchanged
+accepted6eca86a2be1ef6570c8a2e2b0e3fd2422c6a6579/treeb58b2db9. No rebase or
+baseline substitution. Independent review5761032145 demonstrated NaN raw stop/
+invalidation and blocked that head. Failing-before controls and all25/99/1/ten
+review controls preserved in preceding sections, not relabelled CI acceptance.
+
+Scoped correction now published as exact head
+e2de4179110c4d757c910935f08eec2b4183e6ab, tree
+9a5b15b8946c0758c5e31af87f251b41706516c6. Numeric guard stays in actual RF owner;
+no changes to other-family behavior, V1, registered evaluator, selection/risk or
+workflow since original review. Focused changed-source143pass receipt above.
+Test merge0d2b9ebd827133cae3d33c3e385ad551508b1af4 has EXACT candidate tree and
+parents accepted base + corrected head. Existing docs carry historical receipts,
+not corporate/SEC activation. Added-content private-contact scan passed.
+
+Independent exact-head agent review5761052907:
+https://github.com/NelzonMamani/ibkr-trading-system/pull/1150#pullrequestreview-5761052907
+No blockers. Reviewer confirmed original blocker resolved, bounded RF input guard,
+valid semantic preservation, own anchors, registered handoff, exact occurrence
+binding and unchanged safety gates. Inspected143-pass receipt without redundant
+suite reruns/edits. Agent COMMENT is not human/formal approval or CI proof.
+Initial blocked review5761032145 remains tied to its original head.
+
+Superseded CI41740527836:
+https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/41740527836
+Ran originalec4551f4 via mergea672d9e3/tree4c499099 before numeric correction.
+Preserved Linux3767passed/3skipped/4warnings232.16s. At receipt reconciliation,
+Windows full-suite/cache/serial/exit-propagation stages had succeeded, but its
+observation-harness job was still in progress; no overall final success claimed
+for that run here. It cannot accept the blocked source, regardless of later
+completion: independent review found the NaN case missing from those tests.
+No cancellation, unchanged-head rerun or retrospective relabelling requested.
+
+Changed-head CI41740948445 SUCCESS:
+https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/41740948445
+All three jobs passed. Existing unchanged workflow selected HARNESS_ONLY=False.
+Linux3775passed/3skipped/4warnings231.14s; Windows3777passed/1skipped/268warnings
+470.48s. Both logs checkout0d2b9ebd; fetched Git object confirms reviewed tree and
+expected base/corrected-head parents. Windows focused diagnostic95/news37/native
+float-cache9/serial-admission40 passed. Six cache subprocess fixtures passed;
+actual Windows PowerShell5.1 exit propagation13checks, observation46checks
+(including12package/5preflight synthetic cases), inventory/cache and parser passed;
+evidence upload succeeded. Harness-only alternatives/install step skipped because
+full suites ran; required cache/PowerShell checks actually executed. No workflow
+selection change or unchanged-head retry. Local143 rerun was justified by the
+source correction, not status reconciliation.
+
+Receipt updates saved separately on local docs/pr1150-ci-acceptance so they do not
+replace the exact reviewed/tested candidate or cause a receipt-only CI rerun.
+Public PR body/conversation carries exact receipts. No second PR/checklist.
+
+Integration recommendation: no remaining scoped code/independent-review/changed-
+head CI blocker. Proceed to controlled integration review of exacte2de4179/tree
+9a5b15b8 only with separate authorization and fresh head/base/tree/check/required-
+approval/protection/thread verification. Final PR draft/open/unmerged/mergeable;
+base6eca86a2 unchanged, no review threads. Agent COMMENT is not human approval.
+No automatic merge or runtime action. Original NaN blocker and old-head review/CI
+receipts remain preserved; later CI does not retrospectively clear that old head.
+
+Descriptive target permits raw intent; numeric target/management, intrabar order,
+positive risk admission and natural progression remain uncertified. All five
+positions/global veto after formation before artifact/risk unchanged. No merge,
+provider/broker collection, preflight or observation. Corporate/SEC/listing remains
+PARKED/fail closed; preserve GUI draft, other-family gaps and all historical
+failures/UNKNOWNs/successful safety receipts, separate cache/callback uncertainty.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
