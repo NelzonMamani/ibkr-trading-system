@@ -12508,3 +12508,267 @@ raw intent proof are unchanged. No provider/broker call, observation, holdings
 action, push or merge. Preserve five-position protections, GUI draft, historical
 UNKNOWNs/failures/successful safety receipts and separate cache/callback uncertainty.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## PR1148 published exact-head review and CI receipts — 3 November 2026
+
+Verified clean local9dee39476de02dc4b2153657afac9cfba6cda32e /
+6dc3335b580379b358fd928a3488f1d9085eb001; fetched main unchanged at accepted
+a66b43f2b44d98405d1dc30bc62f8c359a5f3fbc /
+04a58818e178764c28e0fecab472fe1dbbbc0154. No baseline substitution/rebase.
+Published existing branch fix/ross-entry-contract-selection and created ONE draft
+[PR1148](https://github.com/NelzonMamani/ibkr-trading-system/pull/1148).
+Production dependency isolation and arbitration/binding commits stay distinct;
+audit/config/checkpoint changes described separately. No parked corporate/SEC
+production diff, private contact literal or workflow-selection modification.
+Original/saved branches, historical receipts and GUI checkout preserved.
+
+GitHub API via local gh CLI returned Forbidden; used the authorized GitHub
+connector instead. No credential discovery, policy bypass, login or provider call.
+Git fetch/push succeeded through the configured remote. Test merge
+39d0b70a5cde4e337ffa4e83acca0d40e8ea7458 has candidate tree
+6dc3335b580379b358fd928a3488f1d9085eb001 and exact accepted-base/candidate parents.
+CI verification-scope log confirms checkout of that merge and HARNESS_ONLY=False;
+full repository checks selected by the existing unchanged workflow.
+
+Independent reviewer agent returned no blockers on published exact head/tree;
+[review5759973276](https://github.com/NelzonMamani/ibkr-trading-system/pull/1148#pullrequestreview-5759973276)
+is an exact-commit COMMENT receipt, explicitly NOT human approval or CI acceptance.
+Reviewed occurrence binding, duplicate IDs, unknown correspondence, error traces,
+shared intrinsic contract validation, risk-off/context/conflict precedence,
+eligible ranking/one-winner and untouched Core/ownership/risk/execution boundaries.
+Reviewed inherited optional import and audit changes separately. No source changes
+or repeated passing suites by reviewer. Prior186-case interpretation and197/3/3
+local review receipts preserved without relabelling them CI.
+
+Initial CI [41724915655](https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/41724915655) FAILED: Linux17 failed/3697 passed/3 skipped; Windows17 failed/3699 passed/1 skipped. All17 matching failures were inspected, including by the independent reviewer: expected earlier contract rejection and incomplete downstream fixtures, with no demonstrated new production defect. Later Windows cache/PowerShell steps were skipped and cannot count as acceptance.
+
+Corrective test-only commit `8970953b96aaa8f5f813d4384c57756cbfdc810a`, tree `b8eebc29f9f9b591fcbf9b05738fefea32d59c0d`, changes six test modules; all production/workflow bytes remain unchanged. Labelled synthetic target completeness enables actual downstream detector controls; two unmodified detector controls retain missing_target rejection. Negative cases require actual gate reasons; positive/multi-symbol cases require actual raw intent. Context/diagnostic fixtures retain strict earlier rejection and correctly spaced timestamps. No test skipped, target invented in production, or safety assertion relaxed. Local focused corrections:65 passed and35 passed; after strengthening exact negative reasons16 passed. These are local offline receipts.
+
+Independent exact-head delta [review5760117413](https://github.com/NelzonMamani/ibkr-trading-system/pull/1148#pullrequestreview-5760117413) found no blockers. COMMENT records independent agent review, not human approval. Earlier review5759973276 remains tied to its original head. GitHub merge `97c8c493c636fdfbf1208ec081c8dc89afc650eb` has EXACTLY final candidate tree b8eebc29f9f9b591fcbf9b05738fefea32d59c0d, parents accepted main +8970953b.
+
+Changed-head [CI41726801425](https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/41726801425) completed SUCCESS. Existing unchanged workflow selected full checks (HARNESS_ONLY=False). Linux3716 passed/3 skipped/4 warnings (230.12s); Windows3718 passed/1 skipped/268 warnings (602.40s). Both checked out merge97c8c493, whose tree equals the reviewed final candidate. Windows focused diagnostic95, news maintenance37, native float-cache9 and serial admission40 tests passed. Six cache subprocess fixtures passed; actual PowerShell exit propagation13 controlled checks, observation harness46 checks (including12 package/5 preflight synthetic cases), and PowerShell5.1 diagnostic parser passed. Intentional failing-child output is part of the successful exit-propagation negative controls, not a failed CI step. Evidence upload succeeded. Harness-only alternatives/install step were conditionally skipped because full-suite mode ran; previously skipped required cache/PowerShell controls actually executed successfully here. Optional-dependency guarded controls ran in the full suites. No unchanged-head retry or unrelated local full-suite rerun.
+
+Final PR metadata: accepted base remains a66b43f2b44d98405d1dc30bc62f8c359a5f3fbc; final head8970953b/treeb8eebc29; mergeable, draft/open/unmerged, no review threads. No blocking agent findings. Agent COMMENT is not formal human approval; any repository-required approval must still be satisfied at controlled integration. Recommendation: exact-candidate integration review, with fresh ref/check/protection verification and explicit merge authorization. No runtime/PAPER acceptance.
+
+Updated existing family audit/checkpoint on separate LOCAL branch
+docs/pr1148-ci-acceptance, based on the published candidate. This records external
+review/CI receipts without changing final8970953b tested PR head or triggering a
+receipt-only full-suite run. No competing checklist or second PR. The PR body/
+conversation carries public exact-head receipts; source candidate stays immutable.
+Historical failures remain failures, including separate unclassified Windows
+news-cache/callback uncertainties; later passing checks do not establish old causes.
+
+ONE next action after all changed-head checks pass: request controlled integration
+review of the exact final PR1148 head/tree against the unchanged accepted base.
+Reverify merge-tree equality, required checks/approvals and review threads then;
+this task authorizes publication/review only, not merge or an observation.
+
+No merge, provider/broker collection, preflight or observation. Preserve all five
+unmatched positions/global veto after raw formation before canonical artifact/risk
+admission, GUI draft, historical UNKNOWNs/successful safety receipts, missing family
+policies, unproven natural progression and PARKED listing/corporate provenance.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## PR1148 controlled integration and next family gap — 3 November 2026
+
+User authorized only exact head8970953b96aaa8f5f813d4384c57756cbfdc810a, tree
+b8eebc29f9f9b591fcbf9b05738fefea32d59c0d, base
+a66b43f2b44d98405d1dc30bc62f8c359a5f3fbc. Verified unchanged refs and clean
+worktree; independent review5760117413 explicitly binds commit8970953b, no blockers
+(agent COMMENT, not human approval). CI41726801425 and all three jobs succeeded;
+Linux3716/3skipped, Windows3718/1skipped, with cache/serial/PowerShell receipts
+carried forward above. Test merge97c8c493 has exactly reviewed tree and expected
+parents. Six correction modules retain real downstream assertions and unmodified
+Three/Second target-less rejection; no production source/workflow change in that
+correction. Original failed CI41724915655 remains FAILED, not erased or relabelled.
+No completed suite repeated for integration.
+
+Repository inspection: main protected=false, required-status contexts/checks empty,
+rulesets empty; merge commits enabled, PR mergeable_state=clean, no review threads
+or new blocking findings. No protection setting changed or bypass used. Marked
+ready, merged with method=merge and expected_head_sha=8970953b... . Accepted main
+**e21e8eb365d53dccb61107cea8a4cda054e514d8**, tree
+**b8eebc29f9f9b591fcbf9b05738fefea32d59c0d**. Fetched resulting Git object confirms
+tree equality and exact parents accepted base + reviewed head. Existing merge
+method preserves dependency/arbitration/test commits without duplication. Prior
+publication-only restrictions above describe their historical stages; this section
+records the subsequently authorized integration. Receipts from saved
+`docs/pr1148-ci-acceptance` commit da7f52d273578fbb59ef44e1fc75f63e7b50f146 were
+cherry-picked onto the accepted merge on docs/pr1148-integration; original saved
+branch and candidate remain preserved. This documentation branch does not replace
+the literal accepted runtime pin.
+
+ONE recommended next repair: the KEY_LEVEL_BREAK canonical trigger bridge, not a
+new target/management policy or GAP_GO duplicate cleanup. Existing authority is
+`strategy_policy.py` SetupFamilySpecV2 KEY_LEVEL_BREAK and TriggerEntrySpecV2
+T_KEY_LEVEL_BREAK (lines121/185): prior-known level break with momentum. Existing
+`setup_engine/setup_families/ross_families.py::KeyLevelBreakPattern` (553-645)
+already supplies selected-level provenance, XL_KEY_LEVEL_BREAK, numeric trigger,
+structural stop/invalidation and the descriptive target "Expansion to next overhead
+key level". `common/triggers/trigger_registry.py` already maps this family to
+`trigger_key_level_break.py::evaluate_key_level_break_trigger`. The existing family
+audit marks this family G: actual V1 `_canonical_pattern_trigger_candidates`
+(lines2232ff) omits it and contextual SetupEngine does not produce it. Existing
+`tests/test_key_level_break_pattern.py` tests detector and separate armed/fired
+trigger; its runtime-named test only invokes RossPatternRegistry, not actual V1
+process_watchlist/raw-intent handoff. This is a concrete missing bridge, not proof
+that a natural opportunity was discarded.
+
+Bound the proposed repair to the existing V1 canonical bridge and TriggerEngine
+family dispatch, reusing the existing registered evaluator, canonical occurrence
+binding and entry validator. Establish guarded failing-before actual V1 synthetic
+positive, armed/not-broken, stale/missing genuine timeframe, provenance/contract
+failure, invalidation and simultaneous-family controls; require selected level,
+stop, descriptive target, metadata and occurrence identity through raw intent.
+Preserve family-specific break confirmation, existing session/freshness/catalyst,
+risk-off/conflict, one-winner and five-position admission veto. Do not substitute a
+ready other-family trigger, invent a numeric target/R:R/management policy, repair
+other families, or fallback around post-guard risk/execution. If those existing
+contracts cannot support the bridge unchanged, report the precise policy blocker
+rather than inventing it. No bridge implementation or tests run in this integration
+task. Next action: review/authorize that single offline bridge repair.
+
+Corporate/SEC and listing provenance stay PARKED/fail closed. Natural supported
+catalyst -> Focus -> fresh real setup/trigger -> raw intent remains unproven;
+missing family target/management policies, duplicate GAP_GO invocation and composed
+news-Core combined proof remain separate gaps. Five unmatched positions still veto
+new entry AFTER raw formation and BEFORE canonical artifact/risk admission. No
+provider/broker collection, preflight, observation, holdings action or trading.
+Preserve GUI draft, all receipts and separate cache/callback uncertainties.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## KEY_LEVEL_BREAK production bridge — 3 November 2026
+
+Separate branch fix/key-level-break-trigger-handoff starts at accepted main
+`e21e8eb365d53dccb61107cea8a4cda054e514d8`, tree
+`b8eebc29f9f9b591fcbf9b05738fefea32d59c0d`. Carried saved acceptance/integration
+receipts from3a2dd2e3 (including its da7f52d2 predecessor) as documentation-only
+cherry-picks d41d6c43/cf82be45; original branches preserved. No production drift.
+DEPRECATION_LEDGER read, unchanged: no retirement/owner change. No AGENTS files
+apply in this worktree.
+
+Confirmed approved existing specification: strategy_policy.py KEY_LEVEL_BREAK
+family and T_KEY_LEVEL_BREAK entry; RF KeyLevelBreakPattern supplies numeric
+selected-level trigger, distinct structural stop/acceptance invalidation, rationale,
+selected-level source metadata and descriptive next-overhead-key target. Before
+repair, new guarded controls reported6failed/5passed1.08s: empty canonical candidate
+list and actual V1 no_trigger_candidate despite real detection. Not every failure
+was a separate production defect: non-confirmation tests also require a visible
+own-family trigger. No target or fact was added to make the detector pass.
+
+Minimal production diff is ONE allowlist addition in
+RossMomentumStrategyV1._canonical_pattern_trigger_candidates: KEY_LEVEL_BREAK.
+Existing TriggerEngine._evaluate_registered_trigger already dispatches to the
+registered evaluate_key_level_break_trigger; no engine/evaluator/detector/registry
+change needed. Existing canonical payload carries original occurrence ordinal,
+levels and metadata; original selected PatternResult remains the source for
+rationale and target. No duplicate trigger/detection logic, new family, arbitrary
+ID, timestamp replacement, alternate risk path or ownership change.
+
+New focused module tests actual detector -> canonical bridge -> real registered
+evaluator and actual unmodified RossPatternRegistry -> process_watchlist -> raw
+READ_ONLY intent with synthetic fresh 1m/5m/10s streams. Asserts selected identity,
+entry/stop/target/rationale/cycle timestamp, source metadata, aware 10s candle
+spacing and unchanged OHLCV. Existing rule confirms crossing with nondecreasing
+volume; weak-volume non-confirmation and at/below-invalidation remain blocked.
+Missing/stale execution streams assert exact unavailable reasons. Missing target,
+stop or rationale rejects before ranking. Same-ID controls in both input orders
+reject wrong-contract borrowing; two eligible same-ID occurrences prove the
+higher-ranked waiting occurrence cannot borrow the lower-ranked ready trigger.
+Network/socket connections, broker requests and order mutation methods are guarded.
+
+Validation receipts: initial narrow fix11passed0.59s; after stricter gate and two
+ready/waiting occurrence controls13passed0.61s; final instrumentation assertions
+13passed0.61s (`/workspace/scratch/key-level-handoff-final.log`). Affected existing
+modules key_level_break_pattern, ross_selected_setup_handoff,
+pr1089_execution_trigger_timeframe and readonly_manager_risk_handoff:122passed,
+18existing utcnow warnings,3.51s (`key-level-handoff-affected.log`). These cover
+unchanged other-family ranking/suppression/conflict/occurrence behavior and ACTUAL
+Core five-unmatched-position veto after formation/before risk, stale/catalyst and
+PAPER/LIVE mode boundaries. Distinct final cases=135 across two receipts, not a
+single135-pass run or CI/Windows receipt. No unrelated/full suite repeated.
+
+Unmodified production family CAN emit raw intent under its existing descriptive
+target contract on these synthetic inputs; no synthetic target completion used.
+This does not establish a numeric take-profit/R:R/management lifecycle policy,
+natural catalyst/Focus progression, positive risk admission or execution. Other
+family target gaps, GAP_GO duplicate invocation and composed-news-Core combined
+proof remain unchanged. Corporate/SEC/listing provenance remain PARKED/fail closed.
+Five unmatched positions/global veto, GUI draft, historical failures/UNKNOWNs,
+successful safety receipts and separate cache/callback uncertainties preserved.
+No provider/broker collection, preflight, observation, push or merge. ONE next
+action: review this exact local bridge candidate before any publication/CI or
+operational step. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## KEY_LEVEL_BREAK exact-candidate review — 3 November 2026
+
+Reviewed clean942f2e1cca994f59ce0dca9931e52746b0eb340d, tree
+ afd8aca7a480c3c582c80afc6489e54e443acdce, against accepted basee21e8eb3/treeb8eebc29.
+Initial production diff was exactly one V1 bridge allowlist addition. Saved
+checkpoint/audit receipts were separate documentation cherry-picks. Read existing
+13-new/122-affected receipts (local only); did not repeat those suites for status.
+Confirmed unmodified detector, registered evaluator, actual V1 positive, exact
+canonical result ordinal and own-family dispatch. Pre-ranking contract validator,
+ranking/one-winner, risk-off/conflict, quote/session/timeframe and ownership/risk
+sources are unchanged. Canonical level/source metadata reaches the evaluator;
+raw intent carries its declared fields, not a new arbitrary metadata authority.
+
+BLOCKER DEMONSTRATED: raw _build_trade_intent sets invalidation_level=stop for
+existing generic construction. KEY_LEVEL_BREAK's canonical acceptance level is
+10.0 while structural stop is9.88; original bridge preserved the distinction only
+through trigger dispatch, then lost it in raw intent. Strengthened actual-V1 and
+both-order duplicate controls failed3/7 (4passed,6deselected,0.63s) before repair,
+retained in key-level-review-invalidation-before.log. Minimal family-scoped fix
+immediately after intent construction copies this selected occurrence's trigger
+invalidation reference to the raw KEY_LEVEL_BREAK intent. Structural stop unchanged;
+other families keep their prior behavior. No new validation rule, detector, trigger,
+target model, selection fallback or risk/execution owner. Existing RiskEngine
+prefers explicit stop_loss_price over invalidation when resolving protection.
+
+After correction: new module + selected_setup_handoff + actual readonly manager
+regressions92passed/18existing warnings2.70s (key-level-review-invalidation-after.log).
+This rerun was justified by the changed raw-intent field; other earlier passing
+modules were carried forward. Three NEW malformed-contract controls (wrong-side
+stop and unparseable stop/trigger) passed0.49s,13deselected
+(key-level-review-malformed.log). Distinct new suite now16cases; do not call these
+separate receipts a single95-pass run or CI/Windows certification. All use synthetic
+streams with network/broker/mutation guards. Existing manager controls include
+five-unmatched-position raw formation with POSITION_TRUTH_BLOCK_NEW_ENTRIES before
+artifact/risk admission and PAPER/LIVE boundaries. No unrelated/full suite rerun.
+
+TARGET DISTINCTION RESOLVED: decision_policy._target_model_from_setup accepts a
+nonempty original target_suggestion (or existing ABCD projection) as DESCRIPTIVE
+entry-contract completeness; validate_entry_contract rejects missing_target, not
+lack of a numeric take_profit_price. The actual detector's unchanged "Expansion to
+next overhead key level" satisfies that existing law. V1 uses the exact selected
+contract's target/rationale, emits target_model and leaves take_profit_price=None.
+This is raw strategy evidence, not numeric target/R:R or management certification.
+RiskEngine copies target_model/take_profit fields into RiskDecision; it does not
+extract a price from that prose or impose a universal numeric-target requirement.
+Without a canonical decision artifact risk still blocks; under the saved holdings
+Core globally vetoes admission BEFORE creating that artifact/calling risk. With
+eligible admission READ_ONLY no_trade_contexts rejects execution, and active Core
+never dispatches READ_ONLY orders even if risk unexpectedly allowed one.
+
+Hypothetical fill handling is distinct, not exercised operationally here:
+execution_engine fill handling passes Ross selected protection into
+PostFillLifecycleEngine._compute_stop_target; when selected_target_price is None,
+that existing branch returns validated selected stop and NO numeric target.
+TradeManagementEngine.on_exec_details preserves selected Ross stop and records
+DESCRIPTIVE_ONLY, first/second target None, plus target_model. Existing offline
+controls in test_ross_bullflag_micro_boundaries.py cover this general owner behavior
+and were inspected rather than rerun. Generic TradeExitEngine/exit_plan paths can
+compute an existing default R-multiple target; their existence is NOT proof of a
+KEY_LEVEL_BREAK next-overhead-level rule or end-to-end management certification.
+There is no newly claimed global missing-numeric-target block. Do not invent one,
+interpret descriptive text as a price, or claim this repair certifies PAPER/LIVE.
+
+Review result: initial candidate had the invalidation blocker; corrected source
+reviewed with no remaining scoped publication blocker. Corrected production diff
+is bridge allowlist plus three family-scoped invalidation-preservation lines in
+same V1 owner. Recommend draft publication/independent exact-head review and
+changed-head required CI WHEN authorized; no push performed here. Numeric target/
+management and natural progression remain unproven, other-family gaps/duplicate
+invocation unchanged. Preserve all historical receipts, five-position protections,
+GUI draft and PARKED corporate/SEC/listing provenance. No collection, broker call,
+observation, push or merge. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
