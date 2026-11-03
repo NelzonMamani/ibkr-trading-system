@@ -5,7 +5,8 @@ from __future__ import annotations
 import argparse
 import os
 from dataclasses import dataclass
-from typing import Any, List
+from typing import Any, List, Mapping
+from types import SimpleNamespace
 
 from src.market_data.session_pct_change import normalize_session_label
 
@@ -98,6 +99,25 @@ def _risk_geometry_rejection_reason(setup: Any) -> str | None:
     return None
 
 
+def validate_entry_contract(setup: Any) -> tuple[bool, str]:
+    """Candidate-intrinsic entry law, shared by selection and intent creation.
+
+    Detection/context signals keep their own lifecycle. This does not authorize
+    a trigger, session, fresh quote, position or risk/execution outcome.
+    """
+    if isinstance(setup, Mapping):
+        setup = SimpleNamespace(**setup)
+    entry_ok, reason = is_tradeable_entry_candidate(setup)
+    if not entry_ok:
+        return False, reason
+    reason = _risk_geometry_rejection_reason(setup)
+    if reason is not None:
+        return False, reason
+    if _target_model_from_setup(setup) is None:
+        return False, "missing_target"
+    return True, "ok"
+
+
 def build_trade_intents(
     strategy_id: str,
     symbol: str,
@@ -144,7 +164,7 @@ def build_trade_intents(
     for setup in summary.all_results:
         if setup is None or not bool(getattr(setup, "detected", False)):
             continue
-        entry_ok, drop_reason = is_tradeable_entry_candidate(setup)
+        entry_ok, drop_reason = validate_entry_contract(setup)
         if not entry_ok:
             if "risk_off" in drop_reason:
                 print(
@@ -154,19 +174,6 @@ def build_trade_intents(
             print(
                 "[ROSS][SETUP][DROP] "
                 f"symbol={symbol} setup={getattr(setup, 'pattern_name', None)} reason={drop_reason}"
-            )
-            continue
-        risk_geometry_reason = _risk_geometry_rejection_reason(setup)
-        if risk_geometry_reason is not None:
-            print(
-                "[ROSS][SETUP][DROP] "
-                f"symbol={symbol} setup={getattr(setup, 'pattern_name', None)} reason={risk_geometry_reason}"
-            )
-            continue
-        if _target_model_from_setup(setup) is None:
-            print(
-                "[ROSS][SETUP][DROP] "
-                f"symbol={symbol} setup={getattr(setup, 'pattern_name', None)} reason=missing_target"
             )
             continue
         detected_setups.append(setup)

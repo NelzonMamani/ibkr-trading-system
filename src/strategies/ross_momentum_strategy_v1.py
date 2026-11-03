@@ -34,8 +34,7 @@ from src.strategies.ross_momentum.policy import (
     log_validation_override_active,
     synthetic_intent_allowed,
 )
-from src.strategies.ross_momentum.decision_policy import _target_model_from_setup
-from src.strategies.ross_momentum.patterns.setup_fidelity import is_tradeable_entry_candidate
+from src.strategies.ross_momentum.decision_policy import _target_model_from_setup, validate_entry_contract
 from src.strategies.ross_momentum.patterns.pattern_registry import RossPatternRegistry, resolve_trace_setup_family
 from src.strategies.ross_momentum.patterns.pattern_trace import (
     RossPatternFailureTraceCollector,
@@ -1234,6 +1233,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 session_context=input_summary.session_context,
                 pattern_traces=symbol_trace.pattern_traces,
                 inactive_pattern_ids=getattr(self._pattern_registry, "inactive_pattern_ids", set()),
+                entry_contract_validator=validate_entry_contract,
             )
             if (
                 str(decision.get("decision_state") or "").upper() != "CANDIDATE_SELECTED"
@@ -1249,6 +1249,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                     session_context=input_summary.session_context,
                     pattern_traces=symbol_trace.pattern_traces,
                     inactive_pattern_ids=getattr(self._pattern_registry, "inactive_pattern_ids", set()),
+                    entry_contract_validator=validate_entry_contract,
                 )
                 if str(fallback_decision.get("decision_state") or "").upper() == "CANDIDATE_SELECTED":
                     print(f"[ROSS][DECISION_FALLBACK] symbol={symbol} reason=trusted_setups_no_trigger")
@@ -1542,11 +1543,9 @@ class RossMomentumStrategyV1(BaseStrategy):
             if selected_contract is None:
                 contract_reason = "missing_selected_setup_contract"
             else:
-                entry_ok, entry_reason = is_tradeable_entry_candidate(selected_contract)
+                entry_ok, entry_reason = validate_entry_contract(selected_contract)
                 if not entry_ok:
                     contract_reason = entry_reason
-                elif target_model is None:
-                    contract_reason = "missing_target"
             if trade and contract_reason:
                 structure_rejection_reasons.append(contract_reason)
                 trade = None
