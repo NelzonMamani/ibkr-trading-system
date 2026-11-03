@@ -335,3 +335,83 @@ combined composed-news-Core positive proof and all natural progression) are
 unchanged. Next action is review of this exact local repair; no runtime retry or
 new family activation follows these tests. PAPER_READY=NO;
 PAPER_READINESS_GATE=FAIL. All five unmatched-position protections remain intact.
+
+## Exact-candidate review and occurrence binding — 3 November 2026
+
+Verified clean input `9322e0c3fab3f38337040778aa2e9df73f8b4dba`, tree
+`a0555f25321c6a4bc53ccd606a0858be53ac2479`. Reviewed arbitration commit
+`b6d8c611004055047be2cccd9028bbe9f2e91c97` separately from inherited optional
+imports/configuration and baseline audit documentation. Canonical validation is a
+composition of existing predicates, reads candidate fields only, and does not
+query services, refresh data, evaluate risk or grant a session/ownership override.
+Risk-off/context and direction-conflict precedence, ranking key and one-winner
+policy were correctly retained. No target was invented. The late defensive
+validation and post-selection risk/ownership/execution boundaries remain necessary.
+
+BLOCKER FOUND: selection validated a specific result, but subsequent lookup used
+only pattern ID/family. A rejected same-ID occurrence could supply the first trace,
+contract or trigger; a later non-detected trace could also overwrite the real
+candidate's detected state in normalization. New controls reproduced3failures/
+1pass0.57s (missing-target and not-detected occurrences in both orders). A separate
+control reproduced confidence contamination when a detector error emits a trace
+without a result: positional trace/result zip shifted the next rejected result's
+confidence onto the actual selected Micro trace. That failed0.50s after correcting
+required fixture constructor fields (the constructor error is not defect evidence).
+
+Minimal fix within existing owners, commit
+`9b35e96a5647a5d0094fb927f03da9da2eeab616`, tree
+`3d8b3b3d4522a7db61732efeec56c9c791ff902b`:
+
+- Ross-opted-in DecisionEngine preserves original per-call result ordinal and
+  returns `selected_candidate_index`; ambiguous same-ID traces cannot override
+  canonical result facts. No arbitrary decision IDs or source objects are exported.
+  Generic engine callers without the entry validator retain previous output schema.
+- Existing canonical trigger candidates carry `canonical_result_index`, copied
+  by TriggerEngine. V1 selects the exact chosen occurrence's trigger, contract and
+  matching trace, not the first member of a family/ID. Source contract remains the
+  owner for its own stop/target/rationale/metadata. Result indices preserve gaps
+  from non-detected candidates; they are local list bindings, not persistent trust.
+- Trace confidence is assigned through the same identity-bound correspondence,
+  not positional zip across possible error-only traces. Invalid/noninteger/bool/
+  out-of-range ordinals, wrong identity or ambiguous trace/result correspondence
+  cannot substitute another source. Unknown binding gives explicit
+  `selected_contract_binding_unavailable` and no entry. Legacy lookup without an
+  ordinal permits only one unambiguous match.
+
+This does NOT deduplicate GAP_GO invocation or enable other families. Default
+scores/order among eligible candidates are unchanged; the additional ordinal is
+binding metadata only. No fallback after risk rejection, execution failure or
+unknown broker outcome was added. Existing dependency, canonical predicates,
+Core/position truth, RiskEngine and execution sources were unchanged by review fixes.
+
+Receipt clarification: the prior186-case evidence was181passes with3old contextual
+stage assertions failing, then5passes: those3corrected stage expectations PLUS
+2NEW mapping/fault controls. The5-pass receipt is not five weakened expectations.
+Two intermediate new assertions used the wrong terminal field name (`stage` rather
+than `terminal_stage`); fixing the fixture assertions did not change production.
+The changed existing target expectations assert earlier decision-stage blocking,
+no selected entry/trigger evaluation, no raw intent, and actual candidate rejection
+reasons. Exact contextual missing-stop/trigger logs strengthen the no-canonical-
+contract checks. Historical late-rejection receipts remain historical.
+
+Review validation:9 focused binding/ranking/suppression controls passed0.60s;
+changed-owner six-module run197passed/1exact-schema expectation failed4.04s,
+26existing utcnow warnings. That expectation retained EVERY existing trigger field
+and added required ordinal0, rather than loosening dictionary equality. It and
+the two error-trace correspondence variants then passed3cases0.66s. Additionally,
+3existing composed BullFlag/Micro controls passed0.79s: actual registry/strategy
+intent -> synthetic risk/in-memory execution, no unpaired fallback, and duplicate
+child/restart rejection. These test the changed metadata path, not a repeated
+management suite. Across the six-module receipts199distinct affected cases have
+passed, plus3composed controls; no single202-pass run/CI/Windows claim. Review adds
+13new parametrized binding controls; no tests skipped. Logs are retained locally
+under `/workspace/scratch/ross-entry-review-*` and
+`ross-entry-selection-review-affected.log`.
+
+Result: original candidate had blockers; corrected exact source reviewed with no
+remaining local publication blocker. Recommend draft publication for independent
+review and repository-required CI when authorized, NOT merge/runtime/PAPER approval.
+Missing target/trigger policies, natural positive progression, composed-news-Core
+combined proof and five-position ownership veto remain as recorded above. No
+provider/broker call, observation, push or merge. PAPER_READY=NO;
+PAPER_READINESS_GATE=FAIL.

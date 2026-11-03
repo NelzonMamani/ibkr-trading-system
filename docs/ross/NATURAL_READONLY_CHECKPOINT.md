@@ -12436,3 +12436,75 @@ push or merge. Preserve five unmatched positions/global new-entry veto AFTER
 raw formation BEFORE canonical artifact/risk admission, GUI draft, all historical
 failures/UNKNOWNs, successful safety receipts, separate cache/callback uncertainty
 and PARKED listing provenance. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## Entry-contract repair local review and binding correction — 3 November 2026
+
+Verified clean requested head9322e0c3fab3f38337040778aa2e9df73f8b4dba,
+treea0555f25321c6a4bc53ccd606a0858be53ac2479. Reviewed repairb6d8c611 separately
+from inherited dependency patchf8850225 and audit-only changes. Parent/corporate
+branches and all receipts preserved; no fetch/push/merge or network collection.
+Canonical candidate-intrinsic validation, warning/conflict precedence, eligible
+ranking and one-winner policy were correct; no stateful service/risk admission or
+target generation occurs in that check. Post-selection guards remain unchanged.
+
+Demonstrated review blocker: ID/family-only handoff could resolve a REJECTED
+occurrence's trace/trigger/contract instead of the actual selected occurrence.
+Same-ID missing-target/not-detected controls failed3of4before (0.57s). Error-only
+trace plus positional result zip separately corrupted selected Micro confidence
+with another candidate's value (failing0.50s). An earlier fixture constructor
+failure is preserved separately and is not proof of the production defect.
+
+Review correction9b35e96a5647a5d0094fb927f03da9da2eeab616,
+tree3d8b3b3d4522a7db61732efeec56c9c791ff902b: retain per-call canonical result
+ordinal in Ross DecisionEngine selection, carry it through existing trigger
+candidate/output and use it for exact selected contract/trace/trigger lookup.
+Ambiguous trace IDs cannot override source facts; confidence binding tolerates
+unrelated error-only traces without positional shifting. Unknown correspondence,
+invalid index/identity or ambiguous legacy lookup fails closed, explicitly
+selected_contract_binding_unavailable. Source object never exported or reused as
+persistent authority; no arbitrary artifact ID. Selected setup, entry, structural
+stop, target, rationale, confidence and metadata remain its own. Default generic
+engine output retains old schema; Ross ordinal metadata is explicit and tested.
+
+No canonical rules, source configuration, target/management policy, ranking key,
+RiskEngine, Core manager/position-truth, execution/submission or dependency source
+changed by this review correction. GAP_GO still invokes twice; this is occurrence
+binding, not duplicate-removal or another family repair. No fallback after risk
+rejection, submission error or unknown outcome. Five unmatched positions retain
+their global new-entry veto AFTER formation BEFORE canonical artifact/risk input.
+
+Validation review clarified the prior186-case receipt:181passes/3old-stage
+failures, then5passes comprising3corrected old stage assertions+2NEW controls.
+It is NOT five weakened assertions or a single186-pass run. Target-none tests now
+require no-entry at decision stage and exact missing reasons in rejected candidates/
+logs; contextual tests retain no-intent and require precise missing-stop/trigger
+logs. Two intermediate fixture field-name corrections (`terminal_stage`) did not
+relax safety. All historical receipts remain unchanged, including former failures.
+
+New review controls: repeated IDs with rejected/multiple eligible occurrences in
+both orders; source metadata identity; invalid boolean/string/negative/out-of-range
+binding; ambiguous legacy resolution; error-only trace correspondence.13new cases,
+network/broker/order methods forbidden. Focused binding/ranking/suppression run:
+9passed0.60s. Changed-owner six-module run:197passed/1expected exact-schema update
+failed4.04s,26existing utcnow warnings. Updated that equality by ADDING ordinal0
+while retaining all prior fields; it plus2error-trace variants passed3cases0.66s.
+Thus199distinct six-module cases covered across receipts, not a single199-pass run.
+Further3existing composed metadata/lifecycle path controls passed0.79s (real
+registry/strategy -> synthetic risk/in-memory execution, no unpaired fallback,
+duplicate child/restart): proportionate to the changed handoff, not a full suite.
+No CI/native Windows result asserted. Scope/privacy/whitespace checks PASS.
+
+Existing [family handoff audit](../architecture/ROSS_SETUP_TRIGGER_HANDOFF.md#exact-candidate-review-and-occurrence-binding--3-november-2026)
+updated with blocker, correction, exact implementation revision and receipts.
+DEPRECATION_LEDGER unchanged: no retirement/ownership transfer. No private contact
+value in committed text/fixtures; SEC/corporate provenance remains PARKED.
+
+Publication recommendation: corrected local candidate is suitable for DRAFT
+publication/independent review and required CI when authorized; not merge-ready or
+operational acceptance. ONE next action: review/authorize publication of the exact
+corrected branch for CI; no operation is executed here. Remaining missing family
+policies/bridges and natural supported catalyst -> Focus -> fresh setup/trigger ->
+raw intent proof are unchanged. No provider/broker call, observation, holdings
+action, push or merge. Preserve five-position protections, GUI draft, historical
+UNKNOWNs/failures/successful safety receipts and separate cache/callback uncertainty.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
