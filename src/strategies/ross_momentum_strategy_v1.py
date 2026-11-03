@@ -1159,8 +1159,15 @@ class RossMomentumStrategyV1(BaseStrategy):
                     "[ROSS][PATTERN_RESULTS] "
                     f"symbol={symbol} competing_detected={json.dumps(detected_competing, sort_keys=True)}"
                 )
-            for trace, result in zip(pattern_traces, results):
-                trace.confidence = float(getattr(result, "confidence", 0.0) or 0.0)
+            # Error traces need not have a result. Bind by canonical occurrence,
+            # never shift confidence/metadata positionally onto another pattern.
+            for result_index, result in enumerate(results):
+                trace = self._resolve_selected_pattern_trace(
+                    selected_pattern_id=self._pattern_result_value(result, "setup_id", "pattern_id"),
+                    pattern_traces=pattern_traces, selected_candidate_index=result_index,
+                    pattern_results=results)
+                if trace is not None:
+                    trace.confidence = float(getattr(result, "confidence", 0.0) or 0.0)
             for trace in pattern_traces:
                 if self._is_inactive_pattern(trace.pattern_id):
                     print(
@@ -1260,9 +1267,11 @@ class RossMomentumStrategyV1(BaseStrategy):
                     decision = fallback_decision
             if str(decision.get("decision_state") or "").upper() == "CANDIDATE_SELECTED":
                 print(f"[DECISION][INTENT] symbol={symbol} decision=LONG")
+            selected_contract = self._resolve_selected_contract(decision=decision, pattern_results=results)
             selected_trigger = self._select_trigger_candidate(
                 setup_family_id=decision.get("selected_setup_family"),
                 trigger_candidates=trigger_candidates,
+                selected_candidate_index=decision.get("selected_candidate_index"),
             )
             print(
                 "[ROSS][TRIGGER_MAP] "
@@ -1291,12 +1300,18 @@ class RossMomentumStrategyV1(BaseStrategy):
             best_pattern = self._resolve_selected_pattern_trace(
                 selected_pattern_id=decision.get("selected_pattern_id"),
                 pattern_traces=symbol_trace.pattern_traces,
+                selected_candidate_index=decision.get("selected_candidate_index"),
+                pattern_results=results,
             )
 
             if not best_pattern:
                 detected_patterns = bool(symbol_trace.detected_pattern_ids)
                 if detected_patterns:
-                    decision_reason = decision.get("decision_reason") or "decision_not_candidate_selected"
+                    decision_reason = (
+                        "selected_contract_binding_unavailable"
+                        if decision.get("decision_state") == "CANDIDATE_SELECTED"
+                        else decision.get("decision_reason") or "decision_not_candidate_selected"
+                    )
                     print(f"[ROSS][DECISION] symbol={symbol} verdict=REJECT reason={decision_reason}")
                     symbol_trace.final_outcome = "SETUP_FOUND_DECISION_REJECTED"
                     symbol_trace.setup_stage = {"status": "PASS", "reason_code": "SETUP_DETECTED"}
@@ -1531,12 +1546,6 @@ class RossMomentumStrategyV1(BaseStrategy):
             trade = self._build_trade_from_pattern(
                 best_pattern, inputs, selected_trigger=selected_trigger,
                 rejection_reasons=structure_rejection_reasons,
-            )
-            selected_contract = next(
-                (result for result in results
-                 if self._pattern_result_value(result, "setup_id", "pattern_id") == best_pattern.pattern_id
-                 and bool(self._pattern_result_value(result, "detected"))),
-                None,
             )
             target_model = _target_model_from_setup(selected_contract)
             contract_reason = None
@@ -2168,13 +2177,21 @@ class RossMomentumStrategyV1(BaseStrategy):
 
 
     @staticmethod
-    def _select_trigger_candidate(*, setup_family_id: str | None, trigger_candidates: list[dict] | None) -> dict | None:
+    def _select_trigger_candidate(*, setup_family_id: str | None, trigger_candidates: list[dict] | None,
+                                  selected_candidate_index: int | None = None) -> dict | None:
         family = RossMomentumStrategyV1._normalize_setup_family_id(setup_family_id)
         candidates = [
             c
             for c in (trigger_candidates or [])
             if RossMomentumStrategyV1._normalize_setup_family_id(c.get("setup_family_id")) == family
         ]
+        indexed = [c for c in candidates if "canonical_result_index" in c]
+        if indexed:
+            if type(selected_candidate_index) is int:
+                candidates = [c for c in indexed if c["canonical_result_index"] == selected_candidate_index]
+            else:
+                # Legacy caller can resolve only an unambiguous occurrence.
+                candidates = indexed if len({c["canonical_result_index"] for c in indexed}) == 1 else []
         if not candidates:
             return None
         ranked = sorted(
@@ -2226,7 +2243,7 @@ class RossMomentumStrategyV1(BaseStrategy):
         }
         authority_statuses = {SetupImplementationStatus.TRADE_READY, SetupImplementationStatus.PROBATIONARY}
         candidates: list[dict] = []
-        for result in list(pattern_results or []):
+        for result_index, result in enumerate(pattern_results or []):
             if not bool(self._pattern_result_value(result, "detected")):
                 continue
             pattern_id = str(self._pattern_result_value(result, "pattern_id", "setup_id", "id") or "").upper()
@@ -2295,6 +2312,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 "trigger_level": trigger_level,
                 "setup_detected": True,
                 "source": "canonical_pattern_result",
+                "canonical_result_index": result_index,
                 "setup_metadata": metadata,
                 "execution_refinement_mode": str(self._pattern_result_value(result, "trigger_mode") or "NONE"),
             }
@@ -2442,14 +2460,41 @@ class RossMomentumStrategyV1(BaseStrategy):
         return False, "trigger_not_ready"
 
     @staticmethod
-    def _resolve_selected_pattern_trace(*, selected_pattern_id: str | None, pattern_traces):
+    def _resolve_selected_contract(*, decision: dict, pattern_results):
+        pattern_id = str(decision.get("selected_pattern_id") or "").upper()
+        results = list(pattern_results or [])
+        index = decision.get("selected_candidate_index")
+        if index is not None:
+            if type(index) is not int or not 0 <= index < len(results):
+                return None
+            candidate = results[index]
+            identity = RossMomentumStrategyV1._pattern_result_value(candidate, "setup_id", "pattern_id")
+            return candidate if str(identity or "").upper() == pattern_id else None
+        matches = [r for r in results if str(RossMomentumStrategyV1._pattern_result_value(
+            r, "setup_id", "pattern_id") or "").upper() == pattern_id]
+        return matches[0] if len(matches) == 1 else None
+
+    @staticmethod
+    def _resolve_selected_pattern_trace(*, selected_pattern_id: str | None, pattern_traces,
+                                        selected_candidate_index=None, pattern_results=None):
         if not selected_pattern_id:
             return None
-        normalized_pattern_id = str(selected_pattern_id).upper()
-        for pattern in pattern_traces:
-            if str(getattr(pattern, "pattern_id", "")).upper() == normalized_pattern_id:
-                return pattern
-        return None
+        pattern_id = str(selected_pattern_id).upper()
+        matches = [trace for trace in pattern_traces
+                   if str(getattr(trace, "pattern_id", "")).upper() == pattern_id]
+        if selected_candidate_index is None:
+            return matches[0] if len(matches) == 1 else None
+        contract = RossMomentumStrategyV1._resolve_selected_contract(
+            decision={"selected_pattern_id": pattern_id, "selected_candidate_index": selected_candidate_index},
+            pattern_results=pattern_results)
+        if contract is None:
+            return None
+        indices = [i for i, result in enumerate(pattern_results or [])
+                   if str(RossMomentumStrategyV1._pattern_result_value(
+                       result, "setup_id", "pattern_id") or "").upper() == pattern_id]
+        if len(matches) != len(indices):
+            return None  # Trace/result correspondence is unknown, never guess.
+        return matches[indices.index(selected_candidate_index)]
 
     def evaluate_tradeable_entry(
         self,

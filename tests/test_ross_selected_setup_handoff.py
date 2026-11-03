@@ -285,6 +285,7 @@ def test_entry_filter_keeps_existing_valid_ranking_and_one_winner(reverse):
                   pattern_results=contracts, session_context='RTH')
     original = DecisionEngine().compute_decision(**kwargs)
     filtered = DecisionEngine().compute_decision(**kwargs, entry_contract_validator=validate_entry_contract)
+    assert filtered.pop('selected_candidate_index') == contracts.index(other)
     assert filtered == original
     assert filtered['selected_pattern_id'] == other.setup_id
     assert len(filtered['rejected_candidates']) == 1
@@ -309,6 +310,8 @@ def test_entry_completeness_cannot_remove_suppression_or_conflict(kind):
                   pattern_results=[other, micro], session_context='RTH')
     original = DecisionEngine().compute_decision(**kwargs)
     filtered = DecisionEngine().compute_decision(**kwargs, entry_contract_validator=validate_entry_contract)
+    if kind == 'context':
+        assert filtered.pop('selected_candidate_index') == 1
     assert filtered == original
     if kind == 'context':
         assert filtered['selected_pattern_id'] == micro.setup_id
@@ -366,3 +369,85 @@ def test_entry_validator_fault_fails_closed_without_selecting_another_candidate(
         DecisionEngine().compute_decision(symbol='UPC',levels={},structure={},setups=[],
             pattern_results=[_detected_three(),_viable_micro_contract()],entry_contract_validator=failed)
     assert calls == ['P_THREE_BAR_PULLBACK']
+
+
+@pytest.mark.parametrize('reverse', [False, True])
+@pytest.mark.parametrize('failure', ['target', 'not_detected'])
+def test_rejected_same_id_occurrence_cannot_replace_selected_contract(monkeypatch, tmp_path, reverse, failure):
+    selected = replace(_viable_micro_contract(), setup_metadata={'review_binding':'selected'})
+    rejected = replace(selected, target_suggestion=None if failure=='target' else selected.target_suggestion,
+                       detected=failure!='not_detected', confidence=.99,
+                       trigger_level=10.30,stop_level=10.10,invalidation_level=10.10,
+                       rationale_text='REJECTED_OCCURRENCE_CANARY',
+                       setup_metadata={'review_binding':'rejected'})
+    contracts=[selected,rejected] if reverse else [rejected,selected]
+    strategy,intents,decisions=_run_contracts(monkeypatch,tmp_path,contracts)
+    assert len(intents)==1,strategy.last_symbol_terminal_outcomes
+    intent=intents[0]
+    assert intent.entry_price==selected.trigger_level
+    assert intent.stop_loss_price==selected.stop_level
+    assert intent.target_model==selected.target_suggestion
+    assert intent.confidence==selected.confidence
+    assert selected.rationale_text in intent.rationale
+    assert 'REJECTED_OCCURRENCE_CANARY' not in intent.rationale
+
+
+@pytest.mark.parametrize('same_id',[False,True])
+def test_error_trace_without_result_cannot_shift_selected_confidence(monkeypatch, tmp_path, same_id):
+    from src.strategies.ross_momentum.patterns.pattern_trace import RossPatternTrace
+    selected=_viable_micro_contract()
+    rejected=replace(_detected_three(),target_suggestion=None,confidence=.99)
+    strategy=_base_strategy(monkeypatch,tmp_path,state='ready')
+    class FailedThenResults(FakeRegistry):
+        def run(self,inputs,*,trace_context=None,trace_collector=None):
+            trace=RossPatternTrace(symbol=inputs.symbol,pattern_id=selected.setup_id if same_id else 'P_OFFLINE_FAILED_DETECTOR',
+                                  pattern_name='Offline failed detector',invoked=True,cycle_id='offline',
+                                  strategy_key='ross_momentum',session_label='RTH_OPEN',
+                                  session_phase='RTH_OPEN',runtime_mode='READ_ONLY',symbol_source='watchlist')
+            trace.detected=False
+            trace.final_outcome='ERROR'
+            if trace_collector:trace_collector(trace)
+            return super().run(inputs,trace_context=trace_context,trace_collector=trace_collector)
+    strategy._pattern_registry=FailedThenResults([selected,rejected])
+    intents=strategy.process_watchlist(watchlist=[_watchlist_row()],snapshots={'UPC':_snapshot()},
+        session_label='RTH_OPEN',session_phase='RTH_OPEN',timestamp_utc='offline-error-trace',mode=RunMode.READ_ONLY)
+    if same_id:
+        assert intents==[]
+        assert strategy.last_symbol_terminal_outcomes['UPC']['reason']=='selected_contract_binding_unavailable'
+    else:
+        assert len(intents)==1,strategy.last_symbol_terminal_outcomes
+        assert intents[0].confidence==selected.confidence
+
+
+@pytest.mark.parametrize('reverse',[False,True])
+def test_selected_occurrence_binding_retains_eligible_same_id_source(monkeypatch,tmp_path,reverse):
+    selected=replace(_viable_micro_contract(),confidence=.8,setup_metadata={'review_binding':'selected'})
+    other=replace(selected,confidence=.65,trigger_level=10.30,stop_level=10.10,
+                  invalidation_level=10.10,rationale_text='UNSELECTED_ELIGIBLE_CANARY',
+                  setup_metadata={'review_binding':'other'})
+    contracts=[other,selected] if reverse else [selected,other]
+    strategy,intents,decisions=_run_contracts(monkeypatch,tmp_path,contracts)
+    assert len(intents)==1,strategy.last_symbol_terminal_outcomes
+    intent=intents[0]
+    assert intent.confidence==selected.confidence
+    assert intent.entry_price==selected.trigger_level and intent.stop_loss_price==selected.stop_level
+    assert intent.target_model==selected.target_suggestion
+    assert selected.rationale_text in intent.rationale and 'UNSELECTED_ELIGIBLE_CANARY' not in intent.rationale
+    bound=strategy._resolve_selected_contract(decision=decisions[0],pattern_results=contracts)
+    assert bound is selected and bound.setup_metadata=={'review_binding':'selected'}
+
+
+@pytest.mark.parametrize('bad_index',[True,-1,2,'0'])
+def test_invalid_occurrence_binding_never_substitutes_a_contract(bad_index):
+    from src.strategies.ross_momentum_strategy_v1 import RossMomentumStrategyV1
+    selected=_viable_micro_contract()
+    decision={'selected_pattern_id':selected.setup_id,'selected_candidate_index':bad_index}
+    assert RossMomentumStrategyV1._resolve_selected_contract(decision=decision,pattern_results=[selected]) is None
+
+
+def test_ambiguous_legacy_binding_fails_closed_without_removing_registry_duplicates():
+    from src.strategies.ross_momentum_strategy_v1 import RossMomentumStrategyV1
+    selected=_viable_micro_contract()
+    other=replace(selected,target_suggestion=None)
+    assert RossMomentumStrategyV1._resolve_selected_contract(
+        decision={'selected_pattern_id':selected.setup_id},pattern_results=[other,selected]) is None

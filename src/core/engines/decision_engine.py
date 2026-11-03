@@ -70,10 +70,19 @@ class DecisionEngine:
         trace_by_pattern_id = {
             str(getattr(trace, "pattern_id", "") or "").upper(): trace for trace in (pattern_traces or [])
         }
+        if entry_contract_validator is not None:
+            # A repeated ID is not an occurrence identity. Ambiguous traces must
+            # not override another canonical result's own detected/confidence.
+            counts: dict[str, int] = {}
+            for trace in pattern_traces or []:
+                key = str(getattr(trace, "pattern_id", "") or "").upper()
+                counts[key] = counts.get(key, 0) + 1
+            trace_by_pattern_id = {key: trace for key, trace in trace_by_pattern_id.items()
+                                   if counts.get(key, 0) == 1}
         normalized_candidates = [
             {**self._normalize_candidate(item, trace_by_pattern_id=trace_by_pattern_id),
-             "_entry_contract_source": item}
-            for item in (pattern_results or [])
+             "_entry_contract_source": item, "_entry_contract_index": index}
+            for index, item in enumerate(pattern_results or [])
         ]
 
         scored_candidates: list[dict] = []
@@ -244,6 +253,8 @@ class DecisionEngine:
             "rejected_candidates": rejected_candidates,
             "decision_reason": "selected_best_compatible_candidate",
         }
+        if entry_contract_validator is not None:
+            output["selected_candidate_index"] = selected["_entry_contract_index"]
         print(
             "[DECISION_ENGINE][SELECTED] "
             f"symbol={symbol} state=CANDIDATE_SELECTED selected_pattern={selected['pattern_id']} "

@@ -529,6 +529,7 @@ def test_canonical_pattern_result_creates_trigger_candidate_without_setup_promot
             "trigger_level": pytest.approx(10.44),
             "setup_detected": True,
             "source": "canonical_pattern_result",
+            "canonical_result_index": 0,
             "setup_metadata": result.setup_metadata,
             "execution_refinement_mode": "NONE",
         }
