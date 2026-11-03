@@ -12568,3 +12568,71 @@ unmatched positions/global veto after raw formation before canonical artifact/ri
 admission, GUI draft, historical UNKNOWNs/successful safety receipts, missing family
 policies, unproven natural progression and PARKED listing/corporate provenance.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## PR1148 controlled integration and next family gap — 3 November 2026
+
+User authorized only exact head8970953b96aaa8f5f813d4384c57756cbfdc810a, tree
+b8eebc29f9f9b591fcbf9b05738fefea32d59c0d, base
+a66b43f2b44d98405d1dc30bc62f8c359a5f3fbc. Verified unchanged refs and clean
+worktree; independent review5760117413 explicitly binds commit8970953b, no blockers
+(agent COMMENT, not human approval). CI41726801425 and all three jobs succeeded;
+Linux3716/3skipped, Windows3718/1skipped, with cache/serial/PowerShell receipts
+carried forward above. Test merge97c8c493 has exactly reviewed tree and expected
+parents. Six correction modules retain real downstream assertions and unmodified
+Three/Second target-less rejection; no production source/workflow change in that
+correction. Original failed CI41724915655 remains FAILED, not erased or relabelled.
+No completed suite repeated for integration.
+
+Repository inspection: main protected=false, required-status contexts/checks empty,
+rulesets empty; merge commits enabled, PR mergeable_state=clean, no review threads
+or new blocking findings. No protection setting changed or bypass used. Marked
+ready, merged with method=merge and expected_head_sha=8970953b... . Accepted main
+**e21e8eb365d53dccb61107cea8a4cda054e514d8**, tree
+**b8eebc29f9f9b591fcbf9b05738fefea32d59c0d**. Fetched resulting Git object confirms
+tree equality and exact parents accepted base + reviewed head. Existing merge
+method preserves dependency/arbitration/test commits without duplication. Prior
+publication-only restrictions above describe their historical stages; this section
+records the subsequently authorized integration. Receipts from saved
+`docs/pr1148-ci-acceptance` commit da7f52d273578fbb59ef44e1fc75f63e7b50f146 were
+cherry-picked onto the accepted merge on docs/pr1148-integration; original saved
+branch and candidate remain preserved. This documentation branch does not replace
+the literal accepted runtime pin.
+
+ONE recommended next repair: the KEY_LEVEL_BREAK canonical trigger bridge, not a
+new target/management policy or GAP_GO duplicate cleanup. Existing authority is
+`strategy_policy.py` SetupFamilySpecV2 KEY_LEVEL_BREAK and TriggerEntrySpecV2
+T_KEY_LEVEL_BREAK (lines121/185): prior-known level break with momentum. Existing
+`setup_engine/setup_families/ross_families.py::KeyLevelBreakPattern` (553-645)
+already supplies selected-level provenance, XL_KEY_LEVEL_BREAK, numeric trigger,
+structural stop/invalidation and the descriptive target "Expansion to next overhead
+key level". `common/triggers/trigger_registry.py` already maps this family to
+`trigger_key_level_break.py::evaluate_key_level_break_trigger`. The existing family
+audit marks this family G: actual V1 `_canonical_pattern_trigger_candidates`
+(lines2232ff) omits it and contextual SetupEngine does not produce it. Existing
+`tests/test_key_level_break_pattern.py` tests detector and separate armed/fired
+trigger; its runtime-named test only invokes RossPatternRegistry, not actual V1
+process_watchlist/raw-intent handoff. This is a concrete missing bridge, not proof
+that a natural opportunity was discarded.
+
+Bound the proposed repair to the existing V1 canonical bridge and TriggerEngine
+family dispatch, reusing the existing registered evaluator, canonical occurrence
+binding and entry validator. Establish guarded failing-before actual V1 synthetic
+positive, armed/not-broken, stale/missing genuine timeframe, provenance/contract
+failure, invalidation and simultaneous-family controls; require selected level,
+stop, descriptive target, metadata and occurrence identity through raw intent.
+Preserve family-specific break confirmation, existing session/freshness/catalyst,
+risk-off/conflict, one-winner and five-position admission veto. Do not substitute a
+ready other-family trigger, invent a numeric target/R:R/management policy, repair
+other families, or fallback around post-guard risk/execution. If those existing
+contracts cannot support the bridge unchanged, report the precise policy blocker
+rather than inventing it. No bridge implementation or tests run in this integration
+task. Next action: review/authorize that single offline bridge repair.
+
+Corporate/SEC and listing provenance stay PARKED/fail closed. Natural supported
+catalyst -> Focus -> fresh real setup/trigger -> raw intent remains unproven;
+missing family target/management policies, duplicate GAP_GO invocation and composed
+news-Core combined proof remain separate gaps. Five unmatched positions still veto
+new entry AFTER raw formation and BEFORE canonical artifact/risk admission. No
+provider/broker collection, preflight, observation, holdings action or trading.
+Preserve GUI draft, all receipts and separate cache/callback uncertainties.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.

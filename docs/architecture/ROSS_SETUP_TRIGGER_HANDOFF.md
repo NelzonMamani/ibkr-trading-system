@@ -456,3 +456,30 @@ Natural supported-event-to-raw-intent, missing family target/bridge policies,
 composed-news-Core combined proof, five-position veto and readiness limits remain.
 No provider/broker call, observation or holdings action. PAPER_READY=NO;
 PAPER_READINESS_GATE=FAIL.
+
+## PR1148 accepted; next bounded family repair — 3 November 2026
+
+PR1148 merged under explicit user authorization with expected-head guard at
+8970953b96aaa8f5f813d4384c57756cbfdc810a. Accepted main
+`e21e8eb365d53dccb61107cea8a4cda054e514d8`, tree
+`b8eebc29f9f9b591fcbf9b05738fefea32d59c0d` equals reviewed/tested tree.
+Independent review5760117413 and CI41726801425 reverified; original failed
+CI41724915655 preserved above. No suite rerun. Full integration/protection receipt
+is in the SAME NATURAL_READONLY_CHECKPOINT.md, section PR1148 controlled integration.
+
+Next recommendation is one KEY_LEVEL_BREAK canonical trigger bridge: existing
+strategy_policy.py lines121/185 define the family/entry condition; RF KeyLevelBreakPattern
+supplies selected-level provenance, explicit trigger/stop/invalidation and next-
+overhead-level descriptive target. TR already registers its own armed/fired
+evaluator. Actual V1 `_canonical_pattern_trigger_candidates` (2232ff) excludes the
+family and contextual SetupEngine has no producer. The existing runtime-named
+`test_key_level_break_pattern.py` test exercises registry only, not V1 raw intent.
+Scope any separately authorized repair to that existing bridge/TriggerEngine path,
+canonical occurrence binding, existing evaluator and contract validation. Prove
+actual V1 positive/armed/negative/freshness/identity/risk-off/conflict boundaries
+with synthetic inputs and preserved own stop/target/metadata. Do not invent target,
+R:R or management policy or claim numeric execution certification. If existing
+contracts are insufficient, report the policy blocker. No implementation here.
+GAP_GO duplicate invocation and other family target/bridge gaps remain unchanged.
+Natural proof, five-position veto and PARKED corporate/SEC/listing state remain.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
