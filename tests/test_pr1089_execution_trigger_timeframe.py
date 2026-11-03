@@ -10,7 +10,7 @@ from src.strategies.ross_momentum.patterns.pattern_registry import RossPatternRe
 from test_pr1082_trigger_to_intent_terminal_semantics import (
     _base_strategy, _candles, _snapshot, _watchlist_row, _reset_config,
 )
-from test_pr1089_pullback_continuity_and_provenance import _case
+from test_pr1089_pullback_continuity_and_provenance import _case, _synthetic_complete_registry
 
 
 @pytest.fixture(autouse=True)
@@ -42,9 +42,10 @@ def streams(family, *, session="RTH_OPEN", primary_fire=False, execution_fire=Tr
     return pattern, {"1m": primary, "10s": ten, "5m": _candles(rows, end=end, step_seconds=300)}
 
 
-def run_strategy(monkeypatch, tmp_path, family, data, *, session="RTH_OPEN", symbol="UPC"):
+def run_strategy(monkeypatch, tmp_path, family, data, *, session="RTH_OPEN", symbol="UPC",
+                 synthetic_complete=True):
     strategy = _base_strategy(monkeypatch, tmp_path, state="ready")
-    registry = RossPatternRegistry()
+    registry = _synthetic_complete_registry(_case(family)[0]) if synthetic_complete else RossPatternRegistry()
     registry._patterns = [_case(family)[0]]
     strategy._pattern_registry = registry
     monkeypatch.setattr(
@@ -68,8 +69,9 @@ def test_intraminute_execution_break_fires_from_real_strategy(monkeypatch, tmp_p
     assert result.detected
     assert result.setup_metadata["breakout_volume_confirmed"] is not True
     strategy, intents, triggers = run_strategy(monkeypatch, tmp_path, family, data)
-    assert intents == []
-    assert strategy.last_symbol_terminal_outcomes["UPC"]["reason"] == "missing_target"
+    assert len(intents) == 1
+    assert intents[0].target_model == "SYNTHETIC_DOWNSTREAM_GATE_TARGET"
+    assert strategy.last_symbol_terminal_outcomes["UPC"]["intent_emitted"]
     trigger = next(t for t in triggers if t["setup_family_id"] == family)
     assert trigger["trigger_ready_now"]
     assert trigger["trigger_price_reference"] == result.trigger_level
@@ -116,17 +118,37 @@ def test_execution_evidence_fails_closed(monkeypatch, tmp_path, family, failure)
         del ten[-2]
     else:
         data["10s"] = ten[-2:]
-    _, intents, triggers = run_strategy(monkeypatch, tmp_path, family, data)
+    strategy, intents, triggers = run_strategy(monkeypatch, tmp_path, family, data)
     assert intents == []
     assert not any(t["trigger_ready_now"] for t in triggers if t["setup_family_id"] == family)
+
+    family_triggers = [t for t in triggers if t["setup_family_id"] == family]
+    if failure == "missing":
+        # The earlier required-input gate must name the unavailable stream;
+        # absence of an entry alone would be a vacuous completeness assertion.
+        assert not family_triggers
+        traces = strategy._failure_trace_collector._symbols[-1].pattern_traces
+        assert any("pr4_input_block" in (t.rejection_reason or "")
+                   and "timeframe:10s=MISSING" in (t.rejection_reason or "") for t in traces)
+    else:
+        expected = {"weak":"breakout_volume_confirmation_failed",
+                    "stale":"execution_volume_history_missing",
+                    "insufficient":"execution_stream_insufficient",
+                    "nan":"execution_stream_malformed_candle",
+                    "bad_ohlc":"execution_stream_malformed_candle",
+                    "gap":"execution_stream_insufficient",
+                    "no_baseline":"execution_volume_history_missing"}[failure]
+        assert family_triggers and all(t["trigger_reason"] == expected for t in family_triggers)
+        assert strategy.last_symbol_terminal_outcomes["UPC"]["reason"] == expected
 
 
 @pytest.mark.parametrize("family", ["THREE_BAR_PULLBACK", "SECOND_PULLBACK"])
 def test_steady_session_uses_actual_one_minute_stream(monkeypatch, tmp_path, family):
     _, data = streams(family, primary_fire=True, execution_fire=False)
     strategy, intents, triggers = run_strategy(monkeypatch, tmp_path, family, data, session="RTH_MID")
-    assert intents == []
-    assert strategy.last_symbol_terminal_outcomes["UPC"]["reason"] == "missing_target"
+    assert len(intents) == 1
+    assert intents[0].target_model == "SYNTHETIC_DOWNSTREAM_GATE_TARGET"
+    assert strategy.last_symbol_terminal_outcomes["UPC"]["intent_emitted"]
     evidence = next(t for t in triggers if t["setup_family_id"] == family)["execution_stream"]
     assert evidence["execution_trigger_timeframe"] == "1m"
     assert evidence["volume_confirmation_timeframe"] == "1m"
@@ -157,8 +179,7 @@ def test_missing_execution_stream_preserves_other_symbol(monkeypatch, tmp_path):
     family = "THREE_BAR_PULLBACK"
     _, data = streams(family)
     strategy = _base_strategy(monkeypatch, tmp_path, state="ready")
-    registry = RossPatternRegistry()
-    registry._patterns = [_case(family)[0]]
+    registry = _synthetic_complete_registry(_case(family)[0])
     strategy._pattern_registry = registry
     monkeypatch.setattr(
         "src.strategies.ross_momentum.patterns.pattern_trace.get_intraday_bars",
@@ -170,9 +191,10 @@ def test_missing_execution_stream_preserves_other_symbol(monkeypatch, tmp_path):
         session_label="RTH_OPEN", session_phase="RTH_OPEN",
         timestamp_utc="mixed-cycle", mode=RunMode.READ_ONLY,
     )
-    assert intents == []
+    assert [intent.symbol for intent in intents] == ["AAA"]
+    assert intents[0].target_model == "SYNTHETIC_DOWNSTREAM_GATE_TARGET"
     assert strategy.last_symbol_terminal_outcomes["AAA"]["trigger_ready_now"]
-    assert strategy.last_symbol_terminal_outcomes["AAA"]["reason"] == "missing_target"
+    assert strategy.last_symbol_terminal_outcomes["AAA"]["intent_emitted"]
     assert strategy.last_symbol_terminal_outcomes["BBB"]["intent_emitted"] is False
 
 
@@ -190,8 +212,9 @@ def test_primary_history_does_not_consume_execution_entry(monkeypatch, tmp_path,
     rows[-1] = (level - .04, level + .06, low, level + .04, 200)
     data["10s"] = _candles(rows, end=primary[-1].timestamp, step_seconds=10)
     strategy, intents, _ = run_strategy(monkeypatch, tmp_path, family, data)
-    assert intents == []
-    assert strategy.last_symbol_terminal_outcomes["UPC"]["reason"] == "missing_target"
+    assert len(intents) == 1
+    assert intents[0].target_model == "SYNTHETIC_DOWNSTREAM_GATE_TARGET"
+    assert strategy.last_symbol_terminal_outcomes["UPC"]["intent_emitted"]
 
 
 @pytest.mark.parametrize("failure,reason", [
@@ -225,3 +248,17 @@ def test_registered_engine_preserves_explicit_stream_failure(failure, reason):
     assert trigger["trigger_state"] == "BLOCKED"
     assert trigger["trigger_reason"] == reason
     assert trigger["execution_stream"]["timeframe_substitution"] is False
+
+
+@pytest.mark.parametrize("family", ["THREE_BAR_PULLBACK", "SECOND_PULLBACK"])
+def test_real_targetless_pullback_remains_ineligible_before_selection(monkeypatch, tmp_path, capsys, family):
+    pattern, data = streams(family)
+    result = pattern.evaluate(build_authoritative_pattern_inputs(
+        symbol="UPC", session_label="RTH_OPEN", timeframe_candles=data))
+    assert result.detected and result.target_suggestion is None
+    strategy, intents, _ = run_strategy(monkeypatch, tmp_path, family, data, synthetic_complete=False)
+    assert intents == []
+    terminal = strategy.last_symbol_terminal_outcomes["UPC"]
+    assert terminal["terminal_stage"] == "decision" and not terminal["intent_emitted"]
+    assert terminal["reason"] == "all_detected_candidates_rejected"
+    assert "reason=missing_target" in capsys.readouterr().out

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
 
 class DecisionEngine:
@@ -60,6 +60,7 @@ class DecisionEngine:
         session_context: str | None = None,
         pattern_traces: list[Any] | None = None,
         inactive_pattern_ids: set[str] | None = None,
+        entry_contract_validator: Callable[[Any], tuple[bool, str]] | None = None,
     ) -> dict:
         normalized_setup_families = {
             self._normalize_setup_family(item.get("setup_family"))
@@ -69,9 +70,19 @@ class DecisionEngine:
         trace_by_pattern_id = {
             str(getattr(trace, "pattern_id", "") or "").upper(): trace for trace in (pattern_traces or [])
         }
+        if entry_contract_validator is not None:
+            # A repeated ID is not an occurrence identity. Ambiguous traces must
+            # not override another canonical result's own detected/confidence.
+            counts: dict[str, int] = {}
+            for trace in pattern_traces or []:
+                key = str(getattr(trace, "pattern_id", "") or "").upper()
+                counts[key] = counts.get(key, 0) + 1
+            trace_by_pattern_id = {key: trace for key, trace in trace_by_pattern_id.items()
+                                   if counts.get(key, 0) == 1}
         normalized_candidates = [
-            self._normalize_candidate(item, trace_by_pattern_id=trace_by_pattern_id)
-            for item in (pattern_results or [])
+            {**self._normalize_candidate(item, trace_by_pattern_id=trace_by_pattern_id),
+             "_entry_contract_source": item, "_entry_contract_index": index}
+            for index, item in enumerate(pattern_results or [])
         ]
 
         scored_candidates: list[dict] = []
@@ -127,20 +138,7 @@ class DecisionEngine:
             return self._no_candidate(symbol=symbol, rejected_candidates=rejected_candidates, reason="no_detected_actionable_candidate")
 
         if not scored_candidates:
-            return {
-                "symbol": symbol,
-                "selected_setup_family": None,
-                "selected_pattern_id": None,
-                "selected_pattern_name": None,
-                "decision_state": "CANDIDATE_REJECTED_INSUFFICIENT_QUALITY",
-                "confidence": 0.0,
-                "entry_bias": "NONE",
-                "trigger_level": None,
-                "invalidation_level": None,
-                "supporting_factors": [],
-                "rejected_candidates": rejected_candidates,
-                "decision_reason": "all_detected_candidates_rejected",
-            }
+            return self._insufficient_quality(symbol=symbol, rejected_candidates=rejected_candidates)
 
         direction_buckets: dict[str, list[dict]] = {}
         for candidate in scored_candidates:
@@ -174,6 +172,25 @@ class DecisionEngine:
                 "rejected_candidates": rejected_candidates,
                 "decision_reason": "rejected_true_conflict_opposing_direction",
             }
+
+        # Keep risk-off/context suppression and opposing-direction conflict
+        # authority above contract filtering. An incomplete warning/opposing
+        # candidate must never be filtered away to authorize a long entry.
+        if entry_contract_validator is not None:
+            eligible = []
+            for candidate in scored_candidates:
+                valid, reason = entry_contract_validator(candidate["_entry_contract_source"])
+                if valid:
+                    eligible.append(candidate)
+                else:
+                    rejected_candidates.append(self._reject(candidate, reason, score=candidate["score"]))
+                    print(
+                        "[DECISION_ENGINE][ENTRY_CONTRACT_REJECT] "
+                        f"symbol={symbol} pattern_id={candidate['pattern_id']} reason={reason}"
+                    )
+            scored_candidates = eligible
+            if not scored_candidates:
+                return self._insufficient_quality(symbol=symbol, rejected_candidates=rejected_candidates)
 
         compatibility_partitions = {"compatible": [], "incompatible": []}
         for candidate in scored_candidates:
@@ -236,6 +253,8 @@ class DecisionEngine:
             "rejected_candidates": rejected_candidates,
             "decision_reason": "selected_best_compatible_candidate",
         }
+        if entry_contract_validator is not None:
+            output["selected_candidate_index"] = selected["_entry_contract_index"]
         print(
             "[DECISION_ENGINE][SELECTED] "
             f"symbol={symbol} state=CANDIDATE_SELECTED selected_pattern={selected['pattern_id']} "
@@ -437,6 +456,12 @@ class DecisionEngine:
     def _normalize_setup_family(self, setup_family: Any) -> str:
         normalized = self._to_text(setup_family)
         return self._SETUP_FAMILY_ALIASES.get(normalized, normalized)
+
+    def _insufficient_quality(self, *, symbol: str, rejected_candidates: list[dict]) -> dict:
+        result = self._no_candidate(symbol=symbol, rejected_candidates=rejected_candidates,
+                                    reason="all_detected_candidates_rejected")
+        result["decision_state"] = "CANDIDATE_REJECTED_INSUFFICIENT_QUALITY"
+        return result
 
     @staticmethod
     def _no_candidate(*, symbol: str, rejected_candidates: list[dict], reason: str) -> dict:

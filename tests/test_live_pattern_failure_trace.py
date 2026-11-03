@@ -159,7 +159,7 @@ def test_no_setup_summary_aggregates_reasons(tmp_path: Path, monkeypatch) -> Non
     assert payload["cycle_summaries"]
 
 
-def test_detected_pattern_translates_to_trade_intent(tmp_path: Path, monkeypatch) -> None:
+def test_detected_pattern_translates_to_trade_intent(tmp_path: Path, monkeypatch, capsys) -> None:
     monkeypatch.setattr(
         "src.strategies.ross_momentum.patterns.pattern_trace.get_intraday_bars",
         lambda **kwargs: [Candle(open=10.5 + idx * 0.03, high=10.6 + idx * 0.03, low=10.4 + idx * 0.03, close=10.55 + idx * 0.03, volume=2000 + idx) for idx in range(25)],
@@ -187,6 +187,7 @@ def test_detected_pattern_translates_to_trade_intent(tmp_path: Path, monkeypatch
         mode=RunMode.LIVE,
         session_phase="PRE",
     )
+    out = capsys.readouterr().out
     payload = json.loads((tmp_path / "latest_pattern_failure_trace.json").read_text())
     symbol_eval = next(item for item in payload["symbol_evaluations"] if item["symbol"] == "TEST")
     data_contract_blocked = "data_contract_blocked" in str(symbol_eval.get("final_outcome", "")).lower()
@@ -199,6 +200,14 @@ def test_detected_pattern_translates_to_trade_intent(tmp_path: Path, monkeypatch
             assert intents[0].entry_price is not None
             assert intents[0].stop_loss_price is not None
             assert symbol_eval["final_outcome"] == "SETUP_DETECTED_AND_TRANSLATED"
+        elif symbol_eval["final_outcome"] == "SETUP_FOUND_DECISION_REJECTED":
+            assert intents == []
+            terminal = strategy.last_symbol_terminal_outcomes["TEST"]
+            assert terminal["terminal_stage"] == "decision"
+            assert terminal["reason"] == "all_detected_candidates_rejected"
+            assert not terminal["intent_emitted"] and not terminal["trigger_ready_now"]
+            assert "[DECISION_ENGINE][ENTRY_CONTRACT_REJECT] symbol=TEST" in out
+            assert "reason=missing_target" in out
         else:
             assert symbol_eval["final_outcome"] in {"SETUP_FOUND_BUT_NO_TRIGGER", "SETUP_DETECTED_AND_TRANSLATED"}
     cycle_summary = payload["cycle_summaries"][-1]

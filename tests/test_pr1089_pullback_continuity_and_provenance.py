@@ -44,6 +44,24 @@ def _case(family):
     return SecondPullbackPattern(), evaluate_second_pullback_trigger, rows, wait, fire, invalid
 
 
+def _synthetic_complete_registry(pattern):
+    """Actual detectors + labelled target ONLY to isolate downstream gate tests.
+
+    Neither production detector supplies target policy. Unmodified rejection is
+    covered separately; this fixture must never be described as natural success.
+    """
+    class SyntheticCompleteRegistry(RossPatternRegistry):
+        def run(self, inputs, *, trace_context=None, trace_collector=None):
+            results = super().run(inputs, trace_context=trace_context, trace_collector=trace_collector)
+            for result in results:
+                assert result.target_suggestion is None
+            return [replace(result, target_suggestion="SYNTHETIC_DOWNSTREAM_GATE_TARGET")
+                    if result.detected else result for result in results]
+    registry = SyntheticCompleteRegistry()
+    registry._patterns = [pattern]
+    return registry
+
+
 def _history_inputs(rows):
     inputs = _inputs()
     candles = _candles(rows)
@@ -141,8 +159,7 @@ def test_armed_pullback_real_strategy_delayed_outcome(monkeypatch, tmp_path, fam
     monkeypatch.setattr(EClient, "cancelOrder", forbid_order)
     pattern, _, rows, wait, fire, invalid = _case(family)
     strategy = _base_strategy(monkeypatch, tmp_path, state="ready")
-    registry = RossPatternRegistry()
-    registry._patterns = [pattern]
+    registry = _synthetic_complete_registry(pattern)
     strategy._pattern_registry = registry
     history = list(rows)
     def bars(*, timeframe="1m", limit=50, **kwargs):
@@ -167,12 +184,12 @@ def test_armed_pullback_real_strategy_delayed_outcome(monkeypatch, tmp_path, fam
     if invalidated:
         assert intents == []
     else:
-        # Trigger continuity is independent of target-model availability.
-        assert intents == []
+        # Synthetic target isolates actual detector/stream continuity.
+        assert len(intents) == 1
         terminal = strategy.last_symbol_terminal_outcomes["UPC"]
-        assert terminal["trigger_ready_now"]
+        assert terminal["trigger_ready_now"] and terminal["intent_emitted"]
         assert terminal["selected_setup_family"] == family
-        assert terminal["reason"] == "missing_target"
+        assert intents[0].target_model == "SYNTHETIC_DOWNSTREAM_GATE_TARGET"
     assert calls == []
 
 

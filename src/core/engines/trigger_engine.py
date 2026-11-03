@@ -139,6 +139,8 @@ class TriggerEngine:
                 "stop_anchor_type": str(setup.get("invalidation_anchor") or "STRUCTURE"),
                 "trigger_quality_flags": sorted(set(quality_flags + [*setup.get("quality_flags", [])])),
             }
+            if type(setup.get("canonical_result_index")) is int:
+                output["canonical_result_index"] = setup["canonical_result_index"]
             if isinstance(resolved_trigger, dict) and "execution_stream" in resolved_trigger:
                 output["execution_stream"] = resolved_trigger["execution_stream"]
             if "execution_stream" not in output and isinstance(setup.get("execution_stream"), dict):

@@ -6,7 +6,6 @@ from src.config.config_resolver import get_config
 from src.config.runtime_config import RunMode, get_run_mode
 from src.adapters.brokers.ibkr.ibkr_connection_manager import IbkrConnectionManager
 from .base import ProviderConnectionError, ScannerDataProvider
-from .ibkr_provider import IbkrScannerProvider
 from src.ibkr.market_data_client import MarketDataClient
 from .mock_provider import MockScannerProvider
 
@@ -25,6 +24,8 @@ def build_provider(
     if mode == "MOCK":
         return MockScannerProvider()
     if mode == "IBKR":
+        from .ibkr_provider import IbkrScannerProvider
+
         provider = IbkrScannerProvider(
             connection_manager=connection_manager,
             market_data_client=market_data_client,
@@ -38,6 +39,8 @@ def build_provider(
                     "[SCAN][PAPER] PAPER mode selects MOCK scanner provider (no IBKR connect attempt)."
                 )
             return MockScannerProvider()
+        from .ibkr_provider import IbkrScannerProvider
+
         provider = IbkrScannerProvider(
             connection_manager=connection_manager,
             market_data_client=market_data_client,

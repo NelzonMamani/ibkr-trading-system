@@ -74,8 +74,12 @@ def test_pre_candidate_pre_activation_is_observable_and_can_promote_breakout_tri
 
     out = capsys.readouterr().out
     assert intents == []
-    assert strategy.last_symbol_terminal_outcomes["PREX"]["reason"] == "missing_selected_setup_contract"
-    assert strategy.last_symbol_terminal_outcomes["PREX"]["trigger_ready_now"] is True
+    terminal = strategy.last_symbol_terminal_outcomes["PREX"]
+    assert terminal["reason"] == "all_detected_candidates_rejected"
+    assert terminal["terminal_stage"] == "decision"
+    assert not terminal["trigger_ready_now"] and not terminal["intent_emitted"]
+    assert "[DECISION_ENGINE][ENTRY_CONTRACT_REJECT] symbol=PREX" in out
+    assert "reason=missing_stop" in out
     assert "[ROSS][PRE_ACTIVATION] symbol=PREX" in out
     assert "[ROSS][PRE_TRIGGER_PROMOTION] symbol=PREX reason=PRE_ACTIVATION_BREAKOUT" in out
     assert "[ROSS][INTENT_GENERATED] symbol=PREX" not in out
