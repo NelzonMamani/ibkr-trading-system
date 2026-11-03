@@ -37,12 +37,13 @@ def test_actual_detector_exports_own_contract_not_context():
     assert detected.setup_metadata["pullback_low"] == 10.15
 
 
-def run(monkeypatch, tmp_path, *, state="ready", supplied=None, session="RTH_OPEN"):
+def run(monkeypatch, tmp_path, *, state="ready", supplied=None, session="RTH_OPEN", execution_last=None):
     strategy = _base_strategy(monkeypatch, tmp_path, state="ready")
     rows = [(9.2,9.3,9.1,9.25,900)] * 44 + ROWS
     execution = list(rows)
     if state == "waiting": execution[-1] = (10.22,10.42,10.2,10.42,1700)
     elif state == "invalidated": execution[-1] = (10.22,10.3,10.1,10.15,1700)
+    if execution_last is not None: execution[-1] = execution_last
     data = {tf: _candles(execution if tf == "10s" else rows, step_seconds=step)
             for tf,step in (("1m",60),("5m",300),("10s",10))}
     if state == "missing": data["10s"] = []
@@ -198,3 +199,60 @@ def test_steady_session_uses_real_one_minute_without_requiring_fast_stream(monke
                if t.get("setup_family_id") == "FIRST_PULLBACK")
     assert own["execution_stream"]["execution_trigger_timeframe"] == "1m"
     assert own["execution_stream"]["timeframe_substitution"] is False
+
+
+@pytest.mark.parametrize("confirmation", [
+    (10.22,10.6,10.2,10.55,1700),
+    (10.22,50.,10.2,10.55,1700),
+    (10.22,10.6,10.16,10.55,1700),
+])
+def test_confirming_candle_cannot_move_prior_pullback_anchors(confirmation):
+    from copy import deepcopy
+    rows = list(ROWS); rows[-1] = confirmation
+    inputs = replace(_inputs(), candles=_candles(rows))
+    before = deepcopy(inputs)
+    output = FirstPullbackPattern().evaluate(inputs)
+    assert output.detected
+    assert (output.trigger_level, output.stop_level, output.invalidation_level) == (10.42,10.15,10.15)
+    assert output.setup_metadata["pullback_high"] == 10.42
+    assert output.setup_metadata["pullback_low"] == 10.15
+    assert inputs == before  # Includes original candle timestamps and source metadata.
+
+
+def test_window_excludes_prefix_and_impulse_extremes():
+    prefix = [(9.2,100.,.01,9.25,1000)]
+    output = result(prefix + ROWS)
+    assert output.detected
+    assert output.trigger_level == 10.42  # Neither prefix100 nor impulse10.5.
+    assert output.stop_level == 10.15  # Neither prefix.01 nor impulse9.25.
+
+
+@pytest.mark.parametrize("index,high,low",[(3,10.45,10.2),(4,10.35,10.12)])
+def test_each_pullback_bar_supplies_its_actual_extreme(index,high,low):
+    rows = list(ROWS)
+    o,_,_,c,v = rows[index]; rows[index] = (o,high,low,c,v)
+    output = result(rows)
+    assert output.detected
+    assert output.trigger_level == max(row[1] for row in rows[-3:-1])
+    assert output.stop_level == min(row[2] for row in rows[-3:-1])
+    assert output.invalidation_level == output.stop_level
+
+
+@pytest.mark.parametrize("close,ready,reason", [
+    (10.42,False,"awaiting_pullback_break"),
+    (10.419,False,"awaiting_pullback_break"),
+    (10.421,True,"pullback_high_broken"),
+    (10.15,False,"at_or_below_invalidation"),
+])
+def test_execution_wick_touch_is_not_close_break(monkeypatch,tmp_path,close,ready,reason):
+    # High always exceeds the trigger: only the existing close rule can confirm.
+    low = min(10.2,close)
+    strategy,intents,results,seen = run(monkeypatch,tmp_path,
+        execution_last=(10.22,10.6,low,close,1700))
+    assert results[0].detected and seen
+    own = next(t for t in strategy._failure_trace_collector._symbols[-1].input_summary["trigger_candidates"]
+               if t.get("setup_family_id") == "FIRST_PULLBACK")
+    assert own["trigger_ready_now"] is ready and own["trigger_reason"] == reason
+    assert len(intents) == (1 if ready else 0)
+    assert own["trigger_price_reference"] == 10.42
+    assert own["stop_price_reference"] == own["invalidation_price_reference"] == 10.15

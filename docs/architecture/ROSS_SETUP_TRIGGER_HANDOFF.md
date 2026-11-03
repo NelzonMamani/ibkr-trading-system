@@ -613,3 +613,27 @@ veto remains after formation before risk. No other-family/target-policy work,
 provider/broker calls, observation, push or merge. Next: exact local candidate
 review. Corporate/SEC/listing remains PARKED/fail closed.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## FIRST_PULLBACK window/confirmation review — 3 November 2026
+
+Exact00dbd69d/tree4675fbd7 review: no production blocker. Anchors derive solely
+from candles[-3:-1]; impulse[-6:-3], confirming[-1] and earlier prefix cannot
+supply/move them. Per-evaluation source inputs/timestamps unchanged. Existing RF
+primary-reclaim detection remains separate from registered execution high-break
+confirmation; it was not changed to common-detector pre-break readiness.
+Execution high alone is insufficient: close must exceed measured high; close at/
+below measured low remains invalidated. No newly claimed intrabar ordering,
+stateful cross-cycle invalidation or stop-fill/management proof.
+
+10new guarded boundary controls passed0.63s,25deselected: confirming high/low
+independence, prefix/impulse exclusion, each pullback-bar extreme, actual V1
+wick-touch/equal/below/above close and low invalidation. Original25/99/1 receipts
+inspected/carried forward, not rerun; production unchanged by review. Occurrence
+binding and existing safety/ranking/ownership/READ_ONLY owners reviewed intact.
+Full evidence and target handling are in SAME checkpoint matching review section.
+
+Descriptive target permits raw intent with numeric take-profitNone; selected
+protection retains stop/no numeric target. No numeric-management or natural
+certification. Advice: authorized draft publication and independent exact-head
+review/CI; no push/merge/provider/broker/observation. Corporate/SEC/listing parked;
+five-position veto intact. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
