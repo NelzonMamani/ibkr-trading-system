@@ -3,7 +3,7 @@ from __future__ import annotations
 from quote_fixtures import current_broker_quote, current_broker_time
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from types import SimpleNamespace
 
 from src.config.runtime_config import RunMode
@@ -70,7 +70,10 @@ def _snapshot(symbol: str = "TEST") -> MarketSnapshot:
     )
 
 
-def _bars(count: int = 24) -> list[Candle]:
+def _bars(count: int = 24, timeframe: str = "1m") -> list[Candle]:
+    # Synthetic genuine per-timeframe observations; no timestamp substitution.
+    step = {"10s":10, "1m":60, "5m":300}[timeframe]
+    end = datetime.now(timezone.utc).replace(microsecond=0)
     return [
         Candle(
             open=10.0 + idx * 0.05,
@@ -78,6 +81,7 @@ def _bars(count: int = 24) -> list[Candle]:
             low=9.95 + idx * 0.05,
             close=10.1 + idx * 0.05,
             volume=2000 + idx * 20,
+            timestamp=end-timedelta(seconds=(count-idx)*step),
         )
         for idx in range(count)
     ]
@@ -92,6 +96,10 @@ def _detected_result(pattern_id: str, confidence: float = 0.82) -> PatternResult
         direction=Direction.LONG,
         confidence=confidence,
         setup_quality_tags=["test"],
+        # Explicit synthetic complete contract to reach diagnostic gates.
+        trigger_level=10.95, stop_level=10.90, invalidation_level=10.90,
+        rationale_text="SYNTHETIC_DIAGNOSTIC_CONTRACT",
+        target_suggestion="SYNTHETIC_DIAGNOSTIC_TARGET",
     )
 
 
@@ -126,7 +134,7 @@ def _inputs(symbol: str = "TEST") -> PatternInputs:
 def _base_strategy(monkeypatch, tmp_path) -> RossMomentumStrategyV1:
     monkeypatch.setattr(
         "src.strategies.ross_momentum.patterns.pattern_trace.get_intraday_bars",
-        lambda **kwargs: _bars(),
+        lambda **kwargs: _bars(timeframe=kwargs.get("timeframe", "1m")),
     )
     strategy = RossMomentumStrategyV1()
     strategy._failure_trace_collector = RossPatternFailureTraceCollector(evidence_root=tmp_path)

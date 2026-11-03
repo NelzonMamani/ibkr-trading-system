@@ -172,8 +172,12 @@ def test_trigger_without_selected_contract_blocks_trade_intent(monkeypatch, tmp_
 
     out = capsys.readouterr().out
     assert intents == []
-    assert strategy.last_symbol_terminal_outcomes["TEST"]["reason"] == "missing_selected_setup_contract"
-    assert strategy.last_symbol_terminal_outcomes["TEST"]["trigger_ready_now"] is True
+    terminal = strategy.last_symbol_terminal_outcomes["TEST"]
+    assert terminal["reason"] == "all_detected_candidates_rejected"
+    assert terminal["terminal_stage"] == "decision"
+    assert not terminal["trigger_ready_now"] and not terminal["intent_emitted"]
+    assert "pattern_id=S_PREMARKET_HIGH_BREAK reason=missing_stop" in out
+    assert "pattern_id=S_HOD_BREAK reason=missing_trigger" in out
     assert "[ROSS][INTENT_GENERATED] symbol=TEST" not in out
 
 
@@ -197,8 +201,12 @@ def test_no_silent_drop_after_context(monkeypatch, tmp_path, capsys) -> None:
     assert "[ROSS][SETUP] symbol=TEST source=setup_engine" in out
     assert "[ROSS][INTENT_GENERATED] symbol=TEST" not in out
     assert intents == []
-    assert strategy.last_symbol_terminal_outcomes["TEST"]["reason"] == "missing_selected_setup_contract"
-    assert strategy.last_symbol_terminal_outcomes["TEST"]["trigger_ready_now"] is True
+    terminal = strategy.last_symbol_terminal_outcomes["TEST"]
+    assert terminal["reason"] == "all_detected_candidates_rejected"
+    assert terminal["terminal_stage"] == "decision"
+    assert not terminal["trigger_ready_now"] and not terminal["intent_emitted"]
+    assert "pattern_id=S_PREMARKET_HIGH_BREAK reason=missing_stop" in out
+    assert "pattern_id=S_HOD_BREAK reason=missing_trigger" in out
 
 
 def test_data_block_does_not_force_intent(monkeypatch, tmp_path, capsys) -> None:
@@ -240,9 +248,11 @@ def test_pr554_pipeline_trace_populated_on_live_path(monkeypatch, tmp_path) -> N
     assert trace.context_stage["status"] == "PASS"
     assert trace.structure_stage["reason_code"] == "STRUCTURE_COMPRESSED_IN_MAKE_IT_TRADE_LAYER"
     assert trace.setup_stage["status"] == "PASS"
-    assert trace.trigger_stage["status"] == "FIRED"
-    assert trace.final_outcome is not None
-    assert trace.final_reason_code is not None
+    # Contextual triggers remain observable, but cannot grant an entry contract.
+    assert any(item["trigger_ready_now"] for item in trace.input_summary["trigger_candidates"])
+    assert trace.trigger_stage == {"status":"REJECTED", "reason_code":"DECISION_REJECTED"}
+    assert trace.final_outcome == "SETUP_FOUND_DECISION_REJECTED"
+    assert trace.final_reason_code == "DECISION_REJECTED"
 
 
 def test_focus_empty_viable_watchlist_stays_diagnostic_only_in_paper(monkeypatch, capsys) -> None:
