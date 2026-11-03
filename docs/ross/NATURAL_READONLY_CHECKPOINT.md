@@ -12636,3 +12636,66 @@ new entry AFTER raw formation and BEFORE canonical artifact/risk admission. No
 provider/broker collection, preflight, observation, holdings action or trading.
 Preserve GUI draft, all receipts and separate cache/callback uncertainties.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## KEY_LEVEL_BREAK production bridge — 3 November 2026
+
+Separate branch fix/key-level-break-trigger-handoff starts at accepted main
+`e21e8eb365d53dccb61107cea8a4cda054e514d8`, tree
+`b8eebc29f9f9b591fcbf9b05738fefea32d59c0d`. Carried saved acceptance/integration
+receipts from3a2dd2e3 (including its da7f52d2 predecessor) as documentation-only
+cherry-picks d41d6c43/cf82be45; original branches preserved. No production drift.
+DEPRECATION_LEDGER read, unchanged: no retirement/owner change. No AGENTS files
+apply in this worktree.
+
+Confirmed approved existing specification: strategy_policy.py KEY_LEVEL_BREAK
+family and T_KEY_LEVEL_BREAK entry; RF KeyLevelBreakPattern supplies numeric
+selected-level trigger, distinct structural stop/acceptance invalidation, rationale,
+selected-level source metadata and descriptive next-overhead-key target. Before
+repair, new guarded controls reported6failed/5passed1.08s: empty canonical candidate
+list and actual V1 no_trigger_candidate despite real detection. Not every failure
+was a separate production defect: non-confirmation tests also require a visible
+own-family trigger. No target or fact was added to make the detector pass.
+
+Minimal production diff is ONE allowlist addition in
+RossMomentumStrategyV1._canonical_pattern_trigger_candidates: KEY_LEVEL_BREAK.
+Existing TriggerEngine._evaluate_registered_trigger already dispatches to the
+registered evaluate_key_level_break_trigger; no engine/evaluator/detector/registry
+change needed. Existing canonical payload carries original occurrence ordinal,
+levels and metadata; original selected PatternResult remains the source for
+rationale and target. No duplicate trigger/detection logic, new family, arbitrary
+ID, timestamp replacement, alternate risk path or ownership change.
+
+New focused module tests actual detector -> canonical bridge -> real registered
+evaluator and actual unmodified RossPatternRegistry -> process_watchlist -> raw
+READ_ONLY intent with synthetic fresh 1m/5m/10s streams. Asserts selected identity,
+entry/stop/target/rationale/cycle timestamp, source metadata, aware 10s candle
+spacing and unchanged OHLCV. Existing rule confirms crossing with nondecreasing
+volume; weak-volume non-confirmation and at/below-invalidation remain blocked.
+Missing/stale execution streams assert exact unavailable reasons. Missing target,
+stop or rationale rejects before ranking. Same-ID controls in both input orders
+reject wrong-contract borrowing; two eligible same-ID occurrences prove the
+higher-ranked waiting occurrence cannot borrow the lower-ranked ready trigger.
+Network/socket connections, broker requests and order mutation methods are guarded.
+
+Validation receipts: initial narrow fix11passed0.59s; after stricter gate and two
+ready/waiting occurrence controls13passed0.61s; final instrumentation assertions
+13passed0.61s (`/workspace/scratch/key-level-handoff-final.log`). Affected existing
+modules key_level_break_pattern, ross_selected_setup_handoff,
+pr1089_execution_trigger_timeframe and readonly_manager_risk_handoff:122passed,
+18existing utcnow warnings,3.51s (`key-level-handoff-affected.log`). These cover
+unchanged other-family ranking/suppression/conflict/occurrence behavior and ACTUAL
+Core five-unmatched-position veto after formation/before risk, stale/catalyst and
+PAPER/LIVE mode boundaries. Distinct final cases=135 across two receipts, not a
+single135-pass run or CI/Windows receipt. No unrelated/full suite repeated.
+
+Unmodified production family CAN emit raw intent under its existing descriptive
+target contract on these synthetic inputs; no synthetic target completion used.
+This does not establish a numeric take-profit/R:R/management lifecycle policy,
+natural catalyst/Focus progression, positive risk admission or execution. Other
+family target gaps, GAP_GO duplicate invocation and composed-news-Core combined
+proof remain unchanged. Corporate/SEC/listing provenance remain PARKED/fail closed.
+Five unmatched positions/global veto, GUI draft, historical failures/UNKNOWNs,
+successful safety receipts and separate cache/callback uncertainties preserved.
+No provider/broker collection, preflight, observation, push or merge. ONE next
+action: review this exact local bridge candidate before any publication/CI or
+operational step. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.

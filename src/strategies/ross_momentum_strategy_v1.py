@@ -2240,6 +2240,7 @@ class RossMomentumStrategyV1(BaseStrategy):
             "THREE_BAR_PULLBACK", "SECOND_PULLBACK", "MICRO_PULLBACK",
             "BULL_FLAG", "FLAT_TOP_BREAKOUT", "CONSOLIDATION_BREAKOUT",
             "OPENING_RANGE_BREAKOUT", "PREMARKET_HIGH_BREAK",
+            "KEY_LEVEL_BREAK",
         }
         authority_statuses = {SetupImplementationStatus.TRADE_READY, SetupImplementationStatus.PROBATIONARY}
         candidates: list[dict] = []

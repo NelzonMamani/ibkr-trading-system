@@ -60,7 +60,7 @@ fields. No target is supplied by that base. `_target_model_from_setup` requires
 existing `target_suggestion` or an ABCD projection; it does not manufacture one.
 A descriptive target model is not a numeric take-profit/R:R certification.
 
-For eight families only (ORB/PMH/Micro/Bull/Flat Top/Consolidation/Three-bar/Second),
+For nine families (ORB/PMH/Micro/Bull/Flat Top/Consolidation/Three-bar/Second/Key Level),
 `_canonical_pattern_trigger_candidates` replaces same-family contextual triggers
 with explicit numeric canonical contracts and a genuine execution-stream receipt.
 Other registry families do NOT automatically gain this bridge because they have
@@ -155,7 +155,7 @@ neither is natural evidence. No natural positive formation is established for AN
 | FLAT_TOP_BREAKOUT / PB.FlatTopBreakoutPattern -> CP.detect_flat_top_breakout | >=5, >=3 flat-resistance touches, volume/spread/RVOL; VWAP scoped DEGRADE | C; dedicated flat-top confirmation; explicit resistance/consolidation-low stop; measured range model | `test_flat_top_breakout_pattern` +/-; PR1029 D; selected-handoff H; natural UNPROVEN |
 | HOD_BREAK / PB.HODBreakPattern -> CP.detect_hod_break | >=6, RTH-sourced HOD/compression, volume, spread; scoped HOD requirement | X; TR HOD trigger; explicit structural stop/invalidation; NO target model | `test_hod_break_pattern` +/-; `test_setup_family_pipeline_certification` manually builds intent, NOT actual V1 target admission. Target remains missing |
 | OPENING_DRIVE / PB.OpeningDrivePattern -> CP.detect_opening_drive | >=5, RTH opening phase/impulse/volume/limited pullback | G; dedicated TR evaluator but actual contextual producer has no OPENING_DRIVE and C omits it; explicit trigger/stop; NO target model | `test_opening_drive_pattern` and PR1029 +/- D; no complete actual V1 raw-intent proof |
-| KEY_LEVEL_BREAK / RF.KeyLevelBreakPattern P_KEY_LEVEL_BREAK | >=2, specific prior-known key level, continuation/liquidity acceptance | G; dedicated TR evaluator but no contextual producer/C; explicit selected level and structural stop/invalidation; next-overhead-key model | `test_key_level_break_pattern` +/- level/source/boundary controls; no actual V1 same-family handoff proof |
+| KEY_LEVEL_BREAK / RF.KeyLevelBreakPattern P_KEY_LEVEL_BREAK | >=2, specific prior-known key level, continuation/liquidity acceptance | C after local bridge repair below; existing registered TR evaluator; explicit selected level and structural stop/invalidation; next-overhead-key descriptive model | `test_key_level_break_pattern` detection/trigger controls and `test_key_level_break_production_handoff` actual unmodified registry/V1 raw-intent proof on synthetic fresh streams; natural progression and numeric target/management certification remain unproven |
 | ABCD / RF.ABCDPattern P_ABCD | >=7, bounded swing sequence A/B/C and retracement; scoped MACD DEGRADE | G; dedicated TR evaluator but no contextual producer/C; explicit C stop and numeric D projection/model | PR1029 +/- D, `test_pr1089_canonical_trace_family`; projection is evidence, not a proven actual V1 trigger/raw-intent route |
 | CUP_HANDLE / RF.CupHandlePattern -> CP.detect_cup_handle | >=14, rounded cup/rim, tight handle, contraction/volume/continuation | G; dedicated TR evaluator but no contextual producer/C; explicit handle-low stop; NO target model | `test_cup_handle_pattern` +/- D; missing production bridge and target |
 | EMA_PULLBACK / PB.EmaPullbackPattern -> CP.detect_ema_pullback | >=6, impulse, EMA9/20-zone/reclaim, contraction/RVOL/spread; optional VWAP | G; TR evaluator exists, no EMA contextual producer/C; explicit structural stop/invalidation; NO target | `test_ema_pullback_pattern`, `test_ema_pullback_trigger`, `test_ema_pullback_pipeline_certification` are D/engine-layer proofs, not actual V1 target admission |
@@ -482,4 +482,28 @@ R:R or management policy or claim numeric execution certification. If existing
 contracts are insufficient, report the policy blocker. No implementation here.
 GAP_GO duplicate invocation and other family target/bridge gaps remain unchanged.
 Natural proof, five-position veto and PARKED corporate/SEC/listing state remain.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## KEY_LEVEL_BREAK production bridge — 3 November 2026
+
+The previously recorded bridge recommendation is implemented locally: one
+KEY_LEVEL_BREAK addition to V1's canonical trigger-family allowlist. Existing
+TriggerEngine dispatch and the registered evaluator were already sufficient.
+No new detector/trigger/target logic or owner was added. Family map above now marks
+this route C; prior G/next-repair entries remain historical findings.
+
+Before: six new controls failed, five passed; actual V1 lacked its own trigger.
+After:13 new controls pass with real detector/registry/evaluator and synthetic
+fresh streams, including actual raw intent without synthetic target completion,
+precise missing/stale rejection, invalid contracts and both-order same-ID binding.
+Affected existing controls:122 passed with18existing warnings, including other
+families, suppression/conflict and actual Core ownership/mode boundaries.
+The SAME checkpoint's matching section records baseline, saved receipt carry-
+forward, exact owners, detailed controls, durations and local log locations.
+
+The existing next-overhead-level target is descriptive: numeric take-profit/R:R,
+management lifecycle and natural progression are not certified by this bridge.
+Other family policies/bridges and GAP_GO duplicate invocation remain unchanged.
+One next action: exact local candidate review. No push/merge/runtime activity.
+Five-position veto and PARKED corporate/SEC/listing policy remain intact.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
