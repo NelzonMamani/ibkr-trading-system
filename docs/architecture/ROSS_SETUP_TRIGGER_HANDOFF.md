@@ -60,7 +60,7 @@ fields. No target is supplied by that base. `_target_model_from_setup` requires
 existing `target_suggestion` or an ABCD projection; it does not manufacture one.
 A descriptive target model is not a numeric take-profit/R:R certification.
 
-For nine families (ORB/PMH/Micro/Bull/Flat Top/Consolidation/Three-bar/Second/Key Level),
+For ten families (ORB/PMH/Micro/Bull/Flat Top/Consolidation/Three-bar/Second/Key Level/First Pullback),
 `_canonical_pattern_trigger_candidates` replaces same-family contextual triggers
 with explicit numeric canonical contracts and a genuine execution-stream receipt.
 Other registry families do NOT automatically gain this bridge because they have
@@ -146,7 +146,7 @@ neither is natural evidence. No natural positive formation is established for AN
 | --- | --- | --- | --- |
 | BULL_FLAG / `bull_flag.BullFlagPattern` P_BULL_FLAG | 9 standalone/8 parent;1m plus genuine session refinement; EMA9/20,VWAP; parent/child details above | C; standalone breakout distinct from composed Micro confirmation; explicit flag or child stop; measured move / composed2R profile | Bull/Micro tests above; D/H, separate actual Core READ_ONLY proof; natural UNPROVEN |
 | MICRO_PULLBACK / `micro_pullback.MicroPullbackPattern` P_MICRO_PULLBACK | >=5, impulse+1-3 bars+continuation; EMA9; active-plan1m/10s requirements | C; armed vs break trigger separate; explicit pullback low stop/invalidation; Prior high/HOD model | `test_micro_pullback_execution_refinement`, `test_ross_selected_setup_handoff`, PR1029 positive/negative; D/H |
-| FIRST_PULLBACK / RF.FirstPullbackPattern P_FIRST_PULLBACK | >=6,3-bar impulse+2-bar controlled first pullback+reclaim; EMA9/20 scoped policy | X; dedicated TR first-pullback evaluator; model retest impulse high/extension. Current RF delegates numeric anchors to PatternBase rather than returning its measured local high/low | PR1029 D; `test_strategy_runtime_setup_binding` conditional fields only; common `detect_first_pullback` is NOT this RF runtime owner; full numeric handoff gap |
+| FIRST_PULLBACK / RF.FirstPullbackPattern P_FIRST_PULLBACK | >=6,3-bar impulse+2-bar controlled first pullback+reclaim; EMA9/20 scoped policy | C after local repair below; own pullback-high trigger, pullback-low structural stop/invalidation, unchanged descriptive impulse-high/extension target; existing registered evaluator | `test_first_pullback_production_handoff`: actual RF registry/V1 on synthetic fresh streams, no target completion; PR1029 controls retained. Natural progression and numeric management remain unproven; common detector remains a distinct owner |
 | GAP_GO / RF.GapGoPattern P_GAP_GO | >=4, prior-close gap, level pressure, spread/RVOL, VWAP/EMA context; ORB_GAP_GO policy1m/5m | G in current actual setup producer; TriggerEngine has explicit GapGo special evaluator, but SetupEngine does not emit GAP_GO and C omits it. Inferred anchors; HOD-extension model | `test_gap_go_pipeline_activation`, PR1029 D and engine unit controls; no complete actual strategy invocation proof |
 | GAP_CONTINUATION / RF.GapGoPattern P_GAP_GO | Exact same implementation/input as GAP_GO | Registered alias causes SECOND same-ID evaluation; not independent signal/confirmation | Registry inventory proves duplicate; no independent family entry or natural proof |
 | ORB / BR.OpeningRangeBreakoutPattern -> CP.detect_orb P_ORB | >=6, REGULAR/open phase; ORH/ORL, volume, VWAP/EMA/MACD/context; ORB policy1m/5m | C; registered ORB confirmation; numeric ORH/structural OR-low stop/invalidation; NO target model | `test_orb_pattern`, PR1029 D; selected-handoff tests supply synthetic target or assert missing_target. Real detector remains target-blocked |
@@ -586,3 +586,30 @@ No detector substitution, changed detection/trigger semantics, target/management
 invention or other-family activation. Stop on an unresolved policy boundary.
 No implementation during this task. Five-position veto intact; corporate/SEC/listing
 work PARKED. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## FIRST_PULLBACK own anchors and canonical bridge — 3 November 2026
+
+Local repair resolves the previously recorded X/generic-anchor handoff gap in
+actual RF.FirstPullbackPattern, not common.detect_first_pullback. Existing policy
+family118/entry193 and detector entry/stop text supply measured pullback high/low;
+existing structural stop law invalidates below the low. Stop and invalidation
+remain separate concepts with the SAME numeric boundary here; no new reclaimed-
+high invalidation rule or offset. Existing detection/retrace/strict reclaim and
+descriptive impulse-high target unchanged. RF exports own fields/metadata; V1
+adds FIRST_PULLBACK to canonical bridge. Registered evaluator/TriggerEngine,
+occurrence binding and all selection/safety owners reused unchanged.
+
+Before:9fail/9pass new controls show generic10.3 vs own10.42 and missing canonical
+trigger. Final new module25passed0.73s on actual registry/V1 with synthetic fresh
+streams; no target completion. Both-order duplicate, malformed/missing/stale,
+required1m, actual10s/steady1m, strict high/low and exact45% retrace boundaries.
+Affected existing99passed plus1 PR1029 case (separate runs), including neighboring
+families and actual Core ownership/mode gates. Full receipts and test-assertion
+corrections are in SAME checkpoint matching section; no CI/Windows claim.
+
+Updated row C means synthetic actual raw-intent handoff, NOT natural formation,
+numeric management, positive risk admission or PAPER readiness. Five-position
+veto remains after formation before risk. No other-family/target-policy work,
+provider/broker calls, observation, push or merge. Next: exact local candidate
+review. Corporate/SEC/listing remains PARKED/fail closed.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.

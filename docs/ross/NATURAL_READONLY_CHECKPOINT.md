@@ -12917,3 +12917,91 @@ open gaps. Corporate/SEC/listing provenance stays PARKED/fail closed. Preserve a
 five positions/veto, GUI draft, historical successful safety/failed/UNKNOWN receipts
 and separate cache/callback uncertainties. No provider/broker collection, preflight,
 observation, holdings action or trading. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## FIRST_PULLBACK structural contract and production handoff — 3 November 2026
+
+Separate local branch fix/first-pullback-contract-handoff starts at accepted
+6eca86a2be1ef6570c8a2e2b0e3fd2422c6a6579, verified tree
+b58b2db9d0c977569d20dadefb28e684d6e49704 and clean input. Carried saved
+478e17c8 and its0ca17591 receipt predecessor via documentation-only cherry-picks
+2966ce79/ec7f1cef into SAME checkpoint/family map. Original branches/receipts
+preserved. Read DEPRECATION_LEDGER, unchanged (no retirement/owner change).
+No AGENTS files apply. No network fetch needed to substitute the literal baseline.
+
+Existing specification/contract inspected BEFORE editing: strategy_policy.py:118
+FIRST_PULLBACK controlled pullback after impulse; :193 direct pullback-high
+reclaim/break with lightweight confirmation. RF.FirstPullbackPattern already
+measures a three-bar impulse, two controlled red pullback bars, pullback_low and
+strict reclaim above max pullback high, rejecting >45% retrace. Existing entry/stop
+text is "Break above pullback high" / "Below pullback low". Existing pullback
+stop_placement_law (:326) uses low of structure and says loss beyond that low
+invalidates continuation; the retained common first-pullback contract also sets
+stop/invalidation to its measured low. That common detector is NOT substituted
+for the registered RF owner. Stop and invalidation have distinct meanings but
+share this structural boundary here; no separate reclaimed-high failure level,
+stop offset or additional acceptance-hold policy is specified or invented.
+Existing trigger_first_pullback evaluator confirms close>trigger and high>=trigger;
+existing descriptive target stays "Retest impulse high then measured extension".
+
+Failing-before new controls:9failed/9passed1.18s, saved
+/workspace/scratch/first-pullback-before.log. Detector exported generic10.3 instead
+of measured10.42, and V1 lacked its own canonical trigger. Nine failed assertions
+are not nine independent defects: tests also require an observable own trigger
+for negative states. Minimal repair in TWO existing owners only:
+- RF.FirstPullbackPattern names/reuses already-computed pullback_high comparison,
+  then replaces generic inferred numeric fields with measured high entry/trigger
+  and low stop/invalidation, explicit FIRST_PULLBACK/PULLBACK_HIGH_BREAK and
+  pullback high/low/structure_timeframe metadata. Original rationale, descriptive
+  target, confidence, data flags and detection conditions unchanged.
+- V1._canonical_pattern_trigger_candidates adds FIRST_PULLBACK to existing
+  allowlist. Existing TriggerEngine/registered evaluator dispatch is reused
+  unchanged. No second detector, trigger logic, family, target/management policy,
+  ranking law, risk path or ownership authority. Original candles/times remain
+  in existing authoritative inputs; no copied/refreshed timestamps or timeframe
+  substitution. Existing occurrence ordinal and own contract/trace selection
+  preserve source identity. For this family structural stop and invalidation
+  legitimately coincide; KEY_LEVEL_BREAK's distinct-anchor repair remains intact.
+
+Offline validation (synthetic market inputs, NOT natural evidence):
+- New25-case module passed0.73s, first-pullback-final25.log. Actual unmodified RF
+  detector -> Ross registry -> actual process_watchlist -> registered evaluator ->
+  raw READ_ONLY intent, no synthetic target completion. Explicit entry10.42,
+  stop/invalidation10.15, own rationale/target/metadata, cycle time, original aware
+  10s spacing and no numeric take-profit. Both-order duplicate tests prevent
+  rejected-contract borrowing and prevent a selected waiting occurrence borrowing
+  a lower-ranked ready trigger. Equality-at-high stays unconfirmed; at/below-low
+  invalidates. Missing/stale execution and missing/stale required1m reject; missing
+  primary fails before registry (existing input-failure trace, no terminal-map
+  entry), not confirmed data absence. Wrong geometry/unparseable/missing target or
+  rationale reject. Malformed NaN execution close fails existing trigger comparison
+  as awaiting_pullback_break; no invented malformed-reason counter/label.
+  Structural controls retain insufficient candles, nonpositive impulse, green
+  pullback, >45% retrace and no reclaim rejections; exact45% accepts, just-over
+  rejects. RTH_MID uses genuine1m without10s, no substitution/blanket fast gate.
+- Affected existing runtime_setup_binding, selected_setup_handoff,
+  key_level_break_production_handoff, actual readonly_manager_risk_handoff and
+  Ross setup_family_manifest:99passed/18existing utcnow warnings3.37s, retained
+  first-pullback-affected.log. Includes neighboring-family identity/ranking/
+  suppression/conflict, actual Core five-position veto before risk and mode gates.
+- Existing PR1029 pullback/breakout positive/negative control passed1case0.26s,
+  first-pullback-certification.log. Distinct affected totals across separate runs,
+  not one125-pass run or Windows/CI claim. No unrelated/full suite repeated.
+- Intermediate after-fix17passed/1failed0.67s expected a nonexistent new malformed
+  label; corrected test to existing non-confirmation behavior without production
+  change. Added primary test first failed on an invalid terminal-map assumption,
+  then2passed0.50s after asserting actual early input trace; this was a test
+  assertion correction, not a repaired acquisition defect. Logs preserved.
+
+Existing pre-ranking completeness/suppression/conflict/ranking/one-winner and
+quote/session/catalyst/ownership/READ_ONLY boundaries unchanged. Source changes
+are the structural contract export and one bridge member only. Raw intent proof
+is synthetic; natural catalyst/Focus/setup/trigger progression, numeric targets,
+R:R/management, positive risk admission and PAPER readiness remain UNPROVEN.
+No target price is extracted from the descriptive model and no missing target
+fixture supplied. Other-family policies/bridges and GAP_GO duplicate invocation
+remain unchanged. All five unmatched positions/veto, GUI draft, successful safety
+receipts and historical failures/UNKNOWNs/cache/callback uncertainties preserved.
+Corporate/SEC/listing provenance remains PARKED/fail closed. No provider/broker
+calls, preflight, observation, push or merge. ONE next action: exact local review
+of this bounded FIRST_PULLBACK candidate before any publication/CI step.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.

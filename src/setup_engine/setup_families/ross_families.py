@@ -197,9 +197,10 @@ class FirstPullbackPattern(PatternBase):
         pullback_retrace = (impulse[-1].high - pullback_low) / max(impulse[-1].high - impulse[0].low, 1e-9)
         if pullback_retrace > 0.45:
             return self._rejected("pullback too deep", inputs)
-        if trigger.close <= max(c.high for c in pullback):
+        pullback_high = max(c.high for c in pullback)
+        if trigger.close <= pullback_high:
             return self._rejected("no reclaim trigger", inputs)
-        return self._detected(
+        detected = self._detected(
             inputs,
             direction=Direction.LONG,
             confidence=0.74,
@@ -211,6 +212,20 @@ class FirstPullbackPattern(PatternBase):
             stop_suggestion="Below pullback low",
             target_suggestion="Retest impulse high then measured extension",
             setup_quality_tags=["first_pullback", "continuation_structure"],
+        )
+        return replace(
+            detected,
+            setup_family_id="FIRST_PULLBACK",
+            trigger_type="PULLBACK_HIGH_BREAK",
+            trigger_level=pullback_high,
+            stop_level=pullback_low,
+            invalidation_level=pullback_low,
+            setup_metadata={
+                **dict(detected.setup_metadata or {}),
+                "pullback_high": pullback_high,
+                "pullback_low": pullback_low,
+                "structure_timeframe": inputs.primary_timeframe,
+            },
         )
 
 
