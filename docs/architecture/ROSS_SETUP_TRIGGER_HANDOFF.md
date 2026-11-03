@@ -4,7 +4,7 @@ The production owner is `RossMomentumStrategyV1.process_watchlist`: canonical re
 
 The original authorities 06 section 8 and 09 section 9 name ORB/premarket-high, micro pullback, bull flag and consolidation breakout as initial families. Failed breakout is caution/exit, with VWAP context. The 68-item reference vocabulary is not blanket entry activation. Accepted flat-top and three-bar/second-pullback extensions retain their existing session, input and trigger policies. Candle-only, disabled halt and risk-off signals do not authorize long entries.
 
-A selected entry must retain its own numeric trigger and structural stop, rationale and approved target model. The generic optional target field does not override Ross's later PR1030 target-presence guard. The production intent now retains `target_model`; this descriptive model is not a fabricated numeric take-profit. A missing target or missing canonical selected contract blocks intent with an explicit terminal reason even if the trigger fired. Currently target-less detectors (including ORB and three-bar/second-pullback) remain unavailable for intent until their setup-specific target policy is supplied through the canonical result. This change does not invent that policy.
+A selected entry must retain its own numeric trigger and structural stop, rationale and approved target model. Entry completeness is now checked before candidate ranking on the local repair branch described below; the defensive selected-use check remains. The generic optional target field does not override Ross's PR1030 target-presence guard. The production intent now retains `target_model`; this descriptive model is not a fabricated numeric take-profit. A missing target or missing canonical selected contract blocks intent with an explicit terminal reason even if the trigger fired. Currently target-less detectors (including ORB and three-bar/second-pullback) remain unavailable for intent until their setup-specific target policy is supplied through the canonical result. This change does not invent that policy.
 
 Core canonical contracts supersede contextual trigger guesses for the same family. PRE/RTH_OPEN use the existing genuine 10s execution stream; steady sessions use the existing 1m stream. Missing/stale execution provenance stays non-actionable. Micro pullback exports its detected pullback high/low; consolidation exports its own range and uses the existing range-break primitive with same-stream volume confirmation. Explicit structural stop and acceptance invalidation remain separate trigger facts; trade geometry uses the structural stop when supplied.
 
@@ -13,7 +13,9 @@ Tests in `test_ross_selected_setup_handoff.py` include real consolidation regist
 ## Accepted-main setup-family audit — 3 November 2026
 
 Audit source pin `a66b43f2b44d98405d1dc30bc62f8c359a5f3fbc`, tree
-`04a58818e178764c28e0fecab472fe1dbbbc0154`. This updates the existing handoff
+`04a58818e178764c28e0fecab472fe1dbbbc0154`. This section preserves the baseline
+counterexample and recommendation; the local pre-ranking repair/update below
+supersedes its selection-gap status without changing the family target inventory. This updates the existing handoff
 audit, not another setup catalogue. The isolated optional-import repair changes
 neither strategy, pattern, trigger, management, risk nor execution source.
 Original authorities/specifications remain the [strategy contract](../strategy/ROSS_MOMENTUM_STRATEGY_CONTRACT.md),
@@ -252,3 +254,84 @@ trigger -> raw intent has been established, for any family. The saved corporate
 branch retains later3November receipt/RDAC and366-test details; none were copied
 as production corporate changes into this audit baseline. PAPER_READY=NO;
 PAPER_READINESS_GATE=FAIL. Five unmatched positions remain untouched and blocked.
+
+## Local pre-ranking entry-completeness repair — 3 November 2026
+
+Separate branch `fix/ross-entry-contract-selection` starts at reviewed
+`89f57a01045d5c158a68eac94c9e9e9258f07b0f` /
+`4b7d1402d2aa19cca3a4cc4c97ce86cdc2a4215b`. Dependency repair remains in its
+separate ancestor commit; corporate/source/SEC work remains excluded/parked.
+Implementation commit `b6d8c611004055047be2cccd9028bbe9f2e91c97`, tree
+`dea9f788a0103e460ae0482aa3915e1a93a4f421`. Local only, not merged/CI/natural proof.
+
+`decision_policy.validate_entry_contract` composes the ALREADY existing canonical
+`is_tradeable_entry_candidate`, risk-geometry predicate and target-model resolver
+in their existing policy owner. The standalone intent policy and V1's defensive
+selected-use check reuse that same composition instead of duplicated rules.
+No target, numerical R:R threshold, trigger authority, source or family is added.
+The basic detection validator is unchanged: incomplete detection/context remains
+visible, not rewritten into a detector failure just to prune the candidate pool.
+
+The actual V1 invokes the existing DecisionEngine with this explicit Ross entry
+validator in BOTH existing arbitration calls. Generic engine callers that omit it
+retain their previous behavior. Engine preserves original source objects only
+inside the bounded current call; no source object is exported/serialized as part
+of its result. It first retains inactive/non-entry/risk-off suppression and original
+opposing-direction conflict rejection. It then validates intrinsic entry contracts
+before compatibility ranking. Every excluded candidate receives the validator's
+actual reason in existing `rejected_candidates` plus the structured rejection log.
+Ranking key, scores among eligible candidates and one-winner policy are unchanged.
+An incomplete warning or opposing candidate is not filtered away to permit entry.
+
+Before: higher-ranked target-less Three-bar won, later failed `missing_target`,
+viable Micro was never selected. After: Three-bar is recorded `missing_target`
+before ranking; the real Micro positive result wins in BOTH input orders and
+retains its own setup ID/family, numeric entry, structural stop, target model and
+rationale through actual `process_watchlist` raw intent. Its descriptive target is
+not converted into a fabricated numeric take-profit. Synthetic high-score controls
+are explicitly labelled, not market opportunities.
+
+All-incomplete inputs use the existing
+`CANDIDATE_REJECTED_INSUFFICIENT_QUALITY` / `all_detected_candidates_rejected`
+no-entry decision; candidate-specific reasons are retained. V1 emits the existing
+decision-stage blocked terminal, not a selected fired-trigger/no-intent success.
+Target-less rows in the baseline family map still have NO target policy: they are
+now excluded from the entry ranking pool, not enabled or assigned targets.
+Context-only setup candidates without their own complete entry fields likewise
+reject before ranking, with actual missing-stop/trigger reasons. A late missing
+selected contract remains defensively blocked; no canonical contract is created
+from a contextual guess.
+
+The selected eligible winner still must pass its own trigger, confirmation,
+source/quote/timeframe freshness, session, geometry, tradeability and capacity gates.
+No next-family fallback was added after an unconfirmed trigger, risk denial,
+submission failure or unknown broker outcome. Core's ownership veto remains after
+raw formation and before canonical artifact/real risk admission. Existing actual
+Core READ_ONLY handoff/mode/ownership regressions were included in affected checks.
+
+Focused tests added in existing `test_ross_selected_setup_handoff.py`: both input
+orders; multiple intrinsic failures; all-invalid inputs; unchanged valid ranking;
+risk-off/context/opposing conflict preservation; no fall-through after a complete
+winner's unconfirmed trigger; original selected stop/target/rationale identity;
+shared validator field failures; mapping input/no private-source export; unexpected
+validator failure propagates without selecting another candidate. Broker connection,
+requests and order methods are forbidden, with existing hard offline network guards.
+Existing selected-target tests now assert earlier decision rejection; the three
+contextual fallback tests assert exact missing-stop/trigger logs rather than the
+former late missing-selected-contract stage. No assertions were skipped/weakened.
+
+Failing-before:5 new integration cases failed1.12s. Affected selected-handoff,
+PR1030 intent mapping, PR1082 terminal semantics, contextual fallback, future-quote
+and actual Core READ_ONLY risk-handoff run:181passed/3old-stage assertions failed,
+4.14s,26existing utcnow warnings. Updated only those3 semantic stage assertions;
+reran them plus2additional mapping/fault controls:5passed0.51s. Thus186distinct
+focused cases are covered across receipts, NOT a single186-pass run or CI result.
+No unrelated dependency/full/setup suites repeated. Baseline audit's10 passing
+counterexample controls remain a historical receipt, not an expectation to rerun
+unchanged after correcting their demonstrated starvation behavior.
+
+Remaining family gaps (own target/bridge/structural policy, GAP_GO alias duplicate,
+combined composed-news-Core positive proof and all natural progression) are
+unchanged. Next action is review of this exact local repair; no runtime retry or
+new family activation follows these tests. PAPER_READY=NO;
+PAPER_READINESS_GATE=FAIL. All five unmatched-position protections remain intact.

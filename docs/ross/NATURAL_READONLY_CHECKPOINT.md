@@ -12360,3 +12360,79 @@ global veto AFTER raw formation BEFORE canonical artifact/risk admission, GUI
 draft, historical failures/UNKNOWNs, prior successful safety receipts, separate
 cache/callback uncertainty and PARKED listing provenance. PAPER_READY=NO;
 PAPER_READINESS_GATE=FAIL.
+
+## Local entry-contract selection repair — 3 November 2026
+
+Verified clean reviewed input89f57a01045d5c158a68eac94c9e9e9258f07b0f,
+tree4b7d1402d2aa19cca3a4cc4c97ce86cdc2a4215b. Created separate branch
+fix/ross-entry-contract-selection/worktree from that literal baseline. Parent
+fix/optional-float-dependency-isolation and original corporate branch preserved.
+Dependency commitf8850225 remains separate; dependency source/test bytes unchanged.
+No corporate classifier/verifier, SEC, source membership or GAP_GO duplicate fix.
+
+Implementation commitb6d8c611004055047be2cccd9028bbe9f2e91c97,
+treedea9f788a0103e460ae0482aa3915e1a93a4f421. Existing decision_policy owner
+now exposes a shared composition of its existing canonical entry predicate,
+geometry and target checks. Standalone intent creation and defensive selected-use
+validation reuse that exact composition. V1 passes it to BOTH existing calls of
+the actual DecisionEngine. Risk-off/context/inactive suppression and opposing
+conflict authority stay FIRST; intrinsic entry filtering then occurs before
+ranking. No new target/threshold, duplicate validator module or selection owner.
+Generic DecisionEngine consumers without the Ross callback retain old behavior.
+
+Every intrinsically excluded candidate records its real reason in existing
+rejected_candidates and structured logs. All-invalid inputs return existing
+CANDIDATE_REJECTED_INSUFFICIENT_QUALITY / all_detected_candidates_rejected and
+an existing decision-stage no-entry terminal. Source objects remain call-local,
+not exported. Validator errors propagate fail closed, without choosing another
+candidate. Eligible ranking key and one-winner policy remain unchanged.
+
+Demonstrated before/after: a synthetically high-ranked actual target-less Three-bar
+contract previously won, then failed missing_target, starving an actual positive
+Micro result. Both orderings now exclude Three-bar as missing_target, select Micro
+and preserve Micro's own family, numeric trigger/entry/stop, target model and
+rationale through actual V1 raw intent. No numeric take-profit invented. Multiple
+missing-target/rationale/stop candidates produce separate real rejection reasons;
+all-invalid input stays blocked. Complete winners still do not fall through to a
+different ready family after an unconfirmed trigger. No risk/execution/submission
+outcome causes reselection; none of that post-selection code was changed.
+
+Focused controls live in existing tests/test_ross_selected_setup_handoff.py,
+with explicit broker connection/query/mutation prohibitions and inherited hard
+network guards.17new parametrized cases cover above plus valid ranking invariance,
+risk-off/context/opposing conflict, shared predicate reason identity, mapping
+inputs/private-source nonexport and unexpected validator error. Old target tests
+explicitly now expect pre-selection rejection, preserving detector evidence;
+three contextual fallback tests assert earlier terminal plus missing-stop/trigger
+log reasons instead of late missing_selected_setup_contract. No test skipping,
+forced live input, arbitrary target, deadline or ownership bypass.
+
+Receipts:5new integration cases failed before1.12s. Intermediate collection error
+from a duplicate keyword during editing was corrected before execution; two new
+assertions used stage instead of existing terminal_stage and were corrected.
+Affected six-module run (selected handoff, PR1030 target mapping, PR1082 terminal
+semantics, fallback setup, future-quote admission, actual Core READ_ONLY risk
+handoff):181passed/3old-stage assertions failed4.14s,26existing utcnow warnings.
+Only the3 affected old-stage expectations corrected; those plus2new mapping/fault
+controls passed5cases0.51s.186distinct focused cases covered across receipts,
+NOT a single186-pass run/CI/native Windows result. No unrelated full suites.
+Logs: /workspace/scratch/ross-entry-contract-before.log,
+ross-entry-contract-after.log, ross-entry-contract-affected.log and
+ross-entry-contract-final-controls.log. Historical baseline10-counterexample,
+47dependency,366corporate and all archived receipts remain unchanged evidence,
+not rerun/retroactively rewritten. Whitespace/scope/no-added-email checks PASS.
+
+Updated the EXISTING [selected-setup family audit](../architecture/ROSS_SETUP_TRIGGER_HANDOFF.md#local-pre-ranking-entry-completeness-repair--3-november-2026)
+in place, marking baseline starvation findings as historical and local repair as
+unmerged. Every family's missing target remains missing; this does not enable
+ORB/Three-bar/other blocked families. No duplicated GAP_GO detection or other
+family bridge/geometry work. DEPRECATION_LEDGER unchanged: no owner retirement.
+
+ONE next action: review the exact local entry-contract selection repair before
+publication/CI or integration decisions. Natural qualifying supported catalyst ->
+Focus -> fresh inputs -> real setup/trigger/raw intent remains UNPROVEN. No
+provider/broker call, source expansion, SEC work, observation, holdings action,
+push or merge. Preserve five unmatched positions/global new-entry veto AFTER
+raw formation BEFORE canonical artifact/risk admission, GUI draft, all historical
+failures/UNKNOWNs, successful safety receipts, separate cache/callback uncertainty
+and PARKED listing provenance. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
