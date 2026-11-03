@@ -124,6 +124,7 @@ def test_real_detector_through_actual_v1(monkeypatch, tmp_path, state):
         assert intent.setup_family_id == "KEY_LEVEL_BREAK"
         assert intent.entry_price == result.trigger_level
         assert intent.stop_loss_price == result.stop_level
+        assert intent.invalidation_level == result.invalidation_level
         assert intent.target_model == result.target_suggestion
         assert result.rationale_text in intent.rationale
         assert intent.take_profit_price is None
@@ -161,6 +162,7 @@ def test_same_id_rejected_contract_cannot_replace_winner(monkeypatch, tmp_path, 
     assert len(intents) == 1, strategy.last_symbol_terminal_outcomes
     assert intents[0].entry_price == valid.trigger_level
     assert intents[0].stop_loss_price == valid.stop_level
+    assert intents[0].invalidation_level == valid.invalidation_level
     assert intents[0].target_model == valid.target_suggestion
     assert invalid.rationale_text not in intents[0].rationale
 
@@ -189,4 +191,15 @@ def test_selected_same_id_cannot_borrow_lower_ranked_ready_trigger(monkeypatch, 
     other = next(t for t in triggers if t["canonical_result_index"] != selected_index)
     assert not selected["trigger_ready_now"] and other["trigger_ready_now"]
     assert selected["trigger_price_reference"] == waiting.trigger_level
+    assert not strategy.last_symbol_terminal_outcomes["UPC"]["intent_emitted"]
+
+
+@pytest.mark.parametrize("updates", [
+    {"stop_level": 10.01},
+    {"stop_level": "not-a-price"},
+    {"trigger_level": "not-a-price"},
+])
+def test_malformed_key_level_contract_never_forms_intent(monkeypatch, tmp_path, updates):
+    strategy, intents, _ = _run(monkeypatch, tmp_path, results=[replace(_result(), **updates)])
+    assert intents == []
     assert not strategy.last_symbol_terminal_outcomes["UPC"]["intent_emitted"]

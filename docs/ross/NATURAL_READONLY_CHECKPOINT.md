@@ -12699,3 +12699,76 @@ successful safety receipts and separate cache/callback uncertainties preserved.
 No provider/broker collection, preflight, observation, push or merge. ONE next
 action: review this exact local bridge candidate before any publication/CI or
 operational step. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## KEY_LEVEL_BREAK exact-candidate review — 3 November 2026
+
+Reviewed clean942f2e1cca994f59ce0dca9931e52746b0eb340d, tree
+ afd8aca7a480c3c582c80afc6489e54e443acdce, against accepted basee21e8eb3/treeb8eebc29.
+Initial production diff was exactly one V1 bridge allowlist addition. Saved
+checkpoint/audit receipts were separate documentation cherry-picks. Read existing
+13-new/122-affected receipts (local only); did not repeat those suites for status.
+Confirmed unmodified detector, registered evaluator, actual V1 positive, exact
+canonical result ordinal and own-family dispatch. Pre-ranking contract validator,
+ranking/one-winner, risk-off/conflict, quote/session/timeframe and ownership/risk
+sources are unchanged. Canonical level/source metadata reaches the evaluator;
+raw intent carries its declared fields, not a new arbitrary metadata authority.
+
+BLOCKER DEMONSTRATED: raw _build_trade_intent sets invalidation_level=stop for
+existing generic construction. KEY_LEVEL_BREAK's canonical acceptance level is
+10.0 while structural stop is9.88; original bridge preserved the distinction only
+through trigger dispatch, then lost it in raw intent. Strengthened actual-V1 and
+both-order duplicate controls failed3/7 (4passed,6deselected,0.63s) before repair,
+retained in key-level-review-invalidation-before.log. Minimal family-scoped fix
+immediately after intent construction copies this selected occurrence's trigger
+invalidation reference to the raw KEY_LEVEL_BREAK intent. Structural stop unchanged;
+other families keep their prior behavior. No new validation rule, detector, trigger,
+target model, selection fallback or risk/execution owner. Existing RiskEngine
+prefers explicit stop_loss_price over invalidation when resolving protection.
+
+After correction: new module + selected_setup_handoff + actual readonly manager
+regressions92passed/18existing warnings2.70s (key-level-review-invalidation-after.log).
+This rerun was justified by the changed raw-intent field; other earlier passing
+modules were carried forward. Three NEW malformed-contract controls (wrong-side
+stop and unparseable stop/trigger) passed0.49s,13deselected
+(key-level-review-malformed.log). Distinct new suite now16cases; do not call these
+separate receipts a single95-pass run or CI/Windows certification. All use synthetic
+streams with network/broker/mutation guards. Existing manager controls include
+five-unmatched-position raw formation with POSITION_TRUTH_BLOCK_NEW_ENTRIES before
+artifact/risk admission and PAPER/LIVE boundaries. No unrelated/full suite rerun.
+
+TARGET DISTINCTION RESOLVED: decision_policy._target_model_from_setup accepts a
+nonempty original target_suggestion (or existing ABCD projection) as DESCRIPTIVE
+entry-contract completeness; validate_entry_contract rejects missing_target, not
+lack of a numeric take_profit_price. The actual detector's unchanged "Expansion to
+next overhead key level" satisfies that existing law. V1 uses the exact selected
+contract's target/rationale, emits target_model and leaves take_profit_price=None.
+This is raw strategy evidence, not numeric target/R:R or management certification.
+RiskEngine copies target_model/take_profit fields into RiskDecision; it does not
+extract a price from that prose or impose a universal numeric-target requirement.
+Without a canonical decision artifact risk still blocks; under the saved holdings
+Core globally vetoes admission BEFORE creating that artifact/calling risk. With
+eligible admission READ_ONLY no_trade_contexts rejects execution, and active Core
+never dispatches READ_ONLY orders even if risk unexpectedly allowed one.
+
+Hypothetical fill handling is distinct, not exercised operationally here:
+execution_engine fill handling passes Ross selected protection into
+PostFillLifecycleEngine._compute_stop_target; when selected_target_price is None,
+that existing branch returns validated selected stop and NO numeric target.
+TradeManagementEngine.on_exec_details preserves selected Ross stop and records
+DESCRIPTIVE_ONLY, first/second target None, plus target_model. Existing offline
+controls in test_ross_bullflag_micro_boundaries.py cover this general owner behavior
+and were inspected rather than rerun. Generic TradeExitEngine/exit_plan paths can
+compute an existing default R-multiple target; their existence is NOT proof of a
+KEY_LEVEL_BREAK next-overhead-level rule or end-to-end management certification.
+There is no newly claimed global missing-numeric-target block. Do not invent one,
+interpret descriptive text as a price, or claim this repair certifies PAPER/LIVE.
+
+Review result: initial candidate had the invalidation blocker; corrected source
+reviewed with no remaining scoped publication blocker. Corrected production diff
+is bridge allowlist plus three family-scoped invalidation-preservation lines in
+same V1 owner. Recommend draft publication/independent exact-head review and
+changed-head required CI WHEN authorized; no push performed here. Numeric target/
+management and natural progression remain unproven, other-family gaps/duplicate
+invocation unchanged. Preserve all historical receipts, five-position protections,
+GUI draft and PARKED corporate/SEC/listing provenance. No collection, broker call,
+observation, push or merge. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.

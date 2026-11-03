@@ -507,3 +507,31 @@ Other family policies/bridges and GAP_GO duplicate invocation remain unchanged.
 One next action: exact local candidate review. No push/merge/runtime activity.
 Five-position veto and PARKED corporate/SEC/listing policy remain intact.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## KEY_LEVEL_BREAK review correction and target scope — 3 November 2026
+
+Exact942f2e1c/treeafd8aca7 review found one blocker: canonical acceptance
+invalidation survived the trigger but generic raw-intent construction replaced it
+with the different structural stop. Actual-V1 and both-order duplicate assertions
+failed3/7 before correction. The scoped V1 correction preserves the selected
+KEY_LEVEL_BREAK trigger's invalidation on raw intent; stop remains independent,
+other-family construction unchanged. Corrected affected92cases passed; three new
+malformed-contract cases passed. Prior13/122 receipts remain historical local
+results, not repeated CI claims. Full evidence is in the SAME checkpoint's
+KEY_LEVEL_BREAK exact-candidate review section.
+
+Existing contract accepts the detector's nonempty descriptive next-overhead-level
+target; no synthetic target was supplied. Raw target_model is retained with
+numeric take_profit_price=None. Risk does not translate the prose into a price.
+Selected-protection post-fill handling retains stop/no numeric target;
+TradeManagementEngine records DESCRIPTIVE_ONLY. Generic exit-plan R-multiple
+fallbacks elsewhere are not KEY_LEVEL_BREAK target/management certification.
+Ownership veto prevents artifact/risk admission after formation; READ_ONLY remains
+an independent execution denial. No universal missing-numeric-target block or
+family execution certification is claimed. Family row C denotes tested synthetic
+raw handoff only. Natural progression and numeric management remain unproven.
+
+Corrected candidate recommended for authorized draft publication and independent
+exact-head review/CI; no push/merge/provider/broker/observation. No other family
+repair, corporate/SEC or parked listing work. PAPER_READY=NO;
+PAPER_READINESS_GATE=FAIL.

@@ -1756,6 +1756,9 @@ class RossMomentumStrategyV1(BaseStrategy):
             if gap_go_trigger_fired and not intent:
                 raise RuntimeError("CRITICAL: TRIGGER_FIRED_NO_INTENT")
             # Keep selection and supplemental snapshot authority for risk re-age.
+            if setup_family == "KEY_LEVEL_BREAK":
+                # Acceptance invalidation is distinct from the structural stop.
+                intent.invalidation_level = selected_trigger["invalidation_price_reference"]
             intent.quote_evidence = {"selection": row_quote, "snapshot": snapshot_quote}
             intent.relationship_context = dict((getattr(selected_contract, "setup_metadata", {}) or {}).get("relationship") or {})
             if intent.relationship_context:
