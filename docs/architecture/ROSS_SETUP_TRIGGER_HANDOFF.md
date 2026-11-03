@@ -415,3 +415,44 @@ Missing target/trigger policies, natural positive progression, composed-news-Cor
 combined proof and five-position ownership veto remain as recorded above. No
 provider/broker call, observation, push or merge. PAPER_READY=NO;
 PAPER_READINESS_GATE=FAIL.
+
+## PR1148 publication and exact-head acceptance receipts — 3 November 2026
+
+Draft [PR1148](https://github.com/NelzonMamani/ibkr-trading-system/pull/1148)
+publishes the isolated optional-import and Ross entry-selection work. Candidate
+`9dee39476de02dc4b2153657afac9cfba6cda32e`, tree
+`6dc3335b580379b358fd928a3488f1d9085eb001`; accepted/fetched main
+`a66b43f2b44d98405d1dc30bc62f8c359a5f3fbc`, tree
+`04a58818e178764c28e0fecab472fe1dbbbc0154`, unchanged at publication. No rebase.
+GitHub test merge `39d0b70a5cde4e337ffa4e83acca0d40e8ea7458` has EXACTLY the
+candidate tree and parents accepted main + candidate. Scope checks exclude parked
+corporate/news/SEC production changes and private contact literals. The three
+audit/config/checkpoint documents are documentation, not runtime enablement.
+
+Independent agent review [5759973276](https://github.com/NelzonMamani/ibkr-trading-system/pull/1148#pullrequestreview-5759973276)
+anchors the exact candidate: no blocking findings. Separate reviewer inspected
+canonical predicate reuse, occurrence/duplicate/ambiguity/trace-error binding,
+warning/conflict precedence, valid ranking/one-winner, missing targets, unchanged
+post-guard risk/ownership and dependency isolation. No redundant suite rerun or
+source edits by reviewer. Posted as COMMENT, not human/formal approval or CI proof.
+
+Initial CI [41724915655](https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/41724915655) FAILED: Linux17 failed/3697 passed/3 skipped; Windows17 failed/3699 passed/1 skipped. All17 matching failures were inspected, including by the independent reviewer: expected earlier contract rejection and incomplete downstream fixtures, with no demonstrated new production defect. Later Windows cache/PowerShell steps were skipped and cannot count as acceptance.
+
+Corrective test-only commit `8970953b96aaa8f5f813d4384c57756cbfdc810a`, tree `b8eebc29f9f9b591fcbf9b05738fefea32d59c0d`, changes six test modules; all production/workflow bytes remain unchanged. Labelled synthetic target completeness enables actual downstream detector controls; two unmodified detector controls retain missing_target rejection. Negative cases require actual gate reasons; positive/multi-symbol cases require actual raw intent. Context/diagnostic fixtures retain strict earlier rejection and correctly spaced timestamps. No test skipped, target invented in production, or safety assertion relaxed. Local focused corrections:65 passed and35 passed; after strengthening exact negative reasons16 passed. These are local offline receipts.
+
+Independent exact-head delta [review5760117413](https://github.com/NelzonMamani/ibkr-trading-system/pull/1148#pullrequestreview-5760117413) found no blockers. COMMENT records independent agent review, not human approval. Earlier review5759973276 remains tied to its original head. GitHub merge `97c8c493c636fdfbf1208ec081c8dc89afc650eb` has EXACTLY final candidate tree b8eebc29f9f9b591fcbf9b05738fefea32d59c0d, parents accepted main +8970953b.
+
+Changed-head [CI41726801425](https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/41726801425) completed SUCCESS. Existing unchanged workflow selected full checks (HARNESS_ONLY=False). Linux3716 passed/3 skipped/4 warnings (230.12s); Windows3718 passed/1 skipped/268 warnings (602.40s). Both checked out merge97c8c493, whose tree equals the reviewed final candidate. Windows focused diagnostic95, news maintenance37, native float-cache9 and serial admission40 tests passed. Six cache subprocess fixtures passed; actual PowerShell exit propagation13 controlled checks, observation harness46 checks (including12 package/5 preflight synthetic cases), and PowerShell5.1 diagnostic parser passed. Intentional failing-child output is part of the successful exit-propagation negative controls, not a failed CI step. Evidence upload succeeded. Harness-only alternatives/install step were conditionally skipped because full-suite mode ran; previously skipped required cache/PowerShell controls actually executed successfully here. Optional-dependency guarded controls ran in the full suites. No unchanged-head retry or unrelated local full-suite rerun.
+
+Final PR metadata: accepted base remains a66b43f2b44d98405d1dc30bc62f8c359a5f3fbc; final head8970953b/treeb8eebc29; mergeable, draft/open/unmerged, no review threads. No blocking agent findings. Agent COMMENT is not formal human approval; any repository-required approval must still be satisfied at controlled integration. Recommendation: exact-candidate integration review, with fresh ref/check/protection verification and explicit merge authorization. No runtime/PAPER acceptance.
+
+Receipt documentation is saved on separate local docs/pr1148-ci-acceptance so the
+final published reviewed/tested candidate remains unchanged by receipt updates.
+The original9dee candidate was superseded only by the six-module test correction
+documented above. No second PR or workflow
+change. PR remains DRAFT/unmerged. Any later integration must reverify exact base,
+head, tree, checks, threads and required approvals; this task does not authorize it.
+Natural supported-event-to-raw-intent, missing family target/bridge policies,
+composed-news-Core combined proof, five-position veto and readiness limits remain.
+No provider/broker call, observation or holdings action. PAPER_READY=NO;
+PAPER_READINESS_GATE=FAIL.
