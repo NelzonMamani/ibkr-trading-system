@@ -256,3 +256,32 @@ def test_execution_wick_touch_is_not_close_break(monkeypatch,tmp_path,close,read
     assert len(intents) == (1 if ready else 0)
     assert own["trigger_price_reference"] == 10.42
     assert own["stop_price_reference"] == own["invalidation_price_reference"] == 10.15
+
+
+@pytest.mark.parametrize("index,field,value", [
+    (-3,"low",float("nan")), (-2,"high",float("inf")),
+    (-6,"open",float("nan")), (-1,"close",float("nan")),
+    (-3,"low",10.41), (-2,"high",10.20),
+    (-3,"low","bad"), (-3,"low",None),
+])
+def test_malformed_primary_window_cannot_mint_numeric_authority(monkeypatch,tmp_path,index,field,value):
+    original = _candles
+    if value is None or isinstance(value,str):
+        # Nonnumeric source values can fail in the shared input builder before
+        # RF runs; test this owner's boundary directly without changing it.
+        candles = original(ROWS)
+        candles[index] = replace(candles[index],**{field:value})
+        output = FirstPullbackPattern().evaluate(replace(_inputs(),candles=candles))
+        assert not output.detected and output.rejection_reason == "malformed_candles"
+        return
+    def malformed(rows, **kwargs):
+        candles = original(rows,**kwargs)
+        if kwargs.get("step_seconds") == 60:
+            candles[index] = replace(candles[index],**{field:value})
+        return candles
+    monkeypatch.setitem(globals(),"_candles",malformed)
+    strategy,intents,results,seen = run(monkeypatch,tmp_path)
+    assert intents == []
+    assert results and not results[0].detected
+    assert results[0].rejection_reason == "malformed_candles"
+    assert seen == []

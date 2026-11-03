@@ -637,3 +637,18 @@ protection retains stop/no numeric target. No numeric-management or natural
 certification. Advice: authorized draft publication and independent exact-head
 review/CI; no push/merge/provider/broker/observation. Corporate/SEC/listing parked;
 five-position veto intact. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## PR1150 independent malformed-window correction — 3 November 2026
+
+Initial publishedec4551f4 review5761032145 demonstrated NaN structural low producing
+raw stop/invalidationNaN. Earlier provisional no-blocker statement superseded.
+Original CI41740527836 does not settle that independent blocker. Scoped RF-only
+numeric OHLC validation over six relevant bars now precedes anchor derivation;
+rejects malformed_candles, no coercion/substitution/target or other-family change.
+Six actual-V1 numeric and two direct-owner nonnumeric variants added. Corrected
+43+99+1 focused run143passed3.53s (18existing warnings); old25/99/1/ten-control and
+failing-before receipts preserved in SAME checkpoint. Changed-head independent
+review and required CI pending. Descriptive target/raw intent is still not numeric
+management, intrabar ordering, natural progression or PAPER readiness.
+PR draft/unmerged, five-position veto and parked corporate/SEC/listing unchanged.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.

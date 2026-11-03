@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from math import isfinite
+from numbers import Real
 from statistics import mean
 
 from src.setup_engine.setup_families.key_level_helpers import (
@@ -185,6 +187,15 @@ class FirstPullbackPattern(PatternBase):
         candles = inputs.candles
         if len(candles) < 6:
             return self._rejected("insufficient candles", inputs)
+        # Timestamp provenance does not certify the numeric structural window.
+        for candle in candles[-6:]:
+            values = [getattr(candle, field, None) for field in ("open", "high", "low", "close")]
+            if any(isinstance(value, bool) or not isinstance(value, Real)
+                   or not isfinite(value) or value <= 0 for value in values):
+                return self._rejected("malformed_candles", inputs)
+            opening, high, low, close = values
+            if low > min(opening, close) or high < max(opening, close):
+                return self._rejected("malformed_candles", inputs)
         impulse = candles[-6:-3]
         pullback = candles[-3:-1]
         trigger = candles[-1]

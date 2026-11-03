@@ -13080,3 +13080,43 @@ exact-head review and changed-head required CI. No push/merge performed. Existin
 family map updated in place; no competing checklist. Preserve corporate/SEC and
 listing PARKED/fail closed, all receipts, GUI draft, five-position ownership and
 other-family gaps. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## PR1150 independent review: malformed-window blocker and repair — 3 November 2026
+
+Published draft PR1150 initially at ec4551f4f176be6903c1b2f2b9407383353bb295 /
+4c499099edda0122f22d975d149e1c17c825908f against unchanged accepted6eca86a2.
+Independent agent review5761032145 found ONE BLOCKER, superseding provisional
+no-blocker status: valid-timestamp1m first-pullback lowNaN reached actual unmodified
+RF/registry/V1/evaluator and raw intent entry10.42, stopNaN, invalidationNaN.
+Guarded scratch first-pullback-independent-nan.log:1failed0.47s. Timestamp
+provenance was not numeric validity; comparisons with NaN failed open. Original
+CI41740527836 tests that superseded head; any success cannot resolve the review
+finding. Original35 cases and25/99/1/ten-control receipts remain preserved.
+
+Scoped fix stays in RF.FirstPullbackPattern: before computing/exporting authority,
+validate ONLY its six relevant impulse/pullback/confirming OHLC bars as finite,
+positive numeric Real (excluding booleans), with low<=open/close<=high. Reject
+malformed_candles without substitution, clamping, changing timestamps or generic
+fallback levels. No new volume/classification/target law, no detector replacement,
+no other-family behavior change. No suitable existing window validator was found
+in this owner; existing shared pullback helpers validate different execution
+contracts, so they were not imported as a new detector/trigger dependency.
+
+Eight added regression variants initially failed0.76s. Only the independently
+observed NaN case is claimed as proven NaN raw admission; other failures include
+existing pipeline exceptions/rejection-reason differences. Six numeric variants
+now traverse actual V1 (NaN/Inf in impulse/pullback/confirming and inconsistent
+OHLC), reject before registered trigger, no intent. String/None variants use the
+actual RF boundary directly because the shared input builder can reject/raise
+before RF; no unrelated input-builder repair or claim of eight end-to-end cases.
+Corrected43new cases +99affected existing +1PR1029:143passed/18existing warnings
+3.53s in first-pullback-numeric-final.log. Repetition justified by numeric-guard
+source change, not status. Shared fixture only supplies synthetic source candles;
+real RF/registry/V1/evaluator/ownership gates remain unmocked for their controls.
+No provider/broker or observation. Finite valid window/anchor/strict close behavior
+and all target/management/intrabar/natural limitations remain unchanged.
+
+Changed exact-head independent review and Linux/Windows/PowerShell/cache CI are
+required before integration recommendation. PR remains DRAFT/unmerged; no merge
+authorized. Five-position veto and PARKED corporate/SEC/listing provenance intact.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
