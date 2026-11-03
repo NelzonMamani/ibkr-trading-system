@@ -559,3 +559,30 @@ No family target/management policy added: C still means synthetic actual V1 raw
 handoff, not natural progression, numeric management or PAPER readiness.
 Five-position veto and PARKED corporate/SEC/listing provenance unchanged. PR draft,
 no merge/provider/broker/observation. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## PR1149 accepted; next FIRST_PULLBACK handoff recommendation — 3 November 2026
+
+Accepted main6eca86a2be1ef6570c8a2e2b0e3fd2422c6a6579, tree
+b58b2db9d0c977569d20dadefb28e684d6e49704, exactly reviewed/tested candidate.
+Expected-head-guarded merge followed review5760597105, successful CI41734010206,
+matching test tree and repository requirement checks; no protection bypass or
+suite rerun. Receipt: PR1149 issuecomment-6617899746. Saved0ca17591 checkpoint/map
+receipts carried forward unchanged. Complete integration evidence is in the SAME
+checkpoint's PR1149 controlled integration section.
+
+KEY_LEVEL_BREAK handoff and separate structural stop/acceptance invalidation are
+integrated. Numeric management and natural progression remain NOT certified.
+
+Next priority: FIRST_PULLBACK own structural-contract -> canonical trigger bridge.
+Existing policy family118/entry193 specifies controlled pullback and pullback-high
+reclaim, not a new target law. RF.FirstPullbackPattern measures pullback low/high
+but does not export those numeric anchors; generic PatternBase context inference
+is not own structure. Existing descriptive retest-impulse-high/extension target
+and registered trigger_first_pullback evaluator already exist. V1 bridge omits it.
+Named first_pullback tests target common detector, not actual registered RF owner.
+Bound a separately authorized repair to RF contract export + existing V1/TriggerEngine
+handoff, exact occurrence binding and actual positive/negative/raw-intent controls.
+No detector substitution, changed detection/trigger semantics, target/management
+invention or other-family activation. Stop on an unresolved policy boundary.
+No implementation during this task. Five-position veto intact; corporate/SEC/listing
+work PARKED. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.

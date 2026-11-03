@@ -12839,3 +12839,81 @@ historical failures/UNKNOWNs and successful safety receipts, five-position veto,
 other family target/bridge/duplicate gaps, separate cache/callback uncertainty and
 PARKED corporate/SEC/listing provenance. PAPER_READY=NO;
 PAPER_READINESS_GATE=FAIL.
+
+## PR1149 controlled integration; next family gap — 3 November 2026
+
+Explicit user authorization limited integration to head
+3608d6cf9a1da4016bf9e1dd0aba47b0b53750c8, tree
+b58b2db9d0c977569d20dadefb28e684d6e49704, base
+e21e8eb365d53dccb61107cea8a4cda054e514d8. Verified unchanged refs/clean source,
+review5760597105 commit_id3608d6cf (independent agent COMMENT, not human approval),
+CI41734010206 with ALL three jobs successful and Windows/cache/PowerShell controls,
+matching test mergefe440594 tree/parents, no threads or new blockers. Reused
+existing receipts; no passing suite repeated. Repository main protected=false,
+required contexts/checks empty, rulesets empty, merge commits enabled,
+mergeable_state=clean. No settings/protections changed or bypassed.
+
+Marked ready and merged with accepted method=merge and expected_head_sha3608d6cf.
+Accepted main **6eca86a2be1ef6570c8a2e2b0e3fd2422c6a6579**, tree
+**b58b2db9d0c977569d20dadefb28e684d6e49704**. Fetched Git object confirms EXACT
+reviewed/tested tree and parents accepted base + authorized head. GitHub merged_at
+2026-11-03T23:13:31Z. Integration receipt:
+https://github.com/NelzonMamani/ibkr-trading-system/pull/1149#issuecomment-6617899746
+Saved docs/pr1149-ci-acceptance commit0ca175914f5c6457792cdaeada639504945d7212
+was cherry-picked as1478ca34 onto this accepted merge on local
+docs/pr1149-integration, retaining SAME checkpoint/family map. Prior saved branches,
+failing-before controls and historical CI failures remain preserved. This local
+documentation branch is not a replacement runtime pin. Earlier draft-only/no-merge
+statements record their historical stage; this section records later authorization.
+
+Completion claim: KEY_LEVEL_BREAK's actual trigger handoff and separate canonical
+structural stop/acceptance invalidation are repaired and offline verified. Numeric
+target/R:R/management, natural progression, positive risk admission and PAPER/LIVE
+execution are NOT certified. Descriptive target does not become a numeric price.
+Five-position veto still operates AFTER raw formation, BEFORE artifact/risk
+admission; READ_ONLY remains an independent execution prohibition.
+
+ONE next highest-priority bounded repair recommendation: FIRST_PULLBACK canonical
+structural-contract and trigger handoff. It is a specified core pullback family
+with an existing descriptive target/evaluator, so it can be addressed without
+inventing the absent target policies of ORB/Three/Second/etc. Evidence:
+- strategy_policy.py:118 FIRST_PULLBACK = first controlled pullback after impulse;
+  line193 XL_FIRST_PULLBACK_BREAK_FAST = pullback-high direct reclaim/break,
+  lightweight confirmation. Existing pattern_input_policy.py:64ff governs inputs.
+- setup_engine/registry.py:63 registers RF.FirstPullbackPattern. Actual owner
+  setup_families/ross_families.py:178ff measures impulse, controlled two-bar
+  pullback_low and pullback-high reclaim, but returns generic PatternBase._detected
+  without exporting those own numeric anchors/family trigger metadata. Existing
+  text already says break above pullback high / below pullback low, target retest
+  impulse high then measured extension. Generic pattern_base.py:108ff instead
+  infers trigger/stop from context; those values are not its measured structure.
+- common/triggers/trigger_registry.py:35 already registers
+  trigger_first_pullback.py::evaluate_first_pullback_trigger with
+  PULLBACK_HIGH_BREAK. V1._canonical_pattern_trigger_candidates still omits
+  FIRST_PULLBACK; contextual SetupEngine is a separate source, not canonical proof.
+- Existing family map marks this X/full numeric handoff gap.
+  tests/test_first_pullback_pattern.py tests common.detect_first_pullback, NOT this
+  registered RF runtime detector; test_strategy_runtime_setup_binding conditional
+  fields do not prove the actual V1 own-contract/trigger/raw-intent path.
+
+Bound proposed work to exporting already-measured pullback high/low and existing
+family/trigger/source metadata from that RF detector, then connecting its exact
+canonical occurrence through the existing V1 bridge/TriggerEngine/evaluator.
+Do not replace runtime owner with common detector, duplicate detection logic,
+change reclaim/depth/confirmation semantics, fabricate a numeric target/management
+rule or enable other families. Preserve own rationale/descriptive target, genuine
+timeframe/freshness/session/catalyst gates, pre-ranking validation, suppression/
+conflict/ranking/one-winner and all ownership/risk barriers. Require guarded
+failing-before actual RF registry -> actual V1 controls for own numeric anchors,
+registered evaluator, confirmed/unconfirmed/invalidated, missing/stale/malformed,
+duplicate IDs/both orders, and selected contract through raw intent. If current
+spec does not suffice at a boundary, stop and report that policy question rather
+than inventing permission. No implementation or new tests in this integration task.
+ONE next action: review/authorize that single offline FIRST_PULLBACK repair.
+
+GAP_GO duplicate invocation, missing other-family target/management policies,
+composed-news-Core combined proof and natural positive progression remain separate
+open gaps. Corporate/SEC/listing provenance stays PARKED/fail closed. Preserve all
+five positions/veto, GUI draft, historical successful safety/failed/UNKNOWN receipts
+and separate cache/callback uncertainties. No provider/broker collection, preflight,
+observation, holdings action or trading. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
