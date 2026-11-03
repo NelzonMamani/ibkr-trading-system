@@ -12259,3 +12259,104 @@ unmatched-position protections, GUI draft, separate cache/callback uncertainty
 and PARKED/fail-closed listing provenance. Next gate: inspect required exact-head
 CI results and return this draft candidate for integration review, without merge.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## Isolated optional-import repair and resumed setup-family audit — 3 November 2026
+
+Original corporate branch fix/corporate-transaction-catalysts preserved at
+8bc38cbe2bde5003dcea509fa473685806a6a7d2, tree
+f2da280b2808a8f0af2c76f77516ae9f08a95147; all saved receipts and later documentation
+remain there unchanged. No rebase/merge/push or production corporate integration.
+
+New isolated branch fix/optional-float-dependency-isolation, separate worktree,
+started at literal accepted maina66b43f2b44d98405d1dc30bc62f8c359a5f3fbc,
+tree04a58818e178764c28e0fecab472fe1dbbbc0154. Extracted ONLY the prior repair's
+four files: src/market_data/float_provider.py, src/scanner/providers/factory.py,
+tests/test_float_provider.py and docs/PHASE_24_CONFIGURATION_AUTHORITY.md.
+All four byte-identical to their reviewed8bc38cbe versions; clean apply, no conflict.
+Isolated repair commitf8850225d6ea60cc8db049ef67039354d5f923d8,
+tree5afc775809320b4524404f3d242f376007f23264. No news/corporate classifier,
+source association, document verifier, RSS adapter, trust or qualification change.
+The redacted operator guide's parked SEC-carrier description is documentation
+only, not SEC configuration/capture work. No contact literal in added content.
+
+Validation applicability: carry forward47-focused-pass3.85s receipt from the
+preserved branch, with exact same repair source/test bytes. Main's import graph
+excludes the parked corporate machinery, so reran ONLY the affected cold actual
+SIM/mock startup case with all optional float packages/paid keys absent:
+1passed0.86s at the isolated source. Other unchanged unit/provider/cache/lock/
+mode/cleanup receipts carried forward, not rerun as an unchanged suite. No CI or
+native Windows acceptance claimed. No packages installed; production required
+broker dependencies/gates unchanged. Whitespace/exact-file/privacy checks PASS.
+DEPRECATION_LEDGER unchanged: no retirement or owner transfer.
+
+### Existing audit updated, not another checklist
+
+Updated [Ross selected-setup handoff audit](../architecture/ROSS_SETUP_TRIGGER_HANDOFF.md#accepted-main-setup-family-audit--3-november-2026)
+with the complete28-registry-entry coverage map, beginning Bull Flag/Micro,
+shared session-specific candle/indicator provenance, actual invocation/bridge,
+confirmation vs detection, stop/invalidation/target/management, downstream Core
+READ_ONLY authority and precise existing test-layer limitations. Existing strategy
+specification, family catalogue, PR1029/1030 certification and composed-management
+report reused. No detector/strategy/trigger/target source was changed by the audit.
+
+Concrete inventory:26TRADE_READY+2PROBATIONARY registry entries instantiate27unique
+detector IDs, because GAP_CONTINUATION duplicates GAP_GO; with6inactive candle
+placeholders the Ross registry contains34objects/33IDs. These are implementation
+labels, not28certified long-entry routes. No production canonical-result trigger
+bridge automatically exists outside its existing eight-family allowlist. A
+standalone trigger-registry entry or a helper-built TradeIntent is not the actual
+V1 selected-setup handoff. Some families are intentionally short/risk-off/disabled;
+some still lack actual trigger/target contracts. All natural positive formation
+remains UNPROVEN regardless of deterministic tests. The preserved branch retains
+3November/RDAC receipt details; no completed investigation was repeated.
+
+Bull Flag audit distinguishes standalone formation/breakout, Core-wired composed
+closed parent/same-conId Micro child and durable child consumption. The existing
+actual Core artifact/risk test installs a replacement standalone strategy after
+relationship wiring; its proof is not automatically the composed-news-Core
+combination. Composed V1->risk/in-memory management proofs are separately retained.
+No synthetic evidence is reclassified natural or broker-execution acceptance.
+
+Exact target-less actual detector paths: ORB, HOD, Opening Drive, Cup Handle,
+EMA/VWAP Pullback, Three-bar, Second Pullback, Stair-step, Range, Ascending Triangle,
+Pennant. Some stop earlier for missing same-family trigger production. No numeric
+or descriptive target was invented, and no blocked family was enabled. The three
+simple-continuation class names do not establish tested triangle/pennant/range
+geometry. Existing conditional binding tests neither prove positive detection
+for every family nor check target/actual V1 intent admission.
+
+Highest-priority demonstrated gap: target completeness is checked AFTER same-
+symbol family ranking. In a labelled synthetic high-score arbitration control,
+the real target-less Three-bar contract outranks an actual Micro positive result,
+fires and rejects missing_target, while Micro alone produces an eligible raw
+READ_ONLY intent. Both input orders reproduced. The loser is EXPLICITLY logged
+lower-priority; not silent deletion and not proof of an archived lost opportunity.
+No next-family reconsideration occurs after the known-incomplete winner. Ordinary
+one-winner/cycle-capacity/opposing-direction/risk-off/consumed-child losses are
+intentional policies, not permission to reroute around gates. Registry alias is
+a redundant detector invocation, not independent confirmation or two submissions.
+
+Ten narrowly guarded, disposable offline audit controls:2arbitration orderings,
+4explicit missing trigger mappings,1duplicate alias,3simple-continuation target
+limits;10passed0.63s. Code /workspace/scratch/test_ross_family_audit_controls.py;
+receipt /workspace/scratch/ross-family-audit-controls.log. Existing fixtures/
+actual production functions, synthetic arbitration score, real Micro detection;
+broker/network/mutation forbidden. Not a failing-before/fixed-after strategy
+repair or new full-suite result. No existing setup suites repeated for status.
+
+ONE concrete recommendation/next work item: a separately reviewable narrow change
+to enforce ALREADY mandatory selected-entry contract/target completeness before
+entry-candidate ranking, using existing owners. Retain missing-target rejections,
+determinism, risk-off warning suppression and one-winner policy. Validate complete
+candidate vs target-less competitor, all-incomplete rejection, no borrowing targets,
+conflicts and risk-off suppression, unchanged ownership/freshness/capacity guards.
+Do not invent policy for missing families or expand trigger membership as part of
+that repair. It is proposed here, NOT implemented. Full family map/source/test
+references and remaining policy/bridge/proof gaps live in the existing audit.
+
+SEC/corporate-source expansion and capture remain parked; no provider/broker call,
+observation, holdings action, push or merge. Preserve five unmatched positions and
+global veto AFTER raw formation BEFORE canonical artifact/risk admission, GUI
+draft, historical failures/UNKNOWNs, prior successful safety receipts, separate
+cache/callback uncertainty and PARKED listing provenance. PAPER_READY=NO;
+PAPER_READINESS_GATE=FAIL.
