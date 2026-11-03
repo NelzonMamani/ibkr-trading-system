@@ -12780,3 +12780,184 @@ fetch original material, add instrumentation or rerun the observation. Optional
 class work must not delay acceptance of already-supported classes. Natural
 supported catalyst->Focus->fresh setup/trigger->raw intent remains UNPROVEN.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## 3 November 2026 — corporate-event catalyst policy reconciliation (PROPOSAL ONLY)
+
+Continues exact saved receipt7942bcf2e80eed7fe5bb0e5e47c45cbc39462a6f.
+Documentation review only: no implementation, classifier change, new subsystem,
+network acquisition, broker activity, preflight, observation retry or merge.
+RDAC remains rejected; publisher association and underlying event verification
+remain UNKNOWN. No retrospective positive natural proof or readiness upgrade.
+
+### Existing requirements versus a new admission policy
+
+Read STRATEGY_SPEC_ROSS_CAMERON_MOMENTUM.md sections2/3/6/9: the reference requires
+news/earnings/FDA/other reason for movement and outputs TradeIntent, with no silent
+adaptive mutation. It does not define M&A/termination classes, materiality tests,
+article verification or an exhaustive event taxonomy. Broad "other reason" is
+intent, not an instruction to admit every event keyword or price-moving item.
+Read docs/strategy/ROSS_MOMENTUM_STRATEGY_CONTRACT.md authority rules: production
+policy/runtime highest authority; reference intent does not override gates/tests.
+Its old authority-index runtime descriptions are historical, not a reason to
+undo later accepted news wiring. Read P01 ROSS_POLICY_V2_INVENTORY sections4/230:
+catalyst required; explicit source hierarchy/scoring was not encoded as verified
+policy. Another strategy's long-horizon M&A rules confer no Ross authority.
+
+strategy_policy.py CatalystModelV2/F_CATALYST_REQUIRED requires a real catalyst;
+F_NEWS_QUALITY prefers PR/SEC/major outlets over thin/rumour sources. Descriptive
+liquidity_proxy_when_uncertain/commentary is not permission for price action,
+RVOL or attention to replace an absent qualified event. Actual READ_ONLY catalyst
+and current cached/handoff gates remain fail closed.
+
+Current catalyst_policy.py supported vocabulary maps to EARNINGS, FDA, CONTRACT,
+ANALYST_ACTION, PRESS_RELEASE, TECH_CATALYST, CRYPTO_CATALYST, EV_CATALYST and
+DEFENSE_CATALYST. Dedicated LISTING_COMPLIANCE_REGAINED was a deliberate policy
+addition and remains PARKED/fail closed for unverified original provenance.
+There is no dedicated MERGER/ACQUISITION/AGREEMENT_TERMINATION admission rule.
+A word such as contract/press release in a transaction article cannot stand in
+for assessing the corporate transaction and its parties/status/materiality.
+No claim is made that every possible corporate headline is currently rejected:
+incidental existing keywords can classify text, subject to existing assertion/
+attribution/veto tests; that is not certification of an M&A event class.
+
+Inspected relevant tests, without rerunning them: test_pr1091_catalyst_evidence_repair
+(word boundaries, supplied issuer identity, unrelated/publisher mentions and cache
+revalidation); test_ross_supported_catalyst_critical_path.SUPPORTED (nine classes,
+synthetic canonical publication/cached Focus/real pattern/intent); positive
+catalyst lifecycle (original clocks, expiry, future/update-only/research/missing
+facts, retained veto, handoff); listing compliance tests (specific completed
+assertion and synthetic provenance verifier). None supplies positive Ross M&A/
+termination qualification acceptance criteria. Source policy/classifier/contract
+search found no explicit existing requirement to admit them. Conclusion: broader
+corporate events are consistent with general catalyst intent, but enforceable
+admission is a NEW deliberate policy specification, not a demonstrated omission
+from an already-defined M&A requirement. The archived RDAC outcome is unchanged.
+
+### Recommended general contract — narrow material corporate-transaction events
+
+PROPOSED class family only, not enabled: separate statuses for (1) signed
+DEFINITIVE merger/acquisition agreement announced, (2) transaction completed,
+(3) effective termination of a previously identified definitive merger/acquisition
+agreement. Do not use a broad corporate/compliance/merger keyword or generic
+agreement-termination class covering unknown supply/employment/licensing contracts.
+A transaction may be positive, negative or mixed economically; catalyst eligibility
+means an evidenced issuer event, not a bullish judgment or automatic Focus/intent.
+Preserve dilution/financing vetoes; no class-specific exemption for stock/cash
+consideration, capital raising, redemption or SPAC-related complexities.
+
+Required article-bound facts, all conjunctive:
+- Exact requested issuer/security identity through existing candidate metadata and
+  text-derived matcher, plus legal parties and roles (target/acquirer/surviving
+  entity or terminating party). Distinguish issuer from peer, unit/common share,
+  historical name and co-mentioned company. An unrelated company's deal cannot
+  transfer by title co-mention. A confirmed issuer counterparty's original notice
+  can support the issuer only with explicit legal-party linkage.
+- Actual action/status asserted by an accountable primary origin: an authenticated
+  issuer/counterparty announcement or regulator-filed notice/exhibit containing
+  the event. A filing wrapper/form number alone is not event content. Bind the
+  exact statement/document/version, source/transport URLs, publication, issuer and
+  transaction identity through existing NewsEvidence/raw provenance ownership.
+  No reusable verified_source boolean, cached CONFIRMED flag, root-domain label,
+  HTTPS/HTTP200, Google delivery, feed catalogue membership or copy count suffices.
+- Verify the origin/entity association independently of the article's self-label:
+  e.g. a reviewed legal-entity/regulator identifier association and the exact filing
+  accession/exhibit, or a separately authenticated issuer-domain association and
+  exact original notice. Identify the association reference and verification scope;
+  do not invent a publisher/domain map or an existing verification authority.
+  Prefer original evidence. A syndicated article can be corroborated only when
+  linked to the same already-verified original event; copies remain one event and
+  cannot bootstrap provenance or independent confirmation. Conflicting identity,
+  source, dates or status => UNKNOWN/reject affected claim, retain conflict facts.
+- Retained content must contain the decisive assertion and required event details.
+  A complete bounded original RSS summary could suffice if it actually contains
+  them and origin verification passes; a title-only snippet, publisher label or
+  commentary mentioning an event does not. Do not demand an arbitrary full-body
+  size or fetch linked pages automatically. Missing content means insufficient
+  evidence, not a permissive fallback or authority to expand acquisition.
+- Transaction identity: parties, deal type, status and announcement/effective date;
+  signed agreement versus proposal/LOI/discussions; closing conditions versus actual
+  completion. For termination, identify the prior definitive transaction and assert
+  that it HAS ended (by issuer/counterparty action or operative agreement expiry),
+  not merely an exercisable right/plan/rumour. Retain disclosed reason/fees/remaining
+  obligations where present; do not invent absent facts. A contract amendment,
+  extension, regulatory setback or vote alone is not termination/completion.
+- Demonstrated issuer materiality from transaction facts: whole-company/change-of-
+  control transaction, or an explicitly described principal business/substantial
+  asset transaction with disclosed scale/effect. A release calling something
+  "material" alone, an unnamed/minor asset purchase, market price change or an
+  unstated numerical significance threshold is insufficient. Missing scale/effect
+  for a non-whole-company transaction => materiality UNKNOWN. Do not invent a
+  percentage-of-market-cap rule or import value-strategy investment reasoning.
+- Original publication must satisfy unchanged strict age0..21600 seconds inclusive
+  at selection and every cached/handoff use; future-by-one-microsecond, missing/
+  untrusted/naive date, stale date, update-only renewal or fresh wrapper over old
+  event rejects. Retain event date separately. A signed agreement announced today
+  can have a future conditional closing date: that qualifies, if at all, as the
+  completed SIGNING announcement, never a completed merger. A later closing or
+  termination is a distinct genuinely new event with its own original evidence;
+  rewrites/recaps cannot renew the old event. Conflicting original dates fail closed.
+
+This raises article-specific evidence requirements for the PROPOSED new classes,
+not a silent redesign of source trust for existing supported classes. Current
+NewsEvidence retains URLs, provider/source labels, timestamp provenance and raw
+facts, but does not itself supply the authenticated association, primary-document
+content or event/materiality verification. No current flag/cache object is
+promoted to that authority. Existing parked listing provenance principles are
+informative constraints, not an implemented verifier; listing work remains PARKED.
+If facts cannot be established within accepted acquisition/storage capabilities,
+keep corporate item diagnostic/ineligible. No acquisition is proposed or run here.
+
+### Positive and adversarial OFFLINE design examples (SYNTHETIC, NOT EXECUTED)
+
+All positives below assume independently bound original origin, exact issuer,
+adequate retained facts, fresh original timestamp and no existing veto. These are
+proposed acceptance cases, not claims about current production behavior/tests.
+
+| Synthetic event/evidence | Proposed result and reason |
+| --- | --- |
+| Issuer A announces it SIGNED a definitive agreement to acquire all of B; legal parties, consideration and conditions in verified primary notice | Eligible signing event only; not completed acquisition or permission to trade |
+| Verified filing exhibit says A and B completed their previously identified whole-company merger today | Eligible completed event; fresh new completion evidence, not recycled signing |
+| A's authenticated notice says A and B terminated their named prior definitive whole-company merger effective today; surviving obligations described | Eligible termination event only; economic direction not inferred |
+| "A may acquire B", exploration, LOI, proposal, rumour or an option to terminate | Reject: definitive action/status not established |
+| "A merger agreement terminated" without parties, prior transaction, effective status or scale | Reject: issuer/action/materiality unresolved |
+| "A EXPLODES119% — merger termination sparks rally" from a stream/commentator | Reject: price recap does not establish original event/provenance/details |
+| A reports B terminated a deal with C; A is mentioned as industry peer | Reject for A: wrong event owner |
+| Verified small asset purchase with no principal-business/scale facts | Materiality UNKNOWN, ineligible |
+| A announces termination of an employment/supply contract | Outside this proposed M&A class; existing rules not silently repurposed |
+| Signing notice with closing subject to approval | May qualify as actual definitive SIGNING if all facts pass; reject claimed COMPLETION |
+| Old terminated deal republished today or only updated timestamp supplied | Reject: original freshness not renewed |
+| Google copy plus identical syndicated copy, bare verified_source=true | Reject unverified provenance; copies not independent confirmation |
+| Original primary document denies termination; aggregator says terminated | Reject conflicting provenance/status; retain both diagnostic observations |
+| Valid event accompanied by financing/dilution veto, future date, expired cache or wrong security | Reject under existing veto/freshness/identity gates |
+
+Future implementation acceptance would add these cases to existing catalyst/
+issuer/canonical-lifecycle test modules, not a new pipeline. Prove article/event/
+issuer binding invalidates on changed identity/document/status/date, actual cache
+publication/reconsideration preserves original timestamps, genuine event dedup
+and retained-veto/handoff expiry/future/missing-provenance rejection. Existing
+scanner/pattern/quote/ownership/risk owners retain their gates; eligibility never
+forces Focus/setup/trigger/intent. No tests/code or tests-as-policy were added now.
+
+### Concrete recommendation and actual decision needed
+
+Recommend approving the narrow corporate-transaction family and evidence contract
+ABOVE AS A PROSPECTIVE POLICY SPECIFICATION, if the user wants these classes.
+Do not authorize a broad keyword patch or RDAC-specific exception. The actual
+user decision is whether to add these three transaction statuses, including
+confirmed material termination, under the stated primary-evidence/materiality
+requirements, or retain current unsupported/ineligible status. General "real
+catalyst" intent alone does not select between those policies. Implementation
+would require separate authorization and an enforceable article-bound verification
+contract; this task supplies neither that authorization nor new source authority.
+No user decision about archive authenticity, weakening existing gates or adopting
+holdings is needed. No automatic acquisition/observation follows either choice.
+
+RDAC remains no_catalyst_classification with original publisher/underlying event
+verification UNKNOWN; no inference from119% move, $RDAC match or merger vocabulary.
+Keep its archived Focus0/zero-intent outcome. Preserve successful3November and
+prior safety receipts, historical UNKNOWNs/failures, five positions/global veto,
+GUI draft, separate cache/callback uncertainties and PARKED listing provenance.
+Optional corporate-event work must not delay acceptance of already-supported
+classes. Documentation-only review uses existing source/test receipts; no repeated
+suites, CI claim, broker/provider/network activity or production source change.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
