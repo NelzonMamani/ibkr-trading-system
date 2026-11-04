@@ -107,6 +107,7 @@ class PatternInputs:
     level_provenance: Dict[str, str] = field(default_factory=dict)
     setup_quality: Dict[str, Dict[str, object]] = field(default_factory=dict)
     missing_data_actions: Dict[str, str] = field(default_factory=dict)
+    observed_at_utc: Optional[datetime] = None  # Existing builder observation clock.
 
 
 def build_authoritative_pattern_inputs(
@@ -215,6 +216,7 @@ def build_authoritative_pattern_inputs(
         level_provenance=level_provenance,
         setup_quality=setup_quality,
         missing_data_actions=missing_data_actions,
+        observed_at_utc=now_utc,
     )
 
 

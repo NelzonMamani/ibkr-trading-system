@@ -12,6 +12,7 @@ from src.setup_engine.setup_families.key_level_helpers import (
     nearest_relevant_key_level,
 )
 from src.strategies.common.patterns.pattern_cup_handle import detect_cup_handle
+from src.strategies.common.triggers.trigger_abcd_continuation import abcd_candle_rejection
 from src.strategies.common.patterns.pattern_parabolic_exhaustion import detect_parabolic_exhaustion
 from src.strategies.ross_momentum.patterns.pattern_base import PatternBase
 from src.strategies.ross_momentum.patterns.pattern_inputs import PatternInputs
@@ -422,6 +423,14 @@ class ABCDPattern(PatternBase):
             self._reject(symbol, "INSUFFICIENT_CANDLE_HISTORY")
             return self._rejected("INSUFFICIENT_CANDLE_HISTORY", inputs)
 
+        rejection = abcd_candle_rejection(
+            candles, observed_at_utc=inputs.observed_at_utc,
+            require_clock=bool(inputs.timeframe_candles),
+        )
+        if rejection:
+            self._reject(symbol, rejection)
+            return self._rejected(rejection, inputs)
+
         swing_triplet = self._find_latest_swing_triplet(candles)
         if swing_triplet is None:
             self._reject(symbol, "NO_SWING_SEQUENCE")
@@ -486,6 +495,8 @@ class ABCDPattern(PatternBase):
             self._reject(symbol, "NO_TRIGGER_LEVEL")
             return self._rejected("NO_TRIGGER_LEVEL", inputs)
         d_projection = c_price + ab_length
+        if not all(isfinite(v) for v in (a_price, b_price, c_price, ab_length, retrace, trigger_level, d_projection)):
+            return self._rejected("INVALID_CANDLE_DATA", inputs)
 
         quality_tags = ["valid_retracement", "measured_move_ready"]
         if retrace <= 0.45:
@@ -538,6 +549,11 @@ class ABCDPattern(PatternBase):
             setup_metadata={
                 "swing_window": self.SWING_WINDOW,
                 "max_lookback_bars": self.MAX_LOOKBACK_BARS,
+                "lookback_start_index": max(0, len(inputs.candles) - self.MAX_LOOKBACK_BARS),
+                "structure_timeframe": inputs.primary_timeframe,
+                "timeframe_provenance": dict(inputs.timeframe_provenance),
+                "observed_at_utc": inputs.observed_at_utc.isoformat() if inputs.observed_at_utc else None,
+                "source_candle_timestamps": [c.timestamp.isoformat() if c.timestamp else None for c in candles],
             },
         )
 

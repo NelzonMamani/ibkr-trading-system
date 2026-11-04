@@ -131,6 +131,7 @@ class TradeIntent:
     relationship_context: Optional[dict] = None
     target_model: Optional[str] = None  # Descriptive setup target, not a broker limit price.
     quote_evidence: Optional[dict] = None  # Original broker time, never scan/intent time.
+    setup_metadata: Optional[dict] = None  # Original setup facts, never executable target authority.
 
     def __post_init__(self) -> None:
         if not self.symbol:

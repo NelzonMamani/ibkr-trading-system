@@ -13279,3 +13279,101 @@ PARKED/fail closed. Preserve GUI draft, original checkout/roots/holdings, histor
 failures/UNKNOWNs/successful safety receipts and separate cache/callback uncertainty.
 No provider/broker calls, preflight, observation, holdings action or trading.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## ABCD canonical trigger and geometry handoff — 4 November 2026
+
+Separate fix/abcd-canonical-trigger-handoff starts at literal accepted main
+2a31eb07ac7fa7985fb2f78f2f495603f813193c, verified tree
+9a5b15b8946c0758c5e31af87f251b41706516c6/clean input. Carried saved a34b75ed
+and its c0e20e7c predecessor into SAME checkpoint/map as documentation-only
+cherry-picks b1e35c57/0edf8ddb; original branches preserved. DEPRECATION_LEDGER
+read/unchanged (no retirement or ownership change); no applicable AGENTS files.
+No fetch/rebase/baseline substitution or production acquisition.
+
+Existing authority inspected: strategy_policy.py:122 ABCD measured-move
+continuation; :195 T_ABCD/XL_ABCD_CONTINUATION; RF.ABCDPattern already exports
+A/B/C prices+indices, AB/retracement, pullback-high trigger, C stop/invalidation,
+D=C+AB, risk reference and descriptive projection target. Registered
+trigger_abcd_continuation evaluator already confirms close>trigger/high>=trigger.
+Existing source finds confirmed swings in <=60 observed bars; last endpoint cannot
+be an A/B/C anchor. B..C measures trigger/projection; confirming highs are excluded
+from those measured windows. A right-hand observed neighbor confirms a swing;
+that is not a future observation or permission to use a later timestamp.
+
+Before controls:18failed/2passed1.24s (abcd-handoff-before.log): missing V1
+canonical route/geometry carriage plus malformed-data acceptance. After bridge
+only,12passed/8failed0.73s (abcd-bridge-only.log): actual unchanged valid detector
+contract reaches registered evaluator/raw intent, but malformed/nonfinite execution
+and future-dated primary/execution evidence still admitted or detected, and RF
+invalid structure could pass. Shared timeframe provenance checks maximum age,
+not numeric validity or a lower age bound; this does NOT establish any historical
+workstation/broker cause. No other-family future policy is changed/certified here.
+
+Minimal scoped implementation through EXISTING owners:
+- V1 canonical bridge adds ABCD and original flat A/B/C/indices, AB/retracement/D/
+  risk fields to evaluator payload via one private factual projection helper.
+  Existing selection ordinal/contract/trace binding and registered dispatch remain.
+- Existing ABCD trigger module houses one shared ABCD candle-validity helper used
+  by RF before swing search and by operational registered execution evaluation.
+  Rejects nonfinite/non-numeric/bool/nonpositive/inconsistent OHLC, nonfinite or
+  negative volume, missing/unordered/future times against the existing observation
+  clock. RF remains bounded by60 source bars; execution uses existing bounded
+  stream. Existing MIN_AVG_PULLBACK_VOLUME/30-70% retracement/swing/strict-break
+  rules unchanged for valid data. No new volume confirmation or skew tolerance.
+  Computed anchor/AB/retracement/trigger/D values must also remain finite.
+- Existing PatternInputs adds optional observed_at_utc, populated from builder's
+  ALREADY captured now_utc. No second clock read/owner, local substitution or
+  timestamp clamping. Only ABCD consumes this field; V1 puts its original ISO clock
+  into ABCD's execution receipt only. Operational source/stream requires the clock
+  and aware ordered timestamps <=it; legacy untimed detector/evaluator unit calls
+  do not certify freshness or confer operational authority.
+- RF records bounded original source times, timeframe/provenance, observation
+  clock and lookback offset alongside existing metadata. Original swing indices
+  remain relative to its bounded lookback. Source timestamps are preserved, not
+  replaced by intent time. V1 carries facts and original metadata/stream/ordinal
+  on optional declared TradeIntent.setup_metadata so canonical dataclass
+  serialization retains them. Other families keep defaultNone; metadata is
+  evidence, not executable target authority. Raw evidence is deep-copied: a new
+  mutation control initially failed1case0.52s (abcd-metadata-before.log), then
+  passed with source/evaluator metadata mutations unable to rewrite formed intent.
+  No change to target_model resolver, risk, execution or management owners.
+
+Final new module27passed0.81s, /workspace/scratch/abcd-handoff-final27.log:
+actual RF -> real Ross registry -> actual V1 -> observed real registered evaluator
+-> raw READ_ONLY intent with synthetic fresh candles, no target completion.
+Checks A9.9/B11/C10.35/D11.45, exact entry11/C stop+invalidation10.35, own
+rationale/descriptive target, all geometry facts through dispatch/raw serialization,
+original source times and genuine10s receipt. Tests strict close vs touch/armed,
+close-based invalidation, missing/stale required/execution streams, NaN/Inf/bad
+structure/volume, missing/unordered clocks/times, future-by-one-microsecond source
+and execution (both reject), confirming-high exclusion, and both-order duplicates
+(no wrong-contract/D borrowing or borrowing a lower-ranked ready trigger).
+No intent for malformed/unavailable conditions. Numeric D is NEVER assigned to
+numeric take_profit_price, which remainsNone under existing raw contract.
+
+Affected existing run:159passed/1fixturefailure/18existing warnings4.07s in
+abcd-handoff-affected.log: ABCD detector/registry integration, canonical trace,
+selected setup binding/ranking/suppression/conflict, KEY_LEVEL_BREAK,
+FIRST_PULLBACK and actual Core ownership/READ_ONLY/PAPER/LIVE boundaries. The
+shallow-retrace fixture had open10.8 BELOW its low10.84; new validity guard rightly
+rejected before retracement. Changed ONLY open to10.85 (same high/low/close/swing/
+retracement) so its original RETRACEMENT_TOO_SHALLOW assertion still executes;
+1passed0.25s in abcd-shallow-fixture.log. PR1029 affected pullback/breakout control
+1passed0.26s in abcd-handoff-certification.log. Original 160 affected cases thus
+all have passing receipts, plus1 PR1029; these are separate runs, NOT one188-pass
+run/CI/Windows certification. After metadata snapshot change new27cases rerun;
+unchanged neighboring-family receipts carried forward. No unrelated/full suite
+repetition. Network/broker/mutation guards, synthetic inputs and isolated caches
+used; no provider/broker request, preflight or observation.
+
+Completion: actual valid ABCD production contract can form raw intent offline
+without fabricated target/anchors/approvals. Numeric D projection is measured
+geometry, NOT approved take-profit/R:R/management. Numeric management, intrabar
+ordering, positive risk admission and natural catalyst/Focus/setup/intent remain
+uncertified. Five-position global veto still acts AFTER formation BEFORE artifact/
+risk admission; READ_ONLY execution lock unchanged. Other-family gaps/GAP_GO
+duplicate, GUI draft, saved branches/roots and all historical receipts/UNKNOWNs/
+successful safety evidence/cache/callback uncertainties preserved. Corporate/SEC/
+listing remains PARKED/fail closed. ONE next action: review exact local ABCD
+candidate before publication/CI. No push or merge. PAPER_READY=NO;
+PAPER_READINESS_GATE=FAIL.
