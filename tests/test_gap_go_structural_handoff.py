@@ -279,3 +279,15 @@ def test_existing_intrabar_execution_policy_remains_available():
     out=TriggerEngine().evaluate_triggers(symbol="GAPX",candles=[candle],setups=[setup],levels={},structure={})[0]
     assert out["trigger_ready_now"]
     assert out["trigger_reason"]=="gap_go_pmh_break"
+
+
+@pytest.mark.parametrize("malformed",["malformed",["malformed"],1,[],0,None])
+def test_malformed_execution_stream_is_an_explicit_block(malformed):
+    data=source()
+    setup=bridge(synthetic_complete(GapGoPattern().evaluate(data)))[0]
+    setup["execution_stream"]=malformed
+    out=TriggerEngine().evaluate_triggers(symbol="GAPX",candles=data.candles,
+        setups=[setup],levels={},structure={})[0]
+    assert not out["trigger_ready_now"]
+    assert out["trigger_state"]=="BLOCKED"
+    assert out["trigger_reason"]=="gap_go_invalid_execution_stream"

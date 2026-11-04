@@ -247,7 +247,9 @@ class TriggerEngine:
         if setup_family == "GAP_GO":
             canonical = setup.get("source") == "canonical_pattern_result"
             if canonical:
-                stream = setup.get("execution_stream") or {}
+                stream = setup.get("execution_stream")
+                if not isinstance(stream, dict):
+                    return False, "gap_go_invalid_execution_stream", ["BLOCKED"], None
                 rejection, execution_bars = GapGoPattern.validated_candles(
                     candles, clock=stream.get("observed_at_utc"),
                     timeframe=stream.get("execution_trigger_timeframe"), require_clock=True, completed_only=False)
