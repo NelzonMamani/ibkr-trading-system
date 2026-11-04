@@ -13455,3 +13455,66 @@ source reviewed with no remaining scoped publication blocker. Next action is
 separately authorized draft publication and independent exact-head review/
 changed-head required CI. No provider/broker calls, observation, push or merge.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## PR1151 published exact ABCD candidate — 4 November 2026
+
+ONE draft PR1151: https://github.com/NelzonMamani/ibkr-trading-system/pull/1151
+Verified clean head3c08a337176fae78b6683e40e61b5149fe9e2a70, tree
+9cd60e0b89ec2b589748973f6357608ad00db60f. Fetched main unchanged at accepted
+base2a31eb07ac7fa7985fb2f78f2f495603f813193c/tree9a5b15b8. No rebase or baseline
+substitution. Test mergef174a998cef541270d2a7337858301c297359dc5 has EXACT reviewed
+candidate tree and expected base/head parents. Existing workflow/configuration
+unchanged. Added-content private-contact scan passed; no corporate/SEC code.
+
+Production scope: existing ABCD RF/registered evaluator/V1, plus optional fields
+on existing input/intent owners to retain original clock and serialized factual
+geometry. Own anchors/C stop/invalidation/D, ordinal binding and deep snapshots
+are preserved. Right-hand swing witness must complete under original observation
+clock, without source-date substitution. D is NOT an executable target. Other
+families do not consume new ABCD gates; Core/risk/execution/ownership unchanged.
+The two existing docs also carry historical PR1150 receipts, not runtime activation.
+Original27/160/PR1029 and review31/22/1 controls, malformed fixture correction and
+all failing-before/snapshot/completion findings remain preserved above. No
+redundant local suite rerun solely for publication.
+
+Independent exact-head agent review5761516164:
+https://github.com/NelzonMamani/ibkr-trading-system/pull/1151#pullrequestreview-5761516164
+No blockers. Reviewer verified clean local/published head/tree/base, completed
+witness/clock/timeframe semantics, anchor/occurrence binding, deep serialized
+facts, numeric/future/stale/duplicate rejection and unchanged safety owners.
+Inspected all preserved receipts and fixture correction without tests/edits.
+COMMENT is agent review, not human approval or CI/Windows acceptance.
+
+CI41747724577 SUCCESS:
+https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/41747724577
+All three jobs passed; existing workflow selected HARNESS_ONLY=False, unchanged.
+Linux3807passed/3skipped/4warnings231.66s; Windows3809passed/1skipped/268warnings
+549.45s. Both logs checkoutf174a998; exact Git test tree equals reviewed9cd60e0b
+with expected base/head parents. Windows focused diagnostics95/news37/native
+float-cache9/serial-admission40 passed; six cache subprocess fixtures passed.
+Actual Windows PowerShell5.1 exit propagation13controlled checks, observation
+harness46checks (12package/5preflight synthetic cases), inventory/cache checks and
+parser succeeded; evidence uploaded. Harness-only alternatives/install step were
+conditional skips because full suites ran, not skipped mandatory verification.
+No CI selection change, source change after publication or unchanged-head retry.
+Original local failures and separate passing receipts remain preserved; this is
+offline CI acceptance, not natural/runtime or management certification.
+
+Receipt-only updates are on separate local docs/pr1151-ci-acceptance, preserving
+exact reviewed/tested PR head and avoiding a receipt-only full-suite rerun. No
+second PR or competing checklist; public PR body/conversation carries receipts.
+
+Recommendation: no remaining scoped production/review/CI blocker. Proceed to
+controlled integration review of exact3c08a337/tree9cd60e0b ONLY when separately
+authorized, with fresh refs/tree/check/protection/required-approval/thread review.
+Final metadata: unchanged base2a31eb07, PR draft/open/unmerged/mergeable, no review
+threads. Agent COMMENT is not formal human approval. No merge/runtime authority
+conferred. Numeric management/intrabar/natural and other-family gaps remain.
+
+Numeric target/management, intrabar ordering, natural progression and positive
+risk admission remain uncertified. Five-position veto AFTER formation BEFORE
+artifact/risk and READ_ONLY execution prohibition intact. Corporate/SEC/listing
+provenance remains PARKED/fail closed. Preserve GUI draft, roots/saved branches,
+historical failed/UNKNOWN/successful safety and separate cache/callback receipts.
+No merge, provider/broker collection, preflight or observation.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.

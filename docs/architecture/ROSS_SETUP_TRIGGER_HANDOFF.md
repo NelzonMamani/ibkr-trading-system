@@ -764,3 +764,28 @@ CI. D remains a projection fact, not executable target. Numeric management,
 intrabar ordering and natural progression uncertified. Five-position veto and
 READ_ONLY remain; corporate/SEC/listing parked. No provider/broker/observation/
 push/merge. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## PR1151 exact-head publication/review/CI — 4 November 2026
+
+Published ONE draft PR1151 at3c08a337176fae78b6683e40e61b5149fe9e2a70 /
+9cd60e0b89ec2b589748973f6357608ad00db60f against unchanged accepted2a31eb07.
+Matching mergef174a998cef541270d2a7337858301c297359dc5 has exact candidate tree.
+Independent agent COMMENT review5761516164 found no blockers; not human approval.
+Reviewed actual wiring, completed-witness timing, bounded indices/source times,
+exact occurrence, deep raw serialization and unchanged safety boundaries.
+Original27/160/PR1029 and31/22/1 review receipts/failures retained, not rerun for
+status. Scope excludes corporate/SEC implementation/private contact literals.
+
+CI41747724577 SUCCESS, all three jobs on exact matching merge tree:
+Linux3807passed/3skipped, Windows3809passed/1skipped. Native cache, serial admission,
+six cache subprocess fixtures, actual PowerShell exit13/observation46 controls and
+parser passed. No source changes/retries/redundant local suite runs. Recommend
+separately authorized controlled integration review with fresh ref/check/protection
+verification. Agent COMMENT is not human approval; no scoped blocker remains.
+
+Complete external receipts in SAME checkpoint; separate LOCAL docs/pr1151-ci-acceptance
+keeps exact reviewed/tested PR stable without another PR/checklist/receipt-only
+suite run. D is evidence, not executable target; numeric management/intrabar/
+natural certification remains unproven. Five-position veto/READ_ONLY intact;
+corporate/SEC/listing parked. Draft/unmerged; no provider/broker/observation.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
