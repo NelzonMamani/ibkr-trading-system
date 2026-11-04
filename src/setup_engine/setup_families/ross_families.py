@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import timedelta
 from math import isfinite
 from numbers import Real
 from statistics import mean
@@ -12,6 +13,7 @@ from src.setup_engine.setup_families.key_level_helpers import (
     nearest_relevant_key_level,
 )
 from src.strategies.common.patterns.pattern_cup_handle import detect_cup_handle
+from src.strategies.common.triggers.trigger_abcd_continuation import abcd_candle_rejection
 from src.strategies.common.patterns.pattern_parabolic_exhaustion import detect_parabolic_exhaustion
 from src.strategies.ross_momentum.patterns.pattern_base import PatternBase
 from src.strategies.ross_momentum.patterns.pattern_inputs import PatternInputs
@@ -422,10 +424,29 @@ class ABCDPattern(PatternBase):
             self._reject(symbol, "INSUFFICIENT_CANDLE_HISTORY")
             return self._rejected("INSUFFICIENT_CANDLE_HISTORY", inputs)
 
-        swing_triplet = self._find_latest_swing_triplet(candles)
+        rejection = abcd_candle_rejection(
+            candles, observed_at_utc=inputs.observed_at_utc,
+            require_clock=bool(inputs.timeframe_candles),
+        )
+        if rejection:
+            self._reject(symbol, rejection)
+            return self._rejected(rejection, inputs)
+
+        completed_count = len(candles)
+        if inputs.observed_at_utc is not None:
+            seconds = {"10s": 10, "1m": 60, "5m": 300}.get(inputs.primary_timeframe)
+            if seconds is None:
+                return self._rejected("STRUCTURE_TIMEFRAME_UNAVAILABLE", inputs)
+            # Source timestamps are bar starts. A swing's right-hand witness
+            # must complete before it can establish structural authority.
+            completed_count = next((index for index, candle in enumerate(candles)
+                                    if candle.timestamp + timedelta(seconds=seconds) > inputs.observed_at_utc),
+                                   len(candles))
+        swing_triplet = self._find_latest_swing_triplet(candles[:completed_count])
         if swing_triplet is None:
-            self._reject(symbol, "NO_SWING_SEQUENCE")
-            return self._rejected("NO_SWING_SEQUENCE", inputs)
+            reason = "NO_COMPLETED_SWING_SEQUENCE" if completed_count < len(candles) else "NO_SWING_SEQUENCE"
+            self._reject(symbol, reason)
+            return self._rejected(reason, inputs)
         a_idx, b_idx, c_idx = swing_triplet
         if not (a_idx < b_idx < c_idx):
             self._reject(symbol, "INVALID_ORDERING", a_idx=a_idx, b_idx=b_idx, c_idx=c_idx)
@@ -486,6 +507,8 @@ class ABCDPattern(PatternBase):
             self._reject(symbol, "NO_TRIGGER_LEVEL")
             return self._rejected("NO_TRIGGER_LEVEL", inputs)
         d_projection = c_price + ab_length
+        if not all(isfinite(v) for v in (a_price, b_price, c_price, ab_length, retrace, trigger_level, d_projection)):
+            return self._rejected("INVALID_CANDLE_DATA", inputs)
 
         quality_tags = ["valid_retracement", "measured_move_ready"]
         if retrace <= 0.45:
@@ -538,6 +561,12 @@ class ABCDPattern(PatternBase):
             setup_metadata={
                 "swing_window": self.SWING_WINDOW,
                 "max_lookback_bars": self.MAX_LOOKBACK_BARS,
+                "lookback_start_index": max(0, len(inputs.candles) - self.MAX_LOOKBACK_BARS),
+                "structure_completed_candle_count": completed_count,
+                "structure_timeframe": inputs.primary_timeframe,
+                "timeframe_provenance": dict(inputs.timeframe_provenance),
+                "observed_at_utc": inputs.observed_at_utc.isoformat() if inputs.observed_at_utc else None,
+                "source_candle_timestamps": [c.timestamp.isoformat() if c.timestamp else None for c in candles],
             },
         )
 

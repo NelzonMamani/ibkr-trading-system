@@ -13120,3 +13120,338 @@ Changed exact-head independent review and Linux/Windows/PowerShell/cache CI are
 required before integration recommendation. PR remains DRAFT/unmerged; no merge
 authorized. Five-position veto and PARKED corporate/SEC/listing provenance intact.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## PR1150 final published candidate and acceptance receipts — 3 November 2026
+
+ONE draft PR1150: https://github.com/NelzonMamani/ibkr-trading-system/pull/1150
+Original verified cleanec4551f4/tree4c499099 was published against unchanged
+accepted6eca86a2be1ef6570c8a2e2b0e3fd2422c6a6579/treeb58b2db9. No rebase or
+baseline substitution. Independent review5761032145 demonstrated NaN raw stop/
+invalidation and blocked that head. Failing-before controls and all25/99/1/ten
+review controls preserved in preceding sections, not relabelled CI acceptance.
+
+Scoped correction now published as exact head
+e2de4179110c4d757c910935f08eec2b4183e6ab, tree
+9a5b15b8946c0758c5e31af87f251b41706516c6. Numeric guard stays in actual RF owner;
+no changes to other-family behavior, V1, registered evaluator, selection/risk or
+workflow since original review. Focused changed-source143pass receipt above.
+Test merge0d2b9ebd827133cae3d33c3e385ad551508b1af4 has EXACT candidate tree and
+parents accepted base + corrected head. Existing docs carry historical receipts,
+not corporate/SEC activation. Added-content private-contact scan passed.
+
+Independent exact-head agent review5761052907:
+https://github.com/NelzonMamani/ibkr-trading-system/pull/1150#pullrequestreview-5761052907
+No blockers. Reviewer confirmed original blocker resolved, bounded RF input guard,
+valid semantic preservation, own anchors, registered handoff, exact occurrence
+binding and unchanged safety gates. Inspected143-pass receipt without redundant
+suite reruns/edits. Agent COMMENT is not human/formal approval or CI proof.
+Initial blocked review5761032145 remains tied to its original head.
+
+Superseded CI41740527836:
+https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/41740527836
+Ran originalec4551f4 via mergea672d9e3/tree4c499099 before numeric correction.
+Preserved Linux3767passed/3skipped/4warnings232.16s. At receipt reconciliation,
+Windows full-suite/cache/serial/exit-propagation stages had succeeded, but its
+observation-harness job was still in progress; no overall final success claimed
+for that run here. It cannot accept the blocked source, regardless of later
+completion: independent review found the NaN case missing from those tests.
+No cancellation, unchanged-head rerun or retrospective relabelling requested.
+
+Changed-head CI41740948445 SUCCESS:
+https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/41740948445
+All three jobs passed. Existing unchanged workflow selected HARNESS_ONLY=False.
+Linux3775passed/3skipped/4warnings231.14s; Windows3777passed/1skipped/268warnings
+470.48s. Both logs checkout0d2b9ebd; fetched Git object confirms reviewed tree and
+expected base/corrected-head parents. Windows focused diagnostic95/news37/native
+float-cache9/serial-admission40 passed. Six cache subprocess fixtures passed;
+actual Windows PowerShell5.1 exit propagation13checks, observation46checks
+(including12package/5preflight synthetic cases), inventory/cache and parser passed;
+evidence upload succeeded. Harness-only alternatives/install step skipped because
+full suites ran; required cache/PowerShell checks actually executed. No workflow
+selection change or unchanged-head retry. Local143 rerun was justified by the
+source correction, not status reconciliation.
+
+Receipt updates saved separately on local docs/pr1150-ci-acceptance so they do not
+replace the exact reviewed/tested candidate or cause a receipt-only CI rerun.
+Public PR body/conversation carries exact receipts. No second PR/checklist.
+
+Integration recommendation: no remaining scoped code/independent-review/changed-
+head CI blocker. Proceed to controlled integration review of exacte2de4179/tree
+9a5b15b8 only with separate authorization and fresh head/base/tree/check/required-
+approval/protection/thread verification. Final PR draft/open/unmerged/mergeable;
+base6eca86a2 unchanged, no review threads. Agent COMMENT is not human approval.
+No automatic merge or runtime action. Original NaN blocker and old-head review/CI
+receipts remain preserved; later CI does not retrospectively clear that old head.
+
+Descriptive target permits raw intent; numeric target/management, intrabar order,
+positive risk admission and natural progression remain uncertified. All five
+positions/global veto after formation before artifact/risk unchanged. No merge,
+provider/broker collection, preflight or observation. Corporate/SEC/listing remains
+PARKED/fail closed; preserve GUI draft, other-family gaps and all historical
+failures/UNKNOWNs/successful safety receipts, separate cache/callback uncertainty.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## PR1150 corrected FIRST_PULLBACK controlled integration — 4 November 2026
+
+User authorized only corrected head e2de4179110c4d757c910935f08eec2b4183e6ab,
+reviewed tree9a5b15b8946c0758c5e31af87f251b41706516c6, accepted base
+6eca86a2be1ef6570c8a2e2b0e3fd2422c6a6579. Verified unchanged refs and clean
+candidate. Review5761052907 commit_id matches corrected head, no blockers;
+independent agent COMMENT, not human approval. CI41740948445 and ALL three jobs
+successful, including Windows/cache/serial/PowerShell checks. Matching test
+merge0d2b9ebd has exact reviewed tree and expected parents. No review threads or
+new blocking findings. Repository main protected=false, required contexts/checks
+empty, rulesets empty, merge commits enabled, mergeable_state=clean. No settings
+changed or protections bypassed. No completed test/CI rerun for status.
+
+Marked ready and merged using method=merge, expected_head_sha=e2de4179... .
+Accepted main **2a31eb07ac7fa7985fb2f78f2f495603f813193c**, tree
+**9a5b15b8946c0758c5e31af87f251b41706516c6**. Fetched Git object verifies EXACT
+reviewed/tested tree; parents accepted base + authorized corrected head.
+Merged_at2026-11-04T00:07:31Z. Integration receipt:
+https://github.com/NelzonMamani/ibkr-trading-system/pull/1150#issuecomment-6618777171
+Saved c0e20e7cf11976827c6588e519d6524437e2c0c1 documentation receipt was
+cherry-picked asac54c2f1 onto accepted merge on local docs/pr1150-integration,
+carrying SAME checkpoint/family map; original saved branches preserved. This
+local docs branch does not replace accepted runtime pin. Prior draft/no-merge
+statements record their historical stage, superseded only by this authorization.
+
+Confirmed RF guard runs before impulse/retrace/anchor derivation over ONLY six
+relevant OHLC bars. Numeric/nonbool/finite/positive and coherent high-low bounds
+are required, otherwise malformed_candles/no detected authority. Original
+independent actual-V1 NaN admission (entry10.42/stopNaN/invalidationNaN), blocked
+review5761032145, 1failed0.47s, repair143-pass and prior25/99/1/ten-control receipts
+remain preserved. Reconciliation update: superseded CI41740527836 now completed
+SUCCESS in all three jobs; this does NOT clear its independently demonstrated
+missing NaN control or retrospectively accept ec4551f4. No causal claim about
+workstation/callback/cache failures is inferred from these passing checks.
+
+Completion is narrow: FIRST_PULLBACK own structural anchors, canonical registered
+trigger handoff and malformed structural-window rejection are integrated/offline
+verified. Descriptive target permits raw intent with numeric take-profit unset;
+numeric target/R:R/management, intrabar ordering, natural progression, positive
+risk admission and PAPER readiness remain NOT certified. Five unmatched positions
+still veto new entries AFTER formation, BEFORE artifact/risk admission. READ_ONLY
+remains independent execution prohibition. No holdings/ownership change.
+
+ONE next highest-priority demonstrated family repair recommendation: ABCD canonical
+trigger bridge. It has explicit detector anchors and an existing projection/model,
+so it is a bounded handoff task without inventing missing ORB/Three/Second target
+policy or conflating GAP_GO alias deduplication with full entry activation.
+Existing evidence/owners:
+- strategy_policy.py:122 ABCD Continuation = measured-move continuation after
+  pullback; :195 T_ABCD uses XL_ABCD_CONTINUATION entry. Existing scoped input
+  policy/session/freshness requirements remain the authority.
+- setup_engine/registry.py registers RF.ABCDPattern. Actual owner
+  setup_engine/setup_families/ross_families.py::ABCDPattern already exports
+  A/B/C prices+indices, trigger=max(high) of selected pullback window, structural
+  stop/invalidation=C, AB length/retracement, risk reference and D=C+AB projection;
+  original descriptive target is AB measured move from C. Do not reinterpret the
+  projection as an automatically approved numeric order target.
+- common/triggers/trigger_registry.py:41 maps ABCD to
+  trigger_abcd_continuation.py::evaluate_abcd_continuation_trigger, which checks
+  strict close>trigger and high>=trigger. Existing V1
+  _canonical_pattern_trigger_candidates omits ABCD; contextual SetupEngine does
+  not supply its canonical route. Existing audit row marks G.
+- PR1029 and Ross tests/test_abcd_setup_family.py establish detector/evaluator
+  controls; tests/test_pr1089_canonical_trace_family.py validates actual registry
+  trace/rejection-family provenance, NOT actual V1 trigger/raw-intent handoff.
+
+Bound proposed repair to existing V1 canonical bridge/TriggerEngine dispatch and
+carriage of REQUIRED original ABCD facts/metadata into its evaluator/selected
+contract. Preserve original swing windows/known-at-evaluation anchors/indices,
+strict confirmation, C stop/invalidation, D projection as evidence, occurrence
+binding, timestamps and timeframe provenance. No second detector, trigger engine,
+new target law, numeric take-profit assignment, management activation or changes
+to unrelated families. Start with guarded failing-before actual RF registry ->
+actual V1 controls; require eligible positive, armed/touch/invalidated,
+missing/stale/malformed, window/projection/identity and both-order duplicate
+isolation with exact selected contract through raw intent. Preserve shared
+completeness, risk-off/conflict/ranking/one-winner, catalyst/freshness/ownership and
+READ_ONLY gates. If a needed contract/policy value is ambiguous, report it and
+keep that boundary blocked rather than inventing it. No implementation/tests for
+ABCD in this integration task. ONE next action: review/authorize that bounded
+offline ABCD handoff repair.
+
+Other-family target/management gaps, GAP_GO duplicate invocation and natural
+positive formation remain separate. Corporate/SEC/listing provenance stays
+PARKED/fail closed. Preserve GUI draft, original checkout/roots/holdings, historical
+failures/UNKNOWNs/successful safety receipts and separate cache/callback uncertainty.
+No provider/broker calls, preflight, observation, holdings action or trading.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## ABCD canonical trigger and geometry handoff — 4 November 2026
+
+Separate fix/abcd-canonical-trigger-handoff starts at literal accepted main
+2a31eb07ac7fa7985fb2f78f2f495603f813193c, verified tree
+9a5b15b8946c0758c5e31af87f251b41706516c6/clean input. Carried saved a34b75ed
+and its c0e20e7c predecessor into SAME checkpoint/map as documentation-only
+cherry-picks b1e35c57/0edf8ddb; original branches preserved. DEPRECATION_LEDGER
+read/unchanged (no retirement or ownership change); no applicable AGENTS files.
+No fetch/rebase/baseline substitution or production acquisition.
+
+Existing authority inspected: strategy_policy.py:122 ABCD measured-move
+continuation; :195 T_ABCD/XL_ABCD_CONTINUATION; RF.ABCDPattern already exports
+A/B/C prices+indices, AB/retracement, pullback-high trigger, C stop/invalidation,
+D=C+AB, risk reference and descriptive projection target. Registered
+trigger_abcd_continuation evaluator already confirms close>trigger/high>=trigger.
+Existing source finds confirmed swings in <=60 observed bars; last endpoint cannot
+be an A/B/C anchor. B..C measures trigger/projection; confirming highs are excluded
+from those measured windows. A right-hand observed neighbor confirms a swing;
+that is not a future observation or permission to use a later timestamp.
+
+Before controls:18failed/2passed1.24s (abcd-handoff-before.log): missing V1
+canonical route/geometry carriage plus malformed-data acceptance. After bridge
+only,12passed/8failed0.73s (abcd-bridge-only.log): actual unchanged valid detector
+contract reaches registered evaluator/raw intent, but malformed/nonfinite execution
+and future-dated primary/execution evidence still admitted or detected, and RF
+invalid structure could pass. Shared timeframe provenance checks maximum age,
+not numeric validity or a lower age bound; this does NOT establish any historical
+workstation/broker cause. No other-family future policy is changed/certified here.
+
+Minimal scoped implementation through EXISTING owners:
+- V1 canonical bridge adds ABCD and original flat A/B/C/indices, AB/retracement/D/
+  risk fields to evaluator payload via one private factual projection helper.
+  Existing selection ordinal/contract/trace binding and registered dispatch remain.
+- Existing ABCD trigger module houses one shared ABCD candle-validity helper used
+  by RF before swing search and by operational registered execution evaluation.
+  Rejects nonfinite/non-numeric/bool/nonpositive/inconsistent OHLC, nonfinite or
+  negative volume, missing/unordered/future times against the existing observation
+  clock. RF remains bounded by60 source bars; execution uses existing bounded
+  stream. Existing MIN_AVG_PULLBACK_VOLUME/30-70% retracement/swing/strict-break
+  rules unchanged for valid data. No new volume confirmation or skew tolerance.
+  Computed anchor/AB/retracement/trigger/D values must also remain finite.
+- Existing PatternInputs adds optional observed_at_utc, populated from builder's
+  ALREADY captured now_utc. No second clock read/owner, local substitution or
+  timestamp clamping. Only ABCD consumes this field; V1 puts its original ISO clock
+  into ABCD's execution receipt only. Operational source/stream requires the clock
+  and aware ordered timestamps <=it; legacy untimed detector/evaluator unit calls
+  do not certify freshness or confer operational authority.
+- RF records bounded original source times, timeframe/provenance, observation
+  clock and lookback offset alongside existing metadata. Original swing indices
+  remain relative to its bounded lookback. Source timestamps are preserved, not
+  replaced by intent time. V1 carries facts and original metadata/stream/ordinal
+  on optional declared TradeIntent.setup_metadata so canonical dataclass
+  serialization retains them. Other families keep defaultNone; metadata is
+  evidence, not executable target authority. Raw evidence is deep-copied: a new
+  mutation control initially failed1case0.52s (abcd-metadata-before.log), then
+  passed with source/evaluator metadata mutations unable to rewrite formed intent.
+  No change to target_model resolver, risk, execution or management owners.
+
+Final new module27passed0.81s, /workspace/scratch/abcd-handoff-final27.log:
+actual RF -> real Ross registry -> actual V1 -> observed real registered evaluator
+-> raw READ_ONLY intent with synthetic fresh candles, no target completion.
+Checks A9.9/B11/C10.35/D11.45, exact entry11/C stop+invalidation10.35, own
+rationale/descriptive target, all geometry facts through dispatch/raw serialization,
+original source times and genuine10s receipt. Tests strict close vs touch/armed,
+close-based invalidation, missing/stale required/execution streams, NaN/Inf/bad
+structure/volume, missing/unordered clocks/times, future-by-one-microsecond source
+and execution (both reject), confirming-high exclusion, and both-order duplicates
+(no wrong-contract/D borrowing or borrowing a lower-ranked ready trigger).
+No intent for malformed/unavailable conditions. Numeric D is NEVER assigned to
+numeric take_profit_price, which remainsNone under existing raw contract.
+
+Affected existing run:159passed/1fixturefailure/18existing warnings4.07s in
+abcd-handoff-affected.log: ABCD detector/registry integration, canonical trace,
+selected setup binding/ranking/suppression/conflict, KEY_LEVEL_BREAK,
+FIRST_PULLBACK and actual Core ownership/READ_ONLY/PAPER/LIVE boundaries. The
+shallow-retrace fixture had open10.8 BELOW its low10.84; new validity guard rightly
+rejected before retracement. Changed ONLY open to10.85 (same high/low/close/swing/
+retracement) so its original RETRACEMENT_TOO_SHALLOW assertion still executes;
+1passed0.25s in abcd-shallow-fixture.log. PR1029 affected pullback/breakout control
+1passed0.26s in abcd-handoff-certification.log. Original 160 affected cases thus
+all have passing receipts, plus1 PR1029; these are separate runs, NOT one188-pass
+run/CI/Windows certification. After metadata snapshot change new27cases rerun;
+unchanged neighboring-family receipts carried forward. No unrelated/full suite
+repetition. Network/broker/mutation guards, synthetic inputs and isolated caches
+used; no provider/broker request, preflight or observation.
+
+Completion: actual valid ABCD production contract can form raw intent offline
+without fabricated target/anchors/approvals. Numeric D projection is measured
+geometry, NOT approved take-profit/R:R/management. Numeric management, intrabar
+ordering, positive risk admission and natural catalyst/Focus/setup/intent remain
+uncertified. Five-position global veto still acts AFTER formation BEFORE artifact/
+risk admission; READ_ONLY execution lock unchanged. Other-family gaps/GAP_GO
+duplicate, GUI draft, saved branches/roots and all historical receipts/UNKNOWNs/
+successful safety evidence/cache/callback uncertainties preserved. Corporate/SEC/
+listing remains PARKED/fail closed. ONE next action: review exact local ABCD
+candidate before publication/CI. No push or merge. PAPER_READY=NO;
+PAPER_READINESS_GATE=FAIL.
+
+## ABCD exact-candidate completion/serialization review — 4 November 2026
+
+Verified clean a039a25ab9141bab44f424b3c8274d90b902295c, tree
+ac8ab2a0676f0c1ea86240a3a6820369aee5d94b, against accepted base2a31eb07/tree9a5b15b8.
+Read ledger/applicable instructions and inspected complete production diff and
+existing specification (ABCD measured-move continuation/XL_ABCD_CONTINUATION),
+registered evaluator and actual V1 route. Original27-new/160-existing+PR1029
+receipts, failing-before18/2, bridge-only12/8 and metadata snapshot failing-before
+1case0.52s preserved. No CI/Windows or independent-human approval claimed.
+
+Original malformed shallow-retrace fixture correction is justified: only open10.8
+changed to10.85 to sit above low10.84. High/low/close/volume and hence swing indices,
+AB/C/retracement and original RETRACEMENT_TOO_SHALLOW assertion remain identical.
+It restores intended negative coverage; does not weaken a gate or invent a target.
+
+BLOCKER REPRODUCED: last primary candle could serve as C's right-hand SWING_WINDOW=1
+witness while still forming. Existing index<last and high-perturbation tests did
+not establish completion of that witness. New guarded actual-RF/registry/V1 case
+sets C on penultimate bar and its witness at latest1m timestamp14:35:00 with
+existing observation clock14:35:30. Candidate emitted one raw intent. Expected
+no eligible completed structure;1failed/27deselected0.55s in
+/workspace/scratch/abcd-review-completion-before.log. This is an offline source
+contract defect, not evidence of a natural bad trade or any historical cause.
+
+Minimal review correction ONLY in existing RF.ABCDPattern: after full original
+numeric/time validity checks, derive the completed prefix using original bar-start
+timestamps + actual primary interval (existing10s/1m/5m) <= original observation
+clock. Search existing swing algorithm over that prefix so the swing's RIGHT-HAND
+witness, not just C itself, is complete. Unknown interval fails closed. When no
+completed sequence exists, NO_COMPLETED_SWING_SEQUENCE. No altered swing extrema,
+30-70% retrace, volume threshold, trigger, C stop/invalidation, D formula, source
+clock, freshness max, or target/management policy. Original lookback indices stay
+relative to same bounded source window (tail only excluded); metadata records
+structure_completed_candle_count. Entire source timestamps remain retained as
+input evidence, not measured into anchors. Legacy untimed direct unit calls keep
+their historical behavior and confer no operational freshness authority; runtime
+still requires builder's original observation clock. The earlier claim that an
+observed right-hand neighbor sufficed was incomplete; this section supersedes
+that completion claim while preserving its historical receipts.
+
+Validation after source correction: updated new module31passed0.75s in
+abcd-review-completion-after.log, including original27 plus unfinished-witness
+actual V1 rejection, just-before-completion vs exact-completion acceptance
+boundaries, and direct input/result mutation after formation with full serialized
+intent unchanged. Existing ABCD setup/registry integration and canonical trace
+modules22passed0.33s in abcd-review-existing.log. Added bounded-lookback alignment
+control1passed/31deselected0.47s in abcd-review-lookback.log:78source bars produce
+60 retained times, lookback offset18, A/B/C local53/55/57,59completed bars, exact
+C source timestamp and unchanged D. New module now32distinct cases; no claim of a
+single32-pass run, or summed new/existing receipts as one CI suite. These reruns
+were proportionate to actual RF source change; unaffected neighboring-family and
+actual Core ownership/READ_ONLY/PAPER/LIVE evidence carried forward, not rerun for status.
+
+Review confirms measured anchor/trigger/C stop/invalidation/D and source metadata
+remain exact-occurrence-bound through V1 selection and real registered dispatch.
+Raw setup_metadata is a deep snapshot and serialized as declared dataclass field;
+later source candle-list, provenance, result metadata or evaluator receipt changes
+cannot rewrite retained evidence. No downstream risk/execution owner reads its D
+as an order target. target_model remains original descriptive text and numeric
+take_profit_priceNone; original missing-contract/malformed/nonfinite/future/stale
+and both-order duplicate controls still pass. Strict execution close>trigger and
+existing close<=C invalidation unchanged. No intrabar high/low ordering or full
+management certification follows from completed structural bars.
+
+Five-position global veto AFTER raw formation BEFORE artifact/risk admission and
+READ_ONLY execution prohibition unchanged. No selection/ranking/suppression/
+conflict/one-winner or other-family production change; only ABCD structural
+completion gate/metadata changed during review. No new target policy or module.
+Numeric management, intrabar ordering, positive risk admission and natural
+progression remain uncertified. Original safety/failed/UNKNOWN receipts, saved
+branches, GUI draft and parked corporate/SEC/listing provenance preserved.
+
+Publication advice: initial candidate had this completion blocker; corrected
+source reviewed with no remaining scoped publication blocker. Next action is
+separately authorized draft publication and independent exact-head review/
+changed-head required CI. No provider/broker calls, observation, push or merge.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.

@@ -60,7 +60,7 @@ fields. No target is supplied by that base. `_target_model_from_setup` requires
 existing `target_suggestion` or an ABCD projection; it does not manufacture one.
 A descriptive target model is not a numeric take-profit/R:R certification.
 
-For ten families (ORB/PMH/Micro/Bull/Flat Top/Consolidation/Three-bar/Second/Key Level/First Pullback),
+For eleven families (ORB/PMH/Micro/Bull/Flat Top/Consolidation/Three-bar/Second/Key Level/First Pullback/ABCD),
 `_canonical_pattern_trigger_candidates` replaces same-family contextual triggers
 with explicit numeric canonical contracts and a genuine execution-stream receipt.
 Other registry families do NOT automatically gain this bridge because they have
@@ -156,7 +156,7 @@ neither is natural evidence. No natural positive formation is established for AN
 | HOD_BREAK / PB.HODBreakPattern -> CP.detect_hod_break | >=6, RTH-sourced HOD/compression, volume, spread; scoped HOD requirement | X; TR HOD trigger; explicit structural stop/invalidation; NO target model | `test_hod_break_pattern` +/-; `test_setup_family_pipeline_certification` manually builds intent, NOT actual V1 target admission. Target remains missing |
 | OPENING_DRIVE / PB.OpeningDrivePattern -> CP.detect_opening_drive | >=5, RTH opening phase/impulse/volume/limited pullback | G; dedicated TR evaluator but actual contextual producer has no OPENING_DRIVE and C omits it; explicit trigger/stop; NO target model | `test_opening_drive_pattern` and PR1029 +/- D; no complete actual V1 raw-intent proof |
 | KEY_LEVEL_BREAK / RF.KeyLevelBreakPattern P_KEY_LEVEL_BREAK | >=2, specific prior-known key level, continuation/liquidity acceptance | C after local bridge repair below; existing registered TR evaluator; explicit selected level and structural stop/invalidation; next-overhead-key descriptive model | `test_key_level_break_pattern` detection/trigger controls and `test_key_level_break_production_handoff` actual unmodified registry/V1 raw-intent proof on synthetic fresh streams; natural progression and numeric target/management certification remain unproven |
-| ABCD / RF.ABCDPattern P_ABCD | >=7, bounded swing sequence A/B/C and retracement; scoped MACD DEGRADE | G; dedicated TR evaluator but no contextual producer/C; explicit C stop and numeric D projection/model | PR1029 +/- D, `test_pr1089_canonical_trace_family`; projection is evidence, not a proven actual V1 trigger/raw-intent route |
+| ABCD / RF.ABCDPattern P_ABCD | >=7 observed bars, confirmed swing sequence A/B/C from completed primary prefix, bounded60/retracement; scoped MACD DEGRADE | C after local bridge/review below; own trigger/C stop/invalidation and D facts; right-hand swing witness must have completed; no automatic numeric take-profit | `test_abcd_production_handoff` actual registry/V1 raw intent on synthetic streams, completion/window/malformed/future/duplicate/snapshot controls. Numeric management/intrabar/natural progression NOT certified |
 | CUP_HANDLE / RF.CupHandlePattern -> CP.detect_cup_handle | >=14, rounded cup/rim, tight handle, contraction/volume/continuation | G; dedicated TR evaluator but no contextual producer/C; explicit handle-low stop; NO target model | `test_cup_handle_pattern` +/- D; missing production bridge and target |
 | EMA_PULLBACK / PB.EmaPullbackPattern -> CP.detect_ema_pullback | >=6, impulse, EMA9/20-zone/reclaim, contraction/RVOL/spread; optional VWAP | G; TR evaluator exists, no EMA contextual producer/C; explicit structural stop/invalidation; NO target | `test_ema_pullback_pattern`, `test_ema_pullback_trigger`, `test_ema_pullback_pipeline_certification` are D/engine-layer proofs, not actual V1 target admission |
 | VWAP_PULLBACK / PB.VwapPullbackPattern -> CP.detect_vwap_pullback | >=6, VWAP support/test/reclaim, contraction, trend/liquidity | G for SAME canonical VWAP_PULLBACK identity; contextual VWAP_RECLAIM_CONTINUATION is a distinct normalized route. Explicit stop/invalidation; NO target | VWAP pattern/trigger/pipeline tests D/engine-layer; do not claim equivalent canonical route or raw intent |
@@ -652,3 +652,115 @@ review and required CI pending. Descriptive target/raw intent is still not numer
 management, intrabar ordering, natural progression or PAPER readiness.
 PR draft/unmerged, five-position veto and parked corporate/SEC/listing unchanged.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## PR1150 published exact-head review and CI — 3 November 2026
+
+PR1150 initialec4551f4 review5761032145 found NaN numeric-authority blocker;
+original receipts retained. Correctede2de4179110c4d757c910935f08eec2b4183e6ab /
+9a5b15b8946c0758c5e31af87f251b41706516c6 adds bounded actual RF six-bar OHLC
+rejection before derivation; no valid semantic or other-family change. Matching
+merge0d2b9ebd827133cae3d33c3e385ad551508b1af4, unchanged base6eca86a2.
+Independent agent COMMENT review5761052907: no blockers, not human approval.
+Prior25/99/1/ten controls and new143-pass changed-source receipt preserved.
+
+Corrected-head CI41740948445 SUCCESS: Linux3775passed/3skipped, Windows3777passed/
+1skipped, matching reviewed merge tree. Windows native cache/serial admission,
+six cache subprocess fixtures, actual PowerShell exit13/observation46 checks and
+parser passed. No remaining scoped blocker; recommend separately authorized
+controlled integration review with fresh ref/check/requirements verification.
+Initial blocked review/old-head CI remain historical, not retrospectively cleared.
+
+Complete receipts in SAME checkpoint. Separate local docs/pr1150-ci-acceptance
+keeps final PR head stable; no competing checklist/PR. Descriptive raw target is
+not numeric management/intrabar/natural certification. Five-position veto intact;
+corporate/SEC/listing parked. Draft/unmerged, no provider/broker/observation.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## PR1150 integrated; next ABCD canonical handoff — 4 November 2026
+
+Accepted main2a31eb07ac7fa7985fb2f78f2f495603f813193c, tree
+9a5b15b8946c0758c5e31af87f251b41706516c6, EXACT corrected reviewed/tested tree.
+Review5761052907, CI41740948445/all jobs, no blockers/threads and repository
+requirements reverified before ready/expected-head-guarded merge. No protection
+bypass or suite repetition. PR1150 issuecomment-6618777171 records integration.
+Savedc0e20e7c checkpoint/map receipts carried forward on local docs/pr1150-integration.
+Original NaN finding/review5761032145 and failing/repair controls preserved;
+superseded CI41740527836 now all-job SUCCESS does not accept its blocked source.
+
+FIRST_PULLBACK own structural anchors, canonical trigger handoff and RF-only
+malformed-OHLC rejection are integrated. Numeric management, intrabar ordering and
+natural progression remain uncertified. No numeric target policy added.
+
+Next recommendation is ONE ABCD canonical trigger bridge: existing policy122/195,
+RF.ABCDPattern own A/B/C+indices, pullback-high trigger, C structural stop and D=C+AB
+projection, registered trigger_abcd_continuation evaluator all exist. Actual V1
+canonical bridge omits ABCD; existing trace/detector tests do not prove actual V1
+raw intent. Bound separate repair to existing canonical bridge/dispatch and
+required fact carriage, exact occurrence/anchor/timeframe provenance, guarded
+positive/negative/invalidated/malformed/duplicate controls. Do not turn D into an
+approved numeric order target, alter swing/detection/trigger rules or implement
+management/other-family policies. Report a policy blocker instead of inventing it.
+No ABCD implementation in this task. SAME checkpoint holds full evidence/owners.
+Five-position veto intact; corporate/SEC/listing parked. No provider/broker,
+preflight, observation or trading. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## ABCD actual canonical bridge and geometry evidence — 4 November 2026
+
+Local repair resolves the audited G handoff: existing RF detector/registered
+ABCD evaluator reused, V1 canonical bridge adds ABCD and preserves original
+A/B/C/indices, trigger, C stop/invalidation, D and metadata through exact ordinal
+selection and serialized raw intent. No numeric target instruction: original
+projection description remains target_model and take_profit_priceNone.
+
+Guarded controls demonstrated malformed/future admission after a bridge-only
+change. One shared ABCD helper in the existing evaluator module now validates RF
+source and operational execution candles; valid swing/retrace/break rules remain.
+Existing builder observation clock is carried on optional PatternInputs field,
+not resampled/substituted; ABCD alone enforces finite coherent OHLCV and aware
+ordered timestamps<=clock. Source lookback remains60; original dates/provenance
+and bounded-window-relative indices preserved. Declared optional TradeIntent
+setup_metadata carries facts, not new trading authority; deep snapshot prevents
+later source mutation changing formed intent. Other-family gates unchanged.
+
+New27cases pass0.81s; affected159passed/1malformed-fixture failure, then corrected
+fixture's unchanged retracement rejection passed, plus1PR1029 case. The fixture
+fix changes only open10.8 to10.85 to respect low10.84, retaining highs/lows/closes/
+swing/retrace; no weakened assertion. Full passing/failing receipts and exact
+owners are in SAME checkpoint section. No CI/Windows or natural proof claim.
+
+C now denotes actual raw handoff on synthetic fresh streams, including geometry/
+serialization, strict close/touch, invalidation, missing/stale/malformed/future and
+duplicate isolation. Last confirming candle is not measured into A/B/C or B..C;
+future-dated observations reject. No numeric management/intrabar/natural
+certification or target policy invented. Five-position veto/READ_ONLY intact;
+corporate/SEC/listing parked. Next: exact local review. No push/merge/acquisition/
+broker/observation. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## ABCD review: completed swing witness and retained evidence — 4 November 2026
+
+Review verified exacta039a25a/treeac8ab2a0 and prior27/160/PR1029 receipts.
+The shallow-retrace fixture open correction preserves every swing/retrace input
+and its original negative assertion. No weakening or synthetic target completion.
+
+Found one blocker: the latest still-forming primary bar could be C's right-hand
+swing witness. Actual V1 control emitted raw intent before witness completion
+(1failed0.55s). RF now searches existing swing algorithm only over bars whose
+original start+primary interval<=original observation clock, so witness must also
+be complete. Entire malformed/future source still rejects before this boundary;
+source dates and bounded-window indices not substituted. Unknown interval/no
+completed sequence fail closed. Metadata records completed count; no trigger,
+retracement, D, target policy or other-family rule changed.
+
+After correction:31updated controls passed0.75s;22existing ABCD controls passed
+0.33s. Additional1lookback case passed0.47s (31deselected), verifying60-bar bound,
+offset18/local indices53/55/57 and exact original timestamp. New module32distinct
+cases across receipts, not one32-pass run or CI/Windows proof. Input/result/receipt
+mutation cannot rewrite serialized raw intent. SAME checkpoint has full findings
+and retained failing-before/snapshot receipts. Prior Core/neighbor safety evidence
+carried forward; no redundant unaffected suites.
+
+Corrected candidate suitable for authorized draft publication/independent review/
+CI. D remains a projection fact, not executable target. Numeric management,
+intrabar ordering and natural progression uncertified. Five-position veto and
+READ_ONLY remain; corporate/SEC/listing parked. No provider/broker/observation/
+push/merge. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.

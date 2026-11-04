@@ -9,6 +9,7 @@ from __future__ import annotations
 from src.domain.quote_freshness import evidence_rejection, quote_evidence, selection_quote_evidence
 
 import json
+from copy import deepcopy
 from datetime import timezone
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -1200,6 +1201,10 @@ class RossMomentumStrategyV1(BaseStrategy):
                         "volume_confirmation_timeframe": execution_timeframe,
                         "timeframe_substitution": False,
                     }
+                    if setup["setup_family_id"] == "ABCD":
+                        setup["execution_stream"]["observed_at_utc"] = (
+                            inputs.observed_at_utc.isoformat() if inputs.observed_at_utc else None
+                        )
                 pattern_triggers = TriggerEngine().evaluate_triggers(
                     symbol=symbol,
                     candles=execution_candles,
@@ -1759,6 +1764,13 @@ class RossMomentumStrategyV1(BaseStrategy):
             if setup_family == "KEY_LEVEL_BREAK":
                 # Acceptance invalidation is distinct from the structural stop.
                 intent.invalidation_level = selected_trigger["invalidation_price_reference"]
+            if setup_family == "ABCD":
+                intent.setup_metadata = deepcopy({
+                    **self._abcd_contract_evidence(selected_contract),
+                    "source_metadata": dict(selected_contract.setup_metadata or {}),
+                    "canonical_result_index": decision.get("selected_candidate_index"),
+                    "execution_stream": dict(selected_trigger.get("execution_stream") or {}),
+                })
             intent.quote_evidence = {"selection": row_quote, "snapshot": snapshot_quote}
             intent.relationship_context = dict((getattr(selected_contract, "setup_metadata", {}) or {}).get("relationship") or {})
             if intent.relationship_context:
@@ -2245,6 +2257,7 @@ class RossMomentumStrategyV1(BaseStrategy):
             "OPENING_RANGE_BREAKOUT", "PREMARKET_HIGH_BREAK",
             "KEY_LEVEL_BREAK",
             "FIRST_PULLBACK",
+            "ABCD",
         }
         authority_statuses = {SetupImplementationStatus.TRADE_READY, SetupImplementationStatus.PROBATIONARY}
         candidates: list[dict] = []
@@ -2327,7 +2340,18 @@ class RossMomentumStrategyV1(BaseStrategy):
                 f"trigger_type={trigger_type} trigger_level={trigger_level} invalidation_level={invalidation_level}"
             )
             candidates.append(candidate)
+            if family == "ABCD":
+                candidate.update(self._abcd_contract_evidence(result))
         return candidates
+
+    @classmethod
+    def _abcd_contract_evidence(cls, result) -> dict:
+        # Preserve measured geometry as facts, not numeric order instructions.
+        return {key: cls._pattern_result_value(result, key) for key in (
+            "anchor_a_price", "anchor_b_price", "anchor_c_price",
+            "anchor_a_index", "anchor_b_index", "anchor_c_index",
+            "ab_length", "retracement_pct", "d_projection", "risk_reference_level",
+        )}
 
     @classmethod
     def _normalize_setup_family_id(cls, setup_family_id: str | None) -> str:
