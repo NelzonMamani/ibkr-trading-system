@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from math import isfinite
+from numbers import Real
 from statistics import mean
 
 from src.setup_engine.setup_families.key_level_helpers import (
@@ -185,6 +187,15 @@ class FirstPullbackPattern(PatternBase):
         candles = inputs.candles
         if len(candles) < 6:
             return self._rejected("insufficient candles", inputs)
+        # Timestamp provenance does not certify the numeric structural window.
+        for candle in candles[-6:]:
+            values = [getattr(candle, field, None) for field in ("open", "high", "low", "close")]
+            if any(isinstance(value, bool) or not isinstance(value, Real)
+                   or not isfinite(value) or value <= 0 for value in values):
+                return self._rejected("malformed_candles", inputs)
+            opening, high, low, close = values
+            if low > min(opening, close) or high < max(opening, close):
+                return self._rejected("malformed_candles", inputs)
         impulse = candles[-6:-3]
         pullback = candles[-3:-1]
         trigger = candles[-1]
@@ -197,9 +208,10 @@ class FirstPullbackPattern(PatternBase):
         pullback_retrace = (impulse[-1].high - pullback_low) / max(impulse[-1].high - impulse[0].low, 1e-9)
         if pullback_retrace > 0.45:
             return self._rejected("pullback too deep", inputs)
-        if trigger.close <= max(c.high for c in pullback):
+        pullback_high = max(c.high for c in pullback)
+        if trigger.close <= pullback_high:
             return self._rejected("no reclaim trigger", inputs)
-        return self._detected(
+        detected = self._detected(
             inputs,
             direction=Direction.LONG,
             confidence=0.74,
@@ -211,6 +223,20 @@ class FirstPullbackPattern(PatternBase):
             stop_suggestion="Below pullback low",
             target_suggestion="Retest impulse high then measured extension",
             setup_quality_tags=["first_pullback", "continuation_structure"],
+        )
+        return replace(
+            detected,
+            setup_family_id="FIRST_PULLBACK",
+            trigger_type="PULLBACK_HIGH_BREAK",
+            trigger_level=pullback_high,
+            stop_level=pullback_low,
+            invalidation_level=pullback_low,
+            setup_metadata={
+                **dict(detected.setup_metadata or {}),
+                "pullback_high": pullback_high,
+                "pullback_low": pullback_low,
+                "structure_timeframe": inputs.primary_timeframe,
+            },
         )
 
 

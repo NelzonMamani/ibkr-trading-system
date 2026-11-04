@@ -12772,3 +12772,351 @@ management and natural progression remain unproven, other-family gaps/duplicate
 invocation unchanged. Preserve all historical receipts, five-position protections,
 GUI draft and PARKED corporate/SEC/listing provenance. No collection, broker call,
 observation, push or merge. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## PR1149 publication and exact-head CI/review — 3 November 2026
+
+Published ONE draft PR1149:
+https://github.com/NelzonMamani/ibkr-trading-system/pull/1149
+Exact clean head3608d6cf9a1da4016bf9e1dd0aba47b0b53750c8, tree
+b58b2db9d0c977569d20dadefb28e684d6e49704. Fetched main unchanged at accepted
+basee21e8eb365d53dccb61107cea8a4cda054e514d8, treeb8eebc29f9f9b591fcbf9b05738fefea32d59c0d.
+No rebase or baseline substitution. Test mergefe44059444ef31326933503e1fbe2404aeae9fac
+has EXACT candidate tree and parents accepted base + reviewed head.
+
+Production diff only adds KEY_LEVEL_BREAK to the existing V1 canonical bridge and
+preserves the selected occurrence's distinct acceptance invalidation on its raw
+intent. Existing registered evaluator, canonical validation, occurrence metadata,
+ranking/suppression/one-winner, Core/ownership/risk/execution owners unchanged.
+No new target policy/detector/management engine. Two existing docs include inherited
+PR1148 audit/acceptance receipts; no parked corporate/SEC production implementation
+or private contact literals added. No workflow-selection/requirements changes.
+
+Preserve original local failing-before and13/122/review92+3 receipts above;
+no redundant local suite rerun to publish. Descriptive target supports existing
+raw-intent contract, numeric take_profit remainsNone/unproven; original-source
+associations/corporate/listing policy remain PARKED/fail closed. Unchanged five-
+position global veto remains after formation before artifact/risk admission.
+
+Independent agent exact-head review5760597105:
+https://github.com/NelzonMamani/ibkr-trading-system/pull/1149#pullrequestreview-5760597105
+No blocking findings. Reviewer verified clean local/published head/tree/base and
+traced occurrence binding through detector, dispatch, selection and raw contract;
+distinct stop/acceptance anchors, unchanged family behavior/safety gates, malformed
+and stale rejection, honest descriptive target limits. Inspected original local
+and corrective receipts; no redundant tests or edits. COMMENT is independent
+agent review, not human/formal approval or Windows/CI acceptance.
+
+CI41734010206 completed SUCCESS:
+https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/41734010206
+All three jobs successful. Existing unchanged scope selected HARNESS_ONLY=False.
+Linux3732passed/3skipped/4warnings226.66s; Windows3734passed/1skipped/268warnings
+723.23s. Both job logs confirm checkoutfe440594, with exact reviewed candidate tree.
+Windows focused diagnostics95, news maintenance37, native float-cache9, serial
+admission40 passed; six cache subprocess fixtures, PowerShell5.1 exit propagation13
+controlled checks, actual observation harness46 checks (12 package/5 preflight
+synthetic cases), inventory/cache checks and diagnostic parser succeeded. Evidence
+upload passed. Harness-only alternatives/install step were intentionally skipped
+because the full suites ran, not omitted required cache/PowerShell verification.
+No local full-suite repetition, unchanged-head retry, CI selection change or code
+change after publication. Original failing-before and previous validation receipts
+remain unchanged. These CI results certify offline checks, not a natural run.
+
+Updated existing checkpoint/family map on separate LOCAL docs/pr1149-ci-acceptance
+so receipt-only edits do not replace the exact published/tested PR head. No second
+PR or competing checklist. PR body/conversation carries public receipts. Local
+receipt updates do not constitute independent review or CI themselves.
+
+Recommendation: no remaining scoped code/review/CI blocker; proceed to controlled
+integration review of exact3608d6cf/treeb58b2db9 only when separately authorized.
+Reverify main/head/tested tree, required checks/protections/approvals and threads
+then. Final metadata: basee21e8eb3 unchanged, PR draft/open/unmerged/mergeable, no
+review threads. Independent agent COMMENT is not human approval. No automatic
+merge or runtime step. Natural progression, numeric target/management, positive
+risk admission/PAPER readiness and other family gaps remain unproven.
+
+No merge, provider/broker collection, preflight or observation. Preserve GUI draft,
+historical failures/UNKNOWNs and successful safety receipts, five-position veto,
+other family target/bridge/duplicate gaps, separate cache/callback uncertainty and
+PARKED corporate/SEC/listing provenance. PAPER_READY=NO;
+PAPER_READINESS_GATE=FAIL.
+
+## PR1149 controlled integration; next family gap — 3 November 2026
+
+Explicit user authorization limited integration to head
+3608d6cf9a1da4016bf9e1dd0aba47b0b53750c8, tree
+b58b2db9d0c977569d20dadefb28e684d6e49704, base
+e21e8eb365d53dccb61107cea8a4cda054e514d8. Verified unchanged refs/clean source,
+review5760597105 commit_id3608d6cf (independent agent COMMENT, not human approval),
+CI41734010206 with ALL three jobs successful and Windows/cache/PowerShell controls,
+matching test mergefe440594 tree/parents, no threads or new blockers. Reused
+existing receipts; no passing suite repeated. Repository main protected=false,
+required contexts/checks empty, rulesets empty, merge commits enabled,
+mergeable_state=clean. No settings/protections changed or bypassed.
+
+Marked ready and merged with accepted method=merge and expected_head_sha3608d6cf.
+Accepted main **6eca86a2be1ef6570c8a2e2b0e3fd2422c6a6579**, tree
+**b58b2db9d0c977569d20dadefb28e684d6e49704**. Fetched Git object confirms EXACT
+reviewed/tested tree and parents accepted base + authorized head. GitHub merged_at
+2026-11-03T23:13:31Z. Integration receipt:
+https://github.com/NelzonMamani/ibkr-trading-system/pull/1149#issuecomment-6617899746
+Saved docs/pr1149-ci-acceptance commit0ca175914f5c6457792cdaeada639504945d7212
+was cherry-picked as1478ca34 onto this accepted merge on local
+docs/pr1149-integration, retaining SAME checkpoint/family map. Prior saved branches,
+failing-before controls and historical CI failures remain preserved. This local
+documentation branch is not a replacement runtime pin. Earlier draft-only/no-merge
+statements record their historical stage; this section records later authorization.
+
+Completion claim: KEY_LEVEL_BREAK's actual trigger handoff and separate canonical
+structural stop/acceptance invalidation are repaired and offline verified. Numeric
+target/R:R/management, natural progression, positive risk admission and PAPER/LIVE
+execution are NOT certified. Descriptive target does not become a numeric price.
+Five-position veto still operates AFTER raw formation, BEFORE artifact/risk
+admission; READ_ONLY remains an independent execution prohibition.
+
+ONE next highest-priority bounded repair recommendation: FIRST_PULLBACK canonical
+structural-contract and trigger handoff. It is a specified core pullback family
+with an existing descriptive target/evaluator, so it can be addressed without
+inventing the absent target policies of ORB/Three/Second/etc. Evidence:
+- strategy_policy.py:118 FIRST_PULLBACK = first controlled pullback after impulse;
+  line193 XL_FIRST_PULLBACK_BREAK_FAST = pullback-high direct reclaim/break,
+  lightweight confirmation. Existing pattern_input_policy.py:64ff governs inputs.
+- setup_engine/registry.py:63 registers RF.FirstPullbackPattern. Actual owner
+  setup_families/ross_families.py:178ff measures impulse, controlled two-bar
+  pullback_low and pullback-high reclaim, but returns generic PatternBase._detected
+  without exporting those own numeric anchors/family trigger metadata. Existing
+  text already says break above pullback high / below pullback low, target retest
+  impulse high then measured extension. Generic pattern_base.py:108ff instead
+  infers trigger/stop from context; those values are not its measured structure.
+- common/triggers/trigger_registry.py:35 already registers
+  trigger_first_pullback.py::evaluate_first_pullback_trigger with
+  PULLBACK_HIGH_BREAK. V1._canonical_pattern_trigger_candidates still omits
+  FIRST_PULLBACK; contextual SetupEngine is a separate source, not canonical proof.
+- Existing family map marks this X/full numeric handoff gap.
+  tests/test_first_pullback_pattern.py tests common.detect_first_pullback, NOT this
+  registered RF runtime detector; test_strategy_runtime_setup_binding conditional
+  fields do not prove the actual V1 own-contract/trigger/raw-intent path.
+
+Bound proposed work to exporting already-measured pullback high/low and existing
+family/trigger/source metadata from that RF detector, then connecting its exact
+canonical occurrence through the existing V1 bridge/TriggerEngine/evaluator.
+Do not replace runtime owner with common detector, duplicate detection logic,
+change reclaim/depth/confirmation semantics, fabricate a numeric target/management
+rule or enable other families. Preserve own rationale/descriptive target, genuine
+timeframe/freshness/session/catalyst gates, pre-ranking validation, suppression/
+conflict/ranking/one-winner and all ownership/risk barriers. Require guarded
+failing-before actual RF registry -> actual V1 controls for own numeric anchors,
+registered evaluator, confirmed/unconfirmed/invalidated, missing/stale/malformed,
+duplicate IDs/both orders, and selected contract through raw intent. If current
+spec does not suffice at a boundary, stop and report that policy question rather
+than inventing permission. No implementation or new tests in this integration task.
+ONE next action: review/authorize that single offline FIRST_PULLBACK repair.
+
+GAP_GO duplicate invocation, missing other-family target/management policies,
+composed-news-Core combined proof and natural positive progression remain separate
+open gaps. Corporate/SEC/listing provenance stays PARKED/fail closed. Preserve all
+five positions/veto, GUI draft, historical successful safety/failed/UNKNOWN receipts
+and separate cache/callback uncertainties. No provider/broker collection, preflight,
+observation, holdings action or trading. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## FIRST_PULLBACK structural contract and production handoff — 3 November 2026
+
+Separate local branch fix/first-pullback-contract-handoff starts at accepted
+6eca86a2be1ef6570c8a2e2b0e3fd2422c6a6579, verified tree
+b58b2db9d0c977569d20dadefb28e684d6e49704 and clean input. Carried saved
+478e17c8 and its0ca17591 receipt predecessor via documentation-only cherry-picks
+2966ce79/ec7f1cef into SAME checkpoint/family map. Original branches/receipts
+preserved. Read DEPRECATION_LEDGER, unchanged (no retirement/owner change).
+No AGENTS files apply. No network fetch needed to substitute the literal baseline.
+
+Existing specification/contract inspected BEFORE editing: strategy_policy.py:118
+FIRST_PULLBACK controlled pullback after impulse; :193 direct pullback-high
+reclaim/break with lightweight confirmation. RF.FirstPullbackPattern already
+measures a three-bar impulse, two controlled red pullback bars, pullback_low and
+strict reclaim above max pullback high, rejecting >45% retrace. Existing entry/stop
+text is "Break above pullback high" / "Below pullback low". Existing pullback
+stop_placement_law (:326) uses low of structure and says loss beyond that low
+invalidates continuation; the retained common first-pullback contract also sets
+stop/invalidation to its measured low. That common detector is NOT substituted
+for the registered RF owner. Stop and invalidation have distinct meanings but
+share this structural boundary here; no separate reclaimed-high failure level,
+stop offset or additional acceptance-hold policy is specified or invented.
+Existing trigger_first_pullback evaluator confirms close>trigger and high>=trigger;
+existing descriptive target stays "Retest impulse high then measured extension".
+
+Failing-before new controls:9failed/9passed1.18s, saved
+/workspace/scratch/first-pullback-before.log. Detector exported generic10.3 instead
+of measured10.42, and V1 lacked its own canonical trigger. Nine failed assertions
+are not nine independent defects: tests also require an observable own trigger
+for negative states. Minimal repair in TWO existing owners only:
+- RF.FirstPullbackPattern names/reuses already-computed pullback_high comparison,
+  then replaces generic inferred numeric fields with measured high entry/trigger
+  and low stop/invalidation, explicit FIRST_PULLBACK/PULLBACK_HIGH_BREAK and
+  pullback high/low/structure_timeframe metadata. Original rationale, descriptive
+  target, confidence, data flags and detection conditions unchanged.
+- V1._canonical_pattern_trigger_candidates adds FIRST_PULLBACK to existing
+  allowlist. Existing TriggerEngine/registered evaluator dispatch is reused
+  unchanged. No second detector, trigger logic, family, target/management policy,
+  ranking law, risk path or ownership authority. Original candles/times remain
+  in existing authoritative inputs; no copied/refreshed timestamps or timeframe
+  substitution. Existing occurrence ordinal and own contract/trace selection
+  preserve source identity. For this family structural stop and invalidation
+  legitimately coincide; KEY_LEVEL_BREAK's distinct-anchor repair remains intact.
+
+Offline validation (synthetic market inputs, NOT natural evidence):
+- New25-case module passed0.73s, first-pullback-final25.log. Actual unmodified RF
+  detector -> Ross registry -> actual process_watchlist -> registered evaluator ->
+  raw READ_ONLY intent, no synthetic target completion. Explicit entry10.42,
+  stop/invalidation10.15, own rationale/target/metadata, cycle time, original aware
+  10s spacing and no numeric take-profit. Both-order duplicate tests prevent
+  rejected-contract borrowing and prevent a selected waiting occurrence borrowing
+  a lower-ranked ready trigger. Equality-at-high stays unconfirmed; at/below-low
+  invalidates. Missing/stale execution and missing/stale required1m reject; missing
+  primary fails before registry (existing input-failure trace, no terminal-map
+  entry), not confirmed data absence. Wrong geometry/unparseable/missing target or
+  rationale reject. Malformed NaN execution close fails existing trigger comparison
+  as awaiting_pullback_break; no invented malformed-reason counter/label.
+  Structural controls retain insufficient candles, nonpositive impulse, green
+  pullback, >45% retrace and no reclaim rejections; exact45% accepts, just-over
+  rejects. RTH_MID uses genuine1m without10s, no substitution/blanket fast gate.
+- Affected existing runtime_setup_binding, selected_setup_handoff,
+  key_level_break_production_handoff, actual readonly_manager_risk_handoff and
+  Ross setup_family_manifest:99passed/18existing utcnow warnings3.37s, retained
+  first-pullback-affected.log. Includes neighboring-family identity/ranking/
+  suppression/conflict, actual Core five-position veto before risk and mode gates.
+- Existing PR1029 pullback/breakout positive/negative control passed1case0.26s,
+  first-pullback-certification.log. Distinct affected totals across separate runs,
+  not one125-pass run or Windows/CI claim. No unrelated/full suite repeated.
+- Intermediate after-fix17passed/1failed0.67s expected a nonexistent new malformed
+  label; corrected test to existing non-confirmation behavior without production
+  change. Added primary test first failed on an invalid terminal-map assumption,
+  then2passed0.50s after asserting actual early input trace; this was a test
+  assertion correction, not a repaired acquisition defect. Logs preserved.
+
+Existing pre-ranking completeness/suppression/conflict/ranking/one-winner and
+quote/session/catalyst/ownership/READ_ONLY boundaries unchanged. Source changes
+are the structural contract export and one bridge member only. Raw intent proof
+is synthetic; natural catalyst/Focus/setup/trigger progression, numeric targets,
+R:R/management, positive risk admission and PAPER readiness remain UNPROVEN.
+No target price is extracted from the descriptive model and no missing target
+fixture supplied. Other-family policies/bridges and GAP_GO duplicate invocation
+remain unchanged. All five unmatched positions/veto, GUI draft, successful safety
+receipts and historical failures/UNKNOWNs/cache/callback uncertainties preserved.
+Corporate/SEC/listing provenance remains PARKED/fail closed. No provider/broker
+calls, preflight, observation, push or merge. ONE next action: exact local review
+of this bounded FIRST_PULLBACK candidate before any publication/CI step.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## FIRST_PULLBACK exact-candidate/window review — 3 November 2026
+
+Verified clean00dbd69df39193647de547b0c710125a639b8af7, tree
+4675fbd744905f92770561432b6e019b584c03d3, against accepted base6eca86a2/treeb58b2db9.
+Production diff confined to existing RF contract export and V1 bridge allowlist.
+Read applicable ledger/checkpoint and original failing-before9fail/9pass plus
+25/99/1 passing receipts. No redundant suite reruns or independent/CI claim.
+Reviewed source with no blocking production finding; review adds tests/docs ONLY.
+
+Window authority: impulse=candles[-6:-3], pullback=candles[-3:-1], confirming
+primary=candles[-1]. Numeric trigger=max(high) and stop/invalidation=min(low)
+are taken ONLY from the two completed pullback bars. Prefix/impulse/confirming
+extremes cannot enter those expressions. The confirming candle does NOT become a
+pullback bar for that evaluation or mutate the returned canonical result/input
+candles. New controls vary its high to50 and its low independently (above the
+known structural boundary), and vary each pullback bar independently. Inputs,
+original timestamps and metadata remain identical after detector evaluation.
+This proves per-evaluation binding, not a new persistent cross-cycle setup owner.
+
+Detection/confirmation distinction: the EXISTING runtime RF detector is a
+primary-reclaim detector, requiring positive impulse, two controlled red bars,
+<=45% retrace and primary close STRICTLY above pullback high. It is not the
+separate common pre-break readiness detector; the bridge did not change it into
+one. After real detection, existing registered FIRST_PULLBACK evaluator independently
+requires execution close>canonical trigger AND high>=trigger. A wick above with
+close equal/below is NOT confirmation. Existing TriggerEngine invalidation is
+close<=canonical low, remains false-ready even if high exceeds entry, and does
+not retrospectively lower the stop. Stop and thesis invalidation have distinct
+meanings but coincide numerically at the established pullback low. No new
+reclaimed-high invalidation, intrabar high/low event ordering, stop offset or
+cross-cycle invalidation rule was added or certified. OHLC tests cannot establish
+which intrabar extreme happened first or certify stop execution/management.
+
+Actual V1 path reviewed: canonical_result_index retained through bridge and
+TriggerEngine output; selection/contract/trace lookup require matching occurrence.
+No ID-only substitution on duplicates or fallback to another ready occurrence.
+Exact selected contract supplies target/rationale; own trigger supplies numeric
+entry/structural stop; same structural low remains raw invalidation. Canonical
+pullback/source-timeframe metadata reaches registered dispatch; arbitrary metadata
+is not minted as new authority on the intent. Original source candles remain in
+authoritative inputs; execution receipt identifies real10s/open or1m/steady stream
+without substitution. Original25 cases cover actual V1, both-order duplicates,
+required/execution missing/stale, NaN execution no-confirmation, malformed/missing
+contracts and structural boundaries. Existing99 affected/1PR1029 receipt includes
+neighboring family/ranking/suppression/conflict, actual Core five-position veto and
+mode protections, carried forward because production bytes did not change here.
+
+Concrete coverage additions ONLY:10new guarded controls passed0.63s,25deselected,
+/workspace/scratch/first-pullback-review-boundaries.log. Three confirming-extreme
+variants prove unchanged high/low and deep-equal unchanged inputs; one prefix/
+impulse exclusion; two independent pullback-bar extrema; four actual V1
+wick/close variants (equal high, just below, just above, at invalidation). The
+registered evaluator is observed, not mocked to approve. Prior25 cases plus10
+new distinct cases now35; do not relabel as one35-pass run, CI or Windows proof.
+No network/provider/broker/acquisition/mutation or runtime observation.
+
+Target limit unchanged: decision_policy._target_model_from_setup accepts the
+original nonempty descriptive "Retest impulse high then measured extension".
+validate_entry_contract still rejects missing target; this law does not require
+numeric take_profit_price. Raw intent keeps numeric take_profit=None. Risk does
+not convert prose to price; selected-protection lifecycle preserves actual stop
+and returns no numeric target when none was selected. Generic default exit plans
+elsewhere are NOT FIRST_PULLBACK family-management certification. No target
+completion, new target law, risk bypass or full-family certificate. Five positions
+still globally block new entry AFTER raw formation, BEFORE canonical artifact/risk
+admission; READ_ONLY independently forbids execution. Natural progression, numeric
+R:R/target/management and positive risk admission remain unproven.
+
+Publication advice: no scoped production blocker found; reviewed source unchanged
+from00dbd69d. Ready for separately authorized draft publication, independent
+exact-head review and changed-head required CI. No push/merge performed. Existing
+family map updated in place; no competing checklist. Preserve corporate/SEC and
+listing PARKED/fail closed, all receipts, GUI draft, five-position ownership and
+other-family gaps. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## PR1150 independent review: malformed-window blocker and repair — 3 November 2026
+
+Published draft PR1150 initially at ec4551f4f176be6903c1b2f2b9407383353bb295 /
+4c499099edda0122f22d975d149e1c17c825908f against unchanged accepted6eca86a2.
+Independent agent review5761032145 found ONE BLOCKER, superseding provisional
+no-blocker status: valid-timestamp1m first-pullback lowNaN reached actual unmodified
+RF/registry/V1/evaluator and raw intent entry10.42, stopNaN, invalidationNaN.
+Guarded scratch first-pullback-independent-nan.log:1failed0.47s. Timestamp
+provenance was not numeric validity; comparisons with NaN failed open. Original
+CI41740527836 tests that superseded head; any success cannot resolve the review
+finding. Original35 cases and25/99/1/ten-control receipts remain preserved.
+
+Scoped fix stays in RF.FirstPullbackPattern: before computing/exporting authority,
+validate ONLY its six relevant impulse/pullback/confirming OHLC bars as finite,
+positive numeric Real (excluding booleans), with low<=open/close<=high. Reject
+malformed_candles without substitution, clamping, changing timestamps or generic
+fallback levels. No new volume/classification/target law, no detector replacement,
+no other-family behavior change. No suitable existing window validator was found
+in this owner; existing shared pullback helpers validate different execution
+contracts, so they were not imported as a new detector/trigger dependency.
+
+Eight added regression variants initially failed0.76s. Only the independently
+observed NaN case is claimed as proven NaN raw admission; other failures include
+existing pipeline exceptions/rejection-reason differences. Six numeric variants
+now traverse actual V1 (NaN/Inf in impulse/pullback/confirming and inconsistent
+OHLC), reject before registered trigger, no intent. String/None variants use the
+actual RF boundary directly because the shared input builder can reject/raise
+before RF; no unrelated input-builder repair or claim of eight end-to-end cases.
+Corrected43new cases +99affected existing +1PR1029:143passed/18existing warnings
+3.53s in first-pullback-numeric-final.log. Repetition justified by numeric-guard
+source change, not status. Shared fixture only supplies synthetic source candles;
+real RF/registry/V1/evaluator/ownership gates remain unmocked for their controls.
+No provider/broker or observation. Finite valid window/anchor/strict close behavior
+and all target/management/intrabar/natural limitations remain unchanged.
+
+Changed exact-head independent review and Linux/Windows/PowerShell/cache CI are
+required before integration recommendation. PR remains DRAFT/unmerged; no merge
+authorized. Five-position veto and PARKED corporate/SEC/listing provenance intact.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
