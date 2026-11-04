@@ -675,3 +675,31 @@ keeps final PR head stable; no competing checklist/PR. Descriptive raw target is
 not numeric management/intrabar/natural certification. Five-position veto intact;
 corporate/SEC/listing parked. Draft/unmerged, no provider/broker/observation.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## PR1150 integrated; next ABCD canonical handoff — 4 November 2026
+
+Accepted main2a31eb07ac7fa7985fb2f78f2f495603f813193c, tree
+9a5b15b8946c0758c5e31af87f251b41706516c6, EXACT corrected reviewed/tested tree.
+Review5761052907, CI41740948445/all jobs, no blockers/threads and repository
+requirements reverified before ready/expected-head-guarded merge. No protection
+bypass or suite repetition. PR1150 issuecomment-6618777171 records integration.
+Savedc0e20e7c checkpoint/map receipts carried forward on local docs/pr1150-integration.
+Original NaN finding/review5761032145 and failing/repair controls preserved;
+superseded CI41740527836 now all-job SUCCESS does not accept its blocked source.
+
+FIRST_PULLBACK own structural anchors, canonical trigger handoff and RF-only
+malformed-OHLC rejection are integrated. Numeric management, intrabar ordering and
+natural progression remain uncertified. No numeric target policy added.
+
+Next recommendation is ONE ABCD canonical trigger bridge: existing policy122/195,
+RF.ABCDPattern own A/B/C+indices, pullback-high trigger, C structural stop and D=C+AB
+projection, registered trigger_abcd_continuation evaluator all exist. Actual V1
+canonical bridge omits ABCD; existing trace/detector tests do not prove actual V1
+raw intent. Bound separate repair to existing canonical bridge/dispatch and
+required fact carriage, exact occurrence/anchor/timeframe provenance, guarded
+positive/negative/invalidated/malformed/duplicate controls. Do not turn D into an
+approved numeric order target, alter swing/detection/trigger rules or implement
+management/other-family policies. Report a policy blocker instead of inventing it.
+No ABCD implementation in this task. SAME checkpoint holds full evidence/owners.
+Five-position veto intact; corporate/SEC/listing parked. No provider/broker,
+preflight, observation or trading. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.

@@ -13190,3 +13190,92 @@ provider/broker collection, preflight or observation. Corporate/SEC/listing rema
 PARKED/fail closed; preserve GUI draft, other-family gaps and all historical
 failures/UNKNOWNs/successful safety receipts, separate cache/callback uncertainty.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## PR1150 corrected FIRST_PULLBACK controlled integration — 4 November 2026
+
+User authorized only corrected head e2de4179110c4d757c910935f08eec2b4183e6ab,
+reviewed tree9a5b15b8946c0758c5e31af87f251b41706516c6, accepted base
+6eca86a2be1ef6570c8a2e2b0e3fd2422c6a6579. Verified unchanged refs and clean
+candidate. Review5761052907 commit_id matches corrected head, no blockers;
+independent agent COMMENT, not human approval. CI41740948445 and ALL three jobs
+successful, including Windows/cache/serial/PowerShell checks. Matching test
+merge0d2b9ebd has exact reviewed tree and expected parents. No review threads or
+new blocking findings. Repository main protected=false, required contexts/checks
+empty, rulesets empty, merge commits enabled, mergeable_state=clean. No settings
+changed or protections bypassed. No completed test/CI rerun for status.
+
+Marked ready and merged using method=merge, expected_head_sha=e2de4179... .
+Accepted main **2a31eb07ac7fa7985fb2f78f2f495603f813193c**, tree
+**9a5b15b8946c0758c5e31af87f251b41706516c6**. Fetched Git object verifies EXACT
+reviewed/tested tree; parents accepted base + authorized corrected head.
+Merged_at2026-11-04T00:07:31Z. Integration receipt:
+https://github.com/NelzonMamani/ibkr-trading-system/pull/1150#issuecomment-6618777171
+Saved c0e20e7cf11976827c6588e519d6524437e2c0c1 documentation receipt was
+cherry-picked asac54c2f1 onto accepted merge on local docs/pr1150-integration,
+carrying SAME checkpoint/family map; original saved branches preserved. This
+local docs branch does not replace accepted runtime pin. Prior draft/no-merge
+statements record their historical stage, superseded only by this authorization.
+
+Confirmed RF guard runs before impulse/retrace/anchor derivation over ONLY six
+relevant OHLC bars. Numeric/nonbool/finite/positive and coherent high-low bounds
+are required, otherwise malformed_candles/no detected authority. Original
+independent actual-V1 NaN admission (entry10.42/stopNaN/invalidationNaN), blocked
+review5761032145, 1failed0.47s, repair143-pass and prior25/99/1/ten-control receipts
+remain preserved. Reconciliation update: superseded CI41740527836 now completed
+SUCCESS in all three jobs; this does NOT clear its independently demonstrated
+missing NaN control or retrospectively accept ec4551f4. No causal claim about
+workstation/callback/cache failures is inferred from these passing checks.
+
+Completion is narrow: FIRST_PULLBACK own structural anchors, canonical registered
+trigger handoff and malformed structural-window rejection are integrated/offline
+verified. Descriptive target permits raw intent with numeric take-profit unset;
+numeric target/R:R/management, intrabar ordering, natural progression, positive
+risk admission and PAPER readiness remain NOT certified. Five unmatched positions
+still veto new entries AFTER formation, BEFORE artifact/risk admission. READ_ONLY
+remains independent execution prohibition. No holdings/ownership change.
+
+ONE next highest-priority demonstrated family repair recommendation: ABCD canonical
+trigger bridge. It has explicit detector anchors and an existing projection/model,
+so it is a bounded handoff task without inventing missing ORB/Three/Second target
+policy or conflating GAP_GO alias deduplication with full entry activation.
+Existing evidence/owners:
+- strategy_policy.py:122 ABCD Continuation = measured-move continuation after
+  pullback; :195 T_ABCD uses XL_ABCD_CONTINUATION entry. Existing scoped input
+  policy/session/freshness requirements remain the authority.
+- setup_engine/registry.py registers RF.ABCDPattern. Actual owner
+  setup_engine/setup_families/ross_families.py::ABCDPattern already exports
+  A/B/C prices+indices, trigger=max(high) of selected pullback window, structural
+  stop/invalidation=C, AB length/retracement, risk reference and D=C+AB projection;
+  original descriptive target is AB measured move from C. Do not reinterpret the
+  projection as an automatically approved numeric order target.
+- common/triggers/trigger_registry.py:41 maps ABCD to
+  trigger_abcd_continuation.py::evaluate_abcd_continuation_trigger, which checks
+  strict close>trigger and high>=trigger. Existing V1
+  _canonical_pattern_trigger_candidates omits ABCD; contextual SetupEngine does
+  not supply its canonical route. Existing audit row marks G.
+- PR1029 and Ross tests/test_abcd_setup_family.py establish detector/evaluator
+  controls; tests/test_pr1089_canonical_trace_family.py validates actual registry
+  trace/rejection-family provenance, NOT actual V1 trigger/raw-intent handoff.
+
+Bound proposed repair to existing V1 canonical bridge/TriggerEngine dispatch and
+carriage of REQUIRED original ABCD facts/metadata into its evaluator/selected
+contract. Preserve original swing windows/known-at-evaluation anchors/indices,
+strict confirmation, C stop/invalidation, D projection as evidence, occurrence
+binding, timestamps and timeframe provenance. No second detector, trigger engine,
+new target law, numeric take-profit assignment, management activation or changes
+to unrelated families. Start with guarded failing-before actual RF registry ->
+actual V1 controls; require eligible positive, armed/touch/invalidated,
+missing/stale/malformed, window/projection/identity and both-order duplicate
+isolation with exact selected contract through raw intent. Preserve shared
+completeness, risk-off/conflict/ranking/one-winner, catalyst/freshness/ownership and
+READ_ONLY gates. If a needed contract/policy value is ambiguous, report it and
+keep that boundary blocked rather than inventing it. No implementation/tests for
+ABCD in this integration task. ONE next action: review/authorize that bounded
+offline ABCD handoff repair.
+
+Other-family target/management gaps, GAP_GO duplicate invocation and natural
+positive formation remain separate. Corporate/SEC/listing provenance stays
+PARKED/fail closed. Preserve GUI draft, original checkout/roots/holdings, historical
+failures/UNKNOWNs/successful safety receipts and separate cache/callback uncertainty.
+No provider/broker calls, preflight, observation, holdings action or trading.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
