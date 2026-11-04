@@ -55,7 +55,7 @@ class GapGoPattern(PatternBase):
     direction_bias = Direction.LONG
 
     @staticmethod
-    def completed_candles(candles, *, clock, timeframe, require_clock):
+    def validated_candles(candles, *, clock, timeframe, require_clock, completed_only=True):
         rejection = abcd_candle_rejection(candles, observed_at_utc=clock, require_clock=require_clock)
         if rejection:
             return rejection, []
@@ -66,6 +66,8 @@ class GapGoPattern(PatternBase):
         interval = {"1m": 60, "m1": 60, "5m": 300, "m5": 300, "10s": 10}.get(str(timeframe).lower())
         if interval is None:
             return "UNKNOWN_CANDLE_INTERVAL", []
+        if not completed_only:
+            return None, list(candles)  # Approved intrabar execution; source structure stays completed.
         completed = [c for c in candles if
             (c.get("timestamp") if isinstance(c, dict) else c.timestamp)
             + timedelta(seconds=interval) <= clock]
@@ -74,7 +76,7 @@ class GapGoPattern(PatternBase):
     def evaluate(self, inputs: PatternInputs) -> PatternResult:
         clock = inputs.observed_at_utc
         original_count = len(inputs.candles)
-        rejection, completed = self.completed_candles(inputs.candles, clock=clock,
+        rejection, completed = self.validated_candles(inputs.candles, clock=clock,
             timeframe=inputs.timeframe, require_clock=bool(inputs.timeframe_provenance))
         if rejection:
             return self._rejected("GAP_GO_" + rejection, inputs)

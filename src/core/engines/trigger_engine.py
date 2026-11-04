@@ -248,11 +248,11 @@ class TriggerEngine:
             canonical = setup.get("source") == "canonical_pattern_result"
             if canonical:
                 stream = setup.get("execution_stream") or {}
-                rejection, completed = GapGoPattern.completed_candles(
+                rejection, execution_bars = GapGoPattern.validated_candles(
                     candles, clock=stream.get("observed_at_utc"),
-                    timeframe=stream.get("execution_trigger_timeframe"), require_clock=True)
-                if rejection or not completed:
-                    return False, "gap_go_" + str(rejection or "no_completed_candles").lower(), ["BLOCKED"], None
+                    timeframe=stream.get("execution_trigger_timeframe"), require_clock=True, completed_only=False)
+                if rejection or not execution_bars:
+                    return False, "gap_go_" + str(rejection or "missing_candles").lower(), ["BLOCKED"], None
                 if (trigger_type not in {"PMH_BREAK", "HOD_BREAK", "BREAK_AND_HOLD"}
                     or any(value is None or not isfinite(value) or value <= 0
                         for value in (trigger_price_reference, invalidation_price_reference, self._safe_float(setup.get("stop_level"))))):
@@ -275,9 +275,9 @@ class TriggerEngine:
                     return False, "gap_go_reference_kind_mismatch", ["BLOCKED"], None
                 if metadata.get("trigger_reference_level") != trigger_price_reference:
                     return False, "gap_go_reference_mismatch", ["BLOCKED"], None
-                last_close = self._safe_float(self._read(completed[-1], "close"))
-                last_high = self._safe_float(self._read(completed[-1], "high"))
-                prev_close = self._safe_float(self._read(completed[-2], "close")) if len(completed) > 1 else None
+                last_close = self._safe_float(self._read(execution_bars[-1], "close"))
+                last_high = self._safe_float(self._read(execution_bars[-1], "high"))
+                prev_close = self._safe_float(self._read(execution_bars[-2], "close")) if len(execution_bars) > 1 else None
             if trigger_price_reference is None:
                 flags.append("MISSING_TRIGGER_REFERENCE")
                 return False, "trigger_reference_missing", flags, None

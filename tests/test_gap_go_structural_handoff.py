@@ -206,14 +206,13 @@ def test_duplicate_occurrences_cannot_borrow_trigger_or_contract():
     assert V1._select_trigger_candidate(setup_family_id="GAP_GO",trigger_candidates=setups,selected_candidate_index=2) is None
 
 
-@pytest.mark.parametrize("change",["nan","partial_only","future","reference_mismatch","close_at_invalidation"])
+@pytest.mark.parametrize("change",["nan","future","reference_mismatch","close_at_invalidation"])
 def test_canonical_special_dispatch_fail_closed(change):
     data=source(); setup=bridge(synthetic_complete(GapGoPattern().evaluate(data)))[0]
     clock=data.observed_at_utc
     setup["execution_stream"]={"observed_at_utc":clock.isoformat(),"execution_trigger_timeframe":"10s","stream_provenance":"PRESENT"}
     candle=replace(data.candles[-1],timestamp=clock-timedelta(seconds=10))
     if change=="nan": candle=replace(candle,high=float("nan"))
-    if change=="partial_only": candle=replace(candle,timestamp=clock-timedelta(seconds=9))
     if change=="future": candle=replace(candle,timestamp=clock+timedelta(microseconds=1))
     if change=="reference_mismatch": setup["trigger_level"]=5.6
     if change=="close_at_invalidation": candle=replace(candle,open=5.1,low=5.0,close=5.1)
@@ -268,3 +267,15 @@ def test_old_source_clock_cannot_admit_a_new_execution_context():
     out=TriggerEngine().evaluate_triggers(symbol="GAPX",candles=bars,setups=[setup],levels={},structure={})[0]
     assert not out["trigger_ready_now"]
     assert out["trigger_reason"]=="gap_go_observation_context_mismatch"
+
+
+def test_existing_intrabar_execution_policy_remains_available():
+    """Synthetic stop only; a valid in-progress10s bar need not close to trigger."""
+    data=source()
+    setup=bridge(synthetic_complete(GapGoPattern().evaluate(data)))[0]
+    clock=data.observed_at_utc
+    setup["execution_stream"]={"observed_at_utc":clock.isoformat(),"execution_trigger_timeframe":"10s","stream_provenance":"PRESENT"}
+    candle=replace(data.candles[-1],timestamp=clock-timedelta(seconds=1))
+    out=TriggerEngine().evaluate_triggers(symbol="GAPX",candles=[candle],setups=[setup],levels={},structure={})[0]
+    assert out["trigger_ready_now"]
+    assert out["trigger_reason"]=="gap_go_pmh_break"
