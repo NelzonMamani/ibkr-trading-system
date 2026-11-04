@@ -183,3 +183,63 @@ def test_raw_evidence_snapshot_does_not_alias_mutable_source_metadata(monkeypatc
     results[0].setup_metadata["source_candle_timestamps"].append("later mutation")
     seen[0][0]["execution_stream"]["timeframe_provenance"]["1m"]="later mutation"
     assert intents[0].setup_metadata==before
+
+
+def test_incomplete_primary_cannot_confirm_a_new_c_swing(monkeypatch,tmp_path):
+    # C is now the penultimate bar. Its right-hand witness is the latest 1m
+    # candle, starting 30s before the fixture clock: it has not completed.
+    rows=list(ROWS)
+    rows[5]=(10.6,10.7,10.5,10.55,950)
+    rows[6]=(10.5,10.95,10.35,10.9,1300)
+    monkeypatch.setitem(globals(),"ROWS",rows)
+    _,intents,results,seen,_=run(monkeypatch,tmp_path)
+    assert intents==[]
+    assert results and not results[0].detected
+    assert results[0].rejection_reason=="NO_COMPLETED_SWING_SEQUENCE"
+    assert seen==[]
+
+
+@pytest.mark.parametrize("microseconds,eligible",[(-1,False),(0,True)])
+def test_swing_witness_completion_boundary(microseconds,eligible):
+    from src.strategies.ross_momentum.patterns.pattern_inputs import build_authoritative_pattern_inputs
+    rows=list(ROWS); rows[5]=(10.6,10.7,10.5,10.55,950); rows[6]=(10.5,10.95,10.35,10.9,1300)
+    candles=_candles(rows)
+    observed=candles[-1].timestamp+timedelta(minutes=1,microseconds=microseconds)
+    inputs=build_authoritative_pattern_inputs(symbol="UPC",session_label="RTH_OPEN",
+        timeframe_candles={"1m":candles},now=observed)
+    output=ABCDPattern().evaluate(inputs)
+    assert output.detected is eligible
+    if eligible:
+        assert (output.anchor_a_index,output.anchor_b_index,output.anchor_c_index)==(1,3,6)
+        assert output.trigger_level==11. and output.stop_level==output.invalidation_level==10.35
+        assert output.d_projection==pytest.approx(11.45)
+    else:
+        assert output.rejection_reason=="NO_COMPLETED_SWING_SEQUENCE"
+
+
+def test_input_mutation_cannot_rewrite_serialized_raw_intent(monkeypatch,tmp_path):
+    from copy import deepcopy
+    from dataclasses import asdict
+    _,intents,results,_,source=run(monkeypatch,tmp_path)
+    assert len(intents)==1
+    before=deepcopy(asdict(intents[0]))
+    source[0].candles[-1]=replace(source[0].candles[-1],high=99.)
+    source[0].timeframe_provenance["1m"]="changed after formation"
+    results[0].setup_metadata["structure_completed_candle_count"]=-1
+    assert asdict(intents[0])==before
+
+
+def test_bounded_lookback_indices_and_original_times_stay_aligned():
+    from src.strategies.ross_momentum.patterns.pattern_inputs import build_authoritative_pattern_inputs
+    candles=_candles([(10.2,10.3,10.1,10.2,1000)]*70+ROWS)
+    inputs=build_authoritative_pattern_inputs(symbol="UPC",session_label="RTH_OPEN",
+        timeframe_candles={"1m":candles},now=candles[-1].timestamp+timedelta(seconds=30))
+    output=ABCDPattern().evaluate(inputs)
+    assert output.detected
+    assert (output.anchor_a_index,output.anchor_b_index,output.anchor_c_index)==(53,55,57)
+    assert output.setup_metadata["lookback_start_index"]==18
+    assert output.setup_metadata["structure_completed_candle_count"]==59
+    times=output.setup_metadata["source_candle_timestamps"]
+    assert len(times)==60 and times[output.anchor_c_index]==candles[75].timestamp.isoformat()
+    assert output.trigger_level==11. and output.stop_level==10.35
+    assert output.d_projection==pytest.approx(11.45)

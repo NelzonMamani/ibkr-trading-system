@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import timedelta
 from math import isfinite
 from numbers import Real
 from statistics import mean
@@ -431,10 +432,21 @@ class ABCDPattern(PatternBase):
             self._reject(symbol, rejection)
             return self._rejected(rejection, inputs)
 
-        swing_triplet = self._find_latest_swing_triplet(candles)
+        completed_count = len(candles)
+        if inputs.observed_at_utc is not None:
+            seconds = {"10s": 10, "1m": 60, "5m": 300}.get(inputs.primary_timeframe)
+            if seconds is None:
+                return self._rejected("STRUCTURE_TIMEFRAME_UNAVAILABLE", inputs)
+            # Source timestamps are bar starts. A swing's right-hand witness
+            # must complete before it can establish structural authority.
+            completed_count = next((index for index, candle in enumerate(candles)
+                                    if candle.timestamp + timedelta(seconds=seconds) > inputs.observed_at_utc),
+                                   len(candles))
+        swing_triplet = self._find_latest_swing_triplet(candles[:completed_count])
         if swing_triplet is None:
-            self._reject(symbol, "NO_SWING_SEQUENCE")
-            return self._rejected("NO_SWING_SEQUENCE", inputs)
+            reason = "NO_COMPLETED_SWING_SEQUENCE" if completed_count < len(candles) else "NO_SWING_SEQUENCE"
+            self._reject(symbol, reason)
+            return self._rejected(reason, inputs)
         a_idx, b_idx, c_idx = swing_triplet
         if not (a_idx < b_idx < c_idx):
             self._reject(symbol, "INVALID_ORDERING", a_idx=a_idx, b_idx=b_idx, c_idx=c_idx)
@@ -550,6 +562,7 @@ class ABCDPattern(PatternBase):
                 "swing_window": self.SWING_WINDOW,
                 "max_lookback_bars": self.MAX_LOOKBACK_BARS,
                 "lookback_start_index": max(0, len(inputs.candles) - self.MAX_LOOKBACK_BARS),
+                "structure_completed_candle_count": completed_count,
                 "structure_timeframe": inputs.primary_timeframe,
                 "timeframe_provenance": dict(inputs.timeframe_provenance),
                 "observed_at_utc": inputs.observed_at_utc.isoformat() if inputs.observed_at_utc else None,

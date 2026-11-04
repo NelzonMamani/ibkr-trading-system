@@ -156,7 +156,7 @@ neither is natural evidence. No natural positive formation is established for AN
 | HOD_BREAK / PB.HODBreakPattern -> CP.detect_hod_break | >=6, RTH-sourced HOD/compression, volume, spread; scoped HOD requirement | X; TR HOD trigger; explicit structural stop/invalidation; NO target model | `test_hod_break_pattern` +/-; `test_setup_family_pipeline_certification` manually builds intent, NOT actual V1 target admission. Target remains missing |
 | OPENING_DRIVE / PB.OpeningDrivePattern -> CP.detect_opening_drive | >=5, RTH opening phase/impulse/volume/limited pullback | G; dedicated TR evaluator but actual contextual producer has no OPENING_DRIVE and C omits it; explicit trigger/stop; NO target model | `test_opening_drive_pattern` and PR1029 +/- D; no complete actual V1 raw-intent proof |
 | KEY_LEVEL_BREAK / RF.KeyLevelBreakPattern P_KEY_LEVEL_BREAK | >=2, specific prior-known key level, continuation/liquidity acceptance | C after local bridge repair below; existing registered TR evaluator; explicit selected level and structural stop/invalidation; next-overhead-key descriptive model | `test_key_level_break_pattern` detection/trigger controls and `test_key_level_break_production_handoff` actual unmodified registry/V1 raw-intent proof on synthetic fresh streams; natural progression and numeric target/management certification remain unproven |
-| ABCD / RF.ABCDPattern P_ABCD | >=7, bounded swing sequence A/B/C and retracement; scoped MACD DEGRADE | C after local bridge below; existing registered evaluator, own pullback-high trigger/C stop/invalidation and D projection as facts; no automatic numeric take-profit | `test_abcd_production_handoff` actual registry/V1 raw intent on synthetic fresh streams; malformed/future/window/duplicate controls. Numeric management and natural progression NOT certified |
+| ABCD / RF.ABCDPattern P_ABCD | >=7 observed bars, confirmed swing sequence A/B/C from completed primary prefix, bounded60/retracement; scoped MACD DEGRADE | C after local bridge/review below; own trigger/C stop/invalidation and D facts; right-hand swing witness must have completed; no automatic numeric take-profit | `test_abcd_production_handoff` actual registry/V1 raw intent on synthetic streams, completion/window/malformed/future/duplicate/snapshot controls. Numeric management/intrabar/natural progression NOT certified |
 | CUP_HANDLE / RF.CupHandlePattern -> CP.detect_cup_handle | >=14, rounded cup/rim, tight handle, contraction/volume/continuation | G; dedicated TR evaluator but no contextual producer/C; explicit handle-low stop; NO target model | `test_cup_handle_pattern` +/- D; missing production bridge and target |
 | EMA_PULLBACK / PB.EmaPullbackPattern -> CP.detect_ema_pullback | >=6, impulse, EMA9/20-zone/reclaim, contraction/RVOL/spread; optional VWAP | G; TR evaluator exists, no EMA contextual producer/C; explicit structural stop/invalidation; NO target | `test_ema_pullback_pattern`, `test_ema_pullback_trigger`, `test_ema_pullback_pipeline_certification` are D/engine-layer proofs, not actual V1 target admission |
 | VWAP_PULLBACK / PB.VwapPullbackPattern -> CP.detect_vwap_pullback | >=6, VWAP support/test/reclaim, contraction, trend/liquidity | G for SAME canonical VWAP_PULLBACK identity; contextual VWAP_RECLAIM_CONTINUATION is a distinct normalized route. Explicit stop/invalidation; NO target | VWAP pattern/trigger/pipeline tests D/engine-layer; do not claim equivalent canonical route or raw intent |
@@ -735,3 +735,32 @@ future-dated observations reject. No numeric management/intrabar/natural
 certification or target policy invented. Five-position veto/READ_ONLY intact;
 corporate/SEC/listing parked. Next: exact local review. No push/merge/acquisition/
 broker/observation. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## ABCD review: completed swing witness and retained evidence — 4 November 2026
+
+Review verified exacta039a25a/treeac8ab2a0 and prior27/160/PR1029 receipts.
+The shallow-retrace fixture open correction preserves every swing/retrace input
+and its original negative assertion. No weakening or synthetic target completion.
+
+Found one blocker: the latest still-forming primary bar could be C's right-hand
+swing witness. Actual V1 control emitted raw intent before witness completion
+(1failed0.55s). RF now searches existing swing algorithm only over bars whose
+original start+primary interval<=original observation clock, so witness must also
+be complete. Entire malformed/future source still rejects before this boundary;
+source dates and bounded-window indices not substituted. Unknown interval/no
+completed sequence fail closed. Metadata records completed count; no trigger,
+retracement, D, target policy or other-family rule changed.
+
+After correction:31updated controls passed0.75s;22existing ABCD controls passed
+0.33s. Additional1lookback case passed0.47s (31deselected), verifying60-bar bound,
+offset18/local indices53/55/57 and exact original timestamp. New module32distinct
+cases across receipts, not one32-pass run or CI/Windows proof. Input/result/receipt
+mutation cannot rewrite serialized raw intent. SAME checkpoint has full findings
+and retained failing-before/snapshot receipts. Prior Core/neighbor safety evidence
+carried forward; no redundant unaffected suites.
+
+Corrected candidate suitable for authorized draft publication/independent review/
+CI. D remains a projection fact, not executable target. Numeric management,
+intrabar ordering and natural progression uncertified. Five-position veto and
+READ_ONLY remain; corporate/SEC/listing parked. No provider/broker/observation/
+push/merge. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.

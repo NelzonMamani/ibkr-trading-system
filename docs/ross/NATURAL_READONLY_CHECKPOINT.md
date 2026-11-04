@@ -13377,3 +13377,81 @@ successful safety evidence/cache/callback uncertainties preserved. Corporate/SEC
 listing remains PARKED/fail closed. ONE next action: review exact local ABCD
 candidate before publication/CI. No push or merge. PAPER_READY=NO;
 PAPER_READINESS_GATE=FAIL.
+
+## ABCD exact-candidate completion/serialization review — 4 November 2026
+
+Verified clean a039a25ab9141bab44f424b3c8274d90b902295c, tree
+ac8ab2a0676f0c1ea86240a3a6820369aee5d94b, against accepted base2a31eb07/tree9a5b15b8.
+Read ledger/applicable instructions and inspected complete production diff and
+existing specification (ABCD measured-move continuation/XL_ABCD_CONTINUATION),
+registered evaluator and actual V1 route. Original27-new/160-existing+PR1029
+receipts, failing-before18/2, bridge-only12/8 and metadata snapshot failing-before
+1case0.52s preserved. No CI/Windows or independent-human approval claimed.
+
+Original malformed shallow-retrace fixture correction is justified: only open10.8
+changed to10.85 to sit above low10.84. High/low/close/volume and hence swing indices,
+AB/C/retracement and original RETRACEMENT_TOO_SHALLOW assertion remain identical.
+It restores intended negative coverage; does not weaken a gate or invent a target.
+
+BLOCKER REPRODUCED: last primary candle could serve as C's right-hand SWING_WINDOW=1
+witness while still forming. Existing index<last and high-perturbation tests did
+not establish completion of that witness. New guarded actual-RF/registry/V1 case
+sets C on penultimate bar and its witness at latest1m timestamp14:35:00 with
+existing observation clock14:35:30. Candidate emitted one raw intent. Expected
+no eligible completed structure;1failed/27deselected0.55s in
+/workspace/scratch/abcd-review-completion-before.log. This is an offline source
+contract defect, not evidence of a natural bad trade or any historical cause.
+
+Minimal review correction ONLY in existing RF.ABCDPattern: after full original
+numeric/time validity checks, derive the completed prefix using original bar-start
+timestamps + actual primary interval (existing10s/1m/5m) <= original observation
+clock. Search existing swing algorithm over that prefix so the swing's RIGHT-HAND
+witness, not just C itself, is complete. Unknown interval fails closed. When no
+completed sequence exists, NO_COMPLETED_SWING_SEQUENCE. No altered swing extrema,
+30-70% retrace, volume threshold, trigger, C stop/invalidation, D formula, source
+clock, freshness max, or target/management policy. Original lookback indices stay
+relative to same bounded source window (tail only excluded); metadata records
+structure_completed_candle_count. Entire source timestamps remain retained as
+input evidence, not measured into anchors. Legacy untimed direct unit calls keep
+their historical behavior and confer no operational freshness authority; runtime
+still requires builder's original observation clock. The earlier claim that an
+observed right-hand neighbor sufficed was incomplete; this section supersedes
+that completion claim while preserving its historical receipts.
+
+Validation after source correction: updated new module31passed0.75s in
+abcd-review-completion-after.log, including original27 plus unfinished-witness
+actual V1 rejection, just-before-completion vs exact-completion acceptance
+boundaries, and direct input/result mutation after formation with full serialized
+intent unchanged. Existing ABCD setup/registry integration and canonical trace
+modules22passed0.33s in abcd-review-existing.log. Added bounded-lookback alignment
+control1passed/31deselected0.47s in abcd-review-lookback.log:78source bars produce
+60 retained times, lookback offset18, A/B/C local53/55/57,59completed bars, exact
+C source timestamp and unchanged D. New module now32distinct cases; no claim of a
+single32-pass run, or summed new/existing receipts as one CI suite. These reruns
+were proportionate to actual RF source change; unaffected neighboring-family and
+actual Core ownership/READ_ONLY/PAPER/LIVE evidence carried forward, not rerun for status.
+
+Review confirms measured anchor/trigger/C stop/invalidation/D and source metadata
+remain exact-occurrence-bound through V1 selection and real registered dispatch.
+Raw setup_metadata is a deep snapshot and serialized as declared dataclass field;
+later source candle-list, provenance, result metadata or evaluator receipt changes
+cannot rewrite retained evidence. No downstream risk/execution owner reads its D
+as an order target. target_model remains original descriptive text and numeric
+take_profit_priceNone; original missing-contract/malformed/nonfinite/future/stale
+and both-order duplicate controls still pass. Strict execution close>trigger and
+existing close<=C invalidation unchanged. No intrabar high/low ordering or full
+management certification follows from completed structural bars.
+
+Five-position global veto AFTER raw formation BEFORE artifact/risk admission and
+READ_ONLY execution prohibition unchanged. No selection/ranking/suppression/
+conflict/one-winner or other-family production change; only ABCD structural
+completion gate/metadata changed during review. No new target policy or module.
+Numeric management, intrabar ordering, positive risk admission and natural
+progression remain uncertified. Original safety/failed/UNKNOWN receipts, saved
+branches, GUI draft and parked corporate/SEC/listing provenance preserved.
+
+Publication advice: initial candidate had this completion blocker; corrected
+source reviewed with no remaining scoped publication blocker. Next action is
+separately authorized draft publication and independent exact-head review/
+changed-head required CI. No provider/broker calls, observation, push or merge.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
