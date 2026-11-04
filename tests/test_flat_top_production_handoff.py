@@ -416,3 +416,15 @@ def test_all_forming_source_is_unavailable_not_a_completed_breakout(monkeypatch,
     forming = replace(inputs[0].candles[-1], timestamp=datetime(2026, 9, 16, 14, 35, tzinfo=timezone.utc))
     result = FlatTopBreakoutPattern().evaluate(replace(inputs[0], candles=[forming]))
     assert not result.detected and result.rejection_reason == "insufficient_candles"
+
+
+def test_existing_certification_flat_top_fixture_uses_real_completed_timeframes():
+    from src.adapters.data.historical_bar_timeframes import resolve_intraday_timeframe_request
+    from src.strategies.ross_momentum.certification.e2e_harness import _build_inputs, build_pr6_positive_cases
+    case = next(case for case in build_pr6_positive_cases() if case.name == "positive_flat_top_volume_expansion")
+    inputs = _build_inputs(case)
+    for timeframe, candles in inputs.timeframe_candles.items():
+        interval = timedelta(seconds=resolve_intraday_timeframe_request(
+            timeframe=timeframe, requested_bars=len(candles)).bar_seconds)
+        assert all(b.timestamp-a.timestamp == interval for a,b in zip(candles, candles[1:]))
+        assert candles[-1].timestamp+interval == inputs.observed_at_utc
