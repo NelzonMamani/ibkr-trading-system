@@ -58,6 +58,10 @@ def actual_run(monkeypatch, tmp_path, *, state="ready", duplicate=False):
         rows[-1] = (10.18, 10.30, 10.14, 10.27, 600)
     if state == "nonflat":
         rows[-3] = (10.16, 10.40, 10.08, 10.17, 1020)
+    if state in {"zero_volume", "first_positive_volume"}:
+        rows[-5:] = [(o, h, l, c, 0) for o, h, l, c, _ in rows[-5:]]
+        if state == "first_positive_volume":
+            rows[-1] = (*rows[-1][:4], 1600)
     if state == "waiting":
         execution[-1] = (10.15, 10.19, 10.14, 10.18, 1600)
     if state == "execution_touch":
@@ -92,6 +96,11 @@ def actual_run(monkeypatch, tmp_path, *, state="ready", duplicate=False):
                                 timestamp=datetime(2026, 9, 16, 14, 35, tzinfo=timezone.utc)))
     if state == "confirm_extremes":
         data["1m"][-1] = replace(data["1m"][-1], high=99., low=1.)
+    if state == "broker_date_strings":
+        broker_zone = timezone(timedelta(hours=-4))
+        data = {tf: [replace(c, timestamp=c.timestamp.astimezone(broker_zone).strftime(
+            "%Y%m%d %H:%M:%S") + " US/Eastern") for c in candles]
+            for tf, candles in data.items()}
     monkeypatch.setattr("src.strategies.ross_momentum.patterns.pattern_trace.get_intraday_bars",
                         lambda *, timeframe="1m", limit=50, **kw: list(data[timeframe])[-limit:])
     registry = RossPatternRegistry()
@@ -114,6 +123,8 @@ def actual_run(monkeypatch, tmp_path, *, state="ready", duplicate=False):
         return output
     monkeypatch.setitem(TRIGGER_EVALUATOR_REGISTRY, "FLAT_TOP_BREAKOUT", observed)
     row = {**_watchlist_row(), "last_price": 10.27, "bid": 10.26, "ask": 10.28}
+    if state == "negative_spread":
+        row["spread"] = -0.01
     snapshot = replace(_snapshot(), last=10.27, bid=10.26, ask=10.28)
     intents = strategy.process_watchlist(
         watchlist=[row], snapshots={"UPC": snapshot}, session_label="RTH_OPEN",
@@ -305,3 +316,72 @@ def test_actual_raw_formation_does_not_bypass_five_position_manager_veto(monkeyp
     assert "[PIPELINE][RISK_INPUT] intents_count=0" in output
     assert intents[0].decision_id is None
     assert "ORDER_SUBMITTED" not in output
+
+
+@pytest.mark.parametrize("state", ["negative_spread", "zero_volume"])
+def test_invalid_liquidity_and_unconfirmed_volume_cannot_form_intents(monkeypatch, tmp_path, state):
+    _, intents, results, _, _ = actual_run(monkeypatch, tmp_path, state=state)
+    assert intents == []
+    assert results and not results[0].detected
+    assert results[0].rejection_reason == (
+        "invalid_liquidity_spread" if state == "negative_spread" else "breakout_volume_below_average")
+
+
+def test_first_positive_breakout_volume_above_zero_prior_average_remains_valid(monkeypatch, tmp_path):
+    _, intents, results, _, _ = actual_run(monkeypatch, tmp_path, state="first_positive_volume")
+    assert results[0].detected and len(intents) == 1
+
+
+def test_broker_bar_start_strings_preserve_clock_and_complete_source_window(monkeypatch, tmp_path):
+    _, intents, results, _, inputs = actual_run(monkeypatch, tmp_path, state="broker_date_strings")
+    assert len(intents) == 1 and results[0].detected
+    assert inputs[0].candles[-1].timestamp == datetime(2026, 9, 16, 14, 34, tzinfo=timezone.utc)
+    assert inputs[0].observed_at_utc == datetime(2026, 9, 16, 14, 35, 30, tzinfo=timezone.utc)
+    assert intents[0].entry_price == 10.2 and intents[0].invalidation_level == 9.99
+
+
+@pytest.mark.parametrize("timeframe", ["10s", "1m", "5m"])
+@pytest.mark.parametrize("after_completion", [False, True])
+def test_source_completion_uses_existing_request_duration(monkeypatch, tmp_path, timeframe, after_completion):
+    """Component boundary only; this does not activate another runtime timeframe."""
+    from src.adapters.data.historical_bar_timeframes import resolve_intraday_timeframe_request
+    from src.setup_engine.setup_families.pullbacks import FlatTopBreakoutPattern
+    _, _, _, _, inputs = actual_run(monkeypatch, tmp_path)
+    source = inputs[0]
+    seconds = resolve_intraday_timeframe_request(timeframe=timeframe, requested_bars=50).bar_seconds
+    end = source.observed_at_utc-timedelta(seconds=seconds)
+    if after_completion:
+        end += timedelta(microseconds=1)  # Candle end is still one microsecond ahead.
+    zone = timezone(timedelta(hours=-4))
+    candles = [replace(c, timestamp=(end-timedelta(seconds=seconds*(len(source.candles)-i-1))).astimezone(zone))
+               for i, c in enumerate(source.candles)]
+    result = FlatTopBreakoutPattern().evaluate(replace(source, candles=candles,
+        primary_timeframe=timeframe, timeframe=timeframe))
+    assert result.detected is not after_completion
+    if result.detected:
+        assert result.trigger_level == 10.2 and result.stop_level == 9.99
+
+
+@pytest.mark.parametrize("family", [None, "CONSOLIDATION_BREAKOUT"])
+def test_flat_top_guard_does_not_change_consolidation_component_compatibility(family):
+    from src.strategies.common.triggers.trigger_flat_top_breakout import evaluate_consolidation_breakout_trigger
+    # Existing component API: execution metadata alone does not assert a clock.
+    # This is not active-V1/freshness certification for Consolidation.
+    payload = {"trigger_level": 10.2, "invalidation_level": 9.99,
+               "execution_stream": {"execution_trigger_timeframe": "10s"}}
+    if family is not None:
+        payload["setup_family_id"] = family
+    candles = [{"open": o, "high": h, "low": l, "close": c, "volume": v} for o,h,l,c,v in TAIL]
+    outcome = evaluate_consolidation_breakout_trigger(payload, {"candles": candles})
+    assert outcome["trigger_ready_now"]
+    assert outcome["trigger_reason"] == "consolidation_breakout_confirmed"
+
+
+def test_canonical_flat_top_stream_still_requires_its_original_clock():
+    from src.strategies.common.triggers.trigger_flat_top_breakout import evaluate_flat_top_breakout_trigger
+    payload = {"setup_family_id": "FLAT_TOP_BREAKOUT", "trigger_level": 10.2,
+               "invalidation_level": 9.99, "execution_stream": {"execution_trigger_timeframe": "10s"}}
+    candles = [{"open": o, "high": h, "low": l, "close": c, "volume": v} for o,h,l,c,v in TAIL]
+    outcome = evaluate_flat_top_breakout_trigger(payload, {"candles": candles})
+    assert not outcome["trigger_ready_now"]
+    assert outcome["trigger_reason"] == "flat_top_invalid_candle_timestamps"

@@ -27,9 +27,10 @@ def evaluate_flat_top_breakout_trigger(pattern_result, inputs):
 
     payload = pattern_result if isinstance(pattern_result, dict) else {}
     stream = payload.get("execution_stream")
-    # The range-break wrapper reuses the price comparison below; do not change
-    # that family's policy. Actual Flat Top V1 dispatch supplies stream authority.
-    if payload.get("setup_family_id") != "CONSOLIDATION_BREAKOUT" and isinstance(stream, dict):
+    # This price comparison is also used by the range-break component API,
+    # including legacy calls without a family ID. Only canonical Flat Top V1
+    # dispatch grants this new stream-validation responsibility.
+    if payload.get("setup_family_id") == "FLAT_TOP_BREAKOUT" and isinstance(stream, dict):
         rejection = abcd_candle_rejection(candles,
             observed_at_utc=stream.get("observed_at_utc"), require_clock=True)
         if rejection:

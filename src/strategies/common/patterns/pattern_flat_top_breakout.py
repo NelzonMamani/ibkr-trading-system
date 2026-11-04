@@ -55,6 +55,8 @@ def detect_flat_top_breakout(inputs: PatternInputs) -> PatternResult:
         return reject("insufficient_candles")
 
     spread = _safe_float(inputs.liquidity_context.spread)
+    if spread is not None and spread < 0:
+        return reject("invalid_liquidity_spread")
     if spread is None or spread > 0.05:
         return reject("liquidity_spread_too_wide")
     rvol = _safe_float(inputs.liquidity_context.rvol)
@@ -93,7 +95,7 @@ def detect_flat_top_breakout(inputs: PatternInputs) -> PatternResult:
         return reject("breakout_not_confirmed")
     avg_pre_breakout_volume = sum(float(getattr(c, "volume", 0.0) or 0.0) for c in pre_breakout) / max(len(pre_breakout), 1)
     breakout_volume = float(getattr(breakout, "volume", 0.0) or 0.0)
-    if avg_pre_breakout_volume > 0 and breakout_volume <= avg_pre_breakout_volume:
+    if breakout_volume <= avg_pre_breakout_volume:
         return reject("breakout_volume_below_average")
 
     invalidation = min(float(v) for v in pre_lows if v is not None)
