@@ -150,3 +150,64 @@ def test_neighbor_contract_trace_and_trigger_keep_exact_occurrence():
         symbol=data.symbol, candles=data.candles, setups=[selected], levels={}, structure={})
     assert evaluated[0]["trigger_ready_now"] is True
     assert evaluated[0]["setup_family_id"] == "CONSOLIDATION_BREAKOUT"
+
+
+def test_timeframe_contexts_are_not_coalesced(monkeypatch):
+    patterns = owner.build_tradeable_patterns(NAMES)
+    calls = []
+    original = GapGoPattern.evaluate
+    def count(self, data):
+        calls.append(data.timeframe)
+        return original(self, data)
+    monkeypatch.setattr(GapGoPattern, "evaluate", count)
+    data = inputs()
+    for timeframe in ("1m", "5m", "10s", "1m"):
+        run(patterns, replace(data, timeframe=timeframe))
+    assert calls == ["1m", "5m", "10s", "1m"]
+
+
+@pytest.mark.parametrize("outcome", ["error", "rejected"])
+@pytest.mark.parametrize("neighbor_first", [True, False])
+def test_neighbor_failure_does_not_shift_selected_occurrence(monkeypatch, outcome, neighbor_first):
+    from src.core.engines.trigger_engine import TriggerEngine
+    from src.setup_engine.setup_families.breakouts import ConsolidationBreakoutPattern
+    from src.setup_engine.setup_families.ross_families import KeyLevelBreakPattern
+    from src.strategies.ross_momentum_strategy_v1 import RossMomentumStrategyV1 as V1
+    from test_ross_selected_setup_handoff import consolidation_inputs
+    data = consolidation_inputs()
+    neighbor = KeyLevelBreakPattern()
+    def fail(data):
+        if outcome == "error":
+            raise ValueError("synthetic neighboring failure")
+        return neighbor._rejected("synthetic_neighbor_rejection", data)
+    monkeypatch.setattr(neighbor, "evaluate", fail)
+    patterns = owner.build_tradeable_patterns(NAMES) + [ConsolidationBreakoutPattern()]
+    patterns.insert(0 if neighbor_first else len(patterns), neighbor)
+    results, traces = run(patterns, data)
+    assert len(traces) == 3
+    assert len(results) == (2 if outcome == "error" else 3)
+    neighbor_trace = next(t for t in traces if t.pattern_id == neighbor.pattern_id)
+    assert neighbor_trace.final_outcome == ("ERROR" if outcome == "error" else "REJECTED")
+    index = next(i for i, r in enumerate(results) if r.setup_id == "P_CONSOLIDATION_BREAK")
+    contract = V1._resolve_selected_contract(decision={
+        "selected_pattern_id": "P_CONSOLIDATION_BREAK", "selected_candidate_index": index},
+        pattern_results=results)
+    trace = V1._resolve_selected_pattern_trace(
+        selected_pattern_id="P_CONSOLIDATION_BREAK", selected_candidate_index=index,
+        pattern_results=results, pattern_traces=traces)
+    assert contract is results[index]
+    assert contract.detected
+    assert trace is next(t for t in traces if t.pattern_id == contract.setup_id)
+    bridge = V1._canonical_pattern_trigger_candidates(
+        V1.__new__(V1), results, symbol=data.symbol, existing_triggers=[])
+    selected = V1._select_trigger_candidate(setup_family_id="CONSOLIDATION_BREAKOUT",
+        trigger_candidates=bridge, selected_candidate_index=index)
+    assert selected["canonical_result_index"] == index
+    assert selected["trigger_level"] == contract.trigger_level
+    assert selected["stop_level"] == contract.stop_level
+    assert selected["setup_metadata"] == contract.setup_metadata
+    assert TriggerEngine().evaluate_triggers(symbol=data.symbol, candles=data.candles,
+        setups=[selected], levels={}, structure={})[0]["trigger_ready_now"]
+    gap_result = next(r for r in results if r.setup_id == "P_GAP_GO")
+    gap_trace = next(t for t in traces if t.pattern_id == "P_GAP_GO")
+    assert gap_result.setup_metadata["requested_setup_ids"] == gap_trace.requested_setup_ids == sorted(NAMES)
