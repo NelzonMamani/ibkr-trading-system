@@ -9,6 +9,7 @@ from __future__ import annotations
 from src.domain.quote_freshness import evidence_rejection, quote_evidence, selection_quote_evidence
 
 import json
+from math import isfinite
 from copy import deepcopy
 from datetime import timezone
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
@@ -44,6 +45,8 @@ from src.strategies.ross_momentum.patterns.pattern_trace import (
     build_runtime_pattern_inputs,
     infer_symbol_source,
 )
+_UNSET_INVALIDATION = object()
+
 TERMINAL_CATEGORY = {
     "DATA_BLOCKED": "DATA_BLOCKED",
     "SETUP_NOT_FOUND": "SETUP_NOT_FOUND",
@@ -2638,6 +2641,16 @@ class RossMomentumStrategyV1(BaseStrategy):
                 if rejection_reasons is not None:
                     rejection_reasons.append(reason)
                 return None
+        if selected_contract is not None:
+            expected_raw = getattr(selected_contract, "invalidation_level", None)
+            selected_raw = trigger_payload.get("invalidation_price_reference")
+            values = [RossMomentumStrategyV1._safe_float(value) for value in (expected_raw, selected_raw)]
+            if (any(isinstance(value, bool) for value in (expected_raw, selected_raw))
+                    or any(value is None or not isfinite(value) or value <= 0 for value in values)
+                    or values[0] != values[1]):
+                if rejection_reasons is not None:
+                    rejection_reasons.append("selected_invalidation_authority_mismatch")
+                return None
         entry = trigger_payload.get("trigger_price_reference")
         if entry is None:
             entry = trigger_payload.get("trigger_level")
@@ -2783,16 +2796,22 @@ class RossMomentumStrategyV1(BaseStrategy):
         trigger_id: str = "UNKNOWN",
         entry: float,
         stop: float,
-        invalidation_level: float | None = None,
+        invalidation_level=_UNSET_INVALIDATION,
         execution_refinement_mode: str = "NONE",
         target_model: str | None = None,
         setup_rationale: str | None = None,
     ) -> TradeIntent | None:
         if not str(target_model or "").strip() or not str(setup_rationale or "").strip():
             return None
-        # Legacy component callers may omit acceptance authority. Active V1
-        # carries the selected trigger's value independently of its risk stop.
-        resolved_invalidation = stop if invalidation_level is None else invalidation_level
+        # Only an omitted legacy component argument defaults to the risk stop.
+        # Explicit missing/invalid authority from the active path never does.
+        if invalidation_level is _UNSET_INVALIDATION:
+            resolved_invalidation = stop
+        else:
+            resolved_invalidation = self._safe_float(invalidation_level)
+            if (isinstance(invalidation_level, bool) or resolved_invalidation is None
+                    or not isfinite(resolved_invalidation) or resolved_invalidation <= 0):
+                return None
         if str(setup_family or "").upper() == "GAP_GO" and trigger_ready:
             intent = TradeIntent(
                 symbol=symbol,

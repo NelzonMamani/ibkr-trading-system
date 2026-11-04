@@ -161,3 +161,37 @@ def test_nonfinite_market_authority_cannot_reach_intent(monkeypatch,tmp_path,sta
 def test_future_market_authority_remains_blocked(monkeypatch,tmp_path,state):
     _,intents,_,_=actual_run(monkeypatch,tmp_path,state=state)
     assert intents==[]
+
+
+@pytest.mark.parametrize("bad",[None,float("nan"),float("inf"),"malformed"])
+def test_common_builder_never_substitutes_explicit_invalid_authority(bad):
+    from types import SimpleNamespace
+    from src.strategies.ross_momentum_strategy_v1 import RossMomentumStrategyV1 as V1
+    strategy=V1.__new__(V1); strategy.name="RossMomentumStrategyV1"; strategy.trader_type="SCALPER"
+    assert strategy._build_trade_intent(symbol="PMH",best_pattern=SimpleNamespace(pattern_id="P_PREMARKET_HIGH_BREAK",confidence=.8),
+        setup_family="PREMARKET_HIGH_BREAK",trigger_ready=True,entry=10.3,stop=10.2897,
+        invalidation_level=bad,target_model="HOD / next resistance",setup_rationale="Synthetic authority rejection") is None
+
+
+@pytest.mark.parametrize("bad",[None,float("nan"),99.])
+def test_common_handoff_rejects_missing_or_replaced_key_level_invalidation(bad):
+    from types import SimpleNamespace
+    from src.strategies.ross_momentum_strategy_v1 import RossMomentumStrategyV1 as V1
+    from test_key_level_break_production_handoff import _result
+    result=_result()
+    trigger={"canonical_result_index":0,"trigger_price_reference":result.trigger_level,
+        "stop_price_reference":result.stop_level,"invalidation_price_reference":bad}
+    assert V1._build_trade_from_pattern(SimpleNamespace(pattern_id=result.setup_id),None,
+        selected_trigger=trigger,selected_contract=result,rejection_reasons=[]) is None
+
+
+@pytest.mark.parametrize("explicit",[False,True])
+def test_common_builder_retains_equal_stop_invalidation_and_legacy_omission(explicit):
+    from types import SimpleNamespace
+    from src.strategies.ross_momentum_strategy_v1 import RossMomentumStrategyV1 as V1
+    strategy=V1.__new__(V1); strategy.name="RossMomentumStrategyV1"; strategy.trader_type="SCALPER"
+    kwargs={"invalidation_level":10.05} if explicit else {}
+    intent=strategy._build_trade_intent(symbol="MICRO",best_pattern=SimpleNamespace(pattern_id="P_MICRO_PULLBACK",confidence=.8),
+        setup_family="MICRO_PULLBACK",trigger_ready=True,entry=10.2,stop=10.05,
+        target_model="Prior high / HOD",setup_rationale="Synthetic equal-anchor compatibility",**kwargs)
+    assert intent.stop_loss_price==intent.invalidation_level==10.05
