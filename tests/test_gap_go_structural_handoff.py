@@ -250,3 +250,21 @@ def test_canonical_hold_requires_previous_completed_close():
 def test_malformed_metadata_fails_contract_without_exception():
     result=synthetic_complete(GapGoPattern().evaluate(source()))
     assert validate_entry_contract(replace(result,setup_metadata="invalid"))==(False,"gap_go_invalid_contract_metadata")
+
+
+def test_reference_kind_cannot_be_relabelled_as_another_trigger():
+    result=synthetic_complete(GapGoPattern().evaluate(source("PMH_BREAK")))
+    changed=replace(result,trigger_type="HOD_BREAK")
+    assert validate_entry_contract(changed)==(False,"gap_go_trigger_reference_mismatch")
+    assert bridge(changed)==[]
+
+
+def test_old_source_clock_cannot_admit_a_new_execution_context():
+    data=source()
+    setup=bridge(synthetic_complete(GapGoPattern().evaluate(data)))[0]
+    later=data.observed_at_utc+timedelta(minutes=1)
+    setup["execution_stream"]={"observed_at_utc":later.isoformat(),"execution_trigger_timeframe":"10s","stream_provenance":"PRESENT"}
+    bars=[replace(data.candles[-1],timestamp=later-timedelta(seconds=10))]
+    out=TriggerEngine().evaluate_triggers(symbol="GAPX",candles=bars,setups=[setup],levels={},structure={})[0]
+    assert not out["trigger_ready_now"]
+    assert out["trigger_reason"]=="gap_go_observation_context_mismatch"

@@ -123,6 +123,11 @@ def validate_entry_contract(setup: Any) -> tuple[bool, str]:
                   ("trigger_level", "stop_level", "invalidation_level")]
         if any(value is None or not isfinite(value) or value <= 0 for value in values):
             return False, "gap_go_structural_stop_authority_missing"
+        expected_reference = {"PMH_BREAK": "premarket_high", "HOD_BREAK": "hod",
+                              "BREAK_AND_HOLD": "opening_range_high"}.get(getattr(setup, "trigger_type", None))
+        if (expected_reference is None or metadata.get("trigger_reference_name") != expected_reference
+                or metadata.get("trigger_reference_level") != values[0]):
+            return False, "gap_go_trigger_reference_mismatch"
         if values[2] >= values[0]:
             return False, "invalid_risk_geometry"
     reason = _risk_geometry_rejection_reason(setup)

@@ -4,6 +4,7 @@ from typing import Any
 
 from src.setup_engine.setup_families.ross_families import GapGoPattern
 from math import isfinite
+from datetime import datetime
 
 from src.setup_engine.registry import CANONICAL_SETUP_REGISTRY, SetupImplementationStatus
 from src.strategies.common.triggers.trigger_registry import resolve_trigger_evaluator
@@ -261,6 +262,17 @@ class TriggerEngine:
                     return False, "gap_go_invalid_contract_metadata", ["BLOCKED"], None
                 if metadata.get("entry_contract_block_reason"):
                     return False, str(metadata["entry_contract_block_reason"]), ["BLOCKED"], None
+                try:
+                    source_clock = datetime.fromisoformat(metadata.get("observed_at_utc"))
+                    execution_clock = datetime.fromisoformat(stream.get("observed_at_utc"))
+                except (TypeError, ValueError):
+                    return False, "gap_go_observation_context_mismatch", ["BLOCKED"], None
+                if source_clock.tzinfo is None or source_clock != execution_clock:
+                    return False, "gap_go_observation_context_mismatch", ["BLOCKED"], None
+                reference_name = {"PMH_BREAK": "premarket_high", "HOD_BREAK": "hod",
+                                  "BREAK_AND_HOLD": "opening_range_high"}.get(trigger_type)
+                if metadata.get("trigger_reference_name") != reference_name:
+                    return False, "gap_go_reference_kind_mismatch", ["BLOCKED"], None
                 if metadata.get("trigger_reference_level") != trigger_price_reference:
                     return False, "gap_go_reference_mismatch", ["BLOCKED"], None
                 last_close = self._safe_float(self._read(completed[-1], "close"))
