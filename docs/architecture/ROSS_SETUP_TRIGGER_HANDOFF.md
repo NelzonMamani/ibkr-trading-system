@@ -764,3 +764,72 @@ CI. D remains a projection fact, not executable target. Numeric management,
 intrabar ordering and natural progression uncertified. Five-position veto and
 READ_ONLY remain; corporate/SEC/listing parked. No provider/broker/observation/
 push/merge. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## PR1151 exact-head publication/review/CI — 4 November 2026
+
+Published ONE draft PR1151 at3c08a337176fae78b6683e40e61b5149fe9e2a70 /
+9cd60e0b89ec2b589748973f6357608ad00db60f against unchanged accepted2a31eb07.
+Matching mergef174a998cef541270d2a7337858301c297359dc5 has exact candidate tree.
+Independent agent COMMENT review5761516164 found no blockers; not human approval.
+Reviewed actual wiring, completed-witness timing, bounded indices/source times,
+exact occurrence, deep raw serialization and unchanged safety boundaries.
+Original27/160/PR1029 and31/22/1 review receipts/failures retained, not rerun for
+status. Scope excludes corporate/SEC implementation/private contact literals.
+
+CI41747724577 SUCCESS, all three jobs on exact matching merge tree:
+Linux3807passed/3skipped, Windows3809passed/1skipped. Native cache, serial admission,
+six cache subprocess fixtures, actual PowerShell exit13/observation46 controls and
+parser passed. No source changes/retries/redundant local suite runs. Recommend
+separately authorized controlled integration review with fresh ref/check/protection
+verification. Agent COMMENT is not human approval; no scoped blocker remains.
+
+Complete external receipts in SAME checkpoint; separate LOCAL docs/pr1151-ci-acceptance
+keeps exact reviewed/tested PR stable without another PR/checklist/receipt-only
+suite run. D is evidence, not executable target; numeric management/intrabar/
+natural certification remains unproven. Five-position veto/READ_ONLY intact;
+corporate/SEC/listing parked. Draft/unmerged; no provider/broker/observation.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+### PR1151 controlled integration — 4 November 2026
+
+Explicit user authorization applied only to head `3c08a337176fae78b6683e40e61b5149fe9e2a70`, tree `9cd60e0b89ec2b589748973f6357608ad00db60f`, base `2a31eb07ac7fa7985fb2f78f2f495603f813193c`. Fresh GitHub verification found unchanged refs, independent agent review [5761516164](https://github.com/NelzonMamani/ibkr-trading-system/pull/1151#pullrequestreview-5761516164) bound to this head with no blockers (COMMENT, not human approval), successful [CI41747724577](https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/41747724577), no review threads and clean mergeability. Tested merge `f174a998cef541270d2a7337858301c297359dc5` has the candidate tree and authorized base/head parents. Main was unprotected, required contexts empty, rulesets empty and merge commits enabled; no protection bypass occurred. No completed suite was repeated.
+
+Marked ready and merged with expected-head guard using merge commit. Accepted runtime/main is **`f55c0225fc55adc379d766ba7ebfeac88a322f1f`**, tree **`9cd60e0b89ec2b589748973f6357608ad00db60f`**. Fetch verified exact tree equality and both parents. [Integration receipt6628182592](https://github.com/NelzonMamani/ibkr-trading-system/pull/1151#issuecomment-6628182592). Saved documentation `c82c2b663758d7559e0dcbbe65659cc895915e9c` was carried forward on separate `docs/pr1151-integration`; documentation does not substitute another runtime pin. Existing incomplete-swing-witness and snapshot-isolation failing-before/passing-after receipts remain above.
+
+ABCD canonical trigger handoff, selected-anchor serialization/isolation and completed swing-witness handling are repaired. D remains a measured projection, never executable take-profit. Numeric management, intrabar ordering and natural progression remain uncertified. Five unmatched positions still globally veto new-entry admission AFTER raw formation and BEFORE canonical artifact/risk admission. Corporate/SEC work and listing provenance remain PARKED/fail closed. Historical observations, failures, UNKNOWNs, GUI draft and separate cache/callback uncertainties remain preserved. No provider/broker/preflight/observation/trading occurred.
+
+**One next action (recommendation only):** undertake a separately authorized bounded repair of duplicate GAP_GO/GAP_CONTINUATION detector invocation. Existing specification `strategy_policy.py:116,129` describes Gap & Go and gap continuation separately, but `src/setup_engine/registry.py:61,84` maps both to `GapGoPattern`; `build_tradeable_patterns:102` creates both instances and `RossPatternRegistry.run` evaluates both. The existing audit records 28 active objects/27 IDs (34/33 including placeholders). Reuse these owners to evaluate the existing identical implementation once with explicit alias provenance; do not globally collapse arbitrary duplicate result IDs/occurrences or treat two aliases as independent confirmation. Acceptance must preserve registered membership/status, canonical occurrence binding, existing selection/suppression and one-winner policy while proving one invocation for this alias pair. Do not invent a distinct continuation detector, anchors, targets or management policy. This is a duplicate-work correction, not full GAP_GO activation or natural acceptance. No further repair was implemented in this integration task.
+
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+### GAP_GO implementation-alias evaluation repair — local, 4 November 2026
+
+Baseline verified locally: accepted main `f55c0225fc55adc379d766ba7ebfeac88a322f1f`, tree `9cd60e0b89ec2b589748973f6357608ad00db60f`. Separate branch `fix/gap-go-alias-evaluation` preserves the original checkout and carries saved PR1151 receipts from `283af85e0e4a0c71ea1a6263e946f8fa541c02aa` (including its preceding receipt commit). Applicable instructions and DEPRECATION_LEDGER read; no owner/module retirement or new configuration system.
+
+Confirmed before editing: `CANONICAL_SETUP_REGISTRY` instantiated both GAP_GO and GAP_CONTINUATION as `GapGoPattern`; `build_tradeable_patterns` returned 28 active objects and RossPatternRegistry.run evaluated each. The existing policy descriptions (strategy_policy.py GAP_GO and GAP_CONTINUATION) remain distinct concepts, but actual shared implementation emits P_GAP_GO/GAP_GO. This change declares the existing implementation alias, not policy equivalence or a new continuation detector.
+
+Production/test commit **`f938d8a04d7fba603b348ff4aaaac86cb9b09a21`**, tree **`6e22d0400d3949ba1abe4337f5a7dd90a7305498`**: existing SetupFamilyImplementation gains optional canonical_setup_id; only GAP_CONTINUATION declares GAP_GO. Existing factory groups explicit aliases only after per-entry enablement filtering and verifies identical detector class/canonical authority. Nonalias entries using the same class remain separate. Registry ordering is retained; caller-request order is normalized through membership selection. Optional requested_setup_ids is a factory selection argument, not a new runtime configuration store. Default still includes every enabled family; alias-only selection and disabled-canonical/enabled-alias remain supported. No result/input cache, time/security/context deduplication or second evaluation owner exists.
+
+One canonical result and one trace retain the enabled requested names, including rejection/error traces. Existing result setup_metadata preserves canonical_setup_id/requested_setup_ids without changing trigger/stop/target facts; trace schema adds requested_setup_ids. Canonical GAP_GO trace provenance now remains available on rejection as well as detection. Other-family contracts/results, occurrence ordinals and selection/trigger owners are unchanged. Removing the second physical evaluation naturally removes its redundant result/trace; it does not create competing copies or globally collapse matching result IDs. Active factory count is now 27, Ross total including six placeholders 33; old 28/34 counts above are historical observations.
+
+Guarded synthetic comparison through the accepted factory implementation and actual Ross loop confirmed before: 2 GapGo instances/evaluations/results/traces; after: 1 of each for the same input, with actual positive detection and no invented target. Focused validation: initial 10 alias controls plus existing canonical trace, PR1029 detector certification, selected-setup handoff and live failure-trace modules **108 passed in 2.61s**. Added a concrete mixed-neighbor occurrence/registered-trigger control: final alias module **11 passed in 0.38s**. This is not a summed 119-case distinct suite: ten alias cases overlap. One earlier test-selection command referenced a nonexistent test path and collected no tests; corrected selection produced the 108-case receipt. No assertions were weakened. git diff --check passed.
+
+Controls cover both names/both request orders/either name alone; fresh repeated/security/changed-snapshot contexts; actual detected contract equality; single rejection/error; trace/requested aliases; default/neighbor order and enabled status; unrelated same-class entries not collapsed; invalid alias configuration fails closed. Mixed GAP_GO plus actual consolidation result retains consolidation index1, its own trace/contract/stop/metadata and dispatches its registered ready trigger. Existing affected selection controls retain suppression/ranking and READ_ONLY behavior. Network/broker connection/query/order guards applied through the reused offline fixture; synthetic comparison also forbade connections/orders. No provider/broker collection, observation, push or merge occurred. These are local Linux/offline receipts, not Windows/CI/independent approval or natural acceptance.
+
+Remaining limits: GAP_GO's missing canonical trigger bridge/structural-contract certification is NOT repaired. Alias deduplication does not establish a distinct GAP_CONTINUATION detector, target/management policy, numeric take-profit, intrabar ordering or natural progression. Five-position global veto remains after raw formation before canonical artifact/risk admission. Corporate/SEC and listing provenance remain PARKED, all historical receipts/UNKNOWNs and GUI draft preserved. One next action: review this exact local candidate and its alias/occurrence controls before any publication decision.
+
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+### GAP_GO alias candidate local review — 4 November 2026
+
+Verified requested local review input `e6333aec7a0d91b67629aa8210afd02e1a1d2958`, tree `0fe8ab5b85f78c5bf695f411edfb5a0fc246b0ca`, clean worktree and accepted ancestor `f55c0225fc55adc379d766ba7ebfeac88a322f1f`. Reviewed production separately from carried PR1151 documentation. Existing strategy descriptions remain separate; only the explicitly declared shared implementation alias is coalesced. No class-/pattern-ID-wide deduplication exists. Per-entry enablement precedes grouping, including canonical-disabled/alias-enabled, and canonical registry order is independent of request-list order. Results are evaluated afresh on every run; no persistent cache or input suppression.
+
+**Findings: no blocking production defect found.** One canonical instance/result/trace retains both requested names, or only the selected enabled name. Rejection metadata and error traces retain aliases. Exact levels/contract fields remain detector-owned; alias projection changes metadata only. Undeclared same-class entries remain distinct. Default registry order and neighboring families are unchanged apart from removal of the redundant alias evaluation. Acquisition, qualification, selection/risk-off/conflict policy, one-winner execution rules and ownership owners are not changed. Existing five-position veto remains after raw formation before artifact/risk. No target or family activation was added.
+
+Concrete uncovered review gaps were timeframe-specific context reuse and occurrence lookup after a neighboring exception emits a trace without a result. Added five guarded synthetic controls, test-only commit **`8328e34f80a6926feb994cbbebcc6a3a11c50cab`**, tree **`aed6d4f5de5d6efc1b0f8caa5fb725f3ded0a47b`**. Result: **5 passed, 11 deselected in 0.42s**. One test confirms fresh calls for 1m/5m/10s/1m; four combinations cover error versus rejection and neighbor before versus after. Actual registry output passes existing V1 selected-contract/selected-trace lookup, canonical bridge and registered consolidation trigger; selected result ordinal, trigger/stop/metadata and trace identity remain exact despite unequal trace/result counts. GAP_GO still has no canonical bridge; the test explicitly uses the neighboring supported family rather than inventing a GAP_GO trigger/target.
+
+Production diff from the original reviewed input is empty. Existing 108-case and overlapping 11-control receipts are retained without rerunning them or claiming 119 distinct cases. The five added cases are new, not a full-suite/Windows/CI receipt. git diff --check passed. This is a local review, not independent external approval. No AGENTS file found in applicable checkout/parents; existing ledger reviewed, unchanged because no owner/module retirement occurred.
+
+**Publication recommendation:** suitable for separately authorized draft publication, independent exact-head review and required Linux/Windows CI. No push or merge was performed. Remaining GAP_GO trigger bridge/structural contract and management gaps stay open; deduplication alone proves neither raw intent nor natural progression. Corporate/SEC/listing work remains PARKED, successful observations and historical UNKNOWNs/failed receipts/GUI draft preserved. No provider/broker calls, acquisition, observation or trading.
+
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
