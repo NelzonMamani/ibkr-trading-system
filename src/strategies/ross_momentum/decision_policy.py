@@ -111,6 +111,14 @@ def validate_entry_contract(setup: Any) -> tuple[bool, str]:
     entry_ok, reason = is_tradeable_entry_candidate(setup)
     if not entry_ok:
         return False, reason
+    if str(getattr(setup, "setup_family_id", "")).upper() == "PREMARKET_HIGH_BREAK":
+        for name in ("trigger_level", "stop_level", "invalidation_level"):
+            raw = getattr(setup, name, None)
+            if raw is None:
+                return False, "pmh_missing_entry_authority"
+            value = _safe_float(raw)
+            if isinstance(raw, bool) or value is None or not isfinite(value) or value <= 0:
+                return False, "pmh_invalid_entry_authority"
     if str(getattr(setup, "setup_family_id", "")).upper() == "GAP_GO":
         metadata = getattr(setup, "setup_metadata", {}) or {}
         if not isinstance(metadata, Mapping):

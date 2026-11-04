@@ -9,6 +9,7 @@ from __future__ import annotations
 from src.domain.quote_freshness import evidence_rejection, quote_evidence, selection_quote_evidence
 
 import json
+from math import isfinite
 from copy import deepcopy
 from datetime import timezone
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
@@ -44,6 +45,8 @@ from src.strategies.ross_momentum.patterns.pattern_trace import (
     build_runtime_pattern_inputs,
     infer_symbol_source,
 )
+_UNSET_INVALIDATION = object()
+
 TERMINAL_CATEGORY = {
     "DATA_BLOCKED": "DATA_BLOCKED",
     "SETUP_NOT_FOUND": "SETUP_NOT_FOUND",
@@ -1201,10 +1204,9 @@ class RossMomentumStrategyV1(BaseStrategy):
                         "volume_confirmation_timeframe": execution_timeframe,
                         "timeframe_substitution": False,
                     }
-                    if setup["setup_family_id"] in {"ABCD", "GAP_GO"}:
-                        setup["execution_stream"]["observed_at_utc"] = (
-                            inputs.observed_at_utc.isoformat() if inputs.observed_at_utc else None
-                        )
+                    setup["execution_stream"]["observed_at_utc"] = (
+                        inputs.observed_at_utc.isoformat() if inputs.observed_at_utc else None
+                    )
                 pattern_triggers = TriggerEngine().evaluate_triggers(
                     symbol=symbol,
                     candles=execution_candles,
@@ -1550,6 +1552,7 @@ class RossMomentumStrategyV1(BaseStrategy):
             structure_rejection_reasons: list[str] = []
             trade = self._build_trade_from_pattern(
                 best_pattern, inputs, selected_trigger=selected_trigger,
+                selected_contract=selected_contract,
                 rejection_reasons=structure_rejection_reasons,
             )
             target_model = _target_model_from_setup(selected_contract)
@@ -1751,6 +1754,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 trigger_id=str((selected_trigger or {}).get("trigger_type") or "UNKNOWN"),
                 entry=entry,
                 stop=stop,
+                invalidation_level=selected_trigger.get("invalidation_price_reference"),
                 execution_refinement_mode=execution_refinement_mode,
                 target_model=target_model,
                 setup_rationale=selected_contract.rationale_text,
@@ -1761,10 +1765,7 @@ class RossMomentumStrategyV1(BaseStrategy):
             if gap_go_trigger_fired and not intent:
                 raise RuntimeError("CRITICAL: TRIGGER_FIRED_NO_INTENT")
             # Keep selection and supplemental snapshot authority for risk re-age.
-            if setup_family in {"KEY_LEVEL_BREAK", "GAP_GO"}:
-                # Acceptance invalidation is distinct from the structural stop.
-                intent.invalidation_level = selected_trigger["invalidation_price_reference"]
-            if setup_family in {"ABCD", "GAP_GO"}:
+            if type(selected_trigger.get("canonical_result_index")) is int:
                 intent.setup_metadata = deepcopy({
                     **(self._abcd_contract_evidence(selected_contract) if setup_family == "ABCD" else {
                         "trigger_level": selected_contract.trigger_level,
@@ -2622,10 +2623,34 @@ class RossMomentumStrategyV1(BaseStrategy):
     @staticmethod
     def _build_trade_from_pattern(
         pattern, inputs, *, selected_trigger: dict | None = None,
+        selected_contract=None,
         rejection_reasons: list[str] | None = None,
     ):
         levels = getattr(inputs, "levels", None)
         trigger_payload = selected_trigger or {}
+        if (selected_contract is not None and
+                str(getattr(selected_contract, "setup_family_id", "")).upper() == "PREMARKET_HIGH_BREAK"):
+            valid, reason = validate_entry_contract(selected_contract)
+            fields = (("trigger_level", "trigger_price_reference"),
+                      ("stop_level", "stop_price_reference"),
+                      ("invalidation_level", "invalidation_price_reference"))
+            if valid and any(trigger_payload.get(reference) != getattr(selected_contract, field, None)
+                             for field, reference in fields):
+                valid, reason = False, "selected_level_authority_mismatch"
+            if not valid:
+                if rejection_reasons is not None:
+                    rejection_reasons.append(reason)
+                return None
+        if selected_contract is not None:
+            expected_raw = getattr(selected_contract, "invalidation_level", None)
+            selected_raw = trigger_payload.get("invalidation_price_reference")
+            values = [RossMomentumStrategyV1._safe_float(value) for value in (expected_raw, selected_raw)]
+            if (any(isinstance(value, bool) for value in (expected_raw, selected_raw))
+                    or any(value is None or not isfinite(value) or value <= 0 for value in values)
+                    or values[0] != values[1]):
+                if rejection_reasons is not None:
+                    rejection_reasons.append("selected_invalidation_authority_mismatch")
+                return None
         entry = trigger_payload.get("trigger_price_reference")
         if entry is None:
             entry = trigger_payload.get("trigger_level")
@@ -2771,12 +2796,22 @@ class RossMomentumStrategyV1(BaseStrategy):
         trigger_id: str = "UNKNOWN",
         entry: float,
         stop: float,
+        invalidation_level=_UNSET_INVALIDATION,
         execution_refinement_mode: str = "NONE",
         target_model: str | None = None,
         setup_rationale: str | None = None,
     ) -> TradeIntent | None:
         if not str(target_model or "").strip() or not str(setup_rationale or "").strip():
             return None
+        # Only an omitted legacy component argument defaults to the risk stop.
+        # Explicit missing/invalid authority from the active path never does.
+        if invalidation_level is _UNSET_INVALIDATION:
+            resolved_invalidation = stop
+        else:
+            resolved_invalidation = self._safe_float(invalidation_level)
+            if (isinstance(invalidation_level, bool) or resolved_invalidation is None
+                    or not isfinite(resolved_invalidation) or resolved_invalidation <= 0):
+                return None
         if str(setup_family or "").upper() == "GAP_GO" and trigger_ready:
             intent = TradeIntent(
                 symbol=symbol,
@@ -2787,7 +2822,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                 target_model=target_model,
                 trader_type=self.trader_type,
                 stop_loss_price=stop,
-                invalidation_level=stop,
+                invalidation_level=resolved_invalidation,
                 pattern_name=best_pattern.pattern_id,
                 setup_family_id="GAP_GO",
                 trigger_id=str(trigger_id or "UNKNOWN"),
@@ -2810,7 +2845,7 @@ class RossMomentumStrategyV1(BaseStrategy):
             target_model=target_model,
             trader_type=self.trader_type,
             stop_loss_price=stop,
-            invalidation_level=stop,
+            invalidation_level=resolved_invalidation,
             pattern_name=best_pattern.pattern_id,
             setup_family_id=setup_family,
             trigger_id=str(trigger_id or "UNKNOWN"),

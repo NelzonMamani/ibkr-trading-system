@@ -877,7 +877,7 @@ def test_decision_rejection_terminal_records_parabolic_exhaustion_provenance(mon
     "entry,stop,reason",
     [
         (None, 10.08, "missing_trigger_entry_or_stop"),
-        (10.44, None, "missing_trigger_entry_or_stop"),
+        (10.44, None, "selected_invalidation_authority_mismatch"),
         (10.44, 10.44, "entry_stop_structure_invalid"),
         (10.44, 10.60, "entry_stop_structure_invalid"),
     ],
@@ -890,14 +890,18 @@ def test_trade_structure_block_preserves_fired_trigger(
     strategy._pattern_registry = FakeRegistry([_detected_three("ready")])
     build_trade = strategy._build_trade_from_pattern
 
-    def _invalid_structure(pattern, inputs, *, selected_trigger, rejection_reasons):
+    def _invalid_structure(pattern, inputs, *, selected_trigger, selected_contract, rejection_reasons):
         assert selected_trigger["trigger_ready_now"] is True
         payload = dict(selected_trigger)
         payload.update(
             trigger_price_reference=entry, trigger_level=entry,
-            invalidation_price_reference=stop, invalidation_level=stop, stop_level=stop, stop_price_reference=stop,
+            stop_level=stop, stop_price_reference=stop,
         )
-        return build_trade(pattern, inputs, selected_trigger=payload, rejection_reasons=rejection_reasons)
+        if stop is None:
+            # Explicitly remove authority; this now rejects before a fallback.
+            payload.update(invalidation_price_reference=None, invalidation_level=None)
+        return build_trade(pattern, inputs, selected_trigger=payload, selected_contract=selected_contract,
+                           rejection_reasons=rejection_reasons)
 
     monkeypatch.setattr(strategy, "_build_trade_from_pattern", _invalid_structure)
     intents = strategy.process_watchlist(
@@ -943,12 +947,14 @@ def test_trade_structure_mixed_cycle_preserves_valid_intent_without_broker_mutat
     strategy._pattern_registry = FakeRegistry([_detected_three("ready")])
     build_trade = strategy._build_trade_from_pattern
 
-    def _build_with_invalid_b(pattern, inputs, *, selected_trigger, rejection_reasons):
+    def _build_with_invalid_b(pattern, inputs, *, selected_trigger, selected_contract, rejection_reasons):
         assert selected_trigger["trigger_ready_now"] is True
         payload = dict(selected_trigger)
         if inputs.symbol == "BBB":
-            payload.update(stop_price_reference=20.0, invalidation_price_reference=20.0, invalidation_level=20.0, stop_level=20.0)
-        return build_trade(pattern, inputs, selected_trigger=payload, rejection_reasons=rejection_reasons)
+            # Keep acceptance authority bound; isolate invalid risk-stop geometry.
+            payload.update(stop_price_reference=20.0, stop_level=20.0)
+        return build_trade(pattern, inputs, selected_trigger=payload, selected_contract=selected_contract,
+                           rejection_reasons=rejection_reasons)
 
     monkeypatch.setattr(strategy, "_build_trade_from_pattern", _build_with_invalid_b)
     orchestrator.strategy_runner.strategies = [strategy]

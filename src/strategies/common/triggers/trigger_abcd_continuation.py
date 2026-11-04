@@ -8,7 +8,7 @@ from numbers import Real
 
 
 def abcd_candle_rejection(candles, *, observed_at_utc=None, require_clock=False):
-    """Bounded source/execution validity, reused by existing ABCD and GAP_GO owners."""
+    """Bounded source/execution validity, reused by existing ABCD, GAP_GO and PMH owners."""
     if isinstance(observed_at_utc, str):
         try:
             observed_at_utc = datetime.fromisoformat(observed_at_utc)
