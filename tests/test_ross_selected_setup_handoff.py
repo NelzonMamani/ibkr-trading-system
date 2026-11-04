@@ -31,11 +31,16 @@ def test_production_selected_result_target_contract(monkeypatch,tmp_path,target)
         assert intents[0].take_profit_price is None
 
 def consolidation_inputs():
+    from datetime import timedelta
     rows=[(10.0,10.4,9.98,10.3,1200),(10.3,10.42,10.28,10.36,1000),
           (10.36,10.38,10.31,10.35,850),(10.35,10.39,10.32,10.36,840),
           (10.36,10.4,10.33,10.37,830),(10.37,10.39,10.34,10.38,820),
           (10.38,10.4,10.35,10.39,810),(10.4,10.55,10.39,10.53,1400)]
-    return replace(_inputs(),candles=_candles(rows))
+    inputs = _inputs()
+    # Genuine completed 1m source starts; do not use the forming current minute.
+    candles = _candles(rows,end=inputs.observed_at_utc-timedelta(minutes=1))
+    return replace(inputs,candles=candles,
+                   timeframe_candles={**inputs.timeframe_candles,"1m":candles})
 
 def test_consolidation_exports_its_own_range_contract():
     result=ConsolidationBreakoutPattern().evaluate(consolidation_inputs())
@@ -61,14 +66,15 @@ def test_real_consolidation_registry_to_production_intent(monkeypatch,tmp_path,s
     strategy=_base_strategy(monkeypatch,tmp_path,state='ready')
     registry=RossPatternRegistry();registry._patterns=[ConsolidationBreakoutPattern()]
     strategy._pattern_registry=registry
-    primary=list(consolidation_inputs().candles)
-    end=primary[-1].timestamp
+    source=consolidation_inputs()
+    primary=list(source.candles)
     rows=[(10.35,10.39,10.32,10.37,100)]*29
     rows.append((10.37,10.56,10.32,10.53,200) if execution_state=='ready' else (10.35,10.39,10.32,10.37,100))
-    ten=_candles(rows,end=end+timedelta(seconds=10),step_seconds=10)
+    ten=_candles(rows,end=source.observed_at_utc-timedelta(seconds=10),step_seconds=10)
     if execution_state=='missing':ten=[]
     if execution_state=='stale':ten=[replace(c,timestamp=c.timestamp-timedelta(seconds=180)) for c in ten]
-    data={'1m':primary,'10s':ten,'5m':_candles([(c.open,c.high,c.low,c.close,c.volume) for c in primary],step_seconds=300)}
+    data={'1m':primary,'10s':ten,'5m':_candles([(c.open,c.high,c.low,c.close,c.volume) for c in primary],
+        end=source.observed_at_utc-timedelta(minutes=5),step_seconds=300)}
     monkeypatch.setattr('src.strategies.ross_momentum.patterns.pattern_trace.get_intraday_bars',lambda *,timeframe='1m',**kw:data[timeframe])
     intents=strategy.process_watchlist(watchlist=[_watchlist_row()],snapshots={'UPC':_snapshot()},session_label=session,session_phase=session,timestamp_utc='offline-consolidation',mode=RunMode.READ_ONLY)
     if execution_state=='ready':

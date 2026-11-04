@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import datetime, timedelta
+from math import isfinite
 from statistics import mean
 from typing import List
 
+from src.adapters.data.historical_bar_timeframes import resolve_intraday_timeframe_request
 from src.strategies.common.patterns.pattern_orb import detect_orb
 from src.strategies.common.patterns.pattern_premarket_high_break import detect_premarket_high_break
 from src.strategies.ross_momentum.patterns.pattern_base import PatternBase
-from src.strategies.ross_momentum.patterns.pattern_inputs import PatternInputs
+from src.strategies.common.triggers.trigger_abcd_continuation import abcd_candle_rejection
+from src.strategies.ross_momentum.patterns.pattern_inputs import PatternInputs, _timeframe_provenance
 from src.strategies.ross_momentum.patterns.pattern_types import Direction, PatternFamily, PatternResult
+from src.strategies.ross_momentum.policy.pattern_input_policy import PatternInputPolicy
 from src.strategies.strategy_contracts import SessionContext
 
 
@@ -48,9 +53,42 @@ class ConsolidationBreakoutPattern(PatternBase):
     direction_bias = Direction.LONG
 
     def evaluate(self, inputs: PatternInputs) -> PatternResult:
-        candles = inputs.candles
+        candles = list(inputs.candles)
+        clock = inputs.observed_at_utc
+        if clock is not None and not isinstance(clock, datetime):
+            return self._rejected("INVALID_CANDLE_TIMESTAMPS", inputs)
+        rejection = abcd_candle_rejection(candles, observed_at_utc=clock,
+                                         require_clock=bool(inputs.timeframe_provenance))
+        if rejection:
+            return self._rejected(rejection, inputs)
+        if clock is not None:
+            try:
+                request = resolve_intraday_timeframe_request(
+                    timeframe=inputs.primary_timeframe, requested_bars=len(candles))
+            except ValueError:
+                return self._rejected("INVALID_STRUCTURE_TIMEFRAME", inputs)
+            candles = [c for c in candles if c.timestamp+timedelta(seconds=request.bar_seconds) <= clock]
         if len(candles) < 8:
             return self._rejected("insufficient candles", inputs)
+        if clock is not None:
+            status = _timeframe_provenance(candles, request.logical_timeframe,
+                PatternInputPolicy.from_policy_v2(), symbol=inputs.symbol, now_utc=clock)
+            if status != "PRESENT":
+                return self._rejected("completed_source_"+status.lower(), inputs)
+        # This family has no Flat Top spread/RVOL cutoffs. Preserve optional
+        # component fields and existing quantitative gates; supplied metrics
+        # still must be finite, nonnegative observations rather than NaN/Inf.
+        for field in ("spread", "rvol"):
+            value = getattr(inputs.liquidity_context, field, None)
+            if value is None:
+                continue
+            try:
+                numeric = float(value)
+            except (TypeError, ValueError, OverflowError):
+                return self._rejected("invalid_liquidity_"+field, inputs)
+            if isinstance(value, bool) or not isfinite(numeric) or numeric < 0:
+                return self._rejected("invalid_liquidity_"+field, inputs)
+        inputs = replace(inputs, candles=candles)
         consolidation = candles[-6:-1]
         last = candles[-1]
         range_high = max(c.high for c in consolidation)
