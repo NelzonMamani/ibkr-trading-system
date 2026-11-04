@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from src.strategies.common.triggers.trigger_abcd_continuation import abcd_candle_rejection
+
 
 def _safe_float(value):
     try:
@@ -45,6 +47,20 @@ def evaluate_premarket_high_break_trigger(pattern_result, inputs):
         }
         print(f"[TRIGGER][PMH_BREAK] fired=False reason={out['trigger_reason']}")
         return out
+
+    canonical = payload.get("source") == "canonical_pattern_result"
+    stream = payload.get("execution_stream")
+    rejection = None
+    if canonical and not isinstance(stream, dict):
+        rejection = "INVALID_EXECUTION_CONTEXT"
+    else:
+        rejection = abcd_candle_rejection(candles,
+            observed_at_utc=stream.get("observed_at_utc") if isinstance(stream, dict) else None,
+            require_clock=canonical)
+    if rejection:
+        return {"trigger_type": "XL_PREMARKET_HIGH_BREAK", "trigger_state": "BLOCKED",
+                "trigger_ready_now": False, "trigger_reason": "pmh_" + rejection.lower(),
+                "trigger_price_reference": trigger_level, "invalidation_price_reference": invalidation_level}
 
     last = candles[-1]
     prev = candles[-2]

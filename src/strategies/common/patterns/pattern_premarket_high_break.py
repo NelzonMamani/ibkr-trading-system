@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from src.strategies.common.triggers.trigger_abcd_continuation import abcd_candle_rejection
 from src.strategies.ross_momentum.patterns.pattern_inputs import PatternInputs
 from src.strategies.ross_momentum.patterns.pattern_types import Direction, PatternFamily, PatternResult
 from src.strategies.strategy_contracts import SessionContext
@@ -47,6 +48,11 @@ def detect_premarket_high_break(inputs: PatternInputs) -> PatternResult:
     candles = list(inputs.candles or [])
     if len(candles) < 2:
         return reject("missing_candles")
+
+    rejection = abcd_candle_rejection(candles, observed_at_utc=inputs.observed_at_utc,
+                                     require_clock=bool(inputs.timeframe_candles))
+    if rejection:
+        return reject(rejection.lower())
 
     pmh = _safe_float(getattr(inputs.levels, "premarket_high", None))
     if pmh is None:
