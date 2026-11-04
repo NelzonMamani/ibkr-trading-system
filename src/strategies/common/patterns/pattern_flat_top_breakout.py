@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
-from src.strategies.ross_momentum.patterns.pattern_inputs import PatternInputs
+from datetime import datetime, timedelta
+from math import isfinite
+
+from src.strategies.common.triggers.trigger_abcd_continuation import abcd_candle_rejection
+from src.strategies.ross_momentum.patterns.pattern_inputs import PatternInputs, _timeframe_provenance
 from src.strategies.ross_momentum.patterns.pattern_types import Direction, PatternFamily, PatternResult
+from src.strategies.ross_momentum.policy.pattern_input_policy import PatternInputPolicy
 
 
 def _safe_float(value: object) -> float | None:
     try:
-        return None if value is None else float(value)
+        number = None if value is None or isinstance(value, bool) else float(value)
+        return number if number is not None and isfinite(number) else None
     except (TypeError, ValueError):
         return None
 
@@ -31,10 +37,35 @@ def detect_flat_top_breakout(inputs: PatternInputs) -> PatternResult:
         )
 
     candles = list(inputs.candles or [])
+    # Source close/geometry must come from completed candles under the original
+    # observation clock, not the developing breakout candle. Timeless component
+    # fixtures retain their existing compatibility; runtime supplies this clock.
+    clock = inputs.observed_at_utc
+    if clock is not None and not isinstance(clock, datetime):
+        return reject("INVALID_CANDLE_TIMESTAMPS")
+    rejection = abcd_candle_rejection(candles, observed_at_utc=clock,
+                                      require_clock=bool(inputs.timeframe_provenance))
+    if rejection:
+        return reject(rejection)
+    if clock is not None:
+        seconds = {"10s": 10, "1m": 60, "5m": 300}.get(inputs.primary_timeframe)
+        if seconds is None:
+            return reject("INVALID_STRUCTURE_TIMEFRAME")
+        candles = [c for c in candles if c.timestamp + timedelta(seconds=seconds) <= clock]
     if len(candles) < 5:
         return reject("insufficient_candles")
+    if clock is not None:
+        # Upstream provenance included the forming tail. It cannot confer
+        # freshness on the completed source actually consumed here. Runtime
+        # acquisition uses this same policy/provenance owner and original clock.
+        status = _timeframe_provenance(candles, inputs.primary_timeframe,
+            PatternInputPolicy.from_policy_v2(), symbol=inputs.symbol, now_utc=clock)
+        if status != "PRESENT":
+            return reject("completed_source_" + status.lower())
 
     spread = _safe_float(inputs.liquidity_context.spread)
+    if spread is not None and spread < 0:
+        return reject("invalid_liquidity_spread")
     if spread is None or spread > 0.05:
         return reject("liquidity_spread_too_wide")
     rvol = _safe_float(inputs.liquidity_context.rvol)
@@ -73,7 +104,7 @@ def detect_flat_top_breakout(inputs: PatternInputs) -> PatternResult:
         return reject("breakout_not_confirmed")
     avg_pre_breakout_volume = sum(float(getattr(c, "volume", 0.0) or 0.0) for c in pre_breakout) / max(len(pre_breakout), 1)
     breakout_volume = float(getattr(breakout, "volume", 0.0) or 0.0)
-    if avg_pre_breakout_volume > 0 and breakout_volume <= avg_pre_breakout_volume:
+    if breakout_volume <= avg_pre_breakout_volume:
         return reject("breakout_volume_below_average")
 
     invalidation = min(float(v) for v in pre_lows if v is not None)

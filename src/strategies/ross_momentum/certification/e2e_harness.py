@@ -557,6 +557,17 @@ def _build_inputs(case: RossE2ECase) -> PatternInputs:
         "1m": _candles(rows, start=fresh_start),
         "5m": _candles(rows, start=fresh_start),
     }
+    if any(isinstance(pattern, FlatTopBreakoutPattern) for pattern in case.patterns):
+        # Flat Top requires complete source closes. The old fixture labelled
+        # 10s-spaced bars as 1m/5m. Correct its data, not production validation or
+        # the original downstream certification assertions. Other cases retain
+        # their existing fixtures and semantics.
+        timeframe_candles = {
+            tf: _candles(rows, step_seconds=seconds,
+                start=stale_start if tf == "10s" and case.stale_10s else
+                    now-timedelta(seconds=len(rows)*seconds))
+            for tf, seconds in (("10s", 10), ("1m", 60), ("5m", 300))
+        }
     return build_authoritative_pattern_inputs(
         symbol=candidate.symbol,
         session_label=candidate.session_label,
@@ -718,7 +729,7 @@ def _has_rationale(setup: Any | None) -> bool:
     return bool(rationale and not rationale.lower().startswith("rejected:"))
 
 
-def _candles(rows: Iterable[Row], *, start: datetime) -> list[Candle]:
+def _candles(rows: Iterable[Row], *, start: datetime, step_seconds: int = 10) -> list[Candle]:
     return [
         Candle(
             open=row[0],
@@ -726,7 +737,7 @@ def _candles(rows: Iterable[Row], *, start: datetime) -> list[Candle]:
             low=row[2],
             close=row[3],
             volume=row[4],
-            timestamp=start + timedelta(seconds=idx * 10),
+            timestamp=start + timedelta(seconds=idx * step_seconds),
         )
         for idx, row in enumerate(rows)
     ]
