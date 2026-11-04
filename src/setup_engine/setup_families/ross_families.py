@@ -228,7 +228,8 @@ class GapGoPattern(PatternBase):
                 "level_provenance": dict(inputs.level_provenance),
                 "source_bar_count": original_count,
                 "completed_bar_count": len(inputs.candles),
-                "source_timestamps": [c.timestamp.isoformat() for c in inputs.candles],
+                "source_timestamps": [c.timestamp.isoformat() if isinstance(c.timestamp, datetime) else None
+                                      for c in inputs.candles],
             },
         )
 

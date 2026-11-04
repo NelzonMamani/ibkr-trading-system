@@ -291,3 +291,21 @@ def test_malformed_execution_stream_is_an_explicit_block(malformed):
     assert not out["trigger_ready_now"]
     assert out["trigger_state"]=="BLOCKED"
     assert out["trigger_reason"]=="gap_go_invalid_execution_stream"
+
+
+def test_timeless_component_input_retains_unknown_timestamps_and_entry_block():
+    from test_strategy_runtime_setup_binding import _inputs
+    result=GapGoPattern().evaluate(_inputs("GAP_GO"))
+    assert result.detected
+    assert result.setup_metadata["source_timestamps"] == [None]*4
+    assert result.setup_metadata["observed_at_utc"] is None
+    assert result.stop_level is None and result.invalidation_level is None
+    assert validate_entry_contract(result)==(False,"gap_go_structural_stop_authority_missing")
+    assert bridge(result)==[]
+
+
+def test_missing_timestamp_with_runtime_clock_remains_rejected():
+    data=source(); bars=list(data.candles); bars[0]=replace(bars[0],timestamp=None)
+    result=GapGoPattern().evaluate(replace(data,candles=bars))
+    assert not result.detected
+    assert result.rejection_reason == "GAP_GO_INVALID_CANDLE_TIMESTAMPS"
