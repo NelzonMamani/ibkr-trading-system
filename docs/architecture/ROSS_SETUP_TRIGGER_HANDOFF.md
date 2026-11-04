@@ -979,3 +979,15 @@ Reference freshness/session/security provenance, unchanged risk sizing/hard-stop
 No source/test edits, provider/broker calls, observation, new policy, push or merge. Candidate, receipts, historical UNKNOWNs, GUI draft, five-position protections and PARKED corporate/SEC/listing work preserved.
 
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+### GAP_GO publication preparation: preserve approved intrabar policy — 4 November 2026
+
+Verified requested candidate dfeb857955a61b610ac70d3f63bc3f71c71855b0/treeee3c19e7a24b35dbda5f590c691aa44b47b68cba and clean state; fetched main remains accepted623b0b0a473913fb40ab21d4d528fecf9e187055/treea4d4ced00b3b407e37bf01b29a52ad5c47f69eba. No rebase/baseline substitution. Carried reconciliation978daf19990d6e199e93f51b420cd7520bd3dc16 onto repair branch asbfefedfb, preserving original candidate object and saved documentation branch.
+
+Publication scope exposed a concrete conflict: canonical execution used only completed10s bars, rejecting an otherwise valid in-progress bar despite strategy_policy.py:678 allowing intrabar GAP_GO. Guarded control failed before (**1 failed/48 deselected in0.38s**, /workspace/scratch/gap-go-intrabar-before.log). Corrected existing family validation helper and special dispatch: source structural bars remain complete; execution explicitly retains valid in-progress10s bars. OHLC/volume/date validity, original aware clock/future checks, known timeframe, execution provenance, reference kind/value, same source/execution instant, invalidation and all existing gates remain. No close requirement is added to PMH/HOD; ORH's own existing two-close hold semantics remain distinct. Legacy special callers unchanged.
+
+Correction commit055e5ec905b88425c6759aed3f325c8c57dcddf2/tree fcd10ecbc4c3bece09fe9b6325845bbc918a7349. Replaced the old policy-specific “incomplete execution bar must reject” expectation with explicit valid intrabar acceptance; malformed/future/reference-mismatch/invalidation negatives and completed-source boundary controls remain. This is correction to preserve approved timing, not freshness relaxation or a new entry policy. Focused affected modules **260 passed in3.33s**, /workspace/scratch/gap-go-publication-affected.log, justifying affected rerun after code change. Earlier251/44/2/48 and108/overlapping11/five-control receipts remain historical separate receipts, not summed distinct tests.
+
+Direct production GAP_GO still exports no numeric stop/invalidation and is rejected with gap_go_structural_stop_authority_missing before entry. Its generic continuation reference remains undefined/rejected. The special-dispatch/intent positive control still uses explicitly synthetic stops, proving plumbing only. No borrowed PMH-family buffer or new opening-pullback window; First/Micro contracts/identities untouched. No numeric management/intrabar-ordering/execution/natural progression certification. Five-position post-formation/pre-artifact/risk veto and PARKED corporate/SEC/listing work preserved. Next: publish one draft, independent exact-head review and required CI; no merge/provider/broker/observation.
+
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
