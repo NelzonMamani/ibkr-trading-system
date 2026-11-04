@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from src.setup_engine.setup_families.ross_families import GapGoPattern
+from math import isfinite
+from datetime import datetime
+
 from src.setup_engine.registry import CANONICAL_SETUP_REGISTRY, SetupImplementationStatus
 from src.strategies.common.triggers.trigger_registry import resolve_trigger_evaluator
 
@@ -241,6 +245,41 @@ class TriggerEngine:
 
         setup_family = str(setup.get("setup_family_id") or "").upper()
         if setup_family == "GAP_GO":
+            canonical = setup.get("source") == "canonical_pattern_result"
+            if canonical:
+                stream = setup.get("execution_stream")
+                if not isinstance(stream, dict):
+                    return False, "gap_go_invalid_execution_stream", ["BLOCKED"], None
+                rejection, execution_bars = GapGoPattern.validated_candles(
+                    candles, clock=stream.get("observed_at_utc"),
+                    timeframe=stream.get("execution_trigger_timeframe"), require_clock=True, completed_only=False)
+                if rejection or not execution_bars:
+                    return False, "gap_go_" + str(rejection or "missing_candles").lower(), ["BLOCKED"], None
+                if (trigger_type not in {"PMH_BREAK", "HOD_BREAK", "BREAK_AND_HOLD"}
+                    or any(value is None or not isfinite(value) or value <= 0
+                        for value in (trigger_price_reference, invalidation_price_reference, self._safe_float(setup.get("stop_level"))))):
+                    return False, "gap_go_invalid_canonical_contract", ["BLOCKED"], None
+                metadata = setup.get("setup_metadata") or {}
+                if not isinstance(metadata, dict):
+                    return False, "gap_go_invalid_contract_metadata", ["BLOCKED"], None
+                if metadata.get("entry_contract_block_reason"):
+                    return False, str(metadata["entry_contract_block_reason"]), ["BLOCKED"], None
+                try:
+                    source_clock = datetime.fromisoformat(metadata.get("observed_at_utc"))
+                    execution_clock = datetime.fromisoformat(stream.get("observed_at_utc"))
+                except (TypeError, ValueError):
+                    return False, "gap_go_observation_context_mismatch", ["BLOCKED"], None
+                if source_clock.tzinfo is None or source_clock != execution_clock:
+                    return False, "gap_go_observation_context_mismatch", ["BLOCKED"], None
+                reference_name = {"PMH_BREAK": "premarket_high", "HOD_BREAK": "hod",
+                                  "BREAK_AND_HOLD": "opening_range_high"}.get(trigger_type)
+                if metadata.get("trigger_reference_name") != reference_name:
+                    return False, "gap_go_reference_kind_mismatch", ["BLOCKED"], None
+                if metadata.get("trigger_reference_level") != trigger_price_reference:
+                    return False, "gap_go_reference_mismatch", ["BLOCKED"], None
+                last_close = self._safe_float(self._read(execution_bars[-1], "close"))
+                last_high = self._safe_float(self._read(execution_bars[-1], "high"))
+                prev_close = self._safe_float(self._read(execution_bars[-2], "close")) if len(execution_bars) > 1 else None
             if trigger_price_reference is None:
                 flags.append("MISSING_TRIGGER_REFERENCE")
                 return False, "trigger_reference_missing", flags, None
@@ -250,7 +289,7 @@ class TriggerEngine:
                 last_close=last_close,
                 last_high=last_high,
                 prev_close=prev_close,
-                levels=levels,
+                levels={} if canonical else levels,
             )
         else:
             registry_trigger = self._evaluate_registered_trigger(

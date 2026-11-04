@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import os
+from math import isfinite
 from dataclasses import dataclass
 from typing import Any, List, Mapping
 from types import SimpleNamespace
@@ -110,6 +111,25 @@ def validate_entry_contract(setup: Any) -> tuple[bool, str]:
     entry_ok, reason = is_tradeable_entry_candidate(setup)
     if not entry_ok:
         return False, reason
+    if str(getattr(setup, "setup_family_id", "")).upper() == "GAP_GO":
+        metadata = getattr(setup, "setup_metadata", {}) or {}
+        if not isinstance(metadata, Mapping):
+            return False, "gap_go_invalid_contract_metadata"
+        block = metadata.get("entry_contract_block_reason")
+        if block:
+            return False, str(block)
+        # Missing GAP_GO structural authority cannot inherit generic stop levels.
+        values = [_safe_float(getattr(setup, name, None)) for name in
+                  ("trigger_level", "stop_level", "invalidation_level")]
+        if any(value is None or not isfinite(value) or value <= 0 for value in values):
+            return False, "gap_go_structural_stop_authority_missing"
+        expected_reference = {"PMH_BREAK": "premarket_high", "HOD_BREAK": "hod",
+                              "BREAK_AND_HOLD": "opening_range_high"}.get(getattr(setup, "trigger_type", None))
+        if (expected_reference is None or metadata.get("trigger_reference_name") != expected_reference
+                or metadata.get("trigger_reference_level") != values[0]):
+            return False, "gap_go_trigger_reference_mismatch"
+        if values[2] >= values[0]:
+            return False, "invalid_risk_geometry"
     reason = _risk_geometry_rejection_reason(setup)
     if reason is not None:
         return False, reason

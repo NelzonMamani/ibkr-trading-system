@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+from src.strategies.ross_momentum.decision_policy import validate_entry_contract
 from src.setup_engine.registry import CANONICAL_SETUP_REGISTRY, SetupImplementationStatus
 from src.strategies.common.candles.candle_types import Candle
 from src.strategies.ross_momentum.patterns.pattern_inputs import IndicatorSet, LevelSet, LiquidityContext, PatternInputs
@@ -51,6 +52,13 @@ def test_all_setups_produce_actionable_fields() -> None:
                 failures.append(f"{setup_id}:missing_trigger_type")
             if result.trigger_level is None:
                 failures.append(f"{setup_id}:missing_trigger_level")
-            if result.stop_level is None:
+            if setup_id in {"GAP_GO", "GAP_CONTINUATION"}:
+                # Detection is retained; undefined direct-entry stop policy is not
+                # an actionable contract and must never be completed by a fixture.
+                assert result.stop_level is None and result.invalidation_level is None
+                assert validate_entry_contract(result) == (
+                    False, "gap_go_structural_stop_authority_missing")
+                assert result.setup_metadata["entry_contract_block_reason"] == "gap_go_structural_stop_authority_missing"
+            elif result.stop_level is None:
                 failures.append(f"{setup_id}:missing_stop_level")
     assert not failures, f"Detected setups missing actionable fields: {failures}"

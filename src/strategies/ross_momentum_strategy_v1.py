@@ -1201,7 +1201,7 @@ class RossMomentumStrategyV1(BaseStrategy):
                         "volume_confirmation_timeframe": execution_timeframe,
                         "timeframe_substitution": False,
                     }
-                    if setup["setup_family_id"] == "ABCD":
+                    if setup["setup_family_id"] in {"ABCD", "GAP_GO"}:
                         setup["execution_stream"]["observed_at_utc"] = (
                             inputs.observed_at_utc.isoformat() if inputs.observed_at_utc else None
                         )
@@ -1761,12 +1761,16 @@ class RossMomentumStrategyV1(BaseStrategy):
             if gap_go_trigger_fired and not intent:
                 raise RuntimeError("CRITICAL: TRIGGER_FIRED_NO_INTENT")
             # Keep selection and supplemental snapshot authority for risk re-age.
-            if setup_family == "KEY_LEVEL_BREAK":
+            if setup_family in {"KEY_LEVEL_BREAK", "GAP_GO"}:
                 # Acceptance invalidation is distinct from the structural stop.
                 intent.invalidation_level = selected_trigger["invalidation_price_reference"]
-            if setup_family == "ABCD":
+            if setup_family in {"ABCD", "GAP_GO"}:
                 intent.setup_metadata = deepcopy({
-                    **self._abcd_contract_evidence(selected_contract),
+                    **(self._abcd_contract_evidence(selected_contract) if setup_family == "ABCD" else {
+                        "trigger_level": selected_contract.trigger_level,
+                        "stop_level": selected_contract.stop_level,
+                        "invalidation_level": selected_contract.invalidation_level,
+                    }),
                     "source_metadata": dict(selected_contract.setup_metadata or {}),
                     "canonical_result_index": decision.get("selected_candidate_index"),
                     "execution_stream": dict(selected_trigger.get("execution_stream") or {}),
@@ -2257,7 +2261,7 @@ class RossMomentumStrategyV1(BaseStrategy):
             "OPENING_RANGE_BREAKOUT", "PREMARKET_HIGH_BREAK",
             "KEY_LEVEL_BREAK",
             "FIRST_PULLBACK",
-            "ABCD",
+            "ABCD", "GAP_GO",
         }
         authority_statuses = {SetupImplementationStatus.TRADE_READY, SetupImplementationStatus.PROBATIONARY}
         candidates: list[dict] = []
@@ -2279,6 +2283,11 @@ class RossMomentumStrategyV1(BaseStrategy):
                     f"symbol={symbol} setup_family={family} pattern_id={pattern_id} reason=family_not_authoritative"
                 )
                 continue
+            if family == "GAP_GO":
+                entry_ok, entry_reason = validate_entry_contract(result)
+                if not entry_ok:
+                    print(f"[ROSS][CANONICAL_PATTERN_TRIGGER][SKIP] symbol={symbol} setup_family=GAP_GO reason={entry_reason}")
+                    continue
             metadata_raw = self._pattern_result_value(result, "setup_metadata")
             metadata = dict(metadata_raw) if isinstance(metadata_raw, dict) else {}
             trigger_level = self._safe_float(

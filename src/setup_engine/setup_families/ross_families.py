@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import timedelta
+from datetime import datetime, timedelta
 from math import isfinite
 from numbers import Real
 from statistics import mean
@@ -54,7 +54,33 @@ class GapGoPattern(PatternBase):
     family = PatternFamily.GAP_OPEN
     direction_bias = Direction.LONG
 
+    @staticmethod
+    def validated_candles(candles, *, clock, timeframe, require_clock, completed_only=True):
+        rejection = abcd_candle_rejection(candles, observed_at_utc=clock, require_clock=require_clock)
+        if rejection:
+            return rejection, []
+        if clock is None:
+            return None, list(candles)  # Legacy diagnostic calls; no entry authority.
+        if isinstance(clock, str):
+            clock = datetime.fromisoformat(clock)
+        interval = {"1m": 60, "m1": 60, "5m": 300, "m5": 300, "10s": 10}.get(str(timeframe).lower())
+        if interval is None:
+            return "UNKNOWN_CANDLE_INTERVAL", []
+        if not completed_only:
+            return None, list(candles)  # Approved intrabar execution; source structure stays completed.
+        completed = [c for c in candles if
+            (c.get("timestamp") if isinstance(c, dict) else c.timestamp)
+            + timedelta(seconds=interval) <= clock]
+        return None, completed
+
     def evaluate(self, inputs: PatternInputs) -> PatternResult:
+        clock = inputs.observed_at_utc
+        original_count = len(inputs.candles)
+        rejection, completed = self.validated_candles(inputs.candles, clock=clock,
+            timeframe=inputs.timeframe, require_clock=bool(inputs.timeframe_provenance))
+        if rejection:
+            return self._rejected("GAP_GO_" + rejection, inputs)
+        inputs = replace(inputs, candles=completed)
         if inputs.session_context not in {SessionContext.PRE, SessionContext.REGULAR}:
             return self._rejected("SESSION_NOT_SUPPORTED", inputs)
         if len(inputs.candles) < 4:
@@ -69,6 +95,9 @@ class GapGoPattern(PatternBase):
             or _safe_float(key_levels.get("ORB_HIGH"))
             or _safe_float(key_levels.get("BREAKOUT_RANGE_UPPER"))
         )
+        for value in (premarket_high, prior_close, hod, opening_range_high):
+            if value is not None and (not isfinite(value) or value <= 0):
+                return self._rejected("GAP_GO_INVALID_LEVEL_CONTEXT", inputs)
         if premarket_high is None and opening_range_high is None and hod is None and prior_close is None:
             return self._rejected("MISSING_KEY_LEVELS", inputs)
 
@@ -93,6 +122,8 @@ class GapGoPattern(PatternBase):
             return self._rejected("NOT_AT_BREAKOUT_LEVEL", inputs)
 
         rvol = _safe_float(inputs.liquidity_context.rvol)
+        if rvol is not None and (not isfinite(rvol) or rvol < 0):
+            return self._rejected("GAP_GO_INVALID_LIQUIDITY_CONTEXT", inputs)
         if rvol is None:
             return self._rejected("MISSING_TRADABILITY_CONTEXT", inputs)
         if inputs.session_context == SessionContext.PRE:
@@ -128,6 +159,8 @@ class GapGoPattern(PatternBase):
             return self._rejected("WEAK_STRUCTURE", inputs)
 
         spread = _safe_float(inputs.liquidity_context.spread)
+        if spread is not None and (not isfinite(spread) or spread < 0):
+            return self._rejected("GAP_GO_INVALID_LIQUIDITY_CONTEXT", inputs)
         if spread is None:
             return self._rejected("MISSING_TRADABILITY_CONTEXT", inputs)
         spread_pct = spread if spread < 1 else spread / max(price, 1e-9)
@@ -135,6 +168,8 @@ class GapGoPattern(PatternBase):
             return self._rejected("WIDE_SPREAD", inputs)
 
         float_millions = _safe_float(inputs.liquidity_context.float_millions)
+        if float_millions is not None and (not isfinite(float_millions) or float_millions <= 0):
+            return self._rejected("GAP_GO_INVALID_LIQUIDITY_CONTEXT", inputs)
         risk_flags: list[str] = []
         if float_millions is None:
             risk_flags.append("FLOAT_CONTEXT_MISSING")
@@ -154,11 +189,23 @@ class GapGoPattern(PatternBase):
             setup_tags.append("LOW_FLOAT")
 
         confidence = min(0.9, 0.62 + min(gap_pct, 0.25) * 0.8 + (0.08 if volume_ok else 0.0) + (0.06 if structure_known else 0.0))
-        detected = self._detected(
-            inputs,
-            direction=Direction.LONG,
-            confidence=confidence,
-            rationale=(
+        if press_pmh:
+            trigger_type, reference, reference_name = "PMH_BREAK", premarket_high, "premarket_high"
+        elif press_hod:
+            trigger_type, reference, reference_name = "HOD_BREAK", hod, "hod"
+        elif press_orh:
+            trigger_type, reference, reference_name = "BREAK_AND_HOLD", opening_range_high, "opening_range_high"
+        else:
+            # Prior-close pressure is context, not an approved breakout anchor.
+            return self._rejected("GAP_GO_TRIGGER_REFERENCE_UNDEFINED", inputs)
+        if above_vwap:
+            setup_tags.append("VWAP_ABOVE")
+        print(f"[PATTERN] {inputs.symbol} {self.name} DETECTED LONG conf={confidence:.2f}")
+        return PatternResult(
+            setup_id=self.pattern_id, setup_family_id="GAP_GO", pattern_name=self.name,
+            pattern_family=self.family, detected=True, direction=Direction.LONG,
+            confidence=confidence, setup_quality_tags=setup_tags, tags=list(setup_tags),
+            rationale_text=(
                 "Gap-up continuation context is active with level pressure and session-aligned participation.\n"
                 f"Gap%={gap_pct:.2%}, close={price:.2f}, PMH={premarket_high}, ORH={opening_range_high}, "
                 f"HOD={hod}, RVOL={rvol:.2f}, spread={spread:.4f}."
@@ -166,18 +213,25 @@ class GapGoPattern(PatternBase):
             entry_zone="Break/hold continuation through PMH/ORH/HOD context",
             stop_suggestion="Under premarket high or opening pullback low",
             target_suggestion="Range expansion toward HOD extension",
-            setup_quality_tags=setup_tags,
-            risk_flags=risk_flags,
+            risk_flags=risk_flags, data_quality_flags=list(inputs.data_quality_flags),
+            trigger_type=trigger_type, trigger_level=reference,
+            # No approved offset below PMH or measured opening-pullback window is
+            # supplied by this detector. Generic LOD/EMA/min-low is not authority.
+            stop_level=None, invalidation_level=None,
+            setup_metadata={
+                "trigger_reference_name": reference_name,
+                "trigger_reference_level": reference,
+                "entry_contract_block_reason": "gap_go_structural_stop_authority_missing",
+                "observed_at_utc": clock.isoformat() if clock else None,
+                "source_timeframe": inputs.timeframe,
+                "timeframe_provenance": dict(inputs.timeframe_provenance),
+                "level_provenance": dict(inputs.level_provenance),
+                "source_bar_count": original_count,
+                "completed_bar_count": len(inputs.candles),
+                "source_timestamps": [c.timestamp.isoformat() if isinstance(c.timestamp, datetime) else None
+                                      for c in inputs.candles],
+            },
         )
-        trigger_type = "BREAKOUT_HIGH"
-        if press_pmh:
-            trigger_type = "PMH_BREAK"
-        elif press_hod:
-            trigger_type = "HOD_BREAK"
-        elif press_orh:
-            trigger_type = "BREAK_AND_HOLD"
-        return replace(detected, setup_family_id="GAP_GO", trigger_type=trigger_type)
-
 
 class FirstPullbackPattern(PatternBase):
     pattern_id = "P_FIRST_PULLBACK"
