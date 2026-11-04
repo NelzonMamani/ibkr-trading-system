@@ -66,6 +66,12 @@ def actual_run(monkeypatch, tmp_path, *, state="ready", duplicate=False, mode=Ru
         data["1m"] = _candles(tight,end=end)
         data["1m"].append(replace(data["1m"][-1],open=10.42,high=10.6,low=10.4,close=10.53,
                                   timestamp=CLOCK.replace(second=0)))
+    if state in {"execution_at_max_age","execution_over_max_age"}:
+        # Keep the completed setup before the execution window. This control
+        # isolates existing age semantics, not intrabar ordering certification.
+        data["1m"] = _candles(rows,end=CLOCK.replace(minute=33,second=0))
+        end = CLOCK-timedelta(seconds=60,microseconds=1 if state == "execution_over_max_age" else 0)
+        data["10s"] = _candles(execution,end=end,step_seconds=10)
     monkeypatch.setattr("src.strategies.ross_momentum.patterns.pattern_trace.get_intraday_bars",
         lambda *,timeframe="1m",limit=50,**kw:list(data[timeframe])[-limit:])
     registry = RossPatternRegistry()
@@ -323,3 +329,21 @@ def test_component_declared_clock_is_validated_even_without_a_family_label():
     candles = [{"open":10.37,"high":10.56,"low":10.32,"close":10.53,"volume":200}]*5
     outcome = evaluate_consolidation_breakout_trigger(payload,{"candles":candles})
     assert not outcome["trigger_ready_now"] and outcome["trigger_reason"] == "consolidation_invalid_candle_timestamps"
+
+
+@pytest.mark.parametrize("over", [False,True])
+def test_actual_v1_execution_age_boundary_uses_original_clock(monkeypatch,tmp_path,over):
+    state = "execution_over_max_age" if over else "execution_at_max_age"
+    strategy,intents,results,calls,inputs = actual_run(monkeypatch,tmp_path,state=state)
+    assert results[0].detected
+    assert inputs[0].observed_at_utc == CLOCK
+    assert inputs[0].timeframe_provenance["1m"] == "PRESENT"
+    assert inputs[0].timeframe_provenance["10s"] == ("STALE" if over else "PRESENT")
+    if over:
+        assert intents == []
+        assert strategy.last_symbol_terminal_outcomes["UPC"]["reason"] == "execution_stream_stale"
+    else:
+        assert len(intents) == 1
+        assert intents[0].entry_price == 10.4 and intents[0].invalidation_level == 10.31
+        own = next(c for c in calls if c[0].get("source") == "canonical_pattern_result")
+        assert own[0]["execution_stream"]["observed_at_utc"] == CLOCK.isoformat()
