@@ -96,6 +96,13 @@ def actual_run(monkeypatch, tmp_path, *, state="ready", duplicate=False):
                                 timestamp=datetime(2026, 9, 16, 14, 35, tzinfo=timezone.utc)))
     if state == "confirm_extremes":
         data["1m"][-1] = replace(data["1m"][-1], high=99., low=1.)
+    if state in {"stale_prefix_forming_tail", "completed_at_max_age", "completed_over_max_age"}:
+        age = 630 if state == "stale_prefix_forming_tail" else 180
+        offset = timedelta(microseconds=1 if state == "completed_over_max_age" else 0)
+        end = datetime(2026, 9, 16, 14, 35, 30, tzinfo=timezone.utc)-timedelta(seconds=age)-offset
+        data["1m"] = _candles(rows, end=end)
+        data["1m"].append(replace(data["1m"][-1], high=99., low=1.,
+            timestamp=datetime(2026, 9, 16, 14, 35, tzinfo=timezone.utc)))
     if state == "broker_date_strings":
         broker_zone = timezone(timedelta(hours=-4))
         data = {tf: [replace(c, timestamp=c.timestamp.astimezone(broker_zone).strftime(
@@ -385,3 +392,27 @@ def test_canonical_flat_top_stream_still_requires_its_original_clock():
     outcome = evaluate_flat_top_breakout_trigger(payload, {"candles": candles})
     assert not outcome["trigger_ready_now"]
     assert outcome["trigger_reason"] == "flat_top_invalid_candle_timestamps"
+
+
+@pytest.mark.parametrize("state", ["stale_prefix_forming_tail", "completed_over_max_age"])
+def test_completed_source_cannot_borrow_forming_tail_freshness(monkeypatch, tmp_path, state):
+    _, intents, results, _, inputs = actual_run(monkeypatch, tmp_path, state=state)
+    assert inputs[0].timeframe_provenance["1m"] == "PRESENT"
+    assert intents == []
+    assert results and not results[0].detected
+    assert results[0].rejection_reason == "completed_source_stale"
+
+
+def test_completed_source_at_existing_max_age_remains_eligible(monkeypatch, tmp_path):
+    _, intents, results, _, inputs = actual_run(monkeypatch, tmp_path, state="completed_at_max_age")
+    assert inputs[0].timeframe_provenance["1m"] == "PRESENT"
+    assert results[0].detected and len(intents) == 1
+    assert intents[0].entry_price == 10.2 and intents[0].invalidation_level == 9.99
+
+
+def test_all_forming_source_is_unavailable_not_a_completed_breakout(monkeypatch, tmp_path):
+    from src.setup_engine.setup_families.pullbacks import FlatTopBreakoutPattern
+    _, _, _, _, inputs = actual_run(monkeypatch, tmp_path)
+    forming = replace(inputs[0].candles[-1], timestamp=datetime(2026, 9, 16, 14, 35, tzinfo=timezone.utc))
+    result = FlatTopBreakoutPattern().evaluate(replace(inputs[0], candles=[forming]))
+    assert not result.detected and result.rejection_reason == "insufficient_candles"

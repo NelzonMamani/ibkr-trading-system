@@ -6,8 +6,9 @@ from datetime import datetime, timedelta
 from math import isfinite
 
 from src.strategies.common.triggers.trigger_abcd_continuation import abcd_candle_rejection
-from src.strategies.ross_momentum.patterns.pattern_inputs import PatternInputs
+from src.strategies.ross_momentum.patterns.pattern_inputs import PatternInputs, _timeframe_provenance
 from src.strategies.ross_momentum.patterns.pattern_types import Direction, PatternFamily, PatternResult
+from src.strategies.ross_momentum.policy.pattern_input_policy import PatternInputPolicy
 
 
 def _safe_float(value: object) -> float | None:
@@ -53,6 +54,14 @@ def detect_flat_top_breakout(inputs: PatternInputs) -> PatternResult:
         candles = [c for c in candles if c.timestamp + timedelta(seconds=seconds) <= clock]
     if len(candles) < 5:
         return reject("insufficient_candles")
+    if clock is not None:
+        # Upstream provenance included the forming tail. It cannot confer
+        # freshness on the completed source actually consumed here. Runtime
+        # acquisition uses this same policy/provenance owner and original clock.
+        status = _timeframe_provenance(candles, inputs.primary_timeframe,
+            PatternInputPolicy.from_policy_v2(), symbol=inputs.symbol, now_utc=clock)
+        if status != "PRESENT":
+            return reject("completed_source_" + status.lower())
 
     spread = _safe_float(inputs.liquidity_context.spread)
     if spread is not None and spread < 0:
