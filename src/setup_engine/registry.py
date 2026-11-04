@@ -55,6 +55,7 @@ class SetupFamilyImplementation:
     pattern_cls: Type[PatternBase]
     status: SetupImplementationStatus
     reason: str = ""
+    canonical_setup_id: str | None = None
 
 
 CANONICAL_SETUP_REGISTRY: Dict[str, SetupFamilyImplementation] = {
@@ -81,7 +82,7 @@ CANONICAL_SETUP_REGISTRY: Dict[str, SetupFamilyImplementation] = {
         reason="Exit/risk signal — not an entry setup",
     ),
     "GAP_FILL": SetupFamilyImplementation("GAP_FILL", GapFillReversalPattern, SetupImplementationStatus.TRADE_READY),
-    "GAP_CONTINUATION": SetupFamilyImplementation("GAP_CONTINUATION", GapGoPattern, SetupImplementationStatus.TRADE_READY),
+    "GAP_CONTINUATION": SetupFamilyImplementation("GAP_CONTINUATION", GapGoPattern, SetupImplementationStatus.TRADE_READY, canonical_setup_id="GAP_GO"),
     "OPENING_DRIVE": SetupFamilyImplementation("OPENING_DRIVE", OpeningDrivePattern, SetupImplementationStatus.TRADE_READY),
     "OPENING_FAKEOUT": SetupFamilyImplementation("OPENING_FAKEOUT", OpeningFakeoutPattern, SetupImplementationStatus.TRADE_READY),
     "CONSOLIDATION_BREAKOUT": SetupFamilyImplementation("CONSOLIDATION_BREAKOUT", ConsolidationBreakoutPattern, SetupImplementationStatus.TRADE_READY),
@@ -99,9 +100,30 @@ CANONICAL_SETUP_REGISTRY: Dict[str, SetupFamilyImplementation] = {
 }
 
 
-def build_tradeable_patterns() -> list[PatternBase]:
-    patterns: list[PatternBase] = []
+def build_tradeable_patterns(requested_setup_ids: list[str] | None = None) -> list[PatternBase]:
+    """Build enabled implementations once for explicit aliases, without caching results.
+
+    Requested names select existing registry entries; omission retains all enabled
+    entries. Only declared aliases of the identical implementation are coalesced.
+    Registry order, not caller request order, determines evaluation order.
+    """
+    requested = None if requested_setup_ids is None else set(requested_setup_ids)
+    groups: dict[str, tuple[PatternBase, list[str]]] = {}
     for spec in CANONICAL_SETUP_REGISTRY.values():
-        if spec.status in {SetupImplementationStatus.TRADE_READY, SetupImplementationStatus.PROBATIONARY}:
-            patterns.append(spec.pattern_cls())
+        if requested is not None and spec.setup_id not in requested:
+            continue
+        if spec.status not in {SetupImplementationStatus.TRADE_READY, SetupImplementationStatus.PROBATIONARY}:
+            continue
+        canonical = spec.canonical_setup_id or spec.setup_id
+        authority = CANONICAL_SETUP_REGISTRY[canonical]
+        if authority.pattern_cls is not spec.pattern_cls or authority.canonical_setup_id is not None:
+            raise ValueError("Invalid canonical detector alias")
+        if canonical not in groups:
+            groups[canonical] = (spec.pattern_cls(), [])
+        groups[canonical][1].append(spec.setup_id)
+    patterns: list[PatternBase] = []
+    for canonical, (pattern, names) in groups.items():
+        pattern.canonical_setup_id = canonical
+        pattern.requested_setup_ids = tuple(sorted(names))
+        patterns.append(pattern)
     return patterns

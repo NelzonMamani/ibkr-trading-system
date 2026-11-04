@@ -198,6 +198,7 @@ class RossPatternTrace:
     pattern_name: str
     setup_family: str | None = None
     setup_family_id: str | None = None  # legacy constructor compatibility only
+    requested_setup_ids: list[str] = field(default_factory=list)
     invoked: bool = False
     skipped: bool = False
     skip_reason: str | None = None

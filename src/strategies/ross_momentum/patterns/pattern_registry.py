@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any, Callable, List
+from dataclasses import replace
 
 from src.config.config_resolver import get_config
 from src.setup_engine.registry import CANONICAL_SETUP_REGISTRY, build_tradeable_patterns
@@ -110,6 +111,17 @@ class RossPatternRegistry:
     ) -> List[PatternResult]:
         input_summary = dict((trace_context or {}).get("input_summary") or {})
         results: List[PatternResult] = []
+
+        def retain_aliases(result: PatternResult, pattern: PatternBase) -> PatternResult:
+            names = getattr(pattern, "requested_setup_ids", ())
+            if names and getattr(pattern, "canonical_setup_id", None) == "GAP_GO":
+                return replace(result, setup_metadata={
+                    **result.setup_metadata,
+                    "canonical_setup_id": "GAP_GO",
+                    "requested_setup_ids": list(names),
+                })
+            return result
+
         for pattern in self._patterns:
             pattern_id = getattr(pattern, "pattern_id", "") or pattern.name
             setup_name = self._setup_name_by_pattern_id.get(pattern_id)
@@ -131,7 +143,8 @@ class RossPatternRegistry:
                 symbol_source=(trace_context or {}).get("symbol_source"),
                 pattern_id=pattern_id,
                 pattern_name=pattern.name,
-                setup_family_id=resolve_trace_setup_family(pattern_id),
+                setup_family_id=resolve_trace_setup_family(pattern_id, getattr(pattern, "canonical_setup_id", None)),
+                requested_setup_ids=list(getattr(pattern, "requested_setup_ids", ())),
                 invoked=True,
                 input_summary=input_summary,
                 input_quality_flags=list(inputs.data_quality_flags),
@@ -227,7 +240,7 @@ class RossPatternRegistry:
                 print(
                     f"[PATTERN_TRACE][REJECT] symbol={inputs.symbol} pattern={pattern.name} reason={input_block_reason}"
                 )
-                results.append(result)
+                results.append(retain_aliases(result, pattern))
                 if trace_collector is not None:
                     trace_collector(pattern_trace)
                 continue
@@ -240,6 +253,8 @@ class RossPatternRegistry:
                     pattern_id=pattern_id,
                 )
                 canonical_family = resolve_trace_setup_family(pattern_id, result.setup_family_id)
+                if canonical_family is None:
+                    canonical_family = resolve_trace_setup_family(pattern_id, getattr(pattern, "canonical_setup_id", None))
                 pattern_trace.setup_family = canonical_family
                 pattern_trace.setup_family_id = canonical_family
                 pattern_trace.detected = bool(result.detected)
@@ -266,7 +281,7 @@ class RossPatternRegistry:
                     f"detected={bool(result.detected)} reason={result.rejection_reason or 'detected'} "
                     f"pattern_name={result.pattern_name}"
                 )
-                results.append(result)
+                results.append(retain_aliases(result, pattern))
             except Exception as exc:
                 pattern_trace.detected = False
                 pattern_trace.final_outcome = "ERROR"
