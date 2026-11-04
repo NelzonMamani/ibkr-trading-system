@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
@@ -199,6 +200,18 @@ def test_first_pullback_requires_valid_structure_and_stop() -> None:
 
 
 def test_flat_top_breakout_uses_real_resistance_and_volume_confirmation() -> None:
+    def completed_inputs(rows):
+        inputs = _authoritative_inputs(rows=rows, session_label="RTH_MID")
+        # This test used 10s-spaced starts in every labelled timeframe. Supply
+        # genuine completed source bars, keeping real builder/registry validation.
+        frames = {tf: [replace(candle, timestamp=inputs.observed_at_utc - timedelta(
+            seconds=seconds*(len(candles)-index))) for index, candle in enumerate(candles)]
+            for tf, candles in inputs.timeframe_candles.items()
+            for seconds in [{"10s": 10, "1m": 60, "5m": 300}[tf]]}
+        return build_authoritative_pattern_inputs(symbol=inputs.symbol, session_label="RTH_MID",
+            timeframe_candles=frames, levels=inputs.levels, indicators=inputs.indicators,
+            liquidity_context=inputs.liquidity_context, news_context=inputs.news_context,
+            now=inputs.observed_at_utc)
     rows = [
         (10.02, 10.18, 9.99, 10.14, 1000),
         (10.14, 10.19, 10.05, 10.16, 1050),
@@ -206,13 +219,13 @@ def test_flat_top_breakout_uses_real_resistance_and_volume_confirmation() -> Non
         (10.17, 10.19, 10.10, 10.18, 1100),
         (10.18, 10.30, 10.14, 10.27, 1600),
     ]
-    detected = _run_single(FlatTopBreakoutPattern(), _authoritative_inputs(rows=rows, session_label="RTH_MID"))
+    detected = _run_single(FlatTopBreakoutPattern(), completed_inputs(rows))
     assert detected.detected is True
     assert detected.trigger_level == 10.20
     assert detected.stop_level is not None
 
     weak_volume = rows[:-1] + [(10.18, 10.30, 10.14, 10.27, 600)]
-    rejected = _run_single(FlatTopBreakoutPattern(), _authoritative_inputs(rows=weak_volume, session_label="RTH_MID"))
+    rejected = _run_single(FlatTopBreakoutPattern(), completed_inputs(weak_volume))
     assert rejected.detected is False
     assert rejected.rejection_reason == "breakout_volume_below_average"
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from src.strategies.common.triggers.trigger_abcd_continuation import abcd_candle_rejection
 
 def _safe_float(value):
     try:
@@ -25,6 +26,16 @@ def evaluate_flat_top_breakout_trigger(pattern_result, inputs):
         }
 
     payload = pattern_result if isinstance(pattern_result, dict) else {}
+    stream = payload.get("execution_stream")
+    # The range-break wrapper reuses the price comparison below; do not change
+    # that family's policy. Actual Flat Top V1 dispatch supplies stream authority.
+    if payload.get("setup_family_id") != "CONSOLIDATION_BREAKOUT" and isinstance(stream, dict):
+        rejection = abcd_candle_rejection(candles,
+            observed_at_utc=stream.get("observed_at_utc"), require_clock=True)
+        if rejection:
+            return {"trigger_type": "BREAKOUT_HIGH", "trigger_state": "BLOCKED",
+                    "trigger_ready_now": False, "trigger_reason": "flat_top_" + rejection.lower(),
+                    "trigger_quality_flags": ["BLOCKED", rejection]}
     trigger_level = _safe_float(payload.get("trigger_level"))
     invalidation_level = _safe_float(payload.get("invalidation_level") or payload.get("stop_level"))
     if trigger_level is None:

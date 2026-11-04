@@ -53,7 +53,7 @@ def test_flat_top_breakout_rejects_insufficient_touches() -> None:
     candles = [
         Candle(10.02, 10.159, 9.99, 10.14, 1000),
         Candle(10.14, 10.19, 10.05, 10.16, 1050),
-        Candle(10.16, 10.15, 10.08, 10.14, 1020),
+        Candle(10.14, 10.15, 10.08, 10.14, 1020),
         Candle(10.17, 10.19, 10.10, 10.18, 1100),
         Candle(10.18, 10.30, 10.14, 10.27, 1600),
     ]

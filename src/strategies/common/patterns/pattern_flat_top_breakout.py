@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+from math import isfinite
+
+from src.strategies.common.triggers.trigger_abcd_continuation import abcd_candle_rejection
 from src.strategies.ross_momentum.patterns.pattern_inputs import PatternInputs
 from src.strategies.ross_momentum.patterns.pattern_types import Direction, PatternFamily, PatternResult
 
 
 def _safe_float(value: object) -> float | None:
     try:
-        return None if value is None else float(value)
+        number = None if value is None or isinstance(value, bool) else float(value)
+        return number if number is not None and isfinite(number) else None
     except (TypeError, ValueError):
         return None
 
@@ -31,6 +36,21 @@ def detect_flat_top_breakout(inputs: PatternInputs) -> PatternResult:
         )
 
     candles = list(inputs.candles or [])
+    # Source close/geometry must come from completed candles under the original
+    # observation clock, not the developing breakout candle. Timeless component
+    # fixtures retain their existing compatibility; runtime supplies this clock.
+    clock = inputs.observed_at_utc
+    if clock is not None and not isinstance(clock, datetime):
+        return reject("INVALID_CANDLE_TIMESTAMPS")
+    rejection = abcd_candle_rejection(candles, observed_at_utc=clock,
+                                      require_clock=bool(inputs.timeframe_provenance))
+    if rejection:
+        return reject(rejection)
+    if clock is not None:
+        seconds = {"10s": 10, "1m": 60, "5m": 300}.get(inputs.primary_timeframe)
+        if seconds is None:
+            return reject("INVALID_STRUCTURE_TIMEFRAME")
+        candles = [c for c in candles if c.timestamp + timedelta(seconds=seconds) <= clock]
     if len(candles) < 5:
         return reject("insufficient_candles")
 
