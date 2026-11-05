@@ -201,24 +201,6 @@ class IbkrLiveBroker(BaseBroker):
                 client_order_id=request.client_order_id,
                 attempt_number=request.attempt_number,
             )
-        self.event_collector.emit(
-            event_type="ORDER_SUBMITTED",
-            source="IbkrLiveBroker",
-            payload={
-                "client_order_id": request.client_order_id,
-                "symbol": request.symbol,
-                "trader_type": request.trader_type,
-                "strategy_name": request.strategy_name,
-                "direction": request.direction,
-                "requested_quantity": request.quantity,
-                "created_tick": request.created_tick or 0,
-                "attempt_number": request.attempt_number,
-                "order_type": request.order_type,
-                "quantity": request.quantity,
-                "timestamp": timestamp,
-            },
-        )
-
         internal_order = InternalOrder(
             client_order_id=request.client_order_id,
             symbol=request.symbol,
@@ -408,7 +390,7 @@ class IbkrLiveBroker(BaseBroker):
             f"submitted_qty={request.quantity} final_execution_status={status}"
         )
 
-        return ExecutionResult(
+        execution_result = ExecutionResult(
             symbol=request.symbol,
             trader_type=request.trader_type or "UNKNOWN",
             attempted=attempted,
@@ -435,7 +417,27 @@ class IbkrLiveBroker(BaseBroker):
             broker_error_code=result.broker_error_code,
             broker_error_message=result.broker_error_message,
             ibkr_order_id=result.ibkr_order_id,
+            acknowledged_at=(result.acked_at.isoformat() if getattr(result, "acked_at", None) else None),
         )
+        if execution_result.submission_confirmed():
+            self.event_collector.emit(
+                event_type="ORDER_SUBMITTED",
+                source="IbkrLiveBroker",
+                payload={
+                    "client_order_id": request.client_order_id,
+                    "symbol": request.symbol,
+                    "trader_type": request.trader_type,
+                    "strategy_name": request.strategy_name,
+                    "direction": request.direction,
+                    "requested_quantity": request.quantity,
+                    "created_tick": request.created_tick or 0,
+                    "attempt_number": request.attempt_number,
+                    "order_type": request.order_type,
+                    "quantity": request.quantity,
+                    "timestamp": timestamp,
+                },
+            )
+        return execution_result
 
     def cancel_order(self, client_order_id: str) -> None:
         raise RuntimeError("Live order cancellation not implemented in LIVE mode.")

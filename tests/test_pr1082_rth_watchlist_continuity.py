@@ -179,6 +179,7 @@ def _install_runtime_harness(
     payloads: list[dict[str, object] | Callable[[], dict[str, object]]],
     *,
     run_mode: str = "READ_ONLY",
+    config_overrides: dict | None = None,
 ):
     set_config_overrides(
         {
@@ -195,6 +196,7 @@ def _install_runtime_harness(
             "FOCUS_REFRESH_SECONDS": 10,
             "ROSS_VALIDATION_OVERRIDE_ENABLED": False,
             "MANUAL_FOCUS_ENABLED": False,
+            **(config_overrides or {}),
         }
     )
     monkeypatch.setenv("FORCE_SESSION", "RTH")

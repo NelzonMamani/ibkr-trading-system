@@ -326,7 +326,9 @@ def test_ordinary_rejection_and_cancel_still_release_reservation() -> None:
 
     rejected = rejected_engine.execute_trade(_risk_decision(quantity=1))
 
-    assert rejected.status == "BLOCKED"
+    assert rejected.status == "REJECTED"
+    assert not rejected_engine.submission_confirmed(rejected)
+    assert len(rejected_provider.submitted_orders) == 1
     assert rejected_engine.pending_book.count() == 0
     assert rejected_engine.capital_authority.active_reservations == {}
 
@@ -335,6 +337,8 @@ def test_ordinary_rejection_and_cancel_still_release_reservation() -> None:
 
     cancelled = cancelled_engine.execute_trade(_risk_decision(quantity=1))
 
-    assert cancelled.status == "BLOCKED"
+    assert cancelled.status == "Cancelled"
+    assert not cancelled_engine.submission_confirmed(cancelled)
+    assert len(cancelled_provider.submitted_orders) == 1
     assert cancelled_engine.pending_book.count() == 0
     assert cancelled_engine.capital_authority.active_reservations == {}
