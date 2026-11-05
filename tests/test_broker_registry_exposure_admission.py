@@ -19,6 +19,7 @@ from src.execution.execution_engine import ExecutionEngine
 from src.execution.execution_providers import PaperExecutionProvider
 from src.ibkr.position_snapshot import BrokerPositionResult
 from src.ibkr.mutation_audit import snapshot as mutation_snapshot
+import test_joined_core_bull_micro as joined_module
 from test_joined_core_bull_micro import joined, lifecycle, reassessment, _reset_config
 from test_key_level_break_production_handoff import forbid_io
 
@@ -56,8 +57,9 @@ class AccountBoundary(PaperExecutionProvider):
         return {"NetLiquidation":1000.,"AvailableFunds":1000.,"BuyingPower":1000.}
 
 
-@pytest.mark.parametrize("broker_qty,system_qty",[(2,2),(3,2),(3,3)])
-def test_real_broker_registry_exposure_admission(reassessment,monkeypatch,tmp_path,capsys,broker_qty,system_qty,no_external_activity):
+def _run_exposure_control(reassessment,monkeypatch,tmp_path,capsys,broker_qty,system_qty,no_external_activity,eligible):
+    if eligible:
+        _install_eligible_market_facts(reassessment,monkeypatch)
     h=joined(reassessment,monkeypatch,tmp_path,position_case="complete_empty")
     # Real empty startup recovery happens before synthetic held-fill facts arrive.
     # No recovery result/permission is forced or patched.
@@ -103,14 +105,31 @@ def test_real_broker_registry_exposure_admission(reassessment,monkeypatch,tmp_pa
     assert len(raw)==1,formation_log
     intent=raw[0]
     truth,verdict=h.truth[-1]
-    assert not verdict.block_new_entries
     assert [m.mismatch_type for m in truth.mismatches]==(["QUANTITY_MISMATCH"] if broker_qty!=system_qty else [])
+    if verdict.block_new_entries:
+        # The retained safety regression must stop if the existing shared truth
+        # owner vetoes. Never feed a rejected raw intent around that boundary.
+        assert h.artifacts==h.evaluated==[] and intent.decision_id is None
+        assert engine.capital_authority.active_reservations=={}
+        assert engine.strategy_allocation_authority.active_reservations=={}
+        assert no_external_activity==[] and mutation_snapshot()=={"place":0,"modify":0,"cancel":0}
+        return dict(capital_admitted=False,broker_projected=broker_qty*10.+10.91,
+            limit=35.,risk_allowed=False,admitted_size=0,reserved_after=0.)
     config_resolver.set_config_overrides(paper_overrides)
     # A fresh real artifact for this separate mode evaluation, never arbitrary ID.
     intent.decision_id=None
     artifact=build_decision_artifact(strategy_name=intent.strategy_name,run_mode="PAPER",session_phase="RTH_OPEN",
         intents=[intent],source="offline-exposure-control",created_at=h.life.clock.current.isoformat())
     intent.decision_id=artifact.decision_id
+    if eligible:
+        assert h.rows["JPM"]["prev_close"]==h.rows["JPM"]["reference_price"]==9.75
+        assert h.rows["JPM"]["last_price"]==10.92
+        assert (h.rows["JPM"]["last_price"]/h.rows["JPM"]["prev_close"]-1)*100==pytest.approx(12.)
+        overlay=h.core.risk_engine.ross_overlay
+        assert overlay.min_gap<=intent.gap_percent<=overlay.max_gap
+        assert intent.float_millions<=overlay.float_ceiling and intent.rvol>=overlay.rvol_floor
+        assert intent.confidence>=overlay.confidence_floor
+        assert h.c.payload["ross_watchlist_reassessment"]["thresholds"].focus_pct_change_min<=12.
     received=deepcopy(vars(intent))
     decision=h.core.risk_engine.evaluate_trade_intent(intent)
     registry_exposure=h.core.risk_engine._total_exposure()
@@ -136,7 +155,7 @@ def test_real_broker_registry_exposure_admission(reassessment,monkeypatch,tmp_pa
             pass
         capital=getattr(decision,"capital_decision",None)
         allocation=getattr(decision,"strategy_allocation_decision",None)
-        print("EXPOSURE_CONTROL",{"broker_qty":broker_qty,"system_qty":system_qty,
+        print("EXPOSURE_CONTROL",{"broker_qty":broker_qty,"system_qty":system_qty,"eligible":eligible,
             "truth":truth.snapshot_status,"warning":verdict.warning_mismatch_count,
             "registry":registry_exposure,"lifecycle":lifecycle_exposure,"context":context,
             "used":engine.capital_authority.total_used_exposure,"risk_allowed":decision.allowed,
@@ -149,8 +168,8 @@ def test_real_broker_registry_exposure_admission(reassessment,monkeypatch,tmp_pa
         assert context["current_total_exposure"]==engine.capital_authority.total_used_exposure==system_qty*10.
         assert decision.decision_id==artifact.decision_id and vars(intent)==received
         assert mutation_snapshot()=={"place":0,"modify":0,"cancel":0}
-        # Do not alter gap25 or loosen its actual4..20 gate to force admission.
-        assert intent.gap_percent==25. and h.core.risk_engine.ross_overlay.min_gap==4.
+        # Historical input stays unchanged; corrected profile changes fixture facts only.
+        assert intent.gap_percent==(12. if eligible else 25.) and h.core.risk_engine.ross_overlay.min_gap==4.
         assert h.core.risk_engine.ross_overlay.max_gap==20.
         assert (intent.symbol,intent.direction,intent.entry_price,intent.stop_loss_price)==("JPM","LONG",10.91,10.81)
         assert intent.relationship_context["security_id"]=="conId:123"
@@ -163,15 +182,30 @@ def test_real_broker_registry_exposure_admission(reassessment,monkeypatch,tmp_pa
         assert decision.evaluated_limits["max_total_exposure"]==35.
         assert decision.evaluated_limits["trade_value"]==10.91
         assert decision.evaluated_limits["lifecycle_total_exposure"]==system_qty*10.
-        assert not decision.allowed and decision.max_position_size==0
-        assert decision.overall_action=="BLOCK" and decision.decision_code=="REJECT"
-        # Existing Ross overlay omits this marker; do not fake it true or
-        # confuse it with an allowed order. Report the inconsistency separately.
-        assert decision.execution_blocked==(system_qty==3)
-        assert decision.reason_code==("CAPITAL_PORTFOLIO_LIMIT" if system_qty==3 else "ROSS_BLOCK_GAP_OUT_OF_RANGE")
-        assert allocation is capital is None and not boundaries and result is None and not execution_calls
+        if not eligible:
+            assert not decision.allowed and decision.max_position_size==0
+            assert decision.overall_action=="BLOCK" and decision.decision_code=="REJECT"
+            # Preserve the separately recorded marker inconsistency, no repair.
+            assert decision.execution_blocked==(system_qty==3)
+            assert decision.reason_code==("CAPITAL_PORTFOLIO_LIMIT" if system_qty==3 else "ROSS_BLOCK_GAP_OUT_OF_RANGE")
+            assert allocation is capital is None and not boundaries and result is None and not execution_calls
+            assert not engine.capital_authority.active_reservations and not engine.strategy_allocation_authority.active_reservations
+        elif system_qty==2:
+            assert decision.allowed and not decision.execution_blocked and decision.max_position_size==1
+            assert allocation.executable and capital.executable
+            assert capital.requested_quantity==capital.approved_quantity==1
+            assert capital.current_total_exposure==20. and capital.projected_total_exposure==30.91
+            assert capital.max_total_exposure==35. and capital.approved_notional==10.91
+            assert allocation.approved_quantity==1
+            assert len(boundaries)==len(execution_calls)==1 and result is None
+            assert boundaries[0].quantity==1
+            assert engine.capital_authority.total_reserved_capital==pytest.approx(10.91)
+            assert sum(r.remaining_notional for r in engine.strategy_allocation_authority.active_reservations.values())==pytest.approx(10.91)
+        else:
+            assert not decision.allowed and decision.execution_blocked and decision.max_position_size==0
+            assert decision.reason_code=="CAPITAL_PORTFOLIO_LIMIT"
+            assert allocation is capital is None and not boundaries and not execution_calls
         assert engine._relationship_open_orders==[] and engine.position_records=={}
-        assert not engine.capital_authority.active_reservations and not engine.strategy_allocation_authority.active_reservations
         assert no_external_activity==[]
         assert system_qty*10.+10.91==pytest.approx(30.91 if system_qty==2 else 40.91)
         assert broker_qty*10.+10.91==pytest.approx(30.91 if broker_qty==2 else 40.91)
@@ -181,3 +215,42 @@ def test_real_broker_registry_exposure_admission(reassessment,monkeypatch,tmp_pa
         assert engine.capital_authority.active_reservations=={}
         assert engine.strategy_allocation_authority.active_reservations=={}
         assert mutation_snapshot()=={"place":0,"modify":0,"cancel":0}
+    assert no_external_activity==[]
+    return dict(capital_admitted=bool(capital and capital.executable),
+        broker_projected=broker_qty*10.+10.91,limit=35.,
+        risk_allowed=decision.allowed,admitted_size=decision.max_position_size,
+        reserved_after=engine.capital_authority.total_reserved_capital)
+
+
+@pytest.mark.parametrize("eligible",[False,True],ids=["historical_gap25","eligible_gap12"])
+@pytest.mark.parametrize("broker_qty,system_qty",[(2,2),(3,2),(3,3)])
+def test_real_broker_registry_exposure_admission(reassessment,monkeypatch,tmp_path,capsys,broker_qty,system_qty,no_external_activity,eligible):
+    _run_exposure_control(reassessment,monkeypatch,tmp_path,capsys,broker_qty,system_qty,no_external_activity,eligible)
+
+
+def test_broker_larger_capital_admission_must_respect_broker_exposure(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    # Intentionally failing safety regression for the demonstrated production
+    # admission defect. No skip/xfail or production repair in this investigation.
+    outcome=_run_exposure_control(reassessment,monkeypatch,tmp_path,capsys,3,2,no_external_activity,True)
+    assert outcome["reserved_after"]==0.
+    assert not outcome["capital_admitted"] or outcome["broker_projected"]<=outcome["limit"], outcome
+
+
+def _install_eligible_market_facts(reassessment,monkeypatch):
+    """External fixture correction, never a pattern/permission/decision override."""
+    previous_close=9.75
+    last=10.92
+    gap=round((last/previous_close-1)*100,8)
+    assert gap==12.
+    facts=dict(last_price=last,prev_close=previous_close,ref_close_rth=previous_close,
+        reference_price=previous_close,gap_pct=gap,pct_change=gap,pct_change_resolved=True,
+        bid=10.91,ask=10.93,spread_pct=100*.02/last,rvol=10.,relative_volume=10.,
+        rvol_discovery=10.,rvol_phase=10.,float_millions=8.,float_shares=8_000_000,
+        volume=2_000_000,premarket_volume=2_000_000,dollar_volume=last*2_000_000)
+    reassessment.row.update(facts)
+    original=joined_module._row
+    def scan_row(symbol):
+        row=original(symbol)
+        for key,value in facts.items(): setattr(row,key,value)
+        return row
+    monkeypatch.setattr(joined_module,"_row",scan_row)
