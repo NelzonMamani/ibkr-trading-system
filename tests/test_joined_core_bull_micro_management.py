@@ -26,9 +26,12 @@ from test_key_level_break_production_handoff import forbid_io
     ("complete_empty","result_trace_error"),("complete_empty","native_timeout"),("complete_empty","native_submitted"),
     ("complete_empty","native_pending"),("complete_empty","native_rejected"),
     ("complete_empty","native_missing_id"),("complete_empty","native_unsupported"),
+    ("complete_empty","native_late_fill"),
 ])
 def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypatch,tmp_path,capsys,
         no_external_activity,position_case,transport):
+    late_fill=transport=="native_late_fill"
+    if late_fill: transport="native_submitted"
     native_provider=transport.startswith("native_")
     if native_provider and transport not in {"native_timeout","native_unsupported"}: transport=transport.removeprefix("native_")
     # Retain real methods before inherited fixture startup stubs are installed.
@@ -56,6 +59,15 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
     # empty startup inventory methods. No SDK client or broker is constructed.
     monkeypatch.setattr(core_module,"IbkrLiveBroker",lambda **kw:NS())
     providers=[]
+    cached_facts={}
+    callback_reads=[]
+    protection_requests=[]
+    def cached_status(order_id):
+        callback_reads.append(order_id)
+        return dict(cached_facts.get(order_id,{}))
+    def unexpected_protection(**kwargs):
+        protection_requests.append(kwargs)
+        pytest.fail("acknowledgement alone cannot create structural protection")
     def provider_boundary(**kw):
         provider=PaperExecutionProvider(price_feed=NS(price_for=lambda *a:10.91,get_price=lambda *a:10.91),
             event_collector=core_module.EventCollector(),trade_registry=kw["trade_registry"],run_mode=kw["run_mode"])
@@ -64,7 +76,8 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
             # Actual native provider wrapper; only external broker inventory and
             # transport responses are synthetic. is_live/ack handling stay real.
             provider=IbkrExecutionProvider(broker=NS(positions=lambda:[],open_orders=lambda:[],
-                connection_manager=NS(optional_client=None)),trade_registry=kw["trade_registry"],run_mode=kw["run_mode"])
+                connection_manager=NS(optional_client=NS(cached_order_status=cached_status)),
+                place_stop_order=unexpected_protection),trade_registry=kw["trade_registry"],run_mode=kw["run_mode"])
         providers.append(provider)
         return provider
     monkeypatch.setattr(core_module,"IbkrExecutionProvider",provider_boundary)
@@ -87,6 +100,12 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
     from src.execution.execution_engine import ExecutionEngine
     from src.risk.risk_engine import RiskEngine
     calls=[]
+    callback_drains=[]
+    collect=h.core.execution_engine.collect_relationship_updates
+    def observe_collect():
+        callback_drains.append(True)
+        return collect()
+    monkeypatch.setattr(h.core.execution_engine,"collect_relationship_updates",observe_collect)
     risk_decisions=[]
     execution_results=[]
     admission=[]
@@ -176,6 +195,30 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
         else:
             assert h.core.run_once() is (transport!="stop_after_risk")
             second=capsys.readouterr().out
+            if late_fill:
+                # Submission is actual Core/risk/execution; only a later native
+                # callback fact is supplied at the existing external cache seam.
+                raw_now=[i for batch in h.batches for i in batch]
+                assert len(raw_now)==1 and len(sent)==1 and len(h.artifacts)==1
+                plan=h.manager._relationship_plans[raw_now[0].relationship_context["relationship_id"]]
+                assert plan.entry_quantity==0 and not plan.entry_terminal
+                assert plan.e0 is None and plan.milestone_price is None
+                assert h.manager.snapshot_positions()=={}
+                assert h.core.execution_engine.post_fill_lifecycle.get_trade(plan.initial_order_id) is None
+                assert protection_requests==[]
+                assert h.core.execution_engine.capital_authority.active_reservations
+                assert h.core.execution_engine.strategy_allocation_authority.active_reservations
+                assert execution_results[0].acknowledged_at and execution_results[0].filled_quantity==0
+                assert sent[0].client_order_id.startswith(raw_now[0].decision_id)
+                assert raw_now[0].decision_id==h.artifacts[0][0].decision_id==risk_decisions[0].decision_id
+                assert str(plan.orders[sent[0].client_order_id]["broker_order_id"])=="71"
+                assert sent[0].relationship_context==raw_now[0].relationship_context
+                assert plan.parent_id==raw_now[0].relationship_context["parent_id"]
+                parent=next(p for p in h.manager._parents.values() if p["parent_id"]==plan.parent_id)
+                assert parent["consumed_children"]==[raw_now[0].relationship_context["child_id"]]
+                assert sent[0].quantity==1 and h.core.execution_engine.max_shares_per_order==1
+                assert sent[0].stop_loss_price==pytest.approx(10.81)
+                cached_facts[71]={"status":"Filled","filled":1,"remaining":0,"avgFillPrice":10.91}
             h.life.clock.current+=timedelta(seconds=11)
             assert h.core.run_once() is (transport!="stop_after_risk")
             repeated=capsys.readouterr().out
@@ -185,6 +228,23 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
         pending_allocation=deepcopy(h.core.execution_engine.strategy_allocation_authority.active_reservations)
         h.core.execution_engine.capital_authority.release_reservation(reason="OFFLINE_JOINED_PROOF_END")
         h.core.execution_engine.strategy_allocation_authority.release_reservation(reason="OFFLINE_JOINED_PROOF_END")
+    if late_fill:
+        # Failing-before requirement, not a helper invocation/permission patch.
+        # Preserve the precise missing active-Core callback lifecycle evidence.
+        print("LATE_FILL_BOUNDARY",dict(cached_status="Filled",cached_quantity=1,
+            callback_drains=len(callback_drains),callback_reads=len(callback_reads),
+            management_cycles=downstream.count("_run_trade_management_engine"),
+            result_processing=downstream.count("_apply_execution_results_to_trade_management"),
+            entry_quantity=plan.entry_quantity,entry_terminal=plan.entry_terminal,
+            frozen=plan.e0 is not None,protection_requests=len(protection_requests),
+            pending_capital=bool(pending_capital),pending_allocation=bool(pending_allocation),
+            requests=len(sent),risk_calls=calls.count("risk"),artifacts=len(h.artifacts)))
+        assert no_external_activity==[] and mutations()=={"place":0,"modify":0,"cancel":0}
+        assert h.core.execution_engine.capital_authority.active_reservations=={}
+        assert h.core.execution_engine.strategy_allocation_authority.active_reservations=={}
+        assert callback_drains, "active Core never drains existing native terminal-fill cache"
+        assert plan.entry_quantity==1 and plan.entry_terminal
+        return  # This regression proves callback ingestion only, not later management.
     pending_expected=position_case=="complete_empty" and transport in {"submitted","pending","missing_id","error","native_timeout","native_unsupported"}
     assert bool(pending_capital)==bool(pending_allocation)==pending_expected
     raw=[intent for batch in h.batches for intent in batch]
@@ -206,6 +266,14 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
     assert parent["consumed_children"]==[context["child_id"]]
     if transport not in {"stop_after_risk","integrity_fault","result_trace_error"}: assert "child_already_consumed" in repeated
     assert h.manager.snapshot_positions()=={}
+    if native_provider and transport=="submitted":
+        # Acknowledgement is submission evidence, never authoritative fill truth.
+        plan=h.manager._relationship_plans[context["relationship_id"]]
+        assert plan.entry_quantity==0 and not plan.entry_terminal
+        assert plan.e0 is None and plan.r0 is None and plan.milestone_price is None
+        assert not plan.milestone_consumed
+        assert h.core.execution_engine.post_fill_lifecycle.get_trade(plan.initial_order_id) is None
+        assert protection_requests==[]
     assert h.core.execution_engine.position_records=={}
     assert [vars(t) for t in h.core.trade_registry.snapshot()]==h.initial_registry
     assert h.core.execution_engine.max_shares_per_order==1
