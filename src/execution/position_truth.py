@@ -298,7 +298,15 @@ def reconcile_position_truth(
     warning_count = sum(1 for mismatch in mismatches if mismatch.severity.upper() == "WARNING")
     require_reconciliation = bool(mismatches)
     healthy = critical_count == 0 and warning_count == 0
-    block_new_entries = critical_count > 0
+    # An unresolved broker-larger quantity makes the owned exposure projection
+    # insufficient for ANY new entry, including another symbol. Preserve the
+    # warning classification and exit policy; never adopt or rewrite quantities.
+    broker_larger_quantity = any(
+        mismatch.mismatch_type == "QUANTITY_MISMATCH"
+        and abs(mismatch.broker_quantity) > abs(mismatch.system_quantity)
+        for mismatch in mismatches
+    )
+    block_new_entries = critical_count > 0 or broker_larger_quantity
     block_exits = any(m.mismatch_type in {"BROKER_ONLY_POSITION", "SIGN_MISMATCH", "UNKNOWN_STATE"} for m in mismatches)
 
     snapshot_status = "HEALTHY" if healthy else "MISMATCH"

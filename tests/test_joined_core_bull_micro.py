@@ -513,10 +513,9 @@ def test_joined_core_position_truth_blocks_before_artifact_and_risk(reassessment
 
 
 @pytest.mark.parametrize("position_case,broker_quantity",[("quantity_warning",1),("quantity_warning_larger",3)])
-def test_joined_core_retains_existing_same_side_quantity_warning_policy(reassessment,monkeypatch,tmp_path,capsys,position_case,broker_quantity):
-    # This is NOT a healthy snapshot or an approval. Existing reconciliation
-    # marks same-side quantity differences WARNING, distinct from critical
-    # ownership mismatches; report this boundary rather than broaden policy.
+def test_joined_core_quantity_warning_obeys_broker_magnitude_policy(reassessment,monkeypatch,tmp_path,capsys,position_case,broker_quantity):
+    # Classification stays WARNING. Approved policy now vetoes broker-larger
+    # magnitudes globally; broker-smaller behavior stays unchanged.
     h=joined(reassessment,monkeypatch,tmp_path,position_case=position_case)
     assert h.core.run_once()
     capsys.readouterr()
@@ -525,8 +524,20 @@ def test_joined_core_retains_existing_same_side_quantity_warning_policy(reassess
     out=capsys.readouterr().out
     snapshot,verdict=h.truth[-1]
     assert snapshot.snapshot_status=="MISMATCH" and not verdict.healthy and verdict.require_reconciliation
-    assert verdict.warning_mismatch_count==1 and verdict.critical_mismatch_count==0 and not verdict.block_new_entries
+    assert verdict.warning_mismatch_count==1 and verdict.critical_mismatch_count==0
     assert [m.mismatch_type for m in snapshot.mismatches]==["QUANTITY_MISMATCH"]
+    assert verdict.block_new_entries==(broker_quantity>2)
+    assert not verdict.block_exits and h.core._degraded
+    if broker_quantity>2:
+        raw=[i for batch in h.batches for i in batch]
+        assert len(raw)==1 and raw[0].symbol=="JPM" and raw[0].decision_id is None
+        assert h.artifacts==h.evaluated==[]
+        assert "POSITION_TRUTH_BLOCK_NEW_ENTRIES" in out
+        assert "[PIPELINE][RISK_INPUT] intents_count=0" in out
+        assert snapshot.broker_positions["SYNTH_MATCH"].quantity==broker_quantity
+        assert snapshot.system_positions["SYNTH_MATCH"].quantity==2
+        _assert_no_admission_effects(h)
+        return
     assert len(h.artifacts)==len(h.evaluated)==1,out
     decision=h.evaluated[0][2]
     assert decision.reason_code=="LIVE_READ_ONLY_BLOCK" and decision.execution_blocked
@@ -539,4 +550,37 @@ def test_joined_core_retains_existing_same_side_quantity_warning_policy(reassess
     assert decision.evaluated_limits["trade_value"]==pytest.approx(10.91)
     assert "max_total_exposure" in decision.evaluated_limits
     assert h.core._degraded and not verdict.block_exits
+    _assert_no_admission_effects(h)
+
+
+@pytest.mark.parametrize("mode",["PAPER","LIVE"])
+@pytest.mark.parametrize("position_case",["quantity_warning_larger","sign_mismatch","five","unknown"])
+def test_mock_scanner_override_cannot_restore_position_vetoed_raw_intent(reassessment,monkeypatch,tmp_path,capsys,mode,position_case):
+    # Native formation and real reconciliation. Switch mode/source only at the
+    # post-formation admission seam: this isolates the existing override branch,
+    # not full PAPER/LIVE startup. The already READ_ONLY mode manager and hard
+    # fixture guards forbid any dispatch. No intent or verdict is fabricated.
+    from src.config.runtime_config import RunMode
+    h=joined(reassessment,monkeypatch,tmp_path,position_case=position_case)
+    assert h.core.run_once()
+    capsys.readouterr()
+    process=h.core.strategy_runner.process
+    def observe_formation(**kwargs):
+        intents=process(**kwargs)
+        h.core.run_mode=RunMode(mode)
+        overrides=dict(config_resolver._CONFIG_OVERRIDES)
+        overrides["SCANNER_DATA_SOURCE"]="MOCK"
+        config_resolver.set_config_overrides(overrides)
+        return intents
+    monkeypatch.setattr(h.core.strategy_runner,"process",observe_formation)
+    h.life.clock.current+=timedelta(seconds=11)
+    assert h.core.run_once()
+    out=capsys.readouterr().out
+    raw=[i for batch in h.batches for i in batch]
+    assert len(raw)==1 and raw[0].symbol=="JPM"
+    assert h.truth[-1][1].block_new_entries
+    assert "POSITION_TRUTH_BLOCK_NEW_ENTRIES" in out
+    assert "[E29][MOCK_OVERRIDE] forced_intent_survives_arbitration" not in out
+    assert "[PIPELINE][RISK_INPUT] intents_count=0" in out
+    assert h.artifacts==h.evaluated==[]
     _assert_no_admission_effects(h)
