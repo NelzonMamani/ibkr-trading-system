@@ -12,6 +12,8 @@ import pytest
 
 from src.config import config_resolver
 from src.core import orchestrator as core_module
+from src.core.active_trade_registry import ActiveTrade
+from src.ibkr.position_snapshot import BrokerPositionResult
 from src.domain import quote_freshness
 from src.execution import position_truth
 from src.scanner import scanner_runner as ross
@@ -30,7 +32,9 @@ from test_ross_pr1029_pattern_detection_certification import _micro_rows
 from test_flat_top_production_handoff import forbid_collection_and_execution, forbid_io
 
 
-def joined(reassessment, monkeypatch, tmp_path, *, news_fault="none", peer=False, market_fault="none"):
+def joined(reassessment, monkeypatch, tmp_path, *, news_fault="none", peer=False, market_fault="none", position_case=None):
+    # Retain before the inherited harness temporarily stubs this class method.
+    resolve_positions=core_module.CoreOrchestrator._resolve_position_truth_cycle
     c=reassessment
     life=c.life
     life.clock.current=life.clock.current.replace(hour=13,minute=35,second=30,microsecond=0)
@@ -172,18 +176,75 @@ def joined(reassessment, monkeypatch, tmp_path, *, news_fault="none", peer=False
         asof_utc=life.clock.current,market_timestamp_utc=life.clock.current)
     core.market_data_snapshot_manager=NS(batch_snapshots=lambda symbols:({s:replace(snapshot,symbol=s,
         asof_utc=life.clock.current,market_timestamp_utc=life.clock.current) for s in symbols},[]))
-    verdict=_saved_shape_verdict(life.clock.current)
-    monkeypatch.setattr(core,"_resolve_position_truth_cycle",lambda **kwargs:verdict)
+    position_calls=[]
+    truth=[]
+    artifacts=[]
+    evaluated=[]
+    position_state={"case":position_case}
     def forbidden(*args,**kwargs): pytest.fail("five-position veto admits no artifact/risk/execution")
-    monkeypatch.setattr(core.risk_engine,"evaluate_trade_intent",forbidden)
-    monkeypatch.setattr(core_module,"build_decision_artifact",forbidden)
+    if position_case is None:
+        # Preserve the original saved-five-position proof unchanged.
+        verdict=_saved_shape_verdict(life.clock.current)
+        monkeypatch.setattr(core,"_resolve_position_truth_cycle",lambda **kwargs:verdict)
+        monkeypatch.setattr(core.risk_engine,"evaluate_trade_intent",forbidden)
+        monkeypatch.setattr(core_module,"build_decision_artifact",forbidden)
+    else:
+        # Only the external snapshot is synthetic. Real Core collection,
+        # reconciliation and entry guard decide permission; no healthy verdict.
+        def positions():
+            case=position_state["case"]
+            rows=()
+            status="COMPLETE"
+            account="SYNTHETIC_TEST"
+            completed=life.clock.now(timezone.utc)
+            if case in {"complete_matched","sign_mismatch","quantity_warning","quantity_warning_larger","partial","disconnect","wrong_account"}:
+                rows=(NS(symbol="SYNTH_MATCH",position=-2 if case=="sign_mismatch" else (1 if case=="quantity_warning" else (3 if case=="quantity_warning_larger" else 2)),
+                         account="OTHER_SYNTHETIC" if case=="wrong_account" else account,con_id=987),)
+            if case=="five":
+                rows=tuple(NS(symbol=f"SYNTH{i}",position=float(i),account=account,con_id=900+i) for i in range(1,6))
+            if case=="unknown": status="UNAVAILABLE"
+            if case=="partial": status="TIMEOUT"
+            if case=="disconnect": status="DISCONNECTED"
+            if case=="missing_completion": completed=None
+            result=BrokerPositionResult(rows,status,account,completed)
+            position_calls.append(result)
+            return result
+        client=NS() if position_case=="missing_interface" else NS(position_snapshot=positions)
+        core.connection_manager._ibkr_connection_manager=NS(existing_client=client,connection_metadata=lambda: {})
+        if position_case in {"complete_matched","sign_mismatch","quantity_warning","quantity_warning_larger"}:
+            core.trade_registry.register_trade(ActiveTrade(symbol="SYNTH_MATCH",trader_type="SYNTHETIC",
+                entry_tick=0,entry_price=10.,direction="LONG",quantity=2,stop_loss_price=9.))
+        def observed_truth(**kwargs):
+            verdict=resolve_positions(core,**kwargs)
+            truth.append((deepcopy(core._latest_position_truth_snapshot),deepcopy(verdict)))
+            return verdict
+        monkeypatch.setattr(core,"_resolve_position_truth_cycle",observed_truth)
+        builder=core_module.build_decision_artifact
+        real_risk=core.risk_engine.evaluate_trade_intent
+        def observed_artifact(**kwargs):
+            artifact=builder(**kwargs)
+            # TradeIntent.entry_price is attached by V1, not a dataclass field.
+            # Observe the full actual object, including dynamic attributes;
+            # do not mistake asdict() for complete handoff evidence.
+            artifacts.append((artifact,[deepcopy(vars(i)) for i in artifact.intents]))
+            return artifact
+        def observed_risk(intent,**kwargs):
+            received=deepcopy(vars(intent))
+            decision=real_risk(intent,**kwargs)
+            evaluated.append((intent,received,decision))
+            return decision
+        monkeypatch.setattr(core_module,"build_decision_artifact",observed_artifact)
+        monkeypatch.setattr(core.risk_engine,"evaluate_trade_intent",observed_risk)
     monkeypatch.setattr(core.execution_engine,"execute_trade",forbidden)
     monkeypatch.setattr(core.execution_engine.capital_authority,"reserve",forbidden)
     monkeypatch.setattr(core.execution_engine.strategy_allocation_authority,"reserve",forbidden)
     return NS(c=c,life=life,core=core,strategy=strategy,manager=manager,scans=scans,reads=reads,batches=batches,
               inputs=inputs,results=results,registry_batches=registry_batches,compositions=compositions,
               before=before,article=article,streams=streams,cold=cold,articles=articles,rows=rows,
-              children=children,focus_calls=focus_calls,focus_rejections=focus_rejections)
+              children=children,focus_calls=focus_calls,focus_rejections=focus_rejections,
+              position_state=position_state,position_calls=position_calls,truth=truth,artifacts=artifacts,evaluated=evaluated,
+              initial_registry=deepcopy([vars(t) for t in core.trade_registry.snapshot()]),
+              initial_execution_records=deepcopy(core.execution_engine.position_records))
 
 
 def test_joined_native_core_composed_raw_formation_then_ownership_veto(reassessment,monkeypatch,tmp_path,capsys):
@@ -337,3 +398,145 @@ def test_canonical_news_does_not_bypass_the_real_focus_market_gate(reassessment,
     assert not [i for batch in h.batches for i in batch]
     assert h.inputs==h.compositions==[] and h.manager._parents=={}
     assert h.life.provider.calls==len(h.scans)==1 and h.life.store.cache_path.read_bytes()==h.before
+
+
+@pytest.mark.parametrize("position_case",["complete_empty","complete_matched"])
+def test_joined_core_canonical_artifact_to_actual_readonly_risk(reassessment,monkeypatch,tmp_path,capsys,position_case):
+    h=joined(reassessment,monkeypatch,tmp_path,position_case=position_case)
+    assert h.core.run_once() and _cadence(h.core).focus.symbols==[]
+    capsys.readouterr()
+    h.life.clock.current+=timedelta(seconds=11)
+    assert h.core.run_once()
+    out=capsys.readouterr().out
+    raw=[i for batch in h.batches for i in batch]
+    assert len(raw)==len(h.artifacts)==len(h.evaluated)==1,out
+    intent,received,decision=h.evaluated[0]
+    artifact,built=h.artifacts[0]
+    assert intent is raw[0] and artifact.intents==[intent]
+    assert built[0]["decision_id"] is None
+    assert intent.decision_id==artifact.decision_id==decision.decision_id and intent.decision_id
+    assert received==dict(built[0],decision_id=artifact.decision_id)==vars(intent)
+    assert artifact.source=="CoreOrchestrator" and artifact.run_mode=="READ_ONLY"
+    assert artifact.session_phase=="OPENING_0_30" and artifact.metadata["cycle_id"]==h.core._current_cycle_id
+    assert decision.symbol==intent.symbol=="JPM" and decision.strategy_name==intent.strategy_name
+    assert decision.reason_code=="LIVE_READ_ONLY_BLOCK" and not decision.allowed and decision.execution_blocked
+    assert decision.max_position_size==0 and decision.run_mode=="READ_ONLY"
+    assert not getattr(intent,"force_execute",False) and not getattr(intent,"synthetic_forced_intent",False)
+    assert "READ_ONLY mode forbids new executions" in decision.rationale
+    assert "DECISION_ARTIFACT_MISSING" not in out and "RISK_APPROVED" not in out
+    assert "[PIPELINE][RISK_OUTPUT] approved_count=0 blocked_count=1" in out
+    assert all(s.snapshot_status=="HEALTHY" and v.healthy and not v.block_new_entries for s,v in h.truth)
+    assert all(r.status=="COMPLETE" and r.completed_at is not None for r in h.position_calls)
+    assert len(h.position_calls)==len(h.truth)==2
+    if position_case=="complete_matched":
+        assert h.truth[-1][0].matched_symbols==["SYNTH_MATCH"]
+    else:
+        assert h.truth[-1][0].broker_positions==h.truth[-1][0].system_positions=={}
+    context=received["relationship_context"]
+    source,results=h.registry_batches[-1]
+    selected=results[received["setup_metadata"]["canonical_result_index"]]
+    assert selected.setup_family_id==intent.setup_family_id=="BULL_FLAG"
+    assert context["security_id"]=="conId:123" and context["profile"]=="BULL_FLAG_MICRO_2R_V1"
+    assert context==dict(selected.setup_metadata["relationship"],action="ENTRY",warning=False,
+                         relationship_id=f"{context['parent_id']}:{context['child_id']}")
+    assert received["entry_price"]==selected.trigger_level==pytest.approx(10.91)
+    assert received["stop_loss_price"]==selected.stop_level==pytest.approx(10.81)
+    assert received["invalidation_level"]==selected.invalidation_level==pytest.approx(10.81)
+    assert received["target_model"]=="BULL_FLAG_MICRO_2R_V1" and received["take_profit_price"] is None
+    assert context["child_timestamp"]==h.streams["10s"][-1].timestamp.isoformat()
+    assert received["setup_metadata"]["execution_stream"]["observed_at_utc"]==source.observed_at_utc.isoformat()
+    parent=next(p for p in h.manager._parents.values() if p["parent_id"]==context["parent_id"])
+    assert parent["consumed_children"]==[context["child_id"]]
+    assert parent["security_id"]==context["security_id"] and parent["origin_timestamp"]==context["parent_origin"]
+    events=h.core.event_collector.filter_by_source("CoreOrchestrator")
+    assert any(e.event_type=="DECISION_ARTIFACT_CREATED" and e.payload["decision_id"]==intent.decision_id for e in events)
+    assert any(e.event_type=="RISK_DECISION" and e.payload["decision_id"]==intent.decision_id and
+               "LIVE_READ_ONLY_BLOCK" in e.payload["reason_codes"] for e in h.core.event_collector.filter_by_source("RiskEngine"))
+    retained=deepcopy(vars(intent))
+    h.life.clock.current+=timedelta(seconds=11)
+    assert h.core.run_once()
+    repeated=capsys.readouterr().out
+    assert len([i for batch in h.batches for i in batch])==len(h.artifacts)==len(h.evaluated)==1
+    assert "child_already_consumed" in repeated and parent["consumed_children"]==[context["child_id"]]
+    assert "[PIPELINE][RISK_INPUT] intents_count=0" in repeated
+    persisted=h.manager._persistence.fetch_management_state(h.manager._state_namespace)
+    assert next(p for p in persisted["parents"].values() if p["parent_id"]==context["parent_id"])["consumed_children"]==[context["child_id"]]
+    assert persisted["plans"]==persisted["positions"]=={}
+    selected.setup_metadata["relationship"]["child_id"]="MUTATED_SYNTHETIC_RESULT"
+    source.timeframe_provenance.clear()
+    assert vars(intent)==received==retained
+    _assert_no_admission_effects(h)
+
+
+def _assert_no_admission_effects(h):
+    from src.ibkr.mutation_audit import snapshot
+    assert snapshot()=={"place":0,"modify":0,"cancel":0}
+    assert [vars(t) for t in h.core.trade_registry.snapshot()]==h.initial_registry
+    assert h.core.execution_engine.position_records==h.initial_execution_records
+    assert h.manager._relationship_plans=={} and h.manager.snapshot_positions()=={}
+    assert h.core.execution_engine.capital_authority.active_reservations=={}
+    assert h.core.execution_engine.strategy_allocation_authority.active_reservations=={}
+    assert len(h.scans)==h.life.provider.calls==1 and h.life.store.cache_path.read_bytes()==h.before
+
+
+@pytest.mark.parametrize("position_case",["unknown","partial","disconnect","missing_completion","missing_interface","wrong_account","sign_mismatch","five","partial_after_healthy"])
+def test_joined_core_position_truth_blocks_before_artifact_and_risk(reassessment,monkeypatch,tmp_path,capsys,position_case):
+    h=joined(reassessment,monkeypatch,tmp_path,
+             position_case="complete_matched" if position_case=="partial_after_healthy" else position_case)
+    assert h.core.run_once()
+    capsys.readouterr()
+    if position_case=="partial_after_healthy":
+        assert h.truth[-1][1].healthy
+        h.position_state["case"]="partial"
+    h.life.clock.current+=timedelta(seconds=11)
+    assert h.core.run_once()
+    out=capsys.readouterr().out
+    raw=[i for batch in h.batches for i in batch]
+    assert len(raw)==1 and raw[0].decision_id is None,out
+    assert h.artifacts==h.evaluated==[]
+    snapshot,verdict=h.truth[-1]
+    assert not verdict.healthy and verdict.block_new_entries
+    if position_case=="sign_mismatch":
+        assert [m.mismatch_type for m in snapshot.mismatches]==["SIGN_MISMATCH"]
+    elif position_case=="five":
+        assert len(snapshot.mismatches)==verdict.critical_mismatch_count==5
+        assert {m.mismatch_type for m in snapshot.mismatches}=={"BROKER_ONLY_POSITION"}
+    else:
+        assert snapshot.snapshot_status=="UNKNOWN" and verdict.rationale=="position_truth_unavailable"
+        if position_case=="partial_after_healthy":
+            assert snapshot.broker_positions["SYNTH_MATCH"].quantity==2  # Retention is not permission.
+    assert "POSITION_TRUTH_BLOCK_NEW_ENTRIES" in out and "[PIPELINE][RISK_INPUT] intents_count=0" in out
+    assert "DECISION_ARTIFACT_CREATED" not in out and "[PIPELINE][RISK_OUTPUT] approved_count=0 blocked_count=0" in out
+    assert "reason=INTENT_REJECTED_BY_EXECUTION_INTEGRITY" not in out
+    _assert_no_admission_effects(h)
+
+
+
+@pytest.mark.parametrize("position_case,broker_quantity",[("quantity_warning",1),("quantity_warning_larger",3)])
+def test_joined_core_retains_existing_same_side_quantity_warning_policy(reassessment,monkeypatch,tmp_path,capsys,position_case,broker_quantity):
+    # This is NOT a healthy snapshot or an approval. Existing reconciliation
+    # marks same-side quantity differences WARNING, distinct from critical
+    # ownership mismatches; report this boundary rather than broaden policy.
+    h=joined(reassessment,monkeypatch,tmp_path,position_case=position_case)
+    assert h.core.run_once()
+    capsys.readouterr()
+    h.life.clock.current+=timedelta(seconds=11)
+    assert h.core.run_once()
+    out=capsys.readouterr().out
+    snapshot,verdict=h.truth[-1]
+    assert snapshot.snapshot_status=="MISMATCH" and not verdict.healthy and verdict.require_reconciliation
+    assert verdict.warning_mismatch_count==1 and verdict.critical_mismatch_count==0 and not verdict.block_new_entries
+    assert [m.mismatch_type for m in snapshot.mismatches]==["QUANTITY_MISMATCH"]
+    assert len(h.artifacts)==len(h.evaluated)==1,out
+    decision=h.evaluated[0][2]
+    assert decision.reason_code=="LIVE_READ_ONLY_BLOCK" and decision.execution_blocked
+    assert snapshot.broker_positions["SYNTH_MATCH"].quantity==broker_quantity
+    assert snapshot.system_positions["SYNTH_MATCH"].quantity==2
+    assert decision.evaluated_limits["open_positions"]==1
+    # Existing risk exposure comes from system registry quantity*entry price,
+    # not max(broker,system). Mode denial is NOT proof of exposure-limit gating.
+    assert decision.evaluated_limits["total_exposure"]==20.
+    assert decision.evaluated_limits["trade_value"]==pytest.approx(10.91)
+    assert "max_total_exposure" in decision.evaluated_limits
+    assert h.core._degraded and not verdict.block_exits
+    _assert_no_admission_effects(h)
