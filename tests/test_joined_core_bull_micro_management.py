@@ -4,7 +4,6 @@ from types import SimpleNamespace as NS
 
 import pytest
 
-from src.config import config_resolver
 from src.config.runtime_config import RunMode
 from src.core.orchestrator import CoreOrchestrator
 from src.core import orchestrator as core_module
@@ -48,6 +47,7 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
     assert h.core.run_mode==RunMode.PAPER
     assert h.core.runtime_mode_manager.allow_orders
     assert h.core.execution_engine.startup_recovery_complete()
+    assert len(providers)==1 and h.core.execution_engine.provider is providers[0]
     assert h.core.execution_engine.relationship_manager is h.manager is h.strategy.relationship_manager
     assert h.core.risk_engine.relationship_manager is h.manager
     # Restore/count real admission owners instead of the inherited fixture's
@@ -110,6 +110,10 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
     context=raw[0].relationship_context
     assert context["security_id"]=="conId:123" and context["action"]=="ENTRY"
     parent=next(p for p in h.manager._parents.values() if p["parent_id"]==context["parent_id"])
+    assert parent["security_id"]==context["security_id"]
+    assert parent["origin_timestamp"]==context["parent_origin"]
+    assert parent["completed_timestamp"]==context["parent_completed"]
+    assert context["child_timestamp"]==h.streams["10s"][-1].timestamp.isoformat()
     assert parent["consumed_children"]==[context["child_id"]]
     assert "child_already_consumed" in repeated
     assert h.manager._relationship_plans=={} and h.manager.snapshot_positions()=={}
