@@ -535,7 +535,9 @@ def test_rejected_order_releases_strategy_reservation() -> None:
 
     result = engine.execute_trade(_risk_decision(quantity=1))
 
-    assert result.status == "BLOCKED"
+    assert result.status == "REJECTED"
+    assert not engine.submission_confirmed(result)
+    assert len(provider.submitted_orders) == 1
     assert engine.strategy_allocation_authority.active_reservations == {}
     assert engine.capital_authority.active_reservations == {}
 
