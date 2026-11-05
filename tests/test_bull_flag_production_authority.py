@@ -78,6 +78,10 @@ def actual_run(monkeypatch, tmp_path, *, state="ready", duplicate=False, mode=Ru
         end = CLOCK-timedelta(seconds=60,microseconds=1 if state == "execution_over_max_age" else 0)
         data["10s"] = _candles(execution,end=end,step_seconds=10)
     if state == "source_breakout_extremes": data["1m"][-1] = replace(data["1m"][-1],high=10.95,low=10.4)
+    if state in {"impulse_nan", "flag_nan", "flag_negative_volume"}:
+        index = -8 if state == "impulse_nan" else -3
+        change = {"volume": -1.} if state == "flag_negative_volume" else {"low": float("nan")}
+        data["1m"][index] = replace(data["1m"][index], **change)
     monkeypatch.setattr("src.strategies.ross_momentum.patterns.pattern_trace.get_intraday_bars",
         lambda *,timeframe="1m",limit=50,**kw:list(data[timeframe])[-limit:])
     registry = RossPatternRegistry()
@@ -317,3 +321,37 @@ def test_structure_completion_uses_existing_duration_and_timezone(monkeypatch,tm
     out = BullFlagPattern().evaluate(replace(source,candles=bars,primary_timeframe=timeframe))
     assert out.detected is not incomplete
     if incomplete: assert out.rejection_reason == "incomplete_flag_structure"
+
+
+@pytest.mark.parametrize("state", ["impulse_nan", "flag_nan", "flag_negative_volume"])
+def test_invalid_underlying_structure_cannot_hide_behind_valid_breakout(monkeypatch,tmp_path,state):
+    _,intents,results,_,_ = actual_run(monkeypatch,tmp_path,state=state)
+    assert not results[0].detected and results[0].rejection_reason == "INVALID_CANDLE_DATA"
+    assert intents == []
+
+
+def test_native_formation_context_cannot_borrow_standalone_entry_confirmation(monkeypatch,tmp_path):
+    from src.core.engines.decision_engine import DecisionEngine
+    from src.setup_engine.setup_families.bull_flag import BullFlagPattern
+    from src.strategies.ross_momentum.decision_policy import validate_entry_contract, build_trade_intents
+    from src.strategies.ross_momentum.patterns.pattern_evaluator import PatternEvaluationSummary
+    strategy,_,_,calls,inputs = actual_run(monkeypatch,tmp_path)
+    source = replace(inputs[0],candles=inputs[0].candles[:-1])
+    parent = BullFlagPattern().evaluate_formation(source)
+    assert parent.detected and parent.signal_class == "CONTEXT" and parent.non_entry_signal
+    assert parent.setup_metadata["parent_state"] == "ARMED"
+    assert not validate_entry_contract(parent)[0]
+    decision = DecisionEngine().compute_decision(symbol=source.symbol,levels={},
+        structure={"trend":"UP"},setups=[{"setup_family":"BULL_FLAG"}],
+        pattern_results=[parent],session_context="RTH",entry_contract_validator=validate_entry_contract)
+    assert decision["selected_pattern_id"] is None
+    # Geometry alone is not entry permission: V1 validates the selected entry
+    # contract after calculating geometry, as well as during decision selection.
+    # This negative boundary uses a native parent, not an injected entry result.
+    confirmed = next(out for payload,_,out in calls if payload.get("source") == "canonical_pattern_result")
+    assert confirmed["trigger_ready_now"]
+    assert strategy._build_trade_from_pattern(parent,source,selected_contract=parent,
+                                             selected_trigger=confirmed) == (10.79,10.63)
+    summary = PatternEvaluationSummary([parent],parent,None,False,parent.rationale_text,[])
+    assert build_trade_intents("RossMomentumStrategyV1",source.symbol,summary,
+                               trigger_ready_now=True,session="RTH_OPEN") == []
