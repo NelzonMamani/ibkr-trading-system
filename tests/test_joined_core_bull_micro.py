@@ -32,7 +32,7 @@ from test_ross_pr1029_pattern_detection_certification import _micro_rows
 from test_flat_top_production_handoff import forbid_collection_and_execution, forbid_io
 
 
-def joined(reassessment, monkeypatch, tmp_path, *, news_fault="none", peer=False, market_fault="none", position_case=None):
+def joined(reassessment, monkeypatch, tmp_path, *, news_fault="none", peer=False, market_fault="none", position_case=None, runtime_options=None):
     # Retain before the inherited harness temporarily stubs this class method.
     resolve_positions=core_module.CoreOrchestrator._resolve_position_truth_cycle
     c=reassessment
@@ -79,7 +79,7 @@ def joined(reassessment, monkeypatch, tmp_path, *, news_fault="none", peer=False
                 delattr(row,key)
     payload=_payload(scan_rows,focus=[])
     payload.update(c.payload)
-    core,scans,_=_install_runtime_harness(monkeypatch,[payload])
+    core,scans,_=_install_runtime_harness(monkeypatch,[payload],**(runtime_options or {}))
     monkeypatch.delenv("FORCE_SESSION")
     overrides=dict(config_resolver._CONFIG_OVERRIDES)
     overrides.update(NEWS_ENABLED=True,NEWS_CACHE_FILE=str(life.store.cache_path),ROSS_ISSUER_QUERY_ENABLED=True,
