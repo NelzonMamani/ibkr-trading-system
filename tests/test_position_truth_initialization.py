@@ -64,7 +64,11 @@ def chain(monkeypatch):
     core=CoreOrchestrator.__new__(CoreOrchestrator)
     core.run_mode=RunMode.READ_ONLY;core.connection_manager=manager
     core.trade_registry=NS(snapshot=lambda:[])
-    core.execution_engine=NS(_relationship_orders_asof=None)
+    from src.core.stop_controller import StopController
+    core.stop_controller=StopController()
+    core._halted=False
+    core.execution_engine=NS(_relationship_orders_asof=None,
+        collect_relationship_updates=lambda:events.append('cached_updates') or [])
     core.trade_management_engine=None
     core._latest_position_truth_snapshot=None;core._degraded=False
     core._resolve_fill_authority_cycle=lambda:{'execution_stalled':False,'stalled_symbols':[]}
@@ -138,7 +142,7 @@ def test_initialized_nonempty_snapshot_reaches_reconciliation_and_global_veto(ch
     monkeypatch.setattr(x.native,'reqPositionsMulti',request)
     assert pipeline(x) is False
     snapshot=x.core._latest_position_truth_snapshot;v=x.core._latest_position_truth_verdict
-    assert x.events==['initialize','snapshot','reconcile']
+    assert x.events==['initialize']+(['cached_updates'] if mode==RunMode.PAPER else [])+['snapshot','reconcile']
     assert {s:p.quantity for s,p in snapshot.broker_positions.items()}==positions
     assert len(snapshot.mismatches)==v.critical_mismatch_count==5 and v.block_new_entries
     assert CoreOrchestrator._apply_position_truth_entry_guard([NS(symbol='UNRELATED')],v)==[]
@@ -204,7 +208,7 @@ def test_failed_initialization_cannot_query_stale_client_or_refresh_relationship
         x.events.append('relationship_incomplete') if kw['complete'] is False else pytest.fail('False complete'))
     x.core.execution_engine.refresh_relationship_order_snapshot=lambda:pytest.fail('No reconnect/query through relationship refresh')
     assert pipeline(x) is False
-    assert x.events==['initialize','connectivity_failure','reconcile','relationship_incomplete']
+    assert x.events==['initialize','connectivity_failure']+(['cached_updates'] if mode==RunMode.PAPER else [])+['reconcile','relationship_incomplete']
     assert x.core._latest_position_truth_snapshot.snapshot_status=='UNKNOWN'
     assert x.core._latest_position_truth_verdict.block_new_entries and not x.requests
     retired(x)
@@ -423,3 +427,30 @@ def test_shared_initialization_rechecks_control_before_and_after_account_resolut
         pytest.fail('Initialization returned after control flow became pending')
     assert created==cleaned and len(created)==1 and owner.existing_client is None
     assert len(account_calls)==int(stage=='account_resolution')
+
+
+def test_stop_after_connection_prevents_cached_ingestion(chain,monkeypatch):
+    from src.core.stop_controller import StopMode
+    x=chain;set_mode(x,RunMode.PAPER)
+    initialize=x.manager.ensure_connected
+    def stopped_initialization():
+        initialize()
+        x.core.stop_controller.request_stop(StopMode.GRACEFUL,'synthetic stop','offline-control')
+    monkeypatch.setattr(x.manager,'ensure_connected',stopped_initialization)
+    monkeypatch.setattr(x.core,'_trace_halt',lambda **kw:x.events.append(kw['reason_code']))
+    assert pipeline(x) is False
+    assert x.events==['initialize','STOP_REQUESTED']
+    assert x.core._halted and not x.requests
+    assert x.core._latest_position_truth_snapshot is None
+
+
+@pytest.mark.parametrize('error',[AcquisitionCancelled,AcquisitionDeadlineExceeded])
+def test_cached_ingestion_control_flow_propagates_before_reconciliation(chain,error):
+    x=chain;set_mode(x,RunMode.PAPER)
+    def interrupted():
+        x.events.append('cached_updates')
+        raise error()
+    x.core.execution_engine.collect_relationship_updates=interrupted
+    with pytest.raises(error): pipeline(x)
+    assert x.events==['initialize','cached_updates'] and not x.requests
+    assert x.core._latest_position_truth_snapshot is None

@@ -1797,7 +1797,7 @@ class ExecutionEngine:
         self.relationship_manager._save_relationship_state()
 
     def collect_relationship_updates(self) -> list[ExecutionResult]:
-        """Drain existing client callback facts on the execution thread; no requests."""
+        """Consume cached callbacks; retain existing owned protection cleanup."""
         manager = getattr(self, "relationship_manager", None)
         reader = getattr(self._provider, "cached_order_update", None)
         if manager is None:
@@ -1830,17 +1830,48 @@ class ExecutionEngine:
                 if not order.get("broker_order_id") or not order.get("request"):
                     continue
                 facts = reader(order["broker_order_id"])
-                if not facts or "filled" not in facts or "remaining" not in facts:
+                if not facts:
                     continue
-                total = int(facts["filled"])
-                status = str(facts.get("status") or "").upper()
+                # Validate cumulative native evidence before any accounting or
+                # protection side effects. Do not truncate fractional quantities
+                # or turn a missing/invalid average price into a zero-price fill.
+                try:
+                    quantities = (facts["filled"], facts["remaining"])
+                    if any(isinstance(value, bool) or not math.isfinite(float(value))
+                           or float(value) != int(value) for value in quantities):
+                        raise ValueError
+                    total, remaining = (int(value) for value in quantities)
+                    previous = self.position_records.get(order_id, {})
+                    prior = max(int(order["filled"]), int(previous.get("filled_qty", 0)))
+                    status = str(facts.get("status") or "").upper()
+                    statuses = {s.upper() for s in self.VALID_IBKR_STATUSES} | {
+                        "REJECTED", "CANCELLED", "CANCELED", "INACTIVE"}
+                    terminal_statuses = {"FILLED", "REJECTED", "CANCELLED", "CANCELED", "INACTIVE"}
+                    if (total < 0 or remaining < 0 or total + remaining > order["requested"]
+                            or status not in statuses):
+                        raise ValueError
+                    if order["terminal"] and status not in terminal_statuses and total <= order["filled"]:
+                        continue  # Existing terminal truth cannot regress on a late nonterminal snapshot.
+                    if total < prior:
+                        raise ValueError
+                    if total > prior:
+                        if isinstance(facts["avgFillPrice"], bool):
+                            raise ValueError
+                        average = float(facts["avgFillPrice"])
+                        old_notional = (prior * float(previous["entry_price"]) if previous
+                                        else float(order["notional"]))
+                        delta_price = (total * average - old_notional) / (total - prior)
+                        if not math.isfinite(average) or average <= 0 or not math.isfinite(delta_price) or delta_price <= 0:
+                            raise ValueError
+                except (KeyError, TypeError, ValueError, OverflowError):
+                    raise ValueError("CACHED_EXECUTION_UPDATE_INVALID") from None
                 if total == order["filled"] and status == order.get("status"):
                     continue
                 request = BrokerOrderRequest(**order["request"])
                 result = ExecutionResult(symbol=plan.symbol, trader_type=request.trader_type or "UNKNOWN",
                     attempted=True, status=status, rationale="CACHED_BROKER_CALLBACK",
                     client_order_id=order_id, ibkr_order_id=order["broker_order_id"], direction=request.direction,
-                    filled_quantity=total, remaining_quantity=int(facts["remaining"]),
+                    filled_quantity=total, remaining_quantity=remaining,
                     average_fill_price=facts.get("avgFillPrice"), relationship_context=request.relationship_context)
                 self._record_fill_and_position(request, result)
                 self._release_strategy_allocation_for_terminal_result(request, result)

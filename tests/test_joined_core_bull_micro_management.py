@@ -1,5 +1,5 @@
 """Joined active-Core management investigation. Synthetic facts; no dispatch."""
-from datetime import timedelta
+from datetime import timedelta, timezone
 from types import SimpleNamespace as NS
 
 import pytest
@@ -27,11 +27,18 @@ from test_key_level_break_production_handoff import forbid_io
     ("complete_empty","native_pending"),("complete_empty","native_rejected"),
     ("complete_empty","native_missing_id"),("complete_empty","native_unsupported"),
     ("complete_empty","native_late_fill"),
+    *[("complete_empty","native_late_"+case) for case in
+      ("pending","unrelated","negative","fractional","no_price","nan_price",
+       "collector_error","processor_error","processor_after","rejected","cancelled","partial",
+       "missing_counts","unknown_status","oversize","uncertain","regression")],
 ])
 def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypatch,tmp_path,capsys,
         no_external_activity,position_case,transport):
-    late_fill=transport=="native_late_fill"
-    if late_fill: transport="native_submitted"
+    late_fill=transport.startswith("native_late_")
+    late_case=transport.removeprefix("native_late_") if late_fill else None
+    malformed=late_case in {"negative","fractional","no_price","nan_price","missing_counts","unknown_status","oversize"}
+    failed_pass=malformed or late_case in {"collector_error","processor_error","processor_after"}
+    if late_fill: transport="native_timeout" if late_case=="uncertain" else "native_submitted"
     native_provider=transport.startswith("native_")
     if native_provider and transport not in {"native_timeout","native_unsupported"}: transport=transport.removeprefix("native_")
     # Retain real methods before inherited fixture startup stubs are installed.
@@ -62,12 +69,26 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
     cached_facts={}
     callback_reads=[]
     protection_requests=[]
+    protective_orders=[]
+    working_orders=[]
+    def external_open_orders():
+        terminal=(str(cached_facts.get(71,{}).get("status","")).upper() in {"FILLED","REJECTED","CANCELLED"}
+                  or (late_case=="regression" and bool(protection_requests)))
+        return list(protective_orders)+(list(working_orders) if not terminal else [])
     def cached_status(order_id):
         callback_reads.append(order_id)
+        if late_case=="collector_error" and cached_facts:
+            raise RuntimeError("synthetic cached callback read failure")
         return dict(cached_facts.get(order_id,{}))
     def unexpected_protection(**kwargs):
         protection_requests.append(kwargs)
-        pytest.fail("acknowledgement alone cannot create structural protection")
+        assert late_fill and cached_facts[71]["filled"]==1
+        assert not malformed, "malformed callback must not reach protection"
+        assert kwargs["quantity"]==1 and kwargs["stop_price"]==pytest.approx(10.81)
+        protective_orders.append(NS(orderId=72,contract=NS(symbol="JPM"),
+            order=NS(orderType="STP",parentId=71,orderRef="",action="SELL",totalQuantity=1,auxPrice=10.81),
+            orderState=NS(status="Submitted")))
+        return {"broker_order_id":"72","status":"Submitted","order_type":"STP"}
     def provider_boundary(**kw):
         provider=PaperExecutionProvider(price_feed=NS(price_for=lambda *a:10.91,get_price=lambda *a:10.91),
             event_collector=core_module.EventCollector(),trade_registry=kw["trade_registry"],run_mode=kw["run_mode"])
@@ -75,7 +96,7 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
             from src.execution.execution_providers import IbkrExecutionProvider
             # Actual native provider wrapper; only external broker inventory and
             # transport responses are synthetic. is_live/ack handling stay real.
-            provider=IbkrExecutionProvider(broker=NS(positions=lambda:[],open_orders=lambda:[],
+            provider=IbkrExecutionProvider(broker=NS(positions=lambda:[],open_orders=external_open_orders,
                 connection_manager=NS(optional_client=NS(cached_order_status=cached_status)),
                 place_stop_order=unexpected_protection),trade_registry=kw["trade_registry"],run_mode=kw["run_mode"])
         providers.append(provider)
@@ -86,6 +107,16 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
             IBKR_READONLY_ENABLED=False,IBKR_ORDER_SUBMISSION_ENABLED=True,
             IBKR_ORDER_TRANSLATION_ENABLED=True,IBKR_API_WRITE_ALLOWED=True,
             **({"STRATEGY_CAPITAL_ALLOCATIONS":{"ROSSMOMENTUMSTRATEGYV1":{"max_allocation_usd":1.0}}} if transport=="allocation_denied" else {}))))
+    # One fixed external clock for snapshot coherence; never renew evidence.
+    from src.execution import execution_engine as execution_module
+    monkeypatch.setattr(execution_module,"datetime",h.life.clock)
+    if late_fill:
+        from src.ibkr.position_snapshot import BrokerPositionResult
+        def external_positions():
+            held=late_case in {"fill","partial","uncertain","regression","processor_error","processor_after"} and bool(cached_facts)
+            rows=(NS(symbol="JPM",position=1,con_id=123,avgCost=10.91,account="SYNTHETIC_TEST"),) if held else ()
+            return BrokerPositionResult(rows,"COMPLETE","SYNTHETIC_TEST",h.life.clock.now(timezone.utc))
+        h.core.connection_manager._ibkr_connection_manager.existing_client.position_snapshot=external_positions
     for name,method in real.items(): monkeypatch.setattr(h.core,name,method.__get__(h.core))
     monkeypatch.setattr(core_module,"build_recovery_plan",recovery_build)
     monkeypatch.setattr(core_module,"apply_recovery_actions",recovery_apply)
@@ -101,10 +132,13 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
     from src.risk.risk_engine import RiskEngine
     calls=[]
     callback_drains=[]
+    callback_results=[]
     collect=h.core.execution_engine.collect_relationship_updates
     def observe_collect():
         callback_drains.append(True)
-        return collect()
+        results=collect()
+        callback_results.extend(deepcopy(results))
+        return results
     monkeypatch.setattr(h.core.execution_engine,"collect_relationship_updates",observe_collect)
     risk_decisions=[]
     execution_results=[]
@@ -178,6 +212,10 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
             requested_quantity=request.quantity,filled_quantity=0,remaining_quantity=request.quantity,
             client_order_id=request.client_order_id,ibkr_order_id=None if transport in {"rejected","missing_id","result_trace_error"} else 71,
             acknowledged_at=h.life.clock.current.isoformat() if transport in {"submitted","pending"} else None)
+        if native_provider and result.ibkr_order_id and result.status.upper() not in {"REJECTED","FAILED"}:
+            working_orders.append(NS(orderId=71,contract=NS(symbol=request.symbol),
+                order=NS(orderType="MKT",parentId=0,orderRef=request.client_order_id,action="BUY",totalQuantity=1),
+                orderState=NS(status="Submitted")))
         received.append(result)
         return result
     if native_provider:
@@ -208,7 +246,13 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
                 assert protection_requests==[]
                 assert h.core.execution_engine.capital_authority.active_reservations
                 assert h.core.execution_engine.strategy_allocation_authority.active_reservations
-                assert execution_results[0].acknowledged_at and execution_results[0].filled_quantity==0
+                assert execution_results[0].filled_quantity==0
+                initial_integrity=h.core.execution_engine.execution_integrity_flag
+                initial_trace_missing=sorted({"SUBMIT","ACK","FILL"}-h.core.execution_engine._order_trace_stages.get(sent[0].client_order_id,set()))
+                if late_case=="uncertain":
+                    assert execution_results[0].status=="SUBMISSION_UNKNOWN"
+                    assert plan.orders[sent[0].client_order_id]["submission_uncertain_at"]
+                else: assert execution_results[0].acknowledged_at
                 assert sent[0].client_order_id.startswith(raw_now[0].decision_id)
                 assert raw_now[0].decision_id==h.artifacts[0][0].decision_id==risk_decisions[0].decision_id
                 assert str(plan.orders[sent[0].client_order_id]["broker_order_id"])=="71"
@@ -218,16 +262,54 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
                 assert parent["consumed_children"]==[raw_now[0].relationship_context["child_id"]]
                 assert sent[0].quantity==1 and h.core.execution_engine.max_shares_per_order==1
                 assert sent[0].stop_loss_price==pytest.approx(10.81)
-                cached_facts[71]={"status":"Filled","filled":1,"remaining":0,"avgFillPrice":10.91}
+                facts={"status":"Filled","filled":1,"remaining":0,"avgFillPrice":10.91}
+                if late_case=="pending": facts.update(status="PendingSubmit",filled=0,remaining=1,avgFillPrice=0)
+                if late_case=="negative": facts.update(filled=-1)
+                if late_case=="fractional": facts.update(filled=1.5)
+                if late_case=="no_price": facts.pop("avgFillPrice")
+                if late_case=="nan_price": facts.update(avgFillPrice=float("nan"))
+                if late_case=="missing_counts": facts.pop("filled")
+                if late_case=="unknown_status": facts.update(status="UNVERIFIED")
+                if late_case=="oversize": facts.update(filled=2)
+                if late_case=="rejected": facts.update(status="Rejected",filled=0,remaining=1,avgFillPrice=0)
+                if late_case=="cancelled": facts.update(status="Cancelled",filled=0,remaining=1,avgFillPrice=0)
+                if late_case=="partial": facts.update(status="Submitted")
+                cached_facts[99 if late_case=="unrelated" else 71]=facts
+                if late_case in {"processor_error","processor_after"}:
+                    apply=h.core._apply_execution_results_to_trade_management
+                    def processing_failure(results):
+                        if any(r.rationale=="CACHED_BROKER_CALLBACK" for r in results):
+                            if late_case=="processor_after": apply(results)
+                            raise RuntimeError("synthetic cached result processor failure")
+                        return apply(results)
+                    monkeypatch.setattr(h.core,"_apply_execution_results_to_trade_management",processing_failure)
             h.life.clock.current+=timedelta(seconds=11)
-            assert h.core.run_once() is (transport!="stop_after_risk")
+            result=h.core.run_once()
+            if not failed_pass: assert result is (transport!="stop_after_risk")
             repeated=capsys.readouterr().out
+            if late_fill and not failed_pass:
+                if late_case=="regression":
+                    # Older nonterminal status must not reopen confirmed fill truth.
+                    cached_facts[71].update(status="PendingCancel",filled=0,remaining=1,avgFillPrice=0)
+                # Same cumulative external cache on the next real cycle.
+                h.life.clock.current+=timedelta(seconds=11)
+                assert h.core.run_once()
+                repeated+=capsys.readouterr().out
     finally:
         # Record BEFORE cleanup so release cannot hide unexpected admission.
         pending_capital=deepcopy(h.core.execution_engine.capital_authority.active_reservations)
         pending_allocation=deepcopy(h.core.execution_engine.strategy_allocation_authority.active_reservations)
         h.core.execution_engine.capital_authority.release_reservation(reason="OFFLINE_JOINED_PROOF_END")
         h.core.execution_engine.strategy_allocation_authority.release_reservation(reason="OFFLINE_JOINED_PROOF_END")
+        # Isolated fixture teardown only; retain BEFORE values for assertions.
+        used_capital=h.core.execution_engine.capital_authority.symbol_exposure("JPM")
+        used_allocation=h.core.execution_engine.strategy_allocation_authority.strategy_used_exposure("RossMomentumStrategyV1")
+        if used_capital:
+            h.core.execution_engine.capital_authority.release_exposure(symbol="JPM",notional=used_capital,
+                strategy_id="RossMomentumStrategyV1",reason="OFFLINE_JOINED_PROOF_END")
+        if used_allocation:
+            h.core.execution_engine.strategy_allocation_authority.release_exposure(strategy_id="RossMomentumStrategyV1",
+                notional=used_allocation,reason="OFFLINE_JOINED_PROOF_END")
     if late_fill:
         # Failing-before requirement, not a helper invocation/permission patch.
         # Preserve the precise missing active-Core callback lifecycle evidence.
@@ -237,14 +319,71 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
             result_processing=downstream.count("_apply_execution_results_to_trade_management"),
             entry_quantity=plan.entry_quantity,entry_terminal=plan.entry_terminal,
             frozen=plan.e0 is not None,protection_requests=len(protection_requests),
+            initial_integrity=initial_integrity,initial_trace_missing=initial_trace_missing,
             pending_capital=bool(pending_capital),pending_allocation=bool(pending_allocation),
             requests=len(sent),risk_calls=calls.count("risk"),artifacts=len(h.artifacts)))
         assert no_external_activity==[] and mutations()=={"place":0,"modify":0,"cancel":0}
         assert h.core.execution_engine.capital_authority.active_reservations=={}
         assert h.core.execution_engine.strategy_allocation_authority.active_reservations=={}
         assert callback_drains, "active Core never drains existing native terminal-fill cache"
-        assert plan.entry_quantity==1 and plan.entry_terminal
-        return  # This regression proves callback ingestion only, not later management.
+        assert len(sent)==len(h.artifacts)==calls.count("risk")==1
+        assert h.core.execution_engine.capital_authority.symbol_exposure("JPM")==0
+        assert h.core.execution_engine.strategy_allocation_authority.strategy_used_exposure("RossMomentumStrategyV1")==0
+        if failed_pass:
+            assert h.core.execution_engine.execution_integrity_flag
+            assert cached_facts  # External cumulative evidence was not consumed/destructively popped.
+            assert len(h.truth)==2  # Abort before position reconciliation or another admission.
+            if malformed or late_case=="collector_error":
+                assert plan.entry_quantity==0 and h.core.execution_engine.position_records=={}
+                assert protection_requests==[] and pending_capital and pending_allocation
+                assert used_capital==used_allocation==0
+            else:
+                # Real execution accounting/protection may precede processor failure;
+                # preserve those facts, rather than manufacture rollback/release.
+                assert h.core.execution_engine.position_records[sent[0].client_order_id]["filled_qty"]==1
+                assert len(protection_requests)==1
+                assert plan.entry_quantity==int(late_case=="processor_after")
+                assert used_capital==used_allocation==pytest.approx(10.91)
+                assert not pending_capital and not pending_allocation
+            return
+        if late_case in {"pending","unrelated","rejected","cancelled"}:
+            assert plan.entry_quantity==0 and h.core.execution_engine.position_records=={}
+            assert protection_requests==[] and plan.e0 is None
+            assert used_capital==used_allocation==0
+            assert bool(pending_capital)==bool(pending_allocation)==(late_case in {"pending","unrelated"})
+            return
+        # Preserve any pre-existing pending-order trace flag; ingestion cannot
+        # grant permission or clear integrity merely because a later fill arrives.
+        assert h.core.execution_engine.execution_integrity_flag==initial_integrity
+        assert len(h.truth)==4
+        assert plan.entry_quantity==1
+        assert plan.entry_terminal is (late_case!="partial")
+        assert plan.entry_notional==pytest.approx(10.91)
+        assert h.manager.snapshot_positions()["JPM"].quantity==1
+        assert len(protection_requests)==1  # Repeated cache/cycles cannot duplicate protection.
+        assert h.core.execution_engine.position_records[sent[0].client_order_id]["filled_qty"]==1
+        assert len(h.core.trade_registry.snapshot())==1 and h.core.trade_registry.snapshot()[0].quantity==1
+        assert not pending_capital and not pending_allocation
+        assert used_capital==used_allocation==pytest.approx(10.91)
+        callback,=[r for r in callback_results if r.filled_quantity]
+        assert callback.client_order_id==sent[0].client_order_id and str(callback.ibkr_order_id)=="71"
+        assert float(callback.average_fill_price)==pytest.approx(10.91)
+        assert callback.relationship_context==sent[0].relationship_context
+        assert callback.stop_loss_price==sent[0].stop_loss_price
+        assert plan.orders[sent[0].client_order_id]["request"]["invalidation_level"]==pytest.approx(10.81)
+        snapshot,verdict=h.truth[-1]
+        assert snapshot.system_positions["JPM"].quantity==snapshot.broker_positions["JPM"].quantity==1
+        assert verdict.healthy
+        assert plan.reconciled is (late_case!="partial")
+        protection=h.core.execution_engine.post_fill_lifecycle.get_trade(plan.initial_order_id)
+        assert protection.filled_qty==protection.stop.quantity==1
+        assert protection.stop.trigger_price==pytest.approx(10.81) and protection.target is None
+        if late_case!="partial":
+            assert plan.e0==pytest.approx(10.91) and plan.r0==pytest.approx(.10)
+            assert plan.milestone_price==pytest.approx(plan.e0+2*plan.r0)
+        assert downstream.count("_run_trade_management_engine")==0
+        assert not plan.milestone_consumed and plan.milestone_quantity is None
+        return  # Callback ingestion proof, not recurring 2R management certification.
     pending_expected=position_case=="complete_empty" and transport in {"submitted","pending","missing_id","error","native_timeout","native_unsupported"}
     assert bool(pending_capital)==bool(pending_allocation)==pending_expected
     raw=[intent for batch in h.batches for intent in batch]
@@ -374,3 +513,16 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
             assert h.core.execution_engine.strategy_allocation_authority.active_reservations=={}
             assert h.manager.snapshot_positions()=={}
             assert no_external_activity==[] and mutations()=={"place":0,"modify":0,"cancel":0}
+
+
+@pytest.mark.parametrize("mode",["READ_ONLY","SIM","LIVE"])
+def test_cached_ingestion_does_not_activate_other_modes(reassessment,monkeypatch,tmp_path,
+        no_external_activity,mode):
+    _install_eligible_market_facts(reassessment,monkeypatch)
+    h=joined(reassessment,monkeypatch,tmp_path,position_case="complete_empty",
+        runtime_options={"run_mode":mode})
+    def forbidden():
+        pytest.fail("PAPER callback handoff must not activate another mode")
+    monkeypatch.setattr(h.core.execution_engine,"collect_relationship_updates",forbidden)
+    assert h.core.run_once()
+    assert no_external_activity==[] and mutations()=={"place":0,"modify":0,"cancel":0}
