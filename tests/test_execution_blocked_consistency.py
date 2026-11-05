@@ -1,6 +1,6 @@
-"""Investigation only: real owners, synthetic facts, no operational dispatch.
+"""Regression controls: real owners, synthetic facts, no operational dispatch.
 
-One unmarked red invariant intentionally preserves the demonstrated marker gap.
+Failing-before evidence remains on test/execution-blocked-consistency.
 Reuse the native joined exposure control; do not manufacture risk decisions.
 """
 from copy import deepcopy
@@ -113,14 +113,56 @@ def test_actual_denial_marker_and_execution_admission(reassessment,monkeypatch,t
         assert engine.strategy_allocation_authority.active_reservations=={}
         if not eligible:
             assert len(overlays)==1
-            assert overlays[0]==dict(allowed=False,size=0,execution_blocked=False,
+            assert overlays[0]==dict(allowed=False,size=0,execution_blocked=True,
                 level="BLOCKED",reason=expected,code="APPROVE",action="ALLOW")
-            assert fields["execution_blocked"] is False  # factual before state
+            assert fields["execution_blocked"] is True
         else:
             assert not overlays and fields["execution_blocked"] is True
     assert mutations()=={"place":0,"modify":0,"cancel":0}
     assert no_external_activity==[]
-    # Deliberately failing-before invariant after all safety/cleanup evidence.
-    # No xfail, no production repair, no silent acceptance of inconsistent data.
+    # Retained failing-before invariant after all safety/cleanup evidence.
+    # No xfail or suppression; now satisfied by the owner-local correction.
     if not decision.allowed:
         assert decision.execution_blocked is True, fields
+
+
+@pytest.mark.parametrize("cause",["max_attempts","cooldown","short","gap","float","rvol","confidence"])
+def test_each_shared_ross_rejection_caller_retains_metadata_and_blocks(cause,no_external_activity):
+    from src.models.data_models import TradeIntent
+    from src.strategies.ross_momentum.ross_momentum_risk_overlay import RiskContext
+    overlay=RossMomentumRiskOverlay()
+    intent=TradeIntent(symbol="SYNTH",direction="LONG",strategy_name="ross_momentum",
+        trader_type="SCALPER",confidence=overlay.confidence_floor,
+        rationale="synthetic helper compatibility",stop_loss_price=9.,take_profit_price=12.,
+        gap_percent=(overlay.min_gap+overlay.max_gap)/2,
+        float_millions=overlay.float_ceiling,rvol=overlay.rvol_floor)
+    tick=100
+    if cause=="max_attempts":
+        for attempt in range(overlay.max_attempts_per_symbol):
+            assert overlay.evaluate(intent,RiskContext(tick+attempt*(overlay.cooldown_ticks+1))) is None
+        tick+=overlay.max_attempts_per_symbol*(overlay.cooldown_ticks+1)
+    elif cause=="cooldown":
+        assert overlay.evaluate(intent,RiskContext(tick)) is None
+    elif cause=="short": intent.direction="SHORT"
+    elif cause=="gap": intent.gap_percent=overlay.max_gap+1
+    elif cause=="float": intent.float_millions=overlay.float_ceiling+1
+    elif cause=="rvol": intent.rvol=overlay.rvol_floor-1
+    else: intent.confidence=overlay.confidence_floor-.01
+    before=deepcopy(vars(intent))
+    result=overlay.evaluate(intent,RiskContext(tick))
+    expected={"max_attempts":"ROSS_BLOCK_MAX_ATTEMPTS","cooldown":"ROSS_BLOCK_COOLDOWN_ACTIVE",
+        "short":"ROSS_BLOCK_SHORT","gap":"ROSS_BLOCK_GAP_OUT_OF_RANGE",
+        "float":"ROSS_BLOCK_FLOAT_TOO_HIGH","rvol":"ROSS_BLOCK_LOW_RVOL",
+        "confidence":"ROSS_BLOCK_LOW_CONFIDENCE"}[cause]
+    assert result.reason_code==expected and result.rationale
+    assert not result.allowed and result.max_position_size==0
+    assert result.risk_level=="BLOCKED" and result.execution_blocked
+    assert (result.symbol,result.trader_type,result.strategy_name,result.direction,
+        result.stop_loss_price,result.take_profit_price)==(
+        intent.symbol,intent.trader_type,intent.strategy_name,intent.direction,9.,12.)
+    assert vars(intent)==before
+    event=overlay._event_collector._cycle_events[-1]
+    assert event.event_type=="TRADE_BLOCKED"
+    assert event.payload["reason_code"]==expected
+    assert event.payload["human_readable_rationale"]==result.rationale
+    assert no_external_activity==[] and mutations()=={"place":0,"modify":0,"cancel":0}

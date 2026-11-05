@@ -193,8 +193,9 @@ def _run_exposure_control(reassessment,monkeypatch,tmp_path,capsys,broker_qty,sy
         if not eligible:
             assert not decision.allowed and decision.max_position_size==0
             assert decision.overall_action=="BLOCK" and decision.decision_code=="REJECT"
-            # Preserve the separately recorded marker inconsistency, no repair.
-            assert decision.execution_blocked==(system_qty==3)
+            # Authorized Ross helper correction: both actual rejection owners
+            # now project execution_blocked, retaining reasons and zero sizing.
+            assert decision.execution_blocked is True
             assert decision.reason_code==("CAPITAL_PORTFOLIO_LIMIT" if system_qty==3 else "ROSS_BLOCK_GAP_OUT_OF_RANGE")
             assert allocation is capital is None and not boundaries and result is None and not execution_calls
             assert not engine.capital_authority.active_reservations and not engine.strategy_allocation_authority.active_reservations

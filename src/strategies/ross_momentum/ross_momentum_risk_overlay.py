@@ -123,6 +123,7 @@ class RossMomentumRiskOverlay:
         return RiskDecision(
             symbol=trade_intent.symbol,
             allowed=False,
+            execution_blocked=True,
             max_position_size=0,
             risk_level="BLOCKED",
             rationale=rationale,
