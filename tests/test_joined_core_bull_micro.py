@@ -19,6 +19,7 @@ from src.news.news_intelligence_contract import NewsCandidate, NewsBatchResult, 
 from src.strategy.strategy_runner import StrategyRunner
 from src.strategies.ross_momentum.patterns import pattern_trace
 from src.strategies.ross_momentum.patterns.pattern_trace import RossPatternFailureTraceCollector
+from src.setup_engine.setup_families.micro_pullback import MicroPullbackPattern
 from test_news_catalyst_lifecycle_audit import lifecycle, CANDIDATE
 from test_watchlist_between_scan_reassessment import reassessment
 from test_pr1082_rth_watchlist_continuity import _install_runtime_harness, _row, _payload, _cadence, _reset_config
@@ -37,6 +38,7 @@ def joined(reassessment, monkeypatch, tmp_path, *, news_fault="none", peer=False
         monkeypatch.setattr(module,"datetime",life.clock)
     article=life.article("JPM reports earnings beat")
     if news_fault=="stale": article=life.article("JPM reports earnings beat",life.clock.current-timedelta(hours=6,microseconds=1))
+    if news_fault=="expires_between": article=life.article("JPM reports earnings beat",life.clock.current-timedelta(hours=6)+timedelta(seconds=5))
     if news_fault=="nonqualifying": article=life.article("JPM market roundup")
     articles={"JPM":() if news_fault=="missing" else (article,)}
     candidates=[CANDIDATE]
@@ -58,6 +60,8 @@ def joined(reassessment, monkeypatch, tmp_path, *, news_fault="none", peer=False
                  dollar_volume=19656000.,session="RTH_OPEN",con_id=123)
     rows={"JPM":c.row}
     if peer: rows["PEER"]={**c.row,"symbol":"PEER","company_name":"Peer Systems Inc","con_id":456}
+    if market_fault=="focus_rvol":
+        rows["JPM"].update(rvol=2.,rvol_phase=2.,rvol_discovery=2.)
     def rebuild(provider,symbol,session,**kwargs):
         return dict(deepcopy(rows[symbol]),quote_timestamp_utc=kwargs["quote_override"].timestamp_utc)
     monkeypatch.setattr(ross,"_build_symbol_context",rebuild)  # Synthetic broker facts, never news/Focus flags.
@@ -86,6 +90,16 @@ def joined(reassessment, monkeypatch, tmp_path, *, news_fault="none", peer=False
         ross._PERSISTENT_PROVIDER=c.provider
         return original_scan(**kwargs)
     monkeypatch.setattr(core_module,"run_scanner_cycle",scan)
+    focus_calls=[]
+    focus_rejections=[]
+    original_focus=ross._select_ross_focus_contexts
+    def observed_focus(contexts,news,thresholds,**kwargs):
+        received=deepcopy(contexts)
+        out=original_focus(contexts,news,thresholds,**kwargs)
+        focus_calls.append((received,deepcopy(news),deepcopy(out)))
+        focus_rejections.extend((row["symbol"],row["focus_drop_reason"]) for row in contexts if row.get("focus_drop_reason"))
+        return out
+    monkeypatch.setattr(ross,"_select_ross_focus_contexts",observed_focus)
     reads=[]
     def read(candidates,request,policy):
         out=life.service.get_news(candidates,request,replace(policy,network_allowed=False,
@@ -114,6 +128,10 @@ def joined(reassessment, monkeypatch, tmp_path, *, news_fault="none", peer=False
     registry_batches=[]
     original_run=strategy._pattern_registry.run
     def observed_registry(source,**kwargs):
+        if market_fault=="delayed_forming_child":
+            # Controlled clock latency after inputs were observed, before real
+            # native registry/composition. No detector/result is substituted.
+            life.clock.current+=timedelta(seconds=6)
         out=original_run(source,**kwargs)
         inputs.append(source)
         results.extend(out)
@@ -128,6 +146,13 @@ def joined(reassessment, monkeypatch, tmp_path, *, news_fault="none", peer=False
         compositions.append((source,kwargs,out))
         return out
     monkeypatch.setattr(manager,"compose_bull_flag",observed_compose)
+    children=[]
+    original_micro=MicroPullbackPattern.evaluate
+    def observed_micro(self,source):
+        out=original_micro(self,source)
+        if source.timeframe=="10s": children.append((source,out))
+        return out
+    monkeypatch.setattr(MicroPullbackPattern,"evaluate",observed_micro)
     end=life.clock.current.replace(second=0,microsecond=0)
     parent_rows=[(10.,10.02,9.98,10.,1000)]*42+[(b.open,b.high,b.low,b.close,b.volume) for b in bull_inputs().candles[:-1]]
     primary=_candles(parent_rows,end=end-timedelta(minutes=1))
@@ -135,10 +160,10 @@ def joined(reassessment, monkeypatch, tmp_path, *, news_fault="none", peer=False
     fast=_candles([(10.55,10.57,10.53,10.55,500)]*25+micro,step_seconds=10,end=end+timedelta(seconds=10))
     streams={"1m":primary,"5m":_candles(parent_rows,step_seconds=300,end=end-timedelta(minutes=5)),"10s":fast}
     if market_fault=="stale_child": streams["10s"]=[replace(b,timestamp=b.timestamp-timedelta(minutes=5)) for b in fast]
-    if market_fault in {"forming_child","future_child"}:
+    if market_fault in {"forming_child","future_child","delayed_forming_child"}:
         # Second-cycle original clock is exactly +11s. Neither this forming
         # child nor a timestamp beyond that clock may become composed authority.
-        stamp=life.clock.current+timedelta(seconds=6 if market_fault=="forming_child" else 11,
+        stamp=life.clock.current+timedelta(seconds=11 if market_fault=="future_child" else 6,
                                         microseconds=1 if market_fault=="future_child" else 0)
         streams["10s"][-1]=replace(fast[-1],timestamp=stamp)
     if market_fault=="missing_identity": rows["JPM"]["con_id"]=None
@@ -157,7 +182,8 @@ def joined(reassessment, monkeypatch, tmp_path, *, news_fault="none", peer=False
     monkeypatch.setattr(core.execution_engine.strategy_allocation_authority,"reserve",forbidden)
     return NS(c=c,life=life,core=core,strategy=strategy,manager=manager,scans=scans,reads=reads,batches=batches,
               inputs=inputs,results=results,registry_batches=registry_batches,compositions=compositions,
-              before=before,article=article,streams=streams,cold=cold,articles=articles,rows=rows)
+              before=before,article=article,streams=streams,cold=cold,articles=articles,rows=rows,
+              children=children,focus_calls=focus_calls,focus_rejections=focus_rejections)
 
 
 def test_joined_native_core_composed_raw_formation_then_ownership_veto(reassessment,monkeypatch,tmp_path,capsys):
@@ -177,6 +203,8 @@ def test_joined_native_core_composed_raw_formation_then_ownership_veto(reassessm
     assert cached.evidence_id==h.article.evidence_id and cached.published_at==h.article.published_at
     news=ross._ross_news_contexts_from_news_intelligence_result(h.reads[-1])["JPM"]
     assert news["ross_catalyst_valid"] and news["catalyst_type"]=="EARNINGS"
+    assert any([r["symbol"] for r in received]==["JPM"] and [r["symbol"] for r in selected]==["JPM"]
+               for received,_,selected in h.focus_calls)
     assert intent.target_model=="BULL_FLAG_MICRO_2R_V1"
     assert intent.take_profit_price is None
     assert intent.decision_id is None and not getattr(intent,"synthetic_forced_intent",False)
@@ -196,6 +224,8 @@ def test_joined_native_core_composed_raw_formation_then_ownership_veto(reassessm
     assert intent.setup_metadata["execution_stream"]["observed_at_utc"]==source.observed_at_utc.isoformat()
     assert source.timeframe_provenance=={"10s":"PRESENT","1m":"PRESENT","5m":"PRESENT"}
     assert h.compositions[-1][1]["now"]==source.observed_at_utc==h.life.clock.now(timezone.utc)
+    assert h.children and all(result.detected for _,result in h.children)
+    assert all(b.timestamp+timedelta(seconds=10)<=child.observed_at_utc for child,_ in h.children for b in child.candles)
     parent=next(p for p in h.manager._parents.values() if p["parent_id"]==context["parent_id"])
     assert parent["security_id"]==context["security_id"] and parent["symbol"]=="JPM"
     assert parent["origin_timestamp"]==context["parent_origin"] and parent["completed_timestamp"]==context["parent_completed"]
@@ -231,9 +261,12 @@ def test_joined_native_core_composed_raw_formation_then_ownership_veto(reassessm
     assert snapshot()=={"place":0,"modify":0,"cancel":0}
 
 
-@pytest.mark.parametrize("news_fault", ["missing","stale","nonqualifying"])
+@pytest.mark.parametrize("news_fault", ["missing","stale","nonqualifying","expires_between"])
 def test_news_rejection_cannot_borrow_a_peer_catalyst(reassessment,monkeypatch,tmp_path,capsys,news_fault):
     h=joined(reassessment,monkeypatch,tmp_path,news_fault=news_fault,peer=True)
+    if news_fault=="expires_between":
+        assert (h.life.clock.current-h.article.published_at).total_seconds()==21600-5
+        assert h.cold.evidence_for_symbol("JPM")[0].published_at==h.article.published_at
     assert h.core.run_once() and _cadence(h.core).focus.symbols==[]
     capsys.readouterr()
     h.life.clock.current+=timedelta(seconds=11)
@@ -244,6 +277,10 @@ def test_news_rejection_cannot_borrow_a_peer_catalyst(reassessment,monkeypatch,t
     news=ross._ross_news_contexts_from_news_intelligence_result(h.reads[-1])
     assert not news["JPM"]["ross_catalyst_valid"] and news["PEER"]["ross_catalyst_valid"]
     assert news["JPM"]["qualification_reason"]=="no_valid_canonical_event"
+    # Production cached qualification prunes the rejected issuer before quote
+    # refresh/Focus. Observe the real Focus owner, do not inject a Focus list.
+    assert h.focus_calls and all([r["symbol"] for r in received]==["PEER"] and
+        [r["symbol"] for r in selected]==["PEER"] for received,_,selected in h.focus_calls)
     assert all(e.symbol=="JPM" and e.headline!="PEER reports earnings beat" for e in h.reads[-1].evidence_for_symbol("JPM"))
     assert h.reads[-1].evidence_for_symbol("PEER")[0].published_at==h.articles["PEER"][0].published_at
     raw=[i for batch in h.batches for i in batch]
@@ -254,14 +291,14 @@ def test_news_rejection_cannot_borrow_a_peer_catalyst(reassessment,monkeypatch,t
     if news_fault=="missing": assert h.reads[-1].evidence_for_symbol("JPM")==()
     if news_fault=="nonqualifying":
         assert h.reads[-1].evidence_for_symbol("JPM")[0].headline=="JPM market roundup"
-    if news_fault=="stale":
+    if news_fault in {"stale","expires_between"}:
         assert h.article.published_at < h.life.clock.current-timedelta(hours=6)
         assert all(e.published_at==h.article.published_at for e in h.reads[-1].evidence_for_symbol("JPM"))
     assert h.life.provider.calls==len(h.scans)==1 and h.life.store.cache_path.read_bytes()==h.before
     assert h.manager._relationship_plans=={} and h.core.execution_engine.capital_authority.active_reservations=={}
 
 
-@pytest.mark.parametrize("market_fault", ["stale_child","missing_identity","forming_child","future_child"])
+@pytest.mark.parametrize("market_fault", ["stale_child","missing_identity","forming_child","future_child","delayed_forming_child"])
 def test_qualified_news_is_not_structure_or_identity_permission(reassessment,monkeypatch,tmp_path,capsys,market_fault):
     h=joined(reassessment,monkeypatch,tmp_path,market_fault=market_fault)
     assert h.core.run_once()
@@ -273,8 +310,30 @@ def test_qualified_news_is_not_structure_or_identity_permission(reassessment,mon
     assert ross._ross_news_contexts_from_news_intelligence_result(h.reads[-1])["JPM"]["ross_catalyst_valid"]
     assert [i for batch in h.batches for i in batch]==[]
     reason={"missing_identity":"relationship_security_unavailable","stale_child":"pr4_input_block",
-            "forming_child":"parent_armed_no_eligible_child","future_child":"parent_armed_no_eligible_child"}[market_fault]
+            "forming_child":"parent_armed_no_eligible_child","future_child":"parent_armed_no_eligible_child",
+            "delayed_forming_child":"parent_armed_no_eligible_child"}[market_fault]
     assert reason in out
     assert "[PIPELINE][STRATEGY_OUTPUT] count=0" in out
     assert h.manager._relationship_plans=={} and h.core.execution_engine.capital_authority.active_reservations=={}
     assert not any(p["consumed_children"] for p in h.manager._parents.values())
+    assert all(b.timestamp+timedelta(seconds=10)<=child.observed_at_utc for child,_ in h.children for b in child.candles)
+    if market_fault=="delayed_forming_child":
+        source,kwargs,_=h.compositions[-1]
+        final=h.streams["10s"][-1]
+        assert source.observed_at_utc < final.timestamp+timedelta(seconds=10) <= kwargs["now"]
+
+
+def test_canonical_news_does_not_bypass_the_real_focus_market_gate(reassessment,monkeypatch,tmp_path,capsys):
+    h=joined(reassessment,monkeypatch,tmp_path,market_fault="focus_rvol")
+    assert h.core.run_once()
+    capsys.readouterr()
+    h.life.clock.current+=timedelta(seconds=11)
+    assert h.core.run_once()
+    assert _cadence(h.core).watchlist.symbols==["JPM"] and _cadence(h.core).focus.symbols==[]
+    assert h.focus_calls and all([r["symbol"] for r in received]==["JPM"] and
+        news["JPM"]["ross_catalyst_valid"] and selected==[] for received,news,selected in h.focus_calls)
+    assert ("JPM","DROP_RVOL_FOCUS") in h.focus_rejections
+    assert h.c.calls==["JPM"]  # Qualified issuer reached real broker refresh then Focus, not a news prefilter rejection.
+    assert not [i for batch in h.batches for i in batch]
+    assert h.inputs==h.compositions==[] and h.manager._parents=={}
+    assert h.life.provider.calls==len(h.scans)==1 and h.life.store.cache_path.read_bytes()==h.before
