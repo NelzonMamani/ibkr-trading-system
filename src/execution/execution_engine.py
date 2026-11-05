@@ -1290,6 +1290,12 @@ class ExecutionEngine:
         # future: select best venue
         return "IBKR_SMART"
 
+    @staticmethod
+    def submission_confirmed(result: ExecutionResult) -> bool:
+        """Native accepted-status and broker identity, never a local attempt alone."""
+        return (bool(result.attempted) and getattr(result, "ibkr_order_id", None) is not None
+                and str(result.status).upper() in {"SUBMITTED", "PRESUBMITTED", "FILLED"})
+
     def _route_order(self, request: BrokerOrderRequest) -> ExecutionResult:
         readonly = get_ibkr_readonly_enabled()
         submission_enabled = bool(get_config("IBKR_ORDER_SUBMISSION_ENABLED"))
@@ -1340,7 +1346,7 @@ class ExecutionEngine:
             f"route={self.route_order(request)}"
         )
         print(
-            f"[ORDER_SUBMITTED] symbol={request.symbol} qty={request.quantity} type={request.order_type}"
+            f"[ORDER_ROUTE_ATTEMPT] symbol={request.symbol} qty={request.quantity} type={request.order_type}"
         )
         context = request.relationship_context or {}
         if context and context.get("action") in {"ENTRY", "REENTRY", "ADD"}:
@@ -1403,16 +1409,6 @@ class ExecutionEngine:
             result.status = "SUBMISSION_UNKNOWN"
             self._record_fill_and_position(request, result)
             return result
-        if str(getattr(result, "status", "") or "") in self.VALID_IBKR_STATUSES:
-            print(
-                f"[EXECUTION] SUBMITTED symbol={request.symbol} qty={request.quantity} "
-                f"order_id={getattr(result, 'ibkr_order_id', None)}"
-            )
-            if str(request.direction).upper() == "SELL":
-                print(
-                    f"[EXIT][SUBMIT] symbol={request.symbol} qty={request.quantity} "
-                    f"broker_order_id={getattr(result, 'ibkr_order_id', None)}"
-                )
         self._execution_log(
             "SUBMIT_RESULT",
             symbol=request.symbol,
@@ -1430,6 +1426,13 @@ class ExecutionEngine:
             f"status={getattr(result, 'status', None)}"
         )
         result = self._confirm_broker_ack(request, result)
+        if self.submission_confirmed(result):
+            print(f"[ORDER_SUBMITTED] symbol={request.symbol} qty={request.quantity} type={request.order_type}")
+            print(f"[EXECUTION] SUBMITTED symbol={request.symbol} qty={request.quantity} "
+                  f"order_id={result.ibkr_order_id}")
+            if str(request.direction).upper() == "SELL":
+                print(f"[EXIT][SUBMIT] symbol={request.symbol} qty={request.quantity} "
+                      f"broker_order_id={result.ibkr_order_id}")
         self._log_ibkr_status(request, result)
         self._record_fill_and_position(request, result)
         self._run_live_probe_exit_if_needed(request, result)

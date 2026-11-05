@@ -4212,15 +4212,15 @@ class CoreOrchestrator:
                 )
                 raise Exception("PIPELINE_BREAK_SETUP_TO_INTENT")
         gated_strategy_output = self._enforce_ross_execution_integrity(raw_strategy_output)
-        readonly_gate_rejections = {}
-        if self.run_mode == RunMode.READ_ONLY:
+        admission_gate_rejections = {}
+        if self.run_mode in {RunMode.READ_ONLY, RunMode.PAPER}:
             integrity_ids = {id(intent) for intent in gated_strategy_output}
-            readonly_gate_rejections = {
+            admission_gate_rejections = {
                 intent.symbol.upper(): "INTENT_REJECTED_BY_EXECUTION_INTEGRITY"
                 for intent in raw_strategy_output if id(intent) not in integrity_ids
             }
             if position_truth_verdict.block_new_entries:
-                readonly_gate_rejections.update({
+                admission_gate_rejections.update({
                     intent.symbol.upper(): "POSITION_TRUTH_BLOCK_NEW_ENTRIES"
                     for intent in gated_strategy_output
                 })
@@ -4229,7 +4229,7 @@ class CoreOrchestrator:
             position_truth_verdict,
         )
         if (
-            self.run_mode != RunMode.READ_ONLY
+            self.run_mode not in {RunMode.READ_ONLY, RunMode.PAPER}
             and self._mock_scanner_mode_enabled()
             and not position_truth_verdict.block_new_entries
             and pre_arbitration_intents
@@ -4243,10 +4243,10 @@ class CoreOrchestrator:
             if str(getattr(intent, "symbol", "")).strip()
         )
         filtered_by_conflict = max(len(pre_arbitration_intents) - len(gated_strategy_output), 0)
-        if self.run_mode == RunMode.READ_ONLY:
+        if self.run_mode in {RunMode.READ_ONLY, RunMode.PAPER}:
             # These losses are guard vetoes, not arbitration conflicts.
             filtered_by_conflict = 0
-            print(f"[PIPELINE][GUARD_OUTPUT] rejections={readonly_gate_rejections}")
+            print(f"[PIPELINE][GUARD_OUTPUT] rejections={admission_gate_rejections}")
         filtered_by_limits = 0
         final_intents_count = len(gated_strategy_output)
         print(
@@ -4268,7 +4268,7 @@ class CoreOrchestrator:
             if arbitration_kept:
                 reason = "kept"
             elif intent_created:
-                reason = readonly_gate_rejections.get(symbol_upper, "conflict_or_limit")
+                reason = admission_gate_rejections.get(symbol_upper, "conflict_or_limit")
             elif strategy_detected:
                 reason = "setup_no_intent"
             else:
@@ -4284,7 +4284,7 @@ class CoreOrchestrator:
                 continue
             symbol_upper = symbol.upper()
             if symbol_upper not in gated_symbols:
-                rejection_reason = readonly_gate_rejections.get(symbol_upper, "INTENT_REJECTED_BY_EXECUTION_INTEGRITY")
+                rejection_reason = admission_gate_rejections.get(symbol_upper, "INTENT_REJECTED_BY_EXECUTION_INTEGRITY")
                 print(
                     f"[TRADE_PATH][INTENT] symbol={symbol_upper} "
                     f"verdict=INTENT_REJECTED_BY_POLICY reason={rejection_reason}"
@@ -4307,10 +4307,12 @@ class CoreOrchestrator:
             "[PIPELINE][RISK_INPUT] "
             f"intents_count={len(gated_strategy_output)} symbols={[getattr(intent, 'symbol', None) for intent in gated_strategy_output]}"
         )
-        readonly_risk_rejections = {}
-        readonly_risk_blocked_count = 0
-        risk_allowed_symbols = [getattr(intent, "symbol", "") for intent in gated_strategy_output]
-        if self.run_mode == RunMode.READ_ONLY:
+        canonical_risk_rejections = {}
+        canonical_risk_blocked_count = 0
+        risk_allowed_symbols = []
+        paper_decisions = []
+        paper_submission_count = 0
+        if self.run_mode == RunMode.READ_ONLY or (self.run_mode == RunMode.PAPER and mode_manager.allow_orders):
             # Core owns canonical decision identity. Only post-integrity,
             # post-ownership and fresh-quote intents enter this lifecycle.
             risk_allowed_symbols = []
@@ -4352,21 +4354,84 @@ class CoreOrchestrator:
                         "decision_id": decision.decision_id, "reason": reason,
                     })
                     pipeline_audit.mark_stage(intent.symbol, "RISK", risk_approved=approved)
+                    if self.run_mode == RunMode.PAPER:
+                        # Execution accepts the selected entry through its
+                        # existing dynamic RiskDecision entry_price contract.
+                        # Do not substitute the generic price feed for the
+                        # entry already evaluated by risk.
+                        decision.entry_price = getattr(intent, "entry_price", None)
+                        paper_decisions.append((intent, decision, approved))
                     if approved:
                         risk_allowed_symbols.append(intent.symbol)
                     else:
-                        readonly_risk_blocked_count += 1
-                        readonly_risk_rejections[intent.symbol.upper()] = reason
+                        canonical_risk_blocked_count += 1
+                        canonical_risk_rejections[intent.symbol.upper()] = reason
                         pipeline_audit.record(intent.symbol, TerminalOutcome.RISK_BLOCKED, reason, "risk")
-            # READ_ONLY never dispatches orders, including an unexpectedly allowed
-            # RiskDecision. The mode authority remains an independent barrier.
-        blocked_risk_count = readonly_risk_blocked_count if self.run_mode == RunMode.READ_ONLY else len(quote_risk_rejections)
+            # READ_ONLY never dispatches orders. PAPER uses the existing
+            # execution admission owner below, only after real risk approval.
+        blocked_risk_count = canonical_risk_blocked_count + len(quote_risk_rejections) if self.run_mode in {RunMode.READ_ONLY, RunMode.PAPER} else len(quote_risk_rejections)
         print(
             "[PIPELINE][RISK_OUTPUT] "
             f"approved_count={len(risk_allowed_symbols)} blocked_count={blocked_risk_count} symbols={risk_allowed_symbols}"
         )
 
-        if mode_manager.allow_orders:
+        if mode_manager.allow_orders and self.run_mode == RunMode.PAPER:
+            execution_output = []
+            for intent, decision, approved in paper_decisions:
+                if not approved:
+                    continue
+                if self._stop_requested_at_boundary("PAPER_EXECUTION"):
+                    return False
+                print(f"[EXECUTION][ADMISSION] symbol={intent.symbol} decision_id={decision.decision_id}")
+                try:
+                    result = self.execution_engine.execute_trade(decision)
+                except Exception:
+                    # Execution owns reservation/uncertain-submit lifecycle.
+                    # Never retry, claim submission, or clear unknown exposure here.
+                    pipeline_audit.record(intent.symbol, TerminalOutcome.EXECUTION_SUBMISSION_FAILED,
+                                          "EXECUTION_EXCEPTION", "execution")
+                    raise
+                execution_output.append(result)
+                submitted = self.execution_engine.submission_confirmed(result)
+                attempted = bool(result.attempted) or str(result.status).upper() == "SUBMISSION_UNKNOWN"
+                reason = result.rejection_reason or result.rationale or result.status
+                self._trace_event("EXECUTION_RESULT", {
+                    "strategy": strategy_key, "symbol": intent.symbol,
+                    "decision_id": decision.decision_id, "status": result.status,
+                    "attempted": attempted, "submitted": submitted, "reason": reason,
+                })
+                if submitted:
+                    paper_submission_count += 1
+                    self._trace_event("ORDER_SUBMITTED", {
+                        "strategy": strategy_key, "symbol": intent.symbol,
+                        "decision_id": decision.decision_id,
+                        "broker_order_id": result.ibkr_order_id,
+                    })
+                    pipeline_audit.record(intent.symbol, TerminalOutcome.EXECUTION_SUBMITTED,
+                                          result.status, "execution")
+                    if int(getattr(result, "filled_quantity", 0) or 0) > 0:
+                        fill_outcome = (TerminalOutcome.PARTIALLY_FILLED if result.remaining_quantity > 0
+                                        else TerminalOutcome.FILLED)
+                        pipeline_audit.record(intent.symbol, fill_outcome, result.status, "execution")
+                    else:
+                        pipeline_audit.record(intent.symbol, TerminalOutcome.CALLBACK_PENDING,
+                                              "CALLBACK_PENDING", "execution")
+                else:
+                    status = str(result.status).upper()
+                    if status in {"SUBMISSION_UNKNOWN", "PENDINGSUBMIT", "SUBMITTED", "PRESUBMITTED"}:
+                        outcome = TerminalOutcome.CALLBACK_PENDING
+                    else:
+                        outcome = (TerminalOutcome.EXECUTION_SUBMISSION_FAILED if attempted
+                                   else TerminalOutcome.EXECUTION_PRECHECK_BLOCKED)
+                    pipeline_audit.record(intent.symbol, outcome, reason, "execution")
+                pipeline_audit.mark_stage(intent.symbol, "EXECUTION",
+                                          execution_attempted=attempted, execution_submitted=submitted)
+            # Preserve existing result authority; do not create fills or run a
+            # new management/reconciliation cycle as part of admission.
+            if execution_output:
+                self._apply_execution_results_to_trade_management(execution_output)
+
+        elif mode_manager.allow_orders:
 
             if gated_strategy_output:
                 for intent in gated_strategy_output:
@@ -4376,14 +4441,17 @@ class CoreOrchestrator:
                     )
                     print(f"[EXECUTION] symbol={intent.symbol} enabled=True")
                     pipeline_trace("EXECUTION", intent.symbol)
-                    self._trace_event("ORDER_SUBMITTED", {
-                        "strategy": strategy_key,
-                        "symbol": intent.symbol
+                    # Other modes retain their existing no-dispatch path;
+                    # mode eligibility alone is never submission evidence.
+                    reason = "NO_AUTHORITATIVE_EXECUTION_RESULT"
+                    self._trace_event("ORDER_SIMULATED", {
+                        "strategy": strategy_key, "symbol": intent.symbol, "reason": reason,
                     })
-                    pipeline_audit.mark_stage(intent.symbol, "RISK", risk_approved=True)
-                    pipeline_audit.mark_stage(intent.symbol, "EXECUTION", execution_attempted=True, execution_submitted=True)
-                    pipeline_audit.record(intent.symbol, TerminalOutcome.EXECUTION_SUBMITTED, "ORDER_SUBMITTED", "execution")
-                    pipeline_audit.record(intent.symbol, TerminalOutcome.CALLBACK_PENDING, "CALLBACK_PENDING", "execution")
+                    pipeline_audit.record(intent.symbol, TerminalOutcome.EXECUTION_PRECHECK_BLOCKED,
+                                          reason, "execution")
+                    pipeline_audit.mark_stage(intent.symbol, "EXECUTION",
+                                              risk_approved=False, execution_attempted=False,
+                                              execution_submitted=False)
 
             else:
                 # REQUIRED FOR E21 — even when all intents rejected
@@ -4397,7 +4465,7 @@ class CoreOrchestrator:
             if raw_strategy_output:
                 for intent in raw_strategy_output:
                     if str(getattr(intent, "symbol", "")).upper() in {
-                        **quote_risk_rejections, **readonly_gate_rejections, **readonly_risk_rejections
+                        **quote_risk_rejections, **admission_gate_rejections, **canonical_risk_rejections
                     }:
                         # Retain the exact guard/quote/actual-risk veto.
                         continue
@@ -4439,9 +4507,9 @@ class CoreOrchestrator:
                 "execution_disabled": not mode_manager.allow_orders,
             }
             if self.run_mode == RunMode.READ_ONLY:
-                no_trade_reason["all_blocked_by_risk"] = bool(quote_risk_rejections or readonly_risk_rejections) and not readonly_gate_rejections
+                no_trade_reason["all_blocked_by_risk"] = bool(quote_risk_rejections or canonical_risk_rejections) and not admission_gate_rejections
                 no_trade_reason["all_removed_by_arbitration"] = False
-                print(f"[PIPELINE][NO_TRADE_GATES] rejections={readonly_gate_rejections}")
+                print(f"[PIPELINE][NO_TRADE_GATES] rejections={admission_gate_rejections}")
             print(
                 "[PIPELINE][NO_TRADE_REASON] "
                 f"no_intents_generated={no_trade_reason['no_intents_generated']} "
@@ -4473,7 +4541,7 @@ class CoreOrchestrator:
             f"raw_top_n_count={len(selected_observations)} candidates_entering_gates={scanner_kept_count} survivors_after_gates={scanner_kept_count} "
             f"watchlist_count={len(watchlist_symbols)} focus_count_auto={len(auto_focus_symbols)} focus_count_manual={len(manual_focus_accepted_symbols)} "
             f"focus_count_final={focus_passed} evaluated_count={focus_evaluated} focus_rejected={focus_rejected} setup_trigger_count={intent_count} "
-            f"no_setup_count={no_setup_count} intent_count={intent_count} order_submission_count={intent_count if mode_manager.allow_orders else 0} "
+            f"no_setup_count={no_setup_count} intent_count={intent_count} order_submission_count={paper_submission_count} "
             f"open_positions_count={self.trade_registry.count_active()} dominant_drop_reasons=NA dominant_no_trade_reasons={dominant_no_trade_reasons} "
             f"execution_allowed={session_execution_allowed} "
             f"execution_ready={session_execution_allowed} focus_source={focus_source}"
