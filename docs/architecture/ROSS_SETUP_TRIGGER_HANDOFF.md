@@ -1486,3 +1486,13 @@ Test-only review commit `ebc28c7cd03620bb2672369ca37ffea85d438cb2`, tree `58d1c0
 
 Recommend draft publication for independent exact-head review/required CI only when separately authorized. Registry/inventory/management categories unchanged; no duplicated inventory. Standalone numeric management, intrabar ordering and natural progression remain uncertified; approved composed management scope unchanged. Raw formation remains before five-position veto with zero downstream artifact/risk input. Direct GAP_GO blocked; corporate/SEC/listing parked. No provider/broker calls, observation, push or merge.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+
+### PR1157 published acceptance — 5 November 2026
+
+Draft PR1157: https://github.com/NelzonMamani/ibkr-trading-system/pull/1157. Exact head **91ccd0d71217862a545f03f9f6f50ab41b1e3611**, tree **d691bd2d7509e54e1a43e18ed0fe9aaac56793ed**, unchanged accepted base **f4e27409ad25eb22febeb604351ad455add050cf**. Independent agent review **5783772123** on that head has no blockers (COMMENT, not human approval). CI **42014844171**, attempt1, successful: full Linux4153pass/3skip; Windows4155pass/1skip, plus successful configured cache/PowerShell steps (actual5.1 exit13 and harness46). Focused/full counts overlap; prior local387+later2(overlap1)+four review controls remain accurately preserved in the checkpoint.
+
+Tested merge **46f21d1a5c4ebc81f48013794d44856c1253c015** has exact base/head parents and equals reviewed candidate tree. Both job checkout logs and local/GitHub tree metadata agree. Final check runs all success; no unresolved threads/new findings. No code changes/retries required during publication. Same-checkpoint/family-map acceptance saved separately on **docs/pr1157-ci-acceptance**; PR remains draft/unmerged at its reviewed pin. No additional suite solely for documentation.
+
+Standalone authority defects addressed, with permitted intrabar/volume rules, context rejection and composed lifecycle unchanged. Numeric standalone management, intrabar ordering and natural progression remain uncertified. No family inventory/count changes; existing categories overlap. Five-position veto remains after raw formation/before artifact-risk. Recommend controlled integration review only at this exact candidate after separate authorization/fresh ref checks. Corporate/SEC/listing parked; direct GAP_GO blocked. No provider/broker collection, observation or trading.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
