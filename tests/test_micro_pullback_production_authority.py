@@ -407,4 +407,41 @@ def test_composed_child_cannot_substitute_now_for_an_explicit_invalid_clock(cloc
     source,now=composed_inputs()
     out=TradeManagementEngine().compose_bull_flag(BullFlagPattern(),replace(source,observed_at_utc=clock),
                                                 security_id="conId:123",now=now)
-    assert not out.detected and out.rejection_reason == "parent_armed_no_eligible_child"
+    assert not out.detected and out.rejection_reason == "relationship_observation_clock_unavailable"
+
+
+@pytest.mark.parametrize("before_close", [False,True])
+def test_composed_child_must_be_closed_at_the_bound_original_clock(before_close):
+    from src.execution.trade_management_engine import TradeManagementEngine
+    from src.setup_engine.setup_families.bull_flag import BullFlagPattern
+    from test_ross_bullflag_micro_management import composed_inputs
+    source,now=composed_inputs()
+    final=source.timeframe_candles["10s"][-1]
+    clock=final.timestamp+timedelta(seconds=10,microseconds=-1 if before_close else 0)
+    out=TradeManagementEngine().compose_bull_flag(BullFlagPattern(),replace(source,observed_at_utc=clock),
+                                                security_id="conId:123",now=now)
+    assert out.detected is not before_close
+    if not before_close: assert out.setup_metadata["relationship"]["child_timestamp"] == final.timestamp.isoformat()
+
+
+def test_future_composed_observation_clock_cannot_mint_parent_or_child_authority():
+    from src.execution.trade_management_engine import TradeManagementEngine
+    from src.setup_engine.setup_families.bull_flag import BullFlagPattern
+    from test_ross_bullflag_micro_management import composed_inputs
+    source,now=composed_inputs()
+    manager=TradeManagementEngine()
+    out=manager.compose_bull_flag(BullFlagPattern(),replace(source,observed_at_utc=now+timedelta(microseconds=1)),
+                                 security_id="conId:123",now=now)
+    assert not out.detected and manager._parents == {}
+
+
+def test_parent_formation_cannot_borrow_completion_from_later_composition_time():
+    from src.execution.trade_management_engine import TradeManagementEngine
+    from src.setup_engine.setup_families.bull_flag import BullFlagPattern
+    from test_ross_bullflag_micro_management import composed_inputs
+    source,now=composed_inputs()
+    clock=source.candles[-1].timestamp+timedelta(seconds=60,microseconds=-1)
+    manager=TradeManagementEngine()
+    out=manager.compose_bull_flag(BullFlagPattern(),replace(source,observed_at_utc=clock),
+                                 security_id="conId:123",now=now)
+    assert not out.detected and manager._parents == {}
