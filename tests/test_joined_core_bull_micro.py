@@ -513,10 +513,9 @@ def test_joined_core_position_truth_blocks_before_artifact_and_risk(reassessment
 
 
 @pytest.mark.parametrize("position_case,broker_quantity",[("quantity_warning",1),("quantity_warning_larger",3)])
-def test_joined_core_retains_existing_same_side_quantity_warning_policy(reassessment,monkeypatch,tmp_path,capsys,position_case,broker_quantity):
-    # This is NOT a healthy snapshot or an approval. Existing reconciliation
-    # marks same-side quantity differences WARNING, distinct from critical
-    # ownership mismatches; report this boundary rather than broaden policy.
+def test_joined_core_quantity_warning_obeys_broker_magnitude_policy(reassessment,monkeypatch,tmp_path,capsys,position_case,broker_quantity):
+    # Classification stays WARNING. Approved policy now vetoes broker-larger
+    # magnitudes globally; broker-smaller behavior stays unchanged.
     h=joined(reassessment,monkeypatch,tmp_path,position_case=position_case)
     assert h.core.run_once()
     capsys.readouterr()
@@ -525,8 +524,20 @@ def test_joined_core_retains_existing_same_side_quantity_warning_policy(reassess
     out=capsys.readouterr().out
     snapshot,verdict=h.truth[-1]
     assert snapshot.snapshot_status=="MISMATCH" and not verdict.healthy and verdict.require_reconciliation
-    assert verdict.warning_mismatch_count==1 and verdict.critical_mismatch_count==0 and not verdict.block_new_entries
+    assert verdict.warning_mismatch_count==1 and verdict.critical_mismatch_count==0
     assert [m.mismatch_type for m in snapshot.mismatches]==["QUANTITY_MISMATCH"]
+    assert verdict.block_new_entries==(broker_quantity>2)
+    assert not verdict.block_exits and h.core._degraded
+    if broker_quantity>2:
+        raw=[i for batch in h.batches for i in batch]
+        assert len(raw)==1 and raw[0].symbol=="JPM" and raw[0].decision_id is None
+        assert h.artifacts==h.evaluated==[]
+        assert "POSITION_TRUTH_BLOCK_NEW_ENTRIES" in out
+        assert "[PIPELINE][RISK_INPUT] intents_count=0" in out
+        assert snapshot.broker_positions["SYNTH_MATCH"].quantity==broker_quantity
+        assert snapshot.system_positions["SYNTH_MATCH"].quantity==2
+        _assert_no_admission_effects(h)
+        return
     assert len(h.artifacts)==len(h.evaluated)==1,out
     decision=h.evaluated[0][2]
     assert decision.reason_code=="LIVE_READ_ONLY_BLOCK" and decision.execution_blocked

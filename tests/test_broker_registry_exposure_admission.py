@@ -109,7 +109,15 @@ def _run_exposure_control(reassessment,monkeypatch,tmp_path,capsys,broker_qty,sy
     if verdict.block_new_entries:
         # The retained safety regression must stop if the existing shared truth
         # owner vetoes. Never feed a rejected raw intent around that boundary.
+        assert broker_qty>system_qty
+        assert verdict.warning_mismatch_count==1 and verdict.critical_mismatch_count==0
+        assert not verdict.block_exits and verdict.require_reconciliation
+        assert intent.symbol=="JPM" and truth.mismatches[0].symbol=="SYNTH_MATCH"
+        assert truth.broker_positions["SYNTH_MATCH"].quantity==broker_qty
+        assert truth.system_positions["SYNTH_MATCH"].quantity==system_qty
         assert h.artifacts==h.evaluated==[] and intent.decision_id is None
+        assert "POSITION_TRUTH_BLOCK_NEW_ENTRIES" in formation_log
+        assert "[PIPELINE][RISK_INPUT] intents_count=0" in formation_log
         assert engine.capital_authority.active_reservations=={}
         assert engine.strategy_allocation_authority.active_reservations=={}
         assert no_external_activity==[] and mutation_snapshot()=={"place":0,"modify":0,"cancel":0}
@@ -229,10 +237,11 @@ def test_real_broker_registry_exposure_admission(reassessment,monkeypatch,tmp_pa
 
 
 def test_broker_larger_capital_admission_must_respect_broker_exposure(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
-    # Intentionally failing safety regression for the demonstrated production
-    # admission defect. No skip/xfail or production repair in this investigation.
+    # Retained formerly failing safety regression. Actual shared truth veto
+    # must block even this different-symbol entry before risk or reservation.
     outcome=_run_exposure_control(reassessment,monkeypatch,tmp_path,capsys,3,2,no_external_activity,True)
     assert outcome["reserved_after"]==0.
+    assert not outcome["risk_allowed"] and outcome["admitted_size"]==0
     assert not outcome["capital_admitted"] or outcome["broker_projected"]<=outcome["limit"], outcome
 
 
