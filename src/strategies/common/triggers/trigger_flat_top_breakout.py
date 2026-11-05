@@ -93,6 +93,22 @@ def evaluate_flat_top_breakout_trigger(pattern_result, inputs):
 
 def evaluate_consolidation_breakout_trigger(pattern_result, inputs):
     """Existing range break plus same-stream volume confirmation; no RVOL substitute."""
+    payload = pattern_result if isinstance(pattern_result, dict) else {}
+    stream = payload.get("execution_stream")
+    # The canonical projection is also used by unbound component callers. Actual
+    # V1 always supplies execution_stream before dispatch. Omission preserves the
+    # component API; an explicitly bound but missing/invalid stream or clock must
+    # fail closed. Diagnostic timeframe metadata alone does not assert a clock.
+    active = ("execution_stream" in payload and payload.get("source") == "canonical_pattern_result") or (
+        isinstance(stream, dict) and "observed_at_utc" in stream)
+    if active:
+        rejection = abcd_candle_rejection(list((inputs or {}).get("candles") or []),
+            observed_at_utc=stream.get("observed_at_utc") if isinstance(stream, dict) else None,
+            require_clock=True)
+        if rejection:
+            return {"trigger_type": "BREAKOUT_HIGH", "trigger_state": "BLOCKED",
+                    "trigger_ready_now": False, "trigger_reason": "consolidation_"+rejection.lower(),
+                    "trigger_quality_flags": ["BLOCKED", rejection]}
     out = evaluate_flat_top_breakout_trigger(pattern_result, inputs)
     if not out.get("trigger_ready_now"):
         return out
