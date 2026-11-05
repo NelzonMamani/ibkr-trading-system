@@ -4369,7 +4369,7 @@ class CoreOrchestrator:
                         pipeline_audit.record(intent.symbol, TerminalOutcome.RISK_BLOCKED, reason, "risk")
             # READ_ONLY never dispatches orders. PAPER uses the existing
             # execution admission owner below, only after real risk approval.
-        blocked_risk_count = canonical_risk_blocked_count + len(quote_risk_rejections) if self.run_mode in {RunMode.READ_ONLY, RunMode.PAPER} else len(quote_risk_rejections)
+        blocked_risk_count = canonical_risk_blocked_count if self.run_mode in {RunMode.READ_ONLY, RunMode.PAPER} else len(quote_risk_rejections)
         print(
             "[PIPELINE][RISK_OUTPUT] "
             f"approved_count={len(risk_allowed_symbols)} blocked_count={blocked_risk_count} symbols={risk_allowed_symbols}"

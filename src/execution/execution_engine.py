@@ -1425,6 +1425,10 @@ class ExecutionEngine:
             f"status={getattr(result, 'status', None)}"
         )
         result = self._confirm_broker_ack(request, result)
+        if context and str(result.status).upper() == "SUBMISSION_UNKNOWN":
+            order = plan.orders[request.client_order_id]
+            order["submission_uncertain_at"] = datetime.now(timezone.utc).isoformat()
+            manager._save_relationship_state()
         if self.submission_confirmed(result):
             print(f"[ORDER_SUBMITTED] symbol={request.symbol} qty={request.quantity} type={request.order_type}")
             print(f"[EXECUTION] SUBMITTED symbol={request.symbol} qty={request.quantity} "
@@ -1511,6 +1515,17 @@ class ExecutionEngine:
             return result
         ibkr_order_id = getattr(result, "ibkr_order_id", None)
         status_raw = str(getattr(result, "status", "") or "")
+        if status_raw.upper() == "REJECTED":
+            # Definitive rejection needs no positive submission acknowledgement;
+            # retain its relationship identity for terminal result processing.
+            return result
+        if status_raw.upper() in {"TIMED_OUT", "SUBMISSION_UNKNOWN"}:
+            # An acknowledgement timeout is not a terminal broker rejection.
+            # Keep native identity and pending exposure until authoritative
+            # reconciliation resolves the attempted submission.
+            self.execution_integrity_flag = True
+            result.status = "SUBMISSION_UNKNOWN"
+            return result
         if ibkr_order_id is None:
             reason = "reason=NO_IBKR_ORDER_ID"
             print(f"[EXECUTION][ERROR] order_id=MISSING {reason}")
