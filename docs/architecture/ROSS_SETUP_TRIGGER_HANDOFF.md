@@ -121,8 +121,12 @@ child/duplicate/restart/fill/stop boundaries), `test_bull_flag_pipeline_end_to_e
 `test_readonly_manager_risk_handoff.py` replaces the strategy after Core wiring,
 uses standalone real BullFlag detection and synthetic supported-news/cached Focus,
 and proves actual manager artifact/risk/ownership boundaries. It does NOT by itself
-prove the composed relationship/news/Core combination; the composed test and Core
-test are separate proofs, neither natural market proof. Preserve that gap.
+prove the composed relationship/news/Core combination. Integrated PR1159 now joins
+canonical news/cache, real Focus and Core-wired composition through raw formation
+and the five-position veto (`test_joined_core_bull_micro`). Its artifact/risk calls
+are deliberately forbidden, so the composed route through active Core canonical
+artifact creation and actual READ_ONLY RiskEngine denial remains a separate proof
+gap. Neither layer is natural market or executable-management certification.
 
 ### Every registered enabled family: current coverage map
 
@@ -1608,3 +1612,11 @@ Existing overlapping family/handoff/contract/management inventory unchanged. Thi
 Draft PR1159 publishes joined synthetic proof at exact5d8740c1e6b7af9221cec931400ded4306d28ab8/tree07e6134e56699d46880cb88afd0556c238ef92ef against accepted6b85ed49c67cde083457ca30d52170239034a0d4, with unchanged production/workflows and no rebase. Independent agent review5787349830 reports no blockers; COMMENT receipt is not human approval. Real canonical cache/qualification→cached Focus→Core shared manager→native Bull/Micro→V1 raw formation is exercised with documented external/startup stubs. Five-position veto still separates formation/consumption from artifact/risk/reservation/execution. Tested mergeadb941562eea90694c2550256999ebcb8667317c has the candidate tree. Existing11/12/8 receipts overlap; five isolated counterfactuals are expected sensitivity failures. Exact CI and remaining-gate receipt is in the SAME checkpoint. No registry/handoff/contract/management count changes or newly certified family. Direct GAP_GO blocked; corporate/SEC/listing parked. No collection, observation, merge or readiness upgrade.
 
 PR1159 acceptance complete at the same exact head/tree: independent agent COMMENT review5787349830 no blockers; CI42053872379 attempt1 all jobs success, full Linux4260pass/3skip and Windows4262pass/1skip. Native cache, serial-admission, Windows PowerShell5.1 exit/harness46 checks and parser controls actually passed; dedicated/full/local counts overlap. Merge refadb941562eea90694c2550256999ebcb8667317c tree equals reviewed candidate. Artifact13429537050 retained. No candidate fix or retry. Receipts saved separately on docs/pr1159-ci-acceptance; PR stays draft/unmerged pending separate controlled-integration authorization. Original external boundaries and uncertified management/intrabar/natural progression remain; five-position veto still admits zero artifact/risk/reservation. Existing overlapping inventory unchanged. Full exact receipt and scope in SAME NATURAL_READONLY_CHECKPOINT.md.
+
+### PR1159 integrated — next actual-Core risk-boundary verification
+
+Accepted main **04787281791a6857af96e48cd903be5840db9496**, tree **07e6134e56699d46880cb88afd0556c238ef92ef**, merged5November15:44:25Z with exact5d8740c1 head guard/merge commit after review5787349830, successfulCI42053872379, tested mergeadb94156/tree equality and clean current requirements. Source/workflows unchanged; synthetic joined tests/docs only. Saved e57d5673 receipt carried asa35ebceb on docs/pr1159-integration; SAME checkpoint holds full acceptance/integration details. No suite repeated or additional task implemented.
+
+Next task is **verification** of this intact joined composed route through active Core's own canonical artifact→actual RiskEngine READ_ONLY execution denial, using an independently complete/reconciled synthetic position boundary while preserving the unchanged five-position veto negative. Existing test_joined_core_bull_micro forbids artifact/risk; test_readonly_manager_risk_handoff installs a separate standalone strategy; composed management test builds its artifact separately. Those layers pass but do not certify this combined executable-path boundary. Reuse current owners/fixtures, no prepared intent/ID/approval or bypass. Require traceable canonical ID, LIVE_READ_ONLY_BLOCK, zero execution/reservation/mutation, and fail-closed incomplete-truth/stale/news controls. Existing READ_ONLY and explicit Bull/Micro policy suffices; no unresolved policy decision or target invention required. Natural progression, positive risk admission, broker acceptance and executable-management/intrabar certification remain separate.
+
+All overlapping inventory categories above unchanged (28names/27canonical;23potential long;11handoff,13explicit contract+2authority,21management gaps). Five real unmatched positions untouched; direct GAP_GO blocked, corporate/SEC/listing parked. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
