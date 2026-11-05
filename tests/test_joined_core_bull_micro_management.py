@@ -25,11 +25,12 @@ from test_key_level_break_production_handoff import forbid_io
     ("complete_empty","stop_after_risk"),("complete_empty","integrity_fault"),
     ("complete_empty","result_trace_error"),("complete_empty","native_timeout"),("complete_empty","native_submitted"),
     ("complete_empty","native_pending"),("complete_empty","native_rejected"),
+    ("complete_empty","native_missing_id"),("complete_empty","native_unsupported"),
 ])
 def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypatch,tmp_path,capsys,
         no_external_activity,position_case,transport):
     native_provider=transport.startswith("native_")
-    if native_provider and transport!="native_timeout": transport=transport.removeprefix("native_")
+    if native_provider and transport not in {"native_timeout","native_unsupported"}: transport=transport.removeprefix("native_")
     # Retain real methods before inherited fixture startup stubs are installed.
     names=("_startup_recovery_allows_strategy_execution","_autonomous_recovery_allows_new_entries",
         "_daily_risk_allows_new_entries","_resolve_fill_authority_cycle",
@@ -152,7 +153,7 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
         if transport=="error": raise OSError("synthetic transport uncertainty")
         result=ExecutionResult(symbol=request.symbol,trader_type=request.trader_type,
             attempted=transport not in {"rejected","result_trace_error"},status={"submitted":"Submitted","rejected":"REJECTED",
-                "result_trace_error":"REJECTED","native_timeout":"TIMED_OUT",
+                "result_trace_error":"REJECTED","native_timeout":"TIMED_OUT","native_unsupported":"UNRECOGNIZED",
                 "pending":"PendingSubmit","missing_id":"Submitted"}[transport],
             rationale="synthetic transport response",direction=request.direction,quantity=request.quantity,
             requested_quantity=request.quantity,filled_quantity=0,remaining_quantity=request.quantity,
@@ -184,7 +185,7 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
         pending_allocation=deepcopy(h.core.execution_engine.strategy_allocation_authority.active_reservations)
         h.core.execution_engine.capital_authority.release_reservation(reason="OFFLINE_JOINED_PROOF_END")
         h.core.execution_engine.strategy_allocation_authority.release_reservation(reason="OFFLINE_JOINED_PROOF_END")
-    pending_expected=position_case=="complete_empty" and transport in {"submitted","pending","missing_id","error","native_timeout"}
+    pending_expected=position_case=="complete_empty" and transport in {"submitted","pending","missing_id","error","native_timeout","native_unsupported"}
     assert bool(pending_capital)==bool(pending_allocation)==pending_expected
     raw=[intent for batch in h.batches for intent in batch]
     print("JOINED_MANAGEMENT",position_case,"raw",len(raw),"calls",calls,
@@ -271,11 +272,11 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
             assert decision.evaluated_limits["trade_value"]==pytest.approx(10.91)
             if transport=="rejected":
                 assert pending_capital==pending_allocation=={}
-            if transport in {"error","native_timeout"}:
+            if transport in {"error","native_timeout","native_unsupported"}:
                 plan=h.manager._relationship_plans[context["relationship_id"]]
                 assert plan.orders[request.client_order_id]["submission_uncertain_at"]
                 assert pending_capital and pending_allocation
-                if transport=="native_timeout":
+                if transport in {"native_timeout","native_unsupported"}:
                     assert execution_results[0].status=="SUBMISSION_UNKNOWN"
                     assert execution_results[0].ibkr_order_id==71
                     assert not plan.orders[request.client_order_id]["terminal"]

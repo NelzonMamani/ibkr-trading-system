@@ -1515,93 +1515,17 @@ class ExecutionEngine:
             return result
         ibkr_order_id = getattr(result, "ibkr_order_id", None)
         status_raw = str(getattr(result, "status", "") or "")
-        if status_raw.upper() == "REJECTED":
-            # Definitive rejection needs no positive submission acknowledgement;
-            # retain its relationship identity for terminal result processing.
+        status_upper = status_raw.upper()
+        if status_upper in {"REJECTED", "CANCELLED", "CANCELED", "INACTIVE"}:
+            # Definitive terminal status needs no positive submission ack;
+            # preserve relationship identity for terminal result processing.
             return result
-        if status_raw.upper() in {"TIMED_OUT", "SUBMISSION_UNKNOWN"}:
-            # An acknowledgement timeout is not a terminal broker rejection.
-            # Keep native identity and pending exposure until authoritative
-            # reconciliation resolves the attempted submission.
+        if ibkr_order_id is None or status_raw not in self.VALID_IBKR_STATUSES:
+            # Missing/unsupported acknowledgement evidence is not a terminal
+            # broker rejection. Keep identity and exposure until reconciliation.
             self.execution_integrity_flag = True
             result.status = "SUBMISSION_UNKNOWN"
             return result
-        if ibkr_order_id is None:
-            reason = "reason=NO_IBKR_ORDER_ID"
-            print(f"[EXECUTION][ERROR] order_id=MISSING {reason}")
-            self.execution_integrity_flag = True
-            return ExecutionResult(
-                symbol=request.symbol,
-                trader_type=request.trader_type or "UNKNOWN",
-                attempted=False,
-                status="BLOCKED",
-                rationale=reason,
-                direction=request.direction,
-                quantity=request.quantity,
-                requested_quantity=request.quantity,
-                filled_quantity=0,
-                remaining_quantity=request.quantity,
-                fill_status="NONE",
-                note=reason,
-                rejection_reason=reason,
-                broker_error_code=str(getattr(result, "broker_error_code", "") or "") or None,
-                broker_error_message=getattr(result, "broker_error_message", None),
-                client_order_id=request.client_order_id,
-                ibkr_order_id=None,
-                attempt_number=request.attempt_number,
-            )
-
-        if status_raw not in self.VALID_IBKR_STATUSES:
-            reason = f"reason=INVALID_IBKR_STATUS:{status_raw or 'UNKNOWN'}"
-            print(f"[EXECUTION][ERROR] order_id={ibkr_order_id} {reason}")
-            self.execution_integrity_flag = True
-            return ExecutionResult(
-                symbol=request.symbol,
-                trader_type=request.trader_type or "UNKNOWN",
-                attempted=False,
-                status="BLOCKED",
-                rationale=reason,
-                direction=request.direction,
-                quantity=request.quantity,
-                requested_quantity=request.quantity,
-                filled_quantity=0,
-                remaining_quantity=request.quantity,
-                fill_status="NONE",
-                note=reason,
-                rejection_reason=reason,
-                broker_error_code=str(getattr(result, "broker_error_code", "") or "") or None,
-                broker_error_message=getattr(result, "broker_error_message", None),
-                client_order_id=request.client_order_id,
-                ibkr_order_id=ibkr_order_id,
-                attempt_number=request.attempt_number,
-            )
-
-        status_upper = status_raw.upper()
-        if not status_raw or status_upper == "UNKNOWN":
-            print(
-                f"[EXECUTION][ERROR] order_id={ibkr_order_id} reason=no_broker_ack"
-            )
-            self.execution_integrity_flag = True
-            return ExecutionResult(
-                symbol=request.symbol,
-                trader_type=request.trader_type or "UNKNOWN",
-                attempted=False,
-                status="FAILED",
-                rationale="no_broker_ack",
-                direction=request.direction,
-                quantity=request.quantity,
-                requested_quantity=request.quantity,
-                filled_quantity=0,
-                remaining_quantity=request.quantity,
-                fill_status="NONE",
-                note="no_broker_ack",
-                rejection_reason="no_broker_ack",
-                broker_error_code=str(getattr(result, "broker_error_code", "") or "") or None,
-                broker_error_message=getattr(result, "broker_error_message", None),
-                client_order_id=request.client_order_id,
-                ibkr_order_id=ibkr_order_id,
-                attempt_number=request.attempt_number,
-            )
 
         broker_status = "Submitted"
         if status_upper in {"FILLED"} or getattr(result, "filled_quantity", 0) > 0:
