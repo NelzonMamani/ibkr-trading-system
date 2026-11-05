@@ -197,8 +197,8 @@ def joined(reassessment, monkeypatch, tmp_path, *, news_fault="none", peer=False
             status="COMPLETE"
             account="SYNTHETIC_TEST"
             completed=life.clock.now(timezone.utc)
-            if case in {"complete_matched","sign_mismatch","quantity_warning","partial","disconnect","wrong_account"}:
-                rows=(NS(symbol="SYNTH_MATCH",position=-2 if case=="sign_mismatch" else (1 if case=="quantity_warning" else 2),
+            if case in {"complete_matched","sign_mismatch","quantity_warning","quantity_warning_larger","partial","disconnect","wrong_account"}:
+                rows=(NS(symbol="SYNTH_MATCH",position=-2 if case=="sign_mismatch" else (1 if case=="quantity_warning" else (3 if case=="quantity_warning_larger" else 2)),
                          account="OTHER_SYNTHETIC" if case=="wrong_account" else account,con_id=987),)
             if case=="five":
                 rows=tuple(NS(symbol=f"SYNTH{i}",position=float(i),account=account,con_id=900+i) for i in range(1,6))
@@ -211,7 +211,7 @@ def joined(reassessment, monkeypatch, tmp_path, *, news_fault="none", peer=False
             return result
         client=NS() if position_case=="missing_interface" else NS(position_snapshot=positions)
         core.connection_manager._ibkr_connection_manager=NS(existing_client=client,connection_metadata=lambda: {})
-        if position_case in {"complete_matched","sign_mismatch","quantity_warning"}:
+        if position_case in {"complete_matched","sign_mismatch","quantity_warning","quantity_warning_larger"}:
             core.trade_registry.register_trade(ActiveTrade(symbol="SYNTH_MATCH",trader_type="SYNTHETIC",
                 entry_tick=0,entry_price=10.,direction="LONG",quantity=2,stop_loss_price=9.))
         def observed_truth(**kwargs):
@@ -512,11 +512,12 @@ def test_joined_core_position_truth_blocks_before_artifact_and_risk(reassessment
 
 
 
-def test_joined_core_retains_existing_same_side_quantity_warning_policy(reassessment,monkeypatch,tmp_path,capsys):
+@pytest.mark.parametrize("position_case,broker_quantity",[("quantity_warning",1),("quantity_warning_larger",3)])
+def test_joined_core_retains_existing_same_side_quantity_warning_policy(reassessment,monkeypatch,tmp_path,capsys,position_case,broker_quantity):
     # This is NOT a healthy snapshot or an approval. Existing reconciliation
     # marks same-side quantity differences WARNING, distinct from critical
     # ownership mismatches; report this boundary rather than broaden policy.
-    h=joined(reassessment,monkeypatch,tmp_path,position_case="quantity_warning")
+    h=joined(reassessment,monkeypatch,tmp_path,position_case=position_case)
     assert h.core.run_once()
     capsys.readouterr()
     h.life.clock.current+=timedelta(seconds=11)
@@ -527,5 +528,15 @@ def test_joined_core_retains_existing_same_side_quantity_warning_policy(reassess
     assert verdict.warning_mismatch_count==1 and verdict.critical_mismatch_count==0 and not verdict.block_new_entries
     assert [m.mismatch_type for m in snapshot.mismatches]==["QUANTITY_MISMATCH"]
     assert len(h.artifacts)==len(h.evaluated)==1,out
-    assert h.evaluated[0][2].reason_code=="LIVE_READ_ONLY_BLOCK" and h.evaluated[0][2].execution_blocked
+    decision=h.evaluated[0][2]
+    assert decision.reason_code=="LIVE_READ_ONLY_BLOCK" and decision.execution_blocked
+    assert snapshot.broker_positions["SYNTH_MATCH"].quantity==broker_quantity
+    assert snapshot.system_positions["SYNTH_MATCH"].quantity==2
+    assert decision.evaluated_limits["open_positions"]==1
+    # Existing risk exposure comes from system registry quantity*entry price,
+    # not max(broker,system). Mode denial is NOT proof of exposure-limit gating.
+    assert decision.evaluated_limits["total_exposure"]==20.
+    assert decision.evaluated_limits["trade_value"]==pytest.approx(10.91)
+    assert "max_total_exposure" in decision.evaluated_limits
+    assert h.core._degraded and not verdict.block_exits
     _assert_no_admission_effects(h)
