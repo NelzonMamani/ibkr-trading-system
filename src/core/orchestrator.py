@@ -4231,6 +4231,7 @@ class CoreOrchestrator:
         if (
             self.run_mode != RunMode.READ_ONLY
             and self._mock_scanner_mode_enabled()
+            and not position_truth_verdict.block_new_entries
             and pre_arbitration_intents
             and not gated_strategy_output
         ):
