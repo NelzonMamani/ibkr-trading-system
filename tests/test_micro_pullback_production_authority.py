@@ -445,3 +445,22 @@ def test_parent_formation_cannot_borrow_completion_from_later_composition_time()
     out=manager.compose_bull_flag(BullFlagPattern(),replace(source,observed_at_utc=clock),
                                  security_id="conId:123",now=now)
     assert not out.detected and manager._parents == {}
+
+
+@pytest.mark.parametrize("mislabeled", [False,True])
+def test_certification_micro_inputs_use_real_timeframe_intervals_and_keep_bad_structure_blocked(mislabeled):
+    from src.strategies.ross_momentum.certification.e2e_harness import build_pr6_positive_cases, _build_inputs
+    from src.setup_engine.setup_families.micro_pullback import MicroPullbackPattern
+    case=next(c for c in build_pr6_positive_cases() if c.name=="positive_micro_pullback_a_quality")
+    source=_build_inputs(case)
+    for timeframe,seconds in (("10s",10),("1m",60),("5m",300)):
+        bars=source.timeframe_candles[timeframe]
+        assert all((b.timestamp-a.timestamp).total_seconds()==seconds for a,b in zip(bars,bars[1:]))
+        assert all(c.timestamp+timedelta(seconds=seconds)<=source.observed_at_utc for c in bars)
+    if mislabeled:
+        # Reproduce the old synthetic fixture's 10s-spaced source labelled 1m.
+        bad=_candles(list(case.rows),end=source.observed_at_utc-timedelta(seconds=10),step_seconds=10)
+        source=replace(source,candles=bad,timeframe_candles={**source.timeframe_candles,"1m":bad})
+    result=MicroPullbackPattern().evaluate(source)
+    assert result.detected is not mislabeled
+    if mislabeled: assert result.rejection_reason=="incomplete_pullback_structure"
