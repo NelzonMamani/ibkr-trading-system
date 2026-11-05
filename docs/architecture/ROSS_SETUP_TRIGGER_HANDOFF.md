@@ -1414,3 +1414,47 @@ Consolidation's raw-intent/input-authority proof is offline/synthetic, not execu
 
 Five unmatched-position protections remain globally after raw formation before artifact/risk admission, untouched. Direct GAP_GO blocked; corporate/SEC/listing provenance PARKED/fail closed. GUI draft, saved roots/checkouts/branches, historical UNKNOWNs/failures/successful safety receipts and separate cache/callback uncertainties preserved. No provider/broker collection, preflight, observation, holdings action or trading. No merge.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## PR1156 controlled integration and bounded next family task — 5 November 2026
+
+Explicit integration authorization was limited to head **`2bf1365cfea18a631aed77034bb5344eba9b94d7`**, tree **`f49400c5f2c3de61d0090d2e78451b79ee9b48af`**, base **`74556770fddeb7f7ac7d4d5377a96187a4928630`**. Live refs matched before ready and immediately before guarded merge. Independent agent **review5779470675** covers this exact head with no blocker (COMMENT, not human approval). CI **41961363369** succeeded, all three exact-head check runs succeeded, required full Linux/Windows/cache/PowerShell steps executed successfully, and no unresolved review threads or new findings were present. No passing suite was repeated.
+
+Tested merge **`db9f7bad43b10172b100ba1f55b7cd15fa05c805`** has exactly authorized base/head parents and tree **`f49400c5f2c3de61d0090d2e78451b79ee9b48af`**. GitHub commit/tree inspection and both saved checkout logs agree. Main protection was disabled with no required contexts/rulesets; merge commits enabled. Documented repository requirements (successful pytest, current branch/base, PR integration) were satisfied, no protections bypassed.
+
+Marked PR1156 ready and merged using the accepted merge-commit method with expected-head guard. GitHub records **2026-11-05T03:44:51Z**. Accepted main/merge **`f4e27409ad25eb22febeb604351ad455add050cf`**, tree **`f49400c5f2c3de61d0090d2e78451b79ee9b48af`**. GitHub and fetched origin/main verify the exact authorized parents and resulting main tree equals reviewed/tested candidate tree. No additional source changes.
+
+Saved checkpoint/family-map acceptance receipt **`bbb9b0e3c484a8010f8b55301fd4afdaac7e71ce`** carried into **docs/pr1156-integration** as equivalent docs cherry-pick **`1c17dbd1e1ee4c5905b797ec383cf1c55057d820`**. This integration update remains separate documentation; runtime pin is the accepted merge above. DEPRECATION_LEDGER.md unchanged: no retirement/ownership change. Original checkout/GUI draft, roots and saved branches preserved.
+
+**Completion scope:** Consolidation's demonstrated input, completed-window and freshness defects are repaired through the actual native detector→registry→registered evaluator→selection→V1 raw path. Original17 invalid-admission/two valid-window findings,208-pass and two added execution-age controls remain preserved, overlapping. Source volume_soft/equality, strict range-break source confirmation, execution touch/volume equality, own high/low stop/invalidation and descriptive target are unchanged. Corrected fixture timestamps retain original assertions and component/neighbor compatibility. Numeric executable management, intrabar ordering and natural progression remain uncertified; there is no positive Paper/Live risk-integration claim.
+
+### Updated overlapping inventory within the existing map
+
+PR1156 changes input authority, not registry membership or bridge activation. Existing current counts therefore remain:
+- **28 configured names /27 canonical families**, with GAP_CONTINUATION counted once as the GAP_GO alias.
+- **23 potential long-entry families**, after excluding the two non-long fakeout/context entries, risk-off PARABOLIC_EXHAUSTION and unavailable HALT_RESUME. Inactive candle placeholders/reference vocabulary are not additional enabled entry families.
+- **11/23 lack canonical occurrence-bound V1 handoff**, as listed in the existing current-count section. HOD/Momentum partial contextual/alias routes are not complete canonical handoffs.
+- **13/23 explicit entry-contract blockers** (12 missing target models plus GAP_GO structural-stop/invalidation authority), with **two additional unresolved anchor-authority cases** MOMENTUM_RECLAIM/GAP_FILL. Distinguish these15 incomplete/unestablished authority paths from13 explicit missing contracts.
+- **21/23 lack recorded family-specific executable-management evidence**. Bull Flag/Micro jointly participate in one scoped approved composed-route offline management proof; this is not two fully certified standalone management paths or natural execution.
+
+These categories overlap and must not be added. Consolidation already had represented bridge/contract fields before this authority repair, and remains in the management-unproven group. No count/readiness upgrade is inferred from its input proof.
+
+### One next task — standalone Bull Flag input authority
+
+Recommend a bounded **standalone Bull Flag detection/trigger-admission authority verification**, repairing only demonstrated failures. It is not a missing-handoff, new entry-contract/target or management implementation task. Choose an already-supported path instead of adding another bridge whose target/stop policy still blocks admission.
+
+Existing policy/owners:
+- strategy_policy.py:120/150 names impulse plus tight-consolidation breakout.
+- **src/setup_engine/setup_families/bull_flag.py::BullFlagPattern.evaluate / _evaluate:30-136** owns standalone impulse/flag geometry, EMA9/20/VWAP, contraction/volume confidence, flag anchors and descriptive “Measured move” target.
+- **src/strategies/common/triggers/trigger_bull_flag.py::evaluate_bull_flag_trigger**, registered in trigger_registry.py:42, owns standalone breakout crossing, shape and volume confirmation. Its relationship branch delegates to Micro and is a separate approved route.
+- Existing **RossMomentumStrategyV1** and **test_readonly_manager_risk_handoff.py::test_actual_manager_canonical_cache_real_bullflag_risk** already prove an actual supported-event/cache/Focus/native-BullFlag/Core READ_ONLY route offline. **test_bull_flag_pipeline_end_to_end.py** and the existing Bull/Micro boundary/management tests supply layer-specific controls. Do not repeat their completed suites merely for status.
+
+The concrete demonstrated gap is **input-boundary coverage/explicit authority validation**, identified by source inspection and the existing family audit: standalone _evaluate reads supplied candles directly without an original-clock/finite-input check, and the standalone registered evaluator likewise has no explicit original-clock/finite guard. Existing positive and missing/stale layer proofs do not establish these adversarial input boundaries. This integration task did NOT run a new Bull Flag reproduction; absence of validation/coverage is not presented as a newly demonstrated raw-intent failure or a historical cause.
+
+The next task should first use guarded synthetic data through unmodified native detector/registry/registered evaluator/selection/actual V1 to establish whether invalid/future/stale or incomplete structural authority can produce a standalone raw intent. Reconcile **Bull Flag's own** structural completion versus permitted breakout/execution semantics before setting expected outcomes; do not mechanically copy Consolidation/Flat Top filtering or impose a new close requirement. Preserve its existing window, trend/volume/wick/body predicates, selected flag stop/invalidation, “Measured move” model, occurrence/serialization and five-position/READ_ONLY gates. If a failure is demonstrated, minimally repair in those owners with existing validators/provenance; otherwise return test-only verification.
+
+Keep evaluate_formation non-entry and the existing composed parent/child route distinct. **docs/architecture/ROSS_BULL_FLAG_MICRO_PULLBACK.md** records the explicit7October scoped composed2R policy and owner/lifecycle tests. That profile must not become a standalone target/management policy, and no changes to Micro or composed behavior are authorized by this recommendation. Missing numeric standalone management remains a separate policy/evidence gap. No new registration, context coercion or forced signal.
+
+Completion criterion: actual standalone native/V1 positive behavior retained and its input-authority boundaries proven or minimally repaired, without fabricated contracts/targets or changed approved family semantics. No next repair, test/reproduction, acquisition or observation was implemented during this integration.
+
+Five-position ownership veto remains globally **after raw formation, before canonical artifact/risk admission**, untouched. Direct GAP_GO stays blocked; corporate/SEC/listing provenance PARKED/fail closed. Historical failures/UNKNOWNs/successful safety receipts and separate cache/callback uncertainties preserved. No provider/broker calls, preflight, observation, holdings action, SDK change or trading. Only documentation changed after merge; git diff --check passed.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
