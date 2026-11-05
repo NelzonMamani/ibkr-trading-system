@@ -4376,7 +4376,6 @@ class CoreOrchestrator:
         )
 
         if mode_manager.allow_orders and self.run_mode == RunMode.PAPER:
-            execution_output = []
             for intent, decision, approved in paper_decisions:
                 if not approved:
                     continue
@@ -4391,7 +4390,9 @@ class CoreOrchestrator:
                     pipeline_audit.record(intent.symbol, TerminalOutcome.EXECUTION_SUBMISSION_FAILED,
                                           "EXECUTION_EXCEPTION", "execution")
                     raise
-                execution_output.append(result)
+                # Apply each authoritative result before diagnostics or the
+                # next admission can fail; never strand earlier batch results.
+                self._apply_execution_results_to_trade_management([result])
                 submitted = self.execution_engine.submission_confirmed(result)
                 attempted = bool(result.attempted) or str(result.status).upper() == "SUBMISSION_UNKNOWN"
                 reason = result.rejection_reason or result.rationale or result.status
@@ -4426,11 +4427,6 @@ class CoreOrchestrator:
                     pipeline_audit.record(intent.symbol, outcome, reason, "execution")
                 pipeline_audit.mark_stage(intent.symbol, "EXECUTION",
                                           execution_attempted=attempted, execution_submitted=submitted)
-            # Preserve existing result authority; do not create fills or run a
-            # new management/reconciliation cycle as part of admission.
-            if execution_output:
-                self._apply_execution_results_to_trade_management(execution_output)
-
         elif mode_manager.allow_orders:
 
             if gated_strategy_output:

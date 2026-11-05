@@ -54,6 +54,12 @@ class ExecutionResult:
     trigger_id: Optional[str] = None
     target_model: Optional[str] = None
     relationship_context: Optional[dict] = None
+    acknowledged_at: Optional[str] = None  # Existing submitter callback receipt, not local send time.
+
+    def submission_confirmed(self) -> bool:
+        return (bool(self.attempted) and getattr(self, "ibkr_order_id", None) is not None
+                and bool(getattr(self, "acknowledged_at", None))
+                and str(self.status).upper() in {"SUBMITTED", "PRESUBMITTED", "FILLED"})
 
     def __post_init__(self) -> None:
         self.entry_price = self._maybe_quantize(self.entry_price)

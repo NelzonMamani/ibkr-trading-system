@@ -23,6 +23,7 @@ from test_key_level_break_production_handoff import forbid_io
     ("complete_empty","missing_id"),("complete_empty","error"),
     ("complete_empty","risk_denied"),("complete_empty","allocation_denied"),
     ("complete_empty","stop_after_risk"),("complete_empty","integrity_fault"),
+    ("complete_empty","result_trace_error"),
 ])
 def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypatch,tmp_path,capsys,
         no_external_activity,position_case,transport):
@@ -125,6 +126,12 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
                 out[0].confirmation_passed=False
             return out
         monkeypatch.setattr(h.core.strategy_runner,"process",corrupt_confirmation)
+    if transport=="result_trace_error":
+        trace=h.core._trace_event
+        def fail_after_result(stage,payload,summary=None):
+            trace(stage,payload,summary)
+            if stage=="EXECUTION_RESULT": raise RuntimeError("synthetic result trace failure")
+        monkeypatch.setattr(h.core,"_trace_event",fail_after_result)
     from src.models.execution_result import ExecutionResult
     from copy import deepcopy
     sent=[]
@@ -135,11 +142,13 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
         sent.append(deepcopy(request))
         if transport=="error": raise OSError("synthetic transport uncertainty")
         result=ExecutionResult(symbol=request.symbol,trader_type=request.trader_type,
-            attempted=transport!="rejected",status={"submitted":"Submitted","rejected":"REJECTED",
+            attempted=transport not in {"rejected","result_trace_error"},status={"submitted":"Submitted","rejected":"REJECTED",
+                "result_trace_error":"REJECTED",
                 "pending":"PendingSubmit","missing_id":"Submitted"}[transport],
             rationale="synthetic transport response",direction=request.direction,quantity=request.quantity,
             requested_quantity=request.quantity,filled_quantity=0,remaining_quantity=request.quantity,
-            client_order_id=request.client_order_id,ibkr_order_id=None if transport in {"rejected","missing_id"} else 71)
+            client_order_id=request.client_order_id,ibkr_order_id=None if transport in {"rejected","missing_id","result_trace_error"} else 71,
+            acknowledged_at=h.life.clock.current.isoformat() if transport in {"submitted","pending"} else None)
         received.append(result)
         return result
     monkeypatch.setattr(providers[0],"place_order",offline_transport)
@@ -147,11 +156,16 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
         assert h.core.run_once()
         first=capsys.readouterr().out
         h.life.clock.current+=timedelta(seconds=11)
-        assert h.core.run_once() is (transport!="stop_after_risk")
-        second=capsys.readouterr().out
-        h.life.clock.current+=timedelta(seconds=11)
-        assert h.core.run_once() is (transport!="stop_after_risk")
-        repeated=capsys.readouterr().out
+        if transport=="result_trace_error":
+            h.core.run_once()  # Existing fault owner selects recovery/return policy.
+            second=capsys.readouterr().out
+            repeated=""
+        else:
+            assert h.core.run_once() is (transport!="stop_after_risk")
+            second=capsys.readouterr().out
+            h.life.clock.current+=timedelta(seconds=11)
+            assert h.core.run_once() is (transport!="stop_after_risk")
+            repeated=capsys.readouterr().out
     finally:
         # Record BEFORE cleanup so release cannot hide unexpected admission.
         pending_capital=deepcopy(h.core.execution_engine.capital_authority.active_reservations)
@@ -177,7 +191,7 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
     assert parent["completed_timestamp"]==context["parent_completed"]
     assert context["child_timestamp"]==h.streams["10s"][-1].timestamp.isoformat()
     assert parent["consumed_children"]==[context["child_id"]]
-    if transport not in {"stop_after_risk","integrity_fault"}: assert "child_already_consumed" in repeated
+    if transport not in {"stop_after_risk","integrity_fault","result_trace_error"}: assert "child_already_consumed" in repeated
     assert h.manager.snapshot_positions()=={}
     assert h.core.execution_engine.position_records=={}
     assert [vars(t) for t in h.core.trade_registry.snapshot()]==h.initial_registry
@@ -257,4 +271,21 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
         else:
             assert "[TRACE] stage=ORDER_SUBMITTED" not in second
             assert "[ORDER_SUBMITTED]" not in second
-            if transport!="stop_after_risk": assert "order_submission_count=0" in second
+            if transport not in {"stop_after_risk","result_trace_error"}: assert "order_submission_count=0" in second
+
+    if transport in {"rejected","result_trace_error"}:
+        plan=h.manager._relationship_plans[context["relationship_id"]]
+        order_id=sent[0].client_order_id
+        assert plan.orders[order_id]["terminal"]
+        if transport=="rejected":
+            before=deepcopy(plan.orders[order_id])
+            apply=CoreOrchestrator._apply_execution_results_to_trade_management.__get__(h.core)
+            apply(execution_results)
+            apply(execution_results)
+            assert plan.orders[order_id]==before
+            assert not plan.reconciled  # Existing conservative fresh-truth requirement.
+            assert len(sent)==1 and calls==["risk","execute"]
+            assert h.core.execution_engine.capital_authority.active_reservations=={}
+            assert h.core.execution_engine.strategy_allocation_authority.active_reservations=={}
+            assert h.manager.snapshot_positions()=={}
+            assert no_external_activity==[] and mutations()=={"place":0,"modify":0,"cancel":0}

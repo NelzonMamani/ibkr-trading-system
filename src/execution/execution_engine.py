@@ -1292,9 +1292,8 @@ class ExecutionEngine:
 
     @staticmethod
     def submission_confirmed(result: ExecutionResult) -> bool:
-        """Native accepted-status and broker identity, never a local attempt alone."""
-        return (bool(result.attempted) and getattr(result, "ibkr_order_id", None) is not None
-                and str(result.status).upper() in {"SUBMITTED", "PRESUBMITTED", "FILLED"})
+        """Accepted native result with retained callback acknowledgement evidence."""
+        return ExecutionResult.submission_confirmed(result)
 
     def _route_order(self, request: BrokerOrderRequest) -> ExecutionResult:
         readonly = get_ibkr_readonly_enabled()
