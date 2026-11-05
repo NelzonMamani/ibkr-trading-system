@@ -123,10 +123,12 @@ uses standalone real BullFlag detection and synthetic supported-news/cached Focu
 and proves actual manager artifact/risk/ownership boundaries. It does NOT by itself
 prove the composed relationship/news/Core combination. Integrated PR1159 now joins
 canonical news/cache, real Focus and Core-wired composition through raw formation
-and the five-position veto (`test_joined_core_bull_micro`). Its artifact/risk calls
-are deliberately forbidden, so the composed route through active Core canonical
-artifact creation and actual READ_ONLY RiskEngine denial remains a separate proof
-gap. Neither layer is natural market or executable-management certification.
+and the five-position veto (`test_joined_core_bull_micro`). Its original five-position artifact/risk calls
+are deliberately forbidden. The local joined-risk extension below now verifies
+the intact composed route through active Core canonical artifact creation and
+actual READ_ONLY RiskEngine denial using separately complete/reconciled synthetic
+position truth; the five-position path remains blocked. Neither layer is natural
+market or executable-management certification.
 
 ### Every registered enabled family: current coverage map
 
@@ -1620,3 +1622,9 @@ Accepted main **04787281791a6857af96e48cd903be5840db9496**, tree **07e6134e56699
 Next task is **verification** of this intact joined composed route through active Core's own canonical artifact→actual RiskEngine READ_ONLY execution denial, using an independently complete/reconciled synthetic position boundary while preserving the unchanged five-position veto negative. Existing test_joined_core_bull_micro forbids artifact/risk; test_readonly_manager_risk_handoff installs a separate standalone strategy; composed management test builds its artifact separately. Those layers pass but do not certify this combined executable-path boundary. Reuse current owners/fixtures, no prepared intent/ID/approval or bypass. Require traceable canonical ID, LIVE_READ_ONLY_BLOCK, zero execution/reservation/mutation, and fail-closed incomplete-truth/stale/news controls. Existing READ_ONLY and explicit Bull/Micro policy suffices; no unresolved policy decision or target invention required. Natural progression, positive risk admission, broker acceptance and executable-management/intrabar certification remain separate.
 
 All overlapping inventory categories above unchanged (28names/27canonical;23potential long;11handoff,13explicit contract+2authority,21management gaps). Five real unmatched positions untouched; direct GAP_GO blocked, corporate/SEC/listing parked. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+### Local joined actual-Core artifact/risk-denial verification — 5 November 2026
+
+Branch test/joined-core-readonly-risk from accepted04787281791a6857af96e48cd903be5840db9496/tree07e6134e56699d46880cb88afd0556c238ef92ef; saved5519d818 receipts carried as02b452cd/4ea08bdc. Test-only7f380eb45566357b045d15d2e09215c0e9670869/tree81ff39848d3bc54b3e5ebdb678bc81360a8f4cad. Production/workflows unchanged; no demonstrated route defect. Existing joined helper now optionally restores real Core position collection/reconciliation/entry guard over synthetic typed complete empty or matched nonempty snapshots, without a prepared verdict or gate bypass. Real Core canonical builder/ID→real RiskEngine LIVE_READ_ONLY_BLOCK retains full actual input identity/anchors/metadata; observation uses all object attributes because entry_price is dynamic. Original five-position default still forbids artifact/risk. UNKNOWN/incomplete/stale-or-unscoped/account-failed/sign/five-mismatch cases block admission, including loss of completion after healthy truth. Existing same-side quantity mismatch remains a nonblocking WARNING under current source policy; a separate joined control documents artifact/risk input then READ_ONLY denial for that case. Do not claim every mismatch blocks or change policy silently.
+
+Final24 focused passes:23 joined (original11 plus12 additions) and1 existing standalone-Core isolation case; earlier receipts overlap. Exactly-once child consumption persists on denied attempt; repeat produces no second artifact/risk, no execution/reservation/mutation, original synthetic registry unchanged. Full scope/fixture corrections/limits in SAME checkpoint. Local in-memory joined denial is not positive risk admission, execution/management, natural progression, broker acceptance or arbitrary serialization certification. No inventory-count change, source owner change, push/merge or observation. Next action is local exact-head review; five real positions untouched, direct GAP_GO blocked, corporate/SEC/listing parked. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
