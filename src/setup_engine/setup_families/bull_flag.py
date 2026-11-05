@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import datetime, timedelta
+from math import isfinite
 from statistics import mean
 from typing import List
 
+from src.adapters.data.historical_bar_timeframes import resolve_intraday_timeframe_request
+from src.strategies.common.triggers.trigger_abcd_continuation import abcd_candle_rejection
 from src.strategies.common.candles.candle_evidence import evidence_tags
 from src.strategies.common.candles.multi_candle import detect_engulfing, detect_three_soldiers_crows
 from src.strategies.common.candles.single_candle import detect_long_wick
 from src.strategies.ross_momentum.patterns.pattern_base import PatternBase
-from src.strategies.ross_momentum.patterns.pattern_inputs import PatternInputs
+from src.strategies.ross_momentum.patterns.pattern_inputs import PatternInputs, _timeframe_provenance
+from src.strategies.ross_momentum.policy.pattern_input_policy import PatternInputPolicy
 from src.strategies.ross_momentum.patterns.pattern_types import Direction, PatternFamily, PatternResult
 
 
@@ -38,11 +43,50 @@ class BullFlagPattern(PatternBase):
         candles = inputs.candles
         if len(candles) < (9 if require_breakout else 8):
             return self._rejected("insufficient candles", inputs)
+        if require_breakout:
+            # Standalone entry admission, not the composed parent's monitoring
+            # API. Its owner supplies closed formation bars separately.
+            clock = inputs.observed_at_utc
+            if clock is not None and not isinstance(clock, datetime):
+                return self._rejected("INVALID_CANDLE_TIMESTAMPS", inputs)
+            rejection = abcd_candle_rejection(candles, observed_at_utc=clock,
+                                             require_clock=bool(inputs.timeframe_provenance))
+            if rejection:
+                return self._rejected(rejection, inputs)
+            if clock is not None:
+                try:
+                    request = resolve_intraday_timeframe_request(
+                        timeframe=inputs.primary_timeframe, requested_bars=len(candles))
+                except ValueError:
+                    return self._rejected("INVALID_STRUCTURE_TIMEFRAME", inputs)
+                structure = candles[-9:-1]
+                # The breakout may be intrabar. Impulse/flag anchors must already
+                # be complete; neither a forming flag nor a fresh breakout can
+                # establish/refresh those anchors under the original clock.
+                if any(c.timestamp + timedelta(seconds=request.bar_seconds) > clock for c in structure):
+                    return self._rejected("incomplete_flag_structure", inputs)
+                status = _timeframe_provenance(structure, request.logical_timeframe,
+                    PatternInputPolicy.from_policy_v2(), symbol=inputs.symbol, now_utc=clock)
+                if status != "PRESENT":
+                    return self._rejected("completed_source_" + status.lower(), inputs)
+            for field in ("spread", "rvol"):
+                value = getattr(inputs.liquidity_context, field, None)
+                if value is None:
+                    continue
+                try:
+                    numeric = float(value)
+                except (TypeError, ValueError, OverflowError):
+                    return self._rejected("invalid_liquidity_" + field, inputs)
+                if isinstance(value, bool) or not isfinite(numeric) or numeric < 0:
+                    return self._rejected("invalid_liquidity_" + field, inputs)
         ema9 = inputs.indicators.ema9
         ema20 = inputs.indicators.ema20
         vwap = inputs.indicators.vwap
         if ema9 is None or ema20 is None or vwap is None:
             return self._rejected("missing trend indicators", inputs)
+        if require_breakout and any(isinstance(v, bool) or not isinstance(v, (int, float))
+                                    or not isfinite(v) for v in (ema9, ema20, vwap)):
+            return self._rejected("invalid trend indicators", inputs)
 
         recent = candles[-9:] if require_breakout else candles[-8:]
         impulse = recent[:3]

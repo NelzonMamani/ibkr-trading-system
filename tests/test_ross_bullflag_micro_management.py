@@ -603,7 +603,8 @@ def test_composed_route_never_falls_back_to_unpaired_standalone_breakout():
     from src.setup_engine.setup_families.bull_flag import BullFlagPattern
     base=_inputs();start=datetime(2026,9,16,14,27,tzinfo=timezone.utc)
     bars=[replace(c,timestamp=start+timedelta(minutes=i)) for i,c in enumerate(base.candles)]
-    inputs=replace(base,candles=bars,session_label="RTH_OPEN",timeframe_candles={"1m":bars},timeframe_provenance={"1m":"PRESENT"})
+    inputs=replace(base,candles=bars,session_label="RTH_OPEN",timeframe_candles={"1m":bars},
+                   timeframe_provenance={"1m":"PRESENT"},observed_at_utc=start+timedelta(minutes=10))
     pattern=BullFlagPattern();assert pattern.evaluate(inputs).detected
     assert not TradeManagementEngine().compose_bull_flag(pattern,inputs,security_id="conId:1",now=start+timedelta(minutes=10)).detected
     assert not TradeManagementEngine().compose_bull_flag(pattern,inputs,security_id="",now=start+timedelta(minutes=10)).detected
