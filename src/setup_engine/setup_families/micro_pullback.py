@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import datetime, timedelta
+from math import isfinite
 from statistics import mean
 from typing import List
 
+from src.adapters.data.historical_bar_timeframes import resolve_intraday_timeframe_request
+from src.strategies.common.triggers.trigger_abcd_continuation import abcd_candle_rejection
 from src.strategies.common.candles.candle_evidence import evidence_tags
 from src.strategies.common.candles.multi_candle import detect_engulfing, detect_three_soldiers_crows
 from src.strategies.common.candles.single_candle import detect_long_wick
 from src.strategies.ross_momentum.patterns.pattern_base import PatternBase
-from src.strategies.ross_momentum.patterns.pattern_inputs import PatternInputs
+from src.strategies.ross_momentum.patterns.pattern_inputs import PatternInputs, _timeframe_provenance
+from src.strategies.ross_momentum.policy.pattern_input_policy import PatternInputPolicy
 from src.strategies.ross_momentum.patterns.pattern_types import Direction, PatternFamily, PatternResult
 
 
@@ -39,9 +44,28 @@ class MicroPullbackPattern(PatternBase):
         candles = inputs.candles
         if len(candles) < 5:
             return self._rejected("insufficient candles", inputs)
+        clock = inputs.observed_at_utc
+        if clock is not None and not isinstance(clock, datetime):
+            return self._rejected("INVALID_CANDLE_TIMESTAMPS", inputs)
+        rejection = abcd_candle_rejection(candles, observed_at_utc=clock,
+                                         require_clock=bool(inputs.timeframe_provenance))
+        if rejection:
+            return self._rejected(rejection, inputs)
+        for field in ("spread", "rvol"):
+            value = getattr(inputs.liquidity_context, field, None)
+            if value is None:
+                continue
+            try:
+                numeric = float(value)
+            except (TypeError, ValueError, OverflowError):
+                return self._rejected("invalid_liquidity_" + field, inputs)
+            if isinstance(value, bool) or not isfinite(numeric) or numeric < 0:
+                return self._rejected("invalid_liquidity_" + field, inputs)
         ema9 = inputs.indicators.ema9
         if ema9 is None:
             return self._rejected("missing EMA9", inputs)
+        if isinstance(ema9, bool) or not isinstance(ema9, (int, float)) or not isfinite(ema9):
+            return self._rejected("invalid EMA9", inputs)
         trigger = candles[-1]
         if trigger.close < ema9:
             return self._rejected("price below EMA9", inputs)
@@ -62,6 +86,21 @@ class MicroPullbackPattern(PatternBase):
         impulse = candles[max(0, cursor - 2) : cursor + 1]
         if len(impulse) < 2:
             return self._rejected("missing initial impulse", inputs)
+        if clock is not None:
+            try:
+                # The composed child is evaluated on refinement candles; its
+                # timeframe, not the parent's primary timeframe, owns duration.
+                request = resolve_intraday_timeframe_request(
+                    timeframe=inputs.timeframe, requested_bars=len(candles))
+            except ValueError:
+                return self._rejected("INVALID_STRUCTURE_TIMEFRAME", inputs)
+            if any(c.timestamp + timedelta(seconds=request.bar_seconds) > clock
+                   for c in [*impulse, *pullback]):
+                return self._rejected("incomplete_pullback_structure", inputs)
+            status = _timeframe_provenance(pullback, request.logical_timeframe,
+                PatternInputPolicy.from_policy_v2(), symbol=inputs.symbol, now_utc=clock)
+            if status != "PRESENT":
+                return self._rejected("completed_source_" + status.lower(), inputs)
         impulse_gain = impulse[-1].close - impulse[0].open
         min_impulse = max(abs(impulse[0].open) * 0.003, 0.05)
         if impulse_gain <= min_impulse:

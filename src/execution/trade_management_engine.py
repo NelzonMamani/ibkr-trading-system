@@ -249,7 +249,12 @@ class TradeManagementEngine:
                 or blocking_input_reason(inputs, "P_BULL_FLAG")):
             return pattern._rejected("child_input_unavailable", inputs)
         child_candles = streams[refinement]
-        child = MicroPullbackPattern().evaluate(replace(inputs, candles=child_candles, timeframe=refinement))
+        child = MicroPullbackPattern().evaluate(replace(
+            inputs, candles=child_candles, timeframe=refinement,
+            # Preserve the original acquisition clock when bound. Legacy
+            # component composition already supplies its authoritative `now`.
+            observed_at_utc=(inputs.observed_at_utc if inputs.observed_at_utc is not None else now),
+        ))
         if not child.detected:
             return pattern._rejected("parent_armed_no_eligible_child", inputs)
         parent_end = datetime.fromisoformat(parent["completed_timestamp"]).timestamp() + seconds[primary]
