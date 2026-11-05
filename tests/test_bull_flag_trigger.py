@@ -13,31 +13,31 @@ def test_bull_flag_trigger_armed_fired_and_filters() -> None:
     payload = {"trigger_level": 10.75, "stop_level": 10.63, "invalidation_level": 10.63}
     armed = evaluate_bull_flag_trigger(
         payload,
-        {"candles": _candles([(10.60, 10.72, 10.58, 10.74, 900), (10.74, 10.75, 10.68, 10.73, 910)]), "rvol": 1.3},
+        {"candles": _candles([(10.60, 10.74, 10.58, 10.74, 900), (10.74, 10.75, 10.68, 10.73, 910)]), "rvol": 1.3},
     )
     assert armed["trigger_state"] == "ARMED"
 
     fired = evaluate_bull_flag_trigger(
         payload,
-        {"candles": _candles([(10.60, 10.72, 10.58, 10.74, 900), (10.74, 10.86, 10.72, 10.83, 1300)]), "rvol": 1.3, "spread": 0.02},
+        {"candles": _candles([(10.60, 10.74, 10.58, 10.74, 900), (10.74, 10.86, 10.72, 10.83, 1300)]), "rvol": 1.3, "spread": 0.02},
     )
     assert fired["trigger_state"] == "FIRED"
 
     blocked_wick = evaluate_bull_flag_trigger(
         payload,
-        {"candles": _candles([(10.60, 10.72, 10.58, 10.74, 900), (10.74, 11.00, 10.72, 10.78, 1800)]), "rvol": 1.4},
+        {"candles": _candles([(10.60, 10.74, 10.58, 10.74, 900), (10.74, 11.00, 10.72, 10.78, 1800)]), "rvol": 1.4},
     )
     assert blocked_wick["trigger_state"] == "BLOCKED"
 
     blocked_liquidity = evaluate_bull_flag_trigger(
         payload,
-        {"candles": _candles([(10.60, 10.72, 10.58, 10.74, 1800), (10.74, 10.86, 10.72, 10.83, 700)]), "rvol": 0.8},
+        {"candles": _candles([(10.60, 10.74, 10.58, 10.74, 1800), (10.74, 10.86, 10.72, 10.83, 700)]), "rvol": 0.8},
     )
     assert blocked_liquidity["trigger_state"] == "BLOCKED"
 
     blocked_spread = evaluate_bull_flag_trigger(
         payload,
-        {"candles": _candles([(10.60, 10.72, 10.58, 10.74, 900), (10.74, 10.86, 10.72, 10.83, 1300)]), "rvol": 1.3, "spread": 0.09},
+        {"candles": _candles([(10.60, 10.74, 10.58, 10.74, 900), (10.74, 10.86, 10.72, 10.83, 1300)]), "rvol": 1.3, "spread": 0.09},
     )
     assert blocked_spread["trigger_state"] == "BLOCKED"
 

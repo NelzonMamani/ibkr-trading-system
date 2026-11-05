@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+from math import isfinite
+
+from src.strategies.common.triggers.trigger_abcd_continuation import abcd_candle_rejection
 
 def _safe_float(value):
     try:
-        return None if value is None else float(value)
-    except (TypeError, ValueError):
+        parsed = None if value is None or isinstance(value, bool) else float(value)
+        return parsed if parsed is not None and isfinite(parsed) else None
+    except (TypeError, ValueError, OverflowError):
         return None
 
 
@@ -28,6 +32,21 @@ def evaluate_bull_flag_trigger(payload, values):
         return evaluate_micro_pullback_trigger(data, {**values, "candles": closed})
     levels = values if isinstance(values, dict) else {}
     candles = list(levels.get("candles") or [])
+    stream = data.get("execution_stream")
+    bound = "execution_stream" in data
+    rejection = abcd_candle_rejection(candles,
+        observed_at_utc=stream.get("observed_at_utc") if isinstance(stream, dict) else None,
+        require_clock=bound)
+    if rejection:
+        return {"trigger_type": "BULL_FLAG_BREAKOUT", "trigger_state": "BLOCKED",
+                "trigger_ready_now": False, "trigger_reason": "bull_flag_" + rejection.lower()}
+    # Preserve optional component metrics and the existing RVOL-or-volume rule.
+    # An explicitly supplied invalid observation cannot pass via its other arm.
+    for field in ("spread", "rvol", "avg_volume", "max_spread"):
+        value = levels.get(field)
+        if value is not None and (_safe_float(value) is None or _safe_float(value) < 0):
+            return {"trigger_type": "BULL_FLAG_BREAKOUT", "trigger_state": "BLOCKED",
+                    "trigger_ready_now": False, "trigger_reason": "invalid_liquidity_" + field}
 
     trigger_level = _safe_float(data.get("trigger_level"))
     stop_level = _safe_float(data.get("stop_level"))

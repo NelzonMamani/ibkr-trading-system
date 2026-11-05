@@ -165,8 +165,11 @@ def test_real_bull_flag_production_intent_reaches_actual_readonly_risk(monkeypat
         registry = RossPatternRegistry(); registry._patterns = [BullFlagPattern()]
         strategy._pattern_registry = registry
         primary_rows = [(10,10.02,9.98,10,1000)]*41 + [(c.open,c.high,c.low,c.close,c.volume) for c in _inputs().candles]
-        streams = {"1m":_candles(primary_rows), "5m":_candles(primary_rows,step_seconds=300),
-            "10s":_candles([(10.7,10.75,10.65,10.72,100)]*29+[(10.72,10.9,10.7,10.88,200)],step_seconds=10)}
+        # Match the explicit observation clock rather than the workstation date.
+        streams = {"1m":_candles(primary_rows,end=Clock(2026,9,16,14,35,tzinfo=timezone.utc)),
+            "5m":_candles(primary_rows,step_seconds=300,end=Clock(2026,9,16,14,30,tzinfo=timezone.utc)),
+            "10s":_candles([(10.7,10.75,10.65,10.72,100)]*29+[(10.72,10.9,10.7,10.88,200)],
+                step_seconds=10,end=Clock(2026,9,16,14,35,20,tzinfo=timezone.utc))}
         monkeypatch.setattr(pattern_trace,"get_intraday_bars",lambda *,timeframe="1m",**kw:streams[timeframe])
         row = {**_watchlist_row(), "last_price":10.88,"bid":10.87,"ask":10.89}
         snapshot = replace(_snapshot(), last=10.88,bid=10.87,ask=10.89)
