@@ -1476,3 +1476,13 @@ Focused validation: selected **387 passed** (85 new controls plus affected Bull/
 
 Standalone numeric management, intrabar ordering and natural progression remain uncertified; composed management retains only its prior scoped offline proof. Existing overlapping inventory counts are unchanged; refer to the current count section above. Direct GAP_GO remains blocked; corporate/SEC/listing provenance parked and five-position veto intact. One next action: exact-candidate local review before separately authorized publication. No provider/broker calls, preflight, observation, push or merge.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+
+### Standalone Bull Flag local review — 5 November 2026
+
+Reviewed exact `55b667b400b629dcd3d094da7909875c24914447` / tree `86fd28b737cccce7239bdd98dbd25d73a8bc5954` against accepted `f4e27409ad25eb22febeb604351ad455add050cf`. No production blocker demonstrated. Original-clock completed impulse/flag authority and independent flag freshness, permitted forming breakout/execution, exact occurrence/anchor serialization, unchanged Bull-specific predicates and separate parent/child lifecycle confirmed. Formation context is not entry authority: DecisionEngine/entry contract/intent policy reject native ARMED/CONTEXT even with ready confirmation. V1 geometry calculation alone is not permission; the subsequent contract gate remains mandatory.
+
+Test-only review commit `ebc28c7cd03620bb2672369ca37ffea85d438cb2`, tree `58d1c06cf4e53aebc9a7239cb9a12145f96125dc`: **4 focused controls passed/86 deselected** for corrupt underlying impulse/flag values and formation-only rejection. Original387 and later2 receipts are preserved/overlapping (one later test overlaps387); not389 distinct tests. Initial review test's geometry-versus-permission assumption and correction are recorded in the same checkpoint. Production remains identical to the reviewed candidate; no repeated full/affected suites for status, no Windows/CI claim.
+
+Recommend draft publication for independent exact-head review/required CI only when separately authorized. Registry/inventory/management categories unchanged; no duplicated inventory. Standalone numeric management, intrabar ordering and natural progression remain uncertified; approved composed management scope unchanged. Raw formation remains before five-position veto with zero downstream artifact/risk input. Direct GAP_GO blocked; corporate/SEC/listing parked. No provider/broker calls, observation, push or merge.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
