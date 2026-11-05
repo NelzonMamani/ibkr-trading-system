@@ -25,10 +25,11 @@ from src.strategies.ross_momentum.policy import IndicatorProvenance, MissingData
 from src.strategies.strategy_contracts import SessionContext
 
 
-def _candles(rows: list[tuple[float, float, float, float, float]], *, start: datetime | None = None) -> list[Candle]:
-    base = start or datetime.now(timezone.utc) - timedelta(seconds=len(rows) * 10)
+def _candles(rows: list[tuple[float, float, float, float, float]], *, start: datetime | None = None,
+             step_seconds: int = 10) -> list[Candle]:
+    base = start or datetime.now(timezone.utc) - timedelta(seconds=len(rows) * step_seconds)
     return [
-        Candle(open=o, high=h, low=l, close=c, volume=v, timestamp=base + timedelta(seconds=idx * 10))
+        Candle(open=o, high=h, low=l, close=c, volume=v, timestamp=base + timedelta(seconds=idx * step_seconds))
         for idx, (o, h, l, c, v) in enumerate(rows)
     ]
 
@@ -78,6 +79,7 @@ def _authoritative_inputs(
     stale_10s: bool = False,
     count_for_macd: bool = True,
     include_5m: bool = True,
+    complete_source_bars: bool = False,
 ) -> PatternInputs:
     now = datetime.now(timezone.utc)
     fresh_start = now - timedelta(seconds=len(rows) * 10)
@@ -89,6 +91,13 @@ def _authoritative_inputs(
         pad = [(9.50 + idx * 0.01, 9.56 + idx * 0.01, 9.48 + idx * 0.01, 9.54 + idx * 0.01, 1000 + idx) for idx in range(26)]
         one_minute = _candles(pad + rows, start=now - timedelta(seconds=(len(pad) + len(rows)) * 10))
         five_minute = _candles(pad + rows, start=now - timedelta(seconds=(len(pad) + len(rows)) * 10))
+    if complete_source_bars:
+        # Micro admission must not be tested with 10s bars labelled 1m/5m.
+        source_rows = pad + rows if count_for_macd else rows
+        one_minute = _candles(source_rows, step_seconds=60,
+            start=now-timedelta(seconds=len(source_rows)*60))
+        five_minute = _candles(source_rows, step_seconds=300,
+            start=now-timedelta(seconds=len(source_rows)*300))
     timeframe_candles = {"10s": ten_second, "1m": one_minute}
     if include_5m:
         timeframe_candles["5m"] = five_minute
@@ -112,7 +121,7 @@ def _run_single(pattern, inputs: PatternInputs) -> PatternResult:
 
 
 def test_micro_pullback_uses_pr4_timeframes_and_blocks_stale_opening_10s() -> None:
-    inputs = _authoritative_inputs(rows=_micro_rows(), stale_10s=True)
+    inputs = _authoritative_inputs(rows=_micro_rows(), stale_10s=True, complete_source_bars=True)
     result = _run_single(MicroPullbackPattern(), inputs)
 
     assert inputs.timeframe_candles["10s"]
@@ -124,7 +133,7 @@ def test_micro_pullback_uses_pr4_timeframes_and_blocks_stale_opening_10s() -> No
 
 
 def test_orb_block_flag_does_not_suppress_micro_pullback_runtime() -> None:
-    inputs = _authoritative_inputs(rows=_micro_rows(), include_5m=False)
+    inputs = _authoritative_inputs(rows=_micro_rows(), include_5m=False, complete_source_bars=True)
 
     assert "PATTERN_INPUT_BLOCK_ORB_GAP_GO" in inputs.data_quality_flags
     assert inputs.setup_quality["ORB_GAP_GO"]["action"] == MissingDataBehavior.BLOCK.value
@@ -283,13 +292,15 @@ def test_exhaustion_detected_but_not_selected_as_long_entry(capsys) -> None:
 
 
 def test_missing_macd_degrades_abcd_without_blocking_micro_pullback() -> None:
-    inputs = _authoritative_inputs(rows=_micro_rows(), session_label="RTH_MID", count_for_macd=False)
+    inputs = _authoritative_inputs(rows=_micro_rows(), session_label="RTH_MID", count_for_macd=False,
+                                   complete_source_bars=True)
     assert inputs.indicator_provenance["macd_line"] == IndicatorProvenance.MISSING.value
     assert inputs.setup_quality["ABCD_CONTINUATION"]["action"] == MissingDataBehavior.DEGRADE.value
     assert inputs.setup_quality["MICRO_PULLBACK"]["indicator_provenance"]["macd_line"] == IndicatorProvenance.NOT_REQUIRED_FOR_SETUP.value
 
     result = _run_single(MicroPullbackPattern(), inputs)
     assert result.rejection_reason != "pr4_input_block:ABCD_CONTINUATION"
+    assert result.detected is True
 
 
 def _summary_with(setup) -> PatternEvaluationSummary:

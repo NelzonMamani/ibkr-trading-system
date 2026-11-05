@@ -200,17 +200,25 @@ class TradeManagementEngine:
         primary = inputs.primary_timeframe
         refinement = inputs.execution_refinement_timeframe
         seconds = {"10s": 10, "1m": 60, "3m": 180, "5m": 300}
+        # Use one observation boundary for stream closure and native child
+        # validation. A later composition call cannot finish a bar in the
+        # already-observed snapshot or establish a newer parent from it.
+        clock = inputs.observed_at_utc if inputs.observed_at_utc is not None else now
+        if any(not isinstance(value, datetime) or value.tzinfo is None for value in (clock, now)):
+            return pattern._rejected("relationship_observation_clock_unavailable", inputs)
+        if clock > now:
+            return pattern._rejected("relationship_observation_clock_future", inputs)
         def closed(candles, timeframe):
             width = seconds.get(timeframe)
             return bool(width and candles and all(isinstance(c.timestamp, datetime) and c.timestamp.tzinfo
-                and c.timestamp.timestamp() + width <= now.timestamp() for c in candles))
+                and c.timestamp.timestamp() + width <= clock.timestamp() for c in candles))
         # Runtime streams can contain an in-progress bar. Only actual closed bars
         # participate; no synthetic close or timeframe substitution is permitted.
         def closed_stream(candles, timeframe):
             width = seconds.get(timeframe)
             if not width or any(not isinstance(c.timestamp, datetime) or not c.timestamp.tzinfo for c in candles):
                 return []
-            return [c for c in candles if c.timestamp.timestamp() + width <= now.timestamp()]
+            return [c for c in candles if c.timestamp.timestamp() + width <= clock.timestamp()]
         streams = {tf: closed_stream(list(rows), tf) for tf, rows in inputs.timeframe_candles.items()}
         inputs = replace(inputs, candles=closed_stream(inputs.candles, primary), timeframe_candles=streams)
         parent = self._parents.get(key)
@@ -249,7 +257,12 @@ class TradeManagementEngine:
                 or blocking_input_reason(inputs, "P_BULL_FLAG")):
             return pattern._rejected("child_input_unavailable", inputs)
         child_candles = streams[refinement]
-        child = MicroPullbackPattern().evaluate(replace(inputs, candles=child_candles, timeframe=refinement))
+        child = MicroPullbackPattern().evaluate(replace(
+            inputs, candles=child_candles, timeframe=refinement,
+            # Preserve the original acquisition clock when bound. Legacy
+            # component composition already supplies its authoritative `now`.
+            observed_at_utc=clock,
+        ))
         if not child.detected:
             return pattern._rejected("parent_armed_no_eligible_child", inputs)
         parent_end = datetime.fromisoformat(parent["completed_timestamp"]).timestamp() + seconds[primary]

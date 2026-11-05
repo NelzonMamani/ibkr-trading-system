@@ -557,11 +557,10 @@ def _build_inputs(case: RossE2ECase) -> PatternInputs:
         "1m": _candles(rows, start=fresh_start),
         "5m": _candles(rows, start=fresh_start),
     }
-    if any(isinstance(pattern, FlatTopBreakoutPattern) for pattern in case.patterns):
-        # Flat Top requires complete source closes. The old fixture labelled
-        # 10s-spaced bars as 1m/5m. Correct its data, not production validation or
-        # the original downstream certification assertions. Other cases retain
-        # their existing fixtures and semantics.
+    if any(isinstance(pattern, (FlatTopBreakoutPattern, MicroPullbackPattern)) for pattern in case.patterns):
+        # These native detectors require complete underlying source structure.
+        # The old fixtures labelled 10s-spaced bars as 1m/5m. Correct synthetic
+        # timestamps, not production validation or downstream assertions.
         timeframe_candles = {
             tf: _candles(rows, step_seconds=seconds,
                 start=stale_start if tf == "10s" and case.stale_10s else
