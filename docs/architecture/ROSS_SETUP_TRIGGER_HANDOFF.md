@@ -76,7 +76,10 @@ receive the existing canonical `build_decision_artifact` ID and actual
 `RiskEngine.evaluate_trade_intent`; a real READ_ONLY execution denial is expected.
 Five unmatched positions globally block NEW entries AFTER raw formation and BEFORE
 canonical artifact/risk admission, so no downstream risk input is expected under
-that veto. A later unreachable legacy risk block is not a proof of this path.
+that veto. The locally approved broker-larger correction below also blocks this
+shared portfolio entry boundary while same-side broker quantity magnitude exceeds
+system quantity, including entries in another symbol; warning classification and
+exit/protection ownership remain unchanged. A later unreachable legacy risk block is not a proof of this path.
 PAPER/LIVE canonical risk integration is not certified by the bounded READ_ONLY
 repair. No runtime/broker operation is part of this audit.
 
@@ -1670,3 +1673,11 @@ Actual2/2 and3/2 RiskEngine/relationship sizing, allocation and capital approve 
 Final focused **1 retained unmarked failing invariant/8 passed** (three historical +three eligible +five-position/READ_ONLY controls); prior runs overlap. Failing `test_broker_larger_capital_admission_must_respect_broker_exposure` records admissiontrue/broker40.91/cap35 after cleanup; no xfail or production repair. SAME checkpoint carries full source/arithmetic/mocks/receipts and initial9.2 failure. Branch is not green for integration.
 
 Smallest recommended prospective policy/repair: existing shared position-truth new-entry veto while complete broker same-side absolute quantity exceeds system, pending authoritative reconciliation; preserve warning evidence/quantities, exit/protection ownership and critical five-position blocks, no adoption. Requires explicit policy approval and admission-caller audit, not a claim old WARNING required it. Nonblocking warnings would instead require authoritative conservative exposure at both risk and capital, a broader change. Separate execution_blocked marker inconsistency remains untouched. All family inventory/natural/management limits, five real positions and corporate/SEC/listing parked status preserved. No push/merge/observation or collection. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+### Approved broker-larger entry veto — local repair
+
+Separate fix/broker-larger-position-entry-veto preserves investigation41b1665d/treec5a40e61 and original red regression/receipts. Actual code/test01dfd02e4a11a76e8f97bcc320952e52bb609713/tree97d8428cbbc0e39ba863b76b37eafdf3063513d0 changes only existing position_truth.reconcile_position_truth production verdict: critical mismatches OR existing QUANTITY_MISMATCH with abs(broker)>abs(system) block NEW entries through existing portfolio-wide Core guard. This is explicitly user-approved prospective policy, not old-warning reinterpretation. Type/severity/counts/rationale and exit/protection ownership unchanged; no adoption, registry rewrite, invented exposure, tolerance, source fanout or second owner.
+
+Before: eligible3/2 warning admitted1 at projected30.91 while broker projection40.91>35; retained failing test. After: same unrelated-symbol JPM raw formation is vetoed before artifact/risk/capital/new reservations; formerly failing safety control green.2/2 still eligible through actual risk/capital with private reservation cleanup;3/3 still lifecycle-cap rejected. Broker-smaller remains WARNING without this new intrinsic veto. Long/short/fraction/adjacent-float exact representation and cross-symbol scope tested; actual-Core stale/incomplete/missing/future/disconnected matching rows cannot clear veto, fresh complete matching can, without changing owned quantities or overriding other recovery state. Existing UNKNOWN/critical/five-position guards pass.
+
+Final148 focused affected passes, prior receipts overlap; source owner onlyposition_truth.py, no workflow/dependency change. Full verification command/results/remaining scope in SAME checkpoint. No change to separate execution_blocked marker issue. Admission gate is not general broker-exposure reconciliation or proof for direct callers outside shared Core boundary; active PAPER/management/natural/broker certification remains open. No inventory-count change, collection, push/merge/observation or holdings action; five real positions/GUI/parked work preserved. Next action local exact-head review. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
