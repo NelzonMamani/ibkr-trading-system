@@ -606,6 +606,7 @@ class ExecutionEngine:
             return  # stale evidence cannot reconcile a restored plan
         self._relationship_open_orders = orders
         self._relationship_orders_asof = datetime.now(timezone.utc)
+        self._bind_owned_reduction_identities(orders)
         def read(row, key):
             return row.get(key) if isinstance(row, dict) else getattr(row, key, None)
         active_ids = {str(read(o, "order_id")) for o in orders
@@ -618,6 +619,48 @@ class ExecutionEngine:
         if cleaned:
             manager._save_relationship_state()
             self._run_protection_reconciliation(open_orders=orders, reason="relationship_stop_cleanup")
+
+    def _bind_owned_reduction_identities(self, orders: list[object]) -> None:
+        """Bind a late native identity only to one exact retained owned request."""
+        from numbers import Number
+        manager = self.relationship_manager
+        def read(row, key):
+            return row.get(key) if isinstance(row, dict) else getattr(row, key, None)
+        for plan in manager._relationship_plans.values():
+            for action_id, owned in plan.orders.items():
+                request = owned.get("request")
+                if owned["action"] != "REDUCE" or owned["terminal"] or owned.get("broker_order_id") or not request:
+                    continue
+                context = request.get("relationship_context") or {}
+                if (request.get("client_order_id") != action_id or request.get("symbol") != plan.symbol
+                        or request.get("direction") != "SELL" or request.get("quantity") != owned["requested"]
+                        or context.get("relationship_id") != plan.relationship_id
+                        or context.get("management_action_id") != action_id or context.get("action") != "REDUCE"):
+                    continue
+                candidates = [row for row in orders if (read(row, "metadata") or {}).get("order_ref") == action_id]
+                if len(candidates) != 1:
+                    continue
+                matches = []
+                for row in candidates:
+                    metadata = read(row, "metadata") or {}
+                    quantity = metadata.get("native_quantity")
+                    con_id = metadata.get("con_id")
+                    if (str(read(row, "symbol") or "").upper() != plan.symbol
+                            or metadata.get("order_ref") != action_id
+                            or str(metadata.get("side") or "").upper() != "SELL"
+                            or type(con_id) is not int or plan.security_id != f"conId:{con_id}"
+                            or isinstance(quantity, bool) or not isinstance(quantity, Number)
+                            or not math.isfinite(quantity) or quantity != owned["requested"]
+                            or str(read(row, "status") or "").upper() not in {"SUBMITTED", "PRESUBMITTED", "PENDINGSUBMIT", "PENDINGCANCEL"}
+                            or not str(read(row, "order_id") or "").isdigit()
+                            or int(read(row, "order_id")) <= 0):
+                        continue
+                    matches.append(str(read(row, "order_id")))
+                if len(matches) == 1 and not any(other.get("broker_order_id") == matches[0]
+                        for other_plan in manager._relationship_plans.values() for other in other_plan.orders.values()):
+                    owned["broker_order_id"] = matches[0]
+                    manager._save_relationship_state()
+            manager.cancel_excess_milestone_orders(plan)
 
     def _confirmed_relationship_stop_quantity(self, plan, life, orders: list[object]) -> float | None:
         # Shared canonical snapshot rule for existing resize confirmation and
@@ -678,7 +721,9 @@ class ExecutionEngine:
         summary = self.post_fill_lifecycle.reconcile_orders(broker_orders, repair=True)
         self._confirm_relationship_stop_resizes(broker_orders)
         manager = getattr(self, "relationship_manager", None)
-        unresolved = any(p.pending_stop_resize or p.pending_stop_cancel for p in manager._relationship_plans.values()) if manager else False
+        unresolved = any(p.pending_stop_resize or p.pending_stop_cancel or any(
+            o.get("lifecycle_application_rejected") or o.get("cached_update_in_progress") for o in p.orders.values())
+            for p in manager._relationship_plans.values()) if manager else False
         self._failsafe_block_new_entries = bool(summary.get("block_new_entries", False)) or unresolved
         print(
             "[LIFECYCLE][RECONCILIATION][SUMMARY] "
@@ -1701,10 +1746,21 @@ class ExecutionEngine:
             if plan is not None and not protection_result["success"]:
                 self._failsafe_block_new_entries = True
         if direction_upper == "SELL" and plan is not None and existing_protection is not None:
-            self.post_fill_lifecycle.record_exit_fill(trade_id=protection_id, fill_price=fill_price,
+            exit_application = self.post_fill_lifecycle.record_exit_fill(trade_id=protection_id, fill_price=fill_price,
                 fill_time=datetime.now(timezone.utc).isoformat(), actual_qty=filled_quantity,
                 exit_order_id=request.client_order_id,
                 reason="STOP_LOSS" if context.get("protective_stop_fill") else "relationship_reduction")
+            if not exit_application.get("success"):
+                # Retain authoritative per-order facts and the existing recovery
+                # latch; no invented short projection, rollback or automatic replay.
+                stored_order["lifecycle_application_rejected"] = {
+                    "error": exit_application.get("error", "UNKNOWN"),
+                    "cumulative_quantity": cumulative_quantity, "average_price": float(entry_price or 0),
+                }
+                plan.paused = True
+                plan.reconciled = False
+                manager._save_relationship_state()
+                self._mark_capital_recovery_failed("RELATIONSHIP_EXIT_APPLICATION_REJECTED")
             if context.get("protective_stop_fill"):
                 # This stop is already executing; do not resize/cancel its own fill.
                 existing_protection.stop.status = str(result.status)
@@ -1840,7 +1896,7 @@ class ExecutionEngine:
         reader = getattr(self._provider, "cached_order_update", None)
         if manager is None:
             return []
-        if any(order.get("cached_update_in_progress") for plan in manager._relationship_plans.values()
+        if any(order.get("cached_update_in_progress") or order.get("lifecycle_application_rejected") for plan in manager._relationship_plans.values()
                for order in plan.orders.values()):
             # A previous pass may have changed accounting/protection before it
             # failed. Retain the owned evidence and require recovery, never replay
@@ -1930,7 +1986,8 @@ class ExecutionEngine:
                     self._release_capital_for_terminal_result(request, result)
                     if result_processor is not None:
                         result_processor(result)
-                        order.pop("cached_update_in_progress")
+                        if not order.get("lifecycle_application_rejected"):
+                            order.pop("cached_update_in_progress")
                         manager._save_relationship_state()
                 except BaseException:
                     if result_processor is not None:

@@ -524,7 +524,9 @@ class TradeManagementEngine:
         """Cancel oversized retries after late fills; never presume cancellation filled."""
         if plan.milestone_quantity is None:
             return
-        allowance = max(0, plan.milestone_quantity - plan.milestone_filled)
+        position = self._positions.get(plan.symbol)
+        owned_quantity = position.quantity if position and position.relationship_id == plan.relationship_id else 0
+        allowance = min(max(0, owned_quantity), max(0, plan.milestone_quantity - plan.milestone_filled))
         for order in plan.orders.values():
             if order["action"] != "REDUCE" or order["terminal"]:
                 continue
