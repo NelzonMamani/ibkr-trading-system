@@ -8,7 +8,7 @@ import time
 import math
 import uuid
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 from src.brokers.base_broker import BrokerOrderRequest
 from src.config.config_resolver import get_config
@@ -1773,21 +1773,37 @@ class ExecutionEngine:
         if not broker_id:
             return
         facts = reader(broker_id)
-        if not facts or "filled" not in facts or "remaining" not in facts:
-            return
-        filled, remaining = int(facts["filled"]), int(facts["remaining"])
-        price = self._float_or_none(facts.get("avgFillPrice"))
-        if filled <= 0 or remaining < 0 or price is None or not math.isfinite(price) or price <= 0:
+        if not facts:
             return
         order_id = f"{plan.relationship_id}:stop:{broker_id}"
+        lifecycle = self.post_fill_lifecycle.get_trade(plan.protection_trade_id or plan.initial_order_id)
+        stop = lifecycle.stop if lifecycle is not None else None
+        retained = plan.orders.get(order_id, {})
+        bound = max(int(retained.get("requested", 0)),
+                    int(stop.quantity) if stop and str(stop.broker_order_id) == str(broker_id) else 0)
+        try:
+            quantities = (facts["filled"], facts["remaining"])
+            if any(isinstance(value, bool) or not math.isfinite(float(value))
+                   or float(value) != int(value) for value in quantities):
+                raise ValueError
+            filled, remaining = (int(value) for value in quantities)
+            if filled < 0 or remaining < 0 or bound <= 0 or filled + remaining > bound:
+                raise ValueError
+            if filled == 0:
+                return
+            price = self._float_or_none(facts.get("avgFillPrice"))
+            if price is None or not math.isfinite(price) or price <= 0:
+                raise ValueError
+        except (KeyError, TypeError, ValueError, OverflowError):
+            raise ValueError("CACHED_PROTECTION_UPDATE_INVALID") from None
         if order_id not in plan.orders:
             from dataclasses import asdict
             initial = plan.orders[plan.initial_order_id].get("request", {})
             context = {"relationship_id": plan.relationship_id, "action": "EXIT", "protective_stop_fill": True}
             request = BrokerOrderRequest(client_order_id=order_id, symbol=plan.symbol, direction="SELL",
-                quantity=filled + remaining, order_type="STP", trader_type=initial.get("trader_type"),
+                quantity=bound, order_type="STP", trader_type=initial.get("trader_type"),
                 strategy_name=initial.get("strategy_name"), relationship_context=context)
-            plan.orders[order_id] = {"action": "EXIT", "requested": filled + remaining,
+            plan.orders[order_id] = {"action": "EXIT", "requested": bound,
                 "filled": 0, "notional": 0.0, "terminal": False,
                 "broker_order_id": str(broker_id), "request": asdict(request)}
         else:
@@ -1796,12 +1812,20 @@ class ExecutionEngine:
             order["requested"] = max(order["requested"], filled + remaining)
         self.relationship_manager._save_relationship_state()
 
-    def collect_relationship_updates(self) -> list[ExecutionResult]:
+    def collect_relationship_updates(
+        self, *, result_processor: Callable[[ExecutionResult], None] | None = None,
+    ) -> list[ExecutionResult]:
         """Consume cached callbacks; retain existing owned protection cleanup."""
         manager = getattr(self, "relationship_manager", None)
         reader = getattr(self._provider, "cached_order_update", None)
         if manager is None:
             return []
+        if any(order.get("cached_update_in_progress") for plan in manager._relationship_plans.values()
+               for order in plan.orders.values()):
+            # A previous pass may have changed accounting/protection before it
+            # failed. Retain the owned evidence and require recovery, never replay
+            # side effects on the strength of an unchanged native cache alone.
+            raise RuntimeError("CACHED_EXECUTION_UPDATE_RECOVERY_REQUIRED")
         for plan in manager._relationship_plans.values():
             manager.cancel_excess_milestone_orders(plan)
             if plan.pending_stop_resize:
@@ -1868,14 +1892,33 @@ class ExecutionEngine:
                 if total == order["filled"] and status == order.get("status"):
                     continue
                 request = BrokerOrderRequest(**order["request"])
+                context = request.relationship_context or {}
+                if (request.client_order_id != order_id or request.symbol.upper() != plan.symbol.upper()
+                        or context.get("relationship_id") != plan.relationship_id):
+                    raise ValueError("CACHED_EXECUTION_UPDATE_BINDING_INVALID")
                 result = ExecutionResult(symbol=plan.symbol, trader_type=request.trader_type or "UNKNOWN",
                     attempted=True, status=status, rationale="CACHED_BROKER_CALLBACK",
                     client_order_id=order_id, ibkr_order_id=order["broker_order_id"], direction=request.direction,
                     filled_quantity=total, remaining_quantity=remaining,
                     average_fill_price=facts.get("avgFillPrice"), relationship_context=request.relationship_context)
-                self._record_fill_and_position(request, result)
-                self._release_strategy_allocation_for_terminal_result(request, result)
-                self._release_capital_for_terminal_result(request, result)
+                if result_processor is not None:
+                    in_progress = {"filled": total, "remaining": remaining, "status": status,
+                        "average_price": float(result.average_fill_price) if result.average_fill_price is not None else None}
+                    order["cached_update_in_progress"] = in_progress
+                    manager._save_relationship_state()  # Durable boundary before any side effects.
+                try:
+                    self._record_fill_and_position(request, result)
+                    self._release_strategy_allocation_for_terminal_result(request, result)
+                    self._release_capital_for_terminal_result(request, result)
+                    if result_processor is not None:
+                        result_processor(result)
+                        order.pop("cached_update_in_progress")
+                        manager._save_relationship_state()
+                except BaseException:
+                    if result_processor is not None:
+                        order["cached_update_in_progress"] = in_progress
+                        plan.paused = True
+                    raise
                 results.append(result)
         return results
 

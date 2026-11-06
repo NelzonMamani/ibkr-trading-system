@@ -68,7 +68,7 @@ def chain(monkeypatch):
     core.stop_controller=StopController()
     core._halted=False
     core.execution_engine=NS(_relationship_orders_asof=None,
-        collect_relationship_updates=lambda:events.append('cached_updates') or [])
+        collect_relationship_updates=lambda **kwargs:events.append('cached_updates') or [])
     core.trade_management_engine=None
     core._latest_position_truth_snapshot=None;core._degraded=False
     core._resolve_fill_authority_cycle=lambda:{'execution_stalled':False,'stalled_symbols':[]}
@@ -447,7 +447,7 @@ def test_stop_after_connection_prevents_cached_ingestion(chain,monkeypatch):
 @pytest.mark.parametrize('error',[AcquisitionCancelled,AcquisitionDeadlineExceeded])
 def test_cached_ingestion_control_flow_propagates_before_reconciliation(chain,error):
     x=chain;set_mode(x,RunMode.PAPER)
-    def interrupted():
+    def interrupted(**kwargs):
         x.events.append('cached_updates')
         raise error()
     x.core.execution_engine.collect_relationship_updates=interrupted

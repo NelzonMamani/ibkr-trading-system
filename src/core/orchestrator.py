@@ -3208,9 +3208,8 @@ class CoreOrchestrator:
                 # Non-consuming cumulative callback facts belong to the existing
                 # execution owner. Apply them before reconciling broker positions
                 # against the registry; acknowledgement is not a fill.
-                cached_updates = self.execution_engine.collect_relationship_updates()
-                if cached_updates:
-                    self._apply_execution_results_to_trade_management(cached_updates)
+                self.execution_engine.collect_relationship_updates(
+                    result_processor=lambda result: self._apply_execution_results_to_trade_management([result]))
             except (AcquisitionCancelled, AcquisitionDeadlineExceeded):
                 raise
             except Exception:
