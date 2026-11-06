@@ -233,7 +233,7 @@ class Crash:
   if self.count==2:os._exit(72)
 s._store.connection=Crash();admit(owner(s))
 """
-    env=dict(os.environ,PYTHONPATH='tests:tests/offline:.')
+    env=dict(os.environ,PYTHONPATH=os.pathsep.join(('tests','tests/offline','.')))
     r=subprocess.run([sys.executable,'-c',code,str(path),crash],env=env,timeout=15,capture_output=True)
     assert r.returncode==(71 if crash=='before' else 72)
     s=storage(path)
