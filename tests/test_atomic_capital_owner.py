@@ -126,10 +126,12 @@ def test_conflicting_identity_never_double_applies(enrolled,method):
     else:call=lambda:admit(o,quantity=2)
     before=enrolled.read_capital_state('synthetic:account-a','PAPER')
     with pytest.raises(RuntimeError,match='CONFLICT'):call()
-    assert enrolled.read_capital_state('synthetic:account-a','PAPER')==before
+    after=enrolled.read_capital_state('synthetic:account-a','PAPER')
+    assert {k:v for k,v in after.items() if k!='pending'}=={k:v for k,v in before.items() if k!='pending'}
+    assert after['pending'] is not None
 
 class FailConnection:
-    def __init__(self,connection,stage):self.original=connection;self.stage=stage
+    def __init__(self,connection,stage,commit_number=2):self.original=connection;self.stage=stage;self.commits=0;self.commit_number=commit_number
     def __getattr__(self,name):return getattr(self.original,name)
     def execute(self,sql,*args):
         if self.stage in sql:raise OSError('synthetic persistence failure')
@@ -138,11 +140,12 @@ class FailConnection:
         if self.stage in sql:raise OSError('synthetic persistence failure')
         return self.original.executemany(sql,*args)
     def commit(self):
-        if self.stage=='before_commit':raise OSError('synthetic commit failure')
+        self.commits+=1
+        if self.stage=='before_commit' and self.commits==self.commit_number:raise OSError('synthetic commit failure')
         self.original.commit()
-        if self.stage=='after_commit':raise OSError('synthetic lost commit response')
+        if self.stage=='after_commit' and self.commits==self.commit_number:raise OSError('synthetic lost commit response')
 
-@pytest.mark.parametrize('stage',['BEGIN IMMEDIATE','DELETE FROM capital_owner_reservations','INSERT INTO capital_owner_reservations','DELETE FROM capital_owner_exposure','INSERT INTO capital_owner_exposure','UPDATE capital_owner_state','INSERT INTO position_lifecycle_transitions','before_commit','after_commit'])
+@pytest.mark.parametrize('stage',['BEGIN IMMEDIATE','DELETE FROM capital_owner_reservations','INSERT INTO capital_owner_reservations','DELETE FROM capital_owner_exposure','INSERT INTO capital_owner_exposure','UPDATE capital_owner_state SET version','INSERT INTO position_lifecycle_transitions','before_commit','after_commit'])
 def test_persistence_boundaries_are_all_or_nothing(enrolled,stage):
     o=owner(enrolled);con=enrolled._store.connection
     enrolled._store.connection=FailConnection(con,stage)
@@ -221,10 +224,13 @@ import os,sys
 from test_atomic_capital_owner import storage,owner,admit
 s=storage(sys.argv[1]); original=s._store.connection
 class Crash:
+ count=0
  def __getattr__(self,k):return getattr(original,k)
  def commit(self):
-  if sys.argv[2]=='before':os._exit(71)
-  original.commit();os._exit(72)
+  self.count+=1
+  if self.count==2 and sys.argv[2]=='before':os._exit(71)
+  original.commit()
+  if self.count==2:os._exit(72)
 s._store.connection=Crash();admit(owner(s))
 """
     env=dict(os.environ,PYTHONPATH='tests:tests/offline:.')
@@ -233,6 +239,7 @@ s._store.connection=Crash();admit(owner(s))
     s=storage(path)
     assert owner(s).total_reserved_capital==(0 if crash=='before' else 100)
     assert s.read_capital_state('synthetic:account-a','PAPER')['version']==(0 if crash=='before' else 1)
+    with pytest.raises(RuntimeError,match='INSPECTION'):admit(owner(s),'after-crash')
     s._store.close()
 
 def test_partial_fill_cumulative_progress_and_release_remainder(enrolled):
@@ -274,7 +281,8 @@ def test_conversion_boundaries_preserve_full_state_and_receipt(enrolled,stage):
     if stage=='after_commit':
         assert owner(enrolled).total_used_exposure==100 and owner(enrolled).total_reserved_capital==0
         assert len(after['progress'])==1 and after['version']==before['version']+1
-    else:assert after==before
+    else:
+        assert {k:v for k,v in after.items() if k!='pending'}=={k:v for k,v in before.items() if k!='pending'}
 
 @pytest.mark.parametrize('mode',['SIM','READ_ONLY','LIVE'])
 def test_modes_cannot_silently_enroll_or_gain_permission(enrolled,mode):
@@ -366,3 +374,16 @@ def test_actual_execution_startup_loads_without_rebuilding(enrolled):
     e._recover_capital_state()
     assert e.capital_authority.total_reserved_capital==100
     assert e.capital_authority.total_used_exposure==0
+
+
+@pytest.mark.parametrize('number',[1,2,3])
+@pytest.mark.parametrize('moment',['before_commit','after_commit'])
+def test_each_commit_failure_preserves_restart_quarantine(enrolled,number,moment):
+    o=owner(enrolled);connection=enrolled._store.connection
+    enrolled._store.connection=FailConnection(connection,moment,number)
+    with pytest.raises(OSError):admit(o)
+    enrolled._store.connection=connection
+    restarted=owner(enrolled)
+    assert restarted.total_reserved_capital==(100 if number==3 or (number==2 and moment=='after_commit') else 0)
+    with pytest.raises(RuntimeError,match='INSPECTION'):admit(owner(enrolled),'new-intent')
+    assert o.recovery_failed

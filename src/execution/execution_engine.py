@@ -222,6 +222,9 @@ class ExecutionEngine:
         self.strategy_allocation_authority.recover_from_lifecycle(lifecycle_trades)
         if getattr(self.capital_authority, 'capital_scope', None) is not None:
             self.capital_authority._capital_projection()
+            if self.capital_authority.recovery_failed:
+                self._mark_capital_recovery_failed(self.capital_authority.recovery_failure_reason)
+                return
         else:
             self.capital_authority.recover_from_lifecycle(lifecycle_trades)
 

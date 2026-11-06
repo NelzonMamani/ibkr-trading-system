@@ -1657,11 +1657,11 @@ class SQLiteStore:
                 self.connection.execute("INSERT INTO capital_synthetic_database VALUES (1)")
             elif [r[0] for r in self.connection.execute("SELECT version FROM capital_synthetic_database")] != [1]:
                 raise RuntimeError('CAPITAL_SYNTHETIC_SCHEMA_UNSUPPORTED')
-            self.connection.execute("CREATE TABLE IF NOT EXISTS capital_owner_state (scope TEXT PRIMARY KEY, mode TEXT NOT NULL, schema_version INTEGER NOT NULL, version INTEGER NOT NULL, fence TEXT NOT NULL)")
+            self.connection.execute("CREATE TABLE IF NOT EXISTS capital_owner_state (scope TEXT PRIMARY KEY, mode TEXT NOT NULL, schema_version INTEGER NOT NULL, version INTEGER NOT NULL, fence TEXT NOT NULL, pending TEXT)")
             self.connection.execute("CREATE TABLE IF NOT EXISTS capital_owner_reservations (scope TEXT NOT NULL, reservation_id TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(scope,reservation_id))")
             self.connection.execute("CREATE TABLE IF NOT EXISTS capital_owner_exposure (scope TEXT NOT NULL, dimension TEXT NOT NULL, name TEXT NOT NULL, amount REAL NOT NULL, PRIMARY KEY(scope,dimension,name))")
             self.connection.execute("CREATE TABLE IF NOT EXISTS capital_owner_execution (scope TEXT NOT NULL, identity TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(scope,identity))")
-            self.connection.execute("INSERT INTO capital_owner_state VALUES (?,?,1,0,'SYNTHETIC_ONLY_V1')", (scope,mode))
+            self.connection.execute("INSERT INTO capital_owner_state VALUES (?,?,1,0,'SYNTHETIC_ONLY_V1',NULL)", (scope,mode))
             self.connection.commit()
         except BaseException:
             self.connection.rollback()
@@ -1721,7 +1721,7 @@ class SQLiteStore:
                         or b['effect']!='CONVERT' or b['owner']!='capital' or b['mode']!=mode
                         or progress.get(json.dumps([b['relationship_id'],b['order_id'],b['effect']]))!=b):
                     raise RuntimeError('CAPITAL_CORRUPT_RESERVATION_BINDING')
-        return {'version': row['version'], 'reservations': reservations, 'progress':progress, **exposure}
+        return {'version': row['version'], 'pending':row['pending'], 'reservations': reservations, 'progress':progress, **exposure}
 
     def read_capital_state(self, scope: str, mode: str) -> dict:
         self._capital_schema_check()
@@ -1741,6 +1741,8 @@ class SQLiteStore:
         try:
             self.connection.execute("BEGIN IMMEDIATE")
             before = self._capital_load(scope,mode)
+            if before['pending'] is not None:
+                raise RuntimeError('CAPITAL_PENDING_AUTHORITATIVE_INSPECTION')
             previous = self.connection.execute("SELECT reason FROM position_lifecycle_transitions WHERE transition_id=?", (receipt_id,)).fetchone()
             if previous:
                 saved=json.loads(previous[0])
@@ -1754,6 +1756,14 @@ class SQLiteStore:
                     raise RuntimeError("CAPITAL_EFFECT_IDENTITY_CONFLICT")
                 self.connection.rollback()
                 return saved['result'], True
+            # A separate durable processing marker survives lost acknowledgements,
+            # known interruptions and restart. It is not a financial effect.
+            self.connection.execute("UPDATE capital_owner_state SET pending=? WHERE scope=?", (operation,scope))
+            self.connection.commit()
+            self.connection.execute("BEGIN IMMEDIATE")
+            current=self._capital_load(scope,mode)
+            if current['pending']!=operation or current['version']!=before['version']:
+                raise RuntimeError('CAPITAL_PENDING_IDENTITY_CONFLICT')
             after, result = apply(before)
             self.connection.execute("DELETE FROM capital_owner_reservations WHERE scope=?", (scope,))
             self.connection.executemany("INSERT INTO capital_owner_reservations VALUES (?,?,?)", [
@@ -1772,9 +1782,27 @@ class SQLiteStore:
             self.connection.execute("INSERT INTO position_lifecycle_transitions (transition_id,intent,reason_code,reason,transition_seq,timestamp,created_at) VALUES (?,?,?,?,?,?,?)",
                 (receipt_id,'CAPITAL_OWNER_EFFECT','ATOMIC_CAPITAL_V1',json.dumps(outcome,sort_keys=True,allow_nan=False),before['version']+1,now_iso(),now_iso()))
             self.connection.commit()
+            # Retire only this uninterrupted call's marker after confirmed commit.
+            # Errors/crashes leave it quarantined; no replay/clear API exists.
+            self.connection.execute("BEGIN IMMEDIATE")
+            changed=self.connection.execute("UPDATE capital_owner_state SET pending=NULL WHERE scope=? AND pending=?", (scope,operation)).rowcount
+            if changed!=1:
+                raise RuntimeError('CAPITAL_PENDING_COMPLETION_CONFLICT')
+            self.connection.commit()
             return result, False
         except BaseException:
             self.connection.rollback()
+            # Persist an observed interrupted return even if normal completion
+            # committed but its acknowledgement was lost. Never clear/replay.
+            try:
+                self.connection.execute("BEGIN IMMEDIATE")
+                self.connection.execute("UPDATE capital_owner_state SET pending=COALESCE(pending,?) WHERE scope=? AND schema_version=1 AND fence='SYNTHETIC_ONLY_V1'", (operation,scope))
+                self.connection.commit()
+            except BaseException:
+                self.connection.rollback()
+                # Financial receipt is still independently atomic; inability to
+                # persist failure observation is NOT whole-update recovery proof.
+                pass
             raise
 
     def insert_owner_effect_record(self, transition_id: str, payload: str, *, run_id: str | None,

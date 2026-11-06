@@ -1096,6 +1096,9 @@ class CapitalManagementAuthority:
             raise RuntimeError('CAPITAL_STORAGE_UNAVAILABLE')
         if state is None:
             state = self.storage_engine.read_capital_state(self.capital_scope, self.run_mode)
+        if state.get('pending') is not None:
+            self.recovery_failed=True
+            self.recovery_failure_reason='CAPITAL_PENDING_AUTHORITATIVE_INSPECTION'
         projected = CapitalManagementAuthority(run_mode=self.run_mode, storage_engine=_CapitalEffectValidation(),
             account_equity=self.account_equity, available_capital=self.available_capital,
             buying_power=self.buying_power, broker_truth_available=self.broker_truth_available)
