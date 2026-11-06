@@ -352,6 +352,8 @@ class IbkrExecutionProvider(ExecutionProvider):
                         "limit_price": getattr(order, "lmtPrice", None),
                         "trade_id": trade_id,
                         "order_ref": order_ref,
+                        "con_id": getattr(contract, "conId", None),
+                        "native_quantity": getattr(order, "totalQuantity", None),
                     },
                 )
             )
