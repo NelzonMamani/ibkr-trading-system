@@ -619,31 +619,46 @@ class ExecutionEngine:
             manager._save_relationship_state()
             self._run_protection_reconciliation(open_orders=orders, reason="relationship_stop_cleanup")
 
+    def _confirmed_relationship_stop_quantity(self, plan, life, orders: list[object]) -> float | None:
+        # Shared canonical snapshot rule for existing resize confirmation and
+        # active relationship management; never query or infer an acknowledgement.
+        if life is None or life.stop is None:
+            return None
+        def read(row, key):
+            return row.get(key) if isinstance(row, dict) else getattr(row, key, None)
+        matches = [o for o in orders if str(read(o, "order_id")) == str(life.stop.broker_order_id)
+                   and str(read(o, "symbol") or "").upper() == plan.symbol
+                   and str(read(o, "status") or "").upper() in {"SUBMITTED", "PRESUBMITTED"}]
+        if len(matches) != 1:
+            return None
+        metadata = read(matches[0], "metadata") or {}
+        if any(isinstance(metadata.get(key), bool) for key in ("quantity", "stop_price")):
+            return None
+        quantity = self._float_or_none(metadata.get("quantity"))
+        price = self._float_or_none(metadata.get("stop_price"))
+        stop_filled = plan.orders.get(f"{plan.relationship_id}:stop:{life.stop.broker_order_id}", {}).get("filled", 0)
+        if (quantity is not None and math.isfinite(quantity) and quantity - stop_filled == life.filled_qty
+                and str(metadata.get("side") or "").upper() == "SELL"
+                and price is not None and math.isfinite(price) and price >= life.stop.trigger_price):
+            return quantity
+        return None
+
+    def relationship_protection_confirmed(self, plan) -> bool:
+        life = self.post_fill_lifecycle.get_trade(plan.protection_trade_id or plan.initial_order_id)
+        return self._confirmed_relationship_stop_quantity(plan, life,
+            getattr(self, "_relationship_open_orders", [])) is not None
+
     def _confirm_relationship_stop_resizes(self, orders: list[object]) -> bool:
         manager = getattr(self, "relationship_manager", None)
         if manager is None:
             return False
         changed = False
-        def read(row, key):
-            return row.get(key) if isinstance(row, dict) else getattr(row, key, None)
         for plan in manager._relationship_plans.values():
             if not plan.pending_stop_resize:
                 continue
             life = self.post_fill_lifecycle.get_trade(plan.protection_trade_id or plan.initial_order_id)
-            if life is None or life.stop is None:
-                continue
-            matches = [o for o in orders if str(read(o, "order_id")) == str(life.stop.broker_order_id)
-                       and str(read(o, "symbol") or "").upper() == plan.symbol
-                       and str(read(o, "status") or "").upper() in {"SUBMITTED", "PRESUBMITTED"}]
-            if len(matches) != 1:
-                continue
-            metadata = read(matches[0], "metadata") or {}
-            quantity = self._float_or_none(metadata.get("quantity"))
-            price = self._float_or_none(metadata.get("stop_price"))
-            stop_filled = plan.orders.get(f"{plan.relationship_id}:stop:{life.stop.broker_order_id}", {}).get("filled", 0)
-            if (quantity is not None and quantity - stop_filled == life.filled_qty
-                    and str(metadata.get("side") or "").upper() == "SELL"
-                    and price is not None and price >= life.stop.trigger_price):
+            quantity = self._confirmed_relationship_stop_quantity(plan, life, orders)
+            if quantity is not None:
                 plan.pending_stop_resize = False
                 life.stop.quantity = int(quantity)
                 changed = True
