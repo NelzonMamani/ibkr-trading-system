@@ -212,6 +212,13 @@ class ExecutionEngine:
     def _recover_capital_state(self) -> None:
         if not self.startup_recovery_complete():
             return
+        if getattr(self.capital_authority, 'capital_scope', None) is not None:
+            # Enrolled capital is restored by read-only authoritative load.
+            # Never use this legacy rebuild route for any related effect owner.
+            self.capital_authority._capital_projection()
+            if self.capital_authority.recovery_failed:
+                self._mark_capital_recovery_failed(self.capital_authority.recovery_failure_reason)
+            return
         lifecycle_trades: list[object] = []
         if self._trade_lifecycle_engine is not None:
             getter = getattr(self._trade_lifecycle_engine, "get_open_lifecycle_trades", None)

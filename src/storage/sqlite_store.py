@@ -3,6 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
+import math
+import hashlib
+import weakref
+from uuid import uuid4
 import os
 import sqlite3
 from typing import Any, Iterable
@@ -20,9 +24,28 @@ class AuditVerificationResult:
     reason: str
 
 
+class _CapitalWriterRejected(RuntimeError):
+    pass
+
+
+class _CapitalWriter:
+    """Issuer-private live-process capability. Public DB identity grants nothing."""
+    __slots__ = ()
+
+    def __reduce__(self):
+        raise TypeError('CAPITAL_WRITER_NOT_SERIALIZABLE')
+
+    def __copy__(self):
+        raise TypeError('CAPITAL_WRITER_NOT_TRANSFERABLE')
+
+    def __deepcopy__(self, memo):
+        raise TypeError('CAPITAL_WRITER_NOT_TRANSFERABLE')
+
+
 class SQLiteStore:
     def __init__(self, path: str, *, commit_each_write: bool = True) -> None:
         self.path = path
+        self._capital_writers = {}
         self.commit_each_write = commit_each_write
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
         self.connection = sqlite3.connect(self.path)
@@ -33,6 +56,16 @@ class SQLiteStore:
         self.connection.close()
 
     def initialize_schema(self) -> None:
+        # Refuse future base schemas before any DDL or schema stamp.
+        if self.connection.execute("SELECT 1 FROM sqlite_master WHERE name='schema_meta'").fetchone():
+            version = self.connection.execute('SELECT MAX(version) FROM schema_meta').fetchone()[0]
+            if version is not None and version > SCHEMA_VERSION:
+                raise RuntimeError('STORAGE_FUTURE_SCHEMA_UNSUPPORTED')
+        if self.connection.execute("SELECT 1 FROM sqlite_master WHERE name='capital_owner_state'").fetchone():
+            if os.environ.get('EXECUTION_ENV') != 'TEST':
+                raise RuntimeError('CAPITAL_OPERATIONAL_ACCESS_UNFENCED')
+            if self.connection.execute("SELECT 1 FROM capital_owner_state WHERE NOT ((schema_version=1 AND fence='SYNTHETIC_ONLY_V1') OR (schema_version=2 AND fence='SYNTHETIC_ONLY_V2')) LIMIT 1").fetchone():
+                raise RuntimeError('CAPITAL_EXTENSION_SCHEMA_UNSUPPORTED')
         cursor = self.connection.cursor()
         cursor.executescript(
             """
@@ -1627,6 +1660,257 @@ class SQLiteStore:
     def _column_names(self, table: str) -> set[str]:
         cursor = self.connection.execute(f"PRAGMA table_info({table})")
         return {row["name"] for row in cursor.fetchall()}
+
+    def initialize_synthetic_capital_scope(self, scope: str, mode: str):
+        """Explicit test enrollment only. Never initialize an operational database."""
+        if (os.environ.get("EXECUTION_ENV") != "TEST" or (not isinstance(scope,str) or not 1 <= len(scope) <= 256 or not scope.startswith("synthetic:"))
+                or mode not in {"SIM", "PAPER"} or self.connection.in_transaction
+                or self.connection.execute("SELECT COUNT(*) FROM runs").fetchone()[0]):
+            raise RuntimeError("CAPITAL_OPERATIONAL_ENROLLMENT_FORBIDDEN")
+        self._capital_schema_check(base_only=True)
+        try:
+            self.connection.execute("BEGIN IMMEDIATE")
+            marker=self.connection.execute("SELECT 1 FROM sqlite_master WHERE name='capital_synthetic_database'").fetchone()
+            if marker is None:
+                tables=[r[0] for r in self.connection.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name!='schema_meta'")]
+                if any(self.connection.execute('SELECT 1 FROM "'+name.replace('"','""')+'" LIMIT 1').fetchone() for name in tables):
+                    raise RuntimeError('CAPITAL_NONFRESH_DATABASE_QUARANTINED')
+                self.connection.execute("CREATE TABLE capital_synthetic_database (version INTEGER PRIMARY KEY CHECK(version=2))")
+                self.connection.execute("INSERT INTO capital_synthetic_database VALUES (2)")
+            elif [r[0] for r in self.connection.execute("SELECT version FROM capital_synthetic_database")] != [2]:
+                raise RuntimeError('CAPITAL_SYNTHETIC_SCHEMA_UNSUPPORTED')
+            self.connection.execute("CREATE TABLE IF NOT EXISTS capital_owner_state (scope TEXT PRIMARY KEY, mode TEXT NOT NULL, schema_version INTEGER NOT NULL, version INTEGER NOT NULL, fence TEXT NOT NULL, pending TEXT, last_operation TEXT, writer_id TEXT NOT NULL)")
+            self.connection.execute("CREATE TABLE IF NOT EXISTS capital_owner_reservations (scope TEXT NOT NULL, reservation_id TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(scope,reservation_id))")
+            self.connection.execute("CREATE TABLE IF NOT EXISTS capital_owner_exposure (scope TEXT NOT NULL, dimension TEXT NOT NULL, name TEXT NOT NULL, amount REAL NOT NULL, PRIMARY KEY(scope,dimension,name))")
+            self.connection.execute("CREATE TABLE IF NOT EXISTS capital_owner_execution (scope TEXT NOT NULL, identity TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(scope,identity))")
+            writer_id = uuid4().hex
+            self.connection.execute("INSERT INTO capital_owner_state VALUES (?,?,2,0,'SYNTHETIC_ONLY_V2',NULL,NULL,?)", (scope,mode,writer_id))
+            self.connection.commit()
+        except BaseException:
+            self.connection.rollback()
+            raise
+
+        writer = _CapitalWriter()
+        path = os.path.normcase(os.path.realpath(self.path))
+        stat = os.stat(path)
+        self._capital_writers[scope] = (writer, {
+            'issuer': weakref.ref(self), 'pid': os.getpid(), 'path': path,
+            'file_id': (stat.st_dev,stat.st_ino), 'scope':scope,'mode':mode,
+            'writer_id':writer_id, 'owner':None, 'claimed':False, 'revoked':False})
+        return writer
+
+    def _validate_capital_writer(self, writer, owner, scope, mode, *, claiming=False):
+        from src.core.capital_management_authority import CapitalManagementAuthority
+        if not isinstance(owner,CapitalManagementAuthority):
+            raise _CapitalWriterRejected('CAPITAL_WRITER_OWNER_REQUIRED')
+        entry = self._capital_writers.get(scope)
+        if type(writer) is not _CapitalWriter or entry is None or entry[0] is not writer:
+            raise _CapitalWriterRejected('CAPITAL_WRITER_SESSION_REQUIRED')
+        record = entry[1]  # Authority stays issuer-private; token has no fields.
+        if (record['issuer']() is not self or record['pid'] != os.getpid()
+                or record['scope'] != scope or record['mode'] != mode):
+            raise _CapitalWriterRejected('CAPITAL_WRITER_SESSION_REQUIRED')
+        if record['revoked']:
+            raise _CapitalWriterRejected('CAPITAL_WRITER_REVOKED')
+        path = os.path.normcase(os.path.realpath(self.path))
+        stat = os.stat(path)
+        files = self.connection.execute('PRAGMA database_list').fetchall()
+        actual = next((r['file'] for r in files if r['name']=='main'), None)
+        if (path != record['path'] or (stat.st_dev,stat.st_ino) != record['file_id']
+                or not actual or os.path.normcase(os.path.realpath(actual)) != record['path']
+                or (not claiming and (not record['claimed'] or record['owner']() is not owner))
+                or (claiming and record['claimed'] and record['owner']() is not owner)):
+            raise _CapitalWriterRejected('CAPITAL_WRITER_IDENTITY_CONFLICT')
+        return record['writer_id']
+
+    def revoke_capital_writer(self, writer, owner, scope):
+        """Only revoke this exact live claimant; no SQL, reset or transfer."""
+        entry = self._capital_writers.get(scope)
+        if (entry is not None and entry[0] is writer and entry[1]['pid']==os.getpid()
+                and entry[1]['claimed'] and entry[1]['owner']() is owner):
+            entry[1]['revoked'] = True
+
+    def claim_capital_writer(self, writer, owner, scope, mode):
+        writer_id = self._validate_capital_writer(writer, owner, scope, mode, claiming=True)
+        self._capital_schema_check()
+        state = self.read_capital_state(scope,mode)
+        if state['schema_version'] != 2 or state['writer_id'] != writer_id:
+            raise _CapitalWriterRejected('CAPITAL_WRITER_SCOPE_CONFLICT')
+        record = self._capital_writers[scope][1]
+        if not record['claimed']:
+            record['owner'], record['claimed'] = weakref.ref(owner), True
+        return writer
+
+    def _capital_schema_check(self, *, base_only: bool = False) -> None:
+        if (self.connection.execute("SELECT MAX(version) FROM schema_meta").fetchone()[0] != SCHEMA_VERSION
+                or self.connection.in_transaction or self.connection.execute("PRAGMA query_only").fetchone()[0]):
+            raise RuntimeError("CAPITAL_STORAGE_UNSUPPORTED_OR_BUSY")
+        if not base_only and os.environ.get("EXECUTION_ENV") != "TEST":
+            raise RuntimeError("CAPITAL_OPERATIONAL_ACCESS_UNFENCED")
+        # Receipt durability must not depend on cycle-flush configuration.
+        self.connection.execute("PRAGMA synchronous=FULL")
+        if self.connection.execute("PRAGMA synchronous").fetchone()[0] < 2:
+            raise RuntimeError("CAPITAL_DURABILITY_UNAVAILABLE")
+
+    def _capital_load(self, scope: str, mode: str) -> dict:
+        row = self.connection.execute("SELECT * FROM capital_owner_state WHERE scope=?", (scope,)).fetchone()
+        if (row is None or row['schema_version'] not in (1,2) or row['mode'] != mode
+                or row['fence'] != ('SYNTHETIC_ONLY_V1' if row['schema_version']==1 else 'SYNTHETIC_ONLY_V2') or not scope.startswith('synthetic:')):
+            raise RuntimeError("CAPITAL_SCOPE_UNENROLLED_OR_UNFENCED")
+        if row['schema_version']==2 and (not isinstance(row['writer_id'],str) or not 1 <= len(row['writer_id']) <= 256):
+            raise RuntimeError('CAPITAL_WRITER_IDENTITY_INVALID')
+        if not self.connection.execute("SELECT 1 FROM capital_synthetic_database WHERE version IN (1,2)").fetchone():
+            raise RuntimeError('CAPITAL_UNFENCED_DATABASE')
+        reservations = {r['reservation_id']: json.loads(r['payload']) for r in self.connection.execute(
+            "SELECT * FROM capital_owner_reservations WHERE scope=?", (scope,))}
+        exposure = {'symbol': {}, 'strategy': {}}
+        for r in self.connection.execute("SELECT * FROM capital_owner_exposure WHERE scope=?", (scope,)):
+            exposure[r['dimension']][r['name']] = r['amount']
+        if type(row['version']) is not int or row['version'] < 0:
+            raise RuntimeError('CAPITAL_CORRUPT_VERSION')
+        decisions=set()
+        for key, r in reservations.items():
+            if (r.get('decision_id') in decisions or r.get('remaining_quantity',0) > r.get('quantity',0)
+                    or r.get('filled_quantity',0) > r.get('quantity',0) or r.get('filled_quantity',0)+r.get('remaining_quantity',0) > r.get('quantity',0)
+                    or r.get('reservation_id') != key or r.get('run_mode') != mode
+                    or any(type(r.get(k)) is not int or r[k] < 0 for k in ('quantity','remaining_quantity','filled_quantity'))
+                    or any(isinstance(r.get(k), bool) or not isinstance(r.get(k),(int,float)) or not math.isfinite(r[k]) or r[k] < 0
+                           for k in ('notional','remaining_notional','exposure_notional'))
+                    or r.get('status') not in {'ACTIVE','CONVERTED','RELEASED'}):
+                raise RuntimeError('CAPITAL_CORRUPT_RESERVATION')
+            decisions.add(r['decision_id'])
+            from src.core.capital_management_authority import CapitalReservation
+            CapitalReservation(**{k:v for k,v in r.items() if k!='effect_identity'})  # Exact supported owner fields.
+        if any(not math.isfinite(v) or v < 0 for values in exposure.values() for v in values.values()):
+            raise RuntimeError('CAPITAL_CORRUPT_EXPOSURE')
+        progress={r['identity']:json.loads(r['payload']) for r in self.connection.execute('SELECT * FROM capital_owner_execution WHERE scope=?',(scope,))}
+        from src.storage.storage_engine import StorageEngine
+        for key,b in progress.items():
+            StorageEngine._owner_effect_record(b,phase='PREPARED')
+            if key != json.dumps([b['relationship_id'],b['order_id'],b['effect']]):
+                raise RuntimeError('CAPITAL_CORRUPT_PROGRESS_IDENTITY')
+        for r in reservations.values():
+            b=r.get('effect_identity')
+            if b is not None:
+                StorageEngine._owner_effect_record(b,phase='PREPARED')
+                if (b['decision_id']!=r['decision_id'] or b['order_id']!=r['order_id'] or b['symbol']!=r['symbol']
+                        or b['effect']!='CONVERT' or b['owner']!='capital' or b['mode']!=mode
+                        or progress.get(json.dumps([b['relationship_id'],b['order_id'],b['effect']]))!=b):
+                    raise RuntimeError('CAPITAL_CORRUPT_RESERVATION_BINDING')
+        state={'schema_version':row['schema_version'],'writer_id':row['writer_id'] if row['schema_version']==2 else None,'version':row['version'],'pending':row['pending'],'reservations':reservations,'progress':progress,**exposure}
+        if row['version']==0:
+            if row['last_operation'] is not None or reservations or progress or any(exposure.values()):
+                raise RuntimeError('CAPITAL_ZERO_VERSION_NOT_EMPTY')
+        else:
+            receipt=self.connection.execute('SELECT reason FROM position_lifecycle_transitions WHERE transition_id=?',
+                ('capital-atomic-v'+str(row['schema_version'])+':'+scope+':'+str(row['last_operation']),)).fetchone()
+            saved=json.loads(receipt[0]) if receipt else {}
+            if (saved.get('atomic_capital_only') is not True or saved.get('scope')!=scope
+                    or type(saved.get('schema')) is not int or saved['schema']!=row['schema_version']
+                    or (row['schema_version']==2 and (not isinstance(state['writer_id'],str) or not state['writer_id'] or saved.get('writer_id')!=state['writer_id']))
+                    or saved.get('after_version')!=row['version']
+                    or saved.get('state_hash')!=self._capital_state_hash(scope,mode,row['version'],state)):
+                raise RuntimeError('CAPITAL_STATE_RECEIPT_INTEGRITY_FAILURE')
+        return state
+
+    @staticmethod
+    def _capital_state_hash(scope: str, mode: str, version: int, state: dict) -> str:
+        # Private integrity binding, not independent publisher/execution authority.
+        content={'scope':scope,'mode':mode,'version':version,
+            **{k:state[k] for k in ('reservations','symbol','strategy','progress')}}
+        if state.get('schema_version')==2:
+            content['writer_id']=state['writer_id']
+        return hashlib.sha256(json.dumps(content,sort_keys=True,allow_nan=False).encode()).hexdigest()
+
+    def read_capital_state(self, scope: str, mode: str) -> dict:
+        self._capital_schema_check()
+        try:
+            self.connection.execute("BEGIN")
+            state = self._capital_load(scope,mode)
+            self.connection.rollback()
+            return state
+        except BaseException:
+            self.connection.rollback()
+            raise
+
+    def transact_capital(self, scope: str, mode: str, operation: str, binding: str, apply, *, writer=None, owner=None) -> tuple[dict, bool]:
+        """One existing-owner state transition and receipt; callback is pure local policy."""
+        writer_id = self._validate_capital_writer(writer,owner,scope,mode)
+        self._capital_schema_check()
+        receipt_id = 'capital-atomic-v2:' + scope + ':' + operation
+        try:
+            self.connection.execute("BEGIN IMMEDIATE")
+            before = self._capital_load(scope,mode)
+            if before['schema_version']!=2 or before['writer_id']!=writer_id:
+                raise _CapitalWriterRejected('CAPITAL_WRITER_SCOPE_CONFLICT')
+            self._validate_capital_writer(writer,owner,scope,mode)
+            if before['pending'] is not None:
+                raise RuntimeError('CAPITAL_PENDING_AUTHORITATIVE_INSPECTION')
+            previous = self.connection.execute("SELECT reason FROM position_lifecycle_transitions WHERE transition_id=?", (receipt_id,)).fetchone()
+            if previous:
+                saved=json.loads(previous[0])
+                if (set(saved)!={'schema','scope','binding','before_version','after_version','post_state','result','atomic_capital_only','state_hash','writer_id'}
+                        or saved['binding'] != binding or type(saved['schema']) is not int or saved['schema'] != 2 or saved['scope'] != scope or saved['writer_id'] != writer_id
+                        or saved['atomic_capital_only'] is not True
+                        or type(saved['before_version']) is not int or saved['before_version'] < 0
+                        or type(saved['after_version']) is not int or saved['after_version']!=saved['before_version']+1
+                        or saved['after_version']>before['version'] or not isinstance(saved['post_state'],dict)
+                        or set(saved['result'])!={'type','value'} or saved['result']['type'] not in {'decision','reservation','scalar'}):
+                    raise RuntimeError("CAPITAL_EFFECT_IDENTITY_CONFLICT")
+                self.connection.rollback()
+                return saved['result'], True
+            # A separate durable processing marker survives lost acknowledgements,
+            # known interruptions and restart. It is not a financial effect.
+            self.connection.execute("UPDATE capital_owner_state SET pending=? WHERE scope=?", (operation,scope))
+            self.connection.commit()
+            self.connection.execute("BEGIN IMMEDIATE")
+            current=self._capital_load(scope,mode)
+            if current['pending']!=operation or current['version']!=before['version']:
+                raise RuntimeError('CAPITAL_PENDING_IDENTITY_CONFLICT')
+            after, result = apply(before)
+            self.connection.execute("DELETE FROM capital_owner_reservations WHERE scope=?", (scope,))
+            self.connection.executemany("INSERT INTO capital_owner_reservations VALUES (?,?,?)", [
+                (scope,k,json.dumps(v,sort_keys=True,allow_nan=False)) for k,v in after['reservations'].items()])
+            self.connection.execute("DELETE FROM capital_owner_exposure WHERE scope=?", (scope,))
+            self.connection.executemany("INSERT INTO capital_owner_exposure VALUES (?,?,?,?)", [
+                (scope,dimension,k,v) for dimension in ('symbol','strategy') for k,v in after[dimension].items()])
+            self.connection.execute("DELETE FROM capital_owner_execution WHERE scope=?", (scope,))
+            self.connection.executemany("INSERT INTO capital_owner_execution VALUES (?,?,?)", [
+                (scope,k,json.dumps(v,sort_keys=True,allow_nan=False)) for k,v in after['progress'].items()])
+            changed=self.connection.execute("UPDATE capital_owner_state SET version=version+1,last_operation=? WHERE scope=? AND version=?", (operation,scope,before['version'])).rowcount
+            if changed != 1:
+                raise RuntimeError("CAPITAL_STATE_VERSION_CONFLICT")
+            after.update(schema_version=2,writer_id=writer_id)
+            outcome={'schema':2,'writer_id':writer_id,'scope':scope,'binding':binding,'before_version':before['version'],
+                'after_version':before['version']+1,'post_state':{'reservations':{k:v for k,v in after['reservations'].items() if before['reservations'].get(k)!=v},'symbol':{k:v for k,v in after['symbol'].items() if before['symbol'].get(k)!=v},'strategy':{k:v for k,v in after['strategy'].items() if before['strategy'].get(k)!=v}},'result':result,'atomic_capital_only':True,'state_hash':self._capital_state_hash(scope,mode,before['version']+1,after)}
+            self.connection.execute("INSERT INTO position_lifecycle_transitions (transition_id,intent,reason_code,reason,transition_seq,timestamp,created_at) VALUES (?,?,?,?,?,?,?)",
+                (receipt_id,'CAPITAL_OWNER_EFFECT','ATOMIC_CAPITAL_V2',json.dumps(outcome,sort_keys=True,allow_nan=False),before['version']+1,now_iso(),now_iso()))
+            self.connection.commit()
+            # Retire only this uninterrupted call's marker after confirmed commit.
+            # Errors/crashes leave it quarantined; no replay/clear API exists.
+            self.connection.execute("BEGIN IMMEDIATE")
+            changed=self.connection.execute("UPDATE capital_owner_state SET pending=NULL WHERE scope=? AND pending=?", (scope,operation)).rowcount
+            if changed!=1:
+                raise RuntimeError('CAPITAL_PENDING_COMPLETION_CONFLICT')
+            self.connection.commit()
+            return result, False
+        except _CapitalWriterRejected:
+            self.connection.rollback()
+            raise
+        except BaseException:
+            self.connection.rollback()
+            # Persist an observed interrupted return even if normal completion
+            # committed but its acknowledgement was lost. Never clear/replay.
+            try:
+                self.connection.execute("BEGIN IMMEDIATE")
+                self.connection.execute("UPDATE capital_owner_state SET pending=COALESCE(pending,?) WHERE scope=? AND schema_version=2 AND writer_id=? AND fence='SYNTHETIC_ONLY_V2'", (operation,scope,writer_id))
+                self.connection.commit()
+            except BaseException:
+                self.connection.rollback()
+                # Fail explicitly: never present the original error as proof
+                # that the separate quarantine observation became durable.
+                raise RuntimeError('CAPITAL_QUARANTINE_PERSISTENCE_UNKNOWN')
+            raise
 
     def insert_owner_effect_record(self, transition_id: str, payload: str, *, run_id: str | None,
                                    prepared_id: str | None = None, prepared_payload: str | None = None) -> None:
