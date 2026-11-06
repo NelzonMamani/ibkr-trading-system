@@ -149,7 +149,7 @@ class FailConnection:
 def test_persistence_boundaries_are_all_or_nothing(enrolled,stage):
     o=owner(enrolled);con=enrolled._store.connection
     enrolled._store.connection=FailConnection(con,stage)
-    with pytest.raises(OSError):admit(o)
+    with pytest.raises((OSError,RuntimeError),match='synthetic|PERSISTENCE_UNKNOWN'):admit(o)
     enrolled._store.connection=con
     assert o.recovery_failed
     with pytest.raises(RuntimeError,match='INSPECTION'):admit(o,'next')
@@ -339,8 +339,9 @@ def test_corrupt_duplicate_receipt_cannot_grant_result(enrolled,tamper):
     elif tamper=='version':data['after_version']=999
     else:data['schema']=True
     enrolled._store.connection.execute('UPDATE position_lifecycle_transitions SET reason=? WHERE transition_id=?',(json.dumps(data),row[0]));enrolled._store.connection.commit()
-    with pytest.raises(RuntimeError,match='CONFLICT'):admit(o)
-    assert owner(enrolled).total_reserved_capital==100
+    with pytest.raises(RuntimeError,match='CONFLICT|INTEGRITY'):admit(o)
+    with pytest.raises(RuntimeError,match='INTEGRITY'):_=owner(enrolled).total_reserved_capital
+    assert enrolled._store.connection.execute('SELECT COUNT(*) FROM capital_owner_reservations').fetchone()[0]==1
 
 @pytest.mark.parametrize('defect',['remaining','duplicate','identity','progress'])
 def test_corrupt_owner_state_not_authoritative(enrolled,defect):
@@ -387,3 +388,21 @@ def test_each_commit_failure_preserves_restart_quarantine(enrolled,number,moment
     assert restarted.total_reserved_capital==(100 if number==3 or (number==2 and moment=='after_commit') else 0)
     with pytest.raises(RuntimeError,match='INSPECTION'):admit(owner(enrolled),'new-intent')
     assert o.recovery_failed
+
+def test_lost_completion_and_lost_quarantine_is_explicit_remaining_boundary(enrolled):
+    o=owner(enrolled);connection=enrolled._store.connection
+    class LostObservation(FailConnection):
+        def commit(self):
+            self.commits+=1
+            if self.commits==4:raise OSError('synthetic quarantine persistence failure')
+            self.original.commit()
+            if self.commits==3:raise OSError('synthetic completion response loss')
+    enrolled._store.connection=LostObservation(connection,'none')
+    with pytest.raises(RuntimeError,match='QUARANTINE_PERSISTENCE_UNKNOWN'):admit(o,cap=500)
+    enrolled._store.connection=connection
+    assert o.recovery_failed
+    with pytest.raises(RuntimeError,match='INSPECTION'):admit(o,'same-process',cap=500)
+    # Counterexample is retained, NOT operational recovery certification:
+    # capital state+receipt prove100, but no durable failure-observation latch.
+    assert owner(enrolled).total_reserved_capital==100
+    assert enrolled.read_capital_state('synthetic:account-a','PAPER')['pending'] is None

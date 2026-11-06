@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
 import math
+import hashlib
 import os
 import sqlite3
 from typing import Any, Iterable
@@ -1657,11 +1658,11 @@ class SQLiteStore:
                 self.connection.execute("INSERT INTO capital_synthetic_database VALUES (1)")
             elif [r[0] for r in self.connection.execute("SELECT version FROM capital_synthetic_database")] != [1]:
                 raise RuntimeError('CAPITAL_SYNTHETIC_SCHEMA_UNSUPPORTED')
-            self.connection.execute("CREATE TABLE IF NOT EXISTS capital_owner_state (scope TEXT PRIMARY KEY, mode TEXT NOT NULL, schema_version INTEGER NOT NULL, version INTEGER NOT NULL, fence TEXT NOT NULL, pending TEXT)")
+            self.connection.execute("CREATE TABLE IF NOT EXISTS capital_owner_state (scope TEXT PRIMARY KEY, mode TEXT NOT NULL, schema_version INTEGER NOT NULL, version INTEGER NOT NULL, fence TEXT NOT NULL, pending TEXT, last_operation TEXT)")
             self.connection.execute("CREATE TABLE IF NOT EXISTS capital_owner_reservations (scope TEXT NOT NULL, reservation_id TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(scope,reservation_id))")
             self.connection.execute("CREATE TABLE IF NOT EXISTS capital_owner_exposure (scope TEXT NOT NULL, dimension TEXT NOT NULL, name TEXT NOT NULL, amount REAL NOT NULL, PRIMARY KEY(scope,dimension,name))")
             self.connection.execute("CREATE TABLE IF NOT EXISTS capital_owner_execution (scope TEXT NOT NULL, identity TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(scope,identity))")
-            self.connection.execute("INSERT INTO capital_owner_state VALUES (?,?,1,0,'SYNTHETIC_ONLY_V1',NULL)", (scope,mode))
+            self.connection.execute("INSERT INTO capital_owner_state VALUES (?,?,1,0,'SYNTHETIC_ONLY_V1',NULL,NULL)", (scope,mode))
             self.connection.commit()
         except BaseException:
             self.connection.rollback()
@@ -1721,7 +1722,27 @@ class SQLiteStore:
                         or b['effect']!='CONVERT' or b['owner']!='capital' or b['mode']!=mode
                         or progress.get(json.dumps([b['relationship_id'],b['order_id'],b['effect']]))!=b):
                     raise RuntimeError('CAPITAL_CORRUPT_RESERVATION_BINDING')
-        return {'version': row['version'], 'pending':row['pending'], 'reservations': reservations, 'progress':progress, **exposure}
+        state={'version':row['version'],'pending':row['pending'],'reservations':reservations,'progress':progress,**exposure}
+        if row['version']==0:
+            if row['last_operation'] is not None or reservations or progress or any(exposure.values()):
+                raise RuntimeError('CAPITAL_ZERO_VERSION_NOT_EMPTY')
+        else:
+            receipt=self.connection.execute('SELECT reason FROM position_lifecycle_transitions WHERE transition_id=?',
+                ('capital-atomic-v1:'+scope+':'+str(row['last_operation']),)).fetchone()
+            saved=json.loads(receipt[0]) if receipt else {}
+            if (saved.get('atomic_capital_only') is not True or saved.get('scope')!=scope
+                    or type(saved.get('schema')) is not int or saved['schema']!=1
+                    or saved.get('after_version')!=row['version']
+                    or saved.get('state_hash')!=self._capital_state_hash(scope,mode,row['version'],state)):
+                raise RuntimeError('CAPITAL_STATE_RECEIPT_INTEGRITY_FAILURE')
+        return state
+
+    @staticmethod
+    def _capital_state_hash(scope: str, mode: str, version: int, state: dict) -> str:
+        # Private integrity binding, not independent publisher/execution authority.
+        content={'scope':scope,'mode':mode,'version':version,
+            **{k:state[k] for k in ('reservations','symbol','strategy','progress')}}
+        return hashlib.sha256(json.dumps(content,sort_keys=True,allow_nan=False).encode()).hexdigest()
 
     def read_capital_state(self, scope: str, mode: str) -> dict:
         self._capital_schema_check()
@@ -1746,7 +1767,7 @@ class SQLiteStore:
             previous = self.connection.execute("SELECT reason FROM position_lifecycle_transitions WHERE transition_id=?", (receipt_id,)).fetchone()
             if previous:
                 saved=json.loads(previous[0])
-                if (set(saved)!={'schema','scope','binding','before_version','after_version','post_state','result','atomic_capital_only'}
+                if (set(saved)!={'schema','scope','binding','before_version','after_version','post_state','result','atomic_capital_only','state_hash'}
                         or saved['binding'] != binding or type(saved['schema']) is not int or saved['schema'] != 1 or saved['scope'] != scope
                         or saved['atomic_capital_only'] is not True
                         or type(saved['before_version']) is not int or saved['before_version'] < 0
@@ -1774,11 +1795,11 @@ class SQLiteStore:
             self.connection.execute("DELETE FROM capital_owner_execution WHERE scope=?", (scope,))
             self.connection.executemany("INSERT INTO capital_owner_execution VALUES (?,?,?)", [
                 (scope,k,json.dumps(v,sort_keys=True,allow_nan=False)) for k,v in after['progress'].items()])
-            changed=self.connection.execute("UPDATE capital_owner_state SET version=version+1 WHERE scope=? AND version=?", (scope,before['version'])).rowcount
+            changed=self.connection.execute("UPDATE capital_owner_state SET version=version+1,last_operation=? WHERE scope=? AND version=?", (operation,scope,before['version'])).rowcount
             if changed != 1:
                 raise RuntimeError("CAPITAL_STATE_VERSION_CONFLICT")
             outcome={'schema':1,'scope':scope,'binding':binding,'before_version':before['version'],
-                'after_version':before['version']+1,'post_state':{'reservations':{k:v for k,v in after['reservations'].items() if before['reservations'].get(k)!=v},'symbol':{k:v for k,v in after['symbol'].items() if before['symbol'].get(k)!=v},'strategy':{k:v for k,v in after['strategy'].items() if before['strategy'].get(k)!=v}},'result':result,'atomic_capital_only':True}
+                'after_version':before['version']+1,'post_state':{'reservations':{k:v for k,v in after['reservations'].items() if before['reservations'].get(k)!=v},'symbol':{k:v for k,v in after['symbol'].items() if before['symbol'].get(k)!=v},'strategy':{k:v for k,v in after['strategy'].items() if before['strategy'].get(k)!=v}},'result':result,'atomic_capital_only':True,'state_hash':self._capital_state_hash(scope,mode,before['version']+1,after)}
             self.connection.execute("INSERT INTO position_lifecycle_transitions (transition_id,intent,reason_code,reason,transition_seq,timestamp,created_at) VALUES (?,?,?,?,?,?,?)",
                 (receipt_id,'CAPITAL_OWNER_EFFECT','ATOMIC_CAPITAL_V1',json.dumps(outcome,sort_keys=True,allow_nan=False),before['version']+1,now_iso(),now_iso()))
             self.connection.commit()
@@ -1800,9 +1821,9 @@ class SQLiteStore:
                 self.connection.commit()
             except BaseException:
                 self.connection.rollback()
-                # Financial receipt is still independently atomic; inability to
-                # persist failure observation is NOT whole-update recovery proof.
-                pass
+                # Fail explicitly: never present the original error as proof
+                # that the separate quarantine observation became durable.
+                raise RuntimeError('CAPITAL_QUARANTINE_PERSISTENCE_UNKNOWN')
             raise
 
     def insert_owner_effect_record(self, transition_id: str, payload: str, *, run_id: str | None,
