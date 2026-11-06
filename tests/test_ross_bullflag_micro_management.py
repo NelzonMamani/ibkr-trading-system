@@ -359,6 +359,7 @@ def test_cached_late_fills_resize_one_stop_and_one_registry_position(monkeypatch
     provider=_ProviderStub();facts={"status":"Submitted","filled":1,"remaining":4,"avgFillPrice":10.}
     provider.cached_order_update=lambda order_id: dict(facts) if str(order_id)=="17" else {}
     engine=ExecutionEngine.__new__(ExecutionEngine)
+    engine._native_orders={};engine._native_quarantined=False;engine._native_loaded=False
     engine.relationship_manager=manager;engine._provider=provider;engine.run_mode=RunMode.PAPER
     engine.post_fill_lifecycle=PostFillLifecycleEngine("PAPER",execution_provider=provider)
     engine.trade_registry=ActiveTradeRegistry();engine.position_records={};engine._failsafe_block_new_entries=False
@@ -769,6 +770,9 @@ def test_terminal_unchanged_partial_callback_releases_residual_reservations(term
         order_type="MKT",strategy_name="RossMomentumStrategyV1",relationship_context={"relationship_id":"r"})
     plan.orders["entry"]["request"]=asdict(request)
     engine=ExecutionEngine.__new__(ExecutionEngine);engine.relationship_manager=manager;engine.position_records={}
+    from src.config.runtime_config import RunMode
+    engine.run_mode=RunMode.PAPER
+    engine._native_orders={};engine._native_quarantined=False;engine._native_loaded=False
     engine._provider=SimpleNamespace(cached_order_update=lambda _: {"status":terminal_status,"filled":2,"remaining":3,"avgFillPrice":10.})
     engine._capital_decisions_by_order_id={"entry":"capital"}
     engine._strategy_allocation_decisions_by_order_id={"entry":"strategy"}
@@ -929,6 +933,7 @@ def test_failed_stop_resize_blocks_exits_until_exact_quantity_confirmation(resiz
     from test_post_fill_lifecycle_engine_v1 import _ProviderStub
     manager,store=opened(8);plan=manager._relationship_plans["r"]
     provider=_ProviderStub();engine=ExecutionEngine.__new__(ExecutionEngine)
+    engine._native_orders={};engine._native_quarantined=False;engine._native_loaded=False
     engine.relationship_manager=manager;engine._provider=provider;engine.run_mode=RunMode.PAPER
     engine.post_fill_lifecycle=PostFillLifecycleEngine("PAPER",execution_provider=provider)
     engine.post_fill_lifecycle.activate_trade_management_after_fill(trade_id="entry",symbol="FIXTURE",side="LONG",
