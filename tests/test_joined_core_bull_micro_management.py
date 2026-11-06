@@ -1496,3 +1496,20 @@ def test_owner_effect_future_database_version_blocks_before_mutation(tmp_path,no
     assert h.used()==0
     assert h.storage.inspect_owner_effect(h.binding,independent_fact=h.binding)["reason"]=="OWNER_EFFECT_DATABASE_VERSION_UNSUPPORTED"
     h.store.close();assert no_external_activity==[]
+
+
+@pytest.mark.parametrize("tamper",["schema","atomic","identity"])
+def test_owner_effect_corrupt_outcome_never_grants_resolution(tmp_path,no_external_activity,tamper):
+    import json
+    h=_prospective_effect_fixture(tmp_path,"capital");h.apply();before=h.used()
+    effect_id,_=h.storage._owner_effect_record(h.binding,phase="PREPARED")
+    raw=json.loads(h.store.fetch_owner_effect_record(effect_id+":outcome"))
+    if tamper=="schema": raw["schema_version"]=999
+    if tamper=="atomic": raw["atomic_application"]=True
+    if tamper=="identity": raw["binding"]["native_order_id"]="999"
+    h.store.connection.execute("UPDATE position_lifecycle_transitions SET reason=? WHERE transition_id=?",
+        (json.dumps(raw,sort_keys=True),effect_id+":outcome"));h.store.connection.commit()
+    result=h.storage.inspect_owner_effect(h.binding,independent_fact=h.binding)
+    assert result["reason"]=="OWNER_EFFECT_SCHEMA_OR_IDENTITY_INVALID" and not result["resolved"]
+    assert h.used()==before
+    h.store.close();assert no_external_activity==[]
