@@ -32,12 +32,14 @@ from test_key_level_break_production_handoff import forbid_io
        "collector_error","processor_error","processor_after","rejected","cancelled","partial",
        "missing_counts","unknown_status","oversize","uncertain","regression","accounting_error","allocation_error","completion_error","binding_error","stop_oversize","stop_bad_price","stop_bad_status","processor_cancel","processor_deadline","management","management_pending","management_uncertain",
        "management_unknown","management_unreconciled","management_no_protection","management_stale",
-       "management_future","management_bad","management_daily_lock","management_protection_pending","management_protection_missing","management_forming","management_snapshot_failure")],
+       "management_future","management_bad","management_daily_lock","management_protection_pending","management_protection_missing","management_forming","management_snapshot_failure",
+       *["management_interleave_"+name for name in ("stop_before","stop_during_submit","cancel_delayed","cancel_rejected","cancel_late","uncertain_repeat","both_stop_first","both_reduce_first","both_same_cycle","duplicate_reorder","interrupted_reduce")])],
 ])
 def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypatch,tmp_path,capsys,
         no_external_activity,position_case,transport):
     late_fill=transport.startswith("native_late_")
     late_case=transport.removeprefix("native_late_") if late_fill else None
+    interleaving=late_case.removeprefix("management_interleave_") if late_case and late_case.startswith("management_interleave_") else None
     management_case=late_case is not None and late_case.startswith("management")
     stop_fault=late_case in {"stop_oversize","stop_bad_price","stop_bad_status"}
     malformed=late_case in {"negative","fractional","no_price","nan_price","missing_counts","unknown_status","oversize","binding_error"}
@@ -71,6 +73,7 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
     monkeypatch.setattr(core_module,"IbkrLiveBroker",lambda **kw:NS())
     providers=[]
     cached_facts={}
+    broker_fills={72:0,73:0}  # Independent monotonic external position facts, not last status arrival.
     callback_reads=[]
     protection_requests=[]
     protective_orders=[]
@@ -79,8 +82,13 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
     cancel_requests=[]
     market_close=[11.10]
     management_fault_active=[False]
+    cancel_mode=["confirmed"]
     def synthetic_cancel(**kwargs):
         cancel_requests.append(str(kwargs["broker_order_id"]))
+        if cancel_mode[0]=="uncertain": raise OSError("synthetic cancel uncertainty")
+        if cancel_mode[0] in {"delayed","rejected"}:
+            return {"status":"PendingCancel" if cancel_mode[0]=="delayed" else "Rejected",
+                    "broker_order_id":kwargs["broker_order_id"]}
         cancelled_orders.add(str(kwargs["broker_order_id"]))
         return {"status":"Cancelled","broker_order_id":kwargs["broker_order_id"]}
     def external_open_orders():
@@ -133,7 +141,8 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
         from src.ibkr.position_snapshot import BrokerPositionResult
         def external_positions():
             held=(management_case or late_case in {"fill","partial","uncertain","regression","processor_error","processor_after","stop_oversize","stop_bad_price","stop_bad_status","management"}) and bool(cached_facts) and not (management_case and cached_facts.get(73,{}).get("filled")==1)
-            rows=(NS(symbol="JPM",position=1,con_id=123,avgCost=10.91,account="SYNTHETIC_TEST"),) if held else ()
+            quantity=(1-sum(broker_fills.values())) if interleaving and cached_facts else int(held)
+            rows=(NS(symbol="JPM",position=quantity,con_id=123,avgCost=10.91,account="SYNTHETIC_TEST"),) if quantity else ()
             return BrokerPositionResult(rows,"UNAVAILABLE" if late_case=="management_unknown" and management_fault_active[0]
                 else "COMPLETE","SYNTHETIC_TEST",h.life.clock.now(timezone.utc))
         h.core.connection_manager._ibkr_connection_manager.existing_client.position_snapshot=external_positions
@@ -244,7 +253,10 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
         sent.append(deepcopy(request))
         if transport=="error": raise OSError("synthetic transport uncertainty")
         reducing=management_case and request.direction=="SELL"
-        if reducing and late_case=="management_uncertain":
+        if reducing and interleaving=="stop_during_submit":
+            cached_facts[72]={"status":"Filled","filled":1,"remaining":0,"avgFillPrice":10.81}
+            broker_fills[72]=1
+        if reducing and (late_case=="management_uncertain" or interleaving=="uncertain_repeat"):
             working_orders.append(NS(orderId=73,contract=NS(symbol=request.symbol),
                 order=NS(orderType="MKT",parentId=0,orderRef=request.client_order_id,action="SELL",totalQuantity=1),
                 orderState=NS(status="PendingSubmit")))
@@ -260,7 +272,7 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
             acknowledged_at=h.life.clock.current.isoformat() if transport in {"submitted","pending"} else None)
         if native_provider and result.ibkr_order_id and result.status.upper() not in {"REJECTED","FAILED"}:
             working_orders.append(NS(orderId=result.ibkr_order_id,contract=NS(symbol=request.symbol),
-                order=NS(orderType="MKT",parentId=0,orderRef=request.client_order_id,action="BUY",totalQuantity=1),
+                order=NS(orderType="MKT",parentId=0,orderRef=request.client_order_id,action=request.direction,totalQuantity=1),
                 orderState=NS(status="Submitted")))
         received.append(result)
         return result
@@ -393,6 +405,12 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
                     assert plan.entry_terminal
                     if late_case!="management_no_protection": assert plan.reconciled
                     assert len(sent)==1 and not plan.milestone_consumed
+                    if interleaving:
+                        _exercise_stop_reduction_interleaving(h=h,plan=plan,case=interleaving,
+                            cached=cached_facts,broker_fills=broker_fills,sent=sent,market_close=market_close,cancel_mode=cancel_mode,
+                            cancelled=cancelled_orders,cancels=cancel_requests,capsys=capsys,tmp_path=tmp_path,
+                            monkeypatch=monkeypatch,no_external_activity=no_external_activity)
+                        return  # Existing finally still releases isolated test ledgers after captured assertions.
                     market_close[0]=plan.milestone_price
                     management_fault_active[0]=True
                     if late_case=="management_snapshot_failure":
@@ -723,3 +741,173 @@ def test_management_history_acquisition_control_flow(monkeypatch,no_external_act
     core.connection_manager=NS(optional_client=NS(intraday_bars_from_history=interrupted))
     with pytest.raises(error): core._get_trade_management_recent_candles("SYNTHETIC",10)
     assert no_external_activity==[] and mutations()=={"place":0,"modify":0,"cancel":0}
+
+
+def _exercise_stop_reduction_interleaving(*,h,plan,case,cached,broker_fills,sent,market_close,cancel_mode,
+        cancelled,cancels,capsys,tmp_path,monkeypatch,no_external_activity):
+    """External cumulative facts only. Never equate broker sells with local clamps."""
+    import json
+    from copy import deepcopy
+    states=[]
+    engine=h.core.execution_engine
+    accounting_calls=[]
+    for label,authority in (("capital",engine.capital_authority),("allocation",engine.strategy_allocation_authority)):
+        release=authority.release_exposure
+        def observed_release(*args,_release=release,_label=label,**kwargs):
+            accounting_calls.append(dict(owner=_label,arguments=deepcopy(kwargs)))
+            return _release(*args,**kwargs)
+        monkeypatch.setattr(authority,"release_exposure",observed_release)
+    def snapshot(stage,result=None):
+        life=engine.post_fill_lifecycle.get_trade(plan.protection_trade_id or plan.initial_order_id)
+        broker_sells=sum(broker_fills.values())
+        position=h.manager.snapshot_positions().get("JPM")
+        state=dict(stage=stage,result=result,relationship=plan.relationship_id,
+            requests=[dict(id=r.client_order_id,side=r.direction,quantity=r.quantity,
+                relationship=(r.relationship_context or {}).get("relationship_id")) for r in sent],
+            broker_sells=broker_sells,broker_net=1-broker_sells,
+            local_quantity=position.quantity if position else 0,
+            registry=[dict(symbol=t.symbol,quantity=t.quantity) for t in h.core.trade_registry.snapshot()],
+            capital=engine.capital_authority.symbol_exposure("JPM"),
+            allocation=engine.strategy_allocation_authority.strategy_used_exposure("RossMomentumStrategyV1"),
+            reservations=deepcopy(engine.capital_authority.active_reservations),
+            allocation_reservations=deepcopy(engine.strategy_allocation_authority.active_reservations),
+            reconciled=plan.reconciled,paused=plan.paused,pending_cancel=plan.pending_stop_cancel,
+            pending_resize=plan.pending_stop_resize,milestone_consumed=plan.milestone_consumed,
+            lifecycle_qty=life.filled_qty if life else None,
+            lifecycle_state=str(life.state) if life else None,
+            stop_status=str(life.stop.status) if life and life.stop else None,
+            stop_quantity=life.stop.quantity if life and life.stop else None,
+            orders=deepcopy(plan.orders),callbacks=deepcopy(cached),cancels=list(cancels),
+            failsafe=engine._failsafe_block_new_entries,
+            truth_block=h.truth[-1][1].block_new_entries,truth_exit_block=h.truth[-1][1].block_exits,
+            accounting_calls=deepcopy(accounting_calls))
+        states.append(state)
+        return state
+    def cycle(stage):
+        h.life.clock.current+=timedelta(seconds=1)
+        result=h.core.run_once()
+        output=capsys.readouterr().out
+        state=snapshot(stage,result)
+        state["diagnostics"]=[line for line in output.splitlines() if any(tag in line for tag in
+            ("EXIT_FILL_REJECTED","ERROR","HALT","RECONCILIATION][SUMMARY"))][-12:]
+        return state
+    def filled(order_id,price):
+        broker_fills[order_id]=1
+        cached[order_id]=dict(status="Filled",filled=1,remaining=0,avgFillPrice=price)
+    try:
+        assert len(sent)==1 and sent[0].quantity==1
+        assert plan.reconciled and plan.entry_terminal and plan.e0==pytest.approx(10.91)
+        assert engine.capital_authority.active_reservations=={}
+        snapshot("filled_owned_protected_below_2R")
+        market_close[0]=plan.milestone_price
+        if case=="stop_before": filled(72,10.81)
+        first=cycle("threshold")
+        assert len(sent)==(1 if case=="stop_before" else 2)
+        if case=="stop_before":
+            cycle("duplicate_stop")
+            assert len(sent)==1 and plan.milestone_order_id is None
+        else:
+            assert sent[1].direction=="SELL" and sent[1].quantity==1
+            assert sent[1].relationship_context["relationship_id"]==plan.relationship_id
+            assert sent[1].client_order_id==plan.milestone_order_id
+            if case.startswith("cancel_"):
+                cancel_mode[0]="rejected" if case=="cancel_rejected" else "uncertain" if case=="cancel_late" else "delayed"
+            if case=="interrupted_reduce":
+                apply=h.core._apply_execution_results_to_trade_management
+                def interrupted(results):
+                    apply(results)
+                    if any(r.filled_quantity and str(r.ibkr_order_id)=="73" for r in results):
+                        raise RuntimeError("synthetic interruption after reduction processing")
+                monkeypatch.setattr(h.core,"_apply_execution_results_to_trade_management",interrupted)
+            if case in {"both_stop_first","stop_during_submit"}:
+                filled(72,10.81)
+                cycle("stop_fill_while_reduction_working")
+                if case=="both_stop_first":
+                    filled(73,plan.milestone_price)
+                    cycle("late_reduction_fill")
+            elif case=="both_same_cycle":
+                filled(72,10.81);filled(73,plan.milestone_price)
+                cycle("both_terminal_facts")
+            elif case!="uncertain_repeat":
+                filled(73,plan.milestone_price)
+                cycle("reduction_fill")
+                if case=="both_reduce_first":
+                    filled(72,10.81)
+                    cycle("late_stop_fill_after_cancel_response")
+            accounting_before_repeats=deepcopy(accounting_calls)
+            cycle("repeat1")
+            cycle("repeat2")
+            assert accounting_calls==accounting_before_repeats
+            if case=="duplicate_reorder":
+                cached[73]=dict(status="PendingCancel",filled=0,remaining=1,avgFillPrice=0)
+                cycle("delayed_older_status")
+                filled(73,plan.milestone_price)
+                cycle("duplicate_terminal")
+            if case.startswith("cancel_"):
+                assert plan.pending_stop_cancel=="72"  # Requests/failed replies are not cancellation proof.
+                if case=="cancel_late":
+                    cached[72]=dict(status="Cancelled",filled=0,remaining=1,avgFillPrice=0)
+                    cancelled.add("72")  # Independent later canonical absence, not the cancel request.
+                    cycle("late_cancel_and_canonical_absence")
+            assert len(sent)==2  # No unsafe resubmission, even when callbacks contradict.
+        final=snapshot("final_before_fixture_cleanup")
+        assert no_external_activity==[] and mutations()=={"place":0,"modify":0,"cancel":0}
+        # Every non-entry request stays bound to the actual relationship.
+        assert all((r.relationship_context or {}).get("relationship_id")==plan.relationship_id for r in sent)
+        if case=="uncertain_repeat":
+            assert not plan.milestone_consumed and final["local_quantity"]==1
+            assert final["capital"]==final["allocation"]==pytest.approx(10.91) and cancels==[]
+            assert any(o.get("submission_uncertain_at") and not o["terminal"] for o in plan.orders.values())
+        if case=="stop_before":
+            assert final["broker_net"]==final["local_quantity"]==final["lifecycle_qty"]==0
+            assert final["capital"]==final["allocation"]==0
+            assert sum(o["filled"] for o in plan.orders.values() if o["action"]=="EXIT")==1
+            assert cancels==[]
+            assert sum(c["owner"]=="capital" for c in accounting_calls)==1
+        if case in {"cancel_delayed","cancel_rejected"}:
+            assert final["local_quantity"]==final["lifecycle_qty"]==0 and final["capital"]==0
+            assert final["pending_cancel"]=="72" and not final["reconciled"]
+            assert "72" not in cancelled and set(cancels)=={"72"}
+            assert final["stop_status"]==("Rejected" if case=="cancel_rejected" else "PendingCancel")
+        if case=="cancel_late":
+            assert final["pending_cancel"] is None and final["reconciled"]
+            assert "72" in cancelled and final["local_quantity"]==0
+        if case=="duplicate_reorder":
+            assert final["local_quantity"]==final["lifecycle_qty"]==final["capital"]==0
+            assert final["broker_net"]==0 and plan.milestone_consumed
+            assert cancels==["72"] and plan.orders[plan.milestone_order_id]["filled"]==1
+            assert accounting_calls==accounting_before_repeats
+        if case not in {"uncertain_repeat"}:
+            assert not final["reservations"] and not final["allocation_reservations"]
+        if case=="stop_during_submit":
+            assert final["broker_net"]==0 and final["local_quantity"]==0
+            assert not plan.orders[plan.milestone_order_id]["terminal"]
+            assert plan.orders[plan.milestone_order_id]["broker_order_id"]=="73"
+            if "73" not in cancels:
+                raise StopReductionSafetyGap("stop fill leaves confirmed outstanding reduction uncancelled")
+        if case.startswith("both_"):
+            assert final["broker_sells"]==2 and final["broker_net"]==-1
+            assert sum(o["filled"] for o in plan.orders.values() if o["action"] in {"EXIT","REDUCE"})==2
+            assert final["local_quantity"]==final["lifecycle_qty"]==0
+            assert final["capital"]==final["allocation"]==0
+            assert final["truth_block"] and not final["reconciled"]  # Existing downstream critical safeguard.
+            assert sum(c["owner"]=="capital" for c in accounting_calls)==2
+            assert sum(c["owner"]=="allocation" for c in accounting_calls)==2
+            if not plan.paused:
+                raise StopReductionSafetyGap("excess SELL evidence is accepted without owner recovery latch")
+        if case=="interrupted_reduce":
+            assert any(o.get("cached_update_in_progress") for o in plan.orders.values())
+            before=deepcopy((engine.position_records,plan.orders,final["capital"]))
+            with pytest.raises(RuntimeError,match="CACHED_EXECUTION_UPDATE_RECOVERY_REQUIRED"):
+                engine.collect_relationship_updates()
+            assert before==deepcopy((engine.position_records,plan.orders,engine.capital_authority.symbol_exposure("JPM")))
+    finally:
+        (tmp_path/"interleaving-summary.json").write_text(json.dumps(dict(case=case,states=states),default=str,sort_keys=True))
+        with capsys.disabled():
+            print("INTERLEAVING",case,json.dumps([{k:v for k,v in s.items() if k in {
+                "stage","broker_sells","broker_net","local_quantity","capital","reconciled","paused",
+                "lifecycle_qty","stop_status","pending_cancel","failsafe","truth_block"}} for s in states],sort_keys=True))
+
+
+class StopReductionSafetyGap(AssertionError):
+    """Retained demonstrated invariant failure; no production correction authorized."""
