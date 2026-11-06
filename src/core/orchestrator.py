@@ -2926,6 +2926,10 @@ class CoreOrchestrator:
 
     def _apply_execution_results_to_trade_management(self, execution_output: list[ExecutionResult]) -> None:
         for result in execution_output:
+            native_processor = getattr(getattr(self, "execution_engine", None), "process_native_result", None)
+            if callable(native_processor) and native_processor(result,
+                    result_processor=lambda value: self._apply_execution_results_to_trade_management([value])):
+                continue
             context = getattr(result, "relationship_context", None) or {}
             if context:
                 order_id = str(getattr(result, "client_order_id", "") or "")
@@ -3106,6 +3110,10 @@ class CoreOrchestrator:
                 run_mode=self.run_mode,
             ),
         )
+        self.execution_engine.bind_native_order_scope(
+            account=getattr(broker_positions, "account", None),
+            client=self.connection_manager.get_ibkr_client(ensure_connected=False) if broker_connection_ready else None,
+            as_of=getattr(broker_positions, "completed_at", None))
         system_positions = collect_system_position_snapshot(
             self.trade_registry.snapshot(),
             as_of=as_of,

@@ -1108,6 +1108,7 @@ def _assess_retained_execution_evidence(*,h,plan,stage,cached,protection_request
     assert StrategyCapitalAllocationAuthority(storage_engine=storage).strategy_used_exposure("RossMomentumStrategyV1")==0
     def forbidden_reader(*args,**kwargs): pytest.fail("restored recovery record reached callback reader")
     fresh=ExecutionEngine.__new__(ExecutionEngine)
+    fresh._native_orders={};fresh._native_scope=None;fresh._native_quarantined=False
     fresh.relationship_manager=restored
     fresh._provider=NS(cached_order_update=forbidden_reader)
     with pytest.raises(RuntimeError,match="CACHED_EXECUTION_UPDATE_RECOVERY_REQUIRED"):
@@ -1169,6 +1170,7 @@ plan=manager._relationship_plans[sys.argv[3]]
 assert not plan.reconciled and any(o.get("cached_update_in_progress") or o.get("lifecycle_application_rejected") for o in plan.orders.values())
 assert CapitalManagementAuthority().total_used_exposure==0
 engine=ExecutionEngine.__new__(ExecutionEngine);engine.relationship_manager=manager
+engine._native_orders={};engine._native_scope=None;engine._native_quarantined=False
 engine._provider=SimpleNamespace(cached_order_update=lambda *a: (_ for _ in ()).throw(AssertionError("external reader reached")))
 try: engine.collect_relationship_updates()
 except RuntimeError as exc: assert str(exc)=="CACHED_EXECUTION_UPDATE_RECOVERY_REQUIRED"

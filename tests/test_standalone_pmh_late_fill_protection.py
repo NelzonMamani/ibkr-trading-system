@@ -15,7 +15,7 @@ from test_joined_core_pmh_paper_assessment import (
 )
 
 
-def late_pmh(reassessment,monkeypatch,tmp_path):
+def late_pmh(reassessment,monkeypatch,tmp_path,*,canonical_manager=False):
     facts={};reads=[];sent=[];stops=[];open_orders=[];quantity=[0]
     def cached(order_id):
         reads.append(order_id)
@@ -29,8 +29,14 @@ def late_pmh(reassessment,monkeypatch,tmp_path):
             order=NS(orderType='STP',parentId=71,orderRef='PROTECT|'+str(kw['trade_id']),action='SELL',totalQuantity=1,auxPrice=kw['stop_price']),
             orderState=NS(status='Submitted')))
         return dict(broker_order_id='72',status='Submitted',order_type='STP')
+    native_client=NS(cached_order_status=cached)
+    connection=NS(optional_client=native_client)
+    if canonical_manager:
+        from src.adapters.brokers.ibkr.ibkr_connection_manager import IbkrConnectionManager
+        connection=IbkrConnectionManager.__new__(IbkrConnectionManager)
+        connection._client=native_client
     broker=NS(positions=positions,open_orders=lambda:list(open_orders),
-        connection_manager=NS(optional_client=NS(cached_order_status=cached)),place_stop_order=place_stop)
+        connection_manager=connection,place_stop_order=place_stop)
     def provider_factory(**kw):
         return IbkrExecutionProvider(broker=broker,trade_registry=kw['trade_registry'],run_mode=kw['run_mode'])
     h=paper_pmh(reassessment,monkeypatch,tmp_path,'complete_empty',provider_factory=provider_factory)
@@ -50,7 +56,8 @@ def late_pmh(reassessment,monkeypatch,tmp_path):
     broker.place_order=transport
     def snapshot():
         return BrokerPositionResult(tuple(positions()),'COMPLETE','SYNTHETIC_TEST',h.life.clock.now(timezone.utc))
-    h.core.connection_manager._ibkr_connection_manager.existing_client.position_snapshot=snapshot
+    native_client.position_snapshot=snapshot
+    h.core.connection_manager._ibkr_connection_manager.existing_client=native_client
     h.facts=facts;h.reads_native=reads;h.sent_native=sent;h.stop_requests=stops
     h.native_open_orders=open_orders;h.native_quantity=quantity
     h.collect_calls=[];collect=engine.collect_relationship_updates
@@ -98,12 +105,6 @@ def teardown_unsent_fixture(h,attempts):
     assert attempts==[] and mutations()==dict(place=0,modify=0,cancel=0)
 
 
-class NativePmhCachedUpdateNotIngested(AssertionError):
-    """Precise retained owner-wiring blocker, not any other assertion failure."""
-
-
-@pytest.mark.xfail(strict=True,raises=NativePmhCachedUpdateNotIngested,
-    reason='active cached collector enumerates relationship plans only; standalone PMH has none')
 def test_native_pmh_later_fill_reaches_initial_protection(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
     h=late_pmh(reassessment,monkeypatch,tmp_path)
     try:
@@ -123,23 +124,26 @@ def test_native_pmh_later_fill_reaches_initial_protection(reassessment,monkeypat
         assert len(h.sent_native)==1 and not h.manager._relationship_plans
         assert no_external_activity==[] and mutations()==dict(place=0,modify=0,cancel=0)
         # First lifecycle requirement. No direct processor call/manual fill state.
-        if h.reads_native!=[71]:
-            assert h.reads_native==[] and h.facts[71]==dict(status='Filled',filled=1,remaining=0,avgFillPrice=10.31)
-            assert len(h.collect_calls)==3 and all(r==[] for r in h.collect_calls)
-            assert engine.position_records=={} and h.stop_requests==[]
-            assert engine.capital_authority.total_reserved_capital==pytest.approx(10.3)
-            assert engine.capital_authority.total_used_exposure==0
-            snapshot,verdict=h.truth[-1]
-            assert verdict.block_new_entries and verdict.critical_mismatch_count==1
-            assert [m.mismatch_type for m in snapshot.mismatches]==['BROKER_ONLY_POSITION']
-            assert snapshot.broker_positions['JPM'].quantity==1
-            raise NativePmhCachedUpdateNotIngested('owned standalone native order71 callback never read')
+        assert h.reads_native==[71]
         assert len(engine.position_records)==len(h.stop_requests)==1
+        life=engine.post_fill_lifecycle.get_trade(request.client_order_id)
+        assert life.filled_qty==1 and life.avg_fill_price==10.31 and life.selected_stop_price==request.stop_loss_price
+        assert life.target is None and life.selected_target_price is None
+        assert engine.post_fill_lifecycle.assess_trade_stop_protection(request.client_order_id)['protected']
+        assert engine._native_orders[request.client_order_id]['protection_confirmed']
+        assert h.truth[-1][1].healthy and not h.truth[-1][1].block_new_entries
+        assert h.manager.snapshot_positions()['JPM'].quantity==1
+        for _ in range(2):
+            h.life.clock.current+=timedelta(seconds=1)
+            assert h.core.run_once();capsys.readouterr()
+            assert len(engine.position_records)==len(h.stop_requests)==len(h.sent_native)==1
+            assert engine.capital_authority.total_used_exposure==10.31 and engine.capital_authority.total_reserved_capital==0
+            assert h.manager.snapshot_positions()['JPM'].quantity==1
     finally:teardown_unsent_fixture(h,no_external_activity)
 
 
 @pytest.mark.parametrize('evidence',['missing','pending','malformed','unrelated'])
-def test_unconsumed_cache_evidence_never_manufactures_fill_or_releases_ownership(reassessment,monkeypatch,
+def test_cache_evidence_does_not_manufacture_fill_or_release_ownership(reassessment,monkeypatch,
         tmp_path,capsys,no_external_activity,evidence):
     h=late_pmh(reassessment,monkeypatch,tmp_path)
     try:
@@ -147,17 +151,18 @@ def test_unconsumed_cache_evidence_never_manufactures_fill_or_releases_ownership
         if evidence=='pending':h.facts[71]=dict(status='PendingSubmit',filled=0,remaining=1)
         if evidence=='malformed':h.facts[71]=dict(status='Filled',filled=float('nan'),remaining=-1,avgFillPrice='bad')
         if evidence=='unrelated':h.facts[999]=dict(status='Filled',filled=1,remaining=0,avgFillPrice=10.31)
-        for _ in range(2):
-            h.life.clock.current+=timedelta(seconds=1)
-            assert h.core.run_once();capsys.readouterr()
-            assert len(h.sent_native)==1 and not h.manager._relationship_plans
-            assert h.reads_native==[] and all(r==[] for r in h.collect_calls)
-            assert not h.core.trade_registry.snapshot() and not h.core.execution_engine.position_records
-            assert not h.manager.snapshot_positions() and h.stop_requests==[]
-            assert h.core.execution_engine.capital_authority.total_reserved_capital==pytest.approx(10.3)
-            assert h.core.execution_engine.capital_authority.total_used_exposure==0
-            assert all(v.healthy and not v.block_new_entries for _,v in h.truth)
+        h.life.clock.current+=timedelta(seconds=1)
+        if evidence=='malformed':
+            assert not h.core.run_once()
+            assert h.core.execution_engine._native_quarantined
+        else:assert h.core.run_once()
+        capsys.readouterr()
+        assert len(h.sent_native)==1 and not h.manager._relationship_plans
+        assert h.reads_native==[71]
+        assert not h.core.trade_registry.snapshot() and not h.core.execution_engine.position_records
+        assert not h.manager.snapshot_positions() and h.stop_requests==[]
+        assert h.core.execution_engine.capital_authority.total_reserved_capital==pytest.approx(10.3)
+        assert h.core.execution_engine.capital_authority.total_used_exposure==0
         assert h.core.execution_engine.capital_authority.capital_scope is None
-        assert h.core.execution_engine.capital_authority._capital_writer is None
         assert no_external_activity==[] and mutations()==dict(place=0,modify=0,cancel=0)
     finally:teardown_unsent_fixture(h,no_external_activity)
