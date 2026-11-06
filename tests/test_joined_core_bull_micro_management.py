@@ -1120,6 +1120,7 @@ def _assess_retained_execution_evidence(*,h,plan,stage,cached,protection_request
     if stage in {"before_allocation","allocation_audit_failure"}:
         _verify_fresh_process_recovery_guard(storage.sqlite_path,h.manager._state_namespace,plan.relationship_id)
     (tmp_path/"execution-evidence-assessment.json").write_text(json.dumps(report,default=str,sort_keys=True))
+    _assert_owner_effect_inspection_preserves_latches(h,plan)
     assert no_external_activity==[] and mutations()=={"place":0,"modify":0,"cancel":0}
 
 
@@ -1307,5 +1308,137 @@ def _assess_interleaving_recovery_evidence(*,h,plan,case,states,tmp_path):
         assert saved["orders"][plan.milestone_order_id]["filled"]==1
         assert saved["milestone_consumed"]
         classification["canonical_management"]="APPLIED"
+    _assert_owner_effect_inspection_preserves_latches(h,plan)
     (tmp_path/"interleaving-recovery-evidence.json").write_text(json.dumps(dict(case=case,
         classification=classification,committed_before=before,committed_after=committed()),default=str,sort_keys=True))
+
+
+def _prospective_effect_fixture(tmp_path,owner_kind,effect="CONVERT"):
+    from src.storage.storage_engine import StorageEngine
+    from src.storage.sqlite_store import SQLiteStore
+    from src.core.capital_management_authority import CapitalManagementAuthority
+    from src.core.strategy_capital_allocation_authority import StrategyCapitalAllocationAuthority
+    store=SQLiteStore(str(tmp_path/(owner_kind+effect+".sqlite")));store.initialize_schema()
+    storage=StorageEngine.__new__(StorageEngine)
+    storage.enabled=True;storage.backend="sqlite";storage._store=store;storage.run_id=None
+    owner=(CapitalManagementAuthority if owner_kind=="capital" else StrategyCapitalAllocationAuthority)(run_mode="PAPER",storage_engine=storage)
+    if effect=="RELEASE":
+        owner.convert_reservation_to_exposure(order_id="seed",symbol="SYNTHETIC",strategy_id="RossMomentumStrategyV1",fill_quantity=1,fill_price=10.91)
+    binding=dict(version=1,mode="PAPER",security_id="conId:123",symbol="SYNTHETIC",relationship_id="synthetic-r",
+        decision_id="synthetic-d",order_id="synthetic-o",native_order_id="71",owner=owner_kind,effect=effect,
+        cumulative_quantity=1,delta_quantity=1,average_price=10.91,delta_price=10.91)
+    def apply(b=None):
+        evidence=binding if b is None else b
+        if effect=="CONVERT":
+            return owner.convert_reservation_to_exposure(order_id="synthetic-o",decision_id="synthetic-d",
+                trade_id="synthetic-o",symbol="SYNTHETIC",strategy_id="RossMomentumStrategyV1",fill_quantity=evidence["delta_quantity"],fill_price=evidence["delta_price"],effect_evidence=evidence)
+        kwargs=dict(strategy_id="RossMomentumStrategyV1",quantity=evidence["delta_quantity"],price=evidence["delta_price"],effect_evidence=evidence)
+        if owner_kind=="capital": kwargs["symbol"]="SYNTHETIC"
+        return owner.release_exposure(**kwargs)
+    def used():
+        return owner.total_used_exposure if owner_kind=="capital" else owner.strategy_used_exposure("RossMomentumStrategyV1")
+    return NS(storage=storage,store=store,owner=owner,binding=binding,apply=apply,used=used)
+
+
+@pytest.mark.parametrize("owner_kind",["capital","allocation"])
+@pytest.mark.parametrize("effect",["CONVERT","RELEASE"])
+@pytest.mark.parametrize("boundary",["capability","prepare_write","after_mutation","after_commit"])
+def test_prospective_owner_effect_interruption_boundaries(monkeypatch,tmp_path,no_external_activity,owner_kind,effect,boundary):
+    import sqlite3
+    h=_prospective_effect_fixture(tmp_path,owner_kind,effect)
+    before=h.used()
+    if boundary=="capability":
+        monkeypatch.setattr(h.store,"insert_owner_effect_record",None)
+    elif boundary=="prepare_write":
+        def fail_prepare(*args,**kwargs): raise OSError("synthetic prepare failure")
+        monkeypatch.setattr(h.store,"insert_owner_effect_record",fail_prepare)
+    else:
+        finish=h.storage.finish_owner_effect
+        def fail_finish(*args,**kwargs):
+            if boundary=="after_commit": finish(*args,**kwargs)
+            raise OSError("synthetic receipt interruption")
+        monkeypatch.setattr(h.storage,"finish_owner_effect",fail_finish)
+    with pytest.raises((RuntimeError,OSError)):
+        h.apply()
+    after=h.used()
+    assert after==pytest.approx(before if boundary in {"capability","prepare_write"} else (10.91 if effect=="CONVERT" else 0))
+    assessment=h.storage.inspect_owner_effect(h.binding,independent_fact=dict(h.binding))
+    assert assessment["resolved"] is False
+    assert assessment.get("outcome")==("OBSERVED_APPLIED" if boundary=="after_commit" else "UNKNOWN")
+    if boundary in {"after_mutation","after_commit"}:
+        # Another attempt must fail BEFORE any effect, even if the first caller
+        # never received receipt acknowledgement. No accounting replay.
+        with pytest.raises(sqlite3.IntegrityError): h.apply()
+        assert h.used()==after
+    h.store.close()
+    assert no_external_activity==[] and mutations()=={"place":0,"modify":0,"cancel":0}
+
+
+@pytest.mark.parametrize("owner_kind",["capital","allocation"])
+def test_prospective_identity_conflict_restart_and_readonly_assessment(monkeypatch,tmp_path,no_external_activity,owner_kind):
+    from copy import deepcopy
+    from src.storage.sqlite_store import SQLiteStore
+    from src.core.capital_management_authority import CapitalManagementAuthority
+    from src.core.strategy_capital_allocation_authority import StrategyCapitalAllocationAuthority
+    import sqlite3
+    h=_prospective_effect_fixture(tmp_path,owner_kind)
+    h.apply()
+    baseline=h.used()
+    for changes in ({"average_price":11.},{"native_order_id":"999"},{"decision_id":"another"},{"security_id":"conId:999"}):
+        altered={**h.binding,**changes}
+        with pytest.raises(sqlite3.IntegrityError): h.apply(altered)
+        assert h.used()==baseline
+        assert not h.storage.inspect_owner_effect(altered,independent_fact=altered)["resolved"]
+    assert h.storage.inspect_owner_effect(h.binding,independent_fact={**h.binding,"cumulative_quantity":2})["reason"]=="OWNER_EFFECT_IDENTITY_CONFLICT"
+    # Fresh process-local owner state is NOT restored from audit evidence.
+    path=h.store.path;h.store.close();h.storage._store=SQLiteStore(path)
+    owner_type=CapitalManagementAuthority if owner_kind=="capital" else StrategyCapitalAllocationAuthority
+    fresh=owner_type(run_mode="PAPER",storage_engine=h.storage)
+    assert (fresh.total_used_exposure if owner_kind=="capital" else fresh.strategy_used_exposure("RossMomentumStrategyV1"))==0
+    result=h.storage.inspect_owner_effect(h.binding,independent_fact=dict(h.binding))
+    assert result==dict(resolved=False,reason="NON_ATOMIC_EFFECT_AND_MISSING_FULL_UPDATE_PROOF",outcome="OBSERVED_APPLIED",atomic_application=False)
+    h.storage._store.close()
+    assert no_external_activity==[]
+
+
+@pytest.mark.parametrize("changes",[{"version":2},{"cumulative_quantity":True},{"delta_quantity":2},{"average_price":float("nan")},{"extra":"caller assertion"}])
+def test_prospective_schema_rejects_before_effect(tmp_path,no_external_activity,changes):
+    h=_prospective_effect_fixture(tmp_path,"capital")
+    bad={**h.binding,**changes}
+    with pytest.raises((ValueError,TypeError)): h.apply(bad)
+    assert h.used()==0
+    assert h.storage.inspect_owner_effect(bad,independent_fact=bad)["resolved"] is False
+    h.store.close()
+    assert no_external_activity==[]
+
+
+def test_explicit_pre_mutation_rejection_and_historical_non_authority(tmp_path,no_external_activity):
+    h=_prospective_effect_fixture(tmp_path,"capital")
+    # An unversioned historical operation is not upgraded to effect authority.
+    h.owner.convert_reservation_to_exposure(symbol="SYNTHETIC",strategy_id="RossMomentumStrategyV1",fill_quantity=1,fill_price=10.91)
+    assert h.storage.inspect_owner_effect(h.binding,independent_fact=h.binding)["reason"]=="HISTORICAL_OR_MISSING_EVIDENCE"
+    before=h.used()
+    zero={**h.binding,"delta_quantity":0,"cumulative_quantity":0}
+    assert h.apply(zero)==0 and h.used()==before
+    result=h.storage.inspect_owner_effect(zero,independent_fact=zero)
+    assert result["outcome"]=="REJECTED_BEFORE_MUTATION" and not result["resolved"]
+    h.store.close()
+    assert no_external_activity==[]
+
+
+
+def _assert_owner_effect_inspection_preserves_latches(h,plan):
+    from copy import deepcopy
+    import json
+    engine=h.core.execution_engine; storage=h.core.storage_engine
+    before=deepcopy((plan.orders,plan.paused,plan.reconciled,engine.startup_recovery_state,
+        engine.startup_recovery_result,engine._failsafe_block_new_entries))
+    durable=storage.fetch_management_state(h.manager._state_namespace)
+    rows=storage._store.connection.execute("SELECT reason FROM position_lifecycle_transitions WHERE intent='OWNER_EFFECT_EVIDENCE' AND transition_id LIKE '%:prepare'").fetchall()
+    for row in rows:
+        binding=json.loads(row[0])["binding"]
+        result=storage.inspect_owner_effect(binding,independent_fact=dict(binding))
+        assert result["resolved"] is False  # Even matching execution facts cannot prove atomic full-update recovery.
+    assert before==deepcopy((plan.orders,plan.paused,plan.reconciled,engine.startup_recovery_state,
+        engine.startup_recovery_result,engine._failsafe_block_new_entries))
+    assert storage.fetch_management_state(h.manager._state_namespace)==durable

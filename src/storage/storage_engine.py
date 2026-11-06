@@ -911,6 +911,107 @@ class StorageEngine:
             "persist_flush_each_cycle": self.flush_each_cycle,
         }
 
+    def validate_owner_effect_storage(self) -> None:
+        """Require working durable capabilities BEFORE prospective accounting mutation."""
+        if (not self.enabled or self.backend != "sqlite" or self._store is None
+                or not callable(getattr(self._store, "insert_owner_effect_record", None))
+                or not callable(getattr(self._store, "fetch_owner_effect_record", None))):
+            raise RuntimeError("OWNER_EFFECT_STORAGE_UNAVAILABLE")
+        connection = self._store.connection
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(position_lifecycle_transitions)")}
+        if (not {"transition_id", "run_id", "intent", "reason_code", "reason", "transition_seq"} <= columns
+                or connection.execute("PRAGMA query_only").fetchone()[0] or connection.in_transaction):
+            raise RuntimeError("OWNER_EFFECT_STORAGE_NOT_WRITABLE")
+
+    @staticmethod
+    def _owner_effect_record(binding: dict, *, phase: str, post_state: dict | None = None) -> tuple[str, str]:
+        import math
+        keys = {"version", "mode", "security_id", "symbol", "relationship_id", "decision_id", "order_id",
+                "native_order_id", "owner", "effect", "cumulative_quantity", "delta_quantity", "average_price", "delta_price"}
+        if not isinstance(binding, dict) or set(binding) != keys or type(binding.get("version")) is not int or binding["version"] != 1:
+            raise ValueError("OWNER_EFFECT_SCHEMA_INVALID")
+        if (binding["owner"] not in {"capital", "allocation"} or binding["effect"] not in {"CONVERT", "RELEASE"}
+                or binding["mode"] not in {"PAPER", "LIVE", "SIM"}
+                or any(not isinstance(binding[key], str) or not 0 < len(binding[key]) <= 256 for key in
+                    ("security_id", "symbol", "relationship_id", "decision_id", "order_id", "native_order_id"))
+                or any(type(binding[key]) is not int or binding[key] < 0 for key in ("cumulative_quantity", "delta_quantity"))
+                or binding["delta_quantity"] > binding["cumulative_quantity"]
+                or isinstance(binding["average_price"], bool) or not isinstance(binding["average_price"], (int, float))
+                or not math.isfinite(binding["average_price"]) or binding["average_price"] <= 0
+                or isinstance(binding["delta_price"], bool) or not isinstance(binding["delta_price"], (int, float))
+                or not math.isfinite(binding["delta_price"]) or binding["delta_price"] <= 0):
+            raise ValueError("OWNER_EFFECT_BINDING_INVALID")
+        if phase not in {"PREPARED", "OBSERVED_APPLIED", "REJECTED_BEFORE_MUTATION"}:
+            raise ValueError("OWNER_EFFECT_PHASE_INVALID")
+        if phase == "PREPARED" and post_state is not None:
+            raise ValueError("OWNER_EFFECT_POST_STATE_INVALID")
+        if phase != "PREPARED" and not isinstance(post_state, dict):
+            raise ValueError("OWNER_EFFECT_POST_STATE_INVALID")
+        if phase == "OBSERVED_APPLIED":
+            if (set(post_state) != {"used_exposure", "reserved_capital", "reservation_status", "released_notional", "reservation"}
+                    or post_state["reservation_status"] not in {"ACTIVE", "CONVERTED", "RELEASED", "PARTIALLY_CONVERTED", "NONE", "NOT_APPLICABLE"}
+                    or any(isinstance(post_state[key], bool) or not isinstance(post_state[key], (int, float))
+                        or not math.isfinite(post_state[key]) or post_state[key] < 0
+                        for key in ("used_exposure", "reserved_capital", "released_notional"))):
+                raise ValueError("OWNER_EFFECT_POST_STATE_INVALID")
+        if phase == "OBSERVED_APPLIED" and post_state["reservation"] is not None:
+            reservation = post_state["reservation"]
+            if (not isinstance(reservation, dict) or set(reservation) != {"reservation_id", "decision_id", "order_id", "filled_quantity", "remaining_quantity", "remaining_notional", "status", "exposure_notional"}
+                    or reservation["status"] != post_state["reservation_status"]
+                    or any(isinstance(reservation[key], bool) or not isinstance(reservation[key], (int,float))
+                        or not math.isfinite(reservation[key]) or reservation[key] < 0
+                        for key in ("filled_quantity", "remaining_quantity", "remaining_notional", "exposure_notional"))):
+                raise ValueError("OWNER_EFFECT_RESERVATION_INVALID")
+        if phase == "REJECTED_BEFORE_MUTATION" and post_state != {"reason": "NONPOSITIVE_EFFECT"}:
+            raise ValueError("OWNER_EFFECT_REJECTION_INVALID")
+        # Price/delta remain in the full binding but not the logical key, so a
+        # changed fact for the same cumulative effect cannot evade conflict checks.
+        identity = {key: binding[key] for key in {"version", "mode", "relationship_id", "order_id", "owner", "effect", "cumulative_quantity"}}
+        effect_id = "owner-effect-v1:" + hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
+        record = {"schema_version": 1, "binding": binding, "phase": phase,
+                  "atomic_application": False, "post_state": post_state}
+        payload = json.dumps(record, sort_keys=True, allow_nan=False)
+        if len(payload.encode("utf-8")) > 8192:
+            raise ValueError("OWNER_EFFECT_RECORD_TOO_LARGE")
+        return effect_id, payload
+
+    def prepare_owner_effect(self, binding: dict) -> None:
+        self.validate_owner_effect_storage()
+        effect_id, payload = self._owner_effect_record(binding, phase="PREPARED")
+        self._store.insert_owner_effect_record(effect_id + ":prepare", payload, run_id=self.run_id)
+
+    def finish_owner_effect(self, binding: dict, *, phase: str, post_state: dict) -> None:
+        self.validate_owner_effect_storage()
+        if phase == "PREPARED":
+            raise ValueError("OWNER_EFFECT_PHASE_INVALID")
+        effect_id, prepared = self._owner_effect_record(binding, phase="PREPARED")
+        _, payload = self._owner_effect_record(binding, phase=phase, post_state=post_state)
+        self._store.insert_owner_effect_record(effect_id + ":outcome", payload, run_id=self.run_id,
+            prepared_id=effect_id + ":prepare", prepared_payload=prepared)
+
+    def inspect_owner_effect(self, binding: dict, *, independent_fact: dict) -> dict:
+        """Read-only proof assessment: NO clearing/replay API or atomicity assertion."""
+        if not self.enabled or self.backend != "sqlite" or self._store is None:
+            return {"resolved": False, "reason": "OWNER_EFFECT_STORAGE_UNAVAILABLE"}
+        try:
+            effect_id, expected = self._owner_effect_record(binding, phase="PREPARED")
+            prepared = self._store.fetch_owner_effect_record(effect_id + ":prepare")
+            if prepared is None:
+                return {"resolved": False, "reason": "HISTORICAL_OR_MISSING_EVIDENCE", "outcome": "UNKNOWN"}
+            if prepared != expected or independent_fact != binding:
+                return {"resolved": False, "reason": "OWNER_EFFECT_IDENTITY_CONFLICT", "outcome": "UNKNOWN"}
+            raw = self._store.fetch_owner_effect_record(effect_id + ":outcome")
+            if raw is None:
+                return {"resolved": False, "reason": "MUTATION_RECEIPT_GAP", "outcome": "UNKNOWN"}
+            record = json.loads(raw)
+            _, validated = self._owner_effect_record(binding, phase=record["phase"], post_state=record["post_state"])
+            if validated != raw or record["phase"] == "PREPARED":
+                raise ValueError("invalid owner outcome")
+            return {"resolved": False, "reason": "NON_ATOMIC_EFFECT_AND_MISSING_FULL_UPDATE_PROOF",
+                    "outcome": record["phase"], "atomic_application": False}
+        except (ValueError, TypeError, KeyError):
+            return {"resolved": False, "reason": "OWNER_EFFECT_SCHEMA_OR_IDENTITY_INVALID", "outcome": "UNKNOWN"}
+
 
 def _ensure_iso(value: Any | None) -> str | None:
     if value is None:
