@@ -67,7 +67,7 @@ def chain(monkeypatch):
     from src.core.stop_controller import StopController
     core.stop_controller=StopController()
     core._halted=False
-    core.execution_engine=NS(_relationship_orders_asof=None,
+    core.execution_engine=NS(bind_native_order_scope=lambda **kwargs:None, _relationship_orders_asof=None,
         collect_relationship_updates=lambda **kwargs:events.append('cached_updates') or [])
     core.trade_management_engine=None
     core._latest_position_truth_snapshot=None;core._degraded=False
