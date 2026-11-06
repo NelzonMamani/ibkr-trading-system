@@ -1440,6 +1440,9 @@ class ExecutionEngine:
             # Only newly dispatched native owned requests enter prospective evidence.
             decisions = getattr(self, "_prospective_decisions_by_order_id", {})
             owned = plan.orders[request.client_order_id]
+            version = owned.get("owner_effect_version")
+            if version is not None and (type(version) is not int or version != 1):
+                raise ValueError("OWNER_EFFECT_VERSION_INVALID")
             decision_id = decisions.get(request.client_order_id)
             if owned.get("owner_effect_version") == 1:
                 decision_id = owned.get("decision_id")
@@ -1937,6 +1940,10 @@ class ExecutionEngine:
                 raise ValueError
         except (KeyError, TypeError, ValueError, OverflowError):
             raise ValueError("CACHED_PROTECTION_UPDATE_INVALID") from None
+        original = plan.orders[plan.initial_order_id]
+        version = original.get("owner_effect_version")
+        if version is not None and (type(version) is not int or version != 1):
+            raise ValueError("OWNER_EFFECT_VERSION_INVALID")
         if order_id not in plan.orders:
             from dataclasses import asdict
             initial = plan.orders[plan.initial_order_id].get("request", {})

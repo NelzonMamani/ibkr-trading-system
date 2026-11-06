@@ -34,7 +34,7 @@ from test_key_level_break_production_handoff import forbid_io
        "missing_counts","unknown_status","oversize","uncertain","regression","accounting_error","allocation_error","completion_error","binding_error","stop_oversize","stop_bad_price","stop_bad_status","processor_cancel","processor_deadline","management","management_pending","management_uncertain",
        "management_unknown","management_unreconciled","management_no_protection","management_stale",
        "management_future","management_bad","management_daily_lock","management_protection_pending","management_protection_missing","management_forming","management_snapshot_failure",
-       *["management_interleave_"+name for name in ("stop_before","stop_during_submit","cancel_delayed","cancel_rejected","cancel_late","uncertain_repeat","both_stop_first","both_reduce_first","both_same_cycle","duplicate_reorder","interrupted_reduce","identity_later","identity_ambiguous","identity_wrong_security","identity_fractional","identity_wrong_side","identity_absent","identity_decimal","identity_wrong_type","identity_protection_collision","identity_duplicate_native","reduction_cancel_rejected","reduction_cancel_uncertain","reduction_cancel_late_fill")])],
+       *["management_interleave_"+name for name in ("stop_before","stop_during_submit","cancel_delayed","cancel_rejected","cancel_late","uncertain_repeat","both_stop_first","both_reduce_first","both_same_cycle","duplicate_reorder","interrupted_reduce","identity_later","identity_ambiguous","identity_wrong_security","identity_fractional","identity_wrong_side","identity_absent","identity_decimal","identity_wrong_type","identity_protection_collision","identity_duplicate_native","reduction_cancel_rejected","reduction_cancel_uncertain","reduction_cancel_late_fill","invalid_version_bool","invalid_version_future","invalid_protective_bool","invalid_protective_future")])],
 ])
 def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypatch,tmp_path,capsys,
         no_external_activity,position_case,transport):
@@ -290,6 +290,18 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
     else:
         monkeypatch.setattr(providers[0],"place_order",offline_transport)
     assessment_error=None
+    if interleaving and interleaving.startswith("invalid_version_"):
+        build=h.core.execution_engine._order_from_risk_decision
+        def corrupt_retained_version(*args,**kwargs):
+            request=build(*args,**kwargs)
+            if request.direction=="SELL":
+                owned_plan=h.manager._relationship_plans[request.relationship_context["relationship_id"]]
+                owned_plan.orders[request.client_order_id]["owner_effect_version"]=True if interleaving.endswith("bool") else 999
+                decision=args[0] if args else kwargs["risk_decision"]
+                owned_plan.orders[request.client_order_id]["decision_id"]=decision.decision_id
+                h.manager._save_relationship_state()
+            return request
+        monkeypatch.setattr(h.core.execution_engine,"_order_from_risk_decision",corrupt_retained_version)
     try:
         assert h.core.run_once()
         first=capsys.readouterr().out
@@ -840,10 +852,23 @@ def _exercise_stop_reduction_interleaving(*,h,plan,case,cached,broker_fills,work
         assert engine.capital_authority.active_reservations=={}
         snapshot("filled_owned_protected_below_2R")
         market_close[0]=plan.milestone_price
+        if case.startswith("invalid_protective_"):
+            plan.orders[plan.initial_order_id]["owner_effect_version"]=True if case.endswith("bool") else 999
+            h.manager._save_relationship_state()
+            filled(72,10.81)
         if case=="stop_before": filled(72,10.81)
         first=cycle("threshold")
-        assert len(sent)==(1 if case=="stop_before" else 2)
-        if case=="stop_before":
+        assert len(sent)==(1 if case=="stop_before" or case.startswith("invalid_") else 2)
+        if case.startswith("invalid_"):
+            cycle("invalid_schema_remains_blocked")
+            assert len(sent)==1 and not plan.milestone_consumed
+            target=plan.orders[plan.initial_order_id if case.startswith("invalid_protective_") else plan.milestone_order_id]
+            assert type(target["owner_effect_version"]) is (bool if case.endswith("bool") else int)
+            assert target["owner_effect_version"]==(True if case.endswith("bool") else 999)
+            if case.startswith("invalid_protective_"):
+                assert not any((o.get("request",{}).get("relationship_context") or {}).get("protective_stop_fill") for o in plan.orders.values())
+                assert engine.capital_authority.symbol_exposure("JPM")==pytest.approx(10.91)
+        elif case=="stop_before":
             cycle("duplicate_stop")
             assert len(sent)==1 and plan.milestone_order_id is None
         else:
