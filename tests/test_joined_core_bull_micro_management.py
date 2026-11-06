@@ -1034,6 +1034,7 @@ def _assess_retained_execution_evidence(*,h,plan,stage,cached,protection_request
         capital=[dict(r) for r in db.execute("SELECT * FROM capital_audit_events")]
         allocation=[dict(r) for r in db.execute("SELECT * FROM strategy_allocation_audit_events")]
         lifecycle=[dict(r) for r in db.execute("SELECT * FROM trade_lifecycle_events")]
+        stops=[dict(r) for r in db.execute("SELECT * FROM stop_authority_events")]
     saved=durable["plans"][plan.relationship_id]
     saved_order=saved["orders"][plan.initial_order_id]
     assert saved_order["request"]["client_order_id"]==plan.initial_order_id
@@ -1061,6 +1062,13 @@ def _assess_retained_execution_evidence(*,h,plan,stage,cached,protection_request
     assert not hasattr(storage,"insert_strategy_allocation_audit_event")
     assert not cap_effects and not alloc_effects  # Active facade does not wire the lower-store audit API.
     assert managed==(stage in {"processor_after","completion_error"})
+    stop_required=[r for r in stops if r["event_type"]=="STOP_REQUIRED" and r["lifecycle_trade_id"]==plan.initial_order_id]
+    stop_ack=[r for r in stops if r["event_type"]=="STOP_ACKNOWLEDGED" and r["lifecycle_trade_id"]==plan.initial_order_id]
+    assert bool(stop_required)==bool(stop_ack)==(stage in {"processor_error","processor_after","completion_error","relationship_write_failure"})
+    assert all(r["entry_order_id"]==plan.initial_order_id and r["quantity"]==1 for r in stop_required+stop_ack)
+    assert all(r["active_stop_order_id"]=="72" and r["stop_price"]==pytest.approx(10.81) for r in stop_ack)
+    # Positive local lifecycle/ack audit is historical application proof, not
+    # current broker protection or complete registry/exposure certification.
     assert saved_order.get("cached_update_in_progress")  # A progress record is not a completion receipt.
     assert plan.paused
     restored=TradeManagementEngine(persistence_adapter=storage,
@@ -1093,8 +1101,10 @@ def _assess_retained_execution_evidence(*,h,plan,stage,cached,protection_request
         classification=dict(capital_conversion=cap_class,allocation_conversion=alloc_class,
             capital_reservation_conversion=cap_class,allocation_reservation_conversion=alloc_class,
             canonical_management_processing=management_class,registry_update="UNKNOWN",
-            post_fill_protection_application="UNKNOWN"),
-        committed=dict(management=durable,capital_audit=capital,allocation_audit=allocation,lifecycle_events=lifecycle),
+            lifecycle_creation="APPLIED" if stop_required else "UNKNOWN",
+            stop_acknowledgement="APPLIED" if stop_ack else "UNKNOWN",
+            current_broker_protection="UNKNOWN"),
+        committed=dict(management=durable,capital_audit=capital,allocation_audit=allocation,lifecycle_events=lifecycle,stop_audit=stops),
         live_control_oracle_only=live)
     # Explicit counterexample vector: both independently run controls retain
     # these same role-bound recovery facts but one conversion mutated memory.
