@@ -911,8 +911,26 @@ class StorageEngine:
             "persist_flush_each_cycle": self.flush_each_cycle,
         }
 
-    def initialize_synthetic_capital_scope(self, scope: str, mode: str) -> None:
-        self._capital_store().initialize_synthetic_capital_scope(scope, mode)
+    def initialize_synthetic_capital_scope(self, scope: str, mode: str):
+        return self._capital_store().initialize_synthetic_capital_scope(scope, mode)
+
+    def capital_scopes_present(self) -> bool:
+        # A supplied enrolled database must not silently become legacy memory
+        # authority, even when its operational enabled flag later changes.
+        store = getattr(self,'_store',None)
+        if store is None:
+            return False
+        connection = store.connection
+        present = connection.execute("SELECT 1 FROM sqlite_master WHERE name='capital_owner_state'").fetchone()
+        return bool(present and connection.execute('SELECT 1 FROM capital_owner_state LIMIT 1').fetchone())
+
+    def revoke_capital_writer(self, writer, owner, scope):
+        store = getattr(self,'_store',None)
+        if store is not None:
+            store.revoke_capital_writer(writer,owner,scope)
+
+    def claim_capital_writer(self, writer, owner, scope, mode):
+        return self._capital_store().claim_capital_writer(writer, owner, scope, mode)
 
     def _capital_store(self):
         if not self.enabled or self.backend != "sqlite" or self._store is None:
@@ -922,8 +940,8 @@ class StorageEngine:
     def read_capital_state(self, scope: str, mode: str) -> dict:
         return self._capital_store().read_capital_state(scope, mode)
 
-    def transact_capital(self, scope: str, mode: str, operation: str, binding: str, apply):
-        return self._capital_store().transact_capital(scope, mode, operation, binding, apply)
+    def transact_capital(self, scope: str, mode: str, operation: str, binding: str, apply, *, writer=None, owner=None):
+        return self._capital_store().transact_capital(scope, mode, operation, binding, apply, writer=writer, owner=owner)
 
     def validate_owner_effect_storage(self) -> None:
         """Require working durable capabilities BEFORE prospective accounting mutation."""

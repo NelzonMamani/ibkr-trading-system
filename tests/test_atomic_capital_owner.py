@@ -21,8 +21,17 @@ def storage(path):
     s._store=store; s.enabled=True; s.backend='sqlite'; s.run_id=None
     return s
 
-def owner(s,scope='synthetic:account-a'):
-    return CapitalManagementAuthority(run_mode='PAPER',storage_engine=s,capital_scope=scope)
+def enroll(s,scope='synthetic:account-a',mode='PAPER'):
+    # Explicit test enroller retains the issued capability, never re-reads it.
+    writer=s.initialize_synthetic_capital_scope(scope,mode)
+    if not hasattr(s,'_fixture_writers'):
+        s._fixture_writers={}
+    s._fixture_writers[scope]=writer
+    return writer
+
+def owner(s,scope='synthetic:account-a',mode='PAPER'):
+    writer=getattr(s,'_fixture_writers',{}).pop(scope,None)
+    return CapitalManagementAuthority(run_mode=mode,storage_engine=s,capital_scope=scope,capital_writer=writer)
 
 def admit(o,intent='i1',quantity=1,cap=100):
     return o.evaluate_entry(strategy_id='S',symbol='XYZ',side='BUY',requested_quantity=quantity,
@@ -31,11 +40,11 @@ def admit(o,intent='i1',quantity=1,cap=100):
        current_open_positions=0, intent_id=intent)
 
 def test_reservation_survives_restart(tmp_path):
-    s=storage(tmp_path/'c.db'); s.initialize_synthetic_capital_scope('synthetic:account-a','PAPER')
+    s=storage(tmp_path/'c.db'); enroll(s)
     d=admit(owner(s)); assert d.executable
     s._store.close(); s=storage(tmp_path/'c.db')
     assert owner(s).total_reserved_capital==100
-    assert not admit(owner(s),'i2').executable
+    with pytest.raises(RuntimeError,match='SESSION_REQUIRED'):admit(owner(s),'i2')
     s._store.close()
 
 def test_original_process_local_state_is_not_restart_authority():
@@ -47,7 +56,7 @@ def test_original_process_local_state_is_not_restart_authority():
 @pytest.fixture
 def enrolled(tmp_path):
     s=storage(tmp_path/'c.db')
-    s.initialize_synthetic_capital_scope('synthetic:account-a','PAPER')
+    enroll(s)
     yield s
     s._store.close()
 
@@ -71,7 +80,7 @@ def test_full_lifecycle_exactly_once_and_detached(enrolled):
     assert o.release_exposure(symbol='XYZ',quantity=1,price=100,strategy_id='S',effect_evidence=b)==100
     assert o.total_used_exposure==0
     assert not admit(o).executable  # Duplicate admission is never new permission.
-    rows=enrolled._store.connection.execute("SELECT reason FROM position_lifecycle_transitions WHERE reason_code='ATOMIC_CAPITAL_V1'").fetchall()
+    rows=enrolled._store.connection.execute("SELECT reason FROM position_lifecycle_transitions WHERE reason_code='ATOMIC_CAPITAL_V2'").fetchall()
     import json
     assert all(json.loads(r[0])['after_version']==json.loads(r[0])['before_version']+1 for r in rows)
 
@@ -154,30 +163,45 @@ def test_persistence_boundaries_are_all_or_nothing(enrolled,stage):
     assert o.recovery_failed
     with pytest.raises(RuntimeError,match='INSPECTION'):admit(o,'next')
     state=enrolled.read_capital_state('synthetic:account-a','PAPER')
-    count=con.execute("SELECT COUNT(*) FROM position_lifecycle_transitions WHERE reason_code='ATOMIC_CAPITAL_V1'").fetchone()[0]
+    count=con.execute("SELECT COUNT(*) FROM position_lifecycle_transitions WHERE reason_code='ATOMIC_CAPITAL_V2'").fetchone()[0]
     assert state['version']==count==(1 if stage=='after_commit' else 0)
     assert owner(enrolled).total_reserved_capital==(100 if stage=='after_commit' else 0)
 
 
-def test_cross_account_and_concurrent_cap(enrolled):
+def test_cross_account_and_concurrent_cap(enrolled,tmp_path):
     from concurrent.futures import ThreadPoolExecutor
-    path=enrolled._store.path
-    enrolled.initialize_synthetic_capital_scope('synthetic:account-b','PAPER')
-    def attempt(n):
+    from threading import Event
+    path=tmp_path/'concurrent.db'; ready=Event(); attempted=Event()
+    def authorized():
         s=storage(path)
-        try:return admit(owner(s),str(n)).executable
+        try:
+            enroll(s);o=owner(s);ready.set()
+            assert attempted.wait(10)
+            return admit(o).executable
         finally:s._store.close()
-    with ThreadPoolExecutor(max_workers=2) as pool:results=list(pool.map(attempt,[1,2]))
-    assert sum(results)==1
-    assert owner(enrolled).total_reserved_capital==100
-    assert owner(enrolled,'synthetic:account-b').total_reserved_capital==0
-    assert admit(owner(enrolled,'synthetic:account-b')).executable
+    def unauthorized():
+        assert ready.wait(10)
+        s=storage(path)
+        try:
+            before=s.read_capital_state('synthetic:account-a','PAPER')
+            with pytest.raises(RuntimeError,match='SESSION_REQUIRED'):admit(owner(s),'other')
+            assert s.read_capital_state('synthetic:account-a','PAPER')==before
+            return False
+        finally:s._store.close();attempted.set()
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first=pool.submit(authorized);second=pool.submit(unauthorized)
+        assert first.result() and not second.result()
+    o=owner(enrolled);assert admit(o).executable
+    enroll(enrolled,'synthetic:account-b')
+    other=owner(enrolled,'synthetic:account-b')
+    assert other.total_reserved_capital==0 and admit(other).executable
+    assert other.total_reserved_capital==100 and o.total_reserved_capital==100
 
 @pytest.mark.parametrize('defect',['unavailable','unenrolled','readonly','future','unfenced'])
 def test_no_storage_or_scope_fallback(enrolled,monkeypatch,defect):
     o=owner(enrolled)
     if defect=='unavailable':enrolled.enabled=False
-    elif defect=='unenrolled':o.capital_scope='synthetic:missing'
+    elif defect=='unenrolled':o=CapitalManagementAuthority(run_mode='PAPER',storage_engine=enrolled,capital_scope='synthetic:missing')
     elif defect=='readonly':enrolled._store.connection.execute('PRAGMA query_only=ON')
     elif defect=='future':
         enrolled._store.connection.execute('UPDATE capital_owner_state SET schema_version=999');enrolled._store.connection.commit()
@@ -218,11 +242,11 @@ def test_projection_failure_no_permission_after_commit(enrolled,monkeypatch):
 def test_fresh_process_crash_at_commit(tmp_path,crash):
     import subprocess,sys,os
     path=tmp_path/'restart.db';s=storage(path)
-    s.initialize_synthetic_capital_scope('synthetic:account-a','PAPER');s._store.close()
+    s._store.close()
     code="""
 import os,sys
-from test_atomic_capital_owner import storage,owner,admit
-s=storage(sys.argv[1]); original=s._store.connection
+from test_atomic_capital_owner import storage,owner,admit,enroll
+s=storage(sys.argv[1]); enroll(s); original=s._store.connection
 class Crash:
  count=0
  def __getattr__(self,k):return getattr(original,k)
@@ -239,7 +263,7 @@ s._store.connection=Crash();admit(owner(s))
     s=storage(path)
     assert owner(s).total_reserved_capital==(0 if crash=='before' else 100)
     assert s.read_capital_state('synthetic:account-a','PAPER')['version']==(0 if crash=='before' else 1)
-    with pytest.raises(RuntimeError,match='INSPECTION'):admit(owner(s),'after-crash')
+    with pytest.raises(RuntimeError,match='SESSION_REQUIRED'):admit(owner(s),'after-crash')
     s._store.close()
 
 def test_partial_fill_cumulative_progress_and_release_remainder(enrolled):
@@ -287,8 +311,8 @@ def test_conversion_boundaries_preserve_full_state_and_receipt(enrolled,stage):
 @pytest.mark.parametrize('mode',['SIM','READ_ONLY','LIVE'])
 def test_modes_cannot_silently_enroll_or_gain_permission(enrolled,mode):
     if mode=='SIM':
-        enrolled.initialize_synthetic_capital_scope('synthetic:sim',mode)
-        o=CapitalManagementAuthority(run_mode=mode,storage_engine=enrolled,capital_scope='synthetic:sim')
+        enroll(enrolled,'synthetic:sim',mode)
+        o=owner(enrolled,'synthetic:sim',mode)
         assert admit(o).executable
     else:
         o=CapitalManagementAuthority(run_mode=mode,storage_engine=enrolled,capital_scope='synthetic:account-a')
@@ -324,7 +348,7 @@ def test_historical_audit_without_run_cannot_initialize(tmp_path):
     s=storage(tmp_path/'old.db')
     s._store.connection.execute("INSERT INTO capital_audit_events (event_id) VALUES ('historical')");s._store.connection.commit()
     with pytest.raises(RuntimeError,match='NONFRESH'):
-        s.initialize_synthetic_capital_scope('synthetic:account-a','PAPER')
+        enroll(s)
     assert s._store.connection.execute("SELECT COUNT(*) FROM capital_audit_events").fetchone()[0]==1
     assert not s._store.connection.execute("SELECT 1 FROM sqlite_master WHERE name='capital_owner_state'").fetchone()
     s._store.close()
@@ -333,7 +357,7 @@ def test_historical_audit_without_run_cannot_initialize(tmp_path):
 def test_corrupt_duplicate_receipt_cannot_grant_result(enrolled,tamper):
     import json
     o=owner(enrolled);admit(o)
-    row=enrolled._store.connection.execute("SELECT transition_id,reason FROM position_lifecycle_transitions WHERE reason_code='ATOMIC_CAPITAL_V1'").fetchone()
+    row=enrolled._store.connection.execute("SELECT transition_id,reason FROM position_lifecycle_transitions WHERE reason_code='ATOMIC_CAPITAL_V2'").fetchone()
     data=json.loads(row[1])
     if tamper=='atomic':data['atomic_capital_only']=False
     elif tamper=='version':data['after_version']=999
@@ -386,7 +410,7 @@ def test_each_commit_failure_preserves_restart_quarantine(enrolled,number,moment
     enrolled._store.connection=connection
     restarted=owner(enrolled)
     assert restarted.total_reserved_capital==(100 if number==3 or (number==2 and moment=='after_commit') else 0)
-    with pytest.raises(RuntimeError,match='INSPECTION'):admit(owner(enrolled),'new-intent')
+    with pytest.raises(RuntimeError,match='SESSION_REQUIRED'):admit(owner(enrolled),'new-intent')
     assert o.recovery_failed
 
 def test_lost_completion_and_lost_quarantine_is_explicit_remaining_boundary(enrolled):
@@ -435,12 +459,11 @@ def restart_histories(tmp_path, monkeypatch):
     monkeypatch.setattr(capital_module, 'uuid4', lambda: SimpleNamespace(hex='fixed-offline-identity'))
     monkeypatch.setattr(capital_module.CapitalManagementAuthority, '_now', staticmethod(lambda:'2026-11-06T12:00:00+00:00'))
     monkeypatch.setattr(sqlite_module, 'now_iso', lambda:'2026-11-06T12:00:00+00:00')
-    seed=storage(tmp_path/'seed.db')
-    seed.initialize_synthetic_capital_scope('synthetic:account-a','PAPER')
+    monkeypatch.setattr(sqlite_module,'uuid4',lambda:SimpleNamespace(hex='fixed-offline-writer'))
     result={}
     for history in ('returned','lost_ack','lost_ack_and_quarantine'):
         s=storage(tmp_path/(history+'.db'))
-        seed._store.connection.backup(s._store.connection)  # Synthetic fixture only.
+        enroll(s)
         original=s._store.connection
         class Fault(FailConnection):
             def commit(self):
@@ -463,7 +486,6 @@ def restart_histories(tmp_path, monkeypatch):
         s._store.connection=original
         result[history]={'path':s._store.path,'dump':'\n'.join(original.iterdump())}
         s._store.close()
-    seed._store.close()
     return result
 
 
@@ -475,10 +497,10 @@ from test_atomic_capital_owner import storage,owner,admit
 s=storage(sys.argv[1]);o=owner(s)
 state=s.read_capital_state('synthetic:account-a','PAPER')
 row=s._store.connection.execute('SELECT reason FROM position_lifecycle_transitions WHERE transition_id=?',
-    ('capital-atomic-v1:synthetic:account-a:'+s._store.connection.execute('SELECT last_operation FROM capital_owner_state').fetchone()[0],)).fetchone()
+    ('capital-atomic-v2:synthetic:account-a:'+s._store.connection.execute('SELECT last_operation FROM capital_owner_state').fetchone()[0],)).fetchone()
 receipt=json.loads(row[0])
 before='\n'.join(s._store.connection.iterdump())
-out={'version_before':state['version'],'reserved_before':o.total_reserved_capital,
+out={'version_before':state['version'],'reserved_before':owner(s).total_reserved_capital,
      'pending':state['pending'] is not None,'receipt_version':receipt['after_version'],
      'atomic_capital_only':receipt['atomic_capital_only']}
 action=sys.argv[2]
@@ -530,8 +552,7 @@ def test_fresh_duplicate_never_reapplies_capital_or_grants_permission(restart_hi
     assert not facts['allowed']
     assert facts['reserved_before']==facts['reserved_after']==100
     assert facts['version_before']==facts['version_after']==1
-    assert facts['outcome']==('CAPITAL_REQUIRES_AUTHORITATIVE_INSPECTION' if history=='lost_ack'
-                             else 'CAPITAL_ALREADY_COMMITTED_NO_NEW_PERMISSION')
+    assert facts['outcome']=='CAPITAL_WRITER_SESSION_REQUIRED'
 
 
 @pytest.mark.parametrize('history',['returned','lost_ack_and_quarantine'])
@@ -546,12 +567,237 @@ def test_fresh_restart_observed_admission_difference(restart_histories):
     retained=_fresh_restart_assessment(restart_histories['lost_ack']['path'],'new')
     absent=_fresh_restart_assessment(restart_histories['lost_ack_and_quarantine']['path'],'new')
     assert not retained['allowed'] and retained['reserved_after']==100
-    assert absent['allowed'] and absent['reserved_after']==200
-    assert absent['version_before']==1 and absent['version_after']==2
+    assert not absent['allowed'] and absent['reserved_after']==100
+    assert absent['version_before']==absent['version_after']==1
 
 
-@pytest.mark.xfail(strict=True,reason='STOPPED_POLICY_BOUNDARY: no durable caller-ack/resume authority distinguishes identical retained states')
 def test_required_restart_veto_remains_unresolved_after_double_failure(restart_histories):
     facts=_fresh_restart_assessment(restart_histories['lost_ack_and_quarantine']['path'],'new')
     assert not facts['allowed'], 'Unresolved caller/other-owner effects must not authorize fresh admission'
     assert facts['reserved_after']==100
+
+def test_caller_token_fields_cannot_regrant_writer(enrolled):
+    o=owner(enrolled);assert admit(o,cap=500).executable
+    token=o._capital_writer
+    try:
+        token._claimed=False
+        token._owner=None
+    except AttributeError:
+        pass  # Opaque handles contain no authoritative caller-mutable fields.
+    before=enrolled.read_capital_state('synthetic:account-a','PAPER')
+    with pytest.raises(RuntimeError,match='WRITER'):
+        CapitalManagementAuthority(run_mode='PAPER',storage_engine=enrolled,
+            capital_scope='synthetic:account-a',capital_writer=token)
+    assert enrolled.read_capital_state('synthetic:account-a','PAPER')==before
+
+@pytest.mark.parametrize('action',['different','duplicate','release'])
+def test_second_owner_cannot_write_or_poison_current_session(enrolled,action):
+    current=owner(enrolled);assert admit(current,cap=500).executable
+    reader=owner(enrolled)
+    before='\n'.join(enrolled._store.connection.iterdump())
+    with pytest.raises(RuntimeError,match='WRITER_SESSION_REQUIRED'):
+        if action=='release':reader.release_reservation(decision_id=list(current.active_reservations.values())[0].decision_id)
+        else:admit(reader,'i1' if action=='duplicate' else 'other',cap=500)
+    assert '\n'.join(enrolled._store.connection.iterdump())==before
+    assert reader.total_reserved_capital==100
+    assert admit(current,'current-next',cap=500).executable
+    assert current.total_reserved_capital==200
+
+@pytest.mark.parametrize('bad',['string','dict','unissued','borrowed','copy_owner'])
+def test_public_identity_or_second_actor_cannot_mint_authority(enrolled,bad):
+    from copy import copy
+    from src.storage.sqlite_store import _CapitalWriter
+    current=owner(enrolled);admit(current,cap=500)
+    writer_id=enrolled.read_capital_state('synthetic:account-a','PAPER')['writer_id']
+    token={'string':writer_id,'dict':{'writer_id':writer_id},'unissued':_CapitalWriter(),
+           'borrowed':current._capital_writer}.get(bad)
+    before='\n'.join(enrolled._store.connection.iterdump())
+    with pytest.raises(RuntimeError,match='WRITER'):
+        if bad=='copy_owner':admit(copy(current),'another',cap=500)
+        else:CapitalManagementAuthority(run_mode='PAPER',storage_engine=enrolled,
+                capital_scope='synthetic:account-a',capital_writer=token)
+    assert '\n'.join(enrolled._store.connection.iterdump())==before
+
+@pytest.mark.parametrize('action',['copy','deepcopy','pickle','field'])
+def test_writer_token_is_opaque_and_nontransferable(enrolled,action):
+    import copy,pickle
+    current=owner(enrolled);token=current._capital_writer
+    with pytest.raises((TypeError,AttributeError)):
+        if action=='copy':copy.copy(token)
+        elif action=='deepcopy':copy.deepcopy(token)
+        elif action=='pickle':pickle.dumps(token)
+        else:setattr(token,'writer_id','caller-asserted')
+    assert admit(current).executable
+
+
+def test_dead_owner_does_not_release_or_transfer_session(enrolled):
+    import gc
+    current=owner(enrolled);admit(current,cap=500);token=current._capital_writer
+    del current;gc.collect()
+    before='\n'.join(enrolled._store.connection.iterdump())
+    with pytest.raises(RuntimeError,match='IDENTITY_CONFLICT'):
+        CapitalManagementAuthority(run_mode='PAPER',storage_engine=enrolled,
+                capital_scope='synthetic:account-a',capital_writer=token)
+    assert '\n'.join(enrolled._store.connection.iterdump())==before
+
+
+def test_second_store_or_reenrollment_cannot_take_over(enrolled):
+    current=owner(enrolled);assert admit(current,cap=500).executable
+    other=storage(enrolled._store.path)
+    before='\n'.join(enrolled._store.connection.iterdump())
+    try:
+        with pytest.raises(RuntimeError,match='SESSION_REQUIRED'):
+            CapitalManagementAuthority(run_mode='PAPER',storage_engine=other,
+                capital_scope='synthetic:account-a',capital_writer=current._capital_writer)
+        with pytest.raises(Exception):other.initialize_synthetic_capital_scope('synthetic:account-a','PAPER')
+        assert '\n'.join(other._store.connection.iterdump())==before
+        assert owner(other).total_reserved_capital==100
+    finally:other._store.close()
+    assert admit(current,'same-authorized-writer',cap=500).executable
+
+
+def test_restored_startup_blocks_even_when_pending_is_absent(enrolled):
+    from src.execution.execution_engine import ExecutionEngine
+    from src.execution.startup_recovery_authority import RecoveryState
+    current=owner(enrolled);admit(current)
+    def forbidden(*a,**k):pytest.fail('Other owners/provider must not be replayed')
+    e=ExecutionEngine.__new__(ExecutionEngine);e.startup_recovery_state=RecoveryState.RECOVERY_COMPLETE
+    e.capital_authority=owner(enrolled);e._provider=SimpleNamespace(get_open_orders=forbidden)
+    e.strategy_allocation_authority=SimpleNamespace(recover_from_lifecycle=forbidden)
+    e._trade_lifecycle_engine=SimpleNamespace(get_open_lifecycle_trades=forbidden)
+    flags=[];e.post_fill_lifecycle=SimpleNamespace(set_startup_recovery_complete=flags.append)
+    e._recover_capital_state()
+    assert e.startup_recovery_state==RecoveryState.RECOVERY_FAILED
+    assert e.startup_recovery_result.reason=='CAPITAL_RESTART_ADMISSION_BLOCKED'
+    assert e._failsafe_block_new_entries and flags==[False]
+    assert e.capital_authority.total_reserved_capital==100
+    assert enrolled.read_capital_state('synthetic:account-a','PAPER')['pending'] is None
+
+
+def test_durable_writer_identity_mismatch_cannot_rebind(enrolled):
+    current=owner(enrolled)
+    enrolled._store.connection.execute("UPDATE capital_owner_state SET writer_id='another-session'")
+    enrolled._store.connection.commit()
+    before='\n'.join(enrolled._store.connection.iterdump())
+    with pytest.raises(RuntimeError,match='WRITER_SCOPE_CONFLICT'):admit(current)
+    assert '\n'.join(enrolled._store.connection.iterdump())==before
+    assert enrolled.read_capital_state('synthetic:account-a','PAPER')['version']==0
+
+
+def test_writer_bound_to_database_identity(enrolled,tmp_path):
+    current=owner(enrolled);admit(current,cap=500)
+    other=storage(tmp_path/'other.db');other._store.close()
+    path=enrolled._store.path;enrolled._store.path=str(tmp_path/'other.db')
+    before='\n'.join(enrolled._store.connection.iterdump())
+    try:
+        with pytest.raises(RuntimeError,match='IDENTITY_CONFLICT'):admit(current,'next',cap=500)
+    finally:enrolled._store.path=path
+    assert '\n'.join(enrolled._store.connection.iterdump())==before
+
+
+@pytest.mark.skipif(not hasattr(__import__('os'),'fork'),reason='Actual inherited-handle fork control is POSIX only; fresh spawn tested on Windows')
+def test_inherited_writer_fails_before_fork_child_database_access(enrolled):
+    import multiprocessing
+    current=owner(enrolled);admit(current,cap=500)
+    context=multiprocessing.get_context('fork');read,write=context.Pipe(duplex=False)
+    def child():
+        class NoDatabase:
+            def __getattr__(self,name):raise AssertionError('Fork child touched inherited SQLite')
+        enrolled._store.connection=NoDatabase()
+        try:admit(current,'fork-child',cap=500)
+        except RuntimeError as e:write.send(str(e))
+        finally:write.close()
+    process=context.Process(target=child);process.start();write.close()
+    try:
+        process.join(5)
+        assert not process.is_alive()
+        assert process.exitcode==0 and read.poll(1)
+        assert read.recv()=='CAPITAL_WRITER_SESSION_REQUIRED'
+    finally:
+        if process.is_alive():process.terminate();process.join(2)
+        assert not process.is_alive();read.close();process.close()
+    assert current.total_reserved_capital==100
+
+
+def test_legacy_schema_one_inspection_never_enrolls_writer(enrolled):
+    import json
+    current=owner(enrolled);admit(current)
+    con=enrolled._store.connection
+    state=enrolled.read_capital_state('synthetic:account-a','PAPER')
+    row=con.execute("SELECT transition_id,reason FROM position_lifecycle_transitions WHERE reason_code='ATOMIC_CAPITAL_V2'").fetchone()
+    record=json.loads(row[1]);record['schema']=1;record.pop('writer_id')
+    state['schema_version']=1
+    record['state_hash']=SQLiteStore._capital_state_hash('synthetic:account-a','PAPER',1,state)
+    # Construct retained legacy format only in isolated fixture, never migrate it.
+    con.executescript("""
+      CREATE TABLE legacy_scope AS SELECT scope,mode,1 AS schema_version,version,
+        'SYNTHETIC_ONLY_V1' AS fence,pending,last_operation FROM capital_owner_state;
+      DROP TABLE capital_owner_state;
+      ALTER TABLE legacy_scope RENAME TO capital_owner_state;
+      DROP TABLE capital_synthetic_database;
+      CREATE TABLE capital_synthetic_database (version INTEGER PRIMARY KEY CHECK(version=1));
+      INSERT INTO capital_synthetic_database VALUES (1);
+    """)
+    con.execute('UPDATE position_lifecycle_transitions SET transition_id=?,reason_code=?,reason=? WHERE transition_id=?',
+        (row[0].replace('capital-atomic-v2:','capital-atomic-v1:'),'ATOMIC_CAPITAL_V1',json.dumps(record,sort_keys=True),row[0]))
+    con.commit()
+    other=storage(enrolled._store.path)
+    try:
+        before='\n'.join(other._store.connection.iterdump())
+        assert owner(other).total_reserved_capital==100
+        with pytest.raises(RuntimeError,match='SESSION_REQUIRED'):admit(owner(other),'new',cap=500)
+        with pytest.raises(RuntimeError,match='SCHEMA_UNSUPPORTED'):
+            other.initialize_synthetic_capital_scope('synthetic:account-a','PAPER')
+        assert '\n'.join(other._store.connection.iterdump())==before
+    finally:other._store.close()
+
+def test_scoped_reader_cannot_demote_to_legacy_authority(enrolled):
+    current=owner(enrolled);admit(current,cap=500)
+    reader=owner(enrolled)
+    try:reader.capital_scope=None
+    except AttributeError:pass
+    before='\n'.join(enrolled._store.connection.iterdump())
+    with pytest.raises(RuntimeError,match='SESSION|INSPECTION'):admit(reader,'demoted',cap=500)
+    assert '\n'.join(enrolled._store.connection.iterdump())==before
+
+@pytest.mark.parametrize('disabled',[False,True])
+def test_enrolled_store_cannot_be_selected_as_legacy(enrolled,disabled):
+    current=owner(enrolled);admit(current)
+    before='\n'.join(enrolled._store.connection.iterdump())
+    if disabled:enrolled.enabled=False
+    with pytest.raises(RuntimeError,match='SCOPE_REQUIRED_FOR_ENROLLED_STORAGE'):
+        CapitalManagementAuthority(run_mode='PAPER',storage_engine=enrolled)
+    assert '\n'.join(enrolled._store.connection.iterdump())==before
+
+
+def test_legacy_owner_created_before_enrollment_cannot_write_after_enrollment(tmp_path):
+    s=storage(tmp_path/'legacy-before.db')
+    legacy=CapitalManagementAuthority(run_mode='PAPER',storage_engine=s)
+    enroll(s);current=owner(s)
+    before='\n'.join(s._store.connection.iterdump())
+    try:
+        with pytest.raises(RuntimeError,match='SCOPE_REQUIRED_FOR_ENROLLED_STORAGE'):admit(legacy)
+        assert '\n'.join(s._store.connection.iterdump())==before
+        with pytest.raises(RuntimeError,match='SCOPE_REQUIRED_FOR_ENROLLED_STORAGE'):
+            legacy.recover_from_lifecycle([SimpleNamespace(quantity_open=99,entry_avg_price=100,symbol='XYZ')])
+        with pytest.raises(RuntimeError,match='SCOPE_REQUIRED_FOR_ENROLLED_STORAGE'):
+            legacy.recover_from_open_orders([])
+        assert admit(current).executable
+    finally:s._store.close()
+
+def test_failed_writer_cannot_renew_by_resetting_public_failure_flag(enrolled):
+    current=owner(enrolled);connection=enrolled._store.connection
+    class LostObservation(FailConnection):
+        def commit(self):
+            self.commits+=1
+            if self.commits==4:raise OSError('synthetic quarantine persistence failure')
+            self.original.commit()
+            if self.commits==3:raise OSError('synthetic completion response loss')
+    enrolled._store.connection=LostObservation(connection,'none')
+    with pytest.raises(RuntimeError,match='QUARANTINE_PERSISTENCE_UNKNOWN'):admit(current,cap=500)
+    enrolled._store.connection=connection
+    # No clearing API is authorized. Public mutable diagnostics cannot restore
+    # the issuer-private writer grant after an observed uncertain operation.
+    current.recovery_failed=False;current.recovery_failure_reason=None
+    with pytest.raises(RuntimeError,match='WRITER_REVOKED'):admit(current,'unsafe-renewal',cap=500)
+    assert current.total_reserved_capital==100

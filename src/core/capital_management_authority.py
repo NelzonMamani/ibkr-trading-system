@@ -100,10 +100,17 @@ class CapitalReservation:
         return asdict(self)
 
 
+def _require_unenrolled_capital_storage(storage):
+    checker = getattr(storage,'capital_scopes_present',None)
+    if callable(checker) and checker():
+        raise RuntimeError('CAPITAL_SCOPE_REQUIRED_FOR_ENROLLED_STORAGE')
+
+
 def _durable_capital(method):
     @wraps(method)
     def call(self, *args, **kwargs):
         if self.capital_scope is None:
+            _require_unenrolled_capital_storage(self.storage_engine)
             return method(self, *args, **kwargs)
         bound = inspect.signature(method).bind(self, *args, **kwargs)
         bound.apply_defaults()
@@ -141,8 +148,13 @@ class CapitalManagementAuthority:
         buying_power: float | None = None,
         broker_truth_available: bool | None = None,
         capital_scope: str | None = None,
+        capital_writer: object | None = None,
     ) -> None:
-        self.capital_scope = capital_scope
+        self._capital_writer = None
+        self._capital_writer_issuer = None
+        self._capital_scope = capital_scope
+        if capital_scope is None:
+            _require_unenrolled_capital_storage(storage_engine)
         self.run_mode = str(run_mode or "SIM").upper()
         self.storage_engine = storage_engine
         self.account_equity = account_equity
@@ -155,6 +167,16 @@ class CapitalManagementAuthority:
         self._recovered_trade_ids: set[str] = set()
         self.recovery_failed: bool = False
         self.recovery_failure_reason: str | None = None
+        if capital_writer is not None:
+            if capital_scope is None or storage_engine is None:
+                raise RuntimeError('CAPITAL_WRITER_SCOPE_REQUIRED')
+            self._capital_writer = storage_engine.claim_capital_writer(capital_writer,self,capital_scope,self.run_mode)
+            self._capital_writer_issuer = storage_engine
+
+    @property
+    def capital_scope(self):
+        """Construction-bound identity; public flags cannot demote to legacy."""
+        return self._capital_scope
 
     @property
     def active_reservations(self) -> dict[str, CapitalReservation]:
@@ -710,6 +732,7 @@ class CapitalManagementAuthority:
         if self.capital_scope is not None:
             self._capital_projection()  # Load only; no historical reconstruction.
             return 0
+        _require_unenrolled_capital_storage(self.storage_engine)
         self._used_exposure_by_symbol.clear()
         self._used_exposure_by_strategy.clear()
         self._recovered_trade_ids.clear()
@@ -745,6 +768,7 @@ class CapitalManagementAuthority:
         if self.capital_scope is not None:
             self._capital_projection()  # Load only; no historical reconstruction.
             return 0
+        _require_unenrolled_capital_storage(self.storage_engine)
         for reservation in self.active_reservations.values():
             reservation.status = "STALE_DISCARDED"
             reservation.remaining_quantity = 0
@@ -1099,6 +1123,9 @@ class CapitalManagementAuthority:
         if state.get('pending') is not None:
             self.recovery_failed=True
             self.recovery_failure_reason='CAPITAL_PENDING_AUTHORITATIVE_INSPECTION'
+        elif self._capital_writer is None:
+            self.recovery_failed=True
+            self.recovery_failure_reason='CAPITAL_RESTART_ADMISSION_BLOCKED'
         projected = CapitalManagementAuthority(run_mode=self.run_mode, storage_engine=_CapitalEffectValidation(),
             account_equity=self.account_equity, available_capital=self.available_capital,
             buying_power=self.buying_power, broker_truth_available=self.broker_truth_available)
@@ -1183,7 +1210,7 @@ class CapitalManagementAuthority:
                     raise RuntimeError('CAPITAL_STALE_OR_UNBOUND_DECISION')
                 receipt=self.storage_engine._capital_store().connection.execute(
                     'SELECT reason FROM position_lifecycle_transitions WHERE transition_id=?',
-                    ('capital-atomic-v1:'+self.capital_scope+':'+quote['operation'],)).fetchone()
+                    ('capital-atomic-v2:'+self.capital_scope+':'+quote['operation'],)).fetchone()
                 if not receipt or json.loads(receipt[0])['result']['value'] != decision.to_dict():
                     raise RuntimeError('CAPITAL_DECISION_INTEGRITY_FAILURE')
                 request=quote['request']; request=dict(request,reserve=False)
@@ -1212,8 +1239,10 @@ class CapitalManagementAuthority:
                 'symbol':projected._used_exposure_by_symbol,'strategy':projected._used_exposure_by_strategy,'progress':progress}
             return after,result
         try:
-            result,duplicate=self.storage_engine.transact_capital(self.capital_scope,self.run_mode,operation,binding,apply)
+            result,duplicate=self.storage_engine.transact_capital(self.capital_scope,self.run_mode,operation,binding,apply,writer=self._capital_writer,owner=self)
         except BaseException:
+            if self._capital_writer_issuer is not None:
+                self._capital_writer_issuer.revoke_capital_writer(self._capital_writer,self,self.capital_scope)
             self.recovery_failed=True
             self.recovery_failure_reason='CAPITAL_TRANSACTION_OUTCOME_REQUIRES_INSPECTION'
             raise
