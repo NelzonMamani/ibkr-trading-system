@@ -801,3 +801,26 @@ def test_failed_writer_cannot_renew_by_resetting_public_failure_flag(enrolled):
     current.recovery_failed=False;current.recovery_failure_reason=None
     with pytest.raises(RuntimeError,match='WRITER_REVOKED'):admit(current,'unsafe-renewal',cap=500)
     assert current.total_reserved_capital==100
+
+def test_dead_weak_owner_cannot_match_missing_lower_level_owner(enrolled):
+    import gc
+    current=owner(enrolled);admit(current,cap=500);token=current._capital_writer
+    del current;gc.collect()
+    before='\n'.join(enrolled._store.connection.iterdump())
+    with pytest.raises(RuntimeError,match='OWNER|SESSION|IDENTITY'):
+        enrolled.transact_capital('synthetic:account-a','PAPER','unauthorized','{}',
+            lambda state:pytest.fail('Unowned transaction callback ran'),writer=token,owner=None)
+    assert '\n'.join(enrolled._store.connection.iterdump())==before
+
+
+def test_lost_enrollment_acknowledgement_cannot_reissue_writer(tmp_path):
+    s=storage(tmp_path/'enrollment-loss.db');connection=s._store.connection
+    s._store.connection=FailConnection(connection,'after_commit',1)
+    with pytest.raises(OSError):s.initialize_synthetic_capital_scope('synthetic:account-a','PAPER')
+    s._store.connection=connection
+    before='\n'.join(connection.iterdump())
+    assert s.read_capital_state('synthetic:account-a','PAPER')['version']==0
+    with pytest.raises(RuntimeError,match='SESSION_REQUIRED'):admit(owner(s))
+    with pytest.raises(Exception):s.initialize_synthetic_capital_scope('synthetic:account-a','PAPER')
+    assert '\n'.join(connection.iterdump())==before
+    s._store.close()

@@ -1700,6 +1700,9 @@ class SQLiteStore:
         return writer
 
     def _validate_capital_writer(self, writer, owner, scope, mode, *, claiming=False):
+        from src.core.capital_management_authority import CapitalManagementAuthority
+        if not isinstance(owner,CapitalManagementAuthority):
+            raise _CapitalWriterRejected('CAPITAL_WRITER_OWNER_REQUIRED')
         entry = self._capital_writers.get(scope)
         if type(writer) is not _CapitalWriter or entry is None or entry[0] is not writer:
             raise _CapitalWriterRejected('CAPITAL_WRITER_SESSION_REQUIRED')
