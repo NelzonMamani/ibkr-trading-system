@@ -3201,6 +3201,24 @@ class CoreOrchestrator:
                     fallback_enabled = bool(get_config("IBKR_FALLBACK_ENABLED"))
                     force_mock_provider = fallback_enabled or str(get_config("SCANNER_DATA_SOURCE") or "").upper() == "MOCK"
 
+        if self.run_mode == RunMode.PAPER:
+            if self._stop_requested_at_boundary("CACHED_EXECUTION_UPDATES"):
+                return False
+            try:
+                # Non-consuming cumulative callback facts belong to the existing
+                # execution owner. Apply them before reconciling broker positions
+                # against the registry; acknowledgement is not a fill.
+                self.execution_engine.collect_relationship_updates(
+                    result_processor=lambda result: self._apply_execution_results_to_trade_management([result]))
+            except (AcquisitionCancelled, AcquisitionDeadlineExceeded):
+                raise
+            except Exception:
+                self.execution_engine.execution_integrity_flag = True
+                self._degraded = True
+                # Preserve cached facts/owner ledgers for reconciliation/replay;
+                # never admit entries or release uncertainty after a failed pass.
+                raise
+
         position_truth_verdict = self._resolve_position_truth_cycle(
             as_of=cycle_started_at, broker_connection_ready=not connectivity_failed)
         fill_verdict = self._resolve_fill_authority_cycle()
