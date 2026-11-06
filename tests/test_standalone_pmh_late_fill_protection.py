@@ -15,7 +15,7 @@ from test_joined_core_pmh_paper_assessment import (
 )
 
 
-def late_pmh(reassessment,monkeypatch,tmp_path,*,canonical_manager=False):
+def late_pmh(reassessment,monkeypatch,tmp_path):
     facts={};reads=[];sent=[];stops=[];open_orders=[];quantity=[0]
     def cached(order_id):
         reads.append(order_id)
@@ -29,12 +29,17 @@ def late_pmh(reassessment,monkeypatch,tmp_path,*,canonical_manager=False):
             order=NS(orderType='STP',parentId=71,orderRef='PROTECT|'+str(kw['trade_id']),action='SELL',totalQuantity=1,auxPrice=kw['stop_price']),
             orderState=NS(status='Submitted')))
         return dict(broker_order_id='72',status='Submitted',order_type='STP')
-    native_client=NS(cached_order_status=cached)
-    connection=NS(optional_client=native_client)
-    if canonical_manager:
-        from src.adapters.brokers.ibkr.ibkr_connection_manager import IbkrConnectionManager
-        connection=IbkrConnectionManager.__new__(IbkrConnectionManager)
-        connection._client=native_client
+    from src.adapters.brokers.ibkr.ibkr_connection_manager import IbkrConnectionManager, IbkrConnectionConfig
+    from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
+    native_client=IbkrClient('offline',0,999,5,'LIVE',True)
+    # External connection state and callback facts only; the manager accessor,
+    # provider and all internal decisions remain real.
+    monkeypatch.setattr(native_client,'isConnected',lambda:True)
+    monkeypatch.setattr(native_client,'cached_order_status',cached)
+    connection=IbkrConnectionManager(IbkrConnectionConfig('offline',0,999,5,'LIVE',True,'PAPER'))
+    connection._client=native_client
+    for method in ('connect','ensure_connected','get_client','_connect_locked'):
+        monkeypatch.setattr(connection,method,lambda *a,**k:pytest.fail('Implicit provider connection forbidden'))
     broker=NS(positions=positions,open_orders=lambda:list(open_orders),
         connection_manager=connection,place_stop_order=place_stop)
     def provider_factory(**kw):
@@ -58,6 +63,7 @@ def late_pmh(reassessment,monkeypatch,tmp_path,*,canonical_manager=False):
         return BrokerPositionResult(tuple(positions()),'COMPLETE','SYNTHETIC_TEST',h.life.clock.now(timezone.utc))
     native_client.position_snapshot=snapshot
     h.core.connection_manager._ibkr_connection_manager.existing_client=native_client
+    h.native_manager=connection;h.native_client=native_client
     h.facts=facts;h.reads_native=reads;h.sent_native=sent;h.stop_requests=stops
     h.native_open_orders=open_orders;h.native_quantity=quantity
     h.collect_calls=[];collect=engine.collect_relationship_updates

@@ -126,7 +126,7 @@ def test_scope_change_cannot_apply_cached_effect(reassessment,monkeypatch,tmp_pa
         h.facts[71]=dict(status='Filled',filled=1,remaining=0,avgFillPrice=10.31)
         account,client,stamp=engine._native_scope
         if change=='account':engine.bind_native_order_scope(account='OTHER',client=client,as_of=stamp)
-        if change=='client':engine._provider.broker.connection_manager.optional_client=NS()
+        if change=='client':engine._provider.broker.connection_manager._client=NS()
         if change=='mode':engine.run_mode=RunMode.READ_ONLY
         if change=='stale':engine.bind_native_order_scope(account=account,client=client,as_of=stamp-timedelta(minutes=2))
         if change=='unknown':engine.bind_native_order_scope(account=None,client=client,as_of=stamp)
@@ -328,26 +328,25 @@ def test_storage_failure_before_dispatch_prevents_transport(reassessment,monkeyp
     finally:teardown_unsent_fixture(h,no_external_activity)
 
 
-class NativeProviderManagerInterfaceMissing(AssertionError):
-    """Separate adapter API blocker; this owner repair must not hide it."""
-
-
-@pytest.mark.xfail(strict=True,raises=NativeProviderManagerInterfaceMissing,
-    reason='existing provider uses optional_client; actual IbkrConnectionManager exposes existing_client')
 def test_real_manager_shape_reaches_existing_provider_cached_read(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
-    h=late_pmh(reassessment,monkeypatch,tmp_path,canonical_manager=True)
+    h=late_pmh(reassessment,monkeypatch,tmp_path)
     try:
         request=acknowledge(h,capsys);engine=h.core.execution_engine
+        assert h.native_manager.existing_client is h.native_client
         h.facts[71]=dict(status='Filled',filled=1,remaining=0,avgFillPrice=10.31)
         h.native_quantity[0]=1;h.native_open_orders.clear()
-        try:collect(h)
-        except AttributeError as error:
-            assert 'optional_client' in str(error)
-            assert h.reads_native==[] and not engine.position_records and h.stop_requests==[]
-            assert engine.capital_authority.total_reserved_capital==pytest.approx(10.3)
-            assert engine._native_quarantined and engine._native_orders[request.client_order_id]['quarantine']
-            raise NativeProviderManagerInterfaceMissing('real manager/provider cached-read API mismatch') from error
+        h.life.clock.current+=timedelta(seconds=1)
+        assert h.core.run_once();capsys.readouterr()
         assert h.reads_native==[71] and len(engine.position_records)==1
+        assert h.truth[-1][1].healthy and not h.truth[-1][1].block_new_entries
+        life=engine.post_fill_lifecycle.get_trade(request.client_order_id)
+        assert life.filled_qty==1 and life.avg_fill_price==10.31
+        assert life.selected_stop_price==request.stop_loss_price==10.2897
+        assert request.invalidation_level==10.3 and life.target is None
+        assert engine._native_orders[request.client_order_id]['protection_confirmed']
+        assert len(h.stop_requests)==1 and h.manager.snapshot_positions()['JPM'].quantity==1
+        assert engine.capital_authority.total_reserved_capital==0
+        assert engine.capital_authority.total_used_exposure==10.31
     finally:teardown_unsent_fixture(h,no_external_activity)
 
 

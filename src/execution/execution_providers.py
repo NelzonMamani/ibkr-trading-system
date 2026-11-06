@@ -270,8 +270,8 @@ class IbkrExecutionProvider(ExecutionProvider):
         return True
 
     def cached_order_update(self, broker_order_id: str) -> dict:
-        client = self.broker.connection_manager.optional_client
-        if client is None:
+        client = self.broker.connection_manager.existing_client
+        if client is None or not client.is_connected():
             return {}
         return client.cached_order_status(int(broker_order_id))
 

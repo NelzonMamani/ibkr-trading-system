@@ -126,8 +126,13 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
             from src.execution.execution_providers import IbkrExecutionProvider
             # Actual native provider wrapper; only external broker inventory and
             # transport responses are synthetic. is_live/ack handling stay real.
+            from src.adapters.brokers.ibkr.ibkr_connection_manager import IbkrConnectionManager, IbkrConnectionConfig
+            manager=IbkrConnectionManager(IbkrConnectionConfig('offline',0,999,5,'LIVE',True,'PAPER'))
+            manager._client=NS(cached_order_status=cached_status,is_connected=lambda:True)
+            for method in ('connect','ensure_connected','get_client','_connect_locked'):
+                monkeypatch.setattr(manager,method,lambda *a,**k:pytest.fail('Implicit provider connection forbidden'))
             provider=IbkrExecutionProvider(broker=NS(positions=lambda:[],open_orders=external_open_orders,
-                connection_manager=NS(optional_client=NS(cached_order_status=cached_status)),
+                connection_manager=manager,
                 place_stop_order=unexpected_protection,cancel_order=synthetic_cancel),trade_registry=kw["trade_registry"],run_mode=kw["run_mode"])
         providers.append(provider)
         return provider
