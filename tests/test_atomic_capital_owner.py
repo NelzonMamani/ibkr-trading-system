@@ -370,7 +370,7 @@ def test_actual_execution_startup_loads_without_rebuilding(enrolled):
     e=ExecutionEngine.__new__(ExecutionEngine)
     e.startup_recovery_state=RecoveryState.RECOVERY_COMPLETE
     e._trade_lifecycle_engine=None;e.post_fill_lifecycle=SimpleNamespace(_trades={})
-    e.strategy_allocation_authority=SimpleNamespace(recover_from_lifecycle=lambda trades:None)
+    e.strategy_allocation_authority=SimpleNamespace(recover_from_lifecycle=lambda trades:pytest.fail('Allocation replay forbidden for enrolled capital load'))
     e.capital_authority=o;e._provider=None;e.run_mode=SimpleNamespace(value='PAPER')
     e._recover_capital_state()
     assert e.capital_authority.total_reserved_capital==100
@@ -406,3 +406,22 @@ def test_lost_completion_and_lost_quarantine_is_explicit_remaining_boundary(enro
     # capital state+receipt prove100, but no durable failure-observation latch.
     assert owner(enrolled).total_reserved_capital==100
     assert enrolled.read_capital_state('synthetic:account-a','PAPER')['pending'] is None
+
+
+def test_actual_execution_pending_gate_precedes_other_recovery(enrolled):
+    from src.execution.execution_engine import ExecutionEngine
+    from src.execution.startup_recovery_authority import RecoveryState
+    o=owner(enrolled);admit(o)
+    enrolled._store.connection.execute("UPDATE capital_owner_state SET pending='retained-interruption'")
+    enrolled._store.connection.commit()
+    def forbidden(*a,**k):pytest.fail('No unrelated recovery or inventory permitted')
+    e=ExecutionEngine.__new__(ExecutionEngine);e.startup_recovery_state=RecoveryState.RECOVERY_COMPLETE
+    e.capital_authority=owner(enrolled);e._provider=SimpleNamespace(get_open_orders=forbidden)
+    e.strategy_allocation_authority=SimpleNamespace(recover_from_lifecycle=forbidden)
+    e._trade_lifecycle_engine=SimpleNamespace(get_open_lifecycle_trades=forbidden)
+    flags=[];e.post_fill_lifecycle=SimpleNamespace(set_startup_recovery_complete=flags.append)
+    e._recover_capital_state()
+    assert e.startup_recovery_state==RecoveryState.RECOVERY_FAILED
+    assert e._failsafe_block_new_entries and flags==[False]
+    assert e.capital_authority.total_reserved_capital==100
+    assert enrolled.read_capital_state('synthetic:account-a','PAPER')['pending']=='retained-interruption'

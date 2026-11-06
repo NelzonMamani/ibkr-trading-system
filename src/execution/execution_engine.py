@@ -212,6 +212,13 @@ class ExecutionEngine:
     def _recover_capital_state(self) -> None:
         if not self.startup_recovery_complete():
             return
+        if getattr(self.capital_authority, 'capital_scope', None) is not None:
+            # Enrolled capital is restored by read-only authoritative load.
+            # Never use this legacy rebuild route for any related effect owner.
+            self.capital_authority._capital_projection()
+            if self.capital_authority.recovery_failed:
+                self._mark_capital_recovery_failed(self.capital_authority.recovery_failure_reason)
+            return
         lifecycle_trades: list[object] = []
         if self._trade_lifecycle_engine is not None:
             getter = getattr(self._trade_lifecycle_engine, "get_open_lifecycle_trades", None)
@@ -220,13 +227,7 @@ class ExecutionEngine:
         if not lifecycle_trades:
             lifecycle_trades = list(getattr(self.post_fill_lifecycle, "_trades", {}).values())
         self.strategy_allocation_authority.recover_from_lifecycle(lifecycle_trades)
-        if getattr(self.capital_authority, 'capital_scope', None) is not None:
-            self.capital_authority._capital_projection()
-            if self.capital_authority.recovery_failed:
-                self._mark_capital_recovery_failed(self.capital_authority.recovery_failure_reason)
-                return
-        else:
-            self.capital_authority.recover_from_lifecycle(lifecycle_trades)
+        self.capital_authority.recover_from_lifecycle(lifecycle_trades)
 
         broker_orders: list[object] = []
         if self._provider is not None:
@@ -238,8 +239,7 @@ class ExecutionEngine:
                 if self.run_mode == RunMode.LIVE:
                     self._mark_capital_recovery_failed(f"CAPITAL_OPEN_ORDER_RECOVERY_FAILED:{exc}")
                 return
-        if getattr(self.capital_authority, 'capital_scope', None) is None:
-            self.capital_authority.recover_from_open_orders(broker_orders)
+        self.capital_authority.recover_from_open_orders(broker_orders)
         if self.run_mode == RunMode.LIVE and getattr(self.capital_authority, "recovery_failed", False):
             reason = getattr(self.capital_authority, "recovery_failure_reason", "CAPITAL_RECOVERY_FAILED")
             self._mark_capital_recovery_failed(str(reason))
