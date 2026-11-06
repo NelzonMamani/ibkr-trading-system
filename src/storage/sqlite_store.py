@@ -1628,6 +1628,29 @@ class SQLiteStore:
         cursor = self.connection.execute(f"PRAGMA table_info({table})")
         return {row["name"] for row in cursor.fetchall()}
 
+    def insert_owner_effect_record(self, transition_id: str, payload: str, *, run_id: str | None,
+                                   prepared_id: str | None = None, prepared_payload: str | None = None) -> None:
+        """Append-only evidence in the existing lifecycle audit table, not a balance ledger."""
+        if self.connection.in_transaction:
+            raise RuntimeError("OWNER_EFFECT_UNOWNED_TRANSACTION")
+        try:
+            self.connection.execute("BEGIN IMMEDIATE")
+            if prepared_id is not None:
+                row = self.connection.execute("SELECT reason FROM position_lifecycle_transitions WHERE transition_id=?", (prepared_id,)).fetchone()
+                if row is None or row[0] != prepared_payload:
+                    raise RuntimeError("OWNER_EFFECT_PREPARE_CONFLICT")
+            self.connection.execute(
+                "INSERT INTO position_lifecycle_transitions (transition_id,run_id,intent,reason_code,reason,transition_seq,timestamp,created_at) VALUES (?,?,?,?,?,?,?,?)",
+                (transition_id, run_id, "OWNER_EFFECT_EVIDENCE", "NON_ATOMIC_V1", payload, 0, now_iso(), now_iso()))
+            self.connection.commit()
+        except BaseException:
+            self.connection.rollback()
+            raise
+
+    def fetch_owner_effect_record(self, transition_id: str) -> str | None:
+        row = self.connection.execute("SELECT reason FROM position_lifecycle_transitions WHERE transition_id=?", (transition_id,)).fetchone()
+        return row[0] if row else None
+
 
 def _csv_escape(values: Iterable[Any]) -> list[str]:
     escaped: list[str] = []

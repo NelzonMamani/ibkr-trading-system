@@ -29,21 +29,24 @@ from test_key_level_break_production_handoff import forbid_io
     ("complete_empty","native_late_fill"),
     *[("complete_empty","native_late_"+case) for case in
       ("pending","unrelated","negative","fractional","no_price","nan_price",
+       *["assessment_"+stage for stage in ("before_allocation","allocation_audit_failure","before_capital","capital_audit_failure","allocation_error","accounting_error","processor_error","processor_after","completion_error","relationship_write_failure")],
        "collector_error","processor_error","processor_after","rejected","cancelled","partial",
        "missing_counts","unknown_status","oversize","uncertain","regression","accounting_error","allocation_error","completion_error","binding_error","stop_oversize","stop_bad_price","stop_bad_status","processor_cancel","processor_deadline","management","management_pending","management_uncertain",
        "management_unknown","management_unreconciled","management_no_protection","management_stale",
        "management_future","management_bad","management_daily_lock","management_protection_pending","management_protection_missing","management_forming","management_snapshot_failure",
-       *["management_interleave_"+name for name in ("stop_before","stop_during_submit","cancel_delayed","cancel_rejected","cancel_late","uncertain_repeat","both_stop_first","both_reduce_first","both_same_cycle","duplicate_reorder","interrupted_reduce","identity_later","identity_ambiguous","identity_wrong_security","identity_fractional","identity_wrong_side","identity_absent","identity_decimal","identity_wrong_type","identity_protection_collision","identity_duplicate_native","reduction_cancel_rejected","reduction_cancel_uncertain","reduction_cancel_late_fill")])],
+       *["management_interleave_"+name for name in ("stop_before","stop_during_submit","cancel_delayed","cancel_rejected","cancel_late","uncertain_repeat","both_stop_first","both_reduce_first","both_same_cycle","duplicate_reorder","interrupted_reduce","identity_later","identity_ambiguous","identity_wrong_security","identity_fractional","identity_wrong_side","identity_absent","identity_decimal","identity_wrong_type","identity_protection_collision","identity_duplicate_native","reduction_cancel_rejected","reduction_cancel_uncertain","reduction_cancel_late_fill","invalid_version_bool","invalid_version_future","invalid_protective_bool","invalid_protective_future")])],
 ])
 def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypatch,tmp_path,capsys,
         no_external_activity,position_case,transport):
     late_fill=transport.startswith("native_late_")
     late_case=transport.removeprefix("native_late_") if late_fill else None
+    assessment_case=late_case.removeprefix("assessment_") if late_case and late_case.startswith("assessment_") else None
+    if assessment_case: late_case=assessment_case
     interleaving=late_case.removeprefix("management_interleave_") if late_case and late_case.startswith("management_interleave_") else None
     management_case=late_case is not None and late_case.startswith("management")
     stop_fault=late_case in {"stop_oversize","stop_bad_price","stop_bad_status"}
     malformed=late_case in {"negative","fractional","no_price","nan_price","missing_counts","unknown_status","oversize","binding_error"}
-    failed_pass=malformed or late_case in {"collector_error","processor_error","processor_after","accounting_error","allocation_error","completion_error","processor_cancel","processor_deadline"}
+    failed_pass=bool(assessment_case) or malformed or late_case in {"collector_error","processor_error","processor_after","accounting_error","allocation_error","completion_error","processor_cancel","processor_deadline"}
     if late_fill: transport="native_timeout" if late_case=="uncertain" else "native_submitted"
     native_provider=transport.startswith("native_")
     if native_provider and transport not in {"native_timeout","native_unsupported"}: transport=transport.removeprefix("native_")
@@ -140,7 +143,7 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
     if late_fill:
         from src.ibkr.position_snapshot import BrokerPositionResult
         def external_positions():
-            held=(management_case or late_case in {"fill","partial","uncertain","regression","processor_error","processor_after","stop_oversize","stop_bad_price","stop_bad_status","management"}) and bool(cached_facts) and not (management_case and cached_facts.get(73,{}).get("filled")==1)
+            held=(bool(assessment_case) or management_case or late_case in {"fill","partial","uncertain","regression","processor_error","processor_after","stop_oversize","stop_bad_price","stop_bad_status","management"}) and bool(cached_facts) and not (management_case and cached_facts.get(73,{}).get("filled")==1)
             quantity=(1-sum(broker_fills.values())) if interleaving and cached_facts else int(held)
             rows=(NS(symbol="JPM",position=quantity,con_id=123,avgCost=10.91,account="SYNTHETIC_TEST"),) if quantity else ()
             return BrokerPositionResult(rows,"UNAVAILABLE" if late_case=="management_unknown" and management_fault_active[0]
@@ -286,6 +289,19 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
         monkeypatch.setattr(providers[0].broker,"place_order",offline_transport,raising=False)
     else:
         monkeypatch.setattr(providers[0],"place_order",offline_transport)
+    assessment_error=None
+    if interleaving and interleaving.startswith("invalid_version_"):
+        build=h.core.execution_engine._order_from_risk_decision
+        def corrupt_retained_version(*args,**kwargs):
+            request=build(*args,**kwargs)
+            if request.direction=="SELL":
+                owned_plan=h.manager._relationship_plans[request.relationship_context["relationship_id"]]
+                owned_plan.orders[request.client_order_id]["owner_effect_version"]=True if interleaving.endswith("bool") else 999
+                decision=args[0] if args else kwargs["risk_decision"]
+                owned_plan.orders[request.client_order_id]["decision_id"]=decision.decision_id
+                h.manager._save_relationship_state()
+            return request
+        monkeypatch.setattr(h.core.execution_engine,"_order_from_risk_decision",corrupt_retained_version)
     try:
         assert h.core.run_once()
         first=capsys.readouterr().out
@@ -343,6 +359,25 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
                 if management_case:
                     h.core.connection_manager._client=NS(intraday_bars_from_history=external_history)
                     monkeypatch.setattr(management_module,"datetime",h.life.clock)
+                if assessment_case in {"before_allocation","before_capital"}:
+                    def before_effect(*args,**kwargs): raise RuntimeError("synthetic evidence interruption")
+                    monkeypatch.setattr(h.core.execution_engine,
+                        "_convert_strategy_allocation_for_fill" if assessment_case=="before_allocation" else "_convert_capital_for_fill",before_effect)
+                if assessment_case in {"allocation_audit_failure","capital_audit_failure"}:
+                    owner=(h.core.execution_engine.strategy_allocation_authority if assessment_case=="allocation_audit_failure"
+                        else h.core.execution_engine.capital_authority)
+                    audit=owner._audit
+                    def failed_audit_boundary(event_type,**payload):
+                        if event_type=="EXPOSURE": raise RuntimeError("synthetic evidence interruption")
+                        return audit(event_type,**payload)
+                    monkeypatch.setattr(owner,"_audit",failed_audit_boundary)
+                if assessment_case=="relationship_write_failure":
+                    write=h.core.storage_engine.store_management_state
+                    def failed_relationship_write(state_id,payload):
+                        if payload["plans"][plan.relationship_id]["orders"][plan.initial_order_id]["filled"]==1:
+                            raise RuntimeError("synthetic relationship state persistence failure")
+                        return write(state_id,payload)
+                    monkeypatch.setattr(h.core.storage_engine,"store_management_state",failed_relationship_write)
                 if late_case=="binding_error":
                     # Negative retained-request corruption: never a permission patch.
                     plan.orders[sent[0].client_order_id]["request"]["client_order_id"]="wrong-occurrence"
@@ -453,6 +488,13 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
                             h.core.run_once()
                             repeated+=capsys.readouterr().out
     finally:
+        if assessment_case:
+            try:
+                _assess_retained_execution_evidence(h=h,plan=plan,stage=assessment_case,
+                    cached=cached_facts,protection_requests=protection_requests,tmp_path=tmp_path,
+                    no_external_activity=no_external_activity)
+            except BaseException as exc:
+                assessment_error=exc  # Isolated ledger cleanup must still run on an evidence assertion failure.
         # Record BEFORE cleanup so release cannot hide unexpected admission.
         pending_capital=deepcopy(h.core.execution_engine.capital_authority.active_reservations)
         pending_allocation=deepcopy(h.core.execution_engine.strategy_allocation_authority.active_reservations)
@@ -467,6 +509,8 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
         if used_allocation:
             h.core.execution_engine.strategy_allocation_authority.release_exposure(strategy_id="RossMomentumStrategyV1",
                 notional=used_allocation,reason="OFFLINE_JOINED_PROOF_END")
+    if assessment_error is not None: raise assessment_error
+    if assessment_case: return  # Evidence assertions run before isolated ledger teardown.
     if management_case:
         blocked=late_case in {"management_unknown","management_unreconciled","management_no_protection",
             "management_stale","management_future","management_bad","management_protection_pending","management_protection_missing","management_snapshot_failure"}
@@ -786,7 +830,9 @@ def _exercise_stop_reduction_interleaving(*,h,plan,case,cached,broker_fills,work
             orders=deepcopy(plan.orders),callbacks=deepcopy(cached),cancels=list(cancels),
             failsafe=engine._failsafe_block_new_entries,
             truth_block=h.truth[-1][1].block_new_entries,truth_exit_block=h.truth[-1][1].block_exits,
-            accounting_calls=deepcopy(accounting_calls))
+            accounting_calls=deepcopy(accounting_calls),
+            canonical_orders_asof=str(getattr(engine,"_relationship_orders_asof",None)),
+            canonical_orders=[vars(row) if not isinstance(row,dict) else row for row in getattr(engine,"_relationship_open_orders",[])])
         states.append(state)
         return state
     def cycle(stage):
@@ -806,10 +852,23 @@ def _exercise_stop_reduction_interleaving(*,h,plan,case,cached,broker_fills,work
         assert engine.capital_authority.active_reservations=={}
         snapshot("filled_owned_protected_below_2R")
         market_close[0]=plan.milestone_price
+        if case.startswith("invalid_protective_"):
+            plan.orders[plan.initial_order_id]["owner_effect_version"]=True if case.endswith("bool") else 999
+            h.manager._save_relationship_state()
+            filled(72,10.81)
         if case=="stop_before": filled(72,10.81)
         first=cycle("threshold")
-        assert len(sent)==(1 if case=="stop_before" else 2)
-        if case=="stop_before":
+        assert len(sent)==(1 if case=="stop_before" or case.startswith("invalid_") else 2)
+        if case.startswith("invalid_"):
+            cycle("invalid_schema_remains_blocked")
+            assert len(sent)==1 and not plan.milestone_consumed
+            target=plan.orders[plan.initial_order_id if case.startswith("invalid_protective_") else plan.milestone_order_id]
+            assert type(target["owner_effect_version"]) is (bool if case.endswith("bool") else int)
+            assert target["owner_effect_version"]==(True if case.endswith("bool") else 999)
+            if case.startswith("invalid_protective_"):
+                assert not any((o.get("request",{}).get("relationship_context") or {}).get("protective_stop_fill") for o in plan.orders.values())
+                assert engine.capital_authority.symbol_exposure("JPM")==pytest.approx(10.91)
+        elif case=="stop_before":
             cycle("duplicate_stop")
             assert len(sent)==1 and plan.milestone_order_id is None
         else:
@@ -965,6 +1024,7 @@ def _exercise_stop_reduction_interleaving(*,h,plan,case,cached,broker_fills,work
             with pytest.raises(RuntimeError,match="CACHED_EXECUTION_UPDATE_RECOVERY_REQUIRED"):
                 engine.collect_relationship_updates()
             assert before==deepcopy((engine.position_records,plan.orders,engine.capital_authority.symbol_exposure("JPM")))
+        _assess_interleaving_recovery_evidence(h=h,plan=plan,case=case,states=states,tmp_path=tmp_path)
     finally:
         (tmp_path/"interleaving-summary.json").write_text(json.dumps(dict(case=case,states=states),default=str,sort_keys=True))
         with capsys.disabled():
@@ -975,3 +1035,506 @@ def _exercise_stop_reduction_interleaving(*,h,plan,case,cached,broker_fills,work
 
 class StopReductionSafetyGap(AssertionError):
     """Retained demonstrated invariant failure; no production correction authorized."""
+
+
+def _assess_retained_execution_evidence(*,h,plan,stage,cached,protection_requests,tmp_path,no_external_activity):
+    """Test-only assessment. Live observations are NEVER durable application proof."""
+    import json
+    import sqlite3
+    from copy import deepcopy
+    from src.execution.trade_management_engine import TradeManagementEngine
+    from src.execution.execution_engine import ExecutionEngine
+    from src.core.capital_management_authority import CapitalManagementAuthority
+    from src.core.strategy_capital_allocation_authority import StrategyCapitalAllocationAuthority
+    engine=h.core.execution_engine
+    storage=h.core.storage_engine
+    assert storage.enabled and storage.backend=="sqlite"
+    # A separate read-only connection sees committed records, not a writer's
+    # uncommitted buffers or the manager's current in-memory values.
+    with sqlite3.connect(f"file:{storage.sqlite_path}?mode=ro",uri=True) as db:
+        db.row_factory=sqlite3.Row
+        row=db.execute("SELECT reason FROM position_lifecycle_transitions WHERE transition_id=?",
+            (h.manager._state_namespace,)).fetchone()
+        durable=json.loads(row[0])
+        capital=[dict(r) for r in db.execute("SELECT * FROM capital_audit_events")]
+        allocation=[dict(r) for r in db.execute("SELECT * FROM strategy_allocation_audit_events")]
+        lifecycle=[dict(r) for r in db.execute("SELECT * FROM trade_lifecycle_events")]
+        stops=[dict(r) for r in db.execute("SELECT * FROM stop_authority_events")]
+    saved=durable["plans"][plan.relationship_id]
+    saved_order=saved["orders"][plan.initial_order_id]
+    assert saved_order["request"]["client_order_id"]==plan.initial_order_id
+    assert saved_order["request"]["relationship_context"]["relationship_id"]==plan.relationship_id
+    assert cached[71]==dict(status="Filled",filled=1,remaining=0,avgFillPrice=10.91)
+    external_positions=h.core.connection_manager._ibkr_connection_manager.existing_client.position_snapshot()
+    assert external_positions.status=="COMPLETE" and external_positions.rows[0].position==1
+    cap_effects=[r for r in capital if r["event_type"]=="EXPOSURE" and r["order_id"]==plan.initial_order_id]
+    alloc_effects=[r for r in allocation if r["event_type"]=="EXPOSURE" and r["order_id"]==plan.initial_order_id]
+    assert all(r["status"]=="CONVERTED" for r in cap_effects+alloc_effects)
+    assert all(r["trade_id"]==plan.initial_order_id for r in cap_effects+alloc_effects)
+    assert all(r["exposure_before"]==0 and r["exposure_after"]==pytest.approx(10.91) for r in cap_effects)
+    assert all(r["used_exposure"]==pytest.approx(10.91) for r in alloc_effects)
+    # Only a positive post-mutation audit receipt could establish conversion.
+    # Active facade lacks that API; absence must remain UNKNOWN.
+    cap_class="APPLIED" if cap_effects else "UNKNOWN"
+    alloc_class="APPLIED" if alloc_effects else "UNKNOWN"
+    exact_exec=f"{plan.relationship_id}:{plan.initial_order_id}:1"
+    managed=(saved_order["filled"]==1 and saved_order["notional"]==pytest.approx(10.91)
+        and exact_exec in durable["seen_exec_ids"])
+    management_class="APPLIED" if managed else "UNKNOWN"
+    assert engine.capital_authority.storage_engine is storage
+    assert engine.strategy_allocation_authority.storage_engine is storage
+    assert not hasattr(storage,"insert_capital_audit_event")
+    assert not hasattr(storage,"insert_strategy_allocation_audit_event")
+    assert not cap_effects and not alloc_effects  # Active facade does not wire the lower-store audit API.
+    assert managed==(stage in {"processor_after","completion_error"})
+    stop_required=[r for r in stops if r["event_type"]=="STOP_REQUIRED" and r["lifecycle_trade_id"]==plan.initial_order_id]
+    stop_ack=[r for r in stops if r["event_type"]=="STOP_ACKNOWLEDGED" and r["lifecycle_trade_id"]==plan.initial_order_id]
+    assert bool(stop_required)==bool(stop_ack)==(stage in {"processor_error","processor_after","completion_error","relationship_write_failure"})
+    assert all(r["entry_order_id"]==plan.initial_order_id and r["quantity"]==1 for r in stop_required+stop_ack)
+    assert all(r["active_stop_order_id"]=="72" and r["stop_price"]==pytest.approx(10.81) for r in stop_ack)
+    # Positive local lifecycle/ack audit is historical application proof, not
+    # current broker protection or complete registry/exposure certification.
+    assert saved_order.get("cached_update_in_progress")  # A progress record is not a completion receipt.
+    assert plan.paused
+    restored=TradeManagementEngine(persistence_adapter=storage,
+        state_namespace=h.manager._state_namespace.removeprefix("ross-bull-micro:"))
+    restored.restore_relationship_state()
+    restored_order=restored._relationship_plans[plan.relationship_id].orders[plan.initial_order_id]
+    assert restored_order["cached_update_in_progress"]==saved_order["cached_update_in_progress"]
+    assert not restored._relationship_plans[plan.relationship_id].reconciled
+    # Fresh owner objects have empty projections despite positive durable
+    # historical receipts. Do not misclassify that as historical UNAPPLIED.
+    assert CapitalManagementAuthority(storage_engine=storage).total_used_exposure==0
+    assert StrategyCapitalAllocationAuthority(storage_engine=storage).strategy_used_exposure("RossMomentumStrategyV1")==0
+    def forbidden_reader(*args,**kwargs): pytest.fail("restored recovery record reached callback reader")
+    fresh=ExecutionEngine.__new__(ExecutionEngine)
+    fresh.relationship_manager=restored
+    fresh._provider=NS(cached_order_update=forbidden_reader)
+    with pytest.raises(RuntimeError,match="CACHED_EXECUTION_UPDATE_RECOVERY_REQUIRED"):
+        fresh.collect_relationship_updates()
+    assert storage.fetch_management_state(h.manager._state_namespace)==durable
+    live=dict(capital=engine.capital_authority.symbol_exposure("JPM"),
+        allocation=engine.strategy_allocation_authority.strategy_used_exposure("RossMomentumStrategyV1"),
+        capital_reservations=deepcopy(engine.capital_authority.active_reservations),
+        allocation_reservations=deepcopy(engine.strategy_allocation_authority.active_reservations),
+        manager_quantity=h.manager.snapshot_positions().get("JPM").quantity if h.manager.snapshot_positions().get("JPM") else 0,
+        registry=[vars(t) for t in h.core.trade_registry.snapshot()],
+        position_records=deepcopy(engine.position_records),protective_requests=deepcopy(protection_requests),
+        plan_paused=plan.paused,durable_paused=saved["paused"])
+    report=dict(stage=stage,external_callbacks=deepcopy(cached),external_position_status=external_positions.status,
+        external_position_rows=[vars(r) for r in external_positions.rows],
+        classification=dict(capital_conversion=cap_class,allocation_conversion=alloc_class,
+            capital_reservation_conversion=cap_class,allocation_reservation_conversion=alloc_class,
+            canonical_management_processing=management_class,registry_update="UNKNOWN",
+            lifecycle_creation="APPLIED" if stop_required else "UNKNOWN",
+            stop_acknowledgement="APPLIED" if stop_ack else "UNKNOWN",
+            current_broker_protection="UNKNOWN"),
+        committed=dict(management=durable,capital_audit=capital,allocation_audit=allocation,lifecycle_events=lifecycle,stop_audit=stops),
+        live_control_oracle_only=live)
+    # Explicit counterexample vector: both independently run controls retain
+    # these same role-bound recovery facts but one conversion mutated memory.
+    if stage in {"before_allocation","allocation_audit_failure"}:
+        vector=dict(progress=saved_order["cached_update_in_progress"],filled=saved_order["filled"],
+            notional=saved_order["notional"],management_applied=managed,
+            capital_receipts=len(cap_effects),allocation_receipts=len(alloc_effects))
+        assert vector==dict(progress=dict(filled=1,remaining=0,status="FILLED",average_price=10.91),
+            filled=0,notional=0.0,management_applied=False,capital_receipts=0,allocation_receipts=0)
+        assert live["allocation"]==pytest.approx(0 if stage=="before_allocation" else 10.91)
+        assert alloc_class=="UNKNOWN"  # Missing row must not become zero-effect proof.
+        report["role_bound_counterexample_vector"]=vector
+    if stage in {"before_allocation","allocation_audit_failure"}:
+        _verify_fresh_process_recovery_guard(storage.sqlite_path,h.manager._state_namespace,plan.relationship_id)
+    (tmp_path/"execution-evidence-assessment.json").write_text(json.dumps(report,default=str,sort_keys=True))
+    _assert_owner_effect_inspection_preserves_latches(h,plan)
+    assert no_external_activity==[] and mutations()=={"place":0,"modify":0,"cancel":0}
+
+
+def _verify_fresh_process_recovery_guard(path,namespace,relationship_id):
+    """A bounded real Python restart, SQLite read-only, no owner recovery/run."""
+    import subprocess
+    import sys
+    script='''
+import sqlite3,sys
+from types import SimpleNamespace
+from src.storage.storage_engine import StorageEngine
+from src.execution.trade_management_engine import TradeManagementEngine
+from src.execution.execution_engine import ExecutionEngine
+from src.core.capital_management_authority import CapitalManagementAuthority
+storage=StorageEngine.__new__(StorageEngine)
+storage.enabled=True;storage.backend="sqlite"
+storage._store=SimpleNamespace(connection=sqlite3.connect("file:"+sys.argv[1]+"?mode=ro",uri=True))
+manager=TradeManagementEngine(persistence_adapter=storage,state_namespace=sys.argv[2].removeprefix("ross-bull-micro:"))
+manager.restore_relationship_state()
+plan=manager._relationship_plans[sys.argv[3]]
+assert not plan.reconciled and any(o.get("cached_update_in_progress") or o.get("lifecycle_application_rejected") for o in plan.orders.values())
+assert CapitalManagementAuthority().total_used_exposure==0
+engine=ExecutionEngine.__new__(ExecutionEngine);engine.relationship_manager=manager
+engine._provider=SimpleNamespace(cached_order_update=lambda *a: (_ for _ in ()).throw(AssertionError("external reader reached")))
+try: engine.collect_relationship_updates()
+except RuntimeError as exc: assert str(exc)=="CACHED_EXECUTION_UPDATE_RECOVERY_REQUIRED"
+else: raise AssertionError("restored latch did not block")
+storage._store.connection.close()
+print("RESTORED_RECOVERY_GUARD_PASS")
+'''
+    result=subprocess.run([sys.executable,"-c",script,str(path),namespace,relationship_id],
+        capture_output=True,text=True,timeout=15)
+    assert result.returncode==0,result.stdout+result.stderr
+    assert "RESTORED_RECOVERY_GUARD_PASS" in result.stdout
+
+
+def test_recovery_identical_sqlite_records_can_hide_different_applied_management(monkeypatch,tmp_path,no_external_activity):
+    """Two isolated counterfactual instances, never replay/clear a failed update."""
+    import json
+    import shutil
+    import sqlite3
+    from src.storage.storage_engine import StorageEngine
+    from src.storage.sqlite_store import SQLiteStore
+    from src.execution.trade_management_engine import TradeManagementEngine
+    from src.models.execution_result import ExecutionResult
+    def storage_at(path):
+        store=SQLiteStore(str(path));store.initialize_schema()
+        storage=StorageEngine.__new__(StorageEngine)
+        storage.enabled=True;storage.backend="sqlite";storage._store=store;storage.run_id=None
+        return storage
+    baseline=tmp_path/"baseline.sqlite"
+    storage=storage_at(baseline)
+    manager=TradeManagementEngine(persistence_adapter=storage)
+    assert manager.register_relationship_order(relationship_id="synthetic-r",symbol="SYNTHETIC",security_id="conId:123",
+        parent_id="synthetic-p",child_id="synthetic-c",order_id="synthetic-o",quantity=1,stop=10.81)
+    initial=storage.fetch_management_state(manager._state_namespace)
+    storage._store.close()
+    independent=dict(order="synthetic-o",relationship="synthetic-r",filled=1,average_price=10.91,
+        positions=(dict(symbol="SYNTHETIC",con_id=123,quantity=1),),completion="COMPLETE")
+    retained=[];live=[]
+    for branch in ("before_effect","after_effect_write_failure"):
+        path=tmp_path/(branch+".sqlite");shutil.copyfile(baseline,path)
+        branch_storage=storage_at(path)
+        owner=TradeManagementEngine(persistence_adapter=branch_storage);owner.restore_relationship_state()
+        fact=ExecutionResult(symbol="SYNTHETIC",trader_type="SYNTHETIC",attempted=True,status="Filled",
+            rationale="synthetic external callback",direction="LONG",filled_quantity=1,remaining_quantity=0,
+            average_fill_price=10.91,client_order_id="synthetic-o",ibkr_order_id=71,
+            relationship_context=dict(relationship_id="synthetic-r",action="ENTRY"))
+        if branch=="after_effect_write_failure":
+            def fail_write(*args,**kwargs): raise RuntimeError("synthetic persistence interruption")
+            with monkeypatch.context() as context:
+                context.setattr(branch_storage._store,"insert_lifecycle_transitions",fail_write)
+                with pytest.raises(RuntimeError,match="synthetic persistence interruption"):
+                    CoreOrchestrator._apply_execution_results_to_trade_management(NS(trade_management_engine=owner),[fact])
+            assert owner.snapshot_positions()["SYNTHETIC"].quantity==1
+        else:
+            # Control stops before invoking the processor: no application/replay.
+            assert owner.snapshot_positions()=={}
+        live.append(bool(owner.snapshot_positions()))
+        branch_storage._store.close()
+        with sqlite3.connect(f"file:{path}?mode=ro",uri=True) as db:
+            retained.append(dict(full_database_dump=list(db.iterdump()),independent_external=independent))
+        # Fresh process sees unchanged pending record in BOTH branches.
+        reader=storage_at(path);restored=TradeManagementEngine(persistence_adapter=reader)
+        restored.restore_relationship_state()
+        assert reader.fetch_management_state(restored._state_namespace)==initial
+        assert restored.snapshot_positions()=={} and restored._relationship_plans["synthetic-r"].orders["synthetic-o"]["filled"]==0
+        reader._store.close()
+    assert live==[False,True]
+    assert retained[0]==retained[1]  # Full persisted DB, not selected current values, is identical.
+    (tmp_path/"identical-evidence-counterexample.json").write_text(json.dumps(dict(
+        external=independent,identical_database=True,controlled_application=live,
+        durable_classification=["UNKNOWN","UNKNOWN"]),sort_keys=True))
+    assert no_external_activity==[] and mutations()=={"place":0,"modify":0,"cancel":0}
+
+
+@pytest.mark.parametrize("owner_kind",["capital","allocation"])
+def test_lower_store_positive_effect_receipt_survives_post_commit_failure(monkeypatch,tmp_path,no_external_activity,owner_kind):
+    """Component support only: active Core facade lacks these insert methods."""
+    import sqlite3
+    from src.storage.sqlite_store import SQLiteStore
+    from src.core.capital_management_authority import CapitalManagementAuthority
+    from src.core.strategy_capital_allocation_authority import StrategyCapitalAllocationAuthority
+    path=tmp_path/(owner_kind+".sqlite");store=SQLiteStore(str(path));store.initialize_schema()
+    owner_type=CapitalManagementAuthority if owner_kind=="capital" else StrategyCapitalAllocationAuthority
+    owner=owner_type(storage_engine=store)
+    method="insert_capital_audit_event" if owner_kind=="capital" else "insert_strategy_allocation_audit_event"
+    table="capital_audit_events" if owner_kind=="capital" else "strategy_allocation_audit_events"
+    write=getattr(store,method)
+    def committed_then_interrupted(event):
+        write(event)  # Existing owner/store implementation, committed before the injected interruption.
+        raise RuntimeError("synthetic post-commit interruption")
+    monkeypatch.setattr(store,method,committed_then_interrupted)
+    with pytest.raises(RuntimeError,match="synthetic post-commit interruption"):
+        owner.convert_reservation_to_exposure(decision_id="synthetic-d",order_id="synthetic-o",trade_id="synthetic-o",
+            symbol="SYNTHETIC",strategy_id="RossMomentumStrategyV1",fill_quantity=1,fill_price=10.91)
+    with sqlite3.connect(f"file:{path}?mode=ro",uri=True) as db:
+        db.row_factory=sqlite3.Row;rows=[dict(r) for r in db.execute("SELECT * FROM "+table)]
+    assert len(rows)==1 and rows[0]["event_type"]=="EXPOSURE" and rows[0]["order_id"]=="synthetic-o"
+    assert rows[0]["trade_id"]=="synthetic-o" and rows[0]["approved_quantity"]==1
+    assert rows[0]["exposure_after" if owner_kind=="capital" else "used_exposure"]==pytest.approx(10.91)
+    fresh=owner_type(storage_engine=store)
+    assert (fresh.total_used_exposure if owner_kind=="capital" else fresh.strategy_used_exposure("RossMomentumStrategyV1"))==0
+    # Positive post-mutation receipt proves APPLIED for this component operation;
+    # the fresh zero projection does not prove historical UNAPPLIED. No replay.
+    store.close()
+    assert no_external_activity==[] and mutations()=={"place":0,"modify":0,"cancel":0}
+
+
+def _assess_interleaving_recovery_evidence(*,h,plan,case,states,tmp_path):
+    """Existing synthetic sequence evidence; never promote cleanup to recovery."""
+    import json
+    import sqlite3
+    from copy import deepcopy
+    engine=h.core.execution_engine
+    storage=h.core.storage_engine
+    def committed():
+        with sqlite3.connect(f"file:{storage.sqlite_path}?mode=ro",uri=True) as db:
+            row=db.execute("SELECT reason FROM position_lifecycle_transitions WHERE transition_id=?",
+                (h.manager._state_namespace,)).fetchone()
+            return json.loads(row[0])
+    before=committed()
+    saved=before["plans"][plan.relationship_id]
+    rejected=[o for o in saved["orders"].values() if o.get("lifecycle_application_rejected")]
+    classification=dict(capital_effects="UNKNOWN",allocation_effects="UNKNOWN",registry_effects="UNKNOWN",
+        second_lifecycle_exit="UNKNOWN",canonical_management="UNKNOWN",recovery_record="UNKNOWN")
+    if case.startswith("both_") or case=="reduction_cancel_late_fill":
+        assert len(rejected)==1 and rejected[0]["lifecycle_application_rejected"]["error"]=="qty_exceeds_open"
+        assert rejected[0]["lifecycle_application_rejected"]["cumulative_quantity"]==1
+        assert saved["paused"] and any(o.get("cached_update_in_progress") for o in saved["orders"].values())
+        assert sum(o["filled"] for o in saved["orders"].values() if o["action"] in {"EXIT","REDUCE"})==2
+        for order_id,order in saved["orders"].items():
+            if order["filled"]:
+                assert f"{plan.relationship_id}:{order_id}:1" in before["seen_exec_ids"]
+        # Specific bound negative application receipt, not a missing record:
+        # actual record_exit_fill validates qty_exceeds_open BEFORE mutating.
+        classification.update(second_lifecycle_exit="UNAPPLIED",canonical_management="APPLIED",recovery_record="APPLIED")
+        _verify_fresh_process_recovery_guard(storage.sqlite_path,h.manager._state_namespace,plan.relationship_id)
+    if case=="interrupted_reduce":
+        assert any(o.get("cached_update_in_progress") for o in saved["orders"].values())
+        assert plan.paused and plan.pending_stop_cancel=="72"
+        retained={key:deepcopy(o["cached_update_in_progress"]) for key,o in plan.orders.items() if o.get("cached_update_in_progress")}
+        # Existing ordinary stop-cleanup owner consumes independent synthetic
+        # canonical absence only. No accounting/collector replay or flag clearing.
+        engine.refresh_relationship_order_snapshot()
+        assert plan.pending_stop_cancel is None and plan.paused
+        assert retained=={key:o["cached_update_in_progress"] for key,o in plan.orders.items() if o.get("cached_update_in_progress")}
+        with pytest.raises(RuntimeError,match="CACHED_EXECUTION_UPDATE_RECOVERY_REQUIRED"):
+            engine.collect_relationship_updates()
+        assert engine._failsafe_block_new_entries
+        after=committed()["plans"][plan.relationship_id]
+        assert after["paused"] and all(after["orders"][key]["cached_update_in_progress"]==value for key,value in retained.items())
+        classification.update(canonical_management="APPLIED",recovery_record="APPLIED")
+    if case=="identity_absent":
+        owned=saved["orders"][plan.milestone_order_id]
+        assert owned["status"]=="RECONCILED_ABSENT" and owned["terminal"] and owned["filled"]==0
+        assert not owned.get("lifecycle_application_rejected") and not owned.get("cached_update_in_progress")
+        classification["own_absence_resolution"]="APPLIED"
+    if case=="cancel_late":
+        assert saved["pending_stop_cancel"] is None
+        assert any(s["pending_cancel"]=="72" for s in states)
+        assert not any(o.get("cached_update_in_progress") or o.get("lifecycle_application_rejected") for o in saved["orders"].values())
+        classification["own_cleanup_resolution"]="APPLIED"
+    if case=="duplicate_reorder":
+        assert saved["orders"][plan.milestone_order_id]["filled"]==1
+        assert saved["milestone_consumed"]
+        classification["canonical_management"]="APPLIED"
+    _assert_owner_effect_inspection_preserves_latches(h,plan)
+    (tmp_path/"interleaving-recovery-evidence.json").write_text(json.dumps(dict(case=case,
+        classification=classification,committed_before=before,committed_after=committed()),default=str,sort_keys=True))
+
+
+def _prospective_effect_fixture(tmp_path,owner_kind,effect="CONVERT"):
+    from src.storage.storage_engine import StorageEngine
+    from src.storage.sqlite_store import SQLiteStore
+    from src.core.capital_management_authority import CapitalManagementAuthority
+    from src.core.strategy_capital_allocation_authority import StrategyCapitalAllocationAuthority
+    store=SQLiteStore(str(tmp_path/(owner_kind+effect+".sqlite")));store.initialize_schema()
+    storage=StorageEngine.__new__(StorageEngine)
+    storage.enabled=True;storage.backend="sqlite";storage._store=store;storage.run_id=None
+    owner=(CapitalManagementAuthority if owner_kind=="capital" else StrategyCapitalAllocationAuthority)(run_mode="PAPER",storage_engine=storage)
+    if effect=="RELEASE":
+        owner.convert_reservation_to_exposure(order_id="seed",symbol="SYNTHETIC",strategy_id="RossMomentumStrategyV1",fill_quantity=1,fill_price=10.91)
+    binding=dict(version=1,mode="PAPER",security_id="conId:123",symbol="SYNTHETIC",relationship_id="synthetic-r",
+        decision_id="synthetic-d",order_id="synthetic-o",native_order_id="71",owner=owner_kind,effect=effect,
+        cumulative_quantity=1,delta_quantity=1,average_price=10.91,delta_price=10.91)
+    def apply(b=None):
+        evidence=binding if b is None else b
+        if effect=="CONVERT":
+            return owner.convert_reservation_to_exposure(order_id="synthetic-o",decision_id="synthetic-d",
+                trade_id="synthetic-o",symbol="SYNTHETIC",strategy_id="RossMomentumStrategyV1",fill_quantity=evidence["delta_quantity"],fill_price=evidence["delta_price"],effect_evidence=evidence)
+        kwargs=dict(strategy_id="RossMomentumStrategyV1",quantity=evidence["delta_quantity"],price=evidence["delta_price"],effect_evidence=evidence)
+        if owner_kind=="capital": kwargs["symbol"]="SYNTHETIC"
+        return owner.release_exposure(**kwargs)
+    def used():
+        return owner.total_used_exposure if owner_kind=="capital" else owner.strategy_used_exposure("RossMomentumStrategyV1")
+    return NS(storage=storage,store=store,owner=owner,binding=binding,apply=apply,used=used)
+
+
+@pytest.mark.parametrize("owner_kind",["capital","allocation"])
+@pytest.mark.parametrize("effect",["CONVERT","RELEASE"])
+@pytest.mark.parametrize("boundary",["capability","prepare_write","after_prepare","after_mutation","after_commit"])
+def test_prospective_owner_effect_interruption_boundaries(monkeypatch,tmp_path,no_external_activity,owner_kind,effect,boundary):
+    import sqlite3
+    h=_prospective_effect_fixture(tmp_path,owner_kind,effect)
+    before=h.used()
+    if boundary=="capability":
+        monkeypatch.setattr(h.store,"insert_owner_effect_record",None)
+    elif boundary=="prepare_write":
+        def fail_prepare(*args,**kwargs): raise OSError("synthetic prepare failure")
+        monkeypatch.setattr(h.store,"insert_owner_effect_record",fail_prepare)
+    elif boundary=="after_prepare":
+        prepare=h.storage.prepare_owner_effect
+        def fail_prepared(*args,**kwargs):
+            prepare(*args,**kwargs)
+            raise OSError("synthetic interruption after durable prepare")
+        monkeypatch.setattr(h.storage,"prepare_owner_effect",fail_prepared)
+    else:
+        finish=h.storage.finish_owner_effect
+        def fail_finish(*args,**kwargs):
+            if boundary=="after_commit": finish(*args,**kwargs)
+            raise OSError("synthetic receipt interruption")
+        monkeypatch.setattr(h.storage,"finish_owner_effect",fail_finish)
+    with pytest.raises((RuntimeError,OSError)):
+        h.apply()
+    after=h.used()
+    assert after==pytest.approx(before if boundary in {"capability","prepare_write","after_prepare"} else (10.91 if effect=="CONVERT" else 0))
+    assessment=h.storage.inspect_owner_effect(h.binding,independent_fact=dict(h.binding))
+    assert assessment["resolved"] is False
+    assert assessment.get("outcome")==("OBSERVED_APPLIED" if boundary=="after_commit" else "UNKNOWN")
+    if boundary in {"after_prepare","after_mutation","after_commit"}:
+        # Another attempt must fail BEFORE any effect, even if the first caller
+        # never received receipt acknowledgement. No accounting replay.
+        with pytest.raises(sqlite3.IntegrityError): h.apply()
+        assert h.used()==after
+    if boundary in {"after_prepare","after_mutation"}:
+        effect_id,expected=h.storage._owner_effect_record(h.binding,phase="PREPARED")
+        assert h.store.fetch_owner_effect_record(effect_id+":prepare")==expected
+        assert h.store.fetch_owner_effect_record(effect_id+":outcome") is None
+    h.store.close()
+    assert no_external_activity==[] and mutations()=={"place":0,"modify":0,"cancel":0}
+
+
+@pytest.mark.parametrize("owner_kind",["capital","allocation"])
+def test_prospective_identity_conflict_restart_and_readonly_assessment(monkeypatch,tmp_path,no_external_activity,owner_kind):
+    from copy import deepcopy
+    from src.storage.sqlite_store import SQLiteStore
+    from src.core.capital_management_authority import CapitalManagementAuthority
+    from src.core.strategy_capital_allocation_authority import StrategyCapitalAllocationAuthority
+    import sqlite3
+    h=_prospective_effect_fixture(tmp_path,owner_kind)
+    h.apply()
+    baseline=h.used()
+    for changes in ({"average_price":11.},{"native_order_id":"999"},{"decision_id":"another"},{"security_id":"conId:999"}):
+        altered={**h.binding,**changes}
+        with pytest.raises(sqlite3.IntegrityError): h.apply(altered)
+        assert h.used()==baseline
+        assert not h.storage.inspect_owner_effect(altered,independent_fact=altered)["resolved"]
+    assert h.storage.inspect_owner_effect(h.binding,independent_fact={**h.binding,"cumulative_quantity":2})["reason"]=="OWNER_EFFECT_IDENTITY_CONFLICT"
+    # Fresh process-local owner state is NOT restored from audit evidence.
+    path=h.store.path;h.store.close();h.storage._store=SQLiteStore(path)
+    owner_type=CapitalManagementAuthority if owner_kind=="capital" else StrategyCapitalAllocationAuthority
+    fresh=owner_type(run_mode="PAPER",storage_engine=h.storage)
+    assert (fresh.total_used_exposure if owner_kind=="capital" else fresh.strategy_used_exposure("RossMomentumStrategyV1"))==0
+    with pytest.raises(sqlite3.IntegrityError):
+        fresh.convert_reservation_to_exposure(order_id="synthetic-o",decision_id="synthetic-d",trade_id="synthetic-o",
+            symbol="SYNTHETIC",strategy_id="RossMomentumStrategyV1",fill_quantity=1,fill_price=10.91,effect_evidence=h.binding)
+    assert (fresh.total_used_exposure if owner_kind=="capital" else fresh.strategy_used_exposure("RossMomentumStrategyV1"))==0
+    result=h.storage.inspect_owner_effect(h.binding,independent_fact=dict(h.binding))
+    assert result==dict(resolved=False,reason="NON_ATOMIC_EFFECT_AND_MISSING_FULL_UPDATE_PROOF",outcome="OBSERVED_APPLIED",atomic_application=False)
+    h.storage._store.close()
+    assert no_external_activity==[]
+
+
+@pytest.mark.parametrize("changes",[{"version":2},{"cumulative_quantity":True},{"delta_quantity":2},{"average_price":float("nan")},{"extra":"caller assertion"}])
+def test_prospective_schema_rejects_before_effect(tmp_path,no_external_activity,changes):
+    h=_prospective_effect_fixture(tmp_path,"capital")
+    bad={**h.binding,**changes}
+    with pytest.raises((ValueError,TypeError)): h.apply(bad)
+    assert h.used()==0
+    assert h.storage.inspect_owner_effect(bad,independent_fact=bad)["resolved"] is False
+    h.store.close()
+    assert no_external_activity==[]
+
+
+def test_explicit_pre_mutation_rejection_and_historical_non_authority(tmp_path,no_external_activity):
+    h=_prospective_effect_fixture(tmp_path,"capital")
+    # An unversioned historical operation is not upgraded to effect authority.
+    h.owner.convert_reservation_to_exposure(symbol="SYNTHETIC",strategy_id="RossMomentumStrategyV1",fill_quantity=1,fill_price=10.91)
+    assert h.storage.inspect_owner_effect(h.binding,independent_fact=h.binding)["reason"]=="HISTORICAL_OR_MISSING_EVIDENCE"
+    before=h.used()
+    zero={**h.binding,"delta_quantity":0,"cumulative_quantity":0}
+    assert h.apply(zero)==0 and h.used()==before
+    result=h.storage.inspect_owner_effect(zero,independent_fact=zero)
+    assert result["outcome"]=="REJECTED_BEFORE_MUTATION" and not result["resolved"]
+    h.store.close()
+    assert no_external_activity==[]
+
+
+
+def _assert_owner_effect_inspection_preserves_latches(h,plan):
+    from copy import deepcopy
+    import json
+    engine=h.core.execution_engine; storage=h.core.storage_engine
+    before=deepcopy((plan.orders,plan.paused,plan.reconciled,engine.startup_recovery_state,
+        engine.startup_recovery_result,engine._failsafe_block_new_entries))
+    durable=storage.fetch_management_state(h.manager._state_namespace)
+    rows=storage._store.connection.execute("SELECT reason FROM position_lifecycle_transitions WHERE intent='OWNER_EFFECT_EVIDENCE' AND transition_id LIKE '%:prepare'").fetchall()
+    for row in rows:
+        binding=json.loads(row[0])["binding"]
+        result=storage.inspect_owner_effect(binding,independent_fact=dict(binding))
+        assert result["resolved"] is False  # Even matching execution facts cannot prove atomic full-update recovery.
+    assert before==deepcopy((plan.orders,plan.paused,plan.reconciled,engine.startup_recovery_state,
+        engine.startup_recovery_result,engine._failsafe_block_new_entries))
+    assert storage.fetch_management_state(h.manager._state_namespace)==durable
+
+
+
+@pytest.mark.parametrize("failure",["sqlite","io","missing_capability"])
+def test_owner_effect_lost_evidence_is_explicitly_blocked(monkeypatch,tmp_path,no_external_activity,failure):
+    import sqlite3
+    h=_prospective_effect_fixture(tmp_path,"capital");h.apply();before=h.used()
+    if failure=="missing_capability":
+        monkeypatch.setattr(h.store,"fetch_owner_effect_record",None)
+    else:
+        def fail_read(*args): raise (sqlite3.DatabaseError if failure=="sqlite" else OSError)("private synthetic storage error")
+        monkeypatch.setattr(h.store,"fetch_owner_effect_record",fail_read)
+    result=h.storage.inspect_owner_effect(h.binding,independent_fact=h.binding)
+    assert not result["resolved"] and result.get("outcome","UNKNOWN")=="UNKNOWN"
+    assert result["reason"] in {"OWNER_EFFECT_STORAGE_UNAVAILABLE","OWNER_EFFECT_EVIDENCE_UNAVAILABLE"}
+    assert "private" not in str(result) and h.used()==before
+    h.store.close();assert no_external_activity==[]
+
+
+
+@pytest.mark.parametrize("owner_kind",["capital","allocation"])
+@pytest.mark.parametrize("quantity,price",[(True,10.91),(1.0,10.91),(1,True),(1,float("inf"))])
+def test_prospective_owner_rejects_actual_untyped_values(tmp_path,no_external_activity,owner_kind,quantity,price):
+    h=_prospective_effect_fixture(tmp_path,owner_kind)
+    with pytest.raises(ValueError,match="OWNER_EFFECT_INPUT_INVALID"):
+        h.owner.convert_reservation_to_exposure(order_id="synthetic-o",symbol="SYNTHETIC",strategy_id="RossMomentumStrategyV1",
+            fill_quantity=quantity,fill_price=price,effect_evidence=h.binding)
+    assert h.used()==0
+    assert h.storage.inspect_owner_effect(h.binding,independent_fact=h.binding)["reason"]=="HISTORICAL_OR_MISSING_EVIDENCE"
+    h.store.close();assert no_external_activity==[]
+
+
+
+def test_owner_effect_future_database_version_blocks_before_mutation(tmp_path,no_external_activity):
+    h=_prospective_effect_fixture(tmp_path,"capital")
+    h.store.connection.execute("INSERT INTO schema_meta(version) VALUES (999)");h.store.connection.commit()
+    with pytest.raises(RuntimeError,match="OWNER_EFFECT_DATABASE_VERSION_UNSUPPORTED"): h.apply()
+    assert h.used()==0
+    assert h.storage.inspect_owner_effect(h.binding,independent_fact=h.binding)["reason"]=="OWNER_EFFECT_DATABASE_VERSION_UNSUPPORTED"
+    h.store.close();assert no_external_activity==[]
+
+
+@pytest.mark.parametrize("tamper",["schema","atomic","identity"])
+def test_owner_effect_corrupt_outcome_never_grants_resolution(tmp_path,no_external_activity,tamper):
+    import json
+    h=_prospective_effect_fixture(tmp_path,"capital");h.apply();before=h.used()
+    effect_id,_=h.storage._owner_effect_record(h.binding,phase="PREPARED")
+    raw=json.loads(h.store.fetch_owner_effect_record(effect_id+":outcome"))
+    if tamper=="schema": raw["schema_version"]=999
+    if tamper=="atomic": raw["atomic_application"]=True
+    if tamper=="identity": raw["binding"]["native_order_id"]="999"
+    h.store.connection.execute("UPDATE position_lifecycle_transitions SET reason=? WHERE transition_id=?",
+        (json.dumps(raw,sort_keys=True),effect_id+":outcome"));h.store.connection.commit()
+    result=h.storage.inspect_owner_effect(h.binding,independent_fact=h.binding)
+    assert result["reason"]=="OWNER_EFFECT_SCHEMA_OR_IDENTITY_INVALID" and not result["resolved"]
+    assert h.used()==before
+    h.store.close();assert no_external_activity==[]

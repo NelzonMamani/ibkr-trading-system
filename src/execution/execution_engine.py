@@ -128,6 +128,7 @@ class ExecutionEngine:
             autonomous_recovery_authority
             or AutonomousRecoveryAuthority(event_collector=self.event_collector)
         )
+        self._prospective_decisions_by_order_id: dict[str, str] = {}
         self._capital_decisions_by_order_id: dict[str, str] = {}
         self._strategy_allocation_decisions_by_order_id: dict[str, str] = {}
         self.provider: Optional[ExecutionProvider] = self._provider
@@ -727,7 +728,7 @@ class ExecutionEngine:
         self._confirm_relationship_stop_resizes(broker_orders)
         manager = getattr(self, "relationship_manager", None)
         unresolved = any(p.pending_stop_resize or p.pending_stop_cancel or any(
-            o.get("lifecycle_application_rejected") or o.get("cached_update_in_progress") for o in p.orders.values())
+            o.get("lifecycle_application_rejected") or o.get("cached_update_in_progress") or o.get("owner_effect_pending") for o in p.orders.values())
             for p in manager._relationship_plans.values()) if manager else False
         self._failsafe_block_new_entries = bool(summary.get("block_new_entries", False)) or unresolved
         print(
@@ -1333,6 +1334,9 @@ class ExecutionEngine:
             target_model=getattr(risk_decision, "target_model", None),
             relationship_context=getattr(risk_decision, "relationship_context", None),
         )
+        self._prospective_decisions_by_order_id.clear()  # One execution-thread construction/handoff slot.
+        if context:
+            self._prospective_decisions_by_order_id[client_order_id] = risk_decision.decision_id
         capital_decision = getattr(risk_decision, "capital_decision", None)
         if isinstance(capital_decision, CapitalDecision):
             self._capital_decisions_by_order_id[client_order_id] = capital_decision.decision_id
@@ -1433,7 +1437,25 @@ class ExecutionEngine:
                 return ExecutionResult(symbol=request.symbol, trader_type=request.trader_type or "UNKNOWN",
                     attempted=False, status="BLOCKED", rationale="RELATIONSHIP_ORDER_NOT_RESERVED")
             plan.orders[request.client_order_id]["request"] = asdict(request)
+            # Only newly dispatched native owned requests enter prospective evidence.
+            decisions = getattr(self, "_prospective_decisions_by_order_id", {})
+            owned = plan.orders[request.client_order_id]
+            version = owned.get("owner_effect_version")
+            if version is not None and (type(version) is not int or version != 1):
+                raise ValueError("OWNER_EFFECT_VERSION_INVALID")
+            decision_id = decisions.get(request.client_order_id)
+            if owned.get("owner_effect_version") == 1:
+                decision_id = owned.get("decision_id")
+            native_owned = self.run_mode in {RunMode.PAPER, RunMode.LIVE} and self._provider.is_live()
+            if native_owned:
+                if not decision_id:
+                    raise RuntimeError("OWNER_EFFECT_DECISION_ID_UNAVAILABLE")
+                owned["owner_effect_version"] = 1
+                owned["decision_id"] = decision_id
             manager._save_relationship_state()
+            if native_owned:
+                self._storage_engine.validate_owner_effect_storage()
+            decisions.pop(request.client_order_id, None)
         try:
             result = self._provider.place_order(request)
         except Exception as exc:
@@ -1616,6 +1638,23 @@ class ExecutionEngine:
         self._record_order_stage(request.client_order_id, "ACK")
         return result
 
+    def _owner_effect_binding(self, request, result, owner: str, effect: str, delta: int, price: float) -> dict | None:
+        manager = getattr(self, "relationship_manager", None)
+        context = request.relationship_context or {}
+        plan = manager._relationship_plans.get(context.get("relationship_id")) if manager else None
+        owned = plan.orders.get(request.client_order_id) if plan else None
+        if not owned or owned.get("owner_effect_version") is None:
+            return None
+        if type(owned.get("owner_effect_version")) is not int or owned["owner_effect_version"] != 1:
+            raise ValueError("OWNER_EFFECT_VERSION_INVALID")
+        binding = {"version": 1, "mode": self.run_mode.value, "security_id": plan.security_id,
+            "symbol": plan.symbol, "relationship_id": plan.relationship_id, "decision_id": owned.get("decision_id"),
+            "order_id": request.client_order_id, "native_order_id": str(owned.get("broker_order_id") or ""),
+            "owner": owner, "effect": effect, "cumulative_quantity": int(result.filled_quantity),
+            "delta_quantity": delta, "average_price": float(result.average_fill_price or result.entry_price or 0), "delta_price": price}
+        self._storage_engine._owner_effect_record(binding, phase="PREPARED")
+        return binding
+
     def _record_fill_and_position(self, request: BrokerOrderRequest, result: ExecutionResult) -> None:
         # The broker callback carries fill facts; protection belongs to the
         # risk-approved request and must survive into recurring management.
@@ -1632,6 +1671,9 @@ class ExecutionEngine:
         plan = manager._relationship_plans.get(context.get("relationship_id")) if manager else None
         stored_order = plan.orders.get(request.client_order_id) if plan else None
         if stored_order is not None and getattr(result, "ibkr_order_id", None) is not None:
+            if (stored_order.get("owner_effect_version") is not None and stored_order.get("broker_order_id")
+                    and str(stored_order["broker_order_id"]) != str(result.ibkr_order_id)):
+                raise ValueError("OWNER_EFFECT_NATIVE_ID_CONFLICT")
             stored_order["broker_order_id"] = str(result.ibkr_order_id)
             manager._save_relationship_state()
         filled_quantity = int(getattr(result, "filled_quantity", 0) or 0)
@@ -1661,32 +1703,53 @@ class ExecutionEngine:
         cumulative_price = fill_price
         if request.relationship_context and int(previous.get("filled_qty", 0)):
             fill_price = (cumulative_quantity * fill_price - int(previous["filled_qty"]) * float(previous["entry_price"])) / filled_quantity
-        if direction_upper in {"LONG", "BUY", "SHORT"}:
-            self._convert_strategy_allocation_for_fill(request, filled_quantity=filled_quantity, fill_price=fill_price)
-            self._convert_capital_for_fill(request, filled_quantity=filled_quantity, fill_price=fill_price)
-        elif direction_upper == "SELL":
-            entry_request = plan.orders.get(plan.initial_order_id, {}).get("request", {}) if plan else {}
-            owner_strategy = entry_request.get("strategy_name") or request.strategy_name
-            release_price = fill_price
-            if plan is not None:
-                lifecycle = self.post_fill_lifecycle.get_trade(plan.protection_trade_id or plan.initial_order_id)
-                position = manager.snapshot_positions().get(plan.symbol)
-                # Exposure is entry cost, not exit proceeds; PnL retains fill_price.
-                release_price = float(lifecycle.avg_fill_price if lifecycle is not None
-                                      else position.entry_price if position is not None else 0.0)
-            self.strategy_allocation_authority.release_exposure(
-                strategy_id=owner_strategy or "UNKNOWN",
-                quantity=filled_quantity,
-                price=release_price,
-                reason="EXIT_FILL",
-            )
-            self.capital_authority.release_exposure(
-                symbol=request.symbol,
-                quantity=filled_quantity,
-                price=release_price,
-                strategy_id=owner_strategy,
-                reason="EXIT_FILL",
-            )
+        prospective = bool(stored_order and stored_order.get("owner_effect_version") is not None)
+        pending = {"cumulative_quantity": cumulative_quantity, "average_price": float(entry_price or 0), "version": 1}
+        if prospective:
+            stored_order["owner_effect_pending"] = pending
+            manager._save_relationship_state()
+        try:
+            if direction_upper in {"LONG", "BUY", "SHORT"}:
+                self._convert_strategy_allocation_for_fill(request, filled_quantity=filled_quantity, fill_price=fill_price,
+                    **({"effect_evidence": self._owner_effect_binding(request, result, "allocation", "CONVERT", filled_quantity, fill_price)} if prospective else {}))
+                self._convert_capital_for_fill(request, filled_quantity=filled_quantity, fill_price=fill_price,
+                    **({"effect_evidence": self._owner_effect_binding(request, result, "capital", "CONVERT", filled_quantity, fill_price)} if prospective else {}))
+            elif direction_upper == "SELL":
+                entry_request = plan.orders.get(plan.initial_order_id, {}).get("request", {}) if plan else {}
+                owner_strategy = entry_request.get("strategy_name") or request.strategy_name
+                release_price = fill_price
+                if plan is not None:
+                    lifecycle = self.post_fill_lifecycle.get_trade(plan.protection_trade_id or plan.initial_order_id)
+                    position = manager.snapshot_positions().get(plan.symbol)
+                    # Exposure is entry cost, not exit proceeds; PnL retains fill_price.
+                    release_price = float(lifecycle.avg_fill_price if lifecycle is not None
+                                          else position.entry_price if position is not None else 0.0)
+                self.strategy_allocation_authority.release_exposure(
+                    strategy_id=owner_strategy or "UNKNOWN",
+                    quantity=filled_quantity,
+                    price=release_price,
+                    reason="EXIT_FILL",
+                    **({"effect_evidence": self._owner_effect_binding(request, result, "allocation", "RELEASE", filled_quantity, release_price)} if prospective else {}),
+                )
+                self.capital_authority.release_exposure(
+                    symbol=request.symbol,
+                    quantity=filled_quantity,
+                    price=release_price,
+                    strategy_id=owner_strategy,
+                    reason="EXIT_FILL",
+                    **({"effect_evidence": self._owner_effect_binding(request, result, "capital", "RELEASE", filled_quantity, release_price)} if prospective else {}),
+                )
+            if prospective:
+                stored_order.pop("owner_effect_pending")
+                manager._save_relationship_state()
+        except BaseException:
+            if prospective:
+                stored_order["owner_effect_pending"] = pending
+                plan.paused = True
+                self._mark_capital_recovery_failed("OWNER_EFFECT_EVIDENCE_RECOVERY_REQUIRED")
+                # Existing last durable pending record survives even if saving
+                # the additional in-memory pause is itself unavailable.
+            raise
         print(
             f"[ORDER][FILL] order_id={request.client_order_id} "
             f"symbol={request.symbol} qty={filled_quantity} entry_price={entry_price}"
@@ -1877,6 +1940,10 @@ class ExecutionEngine:
                 raise ValueError
         except (KeyError, TypeError, ValueError, OverflowError):
             raise ValueError("CACHED_PROTECTION_UPDATE_INVALID") from None
+        original = plan.orders[plan.initial_order_id]
+        version = original.get("owner_effect_version")
+        if version is not None and (type(version) is not int or version != 1):
+            raise ValueError("OWNER_EFFECT_VERSION_INVALID")
         if order_id not in plan.orders:
             from dataclasses import asdict
             initial = plan.orders[plan.initial_order_id].get("request", {})
@@ -1887,6 +1954,10 @@ class ExecutionEngine:
             plan.orders[order_id] = {"action": "EXIT", "requested": bound,
                 "filled": 0, "notional": 0.0, "terminal": False,
                 "broker_order_id": str(broker_id), "request": asdict(request)}
+            original = plan.orders[plan.initial_order_id]
+            if original.get("owner_effect_version") == 1:
+                plan.orders[order_id]["owner_effect_version"] = 1
+                plan.orders[order_id]["decision_id"] = original.get("decision_id")
         else:
             # A still-working stop may have been resized for confirmed additions.
             order = plan.orders[order_id]
@@ -1901,7 +1972,7 @@ class ExecutionEngine:
         reader = getattr(self._provider, "cached_order_update", None)
         if manager is None:
             return []
-        if any(order.get("cached_update_in_progress") or order.get("lifecycle_application_rejected") for plan in manager._relationship_plans.values()
+        if any(order.get("cached_update_in_progress") or order.get("lifecycle_application_rejected") or order.get("owner_effect_pending") for plan in manager._relationship_plans.values()
                for order in plan.orders.values()):
             # A previous pass may have changed accounting/protection before it
             # failed. Retain the owned evidence and require recovery, never replay
@@ -2174,6 +2245,7 @@ class ExecutionEngine:
         *,
         filled_quantity: int,
         fill_price: float,
+        effect_evidence: dict | None = None,
     ) -> None:
         decision_id = self._capital_decisions_by_order_id.get(request.client_order_id)
         self.capital_authority.convert_reservation_to_exposure(
@@ -2185,6 +2257,7 @@ class ExecutionEngine:
             fill_price=fill_price,
             trade_id=request.client_order_id,
             reason="ENTRY_FILL",
+            **({"effect_evidence": effect_evidence} if effect_evidence is not None else {}),
         )
 
     def _convert_strategy_allocation_for_fill(
@@ -2193,6 +2266,7 @@ class ExecutionEngine:
         *,
         filled_quantity: int,
         fill_price: float,
+        effect_evidence: dict | None = None,
     ) -> None:
         decision_id = self._strategy_allocation_decisions_by_order_id.get(request.client_order_id)
         self.strategy_allocation_authority.convert_reservation_to_exposure(
@@ -2204,6 +2278,7 @@ class ExecutionEngine:
             fill_price=fill_price,
             trade_id=request.client_order_id,
             reason="ENTRY_FILL",
+            **({"effect_evidence": effect_evidence} if effect_evidence is not None else {}),
         )
 
     def _clamp_order_quantity(self, quantity: int, *, symbol: str) -> int:

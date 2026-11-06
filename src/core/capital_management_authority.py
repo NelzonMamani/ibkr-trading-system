@@ -557,10 +557,14 @@ class CapitalManagementAuthority:
         fill_price: float,
         trade_id: str | None = None,
         reason: str = "FILL_RECORDED",
+        effect_evidence: dict | None = None,
     ) -> float:
+        self._prepare_owner_effect(effect_evidence, effect="CONVERT", quantity=fill_quantity, price=fill_price, symbol=symbol, order_id=order_id)
         fill_qty = int(fill_quantity or 0)
         fill_notional = max(0.0, float(fill_qty) * float(fill_price or 0.0))
         if fill_qty <= 0 or fill_notional <= 0.0:
+            if effect_evidence is not None:
+                self.storage_engine.finish_owner_effect(effect_evidence, phase="REJECTED_BEFORE_MUTATION", post_state={"reason": "NONPOSITIVE_EFFECT"})
             return 0.0
         reservation = self._find_reservation(decision_id=decision_id, order_id=order_id, symbol=symbol)
         normalized_symbol = str(symbol or getattr(reservation, "symbol", "") or "").upper()
@@ -603,6 +607,11 @@ class CapitalManagementAuthority:
             reason=reason,
             intent_id=getattr(reservation, "intent_id", None),
         )
+        if effect_evidence is not None:
+            self.storage_engine.finish_owner_effect(effect_evidence, phase="OBSERVED_APPLIED", post_state={
+                "used_exposure": self.total_used_exposure, "reserved_capital": self.total_reserved_capital,
+                "reservation_status": reservation.status if reservation else "NONE", "released_notional": 0.0,
+                "reservation": ({key: getattr(reservation, key) for key in ("reservation_id", "decision_id", "order_id", "filled_quantity", "remaining_quantity", "remaining_notional", "status", "exposure_notional")} if reservation else None)})
         return fill_notional
 
     def release_exposure(
@@ -614,7 +623,11 @@ class CapitalManagementAuthority:
         notional: float | None = None,
         strategy_id: str | None = None,
         reason: str = "EXIT_RECORDED",
+        effect_evidence: dict | None = None,
     ) -> float:
+        if effect_evidence is not None and notional is not None:
+            raise ValueError("OWNER_EFFECT_EXPLICIT_NOTIONAL_UNSUPPORTED")
+        self._prepare_owner_effect(effect_evidence, effect="RELEASE", quantity=quantity, price=price, symbol=symbol)
         normalized_symbol = str(symbol or "").upper()
         release_notional = float(notional if notional is not None else float(quantity or 0) * float(price or 0.0))
         release_notional = max(0.0, release_notional)
@@ -639,6 +652,10 @@ class CapitalManagementAuthority:
             exposure_after=self.total_used_exposure,
             reason=reason,
         )
+        if effect_evidence is not None:
+            self.storage_engine.finish_owner_effect(effect_evidence, phase="OBSERVED_APPLIED", post_state={
+                "used_exposure": self.total_used_exposure, "reserved_capital": self.total_reserved_capital,
+                "reservation_status": "NOT_APPLICABLE", "released_notional": released, "reservation": None})
         return released
 
     def recover_from_lifecycle(self, open_lifecycle_trades: list[Any]) -> int:
@@ -997,3 +1014,25 @@ class CapitalManagementAuthority:
     @staticmethod
     def _now() -> str:
         return datetime.now(timezone.utc).isoformat()
+
+
+    def _prepare_owner_effect(self, binding: dict | None, *, effect: str, quantity, price, symbol=None, order_id=None) -> None:
+        if binding is None:
+            return  # Unversioned history never gains prospective authority.
+        import math
+        if (type(quantity) is not int or isinstance(price, bool) or not isinstance(price, (int, float))
+                or not math.isfinite(price)):
+            raise ValueError("OWNER_EFFECT_INPUT_INVALID")
+        if not isinstance(binding, dict):
+            raise ValueError("OWNER_EFFECT_BINDING_INVALID")
+        storage = self.storage_engine
+        if (storage is None or not callable(getattr(storage, "prepare_owner_effect", None))
+                or not callable(getattr(storage, "finish_owner_effect", None))):
+            raise RuntimeError("OWNER_EFFECT_STORAGE_UNAVAILABLE")
+        if (binding.get("owner") != "capital" or binding.get("effect") != effect
+                or binding.get("mode") != self.run_mode or binding.get("delta_quantity") != quantity
+                or binding.get("delta_price") != price
+                or (symbol is not None and binding.get("symbol") != str(symbol).upper())
+                or (order_id is not None and binding.get("order_id") != order_id)):
+            raise ValueError("OWNER_EFFECT_OWNER_BINDING_INVALID")
+        storage.prepare_owner_effect(binding)
