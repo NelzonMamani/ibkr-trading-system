@@ -23,7 +23,7 @@ from test_joined_core_pmh_readonly import (
 )
 
 
-def paper_pmh(reassessment,monkeypatch,tmp_path,position_case,*,peer=False,news_fault="none"):
+def paper_pmh(reassessment,monkeypatch,tmp_path,position_case,*,peer=False,news_fault="none",provider_factory=None):
     import test_joined_core_bull_micro as joined_module
     _install_eligible_market_facts(reassessment,monkeypatch)
     # Coherent new external fixture facts; thresholds and candle anchors unchanged.
@@ -49,6 +49,10 @@ def paper_pmh(reassessment,monkeypatch,tmp_path,position_case,*,peer=False,news_
     monkeypatch.setattr(core_module,'IbkrLiveBroker',lambda **kw:NS())
     providers=[]
     def provider_boundary(**kw):
+        if provider_factory is not None:
+            provider=provider_factory(**kw)
+            providers.append(provider)
+            return provider
         provider=AccountBoundary(price_feed=NS(price_for=lambda *a:10.3,get_price=lambda *a:10.3),
             event_collector=core_module.EventCollector(),trade_registry=kw['trade_registry'],run_mode=kw['run_mode'])
         providers.append(provider)
