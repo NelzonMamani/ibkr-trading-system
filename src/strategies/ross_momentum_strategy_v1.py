@@ -2158,7 +2158,7 @@ class RossMomentumStrategyV1(BaseStrategy):
         intent.timestamp_utc = str(timestamp_utc)
         intent.stop_loss_price = getattr(intent, "stop_loss_price", None)
         intent.take_profit_price = getattr(intent, "take_profit_price", None)
-        if getattr(intent, "relationship_context", None) and intent.gap_percent is None:
+        if intent.gap_percent is None:
             intent.gap_percent = self._safe_float(getattr(ctx, "gap_pct", None))
         if getattr(intent, "float_millions", None) is None:
             intent.float_millions = self._safe_float(getattr(ctx, "float_millions", None))
