@@ -23,21 +23,25 @@ from test_joined_core_pmh_readonly import (
 )
 
 
-def paper_pmh(reassessment,monkeypatch,tmp_path,position_case):
+def paper_pmh(reassessment,monkeypatch,tmp_path,position_case,*,peer=False,news_fault="none"):
     import test_joined_core_bull_micro as joined_module
     _install_eligible_market_facts(reassessment,monkeypatch)
     # Coherent new external fixture facts; thresholds and candle anchors unchanged.
-    previous=9.4
     last=10.53
+    previous=9.4
     gap=(last/previous-1)*100
     facts=dict(prev_close=previous,ref_close_rth=previous,reference_price=previous,
-        last_price=last,gap_pct=gap,pct_change=gap,pct_change_resolved=True,
+        last_price=last,gap_pct=gap,pct_change=(last/previous-1)*100,pct_change_resolved=True,
         bid=10.52,ask=10.54,spread_pct=100*.02/last,dollar_volume=last*2_000_000)
     reassessment.row.update(facts)
+    peer_facts=dict(gap_pct=12.,prev_close=last/1.12,reference_price=last/1.12,
+        ref_close_rth=last/1.12,pct_change=12.)
     row_factory=joined_module._row
     def scanner_row(symbol):
         row=row_factory(symbol)
         for key,value in facts.items():setattr(row,key,value)
+        if symbol=='PEER':
+            for key,value in peer_facts.items():setattr(row,key,value)
         return row
     monkeypatch.setattr(joined_module,'_row',scanner_row)
     # Same external adapter-construction seam as existing joined PAPER controls.
@@ -50,10 +54,11 @@ def paper_pmh(reassessment,monkeypatch,tmp_path,position_case):
         providers.append(provider)
         return provider
     monkeypatch.setattr(core_module,'IbkrExecutionProvider',provider_boundary)
-    h=pmh_joined(reassessment,monkeypatch,tmp_path,position_case=position_case,
+    h=pmh_joined(reassessment,monkeypatch,tmp_path,position_case=position_case,peer=peer,news_fault=news_fault,
         runtime_options=dict(run_mode='PAPER',config_overrides=dict(EXECUTION_ENABLED=True,
             RISK_PROFILE='MICRO',IBKR_READONLY_ENABLED=False,IBKR_ORDER_SUBMISSION_ENABLED=True,
             IBKR_ORDER_TRANSLATION_ENABLED=True,IBKR_API_WRITE_ALLOWED=True)))
+    if peer:h.rows['PEER'].update(peer_facts)
     from src.execution import execution_engine as execution_module
     monkeypatch.setattr(execution_module,'datetime',h.life.clock)
     engine=h.core.execution_engine
@@ -142,17 +147,19 @@ def test_joined_pmh_paper_admission_stops_before_provider(reassessment,monkeypat
             assert len(h.defaults)==1
             context,formed=h.defaults[0]
             assert context['gap_pct']==pytest.approx(gap)
-            # Preserve the demonstrated actual handoff block, not a forced pass.
-            assert not formed['relationship_context'] and formed['gap_percent'] is None
-            assert intent.gap_percent is None and received['gap_percent'] is None
-            assert not decision.allowed and decision.execution_blocked and decision.max_position_size==0
-            assert decision.reason_code=='ROSS_BLOCK_GAP_OUT_OF_RANGE'
-            assert decision.decision_code=='REJECT' and decision.overall_action=='BLOCK'
-            assert 'gap_percent=None' in decision.rationale
-            assert not reached and h.boundaries==h.execution_calls==h.reserves==h.execution_results==[]
-            assert getattr(decision,'capital_decision',None) is None
-            assert getattr(decision,'strategy_allocation_decision',None) is None
-            assert 'ORDER_SUBMITTED' not in out
+            assert not formed['relationship_context'] and formed['gap_percent']==pytest.approx(gap)
+            assert intent.gap_percent==received['gap_percent']==pytest.approx(gap)
+            assert decision.allowed and not decision.execution_blocked,out
+            assert reached and len(h.boundaries)==len(h.execution_calls)==1,out
+            request=h.boundaries[0]
+            assert request.quantity==decision.max_position_size==1
+            assert request.setup_family_id==intent.setup_family_id
+            assert request.stop_loss_price==intent.stop_loss_price and request.invalidation_level==intent.invalidation_level
+            assert request.target_model==intent.target_model and request.take_profit_price is None
+            assert request.client_order_id.startswith(artifact.decision_id)
+            assert h.reserves==['allocation','capital'] and h.execution_results==[]
+            assert decision.capital_decision.executable and decision.strategy_allocation_decision.executable
+            assert engine.capital_authority.total_reserved_capital==pytest.approx(10.3)
         else:
             snapshot,verdict=h.truth[-1]
             assert verdict.block_new_entries
