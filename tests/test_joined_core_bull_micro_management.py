@@ -30,12 +30,13 @@ from test_key_level_break_production_handoff import forbid_io
     *[("complete_empty","native_late_"+case) for case in
       ("pending","unrelated","negative","fractional","no_price","nan_price",
        "collector_error","processor_error","processor_after","rejected","cancelled","partial",
-       "missing_counts","unknown_status","oversize","uncertain","regression","accounting_error","allocation_error","completion_error","binding_error","stop_oversize")],
+       "missing_counts","unknown_status","oversize","uncertain","regression","accounting_error","allocation_error","completion_error","binding_error","stop_oversize","stop_bad_price","stop_bad_status")],
 ])
 def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypatch,tmp_path,capsys,
         no_external_activity,position_case,transport):
     late_fill=transport.startswith("native_late_")
     late_case=transport.removeprefix("native_late_") if late_fill else None
+    stop_fault=late_case in {"stop_oversize","stop_bad_price","stop_bad_status"}
     malformed=late_case in {"negative","fractional","no_price","nan_price","missing_counts","unknown_status","oversize","binding_error"}
     failed_pass=malformed or late_case in {"collector_error","processor_error","processor_after","accounting_error","allocation_error","completion_error"}
     if late_fill: transport="native_timeout" if late_case=="uncertain" else "native_submitted"
@@ -113,7 +114,7 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
     if late_fill:
         from src.ibkr.position_snapshot import BrokerPositionResult
         def external_positions():
-            held=late_case in {"fill","partial","uncertain","regression","processor_error","processor_after","stop_oversize"} and bool(cached_facts)
+            held=late_case in {"fill","partial","uncertain","regression","processor_error","processor_after","stop_oversize","stop_bad_price","stop_bad_status"} and bool(cached_facts)
             rows=(NS(symbol="JPM",position=1,con_id=123,avgCost=10.91,account="SYNTHETIC_TEST"),) if held else ()
             return BrokerPositionResult(rows,"COMPLETE","SYNTHETIC_TEST",h.life.clock.now(timezone.utc))
         h.core.connection_manager._ibkr_connection_manager.existing_client.position_snapshot=external_positions
@@ -323,12 +324,14 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
                 if late_case=="regression":
                     # Older nonterminal status must not reopen confirmed fill truth.
                     cached_facts[71].update(status="PendingCancel",filled=0,remaining=1,avgFillPrice=0)
-                if late_case=="stop_oversize":
-                    cached_facts[72]={"status":"Filled","filled":2,"remaining":0,"avgFillPrice":10.81}
+                if stop_fault:
+                    cached_facts[72]={"status":"UNVERIFIED" if late_case=="stop_bad_status" else "Filled",
+                        "filled":2 if late_case=="stop_oversize" else 1,"remaining":0,
+                        "avgFillPrice":True if late_case=="stop_bad_price" else 10.81}
                 # Same cumulative external cache on the next real cycle.
                 h.life.clock.current+=timedelta(seconds=11)
                 repeated_result=h.core.run_once()
-                if late_case!="stop_oversize": assert repeated_result
+                if not stop_fault: assert repeated_result
                 repeated+=capsys.readouterr().out
     finally:
         # Record BEFORE cleanup so release cannot hide unexpected admission.
@@ -390,7 +393,7 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
                 assert used_capital==used_allocation==pytest.approx(10.91)
                 assert not pending_capital and not pending_allocation
             return
-        if late_case=="stop_oversize":
+        if stop_fault:
             assert len(h.truth)==3  # Malformed stop evidence aborts before reconciliation.
             assert h.core.execution_engine.execution_integrity_flag
             assert h.manager.snapshot_positions()["JPM"].quantity==1

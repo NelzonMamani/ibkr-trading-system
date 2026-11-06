@@ -55,6 +55,8 @@ class ExecutionEngine:
         "PendingSubmit",
         "PendingCancel",
     }
+    VALID_CACHED_IBKR_STATUSES = {status.upper() for status in VALID_IBKR_STATUSES} | {
+        "REJECTED", "CANCELLED", "CANCELED", "INACTIVE"}
     """Deterministic execution engine with broker routing and retry semantics."""
 
     def __init__(
@@ -1791,6 +1793,9 @@ class ExecutionEngine:
                 raise ValueError
             if filled == 0:
                 return
+            if (isinstance(facts.get("avgFillPrice"), bool)
+                    or str(facts.get("status") or "").upper() not in self.VALID_CACHED_IBKR_STATUSES):
+                raise ValueError
             price = self._float_or_none(facts.get("avgFillPrice"))
             if price is None or not math.isfinite(price) or price <= 0:
                 raise ValueError
@@ -1868,11 +1873,9 @@ class ExecutionEngine:
                     previous = self.position_records.get(order_id, {})
                     prior = max(int(order["filled"]), int(previous.get("filled_qty", 0)))
                     status = str(facts.get("status") or "").upper()
-                    statuses = {s.upper() for s in self.VALID_IBKR_STATUSES} | {
-                        "REJECTED", "CANCELLED", "CANCELED", "INACTIVE"}
                     terminal_statuses = {"FILLED", "REJECTED", "CANCELLED", "CANCELED", "INACTIVE"}
                     if (total < 0 or remaining < 0 or total + remaining > order["requested"]
-                            or status not in statuses):
+                            or status not in self.VALID_CACHED_IBKR_STATUSES):
                         raise ValueError
                     if order["terminal"] and status not in terminal_statuses and total <= order["filled"]:
                         continue  # Existing terminal truth cannot regress on a late nonterminal snapshot.
