@@ -7,6 +7,7 @@ from datetime import datetime, time, timezone
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
+from src.utils.time_utils import to_ny_time
 from src.adapters.data import historical_data_provider
 from src.adapters.data.historical_data_provider import get_intraday_bars
 from src.market_data.float_provider import FloatProvider
@@ -98,8 +99,7 @@ def _is_premarket_candle(candle: Candle) -> bool:
     timestamp = _timestamp_as_utc(getattr(candle, "timestamp", None))
     if timestamp is None:
         return False
-    market_open_utc = time(14, 30)
-    return timestamp.time() < market_open_utc
+    return to_ny_time(timestamp).time() < time(9, 30)
 
 
 def _infer_reference_price(*, row: Any, candles: list[Candle], session: str, prior_close: float | None) -> float | None:
