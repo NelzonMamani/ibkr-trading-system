@@ -33,7 +33,7 @@ from test_key_level_break_production_handoff import forbid_io
        "missing_counts","unknown_status","oversize","uncertain","regression","accounting_error","allocation_error","completion_error","binding_error","stop_oversize","stop_bad_price","stop_bad_status","processor_cancel","processor_deadline","management","management_pending","management_uncertain",
        "management_unknown","management_unreconciled","management_no_protection","management_stale",
        "management_future","management_bad","management_daily_lock","management_protection_pending","management_protection_missing","management_forming","management_snapshot_failure",
-       *["management_interleave_"+name for name in ("stop_before","stop_during_submit","cancel_delayed","cancel_rejected","cancel_late","uncertain_repeat","both_stop_first","both_reduce_first","both_same_cycle","duplicate_reorder","interrupted_reduce","identity_later","identity_ambiguous","identity_wrong_security","identity_fractional","identity_wrong_side","identity_absent","identity_decimal","reduction_cancel_rejected","reduction_cancel_uncertain","reduction_cancel_late_fill")])],
+       *["management_interleave_"+name for name in ("stop_before","stop_during_submit","cancel_delayed","cancel_rejected","cancel_late","uncertain_repeat","both_stop_first","both_reduce_first","both_same_cycle","duplicate_reorder","interrupted_reduce","identity_later","identity_ambiguous","identity_wrong_security","identity_fractional","identity_wrong_side","identity_absent","identity_decimal","identity_wrong_type","identity_protection_collision","identity_duplicate_native","reduction_cancel_rejected","reduction_cancel_uncertain","reduction_cancel_late_fill")])],
 ])
 def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypatch,tmp_path,capsys,
         no_external_activity,position_case,transport):
@@ -836,11 +836,15 @@ def _exercise_stop_reduction_interleaving(*,h,plan,case,cached,broker_fills,work
                     assert not owned.get("broker_order_id") and "73" not in cancels
                     working_orders.clear()  # Later external snapshot resolves or contradicts the opaque order.
                     from decimal import Decimal
-                    for native_id in ([] if case=="identity_absent" else [73,74] if case=="identity_ambiguous" else [73]):
+                    for native_id in ([] if case=="identity_absent" else [73,74] if case=="identity_ambiguous" else [72] if case=="identity_protection_collision" else [73]):
                         working_orders.append(NS(orderId=native_id,contract=NS(symbol="JPM",conId=999 if case=="identity_wrong_security" else 123),
-                            order=NS(orderType="MKT",parentId=0,orderRef=plan.milestone_order_id,
+                            order=NS(orderType="STP" if case=="identity_wrong_type" else "MKT",parentId=0,orderRef=plan.milestone_order_id,
                                 action="BUY" if case=="identity_wrong_side" else "SELL",
                                 totalQuantity=1.5 if case=="identity_fractional" else Decimal("1") if case=="identity_decimal" else 1),orderState=NS(status="Submitted")))
+                    if case=="identity_duplicate_native":
+                        working_orders.append(NS(orderId=73,contract=NS(symbol="OTHER",conId=999),
+                            order=NS(orderType="MKT",parentId=0,orderRef="different-order",action="SELL",totalQuantity=1),
+                            orderState=NS(status="Submitted")))
                     h.life.clock.current+=timedelta(seconds=16)
                     cycle("fresh_canonical_identity_evidence")
                     if case in {"identity_later","identity_decimal"}:

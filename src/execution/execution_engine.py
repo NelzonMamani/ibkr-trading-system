@@ -648,6 +648,7 @@ class ExecutionEngine:
                     if (str(read(row, "symbol") or "").upper() != plan.symbol
                             or metadata.get("order_ref") != action_id
                             or str(metadata.get("side") or "").upper() != "SELL"
+                            or str(read(row, "order_type") or "").upper() != str(request.get("order_type") or "").upper()
                             or type(con_id) is not int or plan.security_id != f"conId:{con_id}"
                             or isinstance(quantity, bool) or not isinstance(quantity, Number)
                             or not math.isfinite(quantity) or quantity != owned["requested"]
@@ -656,8 +657,12 @@ class ExecutionEngine:
                             or int(read(row, "order_id")) <= 0):
                         continue
                     matches.append(str(read(row, "order_id")))
-                if len(matches) == 1 and not any(other.get("broker_order_id") == matches[0]
-                        for other_plan in manager._relationship_plans.values() for other in other_plan.orders.values()):
+                if (len(matches) == 1
+                        and sum(str(read(row, "order_id")) == matches[0] for row in orders) == 1
+                        and not any(str(other_plan.protection_broker_order_id) == matches[0]
+                            for other_plan in manager._relationship_plans.values())
+                        and not any(other.get("broker_order_id") == matches[0]
+                        for other_plan in manager._relationship_plans.values() for other in other_plan.orders.values())):
                     owned["broker_order_id"] = matches[0]
                     manager._save_relationship_state()
             manager.cancel_excess_milestone_orders(plan)
