@@ -30,7 +30,7 @@ from test_key_level_break_production_handoff import forbid_io
     *[("complete_empty","native_late_"+case) for case in
       ("pending","unrelated","negative","fractional","no_price","nan_price",
        "collector_error","processor_error","processor_after","rejected","cancelled","partial",
-       "missing_counts","unknown_status","oversize","uncertain","regression","accounting_error","allocation_error","completion_error","binding_error","stop_oversize","stop_bad_price","stop_bad_status")],
+       "missing_counts","unknown_status","oversize","uncertain","regression","accounting_error","allocation_error","completion_error","binding_error","stop_oversize","stop_bad_price","stop_bad_status","processor_cancel","processor_deadline")],
 ])
 def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypatch,tmp_path,capsys,
         no_external_activity,position_case,transport):
@@ -38,7 +38,7 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
     late_case=transport.removeprefix("native_late_") if late_fill else None
     stop_fault=late_case in {"stop_oversize","stop_bad_price","stop_bad_status"}
     malformed=late_case in {"negative","fractional","no_price","nan_price","missing_counts","unknown_status","oversize","binding_error"}
-    failed_pass=malformed or late_case in {"collector_error","processor_error","processor_after","accounting_error","allocation_error","completion_error"}
+    failed_pass=malformed or late_case in {"collector_error","processor_error","processor_after","accounting_error","allocation_error","completion_error","processor_cancel","processor_deadline"}
     if late_fill: transport="native_timeout" if late_case=="uncertain" else "native_submitted"
     native_provider=transport.startswith("native_")
     if native_provider and transport not in {"native_timeout","native_unsupported"}: transport=transport.removeprefix("native_")
@@ -299,19 +299,26 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
                         convert(*args,**kwargs)
                         raise RuntimeError("synthetic partial-accounting failure")
                     monkeypatch.setattr(h.core.execution_engine,"_convert_strategy_allocation_for_fill",allocation_failure)
-                if late_case in {"processor_error","processor_after"}:
+                if late_case in {"processor_error","processor_after","processor_cancel","processor_deadline"}:
                     apply=h.core._apply_execution_results_to_trade_management
                     def processing_failure(results):
                         if any(r.rationale=="CACHED_BROKER_CALLBACK" for r in results):
                             if late_case=="processor_after": apply(results)
+                            if late_case in {"processor_cancel","processor_deadline"}:
+                                from src.core.acquisition import AcquisitionCancelled,AcquisitionDeadlineExceeded
+                                raise (AcquisitionCancelled if late_case=="processor_cancel" else AcquisitionDeadlineExceeded)()
                             raise RuntimeError("synthetic cached result processor failure")
                         return apply(results)
                     monkeypatch.setattr(h.core,"_apply_execution_results_to_trade_management",processing_failure)
             h.life.clock.current+=timedelta(seconds=11)
-            result=h.core.run_once()
+            if late_case=="processor_cancel":
+                from src.core.acquisition import AcquisitionCancelled
+                with pytest.raises(AcquisitionCancelled): h.core.run_once()
+                result=None
+            else: result=h.core.run_once()
             if not failed_pass: assert result is (transport!="stop_after_risk")
             repeated=capsys.readouterr().out
-            if late_case in {"accounting_error","allocation_error","processor_error","processor_after","completion_error"}:
+            if late_case in {"accounting_error","allocation_error","processor_error","processor_after","completion_error","processor_cancel","processor_deadline"}:
                 # Negative owner-level replay probe only. Core is halted; no
                 # admission or recovery permission is patched to resume it.
                 before=(h.core.execution_engine.capital_authority.symbol_exposure("JPM"),
