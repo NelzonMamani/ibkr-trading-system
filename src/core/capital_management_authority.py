@@ -1019,6 +1019,10 @@ class CapitalManagementAuthority:
     def _prepare_owner_effect(self, binding: dict | None, *, effect: str, quantity, price, symbol=None, order_id=None) -> None:
         if binding is None:
             return  # Unversioned history never gains prospective authority.
+        import math
+        if (type(quantity) is not int or isinstance(price, bool) or not isinstance(price, (int, float))
+                or not math.isfinite(price)):
+            raise ValueError("OWNER_EFFECT_INPUT_INVALID")
         if not isinstance(binding, dict):
             raise ValueError("OWNER_EFFECT_BINDING_INVALID")
         storage = self.storage_engine

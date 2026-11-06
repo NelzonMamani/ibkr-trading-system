@@ -1342,7 +1342,7 @@ def _prospective_effect_fixture(tmp_path,owner_kind,effect="CONVERT"):
 
 @pytest.mark.parametrize("owner_kind",["capital","allocation"])
 @pytest.mark.parametrize("effect",["CONVERT","RELEASE"])
-@pytest.mark.parametrize("boundary",["capability","prepare_write","after_mutation","after_commit"])
+@pytest.mark.parametrize("boundary",["capability","prepare_write","after_prepare","after_mutation","after_commit"])
 def test_prospective_owner_effect_interruption_boundaries(monkeypatch,tmp_path,no_external_activity,owner_kind,effect,boundary):
     import sqlite3
     h=_prospective_effect_fixture(tmp_path,owner_kind,effect)
@@ -1352,6 +1352,12 @@ def test_prospective_owner_effect_interruption_boundaries(monkeypatch,tmp_path,n
     elif boundary=="prepare_write":
         def fail_prepare(*args,**kwargs): raise OSError("synthetic prepare failure")
         monkeypatch.setattr(h.store,"insert_owner_effect_record",fail_prepare)
+    elif boundary=="after_prepare":
+        prepare=h.storage.prepare_owner_effect
+        def fail_prepared(*args,**kwargs):
+            prepare(*args,**kwargs)
+            raise OSError("synthetic interruption after durable prepare")
+        monkeypatch.setattr(h.storage,"prepare_owner_effect",fail_prepared)
     else:
         finish=h.storage.finish_owner_effect
         def fail_finish(*args,**kwargs):
@@ -1361,15 +1367,19 @@ def test_prospective_owner_effect_interruption_boundaries(monkeypatch,tmp_path,n
     with pytest.raises((RuntimeError,OSError)):
         h.apply()
     after=h.used()
-    assert after==pytest.approx(before if boundary in {"capability","prepare_write"} else (10.91 if effect=="CONVERT" else 0))
+    assert after==pytest.approx(before if boundary in {"capability","prepare_write","after_prepare"} else (10.91 if effect=="CONVERT" else 0))
     assessment=h.storage.inspect_owner_effect(h.binding,independent_fact=dict(h.binding))
     assert assessment["resolved"] is False
     assert assessment.get("outcome")==("OBSERVED_APPLIED" if boundary=="after_commit" else "UNKNOWN")
-    if boundary in {"after_mutation","after_commit"}:
+    if boundary in {"after_prepare","after_mutation","after_commit"}:
         # Another attempt must fail BEFORE any effect, even if the first caller
         # never received receipt acknowledgement. No accounting replay.
         with pytest.raises(sqlite3.IntegrityError): h.apply()
         assert h.used()==after
+    if boundary in {"after_prepare","after_mutation"}:
+        effect_id,expected=h.storage._owner_effect_record(h.binding,phase="PREPARED")
+        assert h.store.fetch_owner_effect_record(effect_id+":prepare")==expected
+        assert h.store.fetch_owner_effect_record(effect_id+":outcome") is None
     h.store.close()
     assert no_external_activity==[] and mutations()=={"place":0,"modify":0,"cancel":0}
 
@@ -1394,6 +1404,10 @@ def test_prospective_identity_conflict_restart_and_readonly_assessment(monkeypat
     path=h.store.path;h.store.close();h.storage._store=SQLiteStore(path)
     owner_type=CapitalManagementAuthority if owner_kind=="capital" else StrategyCapitalAllocationAuthority
     fresh=owner_type(run_mode="PAPER",storage_engine=h.storage)
+    assert (fresh.total_used_exposure if owner_kind=="capital" else fresh.strategy_used_exposure("RossMomentumStrategyV1"))==0
+    with pytest.raises(sqlite3.IntegrityError):
+        fresh.convert_reservation_to_exposure(order_id="synthetic-o",decision_id="synthetic-d",trade_id="synthetic-o",
+            symbol="SYNTHETIC",strategy_id="RossMomentumStrategyV1",fill_quantity=1,fill_price=10.91,effect_evidence=h.binding)
     assert (fresh.total_used_exposure if owner_kind=="capital" else fresh.strategy_used_exposure("RossMomentumStrategyV1"))==0
     result=h.storage.inspect_owner_effect(h.binding,independent_fact=dict(h.binding))
     assert result==dict(resolved=False,reason="NON_ATOMIC_EFFECT_AND_MISSING_FULL_UPDATE_PROOF",outcome="OBSERVED_APPLIED",atomic_application=False)
@@ -1442,3 +1456,43 @@ def _assert_owner_effect_inspection_preserves_latches(h,plan):
     assert before==deepcopy((plan.orders,plan.paused,plan.reconciled,engine.startup_recovery_state,
         engine.startup_recovery_result,engine._failsafe_block_new_entries))
     assert storage.fetch_management_state(h.manager._state_namespace)==durable
+
+
+
+@pytest.mark.parametrize("failure",["sqlite","io","missing_capability"])
+def test_owner_effect_lost_evidence_is_explicitly_blocked(monkeypatch,tmp_path,no_external_activity,failure):
+    import sqlite3
+    h=_prospective_effect_fixture(tmp_path,"capital");h.apply();before=h.used()
+    if failure=="missing_capability":
+        monkeypatch.setattr(h.store,"fetch_owner_effect_record",None)
+    else:
+        def fail_read(*args): raise (sqlite3.DatabaseError if failure=="sqlite" else OSError)("private synthetic storage error")
+        monkeypatch.setattr(h.store,"fetch_owner_effect_record",fail_read)
+    result=h.storage.inspect_owner_effect(h.binding,independent_fact=h.binding)
+    assert not result["resolved"] and result.get("outcome","UNKNOWN")=="UNKNOWN"
+    assert result["reason"] in {"OWNER_EFFECT_STORAGE_UNAVAILABLE","OWNER_EFFECT_EVIDENCE_UNAVAILABLE"}
+    assert "private" not in str(result) and h.used()==before
+    h.store.close();assert no_external_activity==[]
+
+
+
+@pytest.mark.parametrize("owner_kind",["capital","allocation"])
+@pytest.mark.parametrize("quantity,price",[(True,10.91),(1.0,10.91),(1,True),(1,float("inf"))])
+def test_prospective_owner_rejects_actual_untyped_values(tmp_path,no_external_activity,owner_kind,quantity,price):
+    h=_prospective_effect_fixture(tmp_path,owner_kind)
+    with pytest.raises(ValueError,match="OWNER_EFFECT_INPUT_INVALID"):
+        h.owner.convert_reservation_to_exposure(order_id="synthetic-o",symbol="SYNTHETIC",strategy_id="RossMomentumStrategyV1",
+            fill_quantity=quantity,fill_price=price,effect_evidence=h.binding)
+    assert h.used()==0
+    assert h.storage.inspect_owner_effect(h.binding,independent_fact=h.binding)["reason"]=="HISTORICAL_OR_MISSING_EVIDENCE"
+    h.store.close();assert no_external_activity==[]
+
+
+
+def test_owner_effect_future_database_version_blocks_before_mutation(tmp_path,no_external_activity):
+    h=_prospective_effect_fixture(tmp_path,"capital")
+    h.store.connection.execute("INSERT INTO schema_meta(version) VALUES (999)");h.store.connection.commit()
+    with pytest.raises(RuntimeError,match="OWNER_EFFECT_DATABASE_VERSION_UNSUPPORTED"): h.apply()
+    assert h.used()==0
+    assert h.storage.inspect_owner_effect(h.binding,independent_fact=h.binding)["reason"]=="OWNER_EFFECT_DATABASE_VERSION_UNSUPPORTED"
+    h.store.close();assert no_external_activity==[]

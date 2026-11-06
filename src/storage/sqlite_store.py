@@ -1640,8 +1640,8 @@ class SQLiteStore:
                 if row is None or row[0] != prepared_payload:
                     raise RuntimeError("OWNER_EFFECT_PREPARE_CONFLICT")
             self.connection.execute(
-                "INSERT INTO position_lifecycle_transitions (transition_id,run_id,intent,reason_code,reason,transition_seq) VALUES (?,?,?,?,?,?)",
-                (transition_id, run_id, "OWNER_EFFECT_EVIDENCE", "NON_ATOMIC_V1", payload, 0))
+                "INSERT INTO position_lifecycle_transitions (transition_id,run_id,intent,reason_code,reason,transition_seq,timestamp,created_at) VALUES (?,?,?,?,?,?,?,?)",
+                (transition_id, run_id, "OWNER_EFFECT_EVIDENCE", "NON_ATOMIC_V1", payload, 0, now_iso(), now_iso()))
             self.connection.commit()
         except BaseException:
             self.connection.rollback()

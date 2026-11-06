@@ -1438,12 +1438,21 @@ class ExecutionEngine:
                     attempted=False, status="BLOCKED", rationale="RELATIONSHIP_ORDER_NOT_RESERVED")
             plan.orders[request.client_order_id]["request"] = asdict(request)
             # Only newly dispatched native owned requests enter prospective evidence.
-            decision_id = getattr(self, "_prospective_decisions_by_order_id", {}).pop(request.client_order_id, None)
-            if self.run_mode in {RunMode.PAPER, RunMode.LIVE} and decision_id and self._provider.is_live():
-                self._storage_engine.validate_owner_effect_storage()
-                plan.orders[request.client_order_id]["owner_effect_version"] = 1
-                plan.orders[request.client_order_id]["decision_id"] = decision_id
+            decisions = getattr(self, "_prospective_decisions_by_order_id", {})
+            owned = plan.orders[request.client_order_id]
+            decision_id = decisions.get(request.client_order_id)
+            if owned.get("owner_effect_version") == 1:
+                decision_id = owned.get("decision_id")
+            native_owned = self.run_mode in {RunMode.PAPER, RunMode.LIVE} and self._provider.is_live()
+            if native_owned:
+                if not decision_id:
+                    raise RuntimeError("OWNER_EFFECT_DECISION_ID_UNAVAILABLE")
+                owned["owner_effect_version"] = 1
+                owned["decision_id"] = decision_id
             manager._save_relationship_state()
+            if native_owned:
+                self._storage_engine.validate_owner_effect_storage()
+            decisions.pop(request.client_order_id, None)
         try:
             result = self._provider.place_order(request)
         except Exception as exc:

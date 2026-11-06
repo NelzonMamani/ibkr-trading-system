@@ -918,6 +918,8 @@ class StorageEngine:
                 or not callable(getattr(self._store, "fetch_owner_effect_record", None))):
             raise RuntimeError("OWNER_EFFECT_STORAGE_UNAVAILABLE")
         connection = self._store.connection
+        if connection.execute("SELECT MAX(version) FROM schema_meta").fetchone()[0] != SCHEMA_VERSION:
+            raise RuntimeError("OWNER_EFFECT_DATABASE_VERSION_UNSUPPORTED")
         columns = {row[1] for row in connection.execute("PRAGMA table_info(position_lifecycle_transitions)")}
         if (not {"transition_id", "run_id", "intent", "reason_code", "reason", "transition_seq"} <= columns
                 or connection.execute("PRAGMA query_only").fetchone()[0] or connection.in_transaction):
@@ -991,9 +993,12 @@ class StorageEngine:
 
     def inspect_owner_effect(self, binding: dict, *, independent_fact: dict) -> dict:
         """Read-only proof assessment: NO clearing/replay API or atomicity assertion."""
-        if not self.enabled or self.backend != "sqlite" or self._store is None:
+        import sqlite3
+        if not self.enabled or self.backend != "sqlite" or self._store is None or not callable(getattr(self._store, "fetch_owner_effect_record", None)):
             return {"resolved": False, "reason": "OWNER_EFFECT_STORAGE_UNAVAILABLE"}
         try:
+            if self._store.connection.execute("SELECT MAX(version) FROM schema_meta").fetchone()[0] != SCHEMA_VERSION:
+                return {"resolved": False, "reason": "OWNER_EFFECT_DATABASE_VERSION_UNSUPPORTED", "outcome": "UNKNOWN"}
             effect_id, expected = self._owner_effect_record(binding, phase="PREPARED")
             prepared = self._store.fetch_owner_effect_record(effect_id + ":prepare")
             if prepared is None:
@@ -1011,6 +1016,8 @@ class StorageEngine:
                     "outcome": record["phase"], "atomic_application": False}
         except (ValueError, TypeError, KeyError):
             return {"resolved": False, "reason": "OWNER_EFFECT_SCHEMA_OR_IDENTITY_INVALID", "outcome": "UNKNOWN"}
+        except (sqlite3.Error, OSError, RuntimeError):
+            return {"resolved": False, "reason": "OWNER_EFFECT_EVIDENCE_UNAVAILABLE", "outcome": "UNKNOWN"}
 
 
 def _ensure_iso(value: Any | None) -> str | None:
