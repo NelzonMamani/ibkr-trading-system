@@ -2751,6 +2751,8 @@ class CoreOrchestrator:
                 lookback_bars=max(int(lookback), 2),
                 use_rth=False,
             )
+        except (AcquisitionCancelled, AcquisitionDeadlineExceeded):
+            raise
         except Exception as exc:
             print(f"[DATA][MISSING_INTRADAY_CANDLES] symbol={symbol} reason={exc}")
             return [], "none"
@@ -2769,11 +2771,44 @@ class CoreOrchestrator:
         )
         return intraday_bars, "market_data_client.intraday_bars_from_history"
 
-    def _build_trade_management_market_state(self) -> dict[str, dict]:
+    def _build_trade_management_market_state(self, *, symbols: set[str] | None = None,
+                                             observed_at_utc: datetime | None = None) -> dict[str, dict]:
         market_state: dict[str, dict] = {}
         positions = self.trade_management_engine.snapshot_positions()
         for symbol in sorted(positions.keys()):
+            if symbols is not None and symbol not in symbols:
+                continue
             recent_candles, intraday_source = self._get_trade_management_recent_candles(symbol, lookback=10)
+            if observed_at_utc is not None:
+                from src.strategies.common.candles.candle_types import Candle
+                from src.strategies.common.triggers.trigger_abcd_continuation import abcd_candle_rejection
+                from src.strategies.ross_momentum.patterns.pattern_inputs import normalize_timestamp_utc
+                from src.strategies.ross_momentum.policy.pattern_input_policy import PatternInputPolicy
+                try:
+                    normalized = []
+                    for bar in recent_candles:
+                        values = [getattr(bar, key, None) for key in ("open", "high", "low", "close", "volume")]
+                        if any(isinstance(value, bool) for value in values):
+                            raise ValueError("invalid_candle_data")
+                        stamp = getattr(bar, "timestamp", None)
+                        if stamp is None:
+                            stamp = getattr(bar, "date", None)
+                        normalized.append(Candle(*[float(value) for value in values],
+                            timestamp=normalize_timestamp_utc(stamp, symbol=symbol, timeframe="1m")))
+                    reason = abcd_candle_rejection(normalized, observed_at_utc=observed_at_utc, require_clock=True)
+                    if reason:
+                        raise ValueError(reason)
+                    # Management already uses the latest historical close as
+                    # current price, including a forming bar; do not invent a
+                    # close-confirmation rule for the approved 2R milestone.
+                    recent_candles = normalized
+                    freshness = PatternInputPolicy.from_policy_v2().candle_freshness_seconds["1m"]
+                    if not recent_candles or any((observed_at_utc - bar.timestamp).total_seconds() > freshness
+                                                for bar in recent_candles[-2:]):
+                        raise ValueError("stale_management_candles")
+                except (ValueError, TypeError, AttributeError, OverflowError):
+                    print(f"[TRADE_MANAGEMENT][BLOCK] symbol={symbol} reason=INVALID_MARKET_EVIDENCE")
+                    continue
             if len(recent_candles) < 2:
                 print(f"[DATA][MISSING_INTRADAY_CANDLES] symbol={symbol} reason=insufficient_candles count={len(recent_candles)}")
                 print(f"[ROSS][EXIT_INTELLIGENCE][SKIP] symbol={symbol} reason=MISSING_INTRADAY_CANDLES")
@@ -2938,10 +2973,35 @@ class CoreOrchestrator:
                 target_model=getattr(result, "target_model", None),
             )
 
-    def _run_trade_management_engine(self, execution_output: list[ExecutionResult]) -> list[object]:
-        self._apply_execution_results_to_trade_management(execution_output)
-        self._apply_execution_results_to_trade_management(self.execution_engine.collect_relationship_updates())
-        market_state = self._build_trade_management_market_state()
+    def _run_trade_management_engine(
+        self, execution_output: list[ExecutionResult], *, updates_processed: bool = False,
+        bull_micro_only: bool = False, observed_at_utc: datetime | None = None,
+    ) -> list[object]:
+        if not updates_processed:
+            self._apply_execution_results_to_trade_management(execution_output)
+            self._apply_execution_results_to_trade_management(self.execution_engine.collect_relationship_updates())
+        symbols = None
+        if bull_micro_only:
+            from src.strategies.ross_momentum.strategy_policy import BULL_FLAG_MICRO_MANAGEMENT_PROFILE
+            symbols = set()
+            for symbol, position in self.trade_management_engine.snapshot_positions().items():
+                plan = self.trade_management_engine._relationship_plans.get(position.relationship_id)
+                if (position.target_model != BULL_FLAG_MICRO_MANAGEMENT_PROFILE or plan is None
+                        or not plan.reconciled or plan.paused or plan.pending_stop_resize or plan.pending_stop_cancel
+                        or any(order.get("cached_update_in_progress") for order in plan.orders.values())):
+                    continue
+                protection_id = plan.protection_trade_id or plan.initial_order_id
+                protection = self.execution_engine.post_fill_lifecycle.get_trade(protection_id)
+                if (protection is None or protection.filled_qty != position.quantity or protection.stop is None
+                        or protection.stop.quantity != position.quantity
+                        or not self.execution_engine.post_fill_lifecycle._is_open_trade_state(protection.state)
+                        or not self.execution_engine.post_fill_lifecycle._has_active_stop_for_trailing(protection)
+                        or not self.execution_engine.relationship_protection_confirmed(plan)
+                        or not self.execution_engine.post_fill_lifecycle.assess_trade_stop_protection(protection_id)["protected"]):
+                    continue
+                symbols.add(symbol)
+        market_state = (self._build_trade_management_market_state(symbols=symbols, observed_at_utc=observed_at_utc)
+                        if bull_micro_only else self._build_trade_management_market_state())
         intents = self.trade_management_engine.evaluate_cycle(market_state)
         for intent in intents:
             print(
@@ -3235,6 +3295,29 @@ class CoreOrchestrator:
         if not self._startup_recovery_allows_strategy_execution():
             return False
         self._run_position_management_tick(cycle_started_at)
+        # Owned reductions are separate from discovery/new-entry eligibility.
+        # Cached fills have already been processed and reconciled above.
+        if (self.run_mode == RunMode.PAPER and self.execution_enabled and mode_manager.allow_orders
+                and self.trade_management_engine.snapshot_positions()
+                and not position_truth_verdict.block_exits
+                and not self._latest_lifecycle_authority_verdict.get("block_exit_progression", True)):
+            if self._stop_requested_at_boundary("BULL_MICRO_MANAGEMENT"):
+                return False
+            management_intents = self._run_trade_management_engine([], updates_processed=True, bull_micro_only=True,
+                observed_at_utc=cycle_started_at)
+            for intent in management_intents:
+                if self._stop_requested_at_boundary("BULL_MICRO_MANAGEMENT_EXECUTION"):
+                    return False
+                results = self.execution_engine.execute([intent])
+                for result in results:
+                    self._apply_execution_results_to_trade_management([result])
+                    self._trace_event("MANAGEMENT_EXECUTION_RESULT", {
+                        "symbol": result.symbol, "relationship_id": getattr(intent, "relationship_id", None),
+                        "management_action_id": getattr(intent, "management_action_id", None),
+                        "status": result.status, "attempted": result.attempted,
+                        "submitted": self.execution_engine.submission_confirmed(result),
+                        "filled_quantity": int(result.filled_quantity or 0),
+                    })
         if not self._autonomous_recovery_allows_new_entries(cycle_started_at=cycle_started_at):
             return True
         if not self._daily_risk_allows_new_entries(cycle_started_at=cycle_started_at):

@@ -30,12 +30,15 @@ from test_key_level_break_production_handoff import forbid_io
     *[("complete_empty","native_late_"+case) for case in
       ("pending","unrelated","negative","fractional","no_price","nan_price",
        "collector_error","processor_error","processor_after","rejected","cancelled","partial",
-       "missing_counts","unknown_status","oversize","uncertain","regression","accounting_error","allocation_error","completion_error","binding_error","stop_oversize","stop_bad_price","stop_bad_status","processor_cancel","processor_deadline")],
+       "missing_counts","unknown_status","oversize","uncertain","regression","accounting_error","allocation_error","completion_error","binding_error","stop_oversize","stop_bad_price","stop_bad_status","processor_cancel","processor_deadline","management","management_pending","management_uncertain",
+       "management_unknown","management_unreconciled","management_no_protection","management_stale",
+       "management_future","management_bad","management_daily_lock","management_protection_pending","management_protection_missing","management_forming")],
 ])
 def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypatch,tmp_path,capsys,
         no_external_activity,position_case,transport):
     late_fill=transport.startswith("native_late_")
     late_case=transport.removeprefix("native_late_") if late_fill else None
+    management_case=late_case is not None and late_case.startswith("management")
     stop_fault=late_case in {"stop_oversize","stop_bad_price","stop_bad_status"}
     malformed=late_case in {"negative","fractional","no_price","nan_price","missing_counts","unknown_status","oversize","binding_error"}
     failed_pass=malformed or late_case in {"collector_error","processor_error","processor_after","accounting_error","allocation_error","completion_error","processor_cancel","processor_deadline"}
@@ -72,9 +75,21 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
     protection_requests=[]
     protective_orders=[]
     working_orders=[]
+    cancelled_orders=set()
+    cancel_requests=[]
+    market_close=[11.10]
+    management_fault_active=[False]
+    def synthetic_cancel(**kwargs):
+        cancel_requests.append(str(kwargs["broker_order_id"]))
+        cancelled_orders.add(str(kwargs["broker_order_id"]))
+        return {"status":"Cancelled","broker_order_id":kwargs["broker_order_id"]}
     def external_open_orders():
         terminal=(str(cached_facts.get(71,{}).get("status","")).upper() in {"FILLED","REJECTED","CANCELLED"}
                   or (late_case=="regression" and bool(protection_requests)))
+        if management_case:
+            protection=[] if late_case=="management_protection_missing" else protective_orders
+            return [o for o in protection+working_orders if str(o.orderId) not in cancelled_orders
+                and str(cached_facts.get(o.orderId,{}).get("status","")).upper() not in {"FILLED","REJECTED","CANCELLED"}]
         return list(protective_orders)+(list(working_orders) if not terminal else [])
     def cached_status(order_id):
         callback_reads.append(order_id)
@@ -88,8 +103,9 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
         assert kwargs["quantity"]==1 and kwargs["stop_price"]==pytest.approx(10.81)
         protective_orders.append(NS(orderId=72,contract=NS(symbol="JPM"),
             order=NS(orderType="STP",parentId=71,orderRef="",action="SELL",totalQuantity=1,auxPrice=10.81),
-            orderState=NS(status="Submitted")))
-        return {"broker_order_id":"72","status":"Submitted","order_type":"STP"}
+            orderState=NS(status="PendingSubmit" if late_case=="management_protection_pending" else "Submitted")))
+        return {"broker_order_id":None if late_case=="management_no_protection" else "72",
+            "status":"Rejected" if late_case=="management_no_protection" else ("PendingSubmit" if late_case=="management_protection_pending" else "Submitted"),"order_type":"STP"}
     def provider_boundary(**kw):
         provider=PaperExecutionProvider(price_feed=NS(price_for=lambda *a:10.91,get_price=lambda *a:10.91),
             event_collector=core_module.EventCollector(),trade_registry=kw["trade_registry"],run_mode=kw["run_mode"])
@@ -99,7 +115,7 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
             # transport responses are synthetic. is_live/ack handling stay real.
             provider=IbkrExecutionProvider(broker=NS(positions=lambda:[],open_orders=external_open_orders,
                 connection_manager=NS(optional_client=NS(cached_order_status=cached_status)),
-                place_stop_order=unexpected_protection),trade_registry=kw["trade_registry"],run_mode=kw["run_mode"])
+                place_stop_order=unexpected_protection,cancel_order=synthetic_cancel),trade_registry=kw["trade_registry"],run_mode=kw["run_mode"])
         providers.append(provider)
         return provider
     monkeypatch.setattr(core_module,"IbkrExecutionProvider",provider_boundary)
@@ -114,10 +130,30 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
     if late_fill:
         from src.ibkr.position_snapshot import BrokerPositionResult
         def external_positions():
-            held=late_case in {"fill","partial","uncertain","regression","processor_error","processor_after","stop_oversize","stop_bad_price","stop_bad_status"} and bool(cached_facts)
+            held=(management_case or late_case in {"fill","partial","uncertain","regression","processor_error","processor_after","stop_oversize","stop_bad_price","stop_bad_status","management"}) and bool(cached_facts) and not (management_case and cached_facts.get(73,{}).get("filled")==1)
             rows=(NS(symbol="JPM",position=1,con_id=123,avgCost=10.91,account="SYNTHETIC_TEST"),) if held else ()
-            return BrokerPositionResult(rows,"COMPLETE","SYNTHETIC_TEST",h.life.clock.now(timezone.utc))
+            return BrokerPositionResult(rows,"UNAVAILABLE" if late_case=="management_unknown" and management_fault_active[0]
+                else "COMPLETE","SYNTHETIC_TEST",h.life.clock.now(timezone.utc))
         h.core.connection_manager._ibkr_connection_manager.existing_client.position_snapshot=external_positions
+    if management_case:
+        from src.ibkr.market_data_client import HistoricalDataResult
+        from src.execution import trade_management_engine as management_module
+        emit=h.core.event_collector.emit
+        def fixed_clock_emit(*args,**kwargs):
+            kwargs.setdefault("timestamp",h.life.clock.now(timezone.utc))
+            return emit(*args,**kwargs)
+        monkeypatch.setattr(h.core.event_collector,"emit",fixed_clock_emit)
+        def external_history(*args,**kwargs):
+            now=h.life.clock.current
+            bars=tuple(NS(open=market_close[0]-.10,high=market_close[0]+.01,low=10.80,
+                close=market_close[0]-.01*(2-i),volume=1000.,timestamp=now-timedelta(minutes=3-i)) for i in range(3))
+            if management_fault_active[0]:
+                if late_case=="management_stale":
+                    bars=tuple(NS(**dict(vars(b),timestamp=b.timestamp-timedelta(hours=2))) for b in bars)
+                if late_case=="management_future": bars[-1].timestamp=now+timedelta(minutes=1)
+                if late_case=="management_forming": bars[-1].timestamp=now-timedelta(seconds=1)
+                if late_case=="management_bad": bars[-1].low=-1.
+            return HistoricalDataResult("COMPLETE_BARS",bars,end_received=True)
     for name,method in real.items(): monkeypatch.setattr(h.core,name,method.__get__(h.core))
     monkeypatch.setattr(core_module,"build_recovery_plan",recovery_build)
     monkeypatch.setattr(core_module,"apply_recovery_actions",recovery_apply)
@@ -205,16 +241,23 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
             pytest.fail("denied intent reached external transport boundary")
         sent.append(deepcopy(request))
         if transport=="error": raise OSError("synthetic transport uncertainty")
+        reducing=management_case and request.direction=="SELL"
+        if reducing and late_case=="management_uncertain":
+            working_orders.append(NS(orderId=73,contract=NS(symbol=request.symbol),
+                order=NS(orderType="MKT",parentId=0,orderRef=request.client_order_id,action="SELL",totalQuantity=1),
+                orderState=NS(status="PendingSubmit")))
+            h.life.clock.current+=timedelta(microseconds=1)
+            raise OSError("synthetic unresolved management submission")
         result=ExecutionResult(symbol=request.symbol,trader_type=request.trader_type,
             attempted=transport not in {"rejected","result_trace_error"},status={"submitted":"Submitted","rejected":"REJECTED",
                 "result_trace_error":"REJECTED","native_timeout":"TIMED_OUT","native_unsupported":"UNRECOGNIZED",
-                "pending":"PendingSubmit","missing_id":"Submitted"}[transport],
+                "pending":"PendingSubmit","missing_id":"Submitted"}[transport] if not (reducing and late_case=="management_pending") else "PendingSubmit",
             rationale="synthetic transport response",direction=request.direction,quantity=request.quantity,
             requested_quantity=request.quantity,filled_quantity=0,remaining_quantity=request.quantity,
-            client_order_id=request.client_order_id,ibkr_order_id=None if transport in {"rejected","missing_id","result_trace_error"} else 71,
+            client_order_id=request.client_order_id,ibkr_order_id=None if transport in {"rejected","missing_id","result_trace_error"} else (73 if reducing else 71),
             acknowledged_at=h.life.clock.current.isoformat() if transport in {"submitted","pending"} else None)
         if native_provider and result.ibkr_order_id and result.status.upper() not in {"REJECTED","FAILED"}:
-            working_orders.append(NS(orderId=71,contract=NS(symbol=request.symbol),
+            working_orders.append(NS(orderId=result.ibkr_order_id,contract=NS(symbol=request.symbol),
                 order=NS(orderType="MKT",parentId=0,orderRef=request.client_order_id,action="BUY",totalQuantity=1),
                 orderState=NS(status="Submitted")))
         received.append(result)
@@ -248,6 +291,7 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
                 assert h.core.execution_engine.capital_authority.active_reservations
                 assert h.core.execution_engine.strategy_allocation_authority.active_reservations
                 assert execution_results[0].filled_quantity==0
+                if management_case: assert downstream.count("_run_trade_management_engine")==0
                 initial_integrity=h.core.execution_engine.execution_integrity_flag
                 initial_trace_missing=sorted({"SUBMIT","ACK","FILL"}-h.core.execution_engine._order_trace_stages.get(sent[0].client_order_id,set()))
                 if late_case=="uncertain":
@@ -276,6 +320,9 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
                 if late_case=="cancelled": facts.update(status="Cancelled",filled=0,remaining=1,avgFillPrice=0)
                 if late_case=="partial": facts.update(status="Submitted")
                 cached_facts[99 if late_case=="unrelated" else 71]=facts
+                if management_case:
+                    h.core.connection_manager._client=NS(intraday_bars_from_history=external_history)
+                    monkeypatch.setattr(management_module,"datetime",h.life.clock)
                 if late_case=="binding_error":
                     # Negative retained-request corruption: never a permission patch.
                     plan.orders[sent[0].client_order_id]["request"]["client_order_id"]="wrong-occurrence"
@@ -338,8 +385,45 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
                 # Same cumulative external cache on the next real cycle.
                 h.life.clock.current+=timedelta(seconds=11)
                 repeated_result=h.core.run_once()
-                if not stop_fault: assert repeated_result
+                if not stop_fault and late_case!="management_no_protection": assert repeated_result
                 repeated+=capsys.readouterr().out
+                if management_case:
+                    assert plan.entry_terminal
+                    if late_case!="management_no_protection": assert plan.reconciled
+                    assert len(sent)==1 and not plan.milestone_consumed
+                    market_close[0]=plan.milestone_price
+                    management_fault_active[0]=True
+                    if late_case=="management_unreconciled":
+                        working_orders.append(NS(orderId=99,contract=NS(symbol="JPM"),
+                            order=NS(orderType="MKT",parentId=0,orderRef="unrelated",action="SELL",totalQuantity=1),
+                            orderState=NS(status="Submitted")))
+                        h.life.clock.current+=timedelta(seconds=16)  # Normal snapshot expiry, no forced refresh.
+                    if late_case=="management_daily_lock":
+                        from test_p10_daily_risk_governor import _record_closed_trade
+                        from src.config import config_resolver
+                        config_resolver.set_config_overrides(dict(config_resolver._CONFIG_OVERRIDES,
+                            DAILY_RISK_MAX_LOSS_AMOUNT=10.,DAILY_RISK_EXISTING_POSITION_POLICY="MANAGED_ONLY"))
+                        _record_closed_trade(h.core.event_collector,-11.,timestamp=h.life.clock.current,trade_id="synthetic-loss")
+                    h.life.clock.current+=timedelta(seconds=1)
+                    h.core.run_once()
+                    repeated+=capsys.readouterr().out
+                    blocked=late_case in {"management_unknown","management_unreconciled","management_no_protection",
+                        "management_stale","management_future","management_bad","management_protection_pending","management_protection_missing"}
+                    assert len(sent)==(1 if blocked else 2), "active Core recurring management authority mismatch"
+                    if not blocked:
+                        for _ in range(2):
+                            h.life.clock.current+=timedelta(seconds=1)
+                            h.core.run_once()
+                            repeated+=capsys.readouterr().out
+                        assert len(sent)==2 and not plan.milestone_consumed
+                        if late_case in {"management","management_daily_lock"}:
+                            cached_facts[73]={"status":"Filled","filled":1,"remaining":0,"avgFillPrice":market_close[0]}
+                            h.life.clock.current+=timedelta(seconds=1)
+                            h.core.run_once()
+                            repeated+=capsys.readouterr().out
+                            h.life.clock.current+=timedelta(seconds=1)
+                            h.core.run_once()
+                            repeated+=capsys.readouterr().out
     finally:
         # Record BEFORE cleanup so release cannot hide unexpected admission.
         pending_capital=deepcopy(h.core.execution_engine.capital_authority.active_reservations)
@@ -355,6 +439,38 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
         if used_allocation:
             h.core.execution_engine.strategy_allocation_authority.release_exposure(strategy_id="RossMomentumStrategyV1",
                 notional=used_allocation,reason="OFFLINE_JOINED_PROOF_END")
+    if management_case:
+        blocked=late_case in {"management_unknown","management_unreconciled","management_no_protection",
+            "management_stale","management_future","management_bad","management_protection_pending","management_protection_missing"}
+        if blocked:
+            assert len(sent)==1 and plan.milestone_order_id is None
+        else:
+            assert sent[1].direction=="SELL" and sent[1].quantity==1
+            assert sent[1].relationship_context["relationship_id"]==plan.relationship_id
+            parent=next(p for p in h.manager._parents.values() if p["parent_id"]==plan.parent_id)
+            assert parent["consumed_children"]==[sent[0].relationship_context["child_id"]]
+            assert plan.original_stop==pytest.approx(10.81) and plan.e0==pytest.approx(10.91)
+            management_result,=[r for r in execution_results if (r.relationship_context or {}).get("action")=="REDUCE"]
+            assert management_result.filled_quantity==0  # Later callback, never the acknowledgement, proves reduction.
+            assert h.core.execution_engine.submission_confirmed(management_result)==(late_case not in {"management_pending","management_uncertain"})
+            if late_case in {"management","management_daily_lock"}:
+                assert plan.milestone_consumed and plan.milestone_filled==1
+                assert h.manager.snapshot_positions()=={} and h.core.trade_registry.snapshot()==[]
+                assert used_capital==used_allocation==0
+                assert cancelled_orders=={"72"} and cancel_requests==["72"] and len(sent)==2
+                assert plan.parent_id==sent[0].relationship_context["parent_id"]
+                assert sent[1].client_order_id==plan.milestone_order_id and plan.milestone_quantity==1
+            else:
+                assert not plan.milestone_consumed and h.manager.snapshot_positions()["JPM"].quantity==1
+                assert used_capital==used_allocation==pytest.approx(10.91)
+            if late_case=="management_daily_lock": assert "DAILY_RISK][BLOCK_NEW_ENTRIES" in repeated
+        if late_case!="management_no_protection":
+            assert len(callback_drains)==len(h.truth)  # One ingestion per complete active cycle.
+        else:
+            assert len(callback_drains)>=len(h.truth)  # Existing protection failure aborts before truth.
+
+        assert no_external_activity==[] and mutations()=={"place":0,"modify":0,"cancel":0}
+        return
     if late_fill:
         # Failing-before requirement, not a helper invocation/permission patch.
         # Preserve the precise missing active-Core callback lifecycle evidence.
@@ -444,7 +560,7 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
         if late_case!="partial":
             assert plan.e0==pytest.approx(10.91) and plan.r0==pytest.approx(.10)
             assert plan.milestone_price==pytest.approx(plan.e0+2*plan.r0)
-        assert downstream.count("_run_trade_management_engine")==0
+        assert len(sent)==1  # Evaluation with missing market state cannot dispatch a reduction.
         assert not plan.milestone_consumed and plan.milestone_quantity is None
         return  # Callback ingestion proof, not recurring 2R management certification.
     pending_expected=position_case=="complete_empty" and transport in {"submitted","pending","missing_id","error","native_timeout","native_unsupported"}
@@ -588,4 +704,15 @@ def test_cached_ingestion_does_not_activate_other_modes(reassessment,monkeypatch
         pytest.fail("PAPER callback handoff must not activate another mode")
     monkeypatch.setattr(h.core.execution_engine,"collect_relationship_updates",forbidden)
     assert h.core.run_once()
+    assert no_external_activity==[] and mutations()=={"place":0,"modify":0,"cancel":0}
+
+
+@pytest.mark.parametrize("kind",["stop","deadline"])
+def test_management_history_acquisition_control_flow(monkeypatch,no_external_activity,kind):
+    from src.core.acquisition import AcquisitionCancelled,AcquisitionDeadlineExceeded
+    error=AcquisitionCancelled if kind=="stop" else AcquisitionDeadlineExceeded
+    def interrupted(*args,**kwargs): raise error()
+    core=CoreOrchestrator.__new__(CoreOrchestrator)
+    core.connection_manager=NS(optional_client=NS(intraday_bars_from_history=interrupted))
+    with pytest.raises(error): core._get_trade_management_recent_candles("SYNTHETIC",10)
     assert no_external_activity==[] and mutations()=={"place":0,"modify":0,"cancel":0}
