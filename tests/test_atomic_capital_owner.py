@@ -425,3 +425,133 @@ def test_actual_execution_pending_gate_precedes_other_recovery(enrolled):
     assert e._failsafe_block_new_entries and flags==[False]
     assert e.capital_authority.total_reserved_capital==100
     assert enrolled.read_capital_state('synthetic:account-a','PAPER')['pending']=='retained-interruption'
+
+# Policy-boundary assessment: these controls preserve the original double-failure
+# test above. They do not add a resolver, clearing path, or production policy.
+@pytest.fixture
+def restart_histories(tmp_path, monkeypatch):
+    import src.core.capital_management_authority as capital_module
+    import src.storage.sqlite_store as sqlite_module
+    monkeypatch.setattr(capital_module, 'uuid4', lambda: SimpleNamespace(hex='fixed-offline-identity'))
+    monkeypatch.setattr(capital_module.CapitalManagementAuthority, '_now', staticmethod(lambda:'2026-11-06T12:00:00+00:00'))
+    monkeypatch.setattr(sqlite_module, 'now_iso', lambda:'2026-11-06T12:00:00+00:00')
+    seed=storage(tmp_path/'seed.db')
+    seed.initialize_synthetic_capital_scope('synthetic:account-a','PAPER')
+    result={}
+    for history in ('returned','lost_ack','lost_ack_and_quarantine'):
+        s=storage(tmp_path/(history+'.db'))
+        seed._store.connection.backup(s._store.connection)  # Synthetic fixture only.
+        original=s._store.connection
+        class Fault(FailConnection):
+            def commit(self):
+                self.commits+=1
+                if history=='lost_ack_and_quarantine' and self.commits==4:
+                    raise OSError('synthetic quarantine persistence failure')
+                self.original.commit()
+                if history!='returned' and self.commits==3:
+                    raise OSError('synthetic completion response loss')
+        s._store.connection=Fault(original,'none')
+        o=owner(s)
+        if history=='returned':
+            assert admit(o,cap=500).executable
+        elif history=='lost_ack':
+            with pytest.raises(OSError,match='completion response loss'):admit(o,cap=500)
+            assert o.recovery_failed
+        else:
+            with pytest.raises(RuntimeError,match='QUARANTINE_PERSISTENCE_UNKNOWN'):admit(o,cap=500)
+            assert o.recovery_failed
+        s._store.connection=original
+        result[history]={'path':s._store.path,'dump':'\n'.join(original.iterdump())}
+        s._store.close()
+    seed._store.close()
+    return result
+
+
+def _fresh_restart_assessment(path, action):
+    import json,os,subprocess,sys
+    code=r'''
+import json,sys
+from test_atomic_capital_owner import storage,owner,admit
+s=storage(sys.argv[1]);o=owner(s)
+state=s.read_capital_state('synthetic:account-a','PAPER')
+row=s._store.connection.execute('SELECT reason FROM position_lifecycle_transitions WHERE transition_id=?',
+    ('capital-atomic-v1:synthetic:account-a:'+s._store.connection.execute('SELECT last_operation FROM capital_owner_state').fetchone()[0],)).fetchone()
+receipt=json.loads(row[0])
+before='\n'.join(s._store.connection.iterdump())
+out={'version_before':state['version'],'reserved_before':o.total_reserved_capital,
+     'pending':state['pending'] is not None,'receipt_version':receipt['after_version'],
+     'atomic_capital_only':receipt['atomic_capital_only']}
+action=sys.argv[2]
+try:
+ if action=='inspect':
+  out['outcome']='READ_ONLY_CAPITAL_COMMITTED'
+ elif action=='unavailable':
+  s.enabled=False
+  admit(o,'new-intent',cap=500)
+ elif action=='duplicate':
+  d=admit(o,cap=500);out.update(outcome=d.reason,allowed=d.executable)
+ else:
+  d=admit(o,'new-intent',cap=500);out.update(outcome=d.reason,allowed=d.executable)
+except RuntimeError as e:
+ out.update(outcome=str(e),allowed=False)
+s.enabled=True
+out.update(version_after=s.read_capital_state('synthetic:account-a','PAPER')['version'],
+ reserved_after=owner(s).total_reserved_capital,
+ unchanged=before=='\n'.join(s._store.connection.iterdump()))
+s._store.close()
+print('RESTART_ASSESSMENT='+json.dumps(out,sort_keys=True))
+'''
+    env=dict(os.environ,PYTHONPATH=os.pathsep.join(('tests','tests/offline','.')))
+    r=subprocess.run([sys.executable,'-c',code,str(path),action],env=env,timeout=15,capture_output=True,text=True)
+    assert r.returncode==0,r.stderr
+    lines=[s for s in r.stdout.splitlines() if s.startswith('RESTART_ASSESSMENT=')]
+    assert len(lines)==1
+    return json.loads(lines[0].split('=',1)[1])
+
+
+def test_same_retained_sql_cannot_prove_caller_acknowledgement(restart_histories):
+    assert restart_histories['returned']['dump']==restart_histories['lost_ack_and_quarantine']['dump']
+    assert restart_histories['returned']['dump']!=restart_histories['lost_ack']['dump']
+
+
+@pytest.mark.parametrize('history',['returned','lost_ack','lost_ack_and_quarantine'])
+def test_fresh_process_establishes_capital_outcome_read_only(restart_histories,history):
+    facts=_fresh_restart_assessment(restart_histories[history]['path'],'inspect')
+    assert facts['atomic_capital_only'] is True
+    assert facts['version_before']==facts['receipt_version']==facts['version_after']==1
+    assert facts['reserved_before']==facts['reserved_after']==100
+    assert facts['unchanged'] and facts['outcome']=='READ_ONLY_CAPITAL_COMMITTED'
+    assert facts['pending']==(history=='lost_ack')
+
+
+@pytest.mark.parametrize('history',['returned','lost_ack','lost_ack_and_quarantine'])
+def test_fresh_duplicate_never_reapplies_capital_or_grants_permission(restart_histories,history):
+    facts=_fresh_restart_assessment(restart_histories[history]['path'],'duplicate')
+    assert not facts['allowed']
+    assert facts['reserved_before']==facts['reserved_after']==100
+    assert facts['version_before']==facts['version_after']==1
+    assert facts['outcome']==('CAPITAL_REQUIRES_AUTHORITATIVE_INSPECTION' if history=='lost_ack'
+                             else 'CAPITAL_ALREADY_COMMITTED_NO_NEW_PERMISSION')
+
+
+@pytest.mark.parametrize('history',['returned','lost_ack_and_quarantine'])
+def test_unavailable_storage_after_fresh_restart_blocks_without_writes(restart_histories,history):
+    facts=_fresh_restart_assessment(restart_histories[history]['path'],'unavailable')
+    assert not facts['allowed'] and facts['outcome']=='CAPITAL_STORAGE_UNAVAILABLE'
+    assert facts['unchanged'] and facts['version_before']==facts['version_after']==1
+    assert facts['reserved_before']==facts['reserved_after']==100
+
+
+def test_fresh_restart_observed_admission_difference(restart_histories):
+    retained=_fresh_restart_assessment(restart_histories['lost_ack']['path'],'new')
+    absent=_fresh_restart_assessment(restart_histories['lost_ack_and_quarantine']['path'],'new')
+    assert not retained['allowed'] and retained['reserved_after']==100
+    assert absent['allowed'] and absent['reserved_after']==200
+    assert absent['version_before']==1 and absent['version_after']==2
+
+
+@pytest.mark.xfail(strict=True,reason='STOPPED_POLICY_BOUNDARY: no durable caller-ack/resume authority distinguishes identical retained states')
+def test_required_restart_veto_remains_unresolved_after_double_failure(restart_histories):
+    facts=_fresh_restart_assessment(restart_histories['lost_ack_and_quarantine']['path'],'new')
+    assert not facts['allowed'], 'Unresolved caller/other-owner effects must not authorize fresh admission'
+    assert facts['reserved_after']==100
