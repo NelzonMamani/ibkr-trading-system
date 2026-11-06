@@ -16,7 +16,7 @@ from src.strategies.common.triggers.trigger_registry import TRIGGER_EVALUATOR_RE
 from src.scanner import scanner_runner as ross
 
 
-def pmh_joined(reassessment,monkeypatch,tmp_path,*,news_fault='none',peer=False,market_fault='none',position_case='complete_empty'):
+def pmh_joined(reassessment,monkeypatch,tmp_path,*,news_fault='none',peer=False,market_fault='none',position_case='complete_empty',runtime_options=None):
     from src.core import orchestrator as core_module
     names=('_startup_recovery_allows_strategy_execution','_autonomous_recovery_allows_new_entries',
            '_daily_risk_allows_new_entries','_resolve_fill_authority_cycle',
@@ -24,7 +24,7 @@ def pmh_joined(reassessment,monkeypatch,tmp_path,*,news_fault='none',peer=False,
            '_refresh_manual_focus_if_due','_resolve_manual_focus_candidates')
     real={n:getattr(core_module.CoreOrchestrator,n) for n in names}
     recovery_build,recovery_apply=core_module.build_recovery_plan,core_module.apply_recovery_actions
-    h=joined(reassessment,monkeypatch,tmp_path,news_fault=news_fault,peer=peer,position_case=position_case)
+    h=joined(reassessment,monkeypatch,tmp_path,news_fault=news_fault,peer=peer,position_case=position_case,runtime_options=runtime_options)
     h.real_core_methods=real
     for name,method in real.items():monkeypatch.setattr(h.core,name,method.__get__(h.core))
     monkeypatch.setattr(core_module,'build_recovery_plan',recovery_build)
