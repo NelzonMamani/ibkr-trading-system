@@ -5,6 +5,10 @@ from datetime import datetime, timezone
 from enum import Enum
 import json
 import math
+import copy
+import hashlib
+import inspect
+from functools import wraps
 from typing import Any
 from uuid import uuid4
 
@@ -96,6 +100,34 @@ class CapitalReservation:
         return asdict(self)
 
 
+def _durable_capital(method):
+    @wraps(method)
+    def call(self, *args, **kwargs):
+        if self.capital_scope is None:
+            return method(self, *args, **kwargs)
+        bound = inspect.signature(method).bind(self, *args, **kwargs)
+        bound.apply_defaults()
+        return self._capital_operation(method.__name__, {k:v for k,v in bound.arguments.items() if k != 'self'})
+    return call
+
+
+class _CapitalEffectValidation:
+    """Pure validation inside the capital transaction; never writes another receipt."""
+    def __init__(self):
+        self.prepared = None
+
+    def prepare_owner_effect(self, binding):
+        from src.storage.storage_engine import StorageEngine
+        StorageEngine._owner_effect_record(binding, phase='PREPARED')
+        self.prepared = copy.deepcopy(binding)
+
+    def finish_owner_effect(self, binding, *, phase, post_state):
+        from src.storage.storage_engine import StorageEngine
+        if binding != self.prepared:
+            raise ValueError('CAPITAL_EFFECT_BINDING_CONFLICT')
+        StorageEngine._owner_effect_record(binding, phase=phase, post_state=post_state)
+
+
 class CapitalManagementAuthority:
     """Canonical capital admission and reservation authority."""
 
@@ -108,7 +140,9 @@ class CapitalManagementAuthority:
         available_capital: float | None = None,
         buying_power: float | None = None,
         broker_truth_available: bool | None = None,
+        capital_scope: str | None = None,
     ) -> None:
+        self.capital_scope = capital_scope
         self.run_mode = str(run_mode or "SIM").upper()
         self.storage_engine = storage_engine
         self.account_equity = account_equity
@@ -124,6 +158,8 @@ class CapitalManagementAuthority:
 
     @property
     def active_reservations(self) -> dict[str, CapitalReservation]:
+        if self.capital_scope is not None:
+            return self._capital_projection().active_reservations
         return {
             reservation_id: reservation
             for reservation_id, reservation in self._reservations.items()
@@ -132,15 +168,22 @@ class CapitalManagementAuthority:
 
     @property
     def total_reserved_capital(self) -> float:
+        if self.capital_scope is not None:
+            return self._capital_projection().total_reserved_capital
         return sum(float(reservation.remaining_notional) for reservation in self.active_reservations.values())
 
     @property
     def total_used_exposure(self) -> float:
+        if self.capital_scope is not None:
+            return self._capital_projection().total_used_exposure
         return sum(float(value) for value in self._used_exposure_by_symbol.values())
 
     def symbol_exposure(self, symbol: str) -> float:
+        if self.capital_scope is not None:
+            return self._capital_projection().symbol_exposure (symbol)
         return float(self._used_exposure_by_symbol.get(str(symbol or "").upper(), 0.0))
 
+    @_durable_capital
     def evaluate_entry(
         self,
         *,
@@ -454,6 +497,7 @@ class CapitalManagementAuthority:
 
     authorize_entry = evaluate_entry
 
+    @_durable_capital
     def reserve(self, decision: CapitalDecision, *, intent_id: str | None = None, order_id: str | None = None) -> CapitalReservation:
         if not decision.executable:
             raise ValueError("Cannot reserve capital for a non-executable decision.")
@@ -499,11 +543,13 @@ class CapitalManagementAuthority:
         )
         return reservation
 
+    @_durable_capital
     def attach_order(self, *, decision_id: str, order_id: str) -> None:
         for reservation in self.active_reservations.values():
             if reservation.decision_id == decision_id:
                 reservation.order_id = order_id
 
+    @_durable_capital
     def release_reservation(
         self,
         *,
@@ -546,6 +592,7 @@ class CapitalManagementAuthority:
             )
         return released
 
+    @_durable_capital
     def convert_reservation_to_exposure(
         self,
         *,
@@ -614,6 +661,7 @@ class CapitalManagementAuthority:
                 "reservation": ({key: getattr(reservation, key) for key in ("reservation_id", "decision_id", "order_id", "filled_quantity", "remaining_quantity", "remaining_notional", "status", "exposure_notional")} if reservation else None)})
         return fill_notional
 
+    @_durable_capital
     def release_exposure(
         self,
         *,
@@ -659,6 +707,9 @@ class CapitalManagementAuthority:
         return released
 
     def recover_from_lifecycle(self, open_lifecycle_trades: list[Any]) -> int:
+        if self.capital_scope is not None:
+            self._capital_projection()  # Load only; no historical reconstruction.
+            return 0
         self._used_exposure_by_symbol.clear()
         self._used_exposure_by_strategy.clear()
         self._recovered_trade_ids.clear()
@@ -691,6 +742,9 @@ class CapitalManagementAuthority:
         return recovered
 
     def recover_from_open_orders(self, open_orders: list[Any]) -> int:
+        if self.capital_scope is not None:
+            self._capital_projection()  # Load only; no historical reconstruction.
+            return 0
         for reservation in self.active_reservations.values():
             reservation.status = "STALE_DISCARDED"
             reservation.remaining_quantity = 0
@@ -1036,3 +1090,136 @@ class CapitalManagementAuthority:
                 or (order_id is not None and binding.get("order_id") != order_id)):
             raise ValueError("OWNER_EFFECT_OWNER_BINDING_INVALID")
         storage.prepare_owner_effect(binding)
+
+    def _capital_projection(self, state=None):
+        if self.storage_engine is None:
+            raise RuntimeError('CAPITAL_STORAGE_UNAVAILABLE')
+        if state is None:
+            state = self.storage_engine.read_capital_state(self.capital_scope, self.run_mode)
+        projected = CapitalManagementAuthority(run_mode=self.run_mode, storage_engine=_CapitalEffectValidation(),
+            account_equity=self.account_equity, available_capital=self.available_capital,
+            buying_power=self.buying_power, broker_truth_available=self.broker_truth_available)
+        for k,v in state['reservations'].items():
+            values=copy.deepcopy(v)
+            identity=values.pop('effect_identity',None)
+            projected._reservations[k]=CapitalReservation(**values)
+            projected._reservations[k]._capital_effect_identity=identity
+        projected._used_exposure_by_symbol = copy.deepcopy(state['symbol'])
+        projected._used_exposure_by_strategy = copy.deepcopy(state['strategy'])
+        return projected
+
+    def _capital_operation(self, method, arguments):
+        if self.run_mode not in {'SIM','PAPER'}:
+            raise RuntimeError('CAPITAL_OPERATIONAL_ENROLLMENT_FORBIDDEN')
+        if self.recovery_failed:
+            raise RuntimeError('CAPITAL_REQUIRES_AUTHORITATIVE_INSPECTION')
+        if self.storage_engine is None:
+            raise RuntimeError('CAPITAL_STORAGE_UNAVAILABLE')
+        arguments=copy.deepcopy(arguments)
+        if method == 'evaluate_entry':
+            if not arguments.get('intent_id'):
+                raise ValueError('CAPITAL_STABLE_INTENT_REQUIRED')
+            if arguments.get('run_mode') not in (None,self.run_mode):
+                raise ValueError('CAPITAL_MODE_CONFLICT')
+            key=('admit:' if arguments['reserve'] else 'quote:')+arguments['intent_id']
+        elif method == 'reserve':
+            key='reserve:'+arguments['decision'].decision_id
+        elif method == 'attach_order':
+            key='attach:'+arguments['decision_id']
+        elif method == 'release_reservation':
+            if not arguments.get('decision_id') and not arguments.get('order_id'):
+                raise ValueError('CAPITAL_RELEASE_IDENTITY_REQUIRED')
+            key='unreserve:'+str(arguments.get('decision_id'))+':'+str(arguments.get('order_id'))
+        else:
+            binding=arguments.get('effect_evidence')
+            if not binding:
+                raise ValueError('CAPITAL_EXECUTION_EVIDENCE_REQUIRED')
+            from src.storage.storage_engine import StorageEngine
+            key,_=StorageEngine._owner_effect_record(binding,phase='PREPARED')
+        encoded={k:(v.to_dict() if isinstance(v,CapitalDecision) else v) for k,v in arguments.items()}
+        binding=json.dumps({'method':method,'arguments':encoded},sort_keys=True,allow_nan=False)
+        operation=hashlib.sha256(key.encode()).hexdigest()
+        def apply(state):
+            projected=self._capital_projection(state)
+            if method == 'convert_reservation_to_exposure':
+                evidence=arguments['effect_evidence']
+                matches=[r for r in state['reservations'].values() if r['decision_id']==evidence['decision_id']]
+                if (len(matches)!=1 or arguments.get('decision_id') != evidence['decision_id']
+                        or matches[0]['order_id'] != evidence['order_id']
+                        or matches[0]['symbol'] != evidence['symbol']
+                        or matches[0]['strategy_id'] != arguments.get('strategy_id')
+                        or matches[0]['filled_quantity'] + evidence['delta_quantity'] != evidence['cumulative_quantity']
+                        or evidence['delta_quantity'] > matches[0]['remaining_quantity']):
+                    raise RuntimeError('CAPITAL_RESERVATION_EXECUTION_CONFLICT')
+            progress=copy.deepcopy(state['progress'])
+            if method in {'convert_reservation_to_exposure','release_exposure'}:
+                evidence=arguments['effect_evidence']
+                progress_key=json.dumps([evidence['relationship_id'],evidence['order_id'],evidence['effect']])
+                prior=progress.get(progress_key)
+                if (evidence['delta_quantity'] <= 0
+                        or evidence['cumulative_quantity'] != (prior['cumulative_quantity'] if prior else 0)+evidence['delta_quantity']
+                        or (prior and any(prior[k]!=evidence[k] for k in ('decision_id','native_order_id','security_id','symbol','mode','owner')))):
+                    raise RuntimeError('CAPITAL_CUMULATIVE_EVIDENCE_CONFLICT')
+                if method == 'convert_reservation_to_exposure':
+                    previous_notional=prior['cumulative_quantity']*prior['average_price'] if prior else 0.0
+                    expected_delta_price=(evidence['cumulative_quantity']*evidence['average_price']-previous_notional)/evidence['delta_quantity']
+                    if expected_delta_price != evidence['delta_price']:
+                        raise RuntimeError('CAPITAL_CUMULATIVE_VALUATION_CONFLICT')
+                progress[progress_key]=copy.deepcopy(evidence)
+                if method == 'release_exposure':
+                    matches=[r for r in state['reservations'].values() if r['decision_id']==evidence['decision_id']]
+                    if (len(matches)!=1 or not matches[0].get('effect_identity')
+                            or any(matches[0]['effect_identity'][k]!=evidence[k] for k in ('decision_id','relationship_id','security_id','symbol'))
+                            or matches[0]['strategy_id']!=arguments.get('strategy_id')
+                            or matches[0]['effect_identity']['average_price']!=evidence['delta_price']):
+                        raise RuntimeError('CAPITAL_RELEASE_WITHOUT_OWNED_CONVERSION')
+            if method == 'reserve':
+                decision=arguments['decision']
+                quote=decision.audit_payload.get('_capital_quote')
+                if not quote or quote['version'] != state['version']:
+                    raise RuntimeError('CAPITAL_STALE_OR_UNBOUND_DECISION')
+                receipt=self.storage_engine._capital_store().connection.execute(
+                    'SELECT reason FROM position_lifecycle_transitions WHERE transition_id=?',
+                    ('capital-atomic-v1:'+self.capital_scope+':'+quote['operation'],)).fetchone()
+                if not receipt or json.loads(receipt[0])['result']['value'] != decision.to_dict():
+                    raise RuntimeError('CAPITAL_DECISION_INTEGRITY_FAILURE')
+                request=quote['request']; request=dict(request,reserve=False)
+                current=projected.evaluate_entry(**request)
+                if not current.executable:
+                    raise RuntimeError('CAPITAL_CURRENT_ADMISSION_REJECTED')
+                current.decision_id=decision.decision_id
+                value=projected.reserve(current,intent_id=arguments['intent_id'],order_id=arguments['order_id'])
+            else:
+                value=getattr(projected,method)(**arguments)
+            if method == 'convert_reservation_to_exposure':
+                projected._reservations[matches[0]['reservation_id']]._capital_effect_identity=copy.deepcopy(arguments['effect_evidence'])
+            if method == 'attach_order':
+                matches=[r for r in state['reservations'].values() if r['decision_id']==arguments['decision_id']]
+                if len(matches)!=1 or matches[0]['order_id'] not in (None,arguments['order_id']):
+                    raise RuntimeError('CAPITAL_ORDER_ATTACHMENT_CONFLICT')
+            if isinstance(value,CapitalDecision):
+                if not arguments['reserve']:
+                    value.audit_payload['_capital_quote']={'version':state['version']+1,'operation':operation,'request':arguments}
+                result={'type':'decision','value':value.to_dict()}
+            elif isinstance(value,CapitalReservation):
+                result={'type':'reservation','value':value.to_dict()}
+            else:
+                result={'type':'scalar','value':value}
+            after={'reservations':{k:dict(v.to_dict(),effect_identity=getattr(v,'_capital_effect_identity',None)) for k,v in projected._reservations.items()},
+                'symbol':projected._used_exposure_by_symbol,'strategy':projected._used_exposure_by_strategy,'progress':progress}
+            return after,result
+        try:
+            result,duplicate=self.storage_engine.transact_capital(self.capital_scope,self.run_mode,operation,binding,apply)
+        except BaseException:
+            self.recovery_failed=True
+            self.recovery_failure_reason='CAPITAL_TRANSACTION_OUTCOME_REQUIRES_INSPECTION'
+            raise
+        # Never publish a financial permission from a prior operation.
+        if result['type']=='decision':
+            data=copy.deepcopy(result['value']); data['status']=CapitalDecisionStatus(data['status'])
+            if duplicate:
+                data.update(status=CapitalDecisionStatus.BLOCKED,approved_quantity=0,approved_notional=0.0,reason='CAPITAL_ALREADY_COMMITTED_NO_NEW_PERMISSION')
+            return CapitalDecision(**data)
+        if result['type']=='reservation':
+            return CapitalReservation(**copy.deepcopy(result['value']))
+        return result['value']

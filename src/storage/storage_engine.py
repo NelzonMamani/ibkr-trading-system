@@ -911,6 +911,20 @@ class StorageEngine:
             "persist_flush_each_cycle": self.flush_each_cycle,
         }
 
+    def initialize_synthetic_capital_scope(self, scope: str, mode: str) -> None:
+        self._capital_store().initialize_synthetic_capital_scope(scope, mode)
+
+    def _capital_store(self):
+        if not self.enabled or self.backend != "sqlite" or self._store is None:
+            raise RuntimeError("CAPITAL_STORAGE_UNAVAILABLE")
+        return self._store
+
+    def read_capital_state(self, scope: str, mode: str) -> dict:
+        return self._capital_store().read_capital_state(scope, mode)
+
+    def transact_capital(self, scope: str, mode: str, operation: str, binding: str, apply):
+        return self._capital_store().transact_capital(scope, mode, operation, binding, apply)
+
     def validate_owner_effect_storage(self) -> None:
         """Require working durable capabilities BEFORE prospective accounting mutation."""
         if (not self.enabled or self.backend != "sqlite" or self._store is None

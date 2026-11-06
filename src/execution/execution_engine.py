@@ -220,7 +220,10 @@ class ExecutionEngine:
         if not lifecycle_trades:
             lifecycle_trades = list(getattr(self.post_fill_lifecycle, "_trades", {}).values())
         self.strategy_allocation_authority.recover_from_lifecycle(lifecycle_trades)
-        self.capital_authority.recover_from_lifecycle(lifecycle_trades)
+        if getattr(self.capital_authority, 'capital_scope', None) is not None:
+            self.capital_authority._capital_projection()
+        else:
+            self.capital_authority.recover_from_lifecycle(lifecycle_trades)
 
         broker_orders: list[object] = []
         if self._provider is not None:
@@ -232,7 +235,8 @@ class ExecutionEngine:
                 if self.run_mode == RunMode.LIVE:
                     self._mark_capital_recovery_failed(f"CAPITAL_OPEN_ORDER_RECOVERY_FAILED:{exc}")
                 return
-        self.capital_authority.recover_from_open_orders(broker_orders)
+        if getattr(self.capital_authority, 'capital_scope', None) is None:
+            self.capital_authority.recover_from_open_orders(broker_orders)
         if self.run_mode == RunMode.LIVE and getattr(self.capital_authority, "recovery_failed", False):
             reason = getattr(self.capital_authority, "recovery_failure_reason", "CAPITAL_RECOVERY_FAILED")
             self._mark_capital_recovery_failed(str(reason))

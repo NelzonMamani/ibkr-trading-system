@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
+import math
 import os
 import sqlite3
 from typing import Any, Iterable
@@ -33,6 +34,16 @@ class SQLiteStore:
         self.connection.close()
 
     def initialize_schema(self) -> None:
+        # Refuse future base schemas before any DDL or schema stamp.
+        if self.connection.execute("SELECT 1 FROM sqlite_master WHERE name='schema_meta'").fetchone():
+            version = self.connection.execute('SELECT MAX(version) FROM schema_meta').fetchone()[0]
+            if version is not None and version > SCHEMA_VERSION:
+                raise RuntimeError('STORAGE_FUTURE_SCHEMA_UNSUPPORTED')
+        if self.connection.execute("SELECT 1 FROM sqlite_master WHERE name='capital_owner_state'").fetchone():
+            if os.environ.get('EXECUTION_ENV') != 'TEST':
+                raise RuntimeError('CAPITAL_OPERATIONAL_ACCESS_UNFENCED')
+            if self.connection.execute('SELECT 1 FROM capital_owner_state WHERE schema_version != 1 OR fence != ? LIMIT 1', ('SYNTHETIC_ONLY_V1',)).fetchone():
+                raise RuntimeError('CAPITAL_EXTENSION_SCHEMA_UNSUPPORTED')
         cursor = self.connection.cursor()
         cursor.executescript(
             """
@@ -1627,6 +1638,144 @@ class SQLiteStore:
     def _column_names(self, table: str) -> set[str]:
         cursor = self.connection.execute(f"PRAGMA table_info({table})")
         return {row["name"] for row in cursor.fetchall()}
+
+    def initialize_synthetic_capital_scope(self, scope: str, mode: str) -> None:
+        """Explicit test enrollment only. Never initialize an operational database."""
+        if (os.environ.get("EXECUTION_ENV") != "TEST" or (not isinstance(scope,str) or not 1 <= len(scope) <= 256 or not scope.startswith("synthetic:"))
+                or mode not in {"SIM", "PAPER"} or self.connection.in_transaction
+                or self.connection.execute("SELECT COUNT(*) FROM runs").fetchone()[0]):
+            raise RuntimeError("CAPITAL_OPERATIONAL_ENROLLMENT_FORBIDDEN")
+        self._capital_schema_check(base_only=True)
+        try:
+            self.connection.execute("BEGIN IMMEDIATE")
+            marker=self.connection.execute("SELECT 1 FROM sqlite_master WHERE name='capital_synthetic_database'").fetchone()
+            if marker is None:
+                tables=[r[0] for r in self.connection.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name!='schema_meta'")]
+                if any(self.connection.execute('SELECT 1 FROM "'+name.replace('"','""')+'" LIMIT 1').fetchone() for name in tables):
+                    raise RuntimeError('CAPITAL_NONFRESH_DATABASE_QUARANTINED')
+                self.connection.execute("CREATE TABLE capital_synthetic_database (version INTEGER PRIMARY KEY CHECK(version=1))")
+                self.connection.execute("INSERT INTO capital_synthetic_database VALUES (1)")
+            elif [r[0] for r in self.connection.execute("SELECT version FROM capital_synthetic_database")] != [1]:
+                raise RuntimeError('CAPITAL_SYNTHETIC_SCHEMA_UNSUPPORTED')
+            self.connection.execute("CREATE TABLE IF NOT EXISTS capital_owner_state (scope TEXT PRIMARY KEY, mode TEXT NOT NULL, schema_version INTEGER NOT NULL, version INTEGER NOT NULL, fence TEXT NOT NULL)")
+            self.connection.execute("CREATE TABLE IF NOT EXISTS capital_owner_reservations (scope TEXT NOT NULL, reservation_id TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(scope,reservation_id))")
+            self.connection.execute("CREATE TABLE IF NOT EXISTS capital_owner_exposure (scope TEXT NOT NULL, dimension TEXT NOT NULL, name TEXT NOT NULL, amount REAL NOT NULL, PRIMARY KEY(scope,dimension,name))")
+            self.connection.execute("CREATE TABLE IF NOT EXISTS capital_owner_execution (scope TEXT NOT NULL, identity TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(scope,identity))")
+            self.connection.execute("INSERT INTO capital_owner_state VALUES (?,?,1,0,'SYNTHETIC_ONLY_V1')", (scope,mode))
+            self.connection.commit()
+        except BaseException:
+            self.connection.rollback()
+            raise
+
+    def _capital_schema_check(self, *, base_only: bool = False) -> None:
+        if (self.connection.execute("SELECT MAX(version) FROM schema_meta").fetchone()[0] != SCHEMA_VERSION
+                or self.connection.in_transaction or self.connection.execute("PRAGMA query_only").fetchone()[0]):
+            raise RuntimeError("CAPITAL_STORAGE_UNSUPPORTED_OR_BUSY")
+        if not base_only and os.environ.get("EXECUTION_ENV") != "TEST":
+            raise RuntimeError("CAPITAL_OPERATIONAL_ACCESS_UNFENCED")
+        # Receipt durability must not depend on cycle-flush configuration.
+        self.connection.execute("PRAGMA synchronous=FULL")
+        if self.connection.execute("PRAGMA synchronous").fetchone()[0] < 2:
+            raise RuntimeError("CAPITAL_DURABILITY_UNAVAILABLE")
+
+    def _capital_load(self, scope: str, mode: str) -> dict:
+        row = self.connection.execute("SELECT * FROM capital_owner_state WHERE scope=?", (scope,)).fetchone()
+        if (row is None or row['schema_version'] != 1 or row['mode'] != mode
+                or row['fence'] != 'SYNTHETIC_ONLY_V1' or not scope.startswith('synthetic:')):
+            raise RuntimeError("CAPITAL_SCOPE_UNENROLLED_OR_UNFENCED")
+        if not self.connection.execute("SELECT 1 FROM capital_synthetic_database WHERE version=1").fetchone():
+            raise RuntimeError('CAPITAL_UNFENCED_DATABASE')
+        reservations = {r['reservation_id']: json.loads(r['payload']) for r in self.connection.execute(
+            "SELECT * FROM capital_owner_reservations WHERE scope=?", (scope,))}
+        exposure = {'symbol': {}, 'strategy': {}}
+        for r in self.connection.execute("SELECT * FROM capital_owner_exposure WHERE scope=?", (scope,)):
+            exposure[r['dimension']][r['name']] = r['amount']
+        if type(row['version']) is not int or row['version'] < 0:
+            raise RuntimeError('CAPITAL_CORRUPT_VERSION')
+        decisions=set()
+        for key, r in reservations.items():
+            if (r.get('decision_id') in decisions or r.get('remaining_quantity',0) > r.get('quantity',0)
+                    or r.get('filled_quantity',0) > r.get('quantity',0) or r.get('filled_quantity',0)+r.get('remaining_quantity',0) > r.get('quantity',0)
+                    or r.get('reservation_id') != key or r.get('run_mode') != mode
+                    or any(type(r.get(k)) is not int or r[k] < 0 for k in ('quantity','remaining_quantity','filled_quantity'))
+                    or any(isinstance(r.get(k), bool) or not isinstance(r.get(k),(int,float)) or not math.isfinite(r[k]) or r[k] < 0
+                           for k in ('notional','remaining_notional','exposure_notional'))
+                    or r.get('status') not in {'ACTIVE','CONVERTED','RELEASED'}):
+                raise RuntimeError('CAPITAL_CORRUPT_RESERVATION')
+            decisions.add(r['decision_id'])
+            from src.core.capital_management_authority import CapitalReservation
+            CapitalReservation(**{k:v for k,v in r.items() if k!='effect_identity'})  # Exact supported owner fields.
+        if any(not math.isfinite(v) or v < 0 for values in exposure.values() for v in values.values()):
+            raise RuntimeError('CAPITAL_CORRUPT_EXPOSURE')
+        progress={r['identity']:json.loads(r['payload']) for r in self.connection.execute('SELECT * FROM capital_owner_execution WHERE scope=?',(scope,))}
+        from src.storage.storage_engine import StorageEngine
+        for key,b in progress.items():
+            StorageEngine._owner_effect_record(b,phase='PREPARED')
+            if key != json.dumps([b['relationship_id'],b['order_id'],b['effect']]):
+                raise RuntimeError('CAPITAL_CORRUPT_PROGRESS_IDENTITY')
+        for r in reservations.values():
+            b=r.get('effect_identity')
+            if b is not None:
+                StorageEngine._owner_effect_record(b,phase='PREPARED')
+                if (b['decision_id']!=r['decision_id'] or b['order_id']!=r['order_id'] or b['symbol']!=r['symbol']
+                        or b['effect']!='CONVERT' or b['owner']!='capital' or b['mode']!=mode
+                        or progress.get(json.dumps([b['relationship_id'],b['order_id'],b['effect']]))!=b):
+                    raise RuntimeError('CAPITAL_CORRUPT_RESERVATION_BINDING')
+        return {'version': row['version'], 'reservations': reservations, 'progress':progress, **exposure}
+
+    def read_capital_state(self, scope: str, mode: str) -> dict:
+        self._capital_schema_check()
+        try:
+            self.connection.execute("BEGIN")
+            state = self._capital_load(scope,mode)
+            self.connection.rollback()
+            return state
+        except BaseException:
+            self.connection.rollback()
+            raise
+
+    def transact_capital(self, scope: str, mode: str, operation: str, binding: str, apply) -> tuple[dict, bool]:
+        """One existing-owner state transition and receipt; callback is pure local policy."""
+        self._capital_schema_check()
+        receipt_id = 'capital-atomic-v1:' + scope + ':' + operation
+        try:
+            self.connection.execute("BEGIN IMMEDIATE")
+            before = self._capital_load(scope,mode)
+            previous = self.connection.execute("SELECT reason FROM position_lifecycle_transitions WHERE transition_id=?", (receipt_id,)).fetchone()
+            if previous:
+                saved=json.loads(previous[0])
+                if (set(saved)!={'schema','scope','binding','before_version','after_version','post_state','result','atomic_capital_only'}
+                        or saved['binding'] != binding or type(saved['schema']) is not int or saved['schema'] != 1 or saved['scope'] != scope
+                        or saved['atomic_capital_only'] is not True
+                        or type(saved['before_version']) is not int or saved['before_version'] < 0
+                        or type(saved['after_version']) is not int or saved['after_version']!=saved['before_version']+1
+                        or saved['after_version']>before['version'] or not isinstance(saved['post_state'],dict)
+                        or set(saved['result'])!={'type','value'} or saved['result']['type'] not in {'decision','reservation','scalar'}):
+                    raise RuntimeError("CAPITAL_EFFECT_IDENTITY_CONFLICT")
+                self.connection.rollback()
+                return saved['result'], True
+            after, result = apply(before)
+            self.connection.execute("DELETE FROM capital_owner_reservations WHERE scope=?", (scope,))
+            self.connection.executemany("INSERT INTO capital_owner_reservations VALUES (?,?,?)", [
+                (scope,k,json.dumps(v,sort_keys=True,allow_nan=False)) for k,v in after['reservations'].items()])
+            self.connection.execute("DELETE FROM capital_owner_exposure WHERE scope=?", (scope,))
+            self.connection.executemany("INSERT INTO capital_owner_exposure VALUES (?,?,?,?)", [
+                (scope,dimension,k,v) for dimension in ('symbol','strategy') for k,v in after[dimension].items()])
+            self.connection.execute("DELETE FROM capital_owner_execution WHERE scope=?", (scope,))
+            self.connection.executemany("INSERT INTO capital_owner_execution VALUES (?,?,?)", [
+                (scope,k,json.dumps(v,sort_keys=True,allow_nan=False)) for k,v in after['progress'].items()])
+            changed=self.connection.execute("UPDATE capital_owner_state SET version=version+1 WHERE scope=? AND version=?", (scope,before['version'])).rowcount
+            if changed != 1:
+                raise RuntimeError("CAPITAL_STATE_VERSION_CONFLICT")
+            outcome={'schema':1,'scope':scope,'binding':binding,'before_version':before['version'],
+                'after_version':before['version']+1,'post_state':{'reservations':{k:v for k,v in after['reservations'].items() if before['reservations'].get(k)!=v},'symbol':{k:v for k,v in after['symbol'].items() if before['symbol'].get(k)!=v},'strategy':{k:v for k,v in after['strategy'].items() if before['strategy'].get(k)!=v}},'result':result,'atomic_capital_only':True}
+            self.connection.execute("INSERT INTO position_lifecycle_transitions (transition_id,intent,reason_code,reason,transition_seq,timestamp,created_at) VALUES (?,?,?,?,?,?,?)",
+                (receipt_id,'CAPITAL_OWNER_EFFECT','ATOMIC_CAPITAL_V1',json.dumps(outcome,sort_keys=True,allow_nan=False),before['version']+1,now_iso(),now_iso()))
+            self.connection.commit()
+            return result, False
+        except BaseException:
+            self.connection.rollback()
+            raise
 
     def insert_owner_effect_record(self, transition_id: str, payload: str, *, run_id: str | None,
                                    prepared_id: str | None = None, prepared_payload: str | None = None) -> None:
