@@ -32,7 +32,7 @@ from test_key_level_break_production_handoff import forbid_io
        "collector_error","processor_error","processor_after","rejected","cancelled","partial",
        "missing_counts","unknown_status","oversize","uncertain","regression","accounting_error","allocation_error","completion_error","binding_error","stop_oversize","stop_bad_price","stop_bad_status","processor_cancel","processor_deadline","management","management_pending","management_uncertain",
        "management_unknown","management_unreconciled","management_no_protection","management_stale",
-       "management_future","management_bad","management_daily_lock","management_protection_pending","management_protection_missing","management_forming")],
+       "management_future","management_bad","management_daily_lock","management_protection_pending","management_protection_missing","management_forming","management_snapshot_failure")],
 ])
 def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypatch,tmp_path,capsys,
         no_external_activity,position_case,transport):
@@ -84,6 +84,8 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
         cancelled_orders.add(str(kwargs["broker_order_id"]))
         return {"status":"Cancelled","broker_order_id":kwargs["broker_order_id"]}
     def external_open_orders():
+        if late_case=="management_snapshot_failure" and management_fault_active[0]:
+            raise OSError("synthetic order snapshot unavailable")
         terminal=(str(cached_facts.get(71,{}).get("status","")).upper() in {"FILLED","REJECTED","CANCELLED"}
                   or (late_case=="regression" and bool(protection_requests)))
         if management_case:
@@ -393,6 +395,8 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
                     assert len(sent)==1 and not plan.milestone_consumed
                     market_close[0]=plan.milestone_price
                     management_fault_active[0]=True
+                    if late_case=="management_snapshot_failure":
+                        h.life.clock.current+=timedelta(seconds=16)  # Expire prior canonical protection evidence.
                     if late_case=="management_unreconciled":
                         working_orders.append(NS(orderId=99,contract=NS(symbol="JPM"),
                             order=NS(orderType="MKT",parentId=0,orderRef="unrelated",action="SELL",totalQuantity=1),
@@ -408,7 +412,7 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
                     h.core.run_once()
                     repeated+=capsys.readouterr().out
                     blocked=late_case in {"management_unknown","management_unreconciled","management_no_protection",
-                        "management_stale","management_future","management_bad","management_protection_pending","management_protection_missing"}
+                        "management_stale","management_future","management_bad","management_protection_pending","management_protection_missing","management_snapshot_failure"}
                     assert len(sent)==(1 if blocked else 2), "active Core recurring management authority mismatch"
                     if not blocked:
                         for _ in range(2):
@@ -441,7 +445,7 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
                 notional=used_allocation,reason="OFFLINE_JOINED_PROOF_END")
     if management_case:
         blocked=late_case in {"management_unknown","management_unreconciled","management_no_protection",
-            "management_stale","management_future","management_bad","management_protection_pending","management_protection_missing"}
+            "management_stale","management_future","management_bad","management_protection_pending","management_protection_missing","management_snapshot_failure"}
         if blocked:
             assert len(sent)==1 and plan.milestone_order_id is None
         else:
@@ -464,6 +468,9 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
                 assert not plan.milestone_consumed and h.manager.snapshot_positions()["JPM"].quantity==1
                 assert used_capital==used_allocation==pytest.approx(10.91)
             if late_case=="management_daily_lock": assert "DAILY_RISK][BLOCK_NEW_ENTRIES" in repeated
+        if late_case=="management_snapshot_failure":
+            assert not plan.reconciled and h.core.execution_engine._relationship_orders_asof is None
+            assert h.core.execution_engine._relationship_open_orders  # Old rows retained but cannot grant authority.
         if late_case!="management_no_protection":
             assert len(callback_drains)==len(h.truth)  # One ingestion per complete active cycle.
         else:
