@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from src.strategies.common.triggers.trigger_abcd_continuation import abcd_candle_rejection
+
 
 def _safe_float(value):
     try:
@@ -27,6 +29,14 @@ def evaluate_key_level_break_trigger(pattern_result, inputs):
             "trigger_ready_now": False,
             "trigger_reason": "missing_candles",
         }
+
+    stream = payload.get("execution_stream")
+    if isinstance(stream, dict):
+        rejection = abcd_candle_rejection(candles,
+            observed_at_utc=stream.get("observed_at_utc"), require_clock=True)
+        if rejection:
+            return {"trigger_type": "XL_KEY_LEVEL_BREAK", "trigger_state": "BLOCKED",
+                    "trigger_ready_now": False, "trigger_reason": "key_level_break_" + rejection.lower()}
 
     trigger_level = _safe_float(payload.get("trigger_level"))
     if trigger_level is None:

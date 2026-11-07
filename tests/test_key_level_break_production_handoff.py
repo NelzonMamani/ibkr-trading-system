@@ -203,3 +203,35 @@ def test_malformed_key_level_contract_never_forms_intent(monkeypatch, tmp_path, 
     strategy, intents, _ = _run(monkeypatch, tmp_path, results=[replace(_result(), **updates)])
     assert intents == []
     assert not strategy.last_symbol_terminal_outcomes["UPC"]["intent_emitted"]
+
+
+@pytest.mark.parametrize('fault',['missing_clock','naive_clock','duplicate_time'])
+def test_operational_key_source_requires_original_aware_ordered_clock(fault):
+    candles=_candles([(9.8,9.95,9.75,9.9,900),(9.9,10.08,9.88,10.03,1200)],step_seconds=60)
+    clock=candles[-1].timestamp+timedelta(minutes=1)
+    if fault=='missing_clock':clock=None
+    if fault=='naive_clock':clock=clock.replace(tzinfo=None)
+    if fault=='duplicate_time':candles[-1]=replace(candles[-1],timestamp=candles[-2].timestamp)
+    source=replace(_base_inputs(),candles=candles,timeframe_candles={'1m':candles},observed_at_utc=clock)
+    result=KeyLevelBreakPattern().evaluate(source)
+    assert not result.detected and result.rejection_reason=='KEY_LEVEL_BREAK_INVALID_CANDLE_TIMESTAMPS'
+
+
+def test_canonical_key_execution_cannot_omit_original_clock():
+    evaluator=TRIGGER_EVALUATOR_REGISTRY['KEY_LEVEL_BREAK']
+    payload=dict(_bridge([_result()])[0],execution_stream={})
+    result=evaluator(payload,{'candles':_base_inputs().candles})
+    assert not result['trigger_ready_now'] and result['trigger_reason']=='key_level_break_invalid_candle_timestamps'
+
+
+@pytest.mark.parametrize('microseconds,eligible',[(0,True),(1,False)])
+def test_key_source_reuses_existing_freshness_boundary_without_trusting_flags(microseconds,eligible):
+    from src.strategies.ross_momentum.policy.pattern_input_policy import PatternInputPolicy
+    candles=_candles([(9.8,9.95,9.75,9.9,900),(9.9,10.08,9.88,10.03,1200)],step_seconds=60)
+    seconds=PatternInputPolicy.from_policy_v2().candle_freshness_seconds['1m']
+    clock=candles[-1].timestamp+timedelta(seconds=seconds,microseconds=microseconds)
+    source=replace(_base_inputs(),candles=candles,timeframe_candles={'1m':candles},observed_at_utc=clock,
+        timeframe_provenance={'1m':'PRESENT'})
+    result=KeyLevelBreakPattern().evaluate(source)
+    assert result.detected is eligible
+    if not eligible:assert result.rejection_reason=='KEY_LEVEL_BREAK_STALE_SOURCE'

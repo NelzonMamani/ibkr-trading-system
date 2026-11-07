@@ -16,7 +16,8 @@ from src.strategies.common.patterns.pattern_cup_handle import detect_cup_handle
 from src.strategies.common.triggers.trigger_abcd_continuation import abcd_candle_rejection
 from src.strategies.common.patterns.pattern_parabolic_exhaustion import detect_parabolic_exhaustion
 from src.strategies.ross_momentum.patterns.pattern_base import PatternBase
-from src.strategies.ross_momentum.patterns.pattern_inputs import PatternInputs
+from src.strategies.ross_momentum.patterns.pattern_inputs import PatternInputs, _timeframe_provenance
+from src.strategies.ross_momentum.policy.pattern_input_policy import PatternInputPolicy
 from src.strategies.ross_momentum.patterns.pattern_types import Direction, PatternFamily, PatternResult
 from src.strategies.strategy_contracts import SessionContext
 
@@ -678,6 +679,19 @@ class KeyLevelBreakPattern(PatternBase):
         candles = list(inputs.candles or [])
         if len(candles) < 2:
             return self._rejected("missing_candles", inputs)
+
+        rejection = abcd_candle_rejection(candles, observed_at_utc=inputs.observed_at_utc,
+            require_clock=bool(inputs.timeframe_candles))
+        if rejection:
+            return self._rejected("KEY_LEVEL_BREAK_" + rejection, inputs)
+        clock = inputs.observed_at_utc
+        if clock is not None:
+            if isinstance(clock, str):
+                clock = datetime.fromisoformat(clock)
+            status = _timeframe_provenance(candles, inputs.timeframe,
+                PatternInputPolicy.from_policy_v2(), symbol=inputs.symbol, now_utc=clock)
+            if status != "PRESENT":
+                return self._rejected("KEY_LEVEL_BREAK_STALE_SOURCE", inputs)
 
         spread = _safe_float(inputs.liquidity_context.spread)
         if spread is None:
