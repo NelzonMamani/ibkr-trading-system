@@ -182,9 +182,14 @@ def test_first_repeats_have_no_downstream_effects(reassessment,monkeypatch,tmp_p
     h=first_joined(reassessment,monkeypatch,tmp_path)
     out=cycles(h,capsys)
     for _ in range(2):
+        batches_before=len(h.batches);risk_before=len(h.evaluated)
         h.life.clock.current+=timedelta(seconds=1)
         assert h.core.run_once();out+=capsys.readouterr().out
-    assert h.evaluated and all(d.reason_code=='LIVE_READ_ONLY_BLOCK' for _,_,d in h.evaluated)
+        assert len(h.batches)==batches_before+1 and len(h.batches[-1])==1
+        assert len(h.evaluated)==risk_before+1
+        assert h.evaluated[-1][0] is h.batches[-1][0]
+        no_effects(h)
+    assert all(d.reason_code=='LIVE_READ_ONLY_BLOCK' for _,_,d in h.evaluated)
     assert all(i.setup_family_id=='FIRST_PULLBACK' for batch in h.batches for i in batch)
     assert 'ORDER_SUBMITTED' not in out
     no_effects(h)
