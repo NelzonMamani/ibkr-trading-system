@@ -126,8 +126,13 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
             from src.execution.execution_providers import IbkrExecutionProvider
             # Actual native provider wrapper; only external broker inventory and
             # transport responses are synthetic. is_live/ack handling stay real.
+            from src.adapters.brokers.ibkr.ibkr_connection_manager import IbkrConnectionManager, IbkrConnectionConfig
+            manager=IbkrConnectionManager(IbkrConnectionConfig('offline',0,999,5,'LIVE',True,'PAPER'))
+            manager._client=NS(cached_order_status=cached_status,is_connected=lambda:True)
+            for method in ('connect','ensure_connected','get_client','_connect_locked'):
+                monkeypatch.setattr(manager,method,lambda *a,**k:pytest.fail('Implicit provider connection forbidden'))
             provider=IbkrExecutionProvider(broker=NS(positions=lambda:[],open_orders=external_open_orders,
-                connection_manager=NS(optional_client=NS(cached_order_status=cached_status)),
+                connection_manager=manager,
                 place_stop_order=unexpected_protection,cancel_order=synthetic_cancel),trade_registry=kw["trade_registry"],run_mode=kw["run_mode"])
         providers.append(provider)
         return provider
@@ -1108,6 +1113,7 @@ def _assess_retained_execution_evidence(*,h,plan,stage,cached,protection_request
     assert StrategyCapitalAllocationAuthority(storage_engine=storage).strategy_used_exposure("RossMomentumStrategyV1")==0
     def forbidden_reader(*args,**kwargs): pytest.fail("restored recovery record reached callback reader")
     fresh=ExecutionEngine.__new__(ExecutionEngine)
+    fresh._native_orders={};fresh._native_scope=None;fresh._native_quarantined=False
     fresh.relationship_manager=restored
     fresh._provider=NS(cached_order_update=forbidden_reader)
     with pytest.raises(RuntimeError,match="CACHED_EXECUTION_UPDATE_RECOVERY_REQUIRED"):
@@ -1169,6 +1175,7 @@ plan=manager._relationship_plans[sys.argv[3]]
 assert not plan.reconciled and any(o.get("cached_update_in_progress") or o.get("lifecycle_application_rejected") for o in plan.orders.values())
 assert CapitalManagementAuthority().total_used_exposure==0
 engine=ExecutionEngine.__new__(ExecutionEngine);engine.relationship_manager=manager
+engine._native_orders={};engine._native_scope=None;engine._native_quarantined=False
 engine._provider=SimpleNamespace(cached_order_update=lambda *a: (_ for _ in ()).throw(AssertionError("external reader reached")))
 try: engine.collect_relationship_updates()
 except RuntimeError as exc: assert str(exc)=="CACHED_EXECUTION_UPDATE_RECOVERY_REQUIRED"

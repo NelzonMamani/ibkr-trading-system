@@ -135,6 +135,7 @@ class BrokerPositionCollection(dict):
         super().__init__()
         self.status = status
         self.completed_at = completed_at
+        self.account = None
 
 
 def collect_broker_position_snapshot(ibkr_client: Any, *, as_of: datetime,
@@ -172,6 +173,7 @@ def collect_broker_position_snapshot(ibkr_client: Any, *, as_of: datetime,
                 market_value=_optional_float(_read_value(row, "marketValue")),
                 source="ibkr.positions", as_of=result.completed_at,
                 con_id=_read_value(row, "con_id", _read_value(_read_value(row, "contract"), "conId")))
+        collection.account = result.account
     except (AcquisitionCancelled, AcquisitionDeadlineExceeded):
         raise
     except Exception:

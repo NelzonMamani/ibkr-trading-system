@@ -7,6 +7,8 @@ import os
 import time
 import math
 import uuid
+from src.core.acquisition import checkpoint
+from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Callable, List, Optional
 
@@ -96,6 +98,12 @@ class ExecutionEngine:
         self._order_trace_stages: dict[str, set[str]] = {}
         self._require_exit_stage: set[str] = set()
         self.position_records: dict[str, dict] = {}
+        self._native_orders: dict[str, dict] = {}
+        self._native_scope = None
+        self._native_state = None
+        self._native_loaded = False
+        self._native_quarantined = False
+        self._native_processing_results: set[int] = set()
         self._failsafe_block_new_entries: bool = False
         self.startup_recovery_state: RecoveryState = RecoveryState.RECOVERY_PENDING
         self.startup_recovery_result: StartupRecoveryResult | None = None
@@ -143,6 +151,70 @@ class ExecutionEngine:
             trade_lifecycle_engine=trade_lifecycle_engine,
             provider=self._provider,
         )
+
+    def bind_native_order_scope(self, *, account, client, as_of) -> None:
+        # Existing complete position-snapshot authority, not a caller config flag.
+        self._native_scope = (account, client, as_of) if isinstance(account, str) and account.strip() and client is not None else None
+
+    def _save_native_orders(self) -> None:
+        from copy import deepcopy
+        state = {"version": 1, "mode": self.run_mode.value, "orders": deepcopy(self._native_orders)}
+        try:
+            self._storage_engine.store_execution_order_state(
+                "execution.native_orders.v1:" + self.run_mode.value, state, expected=self._native_state)
+            self._native_state = state
+        except BaseException:
+            self._native_quarantined = True
+            self._failsafe_block_new_entries = True
+            self._mark_capital_recovery_failed("NATIVE_ORDER_STATE_PERSISTENCE_UNRESOLVED")
+            raise
+
+    def _load_native_orders(self) -> None:
+        if self._native_loaded:
+            if self._native_quarantined:
+                raise RuntimeError("NATIVE_ORDER_RECOVERY_REQUIRED")
+            return
+        store = self._storage_engine
+        if (store is None or not getattr(store, "enabled", False) or getattr(store, "backend", None) != "sqlite"
+                or not callable(getattr(store, "store_execution_order_state", None))):
+            raise RuntimeError("NATIVE_ORDER_STORAGE_UNAVAILABLE")
+        state = store.fetch_management_state("execution.native_orders.v1:" + self.run_mode.value)
+        self._native_loaded = True
+        self._native_state = state
+        if state is not None:
+            # No process-local accounting/manager effect can be reconstructed from
+            # a request snapshot. Restored records are inspection-only, no replay.
+            self._native_quarantined = True
+            self._failsafe_block_new_entries = True
+            if hasattr(self, "post_fill_lifecycle"):
+                self._mark_capital_recovery_failed("NATIVE_ORDER_RESTART_RECONCILIATION_REQUIRED")
+            raise RuntimeError("NATIVE_ORDER_RESTART_RECONCILIATION_REQUIRED")
+
+    def _native_callback_client(self):
+        manager = getattr(self._provider.broker, "connection_manager", None)
+        client = getattr(manager, "existing_client", None)
+        # Existing test/legacy boundary compatibility, not the live manager API.
+        return client if client is not None else getattr(manager, "optional_client", None)
+
+    def _retain_native_request(self, request) -> dict:
+        self._load_native_orders()
+        scope = self._native_scope
+        client = self._native_callback_client()
+        if scope is None or scope[1] is not client:
+            raise RuntimeError("NATIVE_ORDER_ACCOUNT_SCOPE_UNAVAILABLE")
+        from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
+        if not 0 <= (datetime.now(timezone.utc) - scope[2]).total_seconds() <= get_ibkr_snapshot_max_age_seconds():
+            raise RuntimeError("NATIVE_ORDER_SCOPE_STALE")
+        decision = self._prospective_decisions_by_order_id.get(request.client_order_id)
+        if (not decision or request.client_order_id in self._native_orders or request.quantity <= 0
+                or request.relationship_context or request.direction.upper() not in {"LONG", "BUY"}):
+            raise RuntimeError("NATIVE_ORDER_BINDING_INVALID")
+        order = {"request": asdict(request), "decision_id": decision, "account": scope[0],
+            "mode": self.run_mode.value, "symbol": request.symbol.upper(), "side": request.direction.upper(), "requested": request.quantity, "filled": 0, "notional": 0.,
+            "terminal": False, "status": "DISPATCH_UNCERTAIN", "broker_order_id": None}
+        self._native_orders[request.client_order_id] = order
+        self._save_native_orders()  # Before dispatch; lost ack never implies absence.
+        return order
 
     def _execution_log(self, stage: str, **payload: object) -> None:
         fields = []
@@ -675,7 +747,7 @@ class ExecutionEngine:
                     manager._save_relationship_state()
             manager.cancel_excess_milestone_orders(plan)
 
-    def _confirmed_relationship_stop_quantity(self, plan, life, orders: list[object]) -> float | None:
+    def _confirmed_stop_quantity(self, *, symbol, life, orders: list[object], stop_filled=0) -> float | None:
         # Shared canonical snapshot rule for existing resize confirmation and
         # active relationship management; never query or infer an acknowledgement.
         if life is None or life.stop is None:
@@ -683,7 +755,7 @@ class ExecutionEngine:
         def read(row, key):
             return row.get(key) if isinstance(row, dict) else getattr(row, key, None)
         matches = [o for o in orders if str(read(o, "order_id")) == str(life.stop.broker_order_id)
-                   and str(read(o, "symbol") or "").upper() == plan.symbol
+                   and str(read(o, "symbol") or "").upper() == symbol
                    and str(read(o, "status") or "").upper() in {"SUBMITTED", "PRESUBMITTED"}]
         if len(matches) != 1:
             return None
@@ -692,12 +764,15 @@ class ExecutionEngine:
             return None
         quantity = self._float_or_none(metadata.get("quantity"))
         price = self._float_or_none(metadata.get("stop_price"))
-        stop_filled = plan.orders.get(f"{plan.relationship_id}:stop:{life.stop.broker_order_id}", {}).get("filled", 0)
         if (quantity is not None and math.isfinite(quantity) and quantity - stop_filled == life.filled_qty
                 and str(metadata.get("side") or "").upper() == "SELL"
                 and price is not None and math.isfinite(price) and price >= life.stop.trigger_price):
             return quantity
         return None
+
+    def _confirmed_relationship_stop_quantity(self, plan, life, orders: list[object]) -> float | None:
+        filled = plan.orders.get(f"{plan.relationship_id}:stop:{life.stop.broker_order_id}", {}).get("filled", 0) if life and life.stop else 0
+        return self._confirmed_stop_quantity(symbol=plan.symbol, life=life, orders=orders, stop_filled=filled)
 
     def relationship_protection_confirmed(self, plan) -> bool:
         life = self.post_fill_lifecycle.get_trade(plan.protection_trade_id or plan.initial_order_id)
@@ -737,7 +812,7 @@ class ExecutionEngine:
         unresolved = any(p.pending_stop_resize or p.pending_stop_cancel or any(
             o.get("lifecycle_application_rejected") or o.get("cached_update_in_progress") or o.get("owner_effect_pending") for o in p.orders.values())
             for p in manager._relationship_plans.values()) if manager else False
-        self._failsafe_block_new_entries = bool(summary.get("block_new_entries", False)) or unresolved
+        self._failsafe_block_new_entries = bool(summary.get("block_new_entries", False)) or unresolved or self._native_quarantined or any(o.get("cached_update_in_progress") or not o.get("broker_order_id") or o.get("quarantine") for o in self._native_orders.values())
         print(
             "[LIFECYCLE][RECONCILIATION][SUMMARY] "
             f"stage={reason} findings={len(summary.get('findings', []))} repaired={summary.get('repaired', 0)} "
@@ -872,6 +947,12 @@ class ExecutionEngine:
                 rationale="No risk decision provided; nothing to execute in teaching mode.",
             )
 
+        if (self.run_mode == RunMode.PAPER and self._provider is not None and self._provider.is_live()
+                and str(risk_decision.direction).upper() in {"LONG", "BUY", "SHORT"}):
+            try:
+                self._load_native_orders()  # Before any new admission/reservation, even without a scope.
+            except RuntimeError:
+                return self._blocked_execution_from_risk_decision(risk_decision, rationale="NATIVE_ORDER_RECOVERY_OR_STORAGE_BLOCKED")
         if self.startup_recovery_complete():
             daily_risk_result = self._daily_risk_preflight_check(risk_decision)
             if daily_risk_result is not None:
@@ -900,6 +981,8 @@ class ExecutionEngine:
             return self._duplicate_result(risk_decision, idempotency_key)
         risk_decision.idempotency_key = idempotency_key
 
+        if any(not o["terminal"] and o["symbol"] == risk_decision.symbol.upper() for o in self._native_orders.values()):
+            return self._blocked_execution_from_risk_decision(risk_decision, rationale="NATIVE_ORDER_UNRESOLVED")
         preflight_result = self._preflight_check(risk_decision)
         if preflight_result is not None:
             return preflight_result
@@ -1342,8 +1425,7 @@ class ExecutionEngine:
             relationship_context=getattr(risk_decision, "relationship_context", None),
         )
         self._prospective_decisions_by_order_id.clear()  # One execution-thread construction/handoff slot.
-        if context:
-            self._prospective_decisions_by_order_id[client_order_id] = risk_decision.decision_id
+        self._prospective_decisions_by_order_id[client_order_id] = risk_decision.decision_id
         capital_decision = getattr(risk_decision, "capital_decision", None)
         if isinstance(capital_decision, CapitalDecision):
             self._capital_decisions_by_order_id[client_order_id] = capital_decision.decision_id
@@ -1463,12 +1545,18 @@ class ExecutionEngine:
             if native_owned:
                 self._storage_engine.validate_owner_effect_storage()
             decisions.pop(request.client_order_id, None)
+        standalone = None
+        if (not context and self.run_mode == RunMode.PAPER and self._provider.is_live()
+                and request.direction.upper() in {"LONG", "BUY"}):
+            standalone = self._retain_native_request(request)
         try:
             result = self._provider.place_order(request)
         except Exception as exc:
             if context:
                 plan.orders[request.client_order_id]["submission_uncertain_at"] = datetime.now(timezone.utc).isoformat()
                 manager._save_relationship_state()
+            elif standalone is not None:
+                self._failsafe_block_new_entries = True
             else:
                 self._release_strategy_allocation_for_order(request, reason="ENTRY_SUBMISSION_FAILURE")
                 self._release_capital_for_order(request, reason="ENTRY_SUBMISSION_FAILURE")
@@ -1476,7 +1564,7 @@ class ExecutionEngine:
                 symbol=request.symbol,
                 trader_type=request.trader_type or "UNKNOWN",
                 attempted=False,
-                status="SUBMISSION_UNKNOWN" if context else "FAILED",
+                status="SUBMISSION_UNKNOWN" if context or standalone is not None else "FAILED",
                 relationship_context=request.relationship_context,
                 rationale=f"ENTRY_SUBMISSION_FAILURE:{exc}",
                 direction=request.direction,
@@ -1492,6 +1580,21 @@ class ExecutionEngine:
                 attempt_number=request.attempt_number,
                 client_order_id=request.client_order_id,
             )
+        if standalone is not None:
+            native = getattr(result, "ibkr_order_id", None)
+            if native is not None:
+                if isinstance(native, bool) or not str(native).isdigit() or int(native) <= 0:
+                    self._native_quarantined = True
+                    raise ValueError("NATIVE_ORDER_ID_INVALID")
+                native = str(native)
+                if any(o is not standalone and o.get("broker_order_id") == native for o in self._native_orders.values()):
+                    self._native_quarantined = True
+                    raise ValueError("NATIVE_ORDER_ID_CONFLICT")
+                standalone["broker_order_id"] = native
+            if not standalone.get("broker_order_id"):
+                self._failsafe_block_new_entries = True
+            standalone["last_response"] = {"status": str(result.status), "filled": result.filled_quantity, "remaining": result.remaining_quantity}
+            self._save_native_orders()  # Failure retains pre-dispatch uncertainty.
         from src.brokers.sim_broker import SimBroker
         deterministic_result = (isinstance(self._provider, PaperExecutionProvider)
             and isinstance(self._provider.broker, SimBroker)
@@ -1533,7 +1636,8 @@ class ExecutionEngine:
                 print(f"[EXIT][SUBMIT] symbol={request.symbol} qty={request.quantity} "
                       f"broker_order_id={result.ibkr_order_id}")
         self._log_ibkr_status(request, result)
-        self._record_fill_and_position(request, result)
+        if standalone is None:
+            self._record_fill_and_position(request, result)
         self._run_live_probe_exit_if_needed(request, result)
         self._validate_trace_integrity(request.client_order_id)
         if not self._provider.is_live():
@@ -1691,7 +1795,8 @@ class ExecutionEngine:
         if not previous and stored_order is not None and stored_order["filled"]:
             previous = {"filled_qty": stored_order["filled"], "entry_price": stored_order["notional"] / stored_order["filled"]}
 
-        if request.relationship_context:
+        native_owned = self._native_orders.get(request.client_order_id)
+        if request.relationship_context or native_owned is not None:
             filled_quantity -= int(previous.get("filled_qty", 0))
             if filled_quantity <= 0:
                 return
@@ -1708,7 +1813,7 @@ class ExecutionEngine:
         direction_upper = str(request.direction).upper()
         fill_price = self._float_or_none(entry_price) or 0.0
         cumulative_price = fill_price
-        if request.relationship_context and int(previous.get("filled_qty", 0)):
+        if (request.relationship_context or native_owned is not None) and int(previous.get("filled_qty", 0)):
             fill_price = (cumulative_quantity * fill_price - int(previous["filled_qty"]) * float(previous["entry_price"])) / filled_quantity
         prospective = bool(stored_order and stored_order.get("owner_effect_version") is not None)
         pending = {"cumulative_quantity": cumulative_quantity, "average_price": float(entry_price or 0), "version": 1}
@@ -1788,19 +1893,21 @@ class ExecutionEngine:
         manager = getattr(self, "relationship_manager", None)
         plan = manager._relationship_plans.get(context.get("relationship_id")) if manager else None
         protection_id = (plan.protection_trade_id or plan.initial_order_id) if plan else request.client_order_id
-        existing_protection = self.post_fill_lifecycle.get_trade(protection_id) if plan else None
+        existing_protection = self.post_fill_lifecycle.get_trade(protection_id) if plan or native_owned is not None else None
         if direction_upper in {"LONG", "BUY"} and existing_protection is not None:
             total = existing_protection.filled_qty + filled_quantity
             average = (existing_protection.filled_qty * existing_protection.avg_fill_price + filled_quantity * fill_price) / total
-            plan.pending_stop_resize = plan.pending_stop_resize or self.run_mode in {RunMode.PAPER, RunMode.LIVE}
-            manager._save_relationship_state()  # dispatch is not quantity confirmation
+            if plan is not None:
+                plan.pending_stop_resize = plan.pending_stop_resize or self.run_mode in {RunMode.PAPER, RunMode.LIVE}
+                manager._save_relationship_state()  # dispatch is not quantity confirmation
             protection_result = self.post_fill_lifecycle.update_selected_exposure(
                 trade_id=protection_id, filled_qty=total, avg_fill_price=average)
             protection_id = protection_result.get("reopened_trade_id", protection_id)
             if not protection_result["success"]:
-                plan.pending_stop_resize = True
-                manager._save_relationship_state()
-            self._failsafe_block_new_entries = self._failsafe_block_new_entries or plan.pending_stop_resize or not protection_result["success"]
+                if plan is not None:
+                    plan.pending_stop_resize = True
+                    manager._save_relationship_state()
+            self._failsafe_block_new_entries = self._failsafe_block_new_entries or bool(plan and plan.pending_stop_resize) or not protection_result["success"]
             self.position_records[request.client_order_id]["lifecycle"] = protection_result
         elif direction_upper in {"LONG", "BUY"}:
             protection_result = self.post_fill_lifecycle.activate_trade_management_after_fill(
@@ -1818,7 +1925,7 @@ class ExecutionEngine:
                 target_model=request.target_model,
             )
             self.position_records[request.client_order_id]["lifecycle"] = protection_result
-            if plan is not None and not protection_result["success"]:
+            if (plan is not None or native_owned is not None) and not protection_result["success"]:
                 self._failsafe_block_new_entries = True
         if direction_upper == "SELL" and plan is not None and existing_protection is not None:
             exit_application = self.post_fill_lifecycle.record_exit_fill(trade_id=protection_id, fill_price=fill_price,
@@ -1864,16 +1971,16 @@ class ExecutionEngine:
                 # Cleanup failure must never discard a confirmed exit fill.
 
 
-        if plan is not None:
+        if plan is not None or native_owned is not None:
             # One registry projection from confirmed aggregate protection. Broker
             # adapters deliberately do not independently register these fills.
             from src.core.active_trade_registry import ActiveTrade
             protected = self.post_fill_lifecycle.get_trade(protection_id)
-            if protected is not None and protected.stop is not None:
+            if plan is not None and protected is not None and protected.stop is not None:
                 plan.protection_trade_id = protection_id
                 plan.protection_broker_order_id = str(protected.stop.broker_order_id or "") or None
                 manager._save_relationship_state()
-            initial_request = plan.orders[plan.initial_order_id].get("request", {})
+            initial_request = plan.orders[plan.initial_order_id].get("request", {}) if plan else asdict(request)
             trader_type = initial_request.get("trader_type") or request.trader_type or "UNKNOWN"
             registered = self.trade_registry.get_trade(request.symbol, trader_type)
             if registered is None:
@@ -1884,15 +1991,18 @@ class ExecutionEngine:
                     trader_type = registered.trader_type
                 elif candidates:
                     self._failsafe_block_new_entries = True
-                    plan.paused = True
-                    manager._save_relationship_state()
+                    if plan is not None:
+                        plan.paused = True
+                        manager._save_relationship_state()
+                    else:
+                        self._native_quarantined = True
                     return
             if protected is not None and protected.filled_qty > 0:
                 if registered is None:
                     self.trade_registry.register_trade(ActiveTrade(symbol=request.symbol, trader_type=trader_type,
                         entry_tick=request.created_tick or 0, entry_price=protected.avg_fill_price,
                         direction="LONG", quantity=protected.filled_qty, strategy_name=protected.strategy_id,
-                        stop_loss_price=protected.stop.trigger_price if protected.stop else plan.original_stop))
+                        stop_loss_price=protected.stop.trigger_price if protected.stop else request.stop_loss_price))
                 else:
                     registered.quantity = protected.filled_qty
                     registered.entry_price = protected.avg_fill_price
@@ -1971,112 +2081,241 @@ class ExecutionEngine:
             order["requested"] = max(order["requested"], filled + remaining)
         self.relationship_manager._save_relationship_state()
 
-    def collect_relationship_updates(
-        self, *, result_processor: Callable[[ExecutionResult], None] | None = None,
-    ) -> list[ExecutionResult]:
-        """Consume cached callbacks; retain existing owned protection cleanup."""
+    def _consume_cached_order(self, plan, order_id, order, facts, result_processor):
         manager = getattr(self, "relationship_manager", None)
-        reader = getattr(self._provider, "cached_order_update", None)
-        if manager is None:
-            return []
-        if any(order.get("cached_update_in_progress") or order.get("lifecycle_application_rejected") or order.get("owner_effect_pending") for plan in manager._relationship_plans.values()
-               for order in plan.orders.values()):
-            # A previous pass may have changed accounting/protection before it
-            # failed. Retain the owned evidence and require recovery, never replay
-            # side effects on the strength of an unchanged native cache alone.
+        save = manager._save_relationship_state if plan is not None else self._save_native_orders
+        # Validate cumulative native evidence before any accounting or
+        # protection side effects. Do not truncate fractional quantities
+        # or turn a missing/invalid average price into a zero-price fill.
+        try:
+            quantities = (facts["filled"], facts["remaining"])
+            if any(isinstance(value, bool) or not math.isfinite(float(value))
+                   or float(value) != int(value) for value in quantities):
+                raise ValueError
+            total, remaining = (int(value) for value in quantities)
+            previous = self.position_records.get(order_id, {})
+            prior = max(int(order["filled"]), int(previous.get("filled_qty", 0)))
+            status = str(facts.get("status") or "").upper()
+            terminal_statuses = {"FILLED", "REJECTED", "CANCELLED", "CANCELED", "INACTIVE"}
+            if (total < 0 or remaining < 0 or total + remaining > order["requested"]
+                    or status not in self.VALID_CACHED_IBKR_STATUSES
+                    or (plan is None and status == "FILLED" and (remaining != 0 or total != order["requested"]))):
+                raise ValueError
+            if order["terminal"] and status not in terminal_statuses and total <= order["filled"]:
+                return None  # Existing terminal truth cannot regress on a late nonterminal snapshot.
+            if total < prior or (plan is None and order["terminal"] and total > prior):
+                raise ValueError
+            if plan is None and prior and total == prior and facts.get("avgFillPrice") is not None and float(facts["avgFillPrice"]) != float(previous["entry_price"]):
+                raise ValueError
+            if total > prior:
+                if isinstance(facts["avgFillPrice"], bool):
+                    raise ValueError
+                average = float(facts["avgFillPrice"])
+                old_notional = (prior * float(previous["entry_price"]) if previous
+                                else float(order["notional"]))
+                delta_price = (total * average - old_notional) / (total - prior)
+                if not math.isfinite(average) or average <= 0 or not math.isfinite(delta_price) or delta_price <= 0:
+                    raise ValueError
+        except (KeyError, TypeError, ValueError, OverflowError):
+            raise ValueError("CACHED_EXECUTION_UPDATE_INVALID") from None
+        if total == order["filled"] and status == order.get("status"):
+            return None
+        request = BrokerOrderRequest(**order["request"])
+        context = request.relationship_context or {}
+        if (request.client_order_id != order_id or request.symbol.upper() != (plan.symbol.upper() if plan else order["symbol"])
+                or (plan is not None and context.get("relationship_id") != plan.relationship_id)
+                or (plan is None and context)):
+            raise ValueError("CACHED_EXECUTION_UPDATE_BINDING_INVALID")
+        if plan is None and total > prior and prior == 0 and any(t.symbol == request.symbol for t in self.trade_registry.snapshot()):
+            raise ValueError("NATIVE_ORDER_EXISTING_POSITION_CONFLICT")
+        result = ExecutionResult(symbol=request.symbol, trader_type=request.trader_type or "UNKNOWN",
+            attempted=True, status=status, rationale="CACHED_BROKER_CALLBACK",
+            client_order_id=order_id, ibkr_order_id=order["broker_order_id"], direction=request.direction,
+            filled_quantity=total, remaining_quantity=remaining,
+            average_fill_price=facts.get("avgFillPrice"), relationship_context=request.relationship_context)
+        if plan is None and result_processor is None:
+            raise RuntimeError("NATIVE_ORDER_PROCESSOR_REQUIRED")
+        if result_processor is not None:
+            in_progress = {"filled": total, "remaining": remaining, "status": status,
+                "average_price": float(result.average_fill_price) if result.average_fill_price is not None else None}
+            order["cached_update_in_progress"] = in_progress
+            save()  # Durable boundary before any side effects.
+        try:
+            self._record_fill_and_position(request, result)
+            self._release_strategy_allocation_for_terminal_result(request, result)
+            self._release_capital_for_terminal_result(request, result)
+            if result_processor is not None:
+                from copy import copy
+                processed = result
+                if plan is None:
+                    processed = copy(result)
+                    processed.filled_quantity = total - prior
+                    processed.average_fill_price = delta_price if total > prior else None
+                    processed.execution_id = f"native:{order['broker_order_id']}:{total}:{facts.get('avgFillPrice')}"
+                if plan is None:
+                    self._native_processing_results.add(id(processed))
+                try:
+                    result_processor(processed)
+                finally:
+                    if plan is None:
+                        self._native_processing_results.discard(id(processed))
+                if plan is None and total > prior:
+                    life = self.post_fill_lifecycle.get_trade(order_id)
+                    inventory = list(self._provider.get_open_orders())
+                    self.post_fill_lifecycle.reconcile_orders(inventory, repair=False)
+                    if (life is None or self._confirmed_stop_quantity(symbol=request.symbol, life=life, orders=inventory) is None
+                            or not self.post_fill_lifecycle.assess_trade_stop_protection(order_id)["protected"]):
+                        raise RuntimeError("NATIVE_ORDER_PROTECTION_UNVERIFIED")
+                    order["protection_confirmed"] = True
+                if not order.get("lifecycle_application_rejected"):
+                    order.pop("cached_update_in_progress")
+                if plan is None:
+                    order.update(filled=total, notional=(total*float(facts["avgFillPrice"]) if total > prior else order["notional"]),
+                        status=status, terminal=status in terminal_statuses)
+                save()
+        except BaseException:
+            if result_processor is not None:
+                order["cached_update_in_progress"] = in_progress
+                if plan is not None:
+                    plan.paused = True
+                else:
+                    self._native_quarantined = True
+                    self._failsafe_block_new_entries = True
+            raise
+        return result
+
+    def _validate_native_binding(self, order_id, order, facts):
+        scope = self._native_scope
+        client = self._native_callback_client()
+        request = order["request"]
+        if (self._native_quarantined or scope is None or scope[0] != order["account"]
+                or scope[1] is not client or order["mode"] != self.run_mode.value
+                or order["symbol"] != request["symbol"].upper() or order["side"] != request["direction"].upper()
+                or request["client_order_id"] != order_id or not order.get("decision_id")
+                or not order_id.startswith(order["decision_id"]+"-")):
+            raise ValueError("NATIVE_ORDER_BINDING_INVALID")
+        from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
+        if (RunMode(get_config("RUN_MODE_EFFECTIVE")) != self.run_mode or self.run_mode != RunMode.PAPER
+                or not 0 <= (datetime.now(timezone.utc) - scope[2]).total_seconds() <= get_ibkr_snapshot_max_age_seconds()):
+            raise ValueError("NATIVE_ORDER_SCOPE_STALE_OR_CHANGED")
+        committed = (self._native_state or {}).get("orders", {}).get(order_id, {})
+        if any(order.get(key) != committed.get(key) for key in
+               ("request", "decision_id", "account", "mode", "symbol", "side", "broker_order_id", "requested")):
+            raise ValueError("NATIVE_ORDER_RETAINED_BINDING_CHANGED")
+        facets = {"symbol": order["symbol"], "account": order["account"], "side": order["side"],
+            "client_order_id": order_id, "orderId": order["broker_order_id"], "decision_id": order["decision_id"]}
+        for key, expected in facets.items():
+            actual = facts.get(key)
+            if key == "side":
+                actual = "BUY" if str(actual).upper() == "LONG" else str(actual).upper()
+                expected = "BUY" if str(expected).upper() == "LONG" else str(expected).upper()
+            if key in facts and str(actual) != str(expected):
+                raise ValueError("NATIVE_ORDER_CALLBACK_IDENTITY_CONFLICT")
+
+    def process_native_result(self, result, *, result_processor) -> bool:
+        if id(result) in self._native_processing_results:
+            return False
+        order_id = str(result.client_order_id or "")
+        order = self._native_orders.get(order_id)
+        if order is None:
+            if (not getattr(result, "relationship_context", None) and self.run_mode == RunMode.PAPER and self._provider is not None and self._provider.is_live()
+                    and str(result.direction).upper() in {"LONG", "BUY"}
+                    and (result.attempted or result.filled_quantity)):
+                raise ValueError("NATIVE_ORDER_UNRETAINED_RESULT")
+            return False
+        if order.get("cached_update_in_progress") or self._native_quarantined:
+            raise RuntimeError("NATIVE_ORDER_RECOVERY_REQUIRED")
+        if not order.get("broker_order_id"):
+            return True  # Uncertain transport retains ownership, never a fill.
+        facts = {"filled": result.filled_quantity, "remaining": result.remaining_quantity,
+            "status": result.status, "avgFillPrice": result.average_fill_price or result.entry_price,
+            "symbol": result.symbol, "side": result.direction, "orderId": str(result.ibkr_order_id)}
+        self._validate_native_binding(order_id, order, facts)
+        self._consume_cached_order(None, order_id, order, facts, result_processor)
+        return True
+
+    def collect_relationship_updates(self, *, result_processor: Callable[[ExecutionResult], None] | None = None) -> list[ExecutionResult]:
+        """Single enumeration of retained relationship and standalone callbacks."""
+        manager = getattr(self, "relationship_manager", None)
+        plans = list(manager._relationship_plans.values()) if manager else []
+        entries = [(p, oid, o) for p in plans for oid, o in p.orders.items()]
+        entries += [(None, oid, o) for oid, o in self._native_orders.items()]
+        if any(o.get("cached_update_in_progress") or o.get("lifecycle_application_rejected") or o.get("owner_effect_pending") for _,_,o in entries):
             raise RuntimeError("CACHED_EXECUTION_UPDATE_RECOVERY_REQUIRED")
-        for plan in manager._relationship_plans.values():
+        if self._native_orders or (self.run_mode == RunMode.PAPER and self._provider is not None and callable(getattr(self._provider, "is_live", None)) and self._provider.is_live()):
+            self._load_native_orders()
+        def validate_enumeration(items):
+            identities = [str(o["broker_order_id"]) for _,_,o in items if o.get("broker_order_id")]
+            standalone_ids = {o.get("broker_order_id") for o in self._native_orders.values() if o.get("broker_order_id")}
+            protection_ids = [str(p.protection_broker_order_id) for p in plans if p.protection_broker_order_id]
+            if (len(identities) != len(set(identities)) or len({oid for _,oid,_ in items}) != len(items)
+                    or len(protection_ids) != len(set(protection_ids))
+                    or any(identity in standalone_ids for identity in protection_ids)):
+                raise ValueError("CACHED_EXECUTION_DUPLICATE_NATIVE_ID")
+        validate_enumeration(entries)
+        for plan in plans:
             manager.cancel_excess_milestone_orders(plan)
             if plan.pending_stop_resize:
                 life = self.post_fill_lifecycle.get_trade(plan.protection_trade_id or plan.initial_order_id)
                 if life is not None and life.filled_qty > 0:
                     self.post_fill_lifecycle.update_selected_exposure(trade_id=life.trade_id,
                         filled_qty=life.filled_qty, avg_fill_price=life.avg_fill_price)
-                self._failsafe_block_new_entries = True  # response alone is not quantity confirmation
+                self._failsafe_block_new_entries = True
             if plan.pending_stop_cancel and self._provider is not None:
                 try:
                     self._provider.cancel_order(broker_order_id=plan.pending_stop_cancel)
                 except Exception:
                     self._failsafe_block_new_entries = True
+        reader = getattr(self._provider, "cached_order_update", None)
         if not callable(reader):
             return []
-        results = []
-        for plan in manager._relationship_plans.values():
+        for plan in plans:
             self._retain_relationship_stop_fill(plan, reader)
-            for order_id, order in plan.orders.items():
-                if order.get("release_reservation") and order.get("request"):
-                    request = BrokerOrderRequest(**order["request"])
-                    self._release_strategy_allocation_for_order(request, reason="SUBMISSION_RECONCILED_ABSENT")
-                    self._release_capital_for_order(request, reason="SUBMISSION_RECONCILED_ABSENT")
-                    order["release_reservation"] = False
-                    manager._save_relationship_state()
-                if not order.get("broker_order_id") or not order.get("request"):
-                    continue
+        entries = [(p,oid,o) for p in plans for oid,o in list(p.orders.items())]
+        entries += [(None,oid,o) for oid,o in list(self._native_orders.items())]
+        validate_enumeration(entries)
+        results = []
+        for plan,order_id,order in entries:
+            checkpoint()
+            if plan is not None and order.get("release_reservation") and order.get("request"):
+                request = BrokerOrderRequest(**order["request"])
+                self._release_strategy_allocation_for_order(request, reason="SUBMISSION_RECONCILED_ABSENT")
+                self._release_capital_for_order(request, reason="SUBMISSION_RECONCILED_ABSENT")
+                order["release_reservation"] = False
+                manager._save_relationship_state()
+            if not order.get("broker_order_id") or not order.get("request"):
+                continue
+            facts = None
+            try:
+                if plan is None:
+                    self._validate_native_binding(order_id, order, {})
                 facts = reader(order["broker_order_id"])
                 if not facts:
                     continue
-                # Validate cumulative native evidence before any accounting or
-                # protection side effects. Do not truncate fractional quantities
-                # or turn a missing/invalid average price into a zero-price fill.
-                try:
-                    quantities = (facts["filled"], facts["remaining"])
-                    if any(isinstance(value, bool) or not math.isfinite(float(value))
-                           or float(value) != int(value) for value in quantities):
-                        raise ValueError
-                    total, remaining = (int(value) for value in quantities)
-                    previous = self.position_records.get(order_id, {})
-                    prior = max(int(order["filled"]), int(previous.get("filled_qty", 0)))
-                    status = str(facts.get("status") or "").upper()
-                    terminal_statuses = {"FILLED", "REJECTED", "CANCELLED", "CANCELED", "INACTIVE"}
-                    if (total < 0 or remaining < 0 or total + remaining > order["requested"]
-                            or status not in self.VALID_CACHED_IBKR_STATUSES):
-                        raise ValueError
-                    if order["terminal"] and status not in terminal_statuses and total <= order["filled"]:
-                        continue  # Existing terminal truth cannot regress on a late nonterminal snapshot.
-                    if total < prior:
-                        raise ValueError
-                    if total > prior:
-                        if isinstance(facts["avgFillPrice"], bool):
-                            raise ValueError
-                        average = float(facts["avgFillPrice"])
-                        old_notional = (prior * float(previous["entry_price"]) if previous
-                                        else float(order["notional"]))
-                        delta_price = (total * average - old_notional) / (total - prior)
-                        if not math.isfinite(average) or average <= 0 or not math.isfinite(delta_price) or delta_price <= 0:
-                            raise ValueError
-                except (KeyError, TypeError, ValueError, OverflowError):
-                    raise ValueError("CACHED_EXECUTION_UPDATE_INVALID") from None
-                if total == order["filled"] and status == order.get("status"):
-                    continue
-                request = BrokerOrderRequest(**order["request"])
-                context = request.relationship_context or {}
-                if (request.client_order_id != order_id or request.symbol.upper() != plan.symbol.upper()
-                        or context.get("relationship_id") != plan.relationship_id):
-                    raise ValueError("CACHED_EXECUTION_UPDATE_BINDING_INVALID")
-                result = ExecutionResult(symbol=plan.symbol, trader_type=request.trader_type or "UNKNOWN",
-                    attempted=True, status=status, rationale="CACHED_BROKER_CALLBACK",
-                    client_order_id=order_id, ibkr_order_id=order["broker_order_id"], direction=request.direction,
-                    filled_quantity=total, remaining_quantity=remaining,
-                    average_fill_price=facts.get("avgFillPrice"), relationship_context=request.relationship_context)
-                if result_processor is not None:
-                    in_progress = {"filled": total, "remaining": remaining, "status": status,
-                        "average_price": float(result.average_fill_price) if result.average_fill_price is not None else None}
-                    order["cached_update_in_progress"] = in_progress
-                    manager._save_relationship_state()  # Durable boundary before any side effects.
-                try:
-                    self._record_fill_and_position(request, result)
-                    self._release_strategy_allocation_for_terminal_result(request, result)
-                    self._release_capital_for_terminal_result(request, result)
-                    if result_processor is not None:
-                        result_processor(result)
-                        if not order.get("lifecycle_application_rejected"):
-                            order.pop("cached_update_in_progress")
-                        manager._save_relationship_state()
-                except BaseException:
-                    if result_processor is not None:
-                        order["cached_update_in_progress"] = in_progress
-                        plan.paused = True
-                    raise
+                if plan is None:
+                    self._validate_native_binding(order_id, order, facts)
+                checkpoint()
+                result = self._consume_cached_order(plan, order_id, order, facts, result_processor)
+            except BaseException:
+                if plan is None:
+                    if isinstance(facts, dict):
+                        def retained(value):
+                            if isinstance(value, float) and not math.isfinite(value):
+                                return {"invalid_number": str(value)}
+                            if value is None or isinstance(value, (bool, int, float)):
+                                return value
+                            if isinstance(value, str):
+                                return value if len(value) <= 256 else {"prefix": value[:256], "truncated": True}
+                            return {"invalid_type": type(value).__name__[:64]}
+                        order["unresolved_update"] = {key: retained(facts[key]) for key in
+                            ("status", "filled", "remaining", "avgFillPrice", "symbol", "side", "account", "client_order_id", "orderId", "decision_id") if key in facts}
+                    order["quarantine"] = "CALLBACK_PROCESSING_UNRESOLVED"
+                    self._mark_capital_recovery_failed("NATIVE_ORDER_PROCESSING_UNRESOLVED")
+                    self._native_quarantined = True
+                    self._failsafe_block_new_entries = True
+                    self._save_native_orders()
+                raise
+            if result is not None:
                 results.append(result)
         return results
 
@@ -2203,16 +2442,19 @@ class ExecutionEngine:
         *,
         retry_enqueued: bool = False,
     ) -> None:
+        native = self._native_orders.get(request.client_order_id)
+        if native is not None and (not native.get("broker_order_id") or str(result.status).upper() not in {"FILLED", "REJECTED", "CANCELLED", "CANCELED", "INACTIVE"}):
+            return
         if bool(getattr(result, "retry_scheduled", False)) and retry_enqueued:
             return
         if bool(getattr(result, "retry_scheduled", False)) and not retry_enqueued:
             self._release_strategy_allocation_for_order(request, reason="RETRY_NOT_SCHEDULED")
             return
-        if int(getattr(result, "filled_quantity", 0) or 0) > 0 and not request.relationship_context:
+        if int(getattr(result, "filled_quantity", 0) or 0) > 0 and not request.relationship_context and native is None:
             return
         status = str(getattr(result, "status", "") or "").upper()
         if (status in {"BLOCKED", "FAILED", "REJECTED", "CANCELLED", "CANCELED", "EXPIRED", "NOT_FILLED", "TIMED_OUT"}
-                or (request.relationship_context and (status == "INACTIVE"
+                or ((request.relationship_context or native is not None) and (status == "INACTIVE"
                     or (status == "SIMULATED" and not bool(getattr(result, "retry_scheduled", False)))))):
             self._release_strategy_allocation_for_order(request, reason=f"ORDER_{status}")
 
@@ -2233,16 +2475,19 @@ class ExecutionEngine:
         *,
         retry_enqueued: bool = False,
     ) -> None:
+        native = self._native_orders.get(request.client_order_id)
+        if native is not None and (not native.get("broker_order_id") or str(result.status).upper() not in {"FILLED", "REJECTED", "CANCELLED", "CANCELED", "INACTIVE"}):
+            return
         if bool(getattr(result, "retry_scheduled", False)) and retry_enqueued:
             return
         if bool(getattr(result, "retry_scheduled", False)) and not retry_enqueued:
             self._release_capital_for_order(request, reason="RETRY_NOT_SCHEDULED")
             return
-        if int(getattr(result, "filled_quantity", 0) or 0) > 0 and not request.relationship_context:
+        if int(getattr(result, "filled_quantity", 0) or 0) > 0 and not request.relationship_context and native is None:
             return
         status = str(getattr(result, "status", "") or "").upper()
         if (status in {"BLOCKED", "FAILED", "REJECTED", "CANCELLED", "CANCELED", "EXPIRED", "NOT_FILLED", "TIMED_OUT"}
-                or (request.relationship_context and (status == "INACTIVE"
+                or ((request.relationship_context or native is not None) and (status == "INACTIVE"
                     or (status == "SIMULATED" and not bool(getattr(result, "retry_scheduled", False)))))):
             self._release_capital_for_order(request, reason=f"ORDER_{status}")
 
@@ -2421,7 +2666,7 @@ class ExecutionEngine:
         )
 
     def _schedule_retry(self, request: BrokerOrderRequest, result: ExecutionResult) -> bool:
-        if request.relationship_context:
+        if request.relationship_context or request.client_order_id in self._native_orders:
             return False  # reconciliation owns any remaining logical action
         if not self.execution_enabled:
             return False

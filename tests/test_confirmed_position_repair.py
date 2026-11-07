@@ -127,7 +127,7 @@ def test_real_handoff_and_downstream_unknown_preserves_exposure(client):
         client.positionMulti(req, account, model, NS(symbol='AAPL', conId=1), .1, 10),
         client.positionMultiEnd(req))
     calls = []
-    engine = NS(_relationship_orders_asof=None)
+    engine = NS(bind_native_order_scope=lambda **kwargs:None, _relationship_orders_asof=None)
     o = CoreOrchestrator.__new__(CoreOrchestrator)
     o.run_mode = RunMode.READ_ONLY
     o.connection_manager = manager
@@ -407,7 +407,7 @@ def test_manager_exposes_existing_test_client_and_truth_is_unknown(mode):
     o.run_mode=mode
     o.connection_manager=manager
     o.trade_registry=NS(snapshot=lambda:[])
-    o.execution_engine=NS(_relationship_orders_asof=None)
+    o.execution_engine=NS(bind_native_order_scope=lambda **kwargs:None, _relationship_orders_asof=None)
     o.trade_management_engine=None
     o._latest_position_truth_snapshot=None
     o._degraded=False

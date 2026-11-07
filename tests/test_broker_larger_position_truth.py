@@ -82,7 +82,7 @@ def test_only_fresh_complete_matching_truth_clears_veto(position_case,failure):
     core.trade_registry.register_trade(ActiveTrade(symbol="HELD",trader_type="SYNTHETIC",entry_tick=0,
         entry_price=10.,direction="LONG",quantity=2,stop_loss_price=9.))
     core.trade_management_engine=TradeManagementEngine(persistence_adapter=MemoryStorage())
-    core.execution_engine=NS(_relationship_orders_asof=None,_relationship_open_orders=[])
+    core.execution_engine=NS(bind_native_order_scope=lambda **kwargs:None, _relationship_orders_asof=None,_relationship_open_orders=[])
     core._latest_position_truth_snapshot=None
     core._degraded=False
     before=deepcopy(core.trade_registry.snapshot())

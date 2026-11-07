@@ -317,6 +317,12 @@ class StorageEngine:
         })
         self._store.connection.commit()
 
+    def store_execution_order_state(self, state_id: str, payload: dict, *, expected: dict | None) -> None:
+        """CAS-owned request/quarantine state; not a financial effect receipt."""
+        if not self.enabled or self.backend != "sqlite" or not self._store:
+            raise RuntimeError("native_order_storage_unavailable")
+        self._store.store_execution_order_state(state_id, payload, expected=expected, run_id=self.run_id)
+
     def fetch_management_state(self, state_id: str) -> dict[str, Any] | None:
         if not self.enabled or self.backend != "sqlite" or not self._store:
             return None

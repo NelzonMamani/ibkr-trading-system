@@ -1912,6 +1912,24 @@ class SQLiteStore:
                 raise RuntimeError('CAPITAL_QUARANTINE_PERSISTENCE_UNKNOWN')
             raise
 
+    def store_execution_order_state(self, state_id: str, payload: dict, *, expected: dict | None, run_id: str) -> None:
+        import json
+        if self.connection.in_transaction:
+            raise RuntimeError("NATIVE_ORDER_UNOWNED_TRANSACTION")
+        encoded = json.dumps(payload, sort_keys=True, allow_nan=False)
+        prior = json.dumps(expected, sort_keys=True, allow_nan=False) if expected is not None else None
+        try:
+            self.connection.execute("BEGIN IMMEDIATE")
+            row = self.connection.execute("SELECT reason FROM position_lifecycle_transitions WHERE transition_id=?", (state_id,)).fetchone()
+            if (row[0] if row else None) != prior:
+                raise RuntimeError("NATIVE_ORDER_STATE_CONFLICT")
+            self.connection.execute("INSERT OR REPLACE INTO position_lifecycle_transitions (transition_id,run_id,strategy_owner,intent,reason_code,reason,transition_seq,timestamp,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                (state_id,run_id,"ExecutionEngine","NATIVE_ORDER_STATE","QUARANTINE_V1",encoded,0,now_iso(),now_iso()))
+            self.connection.commit()
+        except BaseException:
+            self.connection.rollback()
+            raise
+
     def insert_owner_effect_record(self, transition_id: str, payload: str, *, run_id: str | None,
                                    prepared_id: str | None = None, prepared_payload: str | None = None) -> None:
         """Append-only evidence in the existing lifecycle audit table, not a balance ledger."""
