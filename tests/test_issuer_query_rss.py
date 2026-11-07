@@ -214,13 +214,58 @@ def test_cli_capture_path_guards(tmp_path):
 
 
 def test_query_deadlines_disclose_unfinished_and_unattempted(monkeypatch,tmp_path):
+    import threading
+    from src.news import batch_rss_adapter, rss_batch_runtime
+    started = threading.Event()
+    release = threading.Event()
+    calls = []
+    lifecycle = RssFetchLifecycle()
+    real_monotonic = time.monotonic
+    start_deadline = real_monotonic() + 5
+    # Only these owners' local time references are controlled. Thread waits,
+    # lifecycle cleanup and all other users retain the real shared clock.
+    timer = SimpleNamespace(**vars(time))
+    def monotonic():
+        if started.is_set():
+            return 100.02
+        assert real_monotonic() < start_deadline, 'synthetic worker must start'
+        return 100.0
+    timer.monotonic = monotonic
+    for owner in (batch_rss_adapter, news_fetcher, rss_batch_runtime):
+        monkeypatch.setattr(owner, 'time', timer)
     def slow(url,timeout):
-        time.sleep(.06)
+        calls.append(url)
+        started.set()  # An admitted real pool worker crosses the local deadline.
+        assert release.wait(5), 'synthetic fetch must be released'
         return feed([entry()])
     monkeypatch.setattr(news_fetcher,'_fetch_feed',slow)
-    result=lookup_news(ISSUERS,settings(tmp_path,cache_mode='off',budget_seconds=.01,cleanup_seconds=1))
+    before_cleanup = []
+    def retrieved(payload):
+        state = lifecycle.snapshot()
+        before_cleanup.append(state)
+        assert started.is_set() and not release.is_set()
+        assert state['running_count'] >= 1 and state['unfinished_count'] >= 1
+        assert state['cleanup_complete'] is False
+        assert payload['rss_request_counts']['attempted'] >= 1
+        assert payload['rss_request_counts']['attempted'] < payload['rss_request_counts']['selected_distinct_urls']
+        release.set()  # Late completion cannot rewrite the returned diagnostics.
+    try:
+        result=lookup_news(ISSUERS,settings(tmp_path,cache_mode='off',budget_seconds=.01,cleanup_seconds=1),
+                           lifecycle=lifecycle,on_retrieval=retrieved)
+    finally:
+        release.set()
+        cleaned = lifecycle.wait_for_cleanup(2)
+        assert cleaned['cleanup_complete'] and cleaned['alive_worker_count'] == 0
+        assert cleaned['unfinished_count'] == 0
+    assert time.monotonic is real_monotonic and len(before_cleanup) == 1
     facts=result['symbols']['JPM']['research_observations']
     assert facts['unattempted_sources'] and facts['unfinished_sources']
+    unfinished = facts['unfinished_sources']
+    assert any(row['source_id'] in calls for row in unfinished)
+    assert all(row['attempted'] and row['failure_reason'] == 'deadline_exhausted'
+               and row['worker_completed'] is False for row in unfinished)
+    assert all(not row['attempted'] and row['failure_reason'] == 'deadline_exhausted_before_attempt'
+               for row in facts['unattempted_sources'])
     assert result['symbols']['JPM']['coverage_status']=='partial'
     assert result['symbols']['JPM']['query_coverage']['available']==0
     assert result['cleanup']['cleanup_complete']

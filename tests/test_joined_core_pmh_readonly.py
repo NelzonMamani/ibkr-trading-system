@@ -465,10 +465,10 @@ def test_joined_key_repeats_observe_new_raw_and_actual_denials(reassessment,monk
 
 
 def consolidation_joined(reassessment,monkeypatch,tmp_path,*,news_fault='none',peer=False,
-                         market_fault='none',position_case='complete_empty'):
+                         market_fault='none',position_case='complete_empty',runtime_options=None):
     from test_consolidation_production_authority import TAIL
     h=pmh_joined(reassessment,monkeypatch,tmp_path,news_fault=news_fault,peer=peer,
-                 position_case=position_case)
+                 position_case=position_case,runtime_options=runtime_options)
     # Keep the existing range geometry below the next half-dollar level.
     # Equal last-five mean volume is accepted by Consolidation's own >= law;
     # it is not Flat Top's strict volume expansion. No registry/rank override.
