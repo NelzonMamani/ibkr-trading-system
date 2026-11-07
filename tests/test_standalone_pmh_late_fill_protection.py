@@ -149,7 +149,7 @@ def test_native_pmh_later_fill_reaches_initial_protection(reassessment,monkeypat
     finally:teardown_unsent_fixture(h,no_external_activity)
 
 
-@pytest.mark.parametrize('family',['FIRST_PULLBACK','ABCD'])
+@pytest.mark.parametrize('family',['FIRST_PULLBACK','ABCD','KEY_LEVEL_BREAK'])
 @pytest.mark.parametrize('fault',['missing','unrelated','wrong_owner','malformed'])
 def test_canonical_callback_fault_cannot_create_position_or_protection(reassessment,monkeypatch,tmp_path,
         capsys,no_external_activity,fault,family):
@@ -173,7 +173,7 @@ def test_canonical_callback_fault_cannot_create_position_or_protection(reassessm
     finally:teardown_unsent_fixture(h,no_external_activity)
 
 
-@pytest.mark.parametrize('family',['FIRST_PULLBACK','ABCD'])
+@pytest.mark.parametrize('family',['FIRST_PULLBACK','ABCD','KEY_LEVEL_BREAK'])
 def test_canonical_interrupted_accounting_keeps_facts_and_blocks_replay(reassessment,monkeypatch,tmp_path,
         capsys,no_external_activity,family):
     h,acknowledge_case,entry,fill_price=standalone_case(reassessment,monkeypatch,tmp_path,family)
@@ -206,7 +206,7 @@ def test_canonical_interrupted_accounting_keeps_facts_and_blocks_replay(reassess
     finally:teardown_unsent_fixture(h,no_external_activity)
 
 
-@pytest.mark.parametrize('family',['FIRST_PULLBACK','ABCD'])
+@pytest.mark.parametrize('family',['FIRST_PULLBACK','ABCD','KEY_LEVEL_BREAK'])
 def test_canonical_uncertain_ack_keeps_reservation_without_resubmission(reassessment,monkeypatch,tmp_path,
         capsys,no_external_activity,family):
     h,acknowledge_case,entry,fill_price=standalone_case(reassessment,monkeypatch,tmp_path,family)
@@ -235,13 +235,15 @@ def test_canonical_uncertain_ack_keeps_reservation_without_resubmission(reassess
     finally:teardown_unsent_fixture(h,no_external_activity)
 
 
-@pytest.mark.parametrize('family',['FIRST_PULLBACK','ABCD'])
+@pytest.mark.parametrize('family',['FIRST_PULLBACK','ABCD','KEY_LEVEL_BREAK'])
 @pytest.mark.parametrize('position_case',['unknown','quantity_warning_larger','five'])
 def test_canonical_paper_truth_veto_has_zero_admission_effects(reassessment,monkeypatch,tmp_path,
         capsys,no_external_activity,position_case,family):
     from test_joined_core_first_pullback import first_joined
     from test_abcd_production_handoff import abcd_joined
-    h=paper_pmh(reassessment,monkeypatch,tmp_path,position_case,joined_factory=first_joined if family=='FIRST_PULLBACK' else abcd_joined)
+    from test_joined_core_pmh_readonly import key_joined
+    factories={'FIRST_PULLBACK':first_joined,'ABCD':abcd_joined,'KEY_LEVEL_BREAK':key_joined}
+    h=paper_pmh(reassessment,monkeypatch,tmp_path,position_case,joined_factory=factories[family])
     try:
         assert h.core.run_once();capsys.readouterr()
         h.life.clock.current+=timedelta(seconds=11)
@@ -307,10 +309,10 @@ def late_first(reassessment,monkeypatch,tmp_path,*,position_case='complete_empty
 
 def acknowledge_first(h,capsys):
     return acknowledge_selected(h,capsys,family='FIRST_PULLBACK',entry=10.42,stop=10.15,
-        triggers=h.first_triggers)
+        invalidation=10.15,triggers=h.first_triggers)
 
 
-def acknowledge_selected(h,capsys,*,family,entry,stop,triggers):
+def acknowledge_selected(h,capsys,*,family,entry,stop,invalidation,triggers):
     from test_joined_core_bull_micro import _cadence
     from src.scanner import scanner_runner as ross
     assert h.core.run_once();capsys.readouterr()
@@ -329,15 +331,16 @@ def acknowledge_selected(h,capsys,*,family,entry,stop,triggers):
     assert request.client_order_id.startswith(intent.decision_id)
     assert request.quantity==decision.max_position_size==1
     assert request.trigger_id==intent.trigger_id==decision.trigger_id
-    assert (intent.entry_price,intent.stop_loss_price,intent.invalidation_level)==(entry,stop,stop)
+    assert (intent.entry_price,intent.stop_loss_price,intent.invalidation_level)==(entry,stop,invalidation)
+    assert (decision.stop_loss_price,decision.invalidation_level)==(stop,invalidation)
     # Native request is a market order; measured entry belongs to intent/risk.
     assert request.order_type=='MKT'
-    assert (request.stop_loss_price,request.invalidation_level)==(stop,stop)
+    assert (request.stop_loss_price,request.invalidation_level)==(stop,invalidation)
     assert not request.relationship_context and not h.manager._relationship_plans
     source,results=h.registry_batches[-1]
     index=intent.setup_metadata['canonical_result_index'];selected=results[index]
     assert selected.setup_id=='P_'+family and selected.detected
-    assert (selected.trigger_level,selected.stop_level,selected.invalidation_level)==(entry,stop,stop)
+    assert (selected.trigger_level,selected.stop_level,selected.invalidation_level)==(entry,stop,invalidation)
     assert request.target_model==intent.target_model==selected.target_suggestion
     assert request.take_profit_price is intent.take_profit_price is None
     payload,execution,trigger=triggers[-1]
@@ -441,7 +444,8 @@ def late_abcd(reassessment,monkeypatch,tmp_path,*,market_fault='none'):
 
 def acknowledge_abcd(h,capsys):
     from test_abcd_production_handoff import FACTS
-    request=acknowledge_selected(h,capsys,family='ABCD',entry=11.,stop=10.35,triggers=h.abcd_triggers)
+    request=acknowledge_selected(h,capsys,family='ABCD',entry=11.,stop=10.35,
+        invalidation=10.35,triggers=h.abcd_triggers)
     intent,received,_=h.evaluated[0]
     source,results=h.registry_batches[-1]
     selected=results[intent.setup_metadata['canonical_result_index']]
@@ -467,8 +471,10 @@ def acknowledge_abcd(h,capsys):
 def standalone_case(reassessment,monkeypatch,tmp_path,family):
     if family=='FIRST_PULLBACK':
         return late_first(reassessment,monkeypatch,tmp_path),acknowledge_first,10.42,10.55
-    assert family=='ABCD'
-    return late_abcd(reassessment,monkeypatch,tmp_path),acknowledge_abcd,11.,11.02
+    if family=='ABCD':
+        return late_abcd(reassessment,monkeypatch,tmp_path),acknowledge_abcd,11.,11.02
+    assert family=='KEY_LEVEL_BREAK'
+    return late_key(reassessment,monkeypatch,tmp_path),acknowledge_key,11.,11.02
 
 
 @pytest.mark.parametrize('market_fault',['none','witness_boundary_source'])
@@ -489,4 +495,72 @@ def test_native_abcd_later_fill_reconciles_selected_initial_c_stop(reassessment,
         assert life.avg_fill_price!=intent.setup_metadata['d_projection']
         assert life.target_model==intent.target_model and life.preserve_selected_protection
         assert life.selected_target_price is None
+    finally:teardown_unsent_fixture(h,no_external_activity)
+
+
+def late_key(reassessment,monkeypatch,tmp_path,*,market_fault='none'):
+    from test_joined_core_pmh_readonly import key_joined
+    def joined_factory(*args,**kwargs):
+        return key_joined(*args,market_fault=market_fault,**kwargs)
+    def paper_key(*args,**kwargs):
+        return paper_pmh(*args,joined_factory=joined_factory,**kwargs)
+    return late_pmh(reassessment,monkeypatch,tmp_path,paper_factory=paper_key,
+        fill_price=11.02,stop_price=10.88)
+
+
+def acknowledge_key(h,capsys):
+    request=acknowledge_selected(h,capsys,family='KEY_LEVEL_BREAK',entry=11.,stop=10.88,
+        invalidation=11.,triggers=h.key_triggers)
+    intent,received,decision=h.evaluated[0]
+    source,results=h.registry_batches[-1]
+    index=intent.setup_metadata['canonical_result_index'];selected=results[index]
+    assert index>0 and selected.setup_id=='P_KEY_LEVEL_BREAK'
+    assert selected.stop_level!=selected.invalidation_level
+    assert selected.stop_level==min(source.candles[-1].low,selected.trigger_level-.01)==10.88
+    assert selected.setup_metadata['level_type']=='WHOLE_DOLLAR'
+    assert selected.setup_metadata['selected_level_source']=='round_number'
+    assert intent.setup_metadata['source_metadata']==selected.setup_metadata
+    for key in ('trigger_level','stop_level','invalidation_level'):
+        assert intent.setup_metadata[key]==received['setup_metadata'][key]==getattr(selected,key)
+    payload,execution,trigger=h.key_triggers[-1]
+    assert payload['stop_level']==trigger['stop_level']==request.stop_loss_price==decision.stop_loss_price==10.88
+    assert payload['invalidation_level']==trigger['invalidation_price_reference']==request.invalidation_level==decision.invalidation_level==11.
+    assert execution['candles'][-2].close<=11.<execution['candles'][-1].close
+    assert execution['candles'][-1].volume>=execution['candles'][-2].volume
+    assert source.observed_at_utc==h.life.clock.current
+    assert received['setup_metadata']['execution_stream']['observed_at_utc']==source.observed_at_utc.isoformat()
+    assert request.target_model=='Expansion to next overhead key level'
+    assert h.rows['JPM']['last_price']==11.02
+    assert h.rows['JPM']['gap_pct']==pytest.approx((11.02/9.8-1)*100)
+    retained=h.core.execution_engine._native_orders[request.client_order_id]['request']
+    assert (retained['stop_loss_price'],retained['invalidation_level'])==(10.88,11.)
+    return request
+
+
+@pytest.mark.parametrize('market_fault',['none','forming_source','forming_execution'])
+def test_native_key_later_fill_reconciles_distinct_selected_stop(reassessment,monkeypatch,tmp_path,
+        capsys,no_external_activity,market_fault):
+    h=late_key(reassessment,monkeypatch,tmp_path,market_fault=market_fault)
+    try:
+        request=acknowledge_key(h,capsys)
+        intent,received,decision=h.evaluated[0]
+        serialized=deepcopy(received)
+        source=h.registry_batches[-1][0]
+        if market_fault=='forming_source':
+            assert source.candles[-1].timestamp<=source.observed_at_utc<source.candles[-1].timestamp+timedelta(minutes=1)
+        if market_fault=='forming_execution':
+            candles=h.key_triggers[-1][1]['candles']
+            assert candles[-1].timestamp<=source.observed_at_utc<candles[-1].timestamp+timedelta(seconds=10)
+        life=confirm_selected_fill(h,request,capsys,family='KEY_LEVEL_BREAK',fill_price=11.02,stop_price=10.88)
+        assert vars(intent)==serialized and received==serialized
+        assert intent.entry_price==11. and life.avg_fill_price==11.02
+        assert request.stop_loss_price==life.selected_stop_price==10.88
+        assert intent.invalidation_level==decision.invalidation_level==request.invalidation_level==11.
+        retained=h.core.execution_engine._native_orders[request.client_order_id]['request']
+        assert (retained['stop_loss_price'],retained['invalidation_level'])==(10.88,11.)
+        # Invalidation belongs to intent/risk/request contracts. Cached results,
+        # managed positions and lifecycle expose selected protection, not a new
+        # acceptance-invalidation field fabricated by this fixture.
+        assert life.target_model==intent.target_model and life.preserve_selected_protection
+        assert life.selected_target_price is None and not h.manager._relationship_plans
     finally:teardown_unsent_fixture(h,no_external_activity)

@@ -234,10 +234,11 @@ def test_runtime_session_reference_uses_actual_first_ny_regular_candle():
 
 
 def key_joined(reassessment,monkeypatch,tmp_path,*,news_fault='none',peer=False,
-               market_fault='none',position_case='complete_empty'):
+               market_fault='none',position_case='complete_empty',runtime_options=None):
     from copy import deepcopy
     from types import SimpleNamespace as NS
-    h=pmh_joined(reassessment,monkeypatch,tmp_path,news_fault=news_fault,peer=peer,position_case=position_case)
+    h=pmh_joined(reassessment,monkeypatch,tmp_path,news_fault=news_fault,peer=peer,
+        position_case=position_case,runtime_options=runtime_options)
     rows=[(10.2,10.3,10.1,10.2,1000)]*48+[
         (10.8,10.95,10.75,10.9,1300),(10.9,11.05,10.88,11.02,1500)]
     rows[20]=(10.2,12.,10.1,10.2,1000)  # Prior PRE high prevents a competing PMH break.

@@ -98,7 +98,9 @@ jobs:
   windows-offline:
     needs: verification-scope
     runs-on: windows-latest
-    timeout-minutes: 30
+    # Measured full suite: up to 23m13s, with ~1.9x slower observed prefixes.
+    # Allow 2x suite time plus setup, remaining Windows gates and finite headroom.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:
