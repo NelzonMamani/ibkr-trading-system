@@ -106,7 +106,7 @@ def test_actual_runtime_detector_to_registered_trigger_and_intent(monkeypatch,tm
         assert intents == [] and not own["trigger_ready_now"]
         reasons = {"waiting":"awaiting_pullback_break","invalidated":"at_or_below_invalidation",
                    "missing":"execution_stream_missing","stale":"execution_stream_stale",
-                   "malformed":"awaiting_pullback_break"}
+                   "malformed":"first_pullback_invalid_candle_data"}
         assert own["trigger_reason"] == reasons[state]
 
 
