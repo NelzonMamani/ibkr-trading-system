@@ -462,3 +462,263 @@ def test_joined_key_repeats_observe_new_raw_and_actual_denials(reassessment,monk
         assert h.evaluated[-1][2].reason_code=='LIVE_READ_ONLY_BLOCK'
         no_effects(h)
     assert len({a.decision_id for a,_ in h.artifacts})==3
+
+
+def consolidation_joined(reassessment,monkeypatch,tmp_path,*,news_fault='none',peer=False,
+                         market_fault='none',position_case='complete_empty'):
+    from test_consolidation_production_authority import TAIL
+    h=pmh_joined(reassessment,monkeypatch,tmp_path,news_fault=news_fault,peer=peer,
+                 position_case=position_case)
+    # Keep the existing range geometry below the next half-dollar level.
+    # Equal last-five mean volume is accepted by Consolidation's own >= law;
+    # it is not Flat Top's strict volume expansion. No registry/rank override.
+    rows=[(10.,10.1,9.95,10.,900)]*42+[
+        tuple(round(v-.1,2) if i<4 else v for i,v in enumerate(row)) for row in TAIL]
+    rows[-1]=(*rows[-1][:4],825)
+    rows[20]=(10.,12.,9.95,10.,900)  # Actual prior PRE high, no competing PMH break.
+    end=h.life.clock.current.replace(second=0,microsecond=0)
+    h.streams.clear()
+    for tf,step in (('1m',60),('5m',300)):
+        h.streams[tf]=_candles(rows,step_seconds=step,end=end-timedelta(seconds=step))
+    h.streams['10s']=_candles([(10.25,10.29,10.22,10.27,100)]*29+
+        [(10.27,10.46,10.22,10.43,200)],step_seconds=10,end=end-timedelta(seconds=10))
+    fault=market_fault.removeprefix('delayed_')
+    stream='1m' if fault.endswith('source') else '10s'
+    if fault.startswith(('missing_','stale_','short_')):
+        for tf in (('1m','5m') if stream=='1m' else ('10s',)):
+            if fault.startswith('missing_'):h.streams[tf]=[]
+            elif fault.startswith('short_'):h.streams[tf]=h.streams[tf][-7:]
+            else:h.streams[tf]=[replace(b,timestamp=b.timestamp-timedelta(hours=1)) for b in h.streams[tf]]
+    elif fault.startswith('future_'):
+        h.streams[stream][-1]=replace(h.streams[stream][-1],timestamp=h.life.clock.current+timedelta(seconds=12))
+    elif fault.startswith('nan_'):h.streams[stream][-2]=replace(h.streams[stream][-2],low=float('nan'))
+    elif fault.startswith('infinite_'):h.streams[stream][-2]=replace(h.streams[stream][-2],volume=float('inf'))
+    elif fault.startswith('malformed_'):h.streams[stream][-2]=replace(h.streams[stream][-2],low=99.)
+    elif fault.startswith('unordered_'):
+        h.streams[stream][-1]=replace(h.streams[stream][-1],timestamp=h.streams[stream][-2].timestamp)
+    elif fault=='forming_source':
+        h.streams['1m'][-1]=replace(h.streams['1m'][-1],timestamp=end)
+    elif fault=='appended_forming_source':
+        h.streams['1m'].append(replace(h.streams['1m'][-1],timestamp=end,
+            open=10.43,high=10.47,low=10.25,close=10.44,volume=9000))
+    elif fault=='forming_execution':
+        h.streams['10s'][-1]=replace(h.streams['10s'][-1],timestamp=end+timedelta(seconds=40))
+    elif fault in {'touch_source','wide_source'}:
+        if fault=='touch_source':h.streams['1m'][-1]=replace(h.streams['1m'][-1],close=10.3)
+        else:h.streams['1m'][-3]=replace(h.streams['1m'][-3],low=10.1)
+    elif fault in {'touch_execution','below_execution','invalidated_execution'}:
+        close={'touch_execution':10.3,'below_execution':10.29,'invalidated_execution':10.21}[fault]
+        h.streams['10s'][-1]=replace(h.streams['10s'][-1],close=close,low=min(10.22,close))
+    elif fault in {'equal_volume_execution','low_volume_execution'}:
+        h.streams['10s'][-1]=replace(h.streams['10s'][-1],volume=100 if fault.startswith('equal_') else 99)
+    elif fault=='previous_above_execution':
+        h.streams['10s'][-2]=replace(h.streams['10s'][-2],high=10.35,close=10.32)
+    for row in h.rows.values():
+        row.update(premarket_high=12.,last_price=10.43,bid=10.42,ask=10.44,
+            prev_close=9.3,ref_close_rth=9.3,reference_price=9.3,
+            gap_pct=(10.43/9.3-1)*100,pct_change=(10.43/9.3-1)*100,
+            spread_pct=100*.02/10.43,dollar_volume=18774000.)
+    snapshot=replace(_snapshot(symbol='JPM'),last=10.43,bid=10.42,ask=10.44)
+    h.core.market_data_snapshot_manager=NS(batch_snapshots=lambda symbols:({s:replace(snapshot,symbol=s,
+        asof_utc=h.life.clock.current,market_timestamp_utc=h.life.clock.current) for s in symbols},[]))
+    h.consolidation_triggers=[]
+    evaluator=TRIGGER_EVALUATOR_REGISTRY['CONSOLIDATION_BREAKOUT']
+    def observed(payload,inputs):
+        out=evaluator(payload,inputs)
+        h.consolidation_triggers.append((deepcopy(payload),deepcopy(inputs),deepcopy(out)))
+        return out
+    monkeypatch.setitem(TRIGGER_EVALUATOR_REGISTRY,'CONSOLIDATION_BREAKOUT',observed)
+    if market_fault.startswith('delayed_'):
+        original=h.strategy._pattern_registry.run
+        def delayed(source,**kwargs):
+            h.life.clock.current+=timedelta(seconds=6)
+            return original(source,**kwargs)
+        monkeypatch.setattr(h.strategy._pattern_registry,'run',delayed)
+    return h
+
+
+@pytest.mark.parametrize('position_case',['complete_empty','complete_matched'])
+def test_joined_consolidation_real_news_focus_artifact_and_risk(reassessment,monkeypatch,tmp_path,capsys,position_case):
+    h=consolidation_joined(reassessment,monkeypatch,tmp_path,position_case=position_case)
+    out=cycles(h,capsys)
+    raw=[i for batch in h.batches for i in batch]
+    assert len(raw)==len(h.artifacts)==len(h.evaluated)==1,out
+    intent,received,decision=h.evaluated[0]
+    artifact,built=h.artifacts[0]
+    assert intent is raw[0] and artifact.intents==[intent]
+    assert built==h.raw_snapshots and built[0]['decision_id'] is None
+    assert received==dict(built[0],decision_id=artifact.decision_id)==vars(intent)
+    assert intent.decision_id==artifact.decision_id==decision.decision_id and intent.decision_id
+    assert intent.setup_family_id=='CONSOLIDATION_BREAKOUT' and not intent.relationship_context,out
+    assert (intent.entry_price,intent.stop_loss_price,intent.invalidation_level)==(10.3,10.21,10.21)
+    source,results=h.registry_batches[-1]
+    index=intent.setup_metadata['canonical_result_index'];selected=results[index]
+    from src.strategies.ross_momentum.patterns.pattern_registry import RossPatternRegistry
+    assert [p.pattern_id for p in h.strategy._pattern_registry._patterns]==[
+        p.pattern_id for p in RossPatternRegistry()._patterns]
+    assert selected.setup_id=='P_CONSOLIDATION_BREAK' and selected.detected and index>0
+    completed=[b for b in source.candles if b.timestamp+timedelta(minutes=1)<=source.observed_at_utc]
+    assert len(completed)==50 and source.timeframe=='1m'
+    assert max(b.high for b in completed[-6:-1])==selected.trigger_level==10.3
+    assert min(b.low for b in completed[-6:-1])==selected.stop_level==selected.invalidation_level==10.21
+    assert completed[-1].close>selected.trigger_level
+    assert completed[-1].volume==sum(b.volume for b in completed[-5:-1])/4==825
+    assert selected.setup_metadata['breakout_volume_confirmed'] is True
+    assert intent.setup_metadata['source_metadata']==selected.setup_metadata
+    assert intent.target_model==selected.target_suggestion=='Range expansion' and intent.take_profit_price is None
+    for key in ('trigger_level','stop_level','invalidation_level'):
+        assert intent.setup_metadata[key]==getattr(selected,key)
+    canonical=[t for t in h.consolidation_triggers if t[0].get('source')=='canonical_pattern_result'
+               and t[0].get('canonical_result_index')==index]
+    assert len(canonical)==1
+    payload,execution,trigger=canonical[0]
+    assert (payload['trigger_level'],payload['stop_level'],payload['invalidation_level'])==(10.3,10.21,10.21)
+    assert trigger['trigger_ready_now'] and trigger['trigger_reason']=='consolidation_breakout_confirmed'
+    assert trigger['trigger_price_reference']==10.3 and trigger['invalidation_price_reference']==10.21
+    assert source.observed_at_utc==h.life.clock.current
+    assert received['setup_metadata']['execution_stream']==payload['execution_stream']
+    assert payload['execution_stream']['observed_at_utc']==source.observed_at_utc.isoformat()
+    assert payload['execution_stream']['execution_trigger_timeframe']=='10s'
+    assert payload['execution_stream']['timeframe_substitution'] is False
+    assert decision.reason_code=='LIVE_READ_ONLY_BLOCK' and not decision.allowed
+    assert decision.execution_blocked and decision.max_position_size==0 and decision.run_mode=='READ_ONLY'
+    assert all(v.healthy and not v.block_new_entries for _,v in h.truth)
+    assert _cadence(h.core).focus.symbols==['JPM'] and h.focus_calls
+    news=ross._ross_news_contexts_from_news_intelligence_result(h.reads[-1])
+    assert news['JPM']['ross_catalyst_valid'] and news['JPM']['catalyst_type']=='EARNINGS'
+    assert h.reads[-1].evidence_for_symbol('JPM')[0].evidence_id==h.article.evidence_id
+    for name,method in h.real_core_methods.items():assert getattr(h.core,name).__func__ is method
+    assert '[PIPELINE][RISK_OUTPUT] approved_count=0 blocked_count=1' in out and 'ORDER_SUBMITTED' not in out
+    no_effects(h)
+    retained=deepcopy(vars(intent))
+    selected.setup_metadata.clear();source.timeframe_provenance.clear();source.candles.clear()
+    payload['setup_metadata'].clear();payload['execution_stream'].clear()
+    assert vars(intent)==received==retained
+
+
+@pytest.mark.parametrize('market_fault',['missing_source','stale_source','short_source','future_source',
+    'nan_source','infinite_source','malformed_source','unordered_source','forming_source','touch_source','wide_source',
+    'missing_execution','stale_execution','future_execution','nan_execution','infinite_execution',
+    'malformed_execution','unordered_execution','below_execution','invalidated_execution','low_volume_execution',
+    'delayed_future_source','delayed_future_execution'])
+def test_joined_consolidation_existing_authority_rejects(reassessment,monkeypatch,tmp_path,capsys,market_fault):
+    h=consolidation_joined(reassessment,monkeypatch,tmp_path,market_fault=market_fault)
+    out=cycles(h,capsys)
+    assert _cadence(h.core).focus.symbols==['JPM']
+    assert not [i for batch in h.batches for i in batch if i.setup_family_id=='CONSOLIDATION_BREAKOUT'],out
+    assert all(i.setup_family_id!='CONSOLIDATION_BREAKOUT' and d.reason_code=='LIVE_READ_ONLY_BLOCK' for i,_,d in h.evaluated)
+    if market_fault.endswith('source'):
+        own=[r for r in h.results if r.setup_id=='P_CONSOLIDATION_BREAK']
+        if market_fault=='missing_source':
+            assert own==[] and h.inputs==[] and h.artifacts==h.evaluated==[]
+        else:assert own and all(not r.detected for r in own)
+        expected={'short_source':'insufficient candles','forming_source':'consolidation too wide',
+                  'touch_source':'no breakout from consolidation','wide_source':'consolidation too wide',
+                  'future_source':'FUTURE_CANDLE_DATA','delayed_future_source':'FUTURE_CANDLE_DATA',
+                  'nan_source':'INVALID_CANDLE_DATA','infinite_source':'INVALID_CANDLE_DATA',
+                  'malformed_source':'INVALID_CANDLE_DATA','unordered_source':'INVALID_CANDLE_TIMESTAMPS'}
+        if market_fault in expected:assert own[-1].rejection_reason==expected[market_fault]
+    else:
+        own=next(t for t in h.strategy._failure_trace_collector._symbols[-1].input_summary['trigger_candidates']
+                 if t.get('setup_family_id')=='CONSOLIDATION_BREAKOUT')
+        expected={'missing_execution':'execution_stream_missing','stale_execution':'execution_stream_stale',
+            'future_execution':'consolidation_future_candle_data','delayed_future_execution':'consolidation_future_candle_data',
+            'nan_execution':'consolidation_invalid_candle_data','infinite_execution':'consolidation_invalid_candle_data',
+            'malformed_execution':'consolidation_invalid_candle_data','unordered_execution':'execution_stream_stale',
+            'below_execution':'breakout_not_cleared','invalidated_execution':'at_or_below_invalidation',
+            'low_volume_execution':'breakout_volume_unconfirmed'}
+        assert not own['trigger_ready_now'] and own['trigger_reason']==expected[market_fault]
+        if market_fault=='invalidated_execution':
+            assert own['invalidation_price_reference']==10.21 and 'NEAR_INVALIDATION' in own['trigger_quality_flags']
+    if market_fault.startswith('delayed_'):
+        source=h.registry_batches[-1][0]
+        assert source.observed_at_utc<h.life.clock.current
+        tf='1m' if market_fault.endswith('source') else '10s'
+        assert source.observed_at_utc<h.streams[tf][-1].timestamp<=h.life.clock.current
+        if market_fault.endswith('execution'):
+            assert h.consolidation_triggers[-1][0]['execution_stream']['observed_at_utc']==source.observed_at_utc.isoformat()
+    no_effects(h)
+
+
+@pytest.mark.parametrize('market_fault',['appended_forming_source','forming_execution','touch_execution',
+                                       'equal_volume_execution','previous_above_execution'])
+def test_joined_consolidation_preserves_own_completion_and_confirmation(reassessment,monkeypatch,tmp_path,capsys,market_fault):
+    h=consolidation_joined(reassessment,monkeypatch,tmp_path,market_fault=market_fault)
+    out=cycles(h,capsys)
+    if market_fault=='appended_forming_source':
+        # Native Consolidation ignores this forming tail, but another genuine
+        # native candidate outranks it. Preserve actual full-registry selection.
+        source,results=h.registry_batches[-1]
+        own=next(r for r in results if r.setup_id=='P_CONSOLIDATION_BREAK')
+        assert own.detected and (own.trigger_level,own.stop_level,own.invalidation_level)==(10.3,10.21,10.21)
+        assert source.candles[-1].high==10.47 and source.candles[-1].timestamp+timedelta(minutes=1)>source.observed_at_utc
+        terminal=h.strategy.last_symbol_terminal_outcomes['JPM']
+        assert terminal['selected_pattern_id']=='P_MOMENTUM_RECLAIM' and not terminal['intent_emitted']
+        assert h.artifacts==h.evaluated==[] and not [i for b in h.batches for i in b]
+        no_effects(h)
+        return
+    assert len(h.evaluated)==1 and h.evaluated[0][0].setup_family_id=='CONSOLIDATION_BREAKOUT',out
+    intent,_,decision=h.evaluated[0]
+    assert (intent.entry_price,intent.stop_loss_price,intent.invalidation_level)==(10.3,10.21,10.21)
+    assert decision.reason_code=='LIVE_READ_ONLY_BLOCK'
+    source=h.registry_batches[-1][0];payload,execution,trigger=h.consolidation_triggers[-1]
+    if market_fault=='forming_execution':
+        assert execution['candles'][-1].timestamp<=source.observed_at_utc<execution['candles'][-1].timestamp+timedelta(seconds=10)
+    if market_fault=='touch_execution':assert execution['candles'][-1].close==10.3
+    if market_fault=='equal_volume_execution':assert execution['candles'][-1].volume==sum(b.volume for b in execution['candles'][-5:-1])/4==100
+    if market_fault=='previous_above_execution':assert execution['candles'][-2].close>10.3
+    assert trigger['trigger_ready_now'] and trigger['trigger_reason']=='consolidation_breakout_confirmed'
+    no_effects(h)
+
+
+@pytest.mark.parametrize('news_fault',['missing','stale','nonqualifying','expires_between'])
+def test_joined_consolidation_issuer_isolation(reassessment,monkeypatch,tmp_path,capsys,news_fault):
+    h=consolidation_joined(reassessment,monkeypatch,tmp_path,news_fault=news_fault,peer=True)
+    out=cycles(h,capsys)
+    news=ross._ross_news_contexts_from_news_intelligence_result(h.reads[-1])
+    assert not news['JPM']['ross_catalyst_valid'] and news['PEER']['ross_catalyst_valid']
+    assert news['JPM']['qualification_reason']=='no_valid_canonical_event'
+    assert _cadence(h.core).watchlist.symbols==['JPM','PEER'] and _cadence(h.core).focus.symbols==['PEER']
+    assert all([r['symbol'] for r in selected]==['PEER'] for _,_,selected in h.focus_calls)
+    assert not [source for source in h.inputs if source.symbol=='JPM']
+    assert not [i for batch in h.batches for i in batch if i.symbol=='JPM']
+    assert len(h.evaluated)==1 and all(i.symbol=='PEER' and i.setup_family_id=='CONSOLIDATION_BREAKOUT'
+        and d.reason_code=='LIVE_READ_ONLY_BLOCK' for i,_,d in h.evaluated),out
+    no_effects(h)
+
+
+@pytest.mark.parametrize('position_case',['unknown','partial','quantity_warning_larger','five','partial_after_healthy'])
+def test_joined_consolidation_raw_before_actual_position_veto(reassessment,monkeypatch,tmp_path,capsys,position_case):
+    h=consolidation_joined(reassessment,monkeypatch,tmp_path,
+        position_case='complete_matched' if position_case=='partial_after_healthy' else position_case)
+    assert h.core.run_once();capsys.readouterr()
+    if position_case=='partial_after_healthy':
+        assert h.truth[-1][1].healthy;h.position_state['case']='partial'
+    h.life.clock.current+=timedelta(seconds=11)
+    assert h.core.run_once();out=capsys.readouterr().out
+    raw=[i for batch in h.batches for i in batch]
+    assert len(raw)==1 and raw[0].setup_family_id=='CONSOLIDATION_BREAKOUT' and raw[0].decision_id is None,out
+    assert h.artifacts==h.evaluated==[] and h.truth[-1][1].block_new_entries
+    snapshot,verdict=h.truth[-1]
+    if position_case=='quantity_warning_larger':
+        assert snapshot.broker_positions['SYNTH_MATCH'].quantity==3 and snapshot.system_positions['SYNTH_MATCH'].quantity==2
+        assert [m.mismatch_type for m in snapshot.mismatches]==['QUANTITY_MISMATCH'] and not verdict.block_exits
+    elif position_case=='five':assert verdict.critical_mismatch_count==5
+    else:assert snapshot.snapshot_status=='UNKNOWN'
+    assert '[PIPELINE][RISK_INPUT] intents_count=0' in out
+    no_effects(h)
+
+
+def test_joined_consolidation_repeats_observe_new_raw_and_actual_denials(reassessment,monkeypatch,tmp_path,capsys):
+    h=consolidation_joined(reassessment,monkeypatch,tmp_path)
+    cycles(h,capsys)
+    for _ in range(2):
+        raw_count=len(h.batches);risk_count=len(h.evaluated)
+        h.life.clock.current+=timedelta(seconds=1)
+        assert h.core.run_once();capsys.readouterr()
+        assert len(h.batches)==raw_count+1 and len(h.batches[-1])==1
+        assert len(h.evaluated)==risk_count+1 and h.evaluated[-1][0] is h.batches[-1][0]
+        assert h.evaluated[-1][0].setup_family_id=='CONSOLIDATION_BREAKOUT'
+        assert h.evaluated[-1][2].reason_code=='LIVE_READ_ONLY_BLOCK'
+        no_effects(h)
+    assert len({a.decision_id for a,_ in h.artifacts})==3
