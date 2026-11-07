@@ -23,7 +23,8 @@ from test_joined_core_pmh_readonly import (
 )
 
 
-def paper_pmh(reassessment,monkeypatch,tmp_path,position_case,*,peer=False,news_fault="none",provider_factory=None):
+def paper_pmh(reassessment,monkeypatch,tmp_path,position_case,*,peer=False,news_fault="none",provider_factory=None,
+              joined_factory=pmh_joined):
     import test_joined_core_bull_micro as joined_module
     _install_eligible_market_facts(reassessment,monkeypatch)
     # Coherent new external fixture facts; thresholds and candle anchors unchanged.
@@ -58,7 +59,7 @@ def paper_pmh(reassessment,monkeypatch,tmp_path,position_case,*,peer=False,news_
         providers.append(provider)
         return provider
     monkeypatch.setattr(core_module,'IbkrExecutionProvider',provider_boundary)
-    h=pmh_joined(reassessment,monkeypatch,tmp_path,position_case=position_case,peer=peer,news_fault=news_fault,
+    h=joined_factory(reassessment,monkeypatch,tmp_path,position_case=position_case,peer=peer,news_fault=news_fault,
         runtime_options=dict(run_mode='PAPER',config_overrides=dict(EXECUTION_ENABLED=True,
             RISK_PROFILE='MICRO',IBKR_READONLY_ENABLED=False,IBKR_ORDER_SUBMISSION_ENABLED=True,
             IBKR_ORDER_TRANSLATION_ENABLED=True,IBKR_API_WRITE_ALLOWED=True)))

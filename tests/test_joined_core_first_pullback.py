@@ -16,8 +16,9 @@ from test_first_pullback_production_handoff import ROWS
 
 
 def first_joined(reassessment,monkeypatch,tmp_path,*,news_fault='none',peer=False,
-                 market_fault='none',position_case='complete_empty'):
-    h=pmh_joined(reassessment,monkeypatch,tmp_path,news_fault=news_fault,peer=peer,position_case=position_case)
+                 market_fault='none',position_case='complete_empty',runtime_options=None):
+    h=pmh_joined(reassessment,monkeypatch,tmp_path,news_fault=news_fault,peer=peer,
+        position_case=position_case,runtime_options=runtime_options)
     end=h.life.clock.current.replace(second=0,microsecond=0)
     rows=[(9.2,9.3,9.1,9.25,900)]*44+ROWS
     rows[20]=(9.2,11.,9.1,9.25,900)  # Genuine pre-session high; no competing PMH breakout.
