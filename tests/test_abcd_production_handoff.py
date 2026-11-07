@@ -10,6 +10,11 @@ from src.strategies.common.triggers.trigger_registry import TRIGGER_EVALUATOR_RE
 from src.strategies.ross_momentum.patterns.pattern_registry import RossPatternRegistry
 from src.strategies.ross_momentum.tests.test_abcd_setup_family import _inputs
 from test_key_level_break_production_handoff import forbid_io
+from test_flat_top_production_handoff import forbid_collection_and_execution
+from test_joined_core_pmh_readonly import (
+    pmh_joined, cycles, no_effects, reassessment, lifecycle,
+    _cadence, _snapshot as joined_snapshot,
+)
 from test_pr1082_trigger_to_intent_terminal_semantics import (
     _base_strategy, _candles, _snapshot, _watchlist_row, _reset_config, FakeRegistry,
 )
@@ -243,3 +248,214 @@ def test_bounded_lookback_indices_and_original_times_stay_aligned():
     assert len(times)==60 and times[output.anchor_c_index]==candles[75].timestamp.isoformat()
     assert output.trigger_level==11. and output.stop_level==10.35
     assert output.d_projection==pytest.approx(11.45)
+
+
+def abcd_joined(reassessment,monkeypatch,tmp_path,*,news_fault='none',peer=False,
+                market_fault='none',position_case='complete_empty'):
+    from copy import deepcopy
+    from types import SimpleNamespace as NS
+    h=pmh_joined(reassessment,monkeypatch,tmp_path,news_fault=news_fault,peer=peer,position_case=position_case)
+    rows=[(10.2,10.3,10.1,10.2,1000)]*42+ROWS
+    rows[20]=(10.2,12.,10.1,10.2,1000)  # Actual prior PRE high; no competing PMH break.
+    # The continuation bar opens above 11, preserving all A/B/C geometry and
+    # strict close confirmation without also forming a new whole-dollar break.
+    rows[-1]=(11.01,11.05,10.9,11.02,1500)
+    end=h.life.clock.current.replace(second=0,microsecond=0)
+    h.streams.clear()
+    for tf,step in (('1m',60),('5m',300),('10s',10)):
+        h.streams[tf]=_candles(rows,step_seconds=step,end=end-timedelta(seconds=step))
+    stream='1m' if market_fault.endswith('source') else '10s'
+    if market_fault.startswith('missing_'):h.streams[stream]=[]
+    elif market_fault.startswith('stale_'):
+        h.streams[stream]=[replace(b,timestamp=b.timestamp-timedelta(minutes=10)) for b in h.streams[stream]]
+    elif market_fault.startswith('future_'):
+        h.streams[stream][-1]=replace(h.streams[stream][-1],timestamp=h.life.clock.current+timedelta(seconds=12))
+    elif market_fault.startswith('nan_'):
+        h.streams[stream][-3]=replace(h.streams[stream][-3],low=float('nan'))
+    elif market_fault.startswith('malformed_'):
+        h.streams[stream][-3]=replace(h.streams[stream][-3],low=12.)
+    elif market_fault in {'touch_execution','below_execution','invalidated_execution'}:
+        close={'touch_execution':11.,'below_execution':10.99,'invalidated_execution':10.35}[market_fault]
+        h.streams['10s'][-1]=replace(h.streams['10s'][-1],low=min(10.9,close),close=close)
+    elif market_fault in {'forming_witness_source','delayed_witness_source','witness_boundary_source'}:
+        seconds=49 if market_fault=='witness_boundary_source' else 9
+        h.streams['1m'][-2]=replace(h.streams['1m'][-2],timestamp=h.life.clock.current-timedelta(seconds=seconds))
+        h.streams['1m'][-1]=replace(h.streams['1m'][-1],timestamp=h.life.clock.current+timedelta(seconds=1))
+    for row in h.rows.values():
+        gap=(11.02/9.8-1)*100
+        row.update(premarket_high=12.,last_price=11.02,bid=11.01,ask=11.03,
+            prev_close=9.8,ref_close_rth=9.8,reference_price=9.8,gap_pct=gap,pct_change=gap,
+            spread_pct=100*.02/11.02,dollar_volume=19836000.)
+    snapshot=replace(joined_snapshot(symbol='JPM'),last=11.02,bid=11.01,ask=11.03)
+    h.core.market_data_snapshot_manager=NS(batch_snapshots=lambda symbols:({s:replace(snapshot,symbol=s,
+        asof_utc=h.life.clock.current,market_timestamp_utc=h.life.clock.current) for s in symbols},[]))
+    h.abcd_triggers=[];evaluator=TRIGGER_EVALUATOR_REGISTRY['ABCD']
+    def observed(payload,inputs):
+        out=evaluator(payload,inputs)
+        h.abcd_triggers.append((deepcopy(payload),deepcopy(inputs),deepcopy(out)))
+        return out
+    monkeypatch.setitem(TRIGGER_EVALUATOR_REGISTRY,'ABCD',observed)
+    if market_fault=='delayed_witness_source':
+        original=h.strategy._pattern_registry.run
+        def delayed(source,**kwargs):
+            h.life.clock.current+=timedelta(minutes=2)
+            return original(source,**kwargs)
+        monkeypatch.setattr(h.strategy._pattern_registry,'run',delayed)
+    return h
+
+
+@pytest.mark.parametrize('position_case',['complete_empty','complete_matched'])
+def test_joined_abcd_real_news_focus_artifact_and_risk(reassessment,monkeypatch,tmp_path,capsys,position_case):
+    from copy import deepcopy
+    from src.scanner import scanner_runner as ross
+    h=abcd_joined(reassessment,monkeypatch,tmp_path,position_case=position_case)
+    out=cycles(h,capsys)
+    raw=[i for batch in h.batches for i in batch]
+    assert len(raw)==len(h.artifacts)==len(h.evaluated)==1,out
+    intent,received,decision=h.evaluated[0];artifact,built=h.artifacts[0]
+    assert intent is raw[0] and artifact.intents==[intent]
+    assert built==h.raw_snapshots and built[0]['decision_id'] is None
+    assert received==dict(built[0],decision_id=artifact.decision_id)==vars(intent)
+    assert intent.decision_id==artifact.decision_id==decision.decision_id
+    assert intent.setup_family_id=='ABCD' and not intent.relationship_context
+    source,results=h.registry_batches[-1]
+    index=intent.setup_metadata['canonical_result_index'];selected=results[index]
+    assert selected.setup_id=='P_ABCD' and selected.detected and index>0
+    assert (intent.entry_price,intent.stop_loss_price,intent.invalidation_level)==(11.,10.35,10.35)
+    assert (selected.anchor_a_price,selected.anchor_b_price,selected.anchor_c_price)==(9.9,11.,10.35)
+    assert (selected.anchor_a_index,selected.anchor_b_index,selected.anchor_c_index)==(43,45,47)
+    for key in FACTS:assert intent.setup_metadata[key]==getattr(selected,key)
+    assert intent.setup_metadata['d_projection']==pytest.approx(11.45)
+    assert intent.take_profit_price is None and intent.target_model==selected.target_suggestion
+    assert selected.setup_metadata['source_candle_timestamps']==[b.timestamp.isoformat() for b in source.candles]
+    assert selected.setup_metadata['observed_at_utc']==source.observed_at_utc.isoformat()
+    assert source.observed_at_utc==h.life.clock.current
+    assert all(b.timestamp+timedelta(minutes=1)<=source.observed_at_utc for b in source.candles)
+    payload,execution,trigger=h.abcd_triggers[-1]
+    assert payload['canonical_result_index']==index and trigger['trigger_ready_now']
+    for key in FACTS:assert payload[key]==intent.setup_metadata[key]
+    assert execution['candles'][-1].close>selected.trigger_level
+    assert decision.reason_code=='LIVE_READ_ONLY_BLOCK' and not decision.allowed
+    assert decision.execution_blocked and decision.max_position_size==0 and decision.run_mode=='READ_ONLY'
+    assert h.focus_calls and _cadence(h.core).focus.symbols==['JPM']
+    news=ross._ross_news_contexts_from_news_intelligence_result(h.reads[-1])
+    assert news['JPM']['ross_catalyst_valid'] and news['JPM']['catalyst_type']=='EARNINGS'
+    assert h.reads[-1].evidence_for_symbol('JPM')[0].evidence_id==h.article.evidence_id
+    assert all(v.healthy and not v.block_new_entries for _,v in h.truth)
+    for name,method in h.real_core_methods.items():assert getattr(h.core,name).__func__ is method
+    assert 'ORDER_SUBMITTED' not in out
+    no_effects(h)
+    retained=deepcopy(vars(intent));selected.setup_metadata.clear();source.timeframe_provenance.clear()
+    assert vars(intent)==received==retained
+
+
+@pytest.mark.parametrize('news_fault',['missing','stale','nonqualifying','expires_between'])
+def test_joined_abcd_news_isolation(reassessment,monkeypatch,tmp_path,capsys,news_fault):
+    from src.scanner import scanner_runner as ross
+    h=abcd_joined(reassessment,monkeypatch,tmp_path,news_fault=news_fault,peer=True)
+    out=cycles(h,capsys)
+    news=ross._ross_news_contexts_from_news_intelligence_result(h.reads[-1])
+    assert not news['JPM']['ross_catalyst_valid'] and news['PEER']['ross_catalyst_valid']
+    assert news['JPM']['qualification_reason']=='no_valid_canonical_event'
+    assert _cadence(h.core).watchlist.symbols==['JPM','PEER']
+    assert _cadence(h.core).focus.symbols==['PEER']
+    assert all([r['symbol'] for r in selected]==['PEER'] for _,_,selected in h.focus_calls)
+    assert not [source for source in h.inputs if source.symbol=='JPM']
+    assert not [i for batch in h.batches for i in batch if i.symbol=='JPM']
+    assert len(h.evaluated)==1 and all(i.symbol=='PEER' and i.setup_family_id=='ABCD'
+        and d.reason_code=='LIVE_READ_ONLY_BLOCK' for i,_,d in h.evaluated),out
+    no_effects(h)
+
+
+@pytest.mark.parametrize('market_fault',['touch_execution','below_execution','invalidated_execution',
+    'missing_source','stale_source','future_source','nan_source','malformed_source','forming_witness_source',
+    'missing_execution','stale_execution','future_execution','nan_execution','malformed_execution'])
+def test_joined_abcd_market_authority_rejects(reassessment,monkeypatch,tmp_path,capsys,market_fault):
+    h=abcd_joined(reassessment,monkeypatch,tmp_path,market_fault=market_fault)
+    out=cycles(h,capsys)
+    assert _cadence(h.core).focus.symbols==['JPM']
+    assert not [i for batch in h.batches for i in batch if i.setup_family_id=='ABCD'],out
+    assert all(i.setup_family_id!='ABCD' and d.reason_code=='LIVE_READ_ONLY_BLOCK' for i,_,d in h.evaluated)
+    if market_fault in {'touch_execution','below_execution','invalidated_execution'}:
+        assert h.abcd_triggers and not h.abcd_triggers[-1][2]['trigger_ready_now']
+        own=next(t for t in h.strategy._failure_trace_collector._symbols[-1].input_summary['trigger_candidates']
+            if t.get('setup_family_id')=='ABCD')
+        assert own['trigger_reason']==('at_or_below_invalidation' if market_fault=='invalidated_execution'
+            else 'awaiting_abcd_continuation_break')
+    if market_fault in {'missing_execution','stale_execution','future_execution','nan_execution','malformed_execution'}:
+        own=next(t for t in h.strategy._failure_trace_collector._symbols[-1].input_summary['trigger_candidates']
+            if t.get('setup_family_id')=='ABCD')
+        reasons={'missing_execution':'execution_stream_missing','stale_execution':'execution_stream_stale',
+            'future_execution':'abcd_future_candle_data','nan_execution':'abcd_invalid_candle_data',
+            'malformed_execution':'abcd_invalid_candle_data'}
+        assert not own['trigger_ready_now'] and own['trigger_reason']==reasons[market_fault]
+    if market_fault in {'future_source','nan_source','malformed_source'}:
+        result=next(r for r in h.registry_batches[-1][1] if r.setup_id=='P_ABCD')
+        assert not result.detected
+        assert result.rejection_reason==('FUTURE_CANDLE_DATA' if market_fault=='future_source' else 'INVALID_CANDLE_DATA')
+    if market_fault=='forming_witness_source':
+        result=next(r for r in h.registry_batches[-1][1] if r.setup_id=='P_ABCD')
+        assert not result.detected and result.rejection_reason=='NO_COMPLETED_SWING_SEQUENCE'
+    no_effects(h)
+
+
+@pytest.mark.parametrize('position_case',['unknown','partial','quantity_warning_larger','five','partial_after_healthy'])
+def test_joined_abcd_raw_before_position_veto(reassessment,monkeypatch,tmp_path,capsys,position_case):
+    h=abcd_joined(reassessment,monkeypatch,tmp_path,
+        position_case='complete_matched' if position_case=='partial_after_healthy' else position_case)
+    assert h.core.run_once();capsys.readouterr()
+    if position_case=='partial_after_healthy':
+        assert h.truth[-1][1].healthy;h.position_state['case']='partial'
+    h.life.clock.current+=timedelta(seconds=11)
+    assert h.core.run_once();out=capsys.readouterr().out
+    raw=[i for batch in h.batches for i in batch]
+    assert len(raw)==1 and raw[0].setup_family_id=='ABCD' and raw[0].decision_id is None,out
+    assert h.artifacts==h.evaluated==[] and h.truth[-1][1].block_new_entries
+    snapshot,verdict=h.truth[-1]
+    if position_case=='quantity_warning_larger':
+        assert snapshot.broker_positions['SYNTH_MATCH'].quantity==3 and snapshot.system_positions['SYNTH_MATCH'].quantity==2
+        assert [m.mismatch_type for m in snapshot.mismatches]==['QUANTITY_MISMATCH'] and not verdict.block_exits
+    elif position_case=='five':assert verdict.critical_mismatch_count==5
+    else:assert snapshot.snapshot_status=='UNKNOWN'
+    assert '[PIPELINE][RISK_INPUT] intents_count=0' in out
+    no_effects(h)
+
+
+def test_joined_abcd_repeat_cycles_have_new_raw_denials_and_zero_effects(reassessment,monkeypatch,tmp_path,capsys):
+    h=abcd_joined(reassessment,monkeypatch,tmp_path)
+    cycles(h,capsys)
+    for _ in range(2):
+        raw_count=len(h.batches);risk_count=len(h.evaluated)
+        h.life.clock.current+=timedelta(seconds=1)
+        assert h.core.run_once();capsys.readouterr()
+        assert len(h.batches)==raw_count+1 and len(h.batches[-1])==1
+        assert len(h.evaluated)==risk_count+1 and h.evaluated[-1][0] is h.batches[-1][0]
+        assert h.evaluated[-1][0].setup_family_id=='ABCD'
+        assert h.evaluated[-1][2].reason_code=='LIVE_READ_ONLY_BLOCK'
+        no_effects(h)
+    assert len({a.decision_id for a,_ in h.artifacts})==3
+
+
+def test_joined_abcd_witness_completion_equality(reassessment,monkeypatch,tmp_path,capsys):
+    h=abcd_joined(reassessment,monkeypatch,tmp_path,market_fault='witness_boundary_source')
+    cycles(h,capsys)
+    assert len(h.evaluated)==1 and h.evaluated[0][0].setup_family_id=='ABCD'
+    source,results=h.registry_batches[-1]
+    selected=next(r for r in results if r.setup_id=='P_ABCD')
+    assert source.candles[-2].timestamp+timedelta(minutes=1)==source.observed_at_utc
+    assert source.candles[-1].timestamp<=source.observed_at_utc<source.candles[-1].timestamp+timedelta(minutes=1)
+    assert selected.setup_metadata['structure_completed_candle_count']==49
+    assert selected.stop_level==10.35 and selected.trigger_level==11.
+    no_effects(h)
+
+
+def test_joined_abcd_processing_latency_cannot_complete_original_witness(reassessment,monkeypatch,tmp_path,capsys):
+    h=abcd_joined(reassessment,monkeypatch,tmp_path,market_fault='delayed_witness_source')
+    cycles(h,capsys)
+    source,results=h.registry_batches[-1]
+    selected=next(r for r in results if r.setup_id=='P_ABCD')
+    assert source.observed_at_utc<h.life.clock.current
+    assert source.candles[-2].timestamp+timedelta(minutes=1)>source.observed_at_utc
+    assert not selected.detected and selected.rejection_reason=='NO_COMPLETED_SWING_SEQUENCE'
+    assert not [i for batch in h.batches for i in batch if i.setup_family_id=='ABCD']
+    no_effects(h)
