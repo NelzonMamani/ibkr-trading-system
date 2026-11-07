@@ -251,10 +251,11 @@ def test_bounded_lookback_indices_and_original_times_stay_aligned():
 
 
 def abcd_joined(reassessment,monkeypatch,tmp_path,*,news_fault='none',peer=False,
-                market_fault='none',position_case='complete_empty'):
+                market_fault='none',position_case='complete_empty',runtime_options=None):
     from copy import deepcopy
     from types import SimpleNamespace as NS
-    h=pmh_joined(reassessment,monkeypatch,tmp_path,news_fault=news_fault,peer=peer,position_case=position_case)
+    h=pmh_joined(reassessment,monkeypatch,tmp_path,news_fault=news_fault,peer=peer,
+        position_case=position_case,runtime_options=runtime_options)
     rows=[(10.2,10.3,10.1,10.2,1000)]*42+ROWS
     rows[20]=(10.2,12.,10.1,10.2,1000)  # Actual prior PRE high; no competing PMH break.
     # The continuation bar opens above 11, preserving all A/B/C geometry and
