@@ -149,13 +149,14 @@ def test_native_pmh_later_fill_reaches_initial_protection(reassessment,monkeypat
     finally:teardown_unsent_fixture(h,no_external_activity)
 
 
+@pytest.mark.parametrize('family',['FIRST_PULLBACK','ABCD'])
 @pytest.mark.parametrize('fault',['missing','unrelated','wrong_owner','malformed'])
-def test_first_callback_fault_cannot_create_position_or_protection(reassessment,monkeypatch,tmp_path,
-        capsys,no_external_activity,fault):
-    h=late_first(reassessment,monkeypatch,tmp_path)
+def test_canonical_callback_fault_cannot_create_position_or_protection(reassessment,monkeypatch,tmp_path,
+        capsys,no_external_activity,fault,family):
+    h,acknowledge_case,entry,fill_price=standalone_case(reassessment,monkeypatch,tmp_path,family)
     try:
-        acknowledge_first(h,capsys);engine=h.core.execution_engine
-        facts=dict(status='Filled',filled=1,remaining=0,avgFillPrice=10.55)
+        acknowledge_case(h,capsys);engine=h.core.execution_engine
+        facts=dict(status='Filled',filled=1,remaining=0,avgFillPrice=fill_price)
         if fault=='unrelated':h.facts[999]=facts
         if fault=='wrong_owner':h.facts[71]=dict(facts,client_order_id='UNRELATED')
         if fault=='malformed':h.facts[71]=dict(facts,filled=float('nan'))
@@ -166,18 +167,19 @@ def test_first_callback_fault_cannot_create_position_or_protection(reassessment,
         assert len(h.sent_native)==1 and not h.stop_requests
         assert not engine.position_records and not h.manager.snapshot_positions()
         assert not h.core.trade_registry.snapshot()
-        assert engine.capital_authority.total_reserved_capital==pytest.approx(10.42)
+        assert engine.capital_authority.total_reserved_capital==pytest.approx(entry)
         assert engine.capital_authority.total_used_exposure==0
         if fault in {'wrong_owner','malformed'}:assert engine._native_quarantined
     finally:teardown_unsent_fixture(h,no_external_activity)
 
 
-def test_first_interrupted_accounting_keeps_facts_and_blocks_replay(reassessment,monkeypatch,tmp_path,
-        capsys,no_external_activity):
-    h=late_first(reassessment,monkeypatch,tmp_path)
+@pytest.mark.parametrize('family',['FIRST_PULLBACK','ABCD'])
+def test_canonical_interrupted_accounting_keeps_facts_and_blocks_replay(reassessment,monkeypatch,tmp_path,
+        capsys,no_external_activity,family):
+    h,acknowledge_case,entry,fill_price=standalone_case(reassessment,monkeypatch,tmp_path,family)
     try:
-        request=acknowledge_first(h,capsys);engine=h.core.execution_engine
-        h.facts[71]=dict(status='Filled',filled=1,remaining=0,avgFillPrice=10.55)
+        request=acknowledge_case(h,capsys);engine=h.core.execution_engine
+        h.facts[71]=dict(status='Filled',filled=1,remaining=0,avgFillPrice=fill_price)
         h.native_quantity[0]=1;h.native_open_orders.clear()
         original=engine._record_fill_and_position
         def interrupted(*args,**kwargs):
@@ -190,7 +192,7 @@ def test_first_interrupted_accounting_keeps_facts_and_blocks_replay(reassessment
         before=(len(engine.position_records),len(h.stop_requests),engine.capital_authority.total_used_exposure)
         # Accounting also invokes selected-stop lifecycle before Core projection.
         # Applied effects survive the interruption; quarantine forbids replay.
-        assert before==(1,1,10.55)
+        assert before==(1,1,fill_price)
         assert engine._native_quarantined
         assert engine._native_orders[request.client_order_id]['cached_update_in_progress']
         assert not h.manager.snapshot_positions()  # Core processor not reached.
@@ -204,9 +206,10 @@ def test_first_interrupted_accounting_keeps_facts_and_blocks_replay(reassessment
     finally:teardown_unsent_fixture(h,no_external_activity)
 
 
-def test_first_uncertain_ack_keeps_reservation_without_resubmission(reassessment,monkeypatch,tmp_path,
-        capsys,no_external_activity):
-    h=late_first(reassessment,monkeypatch,tmp_path)
+@pytest.mark.parametrize('family',['FIRST_PULLBACK','ABCD'])
+def test_canonical_uncertain_ack_keeps_reservation_without_resubmission(reassessment,monkeypatch,tmp_path,
+        capsys,no_external_activity,family):
+    h,acknowledge_case,entry,fill_price=standalone_case(reassessment,monkeypatch,tmp_path,family)
     try:
         broker=h.core.execution_engine._provider.broker;original=broker.place_order
         def uncertain(request):
@@ -219,30 +222,32 @@ def test_first_uncertain_ack_keeps_reservation_without_resubmission(reassessment
         h.life.clock.current+=timedelta(seconds=11)
         assert h.core.run_once();capsys.readouterr()
         engine=h.core.execution_engine
-        assert h.evaluated[0][0].setup_family_id=='FIRST_PULLBACK' and h.evaluated[0][2].allowed
+        assert h.evaluated[0][0].setup_family_id==family and h.evaluated[0][2].allowed
         assert not h.execution_results[0].submission_confirmed()
         for _ in range(2):
             h.life.clock.current+=timedelta(seconds=1)
             assert h.core.run_once();capsys.readouterr()
         assert len(h.sent_native)==1 and not h.stop_requests
         assert not engine.position_records and not h.manager.snapshot_positions()
-        assert engine.capital_authority.total_reserved_capital==pytest.approx(10.42)
+        assert engine.capital_authority.total_reserved_capital==pytest.approx(entry)
         assert engine.capital_authority.total_used_exposure==0
         assert engine.pending_book.due_orders(1000)==[]
     finally:teardown_unsent_fixture(h,no_external_activity)
 
 
+@pytest.mark.parametrize('family',['FIRST_PULLBACK','ABCD'])
 @pytest.mark.parametrize('position_case',['unknown','quantity_warning_larger','five'])
-def test_first_paper_truth_veto_has_zero_admission_effects(reassessment,monkeypatch,tmp_path,
-        capsys,no_external_activity,position_case):
+def test_canonical_paper_truth_veto_has_zero_admission_effects(reassessment,monkeypatch,tmp_path,
+        capsys,no_external_activity,position_case,family):
     from test_joined_core_first_pullback import first_joined
-    h=paper_pmh(reassessment,monkeypatch,tmp_path,position_case,joined_factory=first_joined)
+    from test_abcd_production_handoff import abcd_joined
+    h=paper_pmh(reassessment,monkeypatch,tmp_path,position_case,joined_factory=first_joined if family=='FIRST_PULLBACK' else abcd_joined)
     try:
         assert h.core.run_once();capsys.readouterr()
         h.life.clock.current+=timedelta(seconds=11)
         assert h.core.run_once();capsys.readouterr()
         raw=[i for batch in h.batches for i in batch]
-        assert len(raw)==1 and raw[0].setup_family_id=='FIRST_PULLBACK'
+        assert len(raw)==1 and raw[0].setup_family_id==family
         assert raw[0].decision_id is None and h.truth[-1][1].block_new_entries
         assert h.artifacts==h.evaluated==h.execution_calls==h.boundaries==h.reserves==[]
         engine=h.core.execution_engine
@@ -301,6 +306,11 @@ def late_first(reassessment,monkeypatch,tmp_path,*,position_case='complete_empty
 
 
 def acknowledge_first(h,capsys):
+    return acknowledge_selected(h,capsys,family='FIRST_PULLBACK',entry=10.42,stop=10.15,
+        triggers=h.first_triggers)
+
+
+def acknowledge_selected(h,capsys,*,family,entry,stop,triggers):
     from test_joined_core_bull_micro import _cadence
     from src.scanner import scanner_runner as ross
     assert h.core.run_once();capsys.readouterr()
@@ -313,26 +323,26 @@ def acknowledge_first(h,capsys):
     assert raw==[intent] and artifact.intents==[intent] and built==h.raw_snapshots
     assert built[0]['decision_id'] is None
     assert received==dict(built[0],decision_id=artifact.decision_id)==vars(intent)
-    assert request.setup_family_id==intent.setup_family_id=='FIRST_PULLBACK'
+    assert request.setup_family_id==intent.setup_family_id==family
     assert decision.allowed and not decision.execution_blocked and decision.run_mode=='PAPER'
     assert intent.decision_id==decision.decision_id==artifact.decision_id
     assert request.client_order_id.startswith(intent.decision_id)
     assert request.quantity==decision.max_position_size==1
     assert request.trigger_id==intent.trigger_id==decision.trigger_id
-    assert (intent.entry_price,intent.stop_loss_price,intent.invalidation_level)==(10.42,10.15,10.15)
+    assert (intent.entry_price,intent.stop_loss_price,intent.invalidation_level)==(entry,stop,stop)
     # Native request is a market order; measured entry belongs to intent/risk.
     assert request.order_type=='MKT'
-    assert (request.stop_loss_price,request.invalidation_level)==(10.15,10.15)
+    assert (request.stop_loss_price,request.invalidation_level)==(stop,stop)
     assert not request.relationship_context and not h.manager._relationship_plans
     source,results=h.registry_batches[-1]
     index=intent.setup_metadata['canonical_result_index'];selected=results[index]
-    assert selected.setup_id=='P_FIRST_PULLBACK' and selected.detected
-    assert (selected.trigger_level,selected.stop_level,selected.invalidation_level)==(10.42,10.15,10.15)
+    assert selected.setup_id=='P_'+family and selected.detected
+    assert (selected.trigger_level,selected.stop_level,selected.invalidation_level)==(entry,stop,stop)
     assert request.target_model==intent.target_model==selected.target_suggestion
     assert request.take_profit_price is intent.take_profit_price is None
-    payload,execution,trigger=h.first_triggers[-1]
+    payload,execution,trigger=triggers[-1]
     assert payload['canonical_result_index']==index and trigger['trigger_ready_now']
-    assert execution['candles'][-1].close>10.42
+    assert execution['candles'][-1].close>entry
     assert received['setup_metadata']==intent.setup_metadata
     assert _cadence(h.core).focus.symbols==['JPM'] and h.focus_calls
     news=ross._ross_news_contexts_from_news_intelligence_result(h.reads[-1])
@@ -348,7 +358,7 @@ def acknowledge_first(h,capsys):
     engine=h.core.execution_engine
     assert engine.post_fill_lifecycle.get_trade(request.client_order_id) is None
     assert h.reserves==['allocation','capital']
-    assert engine.capital_authority.total_reserved_capital==pytest.approx(10.42)
+    assert engine.capital_authority.total_reserved_capital==pytest.approx(entry)
     assert engine.capital_authority.total_used_exposure==0
     assert engine.capital_authority.capital_scope is None
     assert engine.capital_authority._capital_writer is None
@@ -360,48 +370,123 @@ def test_native_first_later_fill_reconciles_selected_initial_stop(reassessment,m
         capsys,no_external_activity,market_fault):
     h=late_first(reassessment,monkeypatch,tmp_path,market_fault=market_fault)
     try:
-        request=acknowledge_first(h,capsys);engine=h.core.execution_engine
-        metadata=deepcopy(h.evaluated[0][0].setup_metadata)
-        retained=deepcopy(engine._native_orders[request.client_order_id]['request'])
+        request=acknowledge_first(h,capsys)
         source=h.registry_batches[-1][0]
         assert all(b.timestamp+timedelta(minutes=1)<=source.observed_at_utc for b in source.candles[-6:-1])
         if market_fault=='forming_confirmation_source':
             assert source.candles[-1].timestamp<=source.observed_at_utc<source.candles[-1].timestamp+timedelta(minutes=1)
-        # External callback and independent broker position/order facts only.
-        h.facts[71]=dict(status='Filled',filled=1,remaining=0,avgFillPrice=10.55)
-        h.native_quantity[0]=1;h.native_open_orders.clear()
+        confirm_selected_fill(h,request,capsys,family='FIRST_PULLBACK',fill_price=10.55,stop_price=10.15)
+    finally:teardown_unsent_fixture(h,no_external_activity)
+
+
+def confirm_selected_fill(h,request,capsys,*,family,fill_price,stop_price):
+    engine=h.core.execution_engine
+    metadata=deepcopy(h.evaluated[0][0].setup_metadata)
+    retained=deepcopy(engine._native_orders[request.client_order_id]['request'])
+    # External callback and independent broker position/order facts only.
+    h.facts[71]=dict(status='Filled',filled=1,remaining=0,avgFillPrice=fill_price)
+    h.native_quantity[0]=1;h.native_open_orders.clear()
+    h.life.clock.current+=timedelta(seconds=1)
+    assert h.core.run_once();capsys.readouterr()
+    assert h.reads_native==[71] and len(h.collect_calls[-1])==1
+    filled=h.collect_calls[-1][0]
+    assert filled.setup_family_id==family and filled.trigger_id==request.trigger_id
+    assert filled.client_order_id==request.client_order_id and filled.ibkr_order_id=='71'
+    assert filled.stop_loss_price==stop_price and filled.take_profit_price is None
+    assert filled.target_model==request.target_model and not filled.relationship_context
+    assert len(engine.position_records)==len(h.core.trade_registry.snapshot())==1
+    assert len(h.sent_native)==len(h.stop_requests)==1
+    life=engine.post_fill_lifecycle.get_trade(request.client_order_id)
+    assert life.filled_qty==1 and life.avg_fill_price==fill_price
+    assert life.selected_stop_price==stop_price and life.stop.trigger_price==stop_price
+    assert life.stop.quantity==1 and life.stop.broker_order_id=='72'
+    assert life.target is life.selected_target_price is None
+    assert engine.post_fill_lifecycle.assess_trade_stop_protection(request.client_order_id)['protected']
+    order=engine._native_orders[request.client_order_id]
+    assert order['protection_confirmed'] and order['request']==retained
+    assert h.evaluated[0][0].setup_metadata==metadata
+    assert h.truth[-1][1].healthy and not h.truth[-1][1].block_new_entries
+    position=h.manager.snapshot_positions()['JPM']
+    assert position.quantity==1 and position.setup_family==family
+    assert position.entry_price==fill_price and position.reference_order_id==request.client_order_id
+    assert position.target_type=='DESCRIPTIVE_ONLY' and not position.trailing_active
+    assert position.stop_loss_price==stop_price
+    assert position.first_target_price is position.second_target_price is None
+    assert not h.manager._relationship_plans
+    assert engine.capital_authority.total_used_exposure==fill_price
+    assert engine.capital_authority.total_reserved_capital==0
+    assert not engine.strategy_allocation_authority.active_reservations
+    for _ in range(2):
         h.life.clock.current+=timedelta(seconds=1)
         assert h.core.run_once();capsys.readouterr()
-        assert h.reads_native==[71] and len(h.collect_calls[-1])==1
         assert len(engine.position_records)==len(h.core.trade_registry.snapshot())==1
-        assert len(h.sent_native)==len(h.stop_requests)==1
-        life=engine.post_fill_lifecycle.get_trade(request.client_order_id)
-        assert life.filled_qty==1 and life.avg_fill_price==10.55
-        assert life.selected_stop_price==10.15 and life.stop.trigger_price==10.15
-        assert life.stop.quantity==1 and life.stop.broker_order_id=='72'
-        assert life.target is life.selected_target_price is None
-        assert engine.post_fill_lifecycle.assess_trade_stop_protection(request.client_order_id)['protected']
-        order=engine._native_orders[request.client_order_id]
-        assert order['protection_confirmed'] and order['request']==retained
-        assert h.evaluated[0][0].setup_metadata==metadata
-        assert h.truth[-1][1].healthy and not h.truth[-1][1].block_new_entries
-        position=h.manager.snapshot_positions()['JPM']
-        assert position.quantity==1 and position.setup_family=='FIRST_PULLBACK'
-        assert position.entry_price==10.55 and position.reference_order_id==request.client_order_id
-        assert position.target_type=='DESCRIPTIVE_ONLY' and not position.trailing_active
-        assert position.stop_loss_price==10.15
-        assert position.first_target_price is position.second_target_price is None
-        assert not h.manager._relationship_plans
-        assert engine.capital_authority.total_used_exposure==10.55
+        assert len(h.sent_native)==len(h.stop_requests)==1 and h.collect_calls[-1]==[]
+        assert engine.capital_authority.total_used_exposure==fill_price
         assert engine.capital_authority.total_reserved_capital==0
-        assert not engine.strategy_allocation_authority.active_reservations
-        for _ in range(2):
-            h.life.clock.current+=timedelta(seconds=1)
-            assert h.core.run_once();capsys.readouterr()
-            assert len(engine.position_records)==len(h.core.trade_registry.snapshot())==1
-            assert len(h.sent_native)==len(h.stop_requests)==1 and h.collect_calls[-1]==[]
-            assert engine.capital_authority.total_used_exposure==10.55
-            assert engine.capital_authority.total_reserved_capital==0
-            assert h.manager.snapshot_positions()['JPM'].quantity==1
-            assert order['request']==retained and h.reserves==['allocation','capital']
+        assert h.manager.snapshot_positions()['JPM'].quantity==1
+        assert order['request']==retained and h.reserves==['allocation','capital']
+        assert h.evaluated[0][0].setup_metadata==metadata
+    return life
+
+
+def late_abcd(reassessment,monkeypatch,tmp_path,*,market_fault='none'):
+    from test_abcd_production_handoff import abcd_joined
+    def joined_factory(*args,**kwargs):
+        return abcd_joined(*args,market_fault=market_fault,**kwargs)
+    def paper_abcd(*args,**kwargs):
+        return paper_pmh(*args,joined_factory=joined_factory,**kwargs)
+    return late_pmh(reassessment,monkeypatch,tmp_path,paper_factory=paper_abcd,
+        fill_price=11.02,stop_price=10.35)
+
+
+def acknowledge_abcd(h,capsys):
+    from test_abcd_production_handoff import FACTS
+    request=acknowledge_selected(h,capsys,family='ABCD',entry=11.,stop=10.35,triggers=h.abcd_triggers)
+    intent,received,_=h.evaluated[0]
+    source,results=h.registry_batches[-1]
+    selected=results[intent.setup_metadata['canonical_result_index']]
+    assert (selected.anchor_a_price,selected.anchor_b_price,selected.anchor_c_price)==(9.9,11.,10.35)
+    assert (selected.anchor_a_index,selected.anchor_b_index,selected.anchor_c_index)==(43,45,47)
+    assert selected.d_projection==pytest.approx(11.45)
+    assert selected.risk_reference_level==10.35
+    payload,_,_=h.abcd_triggers[-1]
+    for key in FACTS:
+        assert intent.setup_metadata[key]==received['setup_metadata'][key]==payload[key]==getattr(selected,key)
+    assert intent.setup_metadata['source_metadata']==selected.setup_metadata
+    assert selected.setup_metadata['source_candle_timestamps']==[b.timestamp.isoformat() for b in source.candles]
+    assert selected.setup_metadata['observed_at_utc']==source.observed_at_utc.isoformat()
+    assert source.observed_at_utc==h.life.clock.current
+    witness=source.candles[selected.anchor_c_index+1]
+    assert witness.timestamp+timedelta(minutes=1)<=source.observed_at_utc
+    assert request.target_model=='AB measured move projection from C'
+    assert h.rows['JPM']['last_price']==11.02
+    assert h.rows['JPM']['gap_pct']==pytest.approx((11.02/9.8-1)*100)
+    return request
+
+
+def standalone_case(reassessment,monkeypatch,tmp_path,family):
+    if family=='FIRST_PULLBACK':
+        return late_first(reassessment,monkeypatch,tmp_path),acknowledge_first,10.42,10.55
+    assert family=='ABCD'
+    return late_abcd(reassessment,monkeypatch,tmp_path),acknowledge_abcd,11.,11.02
+
+
+@pytest.mark.parametrize('market_fault',['none','witness_boundary_source'])
+def test_native_abcd_later_fill_reconciles_selected_initial_c_stop(reassessment,monkeypatch,tmp_path,
+        capsys,no_external_activity,market_fault):
+    h=late_abcd(reassessment,monkeypatch,tmp_path,market_fault=market_fault)
+    try:
+        request=acknowledge_abcd(h,capsys)
+        intent,received,_=h.evaluated[0]
+        serialized=deepcopy(received)
+        if market_fault=='witness_boundary_source':
+            source=h.registry_batches[-1][0]
+            assert source.candles[-2].timestamp+timedelta(minutes=1)==source.observed_at_utc
+            assert source.candles[-1].timestamp<=source.observed_at_utc<source.candles[-1].timestamp+timedelta(minutes=1)
+        life=confirm_selected_fill(h,request,capsys,family='ABCD',fill_price=11.02,stop_price=10.35)
+        assert vars(intent)==serialized and received==serialized
+        assert life.avg_fill_price!=intent.entry_price!=intent.setup_metadata['d_projection']
+        assert life.avg_fill_price!=intent.setup_metadata['d_projection']
+        assert life.target_model==intent.target_model and life.preserve_selected_protection
+        assert life.selected_target_price is None
     finally:teardown_unsent_fixture(h,no_external_activity)
