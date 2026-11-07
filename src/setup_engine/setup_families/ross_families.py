@@ -243,15 +243,22 @@ class FirstPullbackPattern(PatternBase):
         candles = inputs.candles
         if len(candles) < 6:
             return self._rejected("insufficient candles", inputs)
-        # Timestamp provenance does not certify the numeric structural window.
-        for candle in candles[-6:]:
-            values = [getattr(candle, field, None) for field in ("open", "high", "low", "close")]
-            if any(isinstance(value, bool) or not isinstance(value, Real)
-                   or not isfinite(value) or value <= 0 for value in values):
-                return self._rejected("malformed_candles", inputs)
-            opening, high, low, close = values
-            if low > min(opening, close) or high < max(opening, close):
-                return self._rejected("malformed_candles", inputs)
+        rejection = abcd_candle_rejection(candles[-6:], observed_at_utc=inputs.observed_at_utc,
+            require_clock=bool(inputs.timeframe_provenance))
+        if rejection:
+            return self._rejected("malformed_candles" if rejection == "INVALID_CANDLE_DATA"
+                                  else "FIRST_PULLBACK_" + rejection, inputs)
+        clock = inputs.observed_at_utc
+        if clock is not None:
+            if isinstance(clock, str):
+                clock = datetime.fromisoformat(clock)  # Validated above.
+            seconds = {"1m": 60, "m1": 60, "5m": 300, "m5": 300, "10s": 10}.get(str(inputs.timeframe).lower())
+            if seconds is None:
+                return self._rejected("FIRST_PULLBACK_UNKNOWN_CANDLE_INTERVAL", inputs)
+            # The five structural bars must be complete. The final reclaim
+            # candle supplies no anchors; retain existing direct-break timing.
+            if any(c.timestamp + timedelta(seconds=seconds) > clock for c in candles[-6:-1]):
+                return self._rejected("FIRST_PULLBACK_INCOMPLETE_STRUCTURE", inputs)
         impulse = candles[-6:-3]
         pullback = candles[-3:-1]
         trigger = candles[-1]

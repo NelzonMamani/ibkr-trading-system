@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from src.strategies.common.triggers.trigger_abcd_continuation import abcd_candle_rejection
+
 
 def _safe_float(value):
     try:
@@ -24,6 +26,16 @@ def evaluate_first_pullback_trigger(pattern_result, inputs):
         return payload
 
     result_payload = pattern_result if isinstance(pattern_result, dict) else {}
+    stream = result_payload.get("execution_stream")
+    canonical = result_payload.get("source") == "canonical_pattern_result"
+    rejection = None
+    if canonical and not isinstance(stream, dict):
+        rejection = "INVALID_EXECUTION_CONTEXT"
+    elif isinstance(stream, dict):
+        rejection = abcd_candle_rejection(candles, observed_at_utc=stream.get("observed_at_utc"), require_clock=True)
+    if rejection:
+        return {"trigger_type": "PULLBACK_HIGH_BREAK", "trigger_state": "BLOCKED",
+                "trigger_ready_now": False, "trigger_reason": "first_pullback_" + rejection.lower()}
     trigger_level = _safe_float(result_payload.get("trigger_level"))
     if trigger_level is None:
         payload = {

@@ -195,7 +195,7 @@ def test_orb_block_flag_is_scoped_for_other_setup_families() -> None:
 
 
 def test_first_pullback_requires_valid_structure_and_stop() -> None:
-    valid = _run_single(FirstPullbackPattern(), _authoritative_inputs(rows=_first_pullback_rows(), session_label="RTH_MID"))
+    valid = _run_single(FirstPullbackPattern(), _authoritative_inputs(rows=_first_pullback_rows(), session_label="RTH_MID", complete_source_bars=True))
     assert valid.detected is True
     assert valid.trigger_level is not None
     assert valid.stop_level is not None
@@ -203,7 +203,7 @@ def test_first_pullback_requires_valid_structure_and_stop() -> None:
 
     bad_rows = _first_pullback_rows()
     bad_rows[-2] = (10.36, 10.43, 10.32, 10.41, 850)
-    invalid = _run_single(FirstPullbackPattern(), _authoritative_inputs(rows=bad_rows, session_label="RTH_MID"))
+    invalid = _run_single(FirstPullbackPattern(), _authoritative_inputs(rows=bad_rows, session_label="RTH_MID", complete_source_bars=True))
     assert invalid.detected is False
     assert invalid.rejection_reason in {"pullback bars not controlled", "no reclaim trigger"}
 

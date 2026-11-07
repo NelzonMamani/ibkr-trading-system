@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import fields, replace
 from typing import Any
 
 
@@ -88,12 +88,12 @@ def apply_setup_hierarchy(results: list[Any], *, symbol: str | None = None) -> l
             patched["rationale_text"] = f"Suppressed by setup hierarchy: dominant={dominant} suppressed={family}"
             output.append(patched)
         else:
-            patched = replace(
-                item,
-                detected=False,
-                rejection_reason=SUPPRESSION_REASON,
-                rationale_text=f"Suppressed by setup hierarchy: dominant={dominant} suppressed={family}",
-            )
+            changes = dict(detected=False, rejection_reason=SUPPRESSION_REASON)
+            # V1 also projects RossPatternTrace here; it has a rejection reason
+            # but no result-only rationale field. Preserve each owner's schema.
+            if "rationale_text" in {field.name for field in fields(item)}:
+                changes["rationale_text"] = f"Suppressed by setup hierarchy: dominant={dominant} suppressed={family}"
+            patched = replace(item, **changes)
             output.append(patched)
         print(
             "[ROSS][PATTERN_DROP] "
