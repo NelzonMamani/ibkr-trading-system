@@ -89,7 +89,16 @@ VWAP_PULLBACK_DESCRIPTIVE_OBJECTIVE = "Continuation after the confirmed pullback
 # rationale, and separate development/validation scenarios. Keep the 0.64
 # admission minimum and every other gate unchanged. No constant uplift or
 # weight tuning to desired admission outcomes. If comparable scoring cannot
-# be justified, retain the PAPER veto. No scoring replacement is defined here.
+# be justified, retain the PAPER veto.
+# Investigation outcome (8 November 2026): retain native .58/.64 veto. Native
+# confidence has heterogeneous fixed/formula heuristics and no shared feature-
+# strength rubric at .64. TriggerQualityEngine is a different ranking/capital
+# score; pullback weakness tiers are spec-only, not native-confidence weights.
+# No replacement weights or active score are justified by available evidence.
+# Reopening requires an explicit comparable ordinal rubric and a separately
+# frozen validation set, preserving occurrence-bound confirmation and avoiding
+# duplicated source/execution volume or geometry credit. See SAME checkpoint/
+# handoff evidence; these heuristic values are not probabilities.
 THREE_BAR_PULLBACK_DESCRIPTIVE_OBJECTIVE = "Continuation above the measured three-bar pullback high."
 SECOND_PULLBACK_DESCRIPTIVE_OBJECTIVE = "Continuation above the measured second pullback high."
 TREND_CONTINUATION_STAIR_STEP_DESCRIPTIVE_OBJECTIVE = "Continuation of the confirmed stair-step trend."
