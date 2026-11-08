@@ -949,12 +949,12 @@ def test_joined_flat_top_keeps_genuine_key_competition(reassessment,monkeypatch,
     no_effects(h)
 
 
-def orb_joined(reassessment,monkeypatch,tmp_path,*,position_case='complete_empty',news_fault='none',peer=False,market_fault='none'):
+def orb_joined(reassessment,monkeypatch,tmp_path,*,position_case='complete_empty',news_fault='none',peer=False,market_fault='none',runtime_options=None):
     from test_orb_pattern import _base_inputs
     # Use the native fixed UTC opening window; external clock precedes news/cache
     # acquisition too. No prepared range, MACD, PatternResult or selected family.
     h=pmh_joined(reassessment,monkeypatch,tmp_path,position_case=position_case,
-        news_fault=news_fault,peer=peer,clock_time=(14,36,30))
+        news_fault=news_fault,peer=peer,clock_time=(14,36,30),runtime_options=runtime_options)
     monkeypatch.setattr('src.strategies.common.patterns.pattern_orb._ORB_RANGE_LOCK',{})
     rows=[(10.,10.05,9.98,10.,900)]*44+[
         (b.open,b.high,b.low,b.close,b.volume) for b in _base_inputs().candles]
