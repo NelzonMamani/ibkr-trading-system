@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from math import isfinite
 from numbers import Real
 from statistics import mean
@@ -20,6 +20,7 @@ from src.strategies.ross_momentum.patterns.pattern_inputs import PatternInputs, 
 from src.strategies.ross_momentum.policy.pattern_input_policy import PatternInputPolicy
 from src.strategies.ross_momentum.patterns.pattern_types import Direction, PatternFamily, PatternResult
 from src.strategies.strategy_contracts import SessionContext
+from src.utils.time_utils import to_ny_time
 
 
 def _avg_volume(candles, lookback: int = 8) -> float:
@@ -409,36 +410,96 @@ class FailedOrbFakeoutPattern(PatternBase):
 
 
 class GapFillReversalPattern(PatternBase):
+    """Existing catalog RISK context: never an entry or dispatched exit."""
     pattern_id = "P_GAP_FILL_REVERSAL"
     name = "Gap Fill Reversal"
     family = PatternFamily.REVERSAL
-    direction_bias = Direction.LONG
+    direction_bias = Direction.NEUTRAL
 
     def evaluate(self, inputs: PatternInputs) -> PatternResult:
-        prior_close = inputs.levels.prior_close
-        if prior_close is None or len(inputs.candles) < 5:
-            return self._rejected("missing prior close or candles", inputs)
-        recent = inputs.candles[-5:]
-        fill_touch = any(c.low <= prior_close <= c.high for c in recent)
-        if not fill_touch:
-            return self._rejected("gap fill level not tested", inputs)
-        last = recent[-1]
-        prev = recent[-2]
-        if not (last.close > last.open and last.close > prev.high):
-            return self._rejected("no reversal confirmation after fill", inputs)
-        return self._detected(
-            inputs,
-            direction=Direction.LONG,
-            confidence=0.67,
-            rationale=(
-                "Price tested prior close gap-fill level and reversed with confirmation close.\n"
-                f"Prior close={prior_close:.2f}, last close={last.close:.2f}."
-            ),
-            entry_zone="Break above reversal confirmation candle",
-            stop_suggestion="Below gap fill test low",
-            target_suggestion="VWAP / opening range reclaim",
-            setup_quality_tags=["gap_fill", "reversal_confirmation"],
-            risk_flags=["COUNTERTREND_IF_WEAK"],
+        def reject(reason):
+            return replace(self._rejected(reason, inputs, direction=Direction.NEUTRAL),
+                setup_family_id="GAP_FILL", non_entry_signal=True,
+                signal_class="CONTEXT", trigger_mode="CONTEXT_ONLY")
+        clock = inputs.observed_at_utc
+        if not isinstance(clock, datetime) or clock.tzinfo is None:
+            return reject("gap_fill_missing_original_clock")
+        prior_close = _safe_float(inputs.levels.prior_close)
+        if (isinstance(inputs.levels.prior_close,bool) or prior_close is None
+                or not isfinite(prior_close) or prior_close<=0):
+            return reject("gap_fill_missing_prior_close")
+        candles = list(inputs.candles or [])
+        rejection = abcd_candle_rejection(candles, observed_at_utc=clock, require_clock=True)
+        if rejection:
+            return reject(rejection)
+        seconds = {"1m":60,"5m":300}.get(inputs.primary_timeframe)
+        if seconds is None:
+            return reject("gap_fill_unsupported_source_timeframe")
+        local = to_ny_time(clock)
+        if inputs.session_context==SessionContext.PRE:
+            if not (4<=local.hour and (local.hour<9 or local.hour==9 and local.minute<30)):
+                return reject("gap_fill_session_clock_mismatch")
+            opening = local.replace(hour=4,minute=0,second=0,microsecond=0).astimezone(timezone.utc)
+        elif inputs.session_context==SessionContext.REGULAR:
+            if not ((local.hour>9 or local.hour==9 and local.minute>=30) and local.hour<16):
+                return reject("gap_fill_session_clock_mismatch")
+            opening = local.replace(hour=9,minute=30,second=0,microsecond=0).astimezone(timezone.utc)
+        else:
+            return reject("gap_fill_unsupported_session")
+        step = timedelta(seconds=seconds)
+        completed = [c for c in candles if c.timestamp>=opening and c.timestamp+step<=clock]
+        visible = next((c for c in completed if c.timestamp==opening),None)
+        open_price = visible.open if visible is not None else None
+        open_source = "visible_completed_session_open"
+        if inputs.session_context==SessionContext.REGULAR:
+            fact_price, fact_time = inputs.levels.rth_open_price, inputs.levels.rth_open_timestamp
+            if fact_price is not None or fact_time is not None:
+                parsed = _safe_float(fact_price)
+                if (isinstance(fact_price,bool) or parsed is None or not isfinite(parsed) or parsed<=0
+                        or not isinstance(fact_time,datetime) or fact_time.tzinfo is None
+                        or fact_time!=opening or fact_time+timedelta(minutes=1)>clock):
+                    return reject("gap_fill_invalid_open_reference")
+                if visible is not None and float(visible.open)!=parsed:
+                    return reject("gap_fill_conflicting_open_reference")
+                open_price, open_source = parsed, "completed_rth_reference"
+        if open_price is None:
+            return reject("gap_fill_missing_session_open")
+        if open_price==prior_close:
+            return reject("gap_fill_no_opening_gap")
+        if len(completed)<5:
+            return reject("gap_fill_incomplete_reversal_window")
+        recent = completed[-5:]
+        if any(b.timestamp-a.timestamp!=step for a,b in zip(recent,recent[1:])):
+            return reject("gap_fill_gapped_reversal_window")
+        if _timeframe_provenance(recent, inputs.primary_timeframe,
+                PatternInputPolicy.from_policy_v2(), symbol=inputs.symbol, now_utc=clock)!="PRESENT":
+            return reject("gap_fill_stale_reversal_window")
+        # A completed test must precede the completed confirmation; no claim of
+        # first-ever fill/retest status and no intrabar ordering invention.
+        tests = [c for c in recent[:-1] if c.low<=prior_close<=c.high]
+        if not tests:
+            return reject("gap_fill_level_not_tested_before_confirmation")
+        last, prev = recent[-1], recent[-2]
+        up_gap = open_price>prior_close
+        confirmed = (last.close>last.open and last.close>prev.high and last.close>prior_close) if up_gap else (
+            last.close<last.open and last.close<prev.low and last.close<prior_close)
+        if not confirmed:
+            return reject("gap_fill_no_completed_reversal_confirmation")
+        test = tests[-1]
+        return PatternResult(
+            setup_id=self.pattern_id, pattern_name=self.name, pattern_family=self.family,
+            detected=True, direction=Direction.LONG if up_gap else Direction.SHORT,
+            confidence=0.67, setup_quality_tags=["gap_fill", "reversal_context", "non_entry"],
+            setup_family_id="GAP_FILL", non_entry_signal=True, signal_class="CONTEXT",
+            trigger_mode="CONTEXT_ONLY", rationale_text="Completed prior-close reversal after a measured opening gap; context only.",
+            data_quality_flags=list(inputs.data_quality_flags),
+            setup_metadata={"gap_direction":"UP" if up_gap else "DOWN",
+                "session_open_price":float(open_price),"session_open_timestamp":opening,
+                "session_open_source":open_source,"prior_close":prior_close,
+                "opening_gap_pct":100*(open_price/prior_close-1),
+                "fill_test_timestamp":test.timestamp,"fill_test_low":test.low,"fill_test_high":test.high,
+                "confirmation_timestamp":last.timestamp,"confirmation_close":last.close,
+                "observed_at_utc":clock,"primary_timeframe":inputs.primary_timeframe},
         )
 
 

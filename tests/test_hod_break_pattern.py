@@ -326,7 +326,18 @@ def test_runtime_acquisition_keeps_full_rth_reference_separate_from_rolling_inpu
         fault='short'
         rolling,_=trace.build_runtime_pattern_inputs(symbol='HODH',row=row,snapshot=None,
             session_label='RTH_MID',session_phase='RTH_MID')
-        assert replace(inputs,levels=replace(inputs.levels,established_rth_hod=None))==rolling
+        assert inputs.levels.rth_open_price==bars[0].open
+        assert inputs.levels.rth_open_timestamp==start
+        assert rolling.levels.rth_open_price is rolling.levels.rth_open_timestamp is None
+        # Ignore only the two newly exposed reference facts; every existing
+        # provenance assertion from the original rolling-tail comparison stays.
+        comparable_provenance=dict(inputs.level_provenance)
+        for key in ('rth_open_price','rth_open_timestamp'):
+            assert inputs.level_provenance[key]=='PRESENT'
+            assert rolling.level_provenance[key]=='MISSING'
+            comparable_provenance[key]=rolling.level_provenance[key]
+        assert replace(inputs,levels=replace(inputs.levels,established_rth_hod=None,
+            rth_open_price=None,rth_open_timestamp=None),level_provenance=comparable_provenance)==rolling
 
 
 @pytest.mark.parametrize('stamp,session,expected',[

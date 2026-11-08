@@ -648,6 +648,15 @@ def build_runtime_pattern_inputs(*, symbol: str, row: Any, snapshot: MarketSnaps
         premarket_low,
     )
     established_hod = _established_rth_hod(rth_reference_candles, observed_at_utc) if session in {"RTH_OPEN", "RTH_MID", "RTH_LATE"} else None
+    # Reuse the SAME already-validated completed RTH reference. No new fetch,
+    # repeated validation or legacy HOD/Key-level reinterpretation.
+    rth_open_price = rth_open_timestamp = None
+    if established_hod is not None:
+        local = to_ny_time(observed_at_utc)
+        start = local.replace(hour=9,minute=30,second=0,microsecond=0).astimezone(timezone.utc)
+        opening = next((c for c in rth_reference_candles if _timestamp_as_utc(c.timestamp)==start),None)
+        if opening is not None:
+            rth_open_price, rth_open_timestamp = float(opening.open), start
     normalized_hod = _coalesce(_safe_float(_get_value(row, "hod")), _safe_float(_get_value(row, "HOD")), hod)
     normalized_lod = _coalesce(_safe_float(_get_value(row, "lod")), _safe_float(_get_value(row, "LOD")), lod)
     normalized_key_levels = {
@@ -664,6 +673,8 @@ def build_runtime_pattern_inputs(*, symbol: str, row: Any, snapshot: MarketSnaps
         premarket_low=normalized_premarket_low,
         hod=normalized_hod,
         established_rth_hod=established_hod,
+        rth_open_price=rth_open_price,
+        rth_open_timestamp=rth_open_timestamp,
         lod=normalized_lod,
         prior_close=prior_close,
         key_levels={key: float(value) for key, value in normalized_key_levels.items() if value is not None},

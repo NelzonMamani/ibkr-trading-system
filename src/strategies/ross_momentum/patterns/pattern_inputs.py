@@ -77,6 +77,9 @@ class LevelSet:
     key_levels: Dict[str, float] = field(default_factory=dict)
     # Completed same-day RTH measurement; legacy hod/key levels keep their semantics.
     established_rth_hod: Optional[float] = None
+    # Separate completed-reference facts; never generic Key levels.
+    rth_open_price: Optional[float] = None
+    rth_open_timestamp: Optional[datetime] = None
 
 
 @dataclass(frozen=True)
@@ -382,6 +385,8 @@ def _resolve_levels(
         "hod": _level_provenance(hod, "COMPUTED" if provided.hod is None else "PRESENT"),
         "lod": _level_provenance(lod, "COMPUTED" if provided.lod is None else "PRESENT"),
         "prior_close": _level_provenance(provided.prior_close, "PRESENT"),
+        "rth_open_price": _level_provenance(provided.rth_open_price, "PRESENT"),
+        "rth_open_timestamp": _level_provenance(provided.rth_open_timestamp, "PRESENT"),
         "vwap": _level_provenance(vwap, "COMPUTED" if provided.vwap is None else "PRESENT"),
         "support_levels": IndicatorProvenance.PRESENT.value if provided.support_levels else IndicatorProvenance.MISSING.value,
         "resistance_levels": IndicatorProvenance.PRESENT.value if provided.resistance_levels else IndicatorProvenance.MISSING.value,
