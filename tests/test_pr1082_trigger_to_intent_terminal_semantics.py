@@ -184,9 +184,8 @@ def _inputs(state: str = "ready", *, now: datetime | None = None, omit_timeframe
 def _detected_three(state: str = "ready") -> PatternResult:
     result = ThreeBarPullbackPattern().evaluate(_inputs(state))
     assert result.detected is True
-    # Explicit offline target for downstream intent/capacity fixtures.
-    # The production detector itself currently supplies no target model.
-    return replace(result, target_suggestion="OFFLINE_FIXTURE_TARGET")
+    # Actual native objective is now authorized; no prepared positive target.
+    return result
 
 def _detected_pullback(pattern_id: str = "P_THREE_BAR_PULLBACK") -> PatternResult:
     setup_family_id = "THREE_BAR_PULLBACK" if pattern_id == "P_THREE_BAR_PULLBACK" else "SECOND_PULLBACK"
@@ -551,7 +550,7 @@ def test_canonical_pattern_adapter_rejects_incomplete_trigger_contract() -> None
 
     assert strategy._canonical_pattern_trigger_candidates([result], symbol="UPC", existing_triggers=[]) == []
 
-def test_offline_three_bar_pullback_supplied_target_reaches_readonly_intent(monkeypatch: pytest.MonkeyPatch, tmp_path, capsys) -> None:
+def test_native_three_bar_objective_reaches_component_readonly_intent(monkeypatch: pytest.MonkeyPatch, tmp_path, capsys) -> None:
     strategy = _base_strategy(monkeypatch, tmp_path, state="ready")
     strategy._pattern_registry = FakeRegistry([_detected_three("ready")])
 

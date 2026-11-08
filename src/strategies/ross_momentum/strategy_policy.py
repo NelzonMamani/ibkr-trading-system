@@ -69,6 +69,26 @@ ORB_DESCRIPTIVE_OBJECTIVE = "Continuation above the completed opening-range high
 HOD_DESCRIPTIVE_OBJECTIVE = "Continuation above the established regular-session high of day."
 
 
+# Newly authorized project policy (8 November 2026, explicit user decision).
+# Each descriptive objective applies only after its genuine native detector,
+# OWN registered trigger, complete structural contract and existing admission/
+# risk gates pass. Numeric TP remains None. These supply NO stop, exit,
+# reduction, trailing or recurring-management policy and are not historical
+# Ross quotations. Declaring a constant does not enable a detector or route.
+# In particular Range/Triangle/Pennant generic continuation placeholders remain
+# blocked until genuine measured geometry and complete contracts are proved.
+OPENING_DRIVE_DESCRIPTIVE_OBJECTIVE = "Continuation of the confirmed opening drive."
+CUP_HANDLE_DESCRIPTIVE_OBJECTIVE = "Continuation above the measured cup resistance after handle confirmation."
+EMA_PULLBACK_DESCRIPTIVE_OBJECTIVE = "Continuation after the confirmed pullback and reclaim of EMA support."
+VWAP_PULLBACK_DESCRIPTIVE_OBJECTIVE = "Continuation after the confirmed pullback and reclaim of VWAP."
+THREE_BAR_PULLBACK_DESCRIPTIVE_OBJECTIVE = "Continuation above the measured three-bar pullback high."
+SECOND_PULLBACK_DESCRIPTIVE_OBJECTIVE = "Continuation above the measured second pullback high."
+TREND_CONTINUATION_STAIR_STEP_DESCRIPTIVE_OBJECTIVE = "Continuation of the confirmed stair-step trend."
+RANGE_BREAK_DESCRIPTIVE_OBJECTIVE = "Continuation above the measured rectangle range high."
+ASCENDING_TRIANGLE_DESCRIPTIVE_OBJECTIVE = "Continuation above the measured flat resistance after rising lows."
+PENNANT_DESCRIPTIVE_OBJECTIVE = "Continuation above the measured pennant boundary after impulse and compression."
+
+
 POLICY_V2 = StrategyPolicyV2(
     identity=StrategyIdentityV2(name="ROSS_MOMENTUM", strategy_id="P01"),
     selection_plan=ScannerPlan(

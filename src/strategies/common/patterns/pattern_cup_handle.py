@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
+from src.adapters.data.historical_bar_timeframes import resolve_intraday_timeframe_request
+from src.strategies.common.triggers.trigger_abcd_continuation import abcd_candle_rejection
+
 from src.strategies.ross_momentum.patterns.pattern_inputs import PatternInputs
 from src.strategies.ross_momentum.patterns.pattern_types import Direction, PatternFamily, PatternResult
 from src.strategies.strategy_contracts import SessionContext
+from src.strategies.ross_momentum.strategy_policy import CUP_HANDLE_DESCRIPTIVE_OBJECTIVE
 
 
 def _safe_float(value: object) -> float | None:
@@ -48,6 +53,22 @@ def detect_cup_handle(inputs: PatternInputs) -> PatternResult:
         for field in ("open", "high", "low", "close")
     ):
         return reject("missing_price_fields")
+
+    clock = inputs.observed_at_utc
+    rejection = abcd_candle_rejection(candles, observed_at_utc=clock,
+        require_clock=bool(inputs.timeframe_provenance))
+    if rejection:
+        return reject(rejection)
+    if clock is not None:
+        try:
+            request = resolve_intraday_timeframe_request(
+                timeframe=inputs.primary_timeframe or inputs.timeframe, requested_bars=14)
+        except ValueError:
+            return reject("INVALID_STRUCTURE_TIMEFRAME")
+        # Both handle bars contribute structural anchors, including the final
+        # breakout bar. Every contributing source bar must be complete.
+        if any(c.timestamp + timedelta(seconds=request.bar_seconds) > clock for c in candles[-14:]):
+            return reject("incomplete_cup_handle_structure")
 
     spread = _safe_float(inputs.liquidity_context.spread)
     if spread is None or spread > 0.08:
@@ -119,6 +140,7 @@ def detect_cup_handle(inputs: PatternInputs) -> PatternResult:
         direction=Direction.LONG,
         confidence=0.7,
         setup_quality_tags=["rounded_base", "controlled_handle", "breakout_ready"],
+        target_suggestion=CUP_HANDLE_DESCRIPTIVE_OBJECTIVE,
         setup_family_id="CUP_HANDLE",
         rationale_text=(
             "Rounded cup base recovered into resistance, followed by controlled handle compression; "

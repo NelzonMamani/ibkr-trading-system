@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from src.strategies.common.triggers.trigger_abcd_continuation import abcd_candle_rejection
+
 
 def _safe_float(value):
     try:
@@ -43,6 +45,14 @@ def evaluate_cup_handle_trigger(pattern_result, inputs):
         }
         print(f"[TRIGGER][CUP_HANDLE] fired=False reason={out['trigger_reason']}")
         return out
+
+    stream = payload.get("execution_stream")
+    if isinstance(stream, dict):
+        rejection = abcd_candle_rejection(candles,
+            observed_at_utc=stream.get("observed_at_utc"), require_clock=True)
+        if rejection:
+            return {**base, "trigger_state": "BLOCKED", "trigger_ready_now": False,
+                "trigger_reason": "cup_handle_" + rejection.lower(), "trigger_quality_flags": ["BLOCKED"]}
 
     last = candles[-1]
     prev = candles[-2] if len(candles) > 1 else None
