@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
 from statistics import mean
+
+from src.adapters.data.historical_bar_timeframes import resolve_intraday_timeframe_request
+from src.strategies.common.triggers.trigger_abcd_continuation import abcd_candle_rejection
+
+from src.strategies.ross_momentum.strategy_policy import VWAP_PULLBACK_DESCRIPTIVE_OBJECTIVE
 
 from src.config.setup_thresholds import MIN_RVOL_CONTINUATION, VWAP_PULLBACK_MAX_DEPTH, VWAP_TOLERANCE_PCT
 from src.strategies.common.patterns.pullback_utils import (
@@ -81,6 +87,19 @@ def detect_vwap_pullback(inputs: PatternInputs) -> PatternResult:
     if any(v is None for v in [*highs, *lows, *closes, *opens, *volumes]):
         return reject("insufficient_history")
 
+    rejection = abcd_candle_rejection(candles, observed_at_utc=inputs.observed_at_utc,
+        require_clock=bool(inputs.timeframe_provenance))
+    if rejection:
+        return reject(rejection)
+    if inputs.observed_at_utc is not None:
+        try:
+            request = resolve_intraday_timeframe_request(
+                timeframe=inputs.primary_timeframe or inputs.timeframe, requested_bars=_MIN_HISTORY)
+        except ValueError:
+            return reject("INVALID_STRUCTURE_TIMEFRAME")
+        if any(c.timestamp + timedelta(seconds=request.bar_seconds) > inputs.observed_at_utc for c in candles):
+            return reject("incomplete_vwap_pullback_structure")
+
     first_close = float(closes[0])
     recent_high = max(float(v) for v in highs[:-2] or highs)
     recent_low = min(float(v) for v in lows[:-2] or lows)
@@ -152,6 +171,7 @@ def detect_vwap_pullback(inputs: PatternInputs) -> PatternResult:
         confidence=confidence,
         setup_quality_tags=["vwap_test", "vwap_reclaim", "continuation"],
         setup_family_id="VWAP_PULLBACK",
+        target_suggestion=VWAP_PULLBACK_DESCRIPTIVE_OBJECTIVE,
         setup_semantic=SetupSemantic.CONTINUATION.value,
         rationale_text="VWAP pullback reclaimed with continuation-ready micro-structure and breakout trigger.",
         rejection_reason=None,

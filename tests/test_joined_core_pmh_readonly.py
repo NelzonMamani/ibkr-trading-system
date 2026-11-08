@@ -1995,12 +1995,27 @@ def indicator_pullback_joined(reassessment,monkeypatch,tmp_path,*,family='EMA_PU
     rows[-1]=(10.35 if market_fault=='competing_key' else 10.51,10.62,10.34,10.56,1500)
     current=[(10.56,10.56,10.48,10.49,200),(10.49,10.50,10.48,10.495,200),
         (10.495,10.52,10.47,10.515,1200)]
+    if family=='VWAP_PULLBACK':
+        rows=[(10.25,10.27,10.23,10.25,1500)]*43+[
+            (10.25,10.50,10.24,10.48,1200),(10.48,10.70,10.46,10.68,1600),
+            (10.68,10.78,10.66,10.75,1800),(10.75,10.76,10.55,10.60,1100),
+            (10.60,10.61,10.24,10.25,850),(10.25,10.45,10.23,10.35,1500)]
+        rows[5]=(10.25,10.75,9.5,10.25,1500)
+        rows[15]=(10.25,10.8,10.23,10.25,1500)
+        current=[(10.35,10.72,10.34,10.70,200),(10.70,10.76,10.68,10.74,200),
+            (10.74,10.81,10.73,10.79,1200)]
+        if market_fault=='competing_key':
+            rows[-1]=(10.25,10.65,10.23,10.55,1500)
+            current=[(10.55,10.58,10.24,10.25,200),(10.25,10.27,10.24,10.26,200),
+                (10.26,10.81,10.24,10.79,1200)]
     if market_fault=='competing_abcd':current[-1]=(10.495,10.55,10.47,10.54,1200)
     if market_fault in {'waiting_execution','equal_minimum_break','above_minimum_break'}:
-        value={'waiting_execution':10.5,'equal_minimum_break':10.5*(1+.001),
-            'above_minimum_break':10.5*(1+.001)+.0001}[market_fault]
+        level=10.76 if family=='VWAP_PULLBACK' else 10.5
+        value={'waiting_execution':level,'equal_minimum_break':level*(1+.001),
+            'above_minimum_break':level*(1+.001)+.0001}[market_fault]
         current[-1]=(*current[-1][:3],value,current[-1][4])
-    elif market_fault=='invalid_breakout_shape':current[-1]=(10.515,10.57,10.47,10.515,1200)
+    elif market_fault=='invalid_breakout_shape':
+        current[-1]=(10.79,10.85,10.73,10.79,1200) if family=='VWAP_PULLBACK' else (10.515,10.57,10.47,10.515,1200)
     _install_variant_market(h,rows,current,pmh=10.75,early=(10.3,10.32,10.27,10.3,7500),completed_source=True)
     if market_fault=='future_source':
         h.streams['1m'][-1]=replace(h.streams['1m'][-1],timestamp=h.life.clock.current+timedelta(seconds=12))
@@ -2112,4 +2127,87 @@ def test_ema_pullback_preserves_registered_confirmation_boundaries(reassessment,
     assert canonical and all(r['trigger_ready_now']==ready and r['trigger_reason']==reason for r in canonical)
     own=[i for batch in h.batches for i in batch if i.setup_family_id=='EMA_PULLBACK']
     assert len(own)==int(ready)
+    no_effects(h)
+
+
+def vwap_pullback_joined(*args,**kwargs):
+    return indicator_pullback_joined(*args,family='VWAP_PULLBACK',**kwargs)
+
+
+def test_native_vwap_pullback_authorized_objective_selected_readonly(reassessment,monkeypatch,tmp_path,capsys):
+    h=indicator_pullback_joined(reassessment,monkeypatch,tmp_path,family='VWAP_PULLBACK')
+    cycles(h,capsys)
+    source,results=h.registry_batches[-1]
+    native=next(r for r in results if r.setup_id=='P_VWAP_PULLBACK')
+    assert len(results)==33 and native.detected,native.rejection_reason
+    from src.strategies.ross_momentum.strategy_policy import VWAP_PULLBACK_DESCRIPTIVE_OBJECTIVE
+    assert native.target_suggestion==VWAP_PULLBACK_DESCRIPTIVE_OBJECTIVE
+    assert source.candles[-2].close<source.indicators.vwap<source.candles[-1].close<source.indicators.ema9
+    ema=next(r for r in results if r.setup_id=='P_EMA_PULLBACK')
+    momentum=next(r for r in results if r.setup_id=='P_MOMENTUM_RECLAIM')
+    assert not ema.detected and not momentum.detected
+    assert len(h.evaluated)==1
+    intent,received,decision=h.evaluated[0]
+    assert intent.setup_family_id=='VWAP_PULLBACK'
+    assert results[intent.setup_metadata['canonical_result_index']] is native
+    assert (intent.entry_price,intent.stop_loss_price,intent.invalidation_level)==(10.76,10.23,10.23)
+    assert intent.target_model==native.target_suggestion and intent.take_profit_price is None
+    assert received==vars(intent) and decision.reason_code=='LIVE_READ_ONLY_BLOCK'
+    no_effects(h)
+
+
+@pytest.mark.parametrize('market_fault',['future_source','incomplete_source','nan_source','malformed_source',
+    'future_execution','nan_execution'])
+def test_native_vwap_pullback_invalid_facts_cannot_admit(reassessment,monkeypatch,tmp_path,capsys,market_fault):
+    h=vwap_pullback_joined(reassessment,monkeypatch,tmp_path,market_fault=market_fault)
+    cycles(h,capsys)
+    assert not [i for batch in h.batches for i in batch if i.setup_family_id=='VWAP_PULLBACK']
+    _,results=h.registry_batches[-1]
+    native=next(r for r in results if r.setup_id=='P_VWAP_PULLBACK')
+    reasons={'future_source':'FUTURE_CANDLE_DATA','incomplete_source':'incomplete_vwap_pullback_structure',
+        'nan_source':'INVALID_CANDLE_DATA','malformed_source':'INVALID_CANDLE_DATA'}
+    if market_fault in reasons:
+        assert not native.detected and native.rejection_reason==reasons[market_fault]
+        assert native.target_suggestion is None
+    else:
+        assert native.detected
+        canonical=[r for p,_,r in h.indicator_triggers if p.get('canonical_result_index')==results.index(native)]
+        reason='vwap_pullback_future_candle_data' if market_fault=='future_execution' else 'vwap_pullback_invalid_candle_data'
+        assert canonical and all(not r['trigger_ready_now'] and r['trigger_reason']==reason for r in canonical)
+    no_effects(h)
+
+
+@pytest.mark.parametrize('market_fault,ready,reason',[('waiting_execution',False,'awaiting_breakout'),
+    ('equal_minimum_break',False,'awaiting_breakout'),('above_minimum_break',True,'vwap_pullback_breakout_confirmed'),
+    ('invalid_breakout_shape',False,'breakout_shape_invalid')])
+def test_vwap_pullback_preserves_own_registered_confirmation_boundaries(reassessment,monkeypatch,tmp_path,capsys,
+        market_fault,ready,reason):
+    h=vwap_pullback_joined(reassessment,monkeypatch,tmp_path,market_fault=market_fault)
+    cycles(h,capsys)
+    _,results=h.registry_batches[-1]
+    native=next(r for r in results if r.setup_id=='P_VWAP_PULLBACK')
+    assert len(results)==33 and native.detected and native.trigger_level==10.76
+    canonical=[r for p,_,r in h.indicator_triggers if p.get('canonical_result_index')==results.index(native)]
+    assert canonical and all(r['trigger_ready_now']==ready and r['trigger_reason']==reason for r in canonical)
+    assert len([i for batch in h.batches for i in batch if i.setup_family_id=='VWAP_PULLBACK'])==int(ready)
+    no_effects(h)
+
+
+def test_vwap_pullback_preserves_genuine_key_winner(reassessment,monkeypatch,tmp_path,capsys):
+    h=vwap_pullback_joined(reassessment,monkeypatch,tmp_path,market_fault='competing_key')
+    cycles(h,capsys)
+    _,results=h.registry_batches[-1]
+    vwap=next(r for r in results if r.setup_id=='P_VWAP_PULLBACK')
+    key=next(r for r in results if r.setup_id=='P_KEY_LEVEL_BREAK')
+    assert len(results)==33 and vwap.detected and key.detected
+    assert h.indicator_triggers[-1][2]['trigger_ready_now']
+    assert any(r['trigger_ready_now'] for p,_,r in h.competing_indicator_triggers
+        if p.get('canonical_result_index')==results.index(key)), (key.trigger_level,h.competing_indicator_triggers[-1][2])
+    assert len(h.evaluated)==1
+    intent,received,decision=h.evaluated[0]
+    assert intent.setup_family_id=='KEY_LEVEL_BREAK'
+    assert results[intent.setup_metadata['canonical_result_index']] is key
+    assert intent.entry_price==key.trigger_level and intent.entry_price!=vwap.trigger_level
+    assert intent.target_model==key.target_suggestion and intent.target_model!=vwap.target_suggestion
+    assert received==vars(intent) and decision.reason_code=='LIVE_READ_ONLY_BLOCK'
     no_effects(h)
