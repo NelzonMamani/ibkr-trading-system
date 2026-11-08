@@ -279,7 +279,7 @@ def test_pr1029_indicator_context_requires_price_action_not_standalone_authority
         (10.32, 10.62, 10.30, 10.58, 1700),
         (10.58, 10.64, 10.50, 10.60, 1600),
         (10.60, 10.62, 10.37, 10.39, 700),
-        (10.39, 10.56, 10.40, 10.52, 1300),
+        (10.39, 10.56, 10.38, 10.52, 1300),
     ]
     vwap = _run_single(
         VwapPullbackPattern(),
