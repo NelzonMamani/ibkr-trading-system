@@ -618,3 +618,23 @@ def test_native_gap_context_can_reuse_validated_open_outside_rolling_tail():
     assert measured.detected and measured.non_entry_signal
     assert measured.setup_metadata['session_open_source']=='completed_rth_reference'
     assert measured.trigger_level is measured.stop_level is None
+
+
+def test_native_gap_context_preserves_premarket_origin_and_session_boundary():
+    from dataclasses import replace
+    from src.setup_engine.setup_families.ross_families import GapFillReversalPattern
+    source=_gap_context_inputs()
+    # Same measured geometry, actual 04:00 New York PRE origin, no RTH facts.
+    shift=timedelta(hours=-5,minutes=-30)
+    pre=replace(source,session_context=SessionContext.PRE,
+        observed_at_utc=source.observed_at_utc+shift,
+        candles=[replace(c,timestamp=c.timestamp+shift) for c in source.candles])
+    result=GapFillReversalPattern().evaluate(pre)
+    assert result.detected and result.non_entry_signal
+    assert result.setup_metadata['session_open_timestamp']==pre.candles[0].timestamp
+    assert result.setup_metadata['session_open_source']=='visible_completed_session_open'
+    wrong=GapFillReversalPattern().evaluate(replace(pre,session_context=SessionContext.REGULAR))
+    assert not wrong.detected and wrong.rejection_reason=='gap_fill_session_clock_mismatch'
+    boundary=GapFillReversalPattern().evaluate(replace(pre,
+        observed_at_utc=source.candles[0].timestamp))  # Exactly 09:30 is no longer PRE.
+    assert not boundary.detected and boundary.rejection_reason=='gap_fill_session_clock_mismatch'
