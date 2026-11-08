@@ -425,7 +425,7 @@ def test_native_confidence_gate_does_not_substitute_trigger_quality(
         symbol="TEST", mode=RunMode.PAPER, setup_family=family,
         pattern_confidence=confidence, entry_price=10.03,
         input_summary=SimpleNamespace(last_price=10.03, spread=0.02, rvol=2.5, pct_change=8.0),
-        selected_trigger={"trigger_price_reference": 10.0, **quality}, levels={},
+        selected_trigger={"trigger_price_reference": 10.0, "quality": quality}, levels={},
     )
     assert assessment["tradeable"] is (not blocked)
     assert assessment["blocking_reasons"] == (
