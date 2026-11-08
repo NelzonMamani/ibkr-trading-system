@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from src.config.runtime_config import RunMode
+from test_flat_top_production_handoff import forbid_collection_and_execution, forbid_io
 from src.domain.market_snapshot import MarketSnapshot
 from src.strategies.ross_momentum.patterns.pattern_registry import RossPatternRegistry
 from src.strategies.ross_momentum.patterns.pattern_trace import (
@@ -160,67 +161,45 @@ def test_no_setup_summary_aggregates_reasons(tmp_path: Path, monkeypatch) -> Non
 
 
 def test_detected_pattern_translates_to_trade_intent(tmp_path: Path, monkeypatch, capsys) -> None:
-    monkeypatch.setattr(
-        "src.strategies.ross_momentum.patterns.pattern_trace.get_intraday_bars",
-        lambda **kwargs: [Candle(open=10.5 + idx * 0.03, high=10.6 + idx * 0.03, low=10.4 + idx * 0.03, close=10.55 + idx * 0.03, volume=2000 + idx) for idx in range(25)],
-    )
-    strategy = RossMomentumStrategyV1()
-    strategy._failure_trace_collector = RossPatternFailureTraceCollector(evidence_root=tmp_path)
-    watchlist = [{'quote_evidence': current_broker_quote(),
-        "symbol": "TEST",
-        "promotion_reason": "manual_focus",
-        "session_label": "PRE",
-        "last_price": 11.1,
-        "bid": 11.09,
-        "ask": 11.11,
-        "volume": 12000,
-        "rvol": 2.0,
-        "float_millions": 10.0,
-        "premarket_high": 10.95,
-        "prior_close": 10.0,
-    }]
-    intents = strategy.process_watchlist(
-        watchlist=watchlist,
-        snapshots={"TEST": MarketSnapshot(market_timestamp_utc=current_broker_time(), timestamp_source='LAST_TRADE', symbol="TEST", bid=11.09, ask=11.11, last=11.1, volume=12000, asof_utc=datetime.now(timezone.utc))},
-        session_label="PRE",
-        timestamp_utc="cycle-1",
-        mode=RunMode.LIVE,
-        session_phase="PRE",
-    )
-    out = capsys.readouterr().out
-    payload = json.loads((tmp_path / "latest_pattern_failure_trace.json").read_text())
-    symbol_eval = next(item for item in payload["symbol_evaluations"] if item["symbol"] == "TEST")
-    data_contract_blocked = "data_contract_blocked" in str(symbol_eval.get("final_outcome", "")).lower()
-    if data_contract_blocked:
-        assert intents == []
-    else:
-        if intents:
-            assert intents[0].decision == "TRADE_READY"
-            assert intents[0].trigger_id.endswith(":TRIGGER") or bool(intents[0].trigger_id)
-            assert intents[0].entry_price is not None
-            assert intents[0].stop_loss_price is not None
-            assert symbol_eval["final_outcome"] == "SETUP_DETECTED_AND_TRANSLATED"
-        elif symbol_eval["final_outcome"] == "SETUP_FOUND_DECISION_REJECTED":
-            assert intents == []
-            terminal = strategy.last_symbol_terminal_outcomes["TEST"]
-            assert terminal["terminal_stage"] == "decision"
-            assert terminal["reason"] == "all_detected_candidates_rejected"
-            assert not terminal["intent_emitted"] and not terminal["trigger_ready_now"]
-            assert "[DECISION_ENGINE][ENTRY_CONTRACT_REJECT] symbol=TEST" in out
-            assert "reason=missing_target" in out
-        else:
-            assert symbol_eval["final_outcome"] in {"SETUP_FOUND_BUT_NO_TRIGGER", "SETUP_DETECTED_AND_TRANSLATED"}
-    cycle_summary = payload["cycle_summaries"][-1]
-    if data_contract_blocked:
-        assert cycle_summary["real_setup_trigger_count"] == 0
-    else:
-        if intents:
-            assert cycle_summary["real_setup_trigger_count"] > 0
-        else:
-            assert cycle_summary["real_setup_trigger_count"] == 0
+    from src.domain import quote_freshness
+    from src.strategies.ross_momentum.patterns import pattern_trace
+    from test_quote_observation_order import Clock
+    from test_pmh_invalidation_handoff import actual_run
+    # Reuse the existing controllable clock at the two actual time owners;
+    # no global/shared time patch, prepared result or disabled competitor.
+    monkeypatch.setattr(Clock, "value", Clock(2026,9,16,13,35,30,tzinfo=timezone.utc))
+    monkeypatch.setattr(pattern_trace, "datetime", Clock)
+    monkeypatch.setattr(quote_freshness, "datetime", Clock)
+    strategy,intents,results,calls=actual_run(monkeypatch,tmp_path,state="trace_native",
+        all_patterns=True,mode=RunMode.LIVE)
+    out=capsys.readouterr().out
+    assert len(results)==len(strategy._pattern_registry.patterns)==33,(strategy.last_symbol_terminal_outcomes,out)
+    native=next(r for r in results if r.setup_id=="P_PREMARKET_HIGH_BREAK")
+    assert native.detected and native.target_suggestion
+    assert native.confidence>=strategy._tradeable_min_confidence
+    assert len(intents)==1,strategy.last_symbol_terminal_outcomes
+    intent=intents[0]
+    assert intent.setup_family_id=="PREMARKET_HIGH_BREAK"
+    assert results[intent.setup_metadata["canonical_result_index"]] is native
+    assert intent.decision=="TRADE_READY"
+    assert intent.trigger_id.endswith(":TRIGGER") or bool(intent.trigger_id)
+    assert intent.entry_price==native.trigger_level==10.3
+    assert intent.stop_loss_price==native.stop_level
+    assert intent.entry_price is not None and intent.stop_loss_price is not None
+    assert intent.target_model==native.target_suggestion and intent.take_profit_price is None
+    assert any(p.get("canonical_result_index")==results.index(native) and trigger["trigger_ready_now"]
+        for p,trigger in calls)
+    payload=json.loads((tmp_path/"latest_pattern_failure_trace.json").read_text())
+    symbol_eval=next(item for item in payload["symbol_evaluations"] if item["symbol"]=="UPC")
+    assert symbol_eval["final_outcome"]=="SETUP_DETECTED_AND_TRANSLATED"
+    assert payload["cycle_summaries"][-1]["real_setup_trigger_count"]>0
 
 
 def test_missing_inputs_surface_in_trace(tmp_path: Path, monkeypatch) -> None:
+    # Missing external facts stay unavailable; keep the real resolver/trace
+    # owners without allowing provider enrichment in this offline control.
+    monkeypatch.setattr("src.strategies.ross_momentum.patterns.pattern_trace.FloatProvider.get_float",
+        lambda self,symbol:(None,"missing"))
     monkeypatch.setattr(
         "src.strategies.ross_momentum.patterns.pattern_trace.get_intraday_bars",
         lambda **kwargs: [Candle(open=1 + idx * 0.01, high=1.1 + idx * 0.01, low=0.9 + idx * 0.01, close=1.05 + idx * 0.01, volume=500 + idx) for idx in range(20)],
@@ -238,6 +217,7 @@ def test_missing_inputs_surface_in_trace(tmp_path: Path, monkeypatch) -> None:
     payload = json.loads((tmp_path / "latest_pattern_failure_trace.json").read_text())
     symbol_eval = next(item for item in payload["symbol_evaluations"] if item["symbol"] == "OCGN")
     assert "missing_last_price" in symbol_eval["input_summary"]["quality_flags"]
+    assert "float_missing" in symbol_eval["input_summary"]["quality_flags"]
     assert symbol_eval["manual_focus"] is True
 
 

@@ -107,6 +107,70 @@ ASCENDING_TRIANGLE_DESCRIPTIVE_OBJECTIVE = "Continuation above the measured flat
 PENNANT_DESCRIPTIVE_OBJECTIVE = "Continuation above the measured pennant boundary after impulse and compression."
 
 
+@dataclass(frozen=True)
+class RangeMeasurementSpec:
+    """New project calibration, not Ross quotations or confidence weights.
+
+    Conservative rectangle subset: six consecutive completed bars with BOTH
+    boundaries flat within 10% of measured height. Height must be 0.2%-4% of
+    resistance: excludes zero-width noise and very broad containers. Every
+    bar participates in both boundary checks, so generic rising-close or
+    rising-low triangle geometry cannot substitute for a measured rectangle.
+    Only the latest completed window on one New York date is eligible; no
+    stale-origin revival. Confirmation expires after one primary interval and
+    requires a completed execution close strictly above the measured high,
+    with same-stream volume greater than the formation baseline. These are
+    explicit project engineering calibrations, not empirical performance claims.
+    Numeric relative tolerance only absorbs floating error at inclusive geometry
+    boundaries; it never softens strict execution price/volume comparisons.
+    Native confidence remains .58; this specification grants no PAPER uplift.
+    """
+    formation_bars: int = 6
+    confirmation_window_bars: int = 1
+    boundary_tolerance_fraction: float = 0.10
+    numeric_relative_tolerance: float = 1e-12
+    minimum_height_fraction: float = 0.002
+    maximum_height_fraction: float = 0.04
+
+
+@dataclass(frozen=True)
+class TriangleMeasurementSpec(RangeMeasurementSpec):
+    """New project calibration: flat resistance and three confirmed rising lows.
+
+    Seven completed bars establish three strict local swing lows, each bounded
+    on both sides. Minimum rise is 5% of measured triangle height; the stop is
+    the latest establishing swing low, not the lowest low of the entire window.
+    Shared quote-scale/flatness/freshness tolerances are engineering parameters,
+    not transferred Ross authority or a comparable confidence model.
+    """
+    formation_bars: int = 7
+    minimum_swing_rise_fraction: float = 0.05
+    minimum_swing_points: int = 3
+
+
+@dataclass(frozen=True)
+class PennantMeasurementSpec:
+    """New project calibration: three-bar impulse then five-bar compression.
+
+    The pole has rising green closes/highs/lows and >=1% net advance. Compression
+    stays at/below the pole high and strictly above the pole low, with
+    strictly falling highs/rising lows and
+    positive width. Entry fixes the last completed upper-boundary high; no
+    moving line extrapolation. Stop excludes the pole low. Volume confirmation
+    uses the compression's execution-stream baseline, not pole/source volume.
+    No confidence uplift, exit rule or empirical performance claim.
+    """
+    pole_bars: int = 3
+    compression_bars: int = 5
+    minimum_pole_advance_fraction: float = 0.01
+    confirmation_window_bars: int = 1
+    numeric_relative_tolerance: float = 1e-12
+
+    @property
+    def formation_bars(self):
+        return self.pole_bars + self.compression_bars
+
+
 POLICY_V2 = StrategyPolicyV2(
     identity=StrategyIdentityV2(name="ROSS_MOMENTUM", strategy_id="P01"),
     selection_plan=ScannerPlan(
@@ -1045,6 +1109,9 @@ class RossMomentumPolicy:
         execution_tf="1MIN",
     )
 
+    range_break: RangeMeasurementSpec = RangeMeasurementSpec()
+    ascending_triangle: TriangleMeasurementSpec = TriangleMeasurementSpec()
+    pennant: PennantMeasurementSpec = PennantMeasurementSpec()
     micro_pullback: MicroPullbackSpec = MicroPullbackSpec()
     topping_risk: ToppingRiskSpec = ToppingRiskSpec()
     indicator_gates: IndicatorGates = IndicatorGates()

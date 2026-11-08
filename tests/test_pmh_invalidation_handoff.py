@@ -14,7 +14,7 @@ from test_pr1082_trigger_to_intent_terminal_semantics import (
 )
 
 
-def actual_run(monkeypatch,tmp_path,*,state="ready",supplied=None):
+def actual_run(monkeypatch,tmp_path,*,state="ready",supplied=None,all_patterns=False,mode=RunMode.READ_ONLY):
     strategy=_base_strategy(monkeypatch,tmp_path,state="ready")
     rows=[(10.0,10.25,9.95,10.2,900)]*48+[
         (10.2,10.29,10.19,10.28,900),(10.31,10.55,10.30,10.53,1500)]
@@ -31,9 +31,31 @@ def actual_run(monkeypatch,tmp_path,*,state="ready",supplied=None):
     if state=="missing_source": data["1m"]=[]
     if state=="stale_source": data["1m"]=[replace(c,timestamp=c.timestamp-timedelta(minutes=10)) for c in data["1m"]]
     if state=="stale": data["10s"]=[replace(c,timestamp=c.timestamp-timedelta(minutes=10)) for c in data["10s"]]
+    if state=="trace_native":
+        from src.strategies.ross_momentum.patterns import pattern_trace
+        from test_joined_core_pmh_readonly import _closed_minutes_and_execution
+        trace_asof=pattern_trace.datetime.now(timezone.utc)
+        rows[-1]=(10.31,10.35,10.30,10.34,1500)
+        source=_candles(rows,end=trace_asof.replace(second=0)-timedelta(minutes=1))
+        assert source[0].timestamp.minute%5==0 and source[0].timestamp.second==0
+        grouped=[]
+        for start in range(0,len(rows),5):
+            chunk=rows[start:start+5]
+            grouped.append((chunk[0][0],max(b[1] for b in chunk),min(b[2] for b in chunk),
+                chunk[-1][3],sum(b[4] for b in chunk)))
+        earlier=[(10.,10.25,9.95,10.2,4500)]*40
+        earlier[10]=(10.,10.3,9.95,10.2,4500)  # Independent completed PRE high.
+        data={"1m":source,
+            "5m":_candles(earlier+grouped,step_seconds=300,
+                end=source[-5].timestamp),
+            "10s":_closed_minutes_and_execution(source,
+                [(10.29,10.30,10.29,10.29,200),(10.29,10.31,10.29,10.30,200),
+                 (10.30,10.35,10.30,10.34,1200)],
+                end=trace_asof.replace(second=0)-timedelta(seconds=10))}
     monkeypatch.setattr("src.strategies.ross_momentum.patterns.pattern_trace.get_intraday_bars",
         lambda *,timeframe="1m",**kw:data[timeframe])
-    registry=RossPatternRegistry(); registry._patterns=[PremarketHighBreakPattern()]
+    registry=RossPatternRegistry()
+    if not all_patterns: registry._patterns=[PremarketHighBreakPattern()]
     results=[]; original_run=registry.run
     def capture(*args,**kwargs):
         values=original_run(*args,**kwargs); results.extend(values); return values
@@ -46,8 +68,12 @@ def actual_run(monkeypatch,tmp_path,*,state="ready",supplied=None):
     monkeypatch.setitem(TRIGGER_EVALUATOR_REGISTRY,"PREMARKET_HIGH_BREAK",observed)
     row={**_watchlist_row(),"premarket_high":10.3,"last_price":10.53,"bid":10.52,"ask":10.54}
     snapshot=replace(_snapshot(),last=10.53,bid=10.52,ask=10.54)
+    if state=="trace_native":
+        row.update(last_price=10.34,bid=10.33,ask=10.35)
+        snapshot=replace(snapshot,last=10.34,bid=10.33,ask=10.35,
+            asof_utc=trace_asof,market_timestamp_utc=trace_asof)
     intents=strategy.process_watchlist(watchlist=[row],snapshots={"UPC":snapshot},
-        session_label="RTH_OPEN",session_phase="RTH_OPEN",timestamp_utc="synthetic-pmh",mode=RunMode.READ_ONLY)
+        session_label="RTH_OPEN",session_phase="RTH_OPEN",timestamp_utc="synthetic-pmh",mode=mode)
     return strategy,intents,results,calls
 
 

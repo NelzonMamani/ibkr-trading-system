@@ -1425,3 +1425,33 @@ def acknowledge_stair_step(h,capsys):
         triggers=h.indicator_triggers)
     assert request.target_model==TREND_CONTINUATION_STAIR_STEP_DESCRIPTIVE_OBJECTIVE and request.take_profit_price is None
     return request
+
+
+
+@pytest.mark.parametrize('family',['RANGE_BREAK','ASCENDING_TRIANGLE','PENNANT'])
+def test_native_measured_structural_paper_retains_confidence_veto(reassessment,monkeypatch,tmp_path,
+        capsys,no_external_activity,family):
+    from test_joined_core_pmh_readonly import range_joined,triangle_joined,pennant_joined
+    factory={'RANGE_BREAK':range_joined,'ASCENDING_TRIANGLE':triangle_joined,'PENNANT':pennant_joined}[family]
+    def paper_range(*args,**kwargs):return paper_pmh(*args,joined_factory=factory,**kwargs)
+    h=late_pmh(reassessment,monkeypatch,tmp_path,paper_factory=paper_range,
+        fill_price=10.64 if family=='PENNANT' else 10.49,
+        stop_price={'RANGE_BREAK':10.04,'ASCENDING_TRIANGLE':10.20,'PENNANT':10.40}[family])
+    try:
+        assert h.core.run_once();capsys.readouterr()
+        h.life.clock.current+=timedelta(seconds=11)
+        assert h.core.run_once();capsys.readouterr()
+        _,results=h.registry_batches[-1]
+        own=next(r for r in results if r.setup_family_id==family)
+        from src.strategies.ross_momentum.decision_policy import validate_entry_contract
+        assert len(results)==33 and own.detected and own.confidence==.58
+        assert validate_entry_contract(own)==(True,'ok')
+        assert h.range_triggers and h.range_triggers[-1][2]['trigger_ready_now']
+        assert h.strategy.last_symbol_terminal_outcomes['JPM']['reason']=='CONFIDENCE_BELOW_ORDERABLE_THRESHOLD'
+        assert h.sent_native==h.stop_requests==h.artifacts==h.evaluated==[]
+        assert not h.core.execution_engine.position_records and not h.manager.snapshot_positions()
+        assert not h.core.trade_registry.snapshot()
+        assert h.core.execution_engine.capital_authority.total_used_exposure==h.core.execution_engine.capital_authority.total_reserved_capital==0
+        assert not h.core.execution_engine.capital_authority.active_reservations
+        assert not h.core.execution_engine.strategy_allocation_authority.active_reservations
+    finally:teardown_unsent_fixture(h,no_external_activity)
