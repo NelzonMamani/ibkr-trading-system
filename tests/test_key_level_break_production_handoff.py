@@ -177,13 +177,16 @@ def test_invalid_contract_cannot_form_intent(monkeypatch, tmp_path, field, value
 
 
 @pytest.mark.parametrize("reverse", [False, True])
-def test_selected_same_id_cannot_borrow_lower_ranked_ready_trigger(monkeypatch, tmp_path, reverse):
+def test_ready_occurrence_wins_without_lending_trigger_to_unready_same_id(monkeypatch, tmp_path, reverse):
     valid = _result()
     waiting = replace(valid, confidence=.99, trigger_level=10.04,
                       setup_metadata={**valid.setup_metadata, "occurrence": "selected_waiting"})
     results = [waiting, valid] if reverse else [valid, waiting]
     strategy, intents, _ = _run(monkeypatch, tmp_path, results=results)
-    assert intents == []
+    assert len(intents)==1
+    intent=intents[0]
+    assert intent.setup_metadata["canonical_result_index"]==results.index(valid)
+    assert (intent.entry_price,intent.stop_loss_price,intent.invalidation_level)==(valid.trigger_level,valid.stop_level,valid.invalidation_level)
     triggers = [t for t in strategy._failure_trace_collector._symbols[-1].input_summary["trigger_candidates"]
                 if t.get("setup_family_id") == "KEY_LEVEL_BREAK"]
     selected_index = results.index(waiting)
@@ -191,7 +194,7 @@ def test_selected_same_id_cannot_borrow_lower_ranked_ready_trigger(monkeypatch, 
     other = next(t for t in triggers if t["canonical_result_index"] != selected_index)
     assert not selected["trigger_ready_now"] and other["trigger_ready_now"]
     assert selected["trigger_price_reference"] == waiting.trigger_level
-    assert not strategy.last_symbol_terminal_outcomes["UPC"]["intent_emitted"]
+    assert strategy.last_symbol_terminal_outcomes["UPC"]["intent_emitted"]
 
 
 @pytest.mark.parametrize("updates", [

@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+from math import isfinite
+from src.strategies.common.triggers.trigger_abcd_continuation import abcd_candle_rejection
+
 
 def _safe_float(value):
     try:
-        return None if value is None else float(value)
+        number = None if value is None or isinstance(value, bool) else float(value)
+        return number if number is not None and isfinite(number) else None
     except (TypeError, ValueError):
         return None
 
@@ -45,6 +49,20 @@ def evaluate_momentum_reclaim_trigger(pattern_result, inputs):
             "trigger_ready_now": False,
             "trigger_reason": "missing_trigger_level",
         }
+
+    stream = payload.get("execution_stream")
+    rejection = abcd_candle_rejection(candles,
+        observed_at_utc=stream.get("observed_at_utc") if isinstance(stream, dict) else None,
+        require_clock=isinstance(stream, dict))
+    if rejection:
+        return {**base, "trigger_state": "BLOCKED", "trigger_ready_now": False,
+                "trigger_reason": "momentum_reclaim_" + rejection.lower()}
+    if invalidation_level is None or not 0 < invalidation_level < trigger_level:
+        return {**base, "trigger_state": "BLOCKED", "trigger_ready_now": False,
+                "trigger_reason": "invalid_invalidation_level"}
+    if _safe_float(_read(candles[-1], "low")) <= invalidation_level:
+        return {**base, "trigger_state": "INVALIDATED", "trigger_ready_now": False,
+                "trigger_reason": "shakeout_low_lost"}
 
     prev = candles[-2]
     last = candles[-1]

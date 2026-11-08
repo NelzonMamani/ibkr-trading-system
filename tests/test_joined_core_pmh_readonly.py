@@ -646,17 +646,12 @@ def test_joined_consolidation_preserves_own_completion_and_confirmation(reassess
     h=consolidation_joined(reassessment,monkeypatch,tmp_path,market_fault=market_fault)
     out=cycles(h,capsys)
     if market_fault=='appended_forming_source':
-        # Native Consolidation ignores this forming tail, but another genuine
-        # native candidate outranks it. Preserve actual full-registry selection.
         source,results=h.registry_batches[-1]
         own=next(r for r in results if r.setup_id=='P_CONSOLIDATION_BREAK')
         assert own.detected and (own.trigger_level,own.stop_level,own.invalidation_level)==(10.3,10.21,10.21)
         assert source.candles[-1].high==10.47 and source.candles[-1].timestamp+timedelta(minutes=1)>source.observed_at_utc
-        terminal=h.strategy.last_symbol_terminal_outcomes['JPM']
-        assert terminal['selected_pattern_id']=='P_MOMENTUM_RECLAIM' and not terminal['intent_emitted']
-        assert h.artifacts==h.evaluated==[] and not [i for b in h.batches for i in b]
-        no_effects(h)
-        return
+        momentum=next(r for r in results if r.setup_id=='P_MOMENTUM_RECLAIM')
+        assert momentum.detected  # Detection alone cannot starve a ready continuation.
     assert len(h.evaluated)==1 and h.evaluated[0][0].setup_family_id=='CONSOLIDATION_BREAKOUT',out
     intent,_,decision=h.evaluated[0]
     assert (intent.entry_price,intent.stop_loss_price,intent.invalidation_level)==(10.3,10.21,10.21)
@@ -1320,7 +1315,7 @@ def test_joined_hod_preserves_genuine_key_winner(reassessment,monkeypatch,tmp_pa
     no_effects(h)
 
 
-def test_joined_hod_forming_source_reference_and_momentum_arbitration_limit(reassessment,monkeypatch,tmp_path,capsys):
+def test_joined_hod_forming_source_ready_hod_not_starved_by_unready_momentum(reassessment,monkeypatch,tmp_path,capsys):
     h=hod_joined(reassessment,monkeypatch,tmp_path,market_fault='forming_source')
     out=cycles(h,capsys)
     source,results=h.registry_batches[-1]
@@ -1331,11 +1326,61 @@ def test_joined_hod_forming_source_reference_and_momentum_arbitration_limit(reas
     assert forming.timestamp<=source.observed_at_utc<forming.timestamp+timedelta(minutes=1)
     assert forming.high==10.36 and hod.trigger_level!=forming.high
     selected=h.hod_decisions[-1]
-    assert selected['selected_pattern_id']=='P_MOMENTUM_RECLAIM'
-    assert results[selected['selected_candidate_index']].detected
-    assert h.strategy.last_symbol_terminal_outcomes['JPM']['reason']=='no_trigger_candidate'
-    assert not [i for batch in h.batches for i in batch] and h.artifacts==h.evaluated==[]
+    momentum=next(r for r in results if r.setup_id=='P_MOMENTUM_RECLAIM')
+    assert momentum.detected and momentum.stop_level==momentum.invalidation_level==10.23
+    assert momentum.trigger_level!=hod.trigger_level
+    assert selected['selected_pattern_id']=='P_HOD_BREAK'
+    assert results[selected['selected_candidate_index']] is hod
+    assert any(r['pattern_id']=='P_MOMENTUM_RECLAIM' and r['reason']=='awaiting_reclaim_confirmation'
+        for r in selected['rejected_candidates'])
+    assert len(h.artifacts)==len(h.evaluated)==1
+    assert h.evaluated[0][2].reason_code=='LIVE_READ_ONLY_BLOCK'
     canonical=[t for t in h.hod_triggers if t[0].get('source')=='canonical_pattern_result']
     assert len(canonical)==1 and canonical[0][2]['trigger_ready_now']
-    assert 'selected_pattern=P_MOMENTUM_RECLAIM' in out
+    assert 'selected_pattern=P_HOD_BREAK' in out
+    no_effects(h)
+
+
+def momentum_joined(reassessment,monkeypatch,tmp_path,*,position_case='complete_empty',runtime_options=None,
+                    news_fault='none',peer=False):
+    """Native shakeout/reclaim, coherent forming source and fresh execution cross."""
+    h=hod_joined(reassessment,monkeypatch,tmp_path,market_fault='forming_source',
+        position_case=position_case,runtime_options=runtime_options,news_fault=news_fault,peer=peer)
+    for i in range(-4,-1):
+        bar=h.streams['10s'][i]
+        h.streams['10s'][i]=replace(bar,high=max(bar.open,10.25),low=10.24,close=10.25)
+    h.streams['10s'][-1]=replace(h.streams['10s'][-1],open=10.25,low=10.24)
+    h.streams['1m'][-1]=replace(h.streams['1m'][-1],low=10.24)
+    from src.strategies.common.triggers.trigger_registry import TRIGGER_EVALUATOR_REGISTRY
+    evaluator=TRIGGER_EVALUATOR_REGISTRY['MOMENTUM_RECLAIM'];h.momentum_triggers=[]
+    def observed(payload,inputs):
+        out=evaluator(payload,inputs)
+        h.momentum_triggers.append((deepcopy(payload),deepcopy(inputs),deepcopy(out)))
+        return out
+    for family in ('MOMENTUM_RECLAIM','VWAP_RECLAIM_CONTINUATION'):
+        monkeypatch.setitem(TRIGGER_EVALUATOR_REGISTRY,family,observed)
+    return h
+
+
+def test_joined_momentum_native_selected_handoff(reassessment,monkeypatch,tmp_path,capsys):
+    h=momentum_joined(reassessment,monkeypatch,tmp_path)
+    out=cycles(h,capsys)
+    source,results=h.registry_batches[-1]
+    momentum=next(r for r in results if r.setup_id=='P_MOMENTUM_RECLAIM')
+    assert momentum.detected
+    assert len(h.evaluated)==1,out
+    intent,received,decision=h.evaluated[0]
+    assert intent.setup_family_id=='VWAP_RECLAIM_CONTINUATION',(intent,out)
+    assert intent.entry_price==momentum.trigger_level==max(source.indicators.ema9,source.indicators.vwap)
+    assert intent.stop_loss_price==intent.invalidation_level==momentum.stop_level==10.23
+    assert intent.target_model==momentum.target_suggestion=='Prior swing high'
+    assert intent.take_profit_price is None and decision.reason_code=='LIVE_READ_ONLY_BLOCK'
+    index=intent.setup_metadata['canonical_result_index']
+    assert results[index] is momentum
+    assert h.hod_decisions[-1]['selected_candidate_index']==index
+    assert len(h.strategy._pattern_registry.patterns)==len(results)==33
+    artifact,built=h.artifacts[0]
+    assert artifact.intents==[intent] and received==dict(built[0],decision_id=artifact.decision_id)==vars(intent)
+    assert intent.setup_metadata['source_metadata']==momentum.setup_metadata
+    assert source.levels.established_rth_hod==10.3 and source.levels.hod==12.
     no_effects(h)

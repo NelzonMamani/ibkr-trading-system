@@ -149,7 +149,7 @@ def test_native_pmh_later_fill_reaches_initial_protection(reassessment,monkeypat
     finally:teardown_unsent_fixture(h,no_external_activity)
 
 
-@pytest.mark.parametrize('family',['FIRST_PULLBACK','ABCD','KEY_LEVEL_BREAK','CONSOLIDATION_BREAKOUT','FLAT_TOP_BREAKOUT','OPENING_RANGE_BREAKOUT','HOD_BREAK'])
+@pytest.mark.parametrize('family',['FIRST_PULLBACK','ABCD','KEY_LEVEL_BREAK','CONSOLIDATION_BREAKOUT','FLAT_TOP_BREAKOUT','OPENING_RANGE_BREAKOUT','HOD_BREAK','VWAP_RECLAIM_CONTINUATION'])
 @pytest.mark.parametrize('fault',['missing','unrelated','wrong_owner','malformed'])
 def test_canonical_callback_fault_cannot_create_position_or_protection(reassessment,monkeypatch,tmp_path,
         capsys,no_external_activity,fault,family):
@@ -167,13 +167,13 @@ def test_canonical_callback_fault_cannot_create_position_or_protection(reassessm
         assert len(h.sent_native)==1 and not h.stop_requests
         assert not engine.position_records and not h.manager.snapshot_positions()
         assert not h.core.trade_registry.snapshot()
-        assert engine.capital_authority.total_reserved_capital==pytest.approx(entry)
+        assert engine.capital_authority.total_reserved_capital==pytest.approx(entry(h.registry_batches[-1][0]) if callable(entry) else entry)
         assert engine.capital_authority.total_used_exposure==0
         if fault in {'wrong_owner','malformed'}:assert engine._native_quarantined
     finally:teardown_unsent_fixture(h,no_external_activity)
 
 
-@pytest.mark.parametrize('family',['FIRST_PULLBACK','ABCD','KEY_LEVEL_BREAK','CONSOLIDATION_BREAKOUT','FLAT_TOP_BREAKOUT','OPENING_RANGE_BREAKOUT','HOD_BREAK'])
+@pytest.mark.parametrize('family',['FIRST_PULLBACK','ABCD','KEY_LEVEL_BREAK','CONSOLIDATION_BREAKOUT','FLAT_TOP_BREAKOUT','OPENING_RANGE_BREAKOUT','HOD_BREAK','VWAP_RECLAIM_CONTINUATION'])
 def test_canonical_interrupted_accounting_keeps_facts_and_blocks_replay(reassessment,monkeypatch,tmp_path,
         capsys,no_external_activity,family):
     h,acknowledge_case,entry,fill_price=standalone_case(reassessment,monkeypatch,tmp_path,family)
@@ -206,7 +206,7 @@ def test_canonical_interrupted_accounting_keeps_facts_and_blocks_replay(reassess
     finally:teardown_unsent_fixture(h,no_external_activity)
 
 
-@pytest.mark.parametrize('family',['FIRST_PULLBACK','ABCD','KEY_LEVEL_BREAK','CONSOLIDATION_BREAKOUT','FLAT_TOP_BREAKOUT','OPENING_RANGE_BREAKOUT','HOD_BREAK'])
+@pytest.mark.parametrize('family',['FIRST_PULLBACK','ABCD','KEY_LEVEL_BREAK','CONSOLIDATION_BREAKOUT','FLAT_TOP_BREAKOUT','OPENING_RANGE_BREAKOUT','HOD_BREAK','VWAP_RECLAIM_CONTINUATION'])
 def test_canonical_uncertain_ack_keeps_reservation_without_resubmission(reassessment,monkeypatch,tmp_path,
         capsys,no_external_activity,family):
     h,acknowledge_case,entry,fill_price=standalone_case(reassessment,monkeypatch,tmp_path,family)
@@ -229,7 +229,7 @@ def test_canonical_uncertain_ack_keeps_reservation_without_resubmission(reassess
             assert h.core.run_once();capsys.readouterr()
         assert len(h.sent_native)==1 and not h.stop_requests
         assert not engine.position_records and not h.manager.snapshot_positions()
-        assert engine.capital_authority.total_reserved_capital==pytest.approx(entry)
+        assert engine.capital_authority.total_reserved_capital==pytest.approx(entry(h.registry_batches[-1][0]) if callable(entry) else entry)
         assert engine.capital_authority.total_used_exposure==0
         assert engine.pending_book.due_orders(1000)==[]
     finally:teardown_unsent_fixture(h,no_external_activity)
@@ -237,16 +237,16 @@ def test_canonical_uncertain_ack_keeps_reservation_without_resubmission(reassess
 
 @pytest.mark.parametrize('family,position_case', [
     (family,case) for family in ('FIRST_PULLBACK','ABCD','KEY_LEVEL_BREAK','CONSOLIDATION_BREAKOUT',
-        'FLAT_TOP_BREAKOUT','OPENING_RANGE_BREAKOUT','HOD_BREAK') for case in ('unknown','quantity_warning_larger','five')
-] + [('OPENING_RANGE_BREAKOUT','partial'),('HOD_BREAK','partial')])
+        'FLAT_TOP_BREAKOUT','OPENING_RANGE_BREAKOUT','HOD_BREAK','VWAP_RECLAIM_CONTINUATION') for case in ('unknown','quantity_warning_larger','five')
+] + [('OPENING_RANGE_BREAKOUT','partial'),('HOD_BREAK','partial'),('VWAP_RECLAIM_CONTINUATION','partial')])
 def test_canonical_paper_truth_veto_has_zero_admission_effects(reassessment,monkeypatch,tmp_path,
         capsys,no_external_activity,position_case,family):
     from test_joined_core_first_pullback import first_joined
     from test_abcd_production_handoff import abcd_joined
-    from test_joined_core_pmh_readonly import key_joined, consolidation_joined, flat_top_joined, orb_joined, hod_joined
+    from test_joined_core_pmh_readonly import key_joined, consolidation_joined, flat_top_joined, orb_joined, hod_joined, momentum_joined
     factories={'FIRST_PULLBACK':first_joined,'ABCD':abcd_joined,'KEY_LEVEL_BREAK':key_joined,
                'CONSOLIDATION_BREAKOUT':consolidation_joined,'FLAT_TOP_BREAKOUT':flat_top_joined,
-               'OPENING_RANGE_BREAKOUT':orb_joined,'HOD_BREAK':hod_joined}
+               'OPENING_RANGE_BREAKOUT':orb_joined,'HOD_BREAK':hod_joined,'VWAP_RECLAIM_CONTINUATION':momentum_joined}
     h=paper_pmh(reassessment,monkeypatch,tmp_path,position_case,joined_factory=factories[family])
     try:
         assert h.core.run_once();capsys.readouterr()
@@ -325,6 +325,7 @@ def acknowledge_selected(h,capsys,*,family,entry,stop,invalidation,triggers,
     assert h.core.run_once();out=capsys.readouterr().out
     assert len(h.sent_native)==len(h.artifacts)==len(h.evaluated)==1,out
     intent,received,decision=h.evaluated[0];request=h.sent_native[0]
+    if callable(entry):entry=entry(h.registry_batches[-1][0])
     raw=[i for batch in h.batches for i in batch]
     artifact,built=h.artifacts[0]
     assert raw==[intent] and artifact.intents==[intent] and built==h.raw_snapshots
@@ -485,6 +486,8 @@ def standalone_case(reassessment,monkeypatch,tmp_path,family):
         return late_flat_top(reassessment,monkeypatch,tmp_path),acknowledge_flat_top,10.2,10.27
     if family=='OPENING_RANGE_BREAKOUT':
         return late_orb(reassessment,monkeypatch,tmp_path),acknowledge_orb,10.3,10.42
+    if family=='VWAP_RECLAIM_CONTINUATION':
+        return late_momentum(reassessment,monkeypatch,tmp_path),acknowledge_momentum,lambda source:max(source.indicators.ema9,source.indicators.vwap),10.34
     if family=='HOD_BREAK':
         return late_hod(reassessment,monkeypatch,tmp_path),acknowledge_hod,10.3,10.34
     assert family=='KEY_LEVEL_BREAK'
@@ -805,7 +808,7 @@ def late_hod(reassessment,monkeypatch,tmp_path,*,market_fault='none'):
     # Actual later fill10.34 is inside quote10.33/10.35; measured HOD entry
     # remains10.30 and protection belongs to the selected source stop10.20.
     return late_pmh(reassessment,monkeypatch,tmp_path,paper_factory=paper_hod,
-        fill_price=10.34,stop_price=10.2)
+        fill_price=10.34,stop_price=10.22 if market_fault=='forming_source' else 10.2)
 
 
 def acknowledge_hod(h,capsys):
@@ -883,7 +886,7 @@ def test_native_hod_later_fill_reconciles_initial_selected_stop(reassessment,mon
 
 
 @pytest.mark.parametrize('market_fault',['late_window_source','opening_gap_source','at_threshold_execution',
-    'previous_above_execution','invalidated_execution','future_execution','forming_source'])
+    'previous_above_execution','invalidated_execution','future_execution'])
 def test_hod_paper_reference_confirmation_and_arbitration_blocks(reassessment,monkeypatch,tmp_path,
         capsys,no_external_activity,market_fault):
     h=late_hod(reassessment,monkeypatch,tmp_path,market_fault=market_fault)
@@ -898,10 +901,6 @@ def test_hod_paper_reference_confirmation_and_arbitration_blocks(reassessment,mo
         if market_fault in {'late_window_source','opening_gap_source'}:
             assert source.levels.established_rth_hod is None and not hod.detected
             assert hod.rejection_reason=='invalid_hod_source'
-        elif market_fault=='forming_source':
-            assert hod.detected and hod.trigger_level==10.3 and source.candles[-1].high==10.36
-            assert h.hod_decisions[-1]['selected_pattern_id']=='P_MOMENTUM_RECLAIM'
-            assert h.strategy.last_symbol_terminal_outcomes['JPM']['reason']=='no_trigger_candidate'
         else:
             assert hod.detected
             index=results.index(hod)
@@ -914,4 +913,43 @@ def test_hod_paper_reference_confirmation_and_arbitration_blocks(reassessment,mo
         assert not engine.position_records and not h.core.trade_registry.snapshot() and not h.manager.snapshot_positions()
         assert engine.capital_authority.total_reserved_capital==engine.capital_authority.total_used_exposure==0
         assert not engine.capital_authority.active_reservations and not engine.strategy_allocation_authority.active_reservations
+    finally:teardown_unsent_fixture(h,no_external_activity)
+
+
+def late_momentum(reassessment,monkeypatch,tmp_path):
+    from test_joined_core_pmh_readonly import momentum_joined
+    def paper_momentum(*args,**kwargs):
+        return paper_pmh(*args,joined_factory=momentum_joined,**kwargs)
+    return late_pmh(reassessment,monkeypatch,tmp_path,paper_factory=paper_momentum,
+        fill_price=10.34,stop_price=10.23)
+
+
+def acknowledge_momentum(h,capsys):
+    request=acknowledge_selected(h,capsys,family='VWAP_RECLAIM_CONTINUATION',
+        entry=lambda source:max(source.indicators.ema9,source.indicators.vwap),
+        stop=10.23,invalidation=10.23,
+        triggers=h.momentum_triggers,pattern_id='P_MOMENTUM_RECLAIM')
+    return request
+
+
+def test_momentum_later_fill_and_selected_shakeout_protection(reassessment,monkeypatch,tmp_path,
+        capsys,no_external_activity):
+    h=late_momentum(reassessment,monkeypatch,tmp_path)
+    try:
+        request=acknowledge_momentum(h,capsys)
+        confirm_selected_fill(h,request,capsys,family='VWAP_RECLAIM_CONTINUATION',
+            fill_price=10.34,stop_price=10.23)
+    finally:teardown_unsent_fixture(h,no_external_activity)
+
+
+def test_hod_paper_ready_fallback_when_momentum_has_no_fresh_cross(reassessment,monkeypatch,tmp_path,
+        capsys,no_external_activity):
+    h=late_hod(reassessment,monkeypatch,tmp_path,market_fault='forming_source')
+    try:
+        request=acknowledge_selected(h,capsys,family='HOD_BREAK',entry=10.3,stop=10.22,
+            invalidation=10.22,triggers=h.hod_triggers)
+        assert h.hod_decisions[-1]['selected_pattern_id']=='P_HOD_BREAK'
+        assert any(r['pattern_id']=='P_MOMENTUM_RECLAIM' and r['reason']=='awaiting_reclaim_confirmation'
+            for r in h.hod_decisions[-1]['rejected_candidates'])
+        confirm_selected_fill(h,request,capsys,family='HOD_BREAK',fill_price=10.34,stop_price=10.22)
     finally:teardown_unsent_fixture(h,no_external_activity)

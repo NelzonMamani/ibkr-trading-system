@@ -61,6 +61,7 @@ class DecisionEngine:
         pattern_traces: list[Any] | None = None,
         inactive_pattern_ids: set[str] | None = None,
         entry_contract_validator: Callable[[Any], tuple[bool, str]] | None = None,
+        trigger_readiness_validator: Callable[[int, Any], tuple[bool, str]] | None = None,
     ) -> dict:
         normalized_setup_families = {
             self._normalize_setup_family(item.get("setup_family"))
@@ -191,6 +192,24 @@ class DecisionEngine:
             scored_candidates = eligible
             if not scored_candidates:
                 return self._insufficient_quality(symbol=symbol, rejected_candidates=rejected_candidates)
+
+        if trigger_readiness_validator is not None:
+            ready = []
+            unready = []
+            for candidate in scored_candidates:
+                valid, reason = trigger_readiness_validator(
+                    candidate["_entry_contract_index"], candidate["_entry_contract_source"])
+                if valid:
+                    ready.append(candidate)
+                else:
+                    unready.append(self._reject(candidate, reason, score=candidate["score"]))
+            # Prefer actionable candidates before ranking. With none ready,
+            # retain the armed candidate for existing non-actionable terminal
+            # diagnostics; the strategy's same-occurrence trigger gate still
+            # forbids an intent. Never borrow another occurrence's readiness.
+            if ready:
+                rejected_candidates.extend(unready)
+                scored_candidates = ready
 
         compatibility_partitions = {"compatible": [], "incompatible": []}
         for candidate in scored_candidates:

@@ -328,15 +328,20 @@ def test_entry_completeness_cannot_remove_suppression_or_conflict(kind):
         assert any(r['reason']==expected for r in filtered['rejected_candidates'])
 
 
-def test_complete_selected_family_does_not_fall_back_after_unconfirmed_trigger(monkeypatch, tmp_path):
+def test_ready_own_contract_is_selected_before_unconfirmed_higher_ranked_family(monkeypatch, tmp_path):
     micro = _viable_micro_contract()
     waiting = replace(_detected_three(), confidence=.99, trigger_level=10.9)
     strategy, intents, decisions = _run_contracts(monkeypatch, tmp_path, [waiting, micro])
-    assert intents == []
-    assert decisions[0]['selected_pattern_id'] == waiting.setup_id
-    terminal = strategy.last_symbol_terminal_outcomes['UPC']
-    assert not terminal['trigger_ready_now'] and not terminal['intent_emitted']
-    assert terminal['selected_pattern_id'] == waiting.setup_id
+    assert len(intents)==1
+    assert decisions[0]['selected_pattern_id']==micro.setup_id
+    assert decisions[0]['selected_candidate_index']==1
+    assert any(r['pattern_id']==waiting.setup_id for r in decisions[0]['rejected_candidates'])
+    intent=intents[0]
+    assert (intent.entry_price,intent.stop_loss_price,intent.invalidation_level)==(
+        micro.trigger_level,micro.stop_level,micro.invalidation_level)
+    terminal=strategy.last_symbol_terminal_outcomes['UPC']
+    assert terminal['trigger_ready_now'] and terminal['intent_emitted']
+    assert terminal['selected_pattern_id']==micro.setup_id
 
 
 @pytest.mark.parametrize('malformation,reason', [('target','missing_target'), ('rationale','missing_rationale'),
