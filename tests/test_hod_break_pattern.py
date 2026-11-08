@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from src.strategies.common.candles.candle_types import Candle
 from src.strategies.common.patterns.pattern_hod_break import detect_hod_break
 from src.strategies.common.triggers.trigger_hod_break import evaluate_hod_break_trigger
@@ -269,3 +271,78 @@ def test_hod_preserves_native_liquidity_trend_volume_and_shape_laws():
     assert detect_hod_break(replace(low,candles=values)).detected
     wick=_candles([(10.48,10.51,10.46,10.50,1000)]*5+[(10.5,10.54,10.49,10.51,1400)])
     assert detect_hod_break(_inputs(candles=wick)).rejection_reason=='wick_through_only'
+
+
+@pytest.mark.parametrize('fault',['none','gap','duplicate','short','old','delayed','invalid_early_ohlc'])
+def test_runtime_acquisition_keeps_full_rth_reference_separate_from_rolling_inputs(monkeypatch,fault):
+    from dataclasses import replace
+    from datetime import datetime,timedelta,timezone
+    from src.strategies.ross_momentum.patterns import pattern_trace as trace
+    start=datetime(2026,10,20,13,30,tzinfo=timezone.utc)
+    now=start+timedelta(minutes=185,seconds=30)
+    fetch_clock=[now]
+    class Clock(datetime):
+        @classmethod
+        def now(cls,tz=None):return fetch_clock[0]
+    monkeypatch.setattr(trace,'datetime',Clock)
+    base=_inputs().candles[-1]
+    bars=[replace(base,timestamp=start+timedelta(minutes=i)) for i in range(186)]
+    bars[3]=replace(bars[3],high=12.)
+    bars[-1]=replace(bars[-1],high=99.) # Forming source cannot establish HOD.
+    calls=[]
+    def external(*,symbol,timeframe,limit):
+        calls.append((timeframe,limit))
+        if timeframe!='1m':return []
+        selected=list(bars[-limit:])
+        if fault=='delayed':
+            fetch_clock[0]=now+timedelta(minutes=2)
+            selected.append(replace(bars[-1],timestamp=bars[-1].timestamp+timedelta(minutes=1),high=100.))
+        if fault=='invalid_early_ohlc':selected[3]=replace(selected[3],high=9.)
+        if fault=='gap':selected.pop(40)
+        if fault=='duplicate':selected[40]=selected[39]
+        if fault=='short':selected=selected[-50:]
+        if fault=='old':selected=[replace(c,timestamp=c.timestamp-timedelta(days=1)) for c in selected]
+        return selected
+    monkeypatch.setattr(trace,'get_intraday_bars',external)
+    row=dict(last_price=10.52,volume=1000000,prior_close=9.8,float_millions=8.,rvol=3.,
+        bid=10.51,ask=10.53,spread=.02)
+    inputs,_=trace.build_runtime_pattern_inputs(symbol='HODH',row=row,snapshot=None,
+        session_label='RTH_MID',session_phase='RTH_MID')
+    assert inputs is not None and inputs.observed_at_utc==now
+    assert inputs.levels.established_rth_hod==(12. if fault in {'none','delayed'} else None)
+    assert len(inputs.candles)==50
+    assert inputs.candles[0].timestamp==bars[-49 if fault=='delayed' else -50].timestamp-(timedelta(days=1) if fault=='old' else timedelta())
+    assert inputs.levels.hod==(100. if fault=='delayed' else 99.) # Legacy rolling/forming semantics remain separate.
+    if fault=='delayed':
+        assert inputs.observed_at_utc<inputs.candles[-1].timestamp<=fetch_clock[0]
+        rejected=detect_hod_break(inputs)
+        assert not rejected.detected and rejected.rejection_reason=='FUTURE_CANDLE_DATA'
+    assert [tf for tf,_ in calls]==['10s','1m','5m']
+    assert calls[0][1]==120 and calls[2][1]==50
+    assert calls[1][1]>=186 and calls[1][1]<=392
+    if fault=='none':
+        # Identical external rolling tail, real builder: only the separately
+        # authorized complete-RTH reference may change, never legacy geometry.
+        fault='short'
+        rolling,_=trace.build_runtime_pattern_inputs(symbol='HODH',row=row,snapshot=None,
+            session_label='RTH_MID',session_phase='RTH_MID')
+        assert replace(inputs,levels=replace(inputs.levels,established_rth_hod=None))==rolling
+
+
+@pytest.mark.parametrize('stamp,session,expected',[
+    ('2026-10-20T13:29:59+00:00','PRE',50),
+    ('2026-10-20T13:30:00+00:00','RTH_OPEN',50),
+    ('2026-10-20T14:30:01+00:00','RTH_MID',62),
+    ('2026-11-06T15:30:01+00:00','RTH_MID',62), # NY winter offset.
+    ('2026-11-06T20:59:59+00:00','RTH_LATE',391),
+    ('2026-11-06T21:00:00+00:00','AH',50),
+])
+def test_rth_reference_request_is_bounded_session_specific_single_fetch(monkeypatch,stamp,session,expected):
+    from datetime import datetime
+    from src.strategies.ross_momentum.patterns import pattern_trace as trace
+    calls=[]
+    def external(**kwargs):calls.append(kwargs);return []
+    monkeypatch.setattr(trace.historical_data_provider,'get_intraday_bars',external)
+    assert trace._fetch_runtime_timeframe_bars('HODH',observed_at_utc=datetime.fromisoformat(stamp),
+        session_label=session)=={}
+    assert [(c['timeframe'],c['limit']) for c in calls]==[('10s',120),('1m',expected),('5m',50)]
