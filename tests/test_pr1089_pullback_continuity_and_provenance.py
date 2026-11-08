@@ -44,20 +44,9 @@ def _case(family):
     return SecondPullbackPattern(), evaluate_second_pullback_trigger, rows, wait, fire, invalid
 
 
-def _synthetic_complete_registry(pattern):
-    """Actual detectors + labelled target ONLY to isolate downstream gate tests.
-
-    Neither production detector supplies target policy. Unmodified rejection is
-    covered separately; this fixture must never be described as natural success.
-    """
-    class SyntheticCompleteRegistry(RossPatternRegistry):
-        def run(self, inputs, *, trace_context=None, trace_collector=None):
-            results = super().run(inputs, trace_context=trace_context, trace_collector=trace_collector)
-            for result in results:
-                assert result.target_suggestion is None
-            return [replace(result, target_suggestion="SYNTHETIC_DOWNSTREAM_GATE_TARGET")
-                    if result.detected else result for result in results]
-    registry = SyntheticCompleteRegistry()
+def _native_component_registry(pattern):
+    """One real native detector for isolated continuity gates, not full33 proof."""
+    registry = RossPatternRegistry()
     registry._patterns = [pattern]
     return registry
 
@@ -159,7 +148,7 @@ def test_armed_pullback_real_strategy_delayed_outcome(monkeypatch, tmp_path, fam
     monkeypatch.setattr(EClient, "cancelOrder", forbid_order)
     pattern, _, rows, wait, fire, invalid = _case(family)
     strategy = _base_strategy(monkeypatch, tmp_path, state="ready")
-    registry = _synthetic_complete_registry(pattern)
+    registry = _native_component_registry(pattern)
     strategy._pattern_registry = registry
     history = list(rows)
     def bars(*, timeframe="1m", limit=50, **kwargs):
@@ -184,12 +173,17 @@ def test_armed_pullback_real_strategy_delayed_outcome(monkeypatch, tmp_path, fam
     if invalidated:
         assert intents == []
     else:
-        # Synthetic target isolates actual detector/stream continuity.
+        # Native newly authorized objective; this remains an isolated component test.
         assert len(intents) == 1
         terminal = strategy.last_symbol_terminal_outcomes["UPC"]
         assert terminal["trigger_ready_now"] and terminal["intent_emitted"]
         assert terminal["selected_setup_family"] == family
-        assert intents[0].target_model == "SYNTHETIC_DOWNSTREAM_GATE_TARGET"
+        from src.strategies.ross_momentum.strategy_policy import (
+            THREE_BAR_PULLBACK_DESCRIPTIVE_OBJECTIVE, SECOND_PULLBACK_DESCRIPTIVE_OBJECTIVE,
+        )
+        assert intents[0].target_model == (THREE_BAR_PULLBACK_DESCRIPTIVE_OBJECTIVE
+            if family == "THREE_BAR_PULLBACK" else SECOND_PULLBACK_DESCRIPTIVE_OBJECTIVE)
+        assert intents[0].take_profit_price is None
     assert calls == []
 
 
@@ -286,3 +280,23 @@ def test_armed_pullback_newer_invalidated_origin_does_not_revive_older():
     result = pattern.evaluate(_history_inputs(rows + newer))
     assert not result.detected
     assert result.rejection_reason == "structural_invalidation_breached"
+
+
+@pytest.mark.parametrize('family',['THREE_BAR_PULLBACK','SECOND_PULLBACK'])
+def test_authorized_pullback_objective_does_not_remove_missing_target_guard(family):
+    from src.strategies.ross_momentum.decision_policy import validate_entry_contract
+    pattern,_,rows,_,_,_=_case(family)
+    native=pattern.evaluate(_history_inputs(rows))
+    assert native.detected and native.target_suggestion
+    assert validate_entry_contract(native)[0]
+    assert validate_entry_contract(replace(native,target_suggestion=None))==(False,'missing_target')
+
+
+@pytest.mark.parametrize('pattern_name',['RangeBreakoutPattern','AscendingTriangleBreakoutPattern','PennantBreakPattern'])
+def test_authorized_objective_declarations_do_not_enable_structural_placeholders(pattern_name):
+    from src.setup_engine.setup_families import pullbacks
+    from src.strategies.ross_momentum.decision_policy import validate_entry_contract
+    _,_,rows,_,fire,_=_case('THREE_BAR_PULLBACK')
+    native=getattr(pullbacks,pattern_name)().evaluate(_history_inputs(rows+[fire]))
+    assert native.detected and native.target_suggestion is None
+    assert validate_entry_contract(native)==(False,'missing_target')

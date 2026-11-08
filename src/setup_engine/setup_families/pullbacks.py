@@ -4,6 +4,11 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+from src.strategies.ross_momentum.strategy_policy import (
+    THREE_BAR_PULLBACK_DESCRIPTIVE_OBJECTIVE,
+    SECOND_PULLBACK_DESCRIPTIVE_OBJECTIVE,
+)
+
 from src.strategies.common.triggers.trigger_pullback_variants import (
     evaluate_second_pullback_trigger,
     evaluate_three_bar_pullback_trigger,
@@ -165,6 +170,7 @@ def _detected_pullback(
     trigger_candle: object,
     rationale: str,
     setup_quality_tags: list[str],
+    target_suggestion: str | None = None,
 ) -> PatternResult:
     pullback_high = max(float(_read(candle, "high")) for candle in pullback_candles)
     pullback_low = min(float(_read(candle, "low")) for candle in pullback_candles)
@@ -202,6 +208,7 @@ def _detected_pullback(
         setup_family_id=family,
         setup_semantic=SetupSemantic.CONTINUATION.value,
         rationale_text=f"{rationale} trigger={pullback_high:.4f} stop={pullback_low:.4f}.",
+        target_suggestion=target_suggestion,
         rejection_reason=None,
         data_quality_flags=list(inputs.data_quality_flags),
         trigger_type="PULLBACK_HIGH_BREAK",
@@ -358,6 +365,7 @@ class ThreeBarPullbackPattern(_SimpleLongPattern):
             trigger_candle=window[-1],
             rationale="Three-bar pullback continuation detected from canonical pullback structure.",
             setup_quality_tags=["three_bar_pullback", "pullback_volume_dry_up"],
+            target_suggestion=THREE_BAR_PULLBACK_DESCRIPTIVE_OBJECTIVE,
         )
 
 
@@ -445,6 +453,7 @@ class SecondPullbackPattern(_SimpleLongPattern):
             trigger_candle=window[-1],
             rationale="Second pullback continuation detected after first pullback break.",
             setup_quality_tags=["second_pullback", "pullback_volume_dry_up"],
+            target_suggestion=SECOND_PULLBACK_DESCRIPTIVE_OBJECTIVE,
         )
 
 

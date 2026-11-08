@@ -1278,3 +1278,38 @@ def test_selected_stop_conflicting_owned_quantity_rejects_before_accounting(reas
         assert len(engine.position_records)==1 and engine.capital_authority.total_used_exposure==10.34
         assert len(h.sent_native)==len(h.stop_requests)==1
     finally:teardown_unsent_fixture(h,no_external_activity)
+
+
+def late_pullback_variant(reassessment,monkeypatch,tmp_path,*,family):
+    from test_joined_core_pmh_readonly import pullback_variant_joined
+    def joined_factory(*args,**kwargs):return pullback_variant_joined(*args,family=family,**kwargs)
+    def paper_variant(*args,**kwargs):return paper_pmh(*args,joined_factory=joined_factory,**kwargs)
+    fill,stop=(10.48,10.08) if family=='THREE_BAR_PULLBACK' else (10.62,10.35)
+    return late_pmh(reassessment,monkeypatch,tmp_path,paper_factory=paper_variant,fill_price=fill,stop_price=stop)
+
+
+@pytest.mark.parametrize('family',['THREE_BAR_PULLBACK','SECOND_PULLBACK'])
+def test_pullback_variant_native_paper_preserves_confidence_admission_veto(reassessment,monkeypatch,
+        tmp_path,capsys,no_external_activity,family):
+    from src.strategies.ross_momentum.decision_policy import validate_entry_contract
+    from src.strategies.ross_momentum.strategy_policy import (
+        THREE_BAR_PULLBACK_DESCRIPTIVE_OBJECTIVE,SECOND_PULLBACK_DESCRIPTIVE_OBJECTIVE)
+    h=late_pullback_variant(reassessment,monkeypatch,tmp_path,family=family)
+    try:
+        assert h.core.run_once();capsys.readouterr()
+        h.life.clock.current+=timedelta(seconds=11)
+        assert h.core.run_once();capsys.readouterr()
+        source,results=h.registry_batches[-1]
+        native=next(r for r in results if r.setup_family_id==family)
+        objective=THREE_BAR_PULLBACK_DESCRIPTIVE_OBJECTIVE if family=='THREE_BAR_PULLBACK' else SECOND_PULLBACK_DESCRIPTIVE_OBJECTIVE
+        assert len(results)==33 and native.detected and native.confidence==.58
+        assert native.target_suggestion==objective and validate_entry_contract(native)[0]
+        assert h.pullback_triggers[-1][2]['trigger_ready_now']
+        terminal=h.strategy.last_symbol_terminal_outcomes['JPM']
+        assert terminal['reason']=='CONFIDENCE_BELOW_ORDERABLE_THRESHOLD'
+        assert h.sent_native==h.stop_requests==h.artifacts==h.evaluated==[]
+        engine=h.core.execution_engine
+        assert not engine.position_records and not h.manager.snapshot_positions() and not h.core.trade_registry.snapshot()
+        assert not engine.capital_authority.active_reservations and not engine.strategy_allocation_authority.active_reservations
+        assert engine.capital_authority.total_used_exposure==engine.capital_authority.total_reserved_capital==0
+    finally:teardown_unsent_fixture(h,no_external_activity)
