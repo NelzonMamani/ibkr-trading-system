@@ -992,3 +992,38 @@ def test_micro_standalone_paper_later_fill_and_selected_initial_stop(reassessmen
         request=acknowledge_micro(h,capsys)
         confirm_selected_fill(h,request,capsys,family='MICRO_PULLBACK',fill_price=10.88,stop_price=10.6)
     finally:teardown_unsent_fixture(h,no_external_activity)
+
+
+def test_standalone_selected_stop_later_fill_reaches_actual_core_flat(reassessment,monkeypatch,tmp_path,
+        capsys,no_external_activity):
+    h=late_momentum(reassessment,monkeypatch,tmp_path)
+    try:
+        request=acknowledge_momentum(h,capsys)
+        life=confirm_selected_fill(h,request,capsys,family='VWAP_RECLAIM_CONTINUATION',
+            fill_price=10.34,stop_price=10.23)
+        assert str(life.stop.broker_order_id)=='72' and life.filled_qty==1
+        h.facts[72]=dict(status='Filled',filled=1,remaining=0,avgFillPrice=10.23,
+            symbol='JPM',side='SELL',orderId=72)
+        h.native_quantity[0]=0;h.native_open_orders.clear()
+        h.life.clock.current+=timedelta(seconds=1)
+        h.core.run_once();out=capsys.readouterr().out
+        positions=h.manager.snapshot_positions()
+        observed=dict(stop_callback_read=72 in h.reads_native,lifecycle_quantity=life.filled_qty,
+            managed_quantity=positions['JPM'].quantity if 'JPM' in positions else 0,
+            registry_count=len(h.core.trade_registry.snapshot()),
+            capital_used=h.core.execution_engine.capital_authority.total_used_exposure,
+            truth_block=h.truth[-1][1].block_new_entries)
+        assert observed['stop_callback_read'] and observed['lifecycle_quantity']==observed['managed_quantity']==observed['registry_count']==0,observed
+        assert observed['capital_used']==0 and not observed['truth_block'],observed
+        assert len(h.sent_native)==1 and len(h.stop_requests)==1
+    finally:teardown_unsent_fixture(h,no_external_activity)
+
+
+def test_selected_native_stop_keeps_actual_broker_parent_order_identity(reassessment,monkeypatch,tmp_path,
+        capsys,no_external_activity):
+    h=late_momentum(reassessment,monkeypatch,tmp_path)
+    try:
+        request=acknowledge_momentum(h,capsys)
+        confirm_selected_fill(h,request,capsys,family='VWAP_RECLAIM_CONTINUATION',fill_price=10.34,stop_price=10.23)
+        assert h.stop_requests[0]['parent_order_id']==str(h.execution_results[0].ibkr_order_id)
+    finally:teardown_unsent_fixture(h,no_external_activity)

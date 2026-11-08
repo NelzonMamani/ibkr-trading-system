@@ -737,7 +737,9 @@ class PostFillLifecycleEngine:
         take_profit_price: float | None = None,
         preserve_selected_protection: bool = False,
         target_model: str | None = None,
+        entry_broker_order_id: str | None = None,
     ) -> dict[str, Any]:
+        parent_order_id = str(entry_broker_order_id) if entry_broker_order_id is not None else str(trade_id)
         side_u = str(side).upper()
         if side_u in {"SHORT", "SELL"}:
             break_even_activation = float(avg_fill_price) * (1.0 - self.policy.break_even_pct)
@@ -811,7 +813,7 @@ class PostFillLifecycleEngine:
                     status="PENDING_SUBMIT",
                     lifecycle_trade_id=trade.trade_id,
                     strategy_owner=trade.strategy_id,
-                    entry_order_id=trade.trade_id,
+                    entry_order_id=parent_order_id,
                     entry_intent_id=trade.trade_id,
                     pending_intent_id=pending_stop_intent,
                     quantity=trade.filled_qty,
@@ -856,7 +858,7 @@ class PostFillLifecycleEngine:
                         quantity=trade.filled_qty,
                         stop_price=trade.stop.trigger_price,
                         trade_id=trade.trade_id,
-                        parent_order_id=trade.trade_id,
+                        parent_order_id=parent_order_id,
                     )
                     trade.stop.broker_order_id = str(stop_result.get("broker_order_id"))
                     trade.stop.status = str(stop_result.get("status") or "Submitted")
@@ -867,7 +869,7 @@ class PostFillLifecycleEngine:
                             quantity=trade.target.quantity or trade.filled_qty,
                             limit_price=trade.target.trigger_price,
                             trade_id=trade.trade_id,
-                            parent_order_id=trade.trade_id,
+                            parent_order_id=parent_order_id,
                         )
                         trade.target.broker_order_id = str(target_result.get("broker_order_id"))
                         trade.target.status = str(target_result.get("status") or "Submitted")
