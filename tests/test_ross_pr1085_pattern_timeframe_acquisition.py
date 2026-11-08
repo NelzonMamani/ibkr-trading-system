@@ -236,7 +236,22 @@ def test_pr1085_market_data_client_intraday_history_maps_logical_timeframes(
     ]
 
 
-def test_pr1085_runtime_pattern_bundle_marks_all_real_timeframes_present(monkeypatch, now_utc) -> None:
+@pytest.mark.parametrize(("stamp", "expected_minute_limit"), [
+    ("2026-10-20T13:40:30+00:00", 50),
+    ("2026-10-20T16:35:30+00:00", 187),
+])
+def test_pr1085_runtime_pattern_bundle_marks_all_real_timeframes_present(
+    monkeypatch, stamp, expected_minute_limit,
+) -> None:
+    # Source freshness and acquisition span share one original observation.
+    # This test must cover both windows regardless of the CI machine's clock.
+    from src.strategies.ross_momentum.patterns import pattern_trace
+    now_utc = datetime.fromisoformat(stamp)
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return now_utc
+    monkeypatch.setattr(pattern_trace, "datetime", Clock)
     calls: list[tuple[str, int]] = []
     by_timeframe = {
         "10s": _candles(120, latest=now_utc, step_seconds=10, start_price=10.0),
@@ -263,7 +278,12 @@ def test_pr1085_runtime_pattern_bundle_marks_all_real_timeframes_present(monkeyp
 
     assert inputs is not None
     assert flags == []
-    assert calls == [("10s", 120), ("1m", 50), ("5m", 50)]
+    assert calls == [("10s", 120), ("1m", expected_minute_limit), ("5m", 50)]
+    assert inputs.observed_at_utc == now_utc
+    assert len(inputs.candles) == len(inputs.timeframe_candles["1m"]) == 50
+    if expected_minute_limit > 50:
+        # A partial external response is fresh data, not complete-day HOD authority.
+        assert inputs.levels.established_rth_hod is None
     assert set(inputs.timeframe_candles) == {"10s", "1m", "5m"}
     assert inputs.timeframe_provenance == {
         "10s": IndicatorProvenance.PRESENT.value,

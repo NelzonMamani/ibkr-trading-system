@@ -1272,9 +1272,17 @@ def test_joined_hod_existing_guards_and_reference_limits(reassessment,monkeypatc
         hod=next(r for r in results if r.setup_id=='P_HOD_BREAK')
         assert not hod.detected and source.levels.established_rth_hod is None
         assert hod.rejection_reason==('pr4_input_block:HOD_BREAK:timeframe:1m=STALE' if fault=='previous_day_source' else 'invalid_hod_source')
-    elif fault in {'future_source','nan_source','malformed_source'}:
+    elif fault=='future_source':
         hod=next(r for r in h.registry_batches[-1][1] if r.setup_id=='P_HOD_BREAK')
-        assert not hod.detected and hod.rejection_reason==('FUTURE_CANDLE_DATA' if fault=='future_source' else 'INVALID_CANDLE_DATA')
+        assert not hod.detected and hod.rejection_reason=='FUTURE_CANDLE_DATA'
+    elif fault in {'nan_source','malformed_source'}:
+        from src.strategies.common.triggers.trigger_abcd_continuation import abcd_candle_rejection
+        source,results=h.registry_batches[-1]
+        hod=next(r for r in results if r.setup_id=='P_HOD_BREAK')
+        assert not hod.detected and hod.rejection_reason=='invalid_hod_source'
+        assert source.levels.established_rth_hod is None
+        assert abcd_candle_rejection(source.candles,observed_at_utc=source.observed_at_utc,
+            require_clock=True)=='INVALID_CANDLE_DATA'
     elif fault.endswith('execution'):
         index=next(i for i,r in enumerate(h.registry_batches[-1][1]) if r.setup_id=='P_HOD_BREAK')
         outputs=[t for t in h.hod_engine_outputs if t.get('canonical_result_index')==index]

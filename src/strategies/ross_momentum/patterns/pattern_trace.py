@@ -124,6 +124,12 @@ def _established_rth_hod(candles: list[Candle], observed_at_utc: datetime) -> fl
         return None
     if any(stamp != start + timedelta(minutes=i) for i, (_, stamp) in enumerate(completed)):
         return None
+    # Reference-only bars lie outside the legacy rolling source. They must
+    # satisfy the same existing candle truth checks before establishing a level.
+    from src.strategies.common.triggers.trigger_abcd_continuation import abcd_candle_rejection
+    if abcd_candle_rejection([c for c, _ in completed],
+            observed_at_utc=observed_at_utc, require_clock=True):
+        return None
     highs = [_safe_float(c.high) for c, _ in completed]
     if any(h is None or not isfinite(h) or h <= 0 for h in highs):
         return None
@@ -501,7 +507,10 @@ def build_runtime_pattern_inputs(*, symbol: str, row: Any, snapshot: MarketSnaps
     if volume is None:
         quality_flags.append("missing_volume")
     historical_data_provider.get_intraday_bars = get_intraday_bars
-    timeframe_bars = _fetch_runtime_timeframe_bars(symbol)
+    observed_at_utc = datetime.now(timezone.utc)
+    runtime_session = session_label or session_phase or _get_value(row, "session_label")
+    timeframe_bars = _fetch_runtime_timeframe_bars(symbol, observed_at_utc=observed_at_utc,
+        session_label=runtime_session)
     intraday_bars = timeframe_bars.get("1m")
 
     if intraday_bars is None or len(intraday_bars) == 0:
@@ -547,6 +556,11 @@ def build_runtime_pattern_inputs(*, symbol: str, row: Any, snapshot: MarketSnaps
         timeframe: [_normalize_bar(bar) for bar in bars]
         for timeframe, bars in timeframe_bars.items()
     }
+    # Expanded history belongs only to the complete-day reference. Existing
+    # rolling indicators, Key/legacy HOD and native source windows stay bounded.
+    rth_reference_candles = timeframe_candles.get("1m", [])
+    if "1m" in timeframe_candles:
+        timeframe_candles["1m"] = rth_reference_candles[-50:]
     candles = timeframe_candles.get("1m", [])
     raw_session = session_label or session_phase or _get_value(row, "session_label")
     if not str(raw_session or "").strip():
@@ -633,8 +647,7 @@ def build_runtime_pattern_inputs(*, symbol: str, row: Any, snapshot: MarketSnaps
         _safe_float(_get_value(row, "pm_low")),
         premarket_low,
     )
-    observed_at_utc = datetime.now(timezone.utc)
-    established_hod = _established_rth_hod(candles, observed_at_utc) if session in {"RTH_OPEN", "RTH_MID", "RTH_LATE"} else None
+    established_hod = _established_rth_hod(rth_reference_candles, observed_at_utc) if session in {"RTH_OPEN", "RTH_MID", "RTH_LATE"} else None
     normalized_hod = _coalesce(_safe_float(_get_value(row, "hod")), _safe_float(_get_value(row, "HOD")), hod)
     normalized_lod = _coalesce(_safe_float(_get_value(row, "lod")), _safe_float(_get_value(row, "LOD")), lod)
     normalized_key_levels = {
@@ -708,9 +721,19 @@ def build_runtime_pattern_inputs(*, symbol: str, row: Any, snapshot: MarketSnaps
     return inputs, sorted(set(quality_flags))
 
 
-def _fetch_runtime_timeframe_bars(symbol: str) -> dict[str, list[Candle]]:
+def _fetch_runtime_timeframe_bars(symbol: str, *, observed_at_utc: datetime | None = None,
+        session_label: str | None = None) -> dict[str, list[Candle]]:
+    minute_limit = 50
+    if observed_at_utc is not None and normalize_session_label(str(session_label or "")) in {"RTH_OPEN", "RTH_MID", "RTH_LATE"}:
+        local = to_ny_time(observed_at_utc)
+        if time(9, 30) <= local.time() < time(16):
+            start = local.replace(hour=9, minute=30, second=0, microsecond=0)
+            elapsed = int((local - start).total_seconds() // 60)
+            # Include the forming minute and one boundary bar, not an arbitrary
+            # rolling cap. The measurement still rejects every incomplete day.
+            minute_limit = max(50, min(392, elapsed + 2))
     fetched: dict[str, list[Candle]] = {}
-    for timeframe, limit in (("10s", 120), ("1m", 50), ("5m", 50)):
+    for timeframe, limit in (("10s", 120), ("1m", minute_limit), ("5m", 50)):
         try:
             bars = historical_data_provider.get_intraday_bars(
                 symbol=symbol,
