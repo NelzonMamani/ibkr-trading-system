@@ -12,7 +12,7 @@ from src.adapters.data.historical_bar_timeframes import resolve_intraday_timefra
 from src.strategies.common.triggers.trigger_abcd_continuation import abcd_candle_rejection
 from src.strategies.common.candles.candle_evidence import evidence_tags
 from src.strategies.common.candles.multi_candle import detect_engulfing, detect_three_soldiers_crows
-from src.strategies.common.candles.single_candle import detect_long_wick
+from src.strategies.common.candles.single_candle import detect_hammer, detect_long_wick
 from src.strategies.ross_momentum.patterns.pattern_base import PatternBase
 from src.strategies.ross_momentum.patterns.pattern_inputs import PatternInputs, _timeframe_provenance
 from src.strategies.ross_momentum.policy.pattern_input_policy import PatternInputPolicy
@@ -81,6 +81,16 @@ class MicroPullbackPattern(PatternBase):
                 cursor -= 1
                 continue
             break
+        green_lower_wick_pause = False
+        if not pullback and cursor >= 0:
+            pause = candles[cursor]
+            # A single green hammer is a pause variant, not permission for any
+            # green continuation bar to become a pullback. Reuse shared candle
+            # evidence; Ross qualification and structural limits stay here.
+            if pause.close > pause.open and detect_hammer(pause) is not None:
+                pullback = [pause]
+                cursor -= 1
+                green_lower_wick_pause = True
         if not pullback:
             return self._rejected("no 1-3 bar pullback", inputs)
         impulse = candles[max(0, cursor - 2) : cursor + 1]
@@ -108,6 +118,11 @@ class MicroPullbackPattern(PatternBase):
         impulse_high = max(c.high for c in impulse)
         impulse_low = min(c.low for c in impulse)
         pullback_low = min(c.low for c in pullback)
+        if green_lower_wick_pause:
+            if pullback[0].high > impulse_high:
+                return self._rejected("green pause extends above impulse", inputs)
+            if pullback_low < ema9:
+                return self._rejected("green pause loses EMA9 support", inputs)
         depth = (impulse_high - pullback_low) / max(impulse_high - impulse_low, 1e-9)
         if depth > 0.65:
             return self._rejected("pullback too deep", inputs)
@@ -119,6 +134,9 @@ class MicroPullbackPattern(PatternBase):
         volume_ok = trigger.volume >= volume_avg
         confidence = 0.65 if volume_ok else 0.55
         tags = ["volume_confirmed" if volume_ok else "volume_soft", "continuation_confirmed"]
+
+        if green_lower_wick_pause:
+            tags.append("single_green_lower_wick_pause")
 
         candle_evidence = [
             evidence
@@ -139,6 +157,8 @@ class MicroPullbackPattern(PatternBase):
             inputs,
             direction=Direction.LONG,
             confidence=confidence,
+            trigger_level=float(pullback_high),
+            stop_level=float(pullback_low),
             rationale=rationale,
             entry_zone="Break of pullback high",
             stop_suggestion="Below pullback low",
@@ -150,6 +170,13 @@ class MicroPullbackPattern(PatternBase):
             result, setup_family_id="MICRO_PULLBACK",
             trigger_level=float(pullback_high), stop_level=float(pullback_low),
             invalidation_level=float(pullback_low),
+            setup_metadata=({
+                **result.setup_metadata,
+                "pullback_variant": "SINGLE_GREEN_LOWER_WICK",
+                "pullback_high": float(pullback_high),
+                "pullback_low": float(pullback_low),
+                "pullback_bar_count": 1,
+            } if green_lower_wick_pause else result.setup_metadata),
         )
 
     def evaluate_readiness(self, inputs: PatternInputs) -> PatternResult:

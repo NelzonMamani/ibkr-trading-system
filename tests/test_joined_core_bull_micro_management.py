@@ -26,7 +26,7 @@ from test_key_level_break_production_handoff import forbid_io
     ("complete_empty","result_trace_error"),("complete_empty","native_timeout"),("complete_empty","native_submitted"),
     ("complete_empty","native_pending"),("complete_empty","native_rejected"),
     ("complete_empty","native_missing_id"),("complete_empty","native_unsupported"),
-    ("complete_empty","native_late_fill"),
+    ("complete_empty","native_late_fill"),("complete_empty","native_late_management_green_child"),
     *[("complete_empty","native_late_"+case) for case in
       ("pending","unrelated","negative","fractional","no_price","nan_price",
        *["assessment_"+stage for stage in ("before_allocation","allocation_audit_failure","before_capital","capital_audit_failure","allocation_error","accounting_error","processor_error","processor_after","completion_error","relationship_write_failure")],
@@ -38,6 +38,8 @@ from test_key_level_break_production_handoff import forbid_io
 ])
 def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypatch,tmp_path,capsys,
         no_external_activity,position_case,transport):
+    green_child_case=transport=="native_late_management_green_child"
+    if green_child_case:transport="native_late_management"
     late_fill=transport.startswith("native_late_")
     late_case=transport.removeprefix("native_late_") if late_fill else None
     assessment_case=late_case.removeprefix("assessment_") if late_case and late_case.startswith("assessment_") else None
@@ -142,6 +144,11 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
             IBKR_READONLY_ENABLED=False,IBKR_ORDER_SUBMISSION_ENABLED=True,
             IBKR_ORDER_TRANSLATION_ENABLED=True,IBKR_API_WRITE_ALLOWED=True,
             **({"STRATEGY_CAPITAL_ALLOCATIONS":{"ROSSMOMENTUMSTRATEGYV1":{"max_allocation_usd":1.0}}} if transport=="allocation_denied" else {}))))
+    if green_child_case:
+        from dataclasses import replace
+        # Same external child high/low and all prior management assertions;
+        # only the pause colour/shape changes to the supported green hammer.
+        h.streams["10s"][-2]=replace(h.streams["10s"][-2],open=10.89,close=10.90)
     # One fixed external clock for snapshot coherence; never renew evidence.
     from src.execution import execution_engine as execution_module
     monkeypatch.setattr(execution_module,"datetime",h.life.clock)
@@ -323,6 +330,12 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
                 # callback fact is supplied at the existing external cache seam.
                 raw_now=[i for batch in h.batches for i in batch]
                 assert len(raw_now)==1 and len(sent)==1 and len(h.artifacts)==1
+                if green_child_case:
+                    assert len(h.strategy._pattern_registry.patterns)==33
+                    assert raw_now[0].setup_metadata['source_metadata']['pullback_variant']=='SINGLE_GREEN_LOWER_WICK'
+                    assert any(child.detected and child.setup_metadata.get('pullback_variant')=='SINGLE_GREEN_LOWER_WICK'
+                        for source,child in h.children)
+
                 plan=h.manager._relationship_plans[raw_now[0].relationship_context["relationship_id"]]
                 assert plan.entry_quantity==0 and not plan.entry_terminal
                 assert plan.e0 is None and plan.milestone_price is None

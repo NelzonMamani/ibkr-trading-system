@@ -126,7 +126,10 @@ POLICY_V2 = StrategyPolicyV2(
             SetupFamilySpecV2("GAP_GO", "Gap & Go", "High RVOL catalyst runner breaks premarket/open levels.", ("DAILY", "5MIN", "1MIN", "10SEC")),
             SetupFamilySpecV2("ORB", "Opening Range Breakout", "Break and hold above opening range high.", ("5MIN", "1MIN", "10SEC")),
             SetupFamilySpecV2("FIRST_PULLBACK", "First Pullback / First Flag", "First controlled pullback after impulse for continuation.", ("5MIN", "1MIN", "10SEC")),
-            SetupFamilySpecV2("MICRO_PULLBACK", "Micro Pullback", "2-3 candle weak pullback followed by reclaim trigger.", ("1MIN", "10SEC")),
+            SetupFamilySpecV2("MICRO_PULLBACK", "Micro Pullback", "Confirmed native profile: 1-3 red/doji pause bars, or one green lower-wick hammer recognized by existing shared candle evidence, "
+                "followed by strict continuation above the measured pause high. The green variant stays below the prior impulse high and holds EMA9 at its low. "
+                "Existing impulse, depth, completion, confirmation and volume/confidence laws remain; hammer evidence alone is not an entry. "
+                "Legacy two-bar armed-readiness and the relationship-scoped Bull/Micro management profile remain distinct.", ("1MIN", "10SEC")),
             SetupFamilySpecV2("BULL_FLAG", "Bull Flag / Tight Flag", "Impulse plus tight consolidation breakout.", ("5MIN", "1MIN")),
             SetupFamilySpecV2("KEY_LEVEL_BREAK", "Break of Key Level", "Premarket high, HOD, whole/half dollar, prior day, or multi-day level break.", ("DAILY", "5MIN", "1MIN")),
             SetupFamilySpecV2("ABCD", "ABCD Continuation", "Measured move continuation after pullback.", ("5MIN", "1MIN")),
@@ -142,6 +145,9 @@ POLICY_V2 = StrategyPolicyV2(
             SetupFamilySpecV2("GAP_CONTINUATION", "Gap Continuation", "Gap holds and continues after initial consolidation; continuation bias.", ("PRE", "RTH", "5MIN", "1MIN", "10SEC")),
             SetupFamilySpecV2("OPENING_DRIVE", "Opening Drive", "Strong open trend day start; aggressive early momentum regime.", ("RTH_OPEN", "1MIN", "10SEC")),
             SetupFamilySpecV2("OPENING_FAKEOUT", "Opening Fakeout / Failed ORB", "ORB break fails and reverses; avoid/bail logic.", ("RTH_OPEN", "1MIN", "10SEC")),
+            SetupFamilySpecV2("FAILED_ORB_FAKEOUT", "Failed ORB Fakeout Warning",
+                "Warning/caution only. Existing native SHORT geometry is denied as an entry in long-only Ross; "
+                "no long entry or automatic dispatched exit policy is created.", ("RTH", "1MIN", "10SEC")),
             SetupFamilySpecV2("CONSOLIDATION_BREAKOUT", "Consolidation Breakout", "Breakout from tight range with volume expansion.", ("5MIN", "1MIN", "10SEC")),
             SetupFamilySpecV2("FLAT_TOP_BREAKOUT", "Flat Top Breakout", "Repeated resistance tests then break; classic momentum continuation.", ("5MIN", "1MIN", "10SEC")),
             SetupFamilySpecV2("ASCENDING_TRIANGLE", "Ascending Triangle", "Rising lows into flat resistance then break.", ("5MIN", "1MIN")),
@@ -846,7 +852,12 @@ class TimeframePlan:
 
 @dataclass(frozen=True)
 class MicroPullbackSpec:
-    """Micro pullback re-entry (execution timeframe).
+    """Legacy 2-3-red execution preference (execution timeframe).
+
+    This retained preference is not the confirmed native detector's complete
+    variant inventory. Native Micro supports 1-3 red/doji bars and the project's
+    explicit single green lower-wick pause; see SetupFamilySpecV2 above.
+    The separate armed-readiness API does not establish a confirmed entry.
 
     Core idea
     - Impulse leg up establishes momentum.

@@ -57,3 +57,33 @@ def test_first_pullback_suppression_accepts_actual_trace_schema_without_mutation
     rows=[dict(setup_family_id='FIRST_PULLBACK',detected=True),dict(setup_family_id='MICRO_PULLBACK',detected=True)]
     saved=deepcopy(rows); projected=apply_setup_hierarchy(rows,symbol='SYNTH')
     assert rows==saved and not projected[1]['detected'] and 'dominant=FIRST_PULLBACK' in projected[1]['rationale_text']
+
+
+
+def test_only_qualified_ready_entry_families_can_exercise_exclusivity():
+    gap=_result('P_GAP_GO','GAP_GO')
+    micro=_result('P_MICRO_PULLBACK','MICRO_PULLBACK')
+    # Legacy API retains its default; the strategy supplies qualification only
+    # after actual complete-contract/own-trigger evaluation.
+    assert not apply_setup_hierarchy([gap,micro])[1].detected
+    qualified=apply_setup_hierarchy([gap,micro],dominant_families={'MICRO_PULLBACK'})
+    assert qualified==[gap,micro] and all(r.detected for r in qualified)
+    hod=_result('P_HOD_BREAK','HOD_BREAK')
+    assert apply_setup_hierarchy([hod,micro],dominant_families={'MICRO_PULLBACK'})==[hod,micro]
+    assert not apply_setup_hierarchy([hod,micro],dominant_families={'HOD_BREAK','MICRO_PULLBACK'})[1].detected
+
+
+def test_qualified_exclusivity_keeps_risk_off_and_opposing_direction_authority():
+    from dataclasses import replace
+    from src.core.engines.decision_engine import DecisionEngine
+    hod=_result('P_HOD_BREAK','HOD_BREAK')
+    bull=_result('P_BULL_FLAG','BULL_FLAG')
+    warning=replace(bull,signal_class='RISK_OFF',non_entry_signal=True)
+    opposing=replace(bull,direction=Direction.SHORT)
+    for guard in (warning,opposing):
+        projected=apply_setup_hierarchy([hod,guard],dominant_families={'HOD_BREAK'})
+        assert projected==[hod,guard] and projected[1].detected
+        out=DecisionEngine().compute_decision(symbol='SYNTH',levels={},structure={},setups=[],
+            pattern_results=projected,entry_contract_validator=lambda source:(True,'valid'),
+            trigger_readiness_validator=lambda index,source:(index==0,'unready'))
+        assert out['selected_pattern_id'] is None

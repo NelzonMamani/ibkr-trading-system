@@ -149,7 +149,7 @@ def test_native_pmh_later_fill_reaches_initial_protection(reassessment,monkeypat
     finally:teardown_unsent_fixture(h,no_external_activity)
 
 
-@pytest.mark.parametrize('family',['FIRST_PULLBACK','ABCD','KEY_LEVEL_BREAK','CONSOLIDATION_BREAKOUT','FLAT_TOP_BREAKOUT','OPENING_RANGE_BREAKOUT','HOD_BREAK','VWAP_RECLAIM_CONTINUATION'])
+@pytest.mark.parametrize('family',['FIRST_PULLBACK','ABCD','KEY_LEVEL_BREAK','CONSOLIDATION_BREAKOUT','FLAT_TOP_BREAKOUT','OPENING_RANGE_BREAKOUT','HOD_BREAK','VWAP_RECLAIM_CONTINUATION','MICRO_PULLBACK'])
 @pytest.mark.parametrize('fault',['missing','unrelated','wrong_owner','malformed'])
 def test_canonical_callback_fault_cannot_create_position_or_protection(reassessment,monkeypatch,tmp_path,
         capsys,no_external_activity,fault,family):
@@ -173,7 +173,7 @@ def test_canonical_callback_fault_cannot_create_position_or_protection(reassessm
     finally:teardown_unsent_fixture(h,no_external_activity)
 
 
-@pytest.mark.parametrize('family',['FIRST_PULLBACK','ABCD','KEY_LEVEL_BREAK','CONSOLIDATION_BREAKOUT','FLAT_TOP_BREAKOUT','OPENING_RANGE_BREAKOUT','HOD_BREAK','VWAP_RECLAIM_CONTINUATION'])
+@pytest.mark.parametrize('family',['FIRST_PULLBACK','ABCD','KEY_LEVEL_BREAK','CONSOLIDATION_BREAKOUT','FLAT_TOP_BREAKOUT','OPENING_RANGE_BREAKOUT','HOD_BREAK','VWAP_RECLAIM_CONTINUATION','MICRO_PULLBACK'])
 def test_canonical_interrupted_accounting_keeps_facts_and_blocks_replay(reassessment,monkeypatch,tmp_path,
         capsys,no_external_activity,family):
     h,acknowledge_case,entry,fill_price=standalone_case(reassessment,monkeypatch,tmp_path,family)
@@ -206,7 +206,7 @@ def test_canonical_interrupted_accounting_keeps_facts_and_blocks_replay(reassess
     finally:teardown_unsent_fixture(h,no_external_activity)
 
 
-@pytest.mark.parametrize('family',['FIRST_PULLBACK','ABCD','KEY_LEVEL_BREAK','CONSOLIDATION_BREAKOUT','FLAT_TOP_BREAKOUT','OPENING_RANGE_BREAKOUT','HOD_BREAK','VWAP_RECLAIM_CONTINUATION'])
+@pytest.mark.parametrize('family',['FIRST_PULLBACK','ABCD','KEY_LEVEL_BREAK','CONSOLIDATION_BREAKOUT','FLAT_TOP_BREAKOUT','OPENING_RANGE_BREAKOUT','HOD_BREAK','VWAP_RECLAIM_CONTINUATION','MICRO_PULLBACK'])
 def test_canonical_uncertain_ack_keeps_reservation_without_resubmission(reassessment,monkeypatch,tmp_path,
         capsys,no_external_activity,family):
     h,acknowledge_case,entry,fill_price=standalone_case(reassessment,monkeypatch,tmp_path,family)
@@ -237,16 +237,16 @@ def test_canonical_uncertain_ack_keeps_reservation_without_resubmission(reassess
 
 @pytest.mark.parametrize('family,position_case', [
     (family,case) for family in ('FIRST_PULLBACK','ABCD','KEY_LEVEL_BREAK','CONSOLIDATION_BREAKOUT',
-        'FLAT_TOP_BREAKOUT','OPENING_RANGE_BREAKOUT','HOD_BREAK','VWAP_RECLAIM_CONTINUATION') for case in ('unknown','quantity_warning_larger','five')
-] + [('OPENING_RANGE_BREAKOUT','partial'),('HOD_BREAK','partial'),('VWAP_RECLAIM_CONTINUATION','partial')])
+        'FLAT_TOP_BREAKOUT','OPENING_RANGE_BREAKOUT','HOD_BREAK','VWAP_RECLAIM_CONTINUATION','MICRO_PULLBACK') for case in ('unknown','quantity_warning_larger','five')
+] + [('OPENING_RANGE_BREAKOUT','partial'),('HOD_BREAK','partial'),('VWAP_RECLAIM_CONTINUATION','partial'),('MICRO_PULLBACK','partial')])
 def test_canonical_paper_truth_veto_has_zero_admission_effects(reassessment,monkeypatch,tmp_path,
         capsys,no_external_activity,position_case,family):
     from test_joined_core_first_pullback import first_joined
     from test_abcd_production_handoff import abcd_joined
-    from test_joined_core_pmh_readonly import key_joined, consolidation_joined, flat_top_joined, orb_joined, hod_joined, momentum_joined
+    from test_joined_core_pmh_readonly import key_joined, consolidation_joined, flat_top_joined, orb_joined, hod_joined, momentum_joined, micro_joined
     factories={'FIRST_PULLBACK':first_joined,'ABCD':abcd_joined,'KEY_LEVEL_BREAK':key_joined,
                'CONSOLIDATION_BREAKOUT':consolidation_joined,'FLAT_TOP_BREAKOUT':flat_top_joined,
-               'OPENING_RANGE_BREAKOUT':orb_joined,'HOD_BREAK':hod_joined,'VWAP_RECLAIM_CONTINUATION':momentum_joined}
+               'OPENING_RANGE_BREAKOUT':orb_joined,'HOD_BREAK':hod_joined,'VWAP_RECLAIM_CONTINUATION':momentum_joined,'MICRO_PULLBACK':micro_joined}
     h=paper_pmh(reassessment,monkeypatch,tmp_path,position_case,joined_factory=factories[family])
     try:
         assert h.core.run_once();capsys.readouterr()
@@ -317,7 +317,7 @@ def acknowledge_first(h,capsys):
 
 
 def acknowledge_selected(h,capsys,*,family,entry,stop,invalidation,triggers,
-                         pattern_id=None,allow_execution_touch=False):
+                         pattern_id=None,allow_execution_touch=False,execution_high_touch=False):
     from test_joined_core_bull_micro import _cadence
     from src.scanner import scanner_runner as ross
     assert h.core.run_once();capsys.readouterr()
@@ -351,7 +351,10 @@ def acknowledge_selected(h,capsys,*,family,entry,stop,invalidation,triggers,
     assert request.take_profit_price is intent.take_profit_price is None
     payload,execution,trigger=triggers[-1]
     assert payload['canonical_result_index']==index and trigger['trigger_ready_now']
-    if allow_execution_touch:assert execution['candles'][-1].close>=entry
+    if execution_high_touch:
+        assert execution['candles'][-1].high==entry and execution['candles'][-1].close<entry
+        assert source.candles[-1].close>entry  # Native structure already confirmed strictly.
+    elif allow_execution_touch:assert execution['candles'][-1].close>=entry
     else:assert execution['candles'][-1].close>entry
     assert received['setup_metadata']==intent.setup_metadata
     assert _cadence(h.core).focus.symbols==['JPM'] and h.focus_calls
@@ -486,6 +489,8 @@ def standalone_case(reassessment,monkeypatch,tmp_path,family):
         return late_flat_top(reassessment,monkeypatch,tmp_path),acknowledge_flat_top,10.2,10.27
     if family=='OPENING_RANGE_BREAKOUT':
         return late_orb(reassessment,monkeypatch,tmp_path),acknowledge_orb,10.3,10.42
+    if family=='MICRO_PULLBACK':
+        return late_micro(reassessment,monkeypatch,tmp_path),acknowledge_micro,10.78,10.88
     if family=='VWAP_RECLAIM_CONTINUATION':
         return late_momentum(reassessment,monkeypatch,tmp_path),acknowledge_momentum,lambda source:max(source.indicators.ema9,source.indicators.vwap),10.34
     if family=='HOD_BREAK':
@@ -952,4 +957,38 @@ def test_hod_paper_ready_fallback_when_momentum_has_no_fresh_cross(reassessment,
         assert any(r['pattern_id']=='P_MOMENTUM_RECLAIM' and r['reason']=='awaiting_reclaim_confirmation'
             for r in h.hod_decisions[-1]['rejected_candidates'])
         confirm_selected_fill(h,request,capsys,family='HOD_BREAK',fill_price=10.34,stop_price=10.22)
+    finally:teardown_unsent_fixture(h,no_external_activity)
+
+
+
+def late_micro(reassessment,monkeypatch,tmp_path,*,market_fault='none'):
+    from test_joined_core_pmh_readonly import micro_joined
+    def joined_factory(*args,**kwargs):return micro_joined(*args,market_fault=market_fault,**kwargs)
+    def paper_micro(*args,**kwargs):return paper_pmh(*args,joined_factory=joined_factory,**kwargs)
+    h=late_pmh(reassessment,monkeypatch,tmp_path,paper_factory=paper_micro,
+        fill_price=10.88,stop_price=10.6)
+    h.micro_fault=market_fault
+    return h
+
+
+def acknowledge_micro(h,capsys):
+    request=acknowledge_selected(h,capsys,family='MICRO_PULLBACK',entry=10.78,stop=10.6,
+        invalidation=10.6,triggers=h.micro_triggers,execution_high_touch=h.micro_fault=='touch_execution')
+    intent=h.evaluated[0][0];source,results=h.registry_batches[-1]
+    selected=results[intent.setup_metadata['canonical_result_index']]
+    assert len(results)==len(h.strategy._pattern_registry.patterns)==33
+    assert not intent.relationship_context and not h.manager._relationship_plans
+    assert selected.target_suggestion==intent.target_model=='Prior high / HOD'
+    assert intent.setup_metadata['source_metadata']==selected.setup_metadata
+    if h.micro_fault!='red_pause':assert selected.setup_metadata['pullback_variant']=='SINGLE_GREEN_LOWER_WICK'
+    return request
+
+
+@pytest.mark.parametrize('market_fault',['none','red_pause','touch_execution'])
+def test_micro_standalone_paper_later_fill_and_selected_initial_stop(reassessment,monkeypatch,tmp_path,
+        capsys,no_external_activity,market_fault):
+    h=late_micro(reassessment,monkeypatch,tmp_path,market_fault=market_fault)
+    try:
+        request=acknowledge_micro(h,capsys)
+        confirm_selected_fill(h,request,capsys,family='MICRO_PULLBACK',fill_price=10.88,stop_price=10.6)
     finally:teardown_unsent_fixture(h,no_external_activity)
