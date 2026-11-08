@@ -70,3 +70,16 @@ def test_opening_drive_trigger_arms_and_fires() -> None:
 def test_trigger_registry_contains_opening_drive() -> None:
     evaluator = resolve_trigger_evaluator("OPENING_DRIVE")
     assert evaluator is not None
+
+
+def test_opening_drive_accepts_only_existing_opening_phase_aliases() -> None:
+    from src.strategies.ross_momentum.strategy_policy import OPENING_DRIVE_DESCRIPTIVE_OBJECTIVE
+    base = _inputs()
+    for phase in ('RTH_OPEN', 'OPENING_0_30'):
+        result = detect_opening_drive(SimpleNamespace(**{**base.__dict__, 'session_phase': phase}))
+        assert result.detected and result.target_suggestion == OPENING_DRIVE_DESCRIPTIVE_OBJECTIVE
+    # Other trading-mode names do not grant native opening-entry permission.
+    for phase in ('MORNING', 'MIDDAY', 'RTH_MID', 'PREMARKET', 'UNKNOWN'):
+        result = detect_opening_drive(SimpleNamespace(**{**base.__dict__, 'session_phase': phase}))
+        assert not result.detected and result.rejection_reason == 'invalid_phase'
+        assert result.target_suggestion is None

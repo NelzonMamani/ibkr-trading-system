@@ -1,7 +1,7 @@
 """Synthetic external facts; real news/Focus/native FIRST_PULLBACK/Core/risk owners."""
 from copy import deepcopy
 from dataclasses import replace
-from datetime import timedelta
+from datetime import timedelta, timezone
 from types import SimpleNamespace as NS
 
 import pytest
@@ -11,6 +11,7 @@ from src.scanner import scanner_runner as ross
 from test_joined_core_pmh_readonly import (
     pmh_joined, cycles, no_effects, reassessment, lifecycle, _reset_config,
     forbid_collection_and_execution, forbid_io, _cadence, _candles, _snapshot,
+    _coherent_profile_streams,
 )
 from test_first_pullback_production_handoff import ROWS
 
@@ -25,6 +26,15 @@ def first_joined(reassessment,monkeypatch,tmp_path,*,news_fault='none',peer=Fals
     h.streams.clear()
     for tf,step in (('1m',60),('5m',300),('10s',10)):
         h.streams[tf]=_candles(rows,step_seconds=step,end=end-timedelta(seconds=step))
+    if market_fault!='competing_opening_drive':
+        from src.utils.time_utils import to_ny_time
+        opening=to_ny_time(h.life.clock.current).replace(hour=9,minute=30,second=0,microsecond=0).astimezone(timezone.utc)
+        # Gap into a volatile open, then the native bounded pullback/reclaim.
+        # Original strong-opening context is retained as a competition control.
+        h.streams['1m']=[replace(bar,open=10.) if bar.timestamp==opening else bar for bar in h.streams['1m']]
+    flat=(10.22,10.22,10.22,10.22,0)
+    _coherent_profile_streams(h,[flat]*4+[(10.22,10.35,10.2,10.22,300),
+        (10.22,10.6,10.2,10.55,2100 if market_fault=='parabolic_volume' else 1400)])
     stream='1m' if market_fault.endswith('source') else '10s'
     if market_fault.startswith('missing_'):h.streams[stream]=[]
     elif market_fault.startswith('stale_'):
@@ -227,4 +237,34 @@ def test_first_later_processing_time_cannot_complete_old_structure(reassessment,
     assert source.candles[-2].timestamp+timedelta(minutes=1)<h.life.clock.current
     assert not result.detected and result.rejection_reason=='FIRST_PULLBACK_INCOMPLETE_STRUCTURE'
     assert not [i for batch in h.batches for i in batch if i.setup_family_id=='FIRST_PULLBACK']
+    no_effects(h)
+
+
+def test_first_original_opening_context_retains_opening_drive_winner(reassessment,monkeypatch,tmp_path,capsys):
+    h=first_joined(reassessment,monkeypatch,tmp_path,market_fault='competing_opening_drive')
+    cycles(h,capsys)
+    _,results=h.registry_batches[-1]
+    first=next(r for r in results if r.setup_id=='P_FIRST_PULLBACK')
+    opening=next(r for r in results if r.setup_id=='P_OPENING_DRIVE')
+    assert len(results)==33 and first.detected and opening.detected
+    assert h.first_triggers[-1][2]['trigger_ready_now']
+    assert len(h.evaluated)==1
+    intent,received,decision=h.evaluated[0]
+    assert intent.setup_family_id=='OPENING_DRIVE'
+    assert results[intent.setup_metadata['canonical_result_index']] is opening
+    assert intent.entry_price==opening.trigger_level and intent.entry_price!=first.trigger_level
+    assert intent.stop_loss_price==opening.stop_level and intent.target_model==opening.target_suggestion
+    assert received==vars(intent) and decision.reason_code=='LIVE_READ_ONLY_BLOCK'
+    no_effects(h)
+
+
+def test_first_higher_coherent_volume_retains_parabolic_risk_off(reassessment,monkeypatch,tmp_path,capsys):
+    h=first_joined(reassessment,monkeypatch,tmp_path,market_fault='parabolic_volume')
+    cycles(h,capsys)
+    _,results=h.registry_batches[-1]
+    first=next(r for r in results if r.setup_id=='P_FIRST_PULLBACK')
+    warning=next(r for r in results if r.setup_id=='P_PARABOLIC_EXHAUSTION')
+    assert len(results)==33 and first.detected and warning.detected
+    assert warning.non_entry_signal and warning.signal_class=='RISK_OFF'
+    assert not [i for batch in h.batches for i in batch] and h.evaluated==[]
     no_effects(h)

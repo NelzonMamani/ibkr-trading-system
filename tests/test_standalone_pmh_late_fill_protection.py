@@ -149,7 +149,7 @@ def test_native_pmh_later_fill_reaches_initial_protection(reassessment,monkeypat
     finally:teardown_unsent_fixture(h,no_external_activity)
 
 
-@pytest.mark.parametrize('family',['FIRST_PULLBACK','ABCD','KEY_LEVEL_BREAK','CONSOLIDATION_BREAKOUT','FLAT_TOP_BREAKOUT','OPENING_RANGE_BREAKOUT','HOD_BREAK','VWAP_RECLAIM_CONTINUATION','MICRO_PULLBACK','CUP_HANDLE'])
+@pytest.mark.parametrize('family',['FIRST_PULLBACK','ABCD','KEY_LEVEL_BREAK','CONSOLIDATION_BREAKOUT','FLAT_TOP_BREAKOUT','OPENING_RANGE_BREAKOUT','HOD_BREAK','VWAP_RECLAIM_CONTINUATION','MICRO_PULLBACK','CUP_HANDLE','OPENING_DRIVE'])
 @pytest.mark.parametrize('fault',['missing','unrelated','wrong_owner','malformed'])
 def test_canonical_callback_fault_cannot_create_position_or_protection(reassessment,monkeypatch,tmp_path,
         capsys,no_external_activity,fault,family):
@@ -173,7 +173,7 @@ def test_canonical_callback_fault_cannot_create_position_or_protection(reassessm
     finally:teardown_unsent_fixture(h,no_external_activity)
 
 
-@pytest.mark.parametrize('family',['FIRST_PULLBACK','ABCD','KEY_LEVEL_BREAK','CONSOLIDATION_BREAKOUT','FLAT_TOP_BREAKOUT','OPENING_RANGE_BREAKOUT','HOD_BREAK','VWAP_RECLAIM_CONTINUATION','MICRO_PULLBACK','CUP_HANDLE'])
+@pytest.mark.parametrize('family',['FIRST_PULLBACK','ABCD','KEY_LEVEL_BREAK','CONSOLIDATION_BREAKOUT','FLAT_TOP_BREAKOUT','OPENING_RANGE_BREAKOUT','HOD_BREAK','VWAP_RECLAIM_CONTINUATION','MICRO_PULLBACK','CUP_HANDLE','OPENING_DRIVE'])
 def test_canonical_interrupted_accounting_keeps_facts_and_blocks_replay(reassessment,monkeypatch,tmp_path,
         capsys,no_external_activity,family):
     h,acknowledge_case,entry,fill_price=standalone_case(reassessment,monkeypatch,tmp_path,family)
@@ -206,7 +206,7 @@ def test_canonical_interrupted_accounting_keeps_facts_and_blocks_replay(reassess
     finally:teardown_unsent_fixture(h,no_external_activity)
 
 
-@pytest.mark.parametrize('family',['FIRST_PULLBACK','ABCD','KEY_LEVEL_BREAK','CONSOLIDATION_BREAKOUT','FLAT_TOP_BREAKOUT','OPENING_RANGE_BREAKOUT','HOD_BREAK','VWAP_RECLAIM_CONTINUATION','MICRO_PULLBACK','CUP_HANDLE'])
+@pytest.mark.parametrize('family',['FIRST_PULLBACK','ABCD','KEY_LEVEL_BREAK','CONSOLIDATION_BREAKOUT','FLAT_TOP_BREAKOUT','OPENING_RANGE_BREAKOUT','HOD_BREAK','VWAP_RECLAIM_CONTINUATION','MICRO_PULLBACK','CUP_HANDLE','OPENING_DRIVE'])
 def test_canonical_uncertain_ack_keeps_reservation_without_resubmission(reassessment,monkeypatch,tmp_path,
         capsys,no_external_activity,family):
     h,acknowledge_case,entry,fill_price=standalone_case(reassessment,monkeypatch,tmp_path,family)
@@ -237,16 +237,16 @@ def test_canonical_uncertain_ack_keeps_reservation_without_resubmission(reassess
 
 @pytest.mark.parametrize('family,position_case', [
     (family,case) for family in ('FIRST_PULLBACK','ABCD','KEY_LEVEL_BREAK','CONSOLIDATION_BREAKOUT',
-        'FLAT_TOP_BREAKOUT','OPENING_RANGE_BREAKOUT','HOD_BREAK','VWAP_RECLAIM_CONTINUATION','MICRO_PULLBACK','CUP_HANDLE') for case in ('unknown','quantity_warning_larger','five')
-] + [('OPENING_RANGE_BREAKOUT','partial'),('HOD_BREAK','partial'),('VWAP_RECLAIM_CONTINUATION','partial'),('MICRO_PULLBACK','partial'),('CUP_HANDLE','partial')])
+        'FLAT_TOP_BREAKOUT','OPENING_RANGE_BREAKOUT','HOD_BREAK','VWAP_RECLAIM_CONTINUATION','MICRO_PULLBACK','CUP_HANDLE','OPENING_DRIVE') for case in ('unknown','quantity_warning_larger','five')
+] + [('OPENING_RANGE_BREAKOUT','partial'),('HOD_BREAK','partial'),('VWAP_RECLAIM_CONTINUATION','partial'),('MICRO_PULLBACK','partial'),('CUP_HANDLE','partial'),('OPENING_DRIVE','partial')])
 def test_canonical_paper_truth_veto_has_zero_admission_effects(reassessment,monkeypatch,tmp_path,
         capsys,no_external_activity,position_case,family):
     from test_joined_core_first_pullback import first_joined
     from test_abcd_production_handoff import abcd_joined
-    from test_joined_core_pmh_readonly import key_joined, consolidation_joined, flat_top_joined, orb_joined, hod_joined, momentum_joined, micro_joined, cup_joined
+    from test_joined_core_pmh_readonly import key_joined, consolidation_joined, flat_top_joined, orb_joined, hod_joined, momentum_joined, micro_joined, cup_joined, opening_drive_joined
     factories={'FIRST_PULLBACK':first_joined,'ABCD':abcd_joined,'KEY_LEVEL_BREAK':key_joined,
                'CONSOLIDATION_BREAKOUT':consolidation_joined,'FLAT_TOP_BREAKOUT':flat_top_joined,
-               'OPENING_RANGE_BREAKOUT':orb_joined,'HOD_BREAK':hod_joined,'VWAP_RECLAIM_CONTINUATION':momentum_joined,'MICRO_PULLBACK':micro_joined,'CUP_HANDLE':cup_joined}
+               'OPENING_RANGE_BREAKOUT':orb_joined,'HOD_BREAK':hod_joined,'VWAP_RECLAIM_CONTINUATION':momentum_joined,'MICRO_PULLBACK':micro_joined,'CUP_HANDLE':cup_joined,'OPENING_DRIVE':opening_drive_joined}
     h=paper_pmh(reassessment,monkeypatch,tmp_path,position_case,joined_factory=factories[family])
     try:
         assert h.core.run_once();capsys.readouterr()
@@ -489,6 +489,8 @@ def standalone_case(reassessment,monkeypatch,tmp_path,family):
         return late_flat_top(reassessment,monkeypatch,tmp_path),acknowledge_flat_top,10.2,10.27
     if family=='OPENING_RANGE_BREAKOUT':
         return late_orb(reassessment,monkeypatch,tmp_path),acknowledge_orb,10.3,10.42
+    if family=='OPENING_DRIVE':
+        return late_opening_drive(reassessment,monkeypatch,tmp_path),acknowledge_opening_drive,10.60,10.62
     if family=='CUP_HANDLE':
         return late_cup(reassessment,monkeypatch,tmp_path),acknowledge_cup,10.54,10.55
     if family=='MICRO_PULLBACK':
@@ -1033,7 +1035,7 @@ def test_selected_native_stop_keeps_actual_broker_parent_order_identity(reassess
 
 STOP_FAMILIES=['PREMARKET_HIGH_BREAK','FIRST_PULLBACK','ABCD','KEY_LEVEL_BREAK',
     'CONSOLIDATION_BREAKOUT','FLAT_TOP_BREAKOUT','OPENING_RANGE_BREAKOUT','HOD_BREAK',
-    'VWAP_RECLAIM_CONTINUATION','MICRO_PULLBACK','CUP_HANDLE']
+    'VWAP_RECLAIM_CONTINUATION','MICRO_PULLBACK','CUP_HANDLE','OPENING_DRIVE']
 
 
 def filled_standalone(reassessment,monkeypatch,tmp_path,capsys,family):
@@ -1361,3 +1363,17 @@ def test_native_cup_paper_later_fill_initial_stop_and_confirmed_flat(reassessmen
             assert engine.capital_authority.total_used_exposure==engine.capital_authority.total_reserved_capital==0
         assert h.truth[-1][1].healthy and not h.truth[-1][1].block_new_entries
     finally:teardown_unsent_fixture(h,no_external_activity)
+
+
+def late_opening_drive(reassessment,monkeypatch,tmp_path):
+    from test_joined_core_pmh_readonly import opening_drive_joined
+    def paper_drive(*args,**kwargs):return paper_pmh(*args,joined_factory=opening_drive_joined,**kwargs)
+    return late_pmh(reassessment,monkeypatch,tmp_path,paper_factory=paper_drive,fill_price=10.62,stop_price=10.47)
+
+
+def acknowledge_opening_drive(h,capsys):
+    from src.strategies.ross_momentum.strategy_policy import OPENING_DRIVE_DESCRIPTIVE_OBJECTIVE
+    request=acknowledge_selected(h,capsys,family='OPENING_DRIVE',entry=10.60,stop=10.47,invalidation=10.47,
+        triggers=h.opening_drive_triggers)
+    assert request.target_model==OPENING_DRIVE_DESCRIPTIVE_OBJECTIVE and request.take_profit_price is None
+    return request
