@@ -532,3 +532,89 @@ def test_pr1029_reversal_halt_and_placeholder_paths_cannot_create_long_trade_aut
     }
     assert placeholder_results.keys() == placeholder_ids
     assert all(result.detected is False for result in placeholder_results.values())
+
+
+def _gap_context_inputs(*, down=False):
+    from dataclasses import replace
+    start = datetime(2026, 10, 20, 13, 30, tzinfo=timezone.utc)
+    rows = [(10.4, 10.45, 10.3, 10.4, 1500)] * 9
+    rows[-5:] = [(9.6,9.65,9.4,9.5,1000), (9.5,9.8,9.45,9.75,1100),
+                 (9.75,10.,9.7,9.95,1300), (9.95,10.3,9.9,10.25,1500),
+                 (10.25,10.6,10.2,10.5,2000)]
+    if down:
+        rows = [(20-o,20-l,20-h,20-c,v) for o,h,l,c,v in rows]
+    candles = [Candle(*row, timestamp=start+timedelta(minutes=i)) for i,row in enumerate(rows)]
+    return PatternInputs(symbol='GCTX', timeframe='1m', candles=candles,
+        observed_at_utc=start+timedelta(minutes=9,seconds=30), session_context=SessionContext.REGULAR,
+        levels=LevelSet(prior_close=10.6 if down else 9.4), indicators=IndicatorSet(),
+        liquidity_context=LiquidityContext(spread=.02,rvol=2.1))
+
+
+def test_native_gap_fill_context_has_no_entry_contract_or_directional_veto():
+    from dataclasses import asdict
+    from src.core.engines.decision_engine import DecisionEngine
+    from src.setup_engine.setup_families.ross_families import GapFillReversalPattern
+    for down in (False, True):
+        result=GapFillReversalPattern().evaluate(_gap_context_inputs(down=down))
+        assert result.detected and result.non_entry_signal and result.signal_class=='CONTEXT'
+        assert result.direction==(Direction.SHORT if down else Direction.LONG)
+        assert result.trigger_level is result.stop_level is result.invalidation_level is result.target_suggestion is None
+        assert result.setup_metadata['gap_direction']==('DOWN' if down else 'UP')
+        assert result.setup_metadata['fill_test_timestamp']<result.setup_metadata['confirmation_timestamp']
+        decision=DecisionEngine().compute_decision(symbol='GCTX',levels={},structure={'trend':'UP'},
+            setups=[],pattern_results=[asdict(result)],session_context='RTH')
+        assert decision['selected_pattern_id'] is None
+        # Context cannot displace a genuine entry, even with opposite direction.
+        entry={'setup_id':'P_HOD_BREAK','setup_family_id':'HOD_BREAK','pattern_name':'High of Day Break',
+               'detected':True,'confidence':.8,'trigger_level':11.,'invalidation_level':10.,'direction':'LONG'}
+        competition=DecisionEngine().compute_decision(symbol='GCTX',levels={},structure={'trend':'UP'},
+            setups=[{'setup_family':'HOD_BREAK'}],pattern_results=[asdict(result),entry],session_context='RTH')
+        assert competition['selected_pattern_id']=='P_HOD_BREAK'
+
+
+def test_native_gap_fill_requires_genuine_opening_gap_and_completed_reversal():
+    from dataclasses import replace
+    from src.setup_engine.setup_families.ross_families import GapFillReversalPattern
+    source=_gap_context_inputs()
+    first=source.candles[0]
+    cases=[
+        (replace(source, observed_at_utc=None),'gap_fill_missing_original_clock'),
+        (replace(source, levels=LevelSet()),'gap_fill_missing_prior_close'),
+        (replace(source, candles=source.candles[:-1]+[replace(source.candles[-1],low=float('nan'))]),'INVALID_CANDLE_DATA'),
+        (replace(source, candles=source.candles[:-1]+[replace(source.candles[-1],timestamp=source.observed_at_utc+timedelta(seconds=1))]),'FUTURE_CANDLE_DATA'),
+        (replace(source, levels=replace(source.levels,rth_open_price=10.4)), 'gap_fill_invalid_open_reference'),
+        (replace(source, candles=[replace(first,open=9.4,low=9.3)]+source.candles[1:]),'gap_fill_no_opening_gap'),
+        (replace(source, candles=source.candles[1:]),'gap_fill_missing_session_open'),
+        (replace(source, levels=replace(source.levels,rth_open_price=10.5,rth_open_timestamp=first.timestamp)),
+         'gap_fill_conflicting_open_reference'),
+        (replace(source, candles=source.candles[:6]+source.candles[7:]),'gap_fill_gapped_reversal_window'),
+        (replace(source, observed_at_utc=source.observed_at_utc+timedelta(minutes=30)),'gap_fill_stale_reversal_window'),
+        (replace(source, candles=source.candles[:-1]+[replace(source.candles[-1],close=source.candles[-2].high)]),
+         'gap_fill_no_completed_reversal_confirmation'),
+    ]
+    for values,reason in cases:
+        result=GapFillReversalPattern().evaluate(values)
+        assert not result.detected and result.rejection_reason==reason
+        assert result.non_entry_signal and result.trigger_level is None
+    # A forming final bar cannot supply confirmation; completed previous bar
+    # is still real evidence and may independently qualify, so use a failed one.
+    rows=list(source.candles)
+    rows[-2]=replace(rows[-2],close=9.95)
+    result=GapFillReversalPattern().evaluate(replace(source,candles=rows,
+        observed_at_utc=rows[-1].timestamp+timedelta(seconds=30)))
+    assert not result.detected and result.rejection_reason=='gap_fill_no_completed_reversal_confirmation'
+
+
+def test_native_gap_context_can_reuse_validated_open_outside_rolling_tail():
+    from dataclasses import replace
+    from src.setup_engine.setup_families.ross_families import GapFillReversalPattern
+    source=_gap_context_inputs()
+    opening=source.candles[0]
+    tail=source.candles[-5:]
+    missing=GapFillReversalPattern().evaluate(replace(source,candles=tail))
+    assert not missing.detected and missing.rejection_reason=='gap_fill_missing_session_open'
+    measured=GapFillReversalPattern().evaluate(replace(source,candles=tail,
+        levels=replace(source.levels,rth_open_price=opening.open,rth_open_timestamp=opening.timestamp)))
+    assert measured.detected and measured.non_entry_signal
+    assert measured.setup_metadata['session_open_source']=='completed_rth_reference'
+    assert measured.trigger_level is measured.stop_level is None

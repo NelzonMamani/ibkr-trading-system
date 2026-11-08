@@ -2531,3 +2531,41 @@ def test_native_triangle_pennant_preserve_genuine_pmh_winner(reassessment,monkey
     assert intent.target_model==selected.target_suggestion and intent.target_model!=own.target_suggestion
     assert received==vars(intent) and decision.reason_code=='LIVE_READ_ONLY_BLOCK'
     no_effects(h)
+
+
+def gap_context_joined(reassessment,monkeypatch,tmp_path,*,competing=False):
+    h=pmh_joined(reassessment,monkeypatch,tmp_path,clock_time=(13,59,30))
+    rows=[(10.4,10.45,10.3,10.4,1500)]*50
+    pmh=10.5 if competing else 11.2
+    rows[15]=(10.4,pmh,10.3,10.4,1500)
+    rows[21]=(10.4,10.9,10.3,10.4,1500)
+    rows[25]=(10.4,11.3,10.3,10.4,1500)
+    rows[-6:-1]=[(9.6,9.65,9.4,9.5,1000),(9.5,9.8,9.45,9.75,1100),
+        (9.75,10.,9.7,9.95,1300),(9.95,10.3,9.9,10.25,1500),(10.25,10.6,10.2,10.5,2000)]
+    previous=10.49 if competing else 10.51
+    current=[(10.51,10.52,10.48,previous,200),(previous,10.52,10.48,previous,200),
+             (previous,10.53,10.48,10.52,1200)]
+    rows[-1]=(10.51,10.53,10.48,10.52,1600)
+    _install_variant_market(h,rows,current,pmh=pmh,early=(10.4,pmh,10.3,10.4,7500))
+    return h
+
+
+@pytest.mark.parametrize('competing',[False,True])
+def test_joined_gap_fill_context_never_becomes_entry_or_veto(reassessment,monkeypatch,tmp_path,capsys,competing):
+    h=gap_context_joined(reassessment,monkeypatch,tmp_path,competing=competing)
+    out=cycles(h,capsys)
+    assert h.registry_batches,out
+    source,results=h.registry_batches[-1]
+    assert len(results)==len(h.strategy._pattern_registry.patterns)==33
+    context=next(r for r in results if r.setup_id=='P_GAP_FILL_REVERSAL')
+    assert context.detected and context.non_entry_signal and context.signal_class=='CONTEXT',context
+    assert context.setup_metadata['session_open_price']==10.4
+    assert context.trigger_level is context.stop_level is context.target_suggestion is None
+    assert not any(i['setup_family_id']=='GAP_FILL' for i in h.raw_snapshots)
+    if competing:
+        assert h.evaluated,out
+        assert all(i.setup_family_id=='PREMARKET_HIGH_BREAK' and d.reason_code=='LIVE_READ_ONLY_BLOCK'
+            for i,_,d in h.evaluated),[(i.setup_family_id,d.reason_code) for i,_,d in h.evaluated]
+    else:
+        assert h.raw_snapshots==h.artifacts==h.evaluated==[],out
+    no_effects(h)

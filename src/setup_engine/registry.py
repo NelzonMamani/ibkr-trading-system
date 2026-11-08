@@ -73,7 +73,7 @@ CANONICAL_SETUP_REGISTRY: Dict[str, SetupFamilyImplementation] = {
         "HALT_RESUME",
         HaltResumePattern,
         SetupImplementationStatus.PROBATIONARY,
-        reason="Halt detection relies on inferred gaps; requires IBKR halt feed or exchange metadata for full reliability.",
+        reason="Native NEUTRAL detector is disabled without authoritative halt tape in PatternInputs; time gaps do not prove a halt.",
     ),
     "PARABOLIC_EXHAUSTION": SetupFamilyImplementation(
         "PARABOLIC_EXHAUSTION",

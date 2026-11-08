@@ -243,7 +243,7 @@ POLICY_V2 = StrategyPolicyV2(
             SetupFamilySpecV2("PREMARKET_HIGH_BREAK", "Premarket High Break", "Reclaim and hold above premarket high.", ("PRE", "RTH", "1MIN", "10SEC")),
             SetupFamilySpecV2("HALT_RESUME", "Halt Resume Continuation", "Post-halt continuation only when liquidity and structure stabilize.", ("1MIN", "10SEC")),
             SetupFamilySpecV2("PARABOLIC_EXHAUSTION", "Parabolic Exhaustion", "Exit/avoid family used to de-risk rather than initiate entries.", ("1MIN", "5MIN")),
-            SetupFamilySpecV2("GAP_FILL", "Gap Fill Reversal", "Gap fills toward prior close then reverses; used mainly as caution/exit or selective reversal context.", ("PRE", "RTH", "5MIN", "1MIN")),
+            SetupFamilySpecV2("GAP_FILL", "Gap Fill Reversal", "Existing PatternCatalog RISK role: measured opening-gap prior-close reversal context only. No approved entry, automatic exit or universal veto. Genuine same-day completed opening facts and later completed test/confirmation are required; missing origin is unavailable, not an inferred gap. Any selective entry/management policy remains unresolved.", ("PRE", "RTH", "5MIN", "1MIN")),
             SetupFamilySpecV2("GAP_CONTINUATION", "Gap Continuation", "Gap holds and continues after initial consolidation; continuation bias.", ("PRE", "RTH", "5MIN", "1MIN", "10SEC")),
             SetupFamilySpecV2("OPENING_DRIVE", "Opening Drive", "Strong open trend day start; aggressive early momentum regime.", ("RTH_OPEN", "1MIN", "10SEC")),
             SetupFamilySpecV2("OPENING_FAKEOUT", "Opening Fakeout / Failed ORB", "ORB break fails and reverses; avoid/bail logic.", ("RTH_OPEN", "1MIN", "10SEC")),

@@ -326,7 +326,11 @@ def test_runtime_acquisition_keeps_full_rth_reference_separate_from_rolling_inpu
         fault='short'
         rolling,_=trace.build_runtime_pattern_inputs(symbol='HODH',row=row,snapshot=None,
             session_label='RTH_MID',session_phase='RTH_MID')
-        assert replace(inputs,levels=replace(inputs.levels,established_rth_hod=None))==rolling
+        assert inputs.levels.rth_open_price==bars[0].open
+        assert inputs.levels.rth_open_timestamp==start
+        assert rolling.levels.rth_open_price is rolling.levels.rth_open_timestamp is None
+        assert replace(inputs,levels=replace(inputs.levels,established_rth_hod=None,
+            rth_open_price=None,rth_open_timestamp=None),level_provenance=rolling.level_provenance)==rolling
 
 
 @pytest.mark.parametrize('stamp,session,expected',[
