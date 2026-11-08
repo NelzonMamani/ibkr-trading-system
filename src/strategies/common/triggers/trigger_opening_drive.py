@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from src.strategies.common.triggers.trigger_abcd_continuation import abcd_candle_rejection
+
 
 def _safe_float(value):
     try:
@@ -39,6 +41,16 @@ def evaluate_opening_drive_trigger(pattern_result, inputs):
         }
         print(f"[TRIGGER][OPENING_DRIVE] fired=False reason={payload['trigger_reason']}")
         return payload
+
+    stream = (pattern_result or {}).get("execution_stream")
+    if isinstance(stream, dict):
+        rejection = abcd_candle_rejection(candles,
+            observed_at_utc=stream.get("observed_at_utc"), require_clock=True)
+        if rejection:
+            return {"trigger_type": "XL_OPENING_DRIVE_BREAK", "trigger_state": "BLOCKED",
+                "trigger_ready_now": False, "trigger_reason": "opening_drive_" + rejection.lower(),
+                "trigger_price_reference": trigger_level, "invalidation_price_reference": stop_level,
+                "trigger_quality_flags": ["BLOCKED"]}
 
     last = candles[-1]
     last_high = _safe_float(last.get("high") if isinstance(last, dict) else getattr(last, "high", None))

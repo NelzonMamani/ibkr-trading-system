@@ -248,6 +248,21 @@ def key_joined(reassessment,monkeypatch,tmp_path,*,news_fault='none',peer=False,
         bar_end=end if market_fault=='forming_source' and tf=='1m' else end-timedelta(seconds=step)
         if market_fault=='forming_execution' and tf=='10s':bar_end=end+timedelta(seconds=40)
         h.streams[tf]=_candles(rows,step_seconds=step,end=bar_end)
+    if market_fault!='competing_opening_drive':
+        from src.utils.time_utils import to_ny_time
+        opening=to_ny_time(h.life.clock.current).replace(hour=9,minute=30,second=0,microsecond=0).astimezone(timezone.utc)
+        # A weak opening followed by recovery is a genuine Key context, rather
+        # than the original strong opening-drive competitor retained below.
+        h.streams['1m']=[replace(bar,open=10.90,high=10.95) if bar.timestamp==opening else bar
+            for bar in h.streams['1m']]
+    flat=(10.9,10.9,10.9,10.9,0)
+    _coherent_profile_streams(h,[flat]*(1 if market_fault=='forming_source' else 4)+[
+        (10.9,10.95,10.88,10.9,1300),(10.9,11.05,10.88,11.02,1500)])
+    if market_fault=='forming_execution':
+        last=h.streams['10s'][-1]
+        h.streams['10s'].extend([replace(last,timestamp=end+timedelta(seconds=30),
+            open=11.02,high=11.02,low=10.9,close=10.9,volume=1300),
+            replace(last,timestamp=end+timedelta(seconds=40))])
     fault=market_fault.removeprefix('delayed_')
     stream='1m' if fault.endswith('source') else '10s'
     if fault.startswith('missing_'):
@@ -1776,4 +1791,193 @@ def test_joined_cup_retains_genuine_completed_abcd_competition(reassessment,monk
     assert intent.setup_family_id=='ABCD' and selected.setup_id=='P_ABCD'
     assert intent.entry_price==selected.trigger_level and intent.target_model==selected.target_suggestion
     assert received==vars(intent) and decision.reason_code=='LIVE_READ_ONLY_BLOCK'
+    no_effects(h)
+
+
+def opening_drive_joined(reassessment,monkeypatch,tmp_path,*,position_case='complete_empty',runtime_options=None,
+        peer=False,news_fault='none',market_fault='none'):
+    h=pmh_joined(reassessment,monkeypatch,tmp_path,position_case=position_case,
+        runtime_options=runtime_options,clock_time=(13,40,30),peer=peer,news_fault=news_fault)
+    rows=[(10.,10.02,9.98,10.,1500)]*5+[(10.,10.18,9.99,10.16,1600),
+        (10.16,10.32,10.15,10.30,1750),(10.30,10.46,10.28,10.42,1900),
+        (10.42,10.52,10.40,10.50,1650),(10.50,10.60,10.47,10.58,1800)]
+    end=h.life.clock.current.replace(second=0,microsecond=0)
+    h.streams.clear();h.streams['1m']=_candles(rows,step_seconds=60,end=end-timedelta(minutes=1))
+    current=[(10.58,10.60,10.57,10.59,300),(10.59,10.60,10.58,10.60,300),
+        (10.60,10.63,10.59,10.62,1200)]
+    h.streams['10s']=_closed_minutes_and_execution(h.streams['1m'],current,end=end-timedelta(seconds=10))
+    groups=[]
+    for start in range(0,len(rows),5):
+        chunk=rows[start:start+5]
+        groups.append((chunk[0][0],max(b[1] for b in chunk),min(b[2] for b in chunk),chunk[-1][3],sum(b[4] for b in chunk)))
+    # Independent earlier PRE context plus exact completed RTH aggregates.
+    h.streams['5m']=_candles([(10.,10.75,9.98,10.,7500)]*48+groups,step_seconds=300,end=end-timedelta(minutes=5))
+    if market_fault in {'waiting_execution','touch_execution'}:
+        bar=h.streams['10s'][-1]
+        high=10.59 if market_fault=='waiting_execution' else 10.60
+        h.streams['10s'][-1]=replace(bar,open=10.58,high=high,low=10.57,close=10.59)
+    if market_fault=='missing_opening_origin':h.streams['1m']=h.streams['1m'][1:]
+    elif market_fault=='premarket_reference':
+        first=h.streams['1m'][0]
+        h.streams['1m'].insert(0,replace(first,timestamp=first.timestamp-timedelta(minutes=1),
+            open=9.,high=20.,low=8.9,close=9.,volume=1500))
+        bar=h.streams['5m'][-3]
+        h.streams['5m'][-3]=replace(bar,open=9.,high=20.,low=8.9,close=9.)
+    if market_fault=='future_source':
+        h.streams['1m'][-1]=replace(h.streams['1m'][-1],timestamp=h.life.clock.current+timedelta(seconds=12))
+    elif market_fault=='incomplete_source':
+        h.streams['1m'][-1]=replace(h.streams['1m'][-1],timestamp=h.life.clock.current-timedelta(seconds=30))
+    elif market_fault=='nan_source':h.streams['1m'][-3]=replace(h.streams['1m'][-3],high=float('nan'))
+    elif market_fault=='malformed_source':
+        bar=h.streams['1m'][-3];h.streams['1m'][-3]=replace(bar,high=bar.low-.01)
+    elif market_fault=='future_execution':
+        h.streams['10s'][-1]=replace(h.streams['10s'][-1],timestamp=h.life.clock.current+timedelta(seconds=12))
+    elif market_fault=='infinite_execution':h.streams['10s'][-1]=replace(h.streams['10s'][-1],close=-float('inf'))
+    last=10.59 if market_fault in {'waiting_execution','touch_execution'} else 10.62
+    for row in h.rows.values():row.update(premarket_high=10.75,last_price=last,bid=last-.01,ask=last+.01,
+        prev_close=9.4,ref_close_rth=9.4,reference_price=9.4,gap_pct=(last/9.4-1)*100,
+        pct_change=(last/9.4-1)*100,spread_pct=100*.02/last,dollar_volume=last*1_800_000)
+    snapshot=replace(_snapshot(symbol='JPM'),last=last,bid=last-.01,ask=last+.01)
+    h.core.market_data_snapshot_manager=NS(batch_snapshots=lambda symbols:({s:replace(snapshot,symbol=s,
+        asof_utc=h.life.clock.current,market_timestamp_utc=h.life.clock.current) for s in symbols},[]))
+    evaluator=TRIGGER_EVALUATOR_REGISTRY['OPENING_DRIVE'];h.opening_drive_triggers=[]
+    def observed(payload,inputs):
+        result=evaluator(payload,inputs)
+        h.opening_drive_triggers.append((deepcopy(payload),deepcopy(inputs),deepcopy(result)))
+        return result
+    monkeypatch.setitem(TRIGGER_EVALUATOR_REGISTRY,'OPENING_DRIVE',observed)
+    return h
+
+
+def test_joined_opening_drive_native_authorized_objective_readonly(reassessment,monkeypatch,tmp_path,capsys):
+    h=opening_drive_joined(reassessment,monkeypatch,tmp_path)
+    cycles(h,capsys)
+    source,results=h.registry_batches[-1]
+    native=next(r for r in results if r.setup_id=='P_OPENING_DRIVE')
+    assert len(results)==33
+    assert native.detected,native.rejection_reason
+    assert source.session_phase=='OPENING_0_30'
+    assert (native.trigger_level,native.stop_level,native.invalidation_level)==(10.60,10.47,10.47)
+    from src.strategies.ross_momentum.strategy_policy import OPENING_DRIVE_DESCRIPTIVE_OBJECTIVE
+    assert native.target_suggestion==OPENING_DRIVE_DESCRIPTIVE_OBJECTIVE
+    assert len(h.evaluated)==1
+    intent,received,decision=h.evaluated[0]
+    assert intent.setup_family_id=='OPENING_DRIVE'
+    assert results[intent.setup_metadata['canonical_result_index']].setup_id=='P_OPENING_DRIVE'
+    assert (intent.entry_price,intent.stop_loss_price,intent.invalidation_level)==(10.60,10.47,10.47)
+    assert intent.target_model==native.target_suggestion and intent.take_profit_price is None
+    assert received==vars(intent) and decision.reason_code=='LIVE_READ_ONLY_BLOCK'
+    no_effects(h)
+
+
+@pytest.mark.parametrize('market_fault',['future_source','incomplete_source','nan_source','malformed_source',
+    'future_execution','infinite_execution','missing_opening_origin'])
+def test_opening_drive_rejects_invalid_source_and_execution_facts(reassessment,monkeypatch,tmp_path,capsys,market_fault):
+    h=opening_drive_joined(reassessment,monkeypatch,tmp_path,market_fault=market_fault)
+    cycles(h,capsys)
+    assert not [i for batch in h.batches for i in batch if i.setup_family_id=='OPENING_DRIVE']
+    _,results=h.registry_batches[-1]
+    native=next(r for r in results if r.setup_id=='P_OPENING_DRIVE')
+    reasons={'future_source':'FUTURE_CANDLE_DATA','incomplete_source':'incomplete_opening_drive_structure',
+        'nan_source':'INVALID_CANDLE_DATA','malformed_source':'INVALID_CANDLE_DATA',
+        'missing_opening_origin':'missing_opening_drive_origin'}
+    if market_fault in reasons:
+        assert not native.detected and native.rejection_reason==reasons[market_fault]
+        assert native.target_suggestion is None
+    else:
+        assert native.detected
+        canonical=[r for p,_,r in h.opening_drive_triggers if p.get('canonical_result_index')==results.index(native)]
+        expected='opening_drive_future_candle_data' if market_fault=='future_execution' else 'opening_drive_invalid_candle_data'
+        assert canonical and all(not r['trigger_ready_now'] and r['trigger_reason']==expected for r in canonical)
+    no_effects(h)
+
+
+@pytest.mark.parametrize('market_fault,ready',[('waiting_execution',False),('touch_execution',True)])
+def test_opening_drive_retains_native_touch_confirmation(reassessment,monkeypatch,tmp_path,capsys,market_fault,ready):
+    h=opening_drive_joined(reassessment,monkeypatch,tmp_path,market_fault=market_fault)
+    cycles(h,capsys)
+    _,results=h.registry_batches[-1]
+    native=next(r for r in results if r.setup_id=='P_OPENING_DRIVE')
+    assert len(results)==33 and native.detected and native.trigger_level==10.60
+    canonical=[r for p,_,r in h.opening_drive_triggers if p.get('canonical_result_index')==results.index(native)]
+    assert canonical and all(r['trigger_ready_now']==ready for r in canonical)
+    own=[i for batch in h.batches for i in batch if i.setup_family_id=='OPENING_DRIVE']
+    if ready:
+        assert len(own)==1 and own[0].entry_price==10.60
+        assert h.evaluated[-1][2].reason_code=='LIVE_READ_ONLY_BLOCK'
+    else:assert own==[]
+    no_effects(h)
+
+
+def test_opening_drive_uses_actual_rth_origin_independent_of_pre_bar(reassessment,monkeypatch,tmp_path,capsys):
+    h=opening_drive_joined(reassessment,monkeypatch,tmp_path,market_fault='premarket_reference')
+    cycles(h,capsys)
+    source,results=h.registry_batches[-1]
+    native=next(r for r in results if r.setup_id=='P_OPENING_DRIVE')
+    assert source.candles[0].open==9. and source.candles[0].high==20.
+    assert len(results)==33 and native.detected
+    assert (native.trigger_level,native.stop_level,native.invalidation_level)==(10.60,10.47,10.47)
+    assert len(h.evaluated)==1 and h.evaluated[0][0].setup_family_id=='OPENING_DRIVE'
+    assert h.evaluated[0][2].reason_code=='LIVE_READ_ONLY_BLOCK'
+    no_effects(h)
+
+
+def test_key_original_strong_open_retains_genuine_opening_drive_winner(reassessment,monkeypatch,tmp_path,capsys):
+    h=key_joined(reassessment,monkeypatch,tmp_path,market_fault='competing_opening_drive')
+    cycles(h,capsys)
+    source,results=h.registry_batches[-1]
+    key=next(r for r in results if r.setup_id=='P_KEY_LEVEL_BREAK')
+    opening=next(r for r in results if r.setup_id=='P_OPENING_DRIVE')
+    assert len(results)==33 and key.detected and opening.detected
+    assert h.key_triggers[-1][2]['trigger_ready_now']
+    assert len(h.evaluated)==1
+    intent,received,decision=h.evaluated[0]
+    selected=results[intent.setup_metadata['canonical_result_index']]
+    assert intent.setup_family_id=='OPENING_DRIVE' and selected is opening
+    assert intent.entry_price==opening.trigger_level and intent.stop_loss_price==opening.stop_level
+    assert intent.entry_price!=key.trigger_level and intent.target_model==opening.target_suggestion
+    assert received==vars(intent) and decision.reason_code=='LIVE_READ_ONLY_BLOCK'
+    no_effects(h)
+
+
+def _coherent_profile_streams(h,final_execution):
+    """External matching minute, ten-second and five-minute profile facts."""
+    source=h.streams['1m']
+    source[-1]=replace(source[-1],volume=sum(row[4] for row in final_execution))
+    h.streams['10s']=_closed_minutes_and_execution(source[:-1],final_execution,
+        end=source[-1].timestamp+timedelta(seconds=(len(final_execution)-4)*10))
+    buckets={}
+    for bar in source:
+        stamp=bar.timestamp.replace(minute=bar.timestamp.minute//5*5,second=0,microsecond=0)
+        buckets.setdefault(stamp,[]).append(bar)
+    grouped=[]
+    for stamp,chunk in buckets.items():
+        if not grouped and chunk[0].timestamp!=stamp:continue
+        grouped.append(replace(chunk[0],timestamp=stamp,high=max(bar.high for bar in chunk),
+            low=min(bar.low for bar in chunk),close=chunk[-1].close,volume=sum(bar.volume for bar in chunk)))
+    first=source[0]
+    earlier=_candles([(first.open,first.high,first.low,first.close,first.volume*5)]*40,step_seconds=300,
+        end=grouped[0].timestamp-timedelta(minutes=5))
+    h.streams['5m']=earlier+grouped
+
+
+@pytest.mark.parametrize('family,competition',[(family,competition) for family in ('FIRST_PULLBACK','KEY_LEVEL_BREAK')
+    for competition in (False,True)])
+def test_opening_competition_profile_external_timeframes_agree(reassessment,monkeypatch,tmp_path,capsys,family,competition):
+    from test_joined_core_first_pullback import first_joined
+    factory=first_joined if family=='FIRST_PULLBACK' else key_joined
+    h=factory(reassessment,monkeypatch,tmp_path,market_fault='competing_opening_drive' if competition else 'none')
+    for minute in h.streams['1m'][-6:]:
+        parts=[bar for bar in h.streams['10s'] if minute.timestamp<=bar.timestamp<minute.timestamp+timedelta(minutes=1)]
+        assert len(parts)==6
+        assert (parts[0].open,max(bar.high for bar in parts),min(bar.low for bar in parts),parts[-1].close)==(
+            minute.open,minute.high,minute.low,minute.close)
+        assert sum(bar.volume for bar in parts)==pytest.approx(minute.volume)
+    five=h.streams['5m'][-1]
+    minutes=[bar for bar in h.streams['1m'] if five.timestamp<=bar.timestamp<five.timestamp+timedelta(minutes=5)]
+    assert len(minutes)==5
+    assert (five.open,five.high,five.low,five.close)==(minutes[0].open,max(bar.high for bar in minutes),
+        min(bar.low for bar in minutes),minutes[-1].close)
+    assert five.volume==sum(bar.volume for bar in minutes)
+    cycles(h,capsys)
     no_effects(h)
