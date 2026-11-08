@@ -731,10 +731,10 @@ def test_joined_range_breakout_repeats_observe_new_raw_and_actual_denials(reasse
 
 
 def flat_top_joined(reassessment,monkeypatch,tmp_path,*,news_fault='none',peer=False,
-                    market_fault='none',position_case='complete_empty'):
+                    market_fault='none',position_case='complete_empty',runtime_options=None):
     from test_flat_top_production_handoff import TAIL
     h=pmh_joined(reassessment,monkeypatch,tmp_path,news_fault=news_fault,peer=peer,
-                 position_case=position_case)
+                 position_case=position_case,runtime_options=runtime_options)
     rows=[(10.,10.12,9.98,10.08,900)]*45+list(TAIL)
     rows[20]=(10.,12.,9.98,10.08,900)  # Real prior PRE high, no competing PMH break.
     end=h.life.clock.current.replace(second=0,microsecond=0)

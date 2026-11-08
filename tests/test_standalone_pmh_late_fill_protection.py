@@ -149,7 +149,7 @@ def test_native_pmh_later_fill_reaches_initial_protection(reassessment,monkeypat
     finally:teardown_unsent_fixture(h,no_external_activity)
 
 
-@pytest.mark.parametrize('family',['FIRST_PULLBACK','ABCD','KEY_LEVEL_BREAK','CONSOLIDATION_BREAKOUT'])
+@pytest.mark.parametrize('family',['FIRST_PULLBACK','ABCD','KEY_LEVEL_BREAK','CONSOLIDATION_BREAKOUT','FLAT_TOP_BREAKOUT'])
 @pytest.mark.parametrize('fault',['missing','unrelated','wrong_owner','malformed'])
 def test_canonical_callback_fault_cannot_create_position_or_protection(reassessment,monkeypatch,tmp_path,
         capsys,no_external_activity,fault,family):
@@ -173,7 +173,7 @@ def test_canonical_callback_fault_cannot_create_position_or_protection(reassessm
     finally:teardown_unsent_fixture(h,no_external_activity)
 
 
-@pytest.mark.parametrize('family',['FIRST_PULLBACK','ABCD','KEY_LEVEL_BREAK','CONSOLIDATION_BREAKOUT'])
+@pytest.mark.parametrize('family',['FIRST_PULLBACK','ABCD','KEY_LEVEL_BREAK','CONSOLIDATION_BREAKOUT','FLAT_TOP_BREAKOUT'])
 def test_canonical_interrupted_accounting_keeps_facts_and_blocks_replay(reassessment,monkeypatch,tmp_path,
         capsys,no_external_activity,family):
     h,acknowledge_case,entry,fill_price=standalone_case(reassessment,monkeypatch,tmp_path,family)
@@ -206,7 +206,7 @@ def test_canonical_interrupted_accounting_keeps_facts_and_blocks_replay(reassess
     finally:teardown_unsent_fixture(h,no_external_activity)
 
 
-@pytest.mark.parametrize('family',['FIRST_PULLBACK','ABCD','KEY_LEVEL_BREAK','CONSOLIDATION_BREAKOUT'])
+@pytest.mark.parametrize('family',['FIRST_PULLBACK','ABCD','KEY_LEVEL_BREAK','CONSOLIDATION_BREAKOUT','FLAT_TOP_BREAKOUT'])
 def test_canonical_uncertain_ack_keeps_reservation_without_resubmission(reassessment,monkeypatch,tmp_path,
         capsys,no_external_activity,family):
     h,acknowledge_case,entry,fill_price=standalone_case(reassessment,monkeypatch,tmp_path,family)
@@ -235,15 +235,15 @@ def test_canonical_uncertain_ack_keeps_reservation_without_resubmission(reassess
     finally:teardown_unsent_fixture(h,no_external_activity)
 
 
-@pytest.mark.parametrize('family',['FIRST_PULLBACK','ABCD','KEY_LEVEL_BREAK','CONSOLIDATION_BREAKOUT'])
+@pytest.mark.parametrize('family',['FIRST_PULLBACK','ABCD','KEY_LEVEL_BREAK','CONSOLIDATION_BREAKOUT','FLAT_TOP_BREAKOUT'])
 @pytest.mark.parametrize('position_case',['unknown','quantity_warning_larger','five'])
 def test_canonical_paper_truth_veto_has_zero_admission_effects(reassessment,monkeypatch,tmp_path,
         capsys,no_external_activity,position_case,family):
     from test_joined_core_first_pullback import first_joined
     from test_abcd_production_handoff import abcd_joined
-    from test_joined_core_pmh_readonly import key_joined, consolidation_joined
+    from test_joined_core_pmh_readonly import key_joined, consolidation_joined, flat_top_joined
     factories={'FIRST_PULLBACK':first_joined,'ABCD':abcd_joined,'KEY_LEVEL_BREAK':key_joined,
-               'CONSOLIDATION_BREAKOUT':consolidation_joined}
+               'CONSOLIDATION_BREAKOUT':consolidation_joined,'FLAT_TOP_BREAKOUT':flat_top_joined}
     h=paper_pmh(reassessment,monkeypatch,tmp_path,position_case,joined_factory=factories[family])
     try:
         assert h.core.run_once();capsys.readouterr()
@@ -478,6 +478,8 @@ def standalone_case(reassessment,monkeypatch,tmp_path,family):
         return late_abcd(reassessment,monkeypatch,tmp_path),acknowledge_abcd,11.,11.02
     if family=='CONSOLIDATION_BREAKOUT':
         return late_consolidation(reassessment,monkeypatch,tmp_path),acknowledge_consolidation,10.3,10.43
+    if family=='FLAT_TOP_BREAKOUT':
+        return late_flat_top(reassessment,monkeypatch,tmp_path),acknowledge_flat_top,10.2,10.27
     assert family=='KEY_LEVEL_BREAK'
     return late_key(reassessment,monkeypatch,tmp_path),acknowledge_key,11.,11.02
 
@@ -639,4 +641,75 @@ def test_native_consolidation_later_fill_reconciles_initial_range_stop(reassessm
         assert life.selected_target_price is None and not h.manager._relationship_plans
         retained=h.core.execution_engine._native_orders[request.client_order_id]['request']
         assert (retained['stop_loss_price'],retained['invalidation_level'])==(10.21,10.21)
+    finally:teardown_unsent_fixture(h,no_external_activity)
+
+
+def late_flat_top(reassessment,monkeypatch,tmp_path,*,market_fault='none'):
+    from test_joined_core_pmh_readonly import flat_top_joined
+    def joined_factory(*args,**kwargs):
+        return flat_top_joined(*args,market_fault=market_fault,**kwargs)
+    def paper_flat_top(*args,**kwargs):
+        return paper_pmh(*args,joined_factory=joined_factory,**kwargs)
+    # Actual synthetic fill10.27 is coherent with quote10.26/10.28, distinct
+    # from measured resistance10.20 on this native market-order request.
+    return late_pmh(reassessment,monkeypatch,tmp_path,paper_factory=paper_flat_top,
+        fill_price=10.27,stop_price=9.99)
+
+
+def acknowledge_flat_top(h,capsys):
+    from src.strategies.ross_momentum.patterns.pattern_registry import RossPatternRegistry
+    request=acknowledge_selected(h,capsys,family='FLAT_TOP_BREAKOUT',entry=10.2,stop=9.99,
+        invalidation=9.99,triggers=h.flat_top_triggers,allow_execution_touch=True)
+    intent,received,decision=h.evaluated[0]
+    source,results=h.registry_batches[-1]
+    index=intent.setup_metadata['canonical_result_index'];selected=results[index]
+    assert index>0 and [p.pattern_id for p in h.strategy._pattern_registry._patterns]==[
+        p.pattern_id for p in RossPatternRegistry()._patterns]
+    completed=[b for b in source.candles if b.timestamp+timedelta(minutes=1)<=source.observed_at_utc]
+    pre=completed[-5:-1]
+    assert len(completed)==50 and source.primary_timeframe=='1m' and len(pre)==4
+    assert selected.trigger_level==max(b.high for b in pre)==10.2
+    assert selected.stop_level==selected.invalidation_level==min(b.low for b in pre)==9.99
+    tolerance=max(.02,selected.trigger_level*.003)
+    assert sum(abs(b.high-selected.trigger_level)<=tolerance for b in pre)>=3
+    assert completed[-1].close>=selected.trigger_level+tolerance*.25
+    assert completed[-1].volume>sum(b.volume for b in pre)/4
+    assert intent.setup_metadata['source_metadata']==selected.setup_metadata
+    payload,execution,trigger=h.flat_top_triggers[-1]
+    for key in ('trigger_level','stop_level','invalidation_level'):
+        assert intent.setup_metadata[key]==received['setup_metadata'][key]==payload[key]==getattr(selected,key)
+    assert trigger['trigger_reason']=='breakout_already_through_level'
+    assert trigger['trigger_price_reference']==10.2 and trigger['invalidation_price_reference']==9.99
+    assert source.observed_at_utc==h.life.clock.current
+    assert received['setup_metadata']['execution_stream']==payload['execution_stream']
+    assert payload['execution_stream']['observed_at_utc']==source.observed_at_utc.isoformat()
+    assert request.target_model=='Measured range expansion above flat-top resistance'
+    assert h.rows['JPM']['last_price']==10.27 and h.rows['JPM']['gap_pct']==pytest.approx((10.27/9.2-1)*100)
+    retained=h.core.execution_engine._native_orders[request.client_order_id]['request']
+    assert (retained['stop_loss_price'],retained['invalidation_level'])==(9.99,9.99)
+    assert (decision.stop_loss_price,decision.invalidation_level)==(9.99,9.99)
+    return request
+
+
+@pytest.mark.parametrize('market_fault',['none','touch_execution','forming_execution','zero_volume_execution'])
+def test_native_flat_top_later_fill_reconciles_initial_resistance_stop(reassessment,monkeypatch,tmp_path,
+        capsys,no_external_activity,market_fault):
+    h=late_flat_top(reassessment,monkeypatch,tmp_path,market_fault=market_fault)
+    try:
+        request=acknowledge_flat_top(h,capsys)
+        intent,received,decision=h.evaluated[0];serialized=deepcopy(received)
+        source=h.registry_batches[-1][0];candles=h.flat_top_triggers[-1][1]['candles']
+        if market_fault=='touch_execution':assert candles[-1].close==intent.entry_price==10.2
+        if market_fault=='forming_execution':
+            assert candles[-1].timestamp<=source.observed_at_utc<candles[-1].timestamp+timedelta(seconds=10)
+        if market_fault=='zero_volume_execution':assert candles[-1].volume==0.
+        life=confirm_selected_fill(h,request,capsys,family='FLAT_TOP_BREAKOUT',fill_price=10.27,stop_price=9.99)
+        assert vars(intent)==serialized and received==serialized
+        assert intent.entry_price==10.2 and life.avg_fill_price==10.27
+        assert request.stop_loss_price==life.selected_stop_price==9.99
+        assert intent.invalidation_level==decision.invalidation_level==request.invalidation_level==9.99
+        assert life.target_model==intent.target_model and life.preserve_selected_protection
+        assert life.selected_target_price is None and not h.manager._relationship_plans
+        retained=h.core.execution_engine._native_orders[request.client_order_id]['request']
+        assert (retained['stop_loss_price'],retained['invalidation_level'])==(9.99,9.99)
     finally:teardown_unsent_fixture(h,no_external_activity)
