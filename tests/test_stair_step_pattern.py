@@ -23,11 +23,11 @@ def _valid_candles() -> list[Candle]:
     return [
         Candle(10.00, 10.12, 9.98, 10.10, 1000),
         Candle(10.10, 10.30, 10.06, 10.25, 1200),
-        Candle(10.25, 10.24, 10.12, 10.16, 900),
+        Candle(10.25, 10.26, 10.12, 10.16, 900),
         Candle(10.16, 10.42, 10.14, 10.38, 1300),
-        Candle(10.38, 10.36, 10.24, 10.30, 860),
+        Candle(10.38, 10.39, 10.24, 10.30, 860),
         Candle(10.30, 10.62, 10.28, 10.58, 1400),
-        Candle(10.58, 10.56, 10.34, 10.40, 820),
+        Candle(10.58, 10.59, 10.34, 10.40, 820),
         Candle(10.40, 10.64, 10.38, 10.61, 1450),
     ]
 
@@ -44,9 +44,9 @@ def test_detects_valid_stair_step() -> None:
 
 def test_rejects_no_higher_low_sequence() -> None:
     candles = _valid_candles()
-    candles[4] = Candle(10.38, 10.44, 10.41, 10.43, 860)
+    candles[4] = Candle(10.42, 10.44, 10.41, 10.43, 860)
     candles[5] = Candle(10.43, 10.62, 10.40, 10.58, 1400)
-    candles[-2] = Candle(10.58, 10.56, 10.35, 10.40, 900)
+    candles[-2] = Candle(10.58, 10.59, 10.35, 10.40, 900)
     result = detect_trend_continuation_stair_step(_inputs(candles))
     assert result.detected is False
     assert result.rejection_reason == "no_higher_low_sequence"
@@ -54,7 +54,7 @@ def test_rejects_no_higher_low_sequence() -> None:
 
 def test_rejects_deep_pullback() -> None:
     candles = _valid_candles()
-    candles[-2] = Candle(10.58, 10.56, 10.16, 10.20, 900)
+    candles[-2] = Candle(10.58, 10.59, 10.16, 10.20, 900)
     candles[-1] = Candle(10.20, 10.50, 10.18, 10.45, 950)
     result = detect_trend_continuation_stair_step(_inputs(candles))
     assert result.detected is False
