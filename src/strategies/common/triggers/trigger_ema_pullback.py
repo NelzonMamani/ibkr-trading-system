@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from src.strategies.common.triggers.trigger_abcd_continuation import abcd_candle_rejection
+
 
 def _safe_float(value):
     try:
@@ -38,6 +40,14 @@ def evaluate_ema_pullback_trigger(payload, values):
         out = {**base, "trigger_state": "BLOCKED", "trigger_ready_now": False, "trigger_reason": "missing_fields"}
         print(f"[TRIGGER][EMA_PULLBACK] fired=False reason={out['trigger_reason']}")
         return out
+
+    stream = data.get("execution_stream")
+    if isinstance(stream, dict):
+        rejection = abcd_candle_rejection(candles,
+            observed_at_utc=stream.get("observed_at_utc"), require_clock=True)
+        if rejection:
+            return {**base, "trigger_state": "BLOCKED", "trigger_ready_now": False,
+                "trigger_reason": "ema_pullback_" + rejection.lower()}
 
     prev = candles[-2]
     last = candles[-1]

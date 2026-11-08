@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
+from datetime import timedelta, timezone
+
+from src.adapters.data.historical_bar_timeframes import resolve_intraday_timeframe_request
+from src.strategies.common.triggers.trigger_abcd_continuation import abcd_candle_rejection
+
 from src.strategies.ross_momentum.patterns.pattern_inputs import PatternInputs
 from src.strategies.ross_momentum.patterns.pattern_types import Direction, PatternFamily, PatternResult
 from src.strategies.strategy_contracts import SessionContext
+from src.strategies.ross_momentum.strategy_policy import OPENING_DRIVE_DESCRIPTIVE_OBJECTIVE
+from src.utils.time_utils import to_ny_time
 
 
 def _safe_float(value: object) -> float | None:
@@ -40,12 +47,35 @@ def detect_opening_drive(inputs: PatternInputs) -> PatternResult:
 
     if session != SessionContext.REGULAR:
         return reject("invalid_session", "Opening Drive is valid only during RTH_OPEN/regular open session.")
-    if phase is not None and str(phase).upper() != "RTH_OPEN":
-        return reject("invalid_phase", "Opening Drive requires the RTH_OPEN phase when phase context is available.")
+    if phase is not None and str(phase).upper() not in {"RTH_OPEN", "OPENING_0_30"}:
+        return reject("invalid_phase", "Opening Drive requires the existing RTH_OPEN/OPENING_0_30 phase when available.")
 
     candles = list(inputs.candles or [])
     if len(candles) < 5:
         return reject("insufficient_candles")
+
+    rejection = abcd_candle_rejection(candles, observed_at_utc=inputs.observed_at_utc,
+        require_clock=bool(inputs.timeframe_provenance))
+    if rejection:
+        return reject(rejection)
+    if inputs.observed_at_utc is not None:
+        try:
+            request = resolve_intraday_timeframe_request(
+                timeframe=inputs.primary_timeframe or inputs.timeframe, requested_bars=5)
+        except ValueError:
+            return reject("INVALID_STRUCTURE_TIMEFRAME")
+        # The native final source bar supplies both entry and stop anchors.
+        if any(c.timestamp + timedelta(seconds=request.bar_seconds) > inputs.observed_at_utc for c in candles):
+            return reject("incomplete_opening_drive_structure")
+
+    if inputs.observed_at_utc is not None:
+        # Opening authority is the actual current-day RTH origin, never a PRE
+        # or truncated rolling window's first bar. Keep the native formulas.
+        local = to_ny_time(inputs.observed_at_utc)
+        opening = local.replace(hour=9, minute=30, second=0, microsecond=0).astimezone(timezone.utc)
+        candles = [c for c in candles if c.timestamp >= opening]
+        if len(candles) < 5 or candles[0].timestamp != opening:
+            return reject("missing_opening_drive_origin")
 
     if not getattr(inputs, "levels", None):
         return reject("missing_levels")
@@ -102,6 +132,7 @@ def detect_opening_drive(inputs: PatternInputs) -> PatternResult:
         confidence=0.74,
         setup_quality_tags=["early_session_impulse", "volume_confirmed", "limited_pullback"],
         setup_family_id="OPENING_DRIVE",
+        target_suggestion=OPENING_DRIVE_DESCRIPTIVE_OBJECTIVE,
         rationale_text=(
             "Opening drive continuation structure detected with strong early directional impulse and participation. "
             f"trigger={trigger_level:.4f} stop={stop_level:.4f} rvol={rvol if rvol is not None else 0.0:.2f}"
