@@ -65,9 +65,9 @@ def detect_cup_handle(inputs: PatternInputs) -> PatternResult:
                 timeframe=inputs.primary_timeframe or inputs.timeframe, requested_bars=14)
         except ValueError:
             return reject("INVALID_STRUCTURE_TIMEFRAME")
-        # The existing owner calls the final bar the breakout bar. Every
-        # preceding cup/handle formation bar must already be complete.
-        if any(c.timestamp + timedelta(seconds=request.bar_seconds) > clock for c in candles[-14:-1]):
+        # Both handle bars contribute structural anchors, including the final
+        # breakout bar. Every contributing source bar must be complete.
+        if any(c.timestamp + timedelta(seconds=request.bar_seconds) > clock for c in candles[-14:]):
             return reject("incomplete_cup_handle_structure")
 
     spread = _safe_float(inputs.liquidity_context.spread)

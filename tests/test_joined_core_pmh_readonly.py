@@ -1509,18 +1509,23 @@ def test_joined_micro_keeps_ready_key_competition(reassessment,monkeypatch,tmp_p
     no_effects(h)
 
 
-def _install_variant_market(h,rows,current,*,pmh,early=None):
+def _install_variant_market(h,rows,current,*,pmh,early=None,completed_source=False):
     end=h.life.clock.current.replace(second=0,microsecond=0)
-    h.streams.clear();h.streams['1m']=_candles(rows,step_seconds=60,end=end)
+    h.streams.clear();h.streams['1m']=_candles(rows,step_seconds=60,
+        end=end-timedelta(minutes=1) if completed_source else end)
+    aggregate_rows=list(rows)
+    if completed_source:
+        aggregate_rows.append((current[0][0],max(b[1] for b in current),min(b[2] for b in current),
+            current[-1][3],sum(b[4] for b in current)))
     grouped=[]
-    for start in range(0,len(rows),5):
-        chunk=rows[start:start+5]
+    for start in range(0,len(aggregate_rows),5):
+        chunk=aggregate_rows[start:start+5]
         grouped.append((chunk[0][0],max(b[1] for b in chunk),min(b[2] for b in chunk),
             chunk[-1][3],sum(b[4] for b in chunk)))
     if early is None:early=(10.30,10.32,10.27,10.30,7500) if pmh==10.32 else (9.2,9.3,9.1,9.24,7500)
     h.streams['5m']=_candles([early]*40+grouped,
         step_seconds=300,end=end-timedelta(minutes=4))
-    h.streams['10s']=_closed_minutes_and_execution(h.streams['1m'][:-1],current,
+    h.streams['10s']=_closed_minutes_and_execution(h.streams['1m'] if completed_source else h.streams['1m'][:-1],current,
         end=end-timedelta(seconds=10))
     last=rows[-1][3];previous=9.4
     for row in h.rows.values():row.update(premarket_high=pmh,last_price=last,bid=last-.01,ask=last+.01,
@@ -1639,7 +1644,7 @@ def test_joined_pullback_objective_preserves_native_source_and_trigger_gates(rea
 
 
 def cup_joined(reassessment,monkeypatch,tmp_path,*,position_case='complete_empty',runtime_options=None,
-        peer=False,news_fault='none',competing_key=False,market_fault='none'):
+        peer=False,news_fault='none',competing_key=False,competing_abcd=False,market_fault='none'):
     from test_cup_handle_pattern import _valid_cup_handle
     h=pmh_joined(reassessment,monkeypatch,tmp_path,position_case=position_case,
         runtime_options=runtime_options,clock_time=(13,59,30),peer=peer,news_fault=news_fault)
@@ -1648,22 +1653,29 @@ def cup_joined(reassessment,monkeypatch,tmp_path,*,position_case='complete_empty
     rows[15]=(10.3,10.75,10.27,10.3,1500) # External PRE high, before the cup window.
     rows[25]=(10.3,10.8,10.27,10.3,1500) # Earlier completed RTH high, separately measured.
     if not competing_key:
-        bar=rows[-2];rows[-2]=(bar[0],bar[1],10.30,bar[3],bar[4])
+        bar=rows[-2];rows[-2]=(bar[0],10.49 if competing_abcd else 10.50,10.30,bar[3],bar[4])
     rows[-1]=(10.44,10.55,10.42,10.55,1600)
     current=[(10.44,10.52,10.42,10.50,200),(10.50,10.54,10.49,10.52,200),
         (10.52,10.55,10.51,10.55,1200)]
     if competing_key:
         current=[(10.44,10.48,10.42,10.46,200),(10.46,10.48,10.45,10.48,200),
             (10.48,10.55,10.47,10.55,1200)]
+    if market_fault=='forming_handle_low':
+        rows[-1]=(10.44,10.55,10.25,10.55,1600)
+        current[0]=(10.44,10.52,10.25,10.50,200)
     if market_fault in {'waiting_execution','touch_execution'}:
         value=10.53 if market_fault=='waiting_execution' else 10.54
         current[-1]=(*current[-1][:3],value,current[-1][4])
         rows[-1]=(*rows[-1][:3],value,rows[-1][4])
-    _install_variant_market(h,rows,current,pmh=10.75,early=(10.3,10.32,10.27,10.3,7500))
+    _install_variant_market(h,rows[1:],current,pmh=10.75,early=(10.3,10.32,10.27,10.3,7500),
+        completed_source=True)
+    if market_fault=='forming_handle_low':
+        h.streams['1m'][-1]=replace(h.streams['1m'][-1],timestamp=h.life.clock.current.replace(second=0))
     if market_fault=='future_source':
         h.streams['1m'][-1]=replace(h.streams['1m'][-1],timestamp=h.life.clock.current+timedelta(seconds=12))
     elif market_fault=='incomplete_handle_source':
         h.streams['1m'][-2]=replace(h.streams['1m'][-2],timestamp=h.life.clock.current-timedelta(seconds=45))
+        h.streams['1m'][-1]=replace(h.streams['1m'][-1],timestamp=h.life.clock.current-timedelta(seconds=30))
     elif market_fault=='nan_source':h.streams['1m'][-1]=replace(h.streams['1m'][-1],high=float('nan'))
     elif market_fault=='malformed_source':
         bar=h.streams['1m'][-1];h.streams['1m'][-1]=replace(bar,high=bar.low-.01)
@@ -1735,4 +1747,33 @@ def test_joined_cup_existing_contract_cannot_authorize_invalid_or_unconfirmed_in
             'infinite_execution':'cup_handle_invalid_candle_data'}.get(market_fault,'awaiting_cup_handle_break')
         assert canonical and all(not result['trigger_ready_now'] and result['trigger_reason']==expected
             for result in canonical)
+    no_effects(h)
+
+
+def test_joined_cup_rejects_forming_final_handle_anchor(reassessment,monkeypatch,tmp_path,capsys):
+    h=cup_joined(reassessment,monkeypatch,tmp_path,market_fault='forming_handle_low')
+    cycles(h,capsys)
+    source,results=h.registry_batches[-1]
+    native=next(r for r in results if r.setup_id=='P_CUP_HANDLE')
+    assert len(results)==33
+    assert source.candles[-1].timestamp+timedelta(minutes=1)>source.observed_at_utc
+    assert source.candles[-1].low==10.25<source.candles[-2].low
+    assert not native.detected and native.rejection_reason=='incomplete_cup_handle_structure'
+    assert native.target_suggestion is None
+    assert not [i for batch in h.batches for i in batch if i.setup_family_id=='CUP_HANDLE']
+    no_effects(h)
+
+
+def test_joined_cup_retains_genuine_completed_abcd_competition(reassessment,monkeypatch,tmp_path,capsys):
+    h=cup_joined(reassessment,monkeypatch,tmp_path,competing_abcd=True)
+    cycles(h,capsys)
+    assert len(h.evaluated)==1
+    intent,received,decision=h.evaluated[0]
+    _,results=h.registry_batches[-1]
+    cup=next(r for r in results if r.setup_id=='P_CUP_HANDLE')
+    selected=results[intent.setup_metadata['canonical_result_index']]
+    assert len(results)==33 and cup.detected and h.cup_triggers[-1][2]['trigger_ready_now']
+    assert intent.setup_family_id=='ABCD' and selected.setup_id=='P_ABCD'
+    assert intent.entry_price==selected.trigger_level and intent.target_model==selected.target_suggestion
+    assert received==vars(intent) and decision.reason_code=='LIVE_READ_ONLY_BLOCK'
     no_effects(h)

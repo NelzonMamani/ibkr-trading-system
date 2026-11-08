@@ -1339,7 +1339,6 @@ def acknowledge_cup(h,capsys):
 
 def test_native_cup_paper_later_fill_initial_stop_and_confirmed_flat(reassessment,monkeypatch,tmp_path,
         capsys,no_external_activity):
-    from dataclasses import replace
     from src.strategies.ross_momentum.strategy_policy import CUP_HANDLE_DESCRIPTIVE_OBJECTIVE
     h=late_cup(reassessment,monkeypatch,tmp_path)
     try:
