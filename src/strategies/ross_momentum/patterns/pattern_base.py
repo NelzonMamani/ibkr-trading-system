@@ -116,6 +116,8 @@ class PatternBase(ABC):
         target_suggestion: Optional[str] = None,
         setup_quality_tags: Optional[list[str]] = None,
         risk_flags: Optional[list[str]] = None,
+        trigger_level: float | None = None,
+        stop_level: float | None = None,
     ) -> PatternResult:
         setup_quality_tags = setup_quality_tags or []
         risk_flags = risk_flags or []
@@ -129,8 +131,10 @@ class PatternBase(ABC):
         )
         for line in rationale.split("\n"):
             print(f"  - {line}")
-        trigger_level = self._infer_trigger_level(inputs, direction)
-        stop_level = self._infer_stop_level(inputs, direction, trigger_level)
+        if trigger_level is None:
+            trigger_level = self._infer_trigger_level(inputs, direction)
+        if stop_level is None:
+            stop_level = self._infer_stop_level(inputs, direction, trigger_level)
         return PatternResult(
             setup_id=self.pattern_id or self.name,
             pattern_name=self.name,

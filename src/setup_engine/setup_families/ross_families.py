@@ -314,28 +314,41 @@ class MomentumReclaimPattern(PatternBase):
         candles = inputs.candles
         if len(candles) < 4:
             return self._rejected("insufficient candles", inputs)
+        rejection = abcd_candle_rejection(candles[-4:], observed_at_utc=inputs.observed_at_utc,
+            require_clock=bool(inputs.timeframe_provenance))
+        if rejection:
+            return self._rejected("MOMENTUM_RECLAIM_" + rejection, inputs)
         last = candles[-1]
         ema9 = inputs.indicators.ema9
         vwap = inputs.indicators.vwap
         if ema9 is None and vwap is None:
             return self._rejected("missing reclaim reference (ema9/vwap)", inputs)
         refs = [v for v in [ema9, vwap] if v is not None]
+        if any(not isinstance(v, Real) or isinstance(v, bool) or not isfinite(v) or v <= 0 for v in refs):
+            return self._rejected("invalid reclaim reference", inputs)
         reclaim_level = max(refs)
         prior_lost = any(c.close < reclaim_level for c in candles[-4:-1])
         if not prior_lost:
             return self._rejected("no prior shakeout under reclaim level", inputs)
         if last.close <= reclaim_level:
             return self._rejected("reclaim not confirmed", inputs)
+        # The detector's own shakeout window is the structural risk reference;
+        # PMH/PML and another family's pullback cannot supply this geometry.
+        shakeout_low = min(c.low for c in candles[-4:-1])
+        if not 0 < shakeout_low < reclaim_level:
+            return self._rejected("invalid shakeout structure", inputs)
         detected = self._detected(
             inputs,
             direction=Direction.LONG,
             confidence=0.71,
+            trigger_level=reclaim_level,
+            stop_level=shakeout_low,
             rationale=(
                 "Price lost momentum reference and reclaimed it with close confirmation.\n"
                 f"Reclaim level={reclaim_level:.2f}, close={last.close:.2f}."
             ),
             entry_zone="Close/retest above VWAP-EMA reclaim level",
-            stop_suggestion="Back below reclaim level",
+            stop_suggestion="Below the measured shakeout low",
             target_suggestion="Prior swing high",
             setup_quality_tags=["reclaim", "shakeout_absorbed"],
         )
@@ -344,6 +357,16 @@ class MomentumReclaimPattern(PatternBase):
             setup_family_id="MOMENTUM_RECLAIM",
             trigger_type="XL_MOMENTUM_RECLAIM",
             trigger_level=reclaim_level,
+            stop_level=shakeout_low,
+            invalidation_level=shakeout_low,
+            setup_metadata={
+                "canonical_setup_id": "MOMENTUM_RECLAIM",
+                "normalized_setup_family": "VWAP_RECLAIM_CONTINUATION",
+                "reclaim_level": reclaim_level,
+                "shakeout_low": shakeout_low,
+                "reclaim_references": {"ema9": ema9, "vwap": vwap},
+                "structure_timeframe": inputs.primary_timeframe,
+            },
         )
 
 

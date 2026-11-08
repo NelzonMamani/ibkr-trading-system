@@ -1248,6 +1248,8 @@ class RossMomentumStrategyV1(BaseStrategy):
                 pattern_traces=symbol_trace.pattern_traces,
                 inactive_pattern_ids=getattr(self._pattern_registry, "inactive_pattern_ids", set()),
                 entry_contract_validator=validate_entry_contract,
+                trigger_readiness_validator=lambda index, result: self._candidate_trigger_readiness(
+                    index, result, trigger_candidates),
             )
             if (
                 str(decision.get("decision_state") or "").upper() != "CANDIDATE_SELECTED"
@@ -1264,6 +1266,8 @@ class RossMomentumStrategyV1(BaseStrategy):
                     pattern_traces=symbol_trace.pattern_traces,
                     inactive_pattern_ids=getattr(self._pattern_registry, "inactive_pattern_ids", set()),
                     entry_contract_validator=validate_entry_contract,
+                    trigger_readiness_validator=lambda index, result: self._candidate_trigger_readiness(
+                        index, result, trigger_candidates),
                 )
                 if str(fallback_decision.get("decision_state") or "").upper() == "CANDIDATE_SELECTED":
                     print(f"[ROSS][DECISION_FALLBACK] symbol={symbol} reason=trusted_setups_no_trigger")
@@ -2196,6 +2200,18 @@ class RossMomentumStrategyV1(BaseStrategy):
         return mapping.get(str(pattern_id or "").upper(), "UNKNOWN")
 
 
+    def _candidate_trigger_readiness(self, index: int, result: Any, trigger_candidates: list[dict]) -> tuple[bool, str]:
+        family = self._pattern_result_value(result, "setup_family_id", "setup_family")
+        if not family or str(family).startswith("P_"):
+            family = self._setup_family_from_pattern_id(
+                self._pattern_result_value(result, "pattern_id", "setup_id", "id"))
+        trigger = self._select_trigger_candidate(setup_family_id=family,
+            trigger_candidates=trigger_candidates, selected_candidate_index=index)
+        if trigger is None or trigger.get("canonical_result_index") != index:
+            return False, "no_trigger_candidate"
+        return (True, "trigger_ready") if trigger.get("trigger_ready_now") is True else (
+            False, str(trigger.get("trigger_reason") or "trigger_not_ready"))
+
     @staticmethod
     def _select_trigger_candidate(*, setup_family_id: str | None, trigger_candidates: list[dict] | None,
                                   selected_candidate_index: int | None = None) -> dict | None:
@@ -2206,7 +2222,7 @@ class RossMomentumStrategyV1(BaseStrategy):
             if RossMomentumStrategyV1._normalize_setup_family_id(c.get("setup_family_id")) == family
         ]
         indexed = [c for c in candidates if "canonical_result_index" in c]
-        if indexed:
+        if indexed or type(selected_candidate_index) is int:
             if type(selected_candidate_index) is int:
                 candidates = [c for c in indexed if c["canonical_result_index"] == selected_candidate_index]
             else:
@@ -2262,7 +2278,7 @@ class RossMomentumStrategyV1(BaseStrategy):
             "OPENING_RANGE_BREAKOUT", "PREMARKET_HIGH_BREAK",
             "KEY_LEVEL_BREAK",
             "FIRST_PULLBACK",
-            "ABCD", "GAP_GO", "HOD_BREAK",
+            "ABCD", "GAP_GO", "HOD_BREAK", "VWAP_RECLAIM_CONTINUATION",
         }
         authority_statuses = {SetupImplementationStatus.TRADE_READY, SetupImplementationStatus.PROBATIONARY}
         candidates: list[dict] = []
@@ -2277,7 +2293,8 @@ class RossMomentumStrategyV1(BaseStrategy):
             family = self._normalize_setup_family_id(family)
             if family not in supported_pattern_families:
                 continue
-            spec = CANONICAL_SETUP_REGISTRY.get("ORB" if family == "OPENING_RANGE_BREAKOUT" else family)
+            spec = CANONICAL_SETUP_REGISTRY.get({"OPENING_RANGE_BREAKOUT": "ORB",
+                "VWAP_RECLAIM_CONTINUATION": "MOMENTUM_RECLAIM"}.get(family, family))
             if spec is None or spec.status not in authority_statuses:
                 print(
                     "[ROSS][CANONICAL_PATTERN_TRIGGER][SKIP] "

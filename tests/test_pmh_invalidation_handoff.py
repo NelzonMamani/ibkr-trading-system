@@ -110,16 +110,21 @@ def test_duplicate_id_cannot_borrow_rejected_occurrences_levels(monkeypatch,tmp_
 
 
 @pytest.mark.parametrize("reverse",[False,True])
-def test_selected_waiting_occurrence_cannot_borrow_a_ready_trigger(monkeypatch,tmp_path,reverse):
+def test_ready_pmh_occurrence_wins_with_own_distinct_stop_and_invalidation(monkeypatch,tmp_path,reverse):
     valid=contract()
     waiting=replace(valid,trigger_level=10.6,stop_level=10.5894,invalidation_level=10.6,confidence=.95)
     supplied=[waiting,valid] if reverse else [valid,waiting]
     strategy,intents,_,calls=actual_run(monkeypatch,tmp_path,supplied=supplied)
-    assert intents==[]
+    assert len(intents)==1
+    intent=intents[0]
+    assert intent.setup_metadata['canonical_result_index']==supplied.index(valid)
+    assert (intent.entry_price,intent.stop_loss_price,intent.invalidation_level)==(
+        valid.trigger_level,valid.stop_level,valid.invalidation_level)
+    assert intent.target_model==valid.target_suggestion and intent.take_profit_price is None
     canonical={p["canonical_result_index"]:o for p,o in calls if p.get("source")=="canonical_pattern_result"}
     assert not canonical[supplied.index(waiting)]["trigger_ready_now"]
     assert canonical[supplied.index(valid)]["trigger_ready_now"]
-    assert not strategy.last_symbol_terminal_outcomes["UPC"]["intent_emitted"]
+    assert strategy.last_symbol_terminal_outcomes["UPC"]["intent_emitted"]
 
 
 @pytest.mark.parametrize("field",["trigger_level","stop_level","invalidation_level"])

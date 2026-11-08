@@ -124,11 +124,16 @@ def test_duplicate_contract_isolation(monkeypatch,tmp_path,reverse):
 
 
 @pytest.mark.parametrize("reverse",[False,True])
-def test_waiting_occurrence_cannot_borrow_ready_trigger(monkeypatch,tmp_path,reverse):
+def test_ready_abcd_occurrence_wins_without_borrowing_from_waiting(monkeypatch,tmp_path,reverse):
     valid=result(); waiting=replace(valid,confidence=.99,trigger_level=12.)
     supplied=[waiting,valid] if reverse else [valid,waiting]
     strategy,intents,_,_,_=run(monkeypatch,tmp_path,supplied=supplied)
-    assert intents==[]
+    assert len(intents)==1
+    intent=intents[0]
+    assert intent.setup_metadata['canonical_result_index']==supplied.index(valid)
+    assert (intent.entry_price,intent.stop_loss_price,intent.invalidation_level)==(
+        valid.trigger_level,valid.stop_level,valid.invalidation_level)
+    assert intent.target_model==valid.target_suggestion and intent.take_profit_price is None
     triggers=[t for t in strategy._failure_trace_collector._symbols[-1].input_summary["trigger_candidates"] if t.get("setup_family_id")=="ABCD"]
     selected=next(t for t in triggers if t["canonical_result_index"]==supplied.index(waiting))
     other=next(t for t in triggers if t["canonical_result_index"]!=supplied.index(waiting))

@@ -131,7 +131,10 @@ POLICY_V2 = StrategyPolicyV2(
             SetupFamilySpecV2("KEY_LEVEL_BREAK", "Break of Key Level", "Premarket high, HOD, whole/half dollar, prior day, or multi-day level break.", ("DAILY", "5MIN", "1MIN")),
             SetupFamilySpecV2("ABCD", "ABCD Continuation", "Measured move continuation after pullback.", ("5MIN", "1MIN")),
             SetupFamilySpecV2("CUP_HANDLE", "Cup & Handle", "Rounded base and handle breakout.", ("5MIN", "1MIN")),
-            SetupFamilySpecV2("MOMENTUM_RECLAIM", "Momentum Reclaim", "Reclaim VWAP/EMA after shakeout then continue.", ("1MIN", "10SEC")),
+            SetupFamilySpecV2("MOMENTUM_RECLAIM", "Momentum Reclaim", "Reclaim the higher available VWAP/EMA9 after a close below it in the preceding three bars; strict close above confirms. "
+                "Project measurement: stop/invalidation is the minimum low of those same three shakeout bars, never a generic PMH/PML anchor. "
+                "Registered execution requires a fresh cross from at/below to strictly above with the shakeout low intact. "
+                "Prior swing high is descriptive only; numeric TP remains None. MOMENTUM_RECLAIM normalizes to VWAP_RECLAIM_CONTINUATION.", ("1MIN", "10SEC")),
             SetupFamilySpecV2("PREMARKET_HIGH_BREAK", "Premarket High Break", "Reclaim and hold above premarket high.", ("PRE", "RTH", "1MIN", "10SEC")),
             SetupFamilySpecV2("HALT_RESUME", "Halt Resume Continuation", "Post-halt continuation only when liquidity and structure stabilize.", ("1MIN", "10SEC")),
             SetupFamilySpecV2("PARABOLIC_EXHAUSTION", "Parabolic Exhaustion", "Exit/avoid family used to de-risk rather than initiate entries.", ("1MIN", "5MIN")),

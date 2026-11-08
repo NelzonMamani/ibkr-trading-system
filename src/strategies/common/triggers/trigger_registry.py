@@ -43,6 +43,7 @@ TRIGGER_EVALUATOR_REGISTRY: dict[str, TriggerEvaluator] = {
     "CUP_HANDLE": evaluate_cup_handle_trigger,
     "EMA_PULLBACK": evaluate_ema_pullback_trigger,
     "MOMENTUM_RECLAIM": evaluate_momentum_reclaim_trigger,
+    "VWAP_RECLAIM_CONTINUATION": evaluate_momentum_reclaim_trigger,
     "PARABOLIC_EXHAUSTION": evaluate_parabolic_exhaustion_trigger,
     "TREND_CONTINUATION_STAIR_STEP": evaluate_stair_step_trigger,
     "VWAP_PULLBACK": evaluate_vwap_pullback_trigger,
