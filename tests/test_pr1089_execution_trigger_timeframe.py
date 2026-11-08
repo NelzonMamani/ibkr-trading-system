@@ -6,11 +6,16 @@ import pytest
 from src.config.runtime_config import RunMode
 from src.core.engines.trigger_engine import TriggerEngine
 from src.strategies.ross_momentum.patterns.pattern_inputs import build_authoritative_pattern_inputs
-from src.strategies.ross_momentum.patterns.pattern_registry import RossPatternRegistry
 from test_pr1082_trigger_to_intent_terminal_semantics import (
     _base_strategy, _candles, _snapshot, _watchlist_row, _reset_config,
 )
-from test_pr1089_pullback_continuity_and_provenance import _case, _synthetic_complete_registry
+from test_pr1089_pullback_continuity_and_provenance import _case, _native_component_registry
+from src.strategies.ross_momentum.strategy_policy import (
+    THREE_BAR_PULLBACK_DESCRIPTIVE_OBJECTIVE, SECOND_PULLBACK_DESCRIPTIVE_OBJECTIVE,
+)
+
+OBJECTIVES = {"THREE_BAR_PULLBACK": THREE_BAR_PULLBACK_DESCRIPTIVE_OBJECTIVE,
+              "SECOND_PULLBACK": SECOND_PULLBACK_DESCRIPTIVE_OBJECTIVE}
 
 
 @pytest.fixture(autouse=True)
@@ -43,10 +48,13 @@ def streams(family, *, session="RTH_OPEN", primary_fire=False, execution_fire=Tr
 
 
 def run_strategy(monkeypatch, tmp_path, family, data, *, session="RTH_OPEN", symbol="UPC",
-                 synthetic_complete=True):
+                 incomplete_target=False):
     strategy = _base_strategy(monkeypatch, tmp_path, state="ready")
-    registry = _synthetic_complete_registry(_case(family)[0]) if synthetic_complete else RossPatternRegistry()
-    registry._patterns = [_case(family)[0]]
+    pattern = _case(family)[0]
+    if incomplete_target:
+        evaluate = pattern.evaluate
+        monkeypatch.setattr(pattern, "evaluate", lambda inputs: replace(evaluate(inputs), target_suggestion=None))
+    registry = _native_component_registry(pattern)
     strategy._pattern_registry = registry
     monkeypatch.setattr(
         "src.strategies.ross_momentum.patterns.pattern_trace.get_intraday_bars",
@@ -70,7 +78,8 @@ def test_intraminute_execution_break_fires_from_real_strategy(monkeypatch, tmp_p
     assert result.setup_metadata["breakout_volume_confirmed"] is not True
     strategy, intents, triggers = run_strategy(monkeypatch, tmp_path, family, data)
     assert len(intents) == 1
-    assert intents[0].target_model == "SYNTHETIC_DOWNSTREAM_GATE_TARGET"
+    assert intents[0].target_model == OBJECTIVES[family]
+    assert intents[0].take_profit_price is None
     assert strategy.last_symbol_terminal_outcomes["UPC"]["intent_emitted"]
     trigger = next(t for t in triggers if t["setup_family_id"] == family)
     assert trigger["trigger_ready_now"]
@@ -147,7 +156,8 @@ def test_steady_session_uses_actual_one_minute_stream(monkeypatch, tmp_path, fam
     _, data = streams(family, primary_fire=True, execution_fire=False)
     strategy, intents, triggers = run_strategy(monkeypatch, tmp_path, family, data, session="RTH_MID")
     assert len(intents) == 1
-    assert intents[0].target_model == "SYNTHETIC_DOWNSTREAM_GATE_TARGET"
+    assert intents[0].target_model == OBJECTIVES[family]
+    assert intents[0].take_profit_price is None
     assert strategy.last_symbol_terminal_outcomes["UPC"]["intent_emitted"]
     evidence = next(t for t in triggers if t["setup_family_id"] == family)["execution_stream"]
     assert evidence["execution_trigger_timeframe"] == "1m"
@@ -179,7 +189,7 @@ def test_missing_execution_stream_preserves_other_symbol(monkeypatch, tmp_path):
     family = "THREE_BAR_PULLBACK"
     _, data = streams(family)
     strategy = _base_strategy(monkeypatch, tmp_path, state="ready")
-    registry = _synthetic_complete_registry(_case(family)[0])
+    registry = _native_component_registry(_case(family)[0])
     strategy._pattern_registry = registry
     monkeypatch.setattr(
         "src.strategies.ross_momentum.patterns.pattern_trace.get_intraday_bars",
@@ -192,7 +202,8 @@ def test_missing_execution_stream_preserves_other_symbol(monkeypatch, tmp_path):
         timestamp_utc="mixed-cycle", mode=RunMode.READ_ONLY,
     )
     assert [intent.symbol for intent in intents] == ["AAA"]
-    assert intents[0].target_model == "SYNTHETIC_DOWNSTREAM_GATE_TARGET"
+    assert intents[0].target_model == OBJECTIVES[family]
+    assert intents[0].take_profit_price is None
     assert strategy.last_symbol_terminal_outcomes["AAA"]["trigger_ready_now"]
     assert strategy.last_symbol_terminal_outcomes["AAA"]["intent_emitted"]
     assert strategy.last_symbol_terminal_outcomes["BBB"]["intent_emitted"] is False
@@ -213,7 +224,8 @@ def test_primary_history_does_not_consume_execution_entry(monkeypatch, tmp_path,
     data["10s"] = _candles(rows, end=primary[-1].timestamp, step_seconds=10)
     strategy, intents, _ = run_strategy(monkeypatch, tmp_path, family, data)
     assert len(intents) == 1
-    assert intents[0].target_model == "SYNTHETIC_DOWNSTREAM_GATE_TARGET"
+    assert intents[0].target_model == OBJECTIVES[family]
+    assert intents[0].take_profit_price is None
     assert strategy.last_symbol_terminal_outcomes["UPC"]["intent_emitted"]
 
 
@@ -251,12 +263,13 @@ def test_registered_engine_preserves_explicit_stream_failure(failure, reason):
 
 
 @pytest.mark.parametrize("family", ["THREE_BAR_PULLBACK", "SECOND_PULLBACK"])
-def test_real_targetless_pullback_remains_ineligible_before_selection(monkeypatch, tmp_path, capsys, family):
+def test_deliberately_incomplete_native_contract_remains_ineligible_before_selection(monkeypatch, tmp_path, capsys, family):
     pattern, data = streams(family)
     result = pattern.evaluate(build_authoritative_pattern_inputs(
         symbol="UPC", session_label="RTH_OPEN", timeframe_candles=data))
-    assert result.detected and result.target_suggestion is None
-    strategy, intents, _ = run_strategy(monkeypatch, tmp_path, family, data, synthetic_complete=False)
+    assert result.detected and result.target_suggestion
+    # Explicit incomplete-result negative only; native positives use their own objective.
+    strategy, intents, _ = run_strategy(monkeypatch, tmp_path, family, data, incomplete_target=True)
     assert intents == []
     terminal = strategy.last_symbol_terminal_outcomes["UPC"]
     assert terminal["terminal_stage"] == "decision" and not terminal["intent_emitted"]
