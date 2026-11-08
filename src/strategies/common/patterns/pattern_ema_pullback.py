@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
 from statistics import mean
+
+from src.adapters.data.historical_bar_timeframes import resolve_intraday_timeframe_request
+from src.strategies.common.triggers.trigger_abcd_continuation import abcd_candle_rejection
+
+from src.strategies.ross_momentum.strategy_policy import EMA_PULLBACK_DESCRIPTIVE_OBJECTIVE
 
 from src.config.setup_thresholds import EMA_PULLBACK_MAX_DEPTH, MIN_RVOL_CONTINUATION
 from src.strategies.common.patterns.pullback_utils import (
@@ -78,6 +84,19 @@ def detect_ema_pullback(inputs: PatternInputs) -> PatternResult:
     if any(v is None for v in [*highs, *lows, *closes, *opens, *volumes]):
         return reject("invalid_inputs")
 
+    rejection = abcd_candle_rejection(candles, observed_at_utc=inputs.observed_at_utc,
+        require_clock=bool(inputs.timeframe_provenance))
+    if rejection:
+        return reject(rejection)
+    if inputs.observed_at_utc is not None:
+        try:
+            request = resolve_intraday_timeframe_request(
+                timeframe=inputs.primary_timeframe or inputs.timeframe, requested_bars=_MIN_HISTORY)
+        except ValueError:
+            return reject("INVALID_STRUCTURE_TIMEFRAME")
+        if any(c.timestamp + timedelta(seconds=request.bar_seconds) > inputs.observed_at_utc for c in candles):
+            return reject("incomplete_ema_pullback_structure")
+
     last_close = float(closes[-1])
     prev_close = float(closes[-2])
     if not (ema9 > ema20 and last_close > ema9):
@@ -151,6 +170,7 @@ def detect_ema_pullback(inputs: PatternInputs) -> PatternResult:
         confidence=confidence,
         setup_quality_tags=quality_tags,
         setup_family_id="EMA_PULLBACK",
+        target_suggestion=EMA_PULLBACK_DESCRIPTIVE_OBJECTIVE,
         setup_semantic=SetupSemantic.CONTINUATION.value,
         rationale_text="EMA9/EMA20 pullback reclaimed with continuation-ready breakout trigger.",
         rejection_reason=None,

@@ -1981,3 +1981,135 @@ def test_opening_competition_profile_external_timeframes_agree(reassessment,monk
     assert five.volume==sum(bar.volume for bar in minutes)
     cycles(h,capsys)
     no_effects(h)
+
+
+def indicator_pullback_joined(reassessment,monkeypatch,tmp_path,*,family='EMA_PULLBACK',
+        position_case='complete_empty',runtime_options=None,peer=False,news_fault='none',market_fault='none'):
+    from test_ema_pullback_pipeline_certification import _inputs
+    h=pmh_joined(reassessment,monkeypatch,tmp_path,position_case=position_case,runtime_options=runtime_options,
+        clock_time=(14,9,30),peer=peer,news_fault=news_fault)
+    rows=[(10.3,10.32,10.27,10.3,1500)]*43+[
+        tuple(getattr(bar,key) for key in ('open','high','low','close','volume')) for bar in _inputs().candles]
+    rows[5]=(10.3,10.75,10.27,10.3,1500)
+    rows[15]=(10.3,10.8,10.27,10.3,1500)
+    rows[-1]=(10.35 if market_fault=='competing_key' else 10.51,10.62,10.34,10.56,1500)
+    current=[(10.56,10.56,10.48,10.49,200),(10.49,10.50,10.48,10.495,200),
+        (10.495,10.52,10.47,10.515,1200)]
+    if market_fault=='competing_abcd':current[-1]=(10.495,10.55,10.47,10.54,1200)
+    if market_fault in {'waiting_execution','equal_minimum_break','above_minimum_break'}:
+        value={'waiting_execution':10.5,'equal_minimum_break':10.5*(1+.001),
+            'above_minimum_break':10.5*(1+.001)+.0001}[market_fault]
+        current[-1]=(*current[-1][:3],value,current[-1][4])
+    elif market_fault=='invalid_breakout_shape':current[-1]=(10.515,10.57,10.47,10.515,1200)
+    _install_variant_market(h,rows,current,pmh=10.75,early=(10.3,10.32,10.27,10.3,7500),completed_source=True)
+    if market_fault=='future_source':
+        h.streams['1m'][-1]=replace(h.streams['1m'][-1],timestamp=h.life.clock.current+timedelta(seconds=12))
+    elif market_fault=='incomplete_source':
+        h.streams['1m'][-1]=replace(h.streams['1m'][-1],timestamp=h.life.clock.current-timedelta(seconds=30))
+    elif market_fault=='nan_source':h.streams['1m'][-10]=replace(h.streams['1m'][-10],high=float('nan'))
+    elif market_fault=='malformed_source':
+        bar=h.streams['1m'][-10];h.streams['1m'][-10]=replace(bar,high=bar.low-.01)
+    elif market_fault=='future_execution':
+        h.streams['10s'][-1]=replace(h.streams['10s'][-1],timestamp=h.life.clock.current+timedelta(seconds=12))
+    elif market_fault=='nan_execution':h.streams['10s'][-1]=replace(h.streams['10s'][-1],low=float('nan'))
+    last=current[-1][3]
+    bid,ask=round(last-.01,2),round(last+.01,2)
+    for row in h.rows.values():row.update(last_price=last,bid=bid,ask=ask,
+        spread_pct=100*(ask-bid)/last,dollar_volume=last*1_800_000,
+        gap_pct=(last/9.4-1)*100,pct_change=(last/9.4-1)*100)
+    snapshot=replace(_snapshot(symbol='JPM'),last=last,bid=bid,ask=ask)
+    h.core.market_data_snapshot_manager=NS(batch_snapshots=lambda symbols:({s:replace(snapshot,symbol=s,
+        asof_utc=h.life.clock.current,market_timestamp_utc=h.life.clock.current) for s in symbols},[]))
+    evaluator=TRIGGER_EVALUATOR_REGISTRY[family];h.indicator_triggers=[]
+    def observed(payload,inputs):
+        result=evaluator(payload,inputs)
+        h.indicator_triggers.append((deepcopy(payload),deepcopy(inputs),deepcopy(result)))
+        return result
+    monkeypatch.setitem(TRIGGER_EVALUATOR_REGISTRY,family,observed)
+    if market_fault in {'competing_key','competing_abcd'}:
+        other_family='KEY_LEVEL_BREAK' if market_fault=='competing_key' else 'ABCD'
+        other=TRIGGER_EVALUATOR_REGISTRY[other_family];h.competing_indicator_triggers=[]
+        def observed_competitor(payload,inputs):
+            result=other(payload,inputs)
+            h.competing_indicator_triggers.append((deepcopy(payload),deepcopy(inputs),deepcopy(result)))
+            return result
+        monkeypatch.setitem(TRIGGER_EVALUATOR_REGISTRY,other_family,observed_competitor)
+    return h
+
+
+def test_native_ema_pullback_authorized_objective_selected_readonly(reassessment,monkeypatch,tmp_path,capsys):
+    h=indicator_pullback_joined(reassessment,monkeypatch,tmp_path)
+    cycles(h,capsys)
+    source,results=h.registry_batches[-1]
+    native=next(r for r in results if r.setup_id=='P_EMA_PULLBACK')
+    assert len(results)==33 and native.detected,native.rejection_reason
+    from src.strategies.ross_momentum.strategy_policy import EMA_PULLBACK_DESCRIPTIVE_OBJECTIVE
+    assert native.target_suggestion==EMA_PULLBACK_DESCRIPTIVE_OBJECTIVE
+    assert len(h.evaluated)==1
+    intent,received,decision=h.evaluated[0]
+    assert intent.setup_family_id=='EMA_PULLBACK'
+    assert results[intent.setup_metadata['canonical_result_index']] is native
+    assert (intent.entry_price,intent.stop_loss_price,intent.invalidation_level)==(10.5,10.29,10.29)
+    assert intent.target_model==native.target_suggestion and intent.take_profit_price is None
+    assert received==vars(intent) and decision.reason_code=='LIVE_READ_ONLY_BLOCK'
+    no_effects(h)
+
+
+@pytest.mark.parametrize('market_fault',['future_source','incomplete_source','nan_source','malformed_source',
+    'future_execution','nan_execution'])
+def test_native_ema_pullback_invalid_facts_cannot_admit(reassessment,monkeypatch,tmp_path,capsys,market_fault):
+    h=indicator_pullback_joined(reassessment,monkeypatch,tmp_path,market_fault=market_fault)
+    cycles(h,capsys)
+    assert not [i for batch in h.batches for i in batch if i.setup_family_id=='EMA_PULLBACK']
+    _,results=h.registry_batches[-1]
+    native=next(r for r in results if r.setup_id=='P_EMA_PULLBACK')
+    reasons={'future_source':'FUTURE_CANDLE_DATA','incomplete_source':'incomplete_ema_pullback_structure',
+        'nan_source':'INVALID_CANDLE_DATA','malformed_source':'INVALID_CANDLE_DATA'}
+    if market_fault in reasons:
+        assert not native.detected and native.rejection_reason==reasons[market_fault]
+        assert native.target_suggestion is None
+    else:
+        assert native.detected
+        canonical=[r for p,_,r in h.indicator_triggers if p.get('canonical_result_index')==results.index(native)]
+        reason='ema_pullback_future_candle_data' if market_fault=='future_execution' else 'ema_pullback_invalid_candle_data'
+        assert canonical and all(not r['trigger_ready_now'] and r['trigger_reason']==reason for r in canonical)
+    no_effects(h)
+
+
+@pytest.mark.parametrize('market_fault,family,winner',[('competing_key','KEY_LEVEL_BREAK','KEY_LEVEL_BREAK'),
+    ('competing_abcd','ABCD','EMA_PULLBACK')])
+def test_ema_pullback_preserves_genuine_competing_family_selection(reassessment,monkeypatch,tmp_path,capsys,market_fault,family,winner):
+    h=indicator_pullback_joined(reassessment,monkeypatch,tmp_path,market_fault=market_fault)
+    cycles(h,capsys)
+    _,results=h.registry_batches[-1]
+    ema=next(r for r in results if r.setup_id=='P_EMA_PULLBACK')
+    assert len(results)==33 and ema.detected and h.indicator_triggers[-1][2]['trigger_ready_now']
+    assert len(h.evaluated)==1
+    intent,received,decision=h.evaluated[0]
+    selected=results[intent.setup_metadata['canonical_result_index']]
+    other=next(r for r in results if r.setup_family_id==family)
+    assert other.detected
+    assert any(r['trigger_ready_now'] for p,_,r in h.competing_indicator_triggers
+        if p.get('canonical_result_index')==results.index(other))
+    assert intent.setup_family_id==winner
+    assert selected is (other if winner==family else ema)
+    assert intent.entry_price==selected.trigger_level and intent.target_model==selected.target_suggestion
+    assert received==vars(intent) and decision.reason_code=='LIVE_READ_ONLY_BLOCK'
+    no_effects(h)
+
+
+@pytest.mark.parametrize('market_fault,ready,reason',[('waiting_execution',False,'awaiting_breakout'),
+    ('equal_minimum_break',False,'awaiting_breakout'),('above_minimum_break',True,'ema_pullback_breakout_confirmed'),
+    ('invalid_breakout_shape',False,'breakout_shape_invalid')])
+def test_ema_pullback_preserves_registered_confirmation_boundaries(reassessment,monkeypatch,tmp_path,capsys,
+        market_fault,ready,reason):
+    h=indicator_pullback_joined(reassessment,monkeypatch,tmp_path,market_fault=market_fault)
+    cycles(h,capsys)
+    _,results=h.registry_batches[-1]
+    native=next(r for r in results if r.setup_id=='P_EMA_PULLBACK')
+    assert len(results)==33 and native.detected
+    canonical=[r for p,_,r in h.indicator_triggers if p.get('canonical_result_index')==results.index(native)]
+    assert canonical and all(r['trigger_ready_now']==ready and r['trigger_reason']==reason for r in canonical)
+    own=[i for batch in h.batches for i in batch if i.setup_family_id=='EMA_PULLBACK']
+    assert len(own)==int(ready)
+    no_effects(h)

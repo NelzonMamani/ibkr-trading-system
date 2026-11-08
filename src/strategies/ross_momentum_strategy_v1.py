@@ -2296,7 +2296,7 @@ class RossMomentumStrategyV1(BaseStrategy):
             "OPENING_RANGE_BREAKOUT", "PREMARKET_HIGH_BREAK",
             "KEY_LEVEL_BREAK",
             "FIRST_PULLBACK",
-            "ABCD", "GAP_GO", "HOD_BREAK", "VWAP_RECLAIM_CONTINUATION", "CUP_HANDLE", "OPENING_DRIVE",
+            "ABCD", "GAP_GO", "HOD_BREAK", "VWAP_RECLAIM_CONTINUATION", "CUP_HANDLE", "OPENING_DRIVE", "EMA_PULLBACK",
         }
         authority_statuses = {SetupImplementationStatus.TRADE_READY, SetupImplementationStatus.PROBATIONARY}
         candidates: list[dict] = []
