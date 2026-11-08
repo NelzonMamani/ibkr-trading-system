@@ -2130,6 +2130,9 @@ class ExecutionEngine:
         except (KeyError, TypeError, ValueError, OverflowError):
             raise ValueError("CACHED_EXECUTION_UPDATE_INVALID") from None
         if total == order["filled"] and status == order.get("status"):
+            if order.get("protection_parent_order_id"):
+                _, life = self._native_protection_owner(order)
+                self._verify_native_remaining_stop(order, life, total)
             return None
         request = BrokerOrderRequest(**order["request"])
         context = request.relationship_context or {}
@@ -2194,6 +2197,7 @@ class ExecutionEngine:
                     if ((position.quantity if position else 0) != native_life.filled_qty
                             or (registered.quantity if registered else 0) != native_life.filled_qty):
                         raise RuntimeError("NATIVE_PROTECTION_PROJECTION_UNVERIFIED")
+                    self._verify_native_remaining_stop(order, native_life, total)
                 if not order.get("lifecycle_application_rejected"):
                     order.pop("cached_update_in_progress")
                 if plan is None:
@@ -2295,6 +2299,14 @@ class ExecutionEngine:
             raise ValueError("NATIVE_PROTECTION_BINDING_INVALID")
         return parent, life
 
+    def _verify_native_remaining_stop(self, order, life, cumulative_filled):
+        if life.filled_qty <= 0:
+            return
+        inventory = list(self._provider.get_open_orders())
+        if self._confirmed_stop_quantity(symbol=order["symbol"], life=life,
+                orders=inventory, stop_filled=cumulative_filled) is None:
+            raise RuntimeError("NATIVE_PROTECTION_REMAINDER_UNVERIFIED")
+
     def _retain_native_selected_stops(self) -> None:
         for parent_id, parent in list(self._native_orders.items()):
             if parent.get("side") not in {"LONG", "BUY"} or not parent.get("protection_confirmed"):
@@ -2310,7 +2322,8 @@ class ExecutionEngine:
                 broker_id = str(stop.broker_order_id)
                 order_id = f"{parent_id}:stop:{broker_id}"
                 if order_id in self._native_orders:
-                    self._native_protection_owner(self._native_orders[order_id])
+                    child = self._native_orders[order_id]
+                    self._native_protection_owner(child)
                     continue
                 if any(str(other.get("broker_order_id")) == broker_id for other in self._native_orders.values()):
                     raise ValueError("CACHED_EXECUTION_DUPLICATE_NATIVE_ID")
