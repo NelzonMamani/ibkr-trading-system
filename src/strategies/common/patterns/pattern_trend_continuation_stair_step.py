@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
 from statistics import mean
+
+from src.adapters.data.historical_bar_timeframes import resolve_intraday_timeframe_request
+from src.strategies.common.triggers.trigger_abcd_continuation import abcd_candle_rejection
+
+from src.strategies.ross_momentum.strategy_policy import TREND_CONTINUATION_STAIR_STEP_DESCRIPTIVE_OBJECTIVE
 
 from src.config.setup_thresholds import MIN_RVOL_CONTINUATION, STAIR_STEP_MAX_DEPTH
 from src.strategies.common.patterns.pullback_utils import (
@@ -66,6 +72,19 @@ def detect_trend_continuation_stair_step(inputs: PatternInputs) -> PatternResult
     for field in ("open", "high", "low", "close"):
         if any(_safe_float(_read(c, field)) is None for c in candles[-_MIN_LOOKBACK:]):
             return reject("invalid_inputs")
+
+    rejection = abcd_candle_rejection(candles, observed_at_utc=inputs.observed_at_utc,
+        require_clock=bool(inputs.timeframe_provenance))
+    if rejection:
+        return reject(rejection)
+    if inputs.observed_at_utc is not None:
+        try:
+            request = resolve_intraday_timeframe_request(
+                timeframe=inputs.primary_timeframe or inputs.timeframe, requested_bars=_MIN_LOOKBACK)
+        except ValueError:
+            return reject("INVALID_STRUCTURE_TIMEFRAME")
+        if any(c.timestamp + timedelta(seconds=request.bar_seconds) > inputs.observed_at_utc for c in candles):
+            return reject("incomplete_stair_step_structure")
 
     rvol = _safe_float(inputs.liquidity_context.rvol)
     spread = _safe_float(inputs.liquidity_context.spread)
@@ -159,6 +178,7 @@ def detect_trend_continuation_stair_step(inputs: PatternInputs) -> PatternResult
         confidence=confidence,
         setup_quality_tags=["higher_low_sequence", "continuation"] + (["shallow_pullback"] if is_shallow_pullback(pullback_depth) else []),
         setup_family_id="TREND_CONTINUATION_STAIR_STEP",
+        target_suggestion=TREND_CONTINUATION_STAIR_STEP_DESCRIPTIVE_OBJECTIVE,
         setup_semantic=SetupSemantic.CONTINUATION.value,
         rationale_text="Stair-step continuation detected with higher-low sequence and breakout trigger defined.",
         rejection_reason=None,

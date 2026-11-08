@@ -6,6 +6,9 @@ from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 from types import SimpleNamespace
 
+import math
+import pytest
+
 from src.config.runtime_config import RunMode
 from src.core.engines.trigger_quality_engine import TriggerQualityEngine
 from src.domain.market_snapshot import MarketSnapshot
@@ -393,3 +396,37 @@ def test_tradeable_entry_gate_passes_clean_candidate(capsys) -> None:
     assert result["tradeable"] is True
     assert result["blocking_reasons"] == []
     assert "[TRADEABLE][PASS] symbol=TEST" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("family", ["THREE_BAR_PULLBACK", "SECOND_PULLBACK"])
+@pytest.mark.parametrize("confidence,blocked", [
+    (0.0, True),
+    (0.58, True),
+    (math.nextafter(0.64, 0.0), True),
+    (0.64, False),
+    (math.nextafter(0.64, 1.0), False),
+])
+def test_native_confidence_gate_does_not_substitute_trigger_quality(
+    family: str, confidence: float, blocked: bool,
+) -> None:
+    # Boundary inputs exercise this gate only; they are NOT native detector
+    # scores or authority to admit either family. The real full-registry PAPER
+    # cases retain native .58 and prove zero dispatch/accounting/protection.
+    quality = TriggerQualityEngine().evaluate_trigger_quality(
+        trigger={"setup_family_id": family, "trigger_quality_flags": []},
+        structure={"dominant_direction": "UP", "pullback_depth": {"depth_pct": 0.25},
+                   "compression_active": True, "structure_quality_flags": []},
+        session_context="RTH_OPEN", rvol=2.5,
+    )
+    assert quality["quality_score"] == 0.75
+    strategy = RossMomentumStrategyV1()
+    assert strategy._tradeable_min_confidence == 0.64
+    assessment = strategy.evaluate_tradeable_entry(
+        symbol="TEST", mode=RunMode.PAPER, setup_family=family,
+        pattern_confidence=confidence, entry_price=10.03,
+        input_summary=SimpleNamespace(last_price=10.03, spread=0.02, rvol=2.5, pct_change=8.0),
+        selected_trigger={"trigger_price_reference": 10.0, "quality": quality}, levels={},
+    )
+    assert assessment["tradeable"] is (not blocked)
+    assert assessment["blocking_reasons"] == (
+        ["CONFIDENCE_BELOW_ORDERABLE_THRESHOLD"] if blocked else [])

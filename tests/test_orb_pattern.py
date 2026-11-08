@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from src.strategies.common.candles.candle_types import Candle
 from src.strategies.common.patterns.pattern_orb import _ORB_RANGE_LOCK, detect_orb
 from src.strategies.common.triggers.trigger_orb import evaluate_orb_trigger
@@ -211,12 +213,25 @@ def test_orb_uses_authoritative_macd_without_waiving_positive_gate() -> None:
         assert result.rejection_reason == 'macd_not_positive'
 
 
-def test_native_orb_target_does_not_force_winner_over_genuine_key() -> None:
+@pytest.mark.parametrize("wider_pause,expected_winner", [
+    (False, "P_TREND_CONTINUATION_STAIR_STEP"),
+    (True, "P_KEY_LEVEL_BREAK"),
+])
+def test_native_orb_target_preserves_genuine_full_registry_competition(
+    wider_pause: bool, expected_winner: str,
+) -> None:
     from src.core.engines.decision_engine import DecisionEngine
     from src.strategies.ross_momentum.decision_policy import validate_entry_contract
     from src.strategies.ross_momentum.patterns.pattern_registry import RossPatternRegistry
     _ORB_RANGE_LOCK.clear()
     inputs = _base_inputs()
+    if wider_pause:
+        # A genuine wider pause inside the completed opening range breaks the
+        # Stair depth constraint, while preserving ORB's own range anchors.
+        # Keep the original monotonic source above as a real Stair-winner case.
+        candles = list(inputs.candles)
+        candles[-2] = replace(candles[-2], low=9.96)
+        inputs = replace(inputs, candles=candles)
     registry = RossPatternRegistry()
     results = registry.run(inputs)
     orb = next(r for r in results if r.setup_id == 'P_ORB')
@@ -227,7 +242,11 @@ def test_native_orb_target_does_not_force_winner_over_genuine_key() -> None:
     decision = DecisionEngine().compute_decision(symbol=inputs.symbol, levels={}, structure={},
         setups=[], pattern_results=results, session_context='REGULAR',
         entry_contract_validator=validate_entry_contract)
-    assert decision['selected_pattern_id'] == 'P_KEY_LEVEL_BREAK'
+    stair = next(r for r in results if r.setup_id == 'P_TREND_CONTINUATION_STAIR_STEP')
+    assert stair.detected is (not wider_pause)
+    if wider_pause:
+        assert stair.rejection_reason == 'pullback_too_deep'
+    assert decision['selected_pattern_id'] == expected_winner
     assert (orb.trigger_level, orb.stop_level, orb.invalidation_level) == (10.3, 9.95, 9.95)
     assert key.target_suggestion != orb.target_suggestion
     assert not any(r['pattern_id'] == 'P_ORB' and r['reason'] == 'missing_target'

@@ -149,7 +149,7 @@ def test_native_pmh_later_fill_reaches_initial_protection(reassessment,monkeypat
     finally:teardown_unsent_fixture(h,no_external_activity)
 
 
-@pytest.mark.parametrize('family',['FIRST_PULLBACK','ABCD','KEY_LEVEL_BREAK','CONSOLIDATION_BREAKOUT','FLAT_TOP_BREAKOUT','OPENING_RANGE_BREAKOUT','HOD_BREAK','VWAP_RECLAIM_CONTINUATION','MICRO_PULLBACK','CUP_HANDLE','OPENING_DRIVE','EMA_PULLBACK'])
+@pytest.mark.parametrize('family',['FIRST_PULLBACK','ABCD','KEY_LEVEL_BREAK','CONSOLIDATION_BREAKOUT','FLAT_TOP_BREAKOUT','OPENING_RANGE_BREAKOUT','HOD_BREAK','VWAP_RECLAIM_CONTINUATION','MICRO_PULLBACK','CUP_HANDLE','OPENING_DRIVE','EMA_PULLBACK','VWAP_PULLBACK','TREND_CONTINUATION_STAIR_STEP'])
 @pytest.mark.parametrize('fault',['missing','unrelated','wrong_owner','malformed'])
 def test_canonical_callback_fault_cannot_create_position_or_protection(reassessment,monkeypatch,tmp_path,
         capsys,no_external_activity,fault,family):
@@ -173,7 +173,7 @@ def test_canonical_callback_fault_cannot_create_position_or_protection(reassessm
     finally:teardown_unsent_fixture(h,no_external_activity)
 
 
-@pytest.mark.parametrize('family',['FIRST_PULLBACK','ABCD','KEY_LEVEL_BREAK','CONSOLIDATION_BREAKOUT','FLAT_TOP_BREAKOUT','OPENING_RANGE_BREAKOUT','HOD_BREAK','VWAP_RECLAIM_CONTINUATION','MICRO_PULLBACK','CUP_HANDLE','OPENING_DRIVE','EMA_PULLBACK'])
+@pytest.mark.parametrize('family',['FIRST_PULLBACK','ABCD','KEY_LEVEL_BREAK','CONSOLIDATION_BREAKOUT','FLAT_TOP_BREAKOUT','OPENING_RANGE_BREAKOUT','HOD_BREAK','VWAP_RECLAIM_CONTINUATION','MICRO_PULLBACK','CUP_HANDLE','OPENING_DRIVE','EMA_PULLBACK','VWAP_PULLBACK','TREND_CONTINUATION_STAIR_STEP'])
 def test_canonical_interrupted_accounting_keeps_facts_and_blocks_replay(reassessment,monkeypatch,tmp_path,
         capsys,no_external_activity,family):
     h,acknowledge_case,entry,fill_price=standalone_case(reassessment,monkeypatch,tmp_path,family)
@@ -206,7 +206,7 @@ def test_canonical_interrupted_accounting_keeps_facts_and_blocks_replay(reassess
     finally:teardown_unsent_fixture(h,no_external_activity)
 
 
-@pytest.mark.parametrize('family',['FIRST_PULLBACK','ABCD','KEY_LEVEL_BREAK','CONSOLIDATION_BREAKOUT','FLAT_TOP_BREAKOUT','OPENING_RANGE_BREAKOUT','HOD_BREAK','VWAP_RECLAIM_CONTINUATION','MICRO_PULLBACK','CUP_HANDLE','OPENING_DRIVE','EMA_PULLBACK'])
+@pytest.mark.parametrize('family',['FIRST_PULLBACK','ABCD','KEY_LEVEL_BREAK','CONSOLIDATION_BREAKOUT','FLAT_TOP_BREAKOUT','OPENING_RANGE_BREAKOUT','HOD_BREAK','VWAP_RECLAIM_CONTINUATION','MICRO_PULLBACK','CUP_HANDLE','OPENING_DRIVE','EMA_PULLBACK','VWAP_PULLBACK','TREND_CONTINUATION_STAIR_STEP'])
 def test_canonical_uncertain_ack_keeps_reservation_without_resubmission(reassessment,monkeypatch,tmp_path,
         capsys,no_external_activity,family):
     h,acknowledge_case,entry,fill_price=standalone_case(reassessment,monkeypatch,tmp_path,family)
@@ -237,16 +237,16 @@ def test_canonical_uncertain_ack_keeps_reservation_without_resubmission(reassess
 
 @pytest.mark.parametrize('family,position_case', [
     (family,case) for family in ('FIRST_PULLBACK','ABCD','KEY_LEVEL_BREAK','CONSOLIDATION_BREAKOUT',
-        'FLAT_TOP_BREAKOUT','OPENING_RANGE_BREAKOUT','HOD_BREAK','VWAP_RECLAIM_CONTINUATION','MICRO_PULLBACK','CUP_HANDLE','OPENING_DRIVE','EMA_PULLBACK') for case in ('unknown','quantity_warning_larger','five')
-] + [('OPENING_RANGE_BREAKOUT','partial'),('HOD_BREAK','partial'),('VWAP_RECLAIM_CONTINUATION','partial'),('MICRO_PULLBACK','partial'),('CUP_HANDLE','partial'),('OPENING_DRIVE','partial'),('EMA_PULLBACK','partial')])
+        'FLAT_TOP_BREAKOUT','OPENING_RANGE_BREAKOUT','HOD_BREAK','VWAP_RECLAIM_CONTINUATION','MICRO_PULLBACK','CUP_HANDLE','OPENING_DRIVE','EMA_PULLBACK','VWAP_PULLBACK','TREND_CONTINUATION_STAIR_STEP') for case in ('unknown','quantity_warning_larger','five')
+] + [('OPENING_RANGE_BREAKOUT','partial'),('HOD_BREAK','partial'),('VWAP_RECLAIM_CONTINUATION','partial'),('MICRO_PULLBACK','partial'),('CUP_HANDLE','partial'),('OPENING_DRIVE','partial'),('EMA_PULLBACK','partial'),('VWAP_PULLBACK','partial'),('TREND_CONTINUATION_STAIR_STEP','partial')])
 def test_canonical_paper_truth_veto_has_zero_admission_effects(reassessment,monkeypatch,tmp_path,
         capsys,no_external_activity,position_case,family):
     from test_joined_core_first_pullback import first_joined
     from test_abcd_production_handoff import abcd_joined
-    from test_joined_core_pmh_readonly import key_joined, consolidation_joined, flat_top_joined, orb_joined, hod_joined, momentum_joined, micro_joined, cup_joined, opening_drive_joined, indicator_pullback_joined
+    from test_joined_core_pmh_readonly import key_joined, consolidation_joined, flat_top_joined, orb_joined, hod_joined, momentum_joined, micro_joined, cup_joined, opening_drive_joined, indicator_pullback_joined, vwap_pullback_joined, stair_step_joined
     factories={'FIRST_PULLBACK':first_joined,'ABCD':abcd_joined,'KEY_LEVEL_BREAK':key_joined,
                'CONSOLIDATION_BREAKOUT':consolidation_joined,'FLAT_TOP_BREAKOUT':flat_top_joined,
-               'OPENING_RANGE_BREAKOUT':orb_joined,'HOD_BREAK':hod_joined,'VWAP_RECLAIM_CONTINUATION':momentum_joined,'MICRO_PULLBACK':micro_joined,'CUP_HANDLE':cup_joined,'OPENING_DRIVE':opening_drive_joined,'EMA_PULLBACK':indicator_pullback_joined}
+               'OPENING_RANGE_BREAKOUT':orb_joined,'HOD_BREAK':hod_joined,'VWAP_RECLAIM_CONTINUATION':momentum_joined,'MICRO_PULLBACK':micro_joined,'CUP_HANDLE':cup_joined,'OPENING_DRIVE':opening_drive_joined,'EMA_PULLBACK':indicator_pullback_joined,'VWAP_PULLBACK':vwap_pullback_joined,'TREND_CONTINUATION_STAIR_STEP':stair_step_joined}
     h=paper_pmh(reassessment,monkeypatch,tmp_path,position_case,joined_factory=factories[family])
     try:
         assert h.core.run_once();capsys.readouterr()
@@ -489,6 +489,10 @@ def standalone_case(reassessment,monkeypatch,tmp_path,family):
         return late_flat_top(reassessment,monkeypatch,tmp_path),acknowledge_flat_top,10.2,10.27
     if family=='OPENING_RANGE_BREAKOUT':
         return late_orb(reassessment,monkeypatch,tmp_path),acknowledge_orb,10.3,10.42
+    if family=='TREND_CONTINUATION_STAIR_STEP':
+        return late_stair_step(reassessment,monkeypatch,tmp_path),acknowledge_stair_step,10.64,10.68
+    if family=='VWAP_PULLBACK':
+        return late_vwap_pullback(reassessment,monkeypatch,tmp_path),acknowledge_vwap_pullback,10.76,10.8
     if family=='EMA_PULLBACK':
         return late_ema_pullback(reassessment,monkeypatch,tmp_path),acknowledge_ema_pullback,10.5,10.53
     if family=='OPENING_DRIVE':
@@ -1037,7 +1041,7 @@ def test_selected_native_stop_keeps_actual_broker_parent_order_identity(reassess
 
 STOP_FAMILIES=['PREMARKET_HIGH_BREAK','FIRST_PULLBACK','ABCD','KEY_LEVEL_BREAK',
     'CONSOLIDATION_BREAKOUT','FLAT_TOP_BREAKOUT','OPENING_RANGE_BREAKOUT','HOD_BREAK',
-    'VWAP_RECLAIM_CONTINUATION','MICRO_PULLBACK','CUP_HANDLE','OPENING_DRIVE','EMA_PULLBACK']
+    'VWAP_RECLAIM_CONTINUATION','MICRO_PULLBACK','CUP_HANDLE','OPENING_DRIVE','EMA_PULLBACK','VWAP_PULLBACK','TREND_CONTINUATION_STAIR_STEP']
 
 
 def filled_standalone(reassessment,monkeypatch,tmp_path,capsys,family):
@@ -1392,4 +1396,32 @@ def acknowledge_ema_pullback(h,capsys):
     request=acknowledge_selected(h,capsys,family='EMA_PULLBACK',entry=10.5,stop=10.29,invalidation=10.29,
         triggers=h.indicator_triggers)
     assert request.target_model==EMA_PULLBACK_DESCRIPTIVE_OBJECTIVE and request.take_profit_price is None
+    return request
+
+
+def late_vwap_pullback(reassessment,monkeypatch,tmp_path):
+    from test_joined_core_pmh_readonly import vwap_pullback_joined
+    def paper_vwap(*args,**kwargs):return paper_pmh(*args,joined_factory=vwap_pullback_joined,**kwargs)
+    return late_pmh(reassessment,monkeypatch,tmp_path,paper_factory=paper_vwap,fill_price=10.8,stop_price=10.23)
+
+
+def acknowledge_vwap_pullback(h,capsys):
+    from src.strategies.ross_momentum.strategy_policy import VWAP_PULLBACK_DESCRIPTIVE_OBJECTIVE
+    request=acknowledge_selected(h,capsys,family='VWAP_PULLBACK',entry=10.76,stop=10.23,invalidation=10.23,
+        triggers=h.indicator_triggers)
+    assert request.target_model==VWAP_PULLBACK_DESCRIPTIVE_OBJECTIVE and request.take_profit_price is None
+    return request
+
+
+def late_stair_step(reassessment,monkeypatch,tmp_path):
+    from test_joined_core_pmh_readonly import stair_step_joined
+    def paper_stair(*args,**kwargs):return paper_pmh(*args,joined_factory=stair_step_joined,**kwargs)
+    return late_pmh(reassessment,monkeypatch,tmp_path,paper_factory=paper_stair,fill_price=10.68,stop_price=10.34)
+
+
+def acknowledge_stair_step(h,capsys):
+    from src.strategies.ross_momentum.strategy_policy import TREND_CONTINUATION_STAIR_STEP_DESCRIPTIVE_OBJECTIVE
+    request=acknowledge_selected(h,capsys,family='TREND_CONTINUATION_STAIR_STEP',entry=10.64,stop=10.34,invalidation=10.24,
+        triggers=h.indicator_triggers)
+    assert request.target_model==TREND_CONTINUATION_STAIR_STEP_DESCRIPTIVE_OBJECTIVE and request.take_profit_price is None
     return request

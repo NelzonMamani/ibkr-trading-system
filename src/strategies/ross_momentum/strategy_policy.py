@@ -81,6 +81,24 @@ OPENING_DRIVE_DESCRIPTIVE_OBJECTIVE = "Continuation of the confirmed opening dri
 CUP_HANDLE_DESCRIPTIVE_OBJECTIVE = "Continuation above the measured cup resistance after handle confirmation."
 EMA_PULLBACK_DESCRIPTIVE_OBJECTIVE = "Continuation after the confirmed pullback and reclaim of EMA support."
 VWAP_PULLBACK_DESCRIPTIVE_OBJECTIVE = "Continuation after the confirmed pullback and reclaim of VWAP."
+# Explicit user scoring-development authorization (8 November 2026):
+# inspect confidence semantics and comparability before replacing the two
+# native fixed 0.58 values. They are heuristics, never probabilities.
+# Use measured, non-overlapping formation/pullback/volume/own-occurrence
+# confirmation evidence, with documented missing-data rules, weights and
+# rationale, and separate development/validation scenarios. Keep the 0.64
+# admission minimum and every other gate unchanged. No constant uplift or
+# weight tuning to desired admission outcomes. If comparable scoring cannot
+# be justified, retain the PAPER veto.
+# Investigation outcome (8 November 2026): retain native .58/.64 veto. Native
+# confidence has heterogeneous fixed/formula heuristics and no shared feature-
+# strength rubric at .64. TriggerQualityEngine is a different ranking/capital
+# score; pullback weakness tiers are spec-only, not native-confidence weights.
+# No replacement weights or active score are justified by available evidence.
+# Reopening requires an explicit comparable ordinal rubric and a separately
+# frozen validation set, preserving occurrence-bound confirmation and avoiding
+# duplicated source/execution volume or geometry credit. See SAME checkpoint/
+# handoff evidence; these heuristic values are not probabilities.
 THREE_BAR_PULLBACK_DESCRIPTIVE_OBJECTIVE = "Continuation above the measured three-bar pullback high."
 SECOND_PULLBACK_DESCRIPTIVE_OBJECTIVE = "Continuation above the measured second pullback high."
 TREND_CONTINUATION_STAIR_STEP_DESCRIPTIVE_OBJECTIVE = "Continuation of the confirmed stair-step trend."
@@ -170,9 +188,18 @@ POLICY_V2 = StrategyPolicyV2(
                 "no long entry or automatic dispatched exit policy is created.", ("RTH", "1MIN", "10SEC")),
             SetupFamilySpecV2("CONSOLIDATION_BREAKOUT", "Consolidation Breakout", "Breakout from tight range with volume expansion.", ("5MIN", "1MIN", "10SEC")),
             SetupFamilySpecV2("FLAT_TOP_BREAKOUT", "Flat Top Breakout", "Repeated resistance tests then break; classic momentum continuation.", ("5MIN", "1MIN", "10SEC")),
-            SetupFamilySpecV2("ASCENDING_TRIANGLE", "Ascending Triangle", "Rising lows into flat resistance then break.", ("5MIN", "1MIN")),
-            SetupFamilySpecV2("PENNANT", "Pennant", "Tight coil after impulse then breakout continuation.", ("5MIN", "1MIN")),
-            SetupFamilySpecV2("RANGE_BREAK", "Range / Rectangle Breakout", "Rectangle range resolves with breakout; range boundaries are key levels.", ("5MIN", "1MIN")),
+            SetupFamilySpecV2("ASCENDING_TRIANGLE", "Ascending Triangle", "NEW user project policy (8 November 2026): genuine completed flat resistance and rising lows; entry above measured resistance; "
+                "structural stop/invalidation at the latest completed rising swing low establishing the triangle. Strict close-above and same-stream volume confirmation. "
+                "Numeric TP=None; no reduction, trailing, recurring-management or operational authority. Measurement tolerances are explicit project calibration, not Ross quotations. "
+                "The generic continuation placeholder remains non-actionable until genuine measured geometry and all existing gates pass.", ("5MIN", "1MIN")),
+            SetupFamilySpecV2("PENNANT", "Pennant", "NEW user project policy (8 November 2026): genuine completed impulse and compression; entry above the measured upper compression boundary; "
+                "structural stop/invalidation at the lowest completed compression low, excluding the impulse/pole low. Strict close-above and same-stream volume confirmation. "
+                "Numeric TP=None; no reduction, trailing, recurring-management or operational authority. Measurement tolerances are explicit project calibration, not Ross quotations. "
+                "The generic continuation placeholder remains non-actionable until genuine measured geometry and all existing gates pass.", ("5MIN", "1MIN")),
+            SetupFamilySpecV2("RANGE_BREAK", "Range / Rectangle Breakout", "NEW user project policy (8 November 2026): genuine completed measured rectangle; entry above its measured high; "
+                "structural stop/invalidation at its measured low. Strict close-above and same-stream volume confirmation. Numeric TP=None; "
+                "no reduction, trailing, recurring-management or operational authority. Measurement tolerances are explicit project calibration, not Ross quotations. "
+                "The generic continuation placeholder remains non-actionable until genuine measured geometry and all existing gates pass.", ("5MIN", "1MIN")),
             SetupFamilySpecV2("HOD_BREAK", "High of Day Break", "HOD break continuation; key Ross momentum behavior.", ("RTH", "1MIN", "10SEC")),
             SetupFamilySpecV2("EMA_PULLBACK", "EMA Pullback", "Pullback to EMA9/EMA20 then reclaim; continuation entry context.", ("5MIN", "1MIN", "10SEC")),
             SetupFamilySpecV2("VWAP_PULLBACK", "VWAP Pullback", "Pullback to VWAP then reclaim; continuation entry context.", ("5MIN", "1MIN", "10SEC")),

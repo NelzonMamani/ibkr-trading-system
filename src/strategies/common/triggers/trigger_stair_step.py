@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from src.strategies.common.triggers.trigger_abcd_continuation import abcd_candle_rejection
+
 
 def _safe_float(value):
     try:
@@ -37,6 +39,16 @@ def evaluate_stair_step_trigger(payload, values):
         }
         print(f"[TRIGGER][STAIR_STEP] fired=False reason={out['trigger_reason']}")
         return out
+
+    stream = data.get("execution_stream")
+    if isinstance(stream, dict):
+        rejection = abcd_candle_rejection(candles,
+            observed_at_utc=stream.get("observed_at_utc"), require_clock=True)
+        if rejection:
+            return {"trigger_type": "XL_STAIR_STEP_BREAKOUT", "trigger_state": "BLOCKED",
+                "trigger_ready_now": False, "trigger_reason": "stair_step_" + rejection.lower(),
+                "trigger_price_reference": trigger_level, "invalidation_price_reference": invalidation_level,
+                "execution_refinement_mode": "RECLAIM_BREAKOUT"}
 
     last = candles[-1]
     prev = candles[-2] if len(candles) > 1 else None

@@ -9,28 +9,14 @@ from src.strategies.common.triggers.trigger_registry import resolve_trigger_eval
 from src.strategies.ross_momentum.patterns.pattern_inputs import IndicatorSet, LevelSet, LiquidityContext, PatternInputs
 from src.strategies.ross_momentum.patterns.pattern_registry import RossPatternRegistry
 from src.strategies.strategy_contracts import SessionContext
-
-
-def _candles(rows: list[tuple[float, float, float, float, float]]) -> list[Candle]:
-    return [Candle(open=o, high=h, low=l, close=c, volume=v) for o, h, l, c, v in rows]
+from test_stair_step_pattern import _valid_candles
 
 
 def _inputs() -> PatternInputs:
     return PatternInputs(
         symbol="PIPE",
         timeframe="1MIN",
-        candles=_candles(
-            [
-                (10.00, 10.12, 9.98, 10.10, 1000),
-                (10.10, 10.30, 10.06, 10.25, 1200),
-                (10.25, 10.24, 10.12, 10.16, 900),
-                (10.16, 10.42, 10.14, 10.38, 1300),
-                (10.38, 10.36, 10.24, 10.30, 860),
-                (10.30, 10.62, 10.28, 10.58, 1400),
-                (10.58, 10.56, 10.34, 10.40, 820),
-                (10.40, 10.68, 10.38, 10.66, 1650),
-            ]
-        ),
+        candles=[*_valid_candles()[:-1], Candle(10.40, 10.68, 10.38, 10.66, 1650)],
         session_context=SessionContext.REGULAR,
         levels=LevelSet(premarket_high=10.2, premarket_low=9.8, hod=11.0, prior_close=9.9),
         indicators=IndicatorSet(ema9=10.65, ema20=10.45, vwap=10.5),
