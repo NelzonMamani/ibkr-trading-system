@@ -63,6 +63,11 @@ from src.market_data.session_pct_change import normalize_session_label
 # take-profit, level projection, exit or recurring-management instruction.
 ORB_DESCRIPTIVE_OBJECTIVE = "Continuation above the completed opening-range high."
 
+# Newly established project policy (8 November 2026), successful native long
+# HOD only under its existing detector/registered-trigger gates. Descriptive:
+# no projected price, numeric take-profit, exit or management instruction.
+HOD_DESCRIPTIVE_OBJECTIVE = "Continuation above the established regular-session high of day."
+
 
 POLICY_V2 = StrategyPolicyV2(
     identity=StrategyIdentityV2(name="ROSS_MOMENTUM", strategy_id="P01"),

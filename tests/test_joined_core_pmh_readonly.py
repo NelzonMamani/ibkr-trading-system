@@ -672,9 +672,9 @@ def test_joined_consolidation_preserves_own_completion_and_confirmation(reassess
 
 
 @pytest.mark.parametrize('news_fault',['missing','stale','nonqualifying','expires_between'])
-@pytest.mark.parametrize('family',['CONSOLIDATION_BREAKOUT','FLAT_TOP_BREAKOUT','OPENING_RANGE_BREAKOUT'])
+@pytest.mark.parametrize('family',['CONSOLIDATION_BREAKOUT','FLAT_TOP_BREAKOUT','OPENING_RANGE_BREAKOUT','HOD_BREAK'])
 def test_joined_range_breakout_issuer_isolation(reassessment,monkeypatch,tmp_path,capsys,news_fault,family):
-    factory={'CONSOLIDATION_BREAKOUT':consolidation_joined,'FLAT_TOP_BREAKOUT':flat_top_joined,'OPENING_RANGE_BREAKOUT':orb_joined}[family]
+    factory={'CONSOLIDATION_BREAKOUT':consolidation_joined,'FLAT_TOP_BREAKOUT':flat_top_joined,'OPENING_RANGE_BREAKOUT':orb_joined,'HOD_BREAK':hod_joined}[family]
     h=factory(reassessment,monkeypatch,tmp_path,news_fault=news_fault,peer=True)
     out=cycles(h,capsys)
     news=ross._ross_news_contexts_from_news_intelligence_result(h.reads[-1])
@@ -690,9 +690,9 @@ def test_joined_range_breakout_issuer_isolation(reassessment,monkeypatch,tmp_pat
 
 
 @pytest.mark.parametrize('position_case',['unknown','partial','quantity_warning_larger','five','partial_after_healthy'])
-@pytest.mark.parametrize('family',['CONSOLIDATION_BREAKOUT','FLAT_TOP_BREAKOUT','OPENING_RANGE_BREAKOUT'])
+@pytest.mark.parametrize('family',['CONSOLIDATION_BREAKOUT','FLAT_TOP_BREAKOUT','OPENING_RANGE_BREAKOUT','HOD_BREAK'])
 def test_joined_range_breakout_raw_before_actual_position_veto(reassessment,monkeypatch,tmp_path,capsys,position_case,family):
-    factory={'CONSOLIDATION_BREAKOUT':consolidation_joined,'FLAT_TOP_BREAKOUT':flat_top_joined,'OPENING_RANGE_BREAKOUT':orb_joined}[family]
+    factory={'CONSOLIDATION_BREAKOUT':consolidation_joined,'FLAT_TOP_BREAKOUT':flat_top_joined,'OPENING_RANGE_BREAKOUT':orb_joined,'HOD_BREAK':hod_joined}[family]
     h=factory(reassessment,monkeypatch,tmp_path,
         position_case='complete_matched' if position_case=='partial_after_healthy' else position_case)
     assert h.core.run_once();capsys.readouterr()
@@ -713,9 +713,9 @@ def test_joined_range_breakout_raw_before_actual_position_veto(reassessment,monk
     no_effects(h)
 
 
-@pytest.mark.parametrize('family',['CONSOLIDATION_BREAKOUT','FLAT_TOP_BREAKOUT','OPENING_RANGE_BREAKOUT'])
+@pytest.mark.parametrize('family',['CONSOLIDATION_BREAKOUT','FLAT_TOP_BREAKOUT','OPENING_RANGE_BREAKOUT','HOD_BREAK'])
 def test_joined_range_breakout_repeats_observe_new_raw_and_actual_denials(reassessment,monkeypatch,tmp_path,capsys,family):
-    factory={'CONSOLIDATION_BREAKOUT':consolidation_joined,'FLAT_TOP_BREAKOUT':flat_top_joined,'OPENING_RANGE_BREAKOUT':orb_joined}[family]
+    factory={'CONSOLIDATION_BREAKOUT':consolidation_joined,'FLAT_TOP_BREAKOUT':flat_top_joined,'OPENING_RANGE_BREAKOUT':orb_joined,'HOD_BREAK':hod_joined}[family]
     h=factory(reassessment,monkeypatch,tmp_path)
     cycles(h,capsys)
     for _ in range(2):
@@ -1092,4 +1092,250 @@ def test_joined_orb_existing_gates_still_block(reassessment,monkeypatch,tmp_path
         assert blocked['trigger_reason']==expected[market_fault]
         if market_fault in {'missing_execution','stale_execution'}:
             assert h.orb_triggers==[]
+    no_effects(h)
+
+
+def hod_joined(reassessment,monkeypatch,tmp_path,*,news_fault='none',peer=False,
+               market_fault='none',position_case='complete_empty'):
+    h=pmh_joined(reassessment,monkeypatch,tmp_path,news_fault=news_fault,peer=peer,
+        position_case=position_case,clock_time=(14,10,30))
+    rows=[(10.2,10.25,10.18,10.22,900)]*44+[
+        (10.23,10.29,10.21,10.27,900),(10.27,10.30,10.20,10.28,900),
+        (10.28,10.30,10.22,10.29,900),(10.29,10.30,10.23,10.28,900),
+        (10.28,10.30,10.24,10.29,900),(10.26,10.30,10.25,10.29,900)]
+    rows[5]=(10.2,12.,10.18,10.22,900)  # Retained PRE high, outside RTH; survives an appended tail.
+    rows[40]=(10.22,10.3,10.2,10.27,900)
+    end=h.life.clock.current.replace(second=0,microsecond=0)
+    h.streams.clear()
+    for tf,step in (('1m',60),('5m',300)):
+        h.streams[tf]=_candles(rows,step_seconds=step,end=end-timedelta(seconds=step))
+    def execution_bars(source,current):
+        bars=[]
+        for bar in source[-5:]:
+            for part in range(6):
+                bars.append(replace(bar,timestamp=bar.timestamp+timedelta(seconds=part*10),
+                    open=bar.open if part==0 else bar.close,high=bar.high if part==0 else bar.close,
+                    low=bar.low if part==0 else bar.close,volume=bar.volume/6))
+        return bars+_candles(current,step_seconds=10,end=end+timedelta(seconds=30))
+    h.streams['10s']=execution_bars(h.streams['1m'],[
+        (10.31,10.31,10.25,10.29,100),(10.29,10.30,10.27,10.29,100),
+        (10.29,10.30,10.27,10.29,100),(10.29,10.36,10.27,10.34,200)])
+    fault=market_fault.removeprefix('delayed_')
+    stream='1m' if fault.endswith('source') else '10s'
+    if fault in {'missing_source','stale_source'}:
+        for tf in ('1m','5m'):
+            h.streams[tf]=[] if fault=='missing_source' else [replace(c,timestamp=c.timestamp-timedelta(hours=1)) for c in h.streams[tf]]
+    elif fault in {'missing_execution','stale_execution'}:
+        h.streams['10s']=[] if fault=='missing_execution' else [replace(c,timestamp=c.timestamp-timedelta(hours=1)) for c in h.streams['10s']]
+    elif fault in {'late_window_source','opening_gap_source'}:
+        if fault=='late_window_source':h.streams['1m']=h.streams['1m'][-30:]
+        else:del h.streams['1m'][25]
+    elif fault=='previous_day_source':
+        h.streams['1m']=[replace(c,timestamp=c.timestamp-timedelta(days=1)) for c in h.streams['1m']]
+    elif fault in {'forming_source','future_source'}:
+        stamp=end if fault=='forming_source' else h.life.clock.current+timedelta(seconds=12)
+        h.streams['1m'].append(replace(h.streams['1m'][-1],timestamp=stamp,open=10.31,high=10.36,low=10.25,close=10.34,volume=500))
+    elif fault=='future_execution':
+        h.streams['10s'][-1]=replace(h.streams['10s'][-1],timestamp=h.life.clock.current+timedelta(seconds=12))
+    elif fault in {'nan_source','nan_execution','malformed_source','malformed_execution'}:
+        h.streams[stream][-2]=replace(h.streams[stream][-2],low=float('nan') if fault.startswith('nan_') else 99.)
+    elif fault in {'at_threshold_execution','above_threshold_execution'}:
+        close=10.3*1.001+(1e-9 if fault.startswith('above_') else 0.)
+        h.streams['10s'][-1]=replace(h.streams['10s'][-1],close=close,high=close+.001)
+    elif fault in {'previous_at_level_execution','previous_above_execution'}:
+        close=10.3+(0.01 if fault=='previous_above_execution' else 0.)
+        h.streams['10s'][-2]=replace(h.streams['10s'][-2],close=close,high=max(close,10.3))
+    elif fault=='invalidated_execution':
+        h.streams['10s'][-1]=replace(h.streams['10s'][-1],close=10.2,low=10.19)
+    elif fault=='forming_execution':
+        h.streams['10s'][-1]=replace(h.streams['10s'][-1],timestamp=end+timedelta(seconds=40))
+    elif fault=='zero_volume_execution':
+        h.streams['10s'][-1]=replace(h.streams['10s'][-1],volume=0.)
+    last,previous,premarket=10.34,9.2,12.
+    if fault=='competing_key':
+        h.streams.update({tf:[replace(c,**{key:round(getattr(c,key)+.2,2) for key in ('open','high','low','close')}) for c in bars] for tf,bars in h.streams.items()})
+        h.streams['1m'][40]=replace(h.streams['1m'][40],high=10.55)
+        h.streams['1m'][-1]=replace(h.streams['1m'][-1],open=10.49,high=10.55,low=10.45,close=10.54,volume=1800)
+        h.streams['10s']=execution_bars(h.streams['1m'],[
+            (10.51,10.55,10.45,10.49,100),(10.49,10.50,10.47,10.49,100),
+            (10.49,10.50,10.47,10.49,100),(10.49,10.59,10.47,10.57,200)])
+        last,previous,premarket=10.57,9.4,12.2
+    for row in h.rows.values():
+        row.update(premarket_high=premarket,premarket_low=9.8,last_price=last,bid=round(last-.01,2),ask=round(last+.01,2),
+            prev_close=previous,ref_close_rth=previous,reference_price=previous,
+            gap_pct=(last/previous-1)*100,pct_change=(last/previous-1)*100,
+            spread_pct=100*.02/last,dollar_volume=last*1_800_000)
+    snapshot=replace(_snapshot(symbol='JPM'),last=last,bid=round(last-.01,2),ask=round(last+.01,2))
+    h.core.market_data_snapshot_manager=NS(batch_snapshots=lambda symbols:({s:replace(snapshot,symbol=s,
+        asof_utc=h.life.clock.current,market_timestamp_utc=h.life.clock.current) for s in symbols},[]))
+    h.hod_triggers=[];evaluator=TRIGGER_EVALUATOR_REGISTRY['HOD_BREAK']
+    def observed(payload,inputs):
+        out=evaluator(payload,inputs)
+        h.hod_triggers.append((deepcopy(payload),deepcopy(inputs),deepcopy(out)))
+        return out
+    monkeypatch.setitem(TRIGGER_EVALUATOR_REGISTRY,'HOD_BREAK',observed)
+    if market_fault.startswith('delayed_'):
+        original=h.strategy._pattern_registry.run
+        def delayed(source,**kwargs):
+            h.life.clock.current+=timedelta(seconds=6)
+            return original(source,**kwargs)
+        monkeypatch.setattr(h.strategy._pattern_registry,'run',delayed)
+    from src.core.engines.trigger_engine import TriggerEngine
+    evaluate=TriggerEngine.evaluate_triggers;h.hod_engine_outputs=[]
+    def observed_engine(self,**kwargs):
+        out=evaluate(self,**kwargs)
+        h.hod_engine_outputs.extend(deepcopy(t) for t in out if t.get('setup_family_id')=='HOD_BREAK')
+        return out
+    monkeypatch.setattr(TriggerEngine,'evaluate_triggers',observed_engine)
+    compute=h.strategy._decision_engine.compute_decision;h.hod_decisions=[]
+    def observed_decision(**kwargs):
+        out=compute(**kwargs)
+        h.hod_decisions.append(deepcopy(out))
+        return out
+    monkeypatch.setattr(h.strategy._decision_engine,'compute_decision',observed_decision)
+    return h
+
+
+@pytest.mark.parametrize('position_case',['complete_empty','complete_matched'])
+@pytest.mark.parametrize('market_fault',['none','forming_execution','zero_volume_execution',
+    'above_threshold_execution','previous_at_level_execution'])
+def test_joined_hod_native_selected_handoff(reassessment,monkeypatch,tmp_path,capsys,position_case,market_fault):
+    h=hod_joined(reassessment,monkeypatch,tmp_path,position_case=position_case,market_fault=market_fault)
+    out=cycles(h,capsys)
+    source,results=h.registry_batches[-1]
+    hod=next(r for r in results if r.setup_id=='P_HOD_BREAK')
+    assert hod.detected,(hod.rejection_reason,source.levels)
+    assert len(h.evaluated)==1,out
+    intent,received,decision=h.evaluated[0]
+    assert intent.setup_family_id=='HOD_BREAK',(intent,out)
+    assert (intent.entry_price,intent.stop_loss_price,intent.invalidation_level)==(10.3,10.2,10.2)
+    assert intent.target_model=='Continuation above the established regular-session high of day.'
+    assert intent.take_profit_price is None and decision.reason_code=='LIVE_READ_ONLY_BLOCK'
+    no_effects(h)
+    raw=[i for batch in h.batches for i in batch]
+    artifact,built=h.artifacts[0]
+    assert len(raw)==len(h.artifacts)==len(h.evaluated)==1 and intent is raw[0]
+    assert artifact.intents==[intent] and built==h.raw_snapshots and built[0]['decision_id'] is None
+    assert received==dict(built[0],decision_id=artifact.decision_id)==vars(intent)
+    assert intent.decision_id==artifact.decision_id==decision.decision_id and intent.decision_id
+    from src.strategies.ross_momentum.patterns.pattern_registry import RossPatternRegistry
+    assert len(h.strategy._pattern_registry.patterns)==33
+    assert [p.pattern_id for p in h.strategy._pattern_registry.patterns]==[p.pattern_id for p in RossPatternRegistry().patterns]
+    index=intent.setup_metadata['canonical_result_index']
+    assert results[index] is hod and index>0
+    assert h.hod_decisions[-1]['selected_pattern_id']=='P_HOD_BREAK'
+    assert h.hod_decisions[-1]['selected_candidate_index']==index
+    assert source.levels.established_rth_hod==hod.trigger_level==10.3
+    assert hod.setup_metadata['level_source']=='RTH'
+    assert max(b.high for b in source.candles)==12. and source.levels.premarket_high==12.
+    assert source.levels.hod==12. and source.levels.key_levels['HOD']==12.
+    assert intent.target_model==hod.target_suggestion and not intent.relationship_context
+    assert intent.setup_metadata['source_metadata']==hod.setup_metadata
+    canonical=[t for t in h.hod_triggers if t[0].get('source')=='canonical_pattern_result' and t[0].get('canonical_result_index')==index]
+    assert len(canonical)==1
+    payload,execution,trigger=canonical[0]
+    for key in ('trigger_level','stop_level','invalidation_level'):
+        assert intent.setup_metadata[key]==received['setup_metadata'][key]==payload[key]==getattr(hod,key)
+    assert trigger['trigger_ready_now'] and trigger['trigger_reason']=='hod_break_confirmed'
+    assert trigger['trigger_price_reference']==10.3 and trigger['invalidation_price_reference']==hod.invalidation_level
+    assert execution['candles'][-2].close<=10.3 and execution['candles'][-1].close>10.3*1.001
+    assert execution['candles'][-1].high!=hod.trigger_level
+    assert execution['candles'][-1].timestamp>=source.candles[-1].timestamp+timedelta(minutes=1)
+    # Closed ten-second intervals aggregate exactly to the source minutes.
+    for bar in source.candles[-5:]:
+        parts=[c for c in execution['candles'] if bar.timestamp<=c.timestamp<bar.timestamp+timedelta(minutes=1)]
+        assert len(parts)==6
+        assert (parts[0].open,max(c.high for c in parts),min(c.low for c in parts),parts[-1].close,sum(c.volume for c in parts))==(bar.open,bar.high,bar.low,bar.close,bar.volume)
+    assert received['setup_metadata']['execution_stream']==payload['execution_stream']
+    assert payload['execution_stream']['observed_at_utc']==source.observed_at_utc.isoformat()
+    assert payload['execution_stream']['execution_trigger_timeframe']=='10s'
+    assert payload['execution_stream']['timeframe_substitution'] is False
+    assert source.observed_at_utc==h.life.clock.current
+    assert not decision.allowed and decision.execution_blocked and decision.max_position_size==0 and decision.run_mode=='READ_ONLY'
+    assert all(v.healthy and not v.block_new_entries for _,v in h.truth)
+    assert _cadence(h.core).focus.symbols==['JPM'] and h.focus_calls
+    news=ross._ross_news_contexts_from_news_intelligence_result(h.reads[-1])
+    assert news['JPM']['ross_catalyst_valid'] and news['JPM']['catalyst_type']=='EARNINGS'
+    assert h.reads[-1].evidence_for_symbol('JPM')[0].evidence_id==h.article.evidence_id
+    for name,method in h.real_core_methods.items():assert getattr(h.core,name).__func__ is method
+    if market_fault=='forming_execution':
+        assert execution['candles'][-1].timestamp<=source.observed_at_utc<execution['candles'][-1].timestamp+timedelta(seconds=10)
+    if market_fault=='zero_volume_execution':assert execution['candles'][-1].volume==0 and execution['rvol']>=1.2
+    assert '[PIPELINE][RISK_OUTPUT] approved_count=0 blocked_count=1' in out and 'ORDER_SUBMITTED' not in out
+    retained=deepcopy(vars(intent))
+    hod.setup_metadata.clear();source.timeframe_provenance.clear();source.candles.clear()
+    payload['setup_metadata'].clear();payload['execution_stream'].clear()
+    assert vars(intent)==received==retained
+
+
+@pytest.mark.parametrize('market_fault',['missing_source','stale_source','late_window_source','opening_gap_source',
+    'previous_day_source','future_source','nan_source','malformed_source','missing_execution','stale_execution',
+    'future_execution','nan_execution','malformed_execution','at_threshold_execution','previous_above_execution',
+    'invalidated_execution','delayed_future_source','delayed_future_execution'])
+def test_joined_hod_existing_guards_and_reference_limits(reassessment,monkeypatch,tmp_path,capsys,market_fault):
+    h=hod_joined(reassessment,monkeypatch,tmp_path,market_fault=market_fault)
+    out=cycles(h,capsys)
+    assert not [i for batch in h.batches for i in batch if i.setup_family_id=='HOD_BREAK'],out
+    assert not [i for i,_,_ in h.evaluated if i.setup_family_id=='HOD_BREAK'],out
+    fault=market_fault.removeprefix('delayed_')
+    if fault in {'late_window_source','opening_gap_source','previous_day_source'}:
+        source,results=h.registry_batches[-1]
+        hod=next(r for r in results if r.setup_id=='P_HOD_BREAK')
+        assert not hod.detected and source.levels.established_rth_hod is None
+        assert hod.rejection_reason==('pr4_input_block:HOD_BREAK:timeframe:1m=STALE' if fault=='previous_day_source' else 'invalid_hod_source')
+    elif fault in {'future_source','nan_source','malformed_source'}:
+        hod=next(r for r in h.registry_batches[-1][1] if r.setup_id=='P_HOD_BREAK')
+        assert not hod.detected and hod.rejection_reason==('FUTURE_CANDLE_DATA' if fault=='future_source' else 'INVALID_CANDLE_DATA')
+    elif fault.endswith('execution'):
+        index=next(i for i,r in enumerate(h.registry_batches[-1][1]) if r.setup_id=='P_HOD_BREAK')
+        outputs=[t for t in h.hod_engine_outputs if t.get('canonical_result_index')==index]
+        assert len(outputs)==1 and not outputs[0]['trigger_ready_now']
+        reason={'missing_execution':'execution_stream_missing','stale_execution':'execution_stream_stale',
+            'future_execution':'hod_future_candle_data','nan_execution':'hod_invalid_candle_data',
+            'malformed_execution':'hod_invalid_candle_data','at_threshold_execution':'breakout_shape_invalid',
+            'previous_above_execution':'awaiting_hod_break','invalidated_execution':'at_or_below_invalidation'}[fault]
+        assert outputs[0]['trigger_reason']==reason
+    if market_fault.startswith('delayed_'):
+        source=h.registry_batches[-1][0]
+        bad=(source.candles if fault.endswith('source') else h.streams['10s'])[-1]
+        assert source.observed_at_utc<bad.timestamp<=h.life.clock.current
+    no_effects(h)
+
+
+def test_joined_hod_preserves_genuine_key_winner(reassessment,monkeypatch,tmp_path,capsys):
+    h=hod_joined(reassessment,monkeypatch,tmp_path,market_fault='competing_key')
+    out=cycles(h,capsys)
+    source,results=h.registry_batches[-1]
+    hod=next(r for r in results if r.setup_id=='P_HOD_BREAK')
+    assert hod.detected and (hod.trigger_level,hod.stop_level,hod.invalidation_level)==(10.55,10.4,10.4)
+    assert len(h.evaluated)==1,out
+    intent,received,decision=h.evaluated[0]
+    selected=results[intent.setup_metadata['canonical_result_index']]
+    assert selected.setup_id=='P_KEY_LEVEL_BREAK' and selected.confidence>hod.confidence
+    assert intent.setup_family_id=='KEY_LEVEL_BREAK' and (intent.entry_price,intent.stop_loss_price,intent.invalidation_level)==(10.5,10.45,10.5)
+    assert intent.target_model!=hod.target_suggestion and received==vars(intent)
+    assert decision.reason_code=='LIVE_READ_ONLY_BLOCK'
+    canonical=[t for t in h.hod_triggers if t[0].get('source')=='canonical_pattern_result']
+    assert len(canonical)==1 and canonical[0][2]['trigger_ready_now']
+    no_effects(h)
+
+
+def test_joined_hod_forming_source_reference_and_momentum_arbitration_limit(reassessment,monkeypatch,tmp_path,capsys):
+    h=hod_joined(reassessment,monkeypatch,tmp_path,market_fault='forming_source')
+    out=cycles(h,capsys)
+    source,results=h.registry_batches[-1]
+    hod=next(r for r in results if r.setup_id=='P_HOD_BREAK')
+    assert hod.detected and (hod.trigger_level,hod.stop_level,hod.invalidation_level)==(10.3,10.22,10.22)
+    assert source.levels.established_rth_hod==10.3
+    forming=source.candles[-1]
+    assert forming.timestamp<=source.observed_at_utc<forming.timestamp+timedelta(minutes=1)
+    assert forming.high==10.36 and hod.trigger_level!=forming.high
+    selected=h.hod_decisions[-1]
+    assert selected['selected_pattern_id']=='P_MOMENTUM_RECLAIM'
+    assert results[selected['selected_candidate_index']].detected
+    assert h.strategy.last_symbol_terminal_outcomes['JPM']['reason']=='no_trigger_candidate'
+    assert not [i for batch in h.batches for i in batch] and h.artifacts==h.evaluated==[]
+    canonical=[t for t in h.hod_triggers if t[0].get('source')=='canonical_pattern_result']
+    assert len(canonical)==1 and canonical[0][2]['trigger_ready_now']
+    assert 'selected_pattern=P_MOMENTUM_RECLAIM' in out
     no_effects(h)

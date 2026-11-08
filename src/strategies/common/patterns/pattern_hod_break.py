@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from src.strategies.ross_momentum.patterns.pattern_inputs import PatternInputs
+from math import isfinite
+
+from src.strategies.ross_momentum.patterns.pattern_inputs import PatternInputs, _timeframe_provenance
+from src.strategies.ross_momentum.policy.pattern_input_policy import PatternInputPolicy
+from src.strategies.common.triggers.trigger_abcd_continuation import abcd_candle_rejection
+from src.strategies.ross_momentum.strategy_policy import HOD_DESCRIPTIVE_OBJECTIVE
 from src.strategies.ross_momentum.patterns.pattern_types import Direction, PatternFamily, PatternResult
 from src.strategies.strategy_contracts import SessionContext
 
@@ -11,7 +16,8 @@ _VALID_SESSIONS = {SessionContext.REGULAR}
 
 def _safe_float(value: object) -> float | None:
     try:
-        return None if value is None else float(value)
+        number = None if value is None or isinstance(value, bool) else float(value)
+        return number if number is not None and isfinite(number) else None
     except (TypeError, ValueError):
         return None
 
@@ -64,6 +70,12 @@ def detect_hod_break(inputs: PatternInputs) -> PatternResult:
 
     hod = _safe_float(getattr(inputs.levels, "hod", None))
     hod_source = str(getattr(inputs.levels, "hod_source", None) or _read(getattr(inputs.levels, "key_levels", {}), "hod_source") or "").upper()
+    # Runtime owns this measured reference separately from legacy contextual
+    # HOD (which may include PRE/forming highs and is also consumed by Key).
+    established_hod = getattr(inputs.levels, "established_rth_hod", None)
+    if established_hod is not None:
+        hod = _safe_float(established_hod)
+        hod_source = "RTH"
     if hod_source != "RTH":
         return reject("invalid_hod_source", "HOD source must be explicitly RTH.")
     if hod is None:
@@ -71,6 +83,16 @@ def detect_hod_break(inputs: PatternInputs) -> PatternResult:
 
     if hod <= 0:
         return reject("missing_hod")
+
+    rejection = abcd_candle_rejection(candles, observed_at_utc=inputs.observed_at_utc,
+                                      require_clock=bool(inputs.timeframe_provenance))
+    if rejection:
+        return reject(rejection)
+    if inputs.observed_at_utc is not None:
+        status = _timeframe_provenance(candles, inputs.timeframe,
+            PatternInputPolicy.from_policy_v2(), symbol=inputs.symbol, now_utc=inputs.observed_at_utc)
+        if status != "PRESENT":
+            return reject("STALE_SOURCE")
 
     last_open = _safe_float(_read(last, "open"))
     last_high = _safe_float(_read(last, "high"))
@@ -147,6 +169,7 @@ def detect_hod_break(inputs: PatternInputs) -> PatternResult:
         confidence=0.71,
         setup_quality_tags=["hod", "continuation", "compression", "breakout_ready"],
         setup_family_id="HOD_BREAK",
+        target_suggestion=HOD_DESCRIPTIVE_OBJECTIVE,
         rationale_text=(
             "Price is compressing beneath the active session HOD with constructive continuation context and "
             "sufficient participation for a breakout trigger."

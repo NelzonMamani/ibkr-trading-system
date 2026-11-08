@@ -146,3 +146,126 @@ def test_ross_runtime_can_consume_hod_break_without_bypass() -> None:
         {"candles": _inputs().candles},
     )
     assert trigger["trigger_type"] == "XL_HOD_BREAK"
+
+
+def test_native_hod_target_and_occurrence_bound_bridge_keep_own_contract():
+    from dataclasses import replace
+    from src.strategies.ross_momentum.decision_policy import validate_entry_contract
+    from src.strategies.ross_momentum_strategy_v1 import RossMomentumStrategyV1
+    first=detect_hod_break(_inputs())
+    second=detect_hod_break(_inputs(hod=10.53))
+    missing=detect_hod_break(replace(_inputs(),levels=None))
+    assert not missing.detected and missing.rejection_reason=='invalid_hod_source'
+    assert missing.target_suggestion is None
+    assert first.detected and second.detected
+    for result in (first,second):
+        assert result.target_suggestion=='Continuation above the established regular-session high of day.'
+        assert validate_entry_contract(result)==(True,'ok')
+        assert validate_entry_contract(replace(result,target_suggestion=None))==(False,'missing_target')
+        assert validate_entry_contract(replace(result,stop_level=result.trigger_level))==(False,'invalid_risk_geometry')
+    bridge=RossMomentumStrategyV1._canonical_pattern_trigger_candidates(
+        RossMomentumStrategyV1.__new__(RossMomentumStrategyV1),[first,second],symbol='HODT',existing_triggers=[])
+    assert len(bridge)==2
+    for index,result in enumerate((first,second)):
+        assert bridge[index]['canonical_result_index']==index
+        assert bridge[index]['source']=='canonical_pattern_result'
+        assert bridge[index]['setup_family_id']=='HOD_BREAK'
+        assert bridge[index]['setup_metadata']==result.setup_metadata
+        for name in ('trigger_level','stop_level','invalidation_level'):
+            assert bridge[index][name]==getattr(result,name)
+    assert bridge[0]['trigger_level']!=bridge[1]['trigger_level']
+    for invalid in (float('nan'),float('inf'),True):
+        values=_inputs()
+        bad=detect_hod_break(replace(values,levels=replace(values.levels,established_rth_hod=invalid)))
+        assert not bad.detected and bad.rejection_reason=='missing_hod'
+    rejected=detect_hod_break(_inputs(session=SessionContext.PRE))
+    assert not rejected.detected and rejected.target_suggestion is None
+
+
+def test_hod_source_and_registered_execution_reject_future_or_nonfinite_data():
+    from dataclasses import replace
+    from datetime import datetime,timedelta,timezone
+    now=datetime(2026,10,20,14,10,tzinfo=timezone.utc)
+    valid=[replace(c,timestamp=now-timedelta(minutes=6-i)) for i,c in enumerate(_inputs().candles)]
+    source=replace(_inputs(),candles=valid,observed_at_utc=now)
+    assert detect_hod_break(source).detected
+    for fault,expected in (('future','FUTURE_CANDLE_DATA'),('nan','INVALID_CANDLE_DATA'),
+                           ('malformed','INVALID_CANDLE_DATA'),('stale','STALE_SOURCE')):
+        bars=list(valid)
+        if fault=='future':bars[-1]=replace(bars[-1],timestamp=now+timedelta(seconds=1))
+        if fault=='nan':bars[-1]=replace(bars[-1],volume=float('nan'))
+        if fault=='malformed':bars[-1]=replace(bars[-1],low=11.)
+        if fault=='stale':bars=[replace(c,timestamp=c.timestamp-timedelta(hours=1)) for c in bars]
+        result=detect_hod_break(replace(source,candles=bars))
+        assert not result.detected and result.rejection_reason==expected and result.target_suggestion is None
+    bars=[replace(valid[-2],close=10.51),replace(valid[-1],open=10.51,high=10.56,low=10.50,close=10.54)]
+    payload={'trigger_level':10.52,'stop_level':10.4,'invalidation_level':10.4,
+             'execution_stream':{'observed_at_utc':now.isoformat()}}
+    assert evaluate_hod_break_trigger(payload,{'candles':bars,'rvol':1.4})['trigger_ready_now']
+    for fault,expected in (('future','hod_future_candle_data'),('nan','hod_invalid_candle_data')):
+        bad=list(bars)
+        bad[-1]=replace(bad[-1],**({'timestamp':now+timedelta(seconds=1)} if fault=='future' else {'high':float('nan')}))
+        out=evaluate_hod_break_trigger(payload,{'candles':bad,'rvol':1.4})
+        assert not out['trigger_ready_now'] and out['trigger_reason']==expected
+
+
+def test_hod_registered_threshold_cross_volume_and_invalidation_owners():
+    from dataclasses import replace
+    from src.core.engines.trigger_engine import TriggerEngine
+    threshold=10.52*1.001
+    bars=_candles([(10.48,10.52,10.46,10.52,1000),
+                  (10.51,threshold+.001,10.5,threshold,1000)])
+    payload={'setup_family_id':'HOD_BREAK','setup_detected':True,'required_trigger_types':['XL_HOD_BREAK'],
+             'trigger_level':10.52,'stop_level':10.4,'invalidation_level':10.4}
+    def trigger(values,**kw):return evaluate_hod_break_trigger(payload,{'candles':values,'rvol':1.,**kw})
+    assert not trigger(bars)['trigger_ready_now']  # equality is not strict confirmation
+    bars[-1]=replace(bars[-1],close=threshold+1e-9)
+    assert trigger(bars)['trigger_ready_now']  # equality to prior mean volume remains valid
+    bars[-1]=replace(bars[-1],volume=999)
+    assert trigger(bars)['trigger_reason']=='liquidity_confirmation_failed'
+    assert trigger(bars,rvol=1.2)['trigger_ready_now']  # native RVOL OR volume law
+    bars[-2]=replace(bars[-2],close=10.53,high=10.53)
+    assert not trigger(bars,rvol=1.2)['trigger_ready_now']
+    bars[-1]=replace(bars[-1],close=10.4,low=10.39)
+    out=TriggerEngine().evaluate_triggers(symbol='HODT',candles=bars,setups=[payload],levels={'rvol':1.2},structure={})[0]
+    assert not out['trigger_ready_now'] and out['trigger_reason']=='at_or_below_invalidation'
+
+
+def test_established_rth_reference_requires_full_current_day_completed_coverage():
+    from dataclasses import replace
+    from datetime import datetime,timedelta,timezone
+    from src.strategies.ross_momentum.patterns.pattern_trace import _established_rth_hod
+    start=datetime(2026,10,20,13,30,tzinfo=timezone.utc)
+    bars=[replace(_inputs().candles[-1],timestamp=start+timedelta(minutes=i)) for i in range(40)]
+    now=start+timedelta(minutes=40,seconds=41)
+    assert _established_rth_hod(bars,now)==10.52
+    pre=replace(bars[0],timestamp=start-timedelta(minutes=1),high=99.)
+    forming=replace(bars[-1],timestamp=start+timedelta(minutes=40),high=100.)
+    assert _established_rth_hod([pre]+bars+[forming],now)==10.52
+    assert _established_rth_hod(bars[1:],now) is None
+    assert _established_rth_hod(bars[:10]+bars[11:],now) is None
+    assert _established_rth_hod([replace(c,timestamp=c.timestamp-timedelta(days=1)) for c in bars],now) is None
+    assert _established_rth_hod(bars,now-timedelta(hours=1)) is None
+    # A duplicated or shifted timestamp cannot fill a missing minute.
+    wrong=list(bars);wrong[5]=replace(wrong[5],timestamp=wrong[4].timestamp)
+    assert _established_rth_hod(wrong,now) is None
+
+
+def test_hod_preserves_native_liquidity_trend_volume_and_shape_laws():
+    from dataclasses import replace
+    base=_inputs()
+    for spread,reason in ((None,'low_liquidity'),(.080000001,'wide_spread')):
+        result=detect_hod_break(replace(base,liquidity_context=replace(base.liquidity_context,spread=spread)))
+        assert not result.detected and result.rejection_reason==reason and result.target_suggestion is None
+    assert detect_hod_break(replace(base,liquidity_context=replace(base.liquidity_context,spread=.08))).detected
+    assert detect_hod_break(replace(base,indicators=replace(base.indicators,ema9=10.6))).rejection_reason=='broken_trend_context'
+    assert detect_hod_break(_inputs(hod=10.6)).rejection_reason=='no_hod_proximity'
+    values=list(base.candles);values[-1]=replace(values[-1],volume=0.)
+    low=replace(base,candles=values,liquidity_context=replace(base.liquidity_context,rvol=1.24))
+    assert detect_hod_break(low).rejection_reason=='insufficient_volume_confirmation'
+    assert detect_hod_break(replace(low,liquidity_context=replace(low.liquidity_context,rvol=1.25))).detected
+    mean=sum(c.volume for c in values[-6:-1])/5
+    values[-1]=replace(values[-1],volume=mean)
+    assert detect_hod_break(replace(low,candles=values)).detected
+    wick=_candles([(10.48,10.51,10.46,10.50,1000)]*5+[(10.5,10.54,10.49,10.51,1400)])
+    assert detect_hod_break(_inputs(candles=wick)).rejection_reason=='wick_through_only'

@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 from collections import Counter
 from dataclasses import asdict, dataclass, field, replace
-from datetime import datetime, time, timezone
+from datetime import datetime, time, timezone, timedelta
+from math import isfinite
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
@@ -100,6 +101,33 @@ def _is_premarket_candle(candle: Candle) -> bool:
     if timestamp is None:
         return False
     return to_ny_time(timestamp).time() < time(9, 30)
+
+
+def _established_rth_hod(candles: list[Candle], observed_at_utc: datetime) -> float | None:
+    """Measure an established HOD only with complete same-day RTH coverage.
+
+    A rolling late-session window is not proof of the day's high. Neither PRE
+    highs nor the developing source/execution breakout may replace this level.
+    Legacy HOD/key-level consumers keep their original semantics; only native
+    HOD consumes the separately exposed established_rth_hod measurement.
+    """
+    local = to_ny_time(observed_at_utc)
+    if not time(9, 30) <= local.time() < time(16):
+        return None
+    start = local.replace(hour=9, minute=30, second=0, microsecond=0).astimezone(timezone.utc)
+    end = observed_at_utc.replace(second=0, microsecond=0)
+    stamped = [(c, _timestamp_as_utc(c.timestamp)) for c in candles]
+    completed = [(c, stamp) for c, stamp in stamped if stamp is not None
+                 and start <= stamp and stamp + timedelta(minutes=1) <= end]
+    expected = int((end - start).total_seconds() // 60)
+    if expected <= 0 or len(completed) != expected:
+        return None
+    if any(stamp != start + timedelta(minutes=i) for i, (_, stamp) in enumerate(completed)):
+        return None
+    highs = [_safe_float(c.high) for c, _ in completed]
+    if any(h is None or not isfinite(h) or h <= 0 for h in highs):
+        return None
+    return max(highs)
 
 
 def _infer_reference_price(*, row: Any, candles: list[Candle], session: str, prior_close: float | None) -> float | None:
@@ -605,6 +633,8 @@ def build_runtime_pattern_inputs(*, symbol: str, row: Any, snapshot: MarketSnaps
         _safe_float(_get_value(row, "pm_low")),
         premarket_low,
     )
+    observed_at_utc = datetime.now(timezone.utc)
+    established_hod = _established_rth_hod(candles, observed_at_utc) if session in {"RTH_OPEN", "RTH_MID", "RTH_LATE"} else None
     normalized_hod = _coalesce(_safe_float(_get_value(row, "hod")), _safe_float(_get_value(row, "HOD")), hod)
     normalized_lod = _coalesce(_safe_float(_get_value(row, "lod")), _safe_float(_get_value(row, "LOD")), lod)
     normalized_key_levels = {
@@ -620,6 +650,7 @@ def build_runtime_pattern_inputs(*, symbol: str, row: Any, snapshot: MarketSnaps
         premarket_high=normalized_premarket_high,
         premarket_low=normalized_premarket_low,
         hod=normalized_hod,
+        established_rth_hod=established_hod,
         lod=normalized_lod,
         prior_close=prior_close,
         key_levels={key: float(value) for key, value in normalized_key_levels.items() if value is not None},
@@ -670,7 +701,7 @@ def build_runtime_pattern_inputs(*, symbol: str, row: Any, snapshot: MarketSnaps
             "rvol_baseline": rvol_payload.baseline,
             "rvol_method": rvol_payload.method,
         },
-        now=datetime.now(timezone.utc),
+        now=observed_at_utc,
     )
     combined_flags = sorted(set(inputs.data_quality_flags) | set(quality_flags))
     inputs = replace(inputs, data_quality_flags=combined_flags)
