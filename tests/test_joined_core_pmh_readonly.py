@@ -16,7 +16,7 @@ from src.strategies.common.triggers.trigger_registry import TRIGGER_EVALUATOR_RE
 from src.scanner import scanner_runner as ross
 
 
-def pmh_joined(reassessment,monkeypatch,tmp_path,*,news_fault='none',peer=False,market_fault='none',position_case='complete_empty',runtime_options=None):
+def pmh_joined(reassessment,monkeypatch,tmp_path,*,news_fault='none',peer=False,market_fault='none',position_case='complete_empty',runtime_options=None,clock_time=None):
     from src.core import orchestrator as core_module
     names=('_startup_recovery_allows_strategy_execution','_autonomous_recovery_allows_new_entries',
            '_daily_risk_allows_new_entries','_resolve_fill_authority_cycle',
@@ -24,7 +24,7 @@ def pmh_joined(reassessment,monkeypatch,tmp_path,*,news_fault='none',peer=False,
            '_refresh_manual_focus_if_due','_resolve_manual_focus_candidates')
     real={n:getattr(core_module.CoreOrchestrator,n) for n in names}
     recovery_build,recovery_apply=core_module.build_recovery_plan,core_module.apply_recovery_actions
-    h=joined(reassessment,monkeypatch,tmp_path,news_fault=news_fault,peer=peer,position_case=position_case,runtime_options=runtime_options)
+    h=joined(reassessment,monkeypatch,tmp_path,news_fault=news_fault,peer=peer,position_case=position_case,runtime_options=runtime_options,clock_time=clock_time)
     h.real_core_methods=real
     for name,method in real.items():monkeypatch.setattr(h.core,name,method.__get__(h.core))
     monkeypatch.setattr(core_module,'build_recovery_plan',recovery_build)
@@ -672,9 +672,9 @@ def test_joined_consolidation_preserves_own_completion_and_confirmation(reassess
 
 
 @pytest.mark.parametrize('news_fault',['missing','stale','nonqualifying','expires_between'])
-@pytest.mark.parametrize('family',['CONSOLIDATION_BREAKOUT','FLAT_TOP_BREAKOUT'])
+@pytest.mark.parametrize('family',['CONSOLIDATION_BREAKOUT','FLAT_TOP_BREAKOUT','OPENING_RANGE_BREAKOUT'])
 def test_joined_range_breakout_issuer_isolation(reassessment,monkeypatch,tmp_path,capsys,news_fault,family):
-    factory={'CONSOLIDATION_BREAKOUT':consolidation_joined,'FLAT_TOP_BREAKOUT':flat_top_joined}[family]
+    factory={'CONSOLIDATION_BREAKOUT':consolidation_joined,'FLAT_TOP_BREAKOUT':flat_top_joined,'OPENING_RANGE_BREAKOUT':orb_joined}[family]
     h=factory(reassessment,monkeypatch,tmp_path,news_fault=news_fault,peer=True)
     out=cycles(h,capsys)
     news=ross._ross_news_contexts_from_news_intelligence_result(h.reads[-1])
@@ -690,9 +690,9 @@ def test_joined_range_breakout_issuer_isolation(reassessment,monkeypatch,tmp_pat
 
 
 @pytest.mark.parametrize('position_case',['unknown','partial','quantity_warning_larger','five','partial_after_healthy'])
-@pytest.mark.parametrize('family',['CONSOLIDATION_BREAKOUT','FLAT_TOP_BREAKOUT'])
+@pytest.mark.parametrize('family',['CONSOLIDATION_BREAKOUT','FLAT_TOP_BREAKOUT','OPENING_RANGE_BREAKOUT'])
 def test_joined_range_breakout_raw_before_actual_position_veto(reassessment,monkeypatch,tmp_path,capsys,position_case,family):
-    factory={'CONSOLIDATION_BREAKOUT':consolidation_joined,'FLAT_TOP_BREAKOUT':flat_top_joined}[family]
+    factory={'CONSOLIDATION_BREAKOUT':consolidation_joined,'FLAT_TOP_BREAKOUT':flat_top_joined,'OPENING_RANGE_BREAKOUT':orb_joined}[family]
     h=factory(reassessment,monkeypatch,tmp_path,
         position_case='complete_matched' if position_case=='partial_after_healthy' else position_case)
     assert h.core.run_once();capsys.readouterr()
@@ -713,9 +713,9 @@ def test_joined_range_breakout_raw_before_actual_position_veto(reassessment,monk
     no_effects(h)
 
 
-@pytest.mark.parametrize('family',['CONSOLIDATION_BREAKOUT','FLAT_TOP_BREAKOUT'])
+@pytest.mark.parametrize('family',['CONSOLIDATION_BREAKOUT','FLAT_TOP_BREAKOUT','OPENING_RANGE_BREAKOUT'])
 def test_joined_range_breakout_repeats_observe_new_raw_and_actual_denials(reassessment,monkeypatch,tmp_path,capsys,family):
-    factory={'CONSOLIDATION_BREAKOUT':consolidation_joined,'FLAT_TOP_BREAKOUT':flat_top_joined}[family]
+    factory={'CONSOLIDATION_BREAKOUT':consolidation_joined,'FLAT_TOP_BREAKOUT':flat_top_joined,'OPENING_RANGE_BREAKOUT':orb_joined}[family]
     h=factory(reassessment,monkeypatch,tmp_path)
     cycles(h,capsys)
     for _ in range(2):
@@ -946,4 +946,150 @@ def test_joined_flat_top_keeps_genuine_key_competition(reassessment,monkeypatch,
     assert (intent.entry_price,intent.stop_loss_price,intent.invalidation_level)==(10.5,10.44,10.5)
     assert intent.stop_loss_price!=flat.stop_level and intent.target_model!=flat.target_suggestion
     assert received==vars(intent) and decision.reason_code=='LIVE_READ_ONLY_BLOCK'
+    no_effects(h)
+
+
+def orb_joined(reassessment,monkeypatch,tmp_path,*,position_case='complete_empty',news_fault='none',peer=False,market_fault='none'):
+    from test_orb_pattern import _base_inputs
+    # Use the native fixed UTC opening window; external clock precedes news/cache
+    # acquisition too. No prepared range, MACD, PatternResult or selected family.
+    h=pmh_joined(reassessment,monkeypatch,tmp_path,position_case=position_case,
+        news_fault=news_fault,peer=peer,clock_time=(14,36,30))
+    monkeypatch.setattr('src.strategies.common.patterns.pattern_orb._ORB_RANGE_LOCK',{})
+    rows=[(10.,10.05,9.98,10.,900)]*44+[
+        (b.open,b.high,b.low,b.close,b.volume) for b in _base_inputs().candles]
+    end=h.life.clock.current.replace(second=0,microsecond=0)
+    h.streams.clear()
+    for tf,step in (('1m',60),('5m',300)):
+        h.streams[tf]=_candles(rows,step_seconds=step,end=end-timedelta(seconds=step))
+    h.streams['10s']=_candles([(10.23,10.29,10.22,10.26,100)]*29+
+        [(10.26,10.45,10.22,10.42,200)],step_seconds=10,end=end-timedelta(seconds=10))
+    if market_fault in {'missing_source','stale_source'}:
+        for tf in ('1m','5m'):
+            h.streams[tf]=[] if market_fault=='missing_source' else [
+                replace(b,timestamp=b.timestamp-timedelta(hours=1)) for b in h.streams[tf]]
+    elif market_fault in {'touch_source','equal_volume_source'}:
+        bar=h.streams['1m'][-1]
+        h.streams['1m'][-1]=replace(bar,**({'close':10.3} if market_fault=='touch_source' else {'volume':900}))
+    elif market_fault in {'missing_execution','stale_execution'}:
+        h.streams['10s']=[] if market_fault=='missing_execution' else [
+            replace(b,timestamp=b.timestamp-timedelta(hours=1)) for b in h.streams['10s']]
+    elif market_fault in {'touch_execution','invalidated_execution'}:
+        close=10.3 if market_fault=='touch_execution' else 9.95
+        h.streams['10s'][-1]=replace(h.streams['10s'][-1],close=close,low=min(10.22,close))
+    elif market_fault=='forming_execution':
+        h.streams['10s'][-1]=replace(h.streams['10s'][-1],timestamp=end+timedelta(seconds=40))
+    elif market_fault=='zero_volume_execution':
+        h.streams['10s'][-1]=replace(h.streams['10s'][-1],volume=0.)
+    for row in h.rows.values():
+        row.update(premarket_high=12.,premarket_low=9.8,last_price=10.42,bid=10.4175,ask=10.4225,
+            prev_close=9.3,ref_close_rth=9.3,reference_price=9.3,
+            gap_pct=(10.42/9.3-1)*100,pct_change=(10.42/9.3-1)*100,
+            spread_pct=100*.005/10.42,dollar_volume=10.42*1_800_000)
+    snapshot=replace(_snapshot(symbol='JPM'),last=10.42,bid=10.4175,ask=10.4225)
+    h.core.market_data_snapshot_manager=NS(batch_snapshots=lambda symbols:({s:replace(snapshot,symbol=s,
+        asof_utc=h.life.clock.current,market_timestamp_utc=h.life.clock.current) for s in symbols},[]))
+    h.orb_triggers=[];evaluator=TRIGGER_EVALUATOR_REGISTRY['OPENING_RANGE_BREAKOUT']
+    def observed(payload,inputs):
+        out=evaluator(payload,inputs)
+        h.orb_triggers.append((deepcopy(payload),deepcopy(inputs),deepcopy(out)))
+        return out
+    monkeypatch.setitem(TRIGGER_EVALUATOR_REGISTRY,'OPENING_RANGE_BREAKOUT',observed)
+    from src.core.engines.trigger_engine import TriggerEngine
+    h.orb_engine_outputs=[];evaluate=TriggerEngine.evaluate_triggers
+    def observed_engine(self,**kwargs):
+        out=evaluate(self,**kwargs)
+        h.orb_engine_outputs.extend(deepcopy(t) for t in out if t.get('setup_family_id')=='OPENING_RANGE_BREAKOUT')
+        return out
+    monkeypatch.setattr(TriggerEngine,'evaluate_triggers',observed_engine)
+    return h
+
+
+@pytest.mark.parametrize('position_case',['complete_empty','complete_matched'])
+@pytest.mark.parametrize('market_fault',['none','forming_execution','zero_volume_execution'])
+def test_joined_orb_native_selected_handoff(reassessment,monkeypatch,tmp_path,capsys,position_case,market_fault):
+    h=orb_joined(reassessment,monkeypatch,tmp_path,position_case=position_case,market_fault=market_fault)
+    out=cycles(h,capsys)
+    source,results=h.registry_batches[-1]
+    orb=next(r for r in results if r.setup_id=='P_ORB')
+    assert orb.detected, (orb.rejection_reason,source.indicators.macd_line,source.news_context)
+    assert len(h.evaluated)==1,out
+    intent,received,decision=h.evaluated[0]
+    assert intent.setup_family_id=='OPENING_RANGE_BREAKOUT', (intent,out)
+    assert (intent.entry_price,intent.stop_loss_price,intent.invalidation_level)==(10.3,9.95,9.95)
+    assert intent.target_model=='Continuation above the completed opening-range high.'
+    assert intent.take_profit_price is None and decision.reason_code=='LIVE_READ_ONLY_BLOCK'
+    no_effects(h)
+    raw=[i for batch in h.batches for i in batch]
+    assert len(raw)==len(h.artifacts)==len(h.evaluated)==1,out
+    artifact,built=h.artifacts[0]
+    assert intent is raw[0] and artifact.intents==[intent]
+    assert built==h.raw_snapshots and built[0]['decision_id'] is None
+    assert received==dict(built[0],decision_id=artifact.decision_id)==vars(intent)
+    assert intent.decision_id==artifact.decision_id==decision.decision_id and intent.decision_id
+    index=intent.setup_metadata['canonical_result_index']
+    assert results[index] is orb and index>0
+    from src.strategies.ross_momentum.patterns.pattern_registry import RossPatternRegistry
+    assert len(h.strategy._pattern_registry.patterns)==33
+    assert [p.pattern_id for p in h.strategy._pattern_registry.patterns]==[
+        p.pattern_id for p in RossPatternRegistry().patterns]
+    opening=[b for b in source.candles if b.timestamp.hour==14 and 30<=b.timestamp.minute<=34]
+    assert len(opening)==5 and all(b.timestamp+timedelta(minutes=1)<=source.observed_at_utc for b in opening)
+    assert (max(b.high for b in opening),min(b.low for b in opening))==(10.3,9.95)
+    assert source.candles[-1].close>orb.trigger_level and source.candles[-1].volume>sum(b.volume for b in source.candles[:5])/5
+    assert source.indicators.macd_line>0 and 'macd' not in source.news_context and 'macd_hist' not in source.news_context
+    assert orb.target_suggestion==intent.target_model
+    assert not intent.relationship_context
+    assert intent.setup_metadata['source_metadata']==orb.setup_metadata
+    for name in ('trigger_level','stop_level','invalidation_level'):
+        assert intent.setup_metadata[name]==getattr(orb,name)
+    canonical=[t for t in h.orb_triggers if t[0].get('source')=='canonical_pattern_result'
+        and t[0].get('canonical_result_index')==index]
+    assert len(canonical)==1
+    payload,execution,trigger=canonical[0]
+    assert (payload['trigger_level'],payload['stop_level'],payload['invalidation_level'])==(10.3,9.95,9.95)
+    assert trigger['trigger_ready_now'] and trigger['trigger_reason']=='break_and_hold_above_orh'
+    confirmed=[t for t in h.orb_engine_outputs if t.get('canonical_result_index')==index]
+    assert len(confirmed)==1 and confirmed[0]['trigger_ready_now']
+    assert (confirmed[0]['trigger_price_reference'],confirmed[0]['stop_price_reference'],
+        confirmed[0]['invalidation_price_reference'])==(10.3,9.95,9.95)
+    assert received['setup_metadata']['execution_stream']==payload['execution_stream']
+    assert payload['execution_stream']['observed_at_utc']==source.observed_at_utc.isoformat()
+    assert payload['execution_stream']['execution_trigger_timeframe']=='10s'
+    assert payload['execution_stream']['timeframe_substitution'] is False
+    assert not decision.allowed and decision.execution_blocked and decision.max_position_size==0
+    assert decision.run_mode=='READ_ONLY' and all(v.healthy and not v.block_new_entries for _,v in h.truth)
+    assert _cadence(h.core).focus.symbols==['JPM'] and h.focus_calls
+    news=ross._ross_news_contexts_from_news_intelligence_result(h.reads[-1])
+    assert news['JPM']['ross_catalyst_valid'] and news['JPM']['catalyst_type']=='EARNINGS'
+    assert h.reads[-1].evidence_for_symbol('JPM')[0].evidence_id==h.article.evidence_id
+    for name,method in h.real_core_methods.items():assert getattr(h.core,name).__func__ is method
+    assert '[PIPELINE][RISK_OUTPUT] approved_count=0 blocked_count=1' in out and 'ORDER_SUBMITTED' not in out
+    retained=deepcopy(vars(intent))
+    orb.setup_metadata.clear();source.timeframe_provenance.clear();source.candles.clear()
+    payload['setup_metadata'].clear();payload['execution_stream'].clear()
+    assert vars(intent)==received==retained
+
+
+@pytest.mark.parametrize('market_fault',['missing_source','stale_source','touch_source','equal_volume_source',
+    'missing_execution','stale_execution','touch_execution','invalidated_execution'])
+def test_joined_orb_existing_gates_still_block(reassessment,monkeypatch,tmp_path,capsys,market_fault):
+    h=orb_joined(reassessment,monkeypatch,tmp_path,market_fault=market_fault)
+    out=cycles(h,capsys)
+    assert not [i for batch in h.batches for i in batch if i.setup_family_id=='OPENING_RANGE_BREAKOUT'],out
+    assert not [i for i,_,_ in h.evaluated if i.setup_family_id=='OPENING_RANGE_BREAKOUT'],out
+    if market_fault in {'touch_source','equal_volume_source'}:
+        orb=next(r for r in h.registry_batches[-1][1] if r.setup_id=='P_ORB')
+        assert not orb.detected and orb.target_suggestion is None
+        assert orb.rejection_reason==('no_hold_above_orh' if market_fault=='touch_source' else 'breakout_volume_below_opening_average')
+    elif market_fault.endswith('execution'):
+        orb=next(r for r in h.registry_batches[-1][1] if r.setup_id=='P_ORB')
+        assert orb.detected and h.orb_engine_outputs
+        blocked=h.orb_engine_outputs[-1]
+        assert not blocked['trigger_ready_now']
+        expected={'missing_execution':'execution_stream_missing','stale_execution':'execution_stream_stale',
+            'touch_execution':'orb_trigger_armed','invalidated_execution':'at_or_below_invalidation'}
+        assert blocked['trigger_reason']==expected[market_fault]
+        if market_fault in {'missing_execution','stale_execution'}:
+            assert h.orb_triggers==[]
     no_effects(h)

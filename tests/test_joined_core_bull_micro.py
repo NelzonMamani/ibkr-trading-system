@@ -32,12 +32,13 @@ from test_ross_pr1029_pattern_detection_certification import _micro_rows
 from test_flat_top_production_handoff import forbid_collection_and_execution, forbid_io
 
 
-def joined(reassessment, monkeypatch, tmp_path, *, news_fault="none", peer=False, market_fault="none", position_case=None, runtime_options=None):
+def joined(reassessment, monkeypatch, tmp_path, *, news_fault="none", peer=False, market_fault="none", position_case=None, runtime_options=None, clock_time=None):
     # Retain before the inherited harness temporarily stubs this class method.
     resolve_positions=core_module.CoreOrchestrator._resolve_position_truth_cycle
     c=reassessment
     life=c.life
-    life.clock.current=life.clock.current.replace(hour=13,minute=35,second=30,microsecond=0)
+    hour,minute,second=clock_time or (13,35,30)
+    life.clock.current=life.clock.current.replace(hour=hour,minute=minute,second=second,microsecond=0)
     for module in (core_module,quote_freshness,position_truth,pattern_trace):
         monkeypatch.setattr(module,"datetime",life.clock)
     article=life.article("JPM reports earnings beat")

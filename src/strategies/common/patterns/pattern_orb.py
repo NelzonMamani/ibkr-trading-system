@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from datetime import datetime, time, timezone
+from math import isfinite
 
 from src.strategies.ross_momentum.patterns.pattern_inputs import PatternInputs
 from src.strategies.ross_momentum.patterns.pattern_types import Direction, PatternFamily, PatternResult
 from src.strategies.strategy_contracts import SessionContext
+from src.strategies.ross_momentum.strategy_policy import ORB_DESCRIPTIVE_OBJECTIVE
 
 _ORB_RANGE_LOCK: dict[tuple[str, str], tuple[float, float]] = {}
 
@@ -104,6 +106,12 @@ def detect_orb(inputs: PatternInputs) -> PatternResult:
     if macd is None:
         macd = _safe_float((inputs.news_context or {}).get("macd_hist"))
     if macd is None:
+        # The authoritative input builder computes MACD here, not in news.
+        # Keep legacy explicit context precedence and the positive-MACD gate.
+        macd = _safe_float(inputs.indicators.macd_line)
+        if macd is not None and not isfinite(macd):
+            macd = None
+    if macd is None:
         return reject("missing_macd")
 
     rvol = _safe_float(inputs.liquidity_context.rvol)
@@ -171,6 +179,7 @@ def detect_orb(inputs: PatternInputs) -> PatternResult:
         setup_family_id="OPENING_RANGE_BREAKOUT",
         entry_zone=f"break_above_orh:{orh:.4f}",
         stop_suggestion=f"orb_low:{stop_anchor:.4f}",
+        target_suggestion=ORB_DESCRIPTIVE_OBJECTIVE,
         rationale_text=(
             "ORB long confirmed with break+hold above ORH, strong breakout volume, VWAP support, "
             f"positive MACD, and liquidity pass. orh={orh:.4f} orl={orl:.4f} "

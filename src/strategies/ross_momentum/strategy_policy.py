@@ -58,6 +58,11 @@ from typing import Optional, Sequence
 from src.scanner.result_models import CandidateMetrics
 from src.market_data.session_pct_change import normalize_session_label
 
+# Newly authorized project policy (7 November 2026), native long ORB only.
+# Descriptive intent objective after existing detector/trigger gates; no numeric
+# take-profit, level projection, exit or recurring-management instruction.
+ORB_DESCRIPTIVE_OBJECTIVE = "Continuation above the completed opening-range high."
+
 
 POLICY_V2 = StrategyPolicyV2(
     identity=StrategyIdentityV2(name="ROSS_MOMENTUM", strategy_id="P01"),

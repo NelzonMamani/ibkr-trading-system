@@ -54,6 +54,19 @@ def test_valid_breakout_detected() -> None:
     assert result.setup_id == "P_ORB"
     assert result.trigger_level == 10.30
     assert result.stop_level == 9.95
+    assert result.invalidation_level == 9.95
+    assert result.target_suggestion == "Continuation above the completed opening-range high."
+
+
+def test_orb_objective_does_not_waive_missing_target_contract() -> None:
+    from src.strategies.ross_momentum.decision_policy import validate_entry_contract
+    _ORB_RANGE_LOCK.clear()
+    result = detect_orb(_base_inputs())
+    assert validate_entry_contract(result) == (True, "ok")
+    for missing in (None, "", " "):
+        assert validate_entry_contract(replace(result, target_suggestion=missing)) == (False, "missing_target")
+    rejected = detect_orb(replace(_base_inputs(), candles=[]))
+    assert not rejected.detected and rejected.target_suggestion is None
 
 
 def test_no_break_rejected() -> None:
@@ -177,3 +190,45 @@ def test_orb_trade_structure_requires_canonical_orh_orl() -> None:
         selected_trigger={"trigger_price_reference": None, "invalidation_price_reference": None},
     )
     assert blocked is None
+
+
+def test_orb_uses_authoritative_macd_without_waiving_positive_gate() -> None:
+    _ORB_RANGE_LOCK.clear()
+    inputs = replace(_base_inputs(), news_context={'session_phase': 'MORNING'})
+    for value, reason in ((0.25, None), (0.0, 'macd_not_positive'),
+                          (-0.25, 'macd_not_positive'), (None, 'missing_macd'),
+                          (float('nan'), 'missing_macd'), (float('inf'), 'missing_macd'),
+                          (float('-inf'), 'missing_macd')):
+        result = detect_orb(replace(inputs, indicators=replace(inputs.indicators, macd_line=value)))
+        assert result.detected is (reason is None)
+        assert result.rejection_reason == reason
+        if reason:
+            assert result.target_suggestion is None
+    # Legacy explicit values retain precedence over a positive indicator.
+    for context in ({'macd': -0.1}, {'macd_hist': -0.1}):
+        result = detect_orb(replace(inputs, indicators=replace(inputs.indicators, macd_line=0.25),
+                                    news_context=context))
+        assert result.rejection_reason == 'macd_not_positive'
+
+
+def test_native_orb_target_does_not_force_winner_over_genuine_key() -> None:
+    from src.core.engines.decision_engine import DecisionEngine
+    from src.strategies.ross_momentum.decision_policy import validate_entry_contract
+    from src.strategies.ross_momentum.patterns.pattern_registry import RossPatternRegistry
+    _ORB_RANGE_LOCK.clear()
+    inputs = _base_inputs()
+    registry = RossPatternRegistry()
+    results = registry.run(inputs)
+    orb = next(r for r in results if r.setup_id == 'P_ORB')
+    key = next(r for r in results if r.setup_id == 'P_KEY_LEVEL_BREAK')
+    assert len(registry.patterns) == 33
+    assert orb.detected and key.detected and key.confidence > orb.confidence
+    assert validate_entry_contract(orb) == (True, 'ok')
+    decision = DecisionEngine().compute_decision(symbol=inputs.symbol, levels={}, structure={},
+        setups=[], pattern_results=results, session_context='REGULAR',
+        entry_contract_validator=validate_entry_contract)
+    assert decision['selected_pattern_id'] == 'P_KEY_LEVEL_BREAK'
+    assert (orb.trigger_level, orb.stop_level, orb.invalidation_level) == (10.3, 9.95, 9.95)
+    assert key.target_suggestion != orb.target_suggestion
+    assert not any(r['pattern_id'] == 'P_ORB' and r['reason'] == 'missing_target'
+                   for r in decision['rejected_candidates'])
