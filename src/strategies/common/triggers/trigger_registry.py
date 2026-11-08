@@ -20,6 +20,7 @@ from src.strategies.common.triggers.trigger_parabolic_exhaustion import evaluate
 from src.strategies.common.triggers.trigger_premarket_high_break import evaluate_premarket_high_break_trigger
 from src.strategies.common.triggers.trigger_pullback_variants import (
     evaluate_second_pullback_trigger,
+    evaluate_range_break_trigger,
     evaluate_three_bar_pullback_trigger,
 )
 from src.strategies.common.triggers.trigger_stair_step import evaluate_stair_step_trigger
@@ -49,6 +50,7 @@ TRIGGER_EVALUATOR_REGISTRY: dict[str, TriggerEvaluator] = {
     "VWAP_PULLBACK": evaluate_vwap_pullback_trigger,
     "THREE_BAR_PULLBACK": evaluate_three_bar_pullback_trigger,
     "SECOND_PULLBACK": evaluate_second_pullback_trigger,
+    "RANGE_BREAK": evaluate_range_break_trigger,
 }
 
 

@@ -298,5 +298,9 @@ def test_authorized_objective_declarations_do_not_enable_structural_placeholders
     from src.strategies.ross_momentum.decision_policy import validate_entry_contract
     _,_,rows,_,fire,_=_case('THREE_BAR_PULLBACK')
     native=getattr(pullbacks,pattern_name)().evaluate(_history_inputs(rows+[fire]))
-    assert native.detected and native.target_suggestion is None
-    assert validate_entry_contract(native)==(False,'missing_target')
+    if pattern_name=='RangeBreakoutPattern':
+        assert not native.detected and native.target_suggestion is None
+        assert not validate_entry_contract(native)[0]
+    else:
+        assert native.detected and native.target_suggestion is None
+        assert validate_entry_contract(native)==(False,'missing_target')

@@ -1425,3 +1425,27 @@ def acknowledge_stair_step(h,capsys):
         triggers=h.indicator_triggers)
     assert request.target_model==TREND_CONTINUATION_STAIR_STEP_DESCRIPTIVE_OBJECTIVE and request.take_profit_price is None
     return request
+
+
+
+def test_native_measured_range_paper_retains_confidence_veto(reassessment,monkeypatch,tmp_path,
+        capsys,no_external_activity):
+    from test_joined_core_pmh_readonly import range_joined
+    def paper_range(*args,**kwargs):return paper_pmh(*args,joined_factory=range_joined,**kwargs)
+    h=late_pmh(reassessment,monkeypatch,tmp_path,paper_factory=paper_range,
+        fill_price=10.49,stop_price=10.04)
+    try:
+        assert h.core.run_once();capsys.readouterr()
+        h.life.clock.current+=timedelta(seconds=11)
+        assert h.core.run_once();capsys.readouterr()
+        _,results=h.registry_batches[-1]
+        own=next(r for r in results if r.setup_id=='P_RANGE_BREAKOUT')
+        assert len(results)==33 and own.detected and own.confidence==.58
+        assert h.range_triggers and h.range_triggers[-1][2]['trigger_ready_now']
+        assert h.strategy.last_symbol_terminal_outcomes['JPM']['reason']=='CONFIDENCE_BELOW_ORDERABLE_THRESHOLD'
+        assert h.sent_native==h.stop_requests==h.artifacts==h.evaluated==[]
+        assert not h.core.execution_engine.position_records and not h.manager.snapshot_positions()
+        assert not h.core.trade_registry.snapshot()
+        assert not h.core.execution_engine.capital_authority.active_reservations
+        assert not h.core.execution_engine.strategy_allocation_authority.active_reservations
+    finally:teardown_unsent_fixture(h,no_external_activity)

@@ -1404,10 +1404,10 @@ def test_joined_momentum_native_selected_handoff(reassessment,monkeypatch,tmp_pa
 
 
 
-def _closed_minutes_and_execution(source,current,*,end):
+def _closed_minutes_and_execution(source,current,*,end,source_minutes=5):
     """Existing HOD external aggregation fixture, shared with Micro."""
     bars=[]
-    for bar in source[-5:]:
+    for bar in source[-source_minutes:]:
         for part in range(6):
             bars.append(replace(bar,timestamp=bar.timestamp+timedelta(seconds=part*10),
                 open=bar.open if part==0 else bar.close,high=bar.high if part==0 else bar.close,
@@ -1524,7 +1524,7 @@ def test_joined_micro_keeps_ready_key_competition(reassessment,monkeypatch,tmp_p
     no_effects(h)
 
 
-def _install_variant_market(h,rows,current,*,pmh,early=None,completed_source=False):
+def _install_variant_market(h,rows,current,*,pmh,early=None,completed_source=False,execution_history_minutes=5):
     end=h.life.clock.current.replace(second=0,microsecond=0)
     h.streams.clear();h.streams['1m']=_candles(rows,step_seconds=60,
         end=end-timedelta(minutes=1) if completed_source else end)
@@ -1541,7 +1541,7 @@ def _install_variant_market(h,rows,current,*,pmh,early=None,completed_source=Fal
     h.streams['5m']=_candles([early]*40+grouped,
         step_seconds=300,end=end-timedelta(minutes=4))
     h.streams['10s']=_closed_minutes_and_execution(h.streams['1m'] if completed_source else h.streams['1m'][:-1],current,
-        end=end-timedelta(seconds=10))
+        end=end-timedelta(seconds=10),source_minutes=execution_history_minutes)
     last=rows[-1][3];previous=9.4
     for row in h.rows.values():row.update(premarket_high=pmh,last_price=last,bid=last-.01,ask=last+.01,
         prev_close=previous,ref_close_rth=previous,reference_price=previous,
@@ -2325,5 +2325,111 @@ def test_opening_drive_original_rising_lows_preserve_genuine_stair_winner(reasse
     assert (intent.entry_price,intent.stop_loss_price,intent.invalidation_level)==(
         stair.trigger_level,stair.stop_level,stair.invalidation_level)
     assert intent.stop_loss_price!=opening.stop_level and intent.target_model!=opening.target_suggestion
+    assert received==vars(intent) and decision.reason_code=='LIVE_READ_ONLY_BLOCK'
+    no_effects(h)
+
+
+def range_joined(reassessment,monkeypatch,tmp_path,*,position_case='complete_empty',runtime_options=None,
+        news_fault='none',peer=False,market_fault='none'):
+    h=pmh_joined(reassessment,monkeypatch,tmp_path,position_case=position_case,
+        runtime_options=runtime_options,clock_time=(13,59,30),news_fault=news_fault,peer=peer)
+    rectangle=[(10.25,10.44,10.04,10.35,1200),(10.35,10.43,10.05,10.25,1100),
+        (10.25,10.44,10.04,10.36,1000),(10.36,10.43,10.05,10.26,900),
+        (10.26,10.44,10.04,10.35,1000),(10.35,10.43,10.05,10.4,1100)]
+    rows=[(10.3,10.32,10.27,10.3,1500)]*43+rectangle+[(10.4,10.5,10.39,10.48,1600)]
+    rows[15]=(10.3,10.75,10.27,10.3,1500)
+    rows[25]=(10.3,10.8,10.27,10.3,1500)
+    current=[(10.4,10.42,10.39,10.4,200),(10.4,10.44,10.4,10.42,200),
+        (10.42,10.5,10.41,10.48,1200)]
+    pmh=10.75
+    if market_fault=='competing_pmh':
+        pmh=10.44;rows[15]=(10.3,pmh,10.27,10.3,1500)
+    if market_fault in {'touch_execution','low_volume'}:
+        if market_fault=='touch_execution':current[-1]=(*current[-1][:3],10.44,current[-1][4])
+        else:current[-1]=(*current[-1][:4],1)
+        rows[-1]=(current[0][0],max(b[1] for b in current),min(b[2] for b in current),
+            current[-1][3],sum(b[4] for b in current))
+    _install_variant_market(h,rows,current,pmh=pmh,execution_history_minutes=6)
+    if market_fault=='future_source':
+        h.streams['1m'][-1]=replace(h.streams['1m'][-1],timestamp=h.life.clock.current+timedelta(seconds=12))
+    elif market_fault=='nan_source':h.streams['1m'][-3]=replace(h.streams['1m'][-3],low=float('nan'))
+    elif market_fault=='incomplete_geometry':
+        # Source has only five completed rectangle bars; the sixth is developing.
+        h.streams['1m'][-2]=replace(h.streams['1m'][-2],timestamp=h.life.clock.current.replace(second=0))
+        h.streams['1m']=h.streams['1m'][:-1]
+    elif market_fault=='future_execution':
+        h.streams['10s'][-1]=replace(h.streams['10s'][-1],timestamp=h.life.clock.current+timedelta(seconds=12))
+    elif market_fault=='nan_execution':h.streams['10s'][-1]=replace(h.streams['10s'][-1],volume=float('nan'))
+    elif market_fault=='forming_execution':
+        h.streams['10s'][-1]=replace(h.streams['10s'][-1],timestamp=h.life.clock.current+timedelta(seconds=5))
+    evaluator=TRIGGER_EVALUATOR_REGISTRY['RANGE_BREAK'];h.range_triggers=[]
+    def observed(payload,inputs):
+        result=evaluator(payload,inputs)
+        h.range_triggers.append((deepcopy(payload),deepcopy(inputs),deepcopy(result)))
+        return result
+    monkeypatch.setitem(TRIGGER_EVALUATOR_REGISTRY,'RANGE_BREAK',observed)
+    return h
+
+
+def test_native_measured_range_joined_full_registry_readonly(reassessment,monkeypatch,tmp_path,capsys):
+    h=range_joined(reassessment,monkeypatch,tmp_path)
+    out=cycles(h,capsys)
+    source,results=h.registry_batches[-1]
+    own=next(r for r in results if r.setup_id=='P_RANGE_BREAKOUT')
+    assert own.detected,own.rejection_reason
+    assert len(results)==len(h.strategy._pattern_registry.patterns)==33
+    assert h.range_triggers and all(r['trigger_ready_now'] for _,_,r in h.range_triggers),[(r.get('trigger_reason'),r.get('execution_stream')) for _,_,r in h.range_triggers]
+    assert len(h.evaluated)==1,h.strategy.last_symbol_terminal_outcomes
+    intent,received,decision=h.evaluated[0]
+    assert intent.setup_family_id=='RANGE_BREAK'
+    assert results[intent.setup_metadata['canonical_result_index']] is own
+    assert (intent.entry_price,intent.stop_loss_price,intent.invalidation_level)==(10.44,10.04,10.04)
+    assert intent.target_model==own.target_suggestion and intent.take_profit_price is None
+    assert intent.setup_metadata['source_metadata']==own.setup_metadata
+    assert received==vars(intent) and decision.reason_code=='LIVE_READ_ONLY_BLOCK'
+    artifact,built=h.artifacts[0]
+    assert artifact.intents==[intent] and received==dict(built[0],decision_id=artifact.decision_id)
+    assert h.range_triggers[-1][2]['trigger_ready_now']
+    no_effects(h)
+
+
+@pytest.mark.parametrize('market_fault',['touch_execution','low_volume','future_source','nan_source',
+    'incomplete_geometry','future_execution','nan_execution','forming_execution'])
+def test_native_range_joined_geometry_and_own_confirmation_rejections(reassessment,monkeypatch,
+        tmp_path,capsys,market_fault):
+    h=range_joined(reassessment,monkeypatch,tmp_path,market_fault=market_fault)
+    cycles(h,capsys)
+    _,results=h.registry_batches[-1]
+    own=next(r for r in results if r.setup_id=='P_RANGE_BREAKOUT')
+    assert len(results)==33
+    assert not [i for batch in h.batches for i in batch if i.setup_family_id=='RANGE_BREAK']
+    if market_fault in {'future_source','nan_source','incomplete_geometry'}:
+        reasons={'future_source':'FUTURE_CANDLE_DATA','nan_source':'INVALID_CANDLE_DATA',
+            'incomplete_geometry':'range_upper_boundary_not_flat'}
+        assert not own.detected and own.target_suggestion is None
+        assert own.rejection_reason==reasons[market_fault]
+    else:
+        assert own.detected and h.range_triggers
+        canonical=[r for p,_,r in h.range_triggers if p.get('canonical_result_index')==results.index(own)]
+        reasons={'touch_execution':'awaiting_range_break','low_volume':'breakout_volume_confirmation_failed',
+            'future_execution':'range_future_candle_data','nan_execution':'range_invalid_candle_data',
+            'forming_execution':'range_incomplete_execution_confirmation'}
+        assert canonical and all(not r['trigger_ready_now'] and r['trigger_reason']==reasons[market_fault]
+            for r in canonical)
+    no_effects(h)
+
+
+def test_native_range_preserves_genuine_pmh_competition(reassessment,monkeypatch,tmp_path,capsys):
+    h=range_joined(reassessment,monkeypatch,tmp_path,market_fault='competing_pmh')
+    cycles(h,capsys)
+    _,results=h.registry_batches[-1]
+    own=next(r for r in results if r.setup_id=='P_RANGE_BREAKOUT')
+    assert own.detected and any(r['trigger_ready_now'] for _,_,r in h.range_triggers)
+    assert len(results)==33 and len(h.evaluated)==1
+    intent,received,decision=h.evaluated[0]
+    selected=results[intent.setup_metadata['canonical_result_index']]
+    assert selected.setup_id=='P_PREMARKET_HIGH_BREAK'
+    assert selected.confidence>own.confidence
+    assert intent.target_model==selected.target_suggestion and intent.target_model!=own.target_suggestion
     assert received==vars(intent) and decision.reason_code=='LIVE_READ_ONLY_BLOCK'
     no_effects(h)

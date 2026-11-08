@@ -3,11 +3,18 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import datetime, timedelta
+from math import isclose
 
 from src.strategies.ross_momentum.strategy_policy import (
     THREE_BAR_PULLBACK_DESCRIPTIVE_OBJECTIVE,
     SECOND_PULLBACK_DESCRIPTIVE_OBJECTIVE,
+    RANGE_BREAK_DESCRIPTIVE_OBJECTIVE,
+    CANONICAL_POLICY,
 )
+
+from src.strategies.common.triggers.trigger_abcd_continuation import abcd_candle_rejection
+from src.strategies.ross_momentum.policy.pattern_input_policy import PatternInputPolicy
 
 from src.strategies.common.triggers.trigger_pullback_variants import (
     evaluate_second_pullback_trigger,
@@ -23,8 +30,9 @@ from src.strategies.common.patterns.pattern_trend_continuation_stair_step import
     detect_trend_continuation_stair_step,
 )
 from src.strategies.common.patterns.pullback_utils import validate_volume_contraction
+from src.utils.time_utils import to_ny_time
 from src.strategies.ross_momentum.patterns.pattern_base import PatternBase
-from src.strategies.ross_momentum.patterns.pattern_inputs import PatternInputs
+from src.strategies.ross_momentum.patterns.pattern_inputs import PatternInputs, _timeframe_provenance
 from src.strategies.ross_momentum.patterns.pattern_types import Direction, PatternFamily, PatternResult, SetupSemantic
 
 
@@ -59,6 +67,89 @@ class _SimpleLongPattern(PatternBase):
 class RangeBreakoutPattern(_SimpleLongPattern):
     pattern_id = "P_RANGE_BREAKOUT"
     name = "Range / Rectangle Breakout"
+
+    def __init__(self, measurement_policy=None):
+        # Existing Ross registry uses its policy; other strategy callers can
+        # supply their own compatible measurement policy without a second detector.
+        self._measurement_policy = (measurement_policy if measurement_policy is not None
+                                    else CANONICAL_POLICY.range_break)
+
+    def evaluate(self, inputs: PatternInputs) -> PatternResult:
+        def reject(reason):
+            return replace(self._rejected(reason, inputs), setup_family_id="RANGE_BREAK")
+
+        candles = list(inputs.candles or [])
+        clock = inputs.observed_at_utc
+        # A rectangle needs measured completed geometry. Timeless generic
+        # continuation fixtures cannot assert that authority.
+        if not isinstance(clock, datetime) or clock.tzinfo is None:
+            return reject("range_missing_original_clock")
+        rejection = abcd_candle_rejection(candles, observed_at_utc=clock, require_clock=True)
+        if rejection:
+            return reject(rejection)
+        seconds = {"10s": 10, "1m": 60, "5m": 300}.get(inputs.primary_timeframe)
+        if seconds is None:
+            return reject("range_structure_timeframe_unsupported")
+        completed = [c for c in candles if c.timestamp + timedelta(seconds=seconds) <= clock]
+        spec = self._measurement_policy
+        if len(completed) < spec.formation_bars:
+            return reject("range_incomplete_geometry")
+        formation = completed[-spec.formation_bars:]
+        step = timedelta(seconds=seconds)
+        if any(b.timestamp - a.timestamp != step for a, b in zip(formation, formation[1:])):
+            return reject("range_gapped_geometry")
+        if to_ny_time(formation[0].timestamp).date() != to_ny_time(formation[-1].timestamp).date():
+            return reject("range_cross_day_geometry")
+        if _timeframe_provenance(formation, inputs.primary_timeframe,
+                PatternInputPolicy.from_policy_v2(), symbol=inputs.symbol, now_utc=clock) != "PRESENT":
+            return reject("range_stale_geometry")
+        high = max(c.high for c in formation)
+        low = min(c.low for c in formation)
+        height = high - low
+        def inclusive_le(left, right):
+            # Decimal quote arithmetic can straddle an inclusive geometric
+            # boundary by a few ULPs. This never changes strict execution cross.
+            return left <= right or isclose(left, right,
+                rel_tol=spec.numeric_relative_tolerance, abs_tol=0)
+        if not (inclusive_le(spec.minimum_height_fraction, height / high)
+                and inclusive_le(height / high, spec.maximum_height_fraction)):
+            return reject("range_height_outside_calibration")
+        tolerance = height * spec.boundary_tolerance_fraction
+        if not inclusive_le(high - min(c.high for c in formation), tolerance):
+            return reject("range_upper_boundary_not_flat")
+        if not inclusive_le(max(c.low for c in formation) - low, tolerance):
+            return reject("range_lower_boundary_not_flat")
+        confirmation_start = formation[-1].timestamp + step
+        expiry = confirmation_start + step * spec.confirmation_window_bars
+        if clock >= expiry:
+            return reject("range_expired_geometry")
+        # Forming bars never supply anchors, but can invalidate this occurrence.
+        if any(c.low <= low for c in candles if c.timestamp >= confirmation_start):
+            return reject("range_structural_invalidation_breached")
+        return PatternResult(
+            setup_id=self.pattern_id, pattern_name=self.name, pattern_family=self.family,
+            detected=True, direction=Direction.LONG, confidence=0.58,
+            setup_family_id="RANGE_BREAK", setup_quality_tags=["measured_rectangle"],
+            rationale_text="Completed measured rectangle; own execution confirmation required.",
+            target_suggestion=RANGE_BREAK_DESCRIPTIVE_OBJECTIVE,
+            trigger_type="BREAKOUT_HIGH", trigger_level=high, stop_level=low,
+            invalidation_level=low, setup_semantic=SetupSemantic.CONTINUATION.value,
+            signal_class="ENTRY", trigger_mode="BREAKOUT_CONTINUATION",
+            data_quality_flags=list(inputs.data_quality_flags),
+            setup_metadata={
+                "origin_timestamp": formation[0].timestamp,
+                "formation_start_timestamp": formation[0].timestamp,
+                "confirmation_start_timestamp": confirmation_start,
+                "confirmation_expiry_timestamp": expiry,
+                "structure_completed_timestamp": formation[-1].timestamp,
+                "range_high": high, "range_low": low, "range_height": height,
+                "formation_bar_count": len(formation),
+                "boundary_tolerance": tolerance,
+                "primary_timeframe": inputs.primary_timeframe,
+                "execution_refinement_timeframe": inputs.execution_refinement_timeframe,
+                "timeframe_provenance": dict(inputs.timeframe_provenance or {}),
+            },
+        )
 
 
 class FlatTopBreakoutPattern(_SimpleLongPattern):
