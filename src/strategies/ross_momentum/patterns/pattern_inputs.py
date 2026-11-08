@@ -75,6 +75,8 @@ class LevelSet:
     support_levels: tuple[float, ...] = ()
     resistance_levels: tuple[float, ...] = ()
     key_levels: Dict[str, float] = field(default_factory=dict)
+    # Completed same-day RTH measurement; legacy hod/key levels keep their semantics.
+    established_rth_hod: Optional[float] = None
 
 
 @dataclass(frozen=True)

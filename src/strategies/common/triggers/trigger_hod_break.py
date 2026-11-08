@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+from math import isfinite
+from src.strategies.common.triggers.trigger_abcd_continuation import abcd_candle_rejection
+
 
 def _safe_float(value):
     try:
-        return None if value is None else float(value)
+        number = None if value is None or isinstance(value, bool) else float(value)
+        return number if number is not None and isfinite(number) else None
     except (TypeError, ValueError):
         return None
 
@@ -42,6 +46,14 @@ def evaluate_hod_break_trigger(pattern_result, inputs):
         out = {**base, "trigger_state": "BLOCKED", "trigger_ready_now": False, "trigger_reason": "missing_trigger_level"}
         print(f"[TRIGGER][HOD_BREAK] fired=False reason={out['trigger_reason']}")
         return out
+
+    stream = payload.get("execution_stream")
+    rejection = abcd_candle_rejection(candles,
+        observed_at_utc=stream.get("observed_at_utc") if isinstance(stream, dict) else None,
+        require_clock=isinstance(stream, dict))
+    if rejection:
+        return {**base, "trigger_state": "BLOCKED", "trigger_ready_now": False,
+                "trigger_reason": "hod_" + rejection.lower()}
 
     last = candles[-1]
     prev = candles[-2]
