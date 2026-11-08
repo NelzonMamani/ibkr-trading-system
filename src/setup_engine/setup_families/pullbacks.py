@@ -10,6 +10,8 @@ from src.strategies.ross_momentum.strategy_policy import (
     THREE_BAR_PULLBACK_DESCRIPTIVE_OBJECTIVE,
     SECOND_PULLBACK_DESCRIPTIVE_OBJECTIVE,
     RANGE_BREAK_DESCRIPTIVE_OBJECTIVE,
+    ASCENDING_TRIANGLE_DESCRIPTIVE_OBJECTIVE,
+    PENNANT_DESCRIPTIVE_OBJECTIVE,
     CANONICAL_POLICY,
 )
 
@@ -64,92 +66,106 @@ class _SimpleLongPattern(PatternBase):
         )
 
 
+def _measured_rejection(pattern, inputs, family, reason):
+    return replace(pattern._rejected(reason, inputs), setup_family_id=family)
+
+
+def _completed_measured_geometry(inputs, spec, prefix, input_policy):
+    """Existing validity/freshness owners, one completed native source window."""
+    candles = list(inputs.candles or [])
+    clock = inputs.observed_at_utc
+    if not isinstance(clock, datetime) or clock.tzinfo is None:
+        return [], {}, prefix + "_missing_original_clock"
+    rejection = abcd_candle_rejection(candles, observed_at_utc=clock, require_clock=True)
+    if rejection:
+        return [], {}, rejection
+    seconds = {"10s": 10, "1m": 60, "5m": 300}.get(inputs.primary_timeframe)
+    if seconds is None:
+        return [], {}, prefix + "_structure_timeframe_unsupported"
+    step = timedelta(seconds=seconds)
+    completed = [c for c in candles if c.timestamp + step <= clock]
+    if len(completed) < spec.formation_bars:
+        return [], {}, prefix + "_incomplete_geometry"
+    formation = completed[-spec.formation_bars:]
+    if any(b.timestamp - a.timestamp != step for a, b in zip(formation, formation[1:])):
+        return [], {}, prefix + "_gapped_geometry"
+    if to_ny_time(formation[0].timestamp).date() != to_ny_time(formation[-1].timestamp).date():
+        return [], {}, prefix + "_cross_day_geometry"
+    if _timeframe_provenance(formation, inputs.primary_timeframe,
+            input_policy, symbol=inputs.symbol, now_utc=clock) != "PRESENT":
+        return [], {}, prefix + "_stale_geometry"
+    confirmation_start = formation[-1].timestamp + step
+    return formation, {
+        "origin_timestamp": formation[0].timestamp,
+        "formation_start_timestamp": formation[0].timestamp,
+        "confirmation_start_timestamp": confirmation_start,
+        "confirmation_expiry_timestamp": confirmation_start + step * spec.confirmation_window_bars,
+        "structure_completed_timestamp": formation[-1].timestamp,
+        "source_window_bar_count": len(formation),
+        "formation_bar_count": len(formation),
+        "primary_timeframe": inputs.primary_timeframe,
+        "execution_refinement_timeframe": inputs.execution_refinement_timeframe,
+        "timeframe_provenance": dict(inputs.timeframe_provenance or {}),
+    }, None
+
+
+def _geometry_inclusive_le(left, right, spec):
+    # Only inclusive geometry arithmetic absorbs ULP error. Execution price and
+    # volume remain strictly greater than their actual measured references.
+    return left <= right or isclose(left, right,
+        rel_tol=spec.numeric_relative_tolerance, abs_tol=0)
+
+
+def _measured_entry_result(pattern, inputs, family, prefix, metadata, high, low, objective, evidence):
+    if low >= high:
+        return _measured_rejection(pattern, inputs, family, prefix + "_invalid_anchors")
+    if inputs.observed_at_utc >= metadata["confirmation_expiry_timestamp"]:
+        return _measured_rejection(pattern, inputs, family, prefix + "_expired_geometry")
+    if any(c.low <= low for c in inputs.candles if c.timestamp >= metadata["confirmation_start_timestamp"]):
+        return _measured_rejection(pattern, inputs, family, prefix + "_structural_invalidation_breached")
+    # Retain the existing result owner and its session/VWAP diagnostic tags.
+    # Explicit measured anchors prevent its generic level inference fallback.
+    result = pattern._detected(inputs, direction=Direction.LONG, confidence=0.58,
+        rationale="Completed measured " + prefix + "; own execution confirmation required.",
+        target_suggestion=objective, trigger_level=high, stop_level=low,
+        setup_quality_tags=[pattern.pattern_id.lower(), "measured_" + prefix])
+    return replace(result, setup_family_id=family, setup_semantic=SetupSemantic.CONTINUATION.value,
+        trigger_type="BREAKOUT_HIGH", signal_class="ENTRY", trigger_mode="BREAKOUT_CONTINUATION",
+        setup_metadata={**metadata, **evidence})
+
+
+
 class RangeBreakoutPattern(_SimpleLongPattern):
     pattern_id = "P_RANGE_BREAKOUT"
     name = "Range / Rectangle Breakout"
 
-    def __init__(self, measurement_policy=None):
-        # Existing Ross registry uses its policy; other strategy callers can
-        # supply their own compatible measurement policy without a second detector.
+    def __init__(self, measurement_policy=None, input_policy=None):
         self._measurement_policy = (measurement_policy if measurement_policy is not None
                                     else CANONICAL_POLICY.range_break)
+        self._input_policy = (input_policy if input_policy is not None
+                              else PatternInputPolicy.from_policy_v2())
 
     def evaluate(self, inputs: PatternInputs) -> PatternResult:
-        def reject(reason):
-            return replace(self._rejected(reason, inputs), setup_family_id="RANGE_BREAK")
-
-        candles = list(inputs.candles or [])
-        clock = inputs.observed_at_utc
-        # A rectangle needs measured completed geometry. Timeless generic
-        # continuation fixtures cannot assert that authority.
-        if not isinstance(clock, datetime) or clock.tzinfo is None:
-            return reject("range_missing_original_clock")
-        rejection = abcd_candle_rejection(candles, observed_at_utc=clock, require_clock=True)
-        if rejection:
-            return reject(rejection)
-        seconds = {"10s": 10, "1m": 60, "5m": 300}.get(inputs.primary_timeframe)
-        if seconds is None:
-            return reject("range_structure_timeframe_unsupported")
-        completed = [c for c in candles if c.timestamp + timedelta(seconds=seconds) <= clock]
         spec = self._measurement_policy
-        if len(completed) < spec.formation_bars:
-            return reject("range_incomplete_geometry")
-        formation = completed[-spec.formation_bars:]
-        step = timedelta(seconds=seconds)
-        if any(b.timestamp - a.timestamp != step for a, b in zip(formation, formation[1:])):
-            return reject("range_gapped_geometry")
-        if to_ny_time(formation[0].timestamp).date() != to_ny_time(formation[-1].timestamp).date():
-            return reject("range_cross_day_geometry")
-        if _timeframe_provenance(formation, inputs.primary_timeframe,
-                PatternInputPolicy.from_policy_v2(), symbol=inputs.symbol, now_utc=clock) != "PRESENT":
-            return reject("range_stale_geometry")
+        formation, metadata, reason = _completed_measured_geometry(inputs, spec, "range", self._input_policy)
+        def reject(reason):
+            return _measured_rejection(self, inputs, "RANGE_BREAK", reason)
+        if reason:
+            return reject(reason)
         high = max(c.high for c in formation)
         low = min(c.low for c in formation)
         height = high - low
-        def inclusive_le(left, right):
-            # Decimal quote arithmetic can straddle an inclusive geometric
-            # boundary by a few ULPs. This never changes strict execution cross.
-            return left <= right or isclose(left, right,
-                rel_tol=spec.numeric_relative_tolerance, abs_tol=0)
-        if not (inclusive_le(spec.minimum_height_fraction, height / high)
-                and inclusive_le(height / high, spec.maximum_height_fraction)):
+        if not (_geometry_inclusive_le(spec.minimum_height_fraction, height / high, spec)
+                and _geometry_inclusive_le(height / high, spec.maximum_height_fraction, spec)):
             return reject("range_height_outside_calibration")
         tolerance = height * spec.boundary_tolerance_fraction
-        if not inclusive_le(high - min(c.high for c in formation), tolerance):
+        if not _geometry_inclusive_le(high - min(c.high for c in formation), tolerance, spec):
             return reject("range_upper_boundary_not_flat")
-        if not inclusive_le(max(c.low for c in formation) - low, tolerance):
+        if not _geometry_inclusive_le(max(c.low for c in formation) - low, tolerance, spec):
             return reject("range_lower_boundary_not_flat")
-        confirmation_start = formation[-1].timestamp + step
-        expiry = confirmation_start + step * spec.confirmation_window_bars
-        if clock >= expiry:
-            return reject("range_expired_geometry")
-        # Forming bars never supply anchors, but can invalidate this occurrence.
-        if any(c.low <= low for c in candles if c.timestamp >= confirmation_start):
-            return reject("range_structural_invalidation_breached")
-        return PatternResult(
-            setup_id=self.pattern_id, pattern_name=self.name, pattern_family=self.family,
-            detected=True, direction=Direction.LONG, confidence=0.58,
-            setup_family_id="RANGE_BREAK", setup_quality_tags=["measured_rectangle"],
-            rationale_text="Completed measured rectangle; own execution confirmation required.",
-            target_suggestion=RANGE_BREAK_DESCRIPTIVE_OBJECTIVE,
-            trigger_type="BREAKOUT_HIGH", trigger_level=high, stop_level=low,
-            invalidation_level=low, setup_semantic=SetupSemantic.CONTINUATION.value,
-            signal_class="ENTRY", trigger_mode="BREAKOUT_CONTINUATION",
-            data_quality_flags=list(inputs.data_quality_flags),
-            setup_metadata={
-                "origin_timestamp": formation[0].timestamp,
-                "formation_start_timestamp": formation[0].timestamp,
-                "confirmation_start_timestamp": confirmation_start,
-                "confirmation_expiry_timestamp": expiry,
-                "structure_completed_timestamp": formation[-1].timestamp,
-                "range_high": high, "range_low": low, "range_height": height,
-                "formation_bar_count": len(formation),
-                "boundary_tolerance": tolerance,
-                "primary_timeframe": inputs.primary_timeframe,
-                "execution_refinement_timeframe": inputs.execution_refinement_timeframe,
-                "timeframe_provenance": dict(inputs.timeframe_provenance or {}),
-            },
-        )
+        return _measured_entry_result(self, inputs, "RANGE_BREAK", "range", metadata, high, low,
+            RANGE_BREAK_DESCRIPTIVE_OBJECTIVE,
+            {"range_high": high, "range_low": low, "range_height": height, "boundary_tolerance": tolerance})
 
 
 class FlatTopBreakoutPattern(_SimpleLongPattern):
@@ -164,10 +180,83 @@ class AscendingTriangleBreakoutPattern(_SimpleLongPattern):
     pattern_id = "P_ASCENDING_TRIANGLE_BREAKOUT"
     name = "Ascending Triangle Breakout"
 
+    def __init__(self, measurement_policy=None, input_policy=None):
+        self._measurement_policy = (measurement_policy if measurement_policy is not None
+                                    else CANONICAL_POLICY.ascending_triangle)
+        self._input_policy = (input_policy if input_policy is not None
+                              else PatternInputPolicy.from_policy_v2())
+
+    def evaluate(self, inputs: PatternInputs) -> PatternResult:
+        spec = self._measurement_policy
+        formation, metadata, reason = _completed_measured_geometry(inputs, spec, "triangle", self._input_policy)
+        def reject(reason):
+            return _measured_rejection(self, inputs, "ASCENDING_TRIANGLE", reason)
+        if reason:
+            return reject(reason)
+        high = max(c.high for c in formation)
+        floor = min(c.low for c in formation)
+        height = high - floor
+        if not (_geometry_inclusive_le(spec.minimum_height_fraction, height / high, spec)
+                and _geometry_inclusive_le(height / high, spec.maximum_height_fraction, spec)):
+            return reject("triangle_height_outside_calibration")
+        if not _geometry_inclusive_le(high - min(c.high for c in formation),
+                height * spec.boundary_tolerance_fraction, spec):
+            return reject("triangle_resistance_not_flat")
+        swings = [formation[i] for i in range(1, len(formation)-1)
+            if formation[i].low < formation[i-1].low and formation[i].low < formation[i+1].low]
+        if len(swings) < spec.minimum_swing_points:
+            return reject("triangle_unconfirmed_swing_lows")
+        swings = swings[-spec.minimum_swing_points:]
+        if any(b.low <= a.low or not _geometry_inclusive_le(
+                height * spec.minimum_swing_rise_fraction, b.low-a.low, spec)
+                for a, b in zip(swings, swings[1:])):
+            return reject("triangle_swing_lows_not_rising")
+        low = swings[-1].low
+        return _measured_entry_result(self, inputs, "ASCENDING_TRIANGLE", "triangle", metadata,
+            high, low, ASCENDING_TRIANGLE_DESCRIPTIVE_OBJECTIVE,
+            {"triangle_high": high, "triangle_low": low, "triangle_floor": floor,
+             "triangle_swing_low_prices": tuple(c.low for c in swings),
+             "triangle_swing_low_timestamps": tuple(c.timestamp for c in swings)})
+
 
 class PennantBreakPattern(_SimpleLongPattern):
     pattern_id = "P_PENNANT_BREAK"
     name = "Pennant Break"
+
+    def __init__(self, measurement_policy=None, input_policy=None):
+        self._measurement_policy = (measurement_policy if measurement_policy is not None
+                                    else CANONICAL_POLICY.pennant)
+        self._input_policy = (input_policy if input_policy is not None
+                              else PatternInputPolicy.from_policy_v2())
+
+    def evaluate(self, inputs: PatternInputs) -> PatternResult:
+        spec = self._measurement_policy
+        formation, metadata, reason = _completed_measured_geometry(inputs, spec, "pennant", self._input_policy)
+        def reject(reason):
+            return _measured_rejection(self, inputs, "PENNANT", reason)
+        if reason:
+            return reject(reason)
+        pole, compression = formation[:spec.pole_bars], formation[spec.pole_bars:]
+        if (any(c.close <= c.open for c in pole)
+                or any(b.close <= a.close or b.high <= a.high or b.low <= a.low
+                       for a,b in zip(pole,pole[1:]))
+                or not _geometry_inclusive_le(spec.minimum_pole_advance_fraction,
+                    (pole[-1].close-pole[0].open)/pole[0].open, spec)):
+            return reject("pennant_missing_measured_impulse")
+        pole_high, pole_low = max(c.high for c in pole), min(c.low for c in pole)
+        if any(c.high >= pole_high or c.low <= pole_low or c.high <= c.low for c in compression):
+            return reject("pennant_compression_outside_pole")
+        if any(b.high >= a.high or b.low <= a.low for a,b in zip(compression,compression[1:])):
+            return reject("pennant_boundaries_not_converging")
+        high, low = compression[-1].high, min(c.low for c in compression)
+        metadata.update(formation_start_timestamp=compression[0].timestamp,
+            formation_bar_count=len(compression), compression_start_timestamp=compression[0].timestamp)
+        return _measured_entry_result(self, inputs, "PENNANT", "pennant", metadata,
+            high, low, PENNANT_DESCRIPTIVE_OBJECTIVE,
+            {"pennant_high": high, "pennant_low": low, "pole_high": pole_high, "pole_low": pole_low,
+             "pole_bar_count": len(pole), "compression_bar_count": len(compression),
+             "compression_upper_boundary_prices": tuple(c.high for c in compression),
+             "compression_lower_boundary_prices": tuple(c.low for c in compression)})
 
 
 class EmaPullbackPattern(_SimpleLongPattern):

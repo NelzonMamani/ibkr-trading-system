@@ -2329,27 +2329,37 @@ def test_opening_drive_original_rising_lows_preserve_genuine_stair_winner(reasse
     no_effects(h)
 
 
-def range_joined(reassessment,monkeypatch,tmp_path,*,position_case='complete_empty',runtime_options=None,
+def measured_structure_joined(reassessment,monkeypatch,tmp_path,*,family='RANGE_BREAK',position_case='complete_empty',runtime_options=None,
         news_fault='none',peer=False,market_fault='none'):
     h=pmh_joined(reassessment,monkeypatch,tmp_path,position_case=position_case,
         runtime_options=runtime_options,clock_time=(13,59,30),news_fault=news_fault,peer=peer)
-    rectangle=[(10.25,10.44,10.04,10.35,1200),(10.35,10.43,10.05,10.25,1100),
-        (10.25,10.44,10.04,10.36,1000),(10.36,10.43,10.05,10.26,900),
-        (10.26,10.44,10.04,10.35,1000),(10.35,10.43,10.05,10.4,1100)]
-    rows=[(10.3,10.32,10.27,10.3,1500)]*43+rectangle+[(10.4,10.5,10.39,10.48,1600)]
-    rows[15]=(10.3,10.75,10.27,10.3,1500)
-    rows[25]=(10.3,10.8,10.27,10.3,1500)
-    current=[(10.4,10.42,10.39,10.4,200),(10.4,10.44,10.4,10.42,200),
-        (10.42,10.5,10.41,10.48,1200)]
-    pmh=10.75
+    if family=='RANGE_BREAK':
+        rectangle=[(10.25,10.44,10.04,10.35,1200),(10.35,10.43,10.05,10.25,1100),
+            (10.25,10.44,10.04,10.36,1000),(10.36,10.43,10.05,10.26,900),
+            (10.26,10.44,10.04,10.35,1000),(10.35,10.43,10.05,10.4,1100)]
+        current=[(10.4,10.42,10.39,10.4,200),(10.4,10.44,10.4,10.42,200),
+            (10.42,10.5,10.41,10.48,1200)]
+        rows=[(10.3,10.32,10.27,10.3,1500)]*43+rectangle+[(10.4,10.5,10.39,10.48,1600)]
+    else:
+        # Reuse only raw external OHLCV rows, never the component's internal
+        # PatternInputs/levels/indicators/result. Actual Core rebuilds them all.
+        from test_setup_family_pipeline_certification import _measured_triangle_pennant_case
+        profile,execution=_measured_triangle_pennant_case(family)
+        raw=[tuple(getattr(c,k) for k in ('open','high','low','close','volume')) for c in profile.candles]
+        rows=[(10.3,10.32,10.27,10.3,1500)]*(50-len(raw))+raw
+        current=[tuple(getattr(c,k) for k in ('open','high','low','close','volume')) for c in execution[-3:]]
+    rows[15]=(10.3,10.9 if family=='PENNANT' else 10.75,10.27,10.3,1500)
+    rows[25]=(10.3,11.0 if family=='PENNANT' else 10.8,10.27,10.3,1500)
+    pmh=10.9 if family=='PENNANT' else 10.75
+    entry=10.59 if family=='PENNANT' else 10.44
     if market_fault=='competing_pmh':
-        pmh=10.44;rows[15]=(10.3,pmh,10.27,10.3,1500)
+        pmh=entry;rows[15]=(10.3,pmh,10.27,10.3,1500)
     if market_fault in {'touch_execution','low_volume'}:
-        if market_fault=='touch_execution':current[-1]=(*current[-1][:3],10.44,current[-1][4])
+        if market_fault=='touch_execution':current[-1]=(*current[-1][:3],entry,current[-1][4])
         else:current[-1]=(*current[-1][:4],1)
         rows[-1]=(current[0][0],max(b[1] for b in current),min(b[2] for b in current),
             current[-1][3],sum(b[4] for b in current))
-    _install_variant_market(h,rows,current,pmh=pmh,execution_history_minutes=6)
+    _install_variant_market(h,rows,current,pmh=pmh,execution_history_minutes={'RANGE_BREAK':6,'ASCENDING_TRIANGLE':7,'PENNANT':5}[family])
     if market_fault=='future_source':
         h.streams['1m'][-1]=replace(h.streams['1m'][-1],timestamp=h.life.clock.current+timedelta(seconds=12))
     elif market_fault=='nan_source':h.streams['1m'][-3]=replace(h.streams['1m'][-3],low=float('nan'))
@@ -2362,13 +2372,26 @@ def range_joined(reassessment,monkeypatch,tmp_path,*,position_case='complete_emp
     elif market_fault=='nan_execution':h.streams['10s'][-1]=replace(h.streams['10s'][-1],volume=float('nan'))
     elif market_fault=='forming_execution':
         h.streams['10s'][-1]=replace(h.streams['10s'][-1],timestamp=h.life.clock.current+timedelta(seconds=5))
-    evaluator=TRIGGER_EVALUATOR_REGISTRY['RANGE_BREAK'];h.range_triggers=[]
+    evaluator=TRIGGER_EVALUATOR_REGISTRY[family];h.structural_triggers=[]
+    h.range_triggers=h.structural_triggers
     def observed(payload,inputs):
         result=evaluator(payload,inputs)
         h.range_triggers.append((deepcopy(payload),deepcopy(inputs),deepcopy(result)))
         return result
-    monkeypatch.setitem(TRIGGER_EVALUATOR_REGISTRY,'RANGE_BREAK',observed)
+    monkeypatch.setitem(TRIGGER_EVALUATOR_REGISTRY,family,observed)
     return h
+
+
+def range_joined(*args,**kwargs):
+    return measured_structure_joined(*args,family='RANGE_BREAK',**kwargs)
+
+
+def triangle_joined(*args,**kwargs):
+    return measured_structure_joined(*args,family='ASCENDING_TRIANGLE',**kwargs)
+
+
+def pennant_joined(*args,**kwargs):
+    return measured_structure_joined(*args,family='PENNANT',**kwargs)
 
 
 def test_native_measured_range_joined_full_registry_readonly(reassessment,monkeypatch,tmp_path,capsys):
@@ -2426,6 +2449,81 @@ def test_native_range_preserves_genuine_pmh_competition(reassessment,monkeypatch
     own=next(r for r in results if r.setup_id=='P_RANGE_BREAKOUT')
     assert own.detected and any(r['trigger_ready_now'] for _,_,r in h.range_triggers)
     assert len(results)==33 and len(h.evaluated)==1
+    intent,received,decision=h.evaluated[0]
+    selected=results[intent.setup_metadata['canonical_result_index']]
+    assert selected.setup_id=='P_PREMARKET_HIGH_BREAK'
+    assert selected.confidence>own.confidence
+    assert intent.target_model==selected.target_suggestion and intent.target_model!=own.target_suggestion
+    assert received==vars(intent) and decision.reason_code=='LIVE_READ_ONLY_BLOCK'
+    no_effects(h)
+
+
+@pytest.mark.parametrize('family,pattern_id,entry,stop',[
+    ('ASCENDING_TRIANGLE','P_ASCENDING_TRIANGLE_BREAKOUT',10.44,10.20),
+    ('PENNANT','P_PENNANT_BREAK',10.59,10.40)])
+def test_native_triangle_pennant_joined_selected_serialized_readonly(reassessment,monkeypatch,
+        tmp_path,capsys,family,pattern_id,entry,stop):
+    h=measured_structure_joined(reassessment,monkeypatch,tmp_path,family=family)
+    cycles(h,capsys)
+    source,results=h.registry_batches[-1]
+    own=next(r for r in results if r.setup_id==pattern_id)
+    assert len(results)==33 and own.detected,own.rejection_reason
+    assert h.structural_triggers and h.structural_triggers[-1][2]['trigger_ready_now']
+    assert len(h.evaluated)==1,h.strategy.last_symbol_terminal_outcomes
+    intent,received,decision=h.evaluated[0]
+    assert intent.setup_family_id==family
+    assert results[intent.setup_metadata['canonical_result_index']] is own
+    assert (intent.entry_price,intent.stop_loss_price,intent.invalidation_level)==(entry,stop,stop)
+    assert intent.take_profit_price is None and intent.target_model==own.target_suggestion
+    assert intent.setup_metadata['source_metadata']==own.setup_metadata
+    artifact,built=h.artifacts[0]
+    assert artifact.intents==[intent] and received==dict(built[0],decision_id=artifact.decision_id)==vars(intent)
+    assert decision.reason_code=='LIVE_READ_ONLY_BLOCK'
+    if family=='ASCENDING_TRIANGLE':
+        assert own.setup_metadata['triangle_floor']==10.04<stop
+        assert own.setup_metadata['triangle_swing_low_prices']==(10.04,10.12,10.20)
+    else:
+        assert own.setup_metadata['pole_low']==9.98<stop
+        assert own.setup_metadata['origin_timestamp']<own.setup_metadata['formation_start_timestamp']
+    no_effects(h)
+
+
+@pytest.mark.parametrize('family,pattern_id,prefix',[
+    ('ASCENDING_TRIANGLE','P_ASCENDING_TRIANGLE_BREAKOUT','triangle'),
+    ('PENNANT','P_PENNANT_BREAK','pennant')])
+@pytest.mark.parametrize('market_fault',['touch_execution','low_volume','future_source','nan_source',
+    'incomplete_geometry','future_execution','nan_execution','forming_execution'])
+def test_native_triangle_pennant_joined_causal_rejections(reassessment,monkeypatch,tmp_path,
+        capsys,family,pattern_id,prefix,market_fault):
+    h=measured_structure_joined(reassessment,monkeypatch,tmp_path,family=family,market_fault=market_fault)
+    cycles(h,capsys)
+    _,results=h.registry_batches[-1]
+    own=next(r for r in results if r.setup_id==pattern_id)
+    assert len(results)==33
+    assert not [i for batch in h.batches for i in batch if i.setup_family_id==family]
+    if market_fault in {'future_source','nan_source','incomplete_geometry'}:
+        reason={'future_source':'FUTURE_CANDLE_DATA','nan_source':'INVALID_CANDLE_DATA',
+            'incomplete_geometry':('triangle_resistance_not_flat' if prefix=='triangle'
+                else 'pennant_missing_measured_impulse')}[market_fault]
+        assert not own.detected and own.target_suggestion is None and own.rejection_reason==reason
+    else:
+        assert own.detected
+        canonical=[r for p,_,r in h.structural_triggers if p.get('canonical_result_index')==results.index(own)]
+        reason={'touch_execution':'awaiting_'+prefix+'_break','low_volume':'breakout_volume_confirmation_failed',
+            'future_execution':prefix+'_future_candle_data','nan_execution':prefix+'_invalid_candle_data',
+            'forming_execution':prefix+'_incomplete_execution_confirmation'}[market_fault]
+        assert canonical and all(not r['trigger_ready_now'] and r['trigger_reason']==reason for r in canonical)
+    no_effects(h)
+
+
+@pytest.mark.parametrize('family',['ASCENDING_TRIANGLE','PENNANT'])
+def test_native_triangle_pennant_preserve_genuine_pmh_winner(reassessment,monkeypatch,tmp_path,capsys,family):
+    h=measured_structure_joined(reassessment,monkeypatch,tmp_path,family=family,market_fault='competing_pmh')
+    cycles(h,capsys)
+    _,results=h.registry_batches[-1]
+    own=next(r for r in results if r.setup_family_id==family)
+    assert len(results)==33 and own.detected and any(r['trigger_ready_now'] for _,_,r in h.structural_triggers)
+    assert len(h.evaluated)==1,h.strategy.last_symbol_terminal_outcomes
     intent,received,decision=h.evaluated[0]
     selected=results[intent.setup_metadata['canonical_result_index']]
     assert selected.setup_id=='P_PREMARKET_HIGH_BREAK'

@@ -181,6 +181,14 @@ def _terminal(
         "quality_flags": flags,
         "trigger_quality_flags": flags,
     }
+    prefix = {"RANGE_BREAK": "range", "ASCENDING_TRIANGLE": "triangle", "PENNANT": "pennant"}.get(family)
+    if prefix:
+        payload["trigger_type"] = "BREAKOUT_HIGH"
+        payload["trigger_reason"] = {
+            "awaiting_pullback_break": "awaiting_" + prefix + "_break",
+            "pullback_high_broken": prefix + "_high_broken",
+            "pullback_breakout_already_consumed": prefix + "_breakout_already_consumed",
+        }.get(reason, reason)
     return _emit(family, payload)
 
 
@@ -328,8 +336,8 @@ def evaluate_second_pullback_trigger(pattern_result: Any, inputs: Any) -> dict[s
     return _evaluate_pullback_high_break("SECOND_PULLBACK", pattern_result, inputs)
 
 
-def evaluate_range_break_trigger(pattern_result: Any, inputs: Any) -> dict[str, Any]:
-    """Own measured rectangle; reuse strict cross/contiguous same-stream volume.
+def _evaluate_measured_structure_break(family, prefix, pattern_result: Any, inputs: Any) -> dict[str, Any]:
+    """Own measured structure; reuse strict cross/contiguous same-stream volume.
 
     Adapt only the measured baseline timestamps to the existing shared evidence
     owner. Neither source volume nor RVOL may stand in for execution evidence.
@@ -340,17 +348,17 @@ def evaluate_range_break_trigger(pattern_result: Any, inputs: Any) -> dict[str, 
     candles = list(inputs.get("candles") or []) if isinstance(inputs, Mapping) else []
     stream = data.get("execution_stream")
     reason = None
-    if data.get("setup_family_id") != "RANGE_BREAK":
-        reason = "range_wrong_family"
+    if data.get("setup_family_id") != family:
+        reason = prefix + "_wrong_family"
     elif not isinstance(stream, dict):
-        reason = "range_execution_stream_missing"
+        reason = prefix + "_execution_stream_missing"
     elif (rejection := abcd_candle_rejection(candles,
             observed_at_utc=stream.get("observed_at_utc"), require_clock=True)):
-        reason = "range_" + rejection.lower()
-    elif (_coalesce_float(data.get("trigger_level")) != _safe_float(metadata.get("range_high"))
-            or _coalesce_float(data.get("stop_level")) != _safe_float(metadata.get("range_low"))
-            or _coalesce_float(data.get("invalidation_level")) != _safe_float(metadata.get("range_low"))):
-        reason = "range_occurrence_anchor_mismatch"
+        reason = prefix + "_" + rejection.lower()
+    elif (_coalesce_float(data.get("trigger_level")) != _safe_float(metadata.get(prefix + "_high"))
+            or _coalesce_float(data.get("stop_level")) != _safe_float(metadata.get(prefix + "_low"))
+            or _coalesce_float(data.get("invalidation_level")) != _safe_float(metadata.get(prefix + "_low"))):
+        reason = prefix + "_occurrence_anchor_mismatch"
     if reason is None:
         clock = stream.get("observed_at_utc")
         if isinstance(clock, str):
@@ -358,9 +366,9 @@ def evaluate_range_break_trigger(pattern_result: Any, inputs: Any) -> dict[str, 
         seconds = {"10s": 10, "1m": 60, "5m": 300}.get(stream.get("execution_trigger_timeframe"))
         expiry = _timestamp(metadata.get("confirmation_expiry_timestamp"))
         if not seconds or not expiry or clock >= expiry:
-            reason = "range_confirmation_expired_or_missing"
+            reason = prefix + "_confirmation_expired_or_missing"
         elif any(_timestamp(_read(c, "timestamp")) + timedelta(seconds=seconds) > clock for c in candles):
-            reason = "range_incomplete_execution_confirmation"
+            reason = prefix + "_incomplete_execution_confirmation"
     if reason:
         return {"trigger_type": "BREAKOUT_HIGH", "trigger_state": "BLOCKED",
                 "trigger_ready_now": False, "trigger_reason": reason,
@@ -368,9 +376,16 @@ def evaluate_range_break_trigger(pattern_result: Any, inputs: Any) -> dict[str, 
     data["setup_metadata"] = {**metadata,
         "pullback_start_timestamp": metadata.get("formation_start_timestamp"),
         "pullback_end_timestamp": metadata.get("confirmation_start_timestamp")}
-    result = _evaluate_pullback_high_break("RANGE_BREAK", data, inputs)
-    return {**result, "trigger_type": "BREAKOUT_HIGH",
-            "trigger_reason": {"awaiting_pullback_break": "awaiting_range_break",
-                "pullback_high_broken": "range_high_broken",
-                "pullback_breakout_already_consumed": "range_breakout_already_consumed"}.get(
-                    result.get("trigger_reason"), result.get("trigger_reason"))}
+    return _evaluate_pullback_high_break(family, data, inputs)
+
+
+def evaluate_range_break_trigger(pattern_result: Any, inputs: Any) -> dict[str, Any]:
+    return _evaluate_measured_structure_break("RANGE_BREAK", "range", pattern_result, inputs)
+
+
+def evaluate_ascending_triangle_trigger(pattern_result: Any, inputs: Any) -> dict[str, Any]:
+    return _evaluate_measured_structure_break("ASCENDING_TRIANGLE", "triangle", pattern_result, inputs)
+
+
+def evaluate_pennant_trigger(pattern_result: Any, inputs: Any) -> dict[str, Any]:
+    return _evaluate_measured_structure_break("PENNANT", "pennant", pattern_result, inputs)

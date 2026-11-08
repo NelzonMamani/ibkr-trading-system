@@ -133,6 +133,43 @@ class RangeMeasurementSpec:
     maximum_height_fraction: float = 0.04
 
 
+@dataclass(frozen=True)
+class TriangleMeasurementSpec(RangeMeasurementSpec):
+    """New project calibration: flat resistance and three confirmed rising lows.
+
+    Seven completed bars establish three strict local swing lows, each bounded
+    on both sides. Minimum rise is 5% of measured triangle height; the stop is
+    the latest establishing swing low, not the lowest low of the entire window.
+    Shared quote-scale/flatness/freshness tolerances are engineering parameters,
+    not transferred Ross authority or a comparable confidence model.
+    """
+    formation_bars: int = 7
+    minimum_swing_rise_fraction: float = 0.05
+    minimum_swing_points: int = 3
+
+
+@dataclass(frozen=True)
+class PennantMeasurementSpec:
+    """New project calibration: three-bar impulse then five-bar compression.
+
+    The pole has rising green closes/highs/lows and >=1% net advance. Compression
+    stays inside the pole and has strictly falling highs/rising lows, with
+    positive width. Entry fixes the last completed upper-boundary high; no
+    moving line extrapolation. Stop excludes the pole low. Volume confirmation
+    uses the compression's execution-stream baseline, not pole/source volume.
+    No confidence uplift, exit rule or empirical performance claim.
+    """
+    pole_bars: int = 3
+    compression_bars: int = 5
+    minimum_pole_advance_fraction: float = 0.01
+    confirmation_window_bars: int = 1
+    numeric_relative_tolerance: float = 1e-12
+
+    @property
+    def formation_bars(self):
+        return self.pole_bars + self.compression_bars
+
+
 POLICY_V2 = StrategyPolicyV2(
     identity=StrategyIdentityV2(name="ROSS_MOMENTUM", strategy_id="P01"),
     selection_plan=ScannerPlan(
@@ -1072,6 +1109,8 @@ class RossMomentumPolicy:
     )
 
     range_break: RangeMeasurementSpec = RangeMeasurementSpec()
+    ascending_triangle: TriangleMeasurementSpec = TriangleMeasurementSpec()
+    pennant: PennantMeasurementSpec = PennantMeasurementSpec()
     micro_pullback: MicroPullbackSpec = MicroPullbackSpec()
     topping_risk: ToppingRiskSpec = ToppingRiskSpec()
     indicator_gates: IndicatorGates = IndicatorGates()

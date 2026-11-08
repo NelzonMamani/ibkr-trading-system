@@ -21,6 +21,8 @@ from src.strategies.common.triggers.trigger_premarket_high_break import evaluate
 from src.strategies.common.triggers.trigger_pullback_variants import (
     evaluate_second_pullback_trigger,
     evaluate_range_break_trigger,
+    evaluate_ascending_triangle_trigger,
+    evaluate_pennant_trigger,
     evaluate_three_bar_pullback_trigger,
 )
 from src.strategies.common.triggers.trigger_stair_step import evaluate_stair_step_trigger
@@ -51,6 +53,8 @@ TRIGGER_EVALUATOR_REGISTRY: dict[str, TriggerEvaluator] = {
     "THREE_BAR_PULLBACK": evaluate_three_bar_pullback_trigger,
     "SECOND_PULLBACK": evaluate_second_pullback_trigger,
     "RANGE_BREAK": evaluate_range_break_trigger,
+    "ASCENDING_TRIANGLE": evaluate_ascending_triangle_trigger,
+    "PENNANT": evaluate_pennant_trigger,
 }
 
 
