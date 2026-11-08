@@ -667,9 +667,9 @@ def test_joined_consolidation_preserves_own_completion_and_confirmation(reassess
 
 
 @pytest.mark.parametrize('news_fault',['missing','stale','nonqualifying','expires_between'])
-@pytest.mark.parametrize('family',['CONSOLIDATION_BREAKOUT','FLAT_TOP_BREAKOUT','OPENING_RANGE_BREAKOUT','HOD_BREAK'])
+@pytest.mark.parametrize('family',['CONSOLIDATION_BREAKOUT','FLAT_TOP_BREAKOUT','OPENING_RANGE_BREAKOUT','HOD_BREAK','MICRO_PULLBACK'])
 def test_joined_range_breakout_issuer_isolation(reassessment,monkeypatch,tmp_path,capsys,news_fault,family):
-    factory={'CONSOLIDATION_BREAKOUT':consolidation_joined,'FLAT_TOP_BREAKOUT':flat_top_joined,'OPENING_RANGE_BREAKOUT':orb_joined,'HOD_BREAK':hod_joined}[family]
+    factory={'CONSOLIDATION_BREAKOUT':consolidation_joined,'FLAT_TOP_BREAKOUT':flat_top_joined,'OPENING_RANGE_BREAKOUT':orb_joined,'HOD_BREAK':hod_joined,'MICRO_PULLBACK':micro_joined}[family]
     h=factory(reassessment,monkeypatch,tmp_path,news_fault=news_fault,peer=True)
     out=cycles(h,capsys)
     news=ross._ross_news_contexts_from_news_intelligence_result(h.reads[-1])
@@ -685,9 +685,9 @@ def test_joined_range_breakout_issuer_isolation(reassessment,monkeypatch,tmp_pat
 
 
 @pytest.mark.parametrize('position_case',['unknown','partial','quantity_warning_larger','five','partial_after_healthy'])
-@pytest.mark.parametrize('family',['CONSOLIDATION_BREAKOUT','FLAT_TOP_BREAKOUT','OPENING_RANGE_BREAKOUT','HOD_BREAK'])
+@pytest.mark.parametrize('family',['CONSOLIDATION_BREAKOUT','FLAT_TOP_BREAKOUT','OPENING_RANGE_BREAKOUT','HOD_BREAK','MICRO_PULLBACK'])
 def test_joined_range_breakout_raw_before_actual_position_veto(reassessment,monkeypatch,tmp_path,capsys,position_case,family):
-    factory={'CONSOLIDATION_BREAKOUT':consolidation_joined,'FLAT_TOP_BREAKOUT':flat_top_joined,'OPENING_RANGE_BREAKOUT':orb_joined,'HOD_BREAK':hod_joined}[family]
+    factory={'CONSOLIDATION_BREAKOUT':consolidation_joined,'FLAT_TOP_BREAKOUT':flat_top_joined,'OPENING_RANGE_BREAKOUT':orb_joined,'HOD_BREAK':hod_joined,'MICRO_PULLBACK':micro_joined}[family]
     h=factory(reassessment,monkeypatch,tmp_path,
         position_case='complete_matched' if position_case=='partial_after_healthy' else position_case)
     assert h.core.run_once();capsys.readouterr()
@@ -708,9 +708,9 @@ def test_joined_range_breakout_raw_before_actual_position_veto(reassessment,monk
     no_effects(h)
 
 
-@pytest.mark.parametrize('family',['CONSOLIDATION_BREAKOUT','FLAT_TOP_BREAKOUT','OPENING_RANGE_BREAKOUT','HOD_BREAK'])
+@pytest.mark.parametrize('family',['CONSOLIDATION_BREAKOUT','FLAT_TOP_BREAKOUT','OPENING_RANGE_BREAKOUT','HOD_BREAK','MICRO_PULLBACK'])
 def test_joined_range_breakout_repeats_observe_new_raw_and_actual_denials(reassessment,monkeypatch,tmp_path,capsys,family):
-    factory={'CONSOLIDATION_BREAKOUT':consolidation_joined,'FLAT_TOP_BREAKOUT':flat_top_joined,'OPENING_RANGE_BREAKOUT':orb_joined,'HOD_BREAK':hod_joined}[family]
+    factory={'CONSOLIDATION_BREAKOUT':consolidation_joined,'FLAT_TOP_BREAKOUT':flat_top_joined,'OPENING_RANGE_BREAKOUT':orb_joined,'HOD_BREAK':hod_joined,'MICRO_PULLBACK':micro_joined}[family]
     h=factory(reassessment,monkeypatch,tmp_path)
     cycles(h,capsys)
     for _ in range(2):
@@ -1105,13 +1105,7 @@ def hod_joined(reassessment,monkeypatch,tmp_path,*,news_fault='none',peer=False,
     for tf,step in (('1m',60),('5m',300)):
         h.streams[tf]=_candles(rows,step_seconds=step,end=end-timedelta(seconds=step))
     def execution_bars(source,current):
-        bars=[]
-        for bar in source[-5:]:
-            for part in range(6):
-                bars.append(replace(bar,timestamp=bar.timestamp+timedelta(seconds=part*10),
-                    open=bar.open if part==0 else bar.close,high=bar.high if part==0 else bar.close,
-                    low=bar.low if part==0 else bar.close,volume=bar.volume/6))
-        return bars+_candles(current,step_seconds=10,end=end+timedelta(seconds=30))
+        return _closed_minutes_and_execution(source,current,end=end)
     h.streams['10s']=execution_bars(h.streams['1m'],[
         (10.31,10.31,10.25,10.29,100),(10.29,10.30,10.27,10.29,100),
         (10.29,10.30,10.27,10.29,100),(10.29,10.36,10.27,10.34,200)])
@@ -1383,4 +1377,125 @@ def test_joined_momentum_native_selected_handoff(reassessment,monkeypatch,tmp_pa
     assert artifact.intents==[intent] and received==dict(built[0],decision_id=artifact.decision_id)==vars(intent)
     assert intent.setup_metadata['source_metadata']==momentum.setup_metadata
     assert source.levels.established_rth_hod==10.3 and source.levels.hod==12.
+    no_effects(h)
+
+
+
+def _closed_minutes_and_execution(source,current,*,end):
+    """Existing HOD external aggregation fixture, shared with Micro."""
+    bars=[]
+    for bar in source[-5:]:
+        for part in range(6):
+            bars.append(replace(bar,timestamp=bar.timestamp+timedelta(seconds=part*10),
+                open=bar.open if part==0 else bar.close,high=bar.high if part==0 else bar.close,
+                low=bar.low if part==0 else bar.close,volume=bar.volume/6))
+    return bars+_candles(current,step_seconds=10,end=end+timedelta(seconds=30))
+
+
+def micro_joined(reassessment,monkeypatch,tmp_path,*,news_fault='none',peer=False,
+                 position_case='complete_empty',runtime_options=None,market_fault='none'):
+    h=pmh_joined(reassessment,monkeypatch,tmp_path,news_fault=news_fault,peer=peer,
+        position_case=position_case,runtime_options=runtime_options,clock_time=(14,35,30))
+    rows=[(10.,10.02,9.98,10.,900)]*45+[
+        (10.,10.2,9.99,10.18,1300),(10.18,10.45,10.16,10.42,1600),
+        (10.42,10.8,10.4,10.76,2000),(10.73,10.78,10.6,10.76,850),
+        (10.76,10.9,10.75,10.88,2100)]
+    variations={'red_pause':(10.76,10.78,10.6,10.73,850),
+        'ordinary_green_pause':(10.68,10.78,10.66,10.76,850),
+        'upper_wick_pause':(10.70,10.78,10.69,10.72,850),
+        'above_impulse_pause':(10.77,10.82,10.60,10.80,850),
+        'lost_ema_pause':(10.73,10.78,10.1,10.76,850)}
+    if market_fault in variations:rows[-2]=variations[market_fault]
+    shift=.2 if market_fault=='competing_key' else 0.
+    if shift:rows=[tuple(round(v+shift,2) for v in bar[:4])+(bar[4],) for bar in rows]
+    end=h.life.clock.current.replace(second=0,microsecond=0)
+    h.streams.clear();h.streams['1m']=_candles(rows,step_seconds=60,end=end-timedelta(minutes=1))
+    # Completed five-minute bars agree exactly with the fifty one-minute bars;
+    # earlier context supplies the independent, already-known PRE high12.
+    grouped=[]
+    for start in range(0,len(rows),5):
+        chunk=rows[start:start+5]
+        grouped.append((chunk[0][0],max(b[1] for b in chunk),min(b[2] for b in chunk),
+            chunk[-1][3],sum(b[4] for b in chunk)))
+    context=[(10.+shift,10.02+shift,9.98+shift,10.+shift,4500)]*40+grouped
+    context[34]=(10.+shift,12.,9.98+shift,10.+shift,4500)
+    h.streams['5m']=_candles(context,step_seconds=300,end=end-timedelta(minutes=5))
+    current=[(10.76,10.77,10.74,10.75,100),(10.75,10.77,10.74,10.75,100),
+        (10.75,10.77,10.74,10.75,100),(10.75,10.9,10.74,10.88,400)]
+    if shift:current=[tuple(round(v+shift,2) for v in bar[:4])+(bar[4],) for bar in current]
+    h.streams['10s']=_closed_minutes_and_execution(h.streams['1m'],current,end=end)
+    if market_fault=='waiting_execution':h.streams['10s'][-1]=replace(h.streams['10s'][-1],high=10.77,close=10.76)
+    if market_fault=='touch_execution':h.streams['10s'][-1]=replace(h.streams['10s'][-1],high=10.78,close=10.76)
+    if market_fault=='future_execution':h.streams['10s'][-1]=replace(h.streams['10s'][-1],timestamp=h.life.clock.current+timedelta(seconds=12))
+    if market_fault=='incomplete_pause':
+        h.streams['1m'][-2]=replace(h.streams['1m'][-2],timestamp=h.life.clock.current-timedelta(seconds=45))
+        h.streams['1m'][-1]=replace(h.streams['1m'][-1],timestamp=h.life.clock.current-timedelta(seconds=10))
+    last=round(10.88+shift,2);previous=9.8
+    for row in h.rows.values():row.update(premarket_high=12.,premarket_low=9.8,
+        last_price=last,bid=round(last-.01,2),ask=round(last+.01,2),
+        prev_close=previous,ref_close_rth=previous,reference_price=previous,
+        gap_pct=(last/previous-1)*100,pct_change=(last/previous-1)*100,
+        spread_pct=100*.02/last,dollar_volume=last*1_800_000)
+    snapshot=replace(_snapshot(symbol='JPM'),last=last,bid=round(last-.01,2),ask=round(last+.01,2))
+    h.core.market_data_snapshot_manager=NS(batch_snapshots=lambda symbols:({s:replace(snapshot,symbol=s,
+        asof_utc=h.life.clock.current,market_timestamp_utc=h.life.clock.current) for s in symbols},[]))
+    evaluator=TRIGGER_EVALUATOR_REGISTRY['MICRO_PULLBACK'];h.micro_triggers=[]
+    def observed(payload,inputs):
+        out=evaluator(payload,inputs)
+        h.micro_triggers.append((deepcopy(payload),deepcopy(inputs),deepcopy(out)))
+        return out
+    monkeypatch.setitem(TRIGGER_EVALUATOR_REGISTRY,'MICRO_PULLBACK',observed)
+    return h
+
+
+@pytest.mark.parametrize('market_fault',['none','red_pause','touch_execution'])
+def test_joined_micro_own_pause_selected_serialized_readonly(reassessment,monkeypatch,tmp_path,capsys,market_fault):
+    h=micro_joined(reassessment,monkeypatch,tmp_path,market_fault=market_fault)
+    out=cycles(h,capsys);source,results=h.registry_batches[-1]
+    own=next(r for r in results if r.setup_id=='P_MICRO_PULLBACK')
+    assert own.detected and (own.trigger_level,own.stop_level,own.invalidation_level)==(10.78,10.6,10.6)
+    assert len(h.evaluated)==1,out
+    intent,received,decision=h.evaluated[0]
+    assert intent.setup_family_id=='MICRO_PULLBACK'
+    assert (intent.entry_price,intent.stop_loss_price,intent.invalidation_level)==(10.78,10.6,10.6)
+    assert intent.target_model=='Prior high / HOD' and intent.take_profit_price is None
+    assert decision.reason_code=='LIVE_READ_ONLY_BLOCK'
+    index=intent.setup_metadata['canonical_result_index'];assert results[index] is own
+    assert len(results)==len(h.strategy._pattern_registry.patterns)==33
+    assert intent.setup_metadata['source_metadata']==own.setup_metadata
+    if market_fault!='red_pause':assert own.setup_metadata['pullback_variant']=='SINGLE_GREEN_LOWER_WICK'
+    artifact,built=h.artifacts[0]
+    assert artifact.intents==[intent] and received==dict(built[0],decision_id=artifact.decision_id)==vars(intent)
+    canonical=[t for t in h.micro_triggers if t[0].get('canonical_result_index')==index]
+    assert len(canonical)==1 and canonical[0][2]['trigger_ready_now']
+    assert source.levels.established_rth_hod is None  # Fifty bars do not establish the full65-minute RTH history.
+    no_effects(h)
+
+
+@pytest.mark.parametrize('market_fault',['ordinary_green_pause','upper_wick_pause','above_impulse_pause',
+    'lost_ema_pause','incomplete_pause','waiting_execution','future_execution'])
+def test_joined_micro_pause_and_execution_rejections(reassessment,monkeypatch,tmp_path,capsys,market_fault):
+    h=micro_joined(reassessment,monkeypatch,tmp_path,market_fault=market_fault)
+    out=cycles(h,capsys)
+    assert not [i for batch in h.batches for i in batch] and h.artifacts==h.evaluated==[],out
+    own=next(r for r in h.registry_batches[-1][1] if r.setup_id=='P_MICRO_PULLBACK')
+    if market_fault in {'waiting_execution','future_execution'}:
+        assert own.detected
+        assert not any(t[2]['trigger_ready_now'] for t in h.micro_triggers if t[0].get('source')=='canonical_pattern_result')
+    else:assert not own.detected
+    no_effects(h)
+
+
+def test_joined_micro_keeps_ready_key_competition(reassessment,monkeypatch,tmp_path,capsys):
+    h=micro_joined(reassessment,monkeypatch,tmp_path,market_fault='competing_key')
+    out=cycles(h,capsys);source,results=h.registry_batches[-1]
+    own=next(r for r in results if r.setup_id=='P_MICRO_PULLBACK')
+    assert own.detected and (own.trigger_level,own.stop_level)==(10.98,10.8)
+    assert len(h.evaluated)==1,out
+    intent,_,decision=h.evaluated[0];selected=results[intent.setup_metadata['canonical_result_index']]
+    assert selected.setup_id=='P_KEY_LEVEL_BREAK' and intent.setup_family_id=='KEY_LEVEL_BREAK'
+    assert (intent.entry_price,intent.stop_loss_price,intent.invalidation_level)==(11.,10.95,11.)
+    assert selected.stop_level==source.candles[-1].low and selected.stop_level!=own.stop_level
+    assert any(t[2]['trigger_ready_now'] for t in h.micro_triggers if t[0].get('source')=='canonical_pattern_result')
+    assert decision.reason_code=='LIVE_READ_ONLY_BLOCK'
     no_effects(h)

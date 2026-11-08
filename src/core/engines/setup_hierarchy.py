@@ -64,8 +64,14 @@ def _family_of(item: Any) -> str:
     return _ALIASES.get(raw, raw)
 
 
-def apply_setup_hierarchy(results: list[Any], *, symbol: str | None = None) -> list[Any]:
+def apply_setup_hierarchy(results: list[Any], *, symbol: str | None = None,
+                          dominant_families: set[str] | None = None) -> list[Any]:
     detected_families = {_family_of(item) for item in results if bool(getattr(item, "detected", item.get("detected") if isinstance(item, dict) else False))}
+    if dominant_families is not None:
+        qualified = {_ALIASES.get(family, family) for family in dominant_families}
+        # Risk-off suppression remains unconditional, including incomplete
+        # warnings. Entry dominance requires the strategy's own qualification.
+        detected_families &= qualified | {"PARABOLIC_EXHAUSTION"}
     if not detected_families:
         return list(results or [])
     dominant = sorted(detected_families, key=lambda family: (_TIER_RANK.get(family, 99), family))[0]
@@ -76,7 +82,13 @@ def apply_setup_hierarchy(results: list[Any], *, symbol: str | None = None) -> l
     output: list[Any] = []
     for item in list(results or []):
         family = _family_of(item)
-        should_suppress = family in suppressed_families and bool(getattr(item, "detected", item.get("detected") if isinstance(item, dict) else False))
+        read = item.get if isinstance(item, dict) else lambda key: getattr(item, key, None)
+        direction = read("direction")
+        direction = str(getattr(direction, "value", direction) or "").upper()
+        preserve_guard = dominant_families is not None and (
+            str(read("signal_class") or "").upper() == "RISK_OFF" or direction == "SHORT")
+        should_suppress = (family in suppressed_families and not preserve_guard
+            and bool(getattr(item, "detected", item.get("detected") if isinstance(item, dict) else False)))
         if not should_suppress:
             output.append(item)
             continue

@@ -1140,8 +1140,6 @@ class RossMomentumStrategyV1(BaseStrategy):
                     "details": {"source": setup_source, "detected": [trace.pattern_id for trace in pattern_traces if trace.detected]},
                 }
             pattern_traces = self._filter_trusted_pattern_traces(pattern_traces, symbol=symbol)
-            results = apply_setup_hierarchy(results, symbol=symbol)
-            pattern_traces = apply_setup_hierarchy(pattern_traces, symbol=symbol)
             symbol_trace.pattern_traces = pattern_traces
             symbol_trace.input_summary["setup_stage"] = {"details": {"source": setup_source}}
             symbol_trace.detected_pattern_ids = [
@@ -1228,6 +1226,26 @@ class RossMomentumStrategyV1(BaseStrategy):
                     )
                 trigger_candidates.extend(pattern_triggers)
                 symbol_trace.input_summary["trigger_candidates"] = trigger_candidates
+
+            # A formation without a complete own contract/ready canonical
+            # trigger cannot erase another actionable family before arbitration.
+            # Shared hierarchy rules still decide dominance among ready families;
+            # risk-off warnings remain unconditional in the existing owner.
+            dominant_families = set()
+            for result_index, result in enumerate(results):
+                if validate_entry_contract(result)[0] and self._candidate_trigger_readiness(
+                        result_index, result, trigger_candidates)[0]:
+                    family = self._pattern_result_value(result, "setup_family_id", "setup_family")
+                    if not family or str(family).startswith("P_"):
+                        family = self._setup_family_from_pattern_id(
+                            self._pattern_result_value(result, "pattern_id", "setup_id", "id"))
+                    dominant_families.add(str(family))
+            results = apply_setup_hierarchy(results, symbol=symbol, dominant_families=dominant_families)
+            pattern_traces = apply_setup_hierarchy(pattern_traces, symbol=symbol,
+                dominant_families=dominant_families)
+            symbol_trace.pattern_traces = pattern_traces
+            symbol_trace.detected_pattern_ids = [trace.pattern_id for trace in pattern_traces
+                if trace.detected and not self._is_inactive_pattern(trace.pattern_id)]
 
             if production_mode:
                 reason = evidence_rejection(row_quote) or (evidence_rejection(snapshot_quote) if snapshot is not None else None)

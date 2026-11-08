@@ -26,10 +26,21 @@ TAIL = [
 ]
 
 
-def actual_run(monkeypatch, tmp_path, *, state="ready", duplicate=False, mode=RunMode.READ_ONLY):
+def actual_run(monkeypatch, tmp_path, *, state="ready", duplicate=False, mode=RunMode.READ_ONLY, full_registry=False):
     strategy = _base_strategy(monkeypatch, tmp_path, state="ready")
     rows = [(10.,10.02,9.98,10.,1000)]*44 + TAIL
     execution = [(10.7,10.75,10.65,10.72,500)]*49 + [(10.7,10.9,10.69,10.88,2100)]
+    if state.startswith("green_pause_"):
+        rows[-6:]=[(10.,10.02,9.98,10.,1000),
+            (10.,10.2,9.99,10.18,1300),(10.18,10.45,10.16,10.42,1600),
+            (10.42,10.8,10.4,10.76,2000),(10.73,10.78,10.6,10.76,850),
+            (10.76,10.9,10.75,10.88,2100)]
+        changes={"green_pause_ordinary":(10.68,10.78,10.66,10.76,850),
+            "green_pause_upper_wick":(10.70,10.78,10.69,10.72,850),
+            "green_pause_above_impulse":(10.77,10.82,10.60,10.80,850),
+            "green_pause_lost_support":(10.73,10.78,9.99,10.76,850)}
+        if state in changes:rows[-2]=changes[state]
+
     if state == "source_soft_volume": rows[-1] = (*rows[-1][:4],100)
     if state == "waiting": execution[-1] = (10.7,10.75,10.65,10.72,200)
     if state == "execution_touch": execution[-1] = (10.7,10.9,10.69,10.78,2100)
@@ -89,7 +100,7 @@ def actual_run(monkeypatch, tmp_path, *, state="ready", duplicate=False, mode=Ru
     monkeypatch.setattr("src.strategies.ross_momentum.patterns.pattern_trace.get_intraday_bars",
         lambda *,timeframe="1m",limit=50,**kw:list(data[timeframe])[-limit:])
     registry = RossPatternRegistry()
-    registry._patterns = build_tradeable_patterns(["MICRO_PULLBACK"])
+    if not full_registry:registry._patterns = build_tradeable_patterns(["MICRO_PULLBACK"])
     if duplicate: registry._patterns.extend(build_tradeable_patterns(["MICRO_PULLBACK"]))
     strategy._pattern_registry = registry
     results, calls, inputs = [], [], []
@@ -464,3 +475,69 @@ def test_certification_micro_inputs_use_real_timeframe_intervals_and_keep_bad_st
     result=MicroPullbackPattern().evaluate(source)
     assert result.detected is not mislabeled
     if mislabeled: assert result.rejection_reason=="incomplete_pullback_structure"
+
+
+@pytest.mark.parametrize('full_registry',[False,True])
+def test_single_green_lower_wick_native_owner_and_actual_v1(monkeypatch,tmp_path,full_registry):
+    strategy,intents,results,calls,inputs=actual_run(monkeypatch,tmp_path,
+        state='green_pause_hammer',full_registry=full_registry)
+    own=next(r for r in results if r.setup_id=='P_MICRO_PULLBACK')
+    assert own.detected and own.setup_metadata['pullback_variant']=='SINGLE_GREEN_LOWER_WICK'
+    assert (own.trigger_level,own.stop_level,own.invalidation_level)==(10.78,10.6,10.6)
+    assert len(intents)==1,strategy.last_symbol_terminal_outcomes
+    intent=intents[0];index=intent.setup_metadata['canonical_result_index']
+    assert results[index] is own and intent.setup_family_id=='MICRO_PULLBACK'
+    assert (intent.entry_price,intent.stop_loss_price,intent.invalidation_level)==(10.78,10.6,10.6)
+    assert intent.target_model=='Prior high / HOD' and intent.take_profit_price is None
+    assert intent.setup_metadata['source_metadata']==own.setup_metadata
+    if full_registry:
+        assert len(results)==len(strategy._pattern_registry.patterns)==33
+        gap=next(r for r in results if r.setup_id=='P_GAP_GO')
+        assert gap.detected and gap.stop_level is gap.invalidation_level is None
+        all_triggers=strategy._failure_trace_collector._symbols[-1].input_summary['trigger_candidates']
+        pmh=[t for t in all_triggers if type(t.get('canonical_result_index')) is int
+            and t.get('setup_family_id')=='PREMARKET_HIGH_BREAK']
+        assert len(pmh)==1 and not pmh[0]['trigger_ready_now']
+    canonical=[c for c in calls if c[0].get('canonical_result_index')==index]
+    assert len(canonical)==1 and canonical[0][2]['trigger_ready_now']
+
+
+@pytest.mark.parametrize('state,reason',[
+    ('green_pause_ordinary','no 1-3 bar pullback'),
+    ('green_pause_upper_wick','no 1-3 bar pullback'),
+    ('green_pause_above_impulse','green pause extends above impulse'),
+    ('green_pause_lost_support','green pause loses EMA9 support')])
+def test_green_pause_is_not_a_generic_green_bar_admission(monkeypatch,tmp_path,state,reason):
+    _,intents,results,_,_=actual_run(monkeypatch,tmp_path,state=state)
+    assert not results[0].detected and results[0].rejection_reason==reason
+    assert intents==[]
+
+
+def test_green_lower_wick_child_keeps_existing_relationship_and_consumed_identity():
+    from types import SimpleNamespace
+    from src.execution.trade_management_engine import TradeManagementEngine
+    from src.setup_engine.setup_families.bull_flag import BullFlagPattern
+    from src.strategies.common.candles.candle_types import Candle
+    from test_ross_bullflag_micro_management import composed_inputs,MemoryStorage
+    source,now=composed_inputs()
+    rows=[(10.,10.2,9.99,10.18,1300),(10.18,10.45,10.16,10.42,1600),
+        (10.42,10.8,10.4,10.76,2000),(10.73,10.78,10.6,10.76,850),
+        (10.76,10.9,10.75,10.88,2100)]
+    fast=[Candle(*(tuple(v+.55 for v in row[:4])+(row[4],)),
+        timestamp=now-timedelta(seconds=50-i*10)) for i,row in enumerate(rows)]
+    source=replace(source,timeframe_candles={**source.timeframe_candles,'10s':fast},observed_at_utc=now)
+    store=MemoryStorage();manager=TradeManagementEngine(persistence_adapter=store)
+    composed=manager.compose_bull_flag(BullFlagPattern(),source,security_id='conId:1',now=now)
+    assert composed.detected,composed.rejection_reason
+    assert composed.setup_metadata['pullback_variant']=='SINGLE_GREEN_LOWER_WICK'
+    context=composed.setup_metadata['relationship']
+    assert context['profile']==composed.target_suggestion=='BULL_FLAG_MICRO_2R_V1'
+    assert context['security_id']=='conId:1' and context['child_timeframe']=='10s'
+    assert context['child_timestamp']==fast[-1].timestamp.isoformat()
+    intent=SimpleNamespace(symbol=source.symbol,entry_price=composed.trigger_level,quantity=1)
+    assert manager.prepare_relationship_intent(intent,context)
+    assert intent.relationship_context['parent_id']==context['parent_id']
+    assert intent.relationship_context['child_id']==context['child_id']
+    restored=TradeManagementEngine(persistence_adapter=store);restored.restore_relationship_state()
+    replay=restored.compose_bull_flag(BullFlagPattern(),source,security_id='conId:1',now=now)
+    assert not replay.detected and replay.rejection_reason=='child_already_consumed'
