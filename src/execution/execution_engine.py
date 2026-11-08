@@ -2419,6 +2419,9 @@ class ExecutionEngine:
                     self._validate_native_binding(order_id, order, {})
                 facts = reader(order["broker_order_id"])
                 if not facts:
+                    if plan is None and order.get("protection_parent_order_id") and order["filled"]:
+                        _, life = self._native_protection_owner(order)
+                        self._verify_native_remaining_stop(order, life, order["filled"])
                     continue
                 if plan is None:
                     self._validate_native_binding(order_id, order, facts)

@@ -1193,7 +1193,7 @@ def test_stop_fill_does_not_clear_independent_broker_position_mismatch(reassessm
     finally:teardown_unsent_fixture(h,no_external_activity)
 
 
-@pytest.mark.parametrize('protection_fault',['none','missing','wrong_quantity','lost_on_repeat'])
+@pytest.mark.parametrize('protection_fault',['none','missing','wrong_quantity','lost_on_repeat','missing_update'])
 def test_native_stop_partial_then_terminal_cumulative_core_accounting(reassessment,monkeypatch,tmp_path,
         capsys,no_external_activity,protection_fault):
     from test_joined_core_pmh_readonly import pmh_joined
@@ -1238,8 +1238,10 @@ def test_native_stop_partial_then_terminal_cumulative_core_accounting(reassessme
         assert cycle and h.truth[-1][1].healthy
         assert engine._confirmed_stop_quantity(symbol='JPM',life=life,
             orders=list(engine._provider.get_open_orders()),stop_filled=1)==qty
-        if protection_fault=='lost_on_repeat':
-            h.native_open_orders.clear();h.life.clock.current+=timedelta(seconds=1)
+        if protection_fault in {'lost_on_repeat','missing_update'}:
+            h.native_open_orders.clear()
+            if protection_fault=='missing_update':h.facts.pop(72)
+            h.life.clock.current+=timedelta(seconds=1)
             assert not h.core.run_once();capsys.readouterr()
             assert engine._native_quarantined and life.exited_qty==1
             assert len(h.sent_native)==len(h.stop_requests)==1
