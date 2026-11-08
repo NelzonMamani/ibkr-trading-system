@@ -1096,9 +1096,9 @@ def test_joined_orb_existing_gates_still_block(reassessment,monkeypatch,tmp_path
 
 
 def hod_joined(reassessment,monkeypatch,tmp_path,*,news_fault='none',peer=False,
-               market_fault='none',position_case='complete_empty'):
+               market_fault='none',position_case='complete_empty',runtime_options=None):
     h=pmh_joined(reassessment,monkeypatch,tmp_path,news_fault=news_fault,peer=peer,
-        position_case=position_case,clock_time=(14,10,30))
+        position_case=position_case,clock_time=(14,10,30),runtime_options=runtime_options)
     rows=[(10.2,10.25,10.18,10.22,900)]*44+[
         (10.23,10.29,10.21,10.27,900),(10.27,10.30,10.20,10.28,900),
         (10.28,10.30,10.22,10.29,900),(10.29,10.30,10.23,10.28,900),
