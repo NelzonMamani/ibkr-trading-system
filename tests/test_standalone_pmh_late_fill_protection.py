@@ -16,7 +16,7 @@ from test_joined_core_pmh_paper_assessment import (
 
 
 def late_pmh(reassessment,monkeypatch,tmp_path,*,paper_factory=paper_pmh,position_case='complete_empty',
-             fill_price=10.31,stop_price=10.3-max(.01,10.3*.001)):
+             fill_price=10.31,stop_price=10.3-max(.01,10.3*.001),expected_stop_quantity=1):
     facts={};reads=[];sent=[];stops=[];open_orders=[];quantity=[0]
     def cached(order_id):
         reads.append(order_id)
@@ -25,9 +25,9 @@ def late_pmh(reassessment,monkeypatch,tmp_path,*,paper_factory=paper_pmh,positio
         return [NS(symbol='JPM',position=quantity[0],con_id=123,avgCost=fill_price,account='SYNTHETIC_TEST')] if quantity[0] else []
     def place_stop(**kw):
         stops.append(deepcopy(kw))
-        assert kw['quantity']==1 and kw['stop_price']==stop_price
+        assert (expected_stop_quantity is None or kw['quantity']==expected_stop_quantity) and kw['stop_price']==stop_price
         open_orders.append(NS(orderId=72,contract=NS(symbol='JPM',conId=123),
-            order=NS(orderType='STP',parentId=71,orderRef='PROTECT|'+str(kw['trade_id']),action='SELL',totalQuantity=1,auxPrice=kw['stop_price']),
+            order=NS(orderType='STP',parentId=71,orderRef='PROTECT|'+str(kw['trade_id']),action='SELL',totalQuantity=kw['quantity'],auxPrice=kw['stop_price']),
             orderState=NS(status='Submitted')))
         return dict(broker_order_id='72',status='Submitted',order_type='STP')
     from src.adapters.brokers.ibkr.ibkr_connection_manager import IbkrConnectionManager, IbkrConnectionConfig
@@ -53,11 +53,11 @@ def late_pmh(reassessment,monkeypatch,tmp_path,*,paper_factory=paper_pmh,positio
         assert not sent,'repeat or unexpected synthetic routing'
         sent.append(deepcopy(request))
         open_orders.append(NS(orderId=71,contract=NS(symbol=request.symbol,conId=123),
-            order=NS(orderType='MKT',parentId=0,orderRef=request.client_order_id,action='BUY',totalQuantity=1),
+            order=NS(orderType='MKT',parentId=0,orderRef=request.client_order_id,action='BUY',totalQuantity=request.quantity),
             orderState=NS(status='Submitted')))
         return ExecutionResult(symbol=request.symbol,trader_type=request.trader_type,attempted=True,
             status='Submitted',rationale='synthetic external acknowledgement',direction=request.direction,
-            quantity=1,requested_quantity=1,filled_quantity=0,remaining_quantity=1,
+            quantity=request.quantity,requested_quantity=request.quantity,filled_quantity=0,remaining_quantity=request.quantity,
             client_order_id=request.client_order_id,ibkr_order_id=71,acknowledged_at=h.life.clock.current.isoformat())
     broker.place_order=transport
     def snapshot():
@@ -991,4 +991,290 @@ def test_micro_standalone_paper_later_fill_and_selected_initial_stop(reassessmen
     try:
         request=acknowledge_micro(h,capsys)
         confirm_selected_fill(h,request,capsys,family='MICRO_PULLBACK',fill_price=10.88,stop_price=10.6)
+    finally:teardown_unsent_fixture(h,no_external_activity)
+
+
+def test_standalone_selected_stop_later_fill_reaches_actual_core_flat(reassessment,monkeypatch,tmp_path,
+        capsys,no_external_activity):
+    h=late_momentum(reassessment,monkeypatch,tmp_path)
+    try:
+        request=acknowledge_momentum(h,capsys)
+        life=confirm_selected_fill(h,request,capsys,family='VWAP_RECLAIM_CONTINUATION',
+            fill_price=10.34,stop_price=10.23)
+        assert str(life.stop.broker_order_id)=='72' and life.filled_qty==1
+        h.facts[72]=dict(status='Filled',filled=1,remaining=0,avgFillPrice=10.23,
+            symbol='JPM',side='SELL',orderId=72)
+        h.native_quantity[0]=0;h.native_open_orders.clear()
+        h.life.clock.current+=timedelta(seconds=1)
+        h.core.run_once();out=capsys.readouterr().out
+        positions=h.manager.snapshot_positions()
+        observed=dict(stop_callback_read=72 in h.reads_native,lifecycle_quantity=life.filled_qty,
+            managed_quantity=positions['JPM'].quantity if 'JPM' in positions else 0,
+            registry_count=len(h.core.trade_registry.snapshot()),
+            capital_used=h.core.execution_engine.capital_authority.total_used_exposure,
+            truth_block=h.truth[-1][1].block_new_entries)
+        assert observed['stop_callback_read'] and observed['lifecycle_quantity']==observed['managed_quantity']==observed['registry_count']==0,observed
+        assert observed['capital_used']==0 and not observed['truth_block'],observed
+        assert len(h.sent_native)==1 and len(h.stop_requests)==1
+    finally:teardown_unsent_fixture(h,no_external_activity)
+
+
+def test_selected_native_stop_keeps_actual_broker_parent_order_identity(reassessment,monkeypatch,tmp_path,
+        capsys,no_external_activity):
+    h=late_momentum(reassessment,monkeypatch,tmp_path)
+    try:
+        request=acknowledge_momentum(h,capsys)
+        confirm_selected_fill(h,request,capsys,family='VWAP_RECLAIM_CONTINUATION',fill_price=10.34,stop_price=10.23)
+        assert h.stop_requests[0]['parent_order_id']==str(h.execution_results[0].ibkr_order_id)
+    finally:teardown_unsent_fixture(h,no_external_activity)
+
+
+STOP_FAMILIES=['PREMARKET_HIGH_BREAK','FIRST_PULLBACK','ABCD','KEY_LEVEL_BREAK',
+    'CONSOLIDATION_BREAKOUT','FLAT_TOP_BREAKOUT','OPENING_RANGE_BREAKOUT','HOD_BREAK',
+    'VWAP_RECLAIM_CONTINUATION','MICRO_PULLBACK']
+
+
+def filled_standalone(reassessment,monkeypatch,tmp_path,capsys,family):
+    if family=='PREMARKET_HIGH_BREAK':
+        h=late_pmh(reassessment,monkeypatch,tmp_path,fill_price=10.53)
+        ack=acknowledge;price=10.53
+    else:h,ack,_,price=standalone_case(reassessment,monkeypatch,tmp_path,family)
+    request=ack(h,capsys)
+    life=confirm_selected_fill(h,request,capsys,family=family,fill_price=price,
+        stop_price=request.stop_loss_price)
+    return h,request,life
+
+
+def external_stop_facts(h,life,*,status='Filled',filled=1,remaining=0):
+    from dataclasses import replace
+    price=round(life.selected_stop_price-.01,2)
+    h.facts[72]=dict(status=status,filled=filled,remaining=remaining,avgFillPrice=price,
+        symbol='JPM',side='SELL',orderId=72,parentId=71,orderRef='PROTECT|'+life.trade_id)
+    h.native_quantity[0]=remaining
+    if not remaining:h.native_open_orders.clear()
+    for row in h.rows.values():row.update(last_price=price,bid=price-.01,ask=price+.01,
+        spread_pct=100*.02/price,gap_pct=100*(price/9.8-1))
+    original=h.core.market_data_snapshot_manager.batch_snapshots
+    def snapshots(symbols):
+        values,errors=original(symbols)
+        return {key:replace(value,last=price,bid=price-.01,ask=price+.01) for key,value in values.items()},errors
+    h.core.market_data_snapshot_manager.batch_snapshots=snapshots
+    h.life.clock.current+=timedelta(seconds=10)
+    last=h.streams['10s'][-1]
+    h.streams['10s'].append(replace(last,timestamp=h.life.clock.current-timedelta(seconds=10),
+        open=last.close,high=max(last.close,price)+.01,low=price-.01,close=price,volume=400))
+    return price
+
+
+@pytest.mark.parametrize('family',STOP_FAMILIES)
+def test_selected_stop_fill_full_core_once_across_families(reassessment,monkeypatch,tmp_path,
+        capsys,no_external_activity,family):
+    h,request,life=filled_standalone(reassessment,monkeypatch,tmp_path,capsys,family)
+    try:
+        engine=h.core.execution_engine;retained=deepcopy(engine._native_orders[request.client_order_id]['request'])
+        metadata=deepcopy(h.evaluated[0][0].setup_metadata)
+        price=external_stop_facts(h,life)
+        assert h.core.run_once();capsys.readouterr()
+        assert 72 in h.reads_native and life.filled_qty==0 and life.exited_qty==1
+        assert life.realized_pnl==pytest.approx(price-life.avg_fill_price)
+        assert not h.manager.snapshot_positions() and not h.core.trade_registry.snapshot()
+        assert engine.capital_authority.total_used_exposure==0
+        assert engine.capital_authority.total_reserved_capital==0
+        assert not engine.strategy_allocation_authority.active_reservations
+        assert h.truth[-1][1].healthy and not h.truth[-1][1].block_new_entries
+        assert len(engine.position_records)==2 # Historical entry and exit, not two open positions.
+        for _ in range(3):
+            h.life.clock.current+=timedelta(seconds=1)
+            assert h.core.run_once();capsys.readouterr()
+            assert life.exited_qty==1 and life.realized_pnl==pytest.approx(price-life.avg_fill_price)
+            assert not h.manager.snapshot_positions() and not h.core.trade_registry.snapshot()
+            assert engine.capital_authority.total_used_exposure==0
+            assert len(engine.position_records)==2 and len(h.sent_native)==len(h.stop_requests)==1
+            assert h.collect_calls[-1]==[]
+        assert engine._native_orders[request.client_order_id]['request']==retained
+        assert h.evaluated[0][0].setup_metadata==metadata
+        assert request.take_profit_price is life.selected_target_price is None
+        assert life.target_model==request.target_model
+        assert h.stop_requests[0]['parent_order_id']=='71'
+    finally:teardown_unsent_fixture(h,no_external_activity)
+
+
+@pytest.mark.parametrize('fault',['symbol','side','account','client_order_id','orderId','decision_id',
+    'parentId','orderRef','missing_counts','negative','fractional','oversize','nan_price','missing_price',
+    'unknown_status','retained_parent','retained_mode','retained_decision'])
+def test_selected_stop_bad_facts_quarantine_without_exit(reassessment,monkeypatch,tmp_path,
+        capsys,no_external_activity,fault):
+    h,request,life=filled_standalone(reassessment,monkeypatch,tmp_path,capsys,'VWAP_RECLAIM_CONTINUATION')
+    try:
+        engine=h.core.execution_engine
+        external_stop_facts(h,life)
+        if fault in {'symbol','side','account','client_order_id','orderId','decision_id','parentId','orderRef'}:
+            h.facts[72][fault]='UNRELATED'
+        if fault=='missing_counts':h.facts[72].pop('filled')
+        if fault=='negative':h.facts[72]['filled']=-1
+        if fault=='fractional':h.facts[72]['filled']=.5
+        if fault=='oversize':h.facts[72]['filled']=2
+        if fault=='nan_price':h.facts[72]['avgFillPrice']=float('nan')
+        if fault=='missing_price':h.facts[72].pop('avgFillPrice')
+        if fault=='unknown_status':h.facts[72]['status']='UNKNOWN'
+        if fault.startswith('retained_'):
+            child=next(o for o in engine._native_orders.values() if o.get('protection_parent_order_id'))
+            key={'retained_parent':'protection_parent_order_id','retained_mode':'mode','retained_decision':'decision_id'}[fault]
+            child[key]='CHANGED'
+        assert not h.core.run_once();capsys.readouterr()
+        assert engine._native_quarantined and life.filled_qty==1 and life.exited_qty==0
+        assert h.manager.snapshot_positions()['JPM'].quantity==1 and len(h.core.trade_registry.snapshot())==1
+        assert engine.capital_authority.total_used_exposure==life.avg_fill_price
+        assert len(engine.position_records)==1 and len(h.sent_native)==len(h.stop_requests)==1
+    finally:teardown_unsent_fixture(h,no_external_activity)
+
+
+@pytest.mark.parametrize('evidence',['missing','unrelated','Submitted','PendingSubmit','Cancelled','Inactive'])
+def test_stop_zero_or_missing_is_not_an_exit_and_late_fill_is_accounted(reassessment,monkeypatch,
+        tmp_path,capsys,no_external_activity,evidence):
+    h,request,life=filled_standalone(reassessment,monkeypatch,tmp_path,capsys,'VWAP_RECLAIM_CONTINUATION')
+    try:
+        engine=h.core.execution_engine
+        if evidence=='unrelated':h.facts[999]=dict(status='Filled',filled=1,remaining=0,avgFillPrice=10.22)
+        elif evidence!='missing':h.facts[72]=dict(status=evidence,filled=0,remaining=1)
+        h.life.clock.current+=timedelta(seconds=1)
+        h.core.run_once();capsys.readouterr()
+        assert life.filled_qty==1 and life.exited_qty==0
+        assert h.manager.snapshot_positions()['JPM'].quantity==1
+        assert engine.capital_authority.total_used_exposure==life.avg_fill_price
+        assert len(h.sent_native)==len(h.stop_requests)==1
+        external_stop_facts(h,life)
+        assert h.core.run_once();capsys.readouterr()
+        assert life.filled_qty==0 and life.exited_qty==1
+        assert not h.manager.snapshot_positions() and not h.core.trade_registry.snapshot()
+        assert engine.capital_authority.total_used_exposure==0
+    finally:teardown_unsent_fixture(h,no_external_activity)
+
+
+@pytest.mark.parametrize('stage',['after_accounting','after_processor'])
+def test_selected_stop_interruption_quarantines_completed_effects_and_blocks_replay(reassessment,
+        monkeypatch,tmp_path,capsys,no_external_activity,stage):
+    h,request,life=filled_standalone(reassessment,monkeypatch,tmp_path,capsys,'VWAP_RECLAIM_CONTINUATION')
+    try:
+        engine=h.core.execution_engine;external_stop_facts(h,life)
+        name='_record_fill_and_position' if stage=='after_accounting' else None
+        def fail():raise RuntimeError('synthetic stop-fill interruption')
+        if name:
+            original=getattr(engine,name)
+            def interrupted(*a,**kw):original(*a,**kw);fail()
+            monkeypatch.setattr(engine,name,interrupted)
+            process=lambda r:h.core._apply_execution_results_to_trade_management([r])
+        else:
+            def process(r):h.core._apply_execution_results_to_trade_management([r]);fail()
+        with pytest.raises(RuntimeError,match='synthetic stop-fill interruption'):
+            engine.collect_relationship_updates(result_processor=process)
+        child=next(o for o in engine._native_orders.values() if o.get('protection_parent_order_id'))
+        assert child['cached_update_in_progress'] and child['quarantine']
+        assert engine._native_quarantined and engine._failsafe_block_new_entries
+        assert life.filled_qty==0 and life.exited_qty==1 and engine.capital_authority.total_used_exposure==0
+        assert not h.core.trade_registry.snapshot()
+        assert ('JPM' in h.manager.snapshot_positions()) is (stage=='after_accounting')
+        counts=(life.exited_qty,life.realized_pnl,len(engine.position_records),len(h.sent_native),len(h.stop_requests))
+        with pytest.raises(RuntimeError):engine.collect_relationship_updates(result_processor=process)
+        assert counts==(life.exited_qty,life.realized_pnl,len(engine.position_records),len(h.sent_native),len(h.stop_requests))
+    finally:teardown_unsent_fixture(h,no_external_activity)
+
+
+def test_stop_fill_does_not_clear_independent_broker_position_mismatch(reassessment,monkeypatch,
+        tmp_path,capsys,no_external_activity):
+    h,request,life=filled_standalone(reassessment,monkeypatch,tmp_path,capsys,'VWAP_RECLAIM_CONTINUATION')
+    try:
+        external_stop_facts(h,life)
+        h.native_quantity[0]=1 # Independent external position facts contradict the completed fill.
+        h.core.run_once();capsys.readouterr()
+        assert life.filled_qty==0 and not h.manager.snapshot_positions()
+        assert h.truth[-1][1].block_new_entries and h.truth[-1][0].mismatches
+        assert len(h.sent_native)==len(h.stop_requests)==1
+    finally:teardown_unsent_fixture(h,no_external_activity)
+
+
+@pytest.mark.parametrize('protection_fault',['none','missing','wrong_quantity','lost_on_repeat','missing_update'])
+def test_native_stop_partial_then_terminal_cumulative_core_accounting(reassessment,monkeypatch,tmp_path,
+        capsys,no_external_activity,protection_fault):
+    from test_joined_core_pmh_readonly import pmh_joined
+    monkeypatch.setenv('TRADING_DEFAULT_CAPITAL','400') # Isolated existing synthetic sizing scope.
+    def small_joined(*args,**kwargs):
+        # Existing approved SMALL sizing, scoped to synthetic facts; MICRO defaults stay one share.
+        kwargs['runtime_options']['config_overrides'].update(RISK_PROFILE='SMALL',RISK_MAX_POSITION_SIZE=2)
+        return pmh_joined(*args,**kwargs)
+    def small_paper(*args,**kwargs):return paper_pmh(*args,joined_factory=small_joined,**kwargs)
+    h=late_pmh(reassessment,monkeypatch,tmp_path,paper_factory=small_paper,
+        fill_price=10.53,expected_stop_quantity=None)
+    try:
+        assert h.core.run_once();capsys.readouterr()
+        h.life.clock.current+=timedelta(seconds=11)
+        assert h.core.run_once();capsys.readouterr()
+        request=h.sent_native[0];qty=request.quantity
+        d=h.evaluated[0][2]
+        assert qty>1,(d.evaluated_limits.get('profile'),d.evaluated_limits.get('max_position_size'),d.evaluated_limits.get('available_capital'),getattr(d.strategy_allocation_decision,'approved_quantity',None),getattr(d.capital_decision,'approved_quantity',None))
+        h.facts[71]=dict(status='Filled',filled=qty,remaining=0,avgFillPrice=10.53)
+        h.native_quantity[0]=qty;h.native_open_orders.clear()
+        h.life.clock.current+=timedelta(seconds=1)
+        assert h.core.run_once();capsys.readouterr()
+        engine=h.core.execution_engine;life=engine.post_fill_lifecycle.get_trade(request.client_order_id)
+        assert life.filled_qty==qty and life.stop.quantity==qty
+        price=external_stop_facts(h,life,status='Submitted',filled=1,remaining=qty-1)
+        if protection_fault=='missing':h.native_open_orders.clear()
+        if protection_fault=='wrong_quantity':h.native_open_orders[0].order.totalQuantity=qty-1
+        cycle=h.core.run_once();capsys.readouterr()
+        assert life.filled_qty==qty-1 and life.exited_qty==1
+        assert h.manager.snapshot_positions()['JPM'].quantity==qty-1
+        assert h.core.trade_registry.snapshot()[0].quantity==qty-1
+        assert engine.capital_authority.total_used_exposure==pytest.approx((qty-1)*10.53)
+        assert life.realized_pnl==pytest.approx(price-10.53)
+        if protection_fault in {'missing','wrong_quantity'}:
+            assert not cycle and engine._native_quarantined
+            before=(life.exited_qty,life.realized_pnl,engine.capital_authority.total_used_exposure)
+            h.life.clock.current+=timedelta(seconds=1)
+            assert not h.core.run_once();capsys.readouterr()
+            assert before==(life.exited_qty,life.realized_pnl,engine.capital_authority.total_used_exposure)
+            assert len(h.sent_native)==len(h.stop_requests)==1
+            return
+        assert cycle and h.truth[-1][1].healthy
+        assert engine._confirmed_stop_quantity(symbol='JPM',life=life,
+            orders=list(engine._provider.get_open_orders()),stop_filled=1)==qty
+        if protection_fault in {'lost_on_repeat','missing_update'}:
+            h.native_open_orders.clear()
+            if protection_fault=='missing_update':h.facts.pop(72)
+            h.life.clock.current+=timedelta(seconds=1)
+            assert not h.core.run_once();capsys.readouterr()
+            assert engine._native_quarantined and life.exited_qty==1
+            assert len(h.sent_native)==len(h.stop_requests)==1
+            return
+        h.life.clock.current+=timedelta(seconds=1)
+        assert h.core.run_once();capsys.readouterr()
+        assert life.exited_qty==1
+        # Cumulative average encodes a distinct later execution price; normalization must apply only delta.
+        final_price=price-.02;average=(price+(qty-1)*final_price)/qty
+        h.facts[72].update(status='Filled',filled=qty,remaining=0,avgFillPrice=average)
+        h.native_quantity[0]=0;h.native_open_orders.clear()
+        h.life.clock.current+=timedelta(seconds=1)
+        assert h.core.run_once();capsys.readouterr()
+        assert life.filled_qty==0 and life.exited_qty==qty
+        assert life.realized_pnl==pytest.approx(price+(qty-1)*final_price-qty*10.53)
+        assert not h.manager.snapshot_positions() and not h.core.trade_registry.snapshot()
+        assert engine.capital_authority.total_used_exposure==pytest.approx(0)
+        assert len(h.sent_native)==len(h.stop_requests)==1
+    finally:teardown_unsent_fixture(h,no_external_activity)
+
+
+@pytest.mark.parametrize('owner',['manager','registry','lifecycle'])
+def test_selected_stop_conflicting_owned_quantity_rejects_before_accounting(reassessment,monkeypatch,
+        tmp_path,capsys,no_external_activity,owner):
+    h,request,life=filled_standalone(reassessment,monkeypatch,tmp_path,capsys,'VWAP_RECLAIM_CONTINUATION')
+    try:
+        engine=h.core.execution_engine;external_stop_facts(h,life)
+        # Deliberately corrupt one projection to exercise ownership rejection, not to manufacture a passing flat.
+        if owner=='manager':h.manager.snapshot_positions()['JPM'].quantity=0
+        elif owner=='registry':h.core.trade_registry.snapshot()[0].quantity=0
+        else:life.filled_qty=0
+        assert not h.core.run_once();capsys.readouterr()
+        assert engine._native_quarantined and life.exited_qty==0
+        assert len(engine.position_records)==1 and engine.capital_authority.total_used_exposure==10.34
+        assert len(h.sent_native)==len(h.stop_requests)==1
     finally:teardown_unsent_fixture(h,no_external_activity)

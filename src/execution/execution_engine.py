@@ -1796,6 +1796,7 @@ class ExecutionEngine:
             previous = {"filled_qty": stored_order["filled"], "entry_price": stored_order["notional"] / stored_order["filled"]}
 
         native_owned = self._native_orders.get(request.client_order_id)
+        native_parent, native_life = self._native_protection_owner(native_owned) if native_owned is not None else (None, None)
         if request.relationship_context or native_owned is not None:
             filled_quantity -= int(previous.get("filled_qty", 0))
             if filled_quantity <= 0:
@@ -1827,12 +1828,13 @@ class ExecutionEngine:
                 self._convert_capital_for_fill(request, filled_quantity=filled_quantity, fill_price=fill_price,
                     **({"effect_evidence": self._owner_effect_binding(request, result, "capital", "CONVERT", filled_quantity, fill_price)} if prospective else {}))
             elif direction_upper == "SELL":
-                entry_request = plan.orders.get(plan.initial_order_id, {}).get("request", {}) if plan else {}
+                entry_request = plan.orders.get(plan.initial_order_id, {}).get("request", {}) if plan else (native_parent["request"] if native_parent else {})
                 owner_strategy = entry_request.get("strategy_name") or request.strategy_name
                 release_price = fill_price
-                if plan is not None:
-                    lifecycle = self.post_fill_lifecycle.get_trade(plan.protection_trade_id or plan.initial_order_id)
-                    position = manager.snapshot_positions().get(plan.symbol)
+                if plan is not None or native_parent is not None:
+                    lifecycle = (self.post_fill_lifecycle.get_trade(plan.protection_trade_id or plan.initial_order_id)
+                        if plan else native_life)
+                    position = manager.snapshot_positions().get(request.symbol)
                     # Exposure is entry cost, not exit proceeds; PnL retains fill_price.
                     release_price = float(lifecycle.avg_fill_price if lifecycle is not None
                                           else position.entry_price if position is not None else 0.0)
@@ -1892,7 +1894,7 @@ class ExecutionEngine:
         context = request.relationship_context or {}
         manager = getattr(self, "relationship_manager", None)
         plan = manager._relationship_plans.get(context.get("relationship_id")) if manager else None
-        protection_id = (plan.protection_trade_id or plan.initial_order_id) if plan else request.client_order_id
+        protection_id = (plan.protection_trade_id or plan.initial_order_id) if plan else (native_life.trade_id if native_life else request.client_order_id)
         existing_protection = self.post_fill_lifecycle.get_trade(protection_id) if plan or native_owned is not None else None
         if direction_upper in {"LONG", "BUY"} and existing_protection is not None:
             total = existing_protection.filled_qty + filled_quantity
@@ -1923,10 +1925,19 @@ class ExecutionEngine:
                 take_profit_price=request.take_profit_price,
                 preserve_selected_protection="ROSS" in str(request.strategy_name or "").upper(),
                 target_model=request.target_model,
+                entry_broker_order_id=str(ibkr_order_id) if ibkr_order_id is not None else None,
             )
             self.position_records[request.client_order_id]["lifecycle"] = protection_result
             if (plan is not None or native_owned is not None) and not protection_result["success"]:
                 self._failsafe_block_new_entries = True
+        if direction_upper == "SELL" and native_parent is not None:
+            applied = self.post_fill_lifecycle.record_exit_fill(trade_id=protection_id, fill_price=fill_price,
+                fill_time=datetime.now(timezone.utc).isoformat(), actual_qty=filled_quantity,
+                exit_order_id=str(ibkr_order_id), reason="STOP_LOSS")
+            if not applied.get("success"):
+                native_owned["lifecycle_application_rejected"] = applied
+                raise RuntimeError("NATIVE_PROTECTION_EXIT_APPLICATION_REJECTED")
+            existing_protection.stop.status = str(result.status)
         if direction_upper == "SELL" and plan is not None and existing_protection is not None:
             exit_application = self.post_fill_lifecycle.record_exit_fill(trade_id=protection_id, fill_price=fill_price,
                 fill_time=datetime.now(timezone.utc).isoformat(), actual_qty=filled_quantity,
@@ -1980,7 +1991,7 @@ class ExecutionEngine:
                 plan.protection_trade_id = protection_id
                 plan.protection_broker_order_id = str(protected.stop.broker_order_id or "") or None
                 manager._save_relationship_state()
-            initial_request = plan.orders[plan.initial_order_id].get("request", {}) if plan else asdict(request)
+            initial_request = plan.orders[plan.initial_order_id].get("request", {}) if plan else (native_parent["request"] if native_parent else asdict(request))
             trader_type = initial_request.get("trader_type") or request.trader_type or "UNKNOWN"
             registered = self.trade_registry.get_trade(request.symbol, trader_type)
             if registered is None:
@@ -2103,7 +2114,7 @@ class ExecutionEngine:
                 raise ValueError
             if order["terminal"] and status not in terminal_statuses and total <= order["filled"]:
                 return None  # Existing terminal truth cannot regress on a late nonterminal snapshot.
-            if total < prior or (plan is None and order["terminal"] and total > prior):
+            if total < prior or (plan is None and not order.get("protection_parent_order_id") and order["terminal"] and total > prior):
                 raise ValueError
             if plan is None and prior and total == prior and facts.get("avgFillPrice") is not None and float(facts["avgFillPrice"]) != float(previous["entry_price"]):
                 raise ValueError
@@ -2119,6 +2130,9 @@ class ExecutionEngine:
         except (KeyError, TypeError, ValueError, OverflowError):
             raise ValueError("CACHED_EXECUTION_UPDATE_INVALID") from None
         if total == order["filled"] and status == order.get("status"):
+            if order.get("protection_parent_order_id"):
+                _, life = self._native_protection_owner(order)
+                self._verify_native_remaining_stop(order, life, total)
             return None
         request = BrokerOrderRequest(**order["request"])
         context = request.relationship_context or {}
@@ -2126,7 +2140,16 @@ class ExecutionEngine:
                 or (plan is not None and context.get("relationship_id") != plan.relationship_id)
                 or (plan is None and context)):
             raise ValueError("CACHED_EXECUTION_UPDATE_BINDING_INVALID")
-        if plan is None and total > prior and prior == 0 and any(t.symbol == request.symbol for t in self.trade_registry.snapshot()):
+        native_parent, native_life = self._native_protection_owner(order) if plan is None else (None, None)
+        if native_parent is not None and total > prior:
+            position = manager.snapshot_positions().get(request.symbol) if manager else None
+            registered = self.trade_registry.get_trade(request.symbol, native_parent["request"].get("trader_type") or "UNKNOWN")
+            if (position is None or position.relationship_id or position.reference_order_id != order["protection_parent_order_id"]
+                    or registered is None or position.quantity != native_life.filled_qty or registered.quantity != native_life.filled_qty
+                    or position.strategy_name != native_life.strategy_id or registered.strategy_name != native_life.strategy_id
+                    or not 0 < total - prior <= native_life.filled_qty):
+                raise ValueError("NATIVE_PROTECTION_OWNED_QUANTITY_CONFLICT")
+        if plan is None and native_parent is None and total > prior and prior == 0 and any(t.symbol == request.symbol for t in self.trade_registry.snapshot()):
             raise ValueError("NATIVE_ORDER_EXISTING_POSITION_CONFLICT")
         result = ExecutionResult(symbol=request.symbol, trader_type=request.trader_type or "UNKNOWN",
             attempted=True, status=status, rationale="CACHED_BROKER_CALLBACK",
@@ -2159,7 +2182,7 @@ class ExecutionEngine:
                 finally:
                     if plan is None:
                         self._native_processing_results.discard(id(processed))
-                if plan is None and total > prior:
+                if plan is None and native_parent is None and total > prior:
                     life = self.post_fill_lifecycle.get_trade(order_id)
                     inventory = list(self._provider.get_open_orders())
                     self.post_fill_lifecycle.reconcile_orders(inventory, repair=False)
@@ -2167,6 +2190,14 @@ class ExecutionEngine:
                             or not self.post_fill_lifecycle.assess_trade_stop_protection(order_id)["protected"]):
                         raise RuntimeError("NATIVE_ORDER_PROTECTION_UNVERIFIED")
                     order["protection_confirmed"] = True
+                if native_parent is not None:
+                    native_life.stop.status = status
+                    position = manager.snapshot_positions().get(request.symbol) if manager else None
+                    registered = self.trade_registry.get_trade(request.symbol, native_parent["request"].get("trader_type") or "UNKNOWN")
+                    if ((position.quantity if position else 0) != native_life.filled_qty
+                            or (registered.quantity if registered else 0) != native_life.filled_qty):
+                        raise RuntimeError("NATIVE_PROTECTION_PROJECTION_UNVERIFIED")
+                    self._verify_native_remaining_stop(order, native_life, total)
                 if not order.get("lifecycle_application_rejected"):
                     order.pop("cached_update_in_progress")
                 if plan is None:
@@ -2200,10 +2231,16 @@ class ExecutionEngine:
             raise ValueError("NATIVE_ORDER_SCOPE_STALE_OR_CHANGED")
         committed = (self._native_state or {}).get("orders", {}).get(order_id, {})
         if any(order.get(key) != committed.get(key) for key in
-               ("request", "decision_id", "account", "mode", "symbol", "side", "broker_order_id", "requested")):
+               ("request", "decision_id", "account", "mode", "symbol", "side", "broker_order_id", "requested",
+                "protection_parent_order_id", "protection_trade_id")):
             raise ValueError("NATIVE_ORDER_RETAINED_BINDING_CHANGED")
         facets = {"symbol": order["symbol"], "account": order["account"], "side": order["side"],
             "client_order_id": order_id, "orderId": order["broker_order_id"], "decision_id": order["decision_id"]}
+        parent, life = self._native_protection_owner(order)
+        if parent is not None:
+            self._validate_native_binding(order["protection_parent_order_id"], parent, {})
+            facets.update(client_order_id="PROTECT|" + life.trade_id, orderRef="PROTECT|" + life.trade_id,
+                parentId=str(parent["broker_order_id"]))
         for key, expected in facets.items():
             actual = facts.get(key)
             if key == "side":
@@ -2233,6 +2270,96 @@ class ExecutionEngine:
         self._validate_native_binding(order_id, order, facts)
         self._consume_cached_order(None, order_id, order, facts, result_processor)
         return True
+
+    def _native_protection_owner(self, order):
+        parent_id = order.get("protection_parent_order_id")
+        if parent_id is None:
+            return None, None
+        parent = self._native_orders.get(parent_id)
+        if (parent is None or parent.get("protection_parent_order_id") is not None
+                or parent.get("side") not in {"LONG", "BUY"}):
+            raise ValueError("NATIVE_PROTECTION_PARENT_INVALID")
+        life = self.post_fill_lifecycle.get_trade(order.get("protection_trade_id"))
+        stop = life.stop if life is not None else None
+        request = order["request"]
+        initial = parent["request"]
+        if (life is None or stop is None or not life.preserve_selected_protection or life.target is not None
+                or life.symbol.upper() != parent["symbol"] or life.strategy_id != initial.get("strategy_name")
+                or str(life.side).upper() not in {"LONG", "BUY"} or str(stop.side).upper() != "SELL"
+                or stop.entry_intent_id != life.trade_id
+                or stop.lifecycle_trade_id != life.trade_id or stop.strategy_owner != life.strategy_id
+                or str(stop.entry_order_id) != str(parent.get("broker_order_id"))
+                or str(stop.broker_order_id) != str(order.get("broker_order_id"))
+                or request.get("order_type") != "STP" or order.get("side") != "SELL"
+                or request.get("relationship_context") or request.get("quantity") != order.get("requested")
+                or type(order.get("requested")) is not int or not 0 < order["requested"] <= parent["requested"]
+                or order["requested"] != stop.quantity
+                or order.get("decision_id") != parent.get("decision_id")
+                or (order.get("account"), order.get("mode"), order.get("symbol")) != (parent.get("account"), parent.get("mode"), parent.get("symbol"))):
+            raise ValueError("NATIVE_PROTECTION_BINDING_INVALID")
+        return parent, life
+
+    def _verify_native_remaining_stop(self, order, life, cumulative_filled):
+        if life.filled_qty <= 0:
+            return
+        inventory = list(self._provider.get_open_orders())
+        if self._confirmed_stop_quantity(symbol=order["symbol"], life=life,
+                orders=inventory, stop_filled=cumulative_filled) is None:
+            raise RuntimeError("NATIVE_PROTECTION_REMAINDER_UNVERIFIED")
+
+    def _retain_native_selected_stops(self) -> None:
+        for parent_id, parent in list(self._native_orders.items()):
+            if parent.get("side") not in {"LONG", "BUY"} or not parent.get("protection_confirmed"):
+                continue
+            life = self.post_fill_lifecycle.get_trade(parent.get("protection_trade_id") or parent_id)
+            if life is None or not life.preserve_selected_protection or life.target is not None or life.stop is None:
+                continue  # Existing non-selected/targeted policies are outside this callback seam.
+            try:
+                self._validate_native_binding(parent_id, parent, {})
+                stop = life.stop
+                if not stop.broker_order_id or type(stop.quantity) is not int or stop.quantity <= 0:
+                    raise ValueError("NATIVE_PROTECTION_BINDING_INVALID")
+                broker_id = str(stop.broker_order_id)
+                order_id = f"{parent_id}:stop:{broker_id}"
+                if order_id in self._native_orders:
+                    child = self._native_orders[order_id]
+                    self._native_protection_owner(child)
+                    continue
+                if any(str(other.get("broker_order_id")) == broker_id for other in self._native_orders.values()):
+                    raise ValueError("CACHED_EXECUTION_DUPLICATE_NATIVE_ID")
+                initial = parent["request"]
+                request = BrokerOrderRequest(client_order_id=order_id, symbol=parent["symbol"], direction="SELL",
+                    quantity=stop.quantity, order_type="STP", trader_type=initial.get("trader_type"),
+                    strategy_name=initial.get("strategy_name"), setup_family_id=initial.get("setup_family_id"),
+                    trigger_id=initial.get("trigger_id"), target_model=initial.get("target_model"))
+                retained = {"request": asdict(request), "decision_id": parent["decision_id"], "account": parent["account"],
+                    "mode": parent["mode"], "symbol": parent["symbol"], "side": "SELL", "requested": stop.quantity,
+                    "filled": 0, "notional": 0., "terminal": False, "status": "SUBMITTED", "broker_order_id": broker_id,
+                    "protection_parent_order_id": parent_id, "protection_trade_id": life.trade_id}
+                self._native_protection_owner(retained)
+                self._native_orders[order_id] = retained
+                self._save_native_orders()  # Retain the existing broker order; never dispatch a new stop/exit.
+            except BaseException:
+                self._quarantine_native_update(parent)
+                raise
+
+    def _quarantine_native_update(self, order, facts=None) -> None:
+        if isinstance(facts, dict):
+            def retained(value):
+                if isinstance(value, float) and not math.isfinite(value):
+                    return {"invalid_number": str(value)}
+                if value is None or isinstance(value, (bool, int, float)):
+                    return value
+                if isinstance(value, str):
+                    return value if len(value) <= 256 else {"prefix": value[:256], "truncated": True}
+                return {"invalid_type": type(value).__name__[:64]}
+            order["unresolved_update"] = {key: retained(facts[key]) for key in
+                ("status", "filled", "remaining", "avgFillPrice", "symbol", "side", "account", "client_order_id", "orderId", "decision_id", "parentId", "orderRef") if key in facts}
+        order["quarantine"] = "CALLBACK_PROCESSING_UNRESOLVED"
+        self._mark_capital_recovery_failed("NATIVE_ORDER_PROCESSING_UNRESOLVED")
+        self._native_quarantined = True
+        self._failsafe_block_new_entries = True
+        self._save_native_orders()
 
     def collect_relationship_updates(self, *, result_processor: Callable[[ExecutionResult], None] | None = None) -> list[ExecutionResult]:
         """Single enumeration of retained relationship and standalone callbacks."""
@@ -2271,6 +2398,7 @@ class ExecutionEngine:
             return []
         for plan in plans:
             self._retain_relationship_stop_fill(plan, reader)
+        self._retain_native_selected_stops()
         entries = [(p,oid,o) for p in plans for oid,o in list(p.orders.items())]
         entries += [(None,oid,o) for oid,o in list(self._native_orders.items())]
         validate_enumeration(entries)
@@ -2291,6 +2419,9 @@ class ExecutionEngine:
                     self._validate_native_binding(order_id, order, {})
                 facts = reader(order["broker_order_id"])
                 if not facts:
+                    if plan is None and order.get("protection_parent_order_id") and order["filled"]:
+                        _, life = self._native_protection_owner(order)
+                        self._verify_native_remaining_stop(order, life, order["filled"])
                     continue
                 if plan is None:
                     self._validate_native_binding(order_id, order, facts)
@@ -2298,22 +2429,7 @@ class ExecutionEngine:
                 result = self._consume_cached_order(plan, order_id, order, facts, result_processor)
             except BaseException:
                 if plan is None:
-                    if isinstance(facts, dict):
-                        def retained(value):
-                            if isinstance(value, float) and not math.isfinite(value):
-                                return {"invalid_number": str(value)}
-                            if value is None or isinstance(value, (bool, int, float)):
-                                return value
-                            if isinstance(value, str):
-                                return value if len(value) <= 256 else {"prefix": value[:256], "truncated": True}
-                            return {"invalid_type": type(value).__name__[:64]}
-                        order["unresolved_update"] = {key: retained(facts[key]) for key in
-                            ("status", "filled", "remaining", "avgFillPrice", "symbol", "side", "account", "client_order_id", "orderId", "decision_id") if key in facts}
-                    order["quarantine"] = "CALLBACK_PROCESSING_UNRESOLVED"
-                    self._mark_capital_recovery_failed("NATIVE_ORDER_PROCESSING_UNRESOLVED")
-                    self._native_quarantined = True
-                    self._failsafe_block_new_entries = True
-                    self._save_native_orders()
+                    self._quarantine_native_update(order, facts)
                 raise
             if result is not None:
                 results.append(result)
