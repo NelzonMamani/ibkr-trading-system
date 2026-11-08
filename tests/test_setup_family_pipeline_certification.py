@@ -361,6 +361,8 @@ def test_pennant_measures_pole_and_compression_with_stop_excluding_pole_low():
     assert own.target_suggestion=='Continuation above the measured pennant boundary after impulse and compression.'
     assert validate_entry_contract(own)==(True,'ok')
     assert validate_entry_contract(replace(own,target_suggestion=None))==(False,'missing_target')
+    touch=list(inputs.candles);touch[3]=replace(touch[3],high=own.setup_metadata['pole_high'])
+    assert PennantBreakPattern().evaluate(replace(inputs,candles=touch)).detected
     for fault,reason in [('no_pole','pennant_missing_measured_impulse'),
             ('not_converging','pennant_boundaries_not_converging'),('pole_low','pennant_compression_outside_pole')]:
         bars=list(inputs.candles)
@@ -412,3 +414,20 @@ def test_shared_measured_geometry_accepts_explicit_strategy_policies_without_mut
     assert not RangeBreakoutPattern(measurement_policy=replace(CANONICAL_POLICY.range_break,
         boundary_tolerance_fraction=.01)).evaluate(inputs).detected
     assert CANONICAL_POLICY.range_break.boundary_tolerance_fraction==.10
+
+
+
+def test_pennant_independent_small_impulse_calibration_boundary():
+    from dataclasses import replace
+    from src.setup_engine.setup_families.pullbacks import PennantBreakPattern
+    inputs,_=_measured_triangle_pennant_case('PENNANT')
+    prices=[(10.,10.05,9.99,10.04),(10.04,10.09,10.03,10.08),(10.08,10.13,10.07,10.10),
+        (10.10,10.12,10.04,10.09),(10.09,10.11,10.05,10.085),(10.085,10.105,10.06,10.08),
+        (10.08,10.10,10.07,10.085),(10.085,10.095,10.075,10.09),(10.09,10.12,10.085,10.11)]
+    bars=[replace(c,open=o,high=h,low=l,close=close) for c,(o,h,l,close) in zip(inputs.candles,prices)]
+    boundary=PennantBreakPattern().evaluate(replace(inputs,candles=bars))
+    assert boundary.detected and boundary.confidence==.58
+    assert (boundary.trigger_level,boundary.stop_level)==(10.095,10.04)
+    bars[2]=replace(bars[2],close=10.099)
+    below=PennantBreakPattern().evaluate(replace(inputs,candles=bars))
+    assert not below.detected and below.rejection_reason=='pennant_missing_measured_impulse'

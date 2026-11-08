@@ -244,7 +244,8 @@ class PennantBreakPattern(_SimpleLongPattern):
                     (pole[-1].close-pole[0].open)/pole[0].open, spec)):
             return reject("pennant_missing_measured_impulse")
         pole_high, pole_low = max(c.high for c in pole), min(c.low for c in pole)
-        if any(c.high >= pole_high or c.low <= pole_low or c.high <= c.low for c in compression):
+        if any(not _geometry_inclusive_le(c.high, pole_high, spec)
+                or c.low <= pole_low or c.high <= c.low for c in compression):
             return reject("pennant_compression_outside_pole")
         if any(b.high >= a.high or b.low <= a.low for a,b in zip(compression,compression[1:])):
             return reject("pennant_boundaries_not_converging")

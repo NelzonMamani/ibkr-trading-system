@@ -153,7 +153,8 @@ class PennantMeasurementSpec:
     """New project calibration: three-bar impulse then five-bar compression.
 
     The pole has rising green closes/highs/lows and >=1% net advance. Compression
-    stays inside the pole and has strictly falling highs/rising lows, with
+    stays at/below the pole high and strictly above the pole low, with
+    strictly falling highs/rising lows and
     positive width. Entry fixes the last completed upper-boundary high; no
     moving line extrapolation. Stop excludes the pole low. Volume confirmation
     uses the compression's execution-stream baseline, not pole/source volume.
