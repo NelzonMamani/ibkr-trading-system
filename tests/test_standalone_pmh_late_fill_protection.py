@@ -3274,10 +3274,11 @@ def test_native_unit_stop_real_adapter_client_binds_before_sdk_write(reassessmen
         assert_readonly_selected_dispatch_restart(h,request,timeframe='10s',profile='UNIT_STOPS')
 
 
-@pytest.mark.parametrize('facet,value',[('symbol','OTHER'),('side','BUY'),('parentId',99),('orderRef','PROTECT|unrelated')])
+@pytest.mark.parametrize('facet,value',[('symbol','OTHER'),('side','BUY'),('parentId',99),('orderRef','PROTECT|unrelated'),('filled',2),('filled',True),('remaining',float('nan'))])
 def test_native_unit_stop_wrong_callback_binding_quarantines(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,facet,value):
     h,request,life=small_central_owned(reassessment,monkeypatch,tmp_path,capsys,'BULL_FLAG',requested_base=6,risk_cap=4,synthetic_capital=800,unit_stops=True)
-    h.facts[72]=dict(status='Filled',filled=1,remaining=0,avgFillPrice=10.63,**{facet:value})
+    h.facts[72]=dict(status='Filled',filled=1,remaining=0,avgFillPrice=10.63)
+    h.facts[72][facet]=value
     assert not h.core.run_once();capsys.readouterr()
     assert h.core.execution_engine._native_quarantined
     assert life.filled_qty==3 and life.exited_qty==0
@@ -3337,3 +3338,28 @@ def test_native_unit_stop_all_eligible_families_preserve_full_registry_contract(
     before=(len(h.sent_native),len(h.stop_requests),len(engine.position_records),engine.capital_authority.total_used_exposure)
     assert h.core.run_once();capsys.readouterr()
     assert before==(len(h.sent_native),len(h.stop_requests),len(engine.position_records),engine.capital_authority.total_used_exposure)
+
+
+
+def test_native_unit_stop_rejects_generic_whole_stop_mutation_and_repair(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    h,request,life=small_central_owned(reassessment,monkeypatch,tmp_path,capsys,'BULL_FLAG',requested_base=6,risk_cap=4,synthetic_capital=800,unit_stops=True)
+    owner=h.core.execution_engine.post_fill_lifecycle
+    replacement=owner.replace_stop(trade_id=life.trade_id,requested_by_strategy=life.strategy_id,new_stop_price=10.7,risk_authorized_override=True,override_reason='synthetic control')
+    cancellation=owner.cancel_stop(trade_id=life.trade_id,requested_by_strategy=life.strategy_id,risk_authorized_override=True,reason='synthetic control')
+    assert replacement==cancellation==dict(allowed=False,reason_code='SELECTED_UNIT_COORDINATION_REQUIRED')
+    assert owner.evaluate_trailing(life.trade_id,11.5)==dict(updated=False,reason='SELECTED_UNIT_COORDINATION_REQUIRED')
+    assert not owner._repair_missing_stop(life,'synthetic control')
+    assert not owner._repair_missing_target(life,'synthetic control')
+    assert len(h.stop_requests)==3 and all(leg.trigger_price==10.63 for leg in life.stop_legs)
+    assert owner.assess_trade_stop_protection(life.trade_id)['protected']
+
+
+@pytest.mark.parametrize('partial',[False,True])
+def test_native_unit_stop_completed_two_r_keeps_discretionary_admission_closed(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,partial):
+    prepared=small_central_owned(reassessment,monkeypatch,tmp_path,capsys,'BULL_FLAG',requested_base=8,risk_cap=4,synthetic_capital=800,unit_stops=True,partial=partial)
+    h,request,life=one_share_profit_case(reassessment,monkeypatch,tmp_path,capsys,prepared=prepared)
+    assert request.selected_stop_units and not h.failure_conversions
+    assert not h.failure_owner.get('pmh_failure_exit')
+    assert life.filled_qty==(1 if partial else 4) and life.exited_qty==0
+    assert len(h.stop_requests)==life.filled_qty
+    assert h.core.execution_engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']

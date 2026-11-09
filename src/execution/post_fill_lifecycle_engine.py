@@ -1017,6 +1017,8 @@ class PostFillLifecycleEngine:
         trade = self._trades.get(str(trade_id))
         if trade is None or trade.stop is None:
             return {"updated": False, "reason": "trade_missing_or_unprotected"}
+        if trade.selected_stop_units:
+            return {"updated": False, "reason": "SELECTED_UNIT_COORDINATION_REQUIRED"}
         if trade.state not in {PositionLifecycleState.TRAILING_ELIGIBLE, PositionLifecycleState.TRAILING_ACTIVE}:
             return {"updated": False, "reason": f"state_not_trailing:{trade.state.value}"}
 
@@ -1146,6 +1148,8 @@ class PostFillLifecycleEngine:
         trade = self._trades.get(str(trade_id))
         if trade is None or trade.stop is None:
             return {"allowed": False, "reason_code": "TRADE_MISSING_OR_UNPROTECTED"}
+        if trade.selected_stop_units:
+            return {"allowed": False, "reason_code": "SELECTED_UNIT_COORDINATION_REQUIRED"}
         previous_stop = float(trade.stop.trigger_price)
         try:
             decision = validate_stop_update(
@@ -1207,6 +1211,8 @@ class PostFillLifecycleEngine:
         trade = self._trades.get(str(trade_id))
         if trade is None or trade.stop is None:
             return {"allowed": False, "reason_code": "TRADE_MISSING_OR_UNPROTECTED"}
+        if trade.selected_stop_units:
+            return {"allowed": False, "reason_code": "SELECTED_UNIT_COORDINATION_REQUIRED"}
         if str(requested_by_strategy or "") != trade.strategy_id:
             return {
                 "allowed": False,
@@ -1669,6 +1675,8 @@ class PostFillLifecycleEngine:
         return {"handled": False, "reason": "order_not_mapped"}
 
     def _repair_missing_stop(self, trade: ManagedTradeLifecycle, reason: str) -> bool:
+        if trade.selected_stop_units:
+            return False  # A generic whole-quantity replacement would overlap units.
         if self.execution_provider is None or self.run_mode not in {"PAPER", "LIVE"}:
             return False
         if trade.stop is None:
@@ -1717,6 +1725,8 @@ class PostFillLifecycleEngine:
             return False
 
     def _repair_missing_target(self, trade: ManagedTradeLifecycle, reason: str) -> bool:
+        if trade.selected_stop_units:
+            return False  # A generic whole-quantity replacement would overlap units.
         if self.execution_provider is None or self.run_mode not in {"PAPER", "LIVE"}:
             return False
         if trade.target is None:
