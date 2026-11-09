@@ -41,7 +41,7 @@ def late_pmh(reassessment,monkeypatch,tmp_path,*,paper_factory=paper_pmh,positio
     connection._client=native_client
     for method in ('connect','ensure_connected','get_client','_connect_locked'):
         monkeypatch.setattr(connection,method,lambda *a,**k:pytest.fail('Implicit provider connection forbidden'))
-    broker=NS(positions=positions,open_orders=lambda:list(open_orders),
+    broker=NS(positions=positions,open_orders=lambda **kw:list(open_orders),
         connection_manager=connection,place_stop_order=place_stop)
     def provider_factory(**kw):
         return IbkrExecutionProvider(broker=broker,trade_registry=kw['trade_registry'],run_mode=kw['run_mode'])
@@ -1482,6 +1482,8 @@ def pmh_failure_case(reassessment,monkeypatch,tmp_path,capsys,*,fault='none',con
         return HistoricalDataResult('UNVERIFIED' if fault=='partial_history' else 'COMPLETE_BARS',tuple(h.failure_bars),fault!='partial_history')
     monkeypatch.setattr(h.core.connection_manager,'_client',NS(intraday_bars_from_history=history))
     def convert(**binding):
+        assert binding.pop('expected_client') is h.native_client
+        assert binding.pop('scope_as_of') == engine._native_scope[2]
         h.failure_conversions.append(deepcopy(binding))
         assert len(h.failure_conversions)==1
         assert binding==dict(broker_order_id='72',parent_order_id='71',symbol='JPM',con_id=123,
@@ -1739,7 +1741,7 @@ def test_pmh_failure_rule_missing_timestamp_and_occurrence_unit_controls(reasses
     assert not h.failure_conversions
 
 
-@pytest.mark.parametrize('fault',['none','con_id','parent','reference','quantity','kind','inactive','readonly','write_disabled','live','missing_client','authority_changed'])
+@pytest.mark.parametrize('fault',['none','con_id','parent','reference','quantity','kind','inactive','readonly','write_disabled','live','missing_client','authority_changed','scope_expired'])
 def test_pmh_native_adapter_amendment_preserves_one_order_and_contract(monkeypatch,fault):
     from src.brokers import ibkr_live_broker as broker_module
     from src.config.runtime_config import RunMode
@@ -1755,8 +1757,9 @@ def test_pmh_native_adapter_amendment_preserves_one_order_and_contract(monkeypat
     if fault=='inactive':row.orderState.status='Cancelled'
     sent=[]
     authority_changed=[False]
-    def inventory():
-        if fault=='authority_changed':authority_changed[0]=True
+    def inventory(**kwargs):
+        assert kwargs == {"require_complete": True}
+        if fault in {'authority_changed','scope_expired'}:authority_changed[0]=True
         return [row]
     client=NS(isConnected=lambda:True,openOrders=inventory,placeOrder=lambda *args:sent.append(deepcopy(args)))
     def forbidden(*a,**k):pytest.fail('Implicit connection forbidden')
@@ -1767,9 +1770,11 @@ def test_pmh_native_adapter_amendment_preserves_one_order_and_contract(monkeypat
         'get_ibkr_readonly_enabled':fault=='readonly','get_ibkr_api_write_allowed':fault!='write_disabled',
         'get_ibkr_order_submission_enabled':True,'get_ibkr_order_translation_enabled':True}.items():
         monkeypatch.setattr(broker_module,name,lambda _value=value:_value)
-    monkeypatch.setattr(broker_module,'get_ibkr_readonly_enabled',lambda:fault=='readonly' or authority_changed[0])
+    monkeypatch.setattr(broker_module,'get_ibkr_readonly_enabled',lambda:fault=='readonly' or (fault=='authority_changed' and authority_changed[0]))
+    monkeypatch.setattr('src.config.runtime_config.get_ibkr_snapshot_max_age_seconds',
+        lambda:0 if fault=='scope_expired' and authority_changed[0] else 10)
     call=lambda:broker.convert_selected_stop_to_market(broker_order_id='72',parent_order_id='71',
-        symbol='JPM',con_id=123,total_quantity=2,trade_id='owned',stop_price=10.28)
+        symbol='JPM',con_id=123,total_quantity=2,trade_id='owned',stop_price=10.28,expected_client=client,scope_as_of=__import__('datetime').datetime.now(timezone.utc))
     if fault!='none':
         with pytest.raises(RuntimeError):call()
         assert sent==[]
@@ -1795,7 +1800,7 @@ def test_pmh_failure_later_qualifying_bar_no_elapsed_cutoff_and_phase_expiry(rea
     distant=replace(later,timestamp=now+timedelta(minutes=10))
     assert manager.evaluate_pmh_completed_failure(owner,[distant],observed_at=distant.timestamp+timedelta(seconds=11),
         session_plan=request.management_session_plan)
-    h.core._run_pmh_failure_management(now,'OTHER_PHASE') # Real owner, negative phase-plan component control.
+    h.core._expire_pmh_failure_enrollment(now,'OTHER_PHASE') # Transition observer is independent of exit gates.
     assert owner['pmh_management_expired'] and not h.failure_conversions
     assert h.core.run_once();capsys.readouterr() # Returning to prior label cannot resume enrollment.
     assert not h.failure_conversions and life.stop.trigger_price==request.stop_loss_price
@@ -1856,3 +1861,73 @@ def test_pmh_completed_failure_retained_one_minute_rule_component(reassessment,m
     assert rule(bar.timestamp+timedelta(seconds=59)) is None
     assert rule(bar.timestamp+timedelta(seconds=60))['close']==bar.close
     assert not h.failure_conversions
+
+
+@pytest.mark.parametrize('case',['complete','timeout','disconnect','overlap','changed_client'])
+def test_pmh_native_amendment_requires_real_completed_order_stream(monkeypatch,case):
+    from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
+    from src.brokers import ibkr_live_broker as module
+    from src.config.runtime_config import RunMode
+    client=IbkrClient('offline',0,999,5,'LIVE',True)
+    connected=[True];queries=[];sent=[]
+    monkeypatch.setattr(client,'isConnected',lambda:connected[0])
+    contract=NS(symbol='JPM',conId=123)
+    order=NS(action='SELL',totalQuantity=2,orderType='STP',auxPrice=10.28,parentId=71,orderRef='PROTECT|owned')
+    broker=object.__new__(module.IbkrLiveBroker);broker.run_mode=RunMode.PAPER
+    manager=NS(existing_client=client);broker.connection_manager=manager
+    def query():
+        queries.append(True)
+        client.openOrder(72,contract,order,NS(status='Submitted'))
+        if case=='overlap':client.openOrder(73,contract,order,NS(status='PendingSubmit'))
+        if case!='timeout':client.openOrderEnd()
+        if case=='disconnect':connected[0]=False
+        if case=='changed_client':manager.existing_client=object()
+    monkeypatch.setattr(client,'reqOpenOrders',query)
+    # Bounded external event delivery: exercise the real query/completion owner
+    # without sleeping, fabricating completion or replacing its classification.
+    monkeypatch.setattr(client._open_orders_event,'wait',lambda timeout:client._open_orders_event.is_set())
+    monkeypatch.setattr(client,'placeOrder',lambda *args:sent.append(args))
+    for name,value in {'is_execution_enabled':True,'get_ibkr_kill_switch':False,
+        'get_ibkr_readonly_enabled':False,'get_ibkr_api_write_allowed':True,
+        'get_ibkr_order_submission_enabled':True,'get_ibkr_order_translation_enabled':True}.items():
+        monkeypatch.setattr(module,name,lambda _value=value:_value)
+    call=lambda:broker.convert_selected_stop_to_market(broker_order_id='72',parent_order_id='71',
+        symbol='JPM',con_id=123,total_quantity=2,trade_id='owned',stop_price=10.28,expected_client=client,scope_as_of=__import__('datetime').datetime.now(timezone.utc))
+    if case=='complete':
+        call();assert len(sent)==1
+    else:
+        with pytest.raises(RuntimeError):call()
+        assert not sent
+        if case=='timeout':
+            client.openOrderEnd() # A late uncorrelated end cannot certify a new query.
+            with pytest.raises(RuntimeError,match='COMPLETION_UNRESOLVED'):call()
+            assert len(queries)==1 and not sent
+
+
+def test_pmh_phase_transition_expires_while_execution_is_gated(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    h,request,life=pmh_failure_case(reassessment,monkeypatch,tmp_path,capsys)
+    original=h.life.clock.current;h.core.execution_enabled=False
+    h.life.clock.current+=timedelta(hours=2)
+    h.core.run_once();capsys.readouterr()
+    assert h.failure_owner['pmh_management_expired'] and not h.failure_conversions
+    h.life.clock.current=original;h.core.execution_enabled=True
+    h.core.run_once();capsys.readouterr()
+    assert not h.failure_conversions and life.filled_qty==1
+
+
+def test_pmh_incomplete_post_amendment_inventory_cannot_certify_pending_close(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    h,request,life=pmh_failure_case(reassessment,monkeypatch,tmp_path,capsys)
+    broker=h.core.execution_engine._provider.broker;original=broker.open_orders
+    def inventory(**kw):
+        if kw.get('require_complete') and h.failure_conversions:
+            raise RuntimeError('synthetic incomplete post-amendment order stream')
+        return original(**kw)
+    monkeypatch.setattr(broker,'open_orders',inventory)
+    assert not h.core.run_once() # Existing Core converts owner failure to a stopped cycle.
+    capsys.readouterr()
+    assert len(h.failure_conversions)==1 and h.failure_owner['pmh_failure_exit']['status']=='DISPATCH_UNCERTAIN'
+    assert not h.core.execution_engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
+    assert not h.core.run_once()
+    capsys.readouterr()
+    assert len(h.failure_conversions)==1 and life.filled_qty==1
+    assert h.core.execution_engine._native_quarantined

@@ -2979,6 +2979,27 @@ class CoreOrchestrator:
                     str(getattr(result, "client_order_id", "") or ""), {}).get("protection_parent_order_id")),
             )
 
+    def _expire_pmh_failure_enrollment(self, observed_at, session_plan):
+        """Observe phase/date transitions even when discretionary exits are gated."""
+        from datetime import datetime as DateTimeType
+        from src.utils.time_utils import to_ny_time
+        engine = self.execution_engine
+        for order in getattr(engine, "_native_orders", {}).values():
+            request = order.get("request", {})
+            if request.get("setup_family_id") != "PREMARKET_HIGH_BREAK" or order.get("pmh_management_expired"):
+                continue
+            expired = bool(request.get("management_session_plan")
+                and request["management_session_plan"] != session_plan)
+            try:
+                origin = DateTimeType.fromisoformat(request["setup_metadata"]["execution_stream"]["observed_at_utc"])
+                expired = expired or (origin.tzinfo is not None
+                    and to_ny_time(origin).date() != to_ny_time(observed_at).date())
+            except (KeyError, TypeError, ValueError):
+                pass  # Missing source facts remain HOLD, never enrollment authority.
+            if expired:
+                order["pmh_management_expired"] = True
+                engine._save_native_orders()
+
     def _run_pmh_failure_management(self, observed_at, session_plan):
         """Adopted PMH-only policy; never call generic exit/trailing defaults."""
         if self._stop_requested_at_boundary("PMH_FAILURE_MANAGEMENT"):
@@ -2993,23 +3014,7 @@ class CoreOrchestrator:
             request = order.get("request", {})
             if request.get("setup_family_id") != "PREMARKET_HIGH_BREAK" or order.get("pmh_management_expired"):
                 continue
-            if request.get("management_session_plan") and request["management_session_plan"] != session_plan:
-                order["pmh_management_expired"] = True
-                engine._save_native_orders()
-                continue
             stream = (request.get("setup_metadata") or {}).get("execution_stream") or {}
-            try:
-                from datetime import datetime as DateTimeType
-                from src.utils.time_utils import to_ny_time
-                origin = DateTimeType.fromisoformat(stream["observed_at_utc"])
-                if origin.tzinfo is None:
-                    continue
-                if to_ny_time(origin).date() != to_ny_time(observed_at).date():
-                    order["pmh_management_expired"] = True
-                    engine._save_native_orders()
-                    continue
-            except (KeyError, TypeError, ValueError):
-                continue
             timeframe = stream.get("execution_trigger_timeframe")
             if timeframe not in {"10s", "1m"}:
                 continue
@@ -3288,6 +3293,7 @@ class CoreOrchestrator:
         forced_session_label: str | None = None,
         forced_session_source: str | None = None,
     ) -> bool:
+        self._expire_pmh_failure_enrollment(cycle_started_at, str(session_phase))
         self.runtime_mode_manager = RuntimeModeManager.resolve()
         mode_manager = self.runtime_mode_manager
         print(f"[RUNTIME] {mode_manager.describe()}")

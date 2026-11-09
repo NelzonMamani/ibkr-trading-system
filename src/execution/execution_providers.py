@@ -321,9 +321,10 @@ class IbkrExecutionProvider(ExecutionProvider):
             raise
         return PositionSnapshot(positions=list(rows), as_of=timestamp)
 
-    def get_open_orders(self) -> List[OrderSnapshot]:
+    def get_open_orders(self, *, require_complete=False, expected_client=None) -> List[OrderSnapshot]:
         try:
-            rows = self.broker.open_orders()
+            rows = (self.broker.open_orders(require_complete=True, expected_client=expected_client)
+                if require_complete else self.broker.open_orders())
         except Exception as exc:
             print(f"[IBKR][OPEN_ORDERS][ERROR] reason={exc}")
             raise

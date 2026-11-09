@@ -2317,6 +2317,11 @@ class ExecutionEngine:
             raise ValueError("NATIVE_PROTECTION_BINDING_INVALID")
         return parent, life
 
+    def _pmh_complete_inventory(self):
+        if self._native_scope is None:
+            raise RuntimeError("PMH_CLOSE_ORDER_SCOPE_UNAVAILABLE")
+        return list(self._provider.get_open_orders(require_complete=True, expected_client=self._native_scope[1]))
+
     def _pmh_working_close(self, parent, child, life, inventory, *, cumulative_filled=None):
         from numbers import Number
         matches = [row for row in inventory if str(row.order_id) == str(child["broker_order_id"])]
@@ -2358,7 +2363,7 @@ class ExecutionEngine:
         if child is None or child.get("terminal") or child.get("cached_update_in_progress"):
             return False
         self._validate_native_binding(child_id, child, {})
-        inventory = list(self._provider.get_open_orders())
+        inventory = self._pmh_complete_inventory()
         if any(row.symbol == parent["symbol"] and str(row.order_id) != str(child["broker_order_id"])
                 and row.status.upper() not in {"FILLED", "CANCELLED", "CANCELED", "REJECTED", "INACTIVE"}
                 for row in inventory):
@@ -2366,6 +2371,8 @@ class ExecutionEngine:
         if (self._pmh_working_close(parent, child, life, inventory) != "STP"
                 or not self.post_fill_lifecycle.assess_trade_stop_protection(order_id)["protected"]):
             return False
+        self._validate_native_binding(order_id, parent, {})
+        self._validate_native_binding(child_id, child, {})
         # Persist the exact selected occurrence, authorization and native total
         # BEFORE dispatch. An uncertain result never causes a retry/new identity.
         parent["pmh_failure_exit"] = {**deepcopy(failure), "status": "DISPATCH_UNCERTAIN",
@@ -2376,15 +2383,17 @@ class ExecutionEngine:
         self.post_fill_lifecycle.mark_exit_pending(order_id, "PMH_COMPLETED_BAR_FAILURE")
         self._failsafe_block_new_entries = True
         try:
+            self._validate_native_binding(order_id, parent, {})
+            self._validate_native_binding(child_id, child, {})
             self._provider.convert_selected_stop_to_market(broker_order_id=child["broker_order_id"],
                 parent_order_id=parent["broker_order_id"], symbol=parent["symbol"],
                 con_id=parent["security_id"], total_quantity=child["requested"],
-                trade_id=life.trade_id, stop_price=life.selected_stop_price)
+                trade_id=life.trade_id, stop_price=life.selected_stop_price, expected_client=self._native_scope[1], scope_as_of=self._native_scope[2])
         except Exception as exc:
             parent["pmh_failure_exit"]["dispatch_error"] = type(exc).__name__
         # Return values are never broker confirmation. Independently read the
         # owned native order; MKT means exit pending, not STP certification.
-        kind = self._pmh_working_close(parent, child, life, list(self._provider.get_open_orders()))
+        kind = self._pmh_working_close(parent, child, life, self._pmh_complete_inventory())
         parent["pmh_failure_exit"]["status"] = kind or "UNKNOWN"
         life.selected_exit_pending = deepcopy(parent["pmh_failure_exit"])
         self._save_native_orders()
@@ -2397,8 +2406,8 @@ class ExecutionEngine:
     def _verify_native_remaining_stop(self, order, life, cumulative_filled):
         if life.filled_qty <= 0:
             return
-        inventory = list(self._provider.get_open_orders())
         parent = self._native_orders.get(order.get("protection_parent_order_id"), {})
+        inventory = self._pmh_complete_inventory() if parent.get("pmh_failure_exit") else list(self._provider.get_open_orders())
         if parent.get("pmh_failure_exit"):
             kind = self._pmh_working_close(parent, order, life, inventory, cumulative_filled=cumulative_filled)
             if kind is None:

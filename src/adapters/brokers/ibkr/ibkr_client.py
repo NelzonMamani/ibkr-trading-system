@@ -123,6 +123,8 @@ class IbkrClient(EWrapper, EClient):
         self._execution_callbacks: list = []
         self._open_orders_snapshot: Dict[int, object] = {}
         self._open_orders_event = threading.Event()
+        self._open_orders_query_lock = threading.Lock()
+        self._open_orders_unresolved = False
         self._executions_snapshot: list[object] = []
         self._executions_event = threading.Event()
         self._positions_snapshot: Dict[str, object] = {}
@@ -517,14 +519,33 @@ class IbkrClient(EWrapper, EClient):
     def get_order_warning(self, order_id: int) -> Optional[Tuple[int, str]]:
         return self._order_warnings.get(order_id)
 
-    def openOrders(self, timeout_seconds: Optional[int] = None) -> list[object]:
-        if not self.is_connected():
+    def openOrders(self, timeout_seconds: Optional[int] = None, *, require_complete: bool = False) -> list[object]:
+        # This legacy stream has no request token. Serialize acquisition and
+        # never let a late end marker after a timeout certify a new strict read.
+        timeout = timeout_seconds or self.snapshot_timeout_seconds
+        if not self._open_orders_query_lock.acquire(timeout=timeout):
+            raise RuntimeError("OPEN_ORDERS_QUERY_BUSY")
+        try:
+            if require_complete and self._open_orders_unresolved:
+                raise RuntimeError("OPEN_ORDERS_COMPLETION_UNRESOLVED")
+            if not self.is_connected():
+                if require_complete:
+                    raise RuntimeError("OPEN_ORDERS_DISCONNECTED")
+                return list(self._open_orders_snapshot.values())
+            self._open_orders_event.clear()
+            self._open_orders_snapshot = {}
+            self.reqOpenOrders()
+            complete = self._open_orders_event.wait(timeout=timeout)
+            if not complete or not self.is_connected():
+                self._open_orders_unresolved = True
+                if require_complete:
+                    raise RuntimeError("OPEN_ORDERS_INCOMPLETE")
             return list(self._open_orders_snapshot.values())
-        self._open_orders_event.clear()
-        self._open_orders_snapshot = {}
-        self.reqOpenOrders()
-        self._open_orders_event.wait(timeout=timeout_seconds or self.snapshot_timeout_seconds)
-        return list(self._open_orders_snapshot.values())
+        except BaseException:
+            self._open_orders_unresolved = True
+            raise
+        finally:
+            self._open_orders_query_lock.release()
 
     def executions(self, timeout_seconds: Optional[int] = None) -> list[object]:
         if not self.is_connected():

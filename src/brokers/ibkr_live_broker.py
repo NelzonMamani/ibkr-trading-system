@@ -534,24 +534,33 @@ class IbkrLiveBroker(BaseBroker):
         )
 
     def convert_selected_stop_to_market(self, *, broker_order_id, parent_order_id,
-            symbol, con_id, total_quantity, trade_id, stop_price):
+            symbol, con_id, total_quantity, trade_id, stop_price, expected_client, scope_as_of):
         """Amend the ONE existing close leg, never allocate a second SELL ID.
 
         Dispatch is not acknowledgement. Native inventory/callback truth must
         subsequently confirm the amended order or the original still-live stop.
         """
         from copy import deepcopy
+        from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
         def enabled():
             return (self.run_mode == RunMode.PAPER and is_execution_enabled() and not get_ibkr_kill_switch()
                 and not get_ibkr_readonly_enabled() and get_ibkr_api_write_allowed()
-                and get_ibkr_order_submission_enabled() and get_ibkr_order_translation_enabled())
+                and get_ibkr_order_submission_enabled() and get_ibkr_order_translation_enabled()
+                and scope_as_of.tzinfo is not None
+                and 0 <= (datetime.now(timezone.utc)-scope_as_of).total_seconds() <= get_ibkr_snapshot_max_age_seconds())
         if not enabled():
             raise RuntimeError("PMH_NATIVE_AMENDMENT_DISABLED")
         manager = self.connection_manager
         client = getattr(manager, "existing_client", None) if manager else None
-        if client is None or not client.isConnected():
+        if client is None or client is not expected_client or not client.isConnected():
             raise RuntimeError("PMH_NATIVE_AMENDMENT_NO_EXISTING_CONNECTION")
-        rows = [row for row in client.openOrders() if str(getattr(row, "orderId", "")) == str(broker_order_id)]
+        inventory = client.openOrders(require_complete=True)
+        if any(getattr(row.contract, "symbol", "").upper() == symbol
+                and str(row.orderId) != str(broker_order_id)
+                and row.orderState.status.upper() not in {"FILLED", "CANCELLED", "CANCELED", "REJECTED", "INACTIVE"}
+                for row in inventory):
+            raise RuntimeError("PMH_NATIVE_AMENDMENT_OVERLAPPING_ORDER")
+        rows = [row for row in inventory if str(getattr(row, "orderId", "")) == str(broker_order_id)]
         if len(rows) != 1:
             raise RuntimeError("PMH_NATIVE_AMENDMENT_ORDER_UNKNOWN")
         row = rows[0]; contract = deepcopy(row.contract); original = deepcopy(row.order)
@@ -613,7 +622,15 @@ class IbkrLiveBroker(BaseBroker):
         print(f"[IBKR][ORDER_CANCELLED] order_id={broker_order_id}")
         return {"broker_order_id": str(broker_order_id), "status": "Cancelled"}
 
-    def open_orders(self) -> list[object]:
+    def open_orders(self, *, require_complete=False, expected_client=None) -> list[object]:
+        if require_complete:
+            client = getattr(self.connection_manager, "existing_client", None)
+            if client is None or client is not expected_client or not client.isConnected():
+                raise RuntimeError("OPEN_ORDERS_OWNER_CONNECTION_UNAVAILABLE")
+            rows = client.openOrders(require_complete=True)
+            if self.connection_manager.existing_client is not client or not client.isConnected():
+                raise RuntimeError("OPEN_ORDERS_OWNER_CONNECTION_CHANGED")
+            return list(rows)
         self.ensure_connection()
         assert self.connection_manager is not None
         client = self.connection_manager.get_client()
