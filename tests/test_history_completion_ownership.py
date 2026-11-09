@@ -561,3 +561,80 @@ def test_late_conflict_after_attempt_revalidates_actual_scanner_projection(chain
     assert context['prev_close']==(9. if quote_close is not None else None)
     ross._populate_pct_change(context,x.provider)
     assert x.owner.sent==before
+
+
+@pytest.mark.parametrize('fault',['none','partial','gap','duplicate','duplicate_extra','wrong_security','old_date','naive','future','invalid','bool_value','corrupt_retained','currency_change'])
+def test_premarket_reference_requires_completed_contiguous_bound_original_clock(tmp_path,fault):
+    from dataclasses import replace
+    from datetime import datetime, timedelta, timezone
+    from src.market_data.candidate_identity import CandidateIdentity
+    from src.strategies.common.candles.candle_types import Candle
+    identity=CandidateIdentity(symbol='PRET',con_id=123,currency='USD')
+    now=datetime(2026,11,9,17,0,tzinfo=timezone.utc)
+    start=datetime(2026,11,9,9,0,tzinfo=timezone.utc) # NY04:00 after DST.
+    bars=[Candle(10.,10.3,9.9,10.2,100,timestamp=start+timedelta(minutes=i)) for i in range(330)]
+    source_identity=identity
+    if fault=='partial':bars=bars[-50:]
+    if fault=='gap':bars.pop(100)
+    if fault=='duplicate':bars[100]=bars[99]
+    if fault=='duplicate_extra':bars.append(bars[-1])
+    if fault=='wrong_security':source_identity=replace(identity,con_id=456)
+    if fault=='old_date':bars=[replace(b,timestamp=b.timestamp-timedelta(days=1)) for b in bars]
+    if fault=='naive':bars[100]=replace(bars[100],timestamp=bars[100].timestamp.replace(tzinfo=None))
+    if fault=='future':bars[100]=replace(bars[100],timestamp=now+timedelta(minutes=1))
+    if fault=='invalid':bars[100]=replace(bars[100],high=9.)
+    if fault=='bool_value':bars[100]=replace(bars[100],volume=True)
+    cache=PersistentReferenceCache(tmp_path/'ref.json')
+    result=cache.retain_premarket(identity,HistoricalDataResult('COMPLETE_BARS',tuple(bars),True,contract_identity=source_identity),observed_at=now)
+    if fault in {'none','corrupt_retained','currency_change'}:
+        assert result['status']=='COMPLETE_PRE' and result['high']==10.3 and result['low']==9.9
+        if fault=='corrupt_retained':
+            result['high']=99;cache.put(('premarket:'+identity.key,),result)
+            assert cache.retain_premarket(identity,HistoricalDataResult('DISCONNECTED'),observed_at=now)['status']=='CONFLICTED'
+            return
+        if fault=='currency_change':
+            changed=HistoricalDataResult('COMPLETE_BARS',(),True,contract_identity=replace(identity,currency='EUR'))
+            assert cache.retain_premarket(identity,changed,observed_at=now)['status']=='CONFLICTED'
+            return
+        # Detached values and a fresh owner survive reconnect/restart observations.
+        result['bars'].clear();result['high']=99
+        restored=PersistentReferenceCache(cache.path).retain_premarket(identity,HistoricalDataResult('DISCONNECTED'),observed_at=now+timedelta(hours=1))
+        assert restored['status']=='COMPLETE_PRE' and restored['high']==10.3 and len(restored['bars'])==330
+        assert restored['source_observed_at']==now.isoformat()
+        assert cache.premarket_record(replace(identity,con_id=456),observed_at=now) is None
+        assert cache.premarket_record(identity,observed_at=now+timedelta(days=1)) is None
+        reversed_clock=cache.retain_premarket(identity,HistoricalDataResult('DISCONNECTED'),observed_at=now-timedelta(hours=1))
+        assert reversed_clock['status']=='MISSING'
+    else:assert result['status'] not in {'COMPLETE_PRE','COMPLETE_TO_OBSERVATION'}
+
+
+def test_premarket_reference_incremental_retention_and_conflicting_revision(tmp_path):
+    from dataclasses import replace
+    from datetime import datetime, timedelta, timezone
+    from src.market_data.candidate_identity import CandidateIdentity
+    from src.strategies.common.candles.candle_types import Candle
+    identity=CandidateIdentity(symbol='PRET',con_id=123,currency='USD')
+    start=datetime(2026,7,6,8,0,tzinfo=timezone.utc) # NY04:00 during DST.
+    bars=[Candle(10.,10.3,9.9,10.2,100,timestamp=start+timedelta(minutes=i)) for i in range(330)]
+    cache=PersistentReferenceCache(tmp_path/'ref.json')
+    def retain(rows,now,status='COMPLETE_BARS'):
+        return cache.retain_premarket(identity,HistoricalDataResult(status,tuple(rows),status=='COMPLETE_BARS',contract_identity=identity),observed_at=now)
+    early=retain(bars[:40],start+timedelta(minutes=40))
+    assert early['status']=='COMPLETE_TO_OBSERVATION' and early['completed_count']==40
+    for end in range(80,331,40):retain(bars[end-50:end],start+timedelta(minutes=end))
+    complete=retain(bars[-50:],start+timedelta(minutes=330))
+    assert complete['status']=='COMPLETE_PRE' and complete['completed_count']==330
+    assert retain([],start+timedelta(hours=7),status='TIMEOUT')['status']=='COMPLETE_PRE'
+    bad=replace(bars[-1],high=10.4)
+    assert retain([bad],start+timedelta(hours=8))['status']=='CONFLICTED'
+    assert retain(bars,start+timedelta(hours=9))['status']=='CONFLICTED'
+
+
+def test_reference_cache_instances_preserve_other_existing_namespaces(tmp_path):
+    path=tmp_path/'ref.json';first=PersistentReferenceCache(path);second=PersistentReferenceCache(path)
+    assert first.get('prev-close',trading_date=None) is None
+    second.put(('prev-close',),dict(reference_price=10.))
+    first.put(('premarket:conid:123',),dict(high=11.))
+    restored=PersistentReferenceCache(path)
+    assert restored.get('prev-close',trading_date=None)==dict(reference_price=10.)
+    assert restored.get('premarket:conid:123',trading_date=None)==dict(high=11.)

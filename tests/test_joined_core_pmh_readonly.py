@@ -58,6 +58,44 @@ def pmh_joined(reassessment,monkeypatch,tmp_path,*,news_fault='none',peer=False,
     def forbidden_enrollment(*a,**k):pytest.fail('Atomic capital scope enrollment forbidden')
     monkeypatch.setattr(StorageEngine,'initialize_synthetic_capital_scope',forbidden_enrollment)
     monkeypatch.setattr(SQLiteStore,'initialize_synthetic_capital_scope',forbidden_enrollment)
+    from src.strategies.ross_momentum.patterns import pattern_trace
+    from src.ibkr.market_data_client import HistoricalDataResult
+    from src.market_data.candidate_identity import CandidateIdentity
+    from src.strategies.common.candles.candle_types import Candle
+    h.pre_history_queries=[]
+    def external_history(*,symbol,timeframe="1m",limit=50):
+        h.pre_history_queries.append((symbol,timeframe,limit))
+        bars=list(h.streams[timeframe])
+        from src.utils.time_utils import to_ny_time
+        local_clock=to_ny_time(h.life.clock.current)
+        needed=max(2,min(722,int((local_clock-local_clock.replace(hour=4,minute=0,second=0,microsecond=0)).total_seconds()//60)+2))
+        if timeframe=="1m" and limit==needed and bars and getattr(h,"pre_reference_fault","none")!="missing":
+            from src.utils.time_utils import to_ny_time
+            start=to_ny_time(h.life.clock.current).replace(hour=4,minute=0,second=0,microsecond=0).astimezone(timezone.utc)
+            cursor=start
+            earlier=[]
+            cutoff=min(bars[0].timestamp,start+timedelta(minutes=330))
+            while cursor<cutoff:
+                earlier.append(Candle(10.,10.25,9.95,10.2,900,timestamp=cursor))
+                context=next((b for b in h.streams.get("5m",[]) if b.timestamp<=cursor<b.timestamp+timedelta(minutes=5)),None)
+                if context is not None:
+                    # Expand existing external PRE context, preserving its
+                    # measured high/low instead of inventing a lower PMH rival.
+                    terminal=cursor==context.timestamp+timedelta(minutes=4)
+                    earlier[-1]=Candle(context.open,context.high if terminal else context.open,
+                        context.low if terminal else context.open,context.close if terminal else context.open,
+                        context.volume/5,timestamp=cursor)
+                if getattr(h,"orb_pre_history",False) and to_ny_time(cursor).hour==9 and to_ny_time(cursor).minute==29:
+                    earlier[-1]=Candle(10.2,12.,9.8,10.28,100,timestamp=cursor)
+                if getattr(h,"trusted_pre_scenario",False) and to_ny_time(cursor).time().hour==9 and to_ny_time(cursor).minute==29:
+                    earlier[-1]=Candle(10.2,10.3,10.19,10.28,1000,timestamp=cursor)
+                cursor+=timedelta(minutes=1)
+            bars=earlier+bars
+        return HistoricalDataResult("COMPLETE_BARS",tuple(bars[-limit:]),True,
+            contract_identity=CandidateIdentity(symbol=symbol,con_id=123 if symbol=="JPM" else 456,currency="USD"))
+    monkeypatch.setattr(pattern_trace,"get_intraday_bars",external_history)
+    from src.market_data.reference_resolver import PersistentReferenceCache
+    monkeypatch.setattr(pattern_trace,"PersistentReferenceCache",lambda:PersistentReferenceCache(tmp_path/"pre-reference.json"))
     h.trigger_calls=[]; real=TRIGGER_EVALUATOR_REGISTRY['PREMARKET_HIGH_BREAK']
     def observed(payload,inputs):
         out=real(payload,inputs)
@@ -965,6 +1003,7 @@ def orb_joined(reassessment,monkeypatch,tmp_path,*,position_case='complete_empty
     # acquisition too. No prepared range, MACD, PatternResult or selected family.
     h=pmh_joined(reassessment,monkeypatch,tmp_path,position_case=position_case,
         news_fault=news_fault,peer=peer,clock_time=(14,36,30),runtime_options=runtime_options)
+    h.orb_pre_history=True
     monkeypatch.setattr('src.strategies.common.patterns.pattern_orb._ORB_RANGE_LOCK',{})
     rows=[(10.,10.05,9.98,10.,900)]*44+[
         (b.open,b.high,b.low,b.close,b.volume) for b in _base_inputs().candles]
@@ -972,6 +1011,12 @@ def orb_joined(reassessment,monkeypatch,tmp_path,*,position_case='complete_empty
     h.streams.clear()
     for tf,step in (('1m',60),('5m',300)):
         h.streams[tf]=_candles(rows,step_seconds=step,end=end-timedelta(seconds=step))
+    from src.utils.time_utils import to_ny_time
+    pre_peak=to_ny_time(h.life.clock.current).replace(hour=9,minute=29,second=0,microsecond=0).astimezone(timezone.utc)
+    # The existing external PRE12 declaration now has a completed minute
+    # witness; its overlapping context bar must describe the same tape.
+    h.streams['5m']=[replace(b,high=max(b.high,12.),low=min(b.low,9.8))
+        if b.timestamp<=pre_peak<b.timestamp+timedelta(minutes=5) else b for b in h.streams['5m']]
     h.streams['10s']=_candles([(10.23,10.29,10.22,10.26,100)]*29+
         [(10.26,10.45,10.22,10.42,200)],step_seconds=10,end=end-timedelta(seconds=10))
     if market_fault in {'missing_source','stale_source'}:

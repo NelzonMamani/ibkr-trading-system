@@ -80,6 +80,8 @@ class LevelSet:
     # Separate completed-reference facts; never generic Key levels.
     rth_open_price: Optional[float] = None
     rth_open_timestamp: Optional[datetime] = None
+    # Runtime PMH consumes this validated PRE receipt; legacy levels stay separate.
+    premarket_reference: Optional[dict] = None
 
 
 @dataclass(frozen=True)
@@ -385,6 +387,7 @@ def _resolve_levels(
         "hod": _level_provenance(hod, "COMPUTED" if provided.hod is None else "PRESENT"),
         "lod": _level_provenance(lod, "COMPUTED" if provided.lod is None else "PRESENT"),
         "prior_close": _level_provenance(provided.prior_close, "PRESENT"),
+        "premarket_reference": IndicatorProvenance.PRESENT.value if (provided.premarket_reference or {}).get("status") in {"COMPLETE_PRE", "COMPLETE_TO_OBSERVATION"} else IndicatorProvenance.MISSING.value,
         "rth_open_price": _level_provenance(provided.rth_open_price, "PRESENT"),
         "rth_open_timestamp": _level_provenance(provided.rth_open_timestamp, "PRESENT"),
         "vwap": _level_provenance(vwap, "COMPUTED" if provided.vwap is None else "PRESENT"),

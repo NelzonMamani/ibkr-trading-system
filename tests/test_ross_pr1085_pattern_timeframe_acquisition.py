@@ -197,7 +197,7 @@ def test_pr1085_historical_provider_accepts_ross_timeframes_and_issues_ibkr_requ
             "barSizeSetting": expected_bar_size,
             "whatToShow": "TRADES",
             "useRTH": False,
-            "formatDate": 1,
+            "formatDate": 2,
         }
     ]
 
@@ -373,3 +373,21 @@ def test_pr1085_stale_required_rth_mid_5m_remains_blocked(monkeypatch, now_utc) 
     assert inputs.timeframe_provenance["5m"] == IndicatorProvenance.STALE.value
     assert inputs.missing_data_actions["timeframe:5m"] == MissingDataBehavior.BLOCK.value
     assert "PATTERN_INPUT_BLOCK_ORB_GAP_GO" in inputs.data_quality_flags
+
+
+@pytest.mark.parametrize('outcome',['epoch','empty','partial'])
+def test_native_intraday_adapter_retains_end_identity_and_original_utc_epoch(monkeypatch,outcome):
+    stamp=datetime(2026,11,9,9,0,tzinfo=timezone.utc)
+    bar=SimpleNamespace(open=10.,high=10.3,low=9.9,close=10.2,volume=100,date=str(int(stamp.timestamp())))
+    client=_HistoricalProviderClient([])
+    def request(contract,**kw):
+        assert kw['formatDate']==2
+        return HistoricalDataResult('COMPLETE_EMPTY' if outcome=='empty' else 'COMPLETE_BARS' if outcome=='epoch' else 'TIMEOUT',
+            () if outcome=='empty' else (bar,),outcome!='partial')
+    client.reqHistoricalData=request
+    monkeypatch.setattr(historical_data_provider,'get_shared_ibkr_connection_manager',lambda **kw:_Manager(client))
+    result=historical_data_provider.get_intraday_bars(symbol='AREN')
+    assert result.completed is (outcome!='partial')
+    assert result.contract_identity.symbol=='AREN' and result.contract_identity.con_id==123
+    if outcome=='epoch':assert result[0].timestamp==stamp and result[0].timestamp.tzinfo is timezone.utc
+    else:assert not result

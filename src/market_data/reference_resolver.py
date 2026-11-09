@@ -4,6 +4,10 @@ from dataclasses import dataclass, replace
 from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo
 import json
+import os
+import tempfile
+import threading
+
 from pathlib import Path
 from typing import Any, Optional
 
@@ -18,6 +22,9 @@ from src.market_data.session_pct_change import (
     compute_session_aligned_pct_change,
     normalize_session_label,
 )
+
+
+_REFERENCE_IO_LOCK = threading.RLock()
 
 
 @dataclass(frozen=True)
@@ -81,14 +88,15 @@ class PersistentReferenceCache:
         self._store: dict[str, dict[str, Any]] = {}
 
     def _load(self) -> None:
-        if self._loaded:
-            return
-        self._loaded = True
-        try:
-            payload = json.loads(self.path.read_text(encoding="utf-8"))
-        except Exception:
-            payload = {}
-        self._store = payload if isinstance(payload, dict) else {}
+        with _REFERENCE_IO_LOCK:
+            if self._loaded:
+                return
+            self._loaded = True
+            try:
+                payload = json.loads(self.path.read_text(encoding="utf-8"))
+            except Exception:
+                payload = {}
+            self._store = payload if isinstance(payload, dict) else {}
 
     def get(self, key: str, *, trading_date: str | None) -> Optional[dict[str, Any]]:
         self._load()
@@ -100,18 +108,175 @@ class PersistentReferenceCache:
         return payload
 
     def discard(self, keys: tuple[str, ...]) -> None:
-        self._load()
-        for key in keys:
-            self._store.pop(key, None)
-        if self.path.exists():
-            self.path.write_text(json.dumps(self._store, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        self._publish(keys, None)
 
     def put(self, keys: tuple[str, ...], record: dict[str, Any]) -> None:
-        self._load()
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        for key in keys:
-            self._store[key] = dict(record)
-        self.path.write_text(json.dumps(self._store, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        self._publish(keys, record)
+
+    def _publish(self, keys, record):
+        # Multiple existing resolver instances share this file in one runtime.
+        # Merge current disk contents; never erase another reference namespace.
+        from copy import deepcopy
+        with _REFERENCE_IO_LOCK:
+            self._loaded = False
+            self._load()
+            for key in keys:
+                if record is None:
+                    self._store.pop(key, None)
+                else:
+                    self._store[key] = deepcopy(record)
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = None
+            try:
+                with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=self.path.parent,
+                        prefix=self.path.name+".", suffix=".tmp", delete=False) as handle:
+                    temporary = Path(handle.name)
+                    json.dump(self._store, handle, indent=2, sort_keys=True)
+                os.replace(temporary, self.path)
+            finally:
+                if temporary is not None:
+                    temporary.unlink(missing_ok=True)
+
+    def premarket_record(self, identity: CandidateIdentity, *, observed_at: datetime) -> dict[str, Any] | None:
+        """Read detached, same-security/day PRE acquisition state, never a quote."""
+        from copy import deepcopy
+        if type(identity.con_id) is not int or identity.con_id <= 0 or observed_at.tzinfo is None:
+            return None
+        record = self.get("premarket:" + identity.key,
+            trading_date=observed_at.astimezone(NY_TZ).date().isoformat())
+        if (not record or record.get("cache_trading_date") != observed_at.astimezone(NY_TZ).date().isoformat()
+                or record.get("source") != "IBKR_TRADES_1M_END_CONFIRMED"
+                or record.get("identity") != {"symbol": identity.symbol, "con_id": identity.con_id}):
+            return None
+        return deepcopy(record)
+
+    def retain_premarket(self, identity: CandidateIdentity, history: HistoricalDataResult, *, observed_at: datetime) -> dict[str, Any]:
+        """Increment completed 1m PRE coverage in the existing reference store.
+
+        Native end completion is necessary but not full-session coverage. Only
+        contiguous original-clock bars from NY04:00 establish this measurement.
+        Store at most330 bars, retaining completion through RTH without price
+        freshness substitution. Conflicting revisions fail closed for this day.
+        """
+        from copy import deepcopy
+        from datetime import timedelta
+        from dataclasses import asdict
+        from math import isfinite
+        from src.strategies.common.candles.candle_types import Candle
+        from src.strategies.common.triggers.trigger_abcd_continuation import abcd_candle_rejection
+        missing = {"status": "MISSING", "reason": "PRE_REFERENCE_IDENTITY_OR_CLOCK_MISSING"}
+        if (type(identity.con_id) is not int or identity.con_id <= 0 or not identity.symbol
+                or observed_at.tzinfo is None):
+            return missing
+        local = observed_at.astimezone(NY_TZ)
+        start = local.replace(hour=4, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+        session_end = local.replace(hour=9, minute=30, second=0, microsecond=0).astimezone(timezone.utc)
+        end = min(observed_at.replace(second=0, microsecond=0), session_end)
+        if local.weekday() >= 5 or end <= start:
+            return {"status": "MISSING", "reason": "PRE_REFERENCE_OUTSIDE_TRADING_DATE"}
+        old = self.premarket_record(identity, observed_at=observed_at) or {}
+        if old.get("status") == "CONFLICTED":
+            return deepcopy(old)
+        record = {"identity": {"symbol": identity.symbol, "con_id": identity.con_id},
+            "cache_trading_date": local.date().isoformat(), "timezone": "America/New_York",
+            "session_start": start.isoformat(), "session_end": session_end.isoformat(),
+            "source": "IBKR_TRADES_1M_END_CONFIRMED", "bootstrap_attempted": True,
+            "observed_at": observed_at.isoformat(), "status": "MISSING", "bars": []}
+        record["acquisition_status"] = history.status if isinstance(history,HistoricalDataResult) else "UNVERIFIED"
+        record["acquisition_end_received"] = history.end_received if isinstance(history,HistoricalDataResult) else False
+        source_identity = history.contract_identity if isinstance(history, HistoricalDataResult) else None
+        matching_identity = bool(isinstance(source_identity, CandidateIdentity) and source_identity.symbol == identity.symbol
+            and type(source_identity.con_id) is int and source_identity.con_id == identity.con_id and source_identity.sec_type == "STK")
+        usable = bool(isinstance(history, HistoricalDataResult) and history.completed and matching_identity)
+        # An explicit changed identity invalidates the observation; an absent or
+        # incomplete new acquisition cannot erase an already completed reference.
+        if source_identity is not None and not matching_identity:
+            record["reason"] = "PRE_REFERENCE_SOURCE_IDENTITY_CONFLICT"
+            if not old:
+                self.put(("premarket:"+identity.key,), deepcopy(record))
+            return deepcopy(record)
+        if matching_identity and old.get("source_identity"):
+            source = asdict(source_identity)
+            if any(old["source_identity"].get(k) and source.get(k)
+                    and old["source_identity"][k] != source[k]
+                    for k in ("symbol","con_id","sec_type","currency","primary_exchange","local_symbol","trading_class")):
+                record.update(status="CONFLICTED", reason="PRE_REFERENCE_RETAINED_CONTRACT_CONFLICT")
+                self.put(("premarket:"+identity.key,),deepcopy(record))
+                return deepcopy(record)
+        try:
+            prior_at = datetime.fromisoformat(old["observed_at"]) if old else None
+            if prior_at and (prior_at.tzinfo is None or prior_at > observed_at):
+                return {**record, "reason": "PRE_REFERENCE_FUTURE_RETAINED_FACTS"}
+            merged = {}
+            if old.get("bars") and (old.get("source_identity", {}).get("con_id") != identity.con_id
+                    or old.get("source_identity", {}).get("symbol") != identity.symbol
+                    or old.get("session_start") != start.isoformat() or old.get("session_end") != session_end.isoformat()
+                    or old.get("end_received") is not True):
+                raise ValueError("invalid retained authority")
+            for row in old.get("bars", []):
+                stamp = datetime.fromisoformat(row[0])
+                if stamp.tzinfo is None or not start <= stamp < end:
+                    raise ValueError("invalid retained clock")
+                if stamp in merged:
+                    raise ValueError("duplicate retained clock")
+                merged[stamp] = tuple(row[1:])
+            incoming_stamps = set()
+            new_coverage = False
+            if usable:
+                record["source_identity"] = asdict(source_identity)
+                record["request_id"] = history.request_id
+                for bar in history:
+                    raw = getattr(bar, "timestamp", None) or getattr(bar, "date", None)
+                    stamp = datetime.fromisoformat(raw) if isinstance(raw, str) else raw
+                    if not isinstance(stamp, datetime) or stamp.tzinfo is None:
+                        raise ValueError("missing source clock")
+                    # Do not import RTH/previous-day/forming data into PRE.
+                    if not start <= stamp < end or stamp+timedelta(minutes=1) > end:
+                        continue
+                    if stamp in incoming_stamps:
+                        raise ValueError("duplicate source clock")
+                    incoming_stamps.add(stamp)
+                    values = tuple(getattr(bar, k) for k in ("open", "high", "low", "close", "volume"))
+                    if any(isinstance(v, bool) or not isfinite(float(v)) for v in values):
+                        raise ValueError("invalid source values")
+                    values = tuple(float(v) for v in values)
+                    if stamp in merged and merged[stamp] != values:
+                        record.update(status="CONFLICTED", reason="PRE_REFERENCE_REVISION_CONFLICT")
+                        self.put(("premarket:"+identity.key,), deepcopy(record))
+                        return deepcopy(record)
+                    new_coverage = new_coverage or stamp not in merged
+                    merged[stamp] = values
+            ordered = sorted(merged.items())
+            expected = int((end-start).total_seconds()//60)
+            candles = [Candle(*values, timestamp=stamp) for stamp, values in ordered]
+            if (len(ordered)>330 or any(not start<=stamp<end for stamp,_ in ordered)
+                    or abcd_candle_rejection(candles, observed_at_utc=observed_at, require_clock=True)):
+                raise ValueError("invalid PRE geometry")
+            record["bars"] = [[stamp.isoformat(), *values] for stamp, values in ordered]
+            record["source_identity"] = record.get("source_identity", old.get("source_identity"))
+            record["source_observed_at"] = observed_at.isoformat() if new_coverage else old.get("source_observed_at", observed_at.isoformat())
+            record["end_received"] = bool(usable or old.get("end_received"))
+            complete = bool(record["end_received"] and len(ordered)==expected
+                and all(stamp == start+timedelta(minutes=i) for i,(stamp,_) in enumerate(ordered)))
+            record.update(coverage_start=start.isoformat(), coverage_end=end.isoformat(),
+                completed_count=len(ordered), expected_count=expected,
+                status=("COMPLETE_PRE" if end==session_end else "COMPLETE_TO_OBSERVATION") if complete else "PARTIAL",
+                reason=None if complete else "PRE_REFERENCE_COVERAGE_INCOMPLETE")
+            if complete:
+                record.update(high=max(c.high for c in candles), low=min(c.low for c in candles))
+            if old.get("status")=="COMPLETE_PRE" and record.get("bars")==old.get("bars"):
+                if any(old.get(k)!=record.get(k) for k in ("high","low","completed_count","expected_count","coverage_start","coverage_end")):
+                    record.update(status="CONFLICTED", reason="PRE_REFERENCE_RETAINED_MEASUREMENT_CONFLICT")
+                    self.put(("premarket:"+identity.key,),deepcopy(record))
+                    return deepcopy(record)
+                return deepcopy(old)
+            self.put(("premarket:"+identity.key,), deepcopy(record))
+            return deepcopy(record)
+        except (TypeError, ValueError, KeyError, AttributeError, OverflowError):
+            record.update(status="MISSING", reason="PRE_REFERENCE_INVALID_SOURCE_OR_RETAINED_FACTS", bars=[])
+            if not old:
+                self.put(("premarket:"+identity.key,), deepcopy(record))
+            return deepcopy(record)
 
 
 NY_TZ = ZoneInfo("America/New_York")

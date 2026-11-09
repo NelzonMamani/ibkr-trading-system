@@ -34,6 +34,7 @@ from src.config.runtime_config import (
 )
 
 if TYPE_CHECKING:
+    from src.market_data.candidate_identity import CandidateIdentity
     from src.adapters.brokers.ibkr.ibkr_connection_manager import IbkrConnectionManager
 
 
@@ -52,6 +53,8 @@ class HistoricalDataResult(Sequence):
     partial_count: int = 0
     fallback_attempted: bool = False
     reused: bool = False
+    # Optional acquisition identity; sequence compatibility never invents it.
+    contract_identity: CandidateIdentity | None = None
 
     def __post_init__(self):
         if self.status in {"COMPLETE_BARS", "COMPLETE_EMPTY"} and not self.end_received:
