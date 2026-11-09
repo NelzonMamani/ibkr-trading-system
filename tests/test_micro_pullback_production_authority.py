@@ -99,6 +99,9 @@ def actual_run(monkeypatch, tmp_path, *, state="ready", duplicate=False, mode=Ru
         data["1m"][index] = replace(data["1m"][index], **change)
     monkeypatch.setattr("src.strategies.ross_momentum.patterns.pattern_trace.get_intraday_bars",
         lambda *,timeframe="1m",limit=50,**kw:list(data[timeframe])[-limit:])
+    if full_registry:
+        from test_pmh_invalidation_handoff import install_completed_pre_history
+        install_completed_pre_history(monkeypatch,tmp_path,data)
     registry = RossPatternRegistry()
     if not full_registry:registry._patterns = build_tradeable_patterns(["MICRO_PULLBACK"])
     if duplicate: registry._patterns.extend(build_tradeable_patterns(["MICRO_PULLBACK"]))
@@ -118,6 +121,7 @@ def actual_run(monkeypatch, tmp_path, *, state="ready", duplicate=False, mode=Ru
         return output
     monkeypatch.setitem(TRIGGER_EVALUATOR_REGISTRY,"MICRO_PULLBACK",observed_trigger)
     row = {**_watchlist_row(),"last_price":10.88,"bid":10.87,"ask":10.89}
+    if full_registry:row['con_id']=123
     if state == "negative_spread": row["spread"] = -.01
     if state == "nan_spread": row["spread"] = float("nan")
     if state == "inf_spread": row["spread"] = float("inf")

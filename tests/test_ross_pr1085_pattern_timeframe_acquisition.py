@@ -197,7 +197,7 @@ def test_pr1085_historical_provider_accepts_ross_timeframes_and_issues_ibkr_requ
             "barSizeSetting": expected_bar_size,
             "whatToShow": "TRADES",
             "useRTH": False,
-            "formatDate": 1,
+            "formatDate": 2,
         }
     ]
 
@@ -373,3 +373,47 @@ def test_pr1085_stale_required_rth_mid_5m_remains_blocked(monkeypatch, now_utc) 
     assert inputs.timeframe_provenance["5m"] == IndicatorProvenance.STALE.value
     assert inputs.missing_data_actions["timeframe:5m"] == MissingDataBehavior.BLOCK.value
     assert "PATTERN_INPUT_BLOCK_ORB_GAP_GO" in inputs.data_quality_flags
+
+
+@pytest.mark.parametrize('outcome',['epoch','empty','partial'])
+def test_native_intraday_adapter_retains_end_identity_and_original_utc_epoch(monkeypatch,outcome):
+    stamp=datetime(2026,11,9,9,0,tzinfo=timezone.utc)
+    bar=SimpleNamespace(open=10.,high=10.3,low=9.9,close=10.2,volume=100,date=str(int(stamp.timestamp())))
+    client=_HistoricalProviderClient([])
+    def request(contract,**kw):
+        assert kw['formatDate']==2
+        return HistoricalDataResult('COMPLETE_EMPTY' if outcome=='empty' else 'COMPLETE_BARS' if outcome=='epoch' else 'TIMEOUT',
+            () if outcome=='empty' else (bar,),outcome!='partial')
+    client.reqHistoricalData=request
+    monkeypatch.setattr(historical_data_provider,'get_shared_ibkr_connection_manager',lambda **kw:_Manager(client))
+    result=historical_data_provider.get_intraday_bars(symbol='AREN')
+    assert result.completed is (outcome!='partial')
+    assert result.contract_identity.symbol=='AREN' and result.contract_identity.con_id==123
+    if outcome=='epoch':assert result[0].timestamp==stamp and result[0].timestamp.tzinfo is timezone.utc
+    else:assert not result
+
+
+def test_premarket_bootstrap_does_not_acquire_a_weekend_reference(monkeypatch,tmp_path):
+    from src.strategies.ross_momentum.patterns import pattern_trace
+    from src.market_data.reference_resolver import PersistentReferenceCache
+    now=datetime(2026,11,14,17,35,30,tzinfo=timezone.utc)
+    class Clock(datetime):
+        @classmethod
+        def now(cls,tz=None):return now
+    monkeypatch.setattr(pattern_trace,'datetime',Clock) # Existing local observation seam, no shared time patch.
+    monkeypatch.setattr(pattern_trace,'PersistentReferenceCache',lambda:PersistentReferenceCache(tmp_path/'ref.json'))
+    calls=[]
+    streams={'10s':_candles(120,latest=now,step_seconds=10,start_price=10.),
+        '1m':_candles(50,latest=now,step_seconds=60,start_price=10.2),
+        '5m':_candles(50,latest=now,step_seconds=300,start_price=10.4)}
+    def external(**kw):
+        calls.append(kw)
+        return streams[kw['timeframe']]
+    monkeypatch.setattr(pattern_trace,'get_intraday_bars',external)
+    row=dict(_row('RTH_MID'),con_id=123)
+    inputs,_=pattern_trace.build_runtime_pattern_inputs(symbol='AREN',row=row,snapshot=None,
+        session_label='RTH_MID',session_phase='RTH_MID')
+    assert inputs.levels.premarket_reference['status']=='MISSING'
+    assert inputs.levels.premarket_reference['reason']=='PRE_REFERENCE_OUTSIDE_TRADING_DATE'
+    assert [kw['timeframe'] for kw in calls]==['10s','1m','5m']
+    assert not (tmp_path/'ref.json').exists()

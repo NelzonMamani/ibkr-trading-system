@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
+
 from src.strategies.common.triggers.trigger_abcd_continuation import abcd_candle_rejection
 from src.strategies.ross_momentum.patterns.pattern_inputs import PatternInputs
 from src.strategies.ross_momentum.patterns.pattern_types import Direction, PatternFamily, PatternResult
@@ -54,7 +56,10 @@ def detect_premarket_high_break(inputs: PatternInputs) -> PatternResult:
     if rejection:
         return reject(rejection.lower())
 
-    pmh = _safe_float(getattr(inputs.levels, "premarket_high", None))
+    reference = inputs.levels.premarket_reference
+    if reference is not None and reference.get("status") not in {"COMPLETE_PRE", "COMPLETE_TO_OBSERVATION"}:
+        return reject("missing_premarket_reference", reference.get("reason"))
+    pmh = _safe_float(reference.get("high") if reference is not None else inputs.levels.premarket_high)
     if pmh is None:
         return reject("missing_premarket_high")
 
@@ -141,5 +146,7 @@ def detect_premarket_high_break(inputs: PatternInputs) -> PatternResult:
         trigger_level=pmh,
         stop_level=stop_level,
         invalidation_level=pmh,
-        setup_metadata={"pmh_path": path, "level_type": "PREMARKET_HIGH"},
+        setup_metadata={"pmh_path": path, "level_type": "PREMARKET_HIGH",
+            **({"premarket_reference": deepcopy(inputs.levels.premarket_reference)}
+               if inputs.levels.premarket_reference is not None else {})},
     )

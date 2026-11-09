@@ -1811,6 +1811,7 @@ def steady_pmh_external(reassessment,monkeypatch,tmp_path,*,acceptance_gap=False
     from test_joined_core_pmh_readonly import pmh_joined
     def steady_joined(*args,**kwargs):
         h=pmh_joined(*args,clock_time=(16,35,30),**kwargs)
+        h.pre_reference_fault="missing" # Original accepted fixture omitted authoritative PRE facts.
         for row in h.rows.values():row['session']='RTH_MID'
         if acceptance_gap:
             # Genuine completed gap above PMH AND round10.50: Key's own
@@ -1844,8 +1845,9 @@ def test_pmh_failure_steady_reference_gap_is_recorded_blocked_not_a_passing_pmh_
     inputs,results=h.registry_batches[-1]
     assert len(results)==33 and inputs.execution_refinement_timeframe=='1m'
     pmh=next(r for r in results if r.setup_id=='P_PREMARKET_HIGH_BREAK')
-    assert not pmh.detected and pmh.rejection_reason=='failed_acceptance'
-    assert inputs.levels.premarket_high>inputs.candles[-1].close
+    assert not pmh.detected and pmh.rejection_reason=='missing_premarket_reference'
+    assert inputs.levels.premarket_reference['status']=='PARTIAL'
+    assert inputs.levels.key_levels['PREMARKET_HIGH']>inputs.candles[-1].close # Legacy anchor preserved, not PMH authority.
     assert not h.sent_native and not h.evaluated # BLOCKED outcome, no 1m PMH filled/management proof.
 
 
@@ -1931,3 +1933,73 @@ def test_pmh_incomplete_post_amendment_inventory_cannot_certify_pending_close(re
     capsys.readouterr()
     assert len(h.failure_conversions)==1 and life.filled_qty==1
     assert h.core.execution_engine._native_quarantined
+
+
+
+def trusted_steady_pmh(reassessment,monkeypatch,tmp_path):
+    from dataclasses import replace
+    from src.strategies.common.candles.candle_types import Candle
+    from test_joined_core_pmh_readonly import pmh_joined
+    def joined_factory(*args,**kwargs):
+        h=pmh_joined(*args,clock_time=(16,35,30),**kwargs)
+        h.trusted_pre_scenario=True
+        for row in h.rows.values():row['session']='RTH_MID'
+        # Genuine gap above round10.50; PMH own prior-close break still holds.
+        h.streams['1m'][-1]=replace(h.streams['1m'][-1],open=10.51,low=10.51)
+        fast=[];groups={}
+        for bar in h.streams['1m']:
+            fast.extend(Candle(bar.open,bar.open,bar.open,bar.open,bar.volume/10,
+                timestamp=bar.timestamp+timedelta(seconds=10*i)) for i in range(5))
+            fast.append(Candle(bar.open,bar.high,bar.low,bar.close,bar.volume/2,
+                timestamp=bar.timestamp+timedelta(seconds=50)))
+            key=bar.timestamp.replace(minute=(bar.timestamp.minute//5)*5,second=0)
+            groups.setdefault(key,[]).append(bar)
+        h.streams['10s']=fast
+        h.streams['5m']=[Candle(items[0].open,max(x.high for x in items),min(x.low for x in items),
+            items[-1].close,sum(x.volume for x in items),timestamp=key) for key,items in sorted(groups.items()) if len(items)==5]
+        return h
+    def paper_factory(*args,**kwargs):return paper_pmh(*args,joined_factory=joined_factory,**kwargs)
+    return late_pmh(reassessment,monkeypatch,tmp_path,paper_factory=paper_factory,fill_price=10.53)
+
+
+def test_trusted_premarket_one_minute_full_core_failure_to_flat(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    h=trusted_steady_pmh(reassessment,monkeypatch,tmp_path)
+    request=acknowledge(h,capsys)
+    intent,serialized,decision=h.evaluated[0]
+    receipt=intent.setup_metadata['source_metadata']['premarket_reference']
+    assert len(h.strategy._pattern_registry.patterns)==33
+    assert receipt['status']=='COMPLETE_PRE' and receipt['completed_count']==receipt['expected_count']==330
+    assert receipt['high']==10.3 and receipt['identity']==dict(symbol='JPM',con_id=123)
+    assert intent.setup_metadata['execution_stream']['execution_trigger_timeframe']=='1m'
+    assert receipt==request.setup_metadata['source_metadata']['premarket_reference']
+    assert h.registry_batches[-1][0].levels.key_levels['PREMARKET_HIGH']==10.55 # Original legacy anchor unchanged.
+    life=confirm_selected_fill(h,request,capsys,family='PREMARKET_HIGH_BREAK',fill_price=10.53,stop_price=request.stop_loss_price)
+    h,request,life=pmh_failure_case(reassessment,monkeypatch,tmp_path,capsys,prepared=(h,request,life))
+    assert h.core.run_once();capsys.readouterr()
+    assert len(h.failure_conversions)==1 and h.failure_owner['pmh_failure_exit']['status']=='MKT'
+    assert all(x['timeframe']=='1m' for x in h.failure_history_reads)
+    h.facts[72]=dict(status='Filled',filled=1,remaining=0,avgFillPrice=10.29,
+        symbol='JPM',side='SELL',orderId=72,parentId=71,orderRef='PROTECT|'+life.trade_id)
+    h.native_quantity[0]=0;h.native_open_orders.clear()
+    for _ in range(3):
+        h.life.clock.current+=timedelta(seconds=1)
+        assert h.core.run_once();capsys.readouterr()
+    assert life.exited_qty==1 and life.filled_qty==0 and life.realized_pnl==pytest.approx(10.29-10.53)
+    assert not h.manager.snapshot_positions() and not h.core.trade_registry.snapshot()
+    assert h.core.execution_engine.capital_authority.total_used_exposure==0
+    assert len(h.failure_conversions)==len(h.sent_native)==len(h.stop_requests)==1
+    assert serialized==vars(intent) and request.take_profit_price is None
+    assert life.selected_stop_price==10.2897
+    assert sum(tf=='1m' and limit>400 for _,tf,limit in h.pre_history_queries)==1 # One PRE bootstrap; ordinary RTH owner unchanged.
+
+
+@pytest.mark.parametrize('fault',['equality','wick','forming','straddling','missing','stale','future'])
+def test_trusted_one_minute_pmh_core_failure_boundaries(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,fault):
+    h=trusted_steady_pmh(reassessment,monkeypatch,tmp_path)
+    request=acknowledge(h,capsys)
+    life=confirm_selected_fill(h,request,capsys,family='PREMARKET_HIGH_BREAK',fill_price=10.53,stop_price=request.stop_loss_price)
+    h,request,life=pmh_failure_case(reassessment,monkeypatch,tmp_path,capsys,prepared=(h,request,life),fault=fault)
+    assert h.core.run_once();capsys.readouterr()
+    assert not h.failure_conversions and not h.failure_owner.get('pmh_failure_exit')
+    assert life.filled_qty==1 and life.selected_stop_price==request.stop_loss_price
+    assert h.core.execution_engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']

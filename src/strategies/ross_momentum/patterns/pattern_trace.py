@@ -9,6 +9,9 @@ from pathlib import Path
 from typing import Any, Iterable, Optional
 
 from src.utils.time_utils import to_ny_time
+from src.ibkr.market_data_client import HistoricalDataResult
+from src.market_data.candidate_identity import CandidateIdentity
+from src.market_data.reference_resolver import PersistentReferenceCache
 from src.adapters.data import historical_data_provider
 from src.adapters.data.historical_data_provider import get_intraday_bars
 from src.market_data.float_provider import FloatProvider
@@ -509,8 +512,27 @@ def build_runtime_pattern_inputs(*, symbol: str, row: Any, snapshot: MarketSnaps
     historical_data_provider.get_intraday_bars = get_intraday_bars
     observed_at_utc = datetime.now(timezone.utc)
     runtime_session = session_label or session_phase or _get_value(row, "session_label")
+    identity = CandidateIdentity(symbol=symbol.upper(), con_id=_get_value(row, "con_id"))
+    reference_cache = PersistentReferenceCache()
+    retained_pre = reference_cache.premarket_record(identity, observed_at=observed_at_utc)
+    if type(identity.con_id) is int and identity.con_id>0 and not retained_pre:
+        local = to_ny_time(observed_at_utc)
+        start = local.replace(hour=4,minute=0,second=0,microsecond=0)
+        if local.weekday()<5 and time(4) <= local.time() < time(16):
+            limit = max(2,min(722,int((local-start).total_seconds()//60)+2))
+            try:
+                bootstrap = historical_data_provider.get_intraday_bars(symbol=symbol,timeframe="1m",limit=limit)
+            except Exception:
+                bootstrap = HistoricalDataResult("UNVERIFIED")
+            reference_cache.retain_premarket(identity,bootstrap,observed_at=observed_at_utc)
     timeframe_bars = _fetch_runtime_timeframe_bars(symbol, observed_at_utc=observed_at_utc,
         session_label=runtime_session)
+    pre_reference = reference_cache.retain_premarket(identity, timeframe_bars.get("1m", HistoricalDataResult("UNVERIFIED")),
+        observed_at=observed_at_utc)
+    # Retained evidence is detached; bar payloads stay in the reference owner,
+    # never copied into every detector/intent or represented as a fresh quote.
+    pre_receipt = {k: v for k,v in pre_reference.items() if k != "bars"}
+    print(f"[ROSS][PRE_REFERENCE] symbol={symbol} status={pre_reference.get('status')} reason={pre_reference.get('reason')}")
     intraday_bars = timeframe_bars.get("1m")
 
     if intraday_bars is None or len(intraday_bars) == 0:
@@ -671,6 +693,7 @@ def build_runtime_pattern_inputs(*, symbol: str, row: Any, snapshot: MarketSnaps
     levels = LevelSet(
         premarket_high=normalized_premarket_high,
         premarket_low=normalized_premarket_low,
+        premarket_reference=pre_receipt,
         hod=normalized_hod,
         established_rth_hod=established_hod,
         rth_open_price=rth_open_price,
@@ -766,5 +789,5 @@ def _fetch_runtime_timeframe_bars(symbol: str, *, observed_at_utc: datetime | No
             )
             continue
         if bars:
-            fetched[timeframe] = list(bars)
+            fetched[timeframe] = bars if isinstance(bars, HistoricalDataResult) else list(bars)
     return fetched
