@@ -1704,10 +1704,10 @@ def test_joined_pullback_objective_preserves_native_source_and_trigger_gates(rea
 
 
 def cup_joined(reassessment,monkeypatch,tmp_path,*,position_case='complete_empty',runtime_options=None,
-        peer=False,news_fault='none',competing_key=False,competing_abcd=False,market_fault='none'):
+        peer=False,news_fault='none',competing_key=False,competing_abcd=False,market_fault='none',clock_time=(13,59,30)):
     from test_cup_handle_pattern import _valid_cup_handle
     h=pmh_joined(reassessment,monkeypatch,tmp_path,position_case=position_case,
-        runtime_options=runtime_options,clock_time=(13,59,30),peer=peer,news_fault=news_fault)
+        runtime_options=runtime_options,clock_time=clock_time,peer=peer,news_fault=news_fault)
     rows=[(10.3,10.32,10.27,10.3,1500)]*36+[
         tuple(getattr(bar,key) for key in ('open','high','low','close','volume')) for bar in _valid_cup_handle()]
     rows[15]=(10.3,10.75,10.27,10.3,1500) # External PRE high, before the cup window.

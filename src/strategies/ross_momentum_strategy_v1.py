@@ -1790,11 +1790,10 @@ class RossMomentumStrategyV1(BaseStrategy):
             # Keep selection and supplemental snapshot authority for risk re-age.
             if type(selected_trigger.get("canonical_result_index")) is int:
                 intent.setup_metadata = deepcopy({
-                    **(self._abcd_contract_evidence(selected_contract) if setup_family == "ABCD" else {
-                        "trigger_level": selected_contract.trigger_level,
-                        "stop_level": selected_contract.stop_level,
-                        "invalidation_level": selected_contract.invalidation_level,
-                    }),
+                    **(self._abcd_contract_evidence(selected_contract) if setup_family == "ABCD" else {}),
+                    "trigger_level": selected_contract.trigger_level,
+                    "stop_level": selected_contract.stop_level,
+                    "invalidation_level": selected_contract.invalidation_level,
                     "source_metadata": dict(selected_contract.setup_metadata or {}),
                     "canonical_result_index": decision.get("selected_candidate_index"),
                     "execution_stream": dict(selected_trigger.get("execution_stream") or {}),
