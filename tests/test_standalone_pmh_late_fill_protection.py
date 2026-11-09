@@ -1504,10 +1504,14 @@ def pmh_failure_case(reassessment,monkeypatch,tmp_path,capsys,*,fault='none',con
     def convert(**binding):
         assert binding.pop('expected_client') is h.native_client
         assert binding.pop('scope_as_of') == engine._native_scope[2]
-        h.failure_conversions.append(deepcopy(binding))
-        assert len(h.failure_conversions)==1
+        guard=binding.pop('authorization_guard',None)
         assert binding==dict(broker_order_id='72',parent_order_id='71',symbol='JPM',con_id=123,
             total_quantity=life.intended_qty,trade_id=life.trade_id,stop_price=life.selected_stop_price)
+        h.life.clock.current+=timedelta(seconds=getattr(h,'profit_precommit_delay',0))
+        if guard is not None and not guard(h.life.clock.current):
+            raise RuntimeError('synthetic final authorization expired')
+        h.failure_conversions.append(deepcopy(binding))
+        assert len(h.failure_conversions)==1
         if conversion=='stop_race':
             external_stop_facts(h,life)
             raise TimeoutError('stop fill arrived before amendment')
@@ -2589,6 +2593,14 @@ def one_share_profit_case(reassessment,monkeypatch,tmp_path,capsys,*,family='BUL
         h,request,life=pmh_failure_case(reassessment,monkeypatch,tmp_path,capsys,fault='equality',clock_step=5,conversion=conversion)
     else:
         h,request,life=central_failure_case(reassessment,monkeypatch,tmp_path,capsys,family,fault='equality',conversion=conversion)
+    if fault=='phase_at_commit':
+        # Retain the genuine ordinary Cup occurrence, then HOLD through real
+        # bounded cycles until a later fresh observation near the phase edge.
+        target=h.life.clock.current.replace(hour=13,minute=59,second=32,microsecond=0)
+        while h.life.clock.current<target:
+            h.life.clock.current+=min(timedelta(seconds=5),target-h.life.clock.current)
+            assert h.core.run_once();capsys.readouterr()
+            assert not h.failure_conversions
     from decimal import Decimal
     entry,stop=Decimal(str(life.avg_fill_price)),Decimal(str(life.selected_stop_price))
     level=float(entry+2*(entry-stop))
@@ -2604,7 +2616,7 @@ def one_share_profit_case(reassessment,monkeypatch,tmp_path,capsys,*,family='BUL
     if fault=='forming':bar=replace(bar,timestamp=start+timedelta(seconds=seconds-5))
     if fault=='future':bar=replace(bar,timestamp=start+timedelta(seconds=seconds+1))
     if fault=='stale':bar=replace(bar,timestamp=start-timedelta(hours=1))
-    if fault in {'none','equality','below','wick','quote_latency'}:
+    if fault in {'none','equality','below','wick','quote_latency','bar_aging'}:
         timeframe=request.setup_metadata['execution_stream']['execution_trigger_timeframe']
         previous=h.streams[timeframe][-1]
         cursor=previous.timestamp+timedelta(seconds=seconds)
@@ -2626,7 +2638,9 @@ def one_share_profit_case(reassessment,monkeypatch,tmp_path,capsys,*,family='BUL
             current=replace(value,last=close,bid=bid,ask=ask,asof_utc=stamp,market_timestamp_utc=stamp,
                 timestamp_source='LAST_TRADE',snapshot_complete=True,market_data_type='LIVE',
                 returned_market_data_type='LIVE',market_data_type_confirmed=True,data_quality_flags=())
+            if fault=='bar_aging' and not getattr(h,'profit_quote_confirmed',False):current=replace(current,market_data_type_confirmed=False)
             if fault=='quote_missing':continue
+            if fault=='quote_aging':current=replace(current,market_timestamp_utc=stamp-timedelta(seconds=14))
             if fault=='quote_stale':current=replace(current,market_timestamp_utc=stamp-timedelta(hours=1))
             if fault=='quote_future':current=replace(current,market_timestamp_utc=stamp+timedelta(seconds=1))
             if fault=='quote_unconfirmed':current=replace(current,market_data_type_confirmed=False)
@@ -2640,6 +2654,8 @@ def one_share_profit_case(reassessment,monkeypatch,tmp_path,capsys,*,family='BUL
     h.core.market_data_snapshot_manager.batch_snapshots=quotes
     # No completed close is revised. Forming/future facts stay non-actionable;
     # the new observation completes by actual bounded Core cycles/scope refresh.
+    h.profit_precommit_delay=2 if fault in {'quote_aging','bar_aging'} else 11 if fault=='phase_at_commit' else 0
+    if fault in {'quote_aging','bar_aging','phase_at_commit','real_final_valid'}:install_real_profit_amendment(h,monkeypatch)
     end=start+timedelta(seconds=seconds)
     h.profit_observations=[]
     while h.life.clock.current<end:
@@ -2649,6 +2665,16 @@ def one_share_profit_case(reassessment,monkeypatch,tmp_path,capsys,*,family='BUL
     if fault=='quote_latency':
         # Discovery may acquire a quote after management saw the forming bar.
         # Observe the now-completed immutable bar in another real Core cycle.
+        assert h.core.run_once();h.profit_observations.append(capsys.readouterr().out)
+    if fault=='bar_aging':
+        from src.strategies.ross_momentum.policy.pattern_input_policy import PatternInputPolicy
+        fresh=PatternInputPolicy.from_policy_v2().candle_freshness_seconds[request.setup_metadata['execution_stream']['execution_trigger_timeframe']]
+        target=bar.timestamp+timedelta(seconds=fresh-1)
+        while h.life.clock.current<target:
+            h.life.clock.current+=min(timedelta(seconds=5),target-h.life.clock.current)
+            assert h.core.run_once();capsys.readouterr()
+            assert not h.failure_conversions
+        h.profit_quote_confirmed=True  # New independent external type confirmation.
         assert h.core.run_once();h.profit_observations.append(capsys.readouterr().out)
     h.profit_level=level;h.failure_exit_price=bid
     return h,request,life
@@ -2817,6 +2843,8 @@ def test_standalone_profit_real_risk_and_execution_paper_only_backstops(reassess
     rule=h.manager.evaluate_selected_completed_profit(h.failure_owner,h.failure_bars,observed_at=h.life.clock.current,
         session_plan=request.management_session_plan,entry_fill_price=life.avg_fill_price)
     rule['profit_quote']=standalone_profit_quote_evidence(quote,symbol='JPM',milestone=h.profit_level,observed_at=h.life.clock.current)
+    assert not h.core.execution_engine.request_selected_failure_exit(request.client_order_id,rule,decision=allowed)
+    assert not h.failure_owner.get('pmh_failure_exit')  # Profit requires the final-commit guard.
     monkeypatch.setattr(h.core.execution_engine,'run_mode',RunMode.READ_ONLY)
     assert not h.core.execution_engine.request_selected_failure_exit(request.client_order_id,rule,decision=allowed)
     assert not h.failure_conversions and not h.failure_owner.get('pmh_failure_exit')
@@ -2886,3 +2914,70 @@ def test_standalone_profit_dispatch_restores_readonly_and_quarantines_in_fresh_p
         timeframe=request.setup_metadata['execution_stream']['execution_trigger_timeframe'],profile=STANDALONE_ONE_SHARE_PROFIT_PROFILE)
     assert len(h.failure_conversions)==1 and life.filled_qty==1 and life.exited_qty==0
     assert h.core.execution_engine.capital_authority.total_used_exposure==life.avg_fill_price
+
+
+def test_standalone_profit_quote_expires_during_final_inventory_no_dispatch(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    h,request,life=one_share_profit_case(reassessment,monkeypatch,tmp_path,capsys,fault='quote_aging')
+    assert not h.failure_conversions
+    assert h.failure_owner['pmh_failure_exit']['status']=='STP'
+    for _ in range(3):
+        h.life.clock.current+=timedelta(seconds=1)
+        assert h.core.run_once();capsys.readouterr()
+    assert not h.failure_conversions and life.filled_qty==1
+    assert h.core.execution_engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
+    assert h.core.execution_engine.capital_authority.total_used_exposure==life.avg_fill_price
+
+
+def test_standalone_profit_phase_expires_during_final_inventory_no_dispatch(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    h=late_cup(reassessment,monkeypatch,tmp_path,clock_time=(13,55,30))
+    request=acknowledge_cup(h,capsys)
+    life=confirm_selected_fill(h,request,capsys,family='CUP_HANDLE',fill_price=10.55,stop_price=10.3)
+    h,request,life=one_share_profit_case(reassessment,monkeypatch,tmp_path,capsys,family='CUP_HANDLE',
+        prepared=(h,request,life),fault='phase_at_commit')
+    assert not h.failure_conversions and h.failure_owner['pmh_management_expired']
+    assert h.failure_owner['pmh_failure_exit']['status']=='STP'
+    assert life.filled_qty==1 and h.core.execution_engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
+
+
+def install_real_profit_amendment(h,monkeypatch):
+    """Real amendment adapter; only SDK inventory/write transport is synthetic."""
+    from src.brokers import ibkr_live_broker as broker_module
+    from src.config import config_resolver
+    from src.config.runtime_config import RunMode
+    config_resolver.set_config_overrides(dict(config_resolver._CONFIG_OVERRIDES,IBKR_KILL_SWITCH=False))
+    monkeypatch.setattr(broker_module,'datetime',h.life.clock)
+    broker=object.__new__(broker_module.IbkrLiveBroker)
+    broker.run_mode=RunMode.PAPER;broker.connection_manager=h.native_manager
+    def inventory(**kwargs):
+        assert kwargs=={'require_complete':True}
+        h.life.clock.current+=timedelta(seconds=getattr(h,'profit_precommit_delay',0))
+        return h.native_open_orders
+    def dispatch(native_id,contract,order):
+        assert native_id==72 and contract.symbol=='JPM' and contract.conId==123
+        assert order.action=='SELL' and order.orderType=='MKT' and order.totalQuantity==1
+        assert order.parentId==71 and order.orderRef=='PROTECT|'+h.failure_owner['request']['client_order_id']
+        h.failure_conversions.append((native_id,deepcopy(contract),deepcopy(order)))
+        assert len(h.failure_conversions)==1
+        next(row for row in h.native_open_orders if row.orderId==72).order=deepcopy(order)
+    monkeypatch.setattr(h.native_client,'openOrders',inventory)
+    monkeypatch.setattr(h.native_client,'placeOrder',dispatch)
+    monkeypatch.setattr(h.core.execution_engine._provider.broker,'convert_selected_stop_to_market',broker.convert_selected_stop_to_market)
+
+
+def test_standalone_profit_real_adapter_final_guard_valid_writes_same_id(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    h,request,life=one_share_profit_case(reassessment,monkeypatch,tmp_path,capsys,fault='real_final_valid')
+    assert len(h.failure_conversions)==1 and h.failure_owner['pmh_failure_exit']['status']=='MKT'
+    finish_failure_fill(h,life,capsys)
+    assert life.filled_qty==0 and life.exited_qty==1 and len(h.failure_conversions)==1
+
+
+def test_standalone_profit_bar_expires_during_final_inventory_no_dispatch(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    h,request,life=one_share_profit_case(reassessment,monkeypatch,tmp_path,capsys,fault='bar_aging')
+    assert not h.failure_conversions and h.failure_owner['pmh_failure_exit']['status']=='STP'
+    assert life.filled_qty==1 and h.core.execution_engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
+    before=(life.realized_pnl,len(h.core.execution_engine.position_records),h.core.execution_engine.capital_authority.total_used_exposure)
+    for _ in range(3):
+        h.life.clock.current+=timedelta(seconds=1)
+        assert h.core.run_once();capsys.readouterr()
+    assert not h.failure_conversions
+    assert before==(life.realized_pnl,len(h.core.execution_engine.position_records),h.core.execution_engine.capital_authority.total_used_exposure)

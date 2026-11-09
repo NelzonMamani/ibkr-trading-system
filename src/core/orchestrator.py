@@ -3070,7 +3070,31 @@ class CoreOrchestrator:
                 if decision.allowed and not decision.execution_blocked:
                     if self._stop_requested_at_boundary("SELECTED_FAILURE_MANAGEMENT_EXECUTION"):
                         return False
-                    engine.request_selected_failure_exit(order_id, failure, decision=decision)
+                    authorization_guard = None
+                    if profit:
+                        from copy import deepcopy
+                        frozen_order, frozen_bars = deepcopy(order), deepcopy(bars)
+                        frozen_rule, frozen_quote = deepcopy(failure), deepcopy(quote)
+                        def authorization_guard(now, owner=order, retained_order=frozen_order,
+                                retained_bars=frozen_bars, retained_rule=frozen_rule, retained_quote=frozen_quote,
+                                truth_as_of=snapshot.as_of, authorized_at=evaluation_at):
+                            from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
+                            forced = str(os.getenv("FORCE_SESSION") or "").strip().upper()
+                            plan = normalize_session_label(forced or market_session_phase(now)) or forced
+                            self._expire_selected_failure_enrollment(now, plan)
+                            if (owner.get("pmh_management_expired") or now < authorized_at
+                                    or not 0 <= (now-truth_as_of).total_seconds() <= get_ibkr_snapshot_max_age_seconds()):
+                                return False
+                            current = self.trade_management_engine.evaluate_selected_completed_profit(
+                                retained_order, retained_bars, observed_at=now, session_plan=plan,
+                                entry_fill_price=retained_rule["entry_fill_price"])
+                            if not current:
+                                return False
+                            current["profit_quote"] = standalone_profit_quote_evidence(retained_quote,
+                                symbol=retained_order["symbol"], milestone=current["milestone"], observed_at=now)
+                            return current == retained_rule  # No newer bar/quote or timestamp renewal.
+                    engine.request_selected_failure_exit(order_id, failure, decision=decision,
+                        authorization_guard=authorization_guard)
         return True
 
     _expire_pmh_failure_enrollment = _expire_selected_failure_enrollment
