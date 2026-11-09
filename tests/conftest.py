@@ -4,6 +4,32 @@ import asyncio
 import pytest
 
 
+@pytest.fixture(scope="session")
+def runtime_schema_template(tmp_path_factory):
+    """Closed, data-free schema; never a shared mutable runtime database."""
+    from src.storage.sqlite_store import SQLiteStore
+    path = tmp_path_factory.mktemp("runtime-schema") / "pristine.sqlite3"
+    store = SQLiteStore(str(path))
+    try:
+        store.initialize_schema()
+    finally:
+        store.close()
+    return path
+
+
+@pytest.fixture
+def isolated_runtime_schema(runtime_schema_template, tmp_path, monkeypatch,
+                            _isolate_float_workers):
+    # Opt-in via the existing Core harness reset fixture. Copy only an empty
+    # initialized schema; real StorageEngine/LearningStorage still initialize,
+    # write, commit and reconcile their own independently writable database.
+    import shutil
+    path = tmp_path / "runtime.sqlite3"
+    shutil.copyfile(runtime_schema_template, path)
+    monkeypatch.setenv("PERSISTENCE_SQLITE_PATH", str(path))
+    return path
+
+
 @pytest.fixture(autouse=True)
 def _force_test_execution_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EXECUTION_ENV", "TEST")

@@ -18,6 +18,48 @@ def _column_names(store: SQLiteStore, table: str) -> set[str]:
     return {row["name"] for row in cursor.fetchall()}
 
 
+def test_runtime_schema_copies_are_empty_independent_and_rechecked(runtime_schema_template, tmp_path):
+    import shutil
+    from src.storage.sqlite_store import SQLiteStore as RuntimeStore
+    stores = []
+    try:
+        fresh = RuntimeStore(str(tmp_path / "fresh.sqlite3")); stores.append(fresh)
+        fresh_sql = []
+        fresh.connection.set_trace_callback(fresh_sql.append)
+        fresh.initialize_schema()
+        copies = []
+        for name in ("one", "two"):
+            path = tmp_path / (name + ".sqlite3")
+            shutil.copyfile(runtime_schema_template, path)
+            store = RuntimeStore(str(path)); stores.append(store); copies.append(store)
+            sql = []
+            store.connection.set_trace_callback(sql.append)
+            store.initialize_schema()  # Same actual idempotent owner as Core.
+            assert any("CREATE TABLE IF NOT EXISTS" in s for s in sql)
+            assert not any(s.lstrip().upper().startswith("ALTER TABLE") for s in sql)
+            def schema(db):
+                return [tuple(row) for row in db.connection.execute(
+                    "SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY type,name")]
+            assert schema(store) == schema(fresh)
+            tables = [row[0] for row in store.connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'")]
+            assert "capital_owner_state" not in tables
+            for table in tables:
+                if table != "schema_meta":
+                    assert store.connection.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0] == 0
+        assert any(s.lstrip().upper().startswith("ALTER TABLE") for s in fresh_sql)
+        copies[0].connection.execute("INSERT INTO runs (run_id) VALUES ('private-runtime')")
+        copies[0].connection.commit()
+        assert copies[0].connection.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 1
+        assert copies[1].connection.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
+        # The session template remains data-free after a scenario commits.
+        template = RuntimeStore(str(runtime_schema_template)); stores.append(template)
+        assert template.connection.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
+    finally:
+        for store in stores:
+            store.close()
+
+
 def test_storage_schema_epoch4_tables_and_columns(tmp_path):
     db_path = tmp_path / "schema.db"
     store = SQLiteStore(str(db_path))

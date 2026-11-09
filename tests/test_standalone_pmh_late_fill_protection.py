@@ -1336,9 +1336,12 @@ def test_pullback_variant_native_paper_preserves_confidence_admission_veto(reass
     finally:teardown_unsent_fixture(h,no_external_activity)
 
 
-def late_cup(reassessment,monkeypatch,tmp_path):
+def late_cup(reassessment,monkeypatch,tmp_path,*,clock_time=None):
     from test_joined_core_pmh_readonly import cup_joined
-    def paper_cup(*args,**kwargs):return paper_pmh(*args,joined_factory=cup_joined,**kwargs)
+    def selected_cup(*args,**kwargs):
+        if clock_time is not None:kwargs['clock_time']=clock_time
+        return cup_joined(*args,**kwargs)
+    def paper_cup(*args,**kwargs):return paper_pmh(*args,joined_factory=selected_cup,**kwargs)
     return late_pmh(reassessment,monkeypatch,tmp_path,paper_factory=paper_cup,fill_price=10.55,stop_price=10.3)
 
 
@@ -2264,11 +2267,14 @@ def test_standalone_bull_native_core_paper_fill_initial_protection(reassessment,
 
 CENTRAL_FAMILIES=['BULL_FLAG','FIRST_PULLBACK','MICRO_PULLBACK']
 BREAKOUT_FAMILIES=['KEY_LEVEL_BREAK','CONSOLIDATION_BREAKOUT','FLAT_TOP_BREAKOUT','OPENING_RANGE_BREAKOUT','HOD_BREAK']
-SELECTED_FAILURE_FAMILIES=CENTRAL_FAMILIES+BREAKOUT_FAMILIES
+CANONICAL_FAMILIES=['ABCD','VWAP_RECLAIM_CONTINUATION','CUP_HANDLE','OPENING_DRIVE','EMA_PULLBACK','VWAP_PULLBACK','TREND_CONTINUATION_STAIR_STEP']
+SELECTED_FAILURE_FAMILIES=CENTRAL_FAMILIES+BREAKOUT_FAMILIES+CANONICAL_FAMILIES
 
 
 def central_failure_case(reassessment,monkeypatch,tmp_path,capsys,family,*,fault='none',conversion='confirmed'):
-    h,ack,_,price=standalone_case(reassessment,monkeypatch,tmp_path,family)
+    if family=='CUP_HANDLE':
+        h=late_cup(reassessment,monkeypatch,tmp_path,clock_time=(13,55,30));ack=acknowledge_cup;price=10.55
+    else:h,ack,_,price=standalone_case(reassessment,monkeypatch,tmp_path,family)
     request=ack(h,capsys)
     life=confirm_selected_fill(h,request,capsys,family=family,fill_price=price,stop_price=request.stop_loss_price)
     retained=deepcopy(h.core.execution_engine._native_orders[request.client_order_id]['request'])
@@ -2289,7 +2295,7 @@ def finish_failure_fill(h,life,capsys,*,quantity=1):
 
 @pytest.mark.parametrize('family',SELECTED_FAILURE_FAMILIES)
 def test_central_failure_full_registry_core_exit_above_stop_to_flat(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,family):
-    from src.strategies.ross_momentum.strategy_policy import CENTRAL_STANDALONE_FAILURE_PROFILE, BREAKOUT_STANDALONE_FAILURE_PROFILE
+    from src.strategies.ross_momentum.strategy_policy import CENTRAL_STANDALONE_FAILURE_PROFILE, BREAKOUT_STANDALONE_FAILURE_PROFILE, CANONICAL_STANDALONE_FAILURE_PROFILE
     h,request,life=central_failure_case(reassessment,monkeypatch,tmp_path,capsys,family)
     intent,serialized,decision=h.evaluated[0]
     owner=h.failure_owner;metadata=deepcopy(request.setup_metadata)
@@ -2302,9 +2308,12 @@ def test_central_failure_full_registry_core_exit_above_stop_to_flat(reassessment
     assert request.stop_loss_price<h.failure_exit_price<h.failure_bars[-1].close<metadata['trigger_level']
     assert h.core.run_once();capsys.readouterr()
     latch=owner['pmh_failure_exit'] # Existing durable transport latch, explicit new profile.
-    expected_profile=CENTRAL_STANDALONE_FAILURE_PROFILE if family in CENTRAL_FAMILIES else BREAKOUT_STANDALONE_FAILURE_PROFILE
+    expected_profile=(CENTRAL_STANDALONE_FAILURE_PROFILE if family in CENTRAL_FAMILIES else
+        BREAKOUT_STANDALONE_FAILURE_PROFILE if family in BREAKOUT_FAMILIES else CANONICAL_STANDALONE_FAILURE_PROFILE)
     assert latch['profile']==expected_profile and latch['selected_entry']==metadata['trigger_level']
     if family=='KEY_LEVEL_BREAK':assert request.stop_loss_price==10.88 and request.invalidation_level==11. and latch['selected_entry']==11.
+    if family=='TREND_CONTINUATION_STAIR_STEP':assert request.stop_loss_price==10.34 and request.invalidation_level==10.24 and latch['selected_entry']==10.64
+    if family=='ABCD':assert latch['selected_entry']==metadata['anchor_b_price'] and latch['selected_entry']!=metadata['d_projection']
     assert latch['occurrence']==metadata and latch['status']=='MKT'
     assert len(h.failure_conversions)==1 and life.filled_qty==1
     assert not h.core.execution_engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
@@ -2320,13 +2329,52 @@ def test_central_failure_full_registry_core_exit_above_stop_to_flat(reassessment
 
 
 @pytest.mark.parametrize('family',SELECTED_FAILURE_FAMILIES)
-@pytest.mark.parametrize('fault',['equality','wick','forming','straddling','missing','stale','future'])
-def test_central_failure_completed_bar_boundaries(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,family,fault):
-    h,request,life=central_failure_case(reassessment,monkeypatch,tmp_path,capsys,family,fault=fault)
+def test_central_failure_completed_bar_boundaries(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,family):
+    from dataclasses import replace
+    from datetime import datetime
+    # One actual admission/accounting/protection lifecycle per family. All seven
+    # external-history cases still pass through actual Core, without resetting
+    # owner state, clearing quarantine or weakening a clock/gate.
+    h,request,life=central_failure_case(reassessment,monkeypatch,tmp_path,capsys,family,fault='stale')
+    old=deepcopy(h.failure_bars)
+    now=h.life.clock.current;level=request.setup_metadata['trigger_level']
+    timeframe=request.setup_metadata['execution_stream']['execution_trigger_timeframe']
+    seconds={'10s':10,'1m':60}[timeframe]
+    end=now.replace(microsecond=0)-timedelta(seconds=int(now.timestamp())%seconds)
+    fresh=replace(old[-1],timestamp=end-timedelta(seconds=seconds))
+    assert fresh.timestamp>=datetime.fromisoformat(h.failure_owner['last_accounted_entry_fill_at'])
+    equality=replace(fresh,timestamp=end-timedelta(seconds=2*seconds),close=level)
+    wick=replace(fresh,close=level+.01)
+    assert equality.timestamp>=__import__('datetime').datetime.fromisoformat(h.failure_owner['last_accounted_entry_fill_at'])
+    cases={
+        'stale':old,
+        'missing':[],
+        'forming':[replace(fresh,timestamp=now-timedelta(seconds=5))],
+        'future':[replace(fresh,timestamp=now+timedelta(seconds=1))],
+        'straddling':[replace(fresh,timestamp=datetime.fromisoformat(h.failure_owner['last_accounted_entry_fill_at'])-timedelta(seconds=1))],
+        'equality':[equality],
+        'wick':[equality,wick],
+    }
+    for fault,bars in cases.items():
+        h.failure_bars=bars # Synthetic external history response only.
+        assert h.core.run_once(),fault
+        capsys.readouterr()
+        assert not h.failure_conversions and not h.failure_owner.get('pmh_failure_exit'),fault
+        assert life.filled_qty==1 and life.selected_stop_price==request.stop_loss_price,fault
+        assert h.core.execution_engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected'],fault
+    # Same unchanged owned occurrence then accepts genuinely qualifying evidence:
+    # none of the negatives consumed applicability or merely hid an entry gate.
+    # Preserve each already-observed completed bar; never revise its close to
+    # manufacture failure. A distinct next bar genuinely completes in real Core.
+    candidate=replace(fresh,timestamp=end)
+    for _ in range(seconds//5+1):
+        h.life.clock.current+=timedelta(seconds=5)
+        assert h.core.run_once();capsys.readouterr()
+        assert not h.failure_conversions
+    h.failure_bars=[equality,wick,candidate]
+    assert candidate.low>request.stop_loss_price and candidate.close<level
     assert h.core.run_once();capsys.readouterr()
-    assert not h.failure_conversions and not h.failure_owner.get('pmh_failure_exit')
-    assert life.filled_qty==1 and life.selected_stop_price==request.stop_loss_price
-    assert h.core.execution_engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
+    assert len(h.failure_conversions)==1 and h.failure_owner['pmh_failure_exit']['status']=='MKT'
 
 
 @pytest.mark.parametrize('family',SELECTED_FAILURE_FAMILIES)
@@ -2403,7 +2451,7 @@ def test_central_failure_later_bar_and_missing_timestamp_or_relationship_hold(re
         row=deepcopy(owner)
         if change=='missing_stamp':row.pop('last_accounted_entry_fill_at')
         if change=='relationship':row['request']['relationship_context']={'profile':'BULL_FLAG_MICRO_2R_V1'}
-        if change=='other_family':row['request']['setup_family_id']='ABCD'
+        if change=='other_family':row['request']['setup_family_id']='RANGE_BREAK'
         if change=='wrong_stop':row['request']['stop_loss_price']+=.01
         if change=='wrong_invalidation':row['request']['invalidation_level']+=.01
         if change=='bad_occurrence':row['request']['setup_metadata']['canonical_result_index']=-1
@@ -2411,14 +2459,16 @@ def test_central_failure_later_bar_and_missing_timestamp_or_relationship_hold(re
 
 
 def small_central_owned(reassessment,monkeypatch,tmp_path,capsys,family,*,partial=False):
-    from test_joined_core_pmh_readonly import standalone_bull_joined,micro_joined,key_joined,consolidation_joined,flat_top_joined,orb_joined,hod_joined
+    from test_joined_core_pmh_readonly import standalone_bull_joined,micro_joined,key_joined,consolidation_joined,flat_top_joined,orb_joined,hod_joined,momentum_joined,cup_joined,opening_drive_joined,indicator_pullback_joined,vwap_pullback_joined,stair_step_joined
+    from test_abcd_production_handoff import abcd_joined
     from test_joined_core_first_pullback import first_joined
-    factory={'BULL_FLAG':standalone_bull_joined,'FIRST_PULLBACK':first_joined,'MICRO_PULLBACK':micro_joined,'KEY_LEVEL_BREAK':key_joined,'CONSOLIDATION_BREAKOUT':consolidation_joined,'FLAT_TOP_BREAKOUT':flat_top_joined,'OPENING_RANGE_BREAKOUT':orb_joined,'HOD_BREAK':hod_joined}[family]
-    prices={'BULL_FLAG':(10.88,10.63),'FIRST_PULLBACK':(10.55,10.15),'MICRO_PULLBACK':(10.88,10.6),'KEY_LEVEL_BREAK':(11.02,10.88),'CONSOLIDATION_BREAKOUT':(10.43,10.21),'FLAT_TOP_BREAKOUT':(10.27,9.99),'OPENING_RANGE_BREAKOUT':(10.42,9.95),'HOD_BREAK':(10.34,10.2)}
+    factory={'BULL_FLAG':standalone_bull_joined,'FIRST_PULLBACK':first_joined,'MICRO_PULLBACK':micro_joined,'KEY_LEVEL_BREAK':key_joined,'CONSOLIDATION_BREAKOUT':consolidation_joined,'FLAT_TOP_BREAKOUT':flat_top_joined,'OPENING_RANGE_BREAKOUT':orb_joined,'HOD_BREAK':hod_joined,'ABCD':abcd_joined,'VWAP_RECLAIM_CONTINUATION':momentum_joined,'CUP_HANDLE':cup_joined,'OPENING_DRIVE':opening_drive_joined,'EMA_PULLBACK':indicator_pullback_joined,'VWAP_PULLBACK':vwap_pullback_joined,'TREND_CONTINUATION_STAIR_STEP':stair_step_joined}[family]
+    prices={'BULL_FLAG':(10.88,10.63),'FIRST_PULLBACK':(10.55,10.15),'MICRO_PULLBACK':(10.88,10.6),'KEY_LEVEL_BREAK':(11.02,10.88),'CONSOLIDATION_BREAKOUT':(10.43,10.21),'FLAT_TOP_BREAKOUT':(10.27,9.99),'OPENING_RANGE_BREAKOUT':(10.42,9.95),'HOD_BREAK':(10.34,10.2),'ABCD':(11.02,10.35),'VWAP_RECLAIM_CONTINUATION':(10.34,10.23),'CUP_HANDLE':(10.55,10.3),'OPENING_DRIVE':(10.62,10.47),'EMA_PULLBACK':(10.53,10.29),'VWAP_PULLBACK':(10.8,10.23),'TREND_CONTINUATION_STAIR_STEP':(10.68,10.34)}
     price,stop=prices[family]
     monkeypatch.setenv('TRADING_DEFAULT_CAPITAL','400')
     def small_joined(*args,**kwargs):
         kwargs['runtime_options']['config_overrides'].update(RISK_PROFILE='SMALL',RISK_MAX_POSITION_SIZE=2)
+        if family=='CUP_HANDLE':kwargs['clock_time']=(13,55,30)
         h=factory(*args,**kwargs)
         for row in h.rows.values():
             gap=(row['last_price']/row['prev_close']-1)*100;row.update(gap_pct=gap,pct_change=gap)
@@ -2498,3 +2548,13 @@ def test_central_confirmed_stop_fill_is_processed_before_discretionary_exit(reas
     assert life.filled_qty==0 and life.exited_qty==1
     assert not h.failure_conversions and not h.failure_owner.get('pmh_failure_exit')
     assert h.core.execution_engine.capital_authority.total_used_exposure==0
+
+
+def test_cup_original_entry_clock_correctly_expires_before_failure_bar(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    h=late_cup(reassessment,monkeypatch,tmp_path)
+    request=acknowledge_cup(h,capsys)
+    life=confirm_selected_fill(h,request,capsys,family='CUP_HANDLE',fill_price=10.55,stop_price=request.stop_loss_price)
+    h,request,life=pmh_failure_case(reassessment,monkeypatch,tmp_path,capsys,prepared=(h,request,life),clock_step=10)
+    assert h.core.run_once();capsys.readouterr()
+    assert h.failure_owner['pmh_management_expired'] and not h.failure_conversions
+    assert life.filled_qty==1 and life.selected_stop_price==10.3

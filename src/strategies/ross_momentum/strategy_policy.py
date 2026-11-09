@@ -1356,6 +1356,28 @@ BREAKOUT_STANDALONE_FAILURE_FAMILIES = frozenset({
     "OPENING_RANGE_BREAKOUT", "HOD_BREAK",
 })
 
+# NEW project policy adopted 9 November 2026: recorded Alternative B for ONLY
+# native standalone ABCD, canonical Momentum, Cup, Opening Drive, EMA/VWAP
+# Pullbacks and Stair Step. Freeze each occurrence's selected canonical entry:
+# B/trigger (not D), selected max(EMA9,VWAP) (not current indicators), own cup/
+# drive/EMA/VWAP/stair trigger. Numeric regression witnesses are not policy levels.
+# Preserve original structural stop AND acceptance invalidation, objectives/TPNone;
+# Stair's stop and acceptance invalidation can differ. Same terminal full accounted
+# entry/authoritative stamp/reconciled healthy owned truth/confirmed original
+# protection, fresh COMPLETED retained timeframe/session bar START>=last fill,
+# strict close below own frozen threshold, FULL confirmed owned remainder; earlier
+# above/equal does not consume, no elapsed cutoff. Partial/ambiguous/missing/stale/
+# future/forming/straddling facts hold. Observed phase/session/NY-date permanently
+# expires even while gated. Fills first; stop/flat suppresses; same native identity,
+# complete inventory/uncertainty/UNKNOWN/quarantine/no retry/replay remain mandatory.
+# No profit/reduction percentages, targets, trailing, adds/re-entry or timers.
+# Other profiles remain separate; this is NEW failed-entry policy, not Ross doctrine.
+CANONICAL_STANDALONE_FAILURE_PROFILE = "CANONICAL_STANDALONE_COMPLETED_BAR_FAILURE_V1"
+CANONICAL_STANDALONE_FAILURE_FAMILIES = frozenset({
+    "ABCD", "VWAP_RECLAIM_CONTINUATION", "CUP_HANDLE", "OPENING_DRIVE",
+    "EMA_PULLBACK", "VWAP_PULLBACK", "TREND_CONTINUATION_STAIR_STEP",
+})
+
 # Deliberate current decisions: direct GAP_GO stays entry-blocked without its
 # own complete stop/acceptance contract; HALT_RESUME stays disabled without reliable
 # authoritative halt/resumption facts. No inferred buffer/halts or acquisition.
@@ -1373,4 +1395,6 @@ def selected_completed_failure_profile(request):
         return CENTRAL_STANDALONE_FAILURE_PROFILE
     if isinstance(family, str) and family in BREAKOUT_STANDALONE_FAILURE_FAMILIES:
         return BREAKOUT_STANDALONE_FAILURE_PROFILE
+    if isinstance(family, str) and family in CANONICAL_STANDALONE_FAILURE_FAMILIES:
+        return CANONICAL_STANDALONE_FAILURE_PROFILE
     return None
