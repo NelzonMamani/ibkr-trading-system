@@ -97,7 +97,7 @@ def validate_order(order, portfolio) -> ValidationResult:
 class RiskEngine:
     """Minimal risk engine placeholder with teaching-style log messages."""
 
-    def evaluate_selected_failure_exit(self, *, order_id, order, position, registered, life, snapshot, observed_at):
+    def evaluate_selected_failure_exit(self, *, order_id, order, position, registered, life, snapshot, observed_at, profit=False, quote=None):
         """Owned reduction only; no entry permission or management defaults."""
         from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
         from src.strategies.ross_momentum.strategy_policy import selected_completed_failure_profile
@@ -129,13 +129,23 @@ class RiskEngine:
                 and life.preserve_selected_protection and life.target is None
                 and life.selected_stop_price == request.get("stop_loss_price")
                 and position.stop_loss_price == life.selected_stop_price)
+            if profit:
+                from src.strategies.ross_momentum.strategy_policy import standalone_one_share_profit_basis, standalone_profit_quote_evidence
+                basis = standalone_one_share_profit_basis(order, life.avg_fill_price)
+                allowed = bool(allowed and str(get_config("RUN_MODE_EFFECTIVE")).upper() == "PAPER"
+                    and quantity == 1 and basis and position.entry_price == registered.entry_price == basis[0]
+                    and standalone_profit_quote_evidence(quote, symbol=order["symbol"], milestone=basis[2], observed_at=observed_at))
         except (AttributeError, TypeError, ValueError, KeyError):
             allowed = False
+        if profit:
+            rationale = "STANDALONE_ONE_SHARE_PROFIT_EXIT" if allowed else "STANDALONE_PROFIT_BLOCKED"
+        elif request.get("setup_family_id") == "PREMARKET_HIGH_BREAK":
+            rationale = "PMH_OWNED_FAILURE_EXIT" if allowed else "PMH_EXIT_TRUTH_OR_BINDING_BLOCKED"
+        else:
+            rationale = "SELECTED_OWNED_FAILURE_EXIT" if allowed else "SELECTED_EXIT_TRUTH_OR_BINDING_BLOCKED"
         return RiskDecision(symbol=order.get("symbol", "UNKNOWN"), allowed=allowed,
             max_position_size=quantity if allowed else 0, risk_level="LOW" if allowed else "BLOCKED",
-            rationale=(("PMH_OWNED_FAILURE_EXIT" if allowed else "PMH_EXIT_TRUTH_OR_BINDING_BLOCKED")
-                if request.get("setup_family_id") == "PREMARKET_HIGH_BREAK"
-                else "SELECTED_OWNED_FAILURE_EXIT" if allowed else "SELECTED_EXIT_TRUTH_OR_BINDING_BLOCKED"),
+            rationale=rationale,
             trader_type=request.get("trader_type") or "UNKNOWN", strategy_name=request.get("strategy_name"),
             direction="SELL", decision_id=order.get("decision_id"), stop_loss_price=request.get("stop_loss_price"),
             take_profit_price=None, setup_family_id=request.get("setup_family_id"), execution_blocked=not allowed)

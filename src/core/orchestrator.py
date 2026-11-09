@@ -3023,19 +3023,78 @@ class CoreOrchestrator:
             bars, _ = self._get_trade_management_recent_candles(order["symbol"], 10, timeframe=timeframe)
             failure = self.trade_management_engine.evaluate_selected_completed_failure(
                 order, bars, observed_at=observed_at, session_plan=session_plan)
+            life = engine.post_fill_lifecycle.get_trade(order_id)
+            profit = False
+            quote = None
+            evaluation_at = observed_at
+            if not failure and self.run_mode == RunMode.PAPER and life and life.filled_qty == 1:
+                failure = self.trade_management_engine.evaluate_selected_completed_profit(order, bars,
+                    observed_at=observed_at, session_plan=session_plan, entry_fill_price=life.avg_fill_price)
+                if failure:
+                    from src.strategies.ross_momentum.strategy_policy import standalone_profit_quote_evidence
+                    try:
+                        values, errors = self.market_data_snapshot_manager.batch_snapshots([order["symbol"]])
+                        quote = values.get(order["symbol"]) if not errors else None
+                    except (AcquisitionCancelled, AcquisitionDeadlineExceeded):
+                        raise
+                    except Exception:
+                        quote = None  # Missing external quote facts HOLD; never an exit default.
+                    # Acquisition can finish after cycle start. Recheck the
+                    # original bar/truth ages at the actual decision clock;
+                    # never renew their timestamps or reject a current quote
+                    # merely because it arrived during this cycle.
+                    evaluation_at = datetime.now(timezone.utc)
+                    forced = str(os.getenv("FORCE_SESSION") or "").strip().upper()
+                    current_plan = normalize_session_label(forced or market_session_phase(evaluation_at)) or forced
+                    self._expire_selected_failure_enrollment(evaluation_at, current_plan)
+                    failure = (self.trade_management_engine.evaluate_selected_completed_profit(order, bars,
+                        observed_at=evaluation_at, session_plan=current_plan, entry_fill_price=life.avg_fill_price)
+                        if evaluation_at >= observed_at else None)
+                    evidence = (standalone_profit_quote_evidence(quote, symbol=order["symbol"],
+                        milestone=failure["milestone"], observed_at=evaluation_at) if failure else None)
+                    if evidence:
+                        failure["profit_quote"] = evidence
+                        profit = True
+                    else:
+                        failure = None
             if failure:
                 life = engine.post_fill_lifecycle.get_trade(order_id)
                 registered = self.trade_registry.get_trade(order["symbol"], request.get("trader_type") or "UNKNOWN")
                 position = self.trade_management_engine.snapshot_positions().get(order["symbol"])
                 decision = self.risk_engine.evaluate_selected_failure_exit(order_id=order_id, order=order,
-                    position=position, registered=registered, life=life, snapshot=snapshot, observed_at=observed_at)
-                self._trace_event("SELECTED_FAILURE_EXIT_RISK", {"decision_id": decision.decision_id,
+                    position=position, registered=registered, life=life, snapshot=snapshot, observed_at=evaluation_at,
+                    profit=profit, quote=quote)
+                self._trace_event("SELECTED_PROFIT_EXIT_RISK" if profit else "SELECTED_FAILURE_EXIT_RISK", {"decision_id": decision.decision_id,
                     "order_id": order_id, "allowed": decision.allowed, "quantity": decision.max_position_size,
                     "reason": decision.rationale})
                 if decision.allowed and not decision.execution_blocked:
                     if self._stop_requested_at_boundary("SELECTED_FAILURE_MANAGEMENT_EXECUTION"):
                         return False
-                    engine.request_selected_failure_exit(order_id, failure, decision=decision)
+                    authorization_guard = None
+                    if profit:
+                        from copy import deepcopy
+                        frozen_order, frozen_bars = deepcopy(order), deepcopy(bars)
+                        frozen_rule, frozen_quote = deepcopy(failure), deepcopy(quote)
+                        def authorization_guard(now, owner=order, retained_order=frozen_order,
+                                retained_bars=frozen_bars, retained_rule=frozen_rule, retained_quote=frozen_quote,
+                                truth_as_of=snapshot.as_of, authorized_at=evaluation_at):
+                            from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
+                            forced = str(os.getenv("FORCE_SESSION") or "").strip().upper()
+                            plan = normalize_session_label(forced or market_session_phase(now)) or forced
+                            self._expire_selected_failure_enrollment(now, plan)
+                            if (owner.get("pmh_management_expired") or now < authorized_at
+                                    or not 0 <= (now-truth_as_of).total_seconds() <= get_ibkr_snapshot_max_age_seconds()):
+                                return False
+                            current = self.trade_management_engine.evaluate_selected_completed_profit(
+                                retained_order, retained_bars, observed_at=now, session_plan=plan,
+                                entry_fill_price=retained_rule["entry_fill_price"])
+                            if not current:
+                                return False
+                            current["profit_quote"] = standalone_profit_quote_evidence(retained_quote,
+                                symbol=retained_order["symbol"], milestone=current["milestone"], observed_at=now)
+                            return current == retained_rule  # No newer bar/quote or timestamp renewal.
+                    engine.request_selected_failure_exit(order_id, failure, decision=decision,
+                        authorization_guard=authorization_guard)
         return True
 
     _expire_pmh_failure_enrollment = _expire_selected_failure_enrollment

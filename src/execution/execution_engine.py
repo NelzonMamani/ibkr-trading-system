@@ -2347,21 +2347,36 @@ class ExecutionEngine:
             return "MKT"
         return None
 
-    def request_selected_failure_exit(self, order_id, failure, *, decision):
+    def request_selected_failure_exit(self, order_id, failure, *, decision, authorization_guard=None):
         """Coordinate one existing owned close leg; never submit a second SELL."""
         from copy import deepcopy
         from src.strategies.ross_momentum.strategy_policy import selected_completed_failure_profile
+        from src.strategies.ross_momentum.strategy_policy import (selected_one_share_profit_profile,
+            standalone_one_share_profit_basis, standalone_profit_quote_evidence, STANDALONE_ONE_SHARE_PROFIT_PROFILE)
         parent = self._native_orders[order_id]
+        profit = failure.get("profile") == STANDALONE_ONE_SHARE_PROFIT_PROFILE
+        if profit and (self.run_mode != RunMode.PAPER or not callable(authorization_guard)):
+            return False
+        expected_profile = (selected_one_share_profit_profile(parent["request"]) if profit
+            else selected_completed_failure_profile(parent["request"]))
         if (parent.get("pmh_failure_exit") or parent.get("pmh_management_expired") or not decision.allowed or decision.execution_blocked
                 or decision.decision_id != parent["decision_id"] or decision.direction != "SELL"
                 or not selected_completed_failure_profile(parent["request"])
-                or failure.get("profile") != selected_completed_failure_profile(parent["request"])
+                or failure.get("profile") != expected_profile
                 or failure.get("occurrence") != parent["request"].get("setup_metadata")):
             return False
         self._validate_native_binding(order_id, parent, {})
         life = self.post_fill_lifecycle.get_trade(order_id)
         if life is None or life.filled_qty != decision.max_position_size or life.filled_qty <= 0:
             return False
+        if profit:
+            basis = standalone_one_share_profit_basis(parent, life.avg_fill_price)
+            if (life.filled_qty != 1 or not basis
+                    or decision.rationale != "STANDALONE_ONE_SHARE_PROFIT_EXIT"
+                    or (failure.get("entry_fill_price"), failure.get("original_stop"), failure.get("milestone")) != basis
+                    or not standalone_profit_quote_evidence(failure.get("profit_quote"), symbol=parent["symbol"],
+                        milestone=basis[2], observed_at=datetime.now(timezone.utc))):
+                return False
         self._retain_native_selected_stops()
         child_id = f"{order_id}:stop:{life.stop.broker_order_id}"
         child = self._native_orders.get(child_id)
@@ -2390,10 +2405,26 @@ class ExecutionEngine:
         try:
             self._validate_native_binding(order_id, parent, {})
             self._validate_native_binding(child_id, child, {})
+            final_binding = {}
+            if profit:
+                retained_latch = deepcopy(parent["pmh_failure_exit"])
+                retained_request = deepcopy(parent["request"])
+                def final_guard(now):
+                    self._validate_native_binding(order_id, parent, {})
+                    self._validate_native_binding(child_id, child, {})
+                    return bool(self.run_mode == RunMode.PAPER and life.filled_qty == 1
+                        and life.avg_fill_price == basis[0] and life.selected_stop_price == basis[1]
+                        and life.preserve_selected_protection and life.target is None
+                        and parent["request"] == retained_request and not child.get("terminal")
+                        and not parent.get("quarantine") and not parent.get("cached_update_in_progress")
+                        and not child.get("cached_update_in_progress")
+                        and parent.get("pmh_failure_exit") == retained_latch and authorization_guard(now))
+                final_binding["authorization_guard"] = final_guard
             self._provider.convert_selected_stop_to_market(broker_order_id=child["broker_order_id"],
                 parent_order_id=parent["broker_order_id"], symbol=parent["symbol"],
                 con_id=parent["security_id"], total_quantity=child["requested"],
-                trade_id=life.trade_id, stop_price=life.selected_stop_price, expected_client=self._native_scope[1], scope_as_of=self._native_scope[2])
+                trade_id=life.trade_id, stop_price=life.selected_stop_price, expected_client=self._native_scope[1],
+                scope_as_of=self._native_scope[2], **final_binding)
         except Exception as exc:
             parent["pmh_failure_exit"]["dispatch_error"] = type(exc).__name__
         # Return values are never broker confirmation. Independently read the

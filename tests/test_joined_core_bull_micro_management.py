@@ -27,6 +27,8 @@ from test_key_level_break_production_handoff import forbid_io
     ("complete_empty","native_pending"),("complete_empty","native_rejected"),
     ("complete_empty","native_missing_id"),("complete_empty","native_unsupported"),
     ("complete_empty","native_late_fill"),("complete_empty","native_late_management_green_child"),
+    ("complete_empty","native_late_management_small_cap"),
+    ("complete_empty","native_late_oversize_small_cap"),
     *[("complete_empty","native_late_"+case) for case in
       ("pending","unrelated","negative","fractional","no_price","nan_price",
        *["assessment_"+stage for stage in ("before_allocation","allocation_audit_failure","before_capital","capital_audit_failure","allocation_error","accounting_error","processor_error","processor_after","completion_error","relationship_write_failure")],
@@ -38,6 +40,10 @@ from test_key_level_break_production_handoff import forbid_io
 ])
 def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypatch,tmp_path,capsys,
         no_external_activity,position_case,transport):
+    small_cap_case=transport in {"native_late_management_small_cap","native_late_oversize_small_cap"}
+    if small_cap_case:
+        transport=transport.removesuffix("_small_cap")
+        monkeypatch.setenv("TRADING_DEFAULT_CAPITAL","400")
     green_child_case=transport=="native_late_management_green_child"
     if green_child_case:transport="native_late_management"
     late_fill=transport.startswith("native_late_")
@@ -140,7 +146,8 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
         return provider
     monkeypatch.setattr(core_module,"IbkrExecutionProvider",provider_boundary)
     h=joined(reassessment,monkeypatch,tmp_path,position_case=position_case,
-        runtime_options=dict(run_mode="PAPER",config_overrides=dict(EXECUTION_ENABLED=True,RISK_PROFILE="MICRO",
+        runtime_options=dict(run_mode="PAPER",config_overrides=dict(EXECUTION_ENABLED=True,RISK_PROFILE="SMALL" if small_cap_case else "MICRO",
+            **({"RISK_MAX_POSITION_SIZE":2} if small_cap_case else {}),
             IBKR_READONLY_ENABLED=False,IBKR_ORDER_SUBMISSION_ENABLED=True,
             IBKR_ORDER_TRANSLATION_ENABLED=True,IBKR_API_WRITE_ALLOWED=True,
             **({"STRATEGY_CAPITAL_ALLOCATIONS":{"ROSSMOMENTUMSTRATEGYV1":{"max_allocation_usd":1.0}}} if transport=="allocation_denied" else {}))))
@@ -157,6 +164,8 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
         def external_positions():
             held=(bool(assessment_case) or management_case or late_case in {"fill","partial","uncertain","regression","processor_error","processor_after","stop_oversize","stop_bad_price","stop_bad_status","management"}) and bool(cached_facts) and not (management_case and cached_facts.get(73,{}).get("filled")==1)
             quantity=(1-sum(broker_fills.values())) if interleaving and cached_facts else int(held)
+            if small_cap_case and late_case=="oversize" and cached_facts:
+                quantity=2  # Independent external holding, never fabricated local ownership.
             rows=(NS(symbol="JPM",position=quantity,con_id=123,avgCost=10.91,account="SYNTHETIC_TEST"),) if quantity else ()
             return BrokerPositionResult(rows,"UNAVAILABLE" if late_case=="management_unknown" and management_fault_active[0]
                 else "COMPLETE","SYNTHETIC_TEST",h.life.clock.now(timezone.utc))
@@ -359,7 +368,12 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
                 assert plan.parent_id==raw_now[0].relationship_context["parent_id"]
                 parent=next(p for p in h.manager._parents.values() if p["parent_id"]==plan.parent_id)
                 assert parent["consumed_children"]==[raw_now[0].relationship_context["child_id"]]
-                assert sent[0].quantity==1 and h.core.execution_engine.max_shares_per_order==1
+                assert sent[0].quantity==1
+                assert h.core.execution_engine.max_shares_per_order==(None if small_cap_case else 1)
+                if small_cap_case:
+                    from src.config.config_resolver import get_config
+                    assert get_config("RISK_PROFILE")=="SMALL" and get_config("RISK_MAX_POSITION_SIZE")==2
+                    assert raw_now[0].quantity==risk_decisions[0].max_position_size==1
                 assert sent[0].stop_loss_price==pytest.approx(10.81)
                 facts={"status":"Filled","filled":1,"remaining":0,"avgFillPrice":10.91}
                 if late_case=="pending": facts.update(status="PendingSubmit",filled=0,remaining=1,avgFillPrice=0)
@@ -584,6 +598,9 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
         assert h.core.execution_engine.capital_authority.symbol_exposure("JPM")==0
         assert h.core.execution_engine.strategy_allocation_authority.strategy_used_exposure("RossMomentumStrategyV1")==0
         if failed_pass:
+            if small_cap_case:
+                assert late_case=="oversize" and external_positions().rows[0].position==2
+                assert not h.manager.snapshot_positions() and not h.core.trade_registry.snapshot()
             if not malformed and late_case!="collector_error":
                 assert plan.orders[sent[0].client_order_id]["cached_update_in_progress"]["filled"]==1
                 assert plan.paused

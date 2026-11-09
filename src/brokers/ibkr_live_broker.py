@@ -534,7 +534,7 @@ class IbkrLiveBroker(BaseBroker):
         )
 
     def convert_selected_stop_to_market(self, *, broker_order_id, parent_order_id,
-            symbol, con_id, total_quantity, trade_id, stop_price, expected_client, scope_as_of):
+            symbol, con_id, total_quantity, trade_id, stop_price, expected_client, scope_as_of, authorization_guard=None):
         """Amend the ONE existing close leg, never allocate a second SELL ID.
 
         Dispatch is not acknowledgement. Native inventory/callback truth must
@@ -575,6 +575,9 @@ class IbkrLiveBroker(BaseBroker):
         amended.auxPrice = 0.0
         if not enabled() or manager.existing_client is not client or not client.isConnected():
             raise RuntimeError("PMH_NATIVE_AMENDMENT_AUTHORITY_CHANGED")
+        if authorization_guard is not None and (not callable(authorization_guard)
+                or not authorization_guard(datetime.now(timezone.utc))):
+            raise RuntimeError("SELECTED_EXIT_AUTHORIZATION_EXPIRED")
         client.placeOrder(int(broker_order_id), deepcopy(contract), amended)
         return {"broker_order_id": str(broker_order_id), "status": "DISPATCHED_UNCONFIRMED"}
 
