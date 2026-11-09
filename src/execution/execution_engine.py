@@ -2516,10 +2516,13 @@ class ExecutionEngine:
                     or any(str(o.get("broker_order_id")) == str(broker_id) for o in self._native_orders.values())
                     or getattr(contract, "symbol", None) != parent["symbol"]
                     or getattr(native, "action", None) != "SELL" or getattr(native, "orderType", None) != "STP"
+                    or isinstance(getattr(native, "totalQuantity", None), bool)
                     or getattr(native, "totalQuantity", None) != 1
+                    or isinstance(getattr(native, "auxPrice", None), bool)
                     or getattr(native, "auxPrice", None) != life.selected_stop_price
                     or str(getattr(native, "parentId", None)) != str(parent["broker_order_id"])
                     or getattr(native, "orderRef", None) != "PROTECT|"+life.trade_id
+                    or any(type(o.get("filled")) is not int or not 0 <= o["filled"] <= o["requested"] for o in existing)
                     or sum(o["requested"]-o["filled"] for o in existing)+1 > life.filled_qty):
                 raise RuntimeError("NATIVE_UNIT_STOP_ALLOCATION_INVALID")
             leg.broker_order_id = str(broker_id)
@@ -2551,6 +2554,12 @@ class ExecutionEngine:
         """Confirm retained protective facts; never submit/cancel/resize an order."""
         for leg in life.stop_legs:
             leg.independently_confirmed = False
+        for leg in life.stop_legs:
+            child = self._native_orders.get(leg.leg_id)
+            if (child is None or type(leg.quantity) is not int or leg.quantity != 1
+                    or type(leg.filled_quantity) is not int or not 0 <= leg.filled_quantity <= 1
+                    or type(child.get("filled")) is not int or child["filled"] != leg.filled_quantity):
+                return None
         remaining = [leg for leg in life.stop_legs if leg.quantity > leg.filled_quantity]
         if (not remaining or sum(leg.quantity-leg.filled_quantity for leg in remaining) != life.filled_qty
                 or len({leg.broker_order_id for leg in life.stop_legs}) != len(life.stop_legs)):
@@ -2572,7 +2581,7 @@ class ExecutionEngine:
             if (row.symbol != life.symbol or row.status.upper() not in {"SUBMITTED", "PRESUBMITTED"}
                     or row.order_type.upper() != "STP" or meta.get("side") != "SELL"
                     or type(meta.get("native_quantity")) is bool or meta.get("native_quantity") != 1
-                    or meta.get("stop_price") != life.selected_stop_price
+                    or isinstance(meta.get("stop_price"), bool) or meta.get("stop_price") != life.selected_stop_price
                     or row.parent_order_id != str(parent["broker_order_id"])
                     or meta.get("order_ref") != "PROTECT|"+life.trade_id
                     or type(meta.get("con_id")) is not int or meta["con_id"] <= 0
