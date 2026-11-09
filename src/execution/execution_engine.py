@@ -2351,17 +2351,32 @@ class ExecutionEngine:
         """Coordinate one existing owned close leg; never submit a second SELL."""
         from copy import deepcopy
         from src.strategies.ross_momentum.strategy_policy import selected_completed_failure_profile
+        from src.strategies.ross_momentum.strategy_policy import (selected_one_share_profit_profile,
+            standalone_one_share_profit_basis, standalone_profit_quote_evidence, STANDALONE_ONE_SHARE_PROFIT_PROFILE)
         parent = self._native_orders[order_id]
+        profit = failure.get("profile") == STANDALONE_ONE_SHARE_PROFIT_PROFILE
+        if profit and self.run_mode != RunMode.PAPER:
+            return False
+        expected_profile = (selected_one_share_profit_profile(parent["request"]) if profit
+            else selected_completed_failure_profile(parent["request"]))
         if (parent.get("pmh_failure_exit") or parent.get("pmh_management_expired") or not decision.allowed or decision.execution_blocked
                 or decision.decision_id != parent["decision_id"] or decision.direction != "SELL"
                 or not selected_completed_failure_profile(parent["request"])
-                or failure.get("profile") != selected_completed_failure_profile(parent["request"])
+                or failure.get("profile") != expected_profile
                 or failure.get("occurrence") != parent["request"].get("setup_metadata")):
             return False
         self._validate_native_binding(order_id, parent, {})
         life = self.post_fill_lifecycle.get_trade(order_id)
         if life is None or life.filled_qty != decision.max_position_size or life.filled_qty <= 0:
             return False
+        if profit:
+            basis = standalone_one_share_profit_basis(parent, life.avg_fill_price)
+            if (life.filled_qty != 1 or not basis
+                    or decision.rationale != "STANDALONE_ONE_SHARE_PROFIT_EXIT"
+                    or (failure.get("entry_fill_price"), failure.get("original_stop"), failure.get("milestone")) != basis
+                    or not standalone_profit_quote_evidence(failure.get("profit_quote"), symbol=parent["symbol"],
+                        milestone=basis[2], observed_at=datetime.now(timezone.utc))):
+                return False
         self._retain_native_selected_stops()
         child_id = f"{order_id}:stop:{life.stop.broker_order_id}"
         child = self._native_orders.get(child_id)

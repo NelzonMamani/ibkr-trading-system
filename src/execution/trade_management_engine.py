@@ -692,7 +692,7 @@ class TradeManagementEngine:
         )
         return position
 
-    def evaluate_selected_completed_failure(self, order, bars, *, observed_at, session_plan):
+    def _evaluate_selected_completed_exit(self, order, bars, *, observed_at, session_plan, profit=False, entry_fill_price=None):
         """Pure occurrence-bound rule; execution owns the durable dispatch latch."""
         from datetime import timedelta
         from src.strategies.common.candles.candle_types import Candle
@@ -702,6 +702,13 @@ class TradeManagementEngine:
         from src.strategies.ross_momentum.strategy_policy import selected_completed_failure_profile, PMH_COMPLETED_BAR_FAILURE_PROFILE
         request = order.get("request", {})
         profile = selected_completed_failure_profile(request)
+        from src.strategies.ross_momentum.strategy_policy import selected_one_share_profit_profile, standalone_one_share_profit_basis
+        basis = standalone_one_share_profit_basis(order, entry_fill_price) if profit else None
+        if profit and basis is None:
+            return None
+        failure_profile = profile
+        if profit:
+            profile = selected_one_share_profit_profile(request)
         metadata = request.get("setup_metadata") or {}
         stream = metadata.get("execution_stream") or {}
         timeframe = stream.get("execution_trigger_timeframe")
@@ -724,8 +731,8 @@ class TradeManagementEngine:
             level = metadata["trigger_level"]
             if (stamp.tzinfo is None or observed_at.tzinfo is None or stamp > observed_at
                     or isinstance(level, bool) or not math.isfinite(level) or level <= 0
-                    or (profile == PMH_COMPLETED_BAR_FAILURE_PROFILE and level != request.get("invalidation_level"))
-                    or (profile != PMH_COMPLETED_BAR_FAILURE_PROFILE
+                    or (failure_profile == PMH_COMPLETED_BAR_FAILURE_PROFILE and level != request.get("invalidation_level"))
+                    or (failure_profile != PMH_COMPLETED_BAR_FAILURE_PROFILE
                         and metadata.get("invalidation_level") != request.get("invalidation_level"))
                     or metadata.get("stop_level") != request.get("stop_loss_price")):
                 return None
@@ -747,13 +754,21 @@ class TradeManagementEngine:
                 if _timeframe_provenance([bar], timeframe, PatternInputPolicy.from_policy_v2(),
                         symbol=order["symbol"], now_utc=observed_at) != "PRESENT":
                     continue
-                if bar.close < level:
-                    return {"profile": profile,
+                qualifies = bar.close >= basis[2] if profit else bar.close < level
+                if qualifies:
+                    return ({"entry_fill_price": basis[0], "original_stop": basis[1], "milestone": basis[2]} if profit else {}) | {"profile": profile,
                         "bar_start": bar.timestamp.isoformat(), "close": bar.close,
                         ("selected_pmh" if profile == PMH_COMPLETED_BAR_FAILURE_PROFILE else "selected_entry"): level, "occurrence": metadata, "session_plan": session_plan}
         except (TypeError, ValueError, KeyError, AttributeError, OverflowError):
             return None
         return None
+
+    def evaluate_selected_completed_failure(self, order, bars, *, observed_at, session_plan):
+        return self._evaluate_selected_completed_exit(order, bars, observed_at=observed_at, session_plan=session_plan)
+
+    def evaluate_selected_completed_profit(self, order, bars, *, observed_at, session_plan, entry_fill_price):
+        return self._evaluate_selected_completed_exit(order, bars, observed_at=observed_at,
+            session_plan=session_plan, profit=True, entry_fill_price=entry_fill_price)
 
     # Compatibility entry point; one implementation and explicit policy scope.
     evaluate_pmh_completed_failure = evaluate_selected_completed_failure

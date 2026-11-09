@@ -1398,3 +1398,83 @@ def selected_completed_failure_profile(request):
     if isinstance(family, str) and family in CANONICAL_STANDALONE_FAILURE_FAMILIES:
         return CANONICAL_STANDALONE_FAILURE_PROFILE
     return None
+
+
+# NEW delegated project policy, 9 November 2026. PAPER-only one-share full close,
+# not historical Ross doctrine or a standalone transplant of relationship adds.
+# Reuse the approved relationship's frozen actual E0 + 2*(E0-S0) template;
+# require a completed retained-stream close AND fresh confirmed executable bid.
+# Terminal full accounted entry/protection/healthy truth/session expiry/fills-first
+# remain mandatory. No multi-share partial, cancelled-balance resumption, retry,
+# trailing, add, target rewrite or operational enrollment is authorized here.
+STANDALONE_ONE_SHARE_PROFIT_PROFILE = "STANDALONE_ONE_SHARE_2R_COMPLETED_CLOSE_V1"
+STANDALONE_ONE_SHARE_PROFIT_FAMILIES = frozenset({
+    "PREMARKET_HIGH_BREAK", "BULL_FLAG", "FIRST_PULLBACK", "MICRO_PULLBACK",
+    "KEY_LEVEL_BREAK", "CONSOLIDATION_BREAKOUT", "FLAT_TOP_BREAKOUT",
+    "OPENING_RANGE_BREAKOUT", "HOD_BREAK", "ABCD", "VWAP_RECLAIM_CONTINUATION",
+    "CUP_HANDLE", "OPENING_DRIVE", "EMA_PULLBACK", "VWAP_PULLBACK",
+    "TREND_CONTINUATION_STAIR_STEP",
+})
+
+
+def selected_one_share_profit_profile(request):
+    family = request.get("setup_family_id")
+    if (isinstance(family, str) and family in STANDALONE_ONE_SHARE_PROFIT_FAMILIES
+            and selected_completed_failure_profile(request)):
+        return STANDALONE_ONE_SHARE_PROFIT_PROFILE
+    return None
+
+
+def standalone_one_share_profit_basis(order, entry_fill_price):
+    """Actual accounted E0/original structural S0; never measured entry or INV."""
+    import math
+    from decimal import Decimal, InvalidOperation
+    request = order.get("request", {})
+    stop = request.get("stop_loss_price")
+    if (not selected_one_share_profit_profile(request)
+            or type(order.get("filled")) is not int or order["filled"] != 1
+            or type(order.get("requested")) is not int or order["requested"] != 1
+            or not order.get("terminal")):
+        return None
+    try:
+        if (isinstance(entry_fill_price, bool) or isinstance(stop, bool)
+                or not math.isfinite(entry_fill_price) or not math.isfinite(stop)
+                or not 0 < stop < entry_fill_price):
+            return None
+        # Decimal input-price arithmetic preserves exact-cent equality without
+        # an epsilon, tick rounding, price buffer or altered risk multiple.
+        entry_decimal, stop_decimal = Decimal(str(entry_fill_price)), Decimal(str(stop))
+        milestone = float(entry_decimal + 2 * (entry_decimal - stop_decimal))
+        if not math.isfinite(milestone):
+            return None
+        return entry_fill_price, stop, milestone
+    except (TypeError, ValueError, OverflowError, InvalidOperation):
+        return None
+
+
+def standalone_profit_quote_evidence(quote, *, symbol, milestone, observed_at):
+    """Existing snapshot facts/domain time owner, independently rechecked at dispatch."""
+    import math
+    from collections.abc import Mapping
+    from src.domain.quote_freshness import quote_evidence, evidence_rejection
+    read = quote.get if isinstance(quote, Mapping) else lambda key: getattr(quote, key, None)
+    try:
+        bid, ask = read("bid"), read("ask")
+        evidence = quote_evidence(read("market_timestamp_utc"), read("timestamp_source"), read("data_quality_flags"))
+        if (read("symbol") != symbol or read("source") != "IBKR"
+                or not isinstance(read("data_quality_flags"), (tuple, list))
+                or read("data_quality_flags")
+                or read("snapshot_complete") is not True
+                or read("market_data_type_confirmed") is not True
+                or read("market_data_type") != "LIVE" or read("returned_market_data_type") != "LIVE"
+                or evidence_rejection(evidence, now=observed_at)
+                or isinstance(bid, bool) or isinstance(ask, bool)
+                or not math.isfinite(bid) or not math.isfinite(ask)
+                or not 0 < bid <= ask or bid < milestone):
+            return None
+        return {key: read(key) for key in ("symbol", "source", "snapshot_complete", "market_data_type_confirmed",
+            "market_data_type", "returned_market_data_type", "bid", "ask")} | {
+            "market_timestamp_utc": evidence["timestamp_utc"], "timestamp_source": evidence["timestamp_source"],
+            "data_quality_flags": evidence["rejection_flags"]}
+    except (TypeError, ValueError, OverflowError, AttributeError):
+        return None

@@ -1470,6 +1470,21 @@ def coherent_pmh_failure_entry(*args,**kwargs):
     return h
 
 
+def append_external_management_bar(h,timeframe,bar):
+    from src.strategies.common.candles.candle_types import Candle
+    h.streams[timeframe].append(bar)
+    if timeframe=='10s':
+        for target,period in (('1m',60),('5m',300)):
+            by_start={}
+            for item in h.streams['10s']:
+                key=item.timestamp.replace(second=(item.timestamp.second//period)*period,microsecond=0) if period==60 else item.timestamp.replace(minute=(item.timestamp.minute//5)*5,second=0,microsecond=0)
+                if key>h.streams[target][-1].timestamp:
+                    by_start.setdefault(key,[]).append(item)
+            for key,items in sorted(by_start.items()):
+                h.streams[target].append(Candle(items[0].open,max(x.high for x in items),min(x.low for x in items),
+                    items[-1].close,sum(x.volume for x in items),timestamp=key))
+
+
 def pmh_failure_case(reassessment,monkeypatch,tmp_path,capsys,*,fault='none',conversion='confirmed',prepared=None,clock_step=1):
     from dataclasses import replace
     from src.ibkr.market_data_client import HistoricalDataResult
@@ -1538,17 +1553,7 @@ def pmh_failure_case(reassessment,monkeypatch,tmp_path,capsys,*,fault='none',con
         while cursor<stamp:
             h.streams[timeframe].append(Candle(previous.close,max(previous.close,level+.02),level,level+.01,200,timestamp=cursor) if standalone else Candle(previous.close,10.54,10.30,10.31,200,timestamp=cursor))
             previous=h.streams[timeframe][-1];cursor+=timedelta(seconds=seconds)
-        h.streams[timeframe].append(bar)
-        if timeframe=='10s':
-            for target,period in (('1m',60),('5m',300)):
-                by_start={}
-                for item in h.streams['10s']:
-                    key=item.timestamp.replace(second=(item.timestamp.second//period)*period,microsecond=0) if period==60 else item.timestamp.replace(minute=(item.timestamp.minute//5)*5,second=0,microsecond=0)
-                    if key>h.streams[target][-1].timestamp:
-                        by_start.setdefault(key,[]).append(item)
-                for key,items in sorted(by_start.items()):
-                    h.streams[target].append(Candle(items[0].open,max(x.high for x in items),min(x.low for x in items),
-                        items[-1].close,sum(x.volume for x in items),timestamp=key))
+        append_external_management_bar(h,timeframe,bar)
         h.failure_bars=list(h.streams[timeframe][-10:])
     if fault=='forming':h.failure_bars=[replace(bar,timestamp=h.life.clock.current-timedelta(seconds=5))]
     if fault=='straddling':h.failure_bars=[replace(bar,timestamp=__import__('datetime').datetime.fromisoformat(owner['last_accounted_entry_fill_at'])-timedelta(seconds=1))]
@@ -2199,11 +2204,8 @@ def test_one_minute_pmh_unknown_dispatch_is_not_protection_or_retry_permission(r
     assert h.core.execution_engine.capital_authority.total_used_exposure==10.53
 
 
-def test_one_minute_pmh_dispatch_identity_restores_readonly_and_quarantines_in_fresh_process(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+def assert_readonly_selected_dispatch_restart(h,request,*,timeframe,profile):
     import os,subprocess,sys
-    prepared=terminal_one_minute_pmh(reassessment,monkeypatch,tmp_path,capsys)
-    h,request,life=pmh_failure_case(reassessment,monkeypatch,tmp_path,capsys,prepared=prepared,clock_step=10)
-    assert h.core.run_once();capsys.readouterr()
     storage=h.core.storage_engine;namespace='execution.native_orders.v1:PAPER'
     before=storage.fetch_management_state(namespace)
     script="""
@@ -2219,7 +2221,8 @@ before=s.fetch_management_state('execution.native_orders.v1:PAPER')
 o=before['orders'][sys.argv[2]]
 assert o['pmh_failure_exit']['native_order_id']=='72' and o['pmh_failure_exit']['status']=='MKT'
 assert o['pmh_failure_exit']['occurrence']==o['request']['setup_metadata']
-assert o['request']['setup_metadata']['execution_stream']['execution_trigger_timeframe']=='1m'
+assert o['request']['setup_metadata']['execution_stream']['execution_trigger_timeframe']==sys.argv[3]
+assert o['pmh_failure_exit']['profile']==sys.argv[4]
 e=ExecutionEngine.__new__(ExecutionEngine);e._storage_engine=s;e.run_mode=RunMode.PAPER
 e._native_loaded=False;e._native_state=None;e._native_orders={};e._native_quarantined=False
 try:e._load_native_orders()
@@ -2230,11 +2233,19 @@ assert s.fetch_management_state('execution.native_orders.v1:PAPER')==before
 s._store.connection.close()
 print('READ_ONLY_PMH_DISPATCH_RESTART_QUARANTINED')
 """
-    result=subprocess.run([sys.executable,'-c',script,storage.sqlite_path,request.client_order_id],
+    result=subprocess.run([sys.executable,'-c',script,storage.sqlite_path,request.client_order_id,timeframe,profile],
         env=dict(os.environ),capture_output=True,text=True,timeout=15)
     assert result.returncode==0,result.stderr
     assert 'READ_ONLY_PMH_DISPATCH_RESTART_QUARANTINED' in result.stdout
     assert storage.fetch_management_state(namespace)==before
+
+
+def test_one_minute_pmh_dispatch_identity_restores_readonly_and_quarantines_in_fresh_process(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    prepared=terminal_one_minute_pmh(reassessment,monkeypatch,tmp_path,capsys)
+    h,request,life=pmh_failure_case(reassessment,monkeypatch,tmp_path,capsys,prepared=prepared,clock_step=10)
+    assert h.core.run_once();capsys.readouterr()
+    from src.strategies.ross_momentum.strategy_policy import PMH_COMPLETED_BAR_FAILURE_PROFILE
+    assert_readonly_selected_dispatch_restart(h,request,timeframe='1m',profile=PMH_COMPLETED_BAR_FAILURE_PROFILE)
     assert len(h.failure_conversions)==1 and life.filled_qty==1 and life.exited_qty==0
     assert h.core.execution_engine.capital_authority.total_used_exposure==10.53
 
@@ -2397,10 +2408,7 @@ def test_central_failure_uncertainty_and_race_do_not_retry(reassessment,monkeypa
         assert h.core.execution_engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected'] is (conversion=='rejected')
 
 
-@pytest.mark.parametrize('family',SELECTED_FAILURE_FAMILIES)
-@pytest.mark.parametrize('fault',['broker_larger','unknown','partial_truth','wrong_reference','pending_order','incomplete_inventory'])
-def test_central_failure_actual_truth_and_inventory_veto(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,family,fault):
-    h,request,life=central_failure_case(reassessment,monkeypatch,tmp_path,capsys,family)
+def install_selected_truth_fault(h,monkeypatch,fault):
     if fault=='broker_larger':h.native_quantity[0]=2
     if fault in {'unknown','partial_truth'}:
         h.native_client.position_snapshot=lambda:BrokerPositionResult((),'UNKNOWN' if fault=='unknown' else 'PARTIAL','SYNTHETIC_TEST',h.life.clock.now(timezone.utc))
@@ -2413,6 +2421,13 @@ def test_central_failure_actual_truth_and_inventory_veto(reassessment,monkeypatc
             if kw.get('require_complete'):raise RuntimeError('synthetic incomplete native inventory')
             return original(**kw)
         monkeypatch.setattr(h.core.execution_engine._provider.broker,'open_orders',incomplete)
+
+
+@pytest.mark.parametrize('family',SELECTED_FAILURE_FAMILIES)
+@pytest.mark.parametrize('fault',['broker_larger','unknown','partial_truth','wrong_reference','pending_order','incomplete_inventory'])
+def test_central_failure_actual_truth_and_inventory_veto(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,family,fault):
+    h,request,life=central_failure_case(reassessment,monkeypatch,tmp_path,capsys,family)
+    install_selected_truth_fault(h,monkeypatch,fault)
     h.core.run_once();capsys.readouterr()
     assert not h.failure_conversions and not h.failure_owner.get('pmh_failure_exit')
     assert life.filled_qty==1 and life.selected_stop_price==request.stop_loss_price
@@ -2558,3 +2573,316 @@ def test_cup_original_entry_clock_correctly_expires_before_failure_bar(reassessm
     assert h.core.run_once();capsys.readouterr()
     assert h.failure_owner['pmh_management_expired'] and not h.failure_conversions
     assert life.filled_qty==1 and life.selected_stop_price==10.3
+
+
+PROFIT_FAMILIES=('PREMARKET_HIGH_BREAK',*SELECTED_FAILURE_FAMILIES)
+
+
+def one_share_profit_case(reassessment,monkeypatch,tmp_path,capsys,*,family='BULL_FLAG',fault='none',conversion='confirmed',prepared=None):
+    """Existing genuine entry/fill/protection; only later external bar/quote facts."""
+    import math
+    from dataclasses import replace
+    from src.strategies.common.candles.candle_types import Candle
+    if prepared:
+        h,request,life=pmh_failure_case(reassessment,monkeypatch,tmp_path,capsys,prepared=prepared,fault='equality',clock_step=5,conversion=conversion)
+    elif family=='PREMARKET_HIGH_BREAK':
+        h,request,life=pmh_failure_case(reassessment,monkeypatch,tmp_path,capsys,fault='equality',clock_step=5,conversion=conversion)
+    else:
+        h,request,life=central_failure_case(reassessment,monkeypatch,tmp_path,capsys,family,fault='equality',conversion=conversion)
+    from decimal import Decimal
+    entry,stop=Decimal(str(life.avg_fill_price)),Decimal(str(life.selected_stop_price))
+    level=float(entry+2*(entry-stop))
+    bid=math.ceil(level*100)/100;close=bid+.01;ask=bid+.02
+    if fault=='equality':bid=close=level;ask=level+.02
+    if fault in {'below','wick'}:close=level-.01
+    seconds={'10s':10,'1m':60}[request.setup_metadata['execution_stream']['execution_trigger_timeframe']]
+    now=h.life.clock.current
+    start=now.replace(microsecond=0)+timedelta(seconds=(-int(now.timestamp()))%seconds)
+    bar=Candle(close, max(ask,close+.01), min(bid-.01,close-.01),close,1000,timestamp=start)
+    if fault=='wick':bar=replace(bar,high=level+.03)
+    if fault=='straddling':bar=replace(bar,timestamp=__import__('datetime').datetime.fromisoformat(h.failure_owner['last_accounted_entry_fill_at'])-timedelta(seconds=1))
+    if fault=='forming':bar=replace(bar,timestamp=start+timedelta(seconds=seconds-5))
+    if fault=='future':bar=replace(bar,timestamp=start+timedelta(seconds=seconds+1))
+    if fault=='stale':bar=replace(bar,timestamp=start-timedelta(hours=1))
+    if fault in {'none','equality','below','wick','quote_latency'}:
+        timeframe=request.setup_metadata['execution_stream']['execution_trigger_timeframe']
+        previous=h.streams[timeframe][-1]
+        cursor=previous.timestamp+timedelta(seconds=seconds)
+        while cursor<bar.timestamp:
+            # New above-entry/below-profit holds, never a revised completed bar.
+            hold=replace(previous,timestamp=cursor)
+            h.streams[timeframe].append(hold)
+            previous=hold;cursor+=timedelta(seconds=seconds)
+        append_external_management_bar(h,timeframe,bar)
+    h.failure_bars=[bar] if fault in {'straddling','stale'} else [*h.failure_bars,bar]
+    if fault=='missing':h.failure_bars=[]
+    original=h.core.market_data_snapshot_manager.batch_snapshots
+    def quotes(symbols):
+        values,errors=original(symbols)
+        result={}
+        if fault=='quote_latency':h.life.clock.current+=timedelta(seconds=1)
+        for symbol,value in values.items():
+            stamp=h.life.clock.current
+            current=replace(value,last=close,bid=bid,ask=ask,asof_utc=stamp,market_timestamp_utc=stamp,
+                timestamp_source='LAST_TRADE',snapshot_complete=True,market_data_type='LIVE',
+                returned_market_data_type='LIVE',market_data_type_confirmed=True,data_quality_flags=())
+            if fault=='quote_missing':continue
+            if fault=='quote_stale':current=replace(current,market_timestamp_utc=stamp-timedelta(hours=1))
+            if fault=='quote_future':current=replace(current,market_timestamp_utc=stamp+timedelta(seconds=1))
+            if fault=='quote_unconfirmed':current=replace(current,market_data_type_confirmed=False)
+            if fault=='quote_incomplete':current=replace(current,snapshot_complete=False)
+            if fault=='quote_wrong_symbol':current=replace(current,symbol='UNRELATED')
+            if fault=='quote_crossed':current=replace(current,ask=bid-.01)
+            if fault=='quote_below':current=replace(current,bid=level-.01)
+            if fault=='quote_flag':current=replace(current,data_quality_flags=('MD_STALE',))
+            result[symbol]=current
+        return result,errors
+    h.core.market_data_snapshot_manager.batch_snapshots=quotes
+    # No completed close is revised. Forming/future facts stay non-actionable;
+    # the new observation completes by actual bounded Core cycles/scope refresh.
+    end=start+timedelta(seconds=seconds)
+    h.profit_observations=[]
+    while h.life.clock.current<end:
+        h.life.clock.current+=min(timedelta(seconds=5),end-h.life.clock.current)
+        assert h.core.run_once();h.profit_observations.append(capsys.readouterr().out)
+        if h.life.clock.current<end:assert not h.failure_conversions
+    if fault=='quote_latency':
+        # Discovery may acquire a quote after management saw the forming bar.
+        # Observe the now-completed immutable bar in another real Core cycle.
+        assert h.core.run_once();h.profit_observations.append(capsys.readouterr().out)
+    h.profit_level=level;h.failure_exit_price=bid
+    return h,request,life
+
+
+@pytest.mark.parametrize('family',PROFIT_FAMILIES)
+def test_standalone_one_share_profit_full_registry_core_to_flat(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,family):
+    from src.strategies.ross_momentum.strategy_policy import STANDALONE_ONE_SHARE_PROFIT_PROFILE
+    h,request,life=one_share_profit_case(reassessment,monkeypatch,tmp_path,capsys,family=family)
+    owner=h.failure_owner;metadata=deepcopy(request.setup_metadata)
+    assert len(h.registry_batches[0][1])==33 and not request.relationship_context
+    assert len(h.failure_conversions)==1 and life.filled_qty==1, h.profit_observations[-1]
+    latch=owner['pmh_failure_exit'] # Existing schema-compatible once-only selected exit latch.
+    assert latch['profile']==STANDALONE_ONE_SHARE_PROFIT_PROFILE and latch['status']=='MKT'
+    assert latch['entry_fill_price']==life.avg_fill_price and latch['original_stop']==request.stop_loss_price
+    assert latch['entry_fill_price']!=metadata['trigger_level']
+    assert latch['milestone']==h.profit_level
+    assert h.profit_level==pytest.approx(life.avg_fill_price+2*(life.avg_fill_price-request.stop_loss_price))
+    if family=='HOD_BREAK':assert h.profit_level==10.62
+    assert latch['close']>=h.profit_level and latch['profit_quote']['bid']>=h.profit_level
+    assert latch['occurrence']==metadata and request.take_profit_price is life.target is None
+    assert request.target_model==h.evaluated[0][0].target_model
+    assert h.evaluated[0][1]==vars(h.evaluated[0][0])
+    persisted=h.core.storage_engine.fetch_management_state('execution.native_orders.v1:PAPER')
+    assert persisted['orders'][request.client_order_id]['pmh_failure_exit']==latch
+    if family=='TREND_CONTINUATION_STAIR_STEP':assert request.stop_loss_price==10.34 and request.invalidation_level==10.24
+    assert not h.core.execution_engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
+    finish_failure_fill(h,life,capsys)
+    assert life.filled_qty==0 and life.exited_qty==1 and not h.manager.snapshot_positions() and not h.core.trade_registry.snapshot()
+    engine=h.core.execution_engine
+    assert engine.capital_authority.total_used_exposure==engine.capital_authority.total_reserved_capital==0
+    assert engine.strategy_allocation_authority.strategy_used_exposure('RossMomentumStrategyV1')==0
+    assert len(h.failure_conversions)==len(h.sent_native)==len(h.stop_requests)==1
+    assert len(engine.position_records)==2 and request.setup_metadata==metadata
+    assert life.realized_pnl==pytest.approx(h.failure_exit_price-life.avg_fill_price)
+
+
+@pytest.mark.parametrize('fault',['below','wick','forming','straddling','missing','stale','future',
+    'quote_missing','quote_stale','quote_future','quote_unconfirmed','quote_incomplete','quote_wrong_symbol','quote_crossed','quote_below','quote_flag'])
+def test_standalone_profit_actual_core_adverse_holds(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,fault):
+    h,request,life=one_share_profit_case(reassessment,monkeypatch,tmp_path,capsys,fault=fault)
+    assert not h.failure_conversions and not h.failure_owner.get('pmh_failure_exit')
+    assert life.filled_qty==1 and life.stop.quantity==1 and life.selected_stop_price==request.stop_loss_price
+    assert h.core.execution_engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
+    assert len(h.core.execution_engine.position_records)==1
+
+
+def test_standalone_profit_completed_milestone_equality_qualifies(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    h,request,life=one_share_profit_case(reassessment,monkeypatch,tmp_path,capsys,fault='equality')
+    assert len(h.failure_conversions)==1 and h.failure_owner['pmh_failure_exit']['close']==h.profit_level
+    finish_failure_fill(h,life,capsys)
+    assert life.filled_qty==0
+
+
+def test_standalone_profit_quote_acquired_after_cycle_start_is_current(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    h,request,life=one_share_profit_case(reassessment,monkeypatch,tmp_path,capsys,fault='quote_latency')
+    assert len(h.failure_conversions)==1, h.profit_observations[-1]
+    finish_failure_fill(h,life,capsys)
+    assert life.filled_qty==0 and life.exited_qty==1
+
+
+@pytest.mark.parametrize('partial',[False,True])
+def test_standalone_profit_real_two_share_request_and_partial_remain_excluded(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,partial):
+    prepared=small_central_owned(reassessment,monkeypatch,tmp_path,capsys,'BULL_FLAG',partial=partial)
+    h,request,life=one_share_profit_case(reassessment,monkeypatch,tmp_path,capsys,prepared=prepared)
+    assert request.quantity==2 and life.filled_qty==(1 if partial else 2)
+    assert not h.failure_conversions and not h.failure_owner.get('pmh_failure_exit')
+    assert h.core.execution_engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
+
+
+def confirm_external_profit_quote(h):
+    from dataclasses import replace
+    original=h.core.market_data_snapshot_manager.batch_snapshots
+    def quotes(symbols):
+        values,errors=original(symbols)
+        return {key:replace(value,market_data_type_confirmed=True) for key,value in values.items()},errors
+    h.core.market_data_snapshot_manager.batch_snapshots=quotes
+
+
+@pytest.mark.parametrize('conversion',['uncertain','rejected','stop_race','unknown'])
+def test_standalone_profit_same_id_uncertainty_and_stop_race_no_retry(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,conversion):
+    h,request,life=one_share_profit_case(reassessment,monkeypatch,tmp_path,capsys,conversion=conversion)
+    if conversion=='unknown':
+        assert not h.core.run_once();capsys.readouterr()
+        assert h.core.execution_engine._native_quarantined
+    else:
+        for _ in range(3):
+            h.life.clock.current+=timedelta(seconds=1)
+            assert h.core.run_once();capsys.readouterr()
+    assert len(h.failure_conversions)==len(h.sent_native)==len(h.stop_requests)==1
+    if conversion=='stop_race':
+        assert life.filled_qty==0 and life.exited_qty==1
+        assert h.core.execution_engine.capital_authority.total_used_exposure==0
+    else:
+        assert life.filled_qty==1 and life.exited_qty==0
+        assert h.failure_owner['pmh_failure_exit']['status']=={'uncertain':'MKT','rejected':'STP','unknown':'UNKNOWN'}[conversion]
+        assert h.core.execution_engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected'] is (conversion=='rejected')
+        assert h.core.execution_engine.capital_authority.total_used_exposure==life.avg_fill_price
+
+
+@pytest.mark.parametrize('fault',['broker_larger','unknown','partial_truth','wrong_reference','pending_order','incomplete_inventory'])
+def test_standalone_profit_actual_truth_and_inventory_veto(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,fault):
+    h,request,life=one_share_profit_case(reassessment,monkeypatch,tmp_path,capsys,fault='quote_unconfirmed')
+    confirm_external_profit_quote(h)
+    install_selected_truth_fault(h,monkeypatch,fault)
+    h.life.clock.current+=timedelta(seconds=1)
+    h.core.run_once();capsys.readouterr()
+    assert not h.failure_conversions and not h.failure_owner.get('pmh_failure_exit')
+    assert life.filled_qty==1 and life.selected_stop_price==request.stop_loss_price
+
+
+@pytest.mark.parametrize('transition',['phase','date'])
+def test_standalone_profit_phase_expiry_while_gated(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,transition):
+    h,request,life=one_share_profit_case(reassessment,monkeypatch,tmp_path,capsys,fault='quote_unconfirmed')
+    confirm_external_profit_quote(h);h.core.execution_enabled=False
+    h.life.clock.current+=timedelta(hours=4) if transition=='phase' else timedelta(days=1)
+    h.core.run_once();capsys.readouterr()
+    assert h.failure_owner['pmh_management_expired'] and not h.failure_conversions
+    assert life.filled_qty==1
+
+
+def test_standalone_profit_authoritative_stop_fill_precedes_discretionary_close(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    h,request,life=one_share_profit_case(reassessment,monkeypatch,tmp_path,capsys,fault='quote_unconfirmed')
+    confirm_external_profit_quote(h);external_stop_facts(h,life)
+    assert h.core.run_once();capsys.readouterr()
+    assert life.filled_qty==0 and life.exited_qty==1 and not h.failure_conversions
+    assert not h.failure_owner.get('pmh_failure_exit')
+    assert h.core.execution_engine.capital_authority.total_used_exposure==0
+
+
+def test_standalone_profit_exit_accounting_interruption_quarantines_no_replay(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    h,request,life=one_share_profit_case(reassessment,monkeypatch,tmp_path,capsys)
+    engine=h.core.execution_engine
+    h.facts[72]=dict(status='Filled',filled=1,remaining=0,avgFillPrice=h.failure_exit_price,
+        symbol='JPM',side='SELL',orderId=72,parentId=71,orderRef='PROTECT|'+life.trade_id)
+    h.native_quantity[0]=0;h.native_open_orders.clear()
+    original=engine._record_fill_and_position
+    def interrupted(*a,**kw):original(*a,**kw);raise RuntimeError('synthetic profit accounting interruption')
+    monkeypatch.setattr(engine,'_record_fill_and_position',interrupted)
+    with pytest.raises(RuntimeError,match='synthetic profit accounting interruption'):
+        engine.collect_relationship_updates(result_processor=lambda r:h.core._apply_execution_results_to_trade_management([r]))
+    assert engine._native_quarantined and life.filled_qty==0 and life.exited_qty==1
+    before=(len(engine.position_records),life.realized_pnl,engine.capital_authority.total_used_exposure)
+    with pytest.raises(RuntimeError):engine.collect_relationship_updates()
+    assert before==(len(engine.position_records),life.realized_pnl,engine.capital_authority.total_used_exposure)
+    assert len(h.failure_conversions)==1
+
+
+def test_standalone_profit_real_risk_and_execution_paper_only_backstops(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    from dataclasses import replace
+    from src.config import config_resolver
+    from src.config.runtime_config import RunMode
+    from src.strategies.ross_momentum.strategy_policy import standalone_profit_quote_evidence
+    h,request,life=one_share_profit_case(reassessment,monkeypatch,tmp_path,capsys,fault='quote_unconfirmed')
+    quote=replace(h.core.market_data_snapshot_manager.batch_snapshots(['JPM'])[0]['JPM'],market_data_type_confirmed=True)
+    kwargs=dict(order_id=request.client_order_id,order=h.failure_owner,position=h.manager.snapshot_positions()['JPM'],
+        registered=h.core.trade_registry.get_trade('JPM',request.trader_type),life=life,
+        snapshot=h.core._latest_position_truth_snapshot,observed_at=h.life.clock.current,profit=True,quote=quote)
+    allowed=h.core.risk_engine.evaluate_selected_failure_exit(**kwargs)
+    assert allowed.allowed and allowed.max_position_size==1
+    overrides=dict(config_resolver._CONFIG_OVERRIDES)
+    try:
+        config_resolver.set_config_overrides(dict(overrides,RUN_MODE='READ_ONLY',RUN_MODE_EFFECTIVE='READ_ONLY'))
+        assert not h.core.risk_engine.evaluate_selected_failure_exit(**kwargs).allowed
+    finally:config_resolver.set_config_overrides(overrides)
+    rule=h.manager.evaluate_selected_completed_profit(h.failure_owner,h.failure_bars,observed_at=h.life.clock.current,
+        session_plan=request.management_session_plan,entry_fill_price=life.avg_fill_price)
+    rule['profit_quote']=standalone_profit_quote_evidence(quote,symbol='JPM',milestone=h.profit_level,observed_at=h.life.clock.current)
+    monkeypatch.setattr(h.core.execution_engine,'run_mode',RunMode.READ_ONLY)
+    assert not h.core.execution_engine.request_selected_failure_exit(request.client_order_id,rule,decision=allowed)
+    assert not h.failure_conversions and not h.failure_owner.get('pmh_failure_exit')
+
+
+def test_standalone_profit_common_contract_and_basis_missing_data_holds(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    h,request,life=one_share_profit_case(reassessment,monkeypatch,tmp_path,capsys,fault='quote_unconfirmed')
+    evaluate=lambda row,price=life.avg_fill_price:h.manager.evaluate_selected_completed_profit(row,h.failure_bars,
+        observed_at=h.life.clock.current,session_plan=request.management_session_plan,entry_fill_price=price)
+    assert evaluate(h.failure_owner)
+    for change in ('missing_stamp','relationship','other_family','wrong_stop','wrong_invalidation','bad_occurrence','expired'):
+        row=deepcopy(h.failure_owner)
+        if change=='missing_stamp':row.pop('last_accounted_entry_fill_at')
+        if change=='relationship':row['request']['relationship_context']={'profile':'BULL_FLAG_MICRO_2R_V1'}
+        if change=='other_family':row['request']['setup_family_id']='RANGE_BREAK'
+        if change=='wrong_stop':row['request']['stop_loss_price']+=.01
+        if change=='wrong_invalidation':row['request']['invalidation_level']+=.01
+        if change=='bad_occurrence':row['request']['setup_metadata']['canonical_result_index']=-1
+        if change=='expired':row['pmh_management_expired']=True
+        assert evaluate(row) is None
+    for price in (None,True,float('nan'),float('inf'),0,request.stop_loss_price):
+        assert evaluate(h.failure_owner,price) is None
+    from dataclasses import asdict, replace
+    from src.strategies.ross_momentum.strategy_policy import standalone_profit_quote_evidence
+    quote=replace(h.core.market_data_snapshot_manager.batch_snapshots(['JPM'])[0]['JPM'],market_data_type_confirmed=True)
+    facts=asdict(quote)
+    assert standalone_profit_quote_evidence(facts,symbol='JPM',milestone=h.profit_level,observed_at=h.life.clock.current)
+    facts.pop('data_quality_flags')
+    assert standalone_profit_quote_evidence(facts,symbol='JPM',milestone=h.profit_level,observed_at=h.life.clock.current) is None
+
+
+def test_standalone_failed_entry_preempts_unsubmitted_profit(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    from dataclasses import replace
+    from src.strategies.common.candles.candle_types import Candle
+    from src.strategies.ross_momentum.strategy_policy import CENTRAL_STANDALONE_FAILURE_PROFILE
+    h,request,life=central_failure_case(reassessment,monkeypatch,tmp_path,capsys,'BULL_FLAG')
+    failed=h.failure_bars[-1]
+    milestone=life.avg_fill_price+2*(life.avg_fill_price-life.selected_stop_price)
+    bid=milestone+.02;close=bid+.01
+    later=Candle(bid,close+.01,bid-.01,close,1000,timestamp=failed.timestamp+timedelta(seconds=10))
+    # Both immutable post-fill observations are completed on the next cycle;
+    # bounded eight-second external advance retains existing scope freshness.
+    delta=later.timestamp+timedelta(seconds=10)-h.life.clock.current
+    assert timedelta(0)<delta<=timedelta(seconds=10)
+    h.life.clock.current+=delta
+    append_external_management_bar(h,'10s',later);h.failure_bars.append(later)
+    original=h.core.market_data_snapshot_manager.batch_snapshots
+    def quotes(symbols):
+        values,errors=original(symbols)
+        return {key:replace(value,last=close,bid=bid,ask=close+.01,market_timestamp_utc=h.life.clock.current,
+            snapshot_complete=True,market_data_type='LIVE',returned_market_data_type='LIVE',market_data_type_confirmed=True)
+            for key,value in values.items()},errors
+    h.core.market_data_snapshot_manager.batch_snapshots=quotes
+    assert h.core.run_once();capsys.readouterr()
+    latch=h.failure_owner['pmh_failure_exit']
+    assert latch['profile']==CENTRAL_STANDALONE_FAILURE_PROFILE and latch['bar_start']==failed.timestamp.isoformat()
+    assert len(h.failure_conversions)==1 and 'milestone' not in latch
+    h.failure_exit_price=bid;finish_failure_fill(h,life,capsys)
+    assert life.filled_qty==0 and life.exited_qty==1
+
+
+
+def test_standalone_profit_dispatch_restores_readonly_and_quarantines_in_fresh_process(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    from src.strategies.ross_momentum.strategy_policy import STANDALONE_ONE_SHARE_PROFIT_PROFILE
+    h,request,life=one_share_profit_case(reassessment,monkeypatch,tmp_path,capsys)
+    assert_readonly_selected_dispatch_restart(h,request,
+        timeframe=request.setup_metadata['execution_stream']['execution_trigger_timeframe'],profile=STANDALONE_ONE_SHARE_PROFIT_PROFILE)
+    assert len(h.failure_conversions)==1 and life.filled_qty==1 and life.exited_qty==0
+    assert h.core.execution_engine.capital_authority.total_used_exposure==life.avg_fill_price

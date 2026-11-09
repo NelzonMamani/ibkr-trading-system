@@ -3023,13 +3023,48 @@ class CoreOrchestrator:
             bars, _ = self._get_trade_management_recent_candles(order["symbol"], 10, timeframe=timeframe)
             failure = self.trade_management_engine.evaluate_selected_completed_failure(
                 order, bars, observed_at=observed_at, session_plan=session_plan)
+            life = engine.post_fill_lifecycle.get_trade(order_id)
+            profit = False
+            quote = None
+            evaluation_at = observed_at
+            if not failure and self.run_mode == RunMode.PAPER and life and life.filled_qty == 1:
+                failure = self.trade_management_engine.evaluate_selected_completed_profit(order, bars,
+                    observed_at=observed_at, session_plan=session_plan, entry_fill_price=life.avg_fill_price)
+                if failure:
+                    from src.strategies.ross_momentum.strategy_policy import standalone_profit_quote_evidence
+                    try:
+                        values, errors = self.market_data_snapshot_manager.batch_snapshots([order["symbol"]])
+                        quote = values.get(order["symbol"]) if not errors else None
+                    except (AcquisitionCancelled, AcquisitionDeadlineExceeded):
+                        raise
+                    except Exception:
+                        quote = None  # Missing external quote facts HOLD; never an exit default.
+                    # Acquisition can finish after cycle start. Recheck the
+                    # original bar/truth ages at the actual decision clock;
+                    # never renew their timestamps or reject a current quote
+                    # merely because it arrived during this cycle.
+                    evaluation_at = datetime.now(timezone.utc)
+                    forced = str(os.getenv("FORCE_SESSION") or "").strip().upper()
+                    current_plan = normalize_session_label(forced or market_session_phase(evaluation_at)) or forced
+                    self._expire_selected_failure_enrollment(evaluation_at, current_plan)
+                    failure = (self.trade_management_engine.evaluate_selected_completed_profit(order, bars,
+                        observed_at=evaluation_at, session_plan=current_plan, entry_fill_price=life.avg_fill_price)
+                        if evaluation_at >= observed_at else None)
+                    evidence = (standalone_profit_quote_evidence(quote, symbol=order["symbol"],
+                        milestone=failure["milestone"], observed_at=evaluation_at) if failure else None)
+                    if evidence:
+                        failure["profit_quote"] = evidence
+                        profit = True
+                    else:
+                        failure = None
             if failure:
                 life = engine.post_fill_lifecycle.get_trade(order_id)
                 registered = self.trade_registry.get_trade(order["symbol"], request.get("trader_type") or "UNKNOWN")
                 position = self.trade_management_engine.snapshot_positions().get(order["symbol"])
                 decision = self.risk_engine.evaluate_selected_failure_exit(order_id=order_id, order=order,
-                    position=position, registered=registered, life=life, snapshot=snapshot, observed_at=observed_at)
-                self._trace_event("SELECTED_FAILURE_EXIT_RISK", {"decision_id": decision.decision_id,
+                    position=position, registered=registered, life=life, snapshot=snapshot, observed_at=evaluation_at,
+                    profit=profit, quote=quote)
+                self._trace_event("SELECTED_PROFIT_EXIT_RISK" if profit else "SELECTED_FAILURE_EXIT_RISK", {"decision_id": decision.decision_id,
                     "order_id": order_id, "allowed": decision.allowed, "quantity": decision.max_position_size,
                     "reason": decision.rationale})
                 if decision.allowed and not decision.execution_blocked:
