@@ -1340,6 +1340,27 @@ CENTRAL_STANDALONE_FAILURE_PROFILE = "CENTRAL_STANDALONE_COMPLETED_BAR_FAILURE_V
 CENTRAL_STANDALONE_FAILURE_FAMILIES = frozenset({"BULL_FLAG", "FIRST_PULLBACK", "MICRO_PULLBACK"})
 
 
+# NEW project policy adopted 9 November 2026, next breakout-group instruction.
+# ONLY standalone native Key/Consolidation/Flat Top/ORB/HOD. The failure threshold
+# is respectively selected key / measured range high / flat resistance / completed
+# opening-range high / established RTH HOD. Original structural stop AND acceptance
+# invalidation remain independent (notably Key). Same terminal-accounted-fill,
+# healthy reconciled owned truth, original protection, retained completed-bar,
+# strict close-below, post-fill START, no elapsed cutoff, permanent observed phase/
+# session/date expiry, uncertainty/replay safeguards as the selected failure owner.
+# No profit/partial/1R/2R/trail/add/reentry/timer/session-flatten/generic authority.
+# PMH, central standalone and relationship2R scopes remain separate; not Ross doctrine.
+BREAKOUT_STANDALONE_FAILURE_PROFILE = "BREAKOUT_STANDALONE_COMPLETED_BAR_FAILURE_V1"
+BREAKOUT_STANDALONE_FAILURE_FAMILIES = frozenset({
+    "KEY_LEVEL_BREAK", "CONSOLIDATION_BREAKOUT", "FLAT_TOP_BREAKOUT",
+    "OPENING_RANGE_BREAKOUT", "HOD_BREAK",
+})
+
+# Deliberate current decisions: direct GAP_GO stays entry-blocked without its
+# own complete stop/acceptance contract; HALT_RESUME stays disabled without reliable
+# authoritative halt/resumption facts. No inferred buffer/halts or acquisition.
+# Five confidence vetoes retain the completed conservative scoring fallback.
+
 def selected_completed_failure_profile(request):
     """Explicit applicability only; no generic family or target-model default."""
     if (request.get("relationship_context") or request.get("take_profit_price") is not None
@@ -1350,4 +1371,6 @@ def selected_completed_failure_profile(request):
         return PMH_COMPLETED_BAR_FAILURE_PROFILE
     if isinstance(family, str) and family in CENTRAL_STANDALONE_FAILURE_FAMILIES:
         return CENTRAL_STANDALONE_FAILURE_PROFILE
+    if isinstance(family, str) and family in BREAKOUT_STANDALONE_FAILURE_FAMILIES:
+        return BREAKOUT_STANDALONE_FAILURE_PROFILE
     return None
