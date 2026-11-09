@@ -1520,10 +1520,10 @@ def pmh_failure_case(reassessment,monkeypatch,tmp_path,capsys,*,fault='none',con
         h.life.clock.current+=timedelta(seconds=step)
         assert h.core.run_once();capsys.readouterr()
         remaining-=step
-    central=request.setup_family_id in {'BULL_FLAG','FIRST_PULLBACK','MICRO_PULLBACK'}
+    standalone=request.setup_family_id in SELECTED_FAILURE_FAMILIES
     level=request.setup_metadata['trigger_level']
-    close=round((level+request.stop_loss_price)/2,2) if central else 10.295
-    bid,ask=(round(close-.01,2),round(close+.01,2)) if central else (10.29,10.30)
+    close=round((level+request.stop_loss_price)/2,2) if standalone else 10.295
+    bid,ask=(round(close-.01,2),round(close+.01,2)) if standalone else (10.29,10.30)
     if fault=='equality':close=level
     if fault=='wick':close=level+.01
     bar=Candle(level+.01,level+.02,bid,close,500,timestamp=stamp)
@@ -1533,7 +1533,7 @@ def pmh_failure_case(reassessment,monkeypatch,tmp_path,capsys,*,fault='none',con
         previous=h.streams[timeframe][-1]
         cursor=previous.timestamp+timedelta(seconds=seconds)
         while cursor<stamp:
-            h.streams[timeframe].append(Candle(previous.close,max(previous.close,level+.02),level,level+.01,200,timestamp=cursor) if central else Candle(previous.close,10.54,10.30,10.31,200,timestamp=cursor))
+            h.streams[timeframe].append(Candle(previous.close,max(previous.close,level+.02),level,level+.01,200,timestamp=cursor) if standalone else Candle(previous.close,10.54,10.30,10.31,200,timestamp=cursor))
             previous=h.streams[timeframe][-1];cursor+=timedelta(seconds=seconds)
         h.streams[timeframe].append(bar)
         if timeframe=='10s':
@@ -1846,7 +1846,17 @@ def test_pmh_failure_steady_session_preserves_genuine_competing_key(reassessment
     assert len(h.evaluated)==1 and h.evaluated[0][0].setup_family_id=='KEY_LEVEL_BREAK'
     assert len(h.strategy._pattern_registry.patterns)==33
     assert h.registry_batches[-1][0].execution_refinement_timeframe=='1m'
-    assert h.sent_native[0].setup_metadata is None # No PMH enrollment through a competing family's result.
+    from src.storage.serialization import to_jsonable
+    from src.strategies.ross_momentum.strategy_policy import (
+        selected_completed_failure_profile, BREAKOUT_STANDALONE_FAILURE_PROFILE, PMH_COMPLETED_BAR_FAILURE_PROFILE,
+    )
+    request=h.sent_native[0]
+    assert request.setup_metadata==to_jsonable(h.evaluated[0][0].setup_metadata)
+    profile=selected_completed_failure_profile(vars(request))
+    assert profile==BREAKOUT_STANDALONE_FAILURE_PROFILE and profile!=PMH_COMPLETED_BAR_FAILURE_PROFILE
+    owner=h.core.execution_engine._native_orders[request.client_order_id]
+    assert not owner.get('last_accounted_entry_fill_at') and not owner.get('pmh_failure_exit')
+    assert not h.manager.snapshot_positions() and not h.stop_requests # Ack only; no PMH or filled-Key enrollment.
 
 
 def test_pmh_failure_steady_reference_gap_is_recorded_blocked_not_a_passing_pmh_route(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
@@ -2253,6 +2263,8 @@ def test_standalone_bull_native_core_paper_fill_initial_protection(reassessment,
 
 
 CENTRAL_FAMILIES=['BULL_FLAG','FIRST_PULLBACK','MICRO_PULLBACK']
+BREAKOUT_FAMILIES=['KEY_LEVEL_BREAK','CONSOLIDATION_BREAKOUT','FLAT_TOP_BREAKOUT','OPENING_RANGE_BREAKOUT','HOD_BREAK']
+SELECTED_FAILURE_FAMILIES=CENTRAL_FAMILIES+BREAKOUT_FAMILIES
 
 
 def central_failure_case(reassessment,monkeypatch,tmp_path,capsys,family,*,fault='none',conversion='confirmed'):
@@ -2275,9 +2287,9 @@ def finish_failure_fill(h,life,capsys,*,quantity=1):
         assert h.core.run_once();capsys.readouterr()
 
 
-@pytest.mark.parametrize('family',CENTRAL_FAMILIES)
+@pytest.mark.parametrize('family',SELECTED_FAILURE_FAMILIES)
 def test_central_failure_full_registry_core_exit_above_stop_to_flat(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,family):
-    from src.strategies.ross_momentum.strategy_policy import CENTRAL_STANDALONE_FAILURE_PROFILE
+    from src.strategies.ross_momentum.strategy_policy import CENTRAL_STANDALONE_FAILURE_PROFILE, BREAKOUT_STANDALONE_FAILURE_PROFILE
     h,request,life=central_failure_case(reassessment,monkeypatch,tmp_path,capsys,family)
     intent,serialized,decision=h.evaluated[0]
     owner=h.failure_owner;metadata=deepcopy(request.setup_metadata)
@@ -2290,7 +2302,9 @@ def test_central_failure_full_registry_core_exit_above_stop_to_flat(reassessment
     assert request.stop_loss_price<h.failure_exit_price<h.failure_bars[-1].close<metadata['trigger_level']
     assert h.core.run_once();capsys.readouterr()
     latch=owner['pmh_failure_exit'] # Existing durable transport latch, explicit new profile.
-    assert latch['profile']==CENTRAL_STANDALONE_FAILURE_PROFILE and latch['selected_entry']==metadata['trigger_level']
+    expected_profile=CENTRAL_STANDALONE_FAILURE_PROFILE if family in CENTRAL_FAMILIES else BREAKOUT_STANDALONE_FAILURE_PROFILE
+    assert latch['profile']==expected_profile and latch['selected_entry']==metadata['trigger_level']
+    if family=='KEY_LEVEL_BREAK':assert request.stop_loss_price==10.88 and request.invalidation_level==11. and latch['selected_entry']==11.
     assert latch['occurrence']==metadata and latch['status']=='MKT'
     assert len(h.failure_conversions)==1 and life.filled_qty==1
     assert not h.core.execution_engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
@@ -2305,7 +2319,7 @@ def test_central_failure_full_registry_core_exit_above_stop_to_flat(reassessment
     assert serialized==vars(intent) and request.take_profit_price is None
 
 
-@pytest.mark.parametrize('family',CENTRAL_FAMILIES)
+@pytest.mark.parametrize('family',SELECTED_FAILURE_FAMILIES)
 @pytest.mark.parametrize('fault',['equality','wick','forming','straddling','missing','stale','future'])
 def test_central_failure_completed_bar_boundaries(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,family,fault):
     h,request,life=central_failure_case(reassessment,monkeypatch,tmp_path,capsys,family,fault=fault)
@@ -2315,7 +2329,7 @@ def test_central_failure_completed_bar_boundaries(reassessment,monkeypatch,tmp_p
     assert h.core.execution_engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
 
 
-@pytest.mark.parametrize('family',CENTRAL_FAMILIES)
+@pytest.mark.parametrize('family',SELECTED_FAILURE_FAMILIES)
 @pytest.mark.parametrize('conversion',['uncertain','rejected','stop_race','unknown'])
 def test_central_failure_uncertainty_and_race_do_not_retry(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,family,conversion):
     h,request,life=central_failure_case(reassessment,monkeypatch,tmp_path,capsys,family,conversion=conversion)
@@ -2335,7 +2349,7 @@ def test_central_failure_uncertainty_and_race_do_not_retry(reassessment,monkeypa
         assert h.core.execution_engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected'] is (conversion=='rejected')
 
 
-@pytest.mark.parametrize('family',CENTRAL_FAMILIES)
+@pytest.mark.parametrize('family',SELECTED_FAILURE_FAMILIES)
 @pytest.mark.parametrize('fault',['broker_larger','unknown','partial_truth','wrong_reference','pending_order','incomplete_inventory'])
 def test_central_failure_actual_truth_and_inventory_veto(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,family,fault):
     h,request,life=central_failure_case(reassessment,monkeypatch,tmp_path,capsys,family)
@@ -2356,7 +2370,7 @@ def test_central_failure_actual_truth_and_inventory_veto(reassessment,monkeypatc
     assert life.filled_qty==1 and life.selected_stop_price==request.stop_loss_price
 
 
-@pytest.mark.parametrize('family',CENTRAL_FAMILIES)
+@pytest.mark.parametrize('family',SELECTED_FAILURE_FAMILIES)
 @pytest.mark.parametrize('transition',['phase','date'])
 def test_central_failure_transition_expires_even_when_execution_gated(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,family,transition):
     h,request,life=central_failure_case(reassessment,monkeypatch,tmp_path,capsys,family)
@@ -2369,7 +2383,7 @@ def test_central_failure_transition_expires_even_when_execution_gated(reassessme
     assert not h.failure_conversions and life.filled_qty==1
 
 
-@pytest.mark.parametrize('family',CENTRAL_FAMILIES)
+@pytest.mark.parametrize('family',SELECTED_FAILURE_FAMILIES)
 def test_central_failure_later_bar_and_missing_timestamp_or_relationship_hold(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,family):
     from dataclasses import replace
     h,request,life=central_failure_case(reassessment,monkeypatch,tmp_path,capsys,family,fault='wick')
@@ -2397,10 +2411,10 @@ def test_central_failure_later_bar_and_missing_timestamp_or_relationship_hold(re
 
 
 def small_central_owned(reassessment,monkeypatch,tmp_path,capsys,family,*,partial=False):
-    from test_joined_core_pmh_readonly import standalone_bull_joined,micro_joined
+    from test_joined_core_pmh_readonly import standalone_bull_joined,micro_joined,key_joined,consolidation_joined,flat_top_joined,orb_joined,hod_joined
     from test_joined_core_first_pullback import first_joined
-    factory={'BULL_FLAG':standalone_bull_joined,'FIRST_PULLBACK':first_joined,'MICRO_PULLBACK':micro_joined}[family]
-    prices={'BULL_FLAG':(10.88,10.63),'FIRST_PULLBACK':(10.55,10.15),'MICRO_PULLBACK':(10.88,10.6)}
+    factory={'BULL_FLAG':standalone_bull_joined,'FIRST_PULLBACK':first_joined,'MICRO_PULLBACK':micro_joined,'KEY_LEVEL_BREAK':key_joined,'CONSOLIDATION_BREAKOUT':consolidation_joined,'FLAT_TOP_BREAKOUT':flat_top_joined,'OPENING_RANGE_BREAKOUT':orb_joined,'HOD_BREAK':hod_joined}[family]
+    prices={'BULL_FLAG':(10.88,10.63),'FIRST_PULLBACK':(10.55,10.15),'MICRO_PULLBACK':(10.88,10.6),'KEY_LEVEL_BREAK':(11.02,10.88),'CONSOLIDATION_BREAKOUT':(10.43,10.21),'FLAT_TOP_BREAKOUT':(10.27,9.99),'OPENING_RANGE_BREAKOUT':(10.42,9.95),'HOD_BREAK':(10.34,10.2)}
     price,stop=prices[family]
     monkeypatch.setenv('TRADING_DEFAULT_CAPITAL','400')
     def small_joined(*args,**kwargs):
@@ -2427,7 +2441,7 @@ def small_central_owned(reassessment,monkeypatch,tmp_path,capsys,family,*,partia
     return h,request,life
 
 
-@pytest.mark.parametrize('family',CENTRAL_FAMILIES)
+@pytest.mark.parametrize('family',SELECTED_FAILURE_FAMILIES)
 @pytest.mark.parametrize('partial_entry',[False,True])
 def test_central_failure_partial_entry_exclusion_and_partial_exit_accounting(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,family,partial_entry):
     prepared=small_central_owned(reassessment,monkeypatch,tmp_path,capsys,family,partial=partial_entry)
@@ -2456,7 +2470,7 @@ def test_central_failure_partial_entry_exclusion_and_partial_exit_accounting(rea
     assert engine.capital_authority.total_used_exposure==0 and len(h.failure_conversions)==1
 
 
-@pytest.mark.parametrize('family',CENTRAL_FAMILIES)
+@pytest.mark.parametrize('family',SELECTED_FAILURE_FAMILIES)
 def test_central_failure_accounting_interruption_retains_quarantine_no_replay(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,family):
     h,request,life=central_failure_case(reassessment,monkeypatch,tmp_path,capsys,family)
     assert h.core.run_once();capsys.readouterr()
@@ -2476,7 +2490,7 @@ def test_central_failure_accounting_interruption_retains_quarantine_no_replay(re
     assert len(h.failure_conversions)==1
 
 
-@pytest.mark.parametrize('family',CENTRAL_FAMILIES)
+@pytest.mark.parametrize('family',SELECTED_FAILURE_FAMILIES)
 def test_central_confirmed_stop_fill_is_processed_before_discretionary_exit(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,family):
     h,request,life=central_failure_case(reassessment,monkeypatch,tmp_path,capsys,family)
     external_stop_facts(h,life)
