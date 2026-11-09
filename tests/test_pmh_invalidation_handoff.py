@@ -14,6 +14,39 @@ from test_pr1082_trigger_to_intent_terminal_semantics import (
 )
 
 
+def install_completed_pre_history(monkeypatch,tmp_path,data,*,con_id=123):
+    """External completed PRE bars, not an internal level or selected result."""
+    from src.strategies.common.candles.candle_types import Candle
+    from src.strategies.ross_momentum.patterns import pattern_trace
+    from src.ibkr.market_data_client import HistoricalDataResult
+    from src.market_data.candidate_identity import CandidateIdentity
+    from src.market_data.reference_resolver import PersistentReferenceCache
+    from src.utils.time_utils import to_ny_time
+    now=pattern_trace.datetime.now(timezone.utc)
+    start=to_ny_time(now).replace(hour=4,minute=0,second=0,microsecond=0).astimezone(timezone.utc)
+    # The old fixture declared PMH10.30 as a scalar. Supply the missing full
+    # completed external history and its contract/end witness explicitly.
+    pre=[Candle(10.,10.25,9.95,10.2,100,timestamp=start+timedelta(minutes=i)) for i in range(330)]
+    for i,bar in enumerate(pre):
+        context=next((b for b in data.get('5m',[]) if b.timestamp<=bar.timestamp<b.timestamp+timedelta(minutes=5)),None)
+        if context is not None:
+            terminal=bar.timestamp==context.timestamp+timedelta(minutes=4)
+            pre[i]=Candle(context.open,context.high if terminal else context.open,
+                context.low if terminal else context.open,context.close if terminal else context.open,
+                context.volume/5,timestamp=bar.timestamp)
+    pre[0]=Candle(10.2,10.3,10.19,10.28,100,timestamp=pre[0].timestamp)
+    needed=max(2,min(722,int((to_ny_time(now)-to_ny_time(start)).total_seconds()//60)+2))
+    def external(*,symbol,timeframe='1m',limit=50,**kw):
+        bars=list(data[timeframe])
+        if timeframe=='1m' and limit==needed:
+            original_stamps={b.timestamp for b in bars}
+            bars=sorted([b for b in pre if b.timestamp not in original_stamps]+bars,key=lambda b:b.timestamp)
+        return HistoricalDataResult('COMPLETE_BARS' if bars else 'COMPLETE_EMPTY',tuple(bars[-limit:]),True,
+            contract_identity=CandidateIdentity(symbol=symbol,con_id=con_id,currency='USD'))
+    monkeypatch.setattr(pattern_trace,'get_intraday_bars',external)
+    monkeypatch.setattr(pattern_trace,'PersistentReferenceCache',lambda:PersistentReferenceCache(tmp_path/'pre-reference.json'))
+
+
 def actual_run(monkeypatch,tmp_path,*,state="ready",supplied=None,all_patterns=False,mode=RunMode.READ_ONLY):
     strategy=_base_strategy(monkeypatch,tmp_path,state="ready")
     rows=[(10.0,10.25,9.95,10.2,900)]*48+[
@@ -52,8 +85,7 @@ def actual_run(monkeypatch,tmp_path,*,state="ready",supplied=None,all_patterns=F
                 [(10.29,10.30,10.29,10.29,200),(10.29,10.31,10.29,10.30,200),
                  (10.30,10.35,10.30,10.34,1200)],
                 end=trace_asof.replace(second=0)-timedelta(seconds=10))}
-    monkeypatch.setattr("src.strategies.ross_momentum.patterns.pattern_trace.get_intraday_bars",
-        lambda *,timeframe="1m",**kw:data[timeframe])
+    install_completed_pre_history(monkeypatch,tmp_path,data)
     registry=RossPatternRegistry()
     if not all_patterns: registry._patterns=[PremarketHighBreakPattern()]
     results=[]; original_run=registry.run
@@ -66,7 +98,7 @@ def actual_run(monkeypatch,tmp_path,*,state="ready",supplied=None,all_patterns=F
     def observed(payload,inputs):
         output=original(payload,inputs); calls.append((payload,output)); return output
     monkeypatch.setitem(TRIGGER_EVALUATOR_REGISTRY,"PREMARKET_HIGH_BREAK",observed)
-    row={**_watchlist_row(),"premarket_high":10.3,"last_price":10.53,"bid":10.52,"ask":10.54}
+    row={**_watchlist_row(),"con_id":123,"premarket_high":10.3,"last_price":10.53,"bid":10.52,"ask":10.54}
     snapshot=replace(_snapshot(),last=10.53,bid=10.52,ask=10.54)
     if state=="trace_native":
         row.update(last_price=10.34,bid=10.33,ask=10.35)
