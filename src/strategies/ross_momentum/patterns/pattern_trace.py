@@ -518,7 +518,7 @@ def build_runtime_pattern_inputs(*, symbol: str, row: Any, snapshot: MarketSnaps
     if type(identity.con_id) is int and identity.con_id>0 and not retained_pre:
         local = to_ny_time(observed_at_utc)
         start = local.replace(hour=4,minute=0,second=0,microsecond=0)
-        if time(4) <= local.time() < time(16):
+        if local.weekday()<5 and time(4) <= local.time() < time(16):
             limit = max(2,min(722,int((local-start).total_seconds()//60)+2))
             try:
                 bootstrap = historical_data_provider.get_intraday_bars(symbol=symbol,timeframe="1m",limit=limit)

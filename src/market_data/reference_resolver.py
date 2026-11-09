@@ -120,6 +120,8 @@ class PersistentReferenceCache:
         with _REFERENCE_IO_LOCK:
             self._loaded = False
             self._load()
+            if record is None and not self.path.exists():
+                return # Preserve legacy discard-without-file: no publication or new I/O permission.
             for key in keys:
                 if record is None:
                     self._store.pop(key, None)

@@ -638,3 +638,11 @@ def test_reference_cache_instances_preserve_other_existing_namespaces(tmp_path):
     restored=PersistentReferenceCache(path)
     assert restored.get('prev-close',trading_date=None)==dict(reference_price=10.)
     assert restored.get('premarket:conid:123',trading_date=None)==dict(high=11.)
+
+
+
+def test_reference_discard_of_missing_cache_preserves_no_publication_default(tmp_path):
+    path=tmp_path/'missing'/'ref.json'
+    cache=PersistentReferenceCache(path)
+    cache.discard(('missing',))
+    assert not path.exists() and not path.parent.exists()
