@@ -674,6 +674,28 @@ def get_config(name: str, default: Any | None = None) -> Any:
     return resolved[name].value
 
 
+def get_ross_synthetic_requested_base_size() -> int:
+    """Opt-in native test sizing, never an environment-enabled operational knob.
+
+    The existing quality multiplier still applies. Risk/capital/execution may
+    reduce the resulting request. A larger ceiling cannot enlarge this request.
+    Check the raw override too: int coercion must not turn bool/float into shares.
+    """
+    name = "ROSS_SYNTHETIC_REQUESTED_BASE_SIZE"
+    record = get_config_record(name)
+    raw = _CONFIG_OVERRIDES.get(name, record.value)
+    if type(raw) is not int or not 1 <= raw <= 8:
+        raise ConfigResolutionError(f"{name} requires an integer in [1, 8]")
+    if raw > 1 and not (
+        record.source == "OVERRIDE"
+        and os.environ.get("EXECUTION_ENV", "").upper() == "TEST"
+        and str(get_config("RUN_MODE_EFFECTIVE")).upper() == "PAPER"
+        and str(get_config("RISK_PROFILE")).upper() == "SMALL"
+    ):
+        raise ConfigResolutionError(f"{name}>1 requires in-process TEST/PAPER/SMALL opt-in")
+    return raw
+
+
 def get_config_record(name: str) -> ConfigRecord:
     resolved = resolve_config()
     if name not in resolved:

@@ -1631,6 +1631,15 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
         "mutable": "dynamic",
         "description": "Default fraction of available account capital assigned to one strategy when no explicit allocation is configured.",
     },
+    "ROSS_SYNTHETIC_REQUESTED_BASE_SIZE": {
+        "type": int,
+        "default": 1,
+        "env": [],
+        "affects": ["RossMomentumStrategyV1", "RiskEngine"],
+        "enforcement": "HARD",
+        "mutable": "dynamic",
+        "description": "Bounded in-process TEST/PAPER native standalone sizing opt-in; never an admission ceiling.",
+    },
     "RISK_MAX_POSITION_SIZE": {
         "type": int,
         "default": 1,

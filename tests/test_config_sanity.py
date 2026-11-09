@@ -65,3 +65,37 @@ def test_read_only_execution_disabled(monkeypatch: pytest.MonkeyPatch):
     from config.runtime_config import execution_allowed  # noqa: E402
 
     assert execution_allowed(RunMode.READ_ONLY) is False
+
+
+@pytest.mark.parametrize('value',[True,2.5,'2',0,9])
+def test_native_synthetic_requested_size_rejects_non_contract_values(monkeypatch,value):
+    from src.config import config_resolver as resolver
+    previous=dict(resolver._CONFIG_OVERRIDES)
+    monkeypatch.setenv('EXECUTION_ENV','TEST')
+    try:
+        resolver.set_config_overrides(dict(RUN_MODE='PAPER',RISK_PROFILE='SMALL',ROSS_SYNTHETIC_REQUESTED_BASE_SIZE=value))
+        with pytest.raises(resolver.ConfigResolutionError):
+            resolver.get_ross_synthetic_requested_base_size()
+    finally:resolver.set_config_overrides(previous)
+
+
+@pytest.mark.parametrize('environment,mode,profile',[('PRODUCTION','PAPER','SMALL'),('TEST','LIVE','SMALL'),('TEST','READ_ONLY','SMALL'),('TEST','PAPER','MICRO')])
+def test_native_synthetic_requested_size_requires_explicit_bounded_scope(monkeypatch,environment,mode,profile):
+    from src.config import config_resolver as resolver
+    previous=dict(resolver._CONFIG_OVERRIDES)
+    monkeypatch.setenv('EXECUTION_ENV',environment)
+    try:
+        resolver.set_config_overrides(dict(RUN_MODE=mode,RISK_PROFILE=profile,ROSS_SYNTHETIC_REQUESTED_BASE_SIZE=2))
+        with pytest.raises(resolver.ConfigResolutionError):
+            resolver.get_ross_synthetic_requested_base_size()
+    finally:resolver.set_config_overrides(previous)
+
+
+def test_native_synthetic_requested_size_default_has_no_environment_switch(monkeypatch):
+    from src.config import config_resolver as resolver
+    previous=dict(resolver._CONFIG_OVERRIDES)
+    monkeypatch.setenv('ROSS_SYNTHETIC_REQUESTED_BASE_SIZE','4')
+    try:
+        resolver.set_config_overrides(None)
+        assert resolver.get_ross_synthetic_requested_base_size()==1
+    finally:resolver.set_config_overrides(previous)

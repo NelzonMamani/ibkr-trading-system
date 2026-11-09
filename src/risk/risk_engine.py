@@ -13,7 +13,7 @@ from src.core_engine.events import RiskDecisionRecord, TradeIntentRecord
 from src.core_engine.health import HealthStatus
 from src.core_engine.state import RunMode as Epoch5Mode
 
-from src.config.config_resolver import get_config
+from src.config.config_resolver import get_config, get_ross_synthetic_requested_base_size
 from src.config.system_config import get_current_market_session
 from src.config.runtime_config import (
     RunMode,
@@ -1358,6 +1358,23 @@ class RiskEngine:
             f"max_position_value={round(max_position_value, 2)} approved_quantity={max_position_size}"
         )
         context = getattr(trade_intent, "relationship_context", None)
+        if not context and trade_intent.strategy_name == "RossMomentumStrategyV1":
+            requested_base = get_ross_synthetic_requested_base_size()
+            # The opt-in supplies a request, not permission to consume a ceiling.
+            # Keep existing admission/capital/regime decisions authoritative.
+            requested = getattr(trade_intent, "quantity", None)
+            if type(requested) is not int or not 1 <= requested <= requested_base:
+                decision.allowed = False
+                decision.max_position_size = 0
+                decision.execution_blocked = True
+                decision.reason_code = "INVALID_NATIVE_REQUESTED_QUANTITY"
+                decision.rationale = "Native requested quantity is missing or exceeds its enrolled base."
+                decision.risk_level = "BLOCKED"
+                decision.overall_action = "BLOCK"
+                decision.decision_code = "REJECT"
+                decision.risk_reasons.append(decision.reason_code)
+            else:
+                decision.max_position_size = min(decision.max_position_size, requested)
         if context:
             manager = getattr(self, "relationship_manager", None)
             quantity = (manager.risk_quantity(trade_intent, quantity_cap=max_position_size,

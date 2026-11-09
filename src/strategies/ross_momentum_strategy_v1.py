@@ -14,7 +14,7 @@ from copy import deepcopy
 from datetime import timezone
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
-from src.config.config_resolver import ConfigResolutionError, get_config
+from src.config.config_resolver import ConfigResolutionError, get_config, get_ross_synthetic_requested_base_size
 from src.config.runtime_config import RunMode
 from src.core.engines.decision_engine import DecisionEngine
 from src.core.engines.level_engine import LevelEngine
@@ -1948,7 +1948,9 @@ class RossMomentumStrategyV1(BaseStrategy):
             setattr(intent, "trigger_reference_price", tradeable.get("trigger_reference_price"))
             setattr(intent, "entry_extension_pct", tradeable.get("extension_pct"))
             setattr(intent, "spread_pct", tradeable.get("spread_pct"))
-            base_size = float(getattr(intent, "position_size", None) or getattr(intent, "quantity", None) or getattr(intent, "requested_quantity", None) or 1.0)
+            relationship_context = getattr(intent, "relationship_context", None)
+            native_base = 1 if relationship_context else get_ross_synthetic_requested_base_size()
+            base_size = float(getattr(intent, "position_size", None) or getattr(intent, "quantity", None) or getattr(intent, "requested_quantity", None) or native_base)
             size_multiplier = self._size_multiplier_for_quality(score)
             position_size = base_size * size_multiplier
             setattr(intent, "position_size", position_size)
