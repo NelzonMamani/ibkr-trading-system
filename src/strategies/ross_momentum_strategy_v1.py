@@ -1045,7 +1045,8 @@ class RossMomentumStrategyV1(BaseStrategy):
                              else getattr(row, "conId", getattr(row, "con_id", None)))
                 security_id = f"conId:{raw_conid}" if isinstance(raw_conid, int) and not isinstance(raw_conid, bool) and raw_conid > 0 else ""
                 registry_context["bull_flag_composer"] = lambda pattern, pattern_inputs: relationship_manager.compose_bull_flag(
-                    pattern, pattern_inputs, security_id=security_id, now=runtime_trace.datetime.now(timezone.utc))
+                    pattern, pattern_inputs, security_id=security_id, now=runtime_trace.datetime.now(timezone.utc),
+                    allow_standalone=True)
             registry_pattern_ids = self._pattern_registry.pattern_ids
             print(
                 f"[PATTERN_INPUT_READY] symbol={symbol} candles={len(inputs.candles)} "

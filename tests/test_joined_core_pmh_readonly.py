@@ -2614,3 +2614,87 @@ def test_joined_gap_fill_context_never_becomes_entry_or_veto(reassessment,monkey
     else:
         assert h.raw_snapshots==h.artifacts==h.evaluated==[],out
     no_effects(h)
+
+
+def standalone_bull_joined(reassessment,monkeypatch,tmp_path,*,news_fault='none',peer=False,
+        position_case='complete_empty',runtime_options=None,clock_time=(14,10,30)):
+    from src.strategies.common.candles.candle_types import Candle
+    from test_bull_flag_production_authority import TAIL
+    from src.strategies.common.triggers.trigger_registry import TRIGGER_EVALUATOR_REGISTRY
+    h=pmh_joined(reassessment,monkeypatch,tmp_path,news_fault=news_fault,peer=peer,
+        position_case=position_case,runtime_options=runtime_options,clock_time=clock_time)
+    end=h.life.clock.current.replace(second=0,microsecond=0)
+    rows=[(10.,10.02,9.98,10.,1000)]*41+TAIL
+    primary=_candles(rows,end=end-timedelta(minutes=1))
+    # Completed external PRE12 wick; neither RTH HOD nor an injected LevelSet.
+    from src.utils.time_utils import to_ny_time
+    primary=[replace(b,high=12.) if to_ny_time(b.timestamp).hour==9 and to_ny_time(b.timestamp).minute==29 else b for b in primary]
+    fast=[]
+    for b in primary:
+        fast.extend(Candle(b.open,b.open,b.open,b.open,b.volume/10,timestamp=b.timestamp+timedelta(seconds=10*i)) for i in range(5))
+        fast.append(Candle(b.open,b.high,b.low,b.close,b.volume/2,timestamp=b.timestamp+timedelta(seconds=50)))
+    fast.extend([Candle(10.7,10.72,10.69,10.72,150,timestamp=end),
+        Candle(10.72,10.76,10.71,10.74,150,timestamp=end+timedelta(seconds=10)),
+        Candle(10.74,10.9,10.69,10.88,1800,timestamp=end+timedelta(seconds=20))])
+    groups={}
+    for b in primary:
+        key=b.timestamp.replace(minute=(b.timestamp.minute//5)*5)
+        groups.setdefault(key,[]).append(b)
+    context=[Candle(items[0].open,max(b.high for b in items),min(b.low for b in items),items[-1].close,
+        sum(b.volume for b in items),timestamp=stamp) for stamp,items in sorted(groups.items()) if len(items)==5]
+    earlier=_candles([(10.,10.02,9.98,10.,1000)]*40,step_seconds=300,end=context[0].timestamp-timedelta(minutes=5))
+    h.streams.update({'1m':primary,'10s':fast,'5m':earlier+context})
+    for row in h.rows.values():row.update(premarket_high=12.,last_price=10.88,bid=10.87,ask=10.89,
+        gap_pct=(10.88/9.4-1)*100,pct_change=(10.88/9.4-1)*100,spread_pct=100*.02/10.88,dollar_volume=10.88*1_800_000)
+    snapshot=replace(_snapshot(symbol='JPM'),last=10.88,bid=10.87,ask=10.89)
+    h.core.market_data_snapshot_manager=NS(batch_snapshots=lambda symbols:({s:replace(snapshot,symbol=s,
+        asof_utc=h.life.clock.current,market_timestamp_utc=h.life.clock.current) for s in symbols},[]))
+    h.bull_triggers=[];original=TRIGGER_EVALUATOR_REGISTRY['BULL_FLAG']
+    def observed(payload,inputs):
+        out=original(payload,inputs);h.bull_triggers.append((deepcopy(payload),deepcopy(inputs),deepcopy(out)));return out
+    monkeypatch.setitem(TRIGGER_EVALUATOR_REGISTRY,'BULL_FLAG',observed)
+    return h
+
+
+def test_standalone_bull_actual_full_registry_core_handoff(reassessment,monkeypatch,tmp_path,capsys):
+    from src.setup_engine.setup_families.bull_flag import BullFlagPattern
+    h=standalone_bull_joined(reassessment,monkeypatch,tmp_path)
+    out=cycles(h,capsys)
+    source,results=h.registry_batches[-1]
+    standalone=BullFlagPattern().evaluate(source) # Diagnostic original native owner, never injected.
+    wired=next(r for r in results if r.setup_id=='P_BULL_FLAG')
+    assert standalone.detected and (standalone.trigger_level,standalone.stop_level)==(10.79,10.63)
+    assert wired.detected,(wired.rejection_reason,h.strategy.last_symbol_terminal_outcomes,out)
+    assert len(results)==33 and len(h.evaluated)==1
+    intent,serialized,decision=h.evaluated[0]
+    assert intent.setup_family_id=='BULL_FLAG' and not intent.relationship_context
+    assert (intent.entry_price,intent.stop_loss_price,intent.invalidation_level)==(10.79,10.63,10.63)
+    assert intent.target_model=='Measured move' and intent.take_profit_price is None
+    assert serialized==vars(intent) and decision.reason_code=='LIVE_READ_ONLY_BLOCK'
+    no_effects(h)
+
+
+@pytest.mark.parametrize('fault',['missing_security','future_clock','missing_clock','unknown_session','missing_rvol','unconfirmed','active_parent'])
+def test_standalone_bull_active_optin_preserves_native_and_relationship_guards(reassessment,monkeypatch,tmp_path,capsys,fault):
+    from src.execution.trade_management_engine import TradeManagementEngine
+    from src.setup_engine.setup_families.bull_flag import BullFlagPattern
+    h=standalone_bull_joined(reassessment,monkeypatch,tmp_path)
+    cycles(h,capsys)
+    source=h.registry_batches[-1][0];now=source.observed_at_utc
+    manager=TradeManagementEngine();security='conId:123';pattern=BullFlagPattern()
+    assert pattern.evaluate(source).detected
+    if fault=='missing_security':security=''
+    elif fault=='future_clock':source=replace(source,observed_at_utc=now+timedelta(seconds=1))
+    elif fault=='missing_clock':source=replace(source,observed_at_utc=None);now=None
+    elif fault=='unknown_session':source=replace(source,session_label='UNKNOWN')
+    elif fault=='missing_rvol':source=replace(source,liquidity_context=replace(source.liquidity_context,rvol=None))
+    elif fault=='unconfirmed':source=replace(source,candles=source.candles[:-1]+[replace(source.candles[-1],close=10.79)])
+    else:
+        # A genuinely armed composed parent remains authoritative. Its different
+        # occurrence cannot be escaped through the standalone opt-in.
+        from test_ross_bullflag_micro_management import composed_inputs
+        prior,prior_now=composed_inputs()
+        assert manager.compose_bull_flag(pattern,prior,security_id=security,now=prior_now).detected
+    result=manager.compose_bull_flag(pattern,source,security_id=security,now=now,allow_standalone=True)
+    assert not result.detected,(fault,result)
+    no_effects(h)
