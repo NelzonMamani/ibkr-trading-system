@@ -26,7 +26,7 @@ from src.strategies.ross_momentum.strategy_policy import POLICY_V2
 
 
 @pytest.fixture(autouse=True)
-def _reset_config(monkeypatch: pytest.MonkeyPatch):
+def _reset_config(monkeypatch: pytest.MonkeyPatch, isolated_runtime_schema):
     monkeypatch.delenv("FORCE_SESSION", raising=False)
     monkeypatch.delenv("MANUAL_FOCUS_ENABLED", raising=False)
     set_config_overrides(None)
