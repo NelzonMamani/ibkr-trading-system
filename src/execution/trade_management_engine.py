@@ -692,20 +692,21 @@ class TradeManagementEngine:
         )
         return position
 
-    def evaluate_pmh_completed_failure(self, order, bars, *, observed_at, session_plan):
+    def evaluate_selected_completed_failure(self, order, bars, *, observed_at, session_plan):
         """Pure occurrence-bound rule; execution owns the durable dispatch latch."""
         from datetime import timedelta
         from src.strategies.common.candles.candle_types import Candle
         from src.strategies.common.triggers.trigger_abcd_continuation import abcd_candle_rejection
         from src.strategies.ross_momentum.patterns.pattern_inputs import normalize_timestamp_utc, _timeframe_provenance
         from src.strategies.ross_momentum.policy.pattern_input_policy import PatternInputPolicy
-        from src.strategies.ross_momentum.strategy_policy import PMH_COMPLETED_BAR_FAILURE_PROFILE
+        from src.strategies.ross_momentum.strategy_policy import selected_completed_failure_profile, PMH_COMPLETED_BAR_FAILURE_PROFILE
         request = order.get("request", {})
+        profile = selected_completed_failure_profile(request)
         metadata = request.get("setup_metadata") or {}
         stream = metadata.get("execution_stream") or {}
         timeframe = stream.get("execution_trigger_timeframe")
         seconds = {"10s": 10, "1m": 60}.get(timeframe)
-        if (request.get("setup_family_id") != "PREMARKET_HIGH_BREAK" or request.get("relationship_context")
+        if (not profile or order.get("pmh_management_expired") or request.get("relationship_context")
                 or request.get("take_profit_price") is not None or not seconds
                 or not request.get("management_session_plan") or request["management_session_plan"] != session_plan
                 or not order.get("terminal") or not order.get("protection_confirmed")
@@ -723,7 +724,9 @@ class TradeManagementEngine:
             level = metadata["trigger_level"]
             if (stamp.tzinfo is None or observed_at.tzinfo is None or stamp > observed_at
                     or isinstance(level, bool) or not math.isfinite(level) or level <= 0
-                    or level != request.get("invalidation_level")
+                    or (profile == PMH_COMPLETED_BAR_FAILURE_PROFILE and level != request.get("invalidation_level"))
+                    or (profile != PMH_COMPLETED_BAR_FAILURE_PROFILE
+                        and metadata.get("invalidation_level") != request.get("invalidation_level"))
                     or metadata.get("stop_level") != request.get("stop_loss_price")):
                 return None
             normalized = []
@@ -745,12 +748,15 @@ class TradeManagementEngine:
                         symbol=order["symbol"], now_utc=observed_at) != "PRESENT":
                     continue
                 if bar.close < level:
-                    return {"profile": PMH_COMPLETED_BAR_FAILURE_PROFILE,
+                    return {"profile": profile,
                         "bar_start": bar.timestamp.isoformat(), "close": bar.close,
-                        "selected_pmh": level, "occurrence": metadata, "session_plan": session_plan}
+                        ("selected_pmh" if profile == PMH_COMPLETED_BAR_FAILURE_PROFILE else "selected_entry"): level, "occurrence": metadata, "session_plan": session_plan}
         except (TypeError, ValueError, KeyError, AttributeError, OverflowError):
             return None
         return None
+
+    # Compatibility entry point; one implementation and explicit policy scope.
+    evaluate_pmh_completed_failure = evaluate_selected_completed_failure
 
     def evaluate_cycle(self, market_state: dict[str, dict]) -> list[TradeIntent]:
         intents: list[TradeIntent] = []

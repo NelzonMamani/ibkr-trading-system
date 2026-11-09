@@ -1935,9 +1935,10 @@ class ExecutionEngine:
         if direction_upper == "SELL" and native_parent is not None:
             applied = self.post_fill_lifecycle.record_exit_fill(trade_id=protection_id, fill_price=fill_price,
                 fill_time=datetime.now(timezone.utc).isoformat(), actual_qty=filled_quantity,
-                exit_order_id=str(ibkr_order_id), reason=("PMH_COMPLETED_BAR_FAILURE"
+                exit_order_id=str(ibkr_order_id), reason=((native_parent["pmh_failure_exit"]["profile"].removesuffix("_V1"))
                     if (native_parent.get("pmh_failure_exit") or {}).get("status") == "MKT"
-                    else "OWNED_CLOSE_AFTER_PMH_REQUEST" if native_parent.get("pmh_failure_exit") else "STOP_LOSS"))
+                    else ("OWNED_CLOSE_AFTER_PMH_REQUEST" if native_parent["request"].get("setup_family_id") == "PREMARKET_HIGH_BREAK"
+                        else "OWNED_CLOSE_AFTER_FAILURE_REQUEST") if native_parent.get("pmh_failure_exit") else "STOP_LOSS"))
             if not applied.get("success"):
                 native_owned["lifecycle_application_rejected"] = applied
                 raise RuntimeError("NATIVE_PROTECTION_EXIT_APPLICATION_REJECTED")
@@ -2199,7 +2200,8 @@ class ExecutionEngine:
                             or not self.post_fill_lifecycle.assess_trade_stop_protection(order_id)["protected"]):
                         raise RuntimeError("NATIVE_ORDER_PROTECTION_UNVERIFIED")
                     order["protection_confirmed"] = True
-                    if request.setup_metadata and request.setup_family_id == "PREMARKET_HIGH_BREAK":
+                    from src.strategies.ross_momentum.strategy_policy import selected_completed_failure_profile
+                    if request.setup_metadata and selected_completed_failure_profile(asdict(request)):
                         order["last_accounted_entry_fill_at"] = datetime.now(timezone.utc).isoformat()
                         matched = [row for row in inventory if str(row.order_id) == str(life.stop.broker_order_id)]
                         if len(matched) == 1:
@@ -2317,6 +2319,8 @@ class ExecutionEngine:
             raise ValueError("NATIVE_PROTECTION_BINDING_INVALID")
         return parent, life
 
+    # Historical pmh_* durable keys retain their schema for restart inspection;
+    # the retained explicit profile determines applicability, never the key name.
     def _pmh_complete_inventory(self):
         if self._native_scope is None:
             raise RuntimeError("PMH_CLOSE_ORDER_SCOPE_UNAVAILABLE")
@@ -2343,14 +2347,15 @@ class ExecutionEngine:
             return "MKT"
         return None
 
-    def request_pmh_failure_exit(self, order_id, failure, *, decision):
+    def request_selected_failure_exit(self, order_id, failure, *, decision):
         """Coordinate one existing owned close leg; never submit a second SELL."""
         from copy import deepcopy
-        from src.strategies.ross_momentum.strategy_policy import PMH_COMPLETED_BAR_FAILURE_PROFILE
+        from src.strategies.ross_momentum.strategy_policy import selected_completed_failure_profile
         parent = self._native_orders[order_id]
-        if (parent.get("pmh_failure_exit") or not decision.allowed or decision.execution_blocked
+        if (parent.get("pmh_failure_exit") or parent.get("pmh_management_expired") or not decision.allowed or decision.execution_blocked
                 or decision.decision_id != parent["decision_id"] or decision.direction != "SELL"
-                or failure.get("profile") != PMH_COMPLETED_BAR_FAILURE_PROFILE
+                or not selected_completed_failure_profile(parent["request"])
+                or failure.get("profile") != selected_completed_failure_profile(parent["request"])
                 or failure.get("occurrence") != parent["request"].get("setup_metadata")):
             return False
         self._validate_native_binding(order_id, parent, {})
@@ -2380,7 +2385,7 @@ class ExecutionEngine:
             "owned_remainder": decision.max_position_size}
         self._save_native_orders()
         life.selected_exit_pending = deepcopy(parent["pmh_failure_exit"])
-        self.post_fill_lifecycle.mark_exit_pending(order_id, "PMH_COMPLETED_BAR_FAILURE")
+        self.post_fill_lifecycle.mark_exit_pending(order_id, failure["profile"].removesuffix("_V1"))
         self._failsafe_block_new_entries = True
         try:
             self._validate_native_binding(order_id, parent, {})
@@ -2402,6 +2407,8 @@ class ExecutionEngine:
             # The retained ID is consumed on the next authoritative fill pass.
             self._failsafe_block_new_entries = True
         return True
+
+    request_pmh_failure_exit = request_selected_failure_exit
 
     def _verify_native_remaining_stop(self, order, life, cumulative_filled):
         if life.filled_qty <= 0:

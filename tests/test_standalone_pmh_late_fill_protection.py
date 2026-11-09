@@ -1520,17 +1520,20 @@ def pmh_failure_case(reassessment,monkeypatch,tmp_path,capsys,*,fault='none',con
         h.life.clock.current+=timedelta(seconds=step)
         assert h.core.run_once();capsys.readouterr()
         remaining-=step
-    close=10.295 # Strictly below selected PMH10.30, ABOVE original structural stop10.2897.
-    if fault=='equality':close=10.3
-    if fault=='wick':close=10.31
-    bar=Candle(10.31,10.32,10.29,close,500,timestamp=stamp)
+    central=request.setup_family_id in {'BULL_FLAG','FIRST_PULLBACK','MICRO_PULLBACK'}
+    level=request.setup_metadata['trigger_level']
+    close=round((level+request.stop_loss_price)/2,2) if central else 10.295
+    bid,ask=(round(close-.01,2),round(close+.01,2)) if central else (10.29,10.30)
+    if fault=='equality':close=level
+    if fault=='wick':close=level+.01
+    bar=Candle(level+.01,level+.02,bid,close,500,timestamp=stamp)
     h.failure_bars=[bar]
     if fault in {'none','equality','wick','stale'}:
         # Same external tape for registry and management; append only new bars.
         previous=h.streams[timeframe][-1]
         cursor=previous.timestamp+timedelta(seconds=seconds)
         while cursor<stamp:
-            h.streams[timeframe].append(Candle(previous.close,10.54,10.30,10.31,200,timestamp=cursor))
+            h.streams[timeframe].append(Candle(previous.close,max(previous.close,level+.02),level,level+.01,200,timestamp=cursor) if central else Candle(previous.close,10.54,10.30,10.31,200,timestamp=cursor))
             previous=h.streams[timeframe][-1];cursor+=timedelta(seconds=seconds)
         h.streams[timeframe].append(bar)
         if timeframe=='10s':
@@ -1554,12 +1557,13 @@ def pmh_failure_case(reassessment,monkeypatch,tmp_path,capsys,*,fault='none',con
     # Independent contemporaneous quote facts. SELL fill10.29 is a cent tick
     # above selected stop10.2897; completed management close10.295 is mid-spread.
     for row in h.rows.values():
-        row.update(last_price=close,bid=10.29,ask=10.30,spread_pct=100*.01/close)
+        row.update(last_price=close,bid=bid,ask=ask,spread_pct=100*(ask-bid)/close)
     original_snapshots=h.core.market_data_snapshot_manager.batch_snapshots
     def quotes(symbols):
         values,errors=original_snapshots(symbols)
-        return {key:replace(value,last=close,bid=10.29,ask=10.30) for key,value in values.items()},errors
+        return {key:replace(value,last=close,bid=bid,ask=ask) for key,value in values.items()},errors
     h.core.market_data_snapshot_manager.batch_snapshots=quotes
+    h.failure_exit_price=bid
     h.failure_owner=owner
     return h,request,life
 
@@ -2246,3 +2250,237 @@ def test_standalone_bull_native_core_paper_fill_initial_protection(reassessment,
         assert life.avg_fill_price!=h.evaluated[0][0].entry_price
         assert not h.manager._relationship_plans and life.selected_target_price is None
     finally:teardown_unsent_fixture(h,no_external_activity)
+
+
+CENTRAL_FAMILIES=['BULL_FLAG','FIRST_PULLBACK','MICRO_PULLBACK']
+
+
+def central_failure_case(reassessment,monkeypatch,tmp_path,capsys,family,*,fault='none',conversion='confirmed'):
+    h,ack,_,price=standalone_case(reassessment,monkeypatch,tmp_path,family)
+    request=ack(h,capsys)
+    life=confirm_selected_fill(h,request,capsys,family=family,fill_price=price,stop_price=request.stop_loss_price)
+    retained=deepcopy(h.core.execution_engine._native_orders[request.client_order_id]['request'])
+    h,request,life=pmh_failure_case(reassessment,monkeypatch,tmp_path,capsys,prepared=(h,request,life),
+        fault=fault,conversion=conversion,clock_step=10)
+    assert retained==h.core.execution_engine._native_orders[request.client_order_id]['request']
+    return h,request,life
+
+
+def finish_failure_fill(h,life,capsys,*,quantity=1):
+    h.facts[72]=dict(status='Filled',filled=quantity,remaining=0,avgFillPrice=h.failure_exit_price,
+        symbol='JPM',side='SELL',orderId=72,parentId=71,orderRef='PROTECT|'+life.trade_id)
+    h.native_quantity[0]=0;h.native_open_orders.clear() # Independent external position/order facts, not internal flat mutation.
+    for _ in range(3):
+        h.life.clock.current+=timedelta(seconds=1)
+        assert h.core.run_once();capsys.readouterr()
+
+
+@pytest.mark.parametrize('family',CENTRAL_FAMILIES)
+def test_central_failure_full_registry_core_exit_above_stop_to_flat(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,family):
+    from src.strategies.ross_momentum.strategy_policy import CENTRAL_STANDALONE_FAILURE_PROFILE
+    h,request,life=central_failure_case(reassessment,monkeypatch,tmp_path,capsys,family)
+    intent,serialized,decision=h.evaluated[0]
+    owner=h.failure_owner;metadata=deepcopy(request.setup_metadata)
+    from src.storage.serialization import to_jsonable
+    assert metadata==to_jsonable(intent.setup_metadata) and metadata['trigger_level']==intent.entry_price
+    saved=h.core.execution_engine._storage_engine.fetch_management_state('execution.native_orders.v1:PAPER')
+    assert saved['orders'][request.client_order_id]['request']['setup_metadata']==metadata
+    assert len(h.registry_batches[0][1])==33 and not request.relationship_context
+    assert h.failure_bars[-1].timestamp>=__import__('datetime').datetime.fromisoformat(owner['last_accounted_entry_fill_at'])
+    assert request.stop_loss_price<h.failure_exit_price<h.failure_bars[-1].close<metadata['trigger_level']
+    assert h.core.run_once();capsys.readouterr()
+    latch=owner['pmh_failure_exit'] # Existing durable transport latch, explicit new profile.
+    assert latch['profile']==CENTRAL_STANDALONE_FAILURE_PROFILE and latch['selected_entry']==metadata['trigger_level']
+    assert latch['occurrence']==metadata and latch['status']=='MKT'
+    assert len(h.failure_conversions)==1 and life.filled_qty==1
+    assert not h.core.execution_engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
+    finish_failure_fill(h,life,capsys)
+    assert life.filled_qty==0 and life.exited_qty==1
+    assert life.realized_pnl==pytest.approx(h.failure_exit_price-life.avg_fill_price)
+    assert not h.manager.snapshot_positions() and not h.core.trade_registry.snapshot()
+    engine=h.core.execution_engine
+    assert engine.capital_authority.total_used_exposure==engine.capital_authority.total_reserved_capital==0
+    assert len(h.failure_conversions)==len(h.sent_native)==len(h.stop_requests)==1
+    assert len(engine.position_records)==2 and request.setup_metadata==metadata
+    assert serialized==vars(intent) and request.take_profit_price is None
+
+
+@pytest.mark.parametrize('family',CENTRAL_FAMILIES)
+@pytest.mark.parametrize('fault',['equality','wick','forming','straddling','missing','stale','future'])
+def test_central_failure_completed_bar_boundaries(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,family,fault):
+    h,request,life=central_failure_case(reassessment,monkeypatch,tmp_path,capsys,family,fault=fault)
+    assert h.core.run_once();capsys.readouterr()
+    assert not h.failure_conversions and not h.failure_owner.get('pmh_failure_exit')
+    assert life.filled_qty==1 and life.selected_stop_price==request.stop_loss_price
+    assert h.core.execution_engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
+
+
+@pytest.mark.parametrize('family',CENTRAL_FAMILIES)
+@pytest.mark.parametrize('conversion',['uncertain','rejected','stop_race','unknown'])
+def test_central_failure_uncertainty_and_race_do_not_retry(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,family,conversion):
+    h,request,life=central_failure_case(reassessment,monkeypatch,tmp_path,capsys,family,conversion=conversion)
+    assert h.core.run_once();capsys.readouterr()
+    if conversion=='unknown':
+        assert not h.core.run_once();capsys.readouterr()
+        assert h.core.execution_engine._native_quarantined
+    else:
+        for _ in range(3):
+            h.life.clock.current+=timedelta(seconds=1)
+            assert h.core.run_once();capsys.readouterr()
+    assert len(h.failure_conversions)==len(h.sent_native)==len(h.stop_requests)==1
+    if conversion=='stop_race':assert life.filled_qty==0 and life.exited_qty==1
+    else:
+        assert life.filled_qty==1 and life.exited_qty==0
+        assert h.failure_owner['pmh_failure_exit']['status']=={'uncertain':'MKT','rejected':'STP','unknown':'UNKNOWN'}[conversion]
+        assert h.core.execution_engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected'] is (conversion=='rejected')
+
+
+@pytest.mark.parametrize('family',CENTRAL_FAMILIES)
+@pytest.mark.parametrize('fault',['broker_larger','unknown','partial_truth','wrong_reference','pending_order','incomplete_inventory'])
+def test_central_failure_actual_truth_and_inventory_veto(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,family,fault):
+    h,request,life=central_failure_case(reassessment,monkeypatch,tmp_path,capsys,family)
+    if fault=='broker_larger':h.native_quantity[0]=2
+    if fault in {'unknown','partial_truth'}:
+        h.native_client.position_snapshot=lambda:BrokerPositionResult((),'UNKNOWN' if fault=='unknown' else 'PARTIAL','SYNTHETIC_TEST',h.life.clock.now(timezone.utc))
+    if fault=='wrong_reference':h.native_open_orders[0].order.orderRef='PROTECT|OTHER'
+    if fault=='pending_order':
+        extra=deepcopy(h.native_open_orders[0]);extra.orderId=73;h.native_open_orders.append(extra)
+    if fault=='incomplete_inventory':
+        original=h.core.execution_engine._provider.broker.open_orders
+        def incomplete(**kw):
+            if kw.get('require_complete'):raise RuntimeError('synthetic incomplete native inventory')
+            return original(**kw)
+        monkeypatch.setattr(h.core.execution_engine._provider.broker,'open_orders',incomplete)
+    h.core.run_once();capsys.readouterr()
+    assert not h.failure_conversions and not h.failure_owner.get('pmh_failure_exit')
+    assert life.filled_qty==1 and life.selected_stop_price==request.stop_loss_price
+
+
+@pytest.mark.parametrize('family',CENTRAL_FAMILIES)
+@pytest.mark.parametrize('transition',['phase','date'])
+def test_central_failure_transition_expires_even_when_execution_gated(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,family,transition):
+    h,request,life=central_failure_case(reassessment,monkeypatch,tmp_path,capsys,family)
+    original=h.life.clock.current;h.core.execution_enabled=False
+    h.life.clock.current+=timedelta(hours=4) if transition=='phase' else timedelta(days=1)
+    h.core.run_once();capsys.readouterr()
+    assert h.failure_owner['pmh_management_expired'] and not h.failure_conversions
+    h.life.clock.current=original;h.core.execution_enabled=True
+    h.core.run_once();capsys.readouterr()
+    assert not h.failure_conversions and life.filled_qty==1
+
+
+@pytest.mark.parametrize('family',CENTRAL_FAMILIES)
+def test_central_failure_later_bar_and_missing_timestamp_or_relationship_hold(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,family):
+    from dataclasses import replace
+    h,request,life=central_failure_case(reassessment,monkeypatch,tmp_path,capsys,family,fault='wick')
+    assert h.core.run_once();capsys.readouterr()
+    assert not h.failure_conversions
+    owner=h.failure_owner;now=h.life.clock.current
+    first=h.failure_bars[-1];seconds={'10s':10,'1m':60}[request.setup_metadata['execution_stream']['execution_trigger_timeframe']]
+    later=replace(first,timestamp=first.timestamp+timedelta(seconds=seconds),close=round((request.setup_metadata['trigger_level']+request.stop_loss_price)/2,2))
+    h.failure_bars.append(later);h.streams[request.setup_metadata['execution_stream']['execution_trigger_timeframe']].append(later)
+    for delta in range(seconds//5+1):
+        h.life.clock.current+=timedelta(seconds=5)
+        assert h.core.run_once();capsys.readouterr()
+    assert len(h.failure_conversions)==1 and owner['pmh_failure_exit']['bar_start']==later.timestamp.isoformat()
+    evaluate=lambda row:h.manager.evaluate_selected_completed_failure(row,[later],observed_at=h.life.clock.current,session_plan=request.management_session_plan)
+    assert evaluate(owner)
+    for change in ('missing_stamp','relationship','other_family','wrong_stop','wrong_invalidation','bad_occurrence'):
+        row=deepcopy(owner)
+        if change=='missing_stamp':row.pop('last_accounted_entry_fill_at')
+        if change=='relationship':row['request']['relationship_context']={'profile':'BULL_FLAG_MICRO_2R_V1'}
+        if change=='other_family':row['request']['setup_family_id']='ABCD'
+        if change=='wrong_stop':row['request']['stop_loss_price']+=.01
+        if change=='wrong_invalidation':row['request']['invalidation_level']+=.01
+        if change=='bad_occurrence':row['request']['setup_metadata']['canonical_result_index']=-1
+        assert evaluate(row) is None,change
+
+
+def small_central_owned(reassessment,monkeypatch,tmp_path,capsys,family,*,partial=False):
+    from test_joined_core_pmh_readonly import standalone_bull_joined,micro_joined
+    from test_joined_core_first_pullback import first_joined
+    factory={'BULL_FLAG':standalone_bull_joined,'FIRST_PULLBACK':first_joined,'MICRO_PULLBACK':micro_joined}[family]
+    prices={'BULL_FLAG':(10.88,10.63),'FIRST_PULLBACK':(10.55,10.15),'MICRO_PULLBACK':(10.88,10.6)}
+    price,stop=prices[family]
+    monkeypatch.setenv('TRADING_DEFAULT_CAPITAL','400')
+    def small_joined(*args,**kwargs):
+        kwargs['runtime_options']['config_overrides'].update(RISK_PROFILE='SMALL',RISK_MAX_POSITION_SIZE=2)
+        h=factory(*args,**kwargs)
+        for row in h.rows.values():
+            gap=(row['last_price']/row['prev_close']-1)*100;row.update(gap_pct=gap,pct_change=gap)
+        return h
+    def paper_small(*args,**kwargs):return paper_pmh(*args,joined_factory=small_joined,**kwargs)
+    h=late_pmh(reassessment,monkeypatch,tmp_path,paper_factory=paper_small,fill_price=price,stop_price=stop,expected_stop_quantity=None)
+    assert h.core.run_once();capsys.readouterr()
+    h.life.clock.current+=timedelta(seconds=11)
+    assert h.core.run_once();capsys.readouterr()
+    request=h.sent_native[0]
+    assert request.quantity==2 and not h.stop_requests and not h.manager.snapshot_positions()
+    assert request.management_session_plan and request.setup_metadata and not request.relationship_context
+    count=1 if partial else 2
+    h.facts[71]=dict(status='Submitted' if partial else 'Filled',filled=count,remaining=2-count,avgFillPrice=price)
+    h.native_quantity[0]=count;h.native_open_orders.clear()
+    h.life.clock.current+=timedelta(seconds=1)
+    assert h.core.run_once();capsys.readouterr()
+    life=h.core.execution_engine.post_fill_lifecycle.get_trade(request.client_order_id)
+    assert life.filled_qty==life.stop.quantity==count
+    return h,request,life
+
+
+@pytest.mark.parametrize('family',CENTRAL_FAMILIES)
+@pytest.mark.parametrize('partial_entry',[False,True])
+def test_central_failure_partial_entry_exclusion_and_partial_exit_accounting(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,family,partial_entry):
+    prepared=small_central_owned(reassessment,monkeypatch,tmp_path,capsys,family,partial=partial_entry)
+    h,request,life=pmh_failure_case(reassessment,monkeypatch,tmp_path,capsys,prepared=prepared,clock_step=10)
+    assert h.core.run_once();capsys.readouterr()
+    engine=h.core.execution_engine
+    if partial_entry:
+        assert not h.failure_conversions and not h.failure_owner['terminal']
+        assert life.filled_qty==1 and engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
+        return
+    assert len(h.failure_conversions)==1
+    h.facts[72]=dict(status='Submitted',filled=1,remaining=1,avgFillPrice=h.failure_exit_price,
+        symbol='JPM',side='SELL',orderId=72,parentId=71,orderRef='PROTECT|'+life.trade_id)
+    h.native_quantity[0]=1
+    for _ in range(3):
+        h.life.clock.current+=timedelta(seconds=1)
+        assert h.core.run_once();capsys.readouterr()
+    assert life.filled_qty==life.exited_qty==h.manager.snapshot_positions()['JPM'].quantity==1
+    assert not h.manager.snapshot_positions()['JPM'].partial_taken and not life.trailing_active
+    assert life.selected_stop_price==request.stop_loss_price
+    assert h.native_open_orders[0].order.totalQuantity==2 and h.native_open_orders[0].order.orderType=='MKT'
+    assert not engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
+    finish_failure_fill(h,life,capsys,quantity=2)
+    assert life.filled_qty==0 and life.exited_qty==2
+    assert life.realized_pnl==pytest.approx(2*(h.failure_exit_price-life.avg_fill_price))
+    assert engine.capital_authority.total_used_exposure==0 and len(h.failure_conversions)==1
+
+
+@pytest.mark.parametrize('family',CENTRAL_FAMILIES)
+def test_central_failure_accounting_interruption_retains_quarantine_no_replay(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,family):
+    h,request,life=central_failure_case(reassessment,monkeypatch,tmp_path,capsys,family)
+    assert h.core.run_once();capsys.readouterr()
+    engine=h.core.execution_engine
+    h.facts[72]=dict(status='Filled',filled=1,remaining=0,avgFillPrice=h.failure_exit_price,
+        symbol='JPM',side='SELL',orderId=72,parentId=71,orderRef='PROTECT|'+life.trade_id)
+    h.native_quantity[0]=0;h.native_open_orders.clear()
+    original=engine._record_fill_and_position
+    def interrupted(*a,**kw):original(*a,**kw);raise RuntimeError('synthetic central interruption')
+    monkeypatch.setattr(engine,'_record_fill_and_position',interrupted)
+    with pytest.raises(RuntimeError,match='synthetic central interruption'):
+        engine.collect_relationship_updates(result_processor=lambda r:h.core._apply_execution_results_to_trade_management([r]))
+    assert engine._native_quarantined and life.filled_qty==0 and life.exited_qty==1
+    before=(len(engine.position_records),life.realized_pnl,engine.capital_authority.total_used_exposure)
+    with pytest.raises(RuntimeError):engine.collect_relationship_updates()
+    assert before==(len(engine.position_records),life.realized_pnl,engine.capital_authority.total_used_exposure)
+    assert len(h.failure_conversions)==1
+
+
+@pytest.mark.parametrize('family',CENTRAL_FAMILIES)
+def test_central_confirmed_stop_fill_is_processed_before_discretionary_exit(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,family):
+    h,request,life=central_failure_case(reassessment,monkeypatch,tmp_path,capsys,family)
+    external_stop_facts(h,life)
+    assert h.core.run_once();capsys.readouterr()
+    assert life.filled_qty==0 and life.exited_qty==1
+    assert not h.failure_conversions and not h.failure_owner.get('pmh_failure_exit')
+    assert h.core.execution_engine.capital_authority.total_used_exposure==0

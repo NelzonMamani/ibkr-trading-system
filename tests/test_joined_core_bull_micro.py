@@ -273,6 +273,8 @@ def test_joined_native_core_composed_raw_formation_then_ownership_veto(reassessm
     assert intent.setup_family_id=="BULL_FLAG" and intent.execution_refinement_mode=="FAST_MICRO_PULLBACK"
     assert intent.entry_price==pytest.approx(10.91)
     assert intent.stop_loss_price==intent.invalidation_level==pytest.approx(10.81)
+    from src.strategies.ross_momentum.strategy_policy import selected_completed_failure_profile
+    assert selected_completed_failure_profile(vars(intent)) is None
     context=intent.relationship_context
     assert context["security_id"]=="conId:123" and context["action"]=="ENTRY"
     assert context["profile"]=="BULL_FLAG_MICRO_2R_V1" and context["parent_invalidation"]==10.63
