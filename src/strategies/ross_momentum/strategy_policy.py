@@ -1327,3 +1327,27 @@ BULL_FLAG_MICRO_MANAGEMENT_PROFILE = "BULL_FLAG_MICRO_2R_V1"
 # Original structural stop and TP=None retained. No 1R/2R/profit partials, trailing,
 # adds/re-entry/time/session-flatten defaults or legacy PMH exit-plan activation.
 PMH_COMPLETED_BAR_FAILURE_PROFILE = "PMH_COMPLETED_BAR_FAILURE_V1"
+
+
+# NEW project policy adopted 9 November 2026 by explicit user instruction.
+# Same post-terminal-fill completed-bar/owned-remainder safeguards as the bounded
+# PMH subset, but each standalone occurrence uses its OWN measured entry anchor:
+# flag high / first-pullback high / native micro-pause high. This failure threshold
+# does not replace structural stop/invalidation. Observed phase/session/date change
+# permanently expires enrollment. No elapsed cutoff, profit partial, target, trail,
+# add/re-entry, time/session-flatten or generic-manager authority. Not Ross doctrine.
+CENTRAL_STANDALONE_FAILURE_PROFILE = "CENTRAL_STANDALONE_COMPLETED_BAR_FAILURE_V1"
+CENTRAL_STANDALONE_FAILURE_FAMILIES = frozenset({"BULL_FLAG", "FIRST_PULLBACK", "MICRO_PULLBACK"})
+
+
+def selected_completed_failure_profile(request):
+    """Explicit applicability only; no generic family or target-model default."""
+    if (request.get("relationship_context") or request.get("take_profit_price") is not None
+            or request.get("target_model") == BULL_FLAG_MICRO_MANAGEMENT_PROFILE):
+        return None
+    family = request.get("setup_family_id")
+    if family == "PREMARKET_HIGH_BREAK":
+        return PMH_COMPLETED_BAR_FAILURE_PROFILE
+    if isinstance(family, str) and family in CENTRAL_STANDALONE_FAILURE_FAMILIES:
+        return CENTRAL_STANDALONE_FAILURE_PROFILE
+    return None

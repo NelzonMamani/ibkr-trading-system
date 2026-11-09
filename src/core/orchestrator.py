@@ -2979,14 +2979,15 @@ class CoreOrchestrator:
                     str(getattr(result, "client_order_id", "") or ""), {}).get("protection_parent_order_id")),
             )
 
-    def _expire_pmh_failure_enrollment(self, observed_at, session_plan):
+    def _expire_selected_failure_enrollment(self, observed_at, session_plan):
         """Observe phase/date transitions even when discretionary exits are gated."""
         from datetime import datetime as DateTimeType
         from src.utils.time_utils import to_ny_time
         engine = self.execution_engine
+        from src.strategies.ross_momentum.strategy_policy import selected_completed_failure_profile
         for order in getattr(engine, "_native_orders", {}).values():
             request = order.get("request", {})
-            if request.get("setup_family_id") != "PREMARKET_HIGH_BREAK" or order.get("pmh_management_expired"):
+            if not selected_completed_failure_profile(request) or order.get("pmh_management_expired"):
                 continue
             expired = bool(request.get("management_session_plan")
                 and request["management_session_plan"] != session_plan)
@@ -3000,9 +3001,10 @@ class CoreOrchestrator:
                 order["pmh_management_expired"] = True
                 engine._save_native_orders()
 
-    def _run_pmh_failure_management(self, observed_at, session_plan):
-        """Adopted PMH-only policy; never call generic exit/trailing defaults."""
-        if self._stop_requested_at_boundary("PMH_FAILURE_MANAGEMENT"):
+    def _run_selected_failure_management(self, observed_at, session_plan):
+        """Explicit selected-family failure policies; no generic exit defaults."""
+        from src.strategies.ross_momentum.strategy_policy import selected_completed_failure_profile
+        if self._stop_requested_at_boundary("SELECTED_FAILURE_MANAGEMENT"):
             return False
         engine = self.execution_engine
         snapshot = self._latest_position_truth_snapshot
@@ -3012,29 +3014,32 @@ class CoreOrchestrator:
                     or order.get("cached_update_in_progress") or order.get("pmh_failure_exit")):
                 continue
             request = order.get("request", {})
-            if request.get("setup_family_id") != "PREMARKET_HIGH_BREAK" or order.get("pmh_management_expired"):
+            if not selected_completed_failure_profile(request) or order.get("pmh_management_expired"):
                 continue
             stream = (request.get("setup_metadata") or {}).get("execution_stream") or {}
             timeframe = stream.get("execution_trigger_timeframe")
             if timeframe not in {"10s", "1m"}:
                 continue
             bars, _ = self._get_trade_management_recent_candles(order["symbol"], 10, timeframe=timeframe)
-            failure = self.trade_management_engine.evaluate_pmh_completed_failure(
+            failure = self.trade_management_engine.evaluate_selected_completed_failure(
                 order, bars, observed_at=observed_at, session_plan=session_plan)
             if failure:
                 life = engine.post_fill_lifecycle.get_trade(order_id)
                 registered = self.trade_registry.get_trade(order["symbol"], request.get("trader_type") or "UNKNOWN")
                 position = self.trade_management_engine.snapshot_positions().get(order["symbol"])
-                decision = self.risk_engine.evaluate_pmh_failure_exit(order_id=order_id, order=order,
+                decision = self.risk_engine.evaluate_selected_failure_exit(order_id=order_id, order=order,
                     position=position, registered=registered, life=life, snapshot=snapshot, observed_at=observed_at)
-                self._trace_event("PMH_FAILURE_EXIT_RISK", {"decision_id": decision.decision_id,
+                self._trace_event("SELECTED_FAILURE_EXIT_RISK", {"decision_id": decision.decision_id,
                     "order_id": order_id, "allowed": decision.allowed, "quantity": decision.max_position_size,
                     "reason": decision.rationale})
                 if decision.allowed and not decision.execution_blocked:
-                    if self._stop_requested_at_boundary("PMH_FAILURE_MANAGEMENT_EXECUTION"):
+                    if self._stop_requested_at_boundary("SELECTED_FAILURE_MANAGEMENT_EXECUTION"):
                         return False
-                    engine.request_pmh_failure_exit(order_id, failure, decision=decision)
+                    engine.request_selected_failure_exit(order_id, failure, decision=decision)
         return True
+
+    _expire_pmh_failure_enrollment = _expire_selected_failure_enrollment
+    _run_pmh_failure_management = _run_selected_failure_management
 
     def _run_trade_management_engine(
         self, execution_output: list[ExecutionResult], *, updates_processed: bool = False,
@@ -3293,7 +3298,7 @@ class CoreOrchestrator:
         forced_session_label: str | None = None,
         forced_session_source: str | None = None,
     ) -> bool:
-        self._expire_pmh_failure_enrollment(cycle_started_at, str(session_phase))
+        self._expire_selected_failure_enrollment(cycle_started_at, str(session_phase))
         self.runtime_mode_manager = RuntimeModeManager.resolve()
         mode_manager = self.runtime_mode_manager
         print(f"[RUNTIME] {mode_manager.describe()}")
@@ -3389,7 +3394,7 @@ class CoreOrchestrator:
         if (self.run_mode == RunMode.PAPER and self.execution_enabled and mode_manager.allow_orders
                 and not position_truth_verdict.block_exits
                 and not self._latest_lifecycle_authority_verdict.get("block_exit_progression", True)):
-            if not self._run_pmh_failure_management(cycle_started_at, str(session_phase)):
+            if not self._run_selected_failure_management(cycle_started_at, str(session_phase)):
                 return False
         if not self._autonomous_recovery_allows_new_entries(cycle_started_at=cycle_started_at):
             return True
@@ -4534,9 +4539,11 @@ class CoreOrchestrator:
                         # Do not substitute the generic price feed for the
                         # entry already evaluated by risk.
                         decision.entry_price = getattr(intent, "entry_price", None)
-                        if intent.setup_family_id == "PREMARKET_HIGH_BREAK":
+                        from src.strategies.ross_momentum.strategy_policy import selected_completed_failure_profile
+                        if selected_completed_failure_profile(vars(intent)):
                             from copy import deepcopy
-                            decision.setup_metadata = deepcopy(intent.setup_metadata)
+                            from src.storage.serialization import to_jsonable
+                            decision.setup_metadata = to_jsonable(deepcopy(intent.setup_metadata))
                             decision.management_session_plan = str(session_phase)
                         paper_decisions.append((intent, decision, approved))
                     if approved:
