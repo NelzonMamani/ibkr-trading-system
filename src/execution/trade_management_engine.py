@@ -182,8 +182,8 @@ class TradeManagementEngine:
         self._seen_exec_ids.update(payload["seen_exec_ids"])
         self._pending_exit.update(payload["pending_exit"])
 
-    def compose_bull_flag(self, pattern, inputs, *, security_id: str, now: datetime):
-        """Ross composition; detectors remain pure and standalone calls unchanged."""
+    def compose_bull_flag(self, pattern, inputs, *, security_id: str, now: datetime, allow_standalone: bool = False):
+        """Compose a relationship; active registry may also admit native standalone proof."""
         from dataclasses import replace
         from src.setup_engine.setup_families.micro_pullback import MicroPullbackPattern
         from src.strategies.ross_momentum.patterns.setup_fidelity import blocking_input_reason
@@ -219,6 +219,7 @@ class TradeManagementEngine:
             if not width or any(not isinstance(c.timestamp, datetime) or not c.timestamp.tzinfo for c in candles):
                 return []
             return [c for c in candles if c.timestamp.timestamp() + width <= clock.timestamp()]
+        native_inputs = inputs
         streams = {tf: closed_stream(list(rows), tf) for tf, rows in inputs.timeframe_candles.items()}
         inputs = replace(inputs, candles=closed_stream(inputs.candles, primary), timeframe_candles=streams)
         parent = self._parents.get(key)
@@ -250,6 +251,15 @@ class TradeManagementEngine:
             self._parents[key] = parent
             self._save_relationship_state()
         if parent is None:
+            # Optional Micro composition must not erase an independently confirmed
+            # standalone Bull Flag. Never escape an existing relationship's state
+            # or ownership through this path; its invalidation/replay guards above
+            # and its retained plans remain authoritative.
+            if (allow_standalone and inputs.symbol not in self._positions
+                    and not any(plan.security_id == security_id for plan in self._relationship_plans.values())):
+                standalone = pattern.evaluate(native_inputs)
+                if standalone.detected:
+                    return standalone
             return pattern._rejected("relationship_parent_unavailable", inputs)
         if (inputs.timeframe_provenance.get(refinement) != "PRESENT"
                 or not closed(streams.get(refinement), refinement)
