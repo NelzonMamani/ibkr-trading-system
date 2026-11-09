@@ -97,6 +97,45 @@ def validate_order(order, portfolio) -> ValidationResult:
 class RiskEngine:
     """Minimal risk engine placeholder with teaching-style log messages."""
 
+    def evaluate_pmh_failure_exit(self, *, order_id, order, position, registered, life, snapshot, observed_at):
+        """Owned reduction only; no entry permission or management defaults."""
+        from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
+        request = order.get("request", {})
+        allowed = False
+        quantity = 0
+        try:
+            broker = snapshot.broker_positions.get(order["symbol"])
+            system = snapshot.system_positions.get(order["symbol"])
+            quantity = life.filled_qty
+            allowed = bool(
+                order.get("terminal") and order.get("filled") == order.get("requested")
+                and order.get("protection_confirmed") and not order.get("cached_update_in_progress")
+                and not order.get("quarantine") and not order.get("pmh_failure_exit")
+                and request.get("setup_family_id") == "PREMARKET_HIGH_BREAK"
+                and request.get("take_profit_price") is None and not request.get("relationship_context")
+                and type(order.get("security_id")) is int and order["security_id"] > 0
+                and position is not None and not position.relationship_id
+                and position.reference_order_id == life.trade_id == order_id
+                and position.strategy_name == registered.strategy_name == life.strategy_id == request.get("strategy_name")
+                and position.quantity == registered.quantity == broker.quantity == system.quantity == quantity
+                and type(quantity) is int and 0 < quantity <= order["filled"]
+                and broker.con_id == order["security_id"]
+                and snapshot.snapshot_status == "HEALTHY"
+                and order["symbol"] not in snapshot.unknown_symbols
+                and not any(m.symbol == order["symbol"] for m in snapshot.mismatches)
+                and 0 <= (observed_at-snapshot.as_of).total_seconds() <= get_ibkr_snapshot_max_age_seconds()
+                and life.preserve_selected_protection and life.target is None
+                and life.selected_stop_price == request.get("stop_loss_price")
+                and position.stop_loss_price == life.selected_stop_price)
+        except (AttributeError, TypeError, ValueError, KeyError):
+            allowed = False
+        return RiskDecision(symbol=order.get("symbol", "UNKNOWN"), allowed=allowed,
+            max_position_size=quantity if allowed else 0, risk_level="LOW" if allowed else "BLOCKED",
+            rationale="PMH_OWNED_FAILURE_EXIT" if allowed else "PMH_EXIT_TRUTH_OR_BINDING_BLOCKED",
+            trader_type=request.get("trader_type") or "UNKNOWN", strategy_name=request.get("strategy_name"),
+            direction="SELL", decision_id=order.get("decision_id"), stop_loss_price=request.get("stop_loss_price"),
+            take_profit_price=None, setup_family_id="PREMARKET_HIGH_BREAK", execution_blocked=not allowed)
+
     def __init__(
         self,
         trade_registry: Optional[ActiveTradeRegistry] = None,

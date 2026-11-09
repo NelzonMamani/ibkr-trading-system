@@ -321,9 +321,10 @@ class IbkrExecutionProvider(ExecutionProvider):
             raise
         return PositionSnapshot(positions=list(rows), as_of=timestamp)
 
-    def get_open_orders(self) -> List[OrderSnapshot]:
+    def get_open_orders(self, *, require_complete=False, expected_client=None) -> List[OrderSnapshot]:
         try:
-            rows = self.broker.open_orders()
+            rows = (self.broker.open_orders(require_complete=True, expected_client=expected_client)
+                if require_complete else self.broker.open_orders())
         except Exception as exc:
             print(f"[IBKR][OPEN_ORDERS][ERROR] reason={exc}")
             raise
@@ -421,6 +422,11 @@ class IbkrExecutionProvider(ExecutionProvider):
             new_stop_price=new_stop_price,
             trade_id=trade_id,
         )
+
+    def convert_selected_stop_to_market(self, **binding):
+        if self.run_mode != RunMode.PAPER:
+            raise RuntimeError("PMH_EXIT_PAPER_ONLY")
+        return self.broker.convert_selected_stop_to_market(**binding)
 
     def cancel_order(self, *, broker_order_id: str) -> dict[str, Any]:
         if self.run_mode == RunMode.READ_ONLY:

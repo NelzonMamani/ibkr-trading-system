@@ -1313,3 +1313,17 @@ def stock_selection_policy_for_session_phase(
 # Explicit project choice, approved 2026-10-07 for the Bull Flag/child
 # Micro Pullback relationship. Not a default for other Ross setups.
 BULL_FLAG_MICRO_MANAGEMENT_PROFILE = "BULL_FLAG_MICRO_2R_V1"
+
+
+# NEW project policy adopted 8 November 2026, checkpoint bb703c41.
+# Not historical Ross confirmation doctrine. Terminal accounted entry, reconciled
+# owned truth and confirmed original selected protection are prerequisites.
+# First QUALIFYING fresh completed bar on the retained execution/session plan
+# closes STRICTLY below selected PMH. Its START must be >= the last accounted
+# entry-fill timestamp; straddling/equality/wick/forming/stale/future/missing facts
+# hold. An earlier above-PMH bar does not consume the rule. Phase/session changes
+# are outside enrollment; no extra elapsed cutoff. Exit the confirmed owned
+# remainder, with cached fills first and one bound native close identity.
+# Original structural stop and TP=None retained. No 1R/2R/profit partials, trailing,
+# adds/re-entry/time/session-flatten defaults or legacy PMH exit-plan activation.
+PMH_COMPLETED_BAR_FAILURE_PROFILE = "PMH_COMPLETED_BAR_FAILURE_V1"

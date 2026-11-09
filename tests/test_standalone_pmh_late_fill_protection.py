@@ -41,7 +41,7 @@ def late_pmh(reassessment,monkeypatch,tmp_path,*,paper_factory=paper_pmh,positio
     connection._client=native_client
     for method in ('connect','ensure_connected','get_client','_connect_locked'):
         monkeypatch.setattr(connection,method,lambda *a,**k:pytest.fail('Implicit provider connection forbidden'))
-    broker=NS(positions=positions,open_orders=lambda:list(open_orders),
+    broker=NS(positions=positions,open_orders=lambda **kw:list(open_orders),
         connection_manager=connection,place_stop_order=place_stop)
     def provider_factory(**kw):
         return IbkrExecutionProvider(broker=broker,trade_registry=kw['trade_registry'],run_mode=kw['run_mode'])
@@ -1455,3 +1455,479 @@ def test_native_measured_structural_paper_retains_confidence_veto(reassessment,m
         assert not h.core.execution_engine.capital_authority.active_reservations
         assert not h.core.execution_engine.strategy_allocation_authority.active_reservations
     finally:teardown_unsent_fixture(h,no_external_activity)
+
+
+def coherent_pmh_failure_entry(*args,**kwargs):
+    from test_joined_core_pmh_readonly import pmh_joined, _coherent_profile_streams
+    h=pmh_joined(*args,**kwargs)
+    _coherent_profile_streams(h,[(10.31,10.31,10.31,10.31,50)]*4+[
+        (10.31,10.32,10.30,10.30,100),(10.30,10.55,10.30,10.53,1200)])
+    return h
+
+
+def pmh_failure_case(reassessment,monkeypatch,tmp_path,capsys,*,fault='none',conversion='confirmed',prepared=None):
+    from dataclasses import replace
+    from src.ibkr.market_data_client import HistoricalDataResult
+    from src.strategies.common.candles.candle_types import Candle
+    if prepared is None:
+        def coherent_paper(*args,**kwargs):return paper_pmh(*args,joined_factory=coherent_pmh_failure_entry,**kwargs)
+        h=late_pmh(reassessment,monkeypatch,tmp_path,paper_factory=coherent_paper,fill_price=10.53)
+        request=acknowledge(h,capsys)
+        life=confirm_selected_fill(h,request,capsys,family='PREMARKET_HIGH_BREAK',fill_price=10.53,stop_price=request.stop_loss_price)
+    else:h,request,life=prepared
+    engine=h.core.execution_engine;owner=engine._native_orders[request.client_order_id]
+    h.failure_conversions=[];h.failure_bars=[];h.failure_history_reads=[]
+    def history(*args,**kw):
+        h.failure_history_reads.append(deepcopy(kw))
+        return HistoricalDataResult('UNVERIFIED' if fault=='partial_history' else 'COMPLETE_BARS',tuple(h.failure_bars),fault!='partial_history')
+    monkeypatch.setattr(h.core.connection_manager,'_client',NS(intraday_bars_from_history=history))
+    def convert(**binding):
+        assert binding.pop('expected_client') is h.native_client
+        assert binding.pop('scope_as_of') == engine._native_scope[2]
+        h.failure_conversions.append(deepcopy(binding))
+        assert len(h.failure_conversions)==1
+        assert binding==dict(broker_order_id='72',parent_order_id='71',symbol='JPM',con_id=123,
+            total_quantity=life.intended_qty,trade_id=life.trade_id,stop_price=life.selected_stop_price)
+        if conversion=='stop_race':
+            external_stop_facts(h,life)
+            raise TimeoutError('stop fill arrived before amendment')
+        if conversion!='rejected':
+            native=next(row for row in h.native_open_orders if row.orderId==72)
+            native.order.orderType='MKT';native.order.auxPrice=0.
+        if conversion in {'uncertain','rejected'}:
+            raise TimeoutError('synthetic lost reply')
+        return {'status':'Submitted'}
+    monkeypatch.setattr(engine._provider.broker,'convert_selected_stop_to_market',convert,raising=False)
+    stamp=h.life.clock.current.replace(microsecond=0)
+    # Real provider bars align to their retained execution grid. The first
+    # eligible bar starts after the last accounted fill, never straddles it.
+    offset=(-int(stamp.timestamp())) % {'10s':10,'1m':60}[request.setup_metadata['execution_stream']['execution_trigger_timeframe']]
+    stamp+=timedelta(seconds=offset)
+    # Let the bar complete through real bounded cycles, preserving the existing
+    # account-scope freshness law rather than jumping past its deadline.
+    from src.strategies.ross_momentum.policy.pattern_input_policy import PatternInputPolicy
+    timeframe=request.setup_metadata['execution_stream']['execution_trigger_timeframe']
+    seconds={'10s':10,'1m':60}[timeframe]
+    wait_cycles=offset+((PatternInputPolicy.from_policy_v2().candle_freshness_seconds[timeframe]+seconds+2) if fault=='stale' else seconds+2)
+    for _ in range(wait_cycles):
+        h.life.clock.current+=timedelta(seconds=1)
+        assert h.core.run_once();capsys.readouterr()
+    close=10.295 # Strictly below selected PMH10.30, ABOVE original structural stop10.2897.
+    if fault=='equality':close=10.3
+    if fault=='wick':close=10.31
+    bar=Candle(10.31,10.32,10.29,close,500,timestamp=stamp)
+    h.failure_bars=[bar]
+    if fault in {'none','equality','wick','stale'}:
+        # Same external tape for registry and management; append only new bars.
+        previous=h.streams[timeframe][-1]
+        cursor=previous.timestamp+timedelta(seconds=seconds)
+        while cursor<stamp:
+            h.streams[timeframe].append(Candle(previous.close,10.54,10.30,10.31,200,timestamp=cursor))
+            previous=h.streams[timeframe][-1];cursor+=timedelta(seconds=seconds)
+        h.streams[timeframe].append(bar)
+        if timeframe=='10s':
+            for target,period in (('1m',60),('5m',300)):
+                by_start={}
+                for item in h.streams['10s']:
+                    key=item.timestamp.replace(second=(item.timestamp.second//period)*period,microsecond=0) if period==60 else item.timestamp.replace(minute=(item.timestamp.minute//5)*5,second=0,microsecond=0)
+                    if key>h.streams[target][-1].timestamp:
+                        by_start.setdefault(key,[]).append(item)
+                for key,items in sorted(by_start.items()):
+                    h.streams[target].append(Candle(items[0].open,max(x.high for x in items),min(x.low for x in items),
+                        items[-1].close,sum(x.volume for x in items),timestamp=key))
+        h.failure_bars=list(h.streams[timeframe][-10:])
+    if fault=='forming':h.failure_bars=[replace(bar,timestamp=h.life.clock.current-timedelta(seconds=5))]
+    if fault=='straddling':h.failure_bars=[replace(bar,timestamp=__import__('datetime').datetime.fromisoformat(owner['last_accounted_entry_fill_at'])-timedelta(seconds=1))]
+    if fault=='future':h.failure_bars=[replace(bar,timestamp=h.life.clock.current+timedelta(seconds=1))]
+    if fault=='missing':h.failure_bars=[]
+    if fault=='invalid':h.failure_bars=[replace(bar,low=float('nan'))]
+    if fault=='missing_bar_timestamp':h.failure_bars=[replace(bar,timestamp=None)]
+    if fault=='naive_timestamp':h.failure_bars=[replace(bar,timestamp=stamp.replace(tzinfo=None))]
+    # Independent contemporaneous quote facts. SELL fill10.29 is a cent tick
+    # above selected stop10.2897; completed management close10.295 is mid-spread.
+    for row in h.rows.values():
+        row.update(last_price=close,bid=10.29,ask=10.30,spread_pct=100*.01/close)
+    original_snapshots=h.core.market_data_snapshot_manager.batch_snapshots
+    def quotes(symbols):
+        values,errors=original_snapshots(symbols)
+        return {key:replace(value,last=close,bid=10.29,ask=10.30) for key,value in values.items()},errors
+    h.core.market_data_snapshot_manager.batch_snapshots=quotes
+    h.failure_owner=owner
+    return h,request,life
+
+
+def test_pmh_completed_failure_actual_core_owned_exit(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    h,request,life=pmh_failure_case(reassessment,monkeypatch,tmp_path,capsys)
+    engine=h.core.execution_engine
+    assert h.core.run_once()
+    out=capsys.readouterr().out
+    assert len(h.failure_conversions)==1,out
+    assert h.failure_owner['pmh_failure_exit']['status']=='MKT'
+    assert life.selected_stop_price==request.stop_loss_price and life.target is None
+    assert engine.capital_authority.total_used_exposure==10.53
+    assert not engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
+    assert life.selected_exit_pending and life.filled_qty==1
+    h.facts[72]=dict(status='Filled',filled=1,remaining=0,avgFillPrice=10.29,
+        symbol='JPM',side='SELL',orderId=72,parentId=71,orderRef='PROTECT|'+life.trade_id)
+    h.native_quantity[0]=0;h.native_open_orders.clear()
+    for _ in range(3):
+        h.life.clock.current+=timedelta(seconds=1)
+        assert h.core.run_once();capsys.readouterr()
+    assert len(h.failure_conversions)==1 and len(h.sent_native)==1 and len(h.stop_requests)==1
+    assert life.filled_qty==0 and life.exited_qty==1
+    assert engine.capital_authority.total_used_exposure==0
+    assert not h.manager.snapshot_positions() and not h.core.trade_registry.snapshot()
+    assert life.realized_pnl==pytest.approx(10.29-10.53)
+
+
+@pytest.mark.parametrize('fault',['equality','wick','forming','straddling','future','stale','missing','invalid','partial_history','missing_bar_timestamp','naive_timestamp'])
+def test_pmh_completed_failure_actual_core_boundary_holds(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,fault):
+    h,request,life=pmh_failure_case(reassessment,monkeypatch,tmp_path,capsys,fault=fault)
+    assert h.core.run_once();capsys.readouterr()
+    assert h.failure_conversions==[] and not h.failure_owner.get('pmh_failure_exit')
+    assert life.filled_qty==1 and life.stop.trigger_price==request.stop_loss_price
+    assert h.core.execution_engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
+
+
+@pytest.mark.parametrize('conversion',['uncertain','rejected','stop_race'])
+def test_pmh_failure_uncertain_reply_and_stop_race_no_retry(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,conversion):
+    h,request,life=pmh_failure_case(reassessment,monkeypatch,tmp_path,capsys,conversion=conversion)
+    assert h.core.run_once();capsys.readouterr()
+    for _ in range(3):
+        h.life.clock.current+=timedelta(seconds=1)
+        assert h.core.run_once();capsys.readouterr()
+    assert len(h.failure_conversions)==1 and len(h.sent_native)==len(h.stop_requests)==1
+    if conversion=='stop_race':
+        assert life.filled_qty==0 and life.exited_qty==1
+        assert h.core.execution_engine.capital_authority.total_used_exposure==0
+    else:
+        assert life.filled_qty==1 and life.exited_qty==0
+        assert h.failure_owner['pmh_failure_exit']['status']==('MKT' if conversion=='uncertain' else 'STP')
+        assert h.core.execution_engine.capital_authority.total_used_exposure==10.53
+
+
+def small_pmh_owned(reassessment,monkeypatch,tmp_path,capsys,*,partial=False):
+    from test_joined_core_pmh_readonly import pmh_joined
+    monkeypatch.setenv('TRADING_DEFAULT_CAPITAL','400') # Existing isolated SMALL synthetic scope.
+    def small_joined(*args,**kwargs):
+        kwargs['runtime_options']['config_overrides'].update(RISK_PROFILE='SMALL',RISK_MAX_POSITION_SIZE=2)
+        return coherent_pmh_failure_entry(*args,**kwargs)
+    def small_paper(*args,**kwargs):return paper_pmh(*args,joined_factory=small_joined,**kwargs)
+    h=late_pmh(reassessment,monkeypatch,tmp_path,paper_factory=small_paper,
+        fill_price=10.53,expected_stop_quantity=None)
+    assert h.core.run_once();capsys.readouterr()
+    h.life.clock.current+=timedelta(seconds=11)
+    assert h.core.run_once();capsys.readouterr()
+    request=h.sent_native[0];qty=request.quantity
+    assert qty==2
+    fill=1 if partial else qty
+    h.facts[71]=dict(status='Submitted' if partial else 'Filled',filled=fill,remaining=qty-fill,avgFillPrice=10.53)
+    h.native_quantity[0]=fill;h.native_open_orders.clear()
+    h.life.clock.current+=timedelta(seconds=1)
+    assert h.core.run_once();capsys.readouterr()
+    life=h.core.execution_engine.post_fill_lifecycle.get_trade(request.client_order_id)
+    assert life.filled_qty==fill and life.stop.quantity==fill
+    return h,request,life
+
+
+def test_pmh_failure_partial_entry_stays_protected_outside_enrollment(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    prepared=small_pmh_owned(reassessment,monkeypatch,tmp_path,capsys,partial=True)
+    h,request,life=pmh_failure_case(reassessment,monkeypatch,tmp_path,capsys,prepared=prepared)
+    assert h.core.run_once();capsys.readouterr()
+    assert not h.failure_owner['terminal'] and h.failure_owner['filled']==1
+    assert h.failure_conversions==[] and not h.failure_owner.get('pmh_failure_exit')
+    assert h.core.execution_engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
+    assert h.manager.snapshot_positions()['JPM'].quantity==1 and life.stop.quantity==1
+
+
+@pytest.mark.parametrize('terminal_average',[10.30,10.295])
+def test_pmh_failure_partial_exit_owned_remainder_and_accounting_once(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,terminal_average):
+    prepared=small_pmh_owned(reassessment,monkeypatch,tmp_path,capsys)
+    h,request,life=pmh_failure_case(reassessment,monkeypatch,tmp_path,capsys,prepared=prepared)
+    engine=h.core.execution_engine
+    assert h.core.run_once();capsys.readouterr()
+    h.facts[72]=dict(status='Submitted',filled=1,remaining=1,avgFillPrice=10.29,
+        symbol='JPM',side='SELL',orderId=72,parentId=71,orderRef='PROTECT|'+life.trade_id)
+    h.native_quantity[0]=1
+    for _ in range(2):
+        h.life.clock.current+=timedelta(seconds=1)
+        assert h.core.run_once();capsys.readouterr()
+    assert life.filled_qty==1 and life.exited_qty==1
+    assert h.manager.snapshot_positions()['JPM'].quantity==1
+    assert not h.manager.snapshot_positions()['JPM'].partial_taken
+    assert h.manager.snapshot_positions()['JPM'].stop_loss_price==request.stop_loss_price
+    assert h.core.trade_registry.snapshot()[0].quantity==1
+    assert engine.capital_authority.total_used_exposure==pytest.approx(10.53)
+    assert h.native_open_orders[0].order.orderType=='MKT' and h.native_open_orders[0].order.totalQuantity==2
+    assert life.stop.trigger_price==request.stop_loss_price and not life.trailing_active
+    h.facts[72].update(status='Filled',filled=2,remaining=0,avgFillPrice=terminal_average)
+    h.native_quantity[0]=0;h.native_open_orders.clear()
+    for _ in range(3):
+        h.life.clock.current+=timedelta(seconds=1)
+        assert h.core.run_once();capsys.readouterr()
+    assert life.filled_qty==0 and life.exited_qty==2
+    assert life.realized_pnl==pytest.approx(2*terminal_average-2*10.53)
+    assert engine.capital_authority.total_used_exposure==0
+    assert len(h.failure_conversions)==1 and len(h.sent_native)==len(h.stop_requests)==1
+
+
+@pytest.mark.parametrize('fault',['security','broker_larger','partial_truth','wrong_reference','wrong_parent','wrong_total','pending_order','pending_cancel'])
+def test_pmh_failure_actual_core_truth_and_order_binding_veto(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,fault):
+    h,request,life=pmh_failure_case(reassessment,monkeypatch,tmp_path,capsys)
+    if fault=='security':h.native_client.position_snapshot=lambda:BrokerPositionResult((NS(symbol='JPM',position=1,con_id=456,avgCost=10.53,account='SYNTHETIC_TEST'),),'COMPLETE','SYNTHETIC_TEST',h.life.clock.now(timezone.utc))
+    if fault=='broker_larger':h.native_quantity[0]=2
+    if fault=='partial_truth':h.native_client.position_snapshot=lambda:BrokerPositionResult((),'PARTIAL','SYNTHETIC_TEST',h.life.clock.now(timezone.utc))
+    if fault=='wrong_reference':h.native_open_orders[0].order.orderRef='PROTECT|UNRELATED'
+    if fault=='wrong_parent':h.native_open_orders[0].order.parentId=999
+    if fault=='wrong_total':h.native_open_orders[0].order.totalQuantity=2
+    if fault=='pending_order':
+        other=deepcopy(h.native_open_orders[0]);other.orderId=73;other.order.orderRef='OTHER';h.native_open_orders.append(other)
+    if fault=='pending_cancel':h.native_open_orders[0].orderState.status='PendingCancel'
+    h.core.run_once();capsys.readouterr()
+    assert not h.failure_conversions and not h.failure_owner.get('pmh_failure_exit')
+    assert life.filled_qty==1 and life.stop.trigger_price==request.stop_loss_price
+    assert len(h.sent_native)==len(h.stop_requests)==1
+
+
+def test_pmh_failure_confirmed_stop_fill_precedes_discretionary_evaluation(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    h,request,life=pmh_failure_case(reassessment,monkeypatch,tmp_path,capsys)
+    external_stop_facts(h,life)
+    assert h.core.run_once();capsys.readouterr()
+    assert life.filled_qty==0 and life.exited_qty==1
+    assert not h.failure_conversions and not h.failure_owner.get('pmh_failure_exit')
+    assert h.core.execution_engine.capital_authority.total_used_exposure==0
+
+
+@pytest.mark.parametrize('stage',['after_accounting','after_projection'])
+def test_pmh_failure_accounting_interruption_quarantines_without_replay(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,stage):
+    h,request,life=pmh_failure_case(reassessment,monkeypatch,tmp_path,capsys)
+    engine=h.core.execution_engine
+    assert h.core.run_once();capsys.readouterr()
+    h.facts[72]=dict(status='Filled',filled=1,remaining=0,avgFillPrice=10.29,
+        symbol='JPM',side='SELL',orderId=72,parentId=71,orderRef='PROTECT|'+life.trade_id)
+    h.native_quantity[0]=0;h.native_open_orders.clear()
+    def fail():raise RuntimeError('synthetic PMH exit interruption')
+    process=lambda r:h.core._apply_execution_results_to_trade_management([r])
+    if stage=='after_accounting':
+        original=engine._record_fill_and_position
+        def interrupted(*a,**kw):original(*a,**kw);fail()
+        monkeypatch.setattr(engine,'_record_fill_and_position',interrupted)
+    else:
+        def process(r):h.core._apply_execution_results_to_trade_management([r]);fail()
+    with pytest.raises(RuntimeError,match='synthetic PMH exit interruption'):
+        engine.collect_relationship_updates(result_processor=process)
+    child=next(o for o in engine._native_orders.values() if o.get('protection_parent_order_id'))
+    assert child['cached_update_in_progress'] and child['quarantine'] and engine._native_quarantined
+    assert life.filled_qty==0 and life.exited_qty==1 and engine.capital_authority.total_used_exposure==0
+    before=(life.exited_qty,life.realized_pnl,len(engine.position_records),len(h.failure_conversions))
+    with pytest.raises(RuntimeError):engine.collect_relationship_updates(result_processor=process)
+    assert before==(life.exited_qty,life.realized_pnl,len(engine.position_records),len(h.failure_conversions))
+
+
+def test_pmh_failure_rule_missing_timestamp_and_occurrence_unit_controls(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    h,request,life=pmh_failure_case(reassessment,monkeypatch,tmp_path,capsys)
+    manager=h.manager;owner=h.failure_owner;plan=request.management_session_plan;now=h.life.clock.current
+    evaluate=lambda value:manager.evaluate_pmh_completed_failure(value,h.failure_bars,observed_at=now,session_plan=plan)
+    assert evaluate(owner)
+    for key in ('last_accounted_entry_fill_at',):
+        missing=deepcopy(owner);missing.pop(key)
+        assert evaluate(missing) is None
+    for value in (None,-1,True):
+        invalid=deepcopy(owner);invalid['request']['setup_metadata']['canonical_result_index']=value
+        assert evaluate(invalid) is None
+    wrong=deepcopy(owner);wrong['request']['management_session_plan']='OTHER_PHASE'
+    assert evaluate(wrong) is None
+    assert manager.evaluate_pmh_completed_failure(owner,h.failure_bars,observed_at=now+timedelta(days=1),session_plan=plan) is None
+    assert not h.failure_conversions
+
+
+@pytest.mark.parametrize('fault',['none','con_id','parent','reference','quantity','kind','inactive','readonly','write_disabled','live','missing_client','authority_changed','scope_expired'])
+def test_pmh_native_adapter_amendment_preserves_one_order_and_contract(monkeypatch,fault):
+    from src.brokers import ibkr_live_broker as broker_module
+    from src.config.runtime_config import RunMode
+    contract=NS(symbol='JPM',conId=123,exchange='SMART',primaryExchange='NYSE',currency='USD',secType='STK')
+    order=NS(action='SELL',totalQuantity=2,orderType='STP',auxPrice=10.28,
+        parentId=71,orderRef='PROTECT|owned',tif='GTC',outsideRth=True,transmit=True)
+    row=NS(orderId=72,contract=contract,order=order,orderState=NS(status='Submitted'))
+    if fault=='con_id':contract.conId=456
+    if fault=='parent':order.parentId=99
+    if fault=='reference':order.orderRef='PROTECT|wrong'
+    if fault=='quantity':order.totalQuantity=3
+    if fault=='kind':order.orderType='MKT'
+    if fault=='inactive':row.orderState.status='Cancelled'
+    sent=[]
+    authority_changed=[False]
+    def inventory(**kwargs):
+        assert kwargs == {"require_complete": True}
+        if fault in {'authority_changed','scope_expired'}:authority_changed[0]=True
+        return [row]
+    client=NS(isConnected=lambda:True,openOrders=inventory,placeOrder=lambda *args:sent.append(deepcopy(args)))
+    def forbidden(*a,**k):pytest.fail('Implicit connection forbidden')
+    broker=object.__new__(broker_module.IbkrLiveBroker)
+    broker.run_mode=RunMode.LIVE if fault=='live' else RunMode.PAPER
+    broker.connection_manager=NS(existing_client=None if fault=='missing_client' else client,get_client=forbidden)
+    for name,value in {'is_execution_enabled':True,'get_ibkr_kill_switch':False,
+        'get_ibkr_readonly_enabled':fault=='readonly','get_ibkr_api_write_allowed':fault!='write_disabled',
+        'get_ibkr_order_submission_enabled':True,'get_ibkr_order_translation_enabled':True}.items():
+        monkeypatch.setattr(broker_module,name,lambda _value=value:_value)
+    monkeypatch.setattr(broker_module,'get_ibkr_readonly_enabled',lambda:fault=='readonly' or (fault=='authority_changed' and authority_changed[0]))
+    monkeypatch.setattr('src.config.runtime_config.get_ibkr_snapshot_max_age_seconds',
+        lambda:0 if fault=='scope_expired' and authority_changed[0] else 10)
+    call=lambda:broker.convert_selected_stop_to_market(broker_order_id='72',parent_order_id='71',
+        symbol='JPM',con_id=123,total_quantity=2,trade_id='owned',stop_price=10.28,expected_client=client,scope_as_of=__import__('datetime').datetime.now(timezone.utc))
+    if fault!='none':
+        with pytest.raises(RuntimeError):call()
+        assert sent==[]
+    else:
+        response=call()
+        assert response['status']=='DISPATCHED_UNCONFIRMED' and len(sent)==1
+        native_id,amended_contract,amended=sent[0]
+        assert native_id==72 and vars(amended_contract)==vars(contract)
+        assert amended.orderType=='MKT' and amended.totalQuantity==2 and amended.parentId==71
+        assert amended.orderRef==order.orderRef and amended.tif==order.tif and amended.outsideRth
+        assert order.orderType=='STP' and order.auxPrice==10.28 # Only copied native mutation payload changes.
+
+
+def test_pmh_failure_later_qualifying_bar_no_elapsed_cutoff_and_phase_expiry(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    from dataclasses import replace
+    h,request,life=pmh_failure_case(reassessment,monkeypatch,tmp_path,capsys)
+    manager=h.manager;now=h.life.clock.current;owner=h.failure_owner
+    first=replace(h.failure_bars[-1],close=10.31,timestamp=now)
+    later=replace(h.failure_bars[-1],timestamp=now+timedelta(seconds=10))
+    out=manager.evaluate_pmh_completed_failure(owner,[first,later],observed_at=now+timedelta(seconds=21),
+        session_plan=request.management_session_plan)
+    assert out and out['bar_start']==later.timestamp.isoformat()
+    distant=replace(later,timestamp=now+timedelta(minutes=10))
+    assert manager.evaluate_pmh_completed_failure(owner,[distant],observed_at=distant.timestamp+timedelta(seconds=11),
+        session_plan=request.management_session_plan)
+    h.core._expire_pmh_failure_enrollment(now,'OTHER_PHASE') # Transition observer is independent of exit gates.
+    assert owner['pmh_management_expired'] and not h.failure_conversions
+    assert h.core.run_once();capsys.readouterr() # Returning to prior label cannot resume enrollment.
+    assert not h.failure_conversions and life.stop.trigger_price==request.stop_loss_price
+
+
+def steady_pmh_external(reassessment,monkeypatch,tmp_path,*,acceptance_gap=False):
+    from dataclasses import replace
+    from test_joined_core_pmh_readonly import pmh_joined
+    def steady_joined(*args,**kwargs):
+        h=pmh_joined(*args,clock_time=(16,35,30),**kwargs)
+        for row in h.rows.values():row['session']='RTH_MID'
+        if acceptance_gap:
+            # Genuine completed gap above PMH AND round10.50: Key's own
+            # open-at/below-level rule fails; PMH's own prior-close break holds.
+            h.streams['1m'][-1]=replace(h.streams['1m'][-1],open=10.51,low=10.51)
+            recent=h.streams['1m'][-5:]
+            h.streams['5m'][-1]=replace(h.streams['5m'][-1],open=recent[0].open,
+                high=max(c.high for c in recent),low=min(c.low for c in recent),
+                close=recent[-1].close,volume=sum(c.volume for c in recent))
+        return h
+    def steady_paper(*args,**kwargs):return paper_pmh(*args,joined_factory=steady_joined,**kwargs)
+    return late_pmh(reassessment,monkeypatch,tmp_path,paper_factory=steady_paper,fill_price=10.53)
+
+
+def test_pmh_failure_steady_session_preserves_genuine_competing_key(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    h=steady_pmh_external(reassessment,monkeypatch,tmp_path)
+    assert h.core.run_once();capsys.readouterr()
+    h.life.clock.current+=timedelta(seconds=11)
+    assert h.core.run_once();capsys.readouterr()
+    assert len(h.evaluated)==1 and h.evaluated[0][0].setup_family_id=='KEY_LEVEL_BREAK'
+    assert len(h.strategy._pattern_registry.patterns)==33
+    assert h.registry_batches[-1][0].execution_refinement_timeframe=='1m'
+    assert h.sent_native[0].setup_metadata is None # No PMH enrollment through a competing family's result.
+
+
+def test_pmh_failure_steady_reference_gap_is_recorded_blocked_not_a_passing_pmh_route(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    h=steady_pmh_external(reassessment,monkeypatch,tmp_path,acceptance_gap=True)
+    assert h.core.run_once();capsys.readouterr()
+    h.life.clock.current+=timedelta(seconds=11)
+    assert h.core.run_once();capsys.readouterr()
+    inputs,results=h.registry_batches[-1]
+    assert len(results)==33 and inputs.execution_refinement_timeframe=='1m'
+    pmh=next(r for r in results if r.setup_id=='P_PREMARKET_HIGH_BREAK')
+    assert not pmh.detected and pmh.rejection_reason=='failed_acceptance'
+    assert inputs.levels.premarket_high>inputs.candles[-1].close
+    assert not h.sent_native and not h.evaluated # BLOCKED outcome, no 1m PMH filled/management proof.
+
+
+def test_pmh_completed_failure_retained_one_minute_rule_component(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    from dataclasses import replace
+    h,request,life=pmh_failure_case(reassessment,monkeypatch,tmp_path,capsys)
+    # Format/period rule control only; not fabricated native1m entry evidence.
+    owner=deepcopy(h.failure_owner)
+    owner['request']['setup_metadata']['execution_stream']['execution_trigger_timeframe']='1m'
+    bar=replace(h.failure_bars[-1],timestamp=h.life.clock.current)
+    rule=lambda observed:h.manager.evaluate_pmh_completed_failure(owner,[bar],observed_at=observed,
+        session_plan=request.management_session_plan)
+    assert rule(bar.timestamp+timedelta(seconds=59)) is None
+    assert rule(bar.timestamp+timedelta(seconds=60))['close']==bar.close
+    assert not h.failure_conversions
+
+
+@pytest.mark.parametrize('case',['complete','timeout','disconnect','overlap','changed_client'])
+def test_pmh_native_amendment_requires_real_completed_order_stream(monkeypatch,case):
+    from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
+    from src.brokers import ibkr_live_broker as module
+    from src.config.runtime_config import RunMode
+    client=IbkrClient('offline',0,999,5,'LIVE',True)
+    connected=[True];queries=[];sent=[]
+    monkeypatch.setattr(client,'isConnected',lambda:connected[0])
+    contract=NS(symbol='JPM',conId=123)
+    order=NS(action='SELL',totalQuantity=2,orderType='STP',auxPrice=10.28,parentId=71,orderRef='PROTECT|owned')
+    broker=object.__new__(module.IbkrLiveBroker);broker.run_mode=RunMode.PAPER
+    manager=NS(existing_client=client);broker.connection_manager=manager
+    def query():
+        queries.append(True)
+        client.openOrder(72,contract,order,NS(status='Submitted'))
+        if case=='overlap':client.openOrder(73,contract,order,NS(status='PendingSubmit'))
+        if case!='timeout':client.openOrderEnd()
+        if case=='disconnect':connected[0]=False
+        if case=='changed_client':manager.existing_client=object()
+    monkeypatch.setattr(client,'reqOpenOrders',query)
+    # Bounded external event delivery: exercise the real query/completion owner
+    # without sleeping, fabricating completion or replacing its classification.
+    monkeypatch.setattr(client._open_orders_event,'wait',lambda timeout:client._open_orders_event.is_set())
+    monkeypatch.setattr(client,'placeOrder',lambda *args:sent.append(args))
+    for name,value in {'is_execution_enabled':True,'get_ibkr_kill_switch':False,
+        'get_ibkr_readonly_enabled':False,'get_ibkr_api_write_allowed':True,
+        'get_ibkr_order_submission_enabled':True,'get_ibkr_order_translation_enabled':True}.items():
+        monkeypatch.setattr(module,name,lambda _value=value:_value)
+    call=lambda:broker.convert_selected_stop_to_market(broker_order_id='72',parent_order_id='71',
+        symbol='JPM',con_id=123,total_quantity=2,trade_id='owned',stop_price=10.28,expected_client=client,scope_as_of=__import__('datetime').datetime.now(timezone.utc))
+    if case=='complete':
+        call();assert len(sent)==1
+    else:
+        with pytest.raises(RuntimeError):call()
+        assert not sent
+        if case=='timeout':
+            client.openOrderEnd() # A late uncorrelated end cannot certify a new query.
+            with pytest.raises(RuntimeError,match='COMPLETION_UNRESOLVED'):call()
+            assert len(queries)==1 and not sent
+
+
+def test_pmh_phase_transition_expires_while_execution_is_gated(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    h,request,life=pmh_failure_case(reassessment,monkeypatch,tmp_path,capsys)
+    original=h.life.clock.current;h.core.execution_enabled=False
+    h.life.clock.current+=timedelta(hours=2)
+    h.core.run_once();capsys.readouterr()
+    assert h.failure_owner['pmh_management_expired'] and not h.failure_conversions
+    h.life.clock.current=original;h.core.execution_enabled=True
+    h.core.run_once();capsys.readouterr()
+    assert not h.failure_conversions and life.filled_qty==1
+
+
+def test_pmh_incomplete_post_amendment_inventory_cannot_certify_pending_close(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    h,request,life=pmh_failure_case(reassessment,monkeypatch,tmp_path,capsys)
+    broker=h.core.execution_engine._provider.broker;original=broker.open_orders
+    def inventory(**kw):
+        if kw.get('require_complete') and h.failure_conversions:
+            raise RuntimeError('synthetic incomplete post-amendment order stream')
+        return original(**kw)
+    monkeypatch.setattr(broker,'open_orders',inventory)
+    assert not h.core.run_once() # Existing Core converts owner failure to a stopped cycle.
+    capsys.readouterr()
+    assert len(h.failure_conversions)==1 and h.failure_owner['pmh_failure_exit']['status']=='DISPATCH_UNCERTAIN'
+    assert not h.core.execution_engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
+    assert not h.core.run_once()
+    capsys.readouterr()
+    assert len(h.failure_conversions)==1 and life.filled_qty==1
+    assert h.core.execution_engine._native_quarantined
