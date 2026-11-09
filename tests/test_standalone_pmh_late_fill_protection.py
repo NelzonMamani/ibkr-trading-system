@@ -16,7 +16,7 @@ from test_joined_core_pmh_paper_assessment import (
 
 
 def late_pmh(reassessment,monkeypatch,tmp_path,*,paper_factory=paper_pmh,position_case='complete_empty',
-             fill_price=10.31,stop_price=10.3-max(.01,10.3*.001),expected_stop_quantity=1):
+             fill_price=10.31,stop_price=10.3-max(.01,10.3*.001),expected_stop_quantity=1,unit_stops=False,unit_fault=None):
     facts={};reads=[];sent=[];stops=[];open_orders=[];quantity=[0]
     def cached(order_id):
         reads.append(order_id)
@@ -24,15 +24,20 @@ def late_pmh(reassessment,monkeypatch,tmp_path,*,paper_factory=paper_pmh,positio
     def positions():
         return [NS(symbol='JPM',position=quantity[0],con_id=123,avgCost=fill_price,account='SYNTHETIC_TEST')] if quantity[0] else []
     def place_stop(**kw):
-        stops.append(deepcopy(kw))
+        broker_id=72+len(stops) if unit_stops else 72
+        if unit_stops and 'before_submit' in kw:
+            native=NS(orderType='STP',parentId=71,orderRef='PROTECT|'+str(kw['trade_id']),action='SELL',totalQuantity=kw['quantity'],auxPrice=kw['stop_price'])
+            kw['before_submit'](broker_id,NS(symbol='JPM'),native)
+        stops.append(deepcopy({key:value for key,value in kw.items() if key!='before_submit'}))
         assert (expected_stop_quantity is None or kw['quantity']==expected_stop_quantity) and kw['stop_price']==stop_price
-        open_orders.append(NS(orderId=72,contract=NS(symbol='JPM',conId=123),
+        open_orders.append(NS(orderId=broker_id,contract=NS(symbol='JPM',conId=123),
             order=NS(orderType='STP',parentId=71,orderRef='PROTECT|'+str(kw['trade_id']),action='SELL',totalQuantity=kw['quantity'],auxPrice=kw['stop_price']),
             orderState=NS(status='Submitted')))
-        return dict(broker_order_id='72',status='Submitted',order_type='STP')
+        if unit_stops and unit_fault==len(stops):raise OSError('synthetic ambiguous unit stop write')
+        return dict(broker_order_id=str(broker_id),status='Submitted',order_type='STP')
     from src.adapters.brokers.ibkr.ibkr_connection_manager import IbkrConnectionManager, IbkrConnectionConfig
     from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
-    native_client=IbkrClient('offline',0,999,5,'LIVE',True)
+    native_client=IbkrClient('offline',0,999,5,'LIVE',not unit_stops)
     # External connection state and callback facts only; the manager accessor,
     # provider and all internal decisions remain real.
     monkeypatch.setattr(native_client,'isConnected',lambda:True)
@@ -2223,10 +2228,15 @@ s=StorageEngine.__new__(StorageEngine);s.enabled=True;s.backend='sqlite'
 s._store=NS(connection=sqlite3.connect('file:'+sys.argv[1]+'?mode=ro',uri=True))
 before=s.fetch_management_state('execution.native_orders.v1:PAPER')
 o=before['orders'][sys.argv[2]]
-assert o['pmh_failure_exit']['native_order_id']=='72' and o['pmh_failure_exit']['status']=='MKT'
-assert o['pmh_failure_exit']['occurrence']==o['request']['setup_metadata']
+if sys.argv[4]=='UNIT_STOPS':
+    children=[v for v in before['orders'].values() if v.get('protection_parent_order_id')==sys.argv[2]]
+    assert o['request']['selected_stop_units'] and children
+    assert all(c['requested']==1 and c['close_role']=='PROTECTION' for c in children)
+else:
+    assert o['pmh_failure_exit']['native_order_id']=='72' and o['pmh_failure_exit']['status']=='MKT'
+    assert o['pmh_failure_exit']['occurrence']==o['request']['setup_metadata']
+    assert o['pmh_failure_exit']['profile']==sys.argv[4]
 assert o['request']['setup_metadata']['execution_stream']['execution_trigger_timeframe']==sys.argv[3]
-assert o['pmh_failure_exit']['profile']==sys.argv[4]
 e=ExecutionEngine.__new__(ExecutionEngine);e._storage_engine=s;e.run_mode=RunMode.PAPER
 e._native_loaded=False;e._native_state=None;e._native_orders={};e._native_quarantined=False
 try:e._load_native_orders()
@@ -2477,25 +2487,26 @@ def test_central_failure_later_bar_and_missing_timestamp_or_relationship_hold(re
         assert evaluate(row) is None,change
 
 
-def small_central_owned(reassessment,monkeypatch,tmp_path,capsys,family,*,partial=False,requested_base=8,risk_cap=2,synthetic_capital=400,fill=True,expected_admitted=None,quantity_fault=None):
-    from test_joined_core_pmh_readonly import standalone_bull_joined,micro_joined,key_joined,consolidation_joined,flat_top_joined,orb_joined,hod_joined,momentum_joined,cup_joined,opening_drive_joined,indicator_pullback_joined,vwap_pullback_joined,stair_step_joined
+def small_central_owned(reassessment,monkeypatch,tmp_path,capsys,family,*,partial=False,requested_base=8,risk_cap=2,synthetic_capital=400,fill=True,expected_admitted=None,quantity_fault=None,unit_stops=False,unit_fault=None):
+    from test_joined_core_pmh_readonly import pmh_joined,standalone_bull_joined,micro_joined,key_joined,consolidation_joined,flat_top_joined,orb_joined,hod_joined,momentum_joined,cup_joined,opening_drive_joined,indicator_pullback_joined,vwap_pullback_joined,stair_step_joined
     from test_abcd_production_handoff import abcd_joined
     from test_joined_core_first_pullback import first_joined
-    factory={'BULL_FLAG':standalone_bull_joined,'FIRST_PULLBACK':first_joined,'MICRO_PULLBACK':micro_joined,'KEY_LEVEL_BREAK':key_joined,'CONSOLIDATION_BREAKOUT':consolidation_joined,'FLAT_TOP_BREAKOUT':flat_top_joined,'OPENING_RANGE_BREAKOUT':orb_joined,'HOD_BREAK':hod_joined,'ABCD':abcd_joined,'VWAP_RECLAIM_CONTINUATION':momentum_joined,'CUP_HANDLE':cup_joined,'OPENING_DRIVE':opening_drive_joined,'EMA_PULLBACK':indicator_pullback_joined,'VWAP_PULLBACK':vwap_pullback_joined,'TREND_CONTINUATION_STAIR_STEP':stair_step_joined}[family]
-    prices={'BULL_FLAG':(10.88,10.63),'FIRST_PULLBACK':(10.55,10.15),'MICRO_PULLBACK':(10.88,10.6),'KEY_LEVEL_BREAK':(11.02,10.88),'CONSOLIDATION_BREAKOUT':(10.43,10.21),'FLAT_TOP_BREAKOUT':(10.27,9.99),'OPENING_RANGE_BREAKOUT':(10.42,9.95),'HOD_BREAK':(10.34,10.2),'ABCD':(11.02,10.35),'VWAP_RECLAIM_CONTINUATION':(10.34,10.23),'CUP_HANDLE':(10.55,10.3),'OPENING_DRIVE':(10.62,10.47),'EMA_PULLBACK':(10.53,10.29),'VWAP_PULLBACK':(10.8,10.23),'TREND_CONTINUATION_STAIR_STEP':(10.68,10.34)}
+    factory={'PREMARKET_HIGH_BREAK':pmh_joined,'BULL_FLAG':standalone_bull_joined,'FIRST_PULLBACK':first_joined,'MICRO_PULLBACK':micro_joined,'KEY_LEVEL_BREAK':key_joined,'CONSOLIDATION_BREAKOUT':consolidation_joined,'FLAT_TOP_BREAKOUT':flat_top_joined,'OPENING_RANGE_BREAKOUT':orb_joined,'HOD_BREAK':hod_joined,'ABCD':abcd_joined,'VWAP_RECLAIM_CONTINUATION':momentum_joined,'CUP_HANDLE':cup_joined,'OPENING_DRIVE':opening_drive_joined,'EMA_PULLBACK':indicator_pullback_joined,'VWAP_PULLBACK':vwap_pullback_joined,'TREND_CONTINUATION_STAIR_STEP':stair_step_joined}[family]
+    prices={'PREMARKET_HIGH_BREAK':(10.53,10.3-max(.01,10.3*.001)),'BULL_FLAG':(10.88,10.63),'FIRST_PULLBACK':(10.55,10.15),'MICRO_PULLBACK':(10.88,10.6),'KEY_LEVEL_BREAK':(11.02,10.88),'CONSOLIDATION_BREAKOUT':(10.43,10.21),'FLAT_TOP_BREAKOUT':(10.27,9.99),'OPENING_RANGE_BREAKOUT':(10.42,9.95),'HOD_BREAK':(10.34,10.2),'ABCD':(11.02,10.35),'VWAP_RECLAIM_CONTINUATION':(10.34,10.23),'CUP_HANDLE':(10.55,10.3),'OPENING_DRIVE':(10.62,10.47),'EMA_PULLBACK':(10.53,10.29),'VWAP_PULLBACK':(10.8,10.23),'TREND_CONTINUATION_STAIR_STEP':(10.68,10.34)}
     price,stop=prices[family]
     monkeypatch.setenv('TRADING_DEFAULT_CAPITAL',str(synthetic_capital))
     def small_joined(*args,**kwargs):
         kwargs['runtime_options']['config_overrides'].update(RISK_PROFILE='SMALL',RISK_MAX_POSITION_SIZE=risk_cap)
         if requested_base is not None:
             kwargs['runtime_options']['config_overrides']['ROSS_SYNTHETIC_REQUESTED_BASE_SIZE']=requested_base
+        if unit_stops:kwargs['runtime_options']['config_overrides']['ROSS_SYNTHETIC_UNIT_STOPS']=True
         if family=='CUP_HANDLE':kwargs['clock_time']=(13,55,30)
         h=factory(*args,**kwargs)
         for row in h.rows.values():
             gap=(row['last_price']/row['prev_close']-1)*100;row.update(gap_pct=gap,pct_change=gap)
         return h
     def paper_small(*args,**kwargs):return paper_pmh(*args,joined_factory=small_joined,**kwargs)
-    h=late_pmh(reassessment,monkeypatch,tmp_path,paper_factory=paper_small,fill_price=price,stop_price=stop,expected_stop_quantity=None)
+    h=late_pmh(reassessment,monkeypatch,tmp_path,paper_factory=paper_small,fill_price=price,stop_price=stop,expected_stop_quantity=None,unit_stops=unit_stops,unit_fault=unit_fault)
     if quantity_fault is not None:
         evaluate=h.core.risk_engine.evaluate_trade_intent
         def malformed(intent,**kwargs):
@@ -2518,11 +2529,17 @@ def small_central_owned(reassessment,monkeypatch,tmp_path,capsys,family,*,partia
     if not fill:return h,request,None
     count=1 if partial else approved
     h.facts[71]=dict(status='Submitted' if partial else 'Filled',filled=count,remaining=approved-count,avgFillPrice=price)
-    h.native_quantity[0]=count;h.native_open_orders.clear()
+    h.native_quantity[0]=count
+    if not (unit_stops and partial):h.native_open_orders.clear()
     h.life.clock.current+=timedelta(seconds=1)
-    assert h.core.run_once();capsys.readouterr()
+    completed=h.core.run_once();capsys.readouterr()
     life=h.core.execution_engine.post_fill_lifecycle.get_trade(request.client_order_id)
-    assert life.filled_qty==life.stop.quantity==count
+    if unit_fault is not None:
+        assert not completed
+    else:
+        assert completed
+        assert life.filled_qty==count
+        assert (sum(leg.quantity for leg in life.stop_legs) if request.selected_stop_units else life.stop.quantity)==count
     return h,request,life
 
 
@@ -3075,3 +3092,248 @@ def test_native_requested_size_malformed_quantity_is_denied(reassessment,monkeyp
     assert decision.reason_code=='INVALID_NATIVE_REQUESTED_QUANTITY'
     assert decision.overall_action=='BLOCK' and decision.decision_code=='REJECT'
     assert not h.core.execution_engine.position_records and not h.core.trade_registry.snapshot()
+
+
+@pytest.mark.parametrize('base,quantity',[(4,2),(6,3),(8,4)])
+def test_native_unit_stop_initial_ownership_and_each_stop_to_flat(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,base,quantity):
+    h,request,life=small_central_owned(reassessment,monkeypatch,tmp_path,capsys,'BULL_FLAG',requested_base=base,risk_cap=4,synthetic_capital=800,unit_stops=True)
+    engine=h.core.execution_engine
+    assert request.selected_stop_units and life.selected_stop_units
+    assert life.filled_qty==quantity and len(life.stop_legs)==len(h.stop_requests)==quantity
+    assert len(h.registry_batches[-1][1])==33
+    assert engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
+    children=[o for o in engine._native_orders.values() if o.get('protection_parent_order_id')]
+    assert all(o['requested']==1 and o['close_role']=='PROTECTION' for o in children)
+    assert sum(o['requested']-o['filled'] for o in children)==quantity
+    state=h.core.storage_engine.fetch_management_state('execution.native_orders.v1:PAPER')
+    assert all(leg.leg_id in state['orders'] for leg in life.stop_legs)
+    for index,leg in enumerate(life.stop_legs):
+        broker_id=int(leg.broker_order_id)
+        h.facts[broker_id]=dict(status='Filled',filled=1,remaining=0,avgFillPrice=10.63)
+        h.native_quantity[0]-=1
+        h.native_open_orders[:]=[row for row in h.native_open_orders if row.orderId!=broker_id]
+        h.life.clock.current+=timedelta(seconds=1)
+        completed=h.core.run_once();capsys.readouterr()
+        assert completed, (life.filled_qty,[(x.broker_order_id,x.filled_quantity,x.status) for x in life.stop_legs],[(x.orderId,x.order.totalQuantity) for x in h.native_open_orders])
+        assert life.filled_qty==quantity-index-1 and life.exited_qty==index+1
+        assert sum(o['requested']-o['filled'] for o in children)==life.filled_qty
+        if life.filled_qty:
+            assert engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
+        before=(len(engine.position_records),life.realized_pnl,engine.capital_authority.total_used_exposure)
+        assert h.core.run_once();capsys.readouterr()
+        assert before==(len(engine.position_records),life.realized_pnl,engine.capital_authority.total_used_exposure)
+    assert not h.manager.snapshot_positions() and not h.core.trade_registry.snapshot()
+    assert engine.capital_authority.total_used_exposure==0
+    assert len(h.sent_native)==1 and len(h.stop_requests)==quantity
+
+
+@pytest.mark.parametrize('fault',[1,2])
+def test_native_unit_stop_unknown_submission_quarantines_without_retry(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,fault):
+    h,request,life=small_central_owned(reassessment,monkeypatch,tmp_path,capsys,'BULL_FLAG',requested_base=8,risk_cap=4,synthetic_capital=800,unit_stops=True,unit_fault=fault)
+    engine=h.core.execution_engine
+    assert engine._native_quarantined and engine._failsafe_block_new_entries
+    assert len(h.stop_requests)==fault
+    state=h.core.storage_engine.fetch_management_state('execution.native_orders.v1:PAPER')
+    children=[o for o in state['orders'].values() if o.get('protection_parent_order_id')]
+    assert len(children)==fault and sum(o['requested'] for o in children)<=request.quantity
+    assert all(o['status']=='DISPATCH_UNCERTAIN' for o in children)
+    assert not engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
+    for _ in range(2):assert not h.core.run_once();capsys.readouterr()
+    assert len(h.stop_requests)==fault and len(h.sent_native)==1
+
+
+
+def test_native_unit_stop_partial_entry_then_terminal_fill_preserves_earlier_legs(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    h,request,life=small_central_owned(reassessment,monkeypatch,tmp_path,capsys,'BULL_FLAG',requested_base=8,risk_cap=4,synthetic_capital=800,unit_stops=True,partial=True)
+    engine=h.core.execution_engine
+    assert life.filled_qty==len(life.stop_legs)==1 and request.quantity==4
+    first=life.stop_legs[0]
+    assert engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
+    h.facts[71]=dict(status='Filled',filled=4,remaining=0,avgFillPrice=10.88)
+    h.native_quantity[0]=4
+    h.native_open_orders[:]=[row for row in h.native_open_orders if row.orderId!=71]
+    h.life.clock.current+=timedelta(seconds=1)
+    assert h.core.run_once();capsys.readouterr()
+    assert life.filled_qty==len(life.stop_legs)==len(h.stop_requests)==4
+    assert life.stop_legs[0] is first and first.broker_order_id=='72'
+    assert engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
+    assert not engine._native_orders[request.client_order_id].get('pmh_failure_exit')
+    assert all(leg.trigger_price==request.stop_loss_price==10.63 for leg in life.stop_legs)
+
+
+@pytest.mark.parametrize('fault',['missing','quantity','security','price','parent','ref','mkt','unknown','foreign'])
+def test_native_unit_stop_remainder_inventory_fault_quarantines_without_repair(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,fault):
+    h,request,life=small_central_owned(reassessment,monkeypatch,tmp_path,capsys,'BULL_FLAG',requested_base=6,risk_cap=4,synthetic_capital=800,unit_stops=True)
+    row=h.native_open_orders[-1]
+    if fault=='missing':h.native_open_orders.pop()
+    elif fault=='quantity':row.order.totalQuantity=2
+    elif fault=='security':row.contract.conId=456
+    elif fault=='price':row.order.auxPrice=10.62
+    elif fault=='parent':row.order.parentId=99
+    elif fault=='ref':row.order.orderRef='PROTECT|unrelated'
+    elif fault=='mkt':row.order.orderType='MKT'
+    elif fault=='unknown':row.orderState.status='UNKNOWN'
+    else:
+        foreign=deepcopy(row);foreign.orderId=99;h.native_open_orders.append(foreign)
+    assert not h.core.run_once();capsys.readouterr()
+    engine=h.core.execution_engine
+    assert engine._native_quarantined and engine._failsafe_block_new_entries
+    assert not engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
+    assert len(h.stop_requests)==3 and life.filled_qty==3
+    assert not h.core.run_once();capsys.readouterr()
+    assert len(h.sent_native)==1 and len(h.stop_requests)==3
+
+
+def test_native_unit_stop_simultaneous_authoritative_fills_account_before_remainder_check(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    h,request,life=small_central_owned(reassessment,monkeypatch,tmp_path,capsys,'BULL_FLAG',requested_base=8,risk_cap=4,synthetic_capital=800,unit_stops=True)
+    for leg in life.stop_legs[:2]:
+        h.facts[int(leg.broker_order_id)]=dict(status='Filled',filled=1,remaining=0,avgFillPrice=10.63)
+    h.native_quantity[0]=2
+    h.native_open_orders[:]=[row for row in h.native_open_orders if row.orderId not in {72,73}]
+    assert h.core.run_once();capsys.readouterr()
+    assert life.filled_qty==life.exited_qty==2
+    engine=h.core.execution_engine
+    assert engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
+    before=(len(engine.position_records),life.realized_pnl,engine.capital_authority.total_used_exposure)
+    assert h.core.run_once();capsys.readouterr()
+    assert before==(len(engine.position_records),life.realized_pnl,engine.capital_authority.total_used_exposure)
+
+
+def test_native_unit_stop_interrupted_exit_accounting_quarantines_without_replay(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    h,request,life=small_central_owned(reassessment,monkeypatch,tmp_path,capsys,'BULL_FLAG',requested_base=8,risk_cap=4,synthetic_capital=800,unit_stops=True)
+    engine=h.core.execution_engine
+    h.facts[72]=dict(status='Filled',filled=1,remaining=0,avgFillPrice=10.63)
+    h.native_quantity[0]=3
+    h.native_open_orders[:]=[row for row in h.native_open_orders if row.orderId!=72]
+    record=engine._record_fill_and_position
+    def interrupt(*args,**kwargs):
+        record(*args,**kwargs)
+        raise RuntimeError('synthetic interruption after unit accounting')
+    monkeypatch.setattr(engine,'_record_fill_and_position',interrupt)
+    assert not h.core.run_once();capsys.readouterr()
+    assert engine._native_quarantined
+    before=(life.filled_qty,life.exited_qty,life.realized_pnl,len(engine.position_records),engine.capital_authority.total_used_exposure)
+    for _ in range(2):assert not h.core.run_once();capsys.readouterr()
+    assert before==(life.filled_qty,life.exited_qty,life.realized_pnl,len(engine.position_records),engine.capital_authority.total_used_exposure)
+    assert len(h.stop_requests)==4
+
+
+
+def test_native_unit_stop_cap_one_keeps_accepted_one_share_profit(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    prepared=small_central_owned(reassessment,monkeypatch,tmp_path,capsys,'BULL_FLAG',requested_base=8,risk_cap=1,synthetic_capital=800,unit_stops=True)
+    h,request,life=one_share_profit_case(reassessment,monkeypatch,tmp_path,capsys,prepared=prepared)
+    assert request.quantity==1 and not request.selected_stop_units and not life.stop_legs
+    assert len(h.failure_conversions)==1
+    finish_failure_fill(h,life,capsys)
+    assert life.filled_qty==0 and life.exited_qty==1
+    assert h.core.execution_engine.capital_authority.total_used_exposure==0
+
+
+@pytest.mark.parametrize('expire_after_persist',[False,True])
+def test_native_unit_stop_real_adapter_client_binds_before_sdk_write(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,expire_after_persist):
+    from src.brokers.ibkr_live_broker import IbkrLiveBroker
+    from src.config.runtime_config import RunMode
+    monkeypatch.setenv('IBKR_ORDER_ID_STATE_PATH',str(tmp_path/'unit-order-ids.json'))
+    h,request,_=small_central_owned(reassessment,monkeypatch,tmp_path,capsys,'BULL_FLAG',requested_base=6,risk_cap=4,synthetic_capital=800,unit_stops=True,fill=False)
+    engine=h.core.execution_engine;client=h.native_client
+    broker=object.__new__(IbkrLiveBroker);broker.run_mode=RunMode.PAPER;broker.connection_manager=h.native_manager
+    monkeypatch.setattr(broker,'ensure_connection',lambda:pytest.fail('Implicit connection forbidden'))
+    monkeypatch.setattr(engine._provider.broker,'place_stop_order',broker.place_stop_order)
+    client.nextValidId(72)
+    writes=[]
+    def sdk_write(broker_id,contract,native):
+        state=h.core.storage_engine.fetch_management_state('execution.native_orders.v1:PAPER')
+        children=[v for v in state['orders'].values() if v.get('protection_parent_order_id')==request.client_order_id]
+        assert any(v['broker_order_id']==str(broker_id) and v['requested']==1 and v['status']=='DISPATCH_UNCERTAIN' for v in children)
+        assert native.orderType=='STP' and native.totalQuantity==1 and native.auxPrice==10.63
+        writes.append(broker_id)
+        h.stop_requests.append(dict(quantity=1,stop_price=native.auxPrice))
+        external_contract=deepcopy(contract);external_contract.conId=123
+        h.native_open_orders.append(NS(orderId=broker_id,contract=external_contract,order=deepcopy(native),orderState=NS(status='Submitted')))
+    monkeypatch.setattr(client,'placeOrder',sdk_write)
+    if expire_after_persist:
+        store=h.core.storage_engine.store_execution_order_state
+        delayed=[False]
+        def persist(*args,**kwargs):
+            store(*args,**kwargs)
+            if not delayed[0] and any(v.get('protection_parent_order_id') for v in args[1]['orders'].values()):
+                delayed[0]=True;h.life.clock.current+=timedelta(seconds=16)
+        monkeypatch.setattr(h.core.storage_engine,'store_execution_order_state',persist)
+    h.facts[71]=dict(status='Filled',filled=3,remaining=0,avgFillPrice=10.88)
+    h.native_quantity[0]=3;h.native_open_orders.clear()
+    completed=h.core.run_once();observed=capsys.readouterr().out
+    if expire_after_persist:
+        assert not completed and not writes and engine._native_quarantined
+        assert delayed[0] and 'NATIVE_ORDER_SCOPE_STALE_OR_CHANGED' in observed
+        assert not h.core.run_once();capsys.readouterr()
+        assert not writes
+    else:
+        assert completed and writes==[72,73,74], observed[-2500:]
+        life=engine.post_fill_lifecycle.get_trade(request.client_order_id)
+        assert life.filled_qty==3 and engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
+        assert_readonly_selected_dispatch_restart(h,request,timeframe='10s',profile='UNIT_STOPS')
+
+
+@pytest.mark.parametrize('facet,value',[('symbol','OTHER'),('side','BUY'),('parentId',99),('orderRef','PROTECT|unrelated')])
+def test_native_unit_stop_wrong_callback_binding_quarantines(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,facet,value):
+    h,request,life=small_central_owned(reassessment,monkeypatch,tmp_path,capsys,'BULL_FLAG',requested_base=6,risk_cap=4,synthetic_capital=800,unit_stops=True)
+    h.facts[72]=dict(status='Filled',filled=1,remaining=0,avgFillPrice=10.63,**{facet:value})
+    assert not h.core.run_once();capsys.readouterr()
+    assert h.core.execution_engine._native_quarantined
+    assert life.filled_qty==3 and life.exited_qty==0
+    assert len(h.stop_requests)==3
+
+
+def test_native_unit_stop_batch_cannot_recommit_mutated_request(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    h,request,life=small_central_owned(reassessment,monkeypatch,tmp_path,capsys,'BULL_FLAG',requested_base=6,risk_cap=4,synthetic_capital=800,unit_stops=True)
+    engine=h.core.execution_engine
+    child=engine._native_orders[life.stop_legs[0].leg_id]
+    child['request']['target_model']='mutated after retention'
+    assert not h.core.run_once();out=capsys.readouterr().out
+    assert engine._native_quarantined and 'NATIVE_ORDER_RETAINED_BINDING_CHANGED' in out
+    assert len(h.stop_requests)==3 and life.filled_qty==3
+
+
+
+def test_native_unit_stop_late_original_entry_fill_after_stop_flat_is_separately_protected(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    h,request,old=small_central_owned(reassessment,monkeypatch,tmp_path,capsys,'BULL_FLAG',requested_base=8,risk_cap=4,synthetic_capital=800,unit_stops=True,partial=True)
+    h.facts[72]=dict(status='Filled',filled=1,remaining=0,avgFillPrice=10.63)
+    h.native_quantity[0]=0
+    h.native_open_orders[:]=[row for row in h.native_open_orders if row.orderId!=72]
+    assert h.core.run_once();capsys.readouterr()
+    assert old.filled_qty==0 and old.exited_qty==1
+    h.facts[71]=dict(status='Filled',filled=4,remaining=0,avgFillPrice=10.88)
+    h.native_quantity[0]=3
+    h.native_open_orders[:]=[row for row in h.native_open_orders if row.orderId!=71]
+    h.life.clock.current+=timedelta(seconds=1)
+    assert h.core.run_once();capsys.readouterr()
+    engine=h.core.execution_engine;parent=engine._native_orders[request.client_order_id]
+    life=engine.post_fill_lifecycle.get_trade(parent['protection_trade_id'])
+    assert life is not old and old.filled_qty==0 and old.exited_qty==1
+    assert life.filled_qty==len(life.stop_legs)==3
+    assert {leg.broker_order_id for leg in life.stop_legs}=={'73','74','75'}
+    assert engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
+    assert len(h.sent_native)==1 and len(h.stop_requests)==4
+    assert not parent.get('pmh_failure_exit')
+
+
+@pytest.mark.parametrize('family',PROFIT_FAMILIES)
+def test_native_unit_stop_all_eligible_families_preserve_full_registry_contract(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,family):
+    h,request,life=small_central_owned(reassessment,monkeypatch,tmp_path,capsys,family,requested_base=8,risk_cap=4,synthetic_capital=800,unit_stops=True)
+    intent,serialized,decision=h.evaluated[0]
+    engine=h.core.execution_engine
+    assert intent.setup_family_id==request.setup_family_id==family
+    assert len(h.registry_batches[-1][1])==33
+    from src.storage.serialization import to_jsonable
+    assert serialized==vars(intent)
+    assert request.setup_metadata==to_jsonable(intent.setup_metadata)
+    assert 2<=request.quantity==life.filled_qty==decision.max_position_size<=min(intent.quantity,4)
+    assert request.selected_stop_units and len(life.stop_legs)==request.quantity
+    assert all(leg.quantity==1 and leg.trigger_price==request.stop_loss_price for leg in life.stop_legs)
+    assert request.invalidation_level==intent.invalidation_level
+    assert request.target_model==intent.target_model and request.take_profit_price is None and life.target is None
+    assert engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
+    assert not engine._native_orders[request.client_order_id].get('pmh_failure_exit')
+    before=(len(h.sent_native),len(h.stop_requests),len(engine.position_records),engine.capital_authority.total_used_exposure)
+    assert h.core.run_once();capsys.readouterr()
+    assert before==(len(h.sent_native),len(h.stop_requests),len(engine.position_records),engine.capital_authority.total_used_exposure)

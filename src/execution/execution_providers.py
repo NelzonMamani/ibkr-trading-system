@@ -369,6 +369,7 @@ class IbkrExecutionProvider(ExecutionProvider):
         stop_price: float,
         trade_id: str,
         parent_order_id: str | None = None,
+        before_submit=None,
     ) -> dict[str, Any]:
         if self.run_mode == RunMode.READ_ONLY:
             raise RuntimeError("READ_ONLY_NO_ORDER_MUTATION")
@@ -379,6 +380,7 @@ class IbkrExecutionProvider(ExecutionProvider):
             stop_price=stop_price,
             trade_id=trade_id,
             parent_order_id=parent_order_id,
+            **({"before_submit": before_submit} if before_submit is not None else {}),
         )
 
     def place_target_order(

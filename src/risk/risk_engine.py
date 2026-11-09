@@ -109,7 +109,8 @@ class RiskEngine:
             system = snapshot.system_positions.get(order["symbol"])
             quantity = life.filled_qty
             allowed = bool(
-                order.get("terminal") and order.get("filled") == order.get("requested")
+                not request.get("selected_stop_units")
+                and order.get("terminal") and order.get("filled") == order.get("requested")
                 and order.get("protection_confirmed") and not order.get("cached_update_in_progress")
                 and not order.get("quarantine") and not order.get("pmh_failure_exit")
                 and not order.get("pmh_management_expired")

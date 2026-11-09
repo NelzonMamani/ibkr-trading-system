@@ -3016,6 +3016,8 @@ class CoreOrchestrator:
             request = order.get("request", {})
             if not selected_completed_failure_profile(request) or order.get("pmh_management_expired"):
                 continue
+            if request.get("selected_stop_units"):
+                continue  # Ownership prerequisite only; no partial/failure enrollment yet.
             stream = (request.get("setup_metadata") or {}).get("execution_stream") or {}
             timeframe = stream.get("execution_trigger_timeframe")
             if timeframe not in {"10s", "1m"}:

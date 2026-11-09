@@ -37,7 +37,7 @@ from src.execution.autonomous_recovery_authority import (
     AutonomousRecoveryAuthority,
     AutonomousRecoveryDecision,
 )
-from src.execution.post_fill_lifecycle_engine import PostFillLifecycleEngine
+from src.execution.post_fill_lifecycle_engine import PostFillLifecycleEngine, PositionLifecycleState
 from src.execution.startup_recovery_authority import (
     RecoveryState,
     StartupRecoveryAuthority,
@@ -752,6 +752,8 @@ class ExecutionEngine:
         # active relationship management; never query or infer an acknowledgement.
         if life is None or life.stop is None:
             return None
+        if life.selected_stop_units:
+            return self._confirm_selected_unit_stops(life, orders)
         def read(row, key):
             return row.get(key) if isinstance(row, dict) else getattr(row, key, None)
         matches = [o for o in orders if str(read(o, "order_id")) == str(life.stop.broker_order_id)
@@ -1426,6 +1428,13 @@ class ExecutionEngine:
             setup_metadata=getattr(risk_decision, "setup_metadata", None),
             management_session_plan=getattr(risk_decision, "management_session_plan", None),
         )
+        from src.config.config_resolver import get_ross_synthetic_unit_stops
+        if get_ross_synthetic_unit_stops() and request.quantity > 1:
+            from src.strategies.ross_momentum.strategy_policy import selected_one_share_profit_profile
+            if request.relationship_context or not selected_one_share_profit_profile(asdict(request)):
+                raise RuntimeError("SELECTED_UNIT_STOP_FAMILY_NOT_ENROLLED")
+            from dataclasses import replace
+            request = replace(request, selected_stop_units=True)
         self._prospective_decisions_by_order_id.clear()  # One execution-thread construction/handoff slot.
         self._prospective_decisions_by_order_id[client_order_id] = risk_decision.decision_id
         capital_decision = getattr(risk_decision, "capital_decision", None)
@@ -1897,6 +1906,8 @@ class ExecutionEngine:
         manager = getattr(self, "relationship_manager", None)
         plan = manager._relationship_plans.get(context.get("relationship_id")) if manager else None
         protection_id = (plan.protection_trade_id or plan.initial_order_id) if plan else (native_life.trade_id if native_life else request.client_order_id)
+        if native_owned is not None and request.selected_stop_units:
+            protection_id = native_owned.get("protection_trade_id") or protection_id
         existing_protection = self.post_fill_lifecycle.get_trade(protection_id) if plan or native_owned is not None else None
         if direction_upper in {"LONG", "BUY"} and existing_protection is not None:
             total = existing_protection.filled_qty + filled_quantity
@@ -1905,7 +1916,9 @@ class ExecutionEngine:
                 plan.pending_stop_resize = plan.pending_stop_resize or self.run_mode in {RunMode.PAPER, RunMode.LIVE}
                 manager._save_relationship_state()  # dispatch is not quantity confirmation
             protection_result = self.post_fill_lifecycle.update_selected_exposure(
-                trade_id=protection_id, filled_qty=total, avg_fill_price=average)
+                trade_id=protection_id, filled_qty=total, avg_fill_price=average,
+                **({"unit_stop_submitter": lambda trade, leg: self._submit_selected_unit_stop(request.client_order_id, trade, leg)}
+                    if request.selected_stop_units else {}))
             protection_id = protection_result.get("reopened_trade_id", protection_id)
             if not protection_result["success"]:
                 if plan is not None:
@@ -1928,6 +1941,9 @@ class ExecutionEngine:
                 preserve_selected_protection="ROSS" in str(request.strategy_name or "").upper(),
                 target_model=request.target_model,
                 entry_broker_order_id=str(ibkr_order_id) if ibkr_order_id is not None else None,
+                **({"selected_stop_units": True,
+                    "unit_stop_submitter": lambda trade, leg: self._submit_selected_unit_stop(request.client_order_id, trade, leg)}
+                    if request.selected_stop_units else {}),
             )
             self.position_records[request.client_order_id]["lifecycle"] = protection_result
             if (plan is not None or native_owned is not None) and not protection_result["success"]:
@@ -1942,7 +1958,9 @@ class ExecutionEngine:
             if not applied.get("success"):
                 native_owned["lifecycle_application_rejected"] = applied
                 raise RuntimeError("NATIVE_PROTECTION_EXIT_APPLICATION_REJECTED")
-            existing_protection.stop.status = str(result.status)
+            leg = (self.post_fill_lifecycle.selected_unit_leg(existing_protection, broker_order_id=ibkr_order_id)
+                if existing_protection.selected_stop_units else existing_protection.stop)
+            leg.status = str(result.status)
         if direction_upper == "SELL" and plan is not None and existing_protection is not None:
             exit_application = self.post_fill_lifecycle.record_exit_fill(trade_id=protection_id, fill_price=fill_price,
                 fill_time=datetime.now(timezone.utc).isoformat(), actual_qty=filled_quantity,
@@ -2193,25 +2211,34 @@ class ExecutionEngine:
                     if plan is None:
                         self._native_processing_results.discard(id(processed))
                 if plan is None and native_parent is None and total > prior:
-                    life = self.post_fill_lifecycle.get_trade(order_id)
-                    inventory = list(self._provider.get_open_orders())
-                    self.post_fill_lifecycle.reconcile_orders(inventory, repair=False)
-                    if (life is None or self._confirmed_stop_quantity(symbol=request.symbol, life=life, orders=inventory) is None
-                            or not self.post_fill_lifecycle.assess_trade_stop_protection(order_id)["protected"]):
-                        raise RuntimeError("NATIVE_ORDER_PROTECTION_UNVERIFIED")
-                    order["protection_confirmed"] = True
-                    from src.strategies.ross_momentum.strategy_policy import selected_completed_failure_profile
-                    if request.setup_metadata and selected_completed_failure_profile(asdict(request)):
+                    if request.selected_stop_units:
+                        # All authoritative unit fills must drain before aggregate
+                        # remainder verification. A terminal older unit cannot
+                        # pre-empt a later unit's newly arrived callback.
+                        order["protection_confirmed"] = False
                         order["last_accounted_entry_fill_at"] = datetime.now(timezone.utc).isoformat()
-                        matched = [row for row in inventory if str(row.order_id) == str(life.stop.broker_order_id)]
-                        if len(matched) == 1:
-                            con_id = matched[0].metadata.get("con_id")
-                            if type(con_id) is int and con_id > 0:
-                                order["security_id"] = con_id
+                    else:
+                        life = self.post_fill_lifecycle.get_trade(order.get("protection_trade_id") or order_id)
+                        inventory = self._pmh_complete_inventory() if request.selected_stop_units else list(self._provider.get_open_orders())
+                        self.post_fill_lifecycle.reconcile_orders(inventory, repair=False)
+                        if (life is None or self._confirmed_stop_quantity(symbol=request.symbol, life=life, orders=inventory) is None
+                                or not self.post_fill_lifecycle.assess_trade_stop_protection(order_id)["protected"]):
+                            raise RuntimeError("NATIVE_ORDER_PROTECTION_UNVERIFIED")
+                        order["protection_confirmed"] = True
+                        from src.strategies.ross_momentum.strategy_policy import selected_completed_failure_profile
+                        if request.setup_metadata and selected_completed_failure_profile(asdict(request)):
+                            order["last_accounted_entry_fill_at"] = datetime.now(timezone.utc).isoformat()
+                            matched = [row for row in inventory if str(row.order_id) == str(life.stop.broker_order_id)]
+                            if len(matched) == 1:
+                                con_id = matched[0].metadata.get("con_id")
+                                if type(con_id) is int and con_id > 0:
+                                    order["security_id"] = con_id
                 if native_parent is not None:
                     if native_life.filled_qty == 0 and native_parent.get("pmh_failure_exit"):
                         native_parent["pmh_failure_exit"]["status"] = "FILLED"
-                    native_life.stop.status = status
+                    leg = (self.post_fill_lifecycle.selected_unit_leg(native_life, broker_order_id=order["broker_order_id"])
+                        if native_life.selected_stop_units else native_life.stop)
+                    leg.status = status
                     position = manager.snapshot_positions().get(request.symbol) if manager else None
                     registered = self.trade_registry.get_trade(request.symbol, native_parent["request"].get("trader_type") or "UNKNOWN")
                     if ((position.quantity if position else 0) != native_life.filled_qty
@@ -2252,7 +2279,7 @@ class ExecutionEngine:
         committed = (self._native_state or {}).get("orders", {}).get(order_id, {})
         if any(order.get(key) != committed.get(key) for key in
                ("request", "decision_id", "account", "mode", "symbol", "side", "broker_order_id", "requested",
-                "protection_parent_order_id", "protection_trade_id", "security_id", "last_accounted_entry_fill_at", "pmh_failure_exit", "pmh_management_expired")):
+                "protection_parent_order_id", "protection_trade_id", "security_id", "last_accounted_entry_fill_at", "pmh_failure_exit", "pmh_management_expired", "close_role")):
             raise ValueError("NATIVE_ORDER_RETAINED_BINDING_CHANGED")
         facets = {"symbol": order["symbol"], "account": order["account"], "side": order["side"],
             "client_order_id": order_id, "orderId": order["broker_order_id"], "decision_id": order["decision_id"]}
@@ -2300,9 +2327,15 @@ class ExecutionEngine:
                 or parent.get("side") not in {"LONG", "BUY"}):
             raise ValueError("NATIVE_PROTECTION_PARENT_INVALID")
         life = self.post_fill_lifecycle.get_trade(order.get("protection_trade_id"))
-        stop = life.stop if life is not None else None
+        stop = (self.post_fill_lifecycle.selected_unit_leg(life, broker_order_id=order.get("broker_order_id"))
+            if life is not None and life.selected_stop_units else life.stop if life is not None else None)
         request = order["request"]
         initial = parent["request"]
+        if life is not None and life.selected_stop_units:
+            if (stop is None or order.get("close_role") != stop.close_role
+                    or stop.leg_id != request.get("client_order_id") or not initial.get("selected_stop_units")
+                    or order.get("requested") != 1):
+                raise ValueError("NATIVE_UNIT_PROTECTION_BINDING_INVALID")
         if (life is None or stop is None or not life.preserve_selected_protection or life.target is not None
                 or life.symbol.upper() != parent["symbol"] or life.strategy_id != initial.get("strategy_name")
                 or str(life.side).upper() not in {"LONG", "BUY"} or str(stop.side).upper() != "SELL"
@@ -2354,6 +2387,8 @@ class ExecutionEngine:
         from src.strategies.ross_momentum.strategy_policy import (selected_one_share_profit_profile,
             standalone_one_share_profit_basis, standalone_profit_quote_evidence, STANDALONE_ONE_SHARE_PROFIT_PROFILE)
         parent = self._native_orders[order_id]
+        if parent["request"].get("selected_stop_units"):
+            return False  # Never reinterpret the whole-stop API as a partial.
         profit = failure.get("profile") == STANDALONE_ONE_SHARE_PROFIT_PROFILE
         if profit and (self.run_mode != RunMode.PAPER or not callable(authorization_guard)):
             return False
@@ -2445,7 +2480,13 @@ class ExecutionEngine:
         if life.filled_qty <= 0:
             return
         parent = self._native_orders.get(order.get("protection_parent_order_id"), {})
-        inventory = self._pmh_complete_inventory() if parent.get("pmh_failure_exit") else list(self._provider.get_open_orders())
+        if life.selected_stop_units and getattr(self, "_native_unit_update_batch", False):
+            return
+        inventory = self._pmh_complete_inventory() if parent.get("pmh_failure_exit") or life.selected_stop_units else list(self._provider.get_open_orders())
+        if life.selected_stop_units:
+            if self._confirm_selected_unit_stops(life, inventory) is None:
+                raise RuntimeError("NATIVE_UNIT_PROTECTION_REMAINDER_UNVERIFIED")
+            return
         if parent.get("pmh_failure_exit"):
             kind = self._pmh_working_close(parent, order, life, inventory, cumulative_filled=cumulative_filled)
             if kind is None:
@@ -2459,6 +2500,95 @@ class ExecutionEngine:
                 orders=inventory, stop_filled=cumulative_filled) is None:
             raise RuntimeError("NATIVE_PROTECTION_REMAINDER_UNVERIFIED")
 
+    def _submit_selected_unit_stop(self, parent_id, life, leg):
+        """Extend the existing durable order owner before each native unit write."""
+        from src.strategies.ross_momentum.strategy_policy import selected_unit_stop_profile
+        parent = self._native_orders[parent_id]
+        self._validate_native_binding(parent_id, parent, {})
+        if (not selected_unit_stop_profile(parent["request"]) or self.run_mode != RunMode.PAPER
+                or self._native_quarantined or leg.quantity != 1 or leg.leg_id in self._native_orders):
+            raise RuntimeError("NATIVE_UNIT_STOP_SCOPE_INVALID")
+        allocated = []
+        def before_submit(broker_id, contract, native):
+            self._validate_native_binding(parent_id, parent, {})
+            existing = [o for o in self._native_orders.values() if o.get("protection_parent_order_id") == parent_id]
+            if (allocated or leg.leg_id in self._native_orders or type(broker_id) is not int or broker_id <= 0
+                    or any(str(o.get("broker_order_id")) == str(broker_id) for o in self._native_orders.values())
+                    or getattr(contract, "symbol", None) != parent["symbol"]
+                    or getattr(native, "action", None) != "SELL" or getattr(native, "orderType", None) != "STP"
+                    or getattr(native, "totalQuantity", None) != 1
+                    or getattr(native, "auxPrice", None) != life.selected_stop_price
+                    or str(getattr(native, "parentId", None)) != str(parent["broker_order_id"])
+                    or getattr(native, "orderRef", None) != "PROTECT|"+life.trade_id
+                    or sum(o["requested"]-o["filled"] for o in existing)+1 > life.filled_qty):
+                raise RuntimeError("NATIVE_UNIT_STOP_ALLOCATION_INVALID")
+            leg.broker_order_id = str(broker_id)
+            initial = parent["request"]
+            request = BrokerOrderRequest(client_order_id=leg.leg_id, symbol=parent["symbol"], direction="SELL",
+                quantity=1, order_type="STP", trader_type=initial.get("trader_type"),
+                strategy_name=initial.get("strategy_name"), setup_family_id=initial.get("setup_family_id"),
+                trigger_id=initial.get("trigger_id"), target_model=initial.get("target_model"))
+            self._native_orders[leg.leg_id] = {"request": asdict(request), "decision_id": parent["decision_id"],
+                "account": parent["account"], "mode": parent["mode"], "symbol": parent["symbol"], "side": "SELL",
+                "requested": 1, "filled": 0, "notional": 0., "terminal": False, "status": "DISPATCH_UNCERTAIN",
+                "broker_order_id": str(broker_id), "protection_parent_order_id": parent_id,
+                "protection_trade_id": life.trade_id, "close_role": "PROTECTION"}
+            parent["protection_trade_id"] = life.trade_id
+            parent["protection_confirmed"] = False
+            self._save_native_orders()
+            self._validate_native_binding(leg.leg_id, self._native_orders[leg.leg_id], {})
+            if not self._native_callback_client().isConnected():
+                raise RuntimeError("NATIVE_UNIT_STOP_CLIENT_CHANGED")
+            allocated.append(str(broker_id))
+        response = self._provider.place_stop_order(symbol=life.symbol, side="SELL", quantity=1,
+            stop_price=life.selected_stop_price, trade_id=life.trade_id,
+            parent_order_id=parent["broker_order_id"], before_submit=before_submit)
+        if len(allocated) != 1 or str(response.get("broker_order_id")) != allocated[0]:
+            raise RuntimeError("NATIVE_UNIT_STOP_ALLOCATION_UNCONFIRMED")
+        # A return is not independent confirmation; no retries or generic repair.
+
+    def _confirm_selected_unit_stops(self, life, inventory):
+        """Confirm retained protective facts; never submit/cancel/resize an order."""
+        for leg in life.stop_legs:
+            leg.independently_confirmed = False
+        remaining = [leg for leg in life.stop_legs if leg.quantity > leg.filled_quantity]
+        if (not remaining or sum(leg.quantity-leg.filled_quantity for leg in remaining) != life.filled_qty
+                or len({leg.broker_order_id for leg in life.stop_legs}) != len(life.stop_legs)):
+            return None
+        remaining_ids = {str(leg.broker_order_id) for leg in remaining}
+        if any(row.symbol == life.symbol and row.metadata.get("side") == "SELL"
+                and row.status.upper() not in {"FILLED", "CANCELLED", "CANCELED", "REJECTED"}
+                and str(row.order_id) not in remaining_ids for row in inventory):
+            return None  # No independent overlapping sell may be ignored.
+        for leg in remaining:
+            child = self._native_orders.get(leg.leg_id)
+            if child is None:
+                return None
+            parent, _ = self._native_protection_owner(child)
+            rows = [row for row in inventory if str(row.order_id) == str(leg.broker_order_id)]
+            if len(rows) != 1:
+                return None
+            row = rows[0];meta = row.metadata
+            if (row.symbol != life.symbol or row.status.upper() not in {"SUBMITTED", "PRESUBMITTED"}
+                    or row.order_type.upper() != "STP" or meta.get("side") != "SELL"
+                    or type(meta.get("native_quantity")) is bool or meta.get("native_quantity") != 1
+                    or meta.get("stop_price") != life.selected_stop_price
+                    or row.parent_order_id != str(parent["broker_order_id"])
+                    or meta.get("order_ref") != "PROTECT|"+life.trade_id
+                    or type(meta.get("con_id")) is not int or meta["con_id"] <= 0
+                    or (parent.get("security_id") is not None and meta["con_id"] != parent["security_id"])):
+                return None
+        security_ids = {row.metadata["con_id"] for row in inventory if str(row.order_id) in {str(leg.broker_order_id) for leg in remaining}}
+        if len(security_ids) != 1:
+            return None
+        for leg in remaining:
+            leg.status = "SUBMITTED"
+            leg.independently_confirmed = True
+            self._native_orders[leg.leg_id]["status"] = "SUBMITTED"
+        if life.state == PositionLifecycleState.PROTECTION_PENDING:
+            self.post_fill_lifecycle._transition(life, PositionLifecycleState.PROTECTED, "unit_stops_independently_confirmed")
+        return life.filled_qty
+
     def _retain_native_selected_stops(self) -> None:
         for parent_id, parent in list(self._native_orders.items()):
             if parent.get("side") not in {"LONG", "BUY"} or not parent.get("protection_confirmed"):
@@ -2468,6 +2598,13 @@ class ExecutionEngine:
                 continue  # Existing non-selected/targeted policies are outside this callback seam.
             try:
                 self._validate_native_binding(parent_id, parent, {})
+                if life.selected_stop_units:
+                    for leg in life.stop_legs:
+                        child = self._native_orders.get(leg.leg_id)
+                        if child is None:
+                            raise RuntimeError("NATIVE_UNIT_STOP_NOT_RETAINED_BEFORE_DISPATCH")
+                        self._native_protection_owner(child)
+                    continue
                 stop = life.stop
                 if not stop.broker_order_id or type(stop.quantity) is not int or stop.quantity <= 0:
                     raise ValueError("NATIVE_PROTECTION_BINDING_INVALID")
@@ -2513,7 +2650,48 @@ class ExecutionEngine:
         self._failsafe_block_new_entries = True
         self._save_native_orders()
 
-    def collect_relationship_updates(self, *, result_processor: Callable[[ExecutionResult], None] | None = None) -> list[ExecutionResult]:
+    def collect_relationship_updates(self, *, result_processor=None):
+        units = [(oid, parent) for oid, parent in self._native_orders.items()
+            if parent.get("side") in {"BUY", "LONG"} and parent.get("request", {}).get("selected_stop_units")]
+        if not units:
+            return self._collect_relationship_updates(result_processor=result_processor)
+        if self._native_quarantined:
+            raise RuntimeError("NATIVE_ORDER_RECOVERY_REQUIRED")
+        if getattr(self, "_native_unit_update_batch", False):
+            raise RuntimeError("NATIVE_UNIT_CALLBACK_REENTRANCY")
+        self._native_unit_update_batch = True
+        try:
+            # Validate the previous committed binding before any batch marker
+            # save; a marker must never bless an in-memory request mutation.
+            unit_parent_ids = {oid for oid, _ in units}
+            for oid, order in list(self._native_orders.items()):
+                if oid in unit_parent_ids or order.get("protection_parent_order_id") in unit_parent_ids:
+                    self._validate_native_binding(oid, order, {})
+            for _, parent in units:
+                parent["unit_reconciliation_pending"] = True
+            self._save_native_orders()
+            results = self._collect_relationship_updates(result_processor=result_processor)
+            inventory = self._pmh_complete_inventory()
+            for parent_id, parent in units:
+                life = self.post_fill_lifecycle.get_trade(parent.get("protection_trade_id") or parent_id)
+                if life is not None and life.filled_qty > 0:
+                    if (self._confirm_selected_unit_stops(life, inventory) is None
+                            or not self.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)["protected"]):
+                        raise RuntimeError("NATIVE_UNIT_PROTECTION_REMAINDER_UNVERIFIED")
+                    parent["protection_confirmed"] = True
+                    ids = {str(leg.broker_order_id) for leg in life.stop_legs if leg.quantity > leg.filled_quantity}
+                    parent["security_id"] = next(row.metadata["con_id"] for row in inventory if str(row.order_id) in ids)
+                parent.pop("unit_reconciliation_pending", None)
+            self._save_native_orders()
+            return results
+        except BaseException:
+            for _, parent in units:
+                self._quarantine_native_update(parent)
+            raise
+        finally:
+            self._native_unit_update_batch = False
+
+    def _collect_relationship_updates(self, *, result_processor: Callable[[ExecutionResult], None] | None = None) -> list[ExecutionResult]:
         """Single enumeration of retained relationship and standalone callbacks."""
         manager = getattr(self, "relationship_manager", None)
         plans = list(manager._relationship_plans.values()) if manager else []

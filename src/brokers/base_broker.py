@@ -33,6 +33,7 @@ class BrokerOrderRequest:
     relationship_context: Optional[dict] = None
     setup_metadata: Optional[dict] = None
     management_session_plan: Optional[str] = None
+    selected_stop_units: bool = False
 
 
 @runtime_checkable

@@ -1488,3 +1488,17 @@ def standalone_profit_quote_evidence(quote, *, symbol, milestone, observed_at):
 # risk, capital, profile and execution may only clamp it. Relationships keep
 # their existing producer/manager sizing. No multi-share profit enrollment is
 # implied: the current single-stop owner lacks a partial/remainder contract.
+
+
+# NEW delegated synthetic PAPER prerequisite, not Ross doctrine or partial policy.
+# Explicit opt-in retains a distinct original-S0 STP native identity/total1 for
+# each accounted owned unit. No cancellation/replacement/atomicity assumption.
+# Until a separate reduction coordinator passes, discretionary unit management
+# is vetoed; default whole-stop one-share/failure behavior remains unchanged.
+STANDALONE_UNIT_STOP_PROTECTION_PROFILE = "STANDALONE_UNIT_STOP_PROTECTION_V1"
+
+
+def selected_unit_stop_profile(request):
+    if request.get("selected_stop_units") is True and selected_one_share_profit_profile(request):
+        return STANDALONE_UNIT_STOP_PROTECTION_PROFILE
+    return None
