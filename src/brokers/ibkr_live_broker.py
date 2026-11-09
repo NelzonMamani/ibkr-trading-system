@@ -26,6 +26,7 @@ from src.adapters.brokers.ibkr.ibkr_connection_manager import (
 from src.config.runtime_config import (
     RunMode,
     get_ibkr_ack_timeout_seconds,
+    get_ibkr_api_write_allowed,
     get_ibkr_default_currency,
     get_ibkr_default_exchange,
     get_ibkr_guard_persist_path,
@@ -531,6 +532,42 @@ class IbkrLiveBroker(BaseBroker):
             trade_id=trade_id,
             parent_order_id=parent_order_id,
         )
+
+    def convert_selected_stop_to_market(self, *, broker_order_id, parent_order_id,
+            symbol, con_id, total_quantity, trade_id, stop_price):
+        """Amend the ONE existing close leg, never allocate a second SELL ID.
+
+        Dispatch is not acknowledgement. Native inventory/callback truth must
+        subsequently confirm the amended order or the original still-live stop.
+        """
+        from copy import deepcopy
+        def enabled():
+            return (self.run_mode == RunMode.PAPER and is_execution_enabled() and not get_ibkr_kill_switch()
+                and not get_ibkr_readonly_enabled() and get_ibkr_api_write_allowed()
+                and get_ibkr_order_submission_enabled() and get_ibkr_order_translation_enabled())
+        if not enabled():
+            raise RuntimeError("PMH_NATIVE_AMENDMENT_DISABLED")
+        manager = self.connection_manager
+        client = getattr(manager, "existing_client", None) if manager else None
+        if client is None or not client.isConnected():
+            raise RuntimeError("PMH_NATIVE_AMENDMENT_NO_EXISTING_CONNECTION")
+        rows = [row for row in client.openOrders() if str(getattr(row, "orderId", "")) == str(broker_order_id)]
+        if len(rows) != 1:
+            raise RuntimeError("PMH_NATIVE_AMENDMENT_ORDER_UNKNOWN")
+        row = rows[0]; contract = deepcopy(row.contract); original = deepcopy(row.order)
+        if (contract.symbol.upper() != symbol or type(contract.conId) is not int or contract.conId != con_id
+                or original.action.upper() != "SELL" or original.orderType.upper() != "STP"
+                or isinstance(original.totalQuantity, bool) or original.totalQuantity != total_quantity or original.auxPrice != stop_price
+                or str(original.parentId) != str(parent_order_id) or original.orderRef != "PROTECT|"+trade_id
+                or row.orderState.status.upper() not in {"SUBMITTED", "PRESUBMITTED"}):
+            raise RuntimeError("PMH_NATIVE_AMENDMENT_BINDING_CONFLICT")
+        amended = deepcopy(original)
+        amended.orderType = "MKT"
+        amended.auxPrice = 0.0
+        if not enabled() or manager.existing_client is not client or not client.isConnected():
+            raise RuntimeError("PMH_NATIVE_AMENDMENT_AUTHORITY_CHANGED")
+        client.placeOrder(int(broker_order_id), deepcopy(contract), amended)
+        return {"broker_order_id": str(broker_order_id), "status": "DISPATCHED_UNCONFIRMED"}
 
     def modify_stop_order(
         self,

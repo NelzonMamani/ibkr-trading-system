@@ -99,6 +99,7 @@ class ManagedTradeLifecycle:
     selected_target_price: float | None = None
     target_model: str | None = None
     preserve_selected_protection: bool = False
+    selected_exit_pending: dict | None = None
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -268,6 +269,9 @@ class PostFillLifecycleEngine:
         trade = self._trades.get(str(trade_id))
         if trade is None:
             return {"status": "UNSAFE", "protected": False, "reason_code": "TRADE_NOT_FOUND"}
+        if trade.selected_exit_pending and trade.selected_exit_pending.get("status") != "STP":
+            return {"status": "EXIT_PENDING", "protected": False,
+                "reason_code": "SELECTED_ORDER_EXIT_PENDING_NOT_STP_CERTIFIED"}
         evidence = StopProtectionEvidence(
             symbol=trade.symbol,
             state="OPEN" if self._is_open_trade_state(trade.state) and int(trade.filled_qty or 0) > 0 else "CLOSED",
@@ -1380,6 +1384,7 @@ class PostFillLifecycleEngine:
             )
         self.mark_exit_pending(trade.trade_id, reason)
         self.mark_exited(trade.trade_id, reason)
+        trade.selected_exit_pending = None
         assert remaining_qty == 0, "EXITED invariant violation: remaining_qty must be zero"
         self._update_in_memory_state()
         return {
@@ -1743,6 +1748,12 @@ class PostFillLifecycleEngine:
                 known_ids.add(str(trade.target.broker_order_id))
 
             if trade.state in {PositionLifecycleState.EXITED, PositionLifecycleState.LIFECYCLE_FAILURE}:
+                continue
+
+            if trade.selected_exit_pending:
+                # An explicit bound close-leg amendment must not trigger a
+                # duplicate stop repair or masquerade as STP certification.
+                block_new_entries = True
                 continue
 
             stop_missing = trade.stop is not None and (not trade.stop.broker_order_id or str(trade.stop.broker_order_id) not in open_ids)

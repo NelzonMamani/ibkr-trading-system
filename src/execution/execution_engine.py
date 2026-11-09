@@ -1423,6 +1423,8 @@ class ExecutionEngine:
             trigger_id=getattr(risk_decision, "trigger_id", None),
             target_model=getattr(risk_decision, "target_model", None),
             relationship_context=getattr(risk_decision, "relationship_context", None),
+            setup_metadata=getattr(risk_decision, "setup_metadata", None),
+            management_session_plan=getattr(risk_decision, "management_session_plan", None),
         )
         self._prospective_decisions_by_order_id.clear()  # One execution-thread construction/handoff slot.
         self._prospective_decisions_by_order_id[client_order_id] = risk_decision.decision_id
@@ -1933,7 +1935,9 @@ class ExecutionEngine:
         if direction_upper == "SELL" and native_parent is not None:
             applied = self.post_fill_lifecycle.record_exit_fill(trade_id=protection_id, fill_price=fill_price,
                 fill_time=datetime.now(timezone.utc).isoformat(), actual_qty=filled_quantity,
-                exit_order_id=str(ibkr_order_id), reason="STOP_LOSS")
+                exit_order_id=str(ibkr_order_id), reason=("PMH_COMPLETED_BAR_FAILURE"
+                    if (native_parent.get("pmh_failure_exit") or {}).get("status") == "MKT"
+                    else "OWNED_CLOSE_AFTER_PMH_REQUEST" if native_parent.get("pmh_failure_exit") else "STOP_LOSS"))
             if not applied.get("success"):
                 native_owned["lifecycle_application_rejected"] = applied
                 raise RuntimeError("NATIVE_PROTECTION_EXIT_APPLICATION_REJECTED")
@@ -2156,6 +2160,11 @@ class ExecutionEngine:
             client_order_id=order_id, ibkr_order_id=order["broker_order_id"], direction=request.direction,
             filled_quantity=total, remaining_quantity=remaining,
             average_fill_price=facts.get("avgFillPrice"), relationship_context=request.relationship_context)
+        if plan is None and facts.get("avgFillPrice") is not None:
+            # A cumulative average is not an order tick price. Preserve native
+            # precision for delta accounting and exact replay comparison; the
+            # generic result constructor quantizes ordinary money fields.
+            result.average_fill_price = float(facts["avgFillPrice"])
         if plan is None and result_processor is None:
             raise RuntimeError("NATIVE_ORDER_PROCESSOR_REQUIRED")
         if result_processor is not None:
@@ -2190,7 +2199,16 @@ class ExecutionEngine:
                             or not self.post_fill_lifecycle.assess_trade_stop_protection(order_id)["protected"]):
                         raise RuntimeError("NATIVE_ORDER_PROTECTION_UNVERIFIED")
                     order["protection_confirmed"] = True
+                    if request.setup_metadata and request.setup_family_id == "PREMARKET_HIGH_BREAK":
+                        order["last_accounted_entry_fill_at"] = datetime.now(timezone.utc).isoformat()
+                        matched = [row for row in inventory if str(row.order_id) == str(life.stop.broker_order_id)]
+                        if len(matched) == 1:
+                            con_id = matched[0].metadata.get("con_id")
+                            if type(con_id) is int and con_id > 0:
+                                order["security_id"] = con_id
                 if native_parent is not None:
+                    if native_life.filled_qty == 0 and native_parent.get("pmh_failure_exit"):
+                        native_parent["pmh_failure_exit"]["status"] = "FILLED"
                     native_life.stop.status = status
                     position = manager.snapshot_positions().get(request.symbol) if manager else None
                     registered = self.trade_registry.get_trade(request.symbol, native_parent["request"].get("trader_type") or "UNKNOWN")
@@ -2232,7 +2250,7 @@ class ExecutionEngine:
         committed = (self._native_state or {}).get("orders", {}).get(order_id, {})
         if any(order.get(key) != committed.get(key) for key in
                ("request", "decision_id", "account", "mode", "symbol", "side", "broker_order_id", "requested",
-                "protection_parent_order_id", "protection_trade_id")):
+                "protection_parent_order_id", "protection_trade_id", "security_id", "last_accounted_entry_fill_at", "pmh_failure_exit", "pmh_management_expired")):
             raise ValueError("NATIVE_ORDER_RETAINED_BINDING_CHANGED")
         facets = {"symbol": order["symbol"], "account": order["account"], "side": order["side"],
             "client_order_id": order_id, "orderId": order["broker_order_id"], "decision_id": order["decision_id"]}
@@ -2299,10 +2317,97 @@ class ExecutionEngine:
             raise ValueError("NATIVE_PROTECTION_BINDING_INVALID")
         return parent, life
 
+    def _pmh_working_close(self, parent, child, life, inventory, *, cumulative_filled=None):
+        from numbers import Number
+        matches = [row for row in inventory if str(row.order_id) == str(child["broker_order_id"])]
+        if len(matches) != 1:
+            return None
+        row = matches[0]; meta = row.metadata
+        total = meta.get("native_quantity")
+        if (row.symbol != parent["symbol"] or row.parent_order_id != str(parent["broker_order_id"])
+                or row.status.upper() not in {"SUBMITTED", "PRESUBMITTED"}
+                or meta.get("side") != "SELL" or meta.get("order_ref") != "PROTECT|"+life.trade_id
+                or type(meta.get("con_id")) is not int or meta["con_id"] != parent.get("security_id")
+                or isinstance(total, bool) or not isinstance(total, Number)
+                or total != child["requested"]
+                or total-(child["filled"] if cumulative_filled is None else cumulative_filled) != life.filled_qty):
+            return None
+        if row.order_type.upper() == "STP" and meta.get("stop_price") == life.selected_stop_price:
+            return "STP"
+        if row.order_type.upper() == "MKT" and parent.get("pmh_failure_exit"):
+            return "MKT"
+        return None
+
+    def request_pmh_failure_exit(self, order_id, failure, *, decision):
+        """Coordinate one existing owned close leg; never submit a second SELL."""
+        from copy import deepcopy
+        from src.strategies.ross_momentum.strategy_policy import PMH_COMPLETED_BAR_FAILURE_PROFILE
+        parent = self._native_orders[order_id]
+        if (parent.get("pmh_failure_exit") or not decision.allowed or decision.execution_blocked
+                or decision.decision_id != parent["decision_id"] or decision.direction != "SELL"
+                or failure.get("profile") != PMH_COMPLETED_BAR_FAILURE_PROFILE
+                or failure.get("occurrence") != parent["request"].get("setup_metadata")):
+            return False
+        self._validate_native_binding(order_id, parent, {})
+        life = self.post_fill_lifecycle.get_trade(order_id)
+        if life is None or life.filled_qty != decision.max_position_size or life.filled_qty <= 0:
+            return False
+        self._retain_native_selected_stops()
+        child_id = f"{order_id}:stop:{life.stop.broker_order_id}"
+        child = self._native_orders.get(child_id)
+        if child is None or child.get("terminal") or child.get("cached_update_in_progress"):
+            return False
+        self._validate_native_binding(child_id, child, {})
+        inventory = list(self._provider.get_open_orders())
+        if any(row.symbol == parent["symbol"] and str(row.order_id) != str(child["broker_order_id"])
+                and row.status.upper() not in {"FILLED", "CANCELLED", "CANCELED", "REJECTED", "INACTIVE"}
+                for row in inventory):
+            return False  # No overlapping pending quantity may be ignored.
+        if (self._pmh_working_close(parent, child, life, inventory) != "STP"
+                or not self.post_fill_lifecycle.assess_trade_stop_protection(order_id)["protected"]):
+            return False
+        # Persist the exact selected occurrence, authorization and native total
+        # BEFORE dispatch. An uncertain result never causes a retry/new identity.
+        parent["pmh_failure_exit"] = {**deepcopy(failure), "status": "DISPATCH_UNCERTAIN",
+            "native_order_id": child["broker_order_id"], "total_quantity": child["requested"],
+            "owned_remainder": decision.max_position_size}
+        self._save_native_orders()
+        life.selected_exit_pending = deepcopy(parent["pmh_failure_exit"])
+        self.post_fill_lifecycle.mark_exit_pending(order_id, "PMH_COMPLETED_BAR_FAILURE")
+        self._failsafe_block_new_entries = True
+        try:
+            self._provider.convert_selected_stop_to_market(broker_order_id=child["broker_order_id"],
+                parent_order_id=parent["broker_order_id"], symbol=parent["symbol"],
+                con_id=parent["security_id"], total_quantity=child["requested"],
+                trade_id=life.trade_id, stop_price=life.selected_stop_price)
+        except Exception as exc:
+            parent["pmh_failure_exit"]["dispatch_error"] = type(exc).__name__
+        # Return values are never broker confirmation. Independently read the
+        # owned native order; MKT means exit pending, not STP certification.
+        kind = self._pmh_working_close(parent, child, life, list(self._provider.get_open_orders()))
+        parent["pmh_failure_exit"]["status"] = kind or "UNKNOWN"
+        life.selected_exit_pending = deepcopy(parent["pmh_failure_exit"])
+        self._save_native_orders()
+        if kind is None:
+            # Callback might have raced amendment: do not fabricate flat/fill.
+            # The retained ID is consumed on the next authoritative fill pass.
+            self._failsafe_block_new_entries = True
+        return True
+
     def _verify_native_remaining_stop(self, order, life, cumulative_filled):
         if life.filled_qty <= 0:
             return
         inventory = list(self._provider.get_open_orders())
+        parent = self._native_orders.get(order.get("protection_parent_order_id"), {})
+        if parent.get("pmh_failure_exit"):
+            kind = self._pmh_working_close(parent, order, life, inventory, cumulative_filled=cumulative_filled)
+            if kind is None:
+                raise RuntimeError("PMH_CLOSE_REMAINDER_UNVERIFIED")
+            if parent["pmh_failure_exit"].get("status") != kind:
+                parent["pmh_failure_exit"]["status"] = kind
+                life.selected_exit_pending = dict(parent["pmh_failure_exit"])
+                self._save_native_orders()
+            return
         if self._confirmed_stop_quantity(symbol=order["symbol"], life=life,
                 orders=inventory, stop_filled=cumulative_filled) is None:
             raise RuntimeError("NATIVE_PROTECTION_REMAINDER_UNVERIFIED")
@@ -2419,7 +2524,8 @@ class ExecutionEngine:
                     self._validate_native_binding(order_id, order, {})
                 facts = reader(order["broker_order_id"])
                 if not facts:
-                    if plan is None and order.get("protection_parent_order_id") and order["filled"]:
+                    if (plan is None and order.get("protection_parent_order_id") and (order["filled"]
+                            or self._native_orders[order["protection_parent_order_id"]].get("pmh_failure_exit"))):
                         _, life = self._native_protection_owner(order)
                         self._verify_native_remaining_stop(order, life, order["filled"])
                     continue

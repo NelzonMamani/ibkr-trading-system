@@ -31,6 +31,8 @@ class BrokerOrderRequest:
     trigger_id: Optional[str] = None
     target_model: Optional[str] = None
     relationship_context: Optional[dict] = None
+    setup_metadata: Optional[dict] = None
+    management_session_plan: Optional[str] = None
 
 
 @runtime_checkable

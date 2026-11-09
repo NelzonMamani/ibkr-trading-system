@@ -682,6 +682,66 @@ class TradeManagementEngine:
         )
         return position
 
+    def evaluate_pmh_completed_failure(self, order, bars, *, observed_at, session_plan):
+        """Pure occurrence-bound rule; execution owns the durable dispatch latch."""
+        from datetime import timedelta
+        from src.strategies.common.candles.candle_types import Candle
+        from src.strategies.common.triggers.trigger_abcd_continuation import abcd_candle_rejection
+        from src.strategies.ross_momentum.patterns.pattern_inputs import normalize_timestamp_utc, _timeframe_provenance
+        from src.strategies.ross_momentum.policy.pattern_input_policy import PatternInputPolicy
+        from src.strategies.ross_momentum.strategy_policy import PMH_COMPLETED_BAR_FAILURE_PROFILE
+        request = order.get("request", {})
+        metadata = request.get("setup_metadata") or {}
+        stream = metadata.get("execution_stream") or {}
+        timeframe = stream.get("execution_trigger_timeframe")
+        seconds = {"10s": 10, "1m": 60}.get(timeframe)
+        if (request.get("setup_family_id") != "PREMARKET_HIGH_BREAK" or request.get("relationship_context")
+                or request.get("take_profit_price") is not None or not seconds
+                or not request.get("management_session_plan") or request["management_session_plan"] != session_plan
+                or not order.get("terminal") or not order.get("protection_confirmed")
+                or type(metadata.get("canonical_result_index")) is not int
+                or metadata["canonical_result_index"] < 0
+                or not metadata.get("source_metadata") or not order.get("last_accounted_entry_fill_at")):
+            return None
+        try:
+            from src.utils.time_utils import to_ny_time
+            stamp = datetime.fromisoformat(order["last_accounted_entry_fill_at"])
+            origin = datetime.fromisoformat(stream["observed_at_utc"])
+            if (origin.tzinfo is None or origin > stamp
+                    or to_ny_time(origin).date() != to_ny_time(observed_at).date()):
+                return None
+            level = metadata["trigger_level"]
+            if (stamp.tzinfo is None or observed_at.tzinfo is None or stamp > observed_at
+                    or isinstance(level, bool) or not math.isfinite(level) or level <= 0
+                    or level != request.get("invalidation_level")
+                    or metadata.get("stop_level") != request.get("stop_loss_price")):
+                return None
+            normalized = []
+            for bar in bars:
+                values = [getattr(bar, key, None) for key in ("open", "high", "low", "close", "volume")]
+                if any(isinstance(v, bool) for v in values):
+                    return None
+                raw_stamp = getattr(bar, "timestamp", None) or getattr(bar, "date", None)
+                parsed_stamp = datetime.fromisoformat(raw_stamp) if isinstance(raw_stamp, str) else raw_stamp
+                if not isinstance(parsed_stamp, datetime) or parsed_stamp.tzinfo is None:
+                    return None
+                normalized.append(Candle(*[float(v) for v in values], timestamp=normalize_timestamp_utc(raw_stamp)))
+            if abcd_candle_rejection(normalized, observed_at_utc=observed_at, require_clock=True):
+                return None
+            for bar in normalized:
+                if bar.timestamp < stamp or bar.timestamp + timedelta(seconds=seconds) > observed_at:
+                    continue
+                if _timeframe_provenance([bar], timeframe, PatternInputPolicy.from_policy_v2(),
+                        symbol=order["symbol"], now_utc=observed_at) != "PRESENT":
+                    continue
+                if bar.close < level:
+                    return {"profile": PMH_COMPLETED_BAR_FAILURE_PROFILE,
+                        "bar_start": bar.timestamp.isoformat(), "close": bar.close,
+                        "selected_pmh": level, "occurrence": metadata, "session_plan": session_plan}
+        except (TypeError, ValueError, KeyError, AttributeError, OverflowError):
+            return None
+        return None
+
     def evaluate_cycle(self, market_state: dict[str, dict]) -> list[TradeIntent]:
         intents: list[TradeIntent] = []
         for symbol in sorted(self._positions.keys()):

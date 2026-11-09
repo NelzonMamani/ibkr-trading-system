@@ -2739,7 +2739,7 @@ class CoreOrchestrator:
         cents = float(price) % 1
         return abs(cents - 0.0) < 0.02 or abs(cents - 0.5) < 0.02
 
-    def _get_trade_management_recent_candles(self, symbol: str, lookback: int) -> tuple[list, str]:
+    def _get_trade_management_recent_candles(self, symbol: str, lookback: int, *, timeframe: str = "1m") -> tuple[list, str]:
         client = self.connection_manager.optional_client
         if client is None:
             print(f"[DATA][MISSING_INTRADAY_CANDLES] symbol={symbol} reason=missing_market_data_client")
@@ -2747,7 +2747,7 @@ class CoreOrchestrator:
         try:
             bars = client.intraday_bars_from_history(
                 symbol,
-                timeframe="1m",
+                timeframe=timeframe,
                 lookback_bars=max(int(lookback), 2),
                 use_rth=False,
             )
@@ -2767,7 +2767,7 @@ class CoreOrchestrator:
             return [], "none"
         print(
             "[DATA][INTRADAY_CANDLE_SOURCE] "
-            f"symbol={symbol} source=market_data_client.intraday_bars_from_history timeframe=1m count={len(intraday_bars)}"
+            f"symbol={symbol} source=market_data_client.intraday_bars_from_history timeframe={timeframe} count={len(intraday_bars)}"
         )
         return intraday_bars, "market_data_client.intraday_bars_from_history"
 
@@ -2975,7 +2975,61 @@ class CoreOrchestrator:
                 take_profit_price=getattr(result, "take_profit_price", None),
                 reference_order_id=getattr(result, "client_order_id", None),
                 target_model=getattr(result, "target_model", None),
+                apply_partial_management=not bool(getattr(getattr(self, "execution_engine", None), "_native_orders", {}).get(
+                    str(getattr(result, "client_order_id", "") or ""), {}).get("protection_parent_order_id")),
             )
+
+    def _run_pmh_failure_management(self, observed_at, session_plan):
+        """Adopted PMH-only policy; never call generic exit/trailing defaults."""
+        if self._stop_requested_at_boundary("PMH_FAILURE_MANAGEMENT"):
+            return False
+        engine = self.execution_engine
+        snapshot = self._latest_position_truth_snapshot
+        for order_id, order in list(engine._native_orders.items()):
+            if (order.get("side") not in {"LONG", "BUY"} or not order.get("terminal")
+                    or not order.get("protection_confirmed") or order.get("quarantine")
+                    or order.get("cached_update_in_progress") or order.get("pmh_failure_exit")):
+                continue
+            request = order.get("request", {})
+            if request.get("setup_family_id") != "PREMARKET_HIGH_BREAK" or order.get("pmh_management_expired"):
+                continue
+            if request.get("management_session_plan") and request["management_session_plan"] != session_plan:
+                order["pmh_management_expired"] = True
+                engine._save_native_orders()
+                continue
+            stream = (request.get("setup_metadata") or {}).get("execution_stream") or {}
+            try:
+                from datetime import datetime as DateTimeType
+                from src.utils.time_utils import to_ny_time
+                origin = DateTimeType.fromisoformat(stream["observed_at_utc"])
+                if origin.tzinfo is None:
+                    continue
+                if to_ny_time(origin).date() != to_ny_time(observed_at).date():
+                    order["pmh_management_expired"] = True
+                    engine._save_native_orders()
+                    continue
+            except (KeyError, TypeError, ValueError):
+                continue
+            timeframe = stream.get("execution_trigger_timeframe")
+            if timeframe not in {"10s", "1m"}:
+                continue
+            bars, _ = self._get_trade_management_recent_candles(order["symbol"], 10, timeframe=timeframe)
+            failure = self.trade_management_engine.evaluate_pmh_completed_failure(
+                order, bars, observed_at=observed_at, session_plan=session_plan)
+            if failure:
+                life = engine.post_fill_lifecycle.get_trade(order_id)
+                registered = self.trade_registry.get_trade(order["symbol"], request.get("trader_type") or "UNKNOWN")
+                position = self.trade_management_engine.snapshot_positions().get(order["symbol"])
+                decision = self.risk_engine.evaluate_pmh_failure_exit(order_id=order_id, order=order,
+                    position=position, registered=registered, life=life, snapshot=snapshot, observed_at=observed_at)
+                self._trace_event("PMH_FAILURE_EXIT_RISK", {"decision_id": decision.decision_id,
+                    "order_id": order_id, "allowed": decision.allowed, "quantity": decision.max_position_size,
+                    "reason": decision.rationale})
+                if decision.allowed and not decision.execution_blocked:
+                    if self._stop_requested_at_boundary("PMH_FAILURE_MANAGEMENT_EXECUTION"):
+                        return False
+                    engine.request_pmh_failure_exit(order_id, failure, decision=decision)
+        return True
 
     def _run_trade_management_engine(
         self, execution_output: list[ExecutionResult], *, updates_processed: bool = False,
@@ -3326,6 +3380,11 @@ class CoreOrchestrator:
                         "submitted": self.execution_engine.submission_confirmed(result),
                         "filled_quantity": int(result.filled_quantity or 0),
                     })
+        if (self.run_mode == RunMode.PAPER and self.execution_enabled and mode_manager.allow_orders
+                and not position_truth_verdict.block_exits
+                and not self._latest_lifecycle_authority_verdict.get("block_exit_progression", True)):
+            if not self._run_pmh_failure_management(cycle_started_at, str(session_phase)):
+                return False
         if not self._autonomous_recovery_allows_new_entries(cycle_started_at=cycle_started_at):
             return True
         if not self._daily_risk_allows_new_entries(cycle_started_at=cycle_started_at):
@@ -4469,6 +4528,10 @@ class CoreOrchestrator:
                         # Do not substitute the generic price feed for the
                         # entry already evaluated by risk.
                         decision.entry_price = getattr(intent, "entry_price", None)
+                        if intent.setup_family_id == "PREMARKET_HIGH_BREAK":
+                            from copy import deepcopy
+                            decision.setup_metadata = deepcopy(intent.setup_metadata)
+                            decision.management_session_plan = str(session_phase)
                         paper_decisions.append((intent, decision, approved))
                     if approved:
                         risk_allowed_symbols.append(intent.symbol)

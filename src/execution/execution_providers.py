@@ -422,6 +422,11 @@ class IbkrExecutionProvider(ExecutionProvider):
             trade_id=trade_id,
         )
 
+    def convert_selected_stop_to_market(self, **binding):
+        if self.run_mode != RunMode.PAPER:
+            raise RuntimeError("PMH_EXIT_PAPER_ONLY")
+        return self.broker.convert_selected_stop_to_market(**binding)
+
     def cancel_order(self, *, broker_order_id: str) -> dict[str, Any]:
         if self.run_mode == RunMode.READ_ONLY:
             raise RuntimeError("READ_ONLY_NO_ORDER_MUTATION")
