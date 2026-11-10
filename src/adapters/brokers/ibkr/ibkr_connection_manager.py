@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from threading import Lock
 from typing import Optional
@@ -86,6 +86,23 @@ class IbkrConnectionManager:
 
     def connect(self) -> IbkrClient:
         return self.ensure_connected()
+
+    def pin_readonly_client_id(self, expected_client_id: int) -> dict:
+        """Before any connection, constrain THIS explicit READ_ONLY owner only.
+
+        No retry/fallback to another identity; default operational configuration
+        remains unchanged. Does not connect, disconnect, or alter TWS settings.
+        """
+        with self._lock:
+            if (type(expected_client_id) is not int or expected_client_id <= 0
+                    or self._config.base_client_id != expected_client_id
+                    or str(self._config.run_mode).upper() != "READ_ONLY"
+                    or not self._config.readonly_enabled or self._client is not None
+                    or self._connected_client_id is not None):
+                raise RuntimeError("READONLY_EXACT_CLIENT_PIN_UNAVAILABLE")
+            self._config = replace(self._config,max_client_id_retries=1)
+            return {"base_client_id":expected_client_id,"max_client_id_retries":1,
+                    "scope":"EXPLICIT_READ_ONLY_OWNER_NO_FALLBACK"}
 
     def _connect_locked(self) -> IbkrClient:
         config = self._config

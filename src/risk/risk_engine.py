@@ -98,13 +98,13 @@ def validate_order(order, portfolio) -> ValidationResult:
 class RiskEngine:
     """Minimal risk engine placeholder with teaching-style log messages."""
 
-    def evaluate_selected_failure_exit(self, *, order_id, order, position, registered, life, snapshot, observed_at, profit=False, quote=None, micro_cost=False):
+    def evaluate_selected_failure_exit(self, *, order_id, order, position, registered, life, snapshot, observed_at, profit=False, quote=None, micro_cost=False, revision_proof=False):
         """Owned reduction only; no entry permission or management defaults."""
         from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
         from src.strategies.ross_momentum.strategy_policy import (selected_completed_failure_profile, selected_unit_management_profile,
             selected_relationship_unit_profit_profile)
         request = order.get("request", {})
-        relationship_profit = bool(profit and selected_relationship_unit_profit_profile(request))
+        relationship_profit = bool((profit or revision_proof) and selected_relationship_unit_profit_profile(request))
         relationship_id = (request.get("relationship_context") or {}).get("relationship_id") if relationship_profit else None
         allowed = False
         quantity = 0
@@ -118,6 +118,7 @@ class RiskEngine:
                 and (order.get("protection_confirmed") or (selected_unit_management_profile(request) and order.get("unit_close_coverage_confirmed"))) and not order.get("cached_update_in_progress")
                 and not order.get("quarantine") and not order.get("pmh_failure_exit")
                 and not order.get("pmh_management_expired")
+                and (not order.get("stop_price_revision") or order["stop_price_revision"].get("status") == "CONFIRMED")
                 and (selected_completed_failure_profile(request) or relationship_profit)
                 and request.get("take_profit_price") is None
                 and (not request.get("relationship_context") or relationship_profit)
@@ -135,6 +136,11 @@ class RiskEngine:
                 and life.preserve_selected_protection and life.target is None
                 and life.selected_stop_price == request.get("stop_loss_price")
                 and position.stop_loss_price == life.selected_stop_price)
+            if revision_proof:
+                allowed = bool(allowed and selected_unit_management_profile(request)
+                    and str(get_config("RUN_MODE_EFFECTIVE")).upper() == "PAPER"
+                    and position.entry_price == registered.entry_price == life.avg_fill_price
+                    and not order.get("stop_price_revision"))
             if profit:
                 from src.strategies.ross_momentum.strategy_policy import owned_selected_profit_basis, standalone_profit_quote_evidence
                 basis = owned_selected_profit_basis(order, life.avg_fill_price)
@@ -155,7 +161,9 @@ class RiskEngine:
         if profit and request.get("selected_stop_units"):
             quantity = quantity // 2
             allowed = bool(allowed and quantity > 0)
-        if micro_cost:
+        if revision_proof:
+            rationale = "STOP_REVISION_PREREQUISITE" if allowed else "STOP_REVISION_PREREQUISITE_BLOCKED"
+        elif micro_cost:
             rationale = "MICRO_OWNED_COST_FAILURE_EXIT" if allowed else "MICRO_COST_FAILURE_BLOCKED"
         elif profit:
             rationale = (("RELATIONSHIP_UNIT_PROFIT_EXIT" if relationship_profit else "STANDALONE_UNIT_PROFIT_EXIT" if selected_unit_management_profile(request)
@@ -170,6 +178,10 @@ class RiskEngine:
             trader_type=request.get("trader_type") or "UNKNOWN", strategy_name=request.get("strategy_name"),
             direction="SELL", decision_id=order.get("decision_id"), stop_loss_price=request.get("stop_loss_price"),
             take_profit_price=None, setup_family_id=request.get("setup_family_id"), execution_blocked=not allowed)
+
+    def evaluate_stop_revision_prerequisite(self, **facts):
+        """Owned-risk inspection only; no price selection or operational adopter."""
+        return self.evaluate_selected_failure_exit(**facts, revision_proof=True)
 
     evaluate_pmh_failure_exit = evaluate_selected_failure_exit
 

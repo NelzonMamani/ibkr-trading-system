@@ -33,6 +33,7 @@ from test_standalone_pmh_late_fill_protection import one_share_profit_case,enrol
     ("complete_empty","native_late_relationship_size"),
     ("complete_empty","native_late_relationship_profit"),
     ("complete_empty","native_late_relationship_profit_mid"),
+    ("complete_empty","native_late_relationship_profit_revision_prerequisite"),
     *[("complete_empty","native_late_relationship_profit_mid_"+case) for case in
         ('forming','wick','below','quote_below','straddling','quote_unconfirmed','stop_first','slip','optout','epoch','account','second_unknown','truth_unknown','truth_larger','entry_partial')],
     *[("complete_empty","native_late_relationship_profit_"+case) for case in
@@ -685,7 +686,22 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
                         monkeypatch=monkeypatch,tmp_path=tmp_path,capsys=capsys,fault=bar_fault)
                     assert not h.failure_owner.get('unit_profit_exit') and len(sent)==1
                     wire_fault=relationship_profit_fault if relationship_profit_fault in {'rejected','unknown','stale','incomplete','optout','epoch','account','second_unknown'} else 'none'
-                    enroll_unit_management(h,monkeypatch,relationship=True,fault=wire_fault)
+                    revision_case=relationship_profit_fault=='revision_prerequisite'
+                    revision_write_count=4 if revision_case else 0
+                    enroll_unit_management(h,monkeypatch,relationship=True,fault=wire_fault,price_revision=revision_case)
+                    if revision_case:
+                        from test_native_stop_price_prerequisite import bind_native_price_rule
+                        rule,contract=bind_native_price_rule(h,monkeypatch)
+                        inspected=h.core.inspect_stop_revision_prerequisite(sent[0].client_order_id)
+                        assert inspected is not None
+                        proposed,quote,decision,guard=inspected
+                        assert engine.request_stop_revision_prerequisite(sent[0].client_order_id,
+                            proposal=proposed,proposed_price='10.85',price_rule=rule,contract=contract,
+                            route='SMART',quote=quote,decision=decision,authorization_guard=guard)
+                        assert life.selected_stop_price==10.81 and sent[0].relationship_context['parent_invalidation']==10.63
+                        assert all(leg.last_confirmed_effective_stop_price==10.85 for leg in life.stop_legs)
+                        assert len(h.unit_writes)==len(h.unit_wires)==4
+
                     if relationship_profit_fault in {'truth_unknown','truth_larger'}:
                         original_positions=h.native_client.position_snapshot
                         def adverse_positions():
@@ -730,9 +746,9 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
                     assert completed
                     assert 'unit_profit_exit' in h.failure_owner,profit_output[-5000:]
                     action=h.failure_owner['unit_profit_exit']
-                    selected=[oid for oid,_ in h.unit_writes]
+                    selected=[oid for oid,_ in h.unit_writes[revision_write_count:]]
                     assert action['profile']==RELATIONSHIP_UNIT_PROFIT_PROFILE
-                    assert len(selected)==len(h.unit_wires)==entry_quantity//2==2
+                    assert len(selected)==len(h.unit_wires)-revision_write_count==entry_quantity//2==2
                     assert action['reserved_quantity']==2 and action['owned_quantity']==4
                     assert action['entry_fill_price']==entry_fill_price and action['original_stop']==10.81
                     if relationship_profit_fault=='slip':
@@ -757,7 +773,7 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
                         untouched=[row.orderId for row in protective_orders if row.orderId not in selected]
                         fill_unit_ids(h,life,capsys,untouched[:1],price=life.selected_stop_price)
                         assert life.filled_qty==3 and life.exited_qty==1
-                        assert len(h.unit_writes)==2 and action['status']=='MKT'
+                        assert len(h.unit_writes)==revision_write_count+2 and action['status']=='MKT'
                         outstanding=sum(o['requested']-o['filled'] for o in plan.orders.values() if o.get('close_role'))
                         assert outstanding==life.filled_qty==relationship_owned[0]
                     for native_id in selected:
@@ -765,13 +781,13 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
                     assert action['status']=='FILLED' and action['accounted_fill_quantity']==2
                     assert life.filled_qty==h.manager.snapshot_positions()['JPM'].quantity==h.core.trade_registry.snapshot()[0].quantity==(1 if stop_first else 2)
                     assert engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
-                    assert all(row.order.orderType=='STP' and row.order.auxPrice==10.81 for row in protective_orders)
+                    assert all(row.order.orderType=='STP' and row.order.auxPrice==(10.85 if revision_case else 10.81) for row in protective_orders)
                     frozen=deepcopy(action)
                     for _ in range(2):
                         h.life.clock.current+=timedelta(seconds=1)
                         assert h.core.run_once();capsys.readouterr()
-                    assert action==frozen and len(h.unit_writes)==2 and len(protection_requests)==4 and len(sent)==1
-                    fill_unit_ids(h,life,capsys,[row.orderId for row in list(protective_orders)])
+                    assert action==frozen and len(h.unit_writes)==revision_write_count+2 and len(protection_requests)==4 and len(sent)==1
+                    fill_unit_ids(h,life,capsys,[row.orderId for row in list(protective_orders)],**({'price':10.85} if revision_case else {}))
                     assert life.filled_qty==0 and life.exited_qty==4
                     assert not h.manager.snapshot_positions() and not h.core.trade_registry.snapshot()
                     assert not cancel_requests and not engine._native_orders

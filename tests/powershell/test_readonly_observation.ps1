@@ -407,6 +407,17 @@ print('CACHE_STARTUP_CHECKS_PASS')
     Check ($result.ExitCode -eq 0) 'Real package regression failed.'
     Get-Content ($scratch+'\real-package.stdout.log') | Where-Object { $_ -match 'REAL_(PACKAGE|PREFLIGHT)_CHECKS_PASS' } | ForEach-Object { Write-Host $_ }
     $passed++
+    # Parse the independently supplied LOCAL operator block without executing
+    # it, requesting credentials, probing TWS, or acquiring any market data.
+    $checkpoint = [IO.File]::ReadAllText((Join-Path $repo 'docs\ross\NATURAL_READONLY_CHECKPOINT.md'))
+    $heading = '## Local observation operator block'
+    $localBlock = $checkpoint.Substring($checkpoint.IndexOf($heading))
+    $match = [regex]::Match($localBlock, '(?s)```powershell\r?\n(.*?)```')
+    Check $match.Success 'Maintained local observation block is missing.'
+    $parseTokens = $null; $parseErrors = $null
+    $null = [Management.Automation.Language.Parser]::ParseInput($match.Groups[1].Value, [ref]$parseTokens, [ref]$parseErrors)
+    Check ($parseErrors.Count -eq 0) ('Local PowerShell5.1 observation block parse failed: '+($parseErrors | Out-String))
+    $passed++
     @{passed=$passed; powershell=$PSVersionTable.PSVersion.ToString(); platform=$env:OS; scope='controlled stub children only; no providers/broker/runtime'} | ConvertTo-Json | Set-Content (Join-Path $scratch 'receipt.json')
     Write-Host "OBSERVATION_HARNESS_PASS: $passed checks; $scratch"
     exit 0
