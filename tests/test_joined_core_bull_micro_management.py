@@ -31,7 +31,7 @@ from test_key_level_break_production_handoff import forbid_io
     ("complete_empty","native_late_management_standalone_enrollment"),
     ("complete_empty","native_late_relationship_size"),
     *[("complete_empty","native_late_relationship_"+case) for case in
-        ("cap_two","unknown_stop","changed_epoch","changed_child_action","wrong_existing_account","restart","changed_child_version","stop_interrupt")],
+        ("cap_two","unknown_stop","changed_epoch","changed_child_action","wrong_existing_account","restart","changed_child_version","stop_interrupt","reentry_risk","reentry_execution","entry_average","stop_average")],
     ("complete_empty","native_late_relationship_partial"),
     ("complete_empty","native_late_relationship_partial_race"),
     ("complete_empty","native_late_relationship_oversize"),
@@ -50,12 +50,12 @@ from test_key_level_break_production_handoff import forbid_io
 def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypatch,tmp_path,capsys,
         no_external_activity,position_case,transport):
     relationship_variant=transport.removeprefix("native_late_relationship_") if transport.startswith("native_late_relationship_") else None
-    relationship_fault=relationship_variant in {"unknown_stop","changed_epoch","changed_child_action","wrong_existing_account","changed_child_version"}
+    relationship_fault=relationship_variant in {"unknown_stop","changed_epoch","changed_child_action","wrong_existing_account","changed_child_version","entry_average"}
     relationship_partial_race=transport=="native_late_relationship_partial_race"
-    relationship_partial=transport in {"native_late_relationship_partial","native_late_relationship_partial_race"} or relationship_variant in {"changed_epoch","changed_child_action","wrong_existing_account","changed_child_version"}
+    relationship_partial=transport in {"native_late_relationship_partial","native_late_relationship_partial_race"} or relationship_variant in {"changed_epoch","changed_child_action","wrong_existing_account","changed_child_version","entry_average"}
     relationship_scope_tamper=transport=="native_late_relationship_tampered_scope"
     relationship_sizing_case=transport in {"native_late_relationship_size","native_late_relationship_oversize",
-        "native_late_relationship_tampered_scope","native_late_relationship_partial","native_late_relationship_partial_race"} or relationship_variant in {"cap_two","unknown_stop","changed_epoch","changed_child_action","wrong_existing_account","restart","changed_child_version","stop_interrupt"}
+        "native_late_relationship_tampered_scope","native_late_relationship_partial","native_late_relationship_partial_race"} or relationship_variant in {"cap_two","unknown_stop","changed_epoch","changed_child_action","wrong_existing_account","restart","changed_child_version","stop_interrupt","reentry_risk","reentry_execution","entry_average","stop_average"}
     relationship_oversize=transport=="native_late_relationship_oversize"
     if relationship_sizing_case:
         transport="native_late_oversize_small_cap" if relationship_oversize else "native_late_management_small_cap"
@@ -535,6 +535,9 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
                 assert len(sent)==1 and not cancel_requests
                 cached_facts[71]=dict(status='Filled',filled=4,remaining=0,avgFillPrice=10.91)
                 relationship_owned[0]=4
+                if relationship_variant=='entry_average':
+                    cached_facts[71]=dict(status='Submitted',filled=2,remaining=2,avgFillPrice=10.92)
+                    relationship_owned[0]=2
                 if relationship_variant=='changed_epoch':
                     providers[0].broker.connection_manager.existing_client._position_connection_epoch+=1
                 if relationship_variant=='changed_child_action':
@@ -693,6 +696,18 @@ finally:s._store.connection.close()
                 assert h.manager.snapshot_positions()['JPM'].quantity==h.core.trade_registry.snapshot()[0].quantity==entry_quantity-1
                 assert engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
                 assert len(protection_requests)==entry_quantity and len(sent)==1 and not cancel_requests
+                if relationship_variant=='stop_average':
+                    before=deepcopy((engine.position_records,life.filled_qty,engine.capital_authority.total_used_exposure,
+                        engine.strategy_allocation_authority.strategy_used_exposure('RossMomentumStrategyV1')))
+                    cached_facts[int(first_stop.broker_order_id)]['avgFillPrice']=10.82
+                    h.life.clock.current+=timedelta(seconds=1)
+                    assert not h.core.run_once();capsys.readouterr()
+                    assert engine._native_quarantined
+                    assert before==deepcopy((engine.position_records,life.filled_qty,engine.capital_authority.total_used_exposure,
+                        engine.strategy_allocation_authority.strategy_used_exposure('RossMomentumStrategyV1')))
+                    assert plan.orders[first_stop.leg_id]['unresolved_update']['avgFillPrice']==10.82
+                    assert no_external_activity==[] and mutations()=={'place':0,'modify':0,'cancel':0}
+                    return
                 for leg in life.stop_legs:
                     cached_facts[int(leg.broker_order_id)]=dict(status='Filled',filled=1,remaining=0,avgFillPrice=10.81)
                 broker_fills[72]=entry_quantity
@@ -716,6 +731,45 @@ finally:s._store.connection.close()
                 assert records==len(engine.position_records)==entry_quantity+1
                 assert remaining==(engine.capital_authority.total_used_exposure,
                     engine.strategy_allocation_authority.strategy_used_exposure('RossMomentumStrategyV1'))
+                if relationship_variant in {'reentry_risk','reentry_execution'}:
+                    # Negative owner/backstop probe, not a positive fresh detector
+                    # admission. Parent and flat history came through the genuine33
+                    # route; the existing prepare owner binds this fresh synthetic child.
+                    # Core flat is proven above; this separate negative owner
+                    # probe explicitly consumes fresh COMPLETE external flat facts.
+                    # It does not claim natural Core re-entry readiness.
+                    flat_facts=external_positions()
+                    flat_orders=providers[0].get_open_orders(require_complete=True,
+                        expected_client=providers[0].broker.connection_manager.existing_client)
+                    assert flat_facts.status=='COMPLETE' and not flat_facts.rows and not flat_orders
+                    h.manager.reconcile_broker_snapshot(positions={},open_orders=flat_orders,complete=True,
+                        as_of=flat_facts.completed_at,orders_as_of=h.life.clock.current)
+                    assert plan.reconciled and not plan.paused
+                    fresh_context=deepcopy(raw_now[0].relationship_context)
+                    fresh_context.pop('relationship_id');fresh_context.pop('action')
+                    fresh_context['child_id']+=':fresh-negative'
+                    fresh=deepcopy(raw_now[0]);fresh.quantity=1
+                    from quote_fixtures import current_broker_quote
+                    fresh.quote_evidence={'selection':current_broker_quote(),'snapshot':None}
+                    assert h.manager.prepare_relationship_intent(fresh,fresh_context), dict(parents=h.manager._parents,plan_reconciled=plan.reconciled,plan_paused=plan.paused,pending_resize=plan.pending_stop_resize,pending_cancel=plan.pending_stop_cancel,terminal={k:v['terminal'] for k,v in plan.orders.items()})
+                    assert fresh.relationship_context['action']=='REENTRY'
+                    assert fresh.relationship_context['relationship_id']!=plan.relationship_id
+                    assert fresh.relationship_context['relationship_id'] not in h.manager._relationship_plans
+                    if relationship_variant=='reentry_risk':
+                        denied=risk(h.core.risk_engine,fresh)
+                        assert not denied.allowed and denied.execution_blocked
+                        assert denied.reason_code=='ROSS_BLOCK_COOLDOWN_ACTIVE'  # Existing higher-priority gate, not proof of the missing native veto.
+                    else:
+                        unsafe=deepcopy(risk_decisions[0])
+                        unsafe.relationship_context=fresh.relationship_context
+                        unsafe.max_position_size=1
+                        def unexpected_reentry_write(*args,**kwargs):
+                            pytest.fail('fresh-ID reentry reached synthetic external write boundary')
+                        monkeypatch.setattr(providers[0].broker,'place_order',unexpected_reentry_write)
+                        denied=engine._execute_trade(unsafe)
+                        assert not denied.attempted and denied.status=='BLOCKED'
+                        assert denied.rationale=='RELATIONSHIP_NATIVE_SIZE_OR_MANAGEMENT_VETO'
+                    assert len(sent)==1 and len(engine.position_records)==entry_quantity+1
                 assert no_external_activity==[] and mutations()=={'place':0,'modify':0,'cancel':0}
                 return  # No native multi-share discretionary enrollment was inferred.
             if late_case in {"accounting_error","allocation_error","processor_error","processor_after","completion_error","processor_cancel","processor_deadline"}:

@@ -1396,14 +1396,13 @@ class RiskEngine:
                   f"approved_quantity={decision.max_position_size}")
         if context:
             manager = getattr(self, "relationship_manager", None)
-            from src.strategies.ross_momentum.strategy_policy import native_multi_relationship_initial
-            plan = getattr(manager, "_relationship_plans", {}).get(context.get("relationship_id"))
+            from src.strategies.ross_momentum.strategy_policy import native_multi_relationship_action_veto
             initial_base = get_ross_synthetic_relationship_base_size()
             initial_request = getattr(trade_intent, "quantity", None)
             initial_invalid = (context.get("action") == "ENTRY" and initial_base > 1
                 and (type(initial_request) is not int or not 1 <= initial_request <= initial_base))
             native_management_veto = (run_mode == RunMode.PAPER and context.get("action") != "ENTRY"
-                and native_multi_relationship_initial(plan))
+                and native_multi_relationship_action_veto(manager, context))
             quantity = (manager.risk_quantity(trade_intent, quantity_cap=max_position_size,
                          value_cap=max_position_value, risk_cap=max_risk_per_trade, max_adds=risk_profile.max_adds,
                          incremental_value_cap=max(0.0, total_exposure_limit - total_exposure))

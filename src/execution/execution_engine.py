@@ -1016,13 +1016,12 @@ class ExecutionEngine:
             context = getattr(risk_decision, "relationship_context", None) or {}
             if (context and risk_decision.allowed and not risk_decision.execution_blocked
                     and self.run_mode == RunMode.PAPER and self._provider is not None and self._provider.is_live()):
-                from src.strategies.ross_momentum.strategy_policy import native_multi_relationship_initial
+                from src.strategies.ross_momentum.strategy_policy import native_multi_relationship_action_veto
                 from src.config.config_resolver import get_ross_synthetic_relationship_base_size
                 manager = getattr(self, "relationship_manager", None)
-                plan = manager._relationship_plans.get(context.get("relationship_id")) if manager else None
                 quantity = getattr(risk_decision, "max_position_size", None)
                 initial = context.get("action") == "ENTRY"
-                if ((not initial and native_multi_relationship_initial(plan)) or (initial and
+                if ((not initial and native_multi_relationship_action_veto(manager, context)) or (initial and
                         (type(quantity) is not int or not 0 < quantity <= get_ross_synthetic_relationship_base_size()))):
                     return ExecutionResult(symbol=risk_decision.symbol, trader_type=risk_decision.trader_type or "UNKNOWN",
                         attempted=False, status="BLOCKED", rationale="RELATIONSHIP_NATIVE_SIZE_OR_MANAGEMENT_VETO")
@@ -2254,7 +2253,10 @@ class ExecutionEngine:
             if total < prior or ((plan is None or order.get("request", {}).get("selected_stop_units"))
                     and not order.get("protection_parent_order_id") and order["terminal"] and total > prior):
                 raise ValueError
-            if plan is None and prior and total == prior and facts.get("avgFillPrice") is not None and float(facts["avgFillPrice"]) != float(previous["entry_price"]):
+            if ((plan is None or self._relationship_unit_plan_scope(plan)) and prior and total == prior
+                    and facts.get("avgFillPrice") is not None
+                    and (float(facts["avgFillPrice"]) != float(previous["entry_price"])
+                        or (plan is not None and isinstance(facts["avgFillPrice"], bool)))):
                 raise ValueError
             if total > prior:
                 if isinstance(facts["avgFillPrice"], bool):

@@ -1628,3 +1628,13 @@ def selected_relationship_unit_stop_profile(request):
             and context.get("action") == "ENTRY" and request.get("take_profit_price") is None):
         return RELATIONSHIP_UNIT_INITIAL_PROTECTION_PROFILE
     return None
+
+
+def native_multi_relationship_action_veto(manager, context):
+    """Retain initial-only scope across the genuine fresh-ID REENTRY shape."""
+    plans = getattr(manager, "_relationship_plans", {})
+    if native_multi_relationship_initial(plans.get(context.get("relationship_id"))):
+        return True
+    return bool(context.get("action") == "REENTRY" and context.get("security_id") and context.get("parent_id")
+        and any(plan.security_id == context["security_id"] and plan.parent_id == context["parent_id"]
+            and native_multi_relationship_initial(plan) for plan in plans.values()))
