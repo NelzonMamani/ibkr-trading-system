@@ -1936,9 +1936,10 @@ class IbkrClient(EWrapper, EClient):
         with self._lock:
             if self._scoped_execution_callback(reqId, contract, execution):
                 return
-            # Retired allocated request IDs must not turn query history into live fills
-            # after bounded metadata eviction. Unsolicited IBKR fills use -1.
-            if 0 < reqId <= getattr(self, "_req_id", 0) and getattr(self, "_request_type_by_req_id", {}).get(reqId) != "EXECUTIONS":
+            # Only unsolicited -1 or an owned legacy query may reach the old path.
+            # Unknown/wrong-kind IDs cannot turn history into live fills, even
+            # after bounded request metadata eviction or raw compatibility reuse.
+            if reqId != -1 and getattr(self, "_request_type_by_req_id", {}).get(reqId) != "EXECUTIONS":
                 return
         if getattr(execution, "orderId", None) is not None:
             self._observe_order_id(int(execution.orderId))

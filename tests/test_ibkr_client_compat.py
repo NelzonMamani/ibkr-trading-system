@@ -559,3 +559,12 @@ def test_strict_execution_retired_id_cannot_leak_via_another_request_kind(strict
     client._register_request(result.request_id, 'MARKET_DATA')
     client.execDetails(result.request_id, _execution_contract(), _execution_fact())
     assert callbacks == [] and client._exec_details_by_order == {}
+
+
+@pytest.mark.parametrize('req_id', [0, 999999, -2])
+def test_execution_history_without_request_owner_is_not_a_live_fill(strict_execution_client, monkeypatch, req_id):
+    client = strict_execution_client
+    callbacks = []
+    monkeypatch.setattr(client, '_emit_execution_callback', callbacks.append)
+    client.execDetails(req_id, _execution_contract(), _execution_fact())
+    assert not callbacks and not client._executions_snapshot and not client._exec_details_by_order
