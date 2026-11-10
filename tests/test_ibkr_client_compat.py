@@ -543,3 +543,19 @@ def test_strict_execution_partial_rows_are_not_successful_completion(strict_exec
     result = client.execution_snapshot(**_execution_scope())
     assert result.status == 'ERROR' and len(result.rows) == 1
     assert result.completed_at is None and result.completion_scope == 'REQUEST_ONLY'
+
+
+def test_strict_execution_retired_id_cannot_leak_via_another_request_kind(strict_execution_client, monkeypatch):
+    client = strict_execution_client
+    callbacks = []
+    monkeypatch.setattr(client, '_emit_execution_callback', callbacks.append)
+    def request(req_id, native_filter):
+        client.execDetailsEnd(req_id)
+    monkeypatch.setattr(client, 'reqExecutions', request)
+    result = client.execution_snapshot(**_execution_scope())
+    assert result.status == 'COMPLETE'
+    # Raw compatibility owners can register their own ID. Such a different
+    # request kind still cannot acquire ownership of an execution-history stream.
+    client._register_request(result.request_id, 'MARKET_DATA')
+    client.execDetails(result.request_id, _execution_contract(), _execution_fact())
+    assert callbacks == [] and client._exec_details_by_order == {}

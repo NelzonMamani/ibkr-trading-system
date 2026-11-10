@@ -1938,7 +1938,7 @@ class IbkrClient(EWrapper, EClient):
                 return
             # Retired allocated request IDs must not turn query history into live fills
             # after bounded metadata eviction. Unsolicited IBKR fills use -1.
-            if 0 < reqId <= getattr(self, "_req_id", 0) and reqId not in getattr(self, "_request_type_by_req_id", {}):
+            if 0 < reqId <= getattr(self, "_req_id", 0) and getattr(self, "_request_type_by_req_id", {}).get(reqId) != "EXECUTIONS":
                 return
         if getattr(execution, "orderId", None) is not None:
             self._observe_order_id(int(execution.orderId))
