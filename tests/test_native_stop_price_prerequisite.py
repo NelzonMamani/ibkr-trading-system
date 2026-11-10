@@ -261,6 +261,9 @@ def test_natural_adapter_pins_exact_id_before_any_scanner_io(monkeypatch):
     monkeypatch.setattr(adapter,'_broker_snapshot',lambda:pytest.fail('Acquisition preceded exact-ID ownership pin'))
     env=adapter.build_safe_readonly_env({})
     env.update(READONLY_ADMISSION_TOKEN='SYNTHETIC_ONLY',IBKR_CLIENT_ID='71')
+    # The real adapter updates process environment. Register every affected key
+    # with the existing monkeypatch owner so teardown restores inherited state.
+    for key,value in env.items():monkeypatch.setenv(key,value)
     with pytest.raises(EndProbe):adapter.collect_real_readonly_runtime_evidence(operator='SYNTHETIC_ONLY',env=env)
     assert called==[71]
 
