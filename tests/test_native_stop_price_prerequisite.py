@@ -719,3 +719,26 @@ def test_micro_quarantine_concurrent_callback_frame_cannot_duplicate_accounting(
     finally:
         for thread in workers:
             thread.join(3);assert not thread.is_alive()
+
+
+def test_micro_quarantine_reader_cannot_bless_sibling_binding(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    h,request,life,bar,contract=prepare_micro_tightening(reassessment,monkeypatch,tmp_path,capsys,fault='unknown')
+    assert not h.core.run_once();capsys.readouterr()
+    engine=h.core.execution_engine;native_id=h.unit_writes[-1][0]
+    sibling=next(row for row in engine._native_orders.values() if row.get('broker_order_id')==str(h.unit_writes[0][0]))
+    before=h.core.storage_engine.fetch_management_state('execution.native_orders.v1:PAPER')
+    h.facts[native_id]=dict(status='Filled',filled=1,remaining=0,avgFillPrice=life.avg_fill_price,
+        symbol='JPM',side='SELL',orderId=native_id,parentId=71,orderRef='PROTECT|'+life.trade_id)
+    h.native_open_orders.clear();h.native_quantity[0]=0
+    reader=engine._provider.cached_order_update
+    def altered(identity):
+        result=reader(identity)
+        if str(identity)==str(native_id):sibling['request']['strategy_name']='UNRELATED'
+        return result
+    monkeypatch.setattr(engine._provider,'cached_order_update',altered)
+    assert not h.core.run_once();capsys.readouterr()
+    after=h.core.storage_engine.fetch_management_state('execution.native_orders.v1:PAPER')
+    sibling_id=sibling['request']['client_order_id']
+    assert after['orders'][sibling_id]['request']==before['orders'][sibling_id]['request']
+    assert life.filled_qty==1 and engine.capital_authority.total_used_exposure>0
+    assert len(h.unit_writes)==2 and engine._native_quarantined

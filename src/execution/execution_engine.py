@@ -3288,25 +3288,29 @@ class ExecutionEngine:
         self._native_revision_fill_drain = self._native_unit_update_batch = True
         results = []
         try:
-            plans = list(getattr(getattr(self,"relationship_manager",None),"_relationship_plans",{}).values())
-            entries = [(p,oid,row) for p in plans for oid,row in p.orders.items()]
-            entries += [(None,oid,row) for oid,row in self._native_orders.items()]
-            self._validate_cached_order_enumeration(entries,plans)
-            # Validate EVERY participating binding before any whole-ledger save;
-            # otherwise a sibling mutation could be blessed by that save.
-            for oid,root in roots:
-                self._validate_native_binding(oid,root,{},accounting_only=True)
-                life = self.post_fill_lifecycle.get_trade(oid)
-                revision = root["stop_price_revision"]
-                if (life is None or life.avg_fill_price != revision["entry_fill_price"]
-                        or life.selected_stop_price != revision["original_stop"]
-                        or life.selected_stop_price != root["request"].get("stop_loss_price")
-                        or revision["invalidation"] != root["request"].get("invalidation_level")
-                        or life.target is not None or not life.preserve_selected_protection):
-                    raise RuntimeError("NATIVE_REVISION_FILL_BASIS_CHANGED")
-                for child_id,child in self._native_orders.items():
-                    if child.get("protection_parent_order_id")==oid:
-                        self._validate_native_binding(child_id,child,{},accounting_only=True)
+            retained_lives = {oid:self.post_fill_lifecycle.get_trade(oid) for oid,_ in roots}
+            def validate_frame():
+                if self._native_orders != self._native_state.get("orders"):
+                    raise RuntimeError("NATIVE_REVISION_FILL_COMMITTED_BINDING_CHANGED")
+                plans = list(getattr(getattr(self,"relationship_manager",None),"_relationship_plans",{}).values())
+                entries = [(p,oid,row) for p in plans for oid,row in p.orders.items()]
+                entries += [(None,oid,row) for oid,row in self._native_orders.items()]
+                self._validate_cached_order_enumeration(entries,plans)
+                # Recheck ALL owners after each reader, before any accounting save.
+                for oid,root in roots:
+                    self._validate_native_binding(oid,root,{},accounting_only=True)
+                    life = self.post_fill_lifecycle.get_trade(oid)
+                    revision = root["stop_price_revision"]
+                    if (life is not retained_lives[oid] or life is None or life.avg_fill_price != revision["entry_fill_price"]
+                            or life.selected_stop_price != revision["original_stop"]
+                            or life.selected_stop_price != root["request"].get("stop_loss_price")
+                            or revision["invalidation"] != root["request"].get("invalidation_level")
+                            or life.target is not None or not life.preserve_selected_protection):
+                        raise RuntimeError("NATIVE_REVISION_FILL_BASIS_CHANGED")
+                    for child_id,child in self._native_orders.items():
+                        if child.get("protection_parent_order_id")==oid:
+                            self._validate_native_binding(child_id,child,{},accounting_only=True)
+            validate_frame()
             for oid,root in roots:
                 self._validate_native_binding(oid,root,{},accounting_only=True)
                 life = self.post_fill_lifecycle.get_trade(oid)
@@ -3322,6 +3326,7 @@ class ExecutionEngine:
                     if child is None or child.get("protection_parent_order_id") != oid:
                         raise RuntimeError("NATIVE_REVISION_FILL_CHILD_UNAVAILABLE")
                     facts = dict(reader(child["broker_order_id"]) or {})
+                    validate_frame()  # A blocking reader cannot bless any sibling.
                     self._validate_native_binding(leg.leg_id,child,facts,accounting_only=True)
                     if facts:
                         result = self._consume_cached_order(None,leg.leg_id,child,facts,result_processor)
