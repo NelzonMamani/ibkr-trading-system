@@ -102,7 +102,7 @@ class RiskEngine:
         """Owned reduction only; no entry permission or management defaults."""
         from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
         from src.strategies.ross_momentum.strategy_policy import (selected_completed_failure_profile, selected_unit_management_profile,
-            selected_relationship_unit_profit_profile, RELATIONSHIP_UNIT_PROFIT_PROFILE)
+            selected_relationship_unit_profit_profile)
         request = order.get("request", {})
         relationship_profit = bool(profit and selected_relationship_unit_profit_profile(request))
         relationship_id = (request.get("relationship_context") or {}).get("relationship_id") if relationship_profit else None

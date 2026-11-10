@@ -1665,6 +1665,7 @@ RELATIONSHIP_UNIT_PROFIT_PROFILE = "RELATIONSHIP_UNIT_2R_COMPLETED_CLOSE_V1"
 
 def selected_relationship_unit_profit_profile(request):
     if (selected_relationship_unit_stop_profile(request)
+            and request.get("setup_family_id") == "BULL_FLAG"
             and request.get("target_model") == BULL_FLAG_MICRO_MANAGEMENT_PROFILE
             and type(request.get("quantity")) is int and 1 < request["quantity"] <= 8):
         return RELATIONSHIP_UNIT_PROFIT_PROFILE

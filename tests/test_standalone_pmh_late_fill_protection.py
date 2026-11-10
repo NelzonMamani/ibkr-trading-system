@@ -3475,7 +3475,14 @@ def enroll_unit_management(h, monkeypatch, *, fault='none', relationship=False):
         if fault=='stale':h.life.clock.current+=timedelta(seconds=16)
         if fault=='guard_age':h.life.clock.current+=timedelta(seconds=2)
         if fault=='incomplete':raise RuntimeError('synthetic incomplete inventory')
-        return deepcopy(h.native_open_orders)
+        if relationship and fault=='optout':
+            config_resolver.set_config_overrides(dict(config_resolver._CONFIG_OVERRIDES,
+                ROSS_SYNTHETIC_RELATIONSHIP_UNIT_PROFIT=False))
+        if relationship and fault=='epoch':client._position_connection_epoch+=1
+        result=deepcopy(h.native_open_orders)
+        if relationship and fault=='account':
+            for row in result:row.order.account='UNRELATED_ACCOUNT'
+        return result
     monkeypatch.setattr(client,'openOrders',inventory)
     monkeypatch.setattr(client,'sendMsg',h.unit_wires.append)
     def sdk(self,broker_id,contract,native):
@@ -3496,7 +3503,8 @@ def enroll_unit_management(h, monkeypatch, *, fault='none', relationship=False):
         if fault=='rejected':
             raise RuntimeError('synthetic amendment329 rejected; original stop retained')
         row.order=deepcopy(native)
-        if fault=='unknown':row.orderState.status='PendingSubmit'
+        if fault=='unknown' or (relationship and fault=='second_unknown' and len(h.unit_writes)==2):
+            row.orderState.status='PendingSubmit'
     monkeypatch.setattr(EClient,'placeOrder',sdk)
     monkeypatch.setattr(engine._provider.broker,'convert_selected_stop_to_market',broker.convert_selected_stop_to_market,raising=not relationship)
 

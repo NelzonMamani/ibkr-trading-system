@@ -2621,8 +2621,7 @@ class ExecutionEngine:
         """
         from copy import deepcopy
         from src.strategies.ross_momentum.strategy_policy import (selected_unit_management_profile,
-            selected_completed_failure_profile, selected_one_share_profit_profile,
-            STANDALONE_ONE_SHARE_PROFIT_PROFILE, standalone_one_share_profit_basis,
+            selected_completed_failure_profile,
             standalone_profit_quote_evidence, selected_owned_profit_profile, owned_selected_profit_basis,
             RELATIONSHIP_UNIT_PROFIT_PROFILE, STANDALONE_MICRO_COST_FAILURE_PROFILE,
             selected_micro_cost_failure_profile, standalone_micro_cost_failure_basis, standalone_micro_cost_quote_evidence)

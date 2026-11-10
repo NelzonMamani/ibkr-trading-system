@@ -14,6 +14,7 @@ from test_broker_registry_exposure_admission import (
 )
 from test_joined_core_bull_micro import joined
 from test_key_level_break_production_handoff import forbid_io
+from test_standalone_pmh_late_fill_protection import one_share_profit_case,enroll_unit_management,fill_unit_ids
 
 
 @pytest.mark.parametrize("position_case,transport",[
@@ -31,6 +32,8 @@ from test_key_level_break_production_handoff import forbid_io
     ("complete_empty","native_late_management_standalone_enrollment"),
     ("complete_empty","native_late_relationship_size"),
     ("complete_empty","native_late_relationship_profit"),
+    *[("complete_empty","native_late_relationship_profit_"+case) for case in
+        ('rejected','unknown','stale','incomplete','forming','wick','below','quote_below','straddling','quote_unconfirmed','stop_first','slip','optout','epoch','account','second_unknown','truth_unknown','truth_larger','entry_partial')],
     *[("complete_empty","native_late_relationship_"+case) for case in
         ("cap_two","unknown_stop","changed_epoch","changed_child_action","wrong_existing_account","restart","changed_child_version","stop_interrupt","reentry_risk","reentry_execution","entry_average","stop_average")],
     ("complete_empty","native_late_relationship_partial"),
@@ -51,16 +54,19 @@ from test_key_level_break_production_handoff import forbid_io
 def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypatch,tmp_path,capsys,
         no_external_activity,position_case,transport):
     relationship_variant=transport.removeprefix("native_late_relationship_") if transport.startswith("native_late_relationship_") else None
+    relationship_profit_case=relationship_variant is not None and relationship_variant.startswith("profit")
+    relationship_profit_fault=relationship_variant.removeprefix("profit_") if relationship_variant and relationship_variant.startswith("profit_") else "none"
     relationship_fault=relationship_variant in {"unknown_stop","changed_epoch","changed_child_action","wrong_existing_account","changed_child_version","entry_average"}
     relationship_partial_race=transport=="native_late_relationship_partial_race"
-    relationship_partial=transport in {"native_late_relationship_partial","native_late_relationship_partial_race"} or relationship_variant in {"changed_epoch","changed_child_action","wrong_existing_account","changed_child_version","entry_average"}
+    relationship_partial=relationship_profit_fault=="entry_partial" or transport in {"native_late_relationship_partial","native_late_relationship_partial_race"} or relationship_variant in {"changed_epoch","changed_child_action","wrong_existing_account","changed_child_version","entry_average"}
     relationship_scope_tamper=transport=="native_late_relationship_tampered_scope"
     relationship_sizing_case=transport in {"native_late_relationship_size","native_late_relationship_oversize",
-        "native_late_relationship_tampered_scope","native_late_relationship_partial","native_late_relationship_partial_race"} or relationship_variant in {"cap_two","unknown_stop","changed_epoch","changed_child_action","wrong_existing_account","restart","changed_child_version","stop_interrupt","reentry_risk","reentry_execution","entry_average","stop_average","profit"}
+        "native_late_relationship_tampered_scope","native_late_relationship_partial","native_late_relationship_partial_race"} or relationship_variant in {"cap_two","unknown_stop","changed_epoch","changed_child_action","wrong_existing_account","restart","changed_child_version","stop_interrupt","reentry_risk","reentry_execution","entry_average","stop_average","profit"} or relationship_profit_case
     relationship_oversize=transport=="native_late_relationship_oversize"
     if relationship_sizing_case:
         transport="native_late_oversize_small_cap" if relationship_oversize else "native_late_management_small_cap"
     entry_quantity=(2 if relationship_variant=="cap_two" else 4) if relationship_sizing_case else 1
+    entry_fill_price=10.96 if relationship_profit_fault=="slip" else 10.91
     standalone_enrollment_case=transport in {"native_late_management_standalone_enrollment",
         "native_late_oversize_standalone_enrollment"}
     if standalone_enrollment_case:transport=transport.replace("_standalone_enrollment","_small_cap")
@@ -220,7 +226,7 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
             if relationship_sizing_case: quantity=relationship_owned[0]
             if small_cap_case and late_case=="oversize" and cached_facts:
                 quantity=entry_quantity+1  # Independent external holding, never fabricated local ownership.
-            rows=(NS(symbol="JPM",position=quantity,con_id=123,avgCost=10.91,account="SYNTHETIC_TEST"),) if quantity else ()
+            rows=(NS(symbol="JPM",position=quantity,con_id=123,avgCost=entry_fill_price,account="SYNTHETIC_TEST"),) if quantity else ()
             return BrokerPositionResult(rows,"UNAVAILABLE" if late_case=="management_unknown" and management_fault_active[0]
                 else "COMPLETE","SYNTHETIC_TEST",h.life.clock.now(timezone.utc))
         if relationship_sizing_case:
@@ -448,7 +454,15 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
                         assert raw_now[0].quantity==4 and risk_decisions[0].max_position_size==2
                     else: assert raw_now[0].quantity==risk_decisions[0].max_position_size==entry_quantity
                 assert sent[0].stop_loss_price==pytest.approx(10.81)
-                facts={"status":"Filled","filled":entry_quantity,"remaining":0,"avgFillPrice":10.91}
+                facts={"status":"Filled","filled":entry_quantity,"remaining":0,"avgFillPrice":entry_fill_price}
+                if relationship_profit_fault=='slip':
+                    from dataclasses import replace
+                    original_quotes=h.core.market_data_snapshot_manager.batch_snapshots
+                    def later_fill_quotes(symbols):
+                        values,errors=original_quotes(symbols)
+                        return {key:replace(value,last=entry_fill_price,bid=entry_fill_price-.01,ask=entry_fill_price+.01,
+                            asof_utc=h.life.clock.current,market_timestamp_utc=h.life.clock.current) for key,value in values.items()},errors
+                    h.core.market_data_snapshot_manager.batch_snapshots=later_fill_quotes
                 if relationship_sizing_case: relationship_owned[0]=entry_quantity
                 if relationship_partial:
                     facts.update(status="Submitted",filled=2,remaining=2)
@@ -534,6 +548,26 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
                 assert engine.post_fill_lifecycle.assess_trade_stop_protection(partial_life.trade_id)['protected']
                 assert h.manager.snapshot_positions()['JPM'].quantity==h.core.trade_registry.snapshot()[0].quantity==2
                 assert len(sent)==1 and not cancel_requests
+                if relationship_profit_fault=='entry_partial':
+                    from src.config import config_resolver
+                    config_resolver.set_config_overrides(dict(config_resolver._CONFIG_OVERRIDES,
+                        ROSS_SYNTHETIC_RELATIONSHIP_UNIT_PROFIT=True))
+                    attempted=[]
+                    def partial_amendment(**kwargs):
+                        attempted.append(kwargs)
+                        pytest.fail('terminal-entry policy attempted a partial-entry amendment')
+                    monkeypatch.setattr(providers[0].broker,'convert_selected_stop_to_market',partial_amendment,raising=False)
+                    _prepare_relationship_profit_evidence(h,sent[0],partial_life,native_orders=protective_orders,
+                        native_quantity=relationship_owned,cached_statuses=cached_facts,reassessment=reassessment,
+                        monkeypatch=monkeypatch,tmp_path=tmp_path,capsys=capsys)
+                    assert h.failure_bars[-1].close>=h.profit_level
+                    assert not plan.entry_terminal and plan.e0 is None and plan.entry_quantity==partial_life.filled_qty==2
+                    assert not h.failure_owner.get('unit_profit_exit') and not attempted
+                    assert len(protection_requests)==2 and all(leg.quantity==1 for leg in partial_life.stop_legs)
+                    assert engine.post_fill_lifecycle.assess_trade_stop_protection(partial_life.trade_id)['protected']
+                    assert engine.capital_authority.total_reserved_capital>0 and not cancel_requests
+                    assert no_external_activity==[]
+                    return
                 cached_facts[71]=dict(status='Filled',filled=4,remaining=0,avgFillPrice=10.91)
                 relationship_owned[0]=4
                 if relationship_variant=='entry_average':
@@ -608,71 +642,88 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
                 assert engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
                 assert h.manager.snapshot_positions()['JPM'].quantity==h.core.trade_registry.snapshot()[0].quantity==entry_quantity
                 assert len(h.registry_batches[0][1])==33 and sent[0].selected_stop_units
-                assert engine.capital_authority.total_used_exposure==pytest.approx(entry_quantity*10.91)
-                if relationship_variant=='profit':
-                    from test_standalone_pmh_late_fill_protection import (one_share_profit_case,
-                        enroll_unit_management,fill_unit_ids)
+                assert engine.capital_authority.total_used_exposure==pytest.approx(entry_quantity*entry_fill_price)
+                if relationship_profit_case:
                     from src.ibkr.market_data_client import HistoricalDataResult
                     from src.strategies.ross_momentum.strategy_policy import RELATIONSHIP_UNIT_PROFIT_PROFILE
-                    h.native_manager=providers[0].broker.connection_manager
-                    h.native_client=h.native_manager.existing_client
-                    h.native_open_orders=protective_orders;h.native_quantity=relationship_owned;h.facts=cached_facts
-                    h.failure_owner=plan.orders[plan.initial_order_id]
-                    h.failure_bars=[];h.failure_conversions=[]
-                    # The old relationship fixture replaces datetime's CLASS for
-                    # generic cycle-age arithmetic. Restore the actual type for
-                    # the shared pure completed-bar evaluator's isinstance checks;
-                    # its authoritative observation clock is an explicit argument.
-                    from datetime import datetime as RealDateTime
-                    monkeypatch.setattr(management_module,'datetime',RealDateTime)
-                    def later_history(*args,**kwargs):
-                        assert kwargs['timeframe']=='10s'
-                        return HistoricalDataResult('COMPLETE_BARS',tuple(h.failure_bars),True)
-                    monkeypatch.setattr(h.core.connection_manager,'_client',NS(intraday_bars_from_history=later_history))
-                    # Common existing completed-bar/quote preparation, with
-                    # relationship enrollment still OFF: milestone alone cannot dispatch.
-                    one_share_profit_case(reassessment,monkeypatch,tmp_path,capsys,prepared=(h,sent[0],life))
+                    bar_fault=relationship_profit_fault if relationship_profit_fault in {'forming','wick','below','quote_below','straddling','quote_unconfirmed'} else 'none'
+                    _prepare_relationship_profit_evidence(h,sent[0],life,native_orders=protective_orders,
+                        native_quantity=relationship_owned,cached_statuses=cached_facts,reassessment=reassessment,
+                        monkeypatch=monkeypatch,tmp_path=tmp_path,capsys=capsys,fault=bar_fault)
                     assert not h.failure_owner.get('unit_profit_exit') and len(sent)==1
-                    enroll_unit_management(h,monkeypatch,relationship=True)
-                    assert h.core.run_once();profit_output=capsys.readouterr().out
-                    from src.strategies.ross_momentum.strategy_policy import owned_selected_profit_basis,selected_unit_management_profile
-                    import json
-                    direct_rule=h.manager.evaluate_selected_completed_profit(h.failure_owner,h.failure_bars,
-                        observed_at=h.life.clock.current,session_plan=h.failure_owner['request'].get('management_session_plan'),
-                        entry_fill_price=life.avg_fill_price)
-                    print('RELATIONSHIP_PROFIT_DIAGNOSTIC '+json.dumps(dict(rule=bool(direct_rule),
-                        session=h.failure_owner['request'].get('management_session_plan'),
-                        last_fill=h.failure_owner.get('last_accounted_entry_fill_at'),
-                        bar=str(h.failure_bars[-1]),observed=str(h.life.clock.current),
-                        request_invalidation=sent[0].invalidation_level,metadata_invalidation=sent[0].setup_metadata.get('invalidation_level'),
-                        meta={k:sent[0].setup_metadata.get(k) for k in ('canonical_result_index','source_metadata','trigger_level','stop_level','execution_stream')},
-                        terminal=h.failure_owner['terminal'],protection=h.failure_owner.get('protection_confirmed'),
-                        lifecycle_verdict=h.core._latest_lifecycle_authority_verdict,
-                        truth=str(h.core._latest_position_truth_verdict),
-                        risk_lines=[line for line in profit_output.splitlines() if 'EXIT_RISK' in line or 'MISSING_INTRADAY' in line]),default=str))
-                    assert 'unit_profit_exit' in h.failure_owner, dict(output=profit_output[-5000:],
-                        profile=selected_unit_management_profile(h.failure_owner['request']),
-                        basis=owned_selected_profit_basis(h.failure_owner,life.avg_fill_price),
-                        expired=h.failure_owner.get('pmh_management_expired'),
-                        session=h.failure_owner['request'].get('management_session_plan'),
-                        last_fill=h.failure_owner.get('last_accounted_entry_fill_at'),
-                        bar=h.failure_bars[-1],observed=h.life.clock.current,
-                        intent_invalidation=sent[0].invalidation_level,metadata_invalidation=sent[0].setup_metadata.get('invalidation_level'))
+                    wire_fault=relationship_profit_fault if relationship_profit_fault in {'rejected','unknown','stale','incomplete','optout','epoch','account','second_unknown'} else 'none'
+                    enroll_unit_management(h,monkeypatch,relationship=True,fault=wire_fault)
+                    if relationship_profit_fault in {'truth_unknown','truth_larger'}:
+                        original_positions=h.native_client.position_snapshot
+                        def adverse_positions():
+                            result=original_positions()
+                            if relationship_profit_fault=='truth_unknown':
+                                return type(result)((),'UNKNOWN',result.account,result.completed_at)
+                            from copy import deepcopy
+                            rows=deepcopy(result.rows)
+                            rows[0].position+=1
+                            return type(result)(rows,result.status,result.account,result.completed_at)
+                        monkeypatch.setattr(h.native_client,'position_snapshot',adverse_positions)
+                    completed=h.core.run_once();profit_output=capsys.readouterr().out
+                    if relationship_profit_fault in {'truth_unknown','truth_larger'}:
+                        assert not h.failure_owner.get('unit_profit_exit') and not h.unit_writes and not h.unit_wires
+                        assert life.filled_qty==4 and life.exited_qty==0 and len(sent)==1 and not cancel_requests
+                        assert no_external_activity==[]
+                        return
+                    if bar_fault!='none':
+                        assert completed and not h.failure_owner.get('unit_profit_exit')
+                        assert not h.unit_writes and not h.unit_wires and life.filled_qty==4
+                        assert engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
+                        assert no_external_activity==[] and not cancel_requests
+                        return
+                    if wire_fault!='none':
+                        assert not completed and engine._native_quarantined
+                        assert h.failure_owner['unit_profit_exit']['reserved_quantity']==2
+                        assert life.filled_qty==4 and life.exited_qty==0
+                        if wire_fault=='second_unknown':
+                            assert len(h.unit_writes)==len(h.unit_wires)==2
+                            children=[plan.orders[leg_id] for leg_id in h.failure_owner['unit_profit_exit']['leg_ids']]
+                            assert children[0]['unit_amendment']['status']=='MKT_CONFIRMED'
+                            assert children[1]['unit_amendment']['status']=='DISPATCH_UNCERTAIN'
+                        else:assert len(h.unit_writes)<=1 and len(h.unit_wires)<=1
+                        assert not cancel_requests
+                        before=deepcopy((plan.orders,engine.position_records,len(h.unit_writes),len(h.unit_wires),
+                            engine.capital_authority.total_used_exposure))
+                        with pytest.raises(RuntimeError):engine.collect_relationship_updates()
+                        assert before==deepcopy((plan.orders,engine.position_records,len(h.unit_writes),len(h.unit_wires),
+                            engine.capital_authority.total_used_exposure))
+                        assert no_external_activity==[]
+                        return
+                    assert completed
+                    assert 'unit_profit_exit' in h.failure_owner,profit_output[-5000:]
                     action=h.failure_owner['unit_profit_exit']
                     selected=[oid for oid,_ in h.unit_writes]
                     assert action['profile']==RELATIONSHIP_UNIT_PROFIT_PROFILE
                     assert len(selected)==len(h.unit_wires)==entry_quantity//2==2
                     assert action['reserved_quantity']==2 and action['owned_quantity']==4
-                    assert action['entry_fill_price']==10.91 and action['original_stop']==10.81
-                    assert action['milestone']==h.profit_level==plan.milestone_price
+                    assert action['entry_fill_price']==entry_fill_price and action['original_stop']==10.81
+                    if relationship_profit_fault=='slip':
+                        assert action['entry_fill_price']!=sent[0].setup_metadata['trigger_level']
+                        assert action['milestone']==11.26
+                    assert action['milestone']==h.profit_level
+                    assert plan.milestone_price==life.avg_fill_price+2*(life.avg_fill_price-life.selected_stop_price)
+                    assert '10s' in h.failure_history_reads
                     assert action['occurrence']==sent[0].setup_metadata and sent[0].take_profit_price is None
                     assert {int(leg.broker_order_id) for leg in life.stop_legs}=={72,73,74,75}
                     coverage=engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)
                     assert not coverage['protected'] and coverage['confirmed_stop_quantity']==2
+                    stop_first=relationship_profit_fault=='stop_first'
+                    if stop_first:
+                        untouched=[row.orderId for row in protective_orders if row.orderId not in selected]
+                        fill_unit_ids(h,life,capsys,untouched[:1],price=life.selected_stop_price)
+                        assert life.filled_qty==3 and life.exited_qty==1
+                        assert len(h.unit_writes)==2 and action['status']=='MKT'
+                        outstanding=sum(o['requested']-o['filled'] for o in plan.orders.values() if o.get('close_role'))
+                        assert outstanding==life.filled_qty==relationship_owned[0]
                     for native_id in selected:
                         fill_unit_ids(h,life,capsys,[native_id],price=h.failure_exit_price)
                     assert action['status']=='FILLED' and action['accounted_fill_quantity']==2
-                    assert life.filled_qty==h.manager.snapshot_positions()['JPM'].quantity==h.core.trade_registry.snapshot()[0].quantity==2
+                    assert life.filled_qty==h.manager.snapshot_positions()['JPM'].quantity==h.core.trade_registry.snapshot()[0].quantity==(1 if stop_first else 2)
                     assert engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
                     assert all(row.order.orderType=='STP' and row.order.auxPrice==10.81 for row in protective_orders)
                     frozen=deepcopy(action)
@@ -684,6 +735,15 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
                     assert life.filled_qty==0 and life.exited_qty==4
                     assert not h.manager.snapshot_positions() and not h.core.trade_registry.snapshot()
                     assert not cancel_requests and not engine._native_orders
+                    before=deepcopy((engine.position_records,action,len(h.unit_writes),
+                        engine.capital_authority.total_used_exposure,
+                        engine.strategy_allocation_authority.strategy_used_exposure('RossMomentumStrategyV1')))
+                    for _ in range(2):
+                        h.life.clock.current+=timedelta(seconds=1)
+                        assert h.core.run_once();capsys.readouterr()
+                    assert before==deepcopy((engine.position_records,action,len(h.unit_writes),
+                        engine.capital_authority.total_used_exposure,
+                        engine.strategy_allocation_authority.strategy_used_exposure('RossMomentumStrategyV1')))
                     assert no_external_activity==[]
                     return
                 market_close[0]=plan.milestone_price
@@ -1973,3 +2033,30 @@ def test_owner_effect_corrupt_outcome_never_grants_resolution(tmp_path,no_extern
     assert result["reason"]=="OWNER_EFFECT_SCHEMA_OR_IDENTITY_INVALID" and not result["resolved"]
     assert h.used()==before
     h.store.close();assert no_external_activity==[]
+
+
+def _prepare_relationship_profit_evidence(h,request,life,*,native_orders,native_quantity,cached_statuses,
+        reassessment,monkeypatch,tmp_path,capsys,fault='none'):
+    """Existing joined owner plus common external bar/quote fixture; no alternate pipeline."""
+    from src.ibkr.market_data_client import HistoricalDataResult
+    h.native_manager=h.core.execution_engine._provider.broker.connection_manager
+    h.native_client=h.native_manager.existing_client
+    h.native_open_orders=native_orders;h.native_quantity=native_quantity;h.facts=cached_statuses
+    h.failure_owner=h.core.execution_engine._selected_order_records()[request.client_order_id]
+    h.failure_bars=[];h.failure_conversions=[]
+    # The old relationship fixture replaces datetime's CLASS for
+    # generic cycle-age arithmetic. Restore the actual type for
+    # the shared pure completed-bar evaluator's isinstance checks;
+    # its authoritative observation clock is an explicit argument.
+    from datetime import datetime as RealDateTime
+    from src.execution import trade_management_engine as management_module
+    monkeypatch.setattr(management_module,'datetime',RealDateTime)
+    h.failure_history_reads=[]
+    def later_history(*args,**kwargs):
+        h.failure_history_reads.append(kwargs['timeframe'])
+        rows=h.failure_bars if kwargs['timeframe']=='10s' else h.streams[kwargs['timeframe']][-kwargs['lookback_bars']:]
+        return HistoricalDataResult('COMPLETE_BARS',tuple(rows),True)
+    monkeypatch.setattr(h.core.connection_manager,'_client',NS(intraday_bars_from_history=later_history))
+    # Common existing completed-bar/quote preparation, with
+    # relationship enrollment still OFF: milestone alone cannot dispatch.
+    one_share_profit_case(reassessment,monkeypatch,tmp_path,capsys,prepared=(h,request,life),fault=fault)

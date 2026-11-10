@@ -173,3 +173,33 @@ def test_micro_cost_failure_default_and_environment_cannot_enroll(monkeypatch):
         resolver.set_config_overrides(None)
         assert not resolver.get_ross_synthetic_micro_cost_failure()
     finally:resolver.set_config_overrides(previous)
+
+
+@pytest.mark.parametrize('environment,mode,profile,base',[
+    ('TEST','PAPER','SMALL',1),('PRODUCTION','PAPER','SMALL',4),
+    ('TEST','LIVE','SMALL',4),('TEST','READ_ONLY','SMALL',4),('TEST','PAPER','MICRO',4)])
+def test_relationship_unit_profit_requires_own_synthetic_initial_scope(monkeypatch,environment,mode,profile,base):
+    from src.config import config_resolver as resolver
+    previous=dict(resolver._CONFIG_OVERRIDES)
+    monkeypatch.setenv('EXECUTION_ENV',environment)
+    try:
+        resolver.set_config_overrides(dict(RUN_MODE=mode,RISK_PROFILE=profile,
+            ROSS_SYNTHETIC_RELATIONSHIP_BASE_SIZE=base,ROSS_SYNTHETIC_RELATIONSHIP_UNIT_PROFIT=True))
+        with pytest.raises(resolver.ConfigResolutionError):resolver.get_ross_synthetic_relationship_unit_profit()
+    finally:resolver.set_config_overrides(previous)
+
+
+def test_relationship_unit_profit_default_cannot_be_enrolled_by_environment_or_standalone_flags(monkeypatch):
+    from src.config import config_resolver as resolver
+    previous=dict(resolver._CONFIG_OVERRIDES)
+    monkeypatch.setenv('EXECUTION_ENV','TEST')
+    monkeypatch.setenv('ROSS_SYNTHETIC_RELATIONSHIP_UNIT_PROFIT','true')
+    try:
+        resolver.set_config_overrides(dict(RUN_MODE='PAPER',RISK_PROFILE='SMALL',
+            ROSS_SYNTHETIC_REQUESTED_BASE_SIZE=8,ROSS_SYNTHETIC_UNIT_STOPS=True,
+            ROSS_SYNTHETIC_UNIT_MANAGEMENT=True,ROSS_SYNTHETIC_MICRO_COST_FAILURE=True,
+            ROSS_SYNTHETIC_RELATIONSHIP_BASE_SIZE=8))
+        assert not resolver.get_ross_synthetic_relationship_unit_profit()
+        resolver.set_config_overrides(dict(resolver._CONFIG_OVERRIDES,ROSS_SYNTHETIC_RELATIONSHIP_UNIT_PROFIT=True))
+        assert resolver.get_ross_synthetic_relationship_unit_profit()
+    finally:resolver.set_config_overrides(previous)
