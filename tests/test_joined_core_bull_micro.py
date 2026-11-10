@@ -176,7 +176,7 @@ def joined(reassessment, monkeypatch, tmp_path, *, news_fault="none", peer=False
         warm=[(9.8,9.82,9.78,9.8,1200)]*250
         warm[100]=(9.8,11.20,9.78,9.8,1200)
         streams['1m']=_candles(warm+lower,end=end-timedelta(minutes=1))
-        streams['5m']=_five_minute_tape(streams['1m'])
+        streams['5m']=_five_minute_tape(streams['1m'],observed_at=life.clock.current)
         first_child=_candles(micro,step_seconds=60,end=end+timedelta(minutes=4))
         streams['10s']=_ten_second_tape(streams['1m'])+_ten_second_tape(first_child[:1])[:4]
         rows['JPM'].update(last_price=10.61,bid=10.60,ask=10.62,spread_pct=100*.02/10.61)
@@ -606,11 +606,15 @@ def test_mock_scanner_override_cannot_restore_position_vetoed_raw_intent(reasses
     _assert_no_admission_effects(h)
 
 
-def _five_minute_tape(minutes):
+def _five_minute_tape(minutes,*,observed_at):
     """Fixture-only exact OHLCV aggregation of completed coherent minute rows."""
     from src.strategies.common.candles.candle_types import Candle
+    assert all(b.timestamp-a.timestamp==timedelta(minutes=1) for a,b in zip(minutes,minutes[1:]))
     groups={}
     for row in minutes:
+        assert row.timestamp.tzinfo and row.timestamp.second==row.timestamp.microsecond==0
+        if row.timestamp+timedelta(minutes=1)>observed_at:
+            continue
         start=row.timestamp.replace(minute=(row.timestamp.minute//5)*5,second=0,microsecond=0)
         groups.setdefault(start,[]).append(row)
     return [Candle(rows[0].open,max(r.high for r in rows),min(r.low for r in rows),rows[-1].close,
@@ -630,3 +634,75 @@ def _ten_second_tape(minutes):
             volume=int(row.volume)//6+(int(row.volume)%6 if part==5 else 0)
             result.append(Candle(opening,high,low,close,volume,timestamp=row.timestamp+timedelta(seconds=10*part)))
     return result
+
+
+def test_mid_minute_relationship_competition_preserves_selected_standalone_contract(reassessment,monkeypatch,tmp_path,capsys):
+    """Genuine MID tie is a standalone selection, not relationship PAPER proof."""
+    h=joined(reassessment,monkeypatch,tmp_path,position_case="complete_empty",
+        clock_time=(16,35,30),context_session="RTH_MID",market_fault="mid_relationship")
+    assert h.core.run_once() and not _cadence(h.core).focus.symbols
+    capsys.readouterr()
+    h.life.clock.current+=timedelta(seconds=11)
+    assert h.core.run_once()
+    before=capsys.readouterr().out
+    assert not h.artifacts and not h.evaluated
+    parents=list(h.manager._parents.values())
+    assert len(parents)==1 and parents[0]["state"]=="ARMED"
+    parent_id=parents[0]["parent_id"]
+    _deliver_mid_child(h)
+    assert h.core.run_once()
+    out=capsys.readouterr().out
+    raw=[i for batch in h.batches for i in batch]
+    assert len(raw)==len(h.artifacts)==len(h.evaluated)==1,out
+    intent,received,decision=h.evaluated[0]
+    source,results=h.registry_batches[-1]
+    assert len(results)==33
+    candidates={r.setup_id:r for r in results if r.setup_id in {"P_BULL_FLAG","P_MICRO_PULLBACK"}}
+    assert len(candidates)==2 and all(r.detected for r in candidates.values())
+    assert candidates["P_BULL_FLAG"].confidence==candidates["P_MICRO_PULLBACK"].confidence==.65
+    assert all(r.trigger_level==pytest.approx(10.91) and r.stop_level==pytest.approx(10.81) for r in candidates.values())
+    assert "setup_family=BULL_FLAG pattern_id=P_BULL_FLAG" in out
+    assert "setup_family=MICRO_PULLBACK pattern_id=P_MICRO_PULLBACK" in out
+    assert out.count("MICRO_PULLBACK state=FIRED")>=2
+    assert "selected_pattern=P_MICRO_PULLBACK reason=selected_best_compatible_candidate" in out
+    assert intent is raw[0] and intent.setup_family_id=="MICRO_PULLBACK"
+    assert not intent.relationship_context and intent.target_model!="BULL_FLAG_MICRO_2R_V1"
+    selected=results[intent.setup_metadata["canonical_result_index"]]
+    assert selected.setup_id=="P_MICRO_PULLBACK" and not selected.setup_metadata.get("relationship")
+    assert intent.entry_price==selected.trigger_level==pytest.approx(10.91)
+    assert intent.stop_loss_price==intent.invalidation_level==selected.stop_level==pytest.approx(10.81)
+    assert intent.take_profit_price is None
+    assert intent.setup_metadata["execution_stream"]["execution_trigger_timeframe"]=="1m"
+    artifact,built=h.artifacts[0]
+    assert artifact.run_mode=="READ_ONLY" and artifact.session_phase=="RTH_MID"
+    assert artifact.intents==[intent] and intent.decision_id==artifact.decision_id==decision.decision_id
+    assert received==dict(built[0],decision_id=artifact.decision_id)==vars(intent)
+    assert decision.reason_code=="LIVE_READ_ONLY_BLOCK" and not decision.allowed and decision.execution_blocked
+    assert parents[0]["parent_id"]==parent_id
+    assert h.manager._relationship_plans=={} and h.manager.snapshot_positions()=={}
+    assert all(snapshot.snapshot_status=="HEALTHY" and verdict.healthy for snapshot,verdict in h.truth)
+    assert len(h.scans)==h.life.provider.calls==1  # Between full scans; normal reassessment owns evaluation.
+    _assert_no_admission_effects(h)
+
+
+def _deliver_mid_child(h,*,next_forming_bar=False):
+    end=h.life.clock.current.replace(second=0,microsecond=0)
+    micro=[tuple(v+.55 if i<4 else v for i,v in enumerate(row)) for row in _micro_rows()]
+    later=_candles(micro,step_seconds=60,end=end+timedelta(minutes=4))
+    old_fast=list(h.streams["10s"])
+    old_minutes=list(h.streams["1m"])
+    h.streams["1m"].extend(later)
+    h.streams["10s"]=_ten_second_tape(h.streams["1m"])
+    assert h.streams["1m"][:len(old_minutes)]==old_minutes
+    assert h.streams["10s"][:len(old_fast)]==old_fast
+    h.life.clock.current=later[-1].timestamp+timedelta(minutes=1,seconds=5)
+    if next_forming_bar:
+        from src.strategies.common.candles.candle_types import Candle
+        # An ordinary fresh neutral minute follows the completed confirmation.
+        # Its one forming 10s bucket holds ALL volume observed so far; no future
+        # ticks or completed history are rewritten to create a family result.
+        forming=Candle(10.92,10.93,10.91,10.92,200,timestamp=later[-1].timestamp+timedelta(minutes=1))
+        h.streams["1m"].append(forming)
+        h.streams["10s"].append(forming)
+    h.streams["5m"]=_five_minute_tape(h.streams["1m"],observed_at=h.life.clock.current)
+    h.rows["JPM"].update(last_price=10.92,bid=10.91,ask=10.93,spread_pct=100*.02/10.92)
