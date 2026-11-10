@@ -5,6 +5,8 @@ from src.domain.quote_freshness import quote_time_rejection
 from src.core.acquisition import AcquisitionCancelled, AcquisitionDeadlineExceeded, checkpoint, wait_event, bounded_timeout
 
 import threading
+from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 import math
 import time
 import json
@@ -36,6 +38,50 @@ from src.ibkr.market_data_client import (
 )
 from src.ibkr.read_only_guard import assert_read_only_allows
 from src.ibkr.evidence_safety import register_account, sanitize
+
+
+@dataclass(frozen=True)
+class ScopedExecution:
+    exec_id: str
+    order_id: int
+    con_id: int
+    symbol: str
+    account: str
+    client_id: int
+    side: str
+    quantity: Decimal
+    price: Decimal
+    cumulative_quantity: Decimal
+    average_price: Decimal
+    broker_time: str
+
+
+@dataclass(frozen=True)
+class ExecutionQueryResult:
+    """Request completion ONLY; not terminal-order or lifetime-fill finality."""
+
+    status: str
+    request_id: Optional[int]
+    connection_epoch: int
+    account: str
+    client_id: int
+    order_id: int
+    con_id: int
+    symbol: str
+    side: str
+    rows: tuple[ScopedExecution, ...] = ()
+    completed_at: Optional[datetime] = None
+    # IBKR supports client/account/symbol/secType/time filters, NOT order/conId.
+    filter_time: str = ""
+    filter_security_type: str = "STK"
+    filter_side: str = ""  # Both sides requested; retained order side checked locally.
+    filter_exchange: str = ""
+    completion_scope: str = "REQUEST_ONLY"
+
+    @property
+    def attempt_id(self) -> tuple[int, Optional[int]]:
+        # Process-local identity; never a durable broker/restart certificate.
+        return self.connection_epoch, self.request_id
 
 
 def _market_data_type_code(market_data_type: str) -> int:
@@ -228,7 +274,7 @@ class IbkrClient(EWrapper, EClient):
         try:
             try:
                 with self._lock:
-                    for context in self._request_context_by_req_id.values():
+                    for context in getattr(self, "_request_context_by_req_id", {}).values():
                         context.pop("reference_response", None)
                         context.pop("reference_deadline", None)
             finally:
@@ -409,6 +455,10 @@ class IbkrClient(EWrapper, EClient):
             context["reference_error"] = (-1, "Request/order ID ownership is ambiguous.")
             context.pop("reference_response", None)
             context.pop("reference_deadline", None)
+            execution_query = context.get("execution_query")
+            if execution_query is not None:
+                execution_query["status"] = "IDENTITY_CONFLICT"
+                execution_query["event"].set()
             if position_query is not None:
                 position_query["status"] = "FAILED"
                 position_query["event"].set()
@@ -564,6 +614,162 @@ class IbkrClient(EWrapper, EClient):
             self._raise_if_request_id_conflicted(req_id)
             return list(self._executions_snapshot)
 
+    def execution_snapshot(self, *, account: str, order_id: int, con_id: int,
+                           symbol: str, side: str,
+                           timeout_seconds: Optional[float] = None) -> ExecutionQueryResult:
+        """Scoped immutable history query, isolated from unsolicited live fills.
+
+        Empty COMPLETE means this request ended, not that no late execution can
+        exist. IBKR's empty time filter/history retention is NOT lifetime coverage.
+        clientId=0 is a server wildcard; exact client/order/conId are also checked
+        locally. No cancellation API exists for reqExecutions: retire ownership.
+        """
+        from ibapi.execution import ExecutionFilter
+        from ibapi.server_versions import MIN_SERVER_VER_EXECUTION_DATA_CHAIN
+
+        checkpoint()
+        if (type(order_id) is not int or order_id < 0 or type(con_id) is not int or con_id <= 0
+                or not isinstance(account, str) or not account.strip()
+                or not isinstance(symbol, str) or not symbol.strip()
+                or side not in ("BUY", "SELL")):
+            raise ValueError("Explicit native execution scope required")
+        symbol = symbol.strip().upper()
+        timeout = self.snapshot_timeout_seconds if timeout_seconds is None else timeout_seconds
+        if isinstance(timeout, bool) or not math.isfinite(timeout) or timeout < 0:
+            raise ValueError("Bounded execution query timeout required")
+        with self._lock:
+            epoch = self._position_connection_epoch
+            client_id = self.client_id
+            if type(client_id) is not int or client_id < 0:
+                raise ValueError("Explicit native client identity required")
+            def result(status, req_id=None, rows=(), completed_at=None):
+                return ExecutionQueryResult(status, req_id, epoch, account, client_id,
+                                            order_id, con_id, symbol, side, rows, completed_at)
+            if (not self.is_connected() or self._stop_event.is_set()
+                    or not self._position_transport_available):
+                return result("DISCONNECTED")
+            server_version = self.serverVersion()
+            if type(server_version) is not int or server_version < MIN_SERVER_VER_EXECUTION_DATA_CHAIN:
+                return result("REQUEST_CORRELATION_UNAVAILABLE")
+            if tuple(self._managed_accounts) != (account,):
+                return result("ACCOUNT_SCOPE_UNAVAILABLE")
+            self._observe_order_id(order_id)
+            if self._request_id_conflicted(order_id):
+                return result("IDENTITY_CONFLICT")
+            req_id = self._next_req_id()
+            self._register_request(req_id, "EXECUTIONS_STRICT")
+            context = self._request_context_by_req_id[req_id]
+            query = {"status": "PARTIAL", "event": threading.Event(), "rows": {},
+                     "epoch": epoch, "account": account, "client_id": client_id,
+                     "order_id": order_id, "con_id": con_id, "symbol": symbol, "side": side,
+                     "deadline": time.monotonic() + timeout, "completed_at": None}
+            context["execution_query"] = query
+        try:
+            native_filter = ExecutionFilter()
+            native_filter.clientId = client_id
+            native_filter.acctCode = account
+            native_filter.symbol = symbol
+            native_filter.secType = "STK"
+            native_filter.time = ""
+            with self._lock:
+                if self._execution_query_current(req_id, query):
+                    self.reqExecutions(req_id, native_filter)
+            wait_event(query["event"], timeout=max(0, query["deadline"] - time.monotonic()))
+            with self._lock:
+                self._execution_query_current(req_id, query, allow_complete=True)
+                if query["status"] == "PARTIAL":
+                    query["status"] = "TIMEOUT"
+                return result(query["status"], req_id, tuple(query["rows"].values()),
+                              query["completed_at"] if query["status"] == "COMPLETE" else None)
+        except (AcquisitionCancelled, AcquisitionDeadlineExceeded):
+            raise
+        except Exception:
+            with self._lock:
+                query["status"] = "ERROR"
+                return result("ERROR", req_id, tuple(query["rows"].values()))
+        finally:
+            with self._lock:
+                # Keep bounded tombstone metadata; never reuse an allocated ID.
+                context.pop("execution_query", None)
+                self._request_type_by_req_id.pop(req_id, None)
+                query["event"].set()
+
+    def _execution_query_current(self, req_id, query, *, allow_complete=False):
+        """Called under the existing callback lock. Any lost ownership fails closed."""
+        status = query["status"]
+        if status != "PARTIAL" and not (allow_complete and status == "COMPLETE"):
+            return False
+        if self._request_context_by_req_id.get(req_id, {}).get("execution_query") is not query:
+            status = "OWNERSHIP_LOST"
+        elif self._request_id_conflicted(req_id) or self._request_id_conflicted(query["order_id"]):
+            status = "IDENTITY_CONFLICT"
+        elif (query["epoch"] != self._position_connection_epoch or not self.is_connected()
+              or self._stop_event.is_set() or not self._position_transport_available):
+            status = "DISCONNECTED"
+        elif tuple(self._managed_accounts) != (query["account"],) or self.client_id != query["client_id"]:
+            status = "SCOPE_CHANGED"
+        elif status == "PARTIAL" and time.monotonic() >= query["deadline"]:
+            status = "TIMEOUT"
+        else:
+            return status == "PARTIAL"
+        query["status"] = status
+        query["event"].set()
+        return False
+
+    def _scoped_execution_callback(self, req_id, contract, execution):
+        # True means this ID belongs to strict history, including retired queries.
+        context = getattr(self, "_request_context_by_req_id", {}).get(req_id, {})
+        if (context.get("request_type") or getattr(self, "_request_type_by_req_id", {}).get(req_id)) != "EXECUTIONS_STRICT":
+            return False
+        query = context.get("execution_query")
+        if query is None or not self._execution_query_current(req_id, query):
+            return True
+        try:
+            def integer(value, minimum=0):
+                if isinstance(value, bool) or type(value) is not int or value < minimum:
+                    raise ValueError("Invalid native identity")
+                return value
+            def positive(value):
+                if isinstance(value, bool):
+                    raise ValueError("Invalid execution quantity")
+                value = Decimal(str(value))
+                if not value.is_finite() or value <= 0:
+                    raise ValueError("Invalid execution quantity/price")
+                return value
+            oid = integer(execution.orderId)
+            cid = integer(execution.clientId)
+            if execution.acctNumber != query["account"]:
+                raise ValueError("Account filter violation")
+            if cid != query["client_id"]:
+                if query["client_id"] == 0:  # API zero means all clients.
+                    return True
+                raise ValueError("Client filter violation")
+            if str(contract.symbol).upper() != query["symbol"] or contract.secType != "STK":
+                raise ValueError("Security filter violation")
+            if oid != query["order_id"]:
+                return True  # Native filter has no orderId selector.
+            native_side = {"BOT": "BUY", "SLD": "SELL"}.get(execution.side)
+            if integer(contract.conId, 1) != query["con_id"] or native_side != query["side"]:
+                raise ValueError("Retained order identity disagreement")
+            if not isinstance(execution.execId, str) or not execution.execId.strip():
+                raise ValueError("Missing execution identity")
+            if not isinstance(execution.time, str) or not execution.time.strip():
+                raise ValueError("Missing broker execution time")
+            row = ScopedExecution(execution.execId, oid, contract.conId, query["symbol"],
+                                  execution.acctNumber, cid, native_side,
+                                  positive(execution.shares), positive(execution.price),
+                                  positive(execution.cumQty), positive(execution.avgPrice), execution.time)
+            if row.cumulative_quantity < row.quantity:
+                raise ValueError("Cumulative execution disagreement")
+            previous = query["rows"].get(row.exec_id)
+            if previous is not None and previous != row:
+                raise ValueError("Conflicting execution duplicate")
+            query["rows"][row.exec_id] = row
+        except (AttributeError, TypeError, ValueError, InvalidOperation):
+            query["status"] = "INVALID"
+            query["event"].set()
+        return True
+
     def position_snapshot(self, timeout_seconds: Optional[float] = None) -> BrokerPositionResult:
         # The legacy reqPositions stream has no correlation token. Never cancel or
         # reassign its subscription here. reqPositionsMulti has request-scoped end
@@ -645,6 +851,11 @@ class IbkrClient(EWrapper, EClient):
             self._position_upstream_lost = True
             if clear_account_scope:
                 self._managed_accounts = []
+            for request in getattr(self, "_request_context_by_req_id", {}).values():
+                query = request.get("execution_query")
+                if query is not None:
+                    query["status"] = "DISCONNECTED"
+                    query["event"].set()
             for context in self._position_queries.values():
                 context["status"] = "DISCONNECTED"
                 context["event"].set()
@@ -1438,10 +1649,16 @@ class IbkrClient(EWrapper, EClient):
 
     def managedAccounts(self, accountsList: str):  # type: ignore[override]
         register_account(accountsList)
-        self._managed_accounts = [
-            account.strip() for account in accountsList.split(",") if account.strip()
-        ]
-        self._managed_accounts_event.set()
+        with self._lock:
+            accounts = [account.strip() for account in accountsList.split(",") if account.strip()]
+            if accounts != self._managed_accounts:
+                for context in self._request_context_by_req_id.values():
+                    query = context.get("execution_query")
+                    if query is not None and query["status"] in ("PARTIAL", "COMPLETE"):
+                        query["status"] = "SCOPE_CHANGED"
+                        query["event"].set()
+            self._managed_accounts = accounts
+            self._managed_accounts_event.set()
 
 
     def scannerData(
@@ -1512,6 +1729,12 @@ class IbkrClient(EWrapper, EClient):
         with self._lock:
             if self._request_id_conflicted(reqId):
                 print(f"[IBKR][ERROR][OWNERSHIP_AMBIGUOUS] id={reqId} code={errorCode}")
+                return
+            execution_query = context.get("execution_query")
+            if context.get("request_type") == "EXECUTIONS_STRICT":
+                if execution_query is not None:
+                    execution_query["status"] = "ERROR"
+                    execution_query["event"].set()
                 return
             unknown_market_req = int(errorCode) == 300 and reqId >= 0 and request_type is None
             if unknown_market_req:
@@ -1710,6 +1933,13 @@ class IbkrClient(EWrapper, EClient):
         event.set()
 
     def execDetails(self, reqId, contract, execution):  # type: ignore[override]
+        with self._lock:
+            if self._scoped_execution_callback(reqId, contract, execution):
+                return
+            # Retired allocated request IDs must not turn query history into live fills
+            # after bounded metadata eviction. Unsolicited IBKR fills use -1.
+            if 0 < reqId <= getattr(self, "_req_id", 0) and reqId not in getattr(self, "_request_type_by_req_id", {}):
+                return
         if getattr(execution, "orderId", None) is not None:
             self._observe_order_id(int(execution.orderId))
         if not hasattr(self, "_exec_details_count"):
@@ -1829,7 +2059,17 @@ class IbkrClient(EWrapper, EClient):
 
     def execDetailsEnd(self, reqId):  # type: ignore[override]
         with self._lock:
+            context = getattr(self, "_request_context_by_req_id", {}).get(reqId, {})
+            if context.get("request_type") == "EXECUTIONS_STRICT":
+                query = context.get("execution_query")
+                if query is not None and self._execution_query_current(reqId, query):
+                    query["status"] = "COMPLETE"
+                    query["completed_at"] = datetime.now(timezone.utc)
+                    query["event"].set()
+                return
             if self._request_id_conflicted(reqId):
+                return
+            if getattr(self, "_request_type_by_req_id", {}).get(reqId) != "EXECUTIONS":
                 return
             print(f"[IBKR][CALLBACK_RAW] event=execDetailsEnd req_id={reqId}")
             self._executions_event.set()
