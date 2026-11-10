@@ -172,7 +172,7 @@ def test_ibkr_callbacks_emit_order_observability_logs(capsys: pytest.CaptureFixt
         SimpleNamespace(orderType="MKT", tif="DAY", outsideRth=True),
         SimpleNamespace(status="Submitted"),
     )
-    client.execDetails(0, contract, execution)
+    client.execDetails(-1, contract, execution)
     client.error(123, 201, "rejected")
 
     out = capsys.readouterr().out

@@ -2,12 +2,20 @@ from __future__ import annotations
 
 import threading
 import time
+import dataclasses
+from decimal import Decimal
+from types import SimpleNamespace as NS
+
+import pytest
 
 from ibapi.client import EClient
 from ibapi.contract import Contract, ContractDetails
 
 from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
 from src.market_data.market_snapshot_enricher import MarketSnapshotEnricher
+
+
+_NATIVE_REQ_EXECUTIONS = EClient.reqExecutions
 
 
 class DummyConnectionManager:
@@ -199,3 +207,364 @@ def test_run_loop_treats_shutdown_self_join_error_as_normal_exit(monkeypatch, ca
     client._run_loop()
 
     assert "Network loop error" not in capsys.readouterr().out
+
+# Strict history uses the existing request/callback owner, never transport or a
+# prepared result. The ordinary legacy tests above retain their own fixtures.
+@pytest.fixture
+def strict_execution_client(monkeypatch, tmp_path):
+    import socket
+    monkeypatch.setenv('IBKR_ORDER_ID_STATE_PATH', str(tmp_path / 'order_ids.json'))
+    def forbidden(*args, **kwargs):
+        raise AssertionError('strict execution tests must remain offline')
+    for name in ('connect', 'placeOrder', 'cancelOrder', 'reqGlobalCancel', 'reqExecutions'):
+        monkeypatch.setattr(EClient, name, forbidden)
+    monkeypatch.setattr(socket, 'create_connection', forbidden)
+    monkeypatch.setattr(socket.socket, 'connect', forbidden)
+    client = _build_client()
+    monkeypatch.setattr(client, 'is_connected', lambda: True)
+    monkeypatch.setattr(client, 'serverVersion', lambda: 180)
+    client.nextValidId(71)
+    client.managedAccounts('SYNTHETIC_TEST')
+    return client
+
+
+def _execution_scope(**changes):
+    scope = dict(account='SYNTHETIC_TEST', order_id=70, con_id=901,
+                 symbol='SYNTH', side='SELL', timeout_seconds=1)
+    scope.update(changes)
+    return scope
+
+
+def _execution_fact(**changes):
+    fields = dict(orderId=70, clientId=1, acctNumber='SYNTHETIC_TEST', side='SLD',
+                  execId='synthetic.1', time='20261110 10:00:00 UTC', shares=Decimal('1'),
+                  price=10.4, cumQty=Decimal('1'), avgPrice=10.4)
+    fields.update(changes)
+    return NS(**fields)
+
+
+def _execution_contract(**changes):
+    fields = dict(conId=901, symbol='SYNTH', secType='STK')
+    fields.update(changes)
+    return NS(**fields)
+
+
+def test_strict_execution_complete_is_immutable_request_evidence_only(strict_execution_client, monkeypatch):
+    client = strict_execution_client
+    requests = []
+    callbacks = []
+    monkeypatch.setattr(client, '_emit_execution_callback', callbacks.append)
+    execution = _execution_fact(shares=Decimal('.5'), cumQty=Decimal('.5'))
+    def request(req_id, native_filter):
+        requests.append((req_id, native_filter))
+        client.execDetails(req_id, _execution_contract(), execution)
+        client.execDetails(req_id, _execution_contract(), execution)  # exact duplicate
+        client.execDetailsEnd(req_id)
+    monkeypatch.setattr(client, 'reqExecutions', request)
+    result = client.execution_snapshot(**_execution_scope())
+    assert result.status == 'COMPLETE' and result.completed_at is not None
+    assert result.connection_epoch == client._position_connection_epoch
+    assert result.request_id == requests[0][0] > 70
+    assert (result.account, result.client_id, result.order_id, result.con_id,
+            result.symbol, result.side) == ('SYNTHETIC_TEST', 1, 70, 901, 'SYNTH', 'SELL')
+    assert result.completion_scope == 'REQUEST_ONLY' and result.filter_time == ''
+    assert len(result.rows) == 1 and result.rows[0].quantity == Decimal('.5')
+    native_filter = requests[0][1]
+    assert (native_filter.clientId, native_filter.acctCode, native_filter.symbol,
+            native_filter.secType, native_filter.time) == (1, 'SYNTHETIC_TEST', 'SYNTH', 'STK', '')
+    execution.price = 999
+    client.execDetails(result.request_id, _execution_contract(), execution)
+    client.execDetailsEnd(result.request_id)
+    assert result.rows[0].price == Decimal('10.4')
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        result.rows[0].price = Decimal('2')
+    assert callbacks == [] and client._exec_details_by_order == {}
+    assert client._executions_snapshot == [] and not client._executions_event.is_set()
+    assert 'execution_query' not in client._request_context_by_req_id[result.request_id]
+    assert result.request_id not in client._request_type_by_req_id
+    # Late history after bounded metadata eviction cannot become a live callback.
+    client._request_context_by_req_id.pop(result.request_id)
+    client.execDetails(result.request_id, _execution_contract(), execution)
+    assert callbacks == []
+
+
+@pytest.mark.parametrize('outcome', ['empty', 'timeout', 'error', 'disconnected', 'epoch', 'scope', 'conflict', 'evicted', 'send_error'])
+def test_strict_execution_completion_states(strict_execution_client, monkeypatch, outcome):
+    client = strict_execution_client
+    def request(req_id, native_filter):
+        if outcome == 'empty':
+            client.execDetailsEnd(req_id)
+        elif outcome == 'error':
+            client.error(req_id, 321, 'synthetic request rejection')
+            client.execDetailsEnd(req_id)
+        elif outcome in ('disconnected', 'epoch'):
+            client._invalidate_position_queries()
+            if outcome == 'epoch':
+                client._position_transport_available = True
+                client.managedAccounts('SYNTHETIC_TEST')
+            client.execDetailsEnd(req_id)
+        elif outcome == 'scope':
+            client.managedAccounts('OTHER_SYNTHETIC')
+            client.managedAccounts('SYNTHETIC_TEST')
+            client.execDetailsEnd(req_id)
+        elif outcome == 'conflict':
+            client._observe_order_id(req_id)
+            client.execDetailsEnd(req_id)
+        elif outcome == 'evicted':
+            client._request_context_by_req_id.pop(req_id)
+        elif outcome == 'send_error':
+            raise RuntimeError('synthetic SDK failure')
+    monkeypatch.setattr(client, 'reqExecutions', request)
+    # Zero timeout deterministically prevents dispatch; use a bounded real wait
+    # only for the timeout/eviction cases, never sleep to force callback ordering.
+    result = client.execution_snapshot(**_execution_scope(timeout_seconds=.02 if outcome in ('timeout', 'evicted') else 1))
+    expected = dict(empty='COMPLETE', timeout='TIMEOUT', error='ERROR', disconnected='DISCONNECTED',
+                    epoch='DISCONNECTED', scope='SCOPE_CHANGED', conflict='IDENTITY_CONFLICT',
+                    evicted='OWNERSHIP_LOST', send_error='ERROR')[outcome]
+    assert result.status == expected and result.rows == ()
+    assert (result.completed_at is not None) == (outcome == 'empty')
+
+
+@pytest.mark.parametrize('changes,contract_changes', [
+    ({'acctNumber': 'OTHER'}, {}), ({'clientId': 2}, {}), ({'side': 'BOT'}, {}),
+    ({}, {'conId': 902}), ({}, {'symbol': 'OTHER'}), ({}, {'secType': 'OPT'}),
+    ({'shares': float('nan')}, {}), ({'price': float('inf')}, {}), ({'shares': True}, {}),
+    ({'cumQty': Decimal('.5')}, {}), ({'execId': ''}, {}), ({'time': ''}, {}),
+])
+def test_strict_execution_rejects_scope_and_malformed_facts(strict_execution_client, monkeypatch, changes, contract_changes):
+    client = strict_execution_client
+    def request(req_id, native_filter):
+        client.execDetails(req_id, _execution_contract(**contract_changes), _execution_fact(**changes))
+        client.execDetailsEnd(req_id)
+    monkeypatch.setattr(client, 'reqExecutions', request)
+    result = client.execution_snapshot(**_execution_scope())
+    assert result.status == 'INVALID' and result.completed_at is None
+
+
+def test_strict_execution_conflicting_duplicate_cannot_complete(strict_execution_client, monkeypatch):
+    client = strict_execution_client
+    def request(req_id, native_filter):
+        client.execDetails(req_id, _execution_contract(), _execution_fact())
+        client.execDetails(req_id, _execution_contract(), _execution_fact(price=10.5))
+        client.execDetailsEnd(req_id)
+    monkeypatch.setattr(client, 'reqExecutions', request)
+    result = client.execution_snapshot(**_execution_scope())
+    assert result.status == 'INVALID' and len(result.rows) == 1
+
+
+def test_strict_execution_interleaved_queries_and_legacy_event_are_isolated(strict_execution_client, monkeypatch):
+    client = strict_execution_client
+    admitted = threading.Event()
+    requests = {}
+    results = {}
+    errors = []
+    def request(req_id, native_filter):
+        # The SDK send seam returns; callbacks arrive independently below.
+        requests[req_id] = native_filter
+        if len(requests) == 2:
+            admitted.set()
+    monkeypatch.setattr(client, 'reqExecutions', request)
+    def query(order_id):
+        try:
+            results[order_id] = client.execution_snapshot(**_execution_scope(order_id=order_id, timeout_seconds=3))
+        except BaseException as exc:
+            errors.append(exc)
+    workers = [threading.Thread(target=query, args=(order_id,)) for order_id in (69, 70)]
+    # Reserve both retained native identities before allocating any query ID.
+    client._observe_order_id(69)
+    client._observe_order_id(70)
+    try:
+        for worker in workers:
+            worker.start()
+        assert admitted.wait(2)
+        by_order = {context['execution_query']['order_id']: req_id
+                    for req_id, context in client._request_context_by_req_id.items()
+                    if 'execution_query' in context}
+        a, b = by_order[69], by_order[70]
+        client.execDetailsEnd(999999)  # no owner: cannot complete either request
+        client.execDetails(a, _execution_contract(), _execution_fact(orderId=70))  # local filter
+        client.execDetails(b, _execution_contract(), _execution_fact(orderId=70))
+        client.execDetailsEnd(b)
+        assert not client._executions_event.is_set()
+        client.execDetails(a, _execution_contract(), _execution_fact(orderId=69, execId='synthetic.2'))
+        client.execDetailsEnd(a)
+    finally:
+        for req_id in tuple(requests):
+            client.execDetailsEnd(req_id)
+        for worker in workers:
+            worker.join(4)
+    assert not errors and all(not worker.is_alive() for worker in workers)
+    assert set(results) == {69, 70}
+    assert all(result.status == 'COMPLETE' and len(result.rows) == 1 for result in results.values())
+    assert results[69].rows[0].order_id == 69 and results[70].rows[0].order_id == 70
+
+
+def test_strict_execution_disconnected_and_zero_budget_do_not_dispatch(strict_execution_client, monkeypatch):
+    client = strict_execution_client
+    def forbidden(*args):
+        raise AssertionError('must not dispatch')
+    monkeypatch.setattr(client, 'reqExecutions', forbidden)
+    assert client.execution_snapshot(**_execution_scope(timeout_seconds=0)).status == 'TIMEOUT'
+    client._invalidate_position_queries()
+    assert client.execution_snapshot(**_execution_scope()).status == 'DISCONNECTED'
+
+
+def test_strict_execution_client_zero_filter_and_unsolicited_fills(strict_execution_client, monkeypatch):
+    client = strict_execution_client
+    client.client_id = 0
+    callbacks = []
+    monkeypatch.setattr(client, '_emit_execution_callback', callbacks.append)
+    def request(req_id, native_filter):
+        assert native_filter.clientId == 0
+        client.execDetails(req_id, _execution_contract(), _execution_fact(clientId=1))
+        client.execDetails(req_id, _execution_contract(), _execution_fact(clientId=0))
+        # Independent live callback still reaches the old accounting owner.
+        client.execDetails(-1, _execution_contract(), _execution_fact(clientId=0, execId='live'))
+        client.execDetailsEnd(req_id)
+    monkeypatch.setattr(client, 'reqExecutions', request)
+    result = client.execution_snapshot(**_execution_scope())
+    assert result.status == 'COMPLETE' and len(result.rows) == 1
+    assert result.rows[0].client_id == 0
+    assert len(callbacks) == 1 and callbacks[0]['execution'].execId == 'live'
+
+
+def test_strict_execution_evicted_active_owner_drops_history(strict_execution_client, monkeypatch):
+    client = strict_execution_client
+    callbacks = []
+    monkeypatch.setattr(client, '_emit_execution_callback', callbacks.append)
+    def request(req_id, native_filter):
+        client._request_context_by_req_id.pop(req_id)
+        client.execDetails(req_id, _execution_contract(), _execution_fact())
+        client.execDetailsEnd(req_id)
+    monkeypatch.setattr(client, 'reqExecutions', request)
+    result = client.execution_snapshot(**_execution_scope(timeout_seconds=.02))
+    assert result.status == 'OWNERSHIP_LOST' and not result.rows and not callbacks
+
+
+def test_legacy_execution_interface_remains_list_based(strict_execution_client, monkeypatch):
+    client = strict_execution_client
+    def request(req_id, native_filter):
+        client.execDetails(req_id, _execution_contract(), _execution_fact())
+        client.execDetailsEnd(req_id)
+    monkeypatch.setattr(client, 'reqExecutions', request)
+    assert len(client.executions(timeout_seconds=1)) == 1
+
+
+@pytest.mark.parametrize('invalidator', ['disconnect', 'scope', 'error', 'collision'])
+def test_strict_execution_end_does_not_survive_local_invalidation(strict_execution_client, monkeypatch, invalidator):
+    client = strict_execution_client
+    def request(req_id, native_filter):
+        client.execDetailsEnd(req_id)
+        if invalidator == 'disconnect':
+            client._invalidate_position_queries()
+        elif invalidator == 'scope':
+            client.managedAccounts('OTHER_SYNTHETIC')
+        elif invalidator == 'error':
+            client.error(req_id, 321, 'synthetic post-end rejection')
+        else:
+            client._observe_order_id(req_id)
+    monkeypatch.setattr(client, 'reqExecutions', request)
+    result = client.execution_snapshot(**_execution_scope())
+    assert result.status != 'COMPLETE' and result.completed_at is None
+    assert result.attempt_id == (result.connection_epoch, result.request_id)
+
+
+def test_strict_execution_end_at_expired_deadline_cannot_complete(strict_execution_client, monkeypatch):
+    client = strict_execution_client
+    # Expire ONLY this request's owned deadline at the external callback seam.
+    # Shared clocks and scheduler behavior stay real.
+    def request(req_id, native_filter):
+        client._request_context_by_req_id[req_id]['execution_query']['deadline'] = 0
+        client.execDetails(req_id, _execution_contract(), _execution_fact())
+        client.execDetailsEnd(req_id)
+    monkeypatch.setattr(client, 'reqExecutions', request)
+    result = client.execution_snapshot(**_execution_scope())
+    assert result.status == 'TIMEOUT' and not result.rows
+
+
+def test_strict_execution_actual_sdk_request_and_late_live_fill_are_not_finality(strict_execution_client, monkeypatch):
+    client = strict_execution_client
+    messages = []
+    callbacks = []
+    monkeypatch.setattr(client, 'isConnected', lambda: True)
+    monkeypatch.setattr(client, '_emit_execution_callback', callbacks.append)
+    def send(message):
+        messages.append(message)
+        req_id = next(key for key, value in client._request_context_by_req_id.items()
+                      if 'execution_query' in value)
+        client.execDetailsEnd(req_id)
+    monkeypatch.setattr(client, 'sendMsg', send)
+    monkeypatch.setattr(client, 'reqExecutions', lambda req_id, filt: _NATIVE_REQ_EXECUTIONS(client, req_id, filt))
+    # A cancellation observation followed by empty history is NOT a late-fill barrier.
+    client.orderStatus(70, 'Cancelled', 0, 1, 0, 0, 0, 0, 1, '', 0)
+    result = client.execution_snapshot(**_execution_scope())
+    assert result.status == 'COMPLETE' and result.rows == ()
+    assert len(messages) == 1
+    fields = messages[0].split('\0')
+    assert fields[2:8] == [str(result.request_id), '1', 'SYNTHETIC_TEST', '', 'SYNTH', 'STK']
+    client.execDetails(-1, _execution_contract(), _execution_fact(execId='late.live'))
+    assert [event['event_type'] for event in callbacks] == ['orderStatus', 'execDetails']
+    assert callbacks[1]['execution'].execId == 'late.live'
+    assert result.rows == () and result.completion_scope == 'REQUEST_ONLY'
+
+
+def test_strict_execution_requires_server_request_correlation(strict_execution_client, monkeypatch):
+    client = strict_execution_client
+    monkeypatch.setattr(client, 'serverVersion', lambda: 1)
+    assert client.execution_snapshot(**_execution_scope()).status == 'REQUEST_CORRELATION_UNAVAILABLE'
+
+
+@pytest.mark.parametrize('kind', ['cancelled', 'deadline'])
+def test_strict_execution_control_flow_retires_callback_ownership(strict_execution_client, monkeypatch, kind):
+    from src.core.acquisition import AcquisitionCancelled, AcquisitionDeadlineExceeded
+    client = strict_execution_client
+    requests = []
+    error = AcquisitionCancelled if kind == 'cancelled' else AcquisitionDeadlineExceeded
+    def request(req_id, native_filter):
+        requests.append(req_id)
+        raise error()
+    monkeypatch.setattr(client, 'reqExecutions', request)
+    with pytest.raises(error):
+        client.execution_snapshot(**_execution_scope())
+    req_id = requests[0]
+    assert req_id not in client._request_type_by_req_id
+    assert 'execution_query' not in client._request_context_by_req_id[req_id]
+    client.execDetails(req_id, _execution_contract(), _execution_fact())
+    client.execDetailsEnd(req_id)
+    assert not client._executions_snapshot and not client._executions_event.is_set()
+
+
+def test_strict_execution_partial_rows_are_not_successful_completion(strict_execution_client, monkeypatch):
+    client = strict_execution_client
+    def request(req_id, native_filter):
+        client.execDetails(req_id, _execution_contract(), _execution_fact())
+        client.error(req_id, 321, 'synthetic incomplete response')
+    monkeypatch.setattr(client, 'reqExecutions', request)
+    result = client.execution_snapshot(**_execution_scope())
+    assert result.status == 'ERROR' and len(result.rows) == 1
+    assert result.completed_at is None and result.completion_scope == 'REQUEST_ONLY'
+
+
+def test_strict_execution_retired_id_cannot_leak_via_another_request_kind(strict_execution_client, monkeypatch):
+    client = strict_execution_client
+    callbacks = []
+    monkeypatch.setattr(client, '_emit_execution_callback', callbacks.append)
+    def request(req_id, native_filter):
+        client.execDetailsEnd(req_id)
+    monkeypatch.setattr(client, 'reqExecutions', request)
+    result = client.execution_snapshot(**_execution_scope())
+    assert result.status == 'COMPLETE'
+    # Raw compatibility owners can register their own ID. Such a different
+    # request kind still cannot acquire ownership of an execution-history stream.
+    client._register_request(result.request_id, 'MARKET_DATA')
+    client.execDetails(result.request_id, _execution_contract(), _execution_fact())
+    assert callbacks == [] and client._exec_details_by_order == {}
+
+
+@pytest.mark.parametrize('req_id', [0, 999999, -2])
+def test_execution_history_without_request_owner_is_not_a_live_fill(strict_execution_client, monkeypatch, req_id):
+    client = strict_execution_client
+    callbacks = []
+    monkeypatch.setattr(client, '_emit_execution_callback', callbacks.append)
+    client.execDetails(req_id, _execution_contract(), _execution_fact())
+    assert not callbacks and not client._executions_snapshot and not client._exec_details_by_order

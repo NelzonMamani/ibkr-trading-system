@@ -506,7 +506,7 @@ def _discovered_order(client, kind, order_id):
     elif kind=='orderStatus':
         client.orderStatus(order_id,'Submitted',0,1,0,0,0,0,0,'',0)
     else:
-        client.execDetails(900,contract,NS(orderId=order_id,execId='fixture',shares=1,price=10,time='fixture'))
+        client.execDetails(-1,contract,NS(orderId=order_id,execId='fixture',shares=1,price=10,time='fixture'))
 
 
 @pytest.mark.parametrize('kind', ['openOrder','orderStatus','execDetails'])
