@@ -30,7 +30,12 @@ from test_key_level_break_production_handoff import forbid_io
     ("complete_empty","native_late_management_small_cap"),
     ("complete_empty","native_late_management_standalone_enrollment"),
     ("complete_empty","native_late_relationship_size"),
+    *[("complete_empty","native_late_relationship_"+case) for case in
+        ("cap_two","unknown_stop","changed_epoch","changed_child_action","wrong_existing_account","restart","changed_child_version","stop_interrupt")],
+    ("complete_empty","native_late_relationship_partial"),
+    ("complete_empty","native_late_relationship_partial_race"),
     ("complete_empty","native_late_relationship_oversize"),
+    ("complete_empty","native_late_relationship_tampered_scope"),
     ("complete_empty","native_late_oversize_standalone_enrollment"),
     ("complete_empty","native_late_oversize_small_cap"),
     *[("complete_empty","native_late_"+case) for case in
@@ -44,11 +49,17 @@ from test_key_level_break_production_handoff import forbid_io
 ])
 def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypatch,tmp_path,capsys,
         no_external_activity,position_case,transport):
-    relationship_sizing_case=transport in {"native_late_relationship_size","native_late_relationship_oversize"}
+    relationship_variant=transport.removeprefix("native_late_relationship_") if transport.startswith("native_late_relationship_") else None
+    relationship_fault=relationship_variant in {"unknown_stop","changed_epoch","changed_child_action","wrong_existing_account","changed_child_version"}
+    relationship_partial_race=transport=="native_late_relationship_partial_race"
+    relationship_partial=transport in {"native_late_relationship_partial","native_late_relationship_partial_race"} or relationship_variant in {"changed_epoch","changed_child_action","wrong_existing_account","changed_child_version"}
+    relationship_scope_tamper=transport=="native_late_relationship_tampered_scope"
+    relationship_sizing_case=transport in {"native_late_relationship_size","native_late_relationship_oversize",
+        "native_late_relationship_tampered_scope","native_late_relationship_partial","native_late_relationship_partial_race"} or relationship_variant in {"cap_two","unknown_stop","changed_epoch","changed_child_action","wrong_existing_account","restart","changed_child_version","stop_interrupt"}
     relationship_oversize=transport=="native_late_relationship_oversize"
     if relationship_sizing_case:
         transport="native_late_oversize_small_cap" if relationship_oversize else "native_late_management_small_cap"
-    entry_quantity=4 if relationship_sizing_case else 1
+    entry_quantity=(2 if relationship_variant=="cap_two" else 4) if relationship_sizing_case else 1
     standalone_enrollment_case=transport in {"native_late_management_standalone_enrollment",
         "native_late_oversize_standalone_enrollment"}
     if standalone_enrollment_case:transport=transport.replace("_standalone_enrollment","_small_cap")
@@ -66,7 +77,7 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
     management_case=late_case is not None and late_case.startswith("management")
     stop_fault=late_case in {"stop_oversize","stop_bad_price","stop_bad_status"}
     malformed=late_case in {"negative","fractional","no_price","nan_price","missing_counts","unknown_status","oversize","binding_error"}
-    failed_pass=bool(assessment_case) or malformed or late_case in {"collector_error","processor_error","processor_after","accounting_error","allocation_error","completion_error","processor_cancel","processor_deadline"}
+    failed_pass=relationship_scope_tamper or relationship_fault or bool(assessment_case) or malformed or late_case in {"collector_error","processor_error","processor_after","accounting_error","allocation_error","completion_error","processor_cancel","processor_deadline"}
     if late_fill: transport="native_timeout" if late_case=="uncertain" else "native_submitted"
     native_provider=transport.startswith("native_")
     if native_provider and transport not in {"native_timeout","native_unsupported"}: transport=transport.removeprefix("native_")
@@ -97,6 +108,7 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
     providers=[]
     cached_facts={}
     broker_fills={72:0,73:0}  # Independent monotonic external position facts, not last status arrival.
+    relationship_owned=[0]  # Independent external position facts, not derived from cached execution statuses.
     callback_reads=[]
     protection_requests=[]
     protective_orders=[]
@@ -140,6 +152,9 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
                 totalQuantity=1,auxPrice=10.81,account='')
             kwargs['before_submit'](native_id,NS(symbol='JPM',conId=123),native)
             assert native.account=='SYNTHETIC_TEST'
+            if relationship_variant=='unknown_stop':
+                protection_requests.append({'uncertain_native_id':native_id})
+                raise OSError('synthetic unknown initial unit write outcome')
             actual=deepcopy(native);actual.clientId=999;actual.account='SYNTHETIC_TEST'
             protection_requests.append({key:value for key,value in kwargs.items() if key!='before_submit'})
             protective_orders.append(NS(orderId=native_id,contract=NS(symbol='JPM',conId=123),
@@ -180,7 +195,7 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
     monkeypatch.setattr(core_module,"IbkrExecutionProvider",provider_boundary)
     h=joined(reassessment,monkeypatch,tmp_path,position_case=position_case,
         runtime_options=dict(run_mode="PAPER",config_overrides=dict(EXECUTION_ENABLED=True,RISK_PROFILE="SMALL" if small_cap_case else "MICRO",
-            **({"RISK_MAX_POSITION_SIZE":4 if relationship_sizing_case else 2} if small_cap_case else {}),
+            **({"RISK_MAX_POSITION_SIZE":entry_quantity if relationship_sizing_case else 2} if small_cap_case else {}),
             **(dict(ROSS_SYNTHETIC_RELATIONSHIP_BASE_SIZE=8) if relationship_sizing_case else {}),
             **(dict(ROSS_SYNTHETIC_REQUESTED_BASE_SIZE=8,ROSS_SYNTHETIC_UNIT_STOPS=True,
                 ROSS_SYNTHETIC_UNIT_MANAGEMENT=True,ROSS_SYNTHETIC_MICRO_COST_FAILURE=True)
@@ -201,6 +216,7 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
         def external_positions():
             held=(bool(assessment_case) or management_case or late_case in {"fill","partial","uncertain","regression","processor_error","processor_after","stop_oversize","stop_bad_price","stop_bad_status","management"}) and bool(cached_facts) and not (management_case and cached_facts.get(73,{}).get("filled")==1)
             quantity=(entry_quantity-sum(broker_fills.values())) if (interleaving or relationship_sizing_case) and cached_facts else int(held)
+            if relationship_sizing_case: quantity=relationship_owned[0]
             if small_cap_case and late_case=="oversize" and cached_facts:
                 quantity=entry_quantity+1  # Independent external holding, never fabricated local ownership.
             rows=(NS(symbol="JPM",position=quantity,con_id=123,avgCost=10.91,account="SYNTHETIC_TEST"),) if quantity else ()
@@ -340,8 +356,11 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
             client_order_id=request.client_order_id,ibkr_order_id=None if transport in {"rejected","missing_id","result_trace_error"} or (reducing and interleaving and interleaving.startswith("identity_")) else (73 if reducing else 71),
             acknowledged_at=h.life.clock.current.isoformat() if transport in {"submitted","pending"} else None)
         if native_provider and result.ibkr_order_id and result.status.upper() not in {"REJECTED","FAILED"}:
-            working_orders.append(NS(orderId=result.ibkr_order_id,contract=NS(symbol=request.symbol),
-                order=NS(orderType="MKT",parentId=0,orderRef=request.client_order_id,action=request.direction,totalQuantity=1),
+            working_orders.append(NS(orderId=result.ibkr_order_id,contract=NS(symbol=request.symbol,**({"conId":123} if relationship_sizing_case else {})),
+                order=NS(orderType="MKT",parentId=0,orderRef=request.client_order_id,
+                    action=("BUY" if request.direction=="LONG" else "SELL") if relationship_sizing_case else request.direction,
+                    totalQuantity=request.quantity if relationship_sizing_case else 1,
+                    **({"account":"SYNTHETIC_TEST","clientId":999} if relationship_sizing_case else {})),
                 orderState=NS(status="Submitted")))
         received.append(result)
         return result
@@ -423,10 +442,16 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
                 assert h.core.execution_engine.max_shares_per_order==(None if small_cap_case else 1)
                 if small_cap_case:
                     from src.config.config_resolver import get_config
-                    assert get_config("RISK_PROFILE")=="SMALL" and get_config("RISK_MAX_POSITION_SIZE")== (4 if relationship_sizing_case else 2)
-                    assert raw_now[0].quantity==risk_decisions[0].max_position_size==entry_quantity
+                    assert get_config("RISK_PROFILE")=="SMALL" and get_config("RISK_MAX_POSITION_SIZE")== (entry_quantity if relationship_sizing_case else 2)
+                    if relationship_variant=='cap_two':
+                        assert raw_now[0].quantity==4 and risk_decisions[0].max_position_size==2
+                    else: assert raw_now[0].quantity==risk_decisions[0].max_position_size==entry_quantity
                 assert sent[0].stop_loss_price==pytest.approx(10.81)
                 facts={"status":"Filled","filled":entry_quantity,"remaining":0,"avgFillPrice":10.91}
+                if relationship_sizing_case: relationship_owned[0]=entry_quantity
+                if relationship_partial:
+                    facts.update(status="Submitted",filled=2,remaining=2)
+                    relationship_owned[0]=2
                 if late_case=="pending": facts.update(status="PendingSubmit",filled=0,remaining=1,avgFillPrice=0)
                 if late_case=="negative": facts.update(filled=-1)
                 if late_case=="fractional": facts.update(filled=1.5)
@@ -439,6 +464,8 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
                 if late_case=="cancelled": facts.update(status="Cancelled",filled=0,remaining=1,avgFillPrice=0)
                 if late_case=="partial": facts.update(status="Submitted")
                 cached_facts[99 if late_case=="unrelated" else 71]=facts
+                if relationship_scope_tamper:
+                    plan.orders[plan.initial_order_id]['request']['selected_stop_units']=False  # Negative uncommitted binding corruption.
                 if management_case:
                     h.core.connection_manager._client=NS(intraday_bars_from_history=external_history)
                     monkeypatch.setattr(management_module,"datetime",h.life.clock)
@@ -495,16 +522,72 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
                             raise RuntimeError("synthetic cached result processor failure")
                         return apply(results)
                     monkeypatch.setattr(h.core,"_apply_execution_results_to_trade_management",processing_failure)
+            if relationship_partial:
+                h.life.clock.current+=timedelta(seconds=1)
+                assert h.core.run_once();capsys.readouterr()
+                engine=h.core.execution_engine
+                partial_life=engine.post_fill_lifecycle.get_trade(plan.initial_order_id)
+                assert plan.entry_quantity==partial_life.filled_qty==2 and not plan.entry_terminal
+                assert len(partial_life.stop_legs)==len(protection_requests)==2
+                first_unit_ids=[leg.leg_id for leg in partial_life.stop_legs]
+                assert engine.post_fill_lifecycle.assess_trade_stop_protection(partial_life.trade_id)['protected']
+                assert h.manager.snapshot_positions()['JPM'].quantity==h.core.trade_registry.snapshot()[0].quantity==2
+                assert len(sent)==1 and not cancel_requests
+                cached_facts[71]=dict(status='Filled',filled=4,remaining=0,avgFillPrice=10.91)
+                relationship_owned[0]=4
+                if relationship_variant=='changed_epoch':
+                    providers[0].broker.connection_manager.existing_client._position_connection_epoch+=1
+                if relationship_variant=='changed_child_action':
+                    plan.orders[first_unit_ids[0]]['action']='REDUCE'
+                if relationship_variant=='changed_child_version':
+                    plan.orders[first_unit_ids[0]]['owner_effect_version']=True
+                if relationship_variant=='wrong_existing_account':
+                    protective_orders[0].order.account='UNRELATED_ACCOUNT'
+                if relationship_partial_race:
+                    cached_facts[71]['avgFillPrice']=11.01
+                    cached_facts[int(partial_life.stop_legs[0].broker_order_id)]=dict(status='Filled',filled=1,remaining=0,avgFillPrice=10.81)
+                    relationship_owned[0]=3
+                    race_before=(len(engine.position_records),engine.capital_authority.total_used_exposure,
+                        engine.strategy_allocation_authority.strategy_used_exposure('RossMomentumStrategyV1'))
             h.life.clock.current+=timedelta(seconds=11)
             if late_case=="processor_cancel":
                 from src.core.acquisition import AcquisitionCancelled
                 with pytest.raises(AcquisitionCancelled): h.core.run_once()
                 result=None
             else: result=h.core.run_once()
+            if relationship_fault:
+                engine=h.core.execution_engine
+                assert not result and engine._native_quarantined
+                assert len(sent)==1 and not cancel_requests
+                assert len(protection_requests)==(1 if relationship_variant=='unknown_stop' else 2)
+                before=(len(engine.position_records),len(plan.orders),engine.capital_authority.total_used_exposure)
+                with pytest.raises(RuntimeError):engine.collect_relationship_updates()
+                assert before==(len(engine.position_records),len(plan.orders),engine.capital_authority.total_used_exposure)
+                assert no_external_activity==[] and mutations()=={'place':0,'modify':0,'cancel':0}
+                return
+            if relationship_partial_race:
+                assert not result and engine._native_quarantined
+                assert plan.entry_quantity==partial_life.filled_qty==2
+                assert len(protection_requests)==2 and len(sent)==1 and not cancel_requests
+                assert race_before==(len(engine.position_records),engine.capital_authority.total_used_exposure,
+                    engine.strategy_allocation_authority.strategy_used_exposure('RossMomentumStrategyV1'))
+                original=plan.orders[plan.initial_order_id]
+                child=plan.orders[first_unit_ids[0]]
+                assert original['unresolved_update']['filled']==4 and child['unresolved_update']['filled']==1
+                assert original['quarantine']==child['quarantine']=='CALLBACK_PROCESSING_UNRESOLVED'
+                assert no_external_activity==[] and mutations()=={'place':0,'modify':0,'cancel':0}
+                with pytest.raises(RuntimeError):engine.collect_relationship_updates()
+                return
             if not failed_pass: assert result is (transport!="stop_after_risk")
             repeated=capsys.readouterr().out
             if relationship_sizing_case:
                 engine=h.core.execution_engine
+                if relationship_scope_tamper:
+                    assert not result and engine._native_quarantined
+                    assert not engine.position_records and not protection_requests
+                    assert not h.manager.snapshot_positions() and not h.core.trade_registry.snapshot()
+                    assert no_external_activity==[] and mutations()=={'place':0,'modify':0,'cancel':0}
+                    return
                 if relationship_oversize:
                     assert failed_pass and engine.execution_integrity_flag
                     assert not h.manager.snapshot_positions() and not h.core.trade_registry.snapshot()
@@ -513,6 +596,9 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
                     return  # Existing finally releases isolated test reservations only.
                 life=engine.post_fill_lifecycle.get_trade(plan.initial_order_id)
                 assert plan.entry_quantity==life.filled_qty==entry_quantity and plan.entry_terminal
+                if relationship_partial:
+                    assert [leg.leg_id for leg in life.stop_legs[:2]]==first_unit_ids
+                    assert len(protection_requests)==4 and not cancel_requests
                 assert life.selected_stop_units and len(life.stop_legs)==entry_quantity
                 assert all(leg.quantity==1 for leg in life.stop_legs) and life.selected_stop_price==pytest.approx(10.81)
                 assert engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
@@ -529,9 +615,88 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
                     assert h.core.run_once();capsys.readouterr()
                     assert len(sent)==1 and plan.milestone_order_id is None
                     assert all(leg.quantity==1 and leg.trigger_price==pytest.approx(10.81) for leg in life.stop_legs)
+                # Negative execution backstop: a caller cannot bypass the
+                # multi-share management veto with an otherwise allowed decision.
+                from copy import deepcopy
+                for rejected_action in ('ADD','REENTRY','REDUCE','EXIT'):
+                    unsafe=deepcopy(risk_decisions[0])
+                    unsafe.relationship_context=dict(unsafe.relationship_context,action=rejected_action)
+                    unsafe.max_position_size=1
+                    rejected=engine._execute_trade(unsafe)
+                    assert not rejected.attempted and rejected.status=='BLOCKED'
+                    assert rejected.rationale=='RELATIONSHIP_NATIVE_SIZE_OR_MANAGEMENT_VETO'
+                if relationship_variant=='restart':
+                    before=(len(engine.position_records),len(plan.orders),len(protection_requests))
+                    import os,subprocess,sys
+                    storage=h.core.storage_engine
+                    script="""
+import sqlite3,sys
+from types import SimpleNamespace as NS
+from src.storage.storage_engine import StorageEngine
+from src.execution.execution_engine import ExecutionEngine
+from src.config.runtime_config import RunMode
+s=StorageEngine.__new__(StorageEngine);s.enabled=True;s.backend='sqlite'
+s._store=NS(connection=sqlite3.connect('file:'+sys.argv[1]+'?mode=ro',uri=True))
+try:
+ state=s.fetch_management_state(sys.argv[2]);plan=state['plans'][sys.argv[3]]
+ original=plan['orders'][plan['initial_order_id']]
+ assert original['unit_initial_protection_profile']=='RELATIONSHIP_UNIT_INITIAL_PROTECTION_V1'
+ assert len(plan['orders'])==5 and sum(o.get('close_role')=='PROTECTION' for o in plan['orders'].values())==4
+ e=ExecutionEngine.__new__(ExecutionEngine);e._storage_engine=s;e.run_mode=RunMode.PAPER
+ e._native_loaded=False;e._native_state=None;e._native_orders={};e._native_quarantined=False
+ try:e._load_native_orders()
+ except RuntimeError as exc:assert str(exc)=='NATIVE_ORDER_RESTART_RECONCILIATION_REQUIRED'
+ else:raise AssertionError('restored unit ownership resumed')
+ assert e._native_quarantined and e._failsafe_block_new_entries
+ print('RELATIONSHIP_READ_ONLY_RESTART_BLOCKED')
+finally:s._store.connection.close()
+"""
+                    durable_before=storage.fetch_management_state(h.manager._state_namespace)
+                    restarted=subprocess.run([sys.executable,'-c',script,storage.sqlite_path,
+                        h.manager._state_namespace,plan.relationship_id],env=dict(os.environ),capture_output=True,text=True,timeout=15)
+                    assert restarted.returncode==0,restarted.stderr
+                    assert 'RELATIONSHIP_READ_ONLY_RESTART_BLOCKED' in restarted.stdout
+                    assert storage.fetch_management_state(h.manager._state_namespace)==durable_before
+                    engine._relationship_units_owned_here.clear()  # Loss of this-process ownership; no resumption grant.
+                    with pytest.raises(RuntimeError,match='RELATIONSHIP_UNIT_RESTART_RECONCILIATION_REQUIRED'):
+                        engine.collect_relationship_updates()
+                    assert before==(len(engine.position_records),len(plan.orders),len(protection_requests))
+                    assert no_external_activity==[] and mutations()=={'place':0,'modify':0,'cancel':0}
+                    return
+                first_stop=life.stop_legs[0]
+                cached_facts[int(first_stop.broker_order_id)]=dict(status='Filled',filled=1,remaining=0,avgFillPrice=10.81)
+                relationship_owned[0]=entry_quantity-1
+                if relationship_variant=='stop_interrupt':
+                    release=engine.capital_authority.release_exposure
+                    interruption_pending=[True]
+                    def interrupted_release(**kwargs):
+                        release(**kwargs)
+                        if interruption_pending[0]:
+                            interruption_pending[0]=False
+                            raise RuntimeError('synthetic interruption after actual unit capital release')
+                    monkeypatch.setattr(engine.capital_authority,'release_exposure',interrupted_release)
+                    h.life.clock.current+=timedelta(seconds=1)
+                    assert not h.core.run_once();capsys.readouterr()
+                    assert engine._native_quarantined and len(protection_requests)==entry_quantity
+                    assert plan.orders[first_stop.leg_id]['owner_effect_pending']
+                    before=deepcopy((engine.position_records,plan.orders,engine.capital_authority.total_used_exposure,
+                        engine.strategy_allocation_authority.strategy_used_exposure('RossMomentumStrategyV1')))
+                    with pytest.raises(RuntimeError):engine.collect_relationship_updates()
+                    assert before==deepcopy((engine.position_records,plan.orders,engine.capital_authority.total_used_exposure,
+                        engine.strategy_allocation_authority.strategy_used_exposure('RossMomentumStrategyV1')))
+                    assert no_external_activity==[] and mutations()=={'place':0,'modify':0,'cancel':0}
+                    return
+                for _ in range(2):
+                    h.life.clock.current+=timedelta(seconds=1)
+                    assert h.core.run_once();capsys.readouterr()
+                assert life.filled_qty==entry_quantity-1 and life.exited_qty==1
+                assert h.manager.snapshot_positions()['JPM'].quantity==h.core.trade_registry.snapshot()[0].quantity==entry_quantity-1
+                assert engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
+                assert len(protection_requests)==entry_quantity and len(sent)==1 and not cancel_requests
                 for leg in life.stop_legs:
                     cached_facts[int(leg.broker_order_id)]=dict(status='Filled',filled=1,remaining=0,avgFillPrice=10.81)
                 broker_fills[72]=entry_quantity
+                relationship_owned[0]=0
                 for _ in range(2):
                     h.life.clock.current+=timedelta(seconds=1)
                     assert h.core.run_once();capsys.readouterr()

@@ -630,12 +630,16 @@ def test_failed_cancel_is_retryable_without_duplicate_exit():
     assert len(calls)==2
 
 
-def test_real_risk_scales_existing_relationship_without_counting_new_trade(monkeypatch):
+@pytest.mark.parametrize("native_initial",[False,True])
+def test_real_risk_scales_existing_relationship_without_counting_new_trade(monkeypatch,native_initial):
     from src.config.config_resolver import set_config_overrides
     from src.risk.risk_engine import RiskEngine
     from src.models.data_models import TradeIntent
     from src.core.active_trade_registry import ActiveTrade
     manager,_=opened(8)
+    if native_initial:
+        plan=manager._relationship_plans["r"]
+        plan.orders[plan.initial_order_id]["owner_effect_version"]=1  # Negative native-owner enrollment; not a positive admission proof.
     monkeypatch.setenv("TRADING_DEFAULT_CAPITAL","10000")
     set_config_overrides({"RUN_MODE":"PAPER","RUN_MODE_EFFECTIVE":"PAPER","EXECUTION_ENABLED":True,
         "EXECUTION_ENABLED_EFFECTIVE":True,"IBKR_READONLY":False,"RISK_MAX_OPEN_POSITIONS":1})
@@ -653,6 +657,10 @@ def test_real_risk_scales_existing_relationship_without_counting_new_trade(monke
         intent.quantity=2
         intent.entry_price=10.5
         decision=risk.evaluate_trade_intent(intent)
+        if native_initial:
+            assert not decision.allowed and decision.execution_blocked and decision.max_position_size==0
+            assert decision.reason_code=="RELATIONSHIP_NATIVE_MULTI_MANAGEMENT_VETO"
+            return
         assert decision.allowed, (decision.reason_code,decision.rationale)
         assert decision.max_position_size==2
         manager._relationship_plans["r"].add_count=2 # existing NORMAL profile is stricter than the relationship maximum of 3

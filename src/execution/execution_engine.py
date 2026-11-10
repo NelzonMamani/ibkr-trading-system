@@ -216,14 +216,23 @@ class ExecutionEngine:
         self._save_native_orders()  # Before dispatch; lost ack never implies absence.
         return order
 
+    def _relationship_unit_plan_scope(self, plan):
+        original = plan.orders.get(plan.initial_order_id, {})
+        return bool(original.get("unit_initial_protection_profile")
+            or original.get("request", {}).get("selected_stop_units")
+            or getattr(self, "_relationship_units_owned_here", set()).intersection(plan.orders))
+
     def _selected_order_records(self):
         """Ephemeral view of original records; each order has ONE durable owner."""
         records = dict(self._native_orders)
         manager = getattr(self, "relationship_manager", None)
         for plan in getattr(manager, "_relationship_plans", {}).values():
             initial = plan.orders.get(plan.initial_order_id, {})
-            if not initial.get("request", {}).get("selected_stop_units"):
+            if not self._relationship_unit_plan_scope(plan):
                 continue
+            from src.strategies.ross_momentum.strategy_policy import RELATIONSHIP_UNIT_INITIAL_PROTECTION_PROFILE
+            if initial.get("unit_initial_protection_profile") != RELATIONSHIP_UNIT_INITIAL_PROTECTION_PROFILE:
+                raise RuntimeError("RELATIONSHIP_UNIT_PROFILE_UNSUPPORTED")
             if plan.initial_order_id not in getattr(self, "_relationship_units_owned_here", set()):
                 raise RuntimeError("RELATIONSHIP_UNIT_RESTART_RECONCILIATION_REQUIRED")
             if records.keys() & plan.orders.keys():
@@ -234,7 +243,7 @@ class ExecutionEngine:
     def _selected_order_plan(self, order_id):
         manager = getattr(self, "relationship_manager", None)
         matches = [p for p in getattr(manager, "_relationship_plans", {}).values()
-            if order_id in p.orders and p.orders.get(p.initial_order_id, {}).get("request", {}).get("selected_stop_units")]
+            if order_id in p.orders and self._relationship_unit_plan_scope(p)]
         if len(matches) > 1 or (matches and order_id in self._native_orders):
             raise RuntimeError("SELECTED_ORDER_MULTIPLE_OWNERS")
         return matches[0] if matches else None
@@ -252,7 +261,7 @@ class ExecutionEngine:
     def _save_all_selected_orders(self):
         self._save_native_orders()
         manager = getattr(self, "relationship_manager", None)
-        if any(p.orders.get(p.initial_order_id, {}).get("request", {}).get("selected_stop_units")
+        if any(self._relationship_unit_plan_scope(p)
                 for p in getattr(manager, "_relationship_plans", {}).values()):
             try:
                 manager._save_relationship_state()
@@ -272,10 +281,12 @@ class ExecutionEngine:
         scope = self._native_scope
         client = self._native_callback_client()
         from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
-        from src.strategies.ross_momentum.strategy_policy import selected_relationship_unit_stop_profile
+        from src.strategies.ross_momentum.strategy_policy import (selected_relationship_unit_stop_profile,
+            RELATIONSHIP_UNIT_INITIAL_PROTECTION_PROFILE)
         from src.config.config_resolver import get_ross_synthetic_relationship_base_size
         if (not selected_relationship_unit_stop_profile(asdict(request)) or get_ross_synthetic_relationship_base_size() <= 1
-                or scope is None or scope[1] is not client
+                or scope is None or scope[1] is not client or not client.isConnected()
+                or type(client._position_connection_epoch) is not int or type(client.client_id) is not int
                 or not 0 <= (datetime.now(timezone.utc)-scope[2]).total_seconds() <= get_ibkr_snapshot_max_age_seconds()
                 or plan.initial_order_id != request.client_order_id):
             raise RuntimeError("RELATIONSHIP_UNIT_INITIAL_SCOPE_UNAVAILABLE")
@@ -283,7 +294,9 @@ class ExecutionEngine:
         if original.get("filled") or original.get("terminal") or original.get("owner_effect_version") != 1:
             raise RuntimeError("RELATIONSHIP_UNIT_INITIAL_BINDING_INVALID")
         original.update(account=scope[0], mode=self.run_mode.value, symbol=request.symbol.upper(),
-            side=request.direction.upper(), status="DISPATCH_UNCERTAIN")
+            side=request.direction.upper(), status="DISPATCH_UNCERTAIN",
+            unit_initial_protection_profile=RELATIONSHIP_UNIT_INITIAL_PROTECTION_PROFILE,
+            unit_connection_epoch=client._position_connection_epoch, unit_client_id=client.client_id)
         owned = getattr(self, "_relationship_units_owned_here", set())
         owned.add(request.client_order_id)
         self._relationship_units_owned_here = owned
@@ -2158,12 +2171,12 @@ class ExecutionEngine:
 
     def _retain_relationship_stop_fill(self, plan, reader) -> None:
         """Project known protection callbacks into the existing cumulative fill route."""
-        lifecycle = self.post_fill_lifecycle.get_trade(plan.protection_trade_id or plan.initial_order_id)
-        if lifecycle is not None and lifecycle.selected_stop_units:
-            return  # Existing unit records already own these callbacks exactly once.
         broker_id = plan.protection_broker_order_id
         if not broker_id:
             return
+        lifecycle = self.post_fill_lifecycle.get_trade(plan.protection_trade_id or plan.initial_order_id)
+        if lifecycle is not None and lifecycle.selected_stop_units:
+            return  # Existing unit records already own these callbacks exactly once.
         facts = reader(broker_id)
         if not facts:
             return
@@ -2383,10 +2396,22 @@ class ExecutionEngine:
         if (RunMode(get_config("RUN_MODE_EFFECTIVE")) != self.run_mode or self.run_mode != RunMode.PAPER
                 or not 0 <= (datetime.now(timezone.utc) - scope[2]).total_seconds() <= get_ibkr_snapshot_max_age_seconds()):
             raise ValueError("NATIVE_ORDER_SCOPE_STALE_OR_CHANGED")
+        selected_plan = self._selected_order_plan(order_id)
+        if selected_plan is not None:
+            original = selected_plan.orders[selected_plan.initial_order_id]
+            expected_action = "ENTRY" if order_id == selected_plan.initial_order_id else "EXIT"
+            if (type(order.get("owner_effect_version")) is not int or order["owner_effect_version"] != 1
+                    or order.get("action") != expected_action
+                    or type(order.get("requested")) is not int or order["requested"] <= 0
+                    or type(request.get("quantity")) is not int or request["quantity"] != order["requested"]):
+                raise RuntimeError("RELATIONSHIP_UNIT_OWNER_CONTRACT_INVALID")
+            if (original.get("unit_connection_epoch") != client._position_connection_epoch
+                    or original.get("unit_client_id") != client.client_id):
+                raise RuntimeError("RELATIONSHIP_UNIT_ORIGINAL_CLIENT_CHANGED")
         committed = self._selected_committed_order(order_id)
         if any(order.get(key) != committed.get(key) for key in
-               ("request", "decision_id", "account", "mode", "symbol", "side", "broker_order_id", "requested",
-                "protection_parent_order_id", "protection_trade_id", "security_id", "last_accounted_entry_fill_at", "last_accounted_exit_fill_at", "pmh_failure_exit", "pmh_management_expired", "close_role", "unit_profit_exit", "unit_amendment", "unit_close_coverage_confirmed", "unit_connection_epoch", "unit_client_id")):
+               ("request", "decision_id", "account", "mode", "symbol", "side", "broker_order_id", "requested", "action", "owner_effect_version",
+                "protection_parent_order_id", "protection_trade_id", "security_id", "last_accounted_entry_fill_at", "last_accounted_exit_fill_at", "pmh_failure_exit", "pmh_management_expired", "close_role", "unit_profit_exit", "unit_amendment", "unit_close_coverage_confirmed", "unit_connection_epoch", "unit_client_id", "unit_initial_protection_profile")):
             raise ValueError("NATIVE_ORDER_RETAINED_BINDING_CHANGED")
         facets = {"symbol": order["symbol"], "account": order["account"], "side": order["side"],
             "client_order_id": order_id, "orderId": order["broker_order_id"], "decision_id": order["decision_id"]}
@@ -2793,8 +2818,19 @@ class ExecutionEngine:
             if row.metadata.get("side") not in {"BUY", "SELL"}:
                 raise RuntimeError("NATIVE_UNIT_STOP_ORDER_SIDE_UNVERIFIED")
             if row.metadata["side"] == "BUY":
+                if plan is not None and (str(row.order_id) != str(parent["broker_order_id"])
+                        or parent.get("terminal") or row.order_type.upper() != "MKT"
+                        or row.metadata.get("order_ref") != parent_id
+                        or row.metadata.get("native_quantity") != parent["requested"]
+                        or row.metadata.get("con_id") != owned.con_id
+                        or row.metadata.get("account") != parent["account"]
+                        or row.metadata.get("client_id") != parent["unit_client_id"]):
+                    raise RuntimeError("RELATIONSHIP_UNIT_PENDING_ENTRY_UNVERIFIED")
                 continue
             child = children.get(str(row.order_id));meta = row.metadata
+            if plan is not None and (meta.get("account") != parent["account"]
+                    or meta.get("client_id") != parent["unit_client_id"]):
+                raise RuntimeError("RELATIONSHIP_UNIT_EXISTING_STOP_SCOPE_UNVERIFIED")
             if (child is None or row.status.upper() not in {"SUBMITTED", "PRESUBMITTED"}
                     or row.order_type.upper() != "STP" or isinstance(meta.get("native_quantity"), bool)
                     or meta.get("native_quantity") != child["requested"]
@@ -3009,7 +3045,8 @@ class ExecutionEngine:
 
     def collect_relationship_updates(self, *, result_processor=None):
         units = [(oid, parent) for oid, parent in self._selected_order_records().items()
-            if parent.get("side") in {"BUY", "LONG"} and parent.get("request", {}).get("selected_stop_units")]
+            if parent.get("side") in {"BUY", "LONG"} and (parent.get("request", {}).get("selected_stop_units")
+                or parent.get("unit_initial_protection_profile"))]
         if not units:
             return self._collect_relationship_updates(result_processor=result_processor)
         if self._native_quarantined:
@@ -3024,10 +3061,32 @@ class ExecutionEngine:
             for oid, order in list(self._selected_order_records().items()):
                 if oid in unit_parent_ids or order.get("protection_parent_order_id") in unit_parent_ids:
                     self._validate_native_binding(oid, order, {})
+            # New relationship unit enrollment cannot infer cross-order fill
+            # chronology from independently accumulated status callbacks. Freeze
+            # this cycle's external cache facts before ANY accounting or write.
+            relationship_facts = {}
+            reader = getattr(self._provider, "cached_order_update", None)
+            for parent_id, parent in units:
+                plan = self._selected_order_plan(parent_id)
+                if plan is None:
+                    continue
+                if not callable(reader):
+                    raise RuntimeError("RELATIONSHIP_UNIT_CALLBACK_READER_UNAVAILABLE")
+                for oid, record in plan.orders.items():
+                    relationship_facts[oid] = dict(reader(record["broker_order_id"]) or {})
+                entry_facts = relationship_facts[parent_id]
+                if entry_facts and entry_facts.get("filled") != parent["filled"]:
+                    for oid, child in plan.orders.items():
+                        child_facts = relationship_facts[oid]
+                        if (child.get("protection_parent_order_id") == parent_id and child_facts
+                                and child_facts.get("filled") != child["filled"]):
+                            self._quarantine_native_update(child, child_facts)
+                            self._quarantine_native_update(parent, entry_facts)
+                            raise RuntimeError("RELATIONSHIP_UNIT_CROSS_ORDER_CHRONOLOGY_UNAVAILABLE")
             for _, parent in units:
                 parent["unit_reconciliation_pending"] = True
             self._save_all_selected_orders()
-            results = self._collect_relationship_updates(result_processor=result_processor)
+            results = self._collect_relationship_updates(result_processor=result_processor, cached_updates=relationship_facts)
             inventory = self._pmh_complete_inventory()
             for parent_id, parent in units:
                 life = self.post_fill_lifecycle.get_trade(parent.get("protection_trade_id") or parent_id)
@@ -3068,7 +3127,7 @@ class ExecutionEngine:
         finally:
             self._native_unit_update_batch = False
 
-    def _collect_relationship_updates(self, *, result_processor: Callable[[ExecutionResult], None] | None = None) -> list[ExecutionResult]:
+    def _collect_relationship_updates(self, *, result_processor: Callable[[ExecutionResult], None] | None = None, cached_updates=None) -> list[ExecutionResult]:
         """Single enumeration of retained relationship and standalone callbacks."""
         manager = getattr(self, "relationship_manager", None)
         plans = list(manager._relationship_plans.values()) if manager else []
@@ -3124,7 +3183,7 @@ class ExecutionEngine:
             try:
                 if plan is None or order.get("protection_parent_order_id") or order.get("request", {}).get("selected_stop_units"):
                     self._validate_native_binding(order_id, order, {})
-                facts = reader(order["broker_order_id"])
+                facts = cached_updates[order_id] if cached_updates is not None and order_id in cached_updates else reader(order["broker_order_id"])
                 if not facts:
                     if (plan is None and order.get("protection_parent_order_id") and (order["filled"]
                             or self._native_orders[order["protection_parent_order_id"]].get("pmh_failure_exit"))):

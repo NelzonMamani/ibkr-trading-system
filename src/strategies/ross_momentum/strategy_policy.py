@@ -1609,7 +1609,8 @@ def native_multi_relationship_initial(plan):
         return False
     original = plan.orders.get(plan.initial_order_id, {})
     version = original.get("owner_effect_version")
-    return (original.get("request", {}).get("selected_stop_units") is True
+    return (bool(original.get("unit_initial_protection_profile"))
+        or original.get("request", {}).get("selected_stop_units") is True
         or (version is not None and not (type(version) is int and version == 1
             and type(original.get("requested")) is int and original["requested"] == 1)))
 
@@ -1622,7 +1623,6 @@ RELATIONSHIP_UNIT_INITIAL_PROTECTION_PROFILE = "RELATIONSHIP_UNIT_INITIAL_PROTEC
 
 
 def selected_relationship_unit_stop_profile(request):
-    from src.config.config_resolver import get_ross_synthetic_relationship_base_size
     context = request.get("relationship_context") or {}
     if (request.get("selected_stop_units") is True and context.get("profile") == BULL_FLAG_MICRO_MANAGEMENT_PROFILE
             and context.get("action") == "ENTRY" and request.get("take_profit_price") is None):
