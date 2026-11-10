@@ -2500,7 +2500,7 @@ def test_central_failure_later_bar_and_missing_timestamp_or_relationship_hold(re
         assert evaluate(row) is None,change
 
 
-def small_central_owned(reassessment,monkeypatch,tmp_path,capsys,family,*,partial=False,requested_base=8,risk_cap=2,synthetic_capital=400,fill=True,expected_admitted=None,quantity_fault=None,unit_stops=False,unit_fault=None,micro_fault=None):
+def small_central_owned(reassessment,monkeypatch,tmp_path,capsys,family,*,partial=False,requested_base=8,risk_cap=2,synthetic_capital=400,fill=True,expected_admitted=None,quantity_fault=None,unit_stops=False,unit_fault=None,micro_fault=None,micro_clock=None):
     from test_joined_core_pmh_readonly import pmh_joined,standalone_bull_joined,micro_joined,key_joined,consolidation_joined,flat_top_joined,orb_joined,hod_joined,momentum_joined,cup_joined,opening_drive_joined,indicator_pullback_joined,vwap_pullback_joined,stair_step_joined
     from test_abcd_production_handoff import abcd_joined
     from test_joined_core_first_pullback import first_joined
@@ -2515,6 +2515,7 @@ def small_central_owned(reassessment,monkeypatch,tmp_path,capsys,family,*,partia
         if unit_stops:kwargs['runtime_options']['config_overrides']['ROSS_SYNTHETIC_UNIT_STOPS']=True
         if family=='CUP_HANDLE':kwargs['clock_time']=(13,55,30)
         if family=='MICRO_PULLBACK' and micro_fault is not None:kwargs['market_fault']=micro_fault
+        if family=='MICRO_PULLBACK' and micro_clock is not None:kwargs.update(clock_time=micro_clock,real_session=True)
         h=factory(*args,**kwargs)
         for row in h.rows.values():
             gap=(row['last_price']/row['prev_close']-1)*100;row.update(gap_pct=gap,pct_change=gap)
@@ -3960,10 +3961,10 @@ def test_unit_single_remainder_never_requests_unactionable_profit_quotes(reasses
         h.core.execution_engine.capital_authority.total_used_exposure)
 
 
-def micro_post_partial_case(reassessment,monkeypatch,tmp_path,capsys,*,family='MICRO_PULLBACK',fill_price=None,micro_fault=None):
+def micro_post_partial_case(reassessment,monkeypatch,tmp_path,capsys,*,family='MICRO_PULLBACK',fill_price=None,micro_fault=None,micro_clock=None):
     """Genuine all-registry native entry and accounted same-ID partial first."""
     prepared=small_central_owned(reassessment,monkeypatch,tmp_path,capsys,family,
-        requested_base=8,risk_cap=4,synthetic_capital=800,unit_stops=True,micro_fault=micro_fault)
+        requested_base=8,risk_cap=4,synthetic_capital=800,unit_stops=True,micro_fault=micro_fault,micro_clock=micro_clock)
     h,request,life=one_share_profit_case(reassessment,monkeypatch,tmp_path,capsys,prepared=prepared)
     enroll_unit_management(h,monkeypatch)
     assert h.core.run_once(),capsys.readouterr().out[-5000:]
@@ -4021,10 +4022,16 @@ def enroll_micro_cost_failure():
         ROSS_SYNTHETIC_MICRO_COST_FAILURE=True))
 
 
+@pytest.mark.parametrize('clock_time',[pytest.param((14,5,30),id='RTH_OPEN_10s'),pytest.param((16,35,30),id='RTH_MID_1m')])
 @pytest.mark.parametrize('variant',['none','red_pause'])
-def test_micro_post_partial_cost_failure_native_core_to_flat(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,variant):
+def test_micro_post_partial_cost_failure_native_core_to_flat(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,variant,clock_time):
     from src.strategies.ross_momentum.strategy_policy import STANDALONE_MICRO_COST_FAILURE_PROFILE
-    h,request,life=micro_post_partial_case(reassessment,monkeypatch,tmp_path,capsys,micro_fault=variant)
+    h,request,life=micro_post_partial_case(reassessment,monkeypatch,tmp_path,capsys,micro_fault=variant,micro_clock=clock_time)
+    assert request.management_session_plan==('RTH_MID' if clock_time[0]==16 else 'MORNING')
+    assert request.setup_metadata['execution_stream']['execution_trigger_timeframe']==('1m' if clock_time[0]==16 else '10s')
+    from src.market_data.session_pct_change import resolve_market_session_label
+    expected_context=resolve_market_session_label(h.life.clock.current)
+    assert h.focus_calls and all(row['session']==expected_context for row in h.focus_calls[0][0])
     original_quantity=life.filled_qty+life.exited_qty
     partial=deepcopy(h.failure_owner['unit_profit_exit'])
     assert partial['accounted_fill_quantity']==len(partial['leg_ids'])

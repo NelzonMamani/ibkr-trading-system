@@ -32,13 +32,17 @@ from test_ross_pr1029_pattern_detection_certification import _micro_rows
 from test_flat_top_production_handoff import forbid_collection_and_execution, forbid_io
 
 
-def joined(reassessment, monkeypatch, tmp_path, *, news_fault="none", peer=False, market_fault="none", position_case=None, runtime_options=None, clock_time=None):
+def joined(reassessment, monkeypatch, tmp_path, *, news_fault="none", peer=False, market_fault="none", position_case=None, runtime_options=None, clock_time=None, context_session=None):
     # Retain before the inherited harness temporarily stubs this class method.
     resolve_positions=core_module.CoreOrchestrator._resolve_position_truth_cycle
     c=reassessment
     life=c.life
     hour,minute,second=clock_time or (13,35,30)
     life.clock.current=life.clock.current.replace(hour=hour,minute=minute,second=second,microsecond=0)
+    session=context_session or "RTH_OPEN"
+    if context_session is not None:
+        from src.market_data.session_pct_change import resolve_session_diagnostics
+        monkeypatch.setattr(ross,"resolve_session_diagnostics",resolve_session_diagnostics)
     for module in (core_module,quote_freshness,position_truth,pattern_trace):
         monkeypatch.setattr(module,"datetime",life.clock)
     article=life.article("JPM reports earnings beat")
@@ -62,7 +66,7 @@ def joined(reassessment, monkeypatch, tmp_path, *, news_fault="none", peer=False
         assert cold.evidence_for_symbol("JPM")[0].published_at==article.published_at
     before=life.store.cache_path.read_bytes()
     c.row.update(last_price=10.92,bid=10.91,ask=10.93,spread_pct=100*.02/10.92,
-                 dollar_volume=19656000.,session="RTH_OPEN",con_id=123)
+                 dollar_volume=19656000.,session=session,con_id=123)
     rows={"JPM":c.row}
     if peer: rows["PEER"]={**c.row,"symbol":"PEER","company_name":"Peer Systems Inc","con_id":456}
     if market_fault=="focus_rvol":
@@ -71,7 +75,7 @@ def joined(reassessment, monkeypatch, tmp_path, *, news_fault="none", peer=False
         return dict(deepcopy(rows[symbol]),quote_timestamp_utc=kwargs["quote_override"].timestamp_utc)
     monkeypatch.setattr(ross,"_build_symbol_context",rebuild)  # Synthetic broker facts, never news/Focus flags.
     bundle=c.payload["ross_watchlist_reassessment"]
-    bundle.update(date=life.clock.current.date().isoformat(),session="RTH_OPEN",contexts=list(rows.values()))
+    bundle.update(date=life.clock.current.date().isoformat(),session=session,contexts=list(rows.values()))
     # Scanner boundary has no prepared Focus or catalyst authority.
     scan_rows=[_row(symbol) for symbol in rows]
     for row in scan_rows:
@@ -86,8 +90,8 @@ def joined(reassessment, monkeypatch, tmp_path, *, news_fault="none", peer=False
     overrides.update(NEWS_ENABLED=True,NEWS_CACHE_FILE=str(life.store.cache_path),ROSS_ISSUER_QUERY_ENABLED=True,
                      SCANNER_DATA_SOURCE="IBKR",LIVE_EXECUTION_PROBE_MODE=False)
     config_resolver.set_config_overrides(overrides)
-    _,policy=core._build_scanner_policy_for_strategy("ross_momentum","RTH_OPEN")
-    bundle.update(policy=policy,thresholds=ross._gate_thresholds(policy,ross._resolve_runtime_thresholds(policy,"RTH_OPEN")))
+    _,policy=core._build_scanner_policy_for_strategy("ross_momentum",session)
+    bundle.update(policy=policy,thresholds=ross._gate_thresholds(policy,ross._resolve_runtime_thresholds(policy,session)))
     core.connection_manager._client=object()  # Synthetic already-initialized boundary, no connection/query.
     c.provider.market_data_client=core.connection_manager.optional_client
     original_scan=core_module.run_scanner_cycle
