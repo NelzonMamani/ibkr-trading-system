@@ -3142,6 +3142,10 @@ class CoreOrchestrator:
             symbols = set()
             for symbol, position in self.trade_management_engine.snapshot_positions().items():
                 plan = self.trade_management_engine._relationship_plans.get(position.relationship_id)
+                from src.strategies.ross_momentum.strategy_policy import native_multi_relationship_initial
+                if (self.run_mode == RunMode.PAPER and self.execution_engine._provider.is_live()
+                        and native_multi_relationship_initial(plan)):
+                    continue  # Initial protection only; no native multi-share coordination grant.
                 if (position.target_model != BULL_FLAG_MICRO_MANAGEMENT_PROFILE or plan is None
                         or not plan.reconciled or plan.paused or plan.pending_stop_resize or plan.pending_stop_cancel
                         or any(order.get("cached_update_in_progress") for order in plan.orders.values())):
@@ -4628,7 +4632,11 @@ class CoreOrchestrator:
                         # entry already evaluated by risk.
                         decision.entry_price = getattr(intent, "entry_price", None)
                         from src.strategies.ross_momentum.strategy_policy import selected_completed_failure_profile
-                        if selected_completed_failure_profile(vars(intent)):
+                        context = getattr(intent, "relationship_context", None) or {}
+                        from src.config.config_resolver import get_ross_synthetic_relationship_base_size
+                        unit_relationship = (context.get("profile") == "BULL_FLAG_MICRO_2R_V1"
+                            and context.get("action") == "ENTRY" and get_ross_synthetic_relationship_base_size() > 1)
+                        if selected_completed_failure_profile(vars(intent)) or unit_relationship:
                             from copy import deepcopy
                             from src.storage.serialization import to_jsonable
                             decision.setup_metadata = to_jsonable(deepcopy(intent.setup_metadata))

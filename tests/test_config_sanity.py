@@ -68,36 +68,39 @@ def test_read_only_execution_disabled(monkeypatch: pytest.MonkeyPatch):
 
 
 @pytest.mark.parametrize('value',[True,2.5,'2',0,9])
-def test_native_synthetic_requested_size_rejects_non_contract_values(monkeypatch,value):
+@pytest.mark.parametrize('name,getter',[('ROSS_SYNTHETIC_REQUESTED_BASE_SIZE','get_ross_synthetic_requested_base_size'),('ROSS_SYNTHETIC_RELATIONSHIP_BASE_SIZE','get_ross_synthetic_relationship_base_size')])
+def test_native_synthetic_requested_size_rejects_non_contract_values(monkeypatch,value,name,getter):
     from src.config import config_resolver as resolver
     previous=dict(resolver._CONFIG_OVERRIDES)
     monkeypatch.setenv('EXECUTION_ENV','TEST')
     try:
-        resolver.set_config_overrides(dict(RUN_MODE='PAPER',RISK_PROFILE='SMALL',ROSS_SYNTHETIC_REQUESTED_BASE_SIZE=value))
+        resolver.set_config_overrides(dict(RUN_MODE='PAPER',RISK_PROFILE='SMALL',**{name:value}))
         with pytest.raises(resolver.ConfigResolutionError):
-            resolver.get_ross_synthetic_requested_base_size()
+            getattr(resolver,getter)()
     finally:resolver.set_config_overrides(previous)
 
 
 @pytest.mark.parametrize('environment,mode,profile',[('PRODUCTION','PAPER','SMALL'),('TEST','LIVE','SMALL'),('TEST','READ_ONLY','SMALL'),('TEST','PAPER','MICRO')])
-def test_native_synthetic_requested_size_requires_explicit_bounded_scope(monkeypatch,environment,mode,profile):
+@pytest.mark.parametrize('name,getter',[('ROSS_SYNTHETIC_REQUESTED_BASE_SIZE','get_ross_synthetic_requested_base_size'),('ROSS_SYNTHETIC_RELATIONSHIP_BASE_SIZE','get_ross_synthetic_relationship_base_size')])
+def test_native_synthetic_requested_size_requires_explicit_bounded_scope(monkeypatch,environment,mode,profile,name,getter):
     from src.config import config_resolver as resolver
     previous=dict(resolver._CONFIG_OVERRIDES)
     monkeypatch.setenv('EXECUTION_ENV',environment)
     try:
-        resolver.set_config_overrides(dict(RUN_MODE=mode,RISK_PROFILE=profile,ROSS_SYNTHETIC_REQUESTED_BASE_SIZE=2))
+        resolver.set_config_overrides(dict(RUN_MODE=mode,RISK_PROFILE=profile,**{name:2}))
         with pytest.raises(resolver.ConfigResolutionError):
-            resolver.get_ross_synthetic_requested_base_size()
+            getattr(resolver,getter)()
     finally:resolver.set_config_overrides(previous)
 
 
-def test_native_synthetic_requested_size_default_has_no_environment_switch(monkeypatch):
+@pytest.mark.parametrize('name,getter',[('ROSS_SYNTHETIC_REQUESTED_BASE_SIZE','get_ross_synthetic_requested_base_size'),('ROSS_SYNTHETIC_RELATIONSHIP_BASE_SIZE','get_ross_synthetic_relationship_base_size')])
+def test_native_synthetic_requested_size_default_has_no_environment_switch(monkeypatch,name,getter):
     from src.config import config_resolver as resolver
     previous=dict(resolver._CONFIG_OVERRIDES)
-    monkeypatch.setenv('ROSS_SYNTHETIC_REQUESTED_BASE_SIZE','4')
+    monkeypatch.setenv(name,'4')
     try:
         resolver.set_config_overrides(None)
-        assert resolver.get_ross_synthetic_requested_base_size()==1
+        assert getattr(resolver,getter)()==1
     finally:resolver.set_config_overrides(previous)
 
 

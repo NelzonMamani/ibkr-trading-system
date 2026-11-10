@@ -1592,3 +1592,49 @@ def standalone_micro_cost_failure_basis(order, entry_fill_price):
         return basis[0], basis[1], stamp
     except (KeyError, TypeError, ValueError, OverflowError, InvalidOperation):
         return None
+
+
+# NEW delegated project prerequisite, 10 November 2026. Separate synthetic
+# TEST/PAPER/SMALL initial relationship base1..8/default1/env[]; existing quality
+# and stricter caps remain. This is a REQUEST, never permission from a ceiling.
+# Initial native filled quantity uses existing S0/accounting/reconciliation.
+# NO native multi-share discretionary management is enrolled by this sizing:
+# no add, re-entry, reduction, trailing or new failure exit until its native
+# aggregate protection/sell-quantity coordination is proved. Protective fills
+# still drain first. The durable veto follows original native requested size,
+# even after stop partials reduce the remainder or config returns to default1.
+# Approved one-share relationship and standalone policies remain separate.
+def native_multi_relationship_initial(plan):
+    if plan is None:
+        return False
+    original = plan.orders.get(plan.initial_order_id, {})
+    version = original.get("owner_effect_version")
+    return (bool(original.get("unit_initial_protection_profile"))
+        or original.get("request", {}).get("selected_stop_units") is True
+        or (version is not None and not (type(version) is int and version == 1
+            and type(original.get("requested")) is int and original["requested"] == 1)))
+
+
+# Initial native multi-share relationships use the EXISTING total-one unit
+# protection/lifecycle owner, persisted in their EXISTING plan.orders ledger.
+# No aggregate-stop quantity amendment, extra ownership ledger or management
+# enrollment is granted. Interrupted/restored/unknown units quarantine/no retry.
+RELATIONSHIP_UNIT_INITIAL_PROTECTION_PROFILE = "RELATIONSHIP_UNIT_INITIAL_PROTECTION_V1"
+
+
+def selected_relationship_unit_stop_profile(request):
+    context = request.get("relationship_context") or {}
+    if (request.get("selected_stop_units") is True and context.get("profile") == BULL_FLAG_MICRO_MANAGEMENT_PROFILE
+            and context.get("action") == "ENTRY" and request.get("take_profit_price") is None):
+        return RELATIONSHIP_UNIT_INITIAL_PROTECTION_PROFILE
+    return None
+
+
+def native_multi_relationship_action_veto(manager, context):
+    """Retain initial-only scope across the genuine fresh-ID REENTRY shape."""
+    plans = getattr(manager, "_relationship_plans", {})
+    if native_multi_relationship_initial(plans.get(context.get("relationship_id"))):
+        return True
+    return bool(context.get("action") == "REENTRY" and context.get("security_id") and context.get("parent_id")
+        and any(plan.security_id == context["security_id"] and plan.parent_id == context["parent_id"]
+            and native_multi_relationship_initial(plan) for plan in plans.values()))

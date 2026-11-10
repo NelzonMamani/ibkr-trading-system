@@ -13,7 +13,8 @@ from src.core_engine.events import RiskDecisionRecord, TradeIntentRecord
 from src.core_engine.health import HealthStatus
 from src.core_engine.state import RunMode as Epoch5Mode
 
-from src.config.config_resolver import get_config, get_ross_synthetic_requested_base_size
+from src.config.config_resolver import (get_config, get_ross_synthetic_requested_base_size,
+    get_ross_synthetic_relationship_base_size)
 from src.config.system_config import get_current_market_session
 from src.config.runtime_config import (
     RunMode,
@@ -1395,16 +1396,25 @@ class RiskEngine:
                   f"approved_quantity={decision.max_position_size}")
         if context:
             manager = getattr(self, "relationship_manager", None)
+            from src.strategies.ross_momentum.strategy_policy import native_multi_relationship_action_veto
+            initial_base = get_ross_synthetic_relationship_base_size()
+            initial_request = getattr(trade_intent, "quantity", None)
+            initial_invalid = (context.get("action") == "ENTRY" and initial_base > 1
+                and (type(initial_request) is not int or not 1 <= initial_request <= initial_base))
+            native_management_veto = (run_mode == RunMode.PAPER and context.get("action") != "ENTRY"
+                and native_multi_relationship_action_veto(manager, context))
             quantity = (manager.risk_quantity(trade_intent, quantity_cap=max_position_size,
                          value_cap=max_position_value, risk_cap=max_risk_per_trade, max_adds=risk_profile.max_adds,
-                         incremental_value_cap=max(0.0, total_exposure_limit - total_exposure)) if manager is not None else 0)
-            if quantity <= 0:
+                         incremental_value_cap=max(0.0, total_exposure_limit - total_exposure))
+                if manager is not None and not initial_invalid and not native_management_veto else 0)
+            if quantity <= 0 or initial_invalid or native_management_veto:
                 decision.allowed = False
                 decision.execution_blocked = True
                 decision.max_position_size = 0
                 decision.overall_action = "BLOCK"
                 decision.decision_code = "REJECT"
-                decision.reason_code = "RELATIONSHIP_AGGREGATE_RISK_BLOCK"
+                decision.reason_code = ("RELATIONSHIP_NATIVE_MULTI_MANAGEMENT_VETO" if native_management_veto else
+                    "INVALID_RELATIONSHIP_REQUESTED_QUANTITY" if initial_invalid else "RELATIONSHIP_AGGREGATE_RISK_BLOCK")
                 decision.risk_reasons.append(decision.reason_code)
             else:
                 decision.max_position_size = quantity
