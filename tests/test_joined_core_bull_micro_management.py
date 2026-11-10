@@ -32,6 +32,9 @@ from test_standalone_pmh_late_fill_protection import one_share_profit_case,enrol
     ("complete_empty","native_late_management_standalone_enrollment"),
     ("complete_empty","native_late_relationship_size"),
     ("complete_empty","native_late_relationship_profit"),
+    ("complete_empty","native_late_relationship_profit_mid"),
+    *[("complete_empty","native_late_relationship_profit_mid_"+case) for case in
+        ('forming','wick','below','quote_below','straddling','quote_unconfirmed','stop_first','slip','optout','epoch','account','second_unknown','truth_unknown','truth_larger','entry_partial')],
     *[("complete_empty","native_late_relationship_profit_"+case) for case in
         ('rejected','unknown','stale','incomplete','forming','wick','below','quote_below','straddling','quote_unconfirmed','stop_first','slip','optout','epoch','account','second_unknown','truth_unknown','truth_larger','entry_partial')],
     *[("complete_empty","native_late_relationship_"+case) for case in
@@ -56,6 +59,9 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
     relationship_variant=transport.removeprefix("native_late_relationship_") if transport.startswith("native_late_relationship_") else None
     relationship_profit_case=relationship_variant is not None and relationship_variant.startswith("profit")
     relationship_profit_fault=relationship_variant.removeprefix("profit_") if relationship_variant and relationship_variant.startswith("profit_") else "none"
+    mid_relationship_case=relationship_profit_fault=="mid" or relationship_profit_fault.startswith("mid_")
+    if mid_relationship_case:
+        relationship_profit_fault=relationship_profit_fault.removeprefix("mid_") if relationship_profit_fault!="mid" else "none"
     relationship_fault=relationship_variant in {"unknown_stop","changed_epoch","changed_child_action","wrong_existing_account","changed_child_version","entry_average"}
     relationship_partial_race=transport=="native_late_relationship_partial_race"
     relationship_partial=relationship_profit_fault=="entry_partial" or transport in {"native_late_relationship_partial","native_late_relationship_partial_race"} or relationship_variant in {"changed_epoch","changed_child_action","wrong_existing_account","changed_child_version","entry_average"}
@@ -201,6 +207,7 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
         return provider
     monkeypatch.setattr(core_module,"IbkrExecutionProvider",provider_boundary)
     h=joined(reassessment,monkeypatch,tmp_path,position_case=position_case,
+        **(dict(clock_time=(16,35,30),context_session="RTH_MID",market_fault="mid_relationship") if mid_relationship_case else {}),
         runtime_options=dict(run_mode="PAPER",config_overrides=dict(EXECUTION_ENABLED=True,RISK_PROFILE="SMALL" if small_cap_case else "MICRO",
             **({"RISK_MAX_POSITION_SIZE":entry_quantity if relationship_sizing_case else 2} if small_cap_case else {}),
             **(dict(ROSS_SYNTHETIC_RELATIONSHIP_BASE_SIZE=8) if relationship_sizing_case else {}),
@@ -399,6 +406,15 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
         else:
             assert h.core.run_once() is (transport!="stop_after_risk")
             second=capsys.readouterr().out
+            if mid_relationship_case:
+                assert not sent and not h.artifacts, second[-5000:]
+                parents=list(h.manager._parents.values())
+                assert len(parents)==1 and parents[0]['state']=='ARMED'
+                retained_parent=deepcopy(parents[0])
+                from test_joined_core_bull_micro import _deliver_mid_child
+                _deliver_mid_child(h,next_forming_bar=True)
+                assert h.core.run_once();second+=capsys.readouterr().out
+                assert parents[0]['parent_id']==retained_parent['parent_id']
             if late_fill:
                 # Submission is actual Core/risk/execution; only a later native
                 # callback fact is supplied at the existing external cache seam.
@@ -410,6 +426,23 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
                     assert any(child.detected and child.setup_metadata.get('pullback_variant')=='SINGLE_GREEN_LOWER_WICK'
                         for source,child in h.children)
 
+                if mid_relationship_case:
+                    from datetime import datetime as RealDateTime
+                    source,native=h.registry_batches[-1]
+                    selected=native[raw_now[0].setup_metadata['canonical_result_index']]
+                    assert all(len(batch)==33 for _,batch in h.registry_batches)
+                    assert selected.setup_id=='P_BULL_FLAG' and selected.detected
+                    assert raw_now[0].relationship_context['child_timeframe']=='1m'
+                    assert raw_now[0].relationship_context['parent_invalidation']==pytest.approx(10.43)
+                    assert raw_now[0].entry_price==pytest.approx(10.91)
+                    assert raw_now[0].stop_loss_price==raw_now[0].invalidation_level==pytest.approx(10.81)
+                    child_time=RealDateTime.fromisoformat(raw_now[0].relationship_context['child_timestamp'])
+                    assert child_time+timedelta(minutes=1)<=source.observed_at_utc
+                    assert source.candles[-1].timestamp<=source.observed_at_utc<source.candles[-1].timestamp+timedelta(minutes=1)
+                    assert source.candles[-1].open==source.candles[-1].close==10.92
+                    standalone=next(result for result in native if result.setup_id=='P_MICRO_PULLBACK')
+                    assert not standalone.detected and standalone.rejection_reason=='no continuation close'
+                    assert raw_now[0].relationship_context['parent_id']==retained_parent['parent_id']
                 plan=h.manager._relationship_plans[raw_now[0].relationship_context["relationship_id"]]
                 assert plan.entry_quantity==0 and not plan.entry_terminal
                 assert plan.e0 is None and plan.milestone_price is None
@@ -705,9 +738,16 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
                     if relationship_profit_fault=='slip':
                         assert action['entry_fill_price']!=sent[0].setup_metadata['trigger_level']
                         assert action['milestone']==11.26
+                    if mid_relationship_case:
+                        assert sent[0].setup_metadata['execution_stream']['execution_trigger_timeframe']=='1m'
+                        assert sent[0].management_session_plan=='RTH_MID'
+                        assert sent[0].setup_metadata['source_metadata']['relationship']['parent_id']==retained_parent['parent_id']
+                        assert len(h.registry_batches[0][1])==33
                     assert action['milestone']==h.profit_level
                     assert plan.milestone_price==life.avg_fill_price+2*(life.avg_fill_price-life.selected_stop_price)
-                    assert '10s' in h.failure_history_reads
+                    expected_timeframe='1m' if mid_relationship_case else '10s'
+                    assert sent[0].setup_metadata['execution_stream']['execution_trigger_timeframe']==expected_timeframe
+                    assert expected_timeframe in h.failure_history_reads
                     assert action['occurrence']==sent[0].setup_metadata and sent[0].take_profit_price is None
                     assert {int(leg.broker_order_id) for leg in life.stop_legs}=={72,73,74,75}
                     coverage=engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)
@@ -2052,9 +2092,10 @@ def _prepare_relationship_profit_evidence(h,request,life,*,native_orders,native_
     from src.execution import trade_management_engine as management_module
     monkeypatch.setattr(management_module,'datetime',RealDateTime)
     h.failure_history_reads=[]
+    retained_timeframe=request.setup_metadata['execution_stream']['execution_trigger_timeframe']
     def later_history(*args,**kwargs):
         h.failure_history_reads.append(kwargs['timeframe'])
-        rows=h.failure_bars if kwargs['timeframe']=='10s' else h.streams[kwargs['timeframe']][-kwargs['lookback_bars']:]
+        rows=h.failure_bars if kwargs['timeframe']==retained_timeframe else h.streams[kwargs['timeframe']][-kwargs['lookback_bars']:]
         return HistoricalDataResult('COMPLETE_BARS',tuple(rows),True)
     monkeypatch.setattr(h.core.connection_manager,'_client',NS(intraday_bars_from_history=later_history))
     # Common existing completed-bar/quote preparation, with
