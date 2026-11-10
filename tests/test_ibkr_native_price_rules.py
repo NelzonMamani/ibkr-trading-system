@@ -50,7 +50,7 @@ def test_real_sdk_encoding_completed_immutable_scoped_bands(monkeypatch):
     with pytest.raises(RuntimeError,match='unowned'):client.reqMarketRule(26)
 
 
-@pytest.mark.parametrize('value,expected',[(.991,'.995'),(.999,'1.000'),(1.02,'1.02'),(10.249,'10.30'),(10.30,'10.30')])
+@pytest.mark.parametrize('value,expected',[(.991,'.995'),(.999,'1.000'),(1.02,'1.02'),(10.249,'10.25'),(10.30,'10.30')])
 def test_exact_grid_and_band_crossing(monkeypatch,value,expected):
     client,c,_,_=price_client(monkeypatch)
     rule=client.price_rule_snapshot(c,route='SMART')

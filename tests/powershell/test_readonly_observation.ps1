@@ -410,7 +410,7 @@ print('CACHE_STARTUP_CHECKS_PASS')
     # Parse the independently supplied LOCAL operator block without executing
     # it, requesting credentials, probing TWS, or acquiring any market data.
     $checkpoint = [IO.File]::ReadAllText((Join-Path $repo 'docs\ross\NATURAL_READONLY_CHECKPOINT.md'))
-    $heading = '## Local observation operator block — native-price prerequisite continuation'
+    $heading = '## Local observation operator block'
     $localBlock = $checkpoint.Substring($checkpoint.IndexOf($heading))
     $match = [regex]::Match($localBlock, '(?s)```powershell\r?\n(.*?)```')
     Check $match.Success 'Maintained local observation block is missing.'

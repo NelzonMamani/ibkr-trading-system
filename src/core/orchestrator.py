@@ -3039,16 +3039,21 @@ class CoreOrchestrator:
         if not decision.allowed or decision.execution_blocked:
             return None
         frozen_order,frozen_bars,frozen_proposal = deepcopy(order),deepcopy(bars),deepcopy(proposal)
+        frozen_truth = deepcopy(snapshot)
+        truth_as_of, authorized_at = snapshot.as_of, now
         def guard(as_of):
             current_plan = normalize_session_label(market_session_phase(as_of))
             self._expire_selected_failure_enrollment(as_of,current_plan)
-            if (self._stop_requested_at_boundary("STOP_REVISION_FINAL_WRITE") or order.get("pmh_management_expired")
-                    or not 0 <= (as_of-snapshot.as_of).total_seconds() <= get_ibkr_snapshot_max_age_seconds()):
+            if (as_of < authorized_at or self._latest_position_truth_snapshot is not snapshot or snapshot != frozen_truth
+                    or self._stop_requested_at_boundary("STOP_REVISION_FINAL_WRITE") or order.get("pmh_management_expired")
+                    or not 0 <= (as_of-truth_as_of).total_seconds() <= get_ibkr_snapshot_max_age_seconds()):
                 return False
             current = self.trade_management_engine.inspect_stop_revision_prerequisite(frozen_order,
                 frozen_bars,observed_at=as_of,session_plan=current_plan)
             check = self.risk_engine.evaluate_stop_revision_prerequisite(order_id=order_id,order=frozen_order,
-                position=position,registered=registered,life=life,snapshot=snapshot,observed_at=as_of)
+                position=self.trade_management_engine.snapshot_positions().get(order["symbol"]),
+                registered=self.trade_registry.get_trade(order["symbol"],request.get("trader_type")),
+                life=life,snapshot=frozen_truth,observed_at=as_of)
             return current == frozen_proposal and check.allowed and not check.execution_blocked
         return proposal,quote,decision,guard
 

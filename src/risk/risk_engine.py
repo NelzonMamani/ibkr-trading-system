@@ -118,6 +118,7 @@ class RiskEngine:
                 and (order.get("protection_confirmed") or (selected_unit_management_profile(request) and order.get("unit_close_coverage_confirmed"))) and not order.get("cached_update_in_progress")
                 and not order.get("quarantine") and not order.get("pmh_failure_exit")
                 and not order.get("pmh_management_expired")
+                and (not order.get("stop_price_revision") or order["stop_price_revision"].get("status") == "CONFIRMED")
                 and (selected_completed_failure_profile(request) or relationship_profit)
                 and request.get("take_profit_price") is None
                 and (not request.get("relationship_context") or relationship_profit)

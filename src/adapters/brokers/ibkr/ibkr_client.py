@@ -126,20 +126,24 @@ class NativePriceRule:
         original, effective, bid = map(_price_decimal, (original_stop, effective_stop, bid))
         if not 0 < original <= effective < price < bid:
             raise ValueError("Long stop must tighten confirmed protection below executable bid")
-        for _ in range(len(self.bands)+1):
-            tick = self.increment(price)
-            pn, pd = price.as_integer_ratio()
+        candidates = []
+        for index, (edge, tick) in enumerate(self.bands):
+            lower = max(price, edge)
+            upper = self.bands[index+1][0] if index+1 < len(self.bands) else None
+            if upper is not None and lower >= upper:
+                continue
+            pn, pd = lower.as_integer_ratio()
             tn, td = tick.as_integer_ratio()
             units = (pn*td + pd*tn-1)//(pd*tn)
             parts = tick.as_tuple()
             coefficient = int(''.join(map(str, parts.digits)))*units
             normalized = Decimal((0, tuple(map(int, str(coefficient))), parts.exponent))
-            if normalized >= bid:
-                raise ValueError("Normalized stop meets/crosses executable bid")
-            if self.increment(normalized) == tick:
-                return normalized
-            price = normalized
-        raise ValueError("No stable applicable price band")
+            if normalized < bid and (upper is None or normalized < upper):
+                candidates.append(normalized)
+        if not candidates:
+            raise ValueError("No legal tightening price below executable bid")
+        return min(candidates)  # Smallest legal ceiling ACROSS bands, not an overshoot.
+
 
 
 def _price_decimal(value):

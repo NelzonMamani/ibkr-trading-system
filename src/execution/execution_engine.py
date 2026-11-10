@@ -2635,6 +2635,7 @@ class ExecutionEngine:
                 or not callable(authorization_guard) or self._native_quarantined
                 or parent.get("quarantine") or parent.get("cached_update_in_progress")
                 or parent.get("pmh_management_expired") or parent.get("pmh_failure_exit")
+                or (parent.get("stop_price_revision") and parent["stop_price_revision"].get("status") != "CONFIRMED")
                 or (profit and parent.get("unit_profit_exit"))
                 or not parent.get("terminal") or parent.get("filled") != parent.get("requested")
                 or life is None or life.filled_qty <= 0 or not decision.allowed or decision.execution_blocked
@@ -2838,11 +2839,19 @@ class ExecutionEngine:
         for leg in selected:
             child = self._selected_order_records()[leg.leg_id]
             child["stop_price_revision"] = dict(status="RESERVED", proposed_price=float(normalized),
-                last_confirmed_effective_stop_price=leg.last_confirmed_effective_stop_price,
+                previous_confirmed_price=leg.last_confirmed_effective_stop_price,
+                account=parent["account"],client_id=parent["unit_client_id"],connection_epoch=parent["unit_connection_epoch"],
+                security_id=parent["security_id"],local_transition_id=leg.leg_id+":price-once",
                 native_order_id=leg.broker_order_id, total_quantity=1)
             leg.stop_price_revision = dict(child["stop_price_revision"])
             leg.independently_confirmed = False
         parent["protection_confirmed"] = False
+        parent["unit_close_coverage_confirmed"] = False
+        retained_scope = self._native_scope
+        parent_fields = ("symbol","side","account","security_id","decision_id","requested","filled",
+            "terminal","last_accounted_entry_fill_at","unit_connection_epoch","unit_client_id",
+            "protection_trade_id","pmh_management_expired","pmh_failure_exit","unit_profit_exit","unit_close_coverage_confirmed")
+        parent_binding = deepcopy({key:parent.get(key) for key in parent_fields})
         try:
             self._save_selected_orders(order_id)  # UNIQUE reservation before any native write.
             for leg in selected:
@@ -2852,8 +2861,18 @@ class ExecutionEngine:
                 leg.stop_price_revision = dict(revision)
                 self._save_selected_orders(order_id)
                 sealed = deepcopy(revision)
+                leg_refs = [(item,self._selected_order_records()[item.leg_id]) for item in life.stop_legs]
+                leg_seal = deepcopy([(vars(item),record) for item,record in leg_refs])
                 def final_guard(as_of, child=child, sealed=sealed):
-                    if ((initial, proposal, vars(decision), vars(quote)) != retained
+                    if (self._selected_order_records().get(order_id) is not parent
+                            or parent.get("request") is not initial or parent["request"] != retained[0]
+                            or {key:parent.get(key) for key in parent_fields} != parent_binding
+                            or self._native_scope != retained_scope
+                            or len(life.stop_legs) != len(leg_refs)
+                            or any(current is not item or self._selected_order_records().get(item.leg_id) is not record
+                                for current,(item,record) in zip(life.stop_legs,leg_refs))
+                            or [(vars(item),record) for item,record in leg_refs] != leg_seal
+                            or (initial, proposal, vars(decision), vars(quote)) != retained
                             or life.filled_qty != quantity or life.avg_fill_price != entry or life.selected_stop_price != original
                             or parent.get("quarantine") or self._native_quarantined or parent.get("cached_update_in_progress")
                             or parent.get("pmh_failure_exit") or parent.get("stop_price_revision") != sealed_root
@@ -2879,7 +2898,8 @@ class ExecutionEngine:
                     if entry_facts and (entry_facts.get("broker_error_code")
                             or str(entry_facts.get("status", "")).upper() != "FILLED"
                             or not self._unit_quantity_matches(entry_facts.get("filled"),parent["filled"])
-                            or not self._unit_quantity_matches(entry_facts.get("remaining"),0)):
+                            or not self._unit_quantity_matches(entry_facts.get("remaining"),0)
+                            or ("avgFillPrice" in entry_facts and _price_decimal(entry_facts["avgFillPrice"]) != _price_decimal(entry))):
                         return False
                     return True
                 units = [(str(item.broker_order_id), 1, 0, "STP") for item in life.stop_legs if item.quantity>item.filled_quantity]
@@ -2888,7 +2908,7 @@ class ExecutionEngine:
                 self._provider.revise_selected_stop_price(broker_order_id=child["broker_order_id"],
                     parent_order_id=parent["broker_order_id"], symbol=parent["symbol"],con_id=parent["security_id"],
                     total_quantity=1,trade_id=life.trade_id,stop_price=leg.last_confirmed_effective_stop_price,
-                    expected_client=self._native_scope[1],scope_as_of=self._native_scope[2],authorization_guard=final_guard,
+                    expected_client=retained_scope[1],scope_as_of=retained_scope[2],authorization_guard=final_guard,
                     unit_orders=units,unit_account=parent["account"],unit_epoch=parent["unit_connection_epoch"],
                     unit_stop_prices=prices,proposed_price=normalized,price_rule=price_rule,quote=quote)
                 if self._confirm_selected_unit_stops(life,self._pmh_complete_inventory(),allow_managed=True) is None:
@@ -2898,6 +2918,7 @@ class ExecutionEngine:
                 self._save_selected_orders(order_id)
             parent["stop_price_revision"]["status"] = "CONFIRMED"
             parent["protection_confirmed"] = True
+            parent["unit_close_coverage_confirmed"] = True
             self._save_selected_orders(order_id)
         except BaseException:
             self._quarantine_native_update(parent)
@@ -3105,7 +3126,7 @@ class ExecutionEngine:
                         and (child.get("unit_amendment") or {}).get("status") != "MKT_CONFIRMED"
                         and not isinstance(meta.get("stop_price"), bool) and meta.get("stop_price") == ((child["stop_price_revision"]["proposed_price"]
                             if child.get("stop_price_revision", {}).get("status") in {"DISPATCH_UNCERTAIN", "CONFIRMED"}
-                            else child.get("stop_price_revision", {}).get("last_confirmed_effective_stop_price",life.selected_stop_price)))
+                            else child.get("stop_price_revision", {}).get("previous_confirmed_price",life.selected_stop_price)))
                         or (allow_managed and row.order_type.upper() == "MKT" and (child.get("unit_amendment") or {}).get("status") in {"DISPATCH_UNCERTAIN", "MKT_CONFIRMED"}
                             and leg.close_role in {"REDUCTION", "FAILURE"}))
                     or row.parent_order_id != str(parent["broker_order_id"])
@@ -3124,8 +3145,10 @@ class ExecutionEngine:
                 leg.last_confirmed_effective_stop_price = row.metadata["stop_price"]
                 revision = self._selected_order_records()[leg.leg_id].get("stop_price_revision")
                 if revision:
-                    if revision["status"] in {"DISPATCH_UNCERTAIN", "CONFIRMED"} and row.metadata["stop_price"] == revision["proposed_price"]:
+                    if revision["status"] == "DISPATCH_UNCERTAIN" and row.metadata["stop_price"] == revision["proposed_price"]:
                         revision["status"] = "CONFIRMED"
+                        revision["confirmed_observed_at"] = datetime.now(timezone.utc).isoformat()
+                        revision["confirmation_kind"] = "MATCHED_COMPLETE_INVENTORY_PRICE_NOT_NATIVE_VERSION"
                     leg.stop_price_revision = dict(revision)
                     leg.independently_confirmed = revision["status"] == "CONFIRMED"
             self._selected_order_records()[leg.leg_id]["status"] = "SUBMITTED"

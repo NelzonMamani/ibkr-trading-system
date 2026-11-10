@@ -1764,6 +1764,14 @@ def collect_real_readonly_runtime_evidence(
     operator_observation_scope: Mapping[str, Any] | None = None,
 ) -> RuntimeObservationEvidence:
     apply_readonly_runtime_overrides(env)
+    exact_client_policy = None
+    if env.get("READONLY_ADMISSION_TOKEN"):
+        # Existing supervised natural-observation route only. Its parent token
+        # is checked by the maintained admission owner. Pin BEFORE scanner I/O;
+        # a conflict fails, never probes unapproved fallback client identities.
+        from src.adapters.brokers.ibkr.ibkr_connection_manager import get_shared_ibkr_connection_manager
+        manager = get_shared_ibkr_connection_manager(readonly_enabled=True)
+        exact_client_policy = manager.pin_readonly_client_id(int(env["IBKR_CLIENT_ID"]))
     captured_at = utc_now_iso()
     scope = build_operator_observation_scope(
         max_observation_symbols=(operator_observation_scope or {}).get("max_observation_symbols", DEFAULT_MAX_OBSERVATION_SYMBOLS),
@@ -1771,6 +1779,8 @@ def collect_real_readonly_runtime_evidence(
         max_snapshot_failures=(operator_observation_scope or {}).get("max_snapshot_failures", DEFAULT_MAX_SNAPSHOT_FAILURES),
         observation_symbols=(operator_observation_scope or {}).get("observation_symbols", []),
     )
+    if exact_client_policy is not None:
+        scope["exact_client_policy"] = exact_client_policy
     runtime_started_s = time.monotonic()
     scanner_runtime_deadline_s = runtime_started_s + float(scope["max_observation_seconds"])
     broker_before = _broker_snapshot()
