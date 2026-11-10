@@ -5,6 +5,13 @@ from types import SimpleNamespace as NS
 
 import pytest
 
+from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
+from ibapi.client import EClient
+
+# Capture the existing audited SDK owner before function-scoped transport guards.
+# The single real-encoder test below stubs sendMsg, never the guard itself.
+_AUDITED_SDK_PLACE_ORDER = EClient.placeOrder
+
 from src.execution.execution_engine import ExecutionEngine
 from src.execution.execution_providers import IbkrExecutionProvider
 from src.ibkr.position_snapshot import BrokerPositionResult
@@ -3229,13 +3236,15 @@ def test_native_unit_stop_cap_one_keeps_accepted_one_share_profit(reassessment,m
     assert h.core.execution_engine.capital_authority.total_used_exposure==0
 
 
-@pytest.mark.parametrize('expire_after_persist',[False,True])
-def test_native_unit_stop_real_adapter_client_binds_before_sdk_write(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,expire_after_persist):
+@pytest.mark.parametrize('commit_change',['none','time','readonly_mode','execution','instance_readonly'])
+def test_native_unit_stop_real_adapter_client_binds_before_sdk_write(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,commit_change):
     from src.brokers.ibkr_live_broker import IbkrLiveBroker
     from src.config.runtime_config import RunMode
     monkeypatch.setenv('IBKR_ORDER_ID_STATE_PATH',str(tmp_path/'unit-order-ids.json'))
     h,request,_=small_central_owned(reassessment,monkeypatch,tmp_path,capsys,'BULL_FLAG',requested_base=6,risk_cap=4,synthetic_capital=800,unit_stops=True,fill=False)
     engine=h.core.execution_engine;client=h.native_client
+    from src.brokers import ibkr_live_broker as broker_module
+    monkeypatch.setattr(broker_module,'datetime',h.life.clock)
     broker=object.__new__(IbkrLiveBroker);broker.run_mode=RunMode.PAPER;broker.connection_manager=h.native_manager
     monkeypatch.setattr(broker,'ensure_connection',lambda:pytest.fail('Implicit connection forbidden'))
     monkeypatch.setattr(engine._provider.broker,'place_stop_order',broker.place_stop_order)
@@ -3250,25 +3259,46 @@ def test_native_unit_stop_real_adapter_client_binds_before_sdk_write(reassessmen
         h.stop_requests.append(dict(quantity=1,stop_price=native.auxPrice))
         external_contract=deepcopy(contract);external_contract.conId=123
         h.native_open_orders.append(NS(orderId=broker_id,contract=external_contract,order=deepcopy(native),orderState=NS(status='Submitted')))
-    monkeypatch.setattr(client,'placeOrder',sdk_write)
-    if expire_after_persist:
+    # Keep the actual SDK mutation audit AND encoder. Stub only the transport;
+    # append independent synthetic inventory after a successful SDK call.
+    from ibapi.client import EClient
+    actual_sdk=_AUDITED_SDK_PLACE_ORDER
+    assert getattr(actual_sdk,'_mutation_audited',False)
+    wire=[]
+    monkeypatch.setattr(client,'serverVersion_',180)
+    monkeypatch.setattr(client,'sendMsg',lambda message:wire.append(message))
+    def sdk_boundary(self,broker_id,contract,native):
+        actual_sdk(self,broker_id,contract,native)
+        sdk_write(broker_id,contract,native)
+    monkeypatch.setattr(EClient,'placeOrder',sdk_boundary)
+    if commit_change!='none':
         store=h.core.storage_engine.store_execution_order_state
         delayed=[False]
         def persist(*args,**kwargs):
             store(*args,**kwargs)
             if not delayed[0] and any(v.get('protection_parent_order_id') for v in args[1]['orders'].values()):
-                delayed[0]=True;h.life.clock.current+=timedelta(seconds=16)
+                delayed[0]=True
+                if commit_change=='time':h.life.clock.current+=timedelta(seconds=16)
+                elif commit_change=='instance_readonly':client.readonly_enabled=True
+                else:
+                    from src.config import config_resolver
+                    change={'readonly_mode':('RUN_MODE','READ_ONLY'),'execution':('EXECUTION_ENABLED',False)}[commit_change]
+                    config_resolver.set_config_overrides(dict(config_resolver._CONFIG_OVERRIDES,**{change[0]:change[1]}))
         monkeypatch.setattr(h.core.storage_engine,'store_execution_order_state',persist)
     h.facts[71]=dict(status='Filled',filled=3,remaining=0,avgFillPrice=10.88)
     h.native_quantity[0]=3;h.native_open_orders.clear()
     completed=h.core.run_once();observed=capsys.readouterr().out
-    if expire_after_persist:
-        assert not completed and not writes and engine._native_quarantined
-        assert delayed[0] and 'NATIVE_ORDER_SCOPE_STALE_OR_CHANGED' in observed
+    if commit_change!='none':
+        assert not completed and not writes and not wire and engine._native_quarantined
+        assert delayed[0]
+        if commit_change=='time':assert 'NATIVE_ORDER_SCOPE_STALE_OR_CHANGED' in observed
+        elif commit_change=='execution':assert 'IBKR read-only enabled' in observed
+        elif commit_change=='instance_readonly':assert 'IBKR instance read-only' in observed
+        else:assert 'IBKR read-only enabled' in observed
         assert not h.core.run_once();capsys.readouterr()
         assert not writes
     else:
-        assert completed and writes==[72,73,74], observed[-2500:]
+        assert completed and writes==[72,73,74] and len(wire)==3, observed[-2500:]
         life=engine.post_fill_lifecycle.get_trade(request.client_order_id)
         assert life.filled_qty==3 and engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
         assert_readonly_selected_dispatch_restart(h,request,timeframe='10s',profile='UNIT_STOPS')
