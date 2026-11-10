@@ -681,7 +681,14 @@ def get_ross_synthetic_requested_base_size() -> int:
     reduce the resulting request. A larger ceiling cannot enlarge this request.
     Check the raw override too: int coercion must not turn bool/float into shares.
     """
-    name = "ROSS_SYNTHETIC_REQUESTED_BASE_SIZE"
+    return _get_ross_synthetic_base_size("ROSS_SYNTHETIC_REQUESTED_BASE_SIZE")
+
+
+def get_ross_synthetic_relationship_base_size() -> int:
+    return _get_ross_synthetic_base_size("ROSS_SYNTHETIC_RELATIONSHIP_BASE_SIZE")
+
+
+def _get_ross_synthetic_base_size(name) -> int:
     record = get_config_record(name)
     raw = _CONFIG_OVERRIDES.get(name, record.value)
     if type(raw) is not int or not 1 <= raw <= 8:

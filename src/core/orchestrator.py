@@ -3142,6 +3142,10 @@ class CoreOrchestrator:
             symbols = set()
             for symbol, position in self.trade_management_engine.snapshot_positions().items():
                 plan = self.trade_management_engine._relationship_plans.get(position.relationship_id)
+                from src.strategies.ross_momentum.strategy_policy import native_multi_relationship_initial
+                if (self.run_mode == RunMode.PAPER and self.execution_engine._provider.is_live()
+                        and native_multi_relationship_initial(plan)):
+                    continue  # Initial protection only; no native multi-share coordination grant.
                 if (position.target_model != BULL_FLAG_MICRO_MANAGEMENT_PROFILE or plan is None
                         or not plan.reconciled or plan.paused or plan.pending_stop_resize or plan.pending_stop_cancel
                         or any(order.get("cached_update_in_progress") for order in plan.orders.values())):

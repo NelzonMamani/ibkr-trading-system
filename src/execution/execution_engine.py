@@ -926,6 +926,19 @@ class ExecutionEngine:
             order_type="MKT",
         )
         if risk_decision is not None:
+            context = getattr(risk_decision, "relationship_context", None) or {}
+            if (context and risk_decision.allowed and not risk_decision.execution_blocked
+                    and self.run_mode == RunMode.PAPER and self._provider is not None and self._provider.is_live()):
+                from src.strategies.ross_momentum.strategy_policy import native_multi_relationship_initial
+                from src.config.config_resolver import get_ross_synthetic_relationship_base_size
+                manager = getattr(self, "relationship_manager", None)
+                plan = manager._relationship_plans.get(context.get("relationship_id")) if manager else None
+                quantity = getattr(risk_decision, "max_position_size", None)
+                initial = context.get("action") == "ENTRY"
+                if ((not initial and native_multi_relationship_initial(plan)) or (initial and
+                        (type(quantity) is not int or not 0 < quantity <= get_ross_synthetic_relationship_base_size()))):
+                    return ExecutionResult(symbol=risk_decision.symbol, trader_type=risk_decision.trader_type or "UNKNOWN",
+                        attempted=False, status="BLOCKED", rationale="RELATIONSHIP_NATIVE_SIZE_OR_MANAGEMENT_VETO")
             action = "SUBMIT" if getattr(risk_decision, 'allowed', False) else "SKIP"
             reason = getattr(risk_decision, 'rationale', None) or getattr(risk_decision, 'reason_code', None) or 'NO_REASON'
             print(f"[EXECUTION] symbol={risk_decision.symbol} action={action} reason={reason}")

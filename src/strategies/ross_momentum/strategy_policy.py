@@ -1592,3 +1592,21 @@ def standalone_micro_cost_failure_basis(order, entry_fill_price):
         return basis[0], basis[1], stamp
     except (KeyError, TypeError, ValueError, OverflowError, InvalidOperation):
         return None
+
+
+# NEW delegated project prerequisite, 10 November 2026. Separate synthetic
+# TEST/PAPER/SMALL initial relationship base1..8/default1/env[]; existing quality
+# and stricter caps remain. This is a REQUEST, never permission from a ceiling.
+# Initial native filled quantity uses existing S0/accounting/reconciliation.
+# NO native multi-share discretionary management is enrolled by this sizing:
+# no add, re-entry, reduction, trailing or new failure exit until its native
+# aggregate protection/sell-quantity coordination is proved. Protective fills
+# still drain first. The durable veto follows original native requested size,
+# even after stop partials reduce the remainder or config returns to default1.
+# Approved one-share relationship and standalone policies remain separate.
+def native_multi_relationship_initial(plan):
+    if plan is None:
+        return False
+    original = plan.orders.get(plan.initial_order_id, {})
+    return (original.get("owner_effect_version") == 1
+        and (type(original.get("requested")) is not int or original["requested"] > 1))

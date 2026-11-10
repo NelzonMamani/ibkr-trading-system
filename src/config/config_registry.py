@@ -1649,6 +1649,12 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
         "enforcement": "HARD", "mutable": "dynamic",
         "description": "Explicit TEST/PAPER/SMALL per-unit selected protection only; management requires separate explicit enrollment.",
     },
+    "ROSS_SYNTHETIC_RELATIONSHIP_BASE_SIZE": {
+        "type": int, "default": 1, "env": [],
+        "affects": ["RossMomentumStrategyV1", "RiskEngine", "ExecutionEngine"],
+        "enforcement": "HARD", "mutable": "dynamic",
+        "description": "Explicit TEST/PAPER/SMALL relationship initial-size prerequisite only; native multi-share management remains vetoed.",
+    },
     "ROSS_SYNTHETIC_REQUESTED_BASE_SIZE": {
         "type": int,
         "default": 1,

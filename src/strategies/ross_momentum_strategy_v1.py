@@ -14,7 +14,8 @@ from copy import deepcopy
 from datetime import timezone
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
-from src.config.config_resolver import ConfigResolutionError, get_config, get_ross_synthetic_requested_base_size
+from src.config.config_resolver import (ConfigResolutionError, get_config, get_ross_synthetic_requested_base_size,
+    get_ross_synthetic_relationship_base_size)
 from src.config.runtime_config import RunMode
 from src.core.engines.decision_engine import DecisionEngine
 from src.core.engines.level_engine import LevelEngine
@@ -1960,6 +1961,15 @@ class RossMomentumStrategyV1(BaseStrategy):
                 manager = getattr(self, "relationship_manager", None)
                 if manager is None or not manager.prepare_relationship_intent(intent, relationship_context):
                     continue
+                # The existing owner binds ENTRY vs ADD/REENTRY only here.
+                # An explicit initial base replaces the default request basis;
+                # multiply the original quality factor once, never its output.
+                if intent.relationship_context.get("action") == "ENTRY":
+                    initial_base = get_ross_synthetic_relationship_base_size()
+                    if initial_base > 1:
+                        position_size = initial_base * size_multiplier
+                        setattr(intent, "position_size", position_size)
+                        setattr(intent, "quantity", max(1, int(round(position_size))))
             _terminal(
                 symbol,
                 TERMINAL_CATEGORY["INTENT_CREATED"],

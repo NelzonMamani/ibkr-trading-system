@@ -29,6 +29,8 @@ from test_key_level_break_production_handoff import forbid_io
     ("complete_empty","native_late_fill"),("complete_empty","native_late_management_green_child"),
     ("complete_empty","native_late_management_small_cap"),
     ("complete_empty","native_late_management_standalone_enrollment"),
+    ("complete_empty","native_late_relationship_size"),
+    ("complete_empty","native_late_relationship_oversize"),
     ("complete_empty","native_late_oversize_standalone_enrollment"),
     ("complete_empty","native_late_oversize_small_cap"),
     *[("complete_empty","native_late_"+case) for case in
@@ -42,13 +44,18 @@ from test_key_level_break_production_handoff import forbid_io
 ])
 def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypatch,tmp_path,capsys,
         no_external_activity,position_case,transport):
+    relationship_sizing_case=transport in {"native_late_relationship_size","native_late_relationship_oversize"}
+    relationship_oversize=transport=="native_late_relationship_oversize"
+    if relationship_sizing_case:
+        transport="native_late_oversize_small_cap" if relationship_oversize else "native_late_management_small_cap"
+    entry_quantity=4 if relationship_sizing_case else 1
     standalone_enrollment_case=transport in {"native_late_management_standalone_enrollment",
         "native_late_oversize_standalone_enrollment"}
     if standalone_enrollment_case:transport=transport.replace("_standalone_enrollment","_small_cap")
     small_cap_case=transport in {"native_late_management_small_cap","native_late_oversize_small_cap"}
     if small_cap_case:
         transport=transport.removesuffix("_small_cap")
-        monkeypatch.setenv("TRADING_DEFAULT_CAPITAL","400")
+        monkeypatch.setenv("TRADING_DEFAULT_CAPITAL","800" if relationship_sizing_case else "400")
     green_child_case=transport=="native_late_management_green_child"
     if green_child_case:transport="native_late_management"
     late_fill=transport.startswith("native_late_")
@@ -124,11 +131,11 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
         return dict(cached_facts.get(order_id,{}))
     def unexpected_protection(**kwargs):
         protection_requests.append(kwargs)
-        assert late_fill and cached_facts[71]["filled"]==1
+        assert late_fill and cached_facts[71]["filled"]==entry_quantity
         assert not malformed, "malformed callback must not reach protection"
-        assert kwargs["quantity"]==1 and kwargs["stop_price"]==pytest.approx(10.81)
+        assert kwargs["quantity"]==entry_quantity and kwargs["stop_price"]==pytest.approx(10.81)
         protective_orders.append(NS(orderId=72,contract=NS(symbol="JPM"),
-            order=NS(orderType="STP",parentId=71,orderRef="",action="SELL",totalQuantity=1,auxPrice=10.81),
+            order=NS(orderType="STP",parentId=71,orderRef="",action="SELL",totalQuantity=entry_quantity,auxPrice=10.81),
             orderState=NS(status="PendingSubmit" if late_case=="management_protection_pending" else "Submitted")))
         return {"broker_order_id":None if late_case=="management_no_protection" else "72",
             "status":"Rejected" if late_case=="management_no_protection" else ("PendingSubmit" if late_case=="management_protection_pending" else "Submitted"),"order_type":"STP"}
@@ -152,7 +159,8 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
     monkeypatch.setattr(core_module,"IbkrExecutionProvider",provider_boundary)
     h=joined(reassessment,monkeypatch,tmp_path,position_case=position_case,
         runtime_options=dict(run_mode="PAPER",config_overrides=dict(EXECUTION_ENABLED=True,RISK_PROFILE="SMALL" if small_cap_case else "MICRO",
-            **({"RISK_MAX_POSITION_SIZE":2} if small_cap_case else {}),
+            **({"RISK_MAX_POSITION_SIZE":4 if relationship_sizing_case else 2} if small_cap_case else {}),
+            **(dict(ROSS_SYNTHETIC_RELATIONSHIP_BASE_SIZE=8) if relationship_sizing_case else {}),
             **(dict(ROSS_SYNTHETIC_REQUESTED_BASE_SIZE=8,ROSS_SYNTHETIC_UNIT_STOPS=True,
                 ROSS_SYNTHETIC_UNIT_MANAGEMENT=True,ROSS_SYNTHETIC_MICRO_COST_FAILURE=True)
                 if standalone_enrollment_case else {}),
@@ -171,9 +179,9 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
         from src.ibkr.position_snapshot import BrokerPositionResult
         def external_positions():
             held=(bool(assessment_case) or management_case or late_case in {"fill","partial","uncertain","regression","processor_error","processor_after","stop_oversize","stop_bad_price","stop_bad_status","management"}) and bool(cached_facts) and not (management_case and cached_facts.get(73,{}).get("filled")==1)
-            quantity=(1-sum(broker_fills.values())) if interleaving and cached_facts else int(held)
+            quantity=(entry_quantity-sum(broker_fills.values())) if (interleaving or relationship_sizing_case) and cached_facts else int(held)
             if small_cap_case and late_case=="oversize" and cached_facts:
-                quantity=2  # Independent external holding, never fabricated local ownership.
+                quantity=entry_quantity+1  # Independent external holding, never fabricated local ownership.
             rows=(NS(symbol="JPM",position=quantity,con_id=123,avgCost=10.91,account="SYNTHETIC_TEST"),) if quantity else ()
             return BrokerPositionResult(rows,"UNAVAILABLE" if late_case=="management_unknown" and management_fault_active[0]
                 else "COMPLETE","SYNTHETIC_TEST",h.life.clock.now(timezone.utc))
@@ -376,7 +384,7 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
                 assert plan.parent_id==raw_now[0].relationship_context["parent_id"]
                 parent=next(p for p in h.manager._parents.values() if p["parent_id"]==plan.parent_id)
                 assert parent["consumed_children"]==[raw_now[0].relationship_context["child_id"]]
-                assert sent[0].quantity==1
+                assert sent[0].quantity==entry_quantity
                 if standalone_enrollment_case:
                     from src.config.config_resolver import (get_ross_synthetic_requested_base_size,
                         get_ross_synthetic_unit_stops,get_ross_synthetic_unit_management,
@@ -392,10 +400,10 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
                 assert h.core.execution_engine.max_shares_per_order==(None if small_cap_case else 1)
                 if small_cap_case:
                     from src.config.config_resolver import get_config
-                    assert get_config("RISK_PROFILE")=="SMALL" and get_config("RISK_MAX_POSITION_SIZE")==2
-                    assert raw_now[0].quantity==risk_decisions[0].max_position_size==1
+                    assert get_config("RISK_PROFILE")=="SMALL" and get_config("RISK_MAX_POSITION_SIZE")== (4 if relationship_sizing_case else 2)
+                    assert raw_now[0].quantity==risk_decisions[0].max_position_size==entry_quantity
                 assert sent[0].stop_loss_price==pytest.approx(10.81)
-                facts={"status":"Filled","filled":1,"remaining":0,"avgFillPrice":10.91}
+                facts={"status":"Filled","filled":entry_quantity,"remaining":0,"avgFillPrice":10.91}
                 if late_case=="pending": facts.update(status="PendingSubmit",filled=0,remaining=1,avgFillPrice=0)
                 if late_case=="negative": facts.update(filled=-1)
                 if late_case=="fractional": facts.update(filled=1.5)
@@ -403,7 +411,7 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
                 if late_case=="nan_price": facts.update(avgFillPrice=float("nan"))
                 if late_case=="missing_counts": facts.pop("filled")
                 if late_case=="unknown_status": facts.update(status="UNVERIFIED")
-                if late_case=="oversize": facts.update(filled=2)
+                if late_case=="oversize": facts.update(filled=entry_quantity+1)
                 if late_case=="rejected": facts.update(status="Rejected",filled=0,remaining=1,avgFillPrice=0)
                 if late_case=="cancelled": facts.update(status="Cancelled",filled=0,remaining=1,avgFillPrice=0)
                 if late_case=="partial": facts.update(status="Submitted")
@@ -472,6 +480,39 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
             else: result=h.core.run_once()
             if not failed_pass: assert result is (transport!="stop_after_risk")
             repeated=capsys.readouterr().out
+            if relationship_sizing_case:
+                engine=h.core.execution_engine
+                if relationship_oversize:
+                    assert failed_pass and engine.execution_integrity_flag
+                    assert not h.manager.snapshot_positions() and not h.core.trade_registry.snapshot()
+                    assert not engine.position_records and not protection_requests
+                    return  # Existing finally releases isolated test reservations only.
+                life=engine.post_fill_lifecycle.get_trade(plan.initial_order_id)
+                assert plan.entry_quantity==life.filled_qty==entry_quantity and plan.entry_terminal
+                assert life.stop.quantity==entry_quantity and life.selected_stop_price==pytest.approx(10.81)
+                assert engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
+                assert h.manager.snapshot_positions()['JPM'].quantity==h.core.trade_registry.snapshot()[0].quantity==entry_quantity
+                assert len(h.registry_batches[0][1])==33 and not sent[0].selected_stop_units
+                assert engine.capital_authority.total_used_exposure==pytest.approx(entry_quantity*10.91)
+                market_close[0]=plan.milestone_price
+                from src.config import config_resolver
+                for reset_scope in (False,True):
+                    if reset_scope:
+                        config_resolver.set_config_overrides(dict(config_resolver._CONFIG_OVERRIDES,
+                            ROSS_SYNTHETIC_RELATIONSHIP_BASE_SIZE=1))
+                    h.life.clock.current+=timedelta(seconds=1)
+                    assert h.core.run_once();capsys.readouterr()
+                    assert len(sent)==1 and plan.milestone_order_id is None
+                    assert life.stop.quantity==entry_quantity and life.stop.trigger_price==pytest.approx(10.81)
+                cached_facts[72]=dict(status='Filled',filled=entry_quantity,remaining=0,avgFillPrice=10.81)
+                broker_fills[72]=entry_quantity
+                for _ in range(2):
+                    h.life.clock.current+=timedelta(seconds=1)
+                    assert h.core.run_once();capsys.readouterr()
+                assert life.filled_qty==0 and life.exited_qty==entry_quantity
+                assert not h.manager.snapshot_positions() and not h.core.trade_registry.snapshot()
+                assert engine.capital_authority.total_used_exposure==0 and len(sent)==1
+                return  # No native multi-share discretionary enrollment was inferred.
             if late_case in {"accounting_error","allocation_error","processor_error","processor_after","completion_error","processor_cancel","processor_deadline"}:
                 # Negative owner-level replay probe only. Core is halted; no
                 # admission or recovery permission is patched to resume it.
