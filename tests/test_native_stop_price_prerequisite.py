@@ -128,7 +128,7 @@ def test_flat_precedes_explicit_prerequisite(reassessment,monkeypatch,tmp_path,c
     assert not h.unit_writes
 
 
-def bind_native_price_rule(h,monkeypatch):
+def bind_native_price_rule(h,monkeypatch,*,query=True):
     client=h.native_client
     monkeypatch.setattr(client,'is_connected',lambda:True)
     monkeypatch.setattr(client,'_price_rule_observed_now',lambda:h.life.clock.current)
@@ -141,11 +141,16 @@ def bind_native_price_rule(h,monkeypatch):
     client.qualifyContracts(contract)
     old_send=client.sendMsg
     def rule_wire(message):
-        client.marketRule(26,[NS(lowEdge=0,increment=.01)])
+        from ibapi.message import OUT
+        if message.split('\0')[0] == str(OUT.REQ_MARKET_RULE):
+            h.price_rule_dispatches=getattr(h,'price_rule_dispatches',[])+[message]
+            client.marketRule(26,[NS(lowEdge=0,increment=.01)])
+        else:old_send(message)
     monkeypatch.setattr(client,'sendMsg',rule_wire)
-    rule=client.price_rule_snapshot(contract,route='SMART')
-    assert rule.status=='COMPLETE'
-    monkeypatch.setattr(client,'sendMsg',old_send)
+    rule=client.price_rule_snapshot(contract,route='SMART') if query else None
+    if query:
+        assert rule.status=='COMPLETE'
+        monkeypatch.setattr(client,'sendMsg',old_send)
     return rule,contract
 
 
@@ -329,3 +334,55 @@ def test_already_entered_profit_rechecks_pending_revision_at_final_write(reasses
     with pytest.raises(RuntimeError):
         engine.request_selected_failure_exit(request.client_order_id,profit,decision=approved,authorization_guard=lambda now:True)
     assert observed and not h.unit_wires and not h.unit_writes and engine._native_quarantined
+
+
+
+def prepare_micro_tightening(reassessment,monkeypatch,tmp_path,capsys,*,clock_time=(14,5,30),enroll=True,fault='none'):
+    from test_standalone_pmh_late_fill_protection import micro_post_partial_case,append_micro_cost_bar,enroll_micro_cost_failure
+    h,request,life=micro_post_partial_case(reassessment,monkeypatch,tmp_path,capsys,micro_clock=clock_time)
+    assert request.quantity==2 and life.filled_qty==1 and len(h.unit_writes)==1 and h.unit_writes[0][1].orderType=='MKT'
+    enroll_micro_cost_failure()
+    bar,_=append_micro_cost_bar(h,request,life,capsys,fault='wick')  # Completed above E0, not a cost-failure bar.
+    enroll_unit_management(h,monkeypatch,price_revision=True,fault=fault)
+    _,contract=bind_native_price_rule(h,monkeypatch,query=False)
+    if enroll:
+        config_resolver.set_config_overrides(dict(config_resolver._CONFIG_OVERRIDES,ROSS_SYNTHETIC_MICRO_COST_TIGHTENING=True))
+    return h,request,life,bar,contract
+
+
+@pytest.mark.parametrize('clock_time',[(14,5,30),(16,35,30)],ids=['MORNING_10s','RTH_MID_1m'])
+def test_micro_native_core_post_partial_tightening_to_protective_flat(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,clock_time):
+    h,request,life,bar,contract=prepare_micro_tightening(reassessment,monkeypatch,tmp_path,capsys,clock_time=clock_time)
+    engine=h.core.execution_engine;original=(life.avg_fill_price,life.selected_stop_price,request.invalidation_level)
+    assert len(h.registry_batches[0][1])==33 and request.take_profit_price is None and not request.relationship_context
+    assert h.core.run_once(),capsys.readouterr().out[-5000:]
+    capsys.readouterr()
+    root=h.failure_owner['stop_price_revision']
+    assert root['status']=='CONFIRMED' and root['proposed_price']==life.avg_fill_price
+    assert len(h.unit_writes)==2 and [order.orderType for _,order in h.unit_writes]==['MKT','STP']
+    assert len(h.price_rule_dispatches)==1
+    assert original==(life.avg_fill_price,life.selected_stop_price,request.invalidation_level)
+    assert all(leg.last_confirmed_effective_stop_price==life.avg_fill_price for leg in life.stop_legs if leg.filled_quantity==0)
+    assert engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
+    for _ in range(2):
+        assert h.core.run_once();capsys.readouterr()
+    assert len(h.unit_writes)==2 and len(h.price_rule_dispatches)==1
+    fill_unit_ids(h,life,capsys,[row.orderId for row in list(h.native_open_orders)],price=life.avg_fill_price)
+    assert life.filled_qty==0 and not h.manager.snapshot_positions() and not h.core.trade_registry.snapshot()
+    assert engine.capital_authority.total_used_exposure==0 and len(h.unit_writes)==2 and no_external_activity==[]
+
+
+def test_micro_tightening_unknown_then_callback_can_still_account(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    h,request,life,bar,contract=prepare_micro_tightening(reassessment,monkeypatch,tmp_path,capsys,fault='unknown')
+    assert not h.core.run_once()
+    capsys.readouterr()
+    engine=h.core.execution_engine
+    assert engine._native_quarantined and len(h.unit_writes)==2
+    native_id=h.unit_writes[-1][0]
+    h.facts[native_id]=dict(status='Filled',filled=1,remaining=0,avgFillPrice=life.avg_fill_price,
+        symbol='JPM',side='SELL',orderId=native_id,parentId=71,orderRef='PROTECT|'+life.trade_id)
+    h.native_open_orders[:]=[row for row in h.native_open_orders if row.orderId!=native_id]
+    h.native_quantity[0]-=1
+    h.life.clock.current+=__import__('datetime').timedelta(seconds=1)
+    h.core.run_once();diagnostics=capsys.readouterr().out
+    assert life.filled_qty==0 and engine._native_quarantined and len(h.unit_writes)==2,diagnostics[-7000:]

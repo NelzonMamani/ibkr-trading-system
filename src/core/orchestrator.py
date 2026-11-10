@@ -3001,7 +3001,7 @@ class CoreOrchestrator:
                 order["pmh_management_expired"] = True
                 engine._save_selected_orders(order_id)
 
-    def inspect_stop_revision_prerequisite(self, order_id):
+    def inspect_stop_revision_prerequisite(self, order_id, *, micro_tighten=False):
         """Explicit internal inspection, NOT an enrolled automatic repricing policy.
 
         No run_once/strategy dispatcher calls this API. It selects no new stop
@@ -3014,6 +3014,18 @@ class CoreOrchestrator:
         if order is None:
             return None
         request = order["request"]
+        life = engine.post_fill_lifecycle.get_trade(order_id)
+        if micro_tighten:
+            from src.strategies.ross_momentum.strategy_policy import standalone_micro_tightening_basis
+            if life is None or not standalone_micro_tightening_basis(order,life.avg_fill_price):
+                return None
+        def evaluate(owner, candles, as_of, plan):
+            if micro_tighten:
+                return self.trade_management_engine.evaluate_selected_micro_cost_tightening(owner,candles,
+                    observed_at=as_of,session_plan=plan,entry_fill_price=life.avg_fill_price)
+            return self.trade_management_engine.inspect_stop_revision_prerequisite(owner,candles,observed_at=as_of,session_plan=plan)
+        evaluate_risk = (self.risk_engine.evaluate_micro_cost_tightening if micro_tighten
+            else self.risk_engine.evaluate_stop_revision_prerequisite)
         if self.run_mode != RunMode.PAPER or self._stop_requested_at_boundary("STOP_REVISION_PREREQUISITE"):
             return None
         timeframe = request.get("setup_metadata", {}).get("execution_stream", {}).get("execution_trigger_timeframe")
@@ -3027,15 +3039,15 @@ class CoreOrchestrator:
         now = datetime.now(timezone.utc)
         plan = normalize_session_label(market_session_phase(now))
         self._expire_selected_failure_enrollment(now,plan)
-        proposal = self.trade_management_engine.inspect_stop_revision_prerequisite(order,bars,observed_at=now,session_plan=plan)
+        proposal = evaluate(order,bars,now,plan)
         if not proposal:
             return None
         life = engine.post_fill_lifecycle.get_trade(order_id)
         snapshot = self._latest_position_truth_snapshot
         position = self.trade_management_engine.snapshot_positions().get(order["symbol"])
         registered = self.trade_registry.get_trade(order["symbol"],request.get("trader_type"))
-        decision = self.risk_engine.evaluate_stop_revision_prerequisite(order_id=order_id,order=order,
-            position=position,registered=registered,life=life,snapshot=snapshot,observed_at=now)
+        decision = evaluate_risk(order_id=order_id,order=order,
+            position=position,registered=registered,life=life,snapshot=snapshot,observed_at=now,**({"quote":quote} if micro_tighten else {}))
         if not decision.allowed or decision.execution_blocked:
             return None
         frozen_order,frozen_bars,frozen_proposal = deepcopy(order),deepcopy(bars),deepcopy(proposal)
@@ -3048,14 +3060,48 @@ class CoreOrchestrator:
                     or self._stop_requested_at_boundary("STOP_REVISION_FINAL_WRITE") or order.get("pmh_management_expired")
                     or not 0 <= (as_of-truth_as_of).total_seconds() <= get_ibkr_snapshot_max_age_seconds()):
                 return False
-            current = self.trade_management_engine.inspect_stop_revision_prerequisite(frozen_order,
-                frozen_bars,observed_at=as_of,session_plan=current_plan)
-            check = self.risk_engine.evaluate_stop_revision_prerequisite(order_id=order_id,order=frozen_order,
+            current = evaluate(frozen_order,frozen_bars,as_of,current_plan)
+            check = evaluate_risk(order_id=order_id,order=frozen_order,
                 position=self.trade_management_engine.snapshot_positions().get(order["symbol"]),
                 registered=self.trade_registry.get_trade(order["symbol"],request.get("trader_type")),
-                life=life,snapshot=frozen_truth,observed_at=as_of)
+                life=life,snapshot=frozen_truth,observed_at=as_of,**({"quote":quote} if micro_tighten else {}))
             return current == frozen_proposal and check.allowed and not check.execution_blocked
         return proposal,quote,decision,guard
+
+    def _run_micro_cost_tightening(self):
+        """Default-off synthetic standalone adopter; existing failure pass runs first."""
+        from copy import deepcopy
+        from src.strategies.ross_momentum.strategy_policy import selected_micro_cost_tightening_profile
+        if self._stop_requested_at_boundary("MICRO_COST_TIGHTENING"):
+            return False
+        engine = self.execution_engine
+        for order_id, order in list(engine._selected_order_records().items()):
+            if (order.get("side") not in {"LONG","BUY"} or order.get("stop_price_revision")
+                    or not selected_micro_cost_tightening_profile(order.get("request",{}))):
+                continue
+            inspected = self.inspect_stop_revision_prerequisite(order_id,micro_tighten=True)
+            if inspected is None:
+                continue
+            proposal, quote, decision, guard = inspected
+            client = engine._native_callback_client()
+            # Actual complete native inventory supplies the retained contract/route;
+            # price_rule_snapshot reuses ONLY the real completed qualification owner.
+            rows = client.openOrders(require_complete=True)
+            life = engine.post_fill_lifecycle.get_trade(order_id)
+            identities = {str(leg.broker_order_id) for leg in life.stop_legs if leg.quantity>leg.filled_quantity}
+            remaining = [row for row in rows if str(row.orderId) in identities]
+            if len(remaining) != len(identities) or not remaining:
+                continue
+            contract = deepcopy(remaining[0].contract)
+            if (contract.conId != order.get("security_id") or contract.symbol != order["symbol"]
+                    or any(client._price_contract_key(row.contract) != client._price_contract_key(contract)
+                        or row.contract.exchange != contract.exchange for row in remaining)):
+                continue
+            rule = client.price_rule_snapshot(contract,route=contract.exchange)
+            engine.request_stop_revision_prerequisite(order_id,proposal=proposal,
+                proposed_price=proposal["entry_fill_price"],price_rule=rule,contract=contract,
+                route=contract.exchange,quote=quote,decision=decision,authorization_guard=guard)
+        return True
 
     def _run_selected_failure_management(self, observed_at, session_plan):
         """Explicit selected-family failure policies; no generic exit defaults."""
@@ -3543,6 +3589,8 @@ class CoreOrchestrator:
                 and not position_truth_verdict.block_exits
                 and not self._latest_lifecycle_authority_verdict.get("block_exit_progression", True)):
             if not self._run_selected_failure_management(cycle_started_at, str(session_phase)):
+                return False
+            if not self._run_micro_cost_tightening():
                 return False
         if not self._autonomous_recovery_allows_new_entries(cycle_started_at=cycle_started_at):
             return True

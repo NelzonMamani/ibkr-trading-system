@@ -1678,3 +1678,40 @@ def selected_owned_profit_profile(request):
 
 def owned_selected_profit_basis(order, entry_fill_price):
     return _owned_terminal_profit_basis(order, entry_fill_price, selected_owned_profit_profile)
+
+
+# NEW delegated project automation policy, 10 November 2026; not historical Ross
+# confirmation doctrine. Qualitative partial -> entry-price protection guidance:
+# https://www.warriortrading.com/pull-back-trading-strategy/
+# The existing Micro PDF supports measured original pullback-low protection.
+# Keep accepted once-half actual-2R partial and PR1207 cost-failure priority.
+# ONLY terminal accounted GROSS-profitable partial + reconciled protected owned
+# remainder can qualify. First fresh COMPLETED retained 10s/1m bar starting at
+# or after LAST accounted partial fill must close STRICTLY ABOVE frozen E0.
+# Existing family/cost failure has priority. Require fresh confirmed executable
+# bid AND bar close strictly above the smallest qualified-grid ceiling of E0.
+# Never loosen already tighter protection. Existing freshness and retained
+# session/date expiry apply; no new elapsed cutoff, buffer, target or multiplier.
+# One durable root attempt for all remaining total-one STP identities. Mixed
+# observed outcomes quarantine irreversibly, no compensating write/retry. Fills
+# still drain through existing accounting; no new discretionary actions during
+# uncertainty. After confirmed tightening PR1207 cost failure remains enrolled.
+# E0 is GROSS actual entry, NOT fee-adjusted break-even; original S0 remains risk
+# basis, invalidation and TP=None unchanged. Matching inventory is observed-price
+# evidence ONLY, not native revision/atomicity/continuous protection certainty.
+# Separate TEST/PAPER/SMALL in-process default-off enrollment; standalone only.
+STANDALONE_MICRO_COST_TIGHTENING_PROFILE = "STANDALONE_MICRO_POST_PARTIAL_COST_TIGHTENING_V1"
+
+
+def selected_micro_cost_tightening_profile(request):
+    from src.config.config_resolver import get_ross_synthetic_micro_cost_tightening
+    if (not request.get("relationship_context") and selected_micro_cost_failure_profile(request)
+            and get_ross_synthetic_micro_cost_tightening()):
+        return STANDALONE_MICRO_COST_TIGHTENING_PROFILE
+    return None
+
+
+def standalone_micro_tightening_basis(order, entry_fill_price):
+    if not selected_micro_cost_tightening_profile(order.get("request", {})) or order.get("stop_price_revision"):
+        return None
+    return standalone_micro_cost_failure_basis(order, entry_fill_price)

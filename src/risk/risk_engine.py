@@ -98,11 +98,12 @@ def validate_order(order, portfolio) -> ValidationResult:
 class RiskEngine:
     """Minimal risk engine placeholder with teaching-style log messages."""
 
-    def evaluate_selected_failure_exit(self, *, order_id, order, position, registered, life, snapshot, observed_at, profit=False, quote=None, micro_cost=False, revision_proof=False):
+    def evaluate_selected_failure_exit(self, *, order_id, order, position, registered, life, snapshot, observed_at, profit=False, quote=None, micro_cost=False, revision_proof=False, micro_tighten=False):
         """Owned reduction only; no entry permission or management defaults."""
         from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
         from src.strategies.ross_momentum.strategy_policy import (selected_completed_failure_profile, selected_unit_management_profile,
             selected_relationship_unit_profit_profile)
+        revision_proof = revision_proof or micro_tighten
         request = order.get("request", {})
         relationship_profit = bool((profit or revision_proof) and selected_relationship_unit_profit_profile(request))
         relationship_id = (request.get("relationship_context") or {}).get("relationship_id") if relationship_profit else None
@@ -141,6 +142,12 @@ class RiskEngine:
                     and str(get_config("RUN_MODE_EFFECTIVE")).upper() == "PAPER"
                     and position.entry_price == registered.entry_price == life.avg_fill_price
                     and not order.get("stop_price_revision"))
+            if micro_tighten:
+                from src.strategies.ross_momentum.strategy_policy import standalone_micro_tightening_basis, standalone_profit_quote_evidence
+                basis = standalone_micro_tightening_basis(order, life.avg_fill_price)
+                allowed = bool(allowed and basis and not request.get("relationship_context")
+                    and standalone_profit_quote_evidence(quote,symbol=order["symbol"],milestone=basis[0],observed_at=observed_at)
+                    and quote.bid > basis[0])
             if profit:
                 from src.strategies.ross_momentum.strategy_policy import owned_selected_profit_basis, standalone_profit_quote_evidence
                 basis = owned_selected_profit_basis(order, life.avg_fill_price)
@@ -161,7 +168,9 @@ class RiskEngine:
         if profit and request.get("selected_stop_units"):
             quantity = quantity // 2
             allowed = bool(allowed and quantity > 0)
-        if revision_proof:
+        if micro_tighten:
+            rationale = "MICRO_COST_LEVEL_TIGHTENING" if allowed else "MICRO_COST_LEVEL_TIGHTENING_BLOCKED"
+        elif revision_proof:
             rationale = "STOP_REVISION_PREREQUISITE" if allowed else "STOP_REVISION_PREREQUISITE_BLOCKED"
         elif micro_cost:
             rationale = "MICRO_OWNED_COST_FAILURE_EXIT" if allowed else "MICRO_COST_FAILURE_BLOCKED"
@@ -182,6 +191,9 @@ class RiskEngine:
     def evaluate_stop_revision_prerequisite(self, **facts):
         """Owned-risk inspection only; no price selection or operational adopter."""
         return self.evaluate_selected_failure_exit(**facts, revision_proof=True)
+
+    def evaluate_micro_cost_tightening(self, **facts):
+        return self.evaluate_selected_failure_exit(**facts,micro_tighten=True)
 
     evaluate_pmh_failure_exit = evaluate_selected_failure_exit
 
