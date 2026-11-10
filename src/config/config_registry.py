@@ -1631,6 +1631,12 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
         "mutable": "dynamic",
         "description": "Default fraction of available account capital assigned to one strategy when no explicit allocation is configured.",
     },
+    "ROSS_SYNTHETIC_UNIT_STOPS": {
+        "type": bool, "default": False, "env": [],
+        "affects": ["ExecutionEngine", "PostFillLifecycleEngine"],
+        "enforcement": "HARD", "mutable": "dynamic",
+        "description": "Explicit TEST/PAPER/SMALL per-unit selected protection prerequisite; profit admission remains closed.",
+    },
     "ROSS_SYNTHETIC_REQUESTED_BASE_SIZE": {
         "type": int,
         "default": 1,

@@ -448,7 +448,7 @@ class IbkrClient(EWrapper, EClient):
             print(f"[IBKR][ORDER_ID_SEQUENCE] reserved={order_id} next={self._next_valid_order_id}")
             return order_id
 
-    def submit_order(self, contract: Contract, order) -> int:
+    def submit_order(self, contract: Contract, order, *, before_submit=None) -> int:
         if not self.is_connected():
             raise RuntimeError("IBKR client is not connected.")
         assert_read_only_allows("PLACE_ORDER")
@@ -482,6 +482,8 @@ class IbkrClient(EWrapper, EClient):
         assert order.action in ("BUY", "SELL")
         assert int(order.totalQuantity) > 0
         assert order.orderType in ("MKT", "LMT", "STP")
+        if before_submit is not None:
+            before_submit(order_id, contract, order)
         try:
             self.placeOrder(order_id, contract, order)
         except Exception as exc:

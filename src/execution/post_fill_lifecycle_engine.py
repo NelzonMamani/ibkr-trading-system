@@ -63,6 +63,10 @@ class ProtectionOrderMeta:
     target_stage: str | None = None
     source_strategy: str | None = None
     rationale: str | None = None
+    leg_id: str | None = None
+    close_role: str = "PROTECTION"
+    filled_quantity: int = 0
+    independently_confirmed: bool = False
 
 
 @dataclass
@@ -100,6 +104,8 @@ class ManagedTradeLifecycle:
     target_model: str | None = None
     preserve_selected_protection: bool = False
     selected_exit_pending: dict | None = None
+    selected_stop_units: bool = False
+    stop_legs: list[ProtectionOrderMeta] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -265,10 +271,48 @@ class PostFillLifecycleEngine:
             payload=payload,
         )
 
+    def selected_unit_leg(self, trade, *, broker_order_id=None, leg_id=None):
+        matches = [leg for leg in trade.stop_legs if
+            (broker_order_id is None or str(leg.broker_order_id) == str(broker_order_id))
+            and (leg_id is None or leg.leg_id == leg_id)]
+        return matches[0] if len(matches) == 1 else None
+
+    def _install_selected_unit_stops(self, trade, *, delta, submitter, parent_order_id):
+        """Install disjoint unit ownership, never resize/cancel another unit.
+
+        Submitter binds/persists the actual allocated native ID BEFORE write.
+        Any uncertain outcome escapes to existing callback quarantine; no retry.
+        """
+        if not callable(submitter) or type(delta) is not int or delta <= 0:
+            raise RuntimeError("SELECTED_UNIT_STOP_SUBMITTER_UNAVAILABLE")
+        self._compute_stop_target(trade)  # original selected structural price
+        for _ in range(delta):
+            leg = ProtectionOrderMeta(order_type="STOP", side="SELL", quantity=1,
+                trigger_price=trade.selected_stop_price, status="DISPATCH_UNCERTAIN",
+                lifecycle_trade_id=trade.trade_id, strategy_owner=trade.strategy_id,
+                entry_order_id=parent_order_id, entry_intent_id=trade.trade_id,
+                leg_id=f"{trade.trade_id}:unit-stop:{len(trade.stop_legs)+1}")
+            leg.pending_intent_id = leg.leg_id
+            trade.stop_legs.append(leg)
+            if trade.stop is None:
+                trade.stop = leg  # One REAL leg, never an aggregate fake ID/quantity.
+            submitter(trade, leg)
+        return {"success": True, "trade": trade.to_dict(), "rationale": "unit_stops_submitted_not_yet_confirmed"}
+
     def assess_trade_stop_protection(self, trade_id: str) -> dict[str, Any]:
         trade = self._trades.get(str(trade_id))
         if trade is None:
             return {"status": "UNSAFE", "protected": False, "reason_code": "TRADE_NOT_FOUND"}
+        if trade.selected_stop_units:
+            remaining = [leg for leg in trade.stop_legs if leg.quantity > leg.filled_quantity]
+            protected = bool(trade.filled_qty > 0 and remaining
+                and sum(leg.quantity-leg.filled_quantity for leg in remaining) == trade.filled_qty
+                and all(leg.quantity == 1 and leg.close_role == "PROTECTION"
+                    and leg.independently_confirmed and leg.broker_order_id
+                    and leg.status.upper() in {"SUBMITTED", "PRESUBMITTED"}
+                    and leg.trigger_price == trade.selected_stop_price for leg in remaining))
+            return {"status": "PROTECTED" if protected else "UNSAFE", "protected": protected,
+                "reason_code": "SELECTED_UNIT_STOPS_CONFIRMED" if protected else "SELECTED_UNIT_STOP_REMAINDER_UNVERIFIED"}
         if trade.selected_exit_pending and trade.selected_exit_pending.get("status") != "STP":
             return {"status": "EXIT_PENDING", "protected": False,
                 "reason_code": "SELECTED_ORDER_EXIT_PENDING_NOT_STP_CERTIFIED"}
@@ -642,7 +686,7 @@ class PostFillLifecycleEngine:
             return "BROKER_EXTERNAL"
         return "UNKNOWN"
 
-    def update_selected_exposure(self, *, trade_id: str, filled_qty: int, avg_fill_price: float) -> dict:
+    def update_selected_exposure(self, *, trade_id: str, filled_qty: int, avg_fill_price: float, unit_stop_submitter=None) -> dict:
         """Resize the existing selected stop for confirmed aggregate fill exposure."""
         trade = self._trades[trade_id]
         if not trade.preserve_selected_protection or trade.stop is None or filled_qty <= 0:
@@ -656,8 +700,16 @@ class PostFillLifecycleEngine:
                 symbol=trade.symbol, side=trade.side, filled_qty=filled_qty, avg_fill_price=avg_fill_price,
                 strategy_id=trade.strategy_id, session_label=trade.session_label,
                 stop_loss_price=trade.selected_stop_price, take_profit_price=None,
-                preserve_selected_protection=True, target_model=trade.target_model)
+                preserve_selected_protection=True, target_model=trade.target_model,
+                selected_stop_units=trade.selected_stop_units, unit_stop_submitter=unit_stop_submitter,
+                entry_broker_order_id=trade.stop.entry_order_id if trade.selected_stop_units else None)
             return {**result, "reopened_trade_id": reopened_id}
+        if trade.selected_stop_units:
+            delta = int(filled_qty) - trade.filled_qty
+            trade.filled_qty = int(filled_qty)
+            trade.avg_fill_price = float(avg_fill_price)
+            return self._install_selected_unit_stops(trade, delta=delta, submitter=unit_stop_submitter,
+                parent_order_id=trade.stop.entry_order_id)
         trade.filled_qty = int(filled_qty)  # fill truth survives a protection failure
         trade.avg_fill_price = float(avg_fill_price)
         try:
@@ -742,6 +794,8 @@ class PostFillLifecycleEngine:
         preserve_selected_protection: bool = False,
         target_model: str | None = None,
         entry_broker_order_id: str | None = None,
+        selected_stop_units: bool = False,
+        unit_stop_submitter=None,
     ) -> dict[str, Any]:
         parent_order_id = str(entry_broker_order_id) if entry_broker_order_id is not None else str(trade_id)
         side_u = str(side).upper()
@@ -763,6 +817,7 @@ class PostFillLifecycleEngine:
             selected_stop_price=stop_loss_price,
             selected_target_price=take_profit_price,
             preserve_selected_protection=preserve_selected_protection,
+            selected_stop_units=selected_stop_units,
             filled_qty=int(filled_qty),
             avg_fill_price=float(avg_fill_price),
             state=PositionLifecycleState.FILLED_UNPROTECTED,
@@ -794,6 +849,13 @@ class PostFillLifecycleEngine:
             )
             self._transition(trade, PositionLifecycleState.LIFECYCLE_FAILURE, "read_only_no_install")
             return {"success": False, "trade": trade.to_dict(), "failure_reason": "READ_ONLY_MODE"}
+
+        if selected_stop_units:
+            if self.run_mode != "PAPER" or not preserve_selected_protection or take_profit_price is not None:
+                raise RuntimeError("SELECTED_UNIT_STOP_SCOPE_INVALID")
+            self._transition(trade, PositionLifecycleState.PROTECTION_PENDING, "selected_unit_stop_install")
+            return self._install_selected_unit_stops(trade, delta=trade.filled_qty,
+                submitter=unit_stop_submitter, parent_order_id=parent_order_id)
 
         installed = False
         failure_reason: str | None = None
@@ -955,6 +1017,8 @@ class PostFillLifecycleEngine:
         trade = self._trades.get(str(trade_id))
         if trade is None or trade.stop is None:
             return {"updated": False, "reason": "trade_missing_or_unprotected"}
+        if trade.selected_stop_units:
+            return {"updated": False, "reason": "SELECTED_UNIT_COORDINATION_REQUIRED"}
         if trade.state not in {PositionLifecycleState.TRAILING_ELIGIBLE, PositionLifecycleState.TRAILING_ACTIVE}:
             return {"updated": False, "reason": f"state_not_trailing:{trade.state.value}"}
 
@@ -1084,6 +1148,8 @@ class PostFillLifecycleEngine:
         trade = self._trades.get(str(trade_id))
         if trade is None or trade.stop is None:
             return {"allowed": False, "reason_code": "TRADE_MISSING_OR_UNPROTECTED"}
+        if trade.selected_stop_units:
+            return {"allowed": False, "reason_code": "SELECTED_UNIT_COORDINATION_REQUIRED"}
         previous_stop = float(trade.stop.trigger_price)
         try:
             decision = validate_stop_update(
@@ -1145,6 +1211,8 @@ class PostFillLifecycleEngine:
         trade = self._trades.get(str(trade_id))
         if trade is None or trade.stop is None:
             return {"allowed": False, "reason_code": "TRADE_MISSING_OR_UNPROTECTED"}
+        if trade.selected_stop_units:
+            return {"allowed": False, "reason_code": "SELECTED_UNIT_COORDINATION_REQUIRED"}
         if str(requested_by_strategy or "") != trade.strategy_id:
             return {
                 "allowed": False,
@@ -1330,6 +1398,12 @@ class PostFillLifecycleEngine:
                 )
                 return {"success": False, "error": target_fill_result.reason_code}
 
+        if trade.selected_stop_units:
+            leg = self.selected_unit_leg(trade, broker_order_id=exit_order_id)
+            if leg is None or leg.filled_quantity + qty > leg.quantity:
+                return {"success": False, "error": "unit_close_leg_quantity_conflict"}
+            leg.filled_quantity += qty
+            leg.independently_confirmed = False
         remaining_qty = int(trade.filled_qty) - qty
         trade.filled_qty = remaining_qty
         trade.exited_qty += qty
@@ -1399,7 +1473,7 @@ class PostFillLifecycleEngine:
 
     def evaluate_trade_management(self, *, trade_id: str, current_price: float) -> list[dict[str, Any]]:
         trade = self._trades.get(str(trade_id))
-        if trade is None or int(trade.filled_qty or 0) <= 0:
+        if trade is None or int(trade.filled_qty or 0) <= 0 or trade.selected_stop_units:
             return []
         if trade.state in {PositionLifecycleState.EXIT_PENDING, PositionLifecycleState.EXITED, PositionLifecycleState.LIFECYCLE_FAILURE}:
             return []
@@ -1601,6 +1675,8 @@ class PostFillLifecycleEngine:
         return {"handled": False, "reason": "order_not_mapped"}
 
     def _repair_missing_stop(self, trade: ManagedTradeLifecycle, reason: str) -> bool:
+        if trade.selected_stop_units:
+            return False  # A generic whole-quantity replacement would overlap units.
         if self.execution_provider is None or self.run_mode not in {"PAPER", "LIVE"}:
             return False
         if trade.stop is None:
@@ -1649,6 +1725,8 @@ class PostFillLifecycleEngine:
             return False
 
     def _repair_missing_target(self, trade: ManagedTradeLifecycle, reason: str) -> bool:
+        if trade.selected_stop_units:
+            return False  # A generic whole-quantity replacement would overlap units.
         if self.execution_provider is None or self.run_mode not in {"PAPER", "LIVE"}:
             return False
         if trade.target is None:
@@ -1742,6 +1820,15 @@ class PostFillLifecycleEngine:
 
         known_ids: set[str] = set()
         for trade in self._trades.values():
+            if trade.selected_stop_units:
+                for leg in trade.stop_legs:
+                    if leg.broker_order_id:
+                        known_ids.add(str(leg.broker_order_id))
+                    if leg.quantity > leg.filled_quantity and str(leg.broker_order_id) not in open_ids:
+                        leg.independently_confirmed = False
+                        block_new_entries = True
+                        findings.append({"trade_id": trade.trade_id, "issue": "SELECTED_UNIT_STOP_UNVERIFIED", "leg_id": leg.leg_id})
+                continue  # No generic stop repair/resize or assumed replacement.
             if trade.stop and trade.stop.broker_order_id:
                 known_ids.add(str(trade.stop.broker_order_id))
             if trade.target and trade.target.broker_order_id:

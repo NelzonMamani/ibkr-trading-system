@@ -457,14 +457,26 @@ class IbkrLiveBroker(BaseBroker):
         limit_price: float | None,
         trade_id: str,
         parent_order_id: str | None,
+        before_submit=None,
+        con_id=None,
     ) -> dict[str, str]:
         if Contract is None or Order is None:
             raise RuntimeError("ibapi dependency missing; protective order unavailable")
-        self.ensure_connection()
-        assert self.connection_manager is not None
-        client = self.connection_manager.get_client()
+        if before_submit is not None:
+            # New unit ownership cannot acquire/reconnect a client implicitly.
+            client = getattr(self.connection_manager, "existing_client", None)
+            if self.run_mode != RunMode.PAPER or client is None or not client.isConnected():
+                raise RuntimeError("NATIVE_UNIT_STOP_CLIENT_UNAVAILABLE")
+        else:
+            self.ensure_connection()
+            assert self.connection_manager is not None
+            client = self.connection_manager.get_client()
         contract = Contract()
         contract.symbol = str(symbol).upper()
+        if before_submit is not None:
+            if type(con_id) is not int or con_id <= 0:
+                raise RuntimeError("NATIVE_UNIT_STOP_SECURITY_UNAVAILABLE")
+            contract.conId = con_id
         contract.exchange = get_ibkr_default_exchange()
         contract.currency = get_ibkr_default_currency()
         contract.secType = "STK"
@@ -483,7 +495,7 @@ class IbkrLiveBroker(BaseBroker):
             order.parentId = int(parent_order_id)
         order.transmit = True
         order.orderRef = f"PROTECT|{trade_id}"
-        broker_order_id = client.submit_order(contract, order)
+        broker_order_id = client.submit_order(contract, order, **({"before_submit": before_submit} if before_submit is not None else {}))
         print(
             "[IBKR][ORDER_SUBMITTED] "
             f"type={order.orderType} order_id={broker_order_id} trade_id={trade_id} symbol={symbol} "
@@ -500,6 +512,8 @@ class IbkrLiveBroker(BaseBroker):
         stop_price: float,
         trade_id: str,
         parent_order_id: str | None = None,
+        before_submit=None,
+        con_id=None,
     ) -> dict[str, str]:
         return self._submit_protective_order(
             symbol=symbol,
@@ -510,6 +524,8 @@ class IbkrLiveBroker(BaseBroker):
             limit_price=None,
             trade_id=trade_id,
             parent_order_id=parent_order_id,
+            before_submit=before_submit,
+            con_id=con_id,
         )
 
     def place_target_order(

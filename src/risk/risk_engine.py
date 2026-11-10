@@ -109,7 +109,8 @@ class RiskEngine:
             system = snapshot.system_positions.get(order["symbol"])
             quantity = life.filled_qty
             allowed = bool(
-                order.get("terminal") and order.get("filled") == order.get("requested")
+                not request.get("selected_stop_units")
+                and order.get("terminal") and order.get("filled") == order.get("requested")
                 and order.get("protection_confirmed") and not order.get("cached_update_in_progress")
                 and not order.get("quarantine") and not order.get("pmh_failure_exit")
                 and not order.get("pmh_management_expired")
@@ -1265,7 +1266,7 @@ class RiskEngine:
             f"symbol={trade_intent.symbol} mode={run_mode.value} "
             f"entry_price={entry_price} available_capital={available_capital} "
             f"max_position_value={round(max_position_value, 2)} "
-            f"requested_quantity={max_position_size}"
+            f"quantity_ceiling={max_position_size}"
         )
         if entry_price is not None and float(entry_price) > 0:
             max_capital_constrained_shares = int(max_position_value // float(entry_price))
@@ -1355,7 +1356,7 @@ class RiskEngine:
             "[RISK][SIZING] "
             f"symbol={trade_intent.symbol} mode={run_mode.value} "
             f"entry_price={entry_price} available_capital={available_capital} "
-            f"max_position_value={round(max_position_value, 2)} approved_quantity={max_position_size}"
+            f"max_position_value={round(max_position_value, 2)} quantity_ceiling={max_position_size}"
         )
         context = getattr(trade_intent, "relationship_context", None)
         if not context and trade_intent.strategy_name == "RossMomentumStrategyV1":
@@ -1375,6 +1376,8 @@ class RiskEngine:
                 decision.risk_reasons.append(decision.reason_code)
             else:
                 decision.max_position_size = min(decision.max_position_size, requested)
+            print(f"[RISK][NATIVE_REQUEST] symbol={trade_intent.symbol} requested_quantity={requested} "
+                  f"approved_quantity={decision.max_position_size}")
         if context:
             manager = getattr(self, "relationship_manager", None)
             quantity = (manager.risk_quantity(trade_intent, quantity_cap=max_position_size,

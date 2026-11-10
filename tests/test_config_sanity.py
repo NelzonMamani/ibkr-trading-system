@@ -99,3 +99,24 @@ def test_native_synthetic_requested_size_default_has_no_environment_switch(monke
         resolver.set_config_overrides(None)
         assert resolver.get_ross_synthetic_requested_base_size()==1
     finally:resolver.set_config_overrides(previous)
+
+
+@pytest.mark.parametrize('scope',[{},dict(ROSS_SYNTHETIC_REQUESTED_BASE_SIZE=4,RUN_MODE='LIVE',RISK_PROFILE='SMALL'),dict(ROSS_SYNTHETIC_REQUESTED_BASE_SIZE=4,RUN_MODE='PAPER',RISK_PROFILE='MICRO')])
+def test_unit_stops_require_explicit_synthetic_sizing_scope(monkeypatch,scope):
+    from src.config import config_resolver as resolver
+    previous=dict(resolver._CONFIG_OVERRIDES)
+    monkeypatch.setenv('EXECUTION_ENV','TEST')
+    try:
+        resolver.set_config_overrides(dict(scope,ROSS_SYNTHETIC_UNIT_STOPS=True))
+        with pytest.raises(resolver.ConfigResolutionError):resolver.get_ross_synthetic_unit_stops()
+    finally:resolver.set_config_overrides(previous)
+
+
+def test_unit_stops_have_no_environment_enrollment(monkeypatch):
+    from src.config import config_resolver as resolver
+    previous=dict(resolver._CONFIG_OVERRIDES)
+    monkeypatch.setenv('ROSS_SYNTHETIC_UNIT_STOPS','true')
+    try:
+        resolver.set_config_overrides(None)
+        assert not resolver.get_ross_synthetic_unit_stops()
+    finally:resolver.set_config_overrides(previous)

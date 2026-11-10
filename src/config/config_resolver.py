@@ -696,6 +696,13 @@ def get_ross_synthetic_requested_base_size() -> int:
     return raw
 
 
+def get_ross_synthetic_unit_stops() -> bool:
+    record = get_config_record("ROSS_SYNTHETIC_UNIT_STOPS")
+    if record.value and not (record.source == "OVERRIDE" and get_ross_synthetic_requested_base_size() > 1):
+        raise ConfigResolutionError("Unit selected stops require explicit synthetic requested-size enrollment")
+    return record.value
+
+
 def get_config_record(name: str) -> ConfigRecord:
     resolved = resolve_config()
     if name not in resolved:
