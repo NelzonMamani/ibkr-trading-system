@@ -3911,3 +3911,40 @@ def test_unit_coordination_post_write_callback_cannot_be_overwritten_by_inventor
     assert life.filled_qty==2 and life.exited_qty==0 # No fabricated accounting.
     assert not h.core.run_once();capsys.readouterr()
     assert len(h.unit_wires)==1
+
+
+@pytest.mark.parametrize('origin',['profit_remainder','prior_stop_remainder'])
+def test_unit_single_remainder_never_requests_unactionable_profit_quotes(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,origin):
+    prepared=small_central_owned(reassessment,monkeypatch,tmp_path,capsys,'BULL_FLAG',
+        requested_base=4,risk_cap=4,synthetic_capital=800,unit_stops=True)
+    h,request,life=one_share_profit_case(reassessment,monkeypatch,tmp_path,capsys,prepared=prepared)
+    if origin=='profit_remainder':
+        enroll_unit_management(h,monkeypatch)
+        assert h.core.run_once();capsys.readouterr()
+        fill_unit_ids(h,life,capsys,[72],price=h.failure_exit_price)
+        assert h.failure_owner['unit_profit_exit']['status']=='FILLED'
+    else:
+        fill_unit_ids(h,life,capsys,[72])
+        enroll_unit_management(h,monkeypatch)
+        assert not h.failure_owner.get('unit_profit_exit')
+    assert life.filled_qty==1 and h.failure_owner['protection_confirmed']
+    active=[False];requests=[]
+    manage=h.core._run_selected_failure_management
+    def management(*args,**kwargs):
+        active[0]=True
+        try:return manage(*args,**kwargs)
+        finally:active[0]=False
+    quotes=h.core.market_data_snapshot_manager.batch_snapshots
+    def snapshots(symbols):
+        if active[0]:requests.append(tuple(symbols))
+        return quotes(symbols)
+    monkeypatch.setattr(h.core,'_run_selected_failure_management',management)
+    monkeypatch.setattr(h.core.market_data_snapshot_manager,'batch_snapshots',snapshots)
+    before=(life.filled_qty,life.exited_qty,len(h.unit_writes),len(h.stop_requests),
+        h.core.execution_engine.capital_authority.total_used_exposure)
+    for _ in range(2):
+        h.life.clock.current+=timedelta(seconds=1)
+        assert h.core.run_once();capsys.readouterr()
+    assert requests==[]
+    assert before==(life.filled_qty,life.exited_qty,len(h.unit_writes),len(h.stop_requests),
+        h.core.execution_engine.capital_authority.total_used_exposure)
