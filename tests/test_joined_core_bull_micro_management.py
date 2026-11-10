@@ -28,6 +28,8 @@ from test_key_level_break_production_handoff import forbid_io
     ("complete_empty","native_missing_id"),("complete_empty","native_unsupported"),
     ("complete_empty","native_late_fill"),("complete_empty","native_late_management_green_child"),
     ("complete_empty","native_late_management_small_cap"),
+    ("complete_empty","native_late_management_standalone_enrollment"),
+    ("complete_empty","native_late_oversize_standalone_enrollment"),
     ("complete_empty","native_late_oversize_small_cap"),
     *[("complete_empty","native_late_"+case) for case in
       ("pending","unrelated","negative","fractional","no_price","nan_price",
@@ -40,6 +42,9 @@ from test_key_level_break_production_handoff import forbid_io
 ])
 def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypatch,tmp_path,capsys,
         no_external_activity,position_case,transport):
+    standalone_enrollment_case=transport in {"native_late_management_standalone_enrollment",
+        "native_late_oversize_standalone_enrollment"}
+    if standalone_enrollment_case:transport=transport.replace("_standalone_enrollment","_small_cap")
     small_cap_case=transport in {"native_late_management_small_cap","native_late_oversize_small_cap"}
     if small_cap_case:
         transport=transport.removesuffix("_small_cap")
@@ -148,6 +153,9 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
     h=joined(reassessment,monkeypatch,tmp_path,position_case=position_case,
         runtime_options=dict(run_mode="PAPER",config_overrides=dict(EXECUTION_ENABLED=True,RISK_PROFILE="SMALL" if small_cap_case else "MICRO",
             **({"RISK_MAX_POSITION_SIZE":2} if small_cap_case else {}),
+            **(dict(ROSS_SYNTHETIC_REQUESTED_BASE_SIZE=8,ROSS_SYNTHETIC_UNIT_STOPS=True,
+                ROSS_SYNTHETIC_UNIT_MANAGEMENT=True,ROSS_SYNTHETIC_MICRO_COST_FAILURE=True)
+                if standalone_enrollment_case else {}),
             IBKR_READONLY_ENABLED=False,IBKR_ORDER_SUBMISSION_ENABLED=True,
             IBKR_ORDER_TRANSLATION_ENABLED=True,IBKR_API_WRITE_ALLOWED=True,
             **({"STRATEGY_CAPITAL_ALLOCATIONS":{"ROSSMOMENTUMSTRATEGYV1":{"max_allocation_usd":1.0}}} if transport=="allocation_denied" else {}))))
@@ -369,6 +377,18 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
                 parent=next(p for p in h.manager._parents.values() if p["parent_id"]==plan.parent_id)
                 assert parent["consumed_children"]==[raw_now[0].relationship_context["child_id"]]
                 assert sent[0].quantity==1
+                if standalone_enrollment_case:
+                    from src.config.config_resolver import (get_ross_synthetic_requested_base_size,
+                        get_ross_synthetic_unit_stops,get_ross_synthetic_unit_management,
+                        get_ross_synthetic_micro_cost_failure)
+                    assert get_ross_synthetic_requested_base_size()==8
+                    assert get_ross_synthetic_unit_stops() and get_ross_synthetic_unit_management()
+                    assert get_ross_synthetic_micro_cost_failure()
+                    assert len(h.registry_batches[0][1])==33
+                    assert raw_now[0].target_model==sent[0].target_model=='BULL_FLAG_MICRO_2R_V1'
+                    assert not sent[0].selected_stop_units
+                    assert not h.core.execution_engine._native_orders
+                    assert sent[0].take_profit_price is None
                 assert h.core.execution_engine.max_shares_per_order==(None if small_cap_case else 1)
                 if small_cap_case:
                     from src.config.config_resolver import get_config
