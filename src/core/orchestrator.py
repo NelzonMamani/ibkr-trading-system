@@ -3032,7 +3032,8 @@ class CoreOrchestrator:
             quote = None
             evaluation_at = observed_at
             if (not failure and self.run_mode == RunMode.PAPER and life
-                    and (life.filled_qty == 1 or (units and life.filled_qty > 1 and not order.get("unit_profit_exit")))):
+                    and ((not request.get("selected_stop_units") and life.filled_qty == 1)
+                        or (units and life.filled_qty > 1 and not order.get("unit_profit_exit")))):
                 failure = self.trade_management_engine.evaluate_selected_completed_profit(order, bars,
                     observed_at=observed_at, session_plan=session_plan, entry_fill_price=life.avg_fill_price)
                 if failure:
