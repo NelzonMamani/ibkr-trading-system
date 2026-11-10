@@ -401,6 +401,27 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
         else:
             assert h.core.run_once() is (transport!="stop_after_risk")
             second=capsys.readouterr().out
+            if relationship_profit_fault=='mid':
+                assert not sent and not h.artifacts, second[-5000:]
+                parents=list(h.manager._parents.values())
+                assert len(parents)==1 and parents[0]['state']=='ARMED'
+                retained_parent=deepcopy(parents[0])
+                from test_joined_core_bull_micro import _five_minute_tape,_ten_second_tape
+                from test_pr1082_trigger_to_intent_terminal_semantics import _candles
+                from test_ross_pr1029_pattern_detection_certification import _micro_rows
+                end=h.life.clock.current.replace(second=0,microsecond=0)
+                micro=[tuple(v+.55 if i<4 else v for i,v in enumerate(row)) for row in _micro_rows()]
+                later=_candles(micro,step_seconds=60,end=end+timedelta(minutes=4))
+                old_fast=list(h.streams['10s'])
+                h.streams['1m'].extend(later)
+                h.streams['5m']=_five_minute_tape(h.streams['1m'])
+                fast=_ten_second_tape(h.streams['1m'])
+                assert fast[:len(old_fast)]==old_fast
+                h.streams['10s']=fast
+                h.rows['JPM'].update(last_price=10.92,bid=10.91,ask=10.93,spread_pct=100*.02/10.92)
+                h.life.clock.current=later[-1].timestamp+timedelta(minutes=1,seconds=5)
+                assert h.core.run_once();second+=capsys.readouterr().out
+                assert parents[0]['parent_id']==retained_parent['parent_id']
             if late_fill:
                 # Submission is actual Core/risk/execution; only a later native
                 # callback fact is supplied at the existing external cache seam.
@@ -412,11 +433,19 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
                     assert any(child.detected and child.setup_metadata.get('pullback_variant')=='SINGLE_GREEN_LOWER_WICK'
                         for source,child in h.children)
 
+                if relationship_profit_fault=='mid':
+                    import json
+                    print('MID_ARBITRATION '+json.dumps(dict(
+                        selected=raw_now[0].setup_family_id,
+                        native=[(r.setup_id,r.confidence,r.detected,r.trigger_level,r.stop_level,r.rejection_reason) for r in h.registry_batches[-1][1] if r.setup_id in {'P_BULL_FLAG','P_MICRO_PULLBACK'}],
+                        decisions=[line for line in second.splitlines() if ('BULL_FLAG' in line or 'MICRO_PULLBACK' in line) and ('TRIGGER' in line or 'SCORE' in line or 'SELECT' in line or 'BLOCK' in line)]),default=str))
                 assert raw_now[0].relationship_context and 'relationship_id' in raw_now[0].relationship_context, dict(
                     selected_family=raw_now[0].setup_family_id,target=raw_now[0].target_model,
                     context=raw_now[0].relationship_context,
                     compositions=[(source.timeframe,out.detected,out.rejection_reason) for source,kw,out in h.compositions],
-                    source_metadata=raw_now[0].setup_metadata)
+                    source_metadata=raw_now[0].setup_metadata,
+                    native=[(r.setup_id,r.confidence,r.detected,r.trigger_level,r.stop_level,r.rejection_reason) for r in h.registry_batches[-1][1] if r.setup_id in {'P_BULL_FLAG','P_MICRO_PULLBACK'}],
+                    decisions=[line for line in second.splitlines() if ('BULL_FLAG' in line or 'MICRO_PULLBACK' in line) and ('TRIGGER' in line or 'SCORE' in line or 'SELECT' in line or 'BLOCK' in line)])
                 plan=h.manager._relationship_plans[raw_now[0].relationship_context["relationship_id"]]
                 assert plan.entry_quantity==0 and not plan.entry_terminal
                 assert plan.e0 is None and plan.milestone_price is None
@@ -715,6 +744,7 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
                     if relationship_profit_fault=='mid':
                         assert sent[0].setup_metadata['execution_stream']['execution_trigger_timeframe']=='1m'
                         assert sent[0].management_session_plan=='RTH_MID'
+                        assert sent[0].setup_metadata['source_metadata']['relationship']['parent_id']==retained_parent['parent_id']
                         assert len(h.registry_batches[0][1])==33
                     assert action['milestone']==h.profit_level
                     assert plan.milestone_price==life.avg_fill_price+2*(life.avg_fill_price-life.selected_stop_price)

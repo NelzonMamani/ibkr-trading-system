@@ -169,11 +169,17 @@ def joined(reassessment, monkeypatch, tmp_path, *, news_fault="none", peer=False
     fast=_candles([(10.55,10.57,10.53,10.55,500)]*25+micro,step_seconds=10,end=end+timedelta(seconds=10))
     streams={"1m":primary,"5m":_candles(parent_rows,step_seconds=300,end=end-timedelta(minutes=5)),"10s":fast}
     if market_fault=='mid_relationship':
-        # Coherent external MID tape: completed five-minute Bull parent before
-        # a separately completed one-minute Micro child. Keep every native pattern.
-        streams['5m']=_candles(parent_rows,step_seconds=300,end=end-timedelta(minutes=10))
-        streams['1m']=_candles([(10.55,10.57,10.53,10.55,500)]*25+micro,
-            step_seconds=60,end=end-timedelta(minutes=1))
+        # One-minute MID structure/trigger: observe the completed genuine Bull
+        # parent BEFORE delivering its later Micro child. Earlier RTH high is a
+        # real external candle, never an injected internal level or family veto.
+        lower=[tuple(round(v-.20,2) if i<4 else v for i,v in enumerate(row)) for row in parent_rows[42:]]
+        warm=[(9.8,9.82,9.78,9.8,1200)]*250
+        warm[100]=(9.8,11.20,9.78,9.8,1200)
+        streams['1m']=_candles(warm+lower,end=end-timedelta(minutes=1))
+        streams['5m']=_five_minute_tape(streams['1m'])
+        first_child=_candles(micro,step_seconds=60,end=end+timedelta(minutes=4))
+        streams['10s']=_ten_second_tape(streams['1m'])+_ten_second_tape(first_child[:1])[:4]
+        rows['JPM'].update(last_price=10.61,bid=10.60,ask=10.62,spread_pct=100*.02/10.61)
     if market_fault=="stale_child": streams["10s"]=[replace(b,timestamp=b.timestamp-timedelta(minutes=5)) for b in fast]
     if market_fault in {"forming_child","future_child","delayed_forming_child"}:
         # Second-cycle original clock is exactly +11s. Neither this forming
@@ -186,7 +192,8 @@ def joined(reassessment, monkeypatch, tmp_path, *, news_fault="none", peer=False
     snapshot=replace(_snapshot(symbol="JPM"),last=10.92,bid=10.91,ask=10.93,
         asof_utc=life.clock.current,market_timestamp_utc=life.clock.current)
     core.market_data_snapshot_manager=NS(batch_snapshots=lambda symbols:({s:replace(snapshot,symbol=s,
-        asof_utc=life.clock.current,market_timestamp_utc=life.clock.current) for s in symbols},[]))
+        asof_utc=life.clock.current,market_timestamp_utc=life.clock.current,
+        **({"last":rows[s]['last_price'],"bid":rows[s]['bid'],"ask":rows[s]['ask']} if market_fault=='mid_relationship' else {})) for s in symbols},[]))
     position_calls=[]
     truth=[]
     artifacts=[]
@@ -597,3 +604,29 @@ def test_mock_scanner_override_cannot_restore_position_vetoed_raw_intent(reasses
     assert "[PIPELINE][RISK_INPUT] intents_count=0" in out
     assert h.artifacts==h.evaluated==[]
     _assert_no_admission_effects(h)
+
+
+def _five_minute_tape(minutes):
+    """Fixture-only exact OHLCV aggregation of completed coherent minute rows."""
+    from src.strategies.common.candles.candle_types import Candle
+    groups={}
+    for row in minutes:
+        start=row.timestamp.replace(minute=(row.timestamp.minute//5)*5,second=0,microsecond=0)
+        groups.setdefault(start,[]).append(row)
+    return [Candle(rows[0].open,max(r.high for r in rows),min(r.low for r in rows),rows[-1].close,
+        sum(r.volume for r in rows),timestamp=start) for start,rows in groups.items() if len(rows)==5]
+
+
+def _ten_second_tape(minutes):
+    """One fixed external intraminute path; previously completed rows never change."""
+    from src.strategies.common.candles.candle_types import Candle
+    result=[]
+    for row in minutes:
+        for part in range(6):
+            opening=row.open if part<=3 else row.close
+            close=row.open if part<3 else row.close
+            high=row.high if part==0 else max(opening,close)
+            low=row.low if part==0 else min(opening,close)
+            volume=int(row.volume)//6+(int(row.volume)%6 if part==5 else 0)
+            result.append(Candle(opening,high,low,close,volume,timestamp=row.timestamp+timedelta(seconds=10*part)))
+    return result
