@@ -550,7 +550,7 @@ class IbkrLiveBroker(BaseBroker):
         )
 
     def convert_selected_stop_to_market(self, *, broker_order_id, parent_order_id,
-            symbol, con_id, total_quantity, trade_id, stop_price, expected_client, scope_as_of, authorization_guard=None, unit_orders=None, unit_account=None, unit_epoch=None):
+            symbol, con_id, total_quantity, trade_id, stop_price, expected_client, scope_as_of, authorization_guard=None, unit_orders=None, unit_account=None, unit_epoch=None, unit_stop_prices=None, _revision_price=None, _revision_rule=None, _revision_quote=None):
         """Amend the ONE existing close leg, never allocate a second SELL ID.
 
         Dispatch is not acknowledgement. Native inventory/callback truth must
@@ -592,7 +592,7 @@ class IbkrLiveBroker(BaseBroker):
                         or row.contract.conId != con_id or str(row.order.parentId) != str(parent_order_id)
                         or row.order.orderRef != "PROTECT|"+trade_id
                         or row.orderState.status.upper() not in {"SUBMITTED", "PRESUBMITTED"}
-                        or (row.order.orderType == "STP" and row.order.auxPrice != stop_price)):
+                        or (row.order.orderType == "STP" and row.order.auxPrice != (unit_stop_prices or {}).get(str(row.orderId), stop_price))):
                     raise RuntimeError("NATIVE_UNIT_AMENDMENT_IDENTITY_MISMATCH")
         if any(getattr(row.contract, "symbol", "").upper() == symbol
                 and str(row.orderId) != str(broker_order_id) and str(row.orderId) not in allowed_units
@@ -620,15 +620,41 @@ class IbkrLiveBroker(BaseBroker):
                     or owned.con_id != con_id or owned.quantity != sum(total-filled for total,filled,_ in allowed_units.values())):
                 raise RuntimeError("NATIVE_UNIT_AMENDMENT_POSITION_UNVERIFIED")
         amended = deepcopy(original)
-        amended.orderType = "MKT"
-        amended.auxPrice = 0.0
+        if _revision_price is not None:
+            from src.adapters.brokers.ibkr.ibkr_client import _price_decimal
+            proposed = _price_decimal(_revision_price)
+            if (unit_orders is None or not callable(authorization_guard)
+                    or proposed <= _price_decimal(stop_price)
+                    or _price_decimal(float(proposed)) != proposed):
+                raise RuntimeError("STOP_REVISION_NATIVE_PRICE_UNREPRESENTABLE_OR_UNAUTHORIZED")
+        amended.orderType = "MKT" if _revision_price is None else "STP"
+        amended.auxPrice = 0.0 if _revision_price is None else float(proposed)
         if not enabled() or manager.existing_client is not client or not client.isConnected():
             raise RuntimeError("PMH_NATIVE_AMENDMENT_AUTHORITY_CHANGED")
         if authorization_guard is not None and (not callable(authorization_guard)
                 or not authorization_guard(datetime.now(timezone.utc))):
             raise RuntimeError("SELECTED_EXIT_AUTHORIZATION_EXPIRED")
+        if _revision_price is not None:
+            from src.strategies.ross_momentum.strategy_policy import standalone_profit_quote_evidence
+            if (not client.validate_price_rule(_revision_rule,contract,route=contract.exchange,
+                    observed_at=datetime.now(timezone.utc),max_age_seconds=get_ibkr_snapshot_max_age_seconds())
+                    or not standalone_profit_quote_evidence(_revision_quote,symbol=symbol,milestone=float(proposed),observed_at=datetime.now(timezone.utc))
+                    or proposed >= _price_decimal(_revision_quote.bid)):
+                raise RuntimeError("STOP_REVISION_PRICE_AUTHORITY_EXPIRED")
+            # No further blocking owner call occurs between the final immutable
+            # authorization and SDK write. Guard does not renew any timestamps.
+            if not authorization_guard(datetime.now(timezone.utc)):
+                raise RuntimeError("STOP_REVISION_FINAL_AUTHORIZATION_CHANGED")
         client.placeOrder(int(broker_order_id), deepcopy(contract), amended)
         return {"broker_order_id": str(broker_order_id), "status": "DISPATCHED_UNCONFIRMED"}
+
+    def revise_selected_stop_price(self, *, proposed_price, price_rule, quote, **scope):
+        """Same-ID/TOTAL1 mechanism only; caller must seal owned risk authority.
+
+        No automatic BE/trailing policy or reconnect/cancel/replace fallback.
+        Dispatch return is never confirmation of an effective price revision.
+        """
+        return self.convert_selected_stop_to_market(**scope, _revision_price=proposed_price, _revision_rule=price_rule, _revision_quote=quote)
 
     def modify_stop_order(
         self,

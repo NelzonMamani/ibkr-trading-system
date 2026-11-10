@@ -17868,3 +17868,76 @@ Workspace recovery18:32UTC: selected environment briefly reported starting; wait
 Final observation access check18:33:49UTC after recovery: managed environment connected/running/current, only cloud remote_desktop, zero secret bindings/runtime variables/outbound identities; still no approved Windows execution endpoint/evidence-root connection. Actual market observation windows, versions and outcomes NONE; zero real acquisition/no observer or host/broker probe launched. Remote independent TWS/API/client/observer ownership remains UNKNOWN. Final local process inspection18:49:55 found no pytest or regular observation runtime; all owned GitHub CI runs above are completed. No unattended observation promise or owned observer awaits21:00 cleanup. No real trading/provider/broker mutation/holdings/capital enrollment/resumption/recovery clearing occurred.
 
 Exact continuation is the bounded native price-rule/current-effective-protection contract described above through existing owners, before any separately justified repricing policy. No new implementation has started. Preserve originalS0 and TPNone, same-ID/TOTAL1 ownership, default operational request1/strict caps, truth/five-position/inventory/accounting/capital latches/no-uncertain-retry safeguards. BE/trailing/standalone adds/resumption remain OFF; GAP_GO blocked, HALT disabled/no acquisition, five confidence vetoes and Corporate/listing/SEC parked. Inventory27canonical/28names/22potential long/16 overlapping subsets is unchanged, not16 complete management systems. Synthetic successes do not establish natural progression, broker acceptance/atomicity, full boot/recovery or operational readiness. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+
+## Local observation operator block — native-price prerequisite continuation
+
+Independent deliverable only; NOT executed here. Use the approved local host. A listening port cannot prove TWS UI readonly/client-ID vacancy; explicit local operator inspection is mandatory, followed by the maintained harness admission checks. This block pins accepted PR1210, uses existing paths supplied locally and refuses launch without sufficient time before the specific10November2026 21:00 London authorization expiry. No host/configuration search or guessed connection is performed here.
+
+```powershell
+& {
+    $ErrorActionPreference = 'Stop'
+    Set-StrictMode -Version 2
+    $rossPin = 'c8a0a13d486ad2b843a8ef7bd0fd7d3400236ba9'
+    $rossTree = '5355934009d43ef8bf2a62756fc9af7c3f1ca423'
+    $rossSeconds = 180
+    $rossZone = [TimeZoneInfo]::FindSystemTimeZoneById('GMT Standard Time')
+    $rossEnd = [TimeZoneInfo]::ConvertTimeToUtc([datetime]::SpecifyKind([datetime]'2026-11-10T21:00:00', 'Unspecified'), $rossZone)
+    function Assert-RossWindow {
+        $now = [datetime]::UtcNow
+        $local = [TimeZoneInfo]::ConvertTimeFromUtc($now, $rossZone)
+        if ($local.ToString('yyyy-MM-dd') -ne '2026-11-10' -or $local.TimeOfDay -lt [timespan]'14:30:00' -or $now.AddSeconds($rossSeconds + 1200) -ge $rossEnd) {
+            throw 'No launch: outside authorization or insufficient time for the bounded harness envelope before21:00 London.'
+        }
+    }
+    Assert-RossWindow
+    if ($PSVersionTable.PSEdition -ne 'Desktop' -or $PSVersionTable.PSVersion.Major -ne 5 -or $PSVersionTable.PSVersion.Minor -ne 1) { throw 'Use Windows PowerShell5.1 Desktop.' }
+    $rossSource = (Resolve-Path -LiteralPath (Read-Host 'Existing repository checkout containing the accepted commit')).Path
+    $rossPython = (Resolve-Path -LiteralPath (Read-Host 'Existing accepted Windows Python3.13.3 executable')).Path
+    $rossBase = (Resolve-Path -LiteralPath (Read-Host 'Existing local evidence base directory')).Path
+    if (!(Test-Path -LiteralPath $rossPython -PathType Leaf) -or !(Test-Path -LiteralPath $rossBase -PathType Container)) { throw 'Invalid interpreter or evidence base.' }
+    & $rossPython -E -c 'import os,sys; assert os.name==(chr(110)+chr(116)) and sys.version_info[:3]==(3,13,3); print(sys.executable,sys.version)'
+    if ($LASTEXITCODE -ne 0) { throw 'Required Windows runtime is unavailable.' }
+    $actualTree = (& git -C $rossSource rev-parse ($rossPin + '^{tree}') | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or $actualTree -cne $rossTree) { throw 'Accepted commit/tree unavailable locally. Do not reset or overwrite another checkout.' }
+    $rossTcp = @(Get-NetTCPConnection -ErrorAction Stop)
+    $listeners = @($rossTcp | Where-Object { $_.State -eq 'Listen' -and $_.LocalPort -eq 7497 -and $_.LocalAddress -in @('127.0.0.1','0.0.0.0','::') })
+    $owners = @($listeners | Select-Object -ExpandProperty OwningProcess -Unique)
+    if ($owners.Count -ne 1) { throw 'No unambiguous existing localhost7497 listener; do not start/change TWS.' }
+    Get-Process -Id $owners[0] | Select-Object Id, ProcessName | Format-Table
+    $connections = @($rossTcp | Where-Object { $_.State -eq 'Established' -and $_.LocalPort -eq 7497 })
+    if ($connections.Count -ne 0) { throw 'Existing API connections: ownership must be resolved without terminating them. No observation launch.' }
+    # A listening port cannot establish the TWS UI readonly setting or a native
+    # client-ID vacancy. The operator must inspect these; the harness still
+    # enforces software guards/inventory and rejects an occupied client71.
+    if ((Read-Host 'Verify the listener is your authorized PAPER TWS/Gateway, API Read-Only is enabled, client71 is free, and no other observer is active. Type VERIFIED only if all are verified') -cne 'VERIFIED') { throw 'Prerequisites unverified; no launch.' }
+    $before = @(Get-ChildItem -LiteralPath $rossBase -Directory | Select-Object -ExpandProperty FullName)
+    $prepText = @(& git -C $rossSource show ($rossPin + ':docs/ross/PR1108_NATURAL_READONLY_ACCEPTANCE.ps1'))
+    if ($LASTEXITCODE -ne 0) { throw 'Maintained accepted preparation owner is unavailable.' }
+    # Execute the accepted Git blob, not possibly modified working-tree code.
+    & ([scriptblock]::Create(($prepText -join [Environment]::NewLine))) -ExpectedCommit $rossPin -Python $rossPython -SourceCheckout $rossSource -BaseDirectory $rossBase -RuntimeSeconds $rossSeconds
+    if ($LASTEXITCODE -ne 0) { throw 'Preparation failed; preserve its evidence and source checkout.' }
+    $created = @(Get-ChildItem -LiteralPath $rossBase -Directory | Where-Object { $before -notcontains $_.FullName -and $_.Name -like 'ro-*' -and (Test-Path -LiteralPath (Join-Path $_.FullName 's/.git')) })
+    if ($created.Count -ne 1) { throw 'Fresh prepared root is ambiguous; no launch. Preserve all created directories.' }
+    $rossRoot = $created[0].FullName
+    $rossFrozen = Join-Path $rossRoot 's'
+    $rossEvidence = Join-Path $rossRoot 'e'
+    $head = (& git -C $rossFrozen rev-parse HEAD | Out-String).Trim()
+    $dirty = @(& git -C $rossFrozen status --porcelain --untracked-files=all)
+    if ($LASTEXITCODE -ne 0 -or $head -cne $rossPin -or $dirty.Count -ne 0) { throw 'Frozen checkout identity/cleanliness failed; preserve root, no launch.' }
+    Write-Host ('Frozen source: ' + $rossFrozen)
+    Write-Host ('Resolved fresh evidence destination: ' + $rossEvidence)
+    Write-Host 'The maintained operator scrubs experimental overrides, isolates state/cache, enforces READ_ONLY/SDK mutation guards, disables submission/translation, and verifies process ownership before admission.'
+    Assert-RossWindow
+    $runner = Join-Path $rossFrozen 'scripts/certification/run_natural_readonly_observation.ps1'
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $runner -Python $rossPython -Root $rossRoot -ExpectedCommit $rossPin -RuntimeSeconds $rossSeconds
+    $rossExit = $LASTEXITCODE
+    Write-Host ('Final harness exit: ' + $rossExit + '; root retained: ' + $rossRoot)
+    foreach ($name in @('phase-status.json','operator-summary.json','package-result.json','seal-result.json')) {
+        $path = Join-Path $rossEvidence $name
+        if (Test-Path -LiteralPath $path) { Write-Host $name; Get-Content -LiteralPath $path }
+    }
+    Write-Host 'Review each recorded outcome and owned-cleanup evidence separately. Missing evidence is NOT a pass. No TWS/order mutation or recovery clearing is authorized. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.'
+    if ($rossExit -ne 0) { throw 'Observation/preflight/cleanup did not complete successfully; preserve evidence, do not retry/resume the same root.' }
+}
+```

@@ -3001,6 +3001,57 @@ class CoreOrchestrator:
                 order["pmh_management_expired"] = True
                 engine._save_selected_orders(order_id)
 
+    def inspect_stop_revision_prerequisite(self, order_id):
+        """Explicit internal inspection, NOT an enrolled automatic repricing policy.
+
+        No run_once/strategy dispatcher calls this API. It selects no new stop
+        price and grants no BE/trailing/add/resumption trigger or permission.
+        """
+        from copy import deepcopy
+        from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
+        engine = self.execution_engine
+        order = engine._selected_order_records().get(order_id)
+        if order is None:
+            return None
+        request = order["request"]
+        if self.run_mode != RunMode.PAPER or self._stop_requested_at_boundary("STOP_REVISION_PREREQUISITE"):
+            return None
+        timeframe = request.get("setup_metadata", {}).get("execution_stream", {}).get("execution_trigger_timeframe")
+        if timeframe not in {"10s", "1m"}:
+            return None
+        bars, _ = self._get_trade_management_recent_candles(order["symbol"],10,timeframe=timeframe)
+        values, errors = self.market_data_snapshot_manager.batch_snapshots([order["symbol"]])
+        if errors or order["symbol"] not in values:
+            return None
+        quote = values[order["symbol"]]
+        now = datetime.now(timezone.utc)
+        plan = normalize_session_label(market_session_phase(now))
+        self._expire_selected_failure_enrollment(now,plan)
+        proposal = self.trade_management_engine.inspect_stop_revision_prerequisite(order,bars,observed_at=now,session_plan=plan)
+        if not proposal:
+            return None
+        life = engine.post_fill_lifecycle.get_trade(order_id)
+        snapshot = self._latest_position_truth_snapshot
+        position = self.trade_management_engine.snapshot_positions().get(order["symbol"])
+        registered = self.trade_registry.get_trade(order["symbol"],request.get("trader_type"))
+        decision = self.risk_engine.evaluate_stop_revision_prerequisite(order_id=order_id,order=order,
+            position=position,registered=registered,life=life,snapshot=snapshot,observed_at=now)
+        if not decision.allowed or decision.execution_blocked:
+            return None
+        frozen_order,frozen_bars,frozen_proposal = deepcopy(order),deepcopy(bars),deepcopy(proposal)
+        def guard(as_of):
+            current_plan = normalize_session_label(market_session_phase(as_of))
+            self._expire_selected_failure_enrollment(as_of,current_plan)
+            if (self._stop_requested_at_boundary("STOP_REVISION_FINAL_WRITE") or order.get("pmh_management_expired")
+                    or not 0 <= (as_of-snapshot.as_of).total_seconds() <= get_ibkr_snapshot_max_age_seconds()):
+                return False
+            current = self.trade_management_engine.inspect_stop_revision_prerequisite(frozen_order,
+                frozen_bars,observed_at=as_of,session_plan=current_plan)
+            check = self.risk_engine.evaluate_stop_revision_prerequisite(order_id=order_id,order=frozen_order,
+                position=position,registered=registered,life=life,snapshot=snapshot,observed_at=as_of)
+            return current == frozen_proposal and check.allowed and not check.execution_blocked
+        return proposal,quote,decision,guard
+
     def _run_selected_failure_management(self, observed_at, session_plan):
         """Explicit selected-family failure policies; no generic exit defaults."""
         from src.strategies.ross_momentum.strategy_policy import selected_completed_failure_profile, selected_relationship_unit_profit_profile

@@ -67,6 +67,8 @@ class ProtectionOrderMeta:
     close_role: str = "PROTECTION"
     filled_quantity: int = 0
     independently_confirmed: bool = False
+    last_confirmed_effective_stop_price: float | None = None
+    stop_price_revision: dict | None = None
 
 
 @dataclass
@@ -310,7 +312,11 @@ class PostFillLifecycleEngine:
                 and all(leg.quantity == 1 and leg.close_role == "PROTECTION"
                     and leg.independently_confirmed and leg.broker_order_id
                     and leg.status.upper() in {"SUBMITTED", "PRESUBMITTED"}
-                    and leg.trigger_price == trade.selected_stop_price for leg in remaining))
+                    and leg.trigger_price == trade.selected_stop_price
+                    and (not leg.stop_price_revision or (
+                        leg.stop_price_revision.get("status") == "CONFIRMED"
+                        and leg.last_confirmed_effective_stop_price == leg.stop_price_revision.get("proposed_price")
+                        and leg.last_confirmed_effective_stop_price >= trade.selected_stop_price)) for leg in remaining))
             stop_quantity = sum(leg.quantity-leg.filled_quantity for leg in remaining
                 if leg.independently_confirmed and leg.close_role == "PROTECTION")
             pending = any(leg.close_role in {"REDUCTION", "FAILURE"} for leg in remaining)

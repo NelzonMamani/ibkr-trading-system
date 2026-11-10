@@ -3447,7 +3447,7 @@ def test_native_unit_stop_prewrite_truth_or_overlap_veto_sends_no_stop(reassessm
     assert not h.stop_requests
 
 
-def enroll_unit_management(h, monkeypatch, *, fault='none', relationship=False):
+def enroll_unit_management(h, monkeypatch, *, fault='none', relationship=False, price_revision=False):
     """Real adapter + audited SDK encoder; synthetic external inventory/wire only."""
     from src.config import config_resolver
     from src.brokers import ibkr_live_broker as bm
@@ -3494,8 +3494,11 @@ def enroll_unit_management(h, monkeypatch, *, fault='none', relationship=False):
             persisted=h.core.storage_engine.fetch_management_state('execution.native_orders.v1:PAPER')
             orders=persisted['orders']
         children=[row for row in orders.values() if row.get('broker_order_id')==str(broker_id)]
-        assert len(children)==1 and children[0]['unit_amendment']['status']=='DISPATCH_UNCERTAIN'
-        assert children[0]['requested']==native.totalQuantity==1 and native.orderType=='MKT'
+        key='stop_price_revision' if price_revision and native.orderType=='STP' else 'unit_amendment'
+        assert len(children)==1 and children[0][key]['status']=='DISPATCH_UNCERTAIN'
+        assert children[0]['requested']==native.totalQuantity==1
+        assert native.orderType in ({'STP','MKT'} if price_revision else {'MKT'})
+        if key=='stop_price_revision':assert native.auxPrice==children[0][key]['proposed_price']
         assert contract.conId==123 and native.parentId==71 and native.action=='SELL'
         _AUDITED_SDK_PLACE_ORDER(self,broker_id,contract,native)
         h.unit_writes.append((broker_id,deepcopy(native)))
@@ -3507,6 +3510,8 @@ def enroll_unit_management(h, monkeypatch, *, fault='none', relationship=False):
             row.orderState.status='PendingSubmit'
     monkeypatch.setattr(EClient,'placeOrder',sdk)
     monkeypatch.setattr(engine._provider.broker,'convert_selected_stop_to_market',broker.convert_selected_stop_to_market,raising=not relationship)
+    if price_revision:
+        monkeypatch.setattr(engine._provider.broker,'revise_selected_stop_price',broker.revise_selected_stop_price,raising=False)
 
 
 def fill_unit_ids(h, life, capsys, ids, *, price=None):

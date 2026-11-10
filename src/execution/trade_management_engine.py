@@ -692,7 +692,7 @@ class TradeManagementEngine:
         )
         return position
 
-    def _evaluate_selected_completed_exit(self, order, bars, *, observed_at, session_plan, profit=False, entry_fill_price=None, micro_cost=False):
+    def _evaluate_selected_completed_exit(self, order, bars, *, observed_at, session_plan, profit=False, entry_fill_price=None, micro_cost=False, revision_proof=False):
         """Pure occurrence-bound rule; execution owns the durable dispatch latch."""
         from datetime import timedelta
         from src.strategies.common.candles.candle_types import Candle
@@ -717,12 +717,15 @@ class TradeManagementEngine:
             profile = selected_micro_cost_failure_profile(request)
         if profit:
             profile = selected_owned_profit_profile(request)
+        if revision_proof:
+            from src.strategies.ross_momentum.strategy_policy import selected_unit_management_profile
+            profile = "STOP_REVISION_PREREQUISITE" if selected_unit_management_profile(request) else None
         metadata = request.get("setup_metadata") or {}
         stream = metadata.get("execution_stream") or {}
         timeframe = stream.get("execution_trigger_timeframe")
         seconds = {"10s": 10, "1m": 60}.get(timeframe)
         if (not profile or order.get("pmh_management_expired")
-                or (request.get("relationship_context") and not (profit and selected_relationship_unit_profit_profile(request)))
+                or (request.get("relationship_context") and not (revision_proof or (profit and selected_relationship_unit_profit_profile(request))))
                 or request.get("take_profit_price") is not None or not seconds
                 or not request.get("management_session_plan") or request["management_session_plan"] != session_plan
                 or not order.get("terminal") or not (order.get("protection_confirmed") or order.get("unit_close_coverage_confirmed"))
@@ -768,7 +771,7 @@ class TradeManagementEngine:
                 if _timeframe_provenance([bar], timeframe, PatternInputPolicy.from_policy_v2(),
                         symbol=order["symbol"], now_utc=observed_at) != "PRESENT":
                     continue
-                qualifies = (bar.close >= basis[2] if profit else
+                qualifies = revision_proof or (bar.close >= basis[2] if profit else
                     bar.close < cost_basis[0] if micro_cost else bar.close < level)
                 if qualifies:
                     return ({"entry_fill_price": basis[0], "original_stop": basis[1], "milestone": basis[2]} if profit else
@@ -786,6 +789,15 @@ class TradeManagementEngine:
     def evaluate_selected_completed_profit(self, order, bars, *, observed_at, session_plan, entry_fill_price):
         return self._evaluate_selected_completed_exit(order, bars, observed_at=observed_at,
             session_plan=session_plan, profit=True, entry_fill_price=entry_fill_price)
+
+    def inspect_stop_revision_prerequisite(self, order, bars, *, observed_at, session_plan):
+        """Pure fresh-bar/binding inspection; NOT a strategy/repricing policy.
+
+        No Core dispatcher calls this. A later adopter must choose its own price
+        and trigger; prerequisite proofs supply an explicit synthetic proposal.
+        """
+        return self._evaluate_selected_completed_exit(order, bars, observed_at=observed_at,
+            session_plan=session_plan, revision_proof=True)
 
     def evaluate_selected_micro_cost_failure(self, order, bars, *, observed_at, session_plan, entry_fill_price):
         return self._evaluate_selected_completed_exit(order, bars, observed_at=observed_at,

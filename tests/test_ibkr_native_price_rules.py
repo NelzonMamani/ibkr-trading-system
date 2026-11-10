@@ -10,7 +10,7 @@ from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
 from test_ibkr_reference_names import contract
 
 
-def price_client(monkeypatch, *, route='SMART', mode='complete', bands=((0,.005),(1,.03),(10,.05))):
+def price_client(monkeypatch, *, route='SMART', mode='complete', bands=((0,.005),(1.02,.03),(10.25,.05))):
     from ibapi.contract import ContractDetails
     client=IbkrClient('127.0.0.1',7497,999,3,'LIVE',True)
     monkeypatch.setattr(client,'is_connected',lambda:True)
@@ -36,11 +36,11 @@ def test_real_sdk_encoding_completed_immutable_scoped_bands(monkeypatch):
     result=client.price_rule_snapshot(c,route='SMART')
     assert result.status=='COMPLETE' and result.rule_id==26 and result.qualification_request>0
     assert len(wire)==1 and str(wire[0]).endswith('26\x00')
-    assert result.bands==((Decimal(0),Decimal('.005')),(Decimal(1),Decimal('.03')),(Decimal(10),Decimal('.05')))
+    assert result.bands==((Decimal(0),Decimal('.005')),(Decimal('1.02'),Decimal('.03')),(Decimal('10.25'),Decimal('.05')))
     assert client.validate_price_rule(result,c,route='SMART',observed_at=datetime.now(timezone.utc),max_age_seconds=3)
     detail.marketRuleIds='99,99'  # End-owned frozen rows, not live mutable SDK objects.
     assert client.price_rule_snapshot(c,route='SMART') is result and len(wire)==1
-    client.marketRule(26,[NS(lowEdge=e,increment=i) for e,i in ((0,.005),(1,.03),(10,.05))])
+    client.marketRule(26,[NS(lowEdge=e,increment=i) for e,i in ((0,.005),(1.02,.03),(10.25,.05))])
     assert client.price_rule_snapshot(c,route='SMART') is result
     with pytest.raises(FrozenInstanceError):result.status='COMPLETE'
     assert not client.validate_price_rule(replace(result),c,route='SMART',observed_at=datetime.now(timezone.utc),max_age_seconds=3)
@@ -50,7 +50,7 @@ def test_real_sdk_encoding_completed_immutable_scoped_bands(monkeypatch):
     with pytest.raises(RuntimeError,match='unowned'):client.reqMarketRule(26)
 
 
-@pytest.mark.parametrize('value,expected',[(.991,'.995'),(.999,'1.02'),(1.02,'1.02'),(9.999,'10.05'),(10.05,'10.05')])
+@pytest.mark.parametrize('value,expected',[(.991,'.995'),(.999,'1.000'),(1.02,'1.02'),(10.249,'10.30'),(10.30,'10.30')])
 def test_exact_grid_and_band_crossing(monkeypatch,value,expected):
     client,c,_,_=price_client(monkeypatch)
     rule=client.price_rule_snapshot(c,route='SMART')
@@ -121,3 +121,26 @@ def test_concurrent_admission_duplicate_conflict_and_disconnect(monkeypatch):
     finally:
         release.set();client._invalidate_position_queries();thread.join(3)
         assert not thread.is_alive()
+
+
+def test_blocked_sdk_send_does_not_hold_invalidation_lock(monkeypatch):
+    client,c,_,wire=price_client(monkeypatch,mode='hold')
+    entered=Event();release=Event();result=[]
+    def send(message):
+        wire.append(message);entered.set()
+        assert release.wait(3)
+    monkeypatch.setattr(client,'sendMsg',send)
+    thread=Thread(target=lambda:result.append(client.price_rule_snapshot(c,route='SMART')))
+    try:
+        thread.start();assert entered.wait(3)
+        client._invalidate_position_queries()  # Must not wait for transport.
+    finally:
+        release.set();thread.join(3)
+        assert not thread.is_alive()
+    assert result[0].status=='DISCONNECTED' and len(wire)==1
+
+
+@pytest.mark.parametrize('bands',[((0,.01),(1,.03)),((0,.01),(1,.02),(1,.05))])
+def test_ambiguous_grid_origin_or_duplicate_band_denies(monkeypatch,bands):
+    client,c,_,_=price_client(monkeypatch,bands=bands)
+    assert client.price_rule_snapshot(c,route='SMART').status=='MALFORMED'

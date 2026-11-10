@@ -1110,10 +1110,13 @@ class IbkrClient(EWrapper, EClient):
             return key, req_id, int(value)
         return None
 
+    def _price_rule_observed_now(self):
+        return datetime.now(timezone.utc)
+
     def _finish_price_rule(self, query, status, bands=()):
         query["status"] = status
         query["result"] = replace(query["result"], status=status, bands=bands,
-            completed_at=datetime.now(timezone.utc) if status == "COMPLETE" else None)
+            completed_at=self._price_rule_observed_now() if status == "COMPLETE" else None)
         query["event"].set()
 
     def price_rule_snapshot(self, contract, *, route, timeout_seconds=None):
@@ -1153,15 +1156,12 @@ class IbkrClient(EWrapper, EClient):
             query = {"result": result, "status": "PENDING", "deadline": time.monotonic()+timeout,
                      "event": threading.Event()}
             self._price_rule_requests[rule_id] = query
-            try:
-                # Admission and SDK dispatch atomic with invalidation; RLock allows
-                # synchronous SDK error callbacks, without a new worker/scheduler.
-                super().reqMarketRule(rule_id)
-            except BaseException:
-                self._finish_price_rule(query, "ERROR")
-                raise
         try:
-            wait_event(query["event"], timeout)
+            # No owner lock across potentially blocking SDK transport. If the
+            # connection invalidates concurrently, this lifetime slot stays
+            # retired and callbacks cannot restore authority or start a retry.
+            super().reqMarketRule(rule_id)
+            wait_event(query["event"], max(0,query["deadline"]-time.monotonic()))
         except BaseException:
             with self._lock:
                 self._finish_price_rule(query, "INTERRUPTED")
@@ -1197,10 +1197,14 @@ class IbkrClient(EWrapper, EClient):
             if query["status"] == "PENDING" and time.monotonic() > query["deadline"]:
                 self._finish_price_rule(query, "TIMEOUT")
                 return
+            if not isinstance(priceIncrements,(tuple,list)) or not 1 <= len(priceIncrements) <= 1024:
+                self._finish_price_rule(query, "MALFORMED")
+                return
             try:
                 bands = tuple((_price_decimal(row.lowEdge), _price_decimal(row.increment)) for row in priceIncrements)
                 if (not 1 <= len(bands) <= 1024 or bands[0][0] != 0
                         or any(edge < 0 or increment <= 0 for edge, increment in bands)
+                        or any((edge.as_integer_ratio()[0]*increment.as_integer_ratio()[1]) % (edge.as_integer_ratio()[1]*increment.as_integer_ratio()[0]) for edge,increment in bands)
                         or any(a[0] >= b[0] for a,b in zip(bands,bands[1:]))):
                     raise ValueError("Malformed price bands")
             except (ValueError, TypeError, AttributeError):
