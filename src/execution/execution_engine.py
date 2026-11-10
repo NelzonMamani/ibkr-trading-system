@@ -2719,6 +2719,7 @@ class ExecutionEngine:
                             or child.get("terminal") or child["filled"] != 0
                             or child.get("unit_amendment") != retained_action
                             or parent.get("cached_update_in_progress") or child.get("cached_update_in_progress")
+                            or (parent.get("stop_price_revision") and parent["stop_price_revision"].get("status") != "CONFIRMED")
                             or not authorization_guard(now)):
                         return False
                     # Unaccounted callback changes invalidate the write. Empty cache
@@ -2830,12 +2831,22 @@ class ExecutionEngine:
             return False
         retained = deepcopy((initial, proposal, vars(decision), vars(quote)))
         quantity, entry, original = life.filled_qty, life.avg_fill_price, life.selected_stop_price
-        parent["stop_price_revision"] = dict(status="RESERVED", proposed_price=float(normalized),
+        # Recheck after blocking inventory; claim root ownership in ONE operation.
+        if (self._selected_order_records().get(order_id) is not parent or parent.get("request") is not initial
+                or self._native_quarantined or parent.get("quarantine") or parent.get("cached_update_in_progress")
+                or parent.get("pmh_failure_exit") or parent.get("pmh_management_expired")
+                or not parent.get("protection_confirmed") or not parent.get("terminal")
+                or parent["filled"] != parent["requested"]
+                or (parent.get("unit_profit_exit") and parent["unit_profit_exit"].get("status") != "FILLED")):
+            return False
+        root_reservation = dict(status="RESERVED", proposed_price=float(normalized),
             original_stop=original, entry_fill_price=entry, invalidation=initial.get("invalidation_level"),
             occurrence=deepcopy(proposal), leg_ids=[leg.leg_id for leg in selected],
             rule_id=price_rule.rule_id, rule_sequence=price_rule.request_sequence,
             rule_epoch=price_rule.connection_epoch, rule_completed_at=price_rule.completed_at.isoformat())
-        sealed_root = deepcopy(parent["stop_price_revision"])
+        if parent.setdefault("stop_price_revision", root_reservation) is not root_reservation:
+            return False  # An equal-valued reservation is still another owner.
+        sealed_root = deepcopy(root_reservation)
         for leg in selected:
             child = self._selected_order_records()[leg.leg_id]
             child["stop_price_revision"] = dict(status="RESERVED", proposed_price=float(normalized),
@@ -2875,9 +2886,10 @@ class ExecutionEngine:
                             or (initial, proposal, vars(decision), vars(quote)) != retained
                             or life.filled_qty != quantity or life.avg_fill_price != entry or life.selected_stop_price != original
                             or parent.get("quarantine") or self._native_quarantined or parent.get("cached_update_in_progress")
-                            or parent.get("pmh_failure_exit") or parent.get("stop_price_revision") != sealed_root
+                            or parent.get("pmh_failure_exit") or parent.get("stop_price_revision") is not root_reservation
+                            or root_reservation != sealed_root
                             or child.get("terminal") or child["filled"] != 0
-                            or child.get("stop_price_revision") != sealed
+                            or child.get("stop_price_revision") is not revision or revision != sealed
                             or not selected_unit_management_profile(initial)
                             or not authorization_guard(as_of)
                             or not client.validate_price_rule(price_rule, contract, route=route, observed_at=as_of, max_age_seconds=age)

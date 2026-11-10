@@ -173,7 +173,7 @@ def test_pending_revision_excludes_preapproved_profit_action(reassessment,monkey
     assert len(h.unit_writes)==4 and all(native.orderType=='STP' for _,native in h.unit_writes)
 
 
-@pytest.mark.parametrize('tamper',['request','ownership','role','amendment','entry_average'])
+@pytest.mark.parametrize('tamper',['request','ownership','role','amendment','entry_average','root_reservation','child_reservation'])
 def test_blocking_inventory_cannot_change_sealed_authority(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,tamper):
     h,request,life,rule,contract,proposal,quote,decision,guard=prepare_revision(reassessment,monkeypatch,tmp_path,capsys)
     engine=h.core.execution_engine;parent=h.failure_owner;inventory=h.native_client.openOrders
@@ -184,6 +184,10 @@ def test_blocking_inventory_cannot_change_sealed_authority(reassessment,monkeypa
         if tamper=='role':life.stop_legs[0].close_role='REDUCTION'
         if tamper=='amendment':engine._selected_order_records()[life.stop_legs[0].leg_id]['unit_amendment']={'status':'DISPATCH_UNCERTAIN'}
         if tamper=='entry_average':h.facts[71]['avgFillPrice']=10.89
+        if tamper=='root_reservation':parent['stop_price_revision']=deepcopy(parent['stop_price_revision'])
+        if tamper=='child_reservation':
+            child=engine._selected_order_records()[life.stop_legs[0].leg_id]
+            child['stop_price_revision']=deepcopy(child['stop_price_revision'])
         return result
     monkeypatch.setattr(h.native_client,'openOrders',altered)
     with pytest.raises(RuntimeError):
@@ -276,3 +280,49 @@ def test_late_old_price_invalidates_current_certificate(reassessment,monkeypatch
     assert not engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
     assert life.stop_legs[0].last_confirmed_effective_stop_price==10.70
     assert len(h.unit_writes)==4
+
+
+def test_equal_reentrant_proposal_cannot_replace_owned_reservation(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    from src.adapters.brokers.ibkr.ibkr_client import NativePriceRule
+    h,request,life,rule,contract,proposal,quote,decision,guard=prepare_revision(reassessment,monkeypatch,tmp_path,capsys)
+    engine=h.core.execution_engine
+    kwargs=dict(proposal=proposal,proposed_price='10.70',price_rule=rule,contract=contract,
+        route='SMART',quote=quote,decision=decision,authorization_guard=guard)
+    normalize=NativePriceRule.normalize_long_stop
+    retained=[]
+    def interleaved(self,*args,**options):
+        monkeypatch.setattr(NativePriceRule,'normalize_long_stop',normalize)
+        assert engine.request_stop_revision_prerequisite(request.client_order_id,**kwargs)
+        retained.append(h.failure_owner['stop_price_revision'])
+        return normalize(self,*args,**options)
+    monkeypatch.setattr(NativePriceRule,'normalize_long_stop',interleaved)
+    assert not engine.request_stop_revision_prerequisite(request.client_order_id,**kwargs)
+    assert h.failure_owner['stop_price_revision'] is retained[0]
+    assert retained[0]['status']=='CONFIRMED' and not engine._native_quarantined
+    assert len(h.unit_writes)==len(h.unit_wires)==4
+
+
+def test_already_entered_profit_rechecks_pending_revision_at_final_write(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    h,request,life,rule,contract,proposal,quote,decision,guard=prepare_revision(reassessment,monkeypatch,tmp_path,capsys)
+    engine=h.core.execution_engine;parent=h.failure_owner
+    from src.strategies.ross_momentum.strategy_policy import standalone_profit_quote_evidence
+    profit=h.manager.evaluate_selected_completed_profit(parent,h.failure_bars,observed_at=h.life.clock.current,
+        session_plan=request.management_session_plan,entry_fill_price=life.avg_fill_price)
+    profit['profit_quote']=standalone_profit_quote_evidence(quote,symbol='JPM',milestone=h.profit_level,observed_at=h.life.clock.current)
+    approved=h.core.risk_engine.evaluate_selected_failure_exit(order_id=request.client_order_id,order=parent,
+        position=h.manager.snapshot_positions()['JPM'],registered=h.core.trade_registry.get_trade('JPM',request.trader_type),
+        life=life,snapshot=h.core._latest_position_truth_snapshot,observed_at=h.life.clock.current,profit=True,quote=quote)
+    assert approved.allowed
+    inventory=h.native_client.openOrders
+    observed=[]
+    def conflicting(**kwargs):
+        rows=inventory(**kwargs)
+        assert parent['unit_profit_exit']['status']=='RESERVED'  # Actual exit already entered.
+        parent['stop_price_revision']={'status':'DISPATCH_UNCERTAIN'}  # Contradictory coordinator fact, never authority.
+        engine._save_selected_orders(request.client_order_id)  # Existing durable owner, no forged binding digest.
+        observed.append(True)
+        return rows
+    monkeypatch.setattr(h.native_client,'openOrders',conflicting)
+    with pytest.raises(RuntimeError):
+        engine.request_selected_failure_exit(request.client_order_id,profit,decision=approved,authorization_guard=lambda now:True)
+    assert observed and not h.unit_wires and not h.unit_writes and engine._native_quarantined
