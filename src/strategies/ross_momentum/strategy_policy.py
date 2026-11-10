@@ -1427,11 +1427,15 @@ def selected_one_share_profit_profile(request):
 
 def standalone_one_share_profit_basis(order, entry_fill_price):
     """Actual E0/original S0; historical name also serves explicitly enrolled units."""
+    return _owned_terminal_profit_basis(order, entry_fill_price, selected_one_share_profit_profile)
+
+
+def _owned_terminal_profit_basis(order, entry_fill_price, profile_owner):
     import math
     from decimal import Decimal, InvalidOperation
     request = order.get("request", {})
     stop = request.get("stop_loss_price")
-    if (not selected_one_share_profit_profile(request)
+    if (not profile_owner(request)
             or type(order.get("filled")) is not int or type(order.get("requested")) is not int
             or not (order["filled"] == order["requested"] == 1
                 or (selected_unit_management_profile(request) and order["filled"] == order["requested"] > 1))
@@ -1528,6 +1532,9 @@ STANDALONE_UNIT_MANAGEMENT_PROFILE = "STANDALONE_UNIT_MANAGEMENT_V1"
 
 
 def selected_unit_management_profile(request):
+    if selected_relationship_unit_profit_profile(request):
+        from src.config.config_resolver import get_ross_synthetic_relationship_unit_profit
+        return RELATIONSHIP_UNIT_PROFIT_PROFILE if get_ross_synthetic_relationship_unit_profit() else None
     from src.config.config_resolver import get_ross_synthetic_unit_management
     if selected_unit_stop_profile(request) and get_ross_synthetic_unit_management():
         return STANDALONE_UNIT_MANAGEMENT_PROFILE
@@ -1638,3 +1645,36 @@ def native_multi_relationship_action_veto(manager, context):
     return bool(context.get("action") == "REENTRY" and context.get("security_id") and context.get("parent_id")
         and any(plan.security_id == context["security_id"] and plan.parent_id == context["parent_id"]
             and native_multi_relationship_initial(plan) for plan in plans.values()))
+
+
+# NEW delegated project automation, 10 November 2026; not Ross quotations or
+# standalone policy enrollment. Existing Bull/Micro relationship's once floor-half
+# actual E0+2R milestone (TME._relationship_milestone) gains a separate synthetic
+# unit coordinator ONLY. Require terminal accounted/reconciled entry, independently
+# confirmed original S0 protection and healthy owned truth. First fresh completed
+# retained-stream bar START>=last accounted entry fill must close>=E0+2*(E0-S0),
+# plus fresh confirmed executable bid>=that frozen milestone. Same original
+# phase/date only. Reserve floor(current confirmed ownedQ/2) untouched total-one
+# IDs ONCE and convert only those same IDs; untouched remainder original stops
+# independently confirmed. Pending market units are not certified stop-protected.
+# No generic TME defaults, new failure, cost/break-even/trailing, add/re-entry,
+# cancelled-unit replacement/resumption or broker atomicity guarantee is adopted.
+# Numeric TP remains None; standalone enrollment cannot authorize this policy.
+RELATIONSHIP_UNIT_PROFIT_PROFILE = "RELATIONSHIP_UNIT_2R_COMPLETED_CLOSE_V1"
+
+
+def selected_relationship_unit_profit_profile(request):
+    if (selected_relationship_unit_stop_profile(request)
+            and request.get("setup_family_id") == "BULL_FLAG"
+            and request.get("target_model") == BULL_FLAG_MICRO_MANAGEMENT_PROFILE
+            and type(request.get("quantity")) is int and 1 < request["quantity"] <= 8):
+        return RELATIONSHIP_UNIT_PROFIT_PROFILE
+    return None
+
+
+def selected_owned_profit_profile(request):
+    return selected_relationship_unit_profit_profile(request) or selected_one_share_profit_profile(request)
+
+
+def owned_selected_profit_basis(order, entry_fill_price):
+    return _owned_terminal_profit_basis(order, entry_fill_price, selected_owned_profit_profile)

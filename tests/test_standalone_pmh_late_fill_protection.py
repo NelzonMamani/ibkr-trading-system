@@ -2635,7 +2635,9 @@ def one_share_profit_case(reassessment,monkeypatch,tmp_path,capsys,*,family='BUL
     import math
     from dataclasses import replace
     from src.strategies.common.candles.candle_types import Candle
-    if prepared:
+    if prepared and prepared[1].relationship_context:
+        h,request,life=prepared  # Initial relationship ownership already proved; reuse only bar/quote preparation below.
+    elif prepared:
         h,request,life=pmh_failure_case(reassessment,monkeypatch,tmp_path,capsys,prepared=prepared,fault='equality',clock_step=5,conversion=conversion)
     elif family=='PREMARKET_HIGH_BREAK':
         h,request,life=pmh_failure_case(reassessment,monkeypatch,tmp_path,capsys,fault='equality',clock_step=5,conversion=conversion)
@@ -3445,7 +3447,7 @@ def test_native_unit_stop_prewrite_truth_or_overlap_veto_sends_no_stop(reassessm
     assert not h.stop_requests
 
 
-def enroll_unit_management(h, monkeypatch, *, fault='none'):
+def enroll_unit_management(h, monkeypatch, *, fault='none', relationship=False):
     """Real adapter + audited SDK encoder; synthetic external inventory/wire only."""
     from src.config import config_resolver
     from src.brokers import ibkr_live_broker as bm
@@ -3453,7 +3455,8 @@ def enroll_unit_management(h, monkeypatch, *, fault='none'):
     from ibapi.order import Order
     from ibapi.contract import Contract
     config_resolver.set_config_overrides(dict(config_resolver._CONFIG_OVERRIDES,
-        ROSS_SYNTHETIC_UNIT_MANAGEMENT=True, IBKR_KILL_SWITCH=False))
+        **({'ROSS_SYNTHETIC_RELATIONSHIP_UNIT_PROFIT':True} if relationship else {'ROSS_SYNTHETIC_UNIT_MANAGEMENT':True}),
+        IBKR_KILL_SWITCH=False))
     monkeypatch.setattr(bm, 'datetime', h.life.clock)
     broker=object.__new__(bm.IbkrLiveBroker);broker.run_mode=RunMode.PAPER;broker.connection_manager=h.native_manager
     client=h.native_client;engine=h.core.execution_engine
@@ -3472,12 +3475,25 @@ def enroll_unit_management(h, monkeypatch, *, fault='none'):
         if fault=='stale':h.life.clock.current+=timedelta(seconds=16)
         if fault=='guard_age':h.life.clock.current+=timedelta(seconds=2)
         if fault=='incomplete':raise RuntimeError('synthetic incomplete inventory')
-        return deepcopy(h.native_open_orders)
+        if relationship and fault=='optout':
+            config_resolver.set_config_overrides(dict(config_resolver._CONFIG_OVERRIDES,
+                ROSS_SYNTHETIC_RELATIONSHIP_UNIT_PROFIT=False))
+        if relationship and fault=='epoch':client._position_connection_epoch+=1
+        result=deepcopy(h.native_open_orders)
+        if relationship and fault=='account':
+            for row in result:row.order.account='UNRELATED_ACCOUNT'
+        return result
     monkeypatch.setattr(client,'openOrders',inventory)
     monkeypatch.setattr(client,'sendMsg',h.unit_wires.append)
     def sdk(self,broker_id,contract,native):
-        persisted=h.core.storage_engine.fetch_management_state('execution.native_orders.v1:PAPER')
-        children=[row for row in persisted['orders'].values() if row.get('broker_order_id')==str(broker_id)]
+        plan=engine._selected_order_plan(h.failure_owner['request']['client_order_id']) if relationship else None
+        if plan is not None:
+            persisted=h.core.storage_engine.fetch_management_state(h.manager._state_namespace)
+            orders=persisted['plans'][plan.relationship_id]['orders']
+        else:
+            persisted=h.core.storage_engine.fetch_management_state('execution.native_orders.v1:PAPER')
+            orders=persisted['orders']
+        children=[row for row in orders.values() if row.get('broker_order_id')==str(broker_id)]
         assert len(children)==1 and children[0]['unit_amendment']['status']=='DISPATCH_UNCERTAIN'
         assert children[0]['requested']==native.totalQuantity==1 and native.orderType=='MKT'
         assert contract.conId==123 and native.parentId==71 and native.action=='SELL'
@@ -3487,9 +3503,10 @@ def enroll_unit_management(h, monkeypatch, *, fault='none'):
         if fault=='rejected':
             raise RuntimeError('synthetic amendment329 rejected; original stop retained')
         row.order=deepcopy(native)
-        if fault=='unknown':row.orderState.status='PendingSubmit'
+        if fault=='unknown' or (relationship and fault=='second_unknown' and len(h.unit_writes)==2):
+            row.orderState.status='PendingSubmit'
     monkeypatch.setattr(EClient,'placeOrder',sdk)
-    monkeypatch.setattr(engine._provider.broker,'convert_selected_stop_to_market',broker.convert_selected_stop_to_market)
+    monkeypatch.setattr(engine._provider.broker,'convert_selected_stop_to_market',broker.convert_selected_stop_to_market,raising=not relationship)
 
 
 def fill_unit_ids(h, life, capsys, ids, *, price=None):
