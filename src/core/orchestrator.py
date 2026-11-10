@@ -3004,8 +3004,9 @@ class CoreOrchestrator:
     def inspect_stop_revision_prerequisite(self, order_id, *, micro_tighten=False):
         """Explicit internal inspection, NOT an enrolled automatic repricing policy.
 
-        No run_once/strategy dispatcher calls this API. It selects no new stop
-        price and grants no BE/trailing/add/resumption trigger or permission.
+        Generic inspection selects no strategy price. The separately enrolled
+        synthetic standalone Micro adopter reuses these immutable guards; no
+        operational BE/trailing/add/resumption permission is granted.
         """
         from copy import deepcopy
         from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
@@ -3056,7 +3057,8 @@ class CoreOrchestrator:
         def guard(as_of):
             current_plan = normalize_session_label(market_session_phase(as_of))
             self._expire_selected_failure_enrollment(as_of,current_plan)
-            if (as_of < authorized_at or self._latest_position_truth_snapshot is not snapshot or snapshot != frozen_truth
+            if (engine.post_fill_lifecycle.get_trade(order_id) is not life
+                    or as_of < authorized_at or self._latest_position_truth_snapshot is not snapshot or snapshot != frozen_truth
                     or self._stop_requested_at_boundary("STOP_REVISION_FINAL_WRITE") or order.get("pmh_management_expired")
                     or not 0 <= (as_of-truth_as_of).total_seconds() <= get_ibkr_snapshot_max_age_seconds()):
                 return False
