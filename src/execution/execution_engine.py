@@ -2508,6 +2508,37 @@ class ExecutionEngine:
         if (not selected_unit_stop_profile(parent["request"]) or self.run_mode != RunMode.PAPER
                 or self._native_quarantined or leg.quantity != 1 or leg.leg_id in self._native_orders):
             raise RuntimeError("NATIVE_UNIT_STOP_SCOPE_INVALID")
+        from src.execution.position_truth import collect_broker_position_snapshot, PositionTruthConfig
+        from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
+        position_evidence = collect_broker_position_snapshot(self._native_callback_client(),
+            as_of=datetime.now(timezone.utc), config=PositionTruthConfig(broker_required=True, run_mode=self.run_mode))
+        owned = position_evidence.get(parent["symbol"])
+        if (position_evidence.status != "COMPLETE" or position_evidence.account != parent["account"]
+                or owned is None or owned.quantity != life.filled_qty
+                or type(owned.con_id) is not int or owned.con_id <= 0
+                or (parent.get("security_id") is not None and parent["security_id"] != owned.con_id)):
+            raise RuntimeError("NATIVE_UNIT_STOP_POSITION_UNVERIFIED")
+        # Existing complete native inventory must fit the already-owned units
+        # BEFORE another independently executable sell is sent.
+        inventory = self._pmh_complete_inventory()
+        children = {str(o["broker_order_id"]): o for o in self._native_orders.values()
+            if o.get("protection_parent_order_id") == parent_id}
+        for row in inventory:
+            if row.symbol != life.symbol or row.status.upper() in {"FILLED", "CANCELLED", "CANCELED", "REJECTED"}:
+                continue
+            if row.metadata.get("side") not in {"BUY", "SELL"}:
+                raise RuntimeError("NATIVE_UNIT_STOP_ORDER_SIDE_UNVERIFIED")
+            if row.metadata["side"] == "BUY":
+                continue
+            child = children.get(str(row.order_id));meta = row.metadata
+            if (child is None or row.status.upper() not in {"SUBMITTED", "PRESUBMITTED"}
+                    or row.order_type.upper() != "STP" or isinstance(meta.get("native_quantity"), bool)
+                    or meta.get("native_quantity") != child["requested"]
+                    or type(meta.get("con_id")) is not int or meta["con_id"] != owned.con_id
+                    or isinstance(meta.get("stop_price"), bool) or meta.get("stop_price") != life.selected_stop_price
+                    or row.parent_order_id != str(parent["broker_order_id"])
+                    or meta.get("order_ref") != "PROTECT|"+life.trade_id):
+                raise RuntimeError("NATIVE_UNIT_STOP_OVERLAPPING_SELL_UNVERIFIED")
         allocated = []
         def before_submit(broker_id, contract, native):
             self._validate_native_binding(parent_id, parent, {})
@@ -2515,6 +2546,7 @@ class ExecutionEngine:
             if (allocated or leg.leg_id in self._native_orders or type(broker_id) is not int or broker_id <= 0
                     or any(str(o.get("broker_order_id")) == str(broker_id) for o in self._native_orders.values())
                     or getattr(contract, "symbol", None) != parent["symbol"]
+                    or getattr(contract, "conId", None) != owned.con_id
                     or getattr(native, "action", None) != "SELL" or getattr(native, "orderType", None) != "STP"
                     or isinstance(getattr(native, "totalQuantity", None), bool)
                     or getattr(native, "totalQuantity", None) != 1
@@ -2537,15 +2569,17 @@ class ExecutionEngine:
                 "broker_order_id": str(broker_id), "protection_parent_order_id": parent_id,
                 "protection_trade_id": life.trade_id, "close_role": "PROTECTION"}
             parent["protection_trade_id"] = life.trade_id
+            parent["security_id"] = owned.con_id
             parent["protection_confirmed"] = False
             self._save_native_orders()
             self._validate_native_binding(leg.leg_id, self._native_orders[leg.leg_id], {})
-            if not self._native_callback_client().isConnected():
-                raise RuntimeError("NATIVE_UNIT_STOP_CLIENT_CHANGED")
+            if (not self._native_callback_client().isConnected()
+                    or not 0 <= (datetime.now(timezone.utc)-position_evidence.completed_at).total_seconds() <= get_ibkr_snapshot_max_age_seconds()):
+                raise RuntimeError("NATIVE_UNIT_STOP_CLIENT_OR_POSITION_EXPIRED")
             allocated.append(str(broker_id))
         response = self._provider.place_stop_order(symbol=life.symbol, side="SELL", quantity=1,
             stop_price=life.selected_stop_price, trade_id=life.trade_id,
-            parent_order_id=parent["broker_order_id"], before_submit=before_submit)
+            parent_order_id=parent["broker_order_id"], before_submit=before_submit, con_id=owned.con_id)
         if len(allocated) != 1 or str(response.get("broker_order_id")) != allocated[0]:
             raise RuntimeError("NATIVE_UNIT_STOP_ALLOCATION_UNCONFIRMED")
         # A return is not independent confirmation; no retries or generic repair.
@@ -2558,13 +2592,17 @@ class ExecutionEngine:
             child = self._native_orders.get(leg.leg_id)
             if (child is None or type(leg.quantity) is not int or leg.quantity != 1
                     or type(leg.filled_quantity) is not int or not 0 <= leg.filled_quantity <= 1
-                    or type(child.get("filled")) is not int or child["filled"] != leg.filled_quantity):
+                    or type(child.get("filled")) is not int or child["filled"] != leg.filled_quantity
+                    or (child.get("terminal") and leg.filled_quantity < leg.quantity)):
                 return None
         remaining = [leg for leg in life.stop_legs if leg.quantity > leg.filled_quantity]
         if (not remaining or sum(leg.quantity-leg.filled_quantity for leg in remaining) != life.filled_qty
                 or len({leg.broker_order_id for leg in life.stop_legs}) != len(life.stop_legs)):
             return None
         remaining_ids = {str(leg.broker_order_id) for leg in remaining}
+        if any(row.symbol == life.symbol and row.metadata.get("side") not in {"BUY", "SELL"}
+                and row.status.upper() not in {"FILLED", "CANCELLED", "CANCELED", "REJECTED"} for row in inventory):
+            return None
         if any(row.symbol == life.symbol and row.metadata.get("side") == "SELL"
                 and row.status.upper() not in {"FILLED", "CANCELLED", "CANCELED", "REJECTED"}
                 and str(row.order_id) not in remaining_ids for row in inventory):

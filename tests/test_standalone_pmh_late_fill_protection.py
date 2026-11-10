@@ -27,7 +27,7 @@ def late_pmh(reassessment,monkeypatch,tmp_path,*,paper_factory=paper_pmh,positio
         broker_id=72+len(stops) if unit_stops else 72
         if unit_stops and 'before_submit' in kw:
             native=NS(orderType='STP',parentId=71,orderRef='PROTECT|'+str(kw['trade_id']),action='SELL',totalQuantity=kw['quantity'],auxPrice=kw['stop_price'])
-            kw['before_submit'](broker_id,NS(symbol='JPM'),native)
+            kw['before_submit'](broker_id,NS(symbol='JPM',conId=kw['con_id']),native)
         stops.append(deepcopy({key:value for key,value in kw.items() if key!='before_submit'}))
         assert (expected_stop_quantity is None or kw['quantity']==expected_stop_quantity) and kw['stop_price']==stop_price
         open_orders.append(NS(orderId=broker_id,contract=NS(symbol='JPM',conId=123),
@@ -3363,3 +3363,45 @@ def test_native_unit_stop_completed_two_r_keeps_discretionary_admission_closed(r
     assert life.filled_qty==(1 if partial else 4) and life.exited_qty==0
     assert len(h.stop_requests)==life.filled_qty
     assert h.core.execution_engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
+
+
+@pytest.mark.parametrize('terminal',['Rejected','Cancelled'])
+@pytest.mark.parametrize('still_in_inventory',[False,True])
+def test_native_unit_stop_terminal_unfilled_is_not_recertified_or_replaced(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,terminal,still_in_inventory):
+    h,request,life=small_central_owned(reassessment,monkeypatch,tmp_path,capsys,'BULL_FLAG',requested_base=6,risk_cap=4,synthetic_capital=800,unit_stops=True)
+    h.facts[72]=dict(status=terminal,filled=0,remaining=1,avgFillPrice=0)
+    if not still_in_inventory:h.native_open_orders[:]=[row for row in h.native_open_orders if row.orderId!=72]
+    assert not h.core.run_once();capsys.readouterr()
+    engine=h.core.execution_engine
+    child=engine._native_orders[life.stop_legs[0].leg_id]
+    assert child['terminal'] and child['status']==terminal.upper() and child['filled']==0
+    assert engine._native_quarantined and life.filled_qty==3 and life.exited_qty==0
+    assert not engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
+    assert len(h.stop_requests)==3
+    assert not h.core.run_once();capsys.readouterr()
+    assert len(h.stop_requests)==3
+
+
+@pytest.mark.parametrize('fault',['unknown','missing','smaller','larger','foreign','stale','future','account','side'])
+def test_native_unit_stop_prewrite_truth_or_overlap_veto_sends_no_stop(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,fault):
+    h,request,_=small_central_owned(reassessment,monkeypatch,tmp_path,capsys,'BULL_FLAG',requested_base=6,risk_cap=4,synthetic_capital=800,unit_stops=True,fill=False)
+    h.facts[71]=dict(status='Filled',filled=3,remaining=0,avgFillPrice=10.88)
+    h.native_quantity[0]={'missing':0,'smaller':2,'larger':4}.get(fault,3)
+    h.native_open_orders.clear()
+    if fault in {'foreign','side'}:
+        h.native_open_orders.append(NS(orderId=99,contract=NS(symbol='JPM',conId=123),
+            order=NS(orderType='STP',parentId=0,orderRef='unrelated',action='SELL' if fault=='foreign' else 'UNKNOWN',totalQuantity=1,auxPrice=10.63),orderState=NS(status='Submitted')))
+    original=h.native_client.position_snapshot
+    if fault=='unknown':monkeypatch.setattr(h.native_client,'position_snapshot',lambda:BrokerPositionResult(status='TIMEOUT'))
+    if fault in {'stale','future','account'}:
+        def malformed():
+            result=original()
+            return BrokerPositionResult(result.rows,'COMPLETE','OTHER' if fault=='account' else result.account,
+                result.completed_at+timedelta(seconds=-16 if fault=='stale' else 1 if fault=='future' else 0))
+        monkeypatch.setattr(h.native_client,'position_snapshot',malformed)
+    assert not h.core.run_once();capsys.readouterr()
+    engine=h.core.execution_engine
+    assert engine._native_quarantined and engine._failsafe_block_new_entries
+    assert not h.stop_requests and len(h.sent_native)==1
+    assert not h.core.run_once();capsys.readouterr()
+    assert not h.stop_requests

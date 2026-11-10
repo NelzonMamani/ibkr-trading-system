@@ -458,6 +458,7 @@ class IbkrLiveBroker(BaseBroker):
         trade_id: str,
         parent_order_id: str | None,
         before_submit=None,
+        con_id=None,
     ) -> dict[str, str]:
         if Contract is None or Order is None:
             raise RuntimeError("ibapi dependency missing; protective order unavailable")
@@ -472,6 +473,10 @@ class IbkrLiveBroker(BaseBroker):
             client = self.connection_manager.get_client()
         contract = Contract()
         contract.symbol = str(symbol).upper()
+        if before_submit is not None:
+            if type(con_id) is not int or con_id <= 0:
+                raise RuntimeError("NATIVE_UNIT_STOP_SECURITY_UNAVAILABLE")
+            contract.conId = con_id
         contract.exchange = get_ibkr_default_exchange()
         contract.currency = get_ibkr_default_currency()
         contract.secType = "STK"
@@ -508,6 +513,7 @@ class IbkrLiveBroker(BaseBroker):
         trade_id: str,
         parent_order_id: str | None = None,
         before_submit=None,
+        con_id=None,
     ) -> dict[str, str]:
         return self._submit_protective_order(
             symbol=symbol,
@@ -519,6 +525,7 @@ class IbkrLiveBroker(BaseBroker):
             trade_id=trade_id,
             parent_order_id=parent_order_id,
             before_submit=before_submit,
+            con_id=con_id,
         )
 
     def place_target_order(
