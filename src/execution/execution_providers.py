@@ -355,6 +355,8 @@ class IbkrExecutionProvider(ExecutionProvider):
                         "order_ref": order_ref,
                         "con_id": getattr(contract, "conId", None),
                         "native_quantity": getattr(order, "totalQuantity", None),
+                        **({"account": order.account} if hasattr(order, "account") else {}),
+                        **({"client_id": order.clientId} if hasattr(order, "clientId") else {}),
                     },
                 )
             )

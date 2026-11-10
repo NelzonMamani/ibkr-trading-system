@@ -100,7 +100,7 @@ class RiskEngine:
     def evaluate_selected_failure_exit(self, *, order_id, order, position, registered, life, snapshot, observed_at, profit=False, quote=None):
         """Owned reduction only; no entry permission or management defaults."""
         from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
-        from src.strategies.ross_momentum.strategy_policy import selected_completed_failure_profile
+        from src.strategies.ross_momentum.strategy_policy import selected_completed_failure_profile, selected_unit_management_profile
         request = order.get("request", {})
         allowed = False
         quantity = 0
@@ -109,9 +109,9 @@ class RiskEngine:
             system = snapshot.system_positions.get(order["symbol"])
             quantity = life.filled_qty
             allowed = bool(
-                not request.get("selected_stop_units")
+                (not request.get("selected_stop_units") or selected_unit_management_profile(request))
                 and order.get("terminal") and order.get("filled") == order.get("requested")
-                and order.get("protection_confirmed") and not order.get("cached_update_in_progress")
+                and (order.get("protection_confirmed") or (selected_unit_management_profile(request) and order.get("unit_close_coverage_confirmed"))) and not order.get("cached_update_in_progress")
                 and not order.get("quarantine") and not order.get("pmh_failure_exit")
                 and not order.get("pmh_management_expired")
                 and selected_completed_failure_profile(request)
@@ -134,12 +134,17 @@ class RiskEngine:
                 from src.strategies.ross_momentum.strategy_policy import standalone_one_share_profit_basis, standalone_profit_quote_evidence
                 basis = standalone_one_share_profit_basis(order, life.avg_fill_price)
                 allowed = bool(allowed and str(get_config("RUN_MODE_EFFECTIVE")).upper() == "PAPER"
-                    and quantity == 1 and basis and position.entry_price == registered.entry_price == basis[0]
+                    and (quantity == 1 or (selected_unit_management_profile(request) and quantity > 1
+                        and not order.get("unit_profit_exit"))) and basis and position.entry_price == registered.entry_price == basis[0]
                     and standalone_profit_quote_evidence(quote, symbol=order["symbol"], milestone=basis[2], observed_at=observed_at))
         except (AttributeError, TypeError, ValueError, KeyError):
             allowed = False
+        if profit and request.get("selected_stop_units"):
+            quantity = quantity // 2
+            allowed = bool(allowed and quantity > 0)
         if profit:
-            rationale = "STANDALONE_ONE_SHARE_PROFIT_EXIT" if allowed else "STANDALONE_PROFIT_BLOCKED"
+            rationale = (("STANDALONE_UNIT_PROFIT_EXIT" if selected_unit_management_profile(request)
+                else "STANDALONE_ONE_SHARE_PROFIT_EXIT") if allowed else "STANDALONE_PROFIT_BLOCKED")
         elif request.get("setup_family_id") == "PREMARKET_HIGH_BREAK":
             rationale = "PMH_OWNED_FAILURE_EXIT" if allowed else "PMH_EXIT_TRUTH_OR_BINDING_BLOCKED"
         else:

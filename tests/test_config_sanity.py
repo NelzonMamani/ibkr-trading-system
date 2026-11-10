@@ -120,3 +120,28 @@ def test_unit_stops_have_no_environment_enrollment(monkeypatch):
         resolver.set_config_overrides(None)
         assert not resolver.get_ross_synthetic_unit_stops()
     finally:resolver.set_config_overrides(previous)
+
+
+@pytest.mark.parametrize('units',[False,True])
+def test_unit_management_requires_explicit_prior_synthetic_scope(monkeypatch,units):
+    from src.config import config_resolver as resolver
+    previous=dict(resolver._CONFIG_OVERRIDES)
+    monkeypatch.setenv('EXECUTION_ENV','TEST')
+    try:
+        resolver.set_config_overrides(dict(ROSS_SYNTHETIC_UNIT_MANAGEMENT=True,
+            ROSS_SYNTHETIC_UNIT_STOPS=units,ROSS_SYNTHETIC_REQUESTED_BASE_SIZE=4,
+            RUN_MODE='PAPER',RISK_PROFILE='SMALL'))
+        if units:assert resolver.get_ross_synthetic_unit_management()
+        else:
+            with pytest.raises(resolver.ConfigResolutionError):resolver.get_ross_synthetic_unit_management()
+    finally:resolver.set_config_overrides(previous)
+
+
+def test_unit_management_has_no_environment_enrollment(monkeypatch):
+    from src.config import config_resolver as resolver
+    previous=dict(resolver._CONFIG_OVERRIDES)
+    monkeypatch.setenv('ROSS_SYNTHETIC_UNIT_MANAGEMENT','true')
+    try:
+        resolver.set_config_overrides(None)
+        assert not resolver.get_ross_synthetic_unit_management()
+    finally:resolver.set_config_overrides(previous)

@@ -311,7 +311,11 @@ class PostFillLifecycleEngine:
                     and leg.independently_confirmed and leg.broker_order_id
                     and leg.status.upper() in {"SUBMITTED", "PRESUBMITTED"}
                     and leg.trigger_price == trade.selected_stop_price for leg in remaining))
-            return {"status": "PROTECTED" if protected else "UNSAFE", "protected": protected,
+            stop_quantity = sum(leg.quantity-leg.filled_quantity for leg in remaining
+                if leg.independently_confirmed and leg.close_role == "PROTECTION")
+            pending = any(leg.close_role in {"REDUCTION", "FAILURE"} for leg in remaining)
+            return {"status": "PROTECTED" if protected else "EXIT_PENDING" if pending else "UNSAFE", "protected": protected,
+                "confirmed_stop_quantity": stop_quantity,
                 "reason_code": "SELECTED_UNIT_STOPS_CONFIRMED" if protected else "SELECTED_UNIT_STOP_REMAINDER_UNVERIFIED"}
         if trade.selected_exit_pending and trade.selected_exit_pending.get("status") != "STP":
             return {"status": "EXIT_PENDING", "protected": False,

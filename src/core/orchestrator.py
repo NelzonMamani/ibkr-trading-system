@@ -3010,14 +3010,16 @@ class CoreOrchestrator:
         snapshot = self._latest_position_truth_snapshot
         for order_id, order in list(engine._native_orders.items()):
             if (order.get("side") not in {"LONG", "BUY"} or not order.get("terminal")
-                    or not order.get("protection_confirmed") or order.get("quarantine")
+                    or not (order.get("protection_confirmed") or order.get("unit_close_coverage_confirmed")) or order.get("quarantine")
                     or order.get("cached_update_in_progress") or order.get("pmh_failure_exit")):
                 continue
             request = order.get("request", {})
             if not selected_completed_failure_profile(request) or order.get("pmh_management_expired"):
                 continue
-            if request.get("selected_stop_units"):
-                continue  # Ownership prerequisite only; no partial/failure enrollment yet.
+            from src.strategies.ross_momentum.strategy_policy import selected_unit_management_profile
+            units = bool(selected_unit_management_profile(request))
+            if request.get("selected_stop_units") and not units:
+                continue
             stream = (request.get("setup_metadata") or {}).get("execution_stream") or {}
             timeframe = stream.get("execution_trigger_timeframe")
             if timeframe not in {"10s", "1m"}:
@@ -3029,7 +3031,8 @@ class CoreOrchestrator:
             profit = False
             quote = None
             evaluation_at = observed_at
-            if not failure and self.run_mode == RunMode.PAPER and life and life.filled_qty == 1:
+            if (not failure and self.run_mode == RunMode.PAPER and life
+                    and (life.filled_qty == 1 or (units and life.filled_qty > 1 and not order.get("unit_profit_exit")))):
                 failure = self.trade_management_engine.evaluate_selected_completed_profit(order, bars,
                     observed_at=observed_at, session_plan=session_plan, entry_fill_price=life.avg_fill_price)
                 if failure:
@@ -3073,13 +3076,13 @@ class CoreOrchestrator:
                     if self._stop_requested_at_boundary("SELECTED_FAILURE_MANAGEMENT_EXECUTION"):
                         return False
                     authorization_guard = None
-                    if profit:
+                    if profit or units:
                         from copy import deepcopy
                         frozen_order, frozen_bars = deepcopy(order), deepcopy(bars)
                         frozen_rule, frozen_quote = deepcopy(failure), deepcopy(quote)
                         def authorization_guard(now, owner=order, retained_order=frozen_order,
                                 retained_bars=frozen_bars, retained_rule=frozen_rule, retained_quote=frozen_quote,
-                                truth_as_of=snapshot.as_of, authorized_at=evaluation_at):
+                                truth_as_of=snapshot.as_of, authorized_at=evaluation_at, profit=profit):
                             from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
                             forced = str(os.getenv("FORCE_SESSION") or "").strip().upper()
                             plan = normalize_session_label(forced or market_session_phase(now)) or forced
@@ -3087,13 +3090,16 @@ class CoreOrchestrator:
                             if (owner.get("pmh_management_expired") or now < authorized_at
                                     or not 0 <= (now-truth_as_of).total_seconds() <= get_ibkr_snapshot_max_age_seconds()):
                                 return False
-                            current = self.trade_management_engine.evaluate_selected_completed_profit(
+                            current = (self.trade_management_engine.evaluate_selected_completed_profit(
                                 retained_order, retained_bars, observed_at=now, session_plan=plan,
-                                entry_fill_price=retained_rule["entry_fill_price"])
+                                entry_fill_price=retained_rule["entry_fill_price"]) if profit else
+                                self.trade_management_engine.evaluate_selected_completed_failure(
+                                    retained_order, retained_bars, observed_at=now, session_plan=plan))
                             if not current:
                                 return False
-                            current["profit_quote"] = standalone_profit_quote_evidence(retained_quote,
-                                symbol=retained_order["symbol"], milestone=current["milestone"], observed_at=now)
+                            if profit:
+                                current["profit_quote"] = standalone_profit_quote_evidence(retained_quote,
+                                    symbol=retained_order["symbol"], milestone=current["milestone"], observed_at=now)
                             return current == retained_rule  # No newer bar/quote or timestamp renewal.
                     engine.request_selected_failure_exit(order_id, failure, decision=decision,
                         authorization_guard=authorization_guard)

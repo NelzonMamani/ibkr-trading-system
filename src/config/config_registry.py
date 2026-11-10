@@ -1631,11 +1631,17 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
         "mutable": "dynamic",
         "description": "Default fraction of available account capital assigned to one strategy when no explicit allocation is configured.",
     },
+    "ROSS_SYNTHETIC_UNIT_MANAGEMENT": {
+        "type": bool, "default": False, "env": [],
+        "affects": ["ExecutionEngine", "RiskEngine", "CoreOrchestrator"],
+        "enforcement": "HARD", "mutable": "dynamic",
+        "description": "Explicit synthetic PAPER same-identity unit close coordination; no replacement or broker atomicity claim.",
+    },
     "ROSS_SYNTHETIC_UNIT_STOPS": {
         "type": bool, "default": False, "env": [],
         "affects": ["ExecutionEngine", "PostFillLifecycleEngine"],
         "enforcement": "HARD", "mutable": "dynamic",
-        "description": "Explicit TEST/PAPER/SMALL per-unit selected protection prerequisite; profit admission remains closed.",
+        "description": "Explicit TEST/PAPER/SMALL per-unit selected protection only; management requires separate explicit enrollment.",
     },
     "ROSS_SYNTHETIC_REQUESTED_BASE_SIZE": {
         "type": int,
