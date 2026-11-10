@@ -1478,3 +1478,13 @@ def standalone_profit_quote_evidence(quote, *, symbol, milestone, observed_at):
             "data_quality_flags": evidence["rejection_flags"]}
     except (TypeError, ValueError, OverflowError, AttributeError):
         return None
+
+
+# NEW delegated synthetic-only project sizing policy (9 November 2026):
+# ROSS_SYNTHETIC_REQUESTED_BASE_SIZE defaults to1.
+# In-process TEST/PAPER/SMALL opt-in accepts integer base1..8, before the
+# unchanged quality multiplier/whole-share rounding. This is a requested size,
+# not a confidence uplift or a risk ceiling. Actual native output is retained;
+# risk, capital, profile and execution may only clamp it. Relationships keep
+# their existing producer/manager sizing. No multi-share profit enrollment is
+# implied: the current single-stop owner lacks a partial/remainder contract.

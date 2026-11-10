@@ -1221,7 +1221,7 @@ def test_native_stop_partial_then_terminal_cumulative_core_accounting(reassessme
     monkeypatch.setenv('TRADING_DEFAULT_CAPITAL','400') # Isolated existing synthetic sizing scope.
     def small_joined(*args,**kwargs):
         # Existing approved SMALL sizing, scoped to synthetic facts; MICRO defaults stay one share.
-        kwargs['runtime_options']['config_overrides'].update(RISK_PROFILE='SMALL',RISK_MAX_POSITION_SIZE=2)
+        kwargs['runtime_options']['config_overrides'].update(RISK_PROFILE='SMALL',RISK_MAX_POSITION_SIZE=2,ROSS_SYNTHETIC_REQUESTED_BASE_SIZE=8)
         return pmh_joined(*args,**kwargs)
     def small_paper(*args,**kwargs):return paper_pmh(*args,joined_factory=small_joined,**kwargs)
     h=late_pmh(reassessment,monkeypatch,tmp_path,paper_factory=small_paper,
@@ -1634,7 +1634,7 @@ def small_pmh_owned(reassessment,monkeypatch,tmp_path,capsys,*,partial=False):
     from test_joined_core_pmh_readonly import pmh_joined
     monkeypatch.setenv('TRADING_DEFAULT_CAPITAL','400') # Existing isolated SMALL synthetic scope.
     def small_joined(*args,**kwargs):
-        kwargs['runtime_options']['config_overrides'].update(RISK_PROFILE='SMALL',RISK_MAX_POSITION_SIZE=2)
+        kwargs['runtime_options']['config_overrides'].update(RISK_PROFILE='SMALL',RISK_MAX_POSITION_SIZE=2,ROSS_SYNTHETIC_REQUESTED_BASE_SIZE=8)
         return coherent_pmh_failure_entry(*args,**kwargs)
     def small_paper(*args,**kwargs):return paper_pmh(*args,joined_factory=small_joined,**kwargs)
     h=late_pmh(reassessment,monkeypatch,tmp_path,paper_factory=small_paper,
@@ -1976,7 +1976,7 @@ def trusted_steady_pmh(reassessment,monkeypatch,tmp_path,*,two_shares=False,entr
     from test_joined_core_pmh_readonly import pmh_joined
     if two_shares:monkeypatch.setenv('TRADING_DEFAULT_CAPITAL','400') # Existing isolated SMALL synthetic scope only.
     def joined_factory(*args,**kwargs):
-        if two_shares:kwargs['runtime_options']['config_overrides'].update(RISK_PROFILE='SMALL',RISK_MAX_POSITION_SIZE=2)
+        if two_shares:kwargs['runtime_options']['config_overrides'].update(RISK_PROFILE='SMALL',RISK_MAX_POSITION_SIZE=2,ROSS_SYNTHETIC_REQUESTED_BASE_SIZE=8)
         if entry_position_limit is not None:kwargs['runtime_options']['config_overrides']['RISK_MAX_OPEN_POSITIONS']=entry_position_limit
         h=pmh_joined(*args,clock_time=(16,35,30),**kwargs)
         h.trusted_pre_scenario=True
@@ -2477,16 +2477,18 @@ def test_central_failure_later_bar_and_missing_timestamp_or_relationship_hold(re
         assert evaluate(row) is None,change
 
 
-def small_central_owned(reassessment,monkeypatch,tmp_path,capsys,family,*,partial=False):
+def small_central_owned(reassessment,monkeypatch,tmp_path,capsys,family,*,partial=False,requested_base=8,risk_cap=2,synthetic_capital=400,fill=True,expected_admitted=None,quantity_fault=None):
     from test_joined_core_pmh_readonly import standalone_bull_joined,micro_joined,key_joined,consolidation_joined,flat_top_joined,orb_joined,hod_joined,momentum_joined,cup_joined,opening_drive_joined,indicator_pullback_joined,vwap_pullback_joined,stair_step_joined
     from test_abcd_production_handoff import abcd_joined
     from test_joined_core_first_pullback import first_joined
     factory={'BULL_FLAG':standalone_bull_joined,'FIRST_PULLBACK':first_joined,'MICRO_PULLBACK':micro_joined,'KEY_LEVEL_BREAK':key_joined,'CONSOLIDATION_BREAKOUT':consolidation_joined,'FLAT_TOP_BREAKOUT':flat_top_joined,'OPENING_RANGE_BREAKOUT':orb_joined,'HOD_BREAK':hod_joined,'ABCD':abcd_joined,'VWAP_RECLAIM_CONTINUATION':momentum_joined,'CUP_HANDLE':cup_joined,'OPENING_DRIVE':opening_drive_joined,'EMA_PULLBACK':indicator_pullback_joined,'VWAP_PULLBACK':vwap_pullback_joined,'TREND_CONTINUATION_STAIR_STEP':stair_step_joined}[family]
     prices={'BULL_FLAG':(10.88,10.63),'FIRST_PULLBACK':(10.55,10.15),'MICRO_PULLBACK':(10.88,10.6),'KEY_LEVEL_BREAK':(11.02,10.88),'CONSOLIDATION_BREAKOUT':(10.43,10.21),'FLAT_TOP_BREAKOUT':(10.27,9.99),'OPENING_RANGE_BREAKOUT':(10.42,9.95),'HOD_BREAK':(10.34,10.2),'ABCD':(11.02,10.35),'VWAP_RECLAIM_CONTINUATION':(10.34,10.23),'CUP_HANDLE':(10.55,10.3),'OPENING_DRIVE':(10.62,10.47),'EMA_PULLBACK':(10.53,10.29),'VWAP_PULLBACK':(10.8,10.23),'TREND_CONTINUATION_STAIR_STEP':(10.68,10.34)}
     price,stop=prices[family]
-    monkeypatch.setenv('TRADING_DEFAULT_CAPITAL','400')
+    monkeypatch.setenv('TRADING_DEFAULT_CAPITAL',str(synthetic_capital))
     def small_joined(*args,**kwargs):
-        kwargs['runtime_options']['config_overrides'].update(RISK_PROFILE='SMALL',RISK_MAX_POSITION_SIZE=2)
+        kwargs['runtime_options']['config_overrides'].update(RISK_PROFILE='SMALL',RISK_MAX_POSITION_SIZE=risk_cap)
+        if requested_base is not None:
+            kwargs['runtime_options']['config_overrides']['ROSS_SYNTHETIC_REQUESTED_BASE_SIZE']=requested_base
         if family=='CUP_HANDLE':kwargs['clock_time']=(13,55,30)
         h=factory(*args,**kwargs)
         for row in h.rows.values():
@@ -2494,14 +2496,28 @@ def small_central_owned(reassessment,monkeypatch,tmp_path,capsys,family,*,partia
         return h
     def paper_small(*args,**kwargs):return paper_pmh(*args,joined_factory=small_joined,**kwargs)
     h=late_pmh(reassessment,monkeypatch,tmp_path,paper_factory=paper_small,fill_price=price,stop_price=stop,expected_stop_quantity=None)
+    if quantity_fault is not None:
+        evaluate=h.core.risk_engine.evaluate_trade_intent
+        def malformed(intent,**kwargs):
+            # Negative corruption at the real risk boundary; no prepared success.
+            if quantity_fault=='missing':delattr(intent,'quantity')
+            elif quantity_fault=='bool':intent.quantity=True
+            else:intent.quantity=9
+            return evaluate(intent,**kwargs)
+        monkeypatch.setattr(h.core.risk_engine,'evaluate_trade_intent',malformed)
     assert h.core.run_once();capsys.readouterr()
     h.life.clock.current+=timedelta(seconds=11)
     assert h.core.run_once();capsys.readouterr()
+    if quantity_fault is not None:
+        assert not h.sent_native and not h.stop_requests and not h.manager.snapshot_positions()
+        return h,None,None
     request=h.sent_native[0]
-    assert request.quantity==2 and not h.stop_requests and not h.manager.snapshot_positions()
+    approved=expected_admitted if expected_admitted is not None else min(risk_cap,h.evaluated[0][0].quantity)
+    assert request.quantity==approved and not h.stop_requests and not h.manager.snapshot_positions()
     assert request.management_session_plan and request.setup_metadata and not request.relationship_context
-    count=1 if partial else 2
-    h.facts[71]=dict(status='Submitted' if partial else 'Filled',filled=count,remaining=2-count,avgFillPrice=price)
+    if not fill:return h,request,None
+    count=1 if partial else approved
+    h.facts[71]=dict(status='Submitted' if partial else 'Filled',filled=count,remaining=approved-count,avgFillPrice=price)
     h.native_quantity[0]=count;h.native_open_orders.clear()
     h.life.clock.current+=timedelta(seconds=1)
     assert h.core.run_once();capsys.readouterr()
@@ -2981,3 +2997,81 @@ def test_standalone_profit_bar_expires_during_final_inventory_no_dispatch(reasse
         assert h.core.run_once();capsys.readouterr()
     assert not h.failure_conversions
     assert before==(life.realized_pnl,len(h.core.execution_engine.position_records),h.core.execution_engine.capital_authority.total_used_exposure)
+
+
+@pytest.mark.parametrize('base,produced,cap',[(2,1,4),(3,2,4),(4,2,4),(6,3,4),(8,4,4),(8,4,1)])
+def test_native_synthetic_requested_size_is_not_risk_ceiling(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,base,produced,cap):
+    h,request,life=small_central_owned(reassessment,monkeypatch,tmp_path,capsys,'BULL_FLAG',requested_base=base,risk_cap=cap,synthetic_capital=800)
+    intent,received,decision=h.evaluated[0]
+    # Real producer, all native competition and actual downstream request.
+    assert intent.position_size==base*.5
+    assert intent.quantity==produced
+    assert received['quantity']==produced
+    assert len(h.registry_batches[-1][1])==33
+    assert request.quantity==decision.max_position_size==min(produced,cap)
+    assert life.filled_qty==life.stop.quantity==min(produced,cap)
+    assert life.stop.trigger_price==10.63 and life.target is None
+    assert request.take_profit_price is None and not request.relationship_context
+    assert len(h.sent_native)==len(h.stop_requests)==1
+    assert len(h.core.trade_registry.snapshot())==len(h.manager.snapshot_positions())==1
+    h.life.clock.current+=timedelta(seconds=1)
+    assert h.core.run_once();capsys.readouterr()
+    assert len(h.sent_native)==len(h.stop_requests)==1
+    assert life.filled_qty==min(produced,cap)
+
+
+@pytest.mark.parametrize('base,partial',[(4,False),(6,False),(8,False),(6,True)])
+def test_native_requested_multi_share_profit_stays_closed_until_coordination(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,base,partial):
+    prepared=small_central_owned(reassessment,monkeypatch,tmp_path,capsys,'BULL_FLAG',requested_base=base,risk_cap=4,partial=partial,synthetic_capital=800)
+    h,request,life=one_share_profit_case(reassessment,monkeypatch,tmp_path,capsys,prepared=prepared)
+    assert request.quantity==round(base*.5)
+    assert life.filled_qty==(1 if partial else request.quantity)
+    assert not h.failure_conversions and not h.failure_owner.get('pmh_failure_exit')
+    assert len(h.stop_requests)==1
+    assert h.stop_requests[0]['quantity']==life.filled_qty
+    assert h.core.execution_engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
+    assert request.take_profit_price is None and life.target is None
+
+
+@pytest.mark.parametrize('base,filled',[(None,1),(4,2)])
+def test_native_requested_size_oversized_fill_quarantines_before_ownership(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,base,filled):
+    h,request,_=small_central_owned(reassessment,monkeypatch,tmp_path,capsys,'BULL_FLAG',requested_base=base,risk_cap=2,fill=False)
+    assert request.quantity==h.evaluated[0][0].quantity==filled
+    assert not h.stop_requests and not h.core.trade_registry.snapshot()
+    h.facts[71]=dict(status='Filled',filled=filled+1,remaining=0,avgFillPrice=10.88)
+    h.native_quantity[0]=filled+1
+    h.life.clock.current+=timedelta(seconds=1)
+    h.core.run_once();capsys.readouterr()
+    engine=h.core.execution_engine
+    assert engine._native_quarantined and engine._native_orders[request.client_order_id]['quarantine']
+    assert not engine.position_records and not h.core.trade_registry.snapshot() and not h.manager.snapshot_positions()
+    assert engine.post_fill_lifecycle.get_trade(request.client_order_id) is None
+    assert not h.stop_requests and len(h.sent_native)==1
+
+
+def test_native_default_request_one_ignores_larger_risk_ceiling(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    h,request,life=small_central_owned(reassessment,monkeypatch,tmp_path,capsys,'BULL_FLAG',requested_base=None,risk_cap=2)
+    intent,received,decision=h.evaluated[0]
+    assert intent.quantity==received['quantity']==request.quantity==decision.max_position_size==life.filled_qty==life.stop.quantity==1
+    assert h.core.execution_engine.max_shares_per_order is None
+    assert len(h.registry_batches[-1][1])==33
+
+
+
+def test_native_requested_size_remains_subject_to_capital_clamp(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    h,request,life=small_central_owned(reassessment,monkeypatch,tmp_path,capsys,'BULL_FLAG',requested_base=8,risk_cap=4,synthetic_capital=400,expected_admitted=3)
+    intent,received,decision=h.evaluated[0]
+    assert intent.quantity==received['quantity']==4
+    assert request.quantity==decision.max_position_size==life.filled_qty==life.stop.quantity==3
+    assert h.core.execution_engine.max_shares_per_order is None
+    assert len(h.sent_native)==len(h.stop_requests)==1
+
+
+@pytest.mark.parametrize('fault',['missing','bool','over_base'])
+def test_native_requested_size_malformed_quantity_is_denied(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,fault):
+    h,_,_=small_central_owned(reassessment,monkeypatch,tmp_path,capsys,'BULL_FLAG',requested_base=4,risk_cap=4,quantity_fault=fault)
+    decision=h.evaluated[0][2]
+    assert not decision.allowed and decision.execution_blocked and decision.max_position_size==0
+    assert decision.reason_code=='INVALID_NATIVE_REQUESTED_QUANTITY'
+    assert decision.overall_action=='BLOCK' and decision.decision_code=='REJECT'
+    assert not h.core.execution_engine.position_records and not h.core.trade_registry.snapshot()
