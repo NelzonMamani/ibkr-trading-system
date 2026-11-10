@@ -1454,6 +1454,16 @@ def standalone_one_share_profit_basis(order, entry_fill_price):
 
 
 def standalone_profit_quote_evidence(quote, *, symbol, milestone, observed_at):
+    return _standalone_exit_quote_evidence(quote, symbol=symbol, level=milestone,
+        observed_at=observed_at, below=False)
+
+
+def standalone_micro_cost_quote_evidence(quote, *, symbol, entry_price, observed_at):
+    return _standalone_exit_quote_evidence(quote, symbol=symbol, level=entry_price,
+        observed_at=observed_at, below=True)
+
+
+def _standalone_exit_quote_evidence(quote, *, symbol, level, observed_at, below):
     """Existing snapshot facts/domain time owner, independently rechecked at dispatch."""
     import math
     from collections.abc import Mapping
@@ -1471,7 +1481,7 @@ def standalone_profit_quote_evidence(quote, *, symbol, milestone, observed_at):
                 or evidence_rejection(evidence, now=observed_at)
                 or isinstance(bid, bool) or isinstance(ask, bool)
                 or not math.isfinite(bid) or not math.isfinite(ask)
-                or not 0 < bid <= ask or bid < milestone):
+                or not 0 < bid <= ask or (not bid < level if below else bid < level)):
             return None
         return {key: read(key) for key in ("symbol", "source", "snapshot_complete", "market_data_type_confirmed",
             "market_data_type", "returned_market_data_type", "bid", "ask")} | {
@@ -1522,3 +1532,63 @@ def selected_unit_management_profile(request):
     if selected_unit_stop_profile(request) and get_ross_synthetic_unit_management():
         return STANDALONE_UNIT_MANAGEMENT_PROFILE
     return None
+
+
+# NEW delegated project policy, 10 November 2026, synthetic standalone Micro only.
+# Qualitative context (not the numerical/automation contract):
+# https://www.warriortrading.com/pull-back-trading-strategy/
+# https://media.warriortrading.com/2021/07/13171942/SAC-Micro-Pullback-Strategy-v2.pdf
+# Keep the accepted once-half actual-2R partial. Only a fully accounted aggregate
+# partial with POSITIVE gross realized proceeds above its frozen actual entry
+# cost enrolls this rule. Fees/net profit and broker break-even are not promised.
+# After its LAST authoritative accounted fill, a fresh completed retained-stream
+# bar must START at/after that stamp and CLOSE strictly below frozen actual E0;
+# a fresh confirmed executable bid must ALSO be strictly below E0. Equality,
+# wick, forming/straddling/missing/stale/future facts HOLD. Existing family failure
+# has priority; authoritative stop fills/flat suppress exits. Session/date expiry
+# remains unchanged. No elapsed cutoff, price offset or new reward multiple.
+# Close the confirmed owned remainder via existing unit identities and immutable
+# final-write guards. Original S0 stays unchanged; no native BE/trail/add/retry.
+STANDALONE_MICRO_COST_FAILURE_PROFILE = "STANDALONE_MICRO_POST_PARTIAL_COST_FAILURE_V1"
+
+
+def selected_micro_cost_failure_profile(request):
+    from src.config.config_resolver import get_ross_synthetic_micro_cost_failure
+    if (request.get("setup_family_id") == "MICRO_PULLBACK"
+            and selected_unit_management_profile(request)
+            and get_ross_synthetic_micro_cost_failure()):
+        return STANDALONE_MICRO_COST_FAILURE_PROFILE
+    return None
+
+
+def standalone_micro_cost_failure_basis(order, entry_fill_price):
+    """Only existing accounting's sealed completed partial facts can enroll."""
+    from decimal import Decimal, InvalidOperation
+    from datetime import datetime
+    request = order.get("request", {})
+    action = order.get("unit_profit_exit") or {}
+    basis = standalone_one_share_profit_basis(order, entry_fill_price)
+    if (not selected_micro_cost_failure_profile(request) or not basis
+            or not order.get("protection_confirmed") or order.get("pmh_failure_exit")
+            or order.get("quarantine") or order.get("cached_update_in_progress")
+            or action.get("status") != "FILLED"
+            or action.get("profile") != STANDALONE_ONE_SHARE_PROFIT_PROFILE
+            or action.get("occurrence") != request.get("setup_metadata")
+            or (action.get("entry_fill_price"), action.get("original_stop"), action.get("milestone")) != basis):
+        return None
+    try:
+        qty, owned = action["reserved_quantity"], action["owned_quantity"]
+        if not isinstance(action["accounted_fill_notional"], str):
+            return None
+        notional = Decimal(action["accounted_fill_notional"])
+        stamp = action["last_accounted_fill_at"]
+        if (type(qty) is not int or type(owned) is not int or not 0 < qty == owned // 2
+                or not owned <= order["filled"] or qty != len(set(action["leg_ids"]))
+                or type(action["accounted_fill_quantity"]) is not int or action["accounted_fill_quantity"] != qty
+                or not notional.is_finite()
+                or not notional > qty * Decimal(str(basis[0]))
+                or datetime.fromisoformat(stamp).tzinfo is None):
+            return None
+        return basis[0], basis[1], stamp
+    except (KeyError, TypeError, ValueError, OverflowError, InvalidOperation):
+        return None

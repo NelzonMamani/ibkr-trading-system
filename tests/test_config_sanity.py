@@ -145,3 +145,28 @@ def test_unit_management_has_no_environment_enrollment(monkeypatch):
         resolver.set_config_overrides(None)
         assert not resolver.get_ross_synthetic_unit_management()
     finally:resolver.set_config_overrides(previous)
+
+
+@pytest.mark.parametrize('management',[False,True])
+def test_micro_cost_failure_requires_separate_explicit_synthetic_enrollment(monkeypatch,management):
+    from src.config import config_resolver as resolver
+    previous=dict(resolver._CONFIG_OVERRIDES)
+    monkeypatch.setenv('EXECUTION_ENV','TEST')
+    try:
+        resolver.set_config_overrides(dict(ROSS_SYNTHETIC_MICRO_COST_FAILURE=True,
+            ROSS_SYNTHETIC_UNIT_MANAGEMENT=management,ROSS_SYNTHETIC_UNIT_STOPS=True,
+            ROSS_SYNTHETIC_REQUESTED_BASE_SIZE=4,RUN_MODE='PAPER',RISK_PROFILE='SMALL'))
+        if management:assert resolver.get_ross_synthetic_micro_cost_failure()
+        else:
+            with pytest.raises(resolver.ConfigResolutionError):resolver.get_ross_synthetic_micro_cost_failure()
+    finally:resolver.set_config_overrides(previous)
+
+
+def test_micro_cost_failure_default_and_environment_cannot_enroll(monkeypatch):
+    from src.config import config_resolver as resolver
+    previous=dict(resolver._CONFIG_OVERRIDES)
+    monkeypatch.setenv('ROSS_SYNTHETIC_MICRO_COST_FAILURE','true')
+    try:
+        resolver.set_config_overrides(None)
+        assert not resolver.get_ross_synthetic_micro_cost_failure()
+    finally:resolver.set_config_overrides(previous)

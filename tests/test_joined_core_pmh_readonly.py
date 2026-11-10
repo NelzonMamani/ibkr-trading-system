@@ -16,7 +16,7 @@ from src.strategies.common.triggers.trigger_registry import TRIGGER_EVALUATOR_RE
 from src.scanner import scanner_runner as ross
 
 
-def pmh_joined(reassessment,monkeypatch,tmp_path,*,news_fault='none',peer=False,market_fault='none',position_case='complete_empty',runtime_options=None,clock_time=None):
+def pmh_joined(reassessment,monkeypatch,tmp_path,*,news_fault='none',peer=False,market_fault='none',position_case='complete_empty',runtime_options=None,clock_time=None,context_session=None):
     from src.core import orchestrator as core_module
     names=('_startup_recovery_allows_strategy_execution','_autonomous_recovery_allows_new_entries',
            '_daily_risk_allows_new_entries','_resolve_fill_authority_cycle',
@@ -24,7 +24,7 @@ def pmh_joined(reassessment,monkeypatch,tmp_path,*,news_fault='none',peer=False,
            '_refresh_manual_focus_if_due','_resolve_manual_focus_candidates')
     real={n:getattr(core_module.CoreOrchestrator,n) for n in names}
     recovery_build,recovery_apply=core_module.build_recovery_plan,core_module.apply_recovery_actions
-    h=joined(reassessment,monkeypatch,tmp_path,news_fault=news_fault,peer=peer,position_case=position_case,runtime_options=runtime_options,clock_time=clock_time)
+    h=joined(reassessment,monkeypatch,tmp_path,news_fault=news_fault,peer=peer,position_case=position_case,runtime_options=runtime_options,clock_time=clock_time,context_session=context_session)
     h.real_core_methods=real
     for name,method in real.items():monkeypatch.setattr(h.core,name,method.__get__(h.core))
     monkeypatch.setattr(core_module,'build_recovery_plan',recovery_build)
@@ -1461,9 +1461,12 @@ def _closed_minutes_and_execution(source,current,*,end,source_minutes=5):
 
 
 def micro_joined(reassessment,monkeypatch,tmp_path,*,news_fault='none',peer=False,
-                 position_case='complete_empty',runtime_options=None,market_fault='none'):
+                 position_case='complete_empty',runtime_options=None,market_fault='none',clock_time=(14,35,30),real_session=False):
+    from src.market_data.session_pct_change import resolve_market_session_label
+    moment=reassessment.life.clock.current.replace(hour=clock_time[0],minute=clock_time[1],second=clock_time[2],microsecond=0)
+    session=resolve_market_session_label(moment)
     h=pmh_joined(reassessment,monkeypatch,tmp_path,news_fault=news_fault,peer=peer,
-        position_case=position_case,runtime_options=runtime_options,clock_time=(14,35,30))
+        position_case=position_case,runtime_options=runtime_options,clock_time=clock_time,context_session=session if real_session else None)
     rows=[(10.,10.02,9.98,10.,900)]*45+[
         (10.,10.2,9.99,10.18,1300),(10.18,10.45,10.16,10.42,1600),
         (10.42,10.8,10.4,10.76,2000),(10.73,10.78,10.6,10.76,850),
@@ -1516,10 +1519,13 @@ def micro_joined(reassessment,monkeypatch,tmp_path,*,news_fault='none',peer=Fals
     return h
 
 
+@pytest.mark.parametrize('clock_time',[pytest.param(None,id='accepted_10s'),pytest.param((16,35,30),id='RTH_MID_1m')])
 @pytest.mark.parametrize('market_fault',['none','red_pause','touch_execution'])
-def test_joined_micro_own_pause_selected_serialized_readonly(reassessment,monkeypatch,tmp_path,capsys,market_fault):
-    h=micro_joined(reassessment,monkeypatch,tmp_path,market_fault=market_fault)
-    out=cycles(h,capsys);source,results=h.registry_batches[-1]
+def test_joined_micro_own_pause_selected_serialized_readonly(reassessment,monkeypatch,tmp_path,capsys,market_fault,clock_time):
+    h=micro_joined(reassessment,monkeypatch,tmp_path,market_fault=market_fault,clock_time=clock_time or (14,35,30),real_session=clock_time is not None)
+    out=cycles(h,capsys)
+    assert h.registry_batches,(h.focus_rejections,[(x[0],x[2]) for x in h.focus_calls])
+    source,results=h.registry_batches[-1]
     own=next(r for r in results if r.setup_id=='P_MICRO_PULLBACK')
     assert own.detected and (own.trigger_level,own.stop_level,own.invalidation_level)==(10.78,10.6,10.6)
     assert len(h.evaluated)==1,out
@@ -1533,6 +1539,10 @@ def test_joined_micro_own_pause_selected_serialized_readonly(reassessment,monkey
     assert intent.setup_metadata['source_metadata']==own.setup_metadata
     if market_fault!='red_pause':assert own.setup_metadata['pullback_variant']=='SINGLE_GREEN_LOWER_WICK'
     artifact,built=h.artifacts[0]
+    assert artifact.session_phase==('RTH_MID' if clock_time else 'MORNING')
+    assert intent.setup_metadata['execution_stream']['execution_trigger_timeframe']==('1m' if clock_time else '10s')
+    if clock_time:
+        assert h.focus_calls and all(row['session']=='RTH_MID' for row in h.focus_calls[0][0])
     assert artifact.intents==[intent] and received==dict(built[0],decision_id=artifact.decision_id)==vars(intent)
     canonical=[t for t in h.micro_triggers if t[0].get('canonical_result_index')==index]
     assert len(canonical)==1 and canonical[0][2]['trigger_ready_now']
@@ -1554,8 +1564,9 @@ def test_joined_micro_pause_and_execution_rejections(reassessment,monkeypatch,tm
     no_effects(h)
 
 
-def test_joined_micro_keeps_ready_key_competition(reassessment,monkeypatch,tmp_path,capsys):
-    h=micro_joined(reassessment,monkeypatch,tmp_path,market_fault='competing_key')
+@pytest.mark.parametrize('clock_time',[pytest.param(None,id='accepted_10s'),pytest.param((16,35,30),id='RTH_MID_1m')])
+def test_joined_micro_keeps_ready_key_competition(reassessment,monkeypatch,tmp_path,capsys,clock_time):
+    h=micro_joined(reassessment,monkeypatch,tmp_path,market_fault='competing_key',clock_time=clock_time or (14,35,30),real_session=clock_time is not None)
     out=cycles(h,capsys);source,results=h.registry_batches[-1]
     own=next(r for r in results if r.setup_id=='P_MICRO_PULLBACK')
     assert own.detected and (own.trigger_level,own.stop_level)==(10.98,10.8)
@@ -1566,6 +1577,7 @@ def test_joined_micro_keeps_ready_key_competition(reassessment,monkeypatch,tmp_p
     assert selected.stop_level==source.candles[-1].low and selected.stop_level!=own.stop_level
     assert any(t[2]['trigger_ready_now'] for t in h.micro_triggers if t[0].get('source')=='canonical_pattern_result')
     assert decision.reason_code=='LIVE_READ_ONLY_BLOCK'
+    assert h.artifacts[0][0].session_phase==('RTH_MID' if clock_time else 'MORNING')
     no_effects(h)
 
 

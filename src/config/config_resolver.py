@@ -696,6 +696,13 @@ def get_ross_synthetic_requested_base_size() -> int:
     return raw
 
 
+def get_ross_synthetic_micro_cost_failure() -> bool:
+    record = get_config_record("ROSS_SYNTHETIC_MICRO_COST_FAILURE")
+    if record.value and not (record.source == "OVERRIDE" and get_ross_synthetic_unit_management()):
+        raise ConfigResolutionError("Micro cost failure requires explicit synthetic unit-management enrollment")
+    return record.value
+
+
 def get_ross_synthetic_unit_management() -> bool:
     record = get_config_record("ROSS_SYNTHETIC_UNIT_MANAGEMENT")
     if record.value and not (record.source == "OVERRIDE" and get_ross_synthetic_unit_stops()):

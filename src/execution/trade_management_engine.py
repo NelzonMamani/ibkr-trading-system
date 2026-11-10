@@ -692,7 +692,7 @@ class TradeManagementEngine:
         )
         return position
 
-    def _evaluate_selected_completed_exit(self, order, bars, *, observed_at, session_plan, profit=False, entry_fill_price=None):
+    def _evaluate_selected_completed_exit(self, order, bars, *, observed_at, session_plan, profit=False, entry_fill_price=None, micro_cost=False):
         """Pure occurrence-bound rule; execution owns the durable dispatch latch."""
         from datetime import timedelta
         from src.strategies.common.candles.candle_types import Candle
@@ -706,7 +706,14 @@ class TradeManagementEngine:
         basis = standalone_one_share_profit_basis(order, entry_fill_price) if profit else None
         if profit and basis is None:
             return None
+        from src.strategies.ross_momentum.strategy_policy import (standalone_micro_cost_failure_basis,
+            selected_micro_cost_failure_profile)
+        cost_basis = standalone_micro_cost_failure_basis(order, entry_fill_price) if micro_cost else None
+        if micro_cost and cost_basis is None:
+            return None
         failure_profile = profile
+        if micro_cost:
+            profile = selected_micro_cost_failure_profile(request)
         if profit:
             profile = selected_one_share_profit_profile(request)
         metadata = request.get("setup_metadata") or {}
@@ -728,6 +735,11 @@ class TradeManagementEngine:
             if (origin.tzinfo is None or origin > stamp
                     or to_ny_time(origin).date() != to_ny_time(observed_at).date()):
                 return None
+            if micro_cost:
+                partial_stamp = datetime.fromisoformat(cost_basis[2])
+                if partial_stamp < stamp or partial_stamp > observed_at:
+                    return None
+                stamp = partial_stamp
             level = metadata["trigger_level"]
             if (stamp.tzinfo is None or observed_at.tzinfo is None or stamp > observed_at
                     or isinstance(level, bool) or not math.isfinite(level) or level <= 0
@@ -754,9 +766,12 @@ class TradeManagementEngine:
                 if _timeframe_provenance([bar], timeframe, PatternInputPolicy.from_policy_v2(),
                         symbol=order["symbol"], now_utc=observed_at) != "PRESENT":
                     continue
-                qualifies = bar.close >= basis[2] if profit else bar.close < level
+                qualifies = (bar.close >= basis[2] if profit else
+                    bar.close < cost_basis[0] if micro_cost else bar.close < level)
                 if qualifies:
-                    return ({"entry_fill_price": basis[0], "original_stop": basis[1], "milestone": basis[2]} if profit else {}) | {"profile": profile,
+                    return ({"entry_fill_price": basis[0], "original_stop": basis[1], "milestone": basis[2]} if profit else
+                        {"entry_fill_price": cost_basis[0], "original_stop": cost_basis[1],
+                            "last_accounted_profit_fill_at": cost_basis[2]} if micro_cost else {}) | {"profile": profile,
                         "bar_start": bar.timestamp.isoformat(), "close": bar.close,
                         ("selected_pmh" if profile == PMH_COMPLETED_BAR_FAILURE_PROFILE else "selected_entry"): level, "occurrence": metadata, "session_plan": session_plan}
         except (TypeError, ValueError, KeyError, AttributeError, OverflowError):
@@ -769,6 +784,10 @@ class TradeManagementEngine:
     def evaluate_selected_completed_profit(self, order, bars, *, observed_at, session_plan, entry_fill_price):
         return self._evaluate_selected_completed_exit(order, bars, observed_at=observed_at,
             session_plan=session_plan, profit=True, entry_fill_price=entry_fill_price)
+
+    def evaluate_selected_micro_cost_failure(self, order, bars, *, observed_at, session_plan, entry_fill_price):
+        return self._evaluate_selected_completed_exit(order, bars, observed_at=observed_at,
+            session_plan=session_plan, micro_cost=True, entry_fill_price=entry_fill_price)
 
     # Compatibility entry point; one implementation and explicit policy scope.
     evaluate_pmh_completed_failure = evaluate_selected_completed_failure
