@@ -465,7 +465,7 @@ class TradeManagementEngine:
         position = self._positions.get(plan.symbol)
         local_qty = position.quantity if position and position.relationship_id == relationship_id else 0
         expected_pending = {key: max(0, order["requested"] - order["filled"])
-                            for key, order in plan.orders.items() if not order["terminal"]}
+                            for key, order in plan.orders.items() if not order["terminal"] and order.get("close_role") != "PROTECTION"}
         plan.reconciled = bool(complete and not plan.pending_stop_resize and not plan.pending_stop_cancel
                                and confirmed_quantity == local_qty and expected_pending == pending_orders)
         plan.freeze()

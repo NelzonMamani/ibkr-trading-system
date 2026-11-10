@@ -216,6 +216,79 @@ class ExecutionEngine:
         self._save_native_orders()  # Before dispatch; lost ack never implies absence.
         return order
 
+    def _selected_order_records(self):
+        """Ephemeral view of original records; each order has ONE durable owner."""
+        records = dict(self._native_orders)
+        manager = getattr(self, "relationship_manager", None)
+        for plan in getattr(manager, "_relationship_plans", {}).values():
+            initial = plan.orders.get(plan.initial_order_id, {})
+            if not initial.get("request", {}).get("selected_stop_units"):
+                continue
+            if plan.initial_order_id not in getattr(self, "_relationship_units_owned_here", set()):
+                raise RuntimeError("RELATIONSHIP_UNIT_RESTART_RECONCILIATION_REQUIRED")
+            if records.keys() & plan.orders.keys():
+                raise RuntimeError("SELECTED_ORDER_MULTIPLE_OWNERS")
+            records.update(plan.orders)
+        return records
+
+    def _selected_order_plan(self, order_id):
+        manager = getattr(self, "relationship_manager", None)
+        matches = [p for p in getattr(manager, "_relationship_plans", {}).values()
+            if order_id in p.orders and p.orders.get(p.initial_order_id, {}).get("request", {}).get("selected_stop_units")]
+        if len(matches) > 1 or (matches and order_id in self._native_orders):
+            raise RuntimeError("SELECTED_ORDER_MULTIPLE_OWNERS")
+        return matches[0] if matches else None
+
+    def _save_selected_orders(self, order_id):
+        plan = self._selected_order_plan(order_id)
+        if plan is None:
+            return self._save_native_orders()
+        try:
+            self.relationship_manager._save_relationship_state()
+        except BaseException:
+            self._native_quarantined = self._failsafe_block_new_entries = True
+            raise
+
+    def _save_all_selected_orders(self):
+        self._save_native_orders()
+        manager = getattr(self, "relationship_manager", None)
+        if any(p.orders.get(p.initial_order_id, {}).get("request", {}).get("selected_stop_units")
+                for p in getattr(manager, "_relationship_plans", {}).values()):
+            try:
+                manager._save_relationship_state()
+            except BaseException:
+                self._native_quarantined = self._failsafe_block_new_entries = True
+                raise
+
+    def _selected_committed_order(self, order_id):
+        plan = self._selected_order_plan(order_id)
+        if plan is None:
+            return (self._native_state or {}).get("orders", {}).get(order_id, {})
+        manager = self.relationship_manager
+        state = manager._persistence.fetch_management_state(manager._state_namespace) or {}
+        return state.get("plans", {}).get(plan.relationship_id, {}).get("orders", {}).get(order_id, {})
+
+    def _retain_relationship_unit_request(self, request, plan):
+        scope = self._native_scope
+        client = self._native_callback_client()
+        from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
+        from src.strategies.ross_momentum.strategy_policy import selected_relationship_unit_stop_profile
+        from src.config.config_resolver import get_ross_synthetic_relationship_base_size
+        if (not selected_relationship_unit_stop_profile(asdict(request)) or get_ross_synthetic_relationship_base_size() <= 1
+                or scope is None or scope[1] is not client
+                or not 0 <= (datetime.now(timezone.utc)-scope[2]).total_seconds() <= get_ibkr_snapshot_max_age_seconds()
+                or plan.initial_order_id != request.client_order_id):
+            raise RuntimeError("RELATIONSHIP_UNIT_INITIAL_SCOPE_UNAVAILABLE")
+        original = plan.orders[request.client_order_id]
+        if original.get("filled") or original.get("terminal") or original.get("owner_effect_version") != 1:
+            raise RuntimeError("RELATIONSHIP_UNIT_INITIAL_BINDING_INVALID")
+        original.update(account=scope[0], mode=self.run_mode.value, symbol=request.symbol.upper(),
+            side=request.direction.upper(), status="DISPATCH_UNCERTAIN")
+        owned = getattr(self, "_relationship_units_owned_here", set())
+        owned.add(request.client_order_id)
+        self._relationship_units_owned_here = owned
+        self._save_selected_orders(request.client_order_id)
+
     def _execution_log(self, stage: str, **payload: object) -> None:
         fields = []
         for key, value in payload.items():
@@ -793,7 +866,8 @@ class ExecutionEngine:
             quantity = self._confirmed_relationship_stop_quantity(plan, life, orders)
             if quantity is not None:
                 plan.pending_stop_resize = False
-                life.stop.quantity = int(quantity)
+                if not life.selected_stop_units:
+                    life.stop.quantity = int(quantity)
                 changed = True
                 manager._save_relationship_state()
         return changed
@@ -1442,10 +1516,15 @@ class ExecutionEngine:
             management_session_plan=getattr(risk_decision, "management_session_plan", None),
         )
         from src.config.config_resolver import get_ross_synthetic_unit_stops
-        if get_ross_synthetic_unit_stops() and request.quantity > 1:
+        if not request.relationship_context and get_ross_synthetic_unit_stops() and request.quantity > 1:
             from src.strategies.ross_momentum.strategy_policy import selected_one_share_profit_profile
             if request.relationship_context or not selected_one_share_profit_profile(asdict(request)):
                 raise RuntimeError("SELECTED_UNIT_STOP_FAMILY_NOT_ENROLLED")
+            from dataclasses import replace
+            request = replace(request, selected_stop_units=True)
+        from src.config.config_resolver import get_ross_synthetic_relationship_base_size
+        if (request.relationship_context and request.relationship_context.get("action") == "ENTRY"
+                and request.quantity > 1 and get_ross_synthetic_relationship_base_size() > 1):
             from dataclasses import replace
             request = replace(request, selected_stop_units=True)
         self._prospective_decisions_by_order_id.clear()  # One execution-thread construction/handoff slot.
@@ -1568,6 +1647,8 @@ class ExecutionEngine:
             manager._save_relationship_state()
             if native_owned:
                 self._storage_engine.validate_owner_effect_storage()
+            if request.selected_stop_units:
+                self._retain_relationship_unit_request(request, plan)
             decisions.pop(request.client_order_id, None)
         standalone = None
         if (not context and self.run_mode == RunMode.PAPER and self._provider.is_live()
@@ -1819,7 +1900,7 @@ class ExecutionEngine:
         if not previous and stored_order is not None and stored_order["filled"]:
             previous = {"filled_qty": stored_order["filled"], "entry_price": stored_order["notional"] / stored_order["filled"]}
 
-        native_owned = self._native_orders.get(request.client_order_id)
+        native_owned = self._selected_order_records().get(request.client_order_id)
         native_parent, native_life = self._native_protection_owner(native_owned) if native_owned is not None else (None, None)
         if request.relationship_context or native_owned is not None:
             filled_quantity -= int(previous.get("filled_qty", 0))
@@ -1977,7 +2058,7 @@ class ExecutionEngine:
             leg = (self.post_fill_lifecycle.selected_unit_leg(existing_protection, broker_order_id=ibkr_order_id)
                 if existing_protection.selected_stop_units else existing_protection.stop)
             leg.status = str(result.status)
-        if direction_upper == "SELL" and plan is not None and existing_protection is not None:
+        if direction_upper == "SELL" and plan is not None and native_parent is None and existing_protection is not None:
             exit_application = self.post_fill_lifecycle.record_exit_fill(trade_id=protection_id, fill_price=fill_price,
                 fill_time=datetime.now(timezone.utc).isoformat(), actual_qty=filled_quantity,
                 exit_order_id=request.client_order_id,
@@ -2077,6 +2158,9 @@ class ExecutionEngine:
 
     def _retain_relationship_stop_fill(self, plan, reader) -> None:
         """Project known protection callbacks into the existing cumulative fill route."""
+        lifecycle = self.post_fill_lifecycle.get_trade(plan.protection_trade_id or plan.initial_order_id)
+        if lifecycle is not None and lifecycle.selected_stop_units:
+            return  # Existing unit records already own these callbacks exactly once.
         broker_id = plan.protection_broker_order_id
         if not broker_id:
             return
@@ -2149,11 +2233,13 @@ class ExecutionEngine:
             terminal_statuses = {"FILLED", "REJECTED", "CANCELLED", "CANCELED", "INACTIVE"}
             if (total < 0 or remaining < 0 or total + remaining > order["requested"]
                     or status not in self.VALID_CACHED_IBKR_STATUSES
-                    or (plan is None and status == "FILLED" and (remaining != 0 or total != order["requested"]))):
+                    or ((plan is None or order.get("protection_parent_order_id") or order.get("request", {}).get("selected_stop_units"))
+                        and status == "FILLED" and (remaining != 0 or total != order["requested"]))):
                 raise ValueError
             if order["terminal"] and status not in terminal_statuses and total <= order["filled"]:
                 return None  # Existing terminal truth cannot regress on a late nonterminal snapshot.
-            if total < prior or (plan is None and not order.get("protection_parent_order_id") and order["terminal"] and total > prior):
+            if total < prior or ((plan is None or order.get("request", {}).get("selected_stop_units"))
+                    and not order.get("protection_parent_order_id") and order["terminal"] and total > prior):
                 raise ValueError
             if plan is None and prior and total == prior and facts.get("avgFillPrice") is not None and float(facts["avgFillPrice"]) != float(previous["entry_price"]):
                 raise ValueError
@@ -2179,11 +2265,12 @@ class ExecutionEngine:
                 or (plan is not None and context.get("relationship_id") != plan.relationship_id)
                 or (plan is None and context)):
             raise ValueError("CACHED_EXECUTION_UPDATE_BINDING_INVALID")
-        native_parent, native_life = self._native_protection_owner(order) if plan is None else (None, None)
+        native_parent, native_life = self._native_protection_owner(order) if plan is None or order.get("protection_parent_order_id") else (None, None)
         if native_parent is not None and total > prior:
             position = manager.snapshot_positions().get(request.symbol) if manager else None
             registered = self.trade_registry.get_trade(request.symbol, native_parent["request"].get("trader_type") or "UNKNOWN")
-            if (position is None or position.relationship_id or position.reference_order_id != order["protection_parent_order_id"]
+            if (position is None or position.relationship_id != (plan.relationship_id if plan is not None else None)
+                    or position.reference_order_id != order["protection_parent_order_id"]
                     or registered is None or position.quantity != native_life.filled_qty or registered.quantity != native_life.filled_qty
                     or position.strategy_name != native_life.strategy_id or registered.strategy_name != native_life.strategy_id
                     or not 0 < total - prior <= native_life.filled_qty):
@@ -2195,7 +2282,7 @@ class ExecutionEngine:
             client_order_id=order_id, ibkr_order_id=order["broker_order_id"], direction=request.direction,
             filled_quantity=total, remaining_quantity=remaining,
             average_fill_price=facts.get("avgFillPrice"), relationship_context=request.relationship_context)
-        if plan is None and facts.get("avgFillPrice") is not None:
+        if (plan is None or order.get("protection_parent_order_id") or request.selected_stop_units) and facts.get("avgFillPrice") is not None:
             # A cumulative average is not an order tick price. Preserve native
             # precision for delta accounting and exact replay comparison; the
             # generic result constructor quantizes ordinary money fields.
@@ -2226,7 +2313,7 @@ class ExecutionEngine:
                 finally:
                     if plan is None:
                         self._native_processing_results.discard(id(processed))
-                if plan is None and native_parent is None and total > prior:
+                if native_parent is None and total > prior and (plan is None or request.selected_stop_units):
                     if request.selected_stop_units:
                         # All authoritative unit fills must drain before aggregate
                         # remainder verification. A terminal older unit cannot
@@ -2296,7 +2383,7 @@ class ExecutionEngine:
         if (RunMode(get_config("RUN_MODE_EFFECTIVE")) != self.run_mode or self.run_mode != RunMode.PAPER
                 or not 0 <= (datetime.now(timezone.utc) - scope[2]).total_seconds() <= get_ibkr_snapshot_max_age_seconds()):
             raise ValueError("NATIVE_ORDER_SCOPE_STALE_OR_CHANGED")
-        committed = (self._native_state or {}).get("orders", {}).get(order_id, {})
+        committed = self._selected_committed_order(order_id)
         if any(order.get(key) != committed.get(key) for key in
                ("request", "decision_id", "account", "mode", "symbol", "side", "broker_order_id", "requested",
                 "protection_parent_order_id", "protection_trade_id", "security_id", "last_accounted_entry_fill_at", "last_accounted_exit_fill_at", "pmh_failure_exit", "pmh_management_expired", "close_role", "unit_profit_exit", "unit_amendment", "unit_close_coverage_confirmed", "unit_connection_epoch", "unit_client_id")):
@@ -2342,7 +2429,7 @@ class ExecutionEngine:
         parent_id = order.get("protection_parent_order_id")
         if parent_id is None:
             return None, None
-        parent = self._native_orders.get(parent_id)
+        parent = self._selected_order_records().get(parent_id)
         if (parent is None or parent.get("protection_parent_order_id") is not None
                 or parent.get("side") not in {"LONG", "BUY"}):
             raise ValueError("NATIVE_PROTECTION_PARENT_INVALID")
@@ -2364,7 +2451,9 @@ class ExecutionEngine:
                 or str(stop.entry_order_id) != str(parent.get("broker_order_id"))
                 or str(stop.broker_order_id) != str(order.get("broker_order_id"))
                 or request.get("order_type") != "STP" or order.get("side") != "SELL"
-                or request.get("relationship_context") or request.get("quantity") != order.get("requested")
+                or (request.get("relationship_context") != ({"relationship_id": initial["relationship_context"]["relationship_id"],
+                    "action": "EXIT", "protective_stop_fill": True} if initial.get("relationship_context") else None))
+                or request.get("quantity") != order.get("requested")
                 or type(order.get("requested")) is not int or not 0 < order["requested"] <= parent["requested"]
                 or order["requested"] != stop.quantity
                 or order.get("decision_id") != parent.get("decision_id")
@@ -2652,7 +2741,7 @@ class ExecutionEngine:
     def _verify_native_remaining_stop(self, order, life, cumulative_filled):
         if life.filled_qty <= 0:
             return
-        parent = self._native_orders.get(order.get("protection_parent_order_id"), {})
+        parent = self._selected_order_records().get(order.get("protection_parent_order_id"), {})
         if life.selected_stop_units and getattr(self, "_native_unit_update_batch", False):
             return
         inventory = self._pmh_complete_inventory() if parent.get("pmh_failure_exit") or life.selected_stop_units else list(self._provider.get_open_orders())
@@ -2667,7 +2756,7 @@ class ExecutionEngine:
             if parent["pmh_failure_exit"].get("status") != kind:
                 parent["pmh_failure_exit"]["status"] = kind
                 life.selected_exit_pending = dict(parent["pmh_failure_exit"])
-                self._save_native_orders()
+                self._save_selected_orders(order["protection_parent_order_id"])
             return
         if self._confirmed_stop_quantity(symbol=order["symbol"], life=life,
                 orders=inventory, stop_filled=cumulative_filled) is None:
@@ -2675,11 +2764,13 @@ class ExecutionEngine:
 
     def _submit_selected_unit_stop(self, parent_id, life, leg):
         """Extend the existing durable order owner before each native unit write."""
-        from src.strategies.ross_momentum.strategy_policy import selected_unit_stop_profile
-        parent = self._native_orders[parent_id]
+        from src.strategies.ross_momentum.strategy_policy import selected_unit_stop_profile, selected_relationship_unit_stop_profile
+        plan = self._selected_order_plan(parent_id)
+        orders = plan.orders if plan is not None else self._native_orders
+        parent = orders[parent_id]
         self._validate_native_binding(parent_id, parent, {})
-        if (not selected_unit_stop_profile(parent["request"]) or self.run_mode != RunMode.PAPER
-                or self._native_quarantined or leg.quantity != 1 or leg.leg_id in self._native_orders):
+        if (not (selected_unit_stop_profile(parent["request"]) or selected_relationship_unit_stop_profile(parent["request"])) or self.run_mode != RunMode.PAPER
+                or self._native_quarantined or leg.quantity != 1 or leg.leg_id in self._selected_order_records()):
             raise RuntimeError("NATIVE_UNIT_STOP_SCOPE_INVALID")
         from src.execution.position_truth import collect_broker_position_snapshot, PositionTruthConfig
         from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
@@ -2694,7 +2785,7 @@ class ExecutionEngine:
         # Existing complete native inventory must fit the already-owned units
         # BEFORE another independently executable sell is sent.
         inventory = self._pmh_complete_inventory()
-        children = {str(o["broker_order_id"]): o for o in self._native_orders.values()
+        children = {str(o["broker_order_id"]): o for o in self._selected_order_records().values()
             if o.get("protection_parent_order_id") == parent_id}
         for row in inventory:
             if row.symbol != life.symbol or row.status.upper() in {"FILLED", "CANCELLED", "CANCELED", "REJECTED"}:
@@ -2714,10 +2805,14 @@ class ExecutionEngine:
                 raise RuntimeError("NATIVE_UNIT_STOP_OVERLAPPING_SELL_UNVERIFIED")
         allocated = []
         def before_submit(broker_id, contract, native):
+            if plan is not None:
+                if getattr(native, "account", "") not in {"", parent["account"]}:
+                    raise RuntimeError("RELATIONSHIP_UNIT_STOP_ACCOUNT_CONFLICT")
+                native.account = parent["account"]  # Request authority, independently confirmed below.
             self._validate_native_binding(parent_id, parent, {})
-            existing = [o for o in self._native_orders.values() if o.get("protection_parent_order_id") == parent_id]
-            if (allocated or leg.leg_id in self._native_orders or type(broker_id) is not int or broker_id <= 0
-                    or any(str(o.get("broker_order_id")) == str(broker_id) for o in self._native_orders.values())
+            existing = [o for o in self._selected_order_records().values() if o.get("protection_parent_order_id") == parent_id]
+            if (allocated or leg.leg_id in self._selected_order_records() or type(broker_id) is not int or broker_id <= 0
+                    or any(str(o.get("broker_order_id")) == str(broker_id) for o in self._selected_order_records().values())
                     or getattr(contract, "symbol", None) != parent["symbol"]
                     or getattr(contract, "conId", None) != owned.con_id
                     or getattr(native, "action", None) != "SELL" or getattr(native, "orderType", None) != "STP"
@@ -2739,17 +2834,21 @@ class ExecutionEngine:
             request = BrokerOrderRequest(client_order_id=leg.leg_id, symbol=parent["symbol"], direction="SELL",
                 quantity=1, order_type="STP", trader_type=initial.get("trader_type"),
                 strategy_name=initial.get("strategy_name"), setup_family_id=initial.get("setup_family_id"),
-                trigger_id=initial.get("trigger_id"), target_model=initial.get("target_model"))
-            self._native_orders[leg.leg_id] = {"request": asdict(request), "decision_id": parent["decision_id"],
+                trigger_id=initial.get("trigger_id"), target_model=initial.get("target_model"),
+                relationship_context=({"relationship_id": plan.relationship_id, "action": "EXIT", "protective_stop_fill": True}
+                    if plan is not None else None))
+            orders[leg.leg_id] = {"request": asdict(request), "decision_id": parent["decision_id"],
                 "account": parent["account"], "mode": parent["mode"], "symbol": parent["symbol"], "side": "SELL",
                 "requested": 1, "filled": 0, "notional": 0., "terminal": False, "status": "DISPATCH_UNCERTAIN",
                 "broker_order_id": str(broker_id), "protection_parent_order_id": parent_id,
                 "protection_trade_id": life.trade_id, "close_role": "PROTECTION"}
+            if plan is not None:
+                orders[leg.leg_id].update(action="EXIT", owner_effect_version=1)
             parent["protection_trade_id"] = life.trade_id
             parent["security_id"] = owned.con_id
             parent["protection_confirmed"] = False
-            self._save_native_orders()
-            self._validate_native_binding(leg.leg_id, self._native_orders[leg.leg_id], {})
+            self._save_selected_orders(parent_id)
+            self._validate_native_binding(leg.leg_id, self._selected_order_records()[leg.leg_id], {})
             if (not self._native_callback_client().isConnected()
                     or not 0 <= (datetime.now(timezone.utc)-position_evidence.completed_at).total_seconds() <= get_ibkr_snapshot_max_age_seconds()):
                 raise RuntimeError("NATIVE_UNIT_STOP_CLIENT_OR_POSITION_EXPIRED")
@@ -2775,7 +2874,7 @@ class ExecutionEngine:
         for leg in life.stop_legs:
             leg.independently_confirmed = False
         for leg in life.stop_legs:
-            child = self._native_orders.get(leg.leg_id)
+            child = self._selected_order_records().get(leg.leg_id)
             if (child is None or type(leg.quantity) is not int or leg.quantity != 1
                     or type(leg.filled_quantity) is not int or not 0 <= leg.filled_quantity <= 1
                     or type(child.get("filled")) is not int or child["filled"] != leg.filled_quantity
@@ -2794,7 +2893,7 @@ class ExecutionEngine:
                 and str(row.order_id) not in remaining_ids for row in inventory):
             return None  # No independent overlapping sell may be ignored.
         for leg in remaining:
-            child = self._native_orders.get(leg.leg_id)
+            child = self._selected_order_records().get(leg.leg_id)
             if child is None:
                 return None
             parent, _ = self._native_protection_owner(child)
@@ -2818,8 +2917,9 @@ class ExecutionEngine:
             if len(rows) != 1:
                 return None
             row = rows[0];meta = row.metadata
-            if managed and (meta.get("account") != parent["account"]
-                    or meta.get("client_id") != parent["unit_client_id"]):
+            if (managed or parent["request"].get("relationship_context")) and (
+                    meta.get("account") != parent["account"] or meta.get("client_id") != parent["unit_client_id"]
+                    or client._position_connection_epoch != parent.get("unit_connection_epoch")) :
                 return None
             if (row.symbol != life.symbol or row.status.upper() not in {"SUBMITTED", "PRESUBMITTED"}
                     or meta.get("side") != "SELL"
@@ -2841,13 +2941,13 @@ class ExecutionEngine:
             leg.status = "SUBMITTED"
             row = next(row for row in inventory if str(row.order_id) == str(leg.broker_order_id))
             leg.independently_confirmed = row.order_type.upper() == "STP"
-            self._native_orders[leg.leg_id]["status"] = "SUBMITTED"
+            self._selected_order_records()[leg.leg_id]["status"] = "SUBMITTED"
         if life.state == PositionLifecycleState.PROTECTION_PENDING:
             self.post_fill_lifecycle._transition(life, PositionLifecycleState.PROTECTED, "unit_stops_independently_confirmed")
         return life.filled_qty
 
     def _retain_native_selected_stops(self) -> None:
-        for parent_id, parent in list(self._native_orders.items()):
+        for parent_id, parent in list(self._selected_order_records().items()):
             if parent.get("side") not in {"LONG", "BUY"} or not parent.get("protection_confirmed"):
                 continue
             life = self.post_fill_lifecycle.get_trade(parent.get("protection_trade_id") or parent_id)
@@ -2857,7 +2957,7 @@ class ExecutionEngine:
                 self._validate_native_binding(parent_id, parent, {})
                 if life.selected_stop_units:
                     for leg in life.stop_legs:
-                        child = self._native_orders.get(leg.leg_id)
+                        child = self._selected_order_records().get(leg.leg_id)
                         if child is None:
                             raise RuntimeError("NATIVE_UNIT_STOP_NOT_RETAINED_BEFORE_DISPATCH")
                         self._native_protection_owner(child)
@@ -2867,11 +2967,11 @@ class ExecutionEngine:
                     raise ValueError("NATIVE_PROTECTION_BINDING_INVALID")
                 broker_id = str(stop.broker_order_id)
                 order_id = f"{parent_id}:stop:{broker_id}"
-                if order_id in self._native_orders:
-                    child = self._native_orders[order_id]
+                if order_id in self._selected_order_records():
+                    child = self._selected_order_records()[order_id]
                     self._native_protection_owner(child)
                     continue
-                if any(str(other.get("broker_order_id")) == broker_id for other in self._native_orders.values()):
+                if any(str(other.get("broker_order_id")) == broker_id for other in self._selected_order_records().values()):
                     raise ValueError("CACHED_EXECUTION_DUPLICATE_NATIVE_ID")
                 initial = parent["request"]
                 request = BrokerOrderRequest(client_order_id=order_id, symbol=parent["symbol"], direction="SELL",
@@ -2905,10 +3005,10 @@ class ExecutionEngine:
         self._mark_capital_recovery_failed("NATIVE_ORDER_PROCESSING_UNRESOLVED")
         self._native_quarantined = True
         self._failsafe_block_new_entries = True
-        self._save_native_orders()
+        self._save_selected_orders(order["request"]["client_order_id"])
 
     def collect_relationship_updates(self, *, result_processor=None):
-        units = [(oid, parent) for oid, parent in self._native_orders.items()
+        units = [(oid, parent) for oid, parent in self._selected_order_records().items()
             if parent.get("side") in {"BUY", "LONG"} and parent.get("request", {}).get("selected_stop_units")]
         if not units:
             return self._collect_relationship_updates(result_processor=result_processor)
@@ -2921,12 +3021,12 @@ class ExecutionEngine:
             # Validate the previous committed binding before any batch marker
             # save; a marker must never bless an in-memory request mutation.
             unit_parent_ids = {oid for oid, _ in units}
-            for oid, order in list(self._native_orders.items()):
+            for oid, order in list(self._selected_order_records().items()):
                 if oid in unit_parent_ids or order.get("protection_parent_order_id") in unit_parent_ids:
                     self._validate_native_binding(oid, order, {})
             for _, parent in units:
                 parent["unit_reconciliation_pending"] = True
-            self._save_native_orders()
+            self._save_all_selected_orders()
             results = self._collect_relationship_updates(result_processor=result_processor)
             inventory = self._pmh_complete_inventory()
             for parent_id, parent in units:
@@ -2935,7 +3035,7 @@ class ExecutionEngine:
                     if self._confirm_selected_unit_stops(life, inventory, allow_managed=True) is None:
                         raise RuntimeError("NATIVE_UNIT_PROTECTION_REMAINDER_UNVERIFIED")
                     protected = self.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)["protected"]
-                    if not protected and not any(self._native_orders[leg.leg_id].get("unit_amendment")
+                    if not protected and not any(self._selected_order_records()[leg.leg_id].get("unit_amendment")
                             for leg in life.stop_legs if leg.quantity > leg.filled_quantity):
                         raise RuntimeError("NATIVE_UNIT_PROTECTION_REMAINDER_UNVERIFIED")
                     parent["protection_confirmed"] = protected
@@ -2944,10 +3044,10 @@ class ExecutionEngine:
                     ids = {str(leg.broker_order_id) for leg in life.stop_legs if leg.quantity > leg.filled_quantity}
                     parent["security_id"] = next(row.metadata["con_id"] for row in inventory if str(row.order_id) in ids)
                 action = parent.get("unit_profit_exit")
-                if action and all(self._native_orders[leg_id].get("terminal")
-                        and self._native_orders[leg_id]["filled"] == 1 for leg_id in action["leg_ids"]):
+                if action and all(self._selected_order_records()[leg_id].get("terminal")
+                        and self._selected_order_records()[leg_id]["filled"] == 1 for leg_id in action["leg_ids"]):
                     action["status"] = "FILLED"  # Advance, never clear/reuse the reservation.
-                    children = [self._native_orders[leg_id] for leg_id in action["leg_ids"]]
+                    children = [self._selected_order_records()[leg_id] for leg_id in action["leg_ids"]]
                     # These facts come only from committed accounting, never the
                     # order-status label alone. Replays preserve the same stamps.
                     if children and all(child.get("last_accounted_exit_fill_at") for child in children):
@@ -2959,7 +3059,7 @@ class ExecutionEngine:
                 if life is not None and life.filled_qty == 0 and (action or parent.get("pmh_failure_exit")):
                     parent["unit_close_coverage_confirmed"] = False
                 parent.pop("unit_reconciliation_pending", None)
-            self._save_native_orders()
+            self._save_all_selected_orders()
             return results
         except BaseException:
             for _, parent in units:
@@ -2991,7 +3091,7 @@ class ExecutionEngine:
             manager.cancel_excess_milestone_orders(plan)
             if plan.pending_stop_resize:
                 life = self.post_fill_lifecycle.get_trade(plan.protection_trade_id or plan.initial_order_id)
-                if life is not None and life.filled_qty > 0:
+                if life is not None and life.filled_qty > 0 and not life.selected_stop_units:
                     self.post_fill_lifecycle.update_selected_exposure(trade_id=life.trade_id,
                         filled_qty=life.filled_qty, avg_fill_price=life.avg_fill_price)
                 self._failsafe_block_new_entries = True
@@ -3022,7 +3122,7 @@ class ExecutionEngine:
                 continue
             facts = None
             try:
-                if plan is None:
+                if plan is None or order.get("protection_parent_order_id") or order.get("request", {}).get("selected_stop_units"):
                     self._validate_native_binding(order_id, order, {})
                 facts = reader(order["broker_order_id"])
                 if not facts:
@@ -3031,12 +3131,12 @@ class ExecutionEngine:
                         _, life = self._native_protection_owner(order)
                         self._verify_native_remaining_stop(order, life, order["filled"])
                     continue
-                if plan is None:
+                if plan is None or order.get("protection_parent_order_id") or order.get("request", {}).get("selected_stop_units"):
                     self._validate_native_binding(order_id, order, facts)
                 checkpoint()
                 result = self._consume_cached_order(plan, order_id, order, facts, result_processor)
             except BaseException:
-                if plan is None:
+                if plan is None or order.get("protection_parent_order_id") or order.get("request", {}).get("selected_stop_units"):
                     self._quarantine_native_update(order, facts)
                 raise
             if result is not None:

@@ -114,7 +114,10 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
                     "broker_order_id":kwargs["broker_order_id"]}
         cancelled_orders.add(str(kwargs["broker_order_id"]))
         return {"status":"Cancelled","broker_order_id":kwargs["broker_order_id"]}
-    def external_open_orders():
+    def external_open_orders(**kwargs):
+        if kwargs:
+            assert relationship_sizing_case and kwargs.get('require_complete') is True
+            assert kwargs.get('expected_client') is providers[0].broker.connection_manager.existing_client
         if late_case=="management_snapshot_failure" and management_fault_active[0]:
             raise OSError("synthetic order snapshot unavailable")
         terminal=(str(cached_facts.get(71,{}).get("status","")).upper() in {"FILLED","REJECTED","CANCELLED"}
@@ -130,6 +133,18 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
             raise RuntimeError("synthetic cached callback read failure")
         return dict(cached_facts.get(order_id,{}))
     def unexpected_protection(**kwargs):
+        if relationship_sizing_case:
+            from copy import deepcopy
+            native_id=72+len(protection_requests)
+            native=NS(orderType='STP',parentId=71,orderRef='PROTECT|'+kwargs['trade_id'],action='SELL',
+                totalQuantity=1,auxPrice=10.81,account='')
+            kwargs['before_submit'](native_id,NS(symbol='JPM',conId=123),native)
+            assert native.account=='SYNTHETIC_TEST'
+            actual=deepcopy(native);actual.clientId=999;actual.account='SYNTHETIC_TEST'
+            protection_requests.append({key:value for key,value in kwargs.items() if key!='before_submit'})
+            protective_orders.append(NS(orderId=native_id,contract=NS(symbol='JPM',conId=123),
+                order=actual,orderState=NS(status='Submitted')))
+            return dict(broker_order_id=str(native_id),status='Submitted',order_type='STP')
         protection_requests.append(kwargs)
         assert late_fill and cached_facts[71]["filled"]==entry_quantity
         assert not malformed, "malformed callback must not reach protection"
@@ -149,6 +164,12 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
             from src.adapters.brokers.ibkr.ibkr_connection_manager import IbkrConnectionManager, IbkrConnectionConfig
             manager=IbkrConnectionManager(IbkrConnectionConfig('offline',0,999,5,'LIVE',True,'PAPER'))
             manager._client=NS(cached_order_status=cached_status,is_connected=lambda:True)
+            if relationship_sizing_case:
+                from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
+                client=IbkrClient('offline',0,999,5,'LIVE',False)
+                monkeypatch.setattr(client,'isConnected',lambda:True)
+                monkeypatch.setattr(client,'cached_order_status',cached_status)
+                manager._client=client
             for method in ('connect','ensure_connected','get_client','_connect_locked'):
                 monkeypatch.setattr(manager,method,lambda *a,**k:pytest.fail('Implicit provider connection forbidden'))
             provider=IbkrExecutionProvider(broker=NS(positions=lambda:[],open_orders=external_open_orders,
@@ -185,6 +206,8 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
             rows=(NS(symbol="JPM",position=quantity,con_id=123,avgCost=10.91,account="SYNTHETIC_TEST"),) if quantity else ()
             return BrokerPositionResult(rows,"UNAVAILABLE" if late_case=="management_unknown" and management_fault_active[0]
                 else "COMPLETE","SYNTHETIC_TEST",h.life.clock.now(timezone.utc))
+        if relationship_sizing_case:
+            h.core.connection_manager._ibkr_connection_manager.existing_client=providers[0].broker.connection_manager.existing_client
         h.core.connection_manager._ibkr_connection_manager.existing_client.position_snapshot=external_positions
     if management_case:
         from src.ibkr.market_data_client import HistoricalDataResult
@@ -486,13 +509,15 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
                     assert failed_pass and engine.execution_integrity_flag
                     assert not h.manager.snapshot_positions() and not h.core.trade_registry.snapshot()
                     assert not engine.position_records and not protection_requests
+                    assert no_external_activity==[] and mutations()=={'place':0,'modify':0,'cancel':0}
                     return  # Existing finally releases isolated test reservations only.
                 life=engine.post_fill_lifecycle.get_trade(plan.initial_order_id)
                 assert plan.entry_quantity==life.filled_qty==entry_quantity and plan.entry_terminal
-                assert life.stop.quantity==entry_quantity and life.selected_stop_price==pytest.approx(10.81)
+                assert life.selected_stop_units and len(life.stop_legs)==entry_quantity
+                assert all(leg.quantity==1 for leg in life.stop_legs) and life.selected_stop_price==pytest.approx(10.81)
                 assert engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
                 assert h.manager.snapshot_positions()['JPM'].quantity==h.core.trade_registry.snapshot()[0].quantity==entry_quantity
-                assert len(h.registry_batches[0][1])==33 and not sent[0].selected_stop_units
+                assert len(h.registry_batches[0][1])==33 and sent[0].selected_stop_units
                 assert engine.capital_authority.total_used_exposure==pytest.approx(entry_quantity*10.91)
                 market_close[0]=plan.milestone_price
                 from src.config import config_resolver
@@ -503,15 +528,30 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
                     h.life.clock.current+=timedelta(seconds=1)
                     assert h.core.run_once();capsys.readouterr()
                     assert len(sent)==1 and plan.milestone_order_id is None
-                    assert life.stop.quantity==entry_quantity and life.stop.trigger_price==pytest.approx(10.81)
-                cached_facts[72]=dict(status='Filled',filled=entry_quantity,remaining=0,avgFillPrice=10.81)
+                    assert all(leg.quantity==1 and leg.trigger_price==pytest.approx(10.81) for leg in life.stop_legs)
+                for leg in life.stop_legs:
+                    cached_facts[int(leg.broker_order_id)]=dict(status='Filled',filled=1,remaining=0,avgFillPrice=10.81)
                 broker_fills[72]=entry_quantity
                 for _ in range(2):
                     h.life.clock.current+=timedelta(seconds=1)
                     assert h.core.run_once();capsys.readouterr()
                 assert life.filled_qty==0 and life.exited_qty==entry_quantity
                 assert not h.manager.snapshot_positions() and not h.core.trade_registry.snapshot()
-                assert engine.capital_authority.total_used_exposure==0 and len(sent)==1
+                import math
+                # Existing capital owners expose binary floats. Do not claim
+                # exact-zero money from a sequential four-leg subtraction.
+                bound=entry_quantity*math.ulp(entry_quantity*10.91)
+                remaining=(engine.capital_authority.total_used_exposure,
+                    engine.strategy_allocation_authority.strategy_used_exposure('RossMomentumStrategyV1'))
+                assert all(0<=value<=bound for value in remaining) and len(sent)==1
+                assert engine.capital_authority.total_reserved_capital==0
+                records=len(engine.position_records)
+                h.life.clock.current+=timedelta(seconds=1)
+                assert h.core.run_once();capsys.readouterr()
+                assert records==len(engine.position_records)==entry_quantity+1
+                assert remaining==(engine.capital_authority.total_used_exposure,
+                    engine.strategy_allocation_authority.strategy_used_exposure('RossMomentumStrategyV1'))
+                assert no_external_activity==[] and mutations()=={'place':0,'modify':0,'cancel':0}
                 return  # No native multi-share discretionary enrollment was inferred.
             if late_case in {"accounting_error","allocation_error","processor_error","processor_after","completion_error","processor_cancel","processor_deadline"}:
                 # Negative owner-level replay probe only. Core is halted; no

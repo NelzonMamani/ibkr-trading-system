@@ -1608,5 +1608,23 @@ def native_multi_relationship_initial(plan):
     if plan is None:
         return False
     original = plan.orders.get(plan.initial_order_id, {})
-    return (original.get("owner_effect_version") == 1
-        and (type(original.get("requested")) is not int or original["requested"] > 1))
+    version = original.get("owner_effect_version")
+    return (original.get("request", {}).get("selected_stop_units") is True
+        or (version is not None and not (type(version) is int and version == 1
+            and type(original.get("requested")) is int and original["requested"] == 1)))
+
+
+# Initial native multi-share relationships use the EXISTING total-one unit
+# protection/lifecycle owner, persisted in their EXISTING plan.orders ledger.
+# No aggregate-stop quantity amendment, extra ownership ledger or management
+# enrollment is granted. Interrupted/restored/unknown units quarantine/no retry.
+RELATIONSHIP_UNIT_INITIAL_PROTECTION_PROFILE = "RELATIONSHIP_UNIT_INITIAL_PROTECTION_V1"
+
+
+def selected_relationship_unit_stop_profile(request):
+    from src.config.config_resolver import get_ross_synthetic_relationship_base_size
+    context = request.get("relationship_context") or {}
+    if (request.get("selected_stop_units") is True and context.get("profile") == BULL_FLAG_MICRO_MANAGEMENT_PROFILE
+            and context.get("action") == "ENTRY" and request.get("take_profit_price") is None):
+        return RELATIONSHIP_UNIT_INITIAL_PROTECTION_PROFILE
+    return None

@@ -4632,7 +4632,11 @@ class CoreOrchestrator:
                         # entry already evaluated by risk.
                         decision.entry_price = getattr(intent, "entry_price", None)
                         from src.strategies.ross_momentum.strategy_policy import selected_completed_failure_profile
-                        if selected_completed_failure_profile(vars(intent)):
+                        context = getattr(intent, "relationship_context", None) or {}
+                        from src.config.config_resolver import get_ross_synthetic_relationship_base_size
+                        unit_relationship = (context.get("profile") == "BULL_FLAG_MICRO_2R_V1"
+                            and context.get("action") == "ENTRY" and get_ross_synthetic_relationship_base_size() > 1)
+                        if selected_completed_failure_profile(vars(intent)) or unit_relationship:
                             from copy import deepcopy
                             from src.storage.serialization import to_jsonable
                             decision.setup_metadata = to_jsonable(deepcopy(intent.setup_metadata))
