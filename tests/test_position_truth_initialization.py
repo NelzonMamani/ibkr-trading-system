@@ -68,7 +68,10 @@ def chain(monkeypatch):
     core.stop_controller=StopController()
     core._halted=False
     core.execution_engine=NS(bind_native_order_scope=lambda **kwargs:None, _relationship_orders_asof=None,
-        collect_relationship_updates=lambda **kwargs:events.append('cached_updates') or [])
+        _native_orders={},collect_relationship_updates=lambda **kwargs:events.append('cached_updates') or [])
+    # This initialization fixture owns no execution orders; exercise the real
+    # empty-book view rather than replacing Core's new existing-owner seam.
+    core.execution_engine._selected_order_records=ExecutionEngine._selected_order_records.__get__(core.execution_engine)
     core.trade_management_engine=None
     core._latest_position_truth_snapshot=None;core._degraded=False
     core._resolve_fill_authority_cycle=lambda:{'execution_stalled':False,'stalled_symbols':[]}
