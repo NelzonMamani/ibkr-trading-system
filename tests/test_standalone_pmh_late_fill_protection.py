@@ -3555,7 +3555,15 @@ def test_unit_coordination_joined_partial_remainder_and_stop_to_flat(reassessmen
     # One unit execution is a real partial reduction of the aggregate action.
     fill_unit_ids(h,life,capsys,selected[:1],price=h.failure_exit_price)
     assert life.exited_qty==1 and life.filled_qty==original_quantity-1
-    if len(selected)>1:fill_unit_ids(h,life,capsys,selected[1:],price=h.failure_exit_price)
+    if len(selected)>1:
+        assert action['status']=='MKT' and not action.get('last_accounted_fill_at')
+        fill_unit_ids(h,life,capsys,selected[1:],price=h.failure_exit_price)
+    children=[h.core.execution_engine._native_orders[leg_id] for leg_id in action['leg_ids']]
+    assert action['accounted_fill_quantity']==len(selected)
+    assert action['last_accounted_fill_at']==max(child['last_accounted_exit_fill_at'] for child in children)
+    from decimal import Decimal
+    assert Decimal(action['accounted_fill_notional'])==sum(Decimal(str(child['notional'])) for child in children)
+    frozen_accounting=deepcopy(action)
     remainder=original_quantity-len(selected)
     assert life.filled_qty==h.manager.snapshot_positions()['JPM'].quantity==remainder
     assert h.core.execution_engine.capital_authority.total_used_exposure==pytest.approx(remainder*life.avg_fill_price)
@@ -3565,6 +3573,7 @@ def test_unit_coordination_joined_partial_remainder_and_stop_to_flat(reassessmen
         h.life.clock.current+=timedelta(seconds=1)
         assert h.core.run_once();capsys.readouterr()
     assert len(h.unit_writes)==len(selected) and len(h.stop_requests)==original_quantity
+    assert action==frozen_accounting  # Repeated Core cycles cannot renew the accounting clock.
     remaining_ids=[row.orderId for row in h.native_open_orders]
     fill_unit_ids(h,life,capsys,remaining_ids)
     assert life.filled_qty==0 and life.exited_qty==original_quantity
