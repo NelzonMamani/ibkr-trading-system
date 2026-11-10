@@ -168,6 +168,12 @@ def joined(reassessment, monkeypatch, tmp_path, *, news_fault="none", peer=False
     micro=[tuple(v+.55 if i<4 else v for i,v in enumerate(row)) for row in _micro_rows()]
     fast=_candles([(10.55,10.57,10.53,10.55,500)]*25+micro,step_seconds=10,end=end+timedelta(seconds=10))
     streams={"1m":primary,"5m":_candles(parent_rows,step_seconds=300,end=end-timedelta(minutes=5)),"10s":fast}
+    if market_fault=='mid_relationship':
+        # Coherent external MID tape: completed five-minute Bull parent before
+        # a separately completed one-minute Micro child. Keep every native pattern.
+        streams['5m']=_candles(parent_rows,step_seconds=300,end=end-timedelta(minutes=10))
+        streams['1m']=_candles([(10.55,10.57,10.53,10.55,500)]*25+micro,
+            step_seconds=60,end=end-timedelta(minutes=1))
     if market_fault=="stale_child": streams["10s"]=[replace(b,timestamp=b.timestamp-timedelta(minutes=5)) for b in fast]
     if market_fault in {"forming_child","future_child","delayed_forming_child"}:
         # Second-cycle original clock is exactly +11s. Neither this forming
