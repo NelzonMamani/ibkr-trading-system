@@ -550,7 +550,7 @@ class IbkrLiveBroker(BaseBroker):
         )
 
     def convert_selected_stop_to_market(self, *, broker_order_id, parent_order_id,
-            symbol, con_id, total_quantity, trade_id, stop_price, expected_client, scope_as_of, authorization_guard=None):
+            symbol, con_id, total_quantity, trade_id, stop_price, expected_client, scope_as_of, authorization_guard=None, unit_orders=None, unit_account=None, unit_epoch=None):
         """Amend the ONE existing close leg, never allocate a second SELL ID.
 
         Dispatch is not acknowledgement. Native inventory/callback truth must
@@ -563,6 +563,8 @@ class IbkrLiveBroker(BaseBroker):
                 and not get_ibkr_readonly_enabled() and get_ibkr_api_write_allowed()
                 and get_ibkr_order_submission_enabled() and get_ibkr_order_translation_enabled()
                 and scope_as_of.tzinfo is not None
+                and (unit_orders is None or (type(unit_epoch) is int
+                    and expected_client._position_connection_epoch == unit_epoch))
                 and 0 <= (datetime.now(timezone.utc)-scope_as_of).total_seconds() <= get_ibkr_snapshot_max_age_seconds())
         if not enabled():
             raise RuntimeError("PMH_NATIVE_AMENDMENT_DISABLED")
@@ -571,8 +573,29 @@ class IbkrLiveBroker(BaseBroker):
         if client is None or client is not expected_client or not client.isConnected():
             raise RuntimeError("PMH_NATIVE_AMENDMENT_NO_EXISTING_CONNECTION")
         inventory = client.openOrders(require_complete=True)
+        allowed_units = dict((identity, (total, filled, kind)) for identity, total, filled, kind in (unit_orders or ()))
+        if unit_orders is not None:
+            if (not allowed_units or len(allowed_units) != len(unit_orders) or total_quantity != 1
+                    or str(broker_order_id) not in allowed_units
+                    or not callable(authorization_guard)):
+                raise RuntimeError("NATIVE_UNIT_AMENDMENT_SCOPE_INVALID")
+            matching = [row for row in inventory if getattr(row.contract, "symbol", "").upper() == symbol]
+            if {str(row.orderId) for row in matching} != set(allowed_units) or len(matching) != len(allowed_units):
+                raise RuntimeError("NATIVE_UNIT_AMENDMENT_INVENTORY_MISMATCH")
+            for row in matching:
+                total, filled, kind = allowed_units[str(row.orderId)]
+                if (type(total) is not int or total != 1 or type(filled) is not int or filled != 0
+                        or row.order.totalQuantity != 1 or isinstance(row.order.totalQuantity, bool)
+                        or not unit_account or row.order.account != unit_account
+                        or row.order.clientId != expected_client.client_id
+                        or row.order.action != "SELL" or row.order.orderType != kind or kind not in {"STP", "MKT"}
+                        or row.contract.conId != con_id or str(row.order.parentId) != str(parent_order_id)
+                        or row.order.orderRef != "PROTECT|"+trade_id
+                        or row.orderState.status.upper() not in {"SUBMITTED", "PRESUBMITTED"}
+                        or (row.order.orderType == "STP" and row.order.auxPrice != stop_price)):
+                    raise RuntimeError("NATIVE_UNIT_AMENDMENT_IDENTITY_MISMATCH")
         if any(getattr(row.contract, "symbol", "").upper() == symbol
-                and str(row.orderId) != str(broker_order_id)
+                and str(row.orderId) != str(broker_order_id) and str(row.orderId) not in allowed_units
                 and row.orderState.status.upper() not in {"FILLED", "CANCELLED", "CANCELED", "REJECTED", "INACTIVE"}
                 for row in inventory):
             raise RuntimeError("PMH_NATIVE_AMENDMENT_OVERLAPPING_ORDER")
@@ -586,6 +609,16 @@ class IbkrLiveBroker(BaseBroker):
                 or str(original.parentId) != str(parent_order_id) or original.orderRef != "PROTECT|"+trade_id
                 or row.orderState.status.upper() not in {"SUBMITTED", "PRESUBMITTED"}):
             raise RuntimeError("PMH_NATIVE_AMENDMENT_BINDING_CONFLICT")
+        if unit_orders is not None:
+            # Reuse canonical independent position truth after blocking inventory.
+            # This does not renew the original action's quote/bar/truth clocks.
+            from src.execution.position_truth import collect_broker_position_snapshot, PositionTruthConfig
+            positions = collect_broker_position_snapshot(client, as_of=datetime.now(timezone.utc),
+                config=PositionTruthConfig(broker_required=True, run_mode=self.run_mode))
+            owned = positions.get(symbol)
+            if (positions.status != "COMPLETE" or positions.account != unit_account or owned is None
+                    or owned.con_id != con_id or owned.quantity != sum(total-filled for total,filled,_ in allowed_units.values())):
+                raise RuntimeError("NATIVE_UNIT_AMENDMENT_POSITION_UNVERIFIED")
         amended = deepcopy(original)
         amended.orderType = "MKT"
         amended.auxPrice = 0.0

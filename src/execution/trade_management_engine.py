@@ -716,7 +716,7 @@ class TradeManagementEngine:
         if (not profile or order.get("pmh_management_expired") or request.get("relationship_context")
                 or request.get("take_profit_price") is not None or not seconds
                 or not request.get("management_session_plan") or request["management_session_plan"] != session_plan
-                or not order.get("terminal") or not order.get("protection_confirmed")
+                or not order.get("terminal") or not (order.get("protection_confirmed") or order.get("unit_close_coverage_confirmed"))
                 or type(metadata.get("canonical_result_index")) is not int
                 or metadata["canonical_result_index"] < 0
                 or not metadata.get("source_metadata") or not order.get("last_accounted_entry_fill_at")):

@@ -1426,14 +1426,15 @@ def selected_one_share_profit_profile(request):
 
 
 def standalone_one_share_profit_basis(order, entry_fill_price):
-    """Actual accounted E0/original structural S0; never measured entry or INV."""
+    """Actual E0/original S0; historical name also serves explicitly enrolled units."""
     import math
     from decimal import Decimal, InvalidOperation
     request = order.get("request", {})
     stop = request.get("stop_loss_price")
     if (not selected_one_share_profit_profile(request)
-            or type(order.get("filled")) is not int or order["filled"] != 1
-            or type(order.get("requested")) is not int or order["requested"] != 1
+            or type(order.get("filled")) is not int or type(order.get("requested")) is not int
+            or not (order["filled"] == order["requested"] == 1
+                or (selected_unit_management_profile(request) and order["filled"] == order["requested"] > 1))
             or not order.get("terminal")):
         return None
     try:
@@ -1493,12 +1494,31 @@ def standalone_profit_quote_evidence(quote, *, symbol, milestone, observed_at):
 # NEW delegated synthetic PAPER prerequisite, not Ross doctrine or partial policy.
 # Explicit opt-in retains a distinct original-S0 STP native identity/total1 for
 # each accounted owned unit. No cancellation/replacement/atomicity assumption.
-# Until a separate reduction coordinator passes, discretionary unit management
-# is vetoed; default whole-stop one-share/failure behavior remains unchanged.
+# This initial-protection flag alone grants no discretionary management.
+# Separate explicit synthetic unit-management enrollment is required below.
 STANDALONE_UNIT_STOP_PROTECTION_PROFILE = "STANDALONE_UNIT_STOP_PROTECTION_V1"
 
 
 def selected_unit_stop_profile(request):
     if request.get("selected_stop_units") is True and selected_one_share_profit_profile(request):
         return STANDALONE_UNIT_STOP_PROTECTION_PROFILE
+    return None
+
+
+# Bounded NEW project coordination policy (user-authorized), not Ross doctrine.
+# Official same-session/client/order-ID modification contract:
+# https://www.interactivebrokers.com/docs/tws-api/doc/orders/modify-order
+# Type changes may reject; this is NOT an exchange-atomicity promise.
+# https://interactivebrokers.github.io/tws-api/message_codes.html (104/105/329/2102)
+# Existing unit total remains ONE, never the remaining quantity or a new SELL ID.
+# MKT must be independently observed; uncertainty quarantines without retry.
+# Untouched units require independently confirmed original-S0 stops. No cancel,
+# replacement, generic OCA rebinding, trailing, break-even or add enrollment.
+STANDALONE_UNIT_MANAGEMENT_PROFILE = "STANDALONE_UNIT_MANAGEMENT_V1"
+
+
+def selected_unit_management_profile(request):
+    from src.config.config_resolver import get_ross_synthetic_unit_management
+    if selected_unit_stop_profile(request) and get_ross_synthetic_unit_management():
+        return STANDALONE_UNIT_MANAGEMENT_PROFILE
     return None
