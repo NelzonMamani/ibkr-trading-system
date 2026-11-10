@@ -5,7 +5,7 @@ from src.domain.quote_freshness import quote_time_rejection
 from src.core.acquisition import AcquisitionCancelled, AcquisitionDeadlineExceeded, checkpoint, wait_event, bounded_timeout
 
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal, InvalidOperation
 import math
 import time
@@ -95,6 +95,65 @@ def _market_data_type_code(market_data_type: str) -> int:
     return 1
 
 
+@dataclass(frozen=True)
+class NativePriceRule:
+    """Local completion evidence, never a native attempt/version certificate."""
+    status: str
+    contract_key: tuple
+    route: str
+    rule_id: int | None
+    client_id: int
+    connection_epoch: int
+    qualification_request: int | None = None
+    request_sequence: int | None = None
+    completed_at: datetime | None = None
+    bands: tuple[tuple[Decimal, Decimal], ...] = ()
+    source: str = "IBKR_CONTRACT_DETAILS_AND_MARKET_RULE"
+
+    def increment(self, price):
+        price = _price_decimal(price)
+        if self.status != "COMPLETE" or price <= 0 or not self.bands:
+            raise ValueError("Authoritative completed price bands required")
+        return next(increment for edge, increment in reversed(self.bands) if edge <= price)
+
+    def normalize_long_stop(self, proposed, *, original_stop, effective_stop, bid):
+        """NEW prerequisite policy: ceil only; never widen risk or meet/cross bid.
+
+        Absolute increment grid, re-evaluated at band transitions. This does NOT
+        choose a strategy price, enroll BE/trailing, or establish broker acceptance.
+        """
+        price = _price_decimal(proposed)
+        original, effective, bid = map(_price_decimal, (original_stop, effective_stop, bid))
+        if not 0 < original <= effective < price < bid:
+            raise ValueError("Long stop must tighten confirmed protection below executable bid")
+        for _ in range(len(self.bands)+1):
+            tick = self.increment(price)
+            pn, pd = price.as_integer_ratio()
+            tn, td = tick.as_integer_ratio()
+            units = (pn*td + pd*tn-1)//(pd*tn)
+            parts = tick.as_tuple()
+            coefficient = int(''.join(map(str, parts.digits)))*units
+            normalized = Decimal((0, tuple(map(int, str(coefficient))), parts.exponent))
+            if normalized >= bid:
+                raise ValueError("Normalized stop meets/crosses executable bid")
+            if self.increment(normalized) == tick:
+                return normalized
+            price = normalized
+        raise ValueError("No stable applicable price band")
+
+
+def _price_decimal(value):
+    if isinstance(value, bool):
+        raise ValueError("Boolean is not a price")
+    try:
+        price = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        raise ValueError("Finite decimal price required") from None
+    if not price.is_finite() or abs(price.as_tuple().exponent) > 64 or len(price.as_tuple().digits) > 64:
+        raise ValueError("Finite decimal price required")
+    return price
+
+
 class IbkrClient(EWrapper, EClient):
     MAX_CLIENT_ID_RETRIES = 10
     NON_REJECTING_ORDER_WARNING_CODES = {2109}
@@ -135,6 +194,8 @@ class IbkrClient(EWrapper, EClient):
         self._contract_details: Dict[int, List[ContractDetails]] = {}
         self._market_events: Dict[int, threading.Event] = {}
         self._market_data: Dict[int, Dict[str, Optional[float]]] = {}
+        self._price_rule_requests: dict[int, dict] = {}
+        self._price_rule_sequence = 0
         self._historical_states: dict[int, dict] = {}
         self._historical_events: Dict[int, threading.Event] = {}
         self._historical_data: Dict[int, List[object]] = {}
@@ -361,6 +422,7 @@ class IbkrClient(EWrapper, EClient):
                 "con_id": getattr(contract, "conId", None),
             }
             if request_type == "CONTRACT_DETAILS":
+                self._request_context_by_req_id[req_id]["reference_epoch"] = self._position_connection_epoch
                 # Register eligibility atomically with the context that disconnect
                 # invalidates under this same lock. Never re-arm it after cleanup.
                 self._request_context_by_req_id[req_id]["reference_deadline"] = (
@@ -846,6 +908,8 @@ class IbkrClient(EWrapper, EClient):
 
     def _invalidate_position_queries(self, *, clear_account_scope: bool = True) -> None:
         with self._lock:
+            for query in getattr(self, "_price_rule_requests", {}).values():
+                self._finish_price_rule(query, "DISCONNECTED")
             self._position_connection_epoch += 1
             self._position_transport_available = False
             self._position_upstream_lost = True
@@ -1005,6 +1069,162 @@ class IbkrClient(EWrapper, EClient):
             return {"longName": name, "conId": con_id, "request_id": req_id,
                     "source": "IBKR_CONTRACT_DETAILS", "completed_at_utc": context["reference_completed_at_utc"]}
         return {}
+
+    @staticmethod
+    def _price_contract_key(contract):
+        return tuple(getattr(contract, name, None) for name in
+            ("conId", "symbol", "secType", "currency", "primaryExchange", "localSymbol", "tradingClass"))
+
+    def _qualified_price_scope(self, contract, route):
+        key = self._price_contract_key(contract)
+        if (type(key[0]) is not int or key[0] <= 0 or key[2] != "STK"
+                or not isinstance(route, str) or not route or route != getattr(contract, "exchange", None)
+                or not all(isinstance(value, str) for value in key[1:])
+                or not key[1] or not key[3] or type(self.client_id) is not int or self.client_id < 0
+                or not self.is_connected()):
+            return None
+        for req_id, context in reversed(tuple(self._request_context_by_req_id.items())):
+            if context.get("request_type") != "CONTRACT_DETAILS" or context.get("symbol") != key[1]:
+                continue
+            response = context.get("reference_response")
+            if (not response or context.get("reference_error")
+                    or context.get("reference_epoch") != self._position_connection_epoch):
+                return None
+            completed, rows = response
+            if completed > context.get("reference_deadline", -1) or len(rows) != 1:
+                return None
+            row = rows[0]
+            fields = ("conId", "symbol", "secType", "currency", "primaryExchange", "localSymbol", "tradingClass")
+            if type(row.get("conId")) is not int or tuple(row.get(name) for name in fields) != key:
+                return None
+            exchanges, rules = row.get("validExchanges"), row.get("marketRuleIds")
+            if not isinstance(exchanges, str) or not isinstance(rules, str):
+                return None
+            exchanges, rules = exchanges.split(','), rules.split(',')
+            if (len(exchanges) != len(rules) or len(set(exchanges)) != len(exchanges)
+                    or any(not x or x != x.strip() for x in exchanges) or route not in exchanges):
+                return None
+            value = rules[exchanges.index(route)]
+            if not value.isascii() or not value.isdigit() or int(value) <= 0:
+                return None
+            return key, req_id, int(value)
+        return None
+
+    def _finish_price_rule(self, query, status, bands=()):
+        query["status"] = status
+        query["result"] = replace(query["result"], status=status, bands=bands,
+            completed_at=datetime.now(timezone.utc) if status == "COMPLETE" else None)
+        query["event"].set()
+
+    def price_rule_snapshot(self, contract, *, route, timeout_seconds=None):
+        """ONE request per rule per client-object lifetime; no retry after ambiguity.
+
+        Callback has rule ID only. Same-scope COMPLETE reads reuse the ORIGINAL
+        immutable receipt, never renew its clock. Busy/other-scope callers deny.
+        Reconnect cannot reuse an old rule slot, even after successful completion.
+        No connect/qualification/metadata-service side effect is introduced.
+        """
+        checkpoint()
+        timeout = self.snapshot_timeout_seconds if timeout_seconds is None else timeout_seconds
+        if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not math.isfinite(timeout) or timeout < 0:
+            raise ValueError("Bounded rule timeout required")
+        with self._lock:
+            scope = self._qualified_price_scope(contract, route)
+            unavailable = NativePriceRule("UNAVAILABLE", self._price_contract_key(contract), route,
+                None, self.client_id, self._position_connection_epoch)
+            if scope is None:
+                return unavailable
+            key, qualification, rule_id = scope
+            if getattr(self, "_price_rules_exhausted", False):
+                return replace(unavailable, status="CAPACITY_EXHAUSTED")
+            old = self._price_rule_requests.get(rule_id)
+            if old is not None:
+                result = old["result"]
+                if (result.contract_key, result.route, result.qualification_request,
+                        result.connection_epoch) != (key, route, qualification, self._position_connection_epoch):
+                    return replace(unavailable, status="RULE_ID_REUSE_DENIED", rule_id=rule_id)
+                return result  # PENDING is explicitly not completion.
+            if len(self._price_rule_requests) >= 1024:
+                self._price_rules_exhausted = True
+                return replace(unavailable, status="CAPACITY_EXHAUSTED")
+            self._price_rule_sequence += 1
+            result = NativePriceRule("PENDING", key, route, rule_id, self.client_id,
+                self._position_connection_epoch, qualification, self._price_rule_sequence)
+            query = {"result": result, "status": "PENDING", "deadline": time.monotonic()+timeout,
+                     "event": threading.Event()}
+            self._price_rule_requests[rule_id] = query
+            try:
+                # Admission and SDK dispatch atomic with invalidation; RLock allows
+                # synchronous SDK error callbacks, without a new worker/scheduler.
+                super().reqMarketRule(rule_id)
+            except BaseException:
+                self._finish_price_rule(query, "ERROR")
+                raise
+        try:
+            wait_event(query["event"], timeout)
+        except BaseException:
+            with self._lock:
+                self._finish_price_rule(query, "INTERRUPTED")
+            raise
+        with self._lock:
+            if query["status"] == "PENDING":
+                self._finish_price_rule(query, "TIMEOUT")
+            return query["result"]
+
+    def reqMarketRule(self, marketRuleId):  # type: ignore[override]
+        raise RuntimeError("Use owned price_rule_snapshot; unowned rule request forbidden")
+
+    def marketRule(self, marketRuleId, priceIncrements):  # type: ignore[override]
+        with self._lock:
+            if type(marketRuleId) is not int or marketRuleId <= 0:
+                return
+            query = self._price_rule_requests.get(marketRuleId)
+            if query is None:
+                if len(self._price_rule_requests) >= 1024:
+                    self._price_rules_exhausted = True
+                    return
+                # Unsolicited data poisons reuse; it must never certify a later call.
+                result = NativePriceRule("UNSOLICITED", (), "", marketRuleId,
+                    self.client_id, self._position_connection_epoch)
+                query = {"result": result, "status": "UNSOLICITED", "event": threading.Event()}
+                self._price_rule_requests[marketRuleId] = query
+                return
+            if query["status"] not in {"PENDING", "COMPLETE"}:
+                return
+            if query["result"].connection_epoch != self._position_connection_epoch or not self.is_connected():
+                self._finish_price_rule(query, "DISCONNECTED")
+                return
+            if query["status"] == "PENDING" and time.monotonic() > query["deadline"]:
+                self._finish_price_rule(query, "TIMEOUT")
+                return
+            try:
+                bands = tuple((_price_decimal(row.lowEdge), _price_decimal(row.increment)) for row in priceIncrements)
+                if (not 1 <= len(bands) <= 1024 or bands[0][0] != 0
+                        or any(edge < 0 or increment <= 0 for edge, increment in bands)
+                        or any(a[0] >= b[0] for a,b in zip(bands,bands[1:]))):
+                    raise ValueError("Malformed price bands")
+            except (ValueError, TypeError, AttributeError):
+                self._finish_price_rule(query, "MALFORMED")
+                return
+            if query["status"] == "COMPLETE":
+                if query["result"].bands != bands:
+                    self._finish_price_rule(query, "CONFLICTED")
+                return  # Identical duplicates never renew completion.
+            self._finish_price_rule(query, "COMPLETE", bands)
+
+    def validate_price_rule(self, result, contract, *, route, observed_at, max_age_seconds):
+        """Revalidate canonical live ownership after blocking checks; no renewed facts."""
+        with self._lock:
+            scope = self._qualified_price_scope(contract, route)
+            query = self._price_rule_requests.get(getattr(result, "rule_id", None))
+            if (not isinstance(result, NativePriceRule) or not query or query["result"] is not result
+                    or query["status"] != "COMPLETE" or not scope
+                    or scope != (result.contract_key, result.qualification_request, result.rule_id)
+                    or result.connection_epoch != self._position_connection_epoch or result.client_id != self.client_id
+                    or result.completed_at is None or not isinstance(observed_at, datetime) or observed_at.tzinfo is None
+                    or not isinstance(max_age_seconds, (int, float)) or isinstance(max_age_seconds, bool) or not math.isfinite(max_age_seconds) or max_age_seconds < 0):
+                return False
+            return 0 <= (observed_at-result.completed_at).total_seconds() <= max_age_seconds
 
     def qualifyContracts(self, *contracts):
         """
@@ -1340,7 +1560,9 @@ class IbkrClient(EWrapper, EClient):
                 # cannot be promoted; error wakeups are not successful completion.
                 rows = tuple({**{field: getattr(detail.contract, field, None) for field in
                              ("conId", "symbol", "secType", "currency", "exchange", "primaryExchange", "localSymbol", "tradingClass")},
-                             "longName": getattr(detail, "longName", None)}
+                             "longName": getattr(detail, "longName", None),
+                             "validExchanges": getattr(detail, "validExchanges", None),
+                             "marketRuleIds": getattr(detail, "marketRuleIds", None)}
                              for detail in self._contract_details.get(reqId, ()))
                 context["reference_completed_at_utc"] = datetime.now(timezone.utc).isoformat()
                 context["reference_response"] = (time.monotonic(), rows)
@@ -1703,6 +1925,11 @@ class IbkrClient(EWrapper, EClient):
 
     # --- Error handling ---
     def error(self, reqId: int, errorCode: int, errorString: str):  # type: ignore[override]
+        with self._lock:
+            # This protocol has no per-attempt error token. Never guess ownership.
+            for rule_id, query in getattr(self, "_price_rule_requests", {}).items():
+                if reqId in (-1, rule_id):
+                    self._finish_price_rule(query, "ERROR")
         timestamp_utc = datetime.now(timezone.utc).isoformat()
         request_type_by_req_id = getattr(self, "_request_type_by_req_id", {})
         context = getattr(self, "_request_context_by_req_id", {}).get(reqId, {})
