@@ -2237,6 +2237,10 @@ class ExecutionEngine:
                                 if type(con_id) is int and con_id > 0:
                                     order["security_id"] = con_id
                 if native_parent is not None:
+                    if native_life.selected_stop_units and total > prior:
+                        # Authoritative accounting completion clock, not arrival,
+                        # reservation, acknowledgement or a lifecycle update time.
+                        order["last_accounted_exit_fill_at"] = datetime.now(timezone.utc).isoformat()
                     if native_life.filled_qty == 0 and native_parent.get("pmh_failure_exit"):
                         native_parent["pmh_failure_exit"]["status"] = "FILLED"
                     leg = (self.post_fill_lifecycle.selected_unit_leg(native_life, broker_order_id=order["broker_order_id"])
@@ -2282,7 +2286,7 @@ class ExecutionEngine:
         committed = (self._native_state or {}).get("orders", {}).get(order_id, {})
         if any(order.get(key) != committed.get(key) for key in
                ("request", "decision_id", "account", "mode", "symbol", "side", "broker_order_id", "requested",
-                "protection_parent_order_id", "protection_trade_id", "security_id", "last_accounted_entry_fill_at", "pmh_failure_exit", "pmh_management_expired", "close_role", "unit_profit_exit", "unit_amendment", "unit_close_coverage_confirmed", "unit_connection_epoch", "unit_client_id")):
+                "protection_parent_order_id", "protection_trade_id", "security_id", "last_accounted_entry_fill_at", "last_accounted_exit_fill_at", "pmh_failure_exit", "pmh_management_expired", "close_role", "unit_profit_exit", "unit_amendment", "unit_close_coverage_confirmed", "unit_connection_epoch", "unit_client_id")):
             raise ValueError("NATIVE_ORDER_RETAINED_BINDING_CHANGED")
         facets = {"symbol": order["symbol"], "account": order["account"], "side": order["side"],
             "client_order_id": order_id, "orderId": order["broker_order_id"], "decision_id": order["decision_id"]}
@@ -2490,11 +2494,13 @@ class ExecutionEngine:
         from src.strategies.ross_momentum.strategy_policy import (selected_unit_management_profile,
             selected_completed_failure_profile, selected_one_share_profit_profile,
             STANDALONE_ONE_SHARE_PROFIT_PROFILE, standalone_one_share_profit_basis,
-            standalone_profit_quote_evidence)
+            standalone_profit_quote_evidence, STANDALONE_MICRO_COST_FAILURE_PROFILE,
+            selected_micro_cost_failure_profile, standalone_micro_cost_failure_basis, standalone_micro_cost_quote_evidence)
         parent = self._native_orders[order_id]
         initial = parent["request"]
         life = self.post_fill_lifecycle.get_trade(order_id)
         profit = failure.get("profile") == STANDALONE_ONE_SHARE_PROFIT_PROFILE
+        micro_cost = failure.get("profile") == STANDALONE_MICRO_COST_FAILURE_PROFILE
         latch_key = "unit_profit_exit" if profit else "pmh_failure_exit"
         if (self.run_mode != RunMode.PAPER or not selected_unit_management_profile(initial)
                 or not callable(authorization_guard) or self._native_quarantined
@@ -2506,6 +2512,7 @@ class ExecutionEngine:
                 or decision.decision_id != parent["decision_id"] or decision.direction != "SELL"
                 or failure.get("occurrence") != initial.get("setup_metadata")
                 or failure.get("profile") != (selected_one_share_profit_profile(initial) if profit
+                    else selected_micro_cost_failure_profile(initial) if micro_cost
                     else selected_completed_failure_profile(initial))):
             return False
         self._validate_native_binding(order_id, parent, {})
@@ -2522,6 +2529,13 @@ class ExecutionEngine:
                 or (failure.get("entry_fill_price"), failure.get("original_stop"), failure.get("milestone")) != basis
                 or not standalone_profit_quote_evidence(failure.get("profit_quote"), symbol=parent["symbol"],
                     milestone=basis[2], observed_at=datetime.now(timezone.utc))):
+            return False
+        cost_basis = standalone_micro_cost_failure_basis(parent, life.avg_fill_price) if micro_cost else None
+        if micro_cost and (not cost_basis or decision.rationale != "MICRO_OWNED_COST_FAILURE_EXIT"
+                or (failure.get("entry_fill_price"), failure.get("original_stop"),
+                    failure.get("last_accounted_profit_fill_at")) != cost_basis
+                or not standalone_micro_cost_quote_evidence(failure.get("profit_quote"), symbol=parent["symbol"],
+                    entry_price=cost_basis[0], observed_at=datetime.now(timezone.utc))):
             return False
         inventory = self._pmh_complete_inventory()
         if self._confirm_selected_unit_stops(life, inventory, allow_managed=True) is None:
@@ -2920,6 +2934,15 @@ class ExecutionEngine:
                 if action and all(self._native_orders[leg_id].get("terminal")
                         and self._native_orders[leg_id]["filled"] == 1 for leg_id in action["leg_ids"]):
                     action["status"] = "FILLED"  # Advance, never clear/reuse the reservation.
+                    children = [self._native_orders[leg_id] for leg_id in action["leg_ids"]]
+                    # These facts come only from committed accounting, never the
+                    # order-status label alone. Replays preserve the same stamps.
+                    if children and all(child.get("last_accounted_exit_fill_at") for child in children):
+                        action["accounted_fill_quantity"] = sum(child["filled"] for child in children)
+                        from decimal import Decimal
+                        action["accounted_fill_notional"] = str(sum(
+                            (Decimal(str(child["notional"])) for child in children), Decimal(0)))
+                        action["last_accounted_fill_at"] = max(child["last_accounted_exit_fill_at"] for child in children)
                 if life is not None and life.filled_qty == 0 and (action or parent.get("pmh_failure_exit")):
                     parent["unit_close_coverage_confirmed"] = False
                 parent.pop("unit_reconciliation_pending", None)

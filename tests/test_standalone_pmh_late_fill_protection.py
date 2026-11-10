@@ -2500,7 +2500,7 @@ def test_central_failure_later_bar_and_missing_timestamp_or_relationship_hold(re
         assert evaluate(row) is None,change
 
 
-def small_central_owned(reassessment,monkeypatch,tmp_path,capsys,family,*,partial=False,requested_base=8,risk_cap=2,synthetic_capital=400,fill=True,expected_admitted=None,quantity_fault=None,unit_stops=False,unit_fault=None):
+def small_central_owned(reassessment,monkeypatch,tmp_path,capsys,family,*,partial=False,requested_base=8,risk_cap=2,synthetic_capital=400,fill=True,expected_admitted=None,quantity_fault=None,unit_stops=False,unit_fault=None,micro_fault=None):
     from test_joined_core_pmh_readonly import pmh_joined,standalone_bull_joined,micro_joined,key_joined,consolidation_joined,flat_top_joined,orb_joined,hod_joined,momentum_joined,cup_joined,opening_drive_joined,indicator_pullback_joined,vwap_pullback_joined,stair_step_joined
     from test_abcd_production_handoff import abcd_joined
     from test_joined_core_first_pullback import first_joined
@@ -2514,6 +2514,7 @@ def small_central_owned(reassessment,monkeypatch,tmp_path,capsys,family,*,partia
             kwargs['runtime_options']['config_overrides']['ROSS_SYNTHETIC_REQUESTED_BASE_SIZE']=requested_base
         if unit_stops:kwargs['runtime_options']['config_overrides']['ROSS_SYNTHETIC_UNIT_STOPS']=True
         if family=='CUP_HANDLE':kwargs['clock_time']=(13,55,30)
+        if family=='MICRO_PULLBACK' and micro_fault is not None:kwargs['market_fault']=micro_fault
         h=factory(*args,**kwargs)
         for row in h.rows.values():
             gap=(row['last_price']/row['prev_close']-1)*100;row.update(gap_pct=gap,pct_change=gap)
@@ -3948,3 +3949,239 @@ def test_unit_single_remainder_never_requests_unactionable_profit_quotes(reasses
     assert requests==[]
     assert before==(life.filled_qty,life.exited_qty,len(h.unit_writes),len(h.stop_requests),
         h.core.execution_engine.capital_authority.total_used_exposure)
+
+
+def micro_post_partial_case(reassessment,monkeypatch,tmp_path,capsys,*,family='MICRO_PULLBACK',fill_price=None,micro_fault=None):
+    """Genuine all-registry native entry and accounted same-ID partial first."""
+    prepared=small_central_owned(reassessment,monkeypatch,tmp_path,capsys,family,
+        requested_base=8,risk_cap=4,synthetic_capital=800,unit_stops=True,micro_fault=micro_fault)
+    h,request,life=one_share_profit_case(reassessment,monkeypatch,tmp_path,capsys,prepared=prepared)
+    enroll_unit_management(h,monkeypatch)
+    assert h.core.run_once(),capsys.readouterr().out[-5000:]
+    capsys.readouterr()
+    partial_ids=[identity for identity,_ in h.unit_writes]
+    fill_unit_ids(h,life,capsys,partial_ids,price=h.failure_exit_price if fill_price is None else fill_price)
+    assert h.failure_owner['unit_profit_exit']['status']=='FILLED'
+    assert h.core.execution_engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
+    return h,request,life
+
+
+def append_micro_cost_bar(h,request,life,capsys,*,fault='none'):
+    """New external completed history/quote facts, no prepared internal rule."""
+    from dataclasses import replace
+    from datetime import datetime
+    from src.strategies.common.candles.candle_types import Candle
+    seconds={'10s':10,'1m':60}[request.setup_metadata['execution_stream']['execution_trigger_timeframe']]
+    now=h.life.clock.current
+    start=now.replace(microsecond=0)+timedelta(seconds=(-int(now.timestamp()))%seconds)
+    price=life.avg_fill_price-.02
+    if fault=='equality':price=life.avg_fill_price
+    if fault=='wick':price=life.avg_fill_price+.01
+    if fault=='family_failure':price=request.setup_metadata['trigger_level']-.01
+    bar=Candle(price+.005,price+.02,price-.02,price,1000,timestamp=start)
+    if fault=='straddling':bar=replace(bar,timestamp=datetime.fromisoformat(h.failure_owner['unit_profit_exit']['last_accounted_fill_at'])-timedelta(seconds=1))
+    if fault=='stale':bar=replace(bar,timestamp=start-timedelta(hours=1))
+    if fault=='future':bar=replace(bar,timestamp=start+timedelta(seconds=seconds+1))
+    if fault=='forming':bar=replace(bar,timestamp=start+timedelta(seconds=5))
+    if fault not in {'straddling','stale','future','forming','missing'}:
+        append_external_management_bar(h,request.setup_metadata['execution_stream']['execution_trigger_timeframe'],bar)
+    h.failure_bars=[] if fault=='missing' else [bar]
+    quotes=h.core.market_data_snapshot_manager.batch_snapshots
+    def current_quotes(symbols):
+        values,errors=quotes(symbols)
+        bid=life.avg_fill_price if fault=='quote_equality' else life.avg_fill_price+.01 if fault=='quote_reclaim' else price
+        stamp=h.life.clock.current
+        if fault=='quote_stale':stamp-=timedelta(hours=1)
+        if fault=='quote_future':stamp+=timedelta(seconds=1)
+        return {key:replace(value,last=price,bid=bid,ask=bid+.02,
+            market_timestamp_utc=stamp,asof_utc=stamp,
+            market_data_type_confirmed=fault!='quote_unconfirmed') for key,value in values.items()},errors
+    h.core.market_data_snapshot_manager.batch_snapshots=current_quotes
+    for row in h.rows.values():row.update(last_price=price,bid=price,ask=price+.02)
+    end=start+timedelta(seconds=seconds)
+    while h.life.clock.current<end:
+        h.life.clock.current+=min(timedelta(seconds=5),end-h.life.clock.current)
+        assert h.core.run_once(),capsys.readouterr().out[-5000:]
+        capsys.readouterr()
+    return bar,price
+
+
+def enroll_micro_cost_failure():
+    from src.config import config_resolver
+    config_resolver.set_config_overrides(dict(config_resolver._CONFIG_OVERRIDES,
+        ROSS_SYNTHETIC_MICRO_COST_FAILURE=True))
+
+
+@pytest.mark.parametrize('variant',['none','red_pause'])
+def test_micro_post_partial_cost_failure_native_core_to_flat(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,variant):
+    from src.strategies.ross_momentum.strategy_policy import STANDALONE_MICRO_COST_FAILURE_PROFILE
+    h,request,life=micro_post_partial_case(reassessment,monkeypatch,tmp_path,capsys,micro_fault=variant)
+    original_quantity=life.filled_qty+life.exited_qty
+    partial=deepcopy(h.failure_owner['unit_profit_exit'])
+    assert partial['accounted_fill_quantity']==len(partial['leg_ids'])
+    assert __import__('decimal').Decimal(partial['accounted_fill_notional'])>partial['accounted_fill_quantity']*__import__('decimal').Decimal(str(life.avg_fill_price))
+    assert len(h.registry_batches[0][1])==33
+    assert all(row.order.orderType=='STP' and row.order.auxPrice==request.stop_loss_price for row in h.native_open_orders)
+    enroll_micro_cost_failure()
+    bar,price=append_micro_cost_bar(h,request,life,capsys)
+    assert request.setup_metadata['trigger_level']<bar.close<life.avg_fill_price
+    latch=h.failure_owner.get('pmh_failure_exit')
+    assert latch and latch['profile']==STANDALONE_MICRO_COST_FAILURE_PROFILE
+    assert latch['entry_fill_price']==life.avg_fill_price and latch['original_stop']==request.stop_loss_price
+    assert latch['occurrence']==request.setup_metadata and latch['last_accounted_profit_fill_at']==partial['last_accounted_fill_at']
+    assert request.take_profit_price is life.target is None
+    assert len(h.unit_writes)==original_quantity and len({identity for identity,_ in h.unit_writes})==original_quantity
+    remaining=[row.orderId for row in h.native_open_orders]
+    fill_unit_ids(h,life,capsys,remaining,price=price)
+    assert life.filled_qty==0 and life.exited_qty==original_quantity
+    assert not h.manager.snapshot_positions() and not h.core.trade_registry.snapshot()
+    engine=h.core.execution_engine
+    assert engine.capital_authority.total_used_exposure==engine.capital_authority.total_reserved_capital==0
+    for _ in range(2):
+        h.life.clock.current+=timedelta(seconds=1)
+        assert h.core.run_once();capsys.readouterr()
+    assert len(h.unit_writes)==original_quantity and len(h.stop_requests)==original_quantity
+    assert h.failure_owner['unit_profit_exit']==partial
+
+
+@pytest.mark.parametrize('fault',['equality','wick','straddling','forming','missing','stale','future',
+    'quote_equality','quote_reclaim','quote_stale','quote_future','quote_unconfirmed'])
+def test_micro_post_partial_cost_failure_external_boundaries_hold(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,fault):
+    h,request,life=micro_post_partial_case(reassessment,monkeypatch,tmp_path,capsys)
+    quantity=life.filled_qty;writes=len(h.unit_writes)
+    enroll_micro_cost_failure()
+    append_micro_cost_bar(h,request,life,capsys,fault=fault)
+    assert not h.failure_owner.get('pmh_failure_exit'),fault
+    assert len(h.unit_writes)==writes and life.filled_qty==quantity
+    assert h.core.execution_engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
+    assert all(row.order.auxPrice==request.stop_loss_price for row in h.native_open_orders)
+
+
+@pytest.mark.parametrize('scope',['default_off','other_family','nonprofitable_partial'])
+def test_micro_post_partial_cost_failure_enrollment_stays_closed(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,scope):
+    h,request,life=micro_post_partial_case(reassessment,monkeypatch,tmp_path,capsys,
+        family='BULL_FLAG' if scope=='other_family' else 'MICRO_PULLBACK',
+        fill_price=10.88 if scope=='nonprofitable_partial' else None)
+    if scope!='default_off':enroll_micro_cost_failure()
+    writes=len(h.unit_writes);quantity=life.filled_qty
+    append_micro_cost_bar(h,request,life,capsys)
+    assert not h.failure_owner.get('pmh_failure_exit')
+    assert len(h.unit_writes)==writes and life.filled_qty==quantity
+    if scope=='nonprofitable_partial':
+        action=h.failure_owner['unit_profit_exit']
+        assert __import__('decimal').Decimal(action['accounted_fill_notional'])==action['accounted_fill_quantity']*__import__('decimal').Decimal(str(life.avg_fill_price))
+
+
+def test_micro_post_partial_cost_failure_missing_accounting_and_binding_facts_hold(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    from datetime import datetime
+    from src.strategies.ross_momentum.strategy_policy import standalone_micro_cost_failure_basis
+    h,request,life=micro_post_partial_case(reassessment,monkeypatch,tmp_path,capsys)
+    enroll_micro_cost_failure()
+    assert standalone_micro_cost_failure_basis(h.failure_owner,life.avg_fill_price)
+    # Missing/tampered copies test pure policy only; retained owners stay intact.
+    for key in ['last_accounted_fill_at','accounted_fill_notional','accounted_fill_quantity','occurrence','leg_ids']:
+        owner=deepcopy(h.failure_owner);owner['unit_profit_exit'].pop(key)
+        assert standalone_micro_cost_failure_basis(owner,life.avg_fill_price) is None,key
+    for key,value in [('status','MKT'),('accounted_fill_notional',float('nan')),
+            ('last_accounted_fill_at',datetime.now().isoformat()),('reserved_quantity',True)]:
+        owner=deepcopy(h.failure_owner);owner['unit_profit_exit'][key]=value
+        assert standalone_micro_cost_failure_basis(owner,life.avg_fill_price) is None,key
+    owner=deepcopy(h.failure_owner);owner['request']['setup_family_id']='BULL_FLAG'
+    assert standalone_micro_cost_failure_basis(owner,life.avg_fill_price) is None
+
+
+def test_micro_post_partial_cost_failure_stop_fill_precedes_discretionary_exit(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    h,request,life=micro_post_partial_case(reassessment,monkeypatch,tmp_path,capsys)
+    # Qualifying history already exists with enrollment OFF. The next cycle
+    # drains authoritative stops to flat before evaluating the new policy.
+    append_micro_cost_bar(h,request,life,capsys)
+    writes=len(h.unit_writes)
+    enroll_micro_cost_failure()
+    remaining=[row.orderId for row in h.native_open_orders]
+    fill_unit_ids(h,life,capsys,remaining)
+    assert life.filled_qty==0 and not h.failure_owner.get('pmh_failure_exit')
+    assert len(h.unit_writes)==writes
+
+
+def test_micro_post_partial_cost_failure_preserves_family_failure_priority(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    from src.strategies.ross_momentum.strategy_policy import selected_completed_failure_profile
+    h,request,life=micro_post_partial_case(reassessment,monkeypatch,tmp_path,capsys)
+    enroll_micro_cost_failure()
+    append_micro_cost_bar(h,request,life,capsys,fault='family_failure')
+    assert h.failure_owner['pmh_failure_exit']['profile']==selected_completed_failure_profile(vars(request))
+
+
+@pytest.mark.parametrize('fault',['rejected','unknown','guard_age'])
+def test_micro_post_partial_cost_failure_uncertain_or_aged_write_never_retries(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,fault):
+    h,request,life=micro_post_partial_case(reassessment,monkeypatch,tmp_path,capsys)
+    writes=len(h.unit_writes)
+    # External bar arrives with enrollment OFF, then the real final-write path
+    # encounters adverse inventory/SDK ordering at the next Core cycle.
+    append_micro_cost_bar(h,request,life,capsys)
+    enroll_micro_cost_failure();enroll_unit_management(h,monkeypatch,fault=fault)
+    if fault=='guard_age':
+        from dataclasses import replace
+        quotes=h.core.market_data_snapshot_manager.batch_snapshots
+        def aged_quotes(symbols):
+            values,errors=quotes(symbols)
+            return {key:replace(value,market_timestamp_utc=h.life.clock.current-timedelta(seconds=14)) for key,value in values.items()},errors
+        h.core.market_data_snapshot_manager.batch_snapshots=aged_quotes
+    assert not h.core.run_once();capsys.readouterr()
+    engine=h.core.execution_engine
+    assert engine._native_quarantined and engine._failsafe_block_new_entries
+    assert h.failure_owner['pmh_failure_exit']['status']=='RESERVED'
+    assert len(h.unit_writes)==writes+(0 if fault=='guard_age' else 1)
+    assert not h.core.run_once();capsys.readouterr()
+    assert len(h.unit_writes)==writes+(0 if fault=='guard_age' else 1)
+
+
+def test_micro_post_partial_cost_failure_restart_retains_once_only_latch(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    h,request,life=micro_post_partial_case(reassessment,monkeypatch,tmp_path,capsys)
+    enroll_micro_cost_failure()
+    append_micro_cost_bar(h,request,life,capsys)
+    assert h.failure_owner['pmh_failure_exit']['status']=='MKT'
+    assert_readonly_selected_dispatch_restart(h,request,timeframe='10s',profile='UNIT_MANAGEMENT')
+    assert len(h.unit_writes)==life.filled_qty+life.exited_qty
+
+
+def test_micro_post_partial_cost_failure_accounting_interruption_has_no_replay(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    h,request,life=micro_post_partial_case(reassessment,monkeypatch,tmp_path,capsys)
+    enroll_micro_cost_failure()
+    _,price=append_micro_cost_bar(h,request,life,capsys)
+    remaining=h.native_open_orders[0].orderId
+    h.facts[remaining]=dict(status='Filled',filled=1,remaining=0,avgFillPrice=price,
+        symbol='JPM',side='SELL',orderId=remaining,parentId=71,orderRef='PROTECT|'+life.trade_id)
+    h.native_quantity[0]=0;h.native_open_orders.clear()
+    engine=h.core.execution_engine
+    apply=engine._record_fill_and_position
+    def interrupted(*args,**kwargs):
+        apply(*args,**kwargs)
+        raise RuntimeError('synthetic Micro cost failure accounting interrupted')
+    monkeypatch.setattr(engine,'_record_fill_and_position',interrupted)
+    with pytest.raises(RuntimeError,match='Micro cost failure accounting interrupted'):
+        engine.collect_relationship_updates(result_processor=lambda r:h.core._apply_execution_results_to_trade_management([r]))
+    assert engine._native_quarantined
+    child=next(row for row in engine._native_orders.values() if row.get('broker_order_id')==str(remaining))
+    assert not child.get('last_accounted_exit_fill_at')
+    before=(life.realized_pnl,len(engine.position_records),engine.capital_authority.total_used_exposure,len(h.unit_writes))
+    with pytest.raises(RuntimeError):engine.collect_relationship_updates()
+    assert before==(life.realized_pnl,len(engine.position_records),engine.capital_authority.total_used_exposure,len(h.unit_writes))
+
+
+def test_micro_post_partial_cost_failure_authoritative_partial_clock_and_entry_terminal_boundaries(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    h,request,life=micro_post_partial_case(reassessment,monkeypatch,tmp_path,capsys)
+    # Actual eligible external facts arrive while the separate enrollment is OFF.
+    bar,_=append_micro_cost_bar(h,request,life,capsys)
+    enroll_micro_cost_failure()
+    evaluate=lambda owner:h.manager.evaluate_selected_micro_cost_failure(owner,[bar],
+        observed_at=h.life.clock.current,session_plan=request.management_session_plan,entry_fill_price=life.avg_fill_price)
+    assert evaluate(h.failure_owner)
+    for stamp in [None,(h.life.clock.current+timedelta(seconds=1)).isoformat(),
+            (bar.timestamp+timedelta(seconds=1)).isoformat()]:
+        owner=deepcopy(h.failure_owner)
+        owner['unit_profit_exit']['last_accounted_fill_at']=stamp
+        assert evaluate(owner) is None
+    for key,value in [('terminal',False),('filled',1),('protection_confirmed',False),('pmh_management_expired',True)]:
+        owner=deepcopy(h.failure_owner);owner[key]=value
+        assert evaluate(owner) is None,key
+    assert not h.failure_owner.get('pmh_failure_exit')

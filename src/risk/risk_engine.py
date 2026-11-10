@@ -97,7 +97,7 @@ def validate_order(order, portfolio) -> ValidationResult:
 class RiskEngine:
     """Minimal risk engine placeholder with teaching-style log messages."""
 
-    def evaluate_selected_failure_exit(self, *, order_id, order, position, registered, life, snapshot, observed_at, profit=False, quote=None):
+    def evaluate_selected_failure_exit(self, *, order_id, order, position, registered, life, snapshot, observed_at, profit=False, quote=None, micro_cost=False):
         """Owned reduction only; no entry permission or management defaults."""
         from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
         from src.strategies.ross_momentum.strategy_policy import selected_completed_failure_profile, selected_unit_management_profile
@@ -137,12 +137,22 @@ class RiskEngine:
                     and (quantity == 1 or (selected_unit_management_profile(request) and quantity > 1
                         and not order.get("unit_profit_exit"))) and basis and position.entry_price == registered.entry_price == basis[0]
                     and standalone_profit_quote_evidence(quote, symbol=order["symbol"], milestone=basis[2], observed_at=observed_at))
+            if micro_cost:
+                from src.strategies.ross_momentum.strategy_policy import (standalone_micro_cost_failure_basis,
+                    standalone_micro_cost_quote_evidence)
+                basis = standalone_micro_cost_failure_basis(order, life.avg_fill_price)
+                allowed = bool(allowed and not profit and str(get_config("RUN_MODE_EFFECTIVE")).upper() == "PAPER"
+                    and basis and position.entry_price == registered.entry_price == basis[0]
+                    and standalone_micro_cost_quote_evidence(quote, symbol=order["symbol"],
+                        entry_price=basis[0], observed_at=observed_at))
         except (AttributeError, TypeError, ValueError, KeyError):
             allowed = False
         if profit and request.get("selected_stop_units"):
             quantity = quantity // 2
             allowed = bool(allowed and quantity > 0)
-        if profit:
+        if micro_cost:
+            rationale = "MICRO_OWNED_COST_FAILURE_EXIT" if allowed else "MICRO_COST_FAILURE_BLOCKED"
+        elif profit:
             rationale = (("STANDALONE_UNIT_PROFIT_EXIT" if selected_unit_management_profile(request)
                 else "STANDALONE_ONE_SHARE_PROFIT_EXIT") if allowed else "STANDALONE_PROFIT_BLOCKED")
         elif request.get("setup_family_id") == "PREMARKET_HIGH_BREAK":

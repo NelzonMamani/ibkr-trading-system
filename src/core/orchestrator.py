@@ -3029,15 +3029,21 @@ class CoreOrchestrator:
                 order, bars, observed_at=observed_at, session_plan=session_plan)
             life = engine.post_fill_lifecycle.get_trade(order_id)
             profit = False
+            micro_cost = False
             quote = None
             evaluation_at = observed_at
+            from src.strategies.ross_momentum.strategy_policy import selected_micro_cost_failure_profile
+            cost_enrolled = bool(units and selected_micro_cost_failure_profile(request) and order.get("unit_profit_exit"))
             if (not failure and self.run_mode == RunMode.PAPER and life
-                    and ((not request.get("selected_stop_units") and life.filled_qty == 1)
+                    and (cost_enrolled or (not request.get("selected_stop_units") and life.filled_qty == 1)
                         or (units and life.filled_qty > 1 and not order.get("unit_profit_exit")))):
-                failure = self.trade_management_engine.evaluate_selected_completed_profit(order, bars,
-                    observed_at=observed_at, session_plan=session_plan, entry_fill_price=life.avg_fill_price)
+                evaluator = (self.trade_management_engine.evaluate_selected_micro_cost_failure if cost_enrolled
+                    else self.trade_management_engine.evaluate_selected_completed_profit)
+                failure = evaluator(order, bars, observed_at=observed_at,
+                    session_plan=session_plan, entry_fill_price=life.avg_fill_price)
                 if failure:
-                    from src.strategies.ross_momentum.strategy_policy import standalone_profit_quote_evidence
+                    from src.strategies.ross_momentum.strategy_policy import (standalone_profit_quote_evidence,
+                        standalone_micro_cost_quote_evidence)
                     try:
                         values, errors = self.market_data_snapshot_manager.batch_snapshots([order["symbol"]])
                         quote = values.get(order["symbol"]) if not errors else None
@@ -3053,14 +3059,19 @@ class CoreOrchestrator:
                     forced = str(os.getenv("FORCE_SESSION") or "").strip().upper()
                     current_plan = normalize_session_label(forced or market_session_phase(evaluation_at)) or forced
                     self._expire_selected_failure_enrollment(evaluation_at, current_plan)
-                    failure = (self.trade_management_engine.evaluate_selected_completed_profit(order, bars,
-                        observed_at=evaluation_at, session_plan=current_plan, entry_fill_price=life.avg_fill_price)
+                    failure = (evaluator(order, bars, observed_at=evaluation_at,
+                        session_plan=current_plan, entry_fill_price=life.avg_fill_price)
                         if evaluation_at >= observed_at else None)
-                    evidence = (standalone_profit_quote_evidence(quote, symbol=order["symbol"],
-                        milestone=failure["milestone"], observed_at=evaluation_at) if failure else None)
+                    if cost_enrolled and self.trade_management_engine.evaluate_selected_completed_failure(
+                            order, bars, observed_at=evaluation_at, session_plan=current_plan):
+                        failure = None  # Ordinary family failure retains priority.
+                    evidence = ((standalone_micro_cost_quote_evidence(quote, symbol=order["symbol"],
+                        entry_price=failure["entry_fill_price"], observed_at=evaluation_at) if cost_enrolled else
+                        standalone_profit_quote_evidence(quote, symbol=order["symbol"],
+                            milestone=failure["milestone"], observed_at=evaluation_at)) if failure else None)
                     if evidence:
                         failure["profit_quote"] = evidence
-                        profit = True
+                        profit, micro_cost = not cost_enrolled, cost_enrolled
                     else:
                         failure = None
             if failure:
@@ -3069,7 +3080,7 @@ class CoreOrchestrator:
                 position = self.trade_management_engine.snapshot_positions().get(order["symbol"])
                 decision = self.risk_engine.evaluate_selected_failure_exit(order_id=order_id, order=order,
                     position=position, registered=registered, life=life, snapshot=snapshot, observed_at=evaluation_at,
-                    profit=profit, quote=quote)
+                    profit=profit, quote=quote, micro_cost=micro_cost)
                 self._trace_event("SELECTED_PROFIT_EXIT_RISK" if profit else "SELECTED_FAILURE_EXIT_RISK", {"decision_id": decision.decision_id,
                     "order_id": order_id, "allowed": decision.allowed, "quantity": decision.max_position_size,
                     "reason": decision.rationale})
@@ -3083,7 +3094,7 @@ class CoreOrchestrator:
                         frozen_rule, frozen_quote = deepcopy(failure), deepcopy(quote)
                         def authorization_guard(now, owner=order, retained_order=frozen_order,
                                 retained_bars=frozen_bars, retained_rule=frozen_rule, retained_quote=frozen_quote,
-                                truth_as_of=snapshot.as_of, authorized_at=evaluation_at, profit=profit):
+                                truth_as_of=snapshot.as_of, authorized_at=evaluation_at, profit=profit, micro_cost=micro_cost):
                             from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
                             forced = str(os.getenv("FORCE_SESSION") or "").strip().upper()
                             plan = normalize_session_label(forced or market_session_phase(now)) or forced
@@ -3091,13 +3102,22 @@ class CoreOrchestrator:
                             if (owner.get("pmh_management_expired") or now < authorized_at
                                     or not 0 <= (now-truth_as_of).total_seconds() <= get_ibkr_snapshot_max_age_seconds()):
                                 return False
-                            current = (self.trade_management_engine.evaluate_selected_completed_profit(
+                            if micro_cost and self.trade_management_engine.evaluate_selected_completed_failure(
+                                    retained_order, retained_bars, observed_at=now, session_plan=plan):
+                                return False
+                            current = (self.trade_management_engine.evaluate_selected_micro_cost_failure(
+                                retained_order, retained_bars, observed_at=now, session_plan=plan,
+                                entry_fill_price=retained_rule["entry_fill_price"]) if micro_cost else
+                                self.trade_management_engine.evaluate_selected_completed_profit(
                                 retained_order, retained_bars, observed_at=now, session_plan=plan,
                                 entry_fill_price=retained_rule["entry_fill_price"]) if profit else
                                 self.trade_management_engine.evaluate_selected_completed_failure(
                                     retained_order, retained_bars, observed_at=now, session_plan=plan))
                             if not current:
                                 return False
+                            if micro_cost:
+                                current["profit_quote"] = standalone_micro_cost_quote_evidence(retained_quote,
+                                    symbol=retained_order["symbol"], entry_price=current["entry_fill_price"], observed_at=now)
                             if profit:
                                 current["profit_quote"] = standalone_profit_quote_evidence(retained_quote,
                                     symbol=retained_order["symbol"], milestone=current["milestone"], observed_at=now)

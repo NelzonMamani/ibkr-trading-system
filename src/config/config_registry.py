@@ -1631,6 +1631,12 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
         "mutable": "dynamic",
         "description": "Default fraction of available account capital assigned to one strategy when no explicit allocation is configured.",
     },
+    "ROSS_SYNTHETIC_MICRO_COST_FAILURE": {
+        "type": bool, "default": False, "env": [],
+        "affects": ["TradeManagementEngine", "RiskEngine", "CoreOrchestrator", "ExecutionEngine"],
+        "enforcement": "HARD", "mutable": "dynamic",
+        "description": "Explicit synthetic standalone Micro post-profitable-partial completed-bar cost failure; no stop repricing.",
+    },
     "ROSS_SYNTHETIC_UNIT_MANAGEMENT": {
         "type": bool, "default": False, "env": [],
         "affects": ["ExecutionEngine", "RiskEngine", "CoreOrchestrator"],
