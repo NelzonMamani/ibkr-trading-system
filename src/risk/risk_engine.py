@@ -101,8 +101,11 @@ class RiskEngine:
     def evaluate_selected_failure_exit(self, *, order_id, order, position, registered, life, snapshot, observed_at, profit=False, quote=None, micro_cost=False):
         """Owned reduction only; no entry permission or management defaults."""
         from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
-        from src.strategies.ross_momentum.strategy_policy import selected_completed_failure_profile, selected_unit_management_profile
+        from src.strategies.ross_momentum.strategy_policy import (selected_completed_failure_profile, selected_unit_management_profile,
+            selected_relationship_unit_profit_profile, RELATIONSHIP_UNIT_PROFIT_PROFILE)
         request = order.get("request", {})
+        relationship_profit = bool(profit and selected_relationship_unit_profit_profile(request))
+        relationship_id = (request.get("relationship_context") or {}).get("relationship_id") if relationship_profit else None
         allowed = False
         quantity = 0
         try:
@@ -115,10 +118,11 @@ class RiskEngine:
                 and (order.get("protection_confirmed") or (selected_unit_management_profile(request) and order.get("unit_close_coverage_confirmed"))) and not order.get("cached_update_in_progress")
                 and not order.get("quarantine") and not order.get("pmh_failure_exit")
                 and not order.get("pmh_management_expired")
-                and selected_completed_failure_profile(request)
-                and request.get("take_profit_price") is None and not request.get("relationship_context")
+                and (selected_completed_failure_profile(request) or relationship_profit)
+                and request.get("take_profit_price") is None
+                and (not request.get("relationship_context") or relationship_profit)
                 and type(order.get("security_id")) is int and order["security_id"] > 0
-                and position is not None and not position.relationship_id
+                and position is not None and position.relationship_id == relationship_id
                 and position.reference_order_id == life.trade_id == order_id
                 and position.strategy_name == registered.strategy_name == life.strategy_id == request.get("strategy_name")
                 and position.quantity == registered.quantity == broker.quantity == system.quantity == quantity
@@ -132,8 +136,8 @@ class RiskEngine:
                 and life.selected_stop_price == request.get("stop_loss_price")
                 and position.stop_loss_price == life.selected_stop_price)
             if profit:
-                from src.strategies.ross_momentum.strategy_policy import standalone_one_share_profit_basis, standalone_profit_quote_evidence
-                basis = standalone_one_share_profit_basis(order, life.avg_fill_price)
+                from src.strategies.ross_momentum.strategy_policy import owned_selected_profit_basis, standalone_profit_quote_evidence
+                basis = owned_selected_profit_basis(order, life.avg_fill_price)
                 allowed = bool(allowed and str(get_config("RUN_MODE_EFFECTIVE")).upper() == "PAPER"
                     and (quantity == 1 or (selected_unit_management_profile(request) and quantity > 1
                         and not order.get("unit_profit_exit"))) and basis and position.entry_price == registered.entry_price == basis[0]
@@ -154,7 +158,7 @@ class RiskEngine:
         if micro_cost:
             rationale = "MICRO_OWNED_COST_FAILURE_EXIT" if allowed else "MICRO_COST_FAILURE_BLOCKED"
         elif profit:
-            rationale = (("STANDALONE_UNIT_PROFIT_EXIT" if selected_unit_management_profile(request)
+            rationale = (("RELATIONSHIP_UNIT_PROFIT_EXIT" if relationship_profit else "STANDALONE_UNIT_PROFIT_EXIT" if selected_unit_management_profile(request)
                 else "STANDALONE_ONE_SHARE_PROFIT_EXIT") if allowed else "STANDALONE_PROFIT_BLOCKED")
         elif request.get("setup_family_id") == "PREMARKET_HIGH_BREAK":
             rationale = "PMH_OWNED_FAILURE_EXIT" if allowed else "PMH_EXIT_TRUTH_OR_BINDING_BLOCKED"

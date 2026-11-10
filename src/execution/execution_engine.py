@@ -2522,7 +2522,7 @@ class ExecutionEngine:
         from src.strategies.ross_momentum.strategy_policy import selected_completed_failure_profile
         from src.strategies.ross_momentum.strategy_policy import (selected_one_share_profit_profile,
             standalone_one_share_profit_basis, standalone_profit_quote_evidence, STANDALONE_ONE_SHARE_PROFIT_PROFILE)
-        parent = self._native_orders[order_id]
+        parent = self._selected_order_records()[order_id]
         if parent["request"].get("selected_stop_units"):
             return self._request_selected_unit_exit(order_id, failure, decision=decision,
                 authorization_guard=authorization_guard)
@@ -2623,12 +2623,13 @@ class ExecutionEngine:
         from src.strategies.ross_momentum.strategy_policy import (selected_unit_management_profile,
             selected_completed_failure_profile, selected_one_share_profit_profile,
             STANDALONE_ONE_SHARE_PROFIT_PROFILE, standalone_one_share_profit_basis,
-            standalone_profit_quote_evidence, STANDALONE_MICRO_COST_FAILURE_PROFILE,
+            standalone_profit_quote_evidence, selected_owned_profit_profile, owned_selected_profit_basis,
+            RELATIONSHIP_UNIT_PROFIT_PROFILE, STANDALONE_MICRO_COST_FAILURE_PROFILE,
             selected_micro_cost_failure_profile, standalone_micro_cost_failure_basis, standalone_micro_cost_quote_evidence)
-        parent = self._native_orders[order_id]
+        parent = self._selected_order_records()[order_id]
         initial = parent["request"]
         life = self.post_fill_lifecycle.get_trade(order_id)
-        profit = failure.get("profile") == STANDALONE_ONE_SHARE_PROFIT_PROFILE
+        profit = bool(selected_owned_profit_profile(initial) and failure.get("profile") == selected_owned_profit_profile(initial))
         micro_cost = failure.get("profile") == STANDALONE_MICRO_COST_FAILURE_PROFILE
         latch_key = "unit_profit_exit" if profit else "pmh_failure_exit"
         if (self.run_mode != RunMode.PAPER or not selected_unit_management_profile(initial)
@@ -2640,7 +2641,7 @@ class ExecutionEngine:
                 or life is None or life.filled_qty <= 0 or not decision.allowed or decision.execution_blocked
                 or decision.decision_id != parent["decision_id"] or decision.direction != "SELL"
                 or failure.get("occurrence") != initial.get("setup_metadata")
-                or failure.get("profile") != (selected_one_share_profit_profile(initial) if profit
+                or failure.get("profile") != (selected_owned_profit_profile(initial) if profit
                     else selected_micro_cost_failure_profile(initial) if micro_cost
                     else selected_completed_failure_profile(initial))):
             return False
@@ -2653,8 +2654,9 @@ class ExecutionEngine:
         quantity = life.filled_qty // 2 if profit else life.filled_qty
         if quantity <= 0 or decision.max_position_size != quantity:
             return False
-        basis = standalone_one_share_profit_basis(parent, life.avg_fill_price)
-        if profit and (not basis or decision.rationale != "STANDALONE_UNIT_PROFIT_EXIT"
+        basis = owned_selected_profit_basis(parent, life.avg_fill_price)
+        if profit and (not basis or decision.rationale != ("RELATIONSHIP_UNIT_PROFIT_EXIT" if failure.get("profile") == RELATIONSHIP_UNIT_PROFIT_PROFILE
+                    else "STANDALONE_UNIT_PROFIT_EXIT")
                 or (failure.get("entry_fill_price"), failure.get("original_stop"), failure.get("milestone")) != basis
                 or not standalone_profit_quote_evidence(failure.get("profit_quote"), symbol=parent["symbol"],
                     milestone=basis[2], observed_at=datetime.now(timezone.utc))):
@@ -2674,7 +2676,7 @@ class ExecutionEngine:
         available = [leg for leg in life.stop_legs if leg.filled_quantity == 0 and leg.close_role == "PROTECTION"]
         selected = available[:quantity] if profit else available
         if (not selected or (profit and len(selected) != quantity)
-                or any(self._native_orders[leg.leg_id].get("unit_amendment") for leg in selected)):
+                or any(self._selected_order_records()[leg.leg_id].get("unit_amendment") for leg in selected)):
             return False
         role = "REDUCTION" if profit else "FAILURE"
         parent[latch_key] = {**deepcopy(failure), "status": "RESERVED", "role": role,
@@ -2682,7 +2684,7 @@ class ExecutionEngine:
             "owned_quantity": life.filled_qty, "reserved_quantity": len(selected),
             "leg_ids": [leg.leg_id for leg in selected]}
         for leg in selected:
-            child = self._native_orders[leg.leg_id]
+            child = self._selected_order_records()[leg.leg_id]
             child["close_role"] = leg.close_role = role
             child["unit_amendment"] = {"status": "RESERVED", "role": role,
                 "native_order_id": child["broker_order_id"], "total_quantity": 1,
@@ -2692,19 +2694,19 @@ class ExecutionEngine:
         expected_quantity = life.filled_qty
         retained_entry_price, retained_stop = life.avg_fill_price, life.selected_stop_price
         try:
-            self._save_native_orders()  # All units reserved once, before ANY mutation.
+            self._save_selected_orders(order_id)  # All units reserved once, before ANY mutation.
             for leg in selected:
-                child = self._native_orders[leg.leg_id]
+                child = self._selected_order_records()[leg.leg_id]
                 self._validate_native_binding(order_id, parent, {})
                 self._validate_native_binding(leg.leg_id, child, {})
                 # Complete native inventory is checked again in the real adapter.
                 # All remaining identities/totals are frozen; no renewed facts.
-                unit_orders = tuple((str(item.broker_order_id), self._native_orders[item.leg_id]["requested"],
-                    self._native_orders[item.leg_id]["filled"],
+                unit_orders = tuple((str(item.broker_order_id), self._selected_order_records()[item.leg_id]["requested"],
+                    self._selected_order_records()[item.leg_id]["filled"],
                     next(row.order_type.upper() for row in inventory if str(row.order_id) == str(item.broker_order_id))) for item in life.stop_legs
                     if item.quantity > item.filled_quantity)
                 child["unit_amendment"]["status"] = "DISPATCH_UNCERTAIN"
-                self._save_native_orders()
+                self._save_selected_orders(order_id)
                 retained_action = deepcopy(child["unit_amendment"])
                 def final_guard(now, child=child, leg=leg, retained_action=retained_action):
                     self._validate_native_binding(order_id, parent, {})
@@ -2731,7 +2733,7 @@ class ExecutionEngine:
                             or str(entry_facts.get("status", "")).upper() != "FILLED"):
                         return False
                     for item in life.stop_legs:
-                        owned = self._native_orders[item.leg_id]
+                        owned = self._selected_order_records()[item.leg_id]
                         facts = self._native_callback_client().cached_order_status(int(owned["broker_order_id"]))
                         self._validate_native_binding(item.leg_id, owned, facts)
                         if facts and (facts.get("broker_error_code") or not self._unit_quantity_matches(facts.get("filled"), owned["filled"])
@@ -2757,9 +2759,9 @@ class ExecutionEngine:
                 child["unit_amendment"]["status"] = "MKT_CONFIRMED"
                 parent["protection_confirmed"] = False  # Pending MKT is not STP.
                 parent["unit_close_coverage_confirmed"] = True
-                self._save_native_orders()
+                self._save_selected_orders(order_id)
             parent[latch_key]["status"] = "MKT"
-            self._save_native_orders()
+            self._save_selected_orders(order_id)
         except BaseException:
             self._quarantine_native_update(parent)
             raise

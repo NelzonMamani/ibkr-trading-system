@@ -684,6 +684,13 @@ def get_ross_synthetic_requested_base_size() -> int:
     return _get_ross_synthetic_base_size("ROSS_SYNTHETIC_REQUESTED_BASE_SIZE")
 
 
+def get_ross_synthetic_relationship_unit_profit() -> bool:
+    record = get_config_record("ROSS_SYNTHETIC_RELATIONSHIP_UNIT_PROFIT")
+    if record.value and not (record.source == "OVERRIDE" and get_ross_synthetic_relationship_base_size() > 1):
+        raise ConfigResolutionError("Relationship unit profit requires explicit synthetic relationship initial sizing")
+    return record.value
+
+
 def get_ross_synthetic_relationship_base_size() -> int:
     return _get_ross_synthetic_base_size("ROSS_SYNTHETIC_RELATIONSHIP_BASE_SIZE")
 

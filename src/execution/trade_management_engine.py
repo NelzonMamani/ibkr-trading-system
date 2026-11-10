@@ -702,8 +702,9 @@ class TradeManagementEngine:
         from src.strategies.ross_momentum.strategy_policy import selected_completed_failure_profile, PMH_COMPLETED_BAR_FAILURE_PROFILE
         request = order.get("request", {})
         profile = selected_completed_failure_profile(request)
-        from src.strategies.ross_momentum.strategy_policy import selected_one_share_profit_profile, standalone_one_share_profit_basis
-        basis = standalone_one_share_profit_basis(order, entry_fill_price) if profit else None
+        from src.strategies.ross_momentum.strategy_policy import (selected_owned_profit_profile, owned_selected_profit_basis,
+            selected_relationship_unit_profit_profile)
+        basis = owned_selected_profit_basis(order, entry_fill_price) if profit else None
         if profit and basis is None:
             return None
         from src.strategies.ross_momentum.strategy_policy import (standalone_micro_cost_failure_basis,
@@ -715,12 +716,13 @@ class TradeManagementEngine:
         if micro_cost:
             profile = selected_micro_cost_failure_profile(request)
         if profit:
-            profile = selected_one_share_profit_profile(request)
+            profile = selected_owned_profit_profile(request)
         metadata = request.get("setup_metadata") or {}
         stream = metadata.get("execution_stream") or {}
         timeframe = stream.get("execution_trigger_timeframe")
         seconds = {"10s": 10, "1m": 60}.get(timeframe)
-        if (not profile or order.get("pmh_management_expired") or request.get("relationship_context")
+        if (not profile or order.get("pmh_management_expired")
+                or (request.get("relationship_context") and not (profit and selected_relationship_unit_profit_profile(request)))
                 or request.get("take_profit_price") is not None or not seconds
                 or not request.get("management_session_plan") or request["management_session_plan"] != session_plan
                 or not order.get("terminal") or not (order.get("protection_confirmed") or order.get("unit_close_coverage_confirmed"))

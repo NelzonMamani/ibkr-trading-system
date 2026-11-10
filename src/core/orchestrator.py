@@ -2984,10 +2984,10 @@ class CoreOrchestrator:
         from datetime import datetime as DateTimeType
         from src.utils.time_utils import to_ny_time
         engine = self.execution_engine
-        from src.strategies.ross_momentum.strategy_policy import selected_completed_failure_profile
-        for order in getattr(engine, "_native_orders", {}).values():
+        from src.strategies.ross_momentum.strategy_policy import selected_completed_failure_profile, selected_relationship_unit_profit_profile
+        for order_id, order in engine._selected_order_records().items():
             request = order.get("request", {})
-            if not selected_completed_failure_profile(request) or order.get("pmh_management_expired"):
+            if not (selected_completed_failure_profile(request) or selected_relationship_unit_profit_profile(request)) or order.get("pmh_management_expired"):
                 continue
             expired = bool(request.get("management_session_plan")
                 and request["management_session_plan"] != session_plan)
@@ -2999,22 +2999,22 @@ class CoreOrchestrator:
                 pass  # Missing source facts remain HOLD, never enrollment authority.
             if expired:
                 order["pmh_management_expired"] = True
-                engine._save_native_orders()
+                engine._save_selected_orders(order_id)
 
     def _run_selected_failure_management(self, observed_at, session_plan):
         """Explicit selected-family failure policies; no generic exit defaults."""
-        from src.strategies.ross_momentum.strategy_policy import selected_completed_failure_profile
+        from src.strategies.ross_momentum.strategy_policy import selected_completed_failure_profile, selected_relationship_unit_profit_profile
         if self._stop_requested_at_boundary("SELECTED_FAILURE_MANAGEMENT"):
             return False
         engine = self.execution_engine
         snapshot = self._latest_position_truth_snapshot
-        for order_id, order in list(engine._native_orders.items()):
+        for order_id, order in list(engine._selected_order_records().items()):
             if (order.get("side") not in {"LONG", "BUY"} or not order.get("terminal")
                     or not (order.get("protection_confirmed") or order.get("unit_close_coverage_confirmed")) or order.get("quarantine")
                     or order.get("cached_update_in_progress") or order.get("pmh_failure_exit")):
                 continue
             request = order.get("request", {})
-            if not selected_completed_failure_profile(request) or order.get("pmh_management_expired"):
+            if not (selected_completed_failure_profile(request) or selected_relationship_unit_profit_profile(request)) or order.get("pmh_management_expired"):
                 continue
             from src.strategies.ross_momentum.strategy_policy import selected_unit_management_profile
             units = bool(selected_unit_management_profile(request))
