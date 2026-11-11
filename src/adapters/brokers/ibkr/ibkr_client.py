@@ -1177,18 +1177,27 @@ class IbkrClient(EWrapper, EClient):
                 if ((owned or current is None)
                         and self._request_type_by_req_id.get(req_id) == "ACCOUNT_CURRENCY_STRICT"):
                     self._request_type_by_req_id.pop(req_id, None)
-                can_cancel = (owned and sent and epoch == self._position_connection_epoch
-                    and type(self._position_connection_epoch) is int
-                    and type(self.client_id) is int and self.client_id == client_id
-                    and self.is_connected() and not self._stop_event.is_set()
-                    and not self._request_id_conflicted(req_id))
                 query["event"].set()
-            if can_cancel:
-                cancelled = True
-                try:
-                    self.cancelAccountSummary(req_id)
-                except Exception as exc:
-                    cleanup_error = str(exc)
+            # Signaling can release another callback owner. Recheck the SAME
+            # retired request and current native scope immediately at dispatch.
+            with self._lock:
+                tombstone_owned = (self._request_context_by_req_id.get(req_id) is context
+                    and context.get("request_type") == "ACCOUNT_CURRENCY_STRICT"
+                    and context.get("account_currency_query") is None
+                    and req_id not in self._request_type_by_req_id)
+                if owned and sent and not tombstone_owned and query["status"] == "COMPLETE":
+                    query["status"] = "OWNERSHIP_LOST"
+                if (owned and sent and tombstone_owned and self.is_connected()
+                        and not self._stop_event.is_set()
+                        and type(self._position_connection_epoch) is int
+                        and epoch == self._position_connection_epoch
+                        and type(self.client_id) is int and self.client_id == client_id
+                        and not self._request_id_conflicted(req_id)):
+                    cancelled = True
+                    try:
+                        self.cancelAccountSummary(req_id)
+                    except Exception as exc:
+                        cleanup_error = str(exc)
         with self._lock:
             # Recheck current scope after cleanup callbacks, without restoring
             # the retired request or renewing its completion timestamp.

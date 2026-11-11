@@ -890,3 +890,35 @@ def test_strict_account_currency_interleaved_requests_are_isolated_and_workers_f
     assert sorted(facts.cancels) == sorted(item[0] for item in facts.requests)
     for result in results.values():
         _assert_currency_retired(client, result.request_id)
+
+
+@pytest.mark.parametrize('scope_loss,expected', [('connection_closed', 'DISCONNECTED'), ('order_id_conflict', 'IDENTITY_CONFLICT')])
+def test_strict_account_currency_rechecks_scope_after_cleanup_signal_before_cancel(
+        account_currency_client, monkeypatch, scope_loss, expected):
+    facts = account_currency_client
+    client = facts.client
+    signals = []
+    def request(req_id):
+        _currency_rows(client, req_id)
+        # Initial End already used the real event. Interpose only this owned
+        # event's subsequent cleanup signal, never shared Event/time machinery.
+        query = client._request_context_by_req_id[req_id]['account_currency_query']
+        signal = query['event'].set
+        def cleanup_signal():
+            # Restore before delivering the fact: later owner signals keep the
+            # standard Event behavior and do not repeat this adverse ordering.
+            monkeypatch.setattr(query['event'], 'set', signal)
+            signals.append(req_id)
+            if scope_loss == 'connection_closed':
+                client.connectionClosed()
+            else:
+                client.openOrder(req_id, _execution_contract(), NS(), NS())
+            signal()
+        monkeypatch.setattr(query['event'], 'set', cleanup_signal)
+    facts.on_request = request
+    result = client.account_currency_snapshot(expected_account='SYNTHETIC_TEST')
+    assert signals == [result.request_id]
+    assert result.status == expected and result.currency is None and result.completed_at is None
+    assert facts.cancels == [], 'A retired request cannot retain cancellation permission across scope loss'
+    assert not result.cancellation_attempted and result.cleanup_complete
+    _assert_currency_retired(client, result.request_id)
