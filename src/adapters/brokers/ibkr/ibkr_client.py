@@ -86,6 +86,23 @@ class ExecutionQueryResult:
         return self.connection_epoch, self.request_id
 
 
+@dataclass(frozen=True)
+class AccountCurrencyResult:
+    """Initial request completion, not balances, FX or subscription finality."""
+
+    status: str
+    request_id: Optional[int]
+    connection_epoch: int
+    account: str
+    client_id: int
+    currency: Optional[str] = None
+    completed_at: Optional[datetime] = None
+    tags: tuple[str, ...] = ()
+    cancellation_attempted: bool = False
+    cleanup_complete: bool = True  # Local callback ownership retired only.
+    source: str = "IBKR_ACCOUNT_SUMMARY_LEDGER"
+
+
 def _market_data_type_code(market_data_type: str) -> int:
     value = market_data_type.upper()
     if value == "FROZEN":
@@ -643,6 +660,10 @@ class IbkrClient(EWrapper, EClient):
             if execution_query is not None:
                 execution_query["status"] = "IDENTITY_CONFLICT"
                 execution_query["event"].set()
+            currency_query = context.get("account_currency_query")
+            if currency_query is not None:
+                currency_query["status"] = "IDENTITY_CONFLICT"
+                currency_query["event"].set()
             if position_query is not None:
                 position_query["status"] = "FAILED"
                 position_query["event"].set()
@@ -1042,6 +1063,10 @@ class IbkrClient(EWrapper, EClient):
                 if query is not None:
                     query["status"] = "DISCONNECTED"
                     query["event"].set()
+                currency_query = request.get("account_currency_query")
+                if currency_query is not None:
+                    currency_query["status"] = "DISCONNECTED"
+                    currency_query["event"].set()
             for context in self._position_queries.values():
                 context["status"] = "DISCONNECTED"
                 context["event"].set()
@@ -1086,6 +1111,127 @@ class IbkrClient(EWrapper, EClient):
                 context["completed_at"] = datetime.now(timezone.utc)
             context["event"].set()
 
+
+    def account_currency_snapshot(self, *, expected_account: str,
+                                  timeout_seconds: Optional[float] = None) -> AccountCurrencyResult:
+        """Observe a concrete base currency through the existing summary owner.
+
+        SDK reqAccountSummary documents $LEDGER as base-currency-only. The
+        matching initial End freezes this point-in-time observation. Cancellation
+        is an SDK call attempt, not a broker acknowledgement of stream termination.
+        """
+        checkpoint()
+        if (not isinstance(expected_account, str) or not expected_account
+                or expected_account != expected_account.strip()):
+            raise ValueError("Explicit account currency scope required")
+        timeout = self.snapshot_timeout_seconds if timeout_seconds is None else timeout_seconds
+        if (type(timeout) not in (int, float) or not math.isfinite(timeout) or timeout < 0):
+            raise ValueError("Bounded account currency timeout required")
+        timeout = bounded_timeout(timeout)
+        with self._lock:
+            epoch, client_id = self._position_connection_epoch, self.client_id
+            if (type(epoch) is not int or epoch < 0 or type(client_id) is not int or client_id < 0):
+                raise ValueError("Explicit native account currency identity required")
+            def result(status, req_id=None, *, currency=None, completed_at=None, tags=(), cancelled=False):
+                return AccountCurrencyResult(status, req_id, epoch, expected_account, client_id,
+                    currency, completed_at, tags, cancelled)
+            if (not self.is_connected() or self._stop_event.is_set()
+                    or not self._position_transport_available):
+                return result("DISCONNECTED")
+            if tuple(self._managed_accounts) != (expected_account,):
+                return result("ACCOUNT_SCOPE_UNAVAILABLE")
+            if timeout == 0:
+                return result("TIMEOUT")
+            req_id = self._next_req_id()
+            self._register_request(req_id, "ACCOUNT_CURRENCY_STRICT")
+            context = self._request_context_by_req_id[req_id]
+            query = {"status": "PARTIAL", "event": threading.Event(), "epoch": epoch,
+                "account": expected_account, "client_id": client_id,
+                "deadline": time.monotonic() + timeout, "currency": None,
+                "tags": set(), "completed_at": None}
+            context["account_currency_query"] = query
+        sent = cancelled = False
+        cleanup_error = None
+        try:
+            with self._lock:
+                if self._account_currency_query_current(req_id, query):
+                    # Set before dispatch: a raised send may have reached the
+                    # transport. Cleanup must not reinterpret it as unsent.
+                    sent = True
+                    self.reqAccountSummary(req_id, "All", "$LEDGER")
+            wait_event(query["event"], max(0, query["deadline"] - time.monotonic()))
+            with self._lock:
+                self._account_currency_query_current(req_id, query, allow_complete=True)
+                if query["status"] == "PARTIAL":
+                    query["status"] = "TIMEOUT"
+        except (AcquisitionCancelled, AcquisitionDeadlineExceeded):
+            raise
+        except Exception:
+            query["status"] = "ERROR"
+        finally:
+            with self._lock:
+                current = self._request_context_by_req_id.get(req_id)
+                owned = current is context and context.get("account_currency_query") is query
+                if owned:
+                    context.pop("account_currency_query", None)
+                if ((owned or current is None)
+                        and self._request_type_by_req_id.get(req_id) == "ACCOUNT_CURRENCY_STRICT"):
+                    self._request_type_by_req_id.pop(req_id, None)
+                can_cancel = (owned and sent and epoch == self._position_connection_epoch
+                    and type(self._position_connection_epoch) is int
+                    and type(self.client_id) is int and self.client_id == client_id
+                    and self.is_connected() and not self._stop_event.is_set()
+                    and not self._request_id_conflicted(req_id))
+                query["event"].set()
+            if can_cancel:
+                cancelled = True
+                try:
+                    self.cancelAccountSummary(req_id)
+                except Exception as exc:
+                    cleanup_error = str(exc)
+        with self._lock:
+            # Recheck current scope after cleanup callbacks, without restoring
+            # the retired request or renewing its completion timestamp.
+            self._account_currency_query_current(req_id, query, allow_complete=True, retired=True)
+            if cleanup_error is not None:
+                query["status"] = "CLEANUP_UNCONFIRMED"
+            complete = query["status"] == "COMPLETE"
+            return result(query["status"], req_id,
+                currency=query["currency"] if complete else None,
+                completed_at=query["completed_at"] if complete else None,
+                tags=tuple(sorted(query["tags"])), cancelled=cancelled)
+
+    def _account_currency_query_current(self, req_id, query, *, allow_complete=False, retired=False):
+        status = query["status"]
+        if status != "PARTIAL" and not (allow_complete and status == "COMPLETE"):
+            return False
+        if (not retired and (self._request_context_by_req_id.get(req_id, {}).get("account_currency_query") is not query
+                or self._request_type_by_req_id.get(req_id) != "ACCOUNT_CURRENCY_STRICT")):
+            status = "OWNERSHIP_LOST"
+        elif self._request_id_conflicted(req_id):
+            status = "IDENTITY_CONFLICT"
+        elif (type(self._position_connection_epoch) is not int
+                or query["epoch"] != self._position_connection_epoch or not self.is_connected()
+                or self._stop_event.is_set() or not self._position_transport_available):
+            status = "DISCONNECTED"
+        elif (tuple(self._managed_accounts) != (query["account"],)
+                or type(self.client_id) is not int or self.client_id != query["client_id"]):
+            status = "SCOPE_CHANGED"
+        elif status == "PARTIAL" and time.monotonic() >= query["deadline"]:
+            status = "TIMEOUT"
+        elif status == "COMPLETE":
+            from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
+            stamp = query["completed_at"]
+            age = (datetime.now(timezone.utc) - stamp).total_seconds()
+            if not 0 <= age <= get_ibkr_snapshot_max_age_seconds():
+                status = "STALE"
+            else:
+                return False
+        else:
+            return True
+        query["status"] = status
+        query["event"].set()
+        return False
 
     def get_account_summary(self, timeout_seconds: Optional[int] = None) -> Dict[str, str]:
         if not self.is_connected():
@@ -1982,6 +2128,27 @@ class IbkrClient(EWrapper, EClient):
         with self._lock:
             if self._request_id_conflicted(reqId):
                 return
+            context = self._request_context_by_req_id.get(reqId, {})
+            if context.get("request_type") == "ACCOUNT_CURRENCY_STRICT":
+                query = context.get("account_currency_query")
+                if query is None or not self._account_currency_query_current(reqId, query):
+                    return
+                if account != query["account"]:
+                    query["status"] = "WRONG_ACCOUNT"
+                elif (not isinstance(tag, str) or not tag or tag != tag.strip()
+                        or not isinstance(currency, str) or len(currency) != 3
+                        or not currency.isascii() or not currency.isalpha() or currency != currency.upper()):
+                    query["status"] = "INVALID"
+                elif query["currency"] not in (None, currency):
+                    query["status"] = "AMBIGUOUS_CURRENCY"
+                else:
+                    query["currency"] = currency
+                    query["tags"].add(tag)
+                    return
+                query["event"].set()
+                return
+            if context.get("request_type") != "ACCOUNT_SUMMARY":
+                return  # Unowned/evicted strict callbacks are not legacy rows.
             register_account(account)
             rows = self._account_summary_rows.setdefault(reqId, {})
             rows[tag] = value
@@ -1989,6 +2156,17 @@ class IbkrClient(EWrapper, EClient):
     def accountSummaryEnd(self, reqId: int):  # type: ignore[override]
         with self._lock:
             if self._request_id_conflicted(reqId):
+                return
+            context = self._request_context_by_req_id.get(reqId, {})
+            if context.get("request_type") == "ACCOUNT_CURRENCY_STRICT":
+                query = context.get("account_currency_query")
+                if query is not None and self._account_currency_query_current(reqId, query):
+                    query["status"] = "COMPLETE" if query["currency"] is not None else "MISSING_CURRENCY"
+                    if query["status"] == "COMPLETE":
+                        query["completed_at"] = datetime.now(timezone.utc)
+                    query["event"].set()
+                return
+            if context.get("request_type") != "ACCOUNT_SUMMARY":
                 return
             event = self._account_summary_events.get(reqId)
             if event:
@@ -2005,6 +2183,10 @@ class IbkrClient(EWrapper, EClient):
                     if query is not None and query["status"] in ("PARTIAL", "COMPLETE"):
                         query["status"] = "SCOPE_CHANGED"
                         query["event"].set()
+                    currency_query = context.get("account_currency_query")
+                    if currency_query is not None and currency_query["status"] in ("PARTIAL", "COMPLETE"):
+                        currency_query["status"] = "SCOPE_CHANGED"
+                        currency_query["event"].set()
             self._managed_accounts = accounts
             self._managed_accounts_event.set()
 
@@ -2088,6 +2270,12 @@ class IbkrClient(EWrapper, EClient):
                 if execution_query is not None:
                     execution_query["status"] = "ERROR"
                     execution_query["event"].set()
+                return
+            if context.get("request_type") == "ACCOUNT_CURRENCY_STRICT":
+                currency_query = context.get("account_currency_query")
+                if currency_query is not None:
+                    currency_query["status"] = "ERROR"
+                    currency_query["event"].set()
                 return
             unknown_market_req = int(errorCode) == 300 and reqId >= 0 and request_type is None
             if unknown_market_req:
