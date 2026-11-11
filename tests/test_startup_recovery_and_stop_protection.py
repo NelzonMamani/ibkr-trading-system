@@ -168,8 +168,13 @@ from types import SimpleNamespace as NS
 
 database_path, facts_path, report_path, fault = sys.argv[1:]
 facts = json.loads(Path(facts_path).read_text(encoding='utf-8'))
+base_external_facts = {key: copy.deepcopy(value) for key, value in facts.items()
+                       if key != 'cycle_scenarios'}
+current_external_facts = copy.deepcopy(base_external_facts)
+external_fault = fault
 report = {'pid': os.getpid(), 'parent_pid': os.getppid(), 'fault': fault,
-          'constructor_complete': False, 'cycle_attempted': False,
+          'constructor_complete': False, 'constructor_count': 0,
+          'cycle_attempted': False, 'scenarios': [],
           'sdk_attempts': [], 'wire_attempts': [], 'network_attempts': [],
           'cached_order_status_reads': [], 'cycles': [], 'cleanup': {},
           'external_provider_calls': [], 'external_history_calls': [],
@@ -290,9 +295,17 @@ try:
         MANUAL_FOCUS_ENABLED=False, SELECTED_STRATEGY='ross_momentum',
         ROSS_MOMENTUM_STRATEGY_ENABLED=True, PERSISTENCE_SQLITE_PATH=database_path)
     overrides.update(facts.get('config', {}))
+    scenarios = facts.get('cycle_scenarios')
+    if scenarios is not None:
+        if not isinstance(scenarios, list) or not 1 <= len(scenarios) <= 12:
+            raise ValueError('COLD_CORE_SCENARIOS_MUST_BE_A_LIST_OF_ONE_TO_TWELVE')
+        if any(not isinstance(row, dict) or not row.get('name') for row in scenarios):
+            raise ValueError('COLD_CORE_SCENARIOS_REQUIRE_NAMED_RAW_EXTERNAL_BUNDLES')
+    base_overrides = copy.deepcopy(overrides)
     set_config_overrides(overrides)
-    if facts.get('now'):
-        observed = datetime.fromisoformat(facts['now'])
+    if facts.get('now') or facts.get('cycle_scenarios') is not None:
+        observed = (datetime.fromisoformat(facts['now']) if facts.get('now')
+                    else datetime.now(timezone.utc))
         class Clock(datetime):
             @classmethod
             def now(cls, tz=None):
@@ -304,6 +317,7 @@ try:
             module.datetime = Clock
     else:
         observed = datetime.now(timezone.utc)
+    base_observed = observed
 
     account = facts.get('account', 'SYNTHETIC_TEST')
     client_id = int(facts.get('client_id', 999))
@@ -316,37 +330,41 @@ try:
     client._managed_accounts_event.set()
     client.nextValidId(int(facts.get('next_order_id', 1000)))
     positions = [NS(**row) for row in facts.get('positions', [])]
-    orders = []
-    for row in facts.get('open_orders', []):
-        contract = Contract()
-        for key, value in row.get('contract', {}).items():
-            setattr(contract, key, value)
-        order = Order()
-        for key, value in row.get('order', {}).items():
-            setattr(order, key, value)
-        orders.append(NS(orderId=row['orderId'], contract=contract, order=order,
-                         orderState=NS(**row.get('orderState', {}))))
+    def native_inventory(rows):
+        result = []
+        for row in rows:
+            contract = Contract()
+            for key, value in row.get('contract', {}).items():
+                setattr(contract, key, value)
+            order = Order()
+            for key, value in row.get('order', {}).items():
+                setattr(order, key, value)
+            result.append(NS(orderId=row['orderId'], contract=contract, order=order,
+                             orderState=NS(**row.get('orderState', {}))))
+        return result
+    orders = native_inventory(facts.get('open_orders', []))
     client._open_orders_snapshot = {row.orderId: row for row in orders}
 
     def position_rows(*args, **kwargs):
-        if fault in {'positions_missing', 'positions_incomplete'}:
+        if external_fault in {'positions_missing', 'positions_incomplete'}:
             raise RuntimeError('SYNTHETIC_POSITION_INVENTORY_UNAVAILABLE')
         return copy.deepcopy(positions)
 
     def open_orders(*args, **kwargs):
-        if fault in {'orders_missing', 'orders_incomplete'}:
+        if external_fault in {'orders_missing', 'orders_incomplete'}:
             raise RuntimeError('SYNTHETIC_OPEN_ORDER_INVENTORY_UNAVAILABLE')
         return copy.deepcopy(orders)
 
     client.positions = position_rows
     client.openOrders = open_orders
     client.position_snapshot = lambda **kw: BrokerPositionResult(
-        tuple(position_rows()), facts.get('position_status', 'COMPLETE'), account, observed)
+        tuple(position_rows()), current_external_facts.get('position_status', 'COMPLETE'), account, observed)
     active_cycle = [None]
+    active_scenario = [None]
     cached_order_status = client.cached_order_status
     def observe_cached_order_status(order_id, *args, **kwargs):
         report['cached_order_status_reads'].append({
-            'native_id': order_id, 'cycle': active_cycle[0]})
+            'native_id': order_id, 'cycle': active_cycle[0], 'scenario': active_scenario[0]})
         return cached_order_status(order_id, *args, **kwargs)
     client.cached_order_status = observe_cached_order_status
 
@@ -362,18 +380,22 @@ try:
         'requested_market_data_type', 'returned_market_data_type',
         'market_data_type_confirmed', 'received_at_utc',
         'market_data_type_received_at_utc', 'request_id', 'snapshot_complete'))
-    candidates = {str(symbol).upper(): {key: copy.deepcopy(value)
-        for key, value in row.items() if key in raw_fields}
-        for symbol, row in facts.get('candidate_observations', {}).items()}
-    source_bars = {}
-    for timeframe, rows in facts.get('source_timeframe_bars', {}).items():
-        source_bars[timeframe] = [Candle(
+    def candidate_inventory(rows):
+        return {str(symbol).upper(): {key: copy.deepcopy(value)
+            for key, value in row.items() if key in raw_fields}
+            for symbol, row in rows.items()}
+    def historical_inventory(streams):
+        return {timeframe: [Candle(
             open=row['open'], high=row['high'], low=row['low'], close=row['close'],
             volume=row['volume'], timestamp=(datetime.fromisoformat(row['timestamp'])
                 if row.get('timestamp') else None)) for row in rows]
+            for timeframe, rows in streams.items()}
+    candidates = candidate_inventory(facts.get('candidate_observations', {}))
+    source_bars = historical_inventory(facts.get('source_timeframe_bars', {}))
     availability_phase = [False]
     def external_call(kind, method, **details):
-        entry = dict(method=method, cycle=active_cycle[0], **details)
+        entry = dict(method=method, cycle=active_cycle[0],
+                     scenario=active_scenario[0], **details)
         key = ('availability_witness_calls' if availability_phase[0] else
                'external_provider_calls' if kind == 'provider' else 'external_history_calls')
         report[key].append(dict(kind=kind, **entry))
@@ -465,32 +487,40 @@ try:
     pattern_trace.historical_data_provider.get_intraday_bars = external_history
     # This availability witness tests only the external fixture boundary.  Its
     # calls cannot be mistaken for discovery/history reads by an actual cycle.
-    availability_phase[0] = True
-    report['external_fact_availability'] = {
-        'scope': 'RAW_EXTERNAL_FACTS_ONLY_NO_ELIGIBILITY_PROOF',
-        'raw_candidate_fields': sorted(raw_fields), 'candidates': candidates,
-        'quotes': {symbol: plain(scanner_facts.get_quote(symbol)) for symbol in candidates},
-        'bar_counts': {symbol: {timeframe: len(external_history(
-            symbol=symbol, timeframe=timeframe, limit=len(bars)))
-            for timeframe, bars in source_bars.items()} for symbol in candidates},
-        'provider_boundary_installed': True, 'history_boundary_installed': True}
-    availability_phase[0] = False
+    def external_availability_witness():
+        availability_phase[0] = True
+        try:
+            return {
+                'scope': 'RAW_EXTERNAL_FACTS_ONLY_NO_ELIGIBILITY_PROOF',
+                'raw_candidate_fields': sorted(raw_fields), 'candidates': copy.deepcopy(candidates),
+                'quotes': {symbol: plain(scanner_facts.get_quote(symbol)) for symbol in candidates},
+                'bar_counts': {symbol: {timeframe: len(external_history(
+                    symbol=symbol, timeframe=timeframe, limit=len(bars)))
+                    for timeframe, bars in source_bars.items()} for symbol in candidates},
+                'provider_boundary_installed': True, 'history_boundary_installed': True}
+        finally:
+            availability_phase[0] = False
+    report['external_fact_availability'] = external_availability_witness()
     # Feed callback facts through the real callback owner and real cache reader.
-    callbacks = facts.get('callbacks', {})
-    callback_frames = facts.get('callback_frames', [callbacks])
-    for frame in callback_frames:
-        for order_id, update in frame.items():
-            client.orderStatus(int(order_id), update.get('status', 'Submitted'),
-                update.get('filled', 0), update.get('remaining', 0),
-                update.get('avgFillPrice', 0), update.get('permId', 0),
-                update.get('parentId', 0), update.get('lastFillPrice', 0),
-                update.get('clientId', client_id), update.get('whyHeld', ''), 0)
+    def apply_callback_frames(bundle):
+        frames = bundle.get('callback_frames', [bundle.get('callbacks', {})])
+        for frame in frames:
+            for order_id, update in frame.items():
+                client.orderStatus(int(order_id), update.get('status', 'Submitted'),
+                    update.get('filled', 0), update.get('remaining', 0),
+                    update.get('avgFillPrice', 0), update.get('permId', 0),
+                    update.get('parentId', 0), update.get('lastFillPrice', 0),
+                    update.get('clientId', client_id), update.get('whyHeld', ''), 0)
+        return copy.deepcopy(frames)
+    apply_callback_frames(facts)
 
     manager = connection_module.IbkrConnectionManager(connection_module.IbkrConnectionConfig(
         'offline.invalid', 7497, client_id, 1, 'LIVE', False, 'PAPER'))
     manager._client = client
     manager._connected_client_id = client_id
     manager._connection_generation = int(facts.get('epoch', 0))
+    report['initial_external_scope'] = plain(dict(account=client._managed_accounts[0],
+        client_id=client.client_id, epoch=client._position_connection_epoch))
     def shared_manager(**kwargs):
         if fault == 'constructor_failure':
             raise RuntimeError('SYNTHETIC_EXTERNAL_MANAGER_FACTORY_FAILURE')
@@ -499,12 +529,58 @@ try:
         module.get_shared_ibkr_connection_manager = shared_manager
     connection_module._default_manager = manager
 
+    def apply_external_scenario(scenario):
+        # Independent fact variants share this already constructed Core.  Reset
+        # external observations to the original bundle, then apply the variant;
+        # no application latch, ledger, reservation or owner is reset here.
+        global observed, account, client_id, positions, orders, candidates
+        global source_bars, current_external_facts, external_fault
+        current_external_facts = copy.deepcopy(base_external_facts)
+        current_external_facts.update({key: copy.deepcopy(value)
+            for key, value in scenario.items() if key != 'name'})
+        observed = (datetime.fromisoformat(current_external_facts['now'])
+                    if current_external_facts.get('now') else base_observed)
+        account = current_external_facts.get('account', 'SYNTHETIC_TEST')
+        client_id = int(current_external_facts.get('client_id', 999))
+        external_fault = current_external_facts.get('fault', fault)
+        connected[0] = bool(current_external_facts.get('connected', True))
+        client.client_id = client_id
+        client.clientId = client_id
+        client._position_connection_epoch = int(current_external_facts.get('epoch', 0))
+        client._managed_accounts = [account]
+        manager._connected_client_id = client_id
+        manager._connection_generation = int(current_external_facts.get('epoch', 0))
+        positions = [NS(**row) for row in current_external_facts.get('positions', [])]
+        orders = native_inventory(current_external_facts.get('open_orders', []))
+        client._open_orders_snapshot = {row.orderId: row for row in orders}
+        candidates = candidate_inventory(current_external_facts.get('candidate_observations', {}))
+        source_bars = historical_inventory(current_external_facts.get('source_timeframe_bars', {}))
+        scanner_facts.last_scan_details = {'symbol_details': {symbol: dict(
+            conId=row.get('con_id'), exchange=row.get('exchange'),
+            primaryExchange=row.get('primary_exchange'),
+            tradingClass=row.get('trading_class'), localSymbol=row.get('local_symbol'),
+            currency=row.get('currency'), secType=row.get('instrument_type'),
+            longName=row.get('company_name')) for symbol, row in candidates.items()}}
+        scenario_overrides = copy.deepcopy(base_overrides)
+        scenario_overrides.update(current_external_facts.get('config', {}))
+        set_config_overrides(scenario_overrides)
+        frames = apply_callback_frames(current_external_facts)
+        return plain(dict(name=scenario['name'], now=observed, account=account, client_id=client_id,
+            epoch=client._position_connection_epoch, connected=connected[0],
+            position_status=current_external_facts.get('position_status', 'COMPLETE'),
+            positions=copy.deepcopy(current_external_facts.get('positions', [])),
+            open_orders=copy.deepcopy(current_external_facts.get('open_orders', [])),
+            callback_frames=frames, config=scenario_overrides, fault=external_fault,
+            candidate_observations=copy.deepcopy(candidates),
+            source_timeframe_bars=copy.deepcopy(source_bars)))
+
     # Keep the audited SDK methods/encoder.  Observe before forwarding, then
     # stop at the synthetic sendMsg boundary before any real transport exists.
     for method_name in ('placeOrder', 'cancelOrder', 'reqGlobalCancel'):
         sdk_method = getattr(EClient, method_name)
         def observed_sdk(self, *args, _name=method_name, _method=sdk_method, **kwargs):
-            row = {'method': _name, 'native_id': args[0] if args else None}
+            row = {'method': _name, 'native_id': args[0] if args else None,
+                   'scenario': active_scenario[0], 'cycle': active_cycle[0]}
             if _name == 'placeOrder':
                 contract, native = args[1:3]
                 row.update(symbol=contract.symbol, con_id=contract.conId,
@@ -537,6 +613,7 @@ try:
     # Invoke the ordinary constructor, including every actual startup owner.
     # If construction fails, process exit closes otherwise unreachable handles.
     try:
+        report['constructor_count'] += 1
         core = core_module.CoreOrchestrator()
         report['constructor_complete'] = True
     except BaseException as exc:
@@ -553,13 +630,14 @@ try:
     report['database_after_constructor'] = database_snapshot()
     report['native_after_constructor'] = native_namespace(report['database_after_constructor'])
     if report['constructor_complete']:
-        cycle_count = int(facts.get('cycles', 2))
-        if not 0 <= cycle_count <= 5:
-            raise ValueError('COLD_CORE_CYCLE_COUNT_MUST_BE_BETWEEN_ZERO_AND_FIVE')
-        for index in range(cycle_count):
-            active_cycle[0] = index + 1
-            report['stage'] = 'CORE_CYCLE_' + str(index + 1)
-            cycle = {'index': index + 1,
+        def run_actual_cycle(scenario_name=None, scenario_cycle=None):
+            index = len(report['cycles']) + 1
+            if index > 26:
+                raise ValueError('COLD_CORE_TOTAL_CYCLE_LIMIT_IS_TWENTY_SIX')
+            active_cycle[0] = index
+            report['stage'] = 'CORE_CYCLE_' + str(index)
+            cycle = {'index': index, 'scenario': scenario_name,
+                     'scenario_cycle': scenario_cycle,
                      'cached_reads_before': len(report['cached_order_status_reads'])}
             events_before = len(core.event_collector.snapshot_all())
             try:
@@ -570,7 +648,8 @@ try:
                 cycle['exception'] = exception_record(exc)
                 report['cycle_exception'] = cycle['exception']
             cycle['engine'] = engine_snapshot(core.execution_engine)
-            cycle['native'] = native_namespace(database_snapshot())
+            cycle['database'] = database_snapshot()
+            cycle['native'] = native_namespace(cycle['database'])
             cycle['cached_reads_after'] = len(report['cached_order_status_reads'])
             cycle['sdk_attempts_after'] = len(report['sdk_attempts'])
             cycle['events'] = plain(core.event_collector.snapshot_all()[events_before:])
@@ -580,6 +659,24 @@ try:
             cycle['external_history_calls_after'] = len(report['external_history_calls'])
             report['cycles'].append(cycle)
             report['after_cycle'] = cycle['engine']
+            return index
+        if scenarios is None:
+            cycle_count = int(facts.get('cycles', 2))
+            if not 0 <= cycle_count <= 5:
+                raise ValueError('COLD_CORE_CYCLE_COUNT_MUST_BE_BETWEEN_ZERO_AND_FIVE')
+            for _ in range(cycle_count):
+                run_actual_cycle()
+        else:
+            report['scenario_scope'] = 'EXTERNAL_ADVERSITY_AFTER_ONE_FRESH_CONSTRUCTOR'
+            for scenario in scenarios:
+                active_scenario[0] = scenario['name']
+                scenario_report = {'name': scenario['name'], 'cycle_indices': [],
+                    'applied_external_facts': apply_external_scenario(scenario),
+                    'external_fact_availability': external_availability_witness()}
+                report['scenarios'].append(scenario_report)
+                for index in (1, 2):
+                    scenario_report['cycle_indices'].append(run_actual_cycle(scenario['name'], index))
+            active_scenario[0] = None
         active_cycle[0] = None
         report['events'] = plain(core.event_collector.snapshot_all())
         report['registry'] = plain(core.trade_registry.snapshot())

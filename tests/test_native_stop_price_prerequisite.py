@@ -1094,7 +1094,7 @@ def retained_native_cold_start_case(reassessment,monkeypatch,tmp_path,capsys,*,f
     return h,request,life,database,path
 
 
-def assert_full_core_cold_refusal(report):
+def assert_full_core_cold_refusal(report,*,expected_cycles=2):
     summary={key:report.get(key) for key in ('constructor_exception','harness_exception','supervisor','evidence_dir')}
     assert not report.get('harness_exception'),summary
     assert report['constructor_complete'] and report['cycle_attempted'],summary
@@ -1106,7 +1106,7 @@ def assert_full_core_cold_refusal(report):
         assert state['failsafe_block_new_entries'] and state['native_orders']=={},summary
         assert state['post_fill']=={},summary  # No generic aggregate STP/target promotion.
     assert report['registry']==[],summary
-    assert len(report['cycles'])==2 and not report['cached_order_status_reads'],summary
+    assert len(report['cycles'])==expected_cycles and not report['cached_order_status_reads'],summary
     assert report['mutation_attempts']==dict(place=0,modify=0,cancel=0),summary
     assert not report['external_provider_calls'] and not report['external_history_calls'],summary
     available=report['external_fact_availability']
@@ -1114,6 +1114,14 @@ def assert_full_core_cold_refusal(report):
     assert available['provider_boundary_installed'] and available['history_boundary_installed'],summary
     assert available['quotes']['JPM']['bid']>0 and all(available['bar_counts']['JPM'].values()),summary
     for cycle in report['cycles']:
+        state=cycle['engine']
+        assert state['native_quarantined'] and state['failsafe_block_new_entries'],summary
+        for key in ('capital_recovery_failed','capital_reservations','capital_reserved','capital_used','allocation_reservations'):
+            assert state[key]==report['after_constructor'][key],summary
+        assert state['startup_recovery_state']=='RECOVERY_FAILED' and state['native_orders']=={} and state['post_fill']=={},summary
+        assert cycle['native']==report['native_before'] and cycle['sdk_attempts_after']==0,summary
+        assert cycle['cached_reads_before']==cycle['cached_reads_after']==0,summary
+        assert {k:v for k,v in cycle['database'].items() if k!='runs'}=={k:v for k,v in report['database_before'].items() if k!='runs'},summary
         faults=cycle['fault_events']
         assert [(row['event_type'],row['payload']['message']) for row in faults]==[
             ('FAULT_DETECTED','NATIVE_ORDER_RECOVERY_REQUIRED'),
@@ -1124,6 +1132,7 @@ def assert_full_core_cold_refusal(report):
     supervisor=report['supervisor']
     assert supervisor['reaped'] and not supervisor['timed_out'] and supervisor['distinct_process'],summary
     assert supervisor['child_pid_matched'] and supervisor['child_parent_matched'],summary
+    assert supervisor['returncode']==0 and supervisor['pipes_closed'] and not supervisor['errors'],summary
     assert report['cleanup']['live_threads']==[],summary
     assert report['cleanup']['manager_disconnected'] and report['cleanup']['storage_closed'],summary
 
@@ -1188,7 +1197,7 @@ def test_full_core_cold_start_external_disagreements_and_repeated_startup(reasse
     from datetime import timedelta
     from test_startup_recovery_and_stop_protection import run_native_core_cold_start
     h,request,life,database,path=retained_native_cold_start_case(reassessment,monkeypatch,tmp_path,capsys,state='mixed')
-    baseline=json.loads(path.read_text())
+    baseline=json.loads(path.read_text());scenarios=[]
     for fault in ('account','client','epoch','native_identity','quantity','flat','positions_missing','orders_incomplete','stale','callbacks','reenrollment','repeat'):
         facts=deepcopy(baseline);boundary='none'
         if fault=='account':facts['account']='OTHER_ACCOUNT'
@@ -1207,26 +1216,74 @@ def test_full_core_cold_start_external_disagreements_and_repeated_startup(reasse
         if fault=='reenrollment':facts['config']=dict(ROSS_SYNTHETIC_REQUESTED_BASE_SIZE=8,ROSS_SYNTHETIC_UNIT_STOPS=True,
             ROSS_SYNTHETIC_UNIT_MANAGEMENT=True,ROSS_SYNTHETIC_BULL_COST_TIGHTENING=True,
             ROSS_SYNTHETIC_MICRO_COST_FAILURE=True,ROSS_SYNTHETIC_MICRO_COST_TIGHTENING=True)
-        current=tmp_path/('facts-'+fault+'.json');current.write_text(json.dumps(facts))
-        report=run_native_core_cold_start(database,current,tmp_path/('child-'+fault),fault=boundary)
-        assert_full_core_cold_refusal(report)
-        assert report['types']['core']=='src.core.orchestrator.CoreOrchestrator'
-        assert report['types']['broker']=='src.brokers.ibkr_live_broker.IbkrLiveBroker'
-        assert report['types']['engine']=='src.execution.execution_engine.ExecutionEngine'
-        assert report['after_constructor']['startup_recovery_result']['reason']=='NATIVE_ORDER_RESTART_RECONCILIATION_REQUIRED'
+        if fault=='stale':
+            stale_facts=tmp_path/'stale-facts.json';stale_facts.write_text(json.dumps(facts))
+        else:
+            scenarios.append(dict(facts,name=fault,fault=boundary))
+    # Every variant still reaches two actual Core cycles. Native recovery stops
+    # BEFORE these external facts are consumed; restarting for every unused
+    # variant repeated import/constructor/snapshot work without new authority.
+    batched=tmp_path/'batched-facts.json'
+    batched.write_text(json.dumps(dict(baseline,cycle_scenarios=scenarios)))
+    report=run_native_core_cold_start(database,batched,tmp_path/'child-adversity')
+    assert_full_core_cold_refusal(report,expected_cycles=2*len(scenarios))
+    assert report['constructor_count']==1
+    assert report['scenario_scope']=='EXTERNAL_ADVERSITY_AFTER_ONE_FRESH_CONSTRUCTOR'
+    assert [row['name'] for row in report['scenarios']]==[row['name'] for row in scenarios]
+    for scenario,expected in zip(report['scenarios'],scenarios,strict=True):
+        assert len(scenario['cycle_indices'])==2
+        applied=scenario['applied_external_facts']
+        assert applied['name']==scenario['name']
+        for key in ('account','client_id','epoch','positions','open_orders','fault'):
+            assert applied[key]==expected[key],(scenario['name'],key)
+        assert [report['cycles'][index-1]['scenario'] for index in scenario['cycle_indices']]==[scenario['name']]*2
+        for key,value in expected.get('config',{}).items():
+            assert applied['config'][key]==value
+    assert report['types']['core']=='src.core.orchestrator.CoreOrchestrator'
+    assert report['types']['broker']=='src.brokers.ibkr_live_broker.IbkrLiveBroker'
+    assert report['types']['engine']=='src.execution.execution_engine.ExecutionEngine'
+    assert report['after_constructor']['startup_recovery_result']['reason']=='NATIVE_ORDER_RESTART_RECONCILIATION_REQUIRED'
+    # A +1day clock change can legitimately make scheduled prep due in an
+    # existing process. Keep that case fresh; never alter prep owner intervals.
+    stale=run_native_core_cold_start(database,stale_facts,tmp_path/'child-stale')
+    assert_full_core_cold_refusal(stale)
+    # Separate fresh interpreter repeats startup against the very same durable
+    # retained DB; batching is not labelled twelve independent cold starts.
+    combined=deepcopy(baseline)
+    combined.update(account='OTHER_ACCOUNT',client_id=baseline['client_id']+1,epoch=baseline['epoch']+1)
+    combined['open_orders'][0]['orderId']+=1000;combined['positions'][0]['position']+=1
+    combined_path=tmp_path/'repeat-disagreements.json';combined_path.write_text(json.dumps(combined))
+    repeat=run_native_core_cold_start(database,combined_path,tmp_path/'child-fresh-repeat')
+    assert_full_core_cold_refusal(repeat)
+    assert repeat['pid']!=report['pid']
+    assert repeat['initial_external_scope']=={key:combined[key] for key in ('account','client_id','epoch')}
+
+
+@pytest.fixture(scope='module')
+def cold_corrupt_seed_paths(tmp_path_factory):
+    # Closed immutable seed only; every corruption child gets a private copy.
+    root=tmp_path_factory.mktemp('cold-corrupt-seed')
+    return root/'genuine.sqlite3',root/'external-facts.json'
 
 
 @pytest.mark.parametrize('raw',['{not-json','null','[]','42','{}'])
-def test_full_core_cold_start_corrupt_records_remain_unresolved(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,raw):
-    import sqlite3
+def test_full_core_cold_start_corrupt_records_remain_unresolved(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,cold_corrupt_seed_paths,raw):
+    import shutil,sqlite3
     from test_startup_recovery_and_stop_protection import run_native_core_cold_start
-    h,request,life,database,path=retained_native_cold_start_case(reassessment,monkeypatch,tmp_path,capsys)
+    seed,seed_facts=cold_corrupt_seed_paths
+    if not seed.exists():
+        h,request,life,generated,generated_facts=retained_native_cold_start_case(reassessment,monkeypatch,tmp_path,capsys)
+        shutil.copyfile(generated,seed);shutil.copyfile(generated_facts,seed_facts)
+    original_seed=seed.read_bytes()
+    database=tmp_path/'corrupt-copy.sqlite3';path=tmp_path/'corrupt-facts.json'
+    shutil.copyfile(seed,database);shutil.copyfile(seed_facts,path)
     # Deliberate corruption AFTER genuine lifecycle generation; not a positive seed.
     with sqlite3.connect(database) as db:
         db.execute("UPDATE position_lifecycle_transitions SET reason=? WHERE transition_id='execution.native_orders.v1:PAPER'",(raw,))
     report=run_native_core_cold_start(database,path,tmp_path/'child-corrupt')
     assert not report['sdk_attempts'] and not report['wire_attempts'] and not report['network_attempts']
     assert report['database_before']['position_lifecycle_transitions']==report['database_final']['position_lifecycle_transitions']
+    assert seed.read_bytes()==original_seed  # Corruption never mutates shared evidence.
     if raw=='{}':
         assert_full_core_cold_refusal(report)  # Existing opaque record is never absence.
     else:
