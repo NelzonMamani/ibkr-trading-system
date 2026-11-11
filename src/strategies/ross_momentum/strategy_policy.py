@@ -1731,7 +1731,8 @@ def standalone_micro_tightening_basis(order, entry_fill_price):
 # terminal accounted GROSS profit and independently reconciled/protected owned
 # remainder; first fresh COMPLETED retained 10s/1m bar START at/after LAST partial
 # fill, CLOSE strictly ABOVE frozen E0, executable confirmed bid also above the
-# qualified decimal-grid E0 ceiling. Existing freshness/session/date expiry,
+# qualified decimal-grid E0 ceiling; bar close must also exceed that ceiling.
+# Existing freshness/session/date expiry,
 # structural-failure priority, one durable all-unit same-ID/TOTAL1 attempt,
 # immutable final-write authority and irreversible mixed-outcome quarantine apply.
 # Never loosen/cross the market. Original S0 stays risk/milestone basis, separate

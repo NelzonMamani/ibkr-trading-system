@@ -3005,7 +3005,7 @@ class CoreOrchestrator:
         """Explicit internal inspection, NOT an enrolled automatic repricing policy.
 
         Generic inspection selects no strategy price. The separately enrolled
-        synthetic standalone Bull/Micro adopters reuses these immutable guards; no
+        synthetic standalone Bull/Micro adopters reuse these immutable guards; no
         operational BE/trailing/add/resumption permission is granted.
         """
         if micro_tighten and bull_tighten:
