@@ -11,7 +11,7 @@ from src.scanner import scanner_runner as ross
 from test_joined_core_pmh_readonly import (
     pmh_joined, cycles, no_effects, reassessment, lifecycle, _reset_config,
     forbid_collection_and_execution, forbid_io, _cadence, _candles, _snapshot,
-    _coherent_profile_streams,
+    _coherent_profile_streams, fixture_quote_batch,
 )
 from test_first_pullback_production_handoff import ROWS
 
@@ -61,8 +61,7 @@ def first_joined(reassessment,monkeypatch,tmp_path,*,news_fault='none',peer=Fals
         row.update(premarket_high=11.,last_price=10.55,bid=10.54,ask=10.56,
                    spread_pct=100*.02/10.55,dollar_volume=18990000.)
     snapshot=replace(_snapshot(symbol='JPM'),last=10.55,bid=10.54,ask=10.56)
-    h.core.market_data_snapshot_manager=NS(batch_snapshots=lambda symbols:({s:replace(snapshot,symbol=s,
-        asof_utc=h.life.clock.current,market_timestamp_utc=h.life.clock.current) for s in symbols},[]))
+    h.core.market_data_snapshot_manager=NS(batch_snapshots=lambda symbols:fixture_quote_batch(h,snapshot,symbols))
     h.first_triggers=[];evaluator=TRIGGER_EVALUATOR_REGISTRY['FIRST_PULLBACK']
     def observed(payload,inputs):
         result=evaluator(payload,inputs)

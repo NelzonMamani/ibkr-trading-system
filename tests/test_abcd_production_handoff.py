@@ -13,7 +13,7 @@ from test_key_level_break_production_handoff import forbid_io
 from test_flat_top_production_handoff import forbid_collection_and_execution
 from test_joined_core_pmh_readonly import (
     pmh_joined, cycles, no_effects, reassessment, lifecycle,
-    _cadence, _snapshot as joined_snapshot,
+    _cadence, _snapshot as joined_snapshot, fixture_quote_batch,
 )
 from test_pr1082_trigger_to_intent_terminal_semantics import (
     _base_strategy, _candles, _snapshot, _watchlist_row, _reset_config, FakeRegistry,
@@ -293,8 +293,7 @@ def abcd_joined(reassessment,monkeypatch,tmp_path,*,news_fault='none',peer=False
             prev_close=9.8,ref_close_rth=9.8,reference_price=9.8,gap_pct=gap,pct_change=gap,
             spread_pct=100*.02/11.02,dollar_volume=19836000.)
     snapshot=replace(joined_snapshot(symbol='JPM'),last=11.02,bid=11.01,ask=11.03)
-    h.core.market_data_snapshot_manager=NS(batch_snapshots=lambda symbols:({s:replace(snapshot,symbol=s,
-        asof_utc=h.life.clock.current,market_timestamp_utc=h.life.clock.current) for s in symbols},[]))
+    h.core.market_data_snapshot_manager=NS(batch_snapshots=lambda symbols:fixture_quote_batch(h,snapshot,symbols))
     h.abcd_triggers=[];evaluator=TRIGGER_EVALUATOR_REGISTRY['ABCD']
     def observed(payload,inputs):
         out=evaluator(payload,inputs)

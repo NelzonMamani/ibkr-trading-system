@@ -351,6 +351,10 @@ class MarketDataSnapshot:
     missing_fields_observed_at_utc: dict[str, str] = field(default_factory=dict)
     broker_errors: list[dict] = field(default_factory=list)
     snapshot_attempts: list[dict] = field(default_factory=list)
+    # Factual request scope; absent legacy facts remain unavailable.
+    con_id: Optional[int] = None
+    client_id: Optional[int] = None
+    connection_epoch: Optional[int] = None
 
 
 class MarketDataClient:
@@ -402,6 +406,42 @@ class MarketDataClient:
         if self.ib is None:
             raise RuntimeError("IBKR client not initialized")
         return self.ib
+
+    @staticmethod
+    def _snapshot_scope_integer(value, *, minimum=0):
+        return value if type(value) is int and value >= minimum else None
+
+    @classmethod
+    def _snapshot_native_client_id(cls, client):
+        value = getattr(client, "client_id", None)
+        if value is None:
+            value = getattr(getattr(client, "client", None), "clientId", None)
+        return cls._snapshot_scope_integer(value)
+
+    def _snapshot_request_client(self, expected_client=None, expected_connection_epoch=None):
+        if expected_client is None and expected_connection_epoch is None:
+            client = self._resolve_ib_client()
+            # Retain the actual resolver result, including compatibility
+            # adapters which supply their existing client through that seam.
+            if getattr(self, "ib", None) is None:
+                self.ib = client
+            return client
+        client = getattr(self, "ib", None)
+        epoch = self._snapshot_scope_integer(getattr(client, "_position_connection_epoch", None))
+        if (expected_client is None or client is not expected_client or epoch is None
+                or (expected_connection_epoch is not None
+                    and (type(expected_connection_epoch) is not int or epoch != expected_connection_epoch))
+                or not callable(getattr(client, "isConnected", None)) or not client.isConnected()
+                or getattr(getattr(client, "_stop_event", None), "is_set", lambda: False)()):
+            raise RuntimeError("SNAPSHOT_CLIENT_SCOPE_UNAVAILABLE")
+        return client
+
+    def _snapshot_scope_unchanged(self, client, epoch, client_id, *, connected):
+        return (getattr(self, "ib", client) is client
+                and getattr(client, "_position_connection_epoch", None) == epoch
+                and self._snapshot_native_client_id(client) == client_id
+                and (not connected or client.isConnected())
+                and not getattr(getattr(client, "_stop_event", None), "is_set", lambda: False)())
 
     def _run_async(self, coro):
         """
@@ -538,7 +578,7 @@ class MarketDataClient:
                 return
             raise
 
-    def qualify_contract(self, symbol: str):
+    def qualify_contract(self, symbol: str, *, expected_client=None, expected_connection_epoch=None):
         from ib_insync import Contract
 
         contract = Contract(
@@ -547,7 +587,9 @@ class MarketDataClient:
             exchange="SMART",
             currency="USD",
         )
-        qualified = self.qualifyContracts(contract)
+        qualified = (self.qualifyContracts(contract) if expected_client is None and expected_connection_epoch is None
+                     else self.qualifyContracts(contract, expected_client=expected_client,
+                                                expected_connection_epoch=expected_connection_epoch))
         if qualified:
             return qualified[0]
         raise RuntimeError(
@@ -559,7 +601,7 @@ class MarketDataClient:
         reader = getattr(self.ib, "get_contract_reference_metadata", None)
         return reader(contract) if callable(reader) else {}
 
-    def qualifyContracts(self, *contracts):
+    def qualifyContracts(self, *contracts, expected_client=None, expected_connection_epoch=None):
         """
         Compatibility wrapper for ib_insync-style APIs used by the
         snapshot enrichment layer.
@@ -568,29 +610,62 @@ class MarketDataClient:
         cache = cycle_cache()
         result = []
         for contract in contracts:
-            key = ("qualified", id(self), contract_key(contract))
+            client = self._snapshot_request_client(expected_client, expected_connection_epoch)
+            epoch = getattr(client, "_position_connection_epoch", None)
+            client_id = self._snapshot_native_client_id(client)
+            connected = callable(getattr(client, "isConnected", None)) and client.isConnected()
+            # The retained-shortlist owner reads this established prefix.
+            # Append native scope without changing its contract-key position.
+            scope = (id(client), epoch, client_id)
+            key = ("qualified", id(self), contract_key(contract), *scope)
             if cache is not None and key in cache:
+                if not self._snapshot_scope_unchanged(client, epoch, client_id, connected=connected):
+                    raise RuntimeError("SNAPSHOT_CLIENT_SCOPE_CHANGED")
                 result.extend(cache[key])
                 continue
             rows = qualify_contracts_resilient(
-                self._resolve_ib_client(), contract,
+                client, contract,
                 timeout_seconds=self.snapshot_timeout_seconds,
                 log_prefix="[EXECUTION][QUALIFY]",
             )
             checkpoint()
+            if not self._snapshot_scope_unchanged(client, epoch, client_id, connected=connected):
+                raise RuntimeError("SNAPSHOT_CLIENT_SCOPE_CHANGED")
             if cache is not None and rows:
                 cache[key] = rows
                 for row in rows:
-                    cache[("qualified", id(self), contract_key(row))] = rows
+                    cache[("qualified", id(self), contract_key(row), *scope)] = rows
             result.extend(rows)
         return result
 
-    def snapshot_stock(self, contract_or_symbol, *, refresh: bool = False) -> MarketDataSnapshot:
+    def snapshot_stock(self, contract_or_symbol, *, refresh: bool = False,
+                       expected_client=None, expected_connection_epoch=None) -> MarketDataSnapshot:
         checkpoint()
+        strict = expected_client is not None or expected_connection_epoch is not None
+        if strict:
+            client = self._snapshot_request_client(expected_client, expected_connection_epoch)
+            expected_connection_epoch = getattr(client, "_position_connection_epoch", None)
+        else:
+            # Do not connect merely to inspect a cache key. First acquisition
+            # resolves normally; subsequent calls key its actual native scope.
+            client = getattr(self, "ib", None)
+        epoch = getattr(client, "_position_connection_epoch", None)
+        client_id = self._snapshot_native_client_id(client)
+        connected = callable(getattr(client, "isConnected", None)) and client.isConnected()
         cache = cycle_cache()
-        key = ("snapshot", id(self), contract_key(contract_or_symbol), self.market_data_type)
+        def cache_key():
+            current = getattr(self, "ib", None)
+            return ("snapshot", id(self), id(current), getattr(current, "_position_connection_epoch", None),
+                    self._snapshot_native_client_id(current), contract_key(contract_or_symbol), self.market_data_type)
+        key = cache_key()
         if cache is not None and key in cache and not refresh:
             snapshot, debug = cache[key]
+            cached_client_id = getattr(snapshot, "client_id", None)
+            cached_epoch = getattr(snapshot, "connection_epoch", None)
+            if strict and (self._snapshot_scope_integer(cached_client_id) is None
+                           or self._snapshot_scope_integer(cached_epoch) is None
+                           or cached_client_id != client_id or cached_epoch != expected_connection_epoch):
+                raise RuntimeError("SNAPSHOT_CLIENT_SCOPE_UNAVAILABLE")
             self.last_snapshot_debug = debug
             # Reuse data, never the age decision from the earlier acquisition.
             # Keep the original broker timestamp, authority and request evidence.
@@ -598,22 +673,40 @@ class MarketDataClient:
                                           now=datetime.now(timezone.utc))
             if reason and reason not in snapshot.data_quality_flags:
                 snapshot.data_quality_flags.append(reason)
+            if strict:
+                self._snapshot_request_client(client, expected_connection_epoch)
             return snapshot
-        snapshot = self._snapshot_stock_uncached(contract_or_symbol)
+        snapshot = (self._snapshot_stock_uncached(contract_or_symbol, expected_client=client,
+                    expected_connection_epoch=expected_connection_epoch) if strict else
+                    self._snapshot_stock_uncached(contract_or_symbol))
         checkpoint()
+        if strict:
+            self._snapshot_request_client(client, expected_connection_epoch)
+        elif client is not None and not self._snapshot_scope_unchanged(client, epoch, client_id, connected=connected):
+            if "MD_SOURCE_SCOPE_CHANGED" not in snapshot.data_quality_flags:
+                snapshot.data_quality_flags.append("MD_SOURCE_SCOPE_CHANGED")
         reason = quote_time_rejection(snapshot.timestamp_utc, getattr(snapshot, "timestamp_source", "UNKNOWN"),
                                       now=datetime.now(timezone.utc))
         if reason and reason not in snapshot.data_quality_flags:
             snapshot.data_quality_flags.append(reason)
-        if cache is not None and not any(flag in snapshot.data_quality_flags for flag in (
-                "MD_TIMEOUT", "CONTRACT_QUALIFY_FAILED", "MD_EMPTY")):
+        if cache is not None and cache_key() == key and not any(flag in snapshot.data_quality_flags for flag in (
+                "MD_TIMEOUT", "CONTRACT_QUALIFY_FAILED", "MD_EMPTY", "MD_SOURCE_SCOPE_CHANGED")):
+            # Never relabel a request with a post-acquisition native scope.
+            # Initially unbound acquisitions have no prior client witness and
+            # become cacheable only on a subsequent already-bound request.
             cache[key] = (snapshot, self.last_snapshot_debug)
         return snapshot
 
-    def _snapshot_stock_uncached(self, contract_or_symbol) -> MarketDataSnapshot:
+    def _snapshot_stock_uncached(self, contract_or_symbol, *, expected_client=None,
+                                 expected_connection_epoch=None) -> MarketDataSnapshot:
+        ib = self._snapshot_request_client(expected_client, expected_connection_epoch)
+        epoch = getattr(ib, "_position_connection_epoch", None)
+        client_id = self._snapshot_native_client_id(ib)
+        connected = callable(getattr(ib, "isConnected", None)) and ib.isConnected()
+        strict = expected_client is not None or expected_connection_epoch is not None
         base_flags = _market_data_type_flags("UNKNOWN")
         symbol = getattr(contract_or_symbol, "symbol", None) or str(contract_or_symbol or "").upper()
-        self.last_snapshot_debug = {
+        debug = {
             "requested_symbol": symbol,
             "requested_market_data_type": self.market_data_type,
             "returned_market_data_type": "UNKNOWN",
@@ -624,23 +717,30 @@ class MarketDataClient:
                 for name in ("symbol", "conId", "exchange", "primaryExchange", "tradingClass", "localSymbol")
             } if not isinstance(contract_or_symbol, str) else None,
         }
+        self.last_snapshot_debug = debug
         try:
-            contract = self._canonicalize_history_contract(contract_or_symbol)
+            contract = (self._canonicalize_history_contract(contract_or_symbol, expected_client=ib,
+                        expected_connection_epoch=epoch) if strict else
+                        self._canonicalize_history_contract(contract_or_symbol))
         except Exception as exc:
-            self.last_snapshot_debug.update(
+            debug.update(
                 {"qualification_error": str(exc), "timeout_occurred": False, "waited_seconds": 0.0}
             )
             return self._empty_snapshot(symbol, base_flags + ["CONTRACT_QUALIFY_FAILED"], error=str(exc))
         if contract is None:
-            self.last_snapshot_debug.update(
+            debug.update(
                 {"qualification_error": "contract_none", "timeout_occurred": False, "waited_seconds": 0.0}
             )
             return self._empty_snapshot(symbol, base_flags + ["CONTRACT_QUALIFY_FAILED"])
-        self.last_snapshot_debug["contract"] = {
+        debug["contract"] = {
             name: getattr(contract, name, None)
             for name in ("symbol", "conId", "exchange", "primaryExchange", "tradingClass", "localSymbol")
         }
-        ib = self._resolve_ib_client()
+        if not self._snapshot_scope_unchanged(ib, epoch, client_id, connected=connected):
+            if strict:
+                raise RuntimeError("SNAPSHOT_CLIENT_SCOPE_CHANGED")
+            return self._empty_snapshot(symbol, base_flags + ["MD_SOURCE_SCOPE_CHANGED"])
+        con_id = self._snapshot_scope_integer(getattr(contract, "conId", None), minimum=1)
         attempts = [(self.market_data_type, "primary"), (self.market_data_type, "snapshot_retry")]
         if (self.market_data_type or "").upper() not in {"DELAYED", "DELAYED_FROZEN"}:
             attempts.append(("DELAYED", "delayed_fallback"))
@@ -653,12 +753,20 @@ class MarketDataClient:
         required_fields = ("bid", "ask", "last", "close", "volume")
         for attempt_index, (requested_type, attempt_label) in enumerate(attempts, start=1):
             checkpoint()
+            if not self._snapshot_scope_unchanged(ib, epoch, client_id, connected=connected):
+                break
             req_market_data_type = getattr(ib, "reqMarketDataType", None)
             if callable(req_market_data_type):
                 req_market_data_type(_market_data_type_code(requested_type))
             tracked = _track_insync_snapshot_callbacks(ib)
             request_started_at = datetime.now(timezone.utc)
             checkpoint()
+            # Type selection calls the SDK and may invalidate this scope.
+            # Refuse a new quote after that boundary loses its client witness.
+            if not self._snapshot_scope_unchanged(ib, epoch, client_id, connected=connected):
+                if strict:
+                    raise RuntimeError("SNAPSHOT_CLIENT_SCOPE_CHANGED")
+                break
             ticker = ib.reqMktData(contract, genericTickList="", snapshot=True, regulatorySnapshot=False)
             _prepare_snapshot_ticker(ib, ticker, requested_type, tracked, request_started_at)
             started_at = time.monotonic()
@@ -712,7 +820,7 @@ class MarketDataClient:
                     "missing_fields": missing_fields,
                     **_snapshot_authority_metadata(observed, raw_fields, completed_at=completed_at, completion_reason=completion_reason),
                 }
-                self.last_snapshot_debug["attempts"].append(attempt_debug)
+                debug["attempts"].append(attempt_debug)
                 attempt_finished = True
                 if completion_reason == "timeout":
                     flags.append("MD_TIMEOUT")
@@ -751,13 +859,17 @@ class MarketDataClient:
                 f"label={attempt_label} missing={missing_fields} requested_type={requested_type} returned_type={returned_type}"
             )
         if best_fields is None or best_debug is None:
-            return self._empty_snapshot(symbol, base_flags + ["MD_EMPTY"])
-        self.last_snapshot_debug.update(best_debug)
+            return self._empty_snapshot(symbol, base_flags + ["MD_EMPTY", "MD_SOURCE_SCOPE_CHANGED"])
+        if not self._snapshot_scope_unchanged(ib, epoch, client_id, connected=connected):
+            if strict:
+                raise RuntimeError("SNAPSHOT_CLIENT_SCOPE_CHANGED")
+            final_flags.append("MD_SOURCE_SCOPE_CHANGED")
+        debug.update(best_debug)
         reason = quote_time_rejection(snapshot_timestamp, "LAST_TRADE" if snapshot_timestamp is not None else "UNKNOWN",
                                       now=datetime.now(timezone.utc))
         if reason:
             final_flags.append(reason)
-        if any(event["code"] == 10197 for attempt in self.last_snapshot_debug["attempts"] for event in attempt["broker_errors"]):
+        if any(event["code"] == 10197 for attempt in debug["attempts"] for event in attempt["broker_errors"]):
             final_flags.append("MD_CONFLICT_10197")
         if all(best_fields[name] is None for name in ("bid", "ask", "last")):
             final_flags.append("MD_EMPTY")
@@ -766,7 +878,7 @@ class MarketDataClient:
                 final_flags.append(f"MD_MISSING_{name.upper()}")
         bid, ask = best_fields["bid"], best_fields["ask"]
         timestamp_source = "LAST_TRADE" if snapshot_timestamp is not None else "UNKNOWN"
-        self.last_snapshot_debug.update({
+        debug.update({
             "timestamp_source": timestamp_source,
             "timestamp_utc": snapshot_timestamp.isoformat() if snapshot_timestamp else None,
             "received_at_utc": received_at.isoformat() if received_at else None,
@@ -803,7 +915,10 @@ class MarketDataClient:
                 "field_availability", "field_received_at_utc", "missing_fields_observed_at_utc",
                 "broker_errors",
             )},
-            snapshot_attempts=list(self.last_snapshot_debug["attempts"]),
+            snapshot_attempts=list(debug["attempts"]),
+            con_id=con_id,
+            client_id=client_id,
+            connection_epoch=self._snapshot_scope_integer(epoch),
         )
 
     @staticmethod
@@ -843,11 +958,15 @@ class MarketDataClient:
                 fields[name] = None
         return fields
 
-    def _canonicalize_history_contract(self, contract_or_symbol):
+    def _canonicalize_history_contract(self, contract_or_symbol, *, expected_client=None,
+                                       expected_connection_epoch=None):
         contract = contract_or_symbol
         if isinstance(contract_or_symbol, str):
             try:
-                contract = self.qualify_contract(contract_or_symbol)
+                contract = (self.qualify_contract(contract_or_symbol)
+                    if expected_client is None and expected_connection_epoch is None else
+                    self.qualify_contract(contract_or_symbol, expected_client=expected_client,
+                                          expected_connection_epoch=expected_connection_epoch))
             except Exception:
                 return None
             return contract
@@ -857,7 +976,10 @@ class MarketDataClient:
         primary_exchange = getattr(contract_or_symbol, "primaryExchange", None)
         if con_id not in {None, 0} and primary_exchange not in {None, ""}:
             return contract_or_symbol
-        qualified = self.qualifyContracts(contract_or_symbol)
+        qualified = (self.qualifyContracts(contract_or_symbol)
+            if expected_client is None and expected_connection_epoch is None else
+            self.qualifyContracts(contract_or_symbol, expected_client=expected_client,
+                                  expected_connection_epoch=expected_connection_epoch))
         if not qualified:
             return None
         return qualified[0]

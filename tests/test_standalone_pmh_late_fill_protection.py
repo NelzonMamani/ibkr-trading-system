@@ -4244,6 +4244,84 @@ def deliver_native_execution(h, *, native_id, execution_id, side, quantity, cumu
     h.native_client.execDetails(-1,contract,execution)
 
 
+@pytest.mark.parametrize('quality_fault',['none','missing','wrong_symbol','error','malformed_shape','missing_close','missing_volume'])
+def test_actual_snapshot_quality_contract_controls_native_pmh_profit_management(
+        reassessment,monkeypatch,tmp_path,capsys,no_external_activity,quality_fault):
+    from dataclasses import replace
+    from datetime import datetime
+    from src.market_data import market_data_snapshot_manager as snapshot_module
+    from src.market_data.market_data_snapshot_manager import MarketDataSnapshotManager
+    from test_joined_core_pmh_readonly import raw_fixture_quote,_snapshot
+    def coherent_paper(*args,**kwargs):return paper_pmh(*args,joined_factory=coherent_pmh_failure_entry,**kwargs)
+    h=late_pmh(reassessment,monkeypatch,tmp_path,paper_factory=coherent_paper,fill_price=10.53)
+    try:
+        request=acknowledge(h,capsys)
+        deliver_native_execution(h,native_id=71,execution_id='quality-entry',side='BOT',quantity=1,
+            cumulative=1,price=10.53,average=10.53,
+            timestamp=datetime(2026,10,20,13,35,42,tzinfo=timezone.utc))
+        life=confirm_selected_fill(h,request,capsys,family='PREMARKET_HIGH_BREAK',fill_price=10.53,
+            stop_price=request.stop_loss_price)
+        # This proof scripts only external raw fetching. SDK bootstrap is not
+        # part of that boundary and must not depend on a platform event loop.
+        def forbidden_quote_bootstrap():
+            pytest.fail('scripted raw quote source must not bootstrap SDK')
+        monkeypatch.setattr('src.ibkr.market_data_client.safe_import_ib_insync',forbidden_quote_bootstrap)
+        client=NS(snapshot_stock=None)
+        raw_reads=[];quality_reads=[]
+        def snapshot_stock(symbol):
+            if quality_fault=='error':raise OSError('synthetic external snapshot failure')
+            close=h.failure_bars[-1].close if getattr(h,'failure_bars',[]) else 10.53
+            quote=replace(_snapshot(symbol=symbol),last=close,bid=round(close-.01,2),ask=round(close+.01,2),
+                snapshot_complete=True,market_data_type='LIVE',returned_market_data_type='LIVE',
+                requested_market_data_type='LIVE',market_data_type_confirmed=True,data_quality_flags=())
+            raw=raw_fixture_quote(h,quote,symbol)
+            if quality_fault in {'missing_close','missing_volume'}:
+                field=quality_fault.removeprefix('missing_')
+                raw=replace(raw,**{field:None},data_quality_flags=['MD_MISSING_'+field.upper()],
+                    field_availability=dict(raw.field_availability,**{field:False}))
+            raw_reads.append(raw)
+            return raw
+        monkeypatch.setattr(client,'snapshot_stock',snapshot_stock)
+        monkeypatch.setattr(snapshot_module,'datetime',h.life.clock)
+        manager=MarketDataSnapshotManager(client,max_workers=1)
+        batch=manager.batch_snapshots
+        def observed_batch(symbols):
+            values,qualities=batch(symbols)
+            quality_reads.append(deepcopy(qualities))
+            if quality_fault=='missing':qualities={}
+            elif quality_fault=='wrong_symbol':qualities={key:replace(value,symbol='UNRELATED') for key,value in qualities.items()}
+            elif quality_fault=='malformed_shape':qualities=[]
+            return values,qualities
+        monkeypatch.setattr(manager,'batch_snapshots',observed_batch)
+        h.core.market_data_snapshot_manager=manager
+        h,request,life=one_share_profit_case(reassessment,monkeypatch,tmp_path,capsys,
+            family='PREMARKET_HIGH_BREAK',prepared=(h,request,life))
+        assert len(h.registry_batches[0][1])==33 and request.take_profit_price is life.target is None
+        assert h.core.trade_lifecycle_engine.native_feedback_snapshot()['available']
+        assert life.avg_fill_price==10.53 and request.stop_loss_price==10.2897
+        assert h.profit_level==pytest.approx(11.0106)
+        assert len(h.sent_native)==len(h.stop_requests)==life.filled_qty==1
+        actual_quality=next(row['JPM'] for row in reversed(quality_reads) if 'JPM' in row)
+        if quality_fault=='error':
+            assert 'SNAPSHOT_ERROR' in actual_quality.data_quality_flags
+        elif quality_fault in {'missing_close','missing_volume'}:
+            field=quality_fault.removeprefix('missing_')
+            assert field in actual_quality.missing_fields
+            assert 'MD_MISSING_'+field.upper() in actual_quality.data_quality_flags
+            assert getattr(raw_reads[-1],field) is None
+        else:
+            assert actual_quality.missing_fields==actual_quality.data_quality_flags==[]
+            assert raw_reads[-1].last==11.03 and raw_reads[-1].close==h.rows['JPM']['ref_close_rth']
+            assert raw_reads[-1].volume==1800000
+        assert len(h.failure_conversions)==(1 if quality_fault=='none' else 0),h.profit_observations[-1]
+        if quality_fault=='none':
+            assert h.failure_owner['pmh_failure_exit']['profit_quote']['bid']==11.02
+        else:
+            assert not h.failure_owner.get('pmh_failure_exit')
+            assert h.core.execution_engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
+    finally:teardown_unsent_fixture(h,no_external_activity)
+
+
 @pytest.mark.parametrize('callback_order',['complete','last_first'])
 def test_native_canonical_repeating_average_and_late_execution_gap(
         reassessment,monkeypatch,tmp_path,capsys,no_external_activity,callback_order):

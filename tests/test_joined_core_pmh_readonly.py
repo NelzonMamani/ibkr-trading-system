@@ -16,6 +16,39 @@ from src.strategies.common.triggers.trigger_registry import TRIGGER_EVALUATOR_RE
 from src.scanner import scanner_runner as ross
 
 
+def raw_fixture_quote(h, snapshot, symbol):
+    """External quote facts; prior close comes only from the existing row."""
+    from src.ibkr.market_data_client import MarketDataSnapshot
+    row=h.rows.get(symbol,{})
+    close=snapshot.close
+    if close is None:
+        close=row.get('ref_close_rth')
+        if close is None:close=row.get('prev_close')
+    stamp=h.life.clock.current
+    fields={name:getattr(snapshot,name) for name in
+        ('bid','ask','last','bid_size','ask_size','last_size','volume','open','high','low')}
+    return MarketDataSnapshot(symbol=symbol,**fields,close=close,vwap=None,change_percent=None,
+        spread=(snapshot.ask-snapshot.bid if snapshot.bid is not None and snapshot.ask is not None else None),
+        timestamp_utc=stamp.isoformat(),data_quality_flags=list(snapshot.data_quality_flags),
+        requested_market_data_type=snapshot.requested_market_data_type,
+        returned_market_data_type=snapshot.returned_market_data_type,
+        market_data_type_confirmed=snapshot.market_data_type_confirmed,
+        timestamp_source=snapshot.timestamp_source,received_at_utc=stamp.isoformat(),
+        snapshot_complete=snapshot.snapshot_complete,request_id=snapshot.request_id,
+        market_data_type_confirmation_source=snapshot.market_data_type_confirmation_source,
+        field_availability={name:value is not None for name,value in fields.items()}|{'close':close is not None})
+
+
+def fixture_quote_batch(h, snapshot, symbols):
+    """Match the real batch API, retaining actual per-symbol quality objects."""
+    from src.market_data.market_data_snapshot_manager import MarketDataSnapshotManager
+    values={};qualities={}
+    for symbol in symbols:
+        value,qualities[symbol]=MarketDataSnapshotManager._translate_snapshot(raw_fixture_quote(h,snapshot,symbol))
+        values[symbol]=replace(value,asof_utc=h.life.clock.current)
+    return values,qualities
+
+
 def pmh_joined(reassessment,monkeypatch,tmp_path,*,news_fault='none',peer=False,market_fault='none',position_case='complete_empty',runtime_options=None,clock_time=None,context_session=None):
     from src.core import orchestrator as core_module
     names=('_startup_recovery_allows_strategy_execution','_autonomous_recovery_allows_new_entries',
@@ -51,8 +84,7 @@ def pmh_joined(reassessment,monkeypatch,tmp_path,*,news_fault='none',peer=False,
         row.update(premarket_high=10.3,last_price=10.53,bid=10.52,ask=10.54,
                    spread_pct=100*.02/10.53,dollar_volume=18954000.)
     snapshot=replace(_snapshot(symbol='JPM'),last=10.53,bid=10.52,ask=10.54)
-    h.core.market_data_snapshot_manager=NS(batch_snapshots=lambda symbols:({s:replace(snapshot,symbol=s,
-        asof_utc=h.life.clock.current,market_timestamp_utc=h.life.clock.current) for s in symbols},[]))
+    h.core.market_data_snapshot_manager=NS(batch_snapshots=lambda symbols:fixture_quote_batch(h,snapshot,symbols))
     from src.storage.storage_engine import StorageEngine
     from src.storage.sqlite_store import SQLiteStore
     def forbidden_enrollment(*a,**k):pytest.fail('Atomic capital scope enrollment forbidden')
@@ -329,8 +361,7 @@ def key_joined(reassessment,monkeypatch,tmp_path,*,news_fault='none',peer=False,
             prev_close=9.8,ref_close_rth=9.8,reference_price=9.8,gap_pct=gap,pct_change=gap,
             spread_pct=100*.02/11.02,dollar_volume=19836000.)
     snapshot=replace(_snapshot(symbol='JPM'),last=11.02,bid=11.01,ask=11.03)
-    h.core.market_data_snapshot_manager=NS(batch_snapshots=lambda symbols:({s:replace(snapshot,symbol=s,
-        asof_utc=h.life.clock.current,market_timestamp_utc=h.life.clock.current) for s in symbols},[]))
+    h.core.market_data_snapshot_manager=NS(batch_snapshots=lambda symbols:fixture_quote_batch(h,snapshot,symbols))
     h.key_triggers=[];evaluator=TRIGGER_EVALUATOR_REGISTRY['KEY_LEVEL_BREAK']
     def observed(payload,inputs):
         out=evaluator(payload,inputs)
@@ -572,8 +603,7 @@ def consolidation_joined(reassessment,monkeypatch,tmp_path,*,news_fault='none',p
             gap_pct=(10.43/9.3-1)*100,pct_change=(10.43/9.3-1)*100,
             spread_pct=100*.02/10.43,dollar_volume=18774000.)
     snapshot=replace(_snapshot(symbol='JPM'),last=10.43,bid=10.42,ask=10.44)
-    h.core.market_data_snapshot_manager=NS(batch_snapshots=lambda symbols:({s:replace(snapshot,symbol=s,
-        asof_utc=h.life.clock.current,market_timestamp_utc=h.life.clock.current) for s in symbols},[]))
+    h.core.market_data_snapshot_manager=NS(batch_snapshots=lambda symbols:fixture_quote_batch(h,snapshot,symbols))
     h.consolidation_triggers=[]
     evaluator=TRIGGER_EVALUATOR_REGISTRY['CONSOLIDATION_BREAKOUT']
     def observed(payload,inputs):
@@ -835,8 +865,7 @@ def flat_top_joined(reassessment,monkeypatch,tmp_path,*,news_fault='none',peer=F
             gap_pct=(last/previous-1)*100,pct_change=(last/previous-1)*100,
             spread_pct=100*.02/last,dollar_volume=last*1_800_000)
     snapshot=replace(_snapshot(symbol='JPM'),last=last,bid=round(last-.01,2),ask=round(last+.01,2))
-    h.core.market_data_snapshot_manager=NS(batch_snapshots=lambda symbols:({s:replace(snapshot,symbol=s,
-        asof_utc=h.life.clock.current,market_timestamp_utc=h.life.clock.current) for s in symbols},[]))
+    h.core.market_data_snapshot_manager=NS(batch_snapshots=lambda symbols:fixture_quote_batch(h,snapshot,symbols))
     h.flat_top_triggers=[];evaluator=TRIGGER_EVALUATOR_REGISTRY['FLAT_TOP_BREAKOUT']
     def observed(payload,inputs):
         out=evaluator(payload,inputs)
@@ -1042,8 +1071,7 @@ def orb_joined(reassessment,monkeypatch,tmp_path,*,position_case='complete_empty
             gap_pct=(10.42/9.3-1)*100,pct_change=(10.42/9.3-1)*100,
             spread_pct=100*.005/10.42,dollar_volume=10.42*1_800_000)
     snapshot=replace(_snapshot(symbol='JPM'),last=10.42,bid=10.4175,ask=10.4225)
-    h.core.market_data_snapshot_manager=NS(batch_snapshots=lambda symbols:({s:replace(snapshot,symbol=s,
-        asof_utc=h.life.clock.current,market_timestamp_utc=h.life.clock.current) for s in symbols},[]))
+    h.core.market_data_snapshot_manager=NS(batch_snapshots=lambda symbols:fixture_quote_batch(h,snapshot,symbols))
     h.orb_triggers=[];evaluator=TRIGGER_EVALUATOR_REGISTRY['OPENING_RANGE_BREAKOUT']
     def observed(payload,inputs):
         out=evaluator(payload,inputs)
@@ -1215,8 +1243,7 @@ def hod_joined(reassessment,monkeypatch,tmp_path,*,news_fault='none',peer=False,
             gap_pct=(last/previous-1)*100,pct_change=(last/previous-1)*100,
             spread_pct=100*.02/last,dollar_volume=last*1_800_000)
     snapshot=replace(_snapshot(symbol='JPM'),last=last,bid=round(last-.01,2),ask=round(last+.01,2))
-    h.core.market_data_snapshot_manager=NS(batch_snapshots=lambda symbols:({s:replace(snapshot,symbol=s,
-        asof_utc=h.life.clock.current,market_timestamp_utc=h.life.clock.current) for s in symbols},[]))
+    h.core.market_data_snapshot_manager=NS(batch_snapshots=lambda symbols:fixture_quote_batch(h,snapshot,symbols))
     h.hod_triggers=[];evaluator=TRIGGER_EVALUATOR_REGISTRY['HOD_BREAK']
     def observed(payload,inputs):
         out=evaluator(payload,inputs)
@@ -1508,8 +1535,7 @@ def micro_joined(reassessment,monkeypatch,tmp_path,*,news_fault='none',peer=Fals
         gap_pct=(last/previous-1)*100,pct_change=(last/previous-1)*100,
         spread_pct=100*.02/last,dollar_volume=last*1_800_000)
     snapshot=replace(_snapshot(symbol='JPM'),last=last,bid=round(last-.01,2),ask=round(last+.01,2))
-    h.core.market_data_snapshot_manager=NS(batch_snapshots=lambda symbols:({s:replace(snapshot,symbol=s,
-        asof_utc=h.life.clock.current,market_timestamp_utc=h.life.clock.current) for s in symbols},[]))
+    h.core.market_data_snapshot_manager=NS(batch_snapshots=lambda symbols:fixture_quote_batch(h,snapshot,symbols))
     evaluator=TRIGGER_EVALUATOR_REGISTRY['MICRO_PULLBACK'];h.micro_triggers=[]
     def observed(payload,inputs):
         out=evaluator(payload,inputs)
@@ -1605,8 +1631,7 @@ def _install_variant_market(h,rows,current,*,pmh,early=None,completed_source=Fal
         gap_pct=(last/previous-1)*100,pct_change=(last/previous-1)*100,
         spread_pct=100*.02/last,dollar_volume=last*1_800_000)
     snapshot=replace(_snapshot(symbol='JPM'),last=last,bid=last-.01,ask=last+.01)
-    h.core.market_data_snapshot_manager=NS(batch_snapshots=lambda symbols:({s:replace(snapshot,symbol=s,
-        asof_utc=h.life.clock.current,market_timestamp_utc=h.life.clock.current) for s in symbols},[]))
+    h.core.market_data_snapshot_manager=NS(batch_snapshots=lambda symbols:fixture_quote_batch(h,snapshot,symbols))
 
 
 def pullback_variant_joined(reassessment,monkeypatch,tmp_path,*,family,
@@ -1897,8 +1922,7 @@ def opening_drive_joined(reassessment,monkeypatch,tmp_path,*,position_case='comp
         prev_close=9.4,ref_close_rth=9.4,reference_price=9.4,gap_pct=(last/9.4-1)*100,
         pct_change=(last/9.4-1)*100,spread_pct=100*.02/last,dollar_volume=last*1_800_000)
     snapshot=replace(_snapshot(symbol='JPM'),last=last,bid=last-.01,ask=last+.01)
-    h.core.market_data_snapshot_manager=NS(batch_snapshots=lambda symbols:({s:replace(snapshot,symbol=s,
-        asof_utc=h.life.clock.current,market_timestamp_utc=h.life.clock.current) for s in symbols},[]))
+    h.core.market_data_snapshot_manager=NS(batch_snapshots=lambda symbols:fixture_quote_batch(h,snapshot,symbols))
     evaluator=TRIGGER_EVALUATOR_REGISTRY['OPENING_DRIVE'];h.opening_drive_triggers=[]
     def observed(payload,inputs):
         result=evaluator(payload,inputs)
@@ -2106,8 +2130,7 @@ def indicator_pullback_joined(reassessment,monkeypatch,tmp_path,*,family='EMA_PU
         spread_pct=100*(ask-bid)/last,dollar_volume=last*1_800_000,
         gap_pct=(last/9.4-1)*100,pct_change=(last/9.4-1)*100)
     snapshot=replace(_snapshot(symbol='JPM'),last=last,bid=bid,ask=ask)
-    h.core.market_data_snapshot_manager=NS(batch_snapshots=lambda symbols:({s:replace(snapshot,symbol=s,
-        asof_utc=h.life.clock.current,market_timestamp_utc=h.life.clock.current) for s in symbols},[]))
+    h.core.market_data_snapshot_manager=NS(batch_snapshots=lambda symbols:fixture_quote_batch(h,snapshot,symbols))
     evaluator=TRIGGER_EVALUATOR_REGISTRY[family];h.indicator_triggers=[]
     def observed(payload,inputs):
         result=evaluator(payload,inputs)
@@ -2662,8 +2685,7 @@ def standalone_bull_joined(reassessment,monkeypatch,tmp_path,*,news_fault='none'
     for row in h.rows.values():row.update(premarket_high=12.,last_price=10.88,bid=10.87,ask=10.89,
         gap_pct=(10.88/9.4-1)*100,pct_change=(10.88/9.4-1)*100,spread_pct=100*.02/10.88,dollar_volume=10.88*1_800_000)
     snapshot=replace(_snapshot(symbol='JPM'),last=10.88,bid=10.87,ask=10.89)
-    h.core.market_data_snapshot_manager=NS(batch_snapshots=lambda symbols:({s:replace(snapshot,symbol=s,
-        asof_utc=h.life.clock.current,market_timestamp_utc=h.life.clock.current) for s in symbols},[]))
+    h.core.market_data_snapshot_manager=NS(batch_snapshots=lambda symbols:fixture_quote_batch(h,snapshot,symbols))
     h.bull_triggers=[];original=TRIGGER_EVALUATOR_REGISTRY['BULL_FLAG']
     def observed(payload,inputs):
         out=original(payload,inputs);h.bull_triggers.append((deepcopy(payload),deepcopy(inputs),deepcopy(out)));return out
