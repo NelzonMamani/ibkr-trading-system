@@ -397,6 +397,93 @@ def validate_pristine_paper_memory_write(*, actual_client, expected_client, core
         role = 'stop'
     return root_id, role
 
+def validate_pristine_paper_market_fact(*, plan, quote, now, max_age):
+    """Accept raw quote facts only; actual source callbacks still build quotes."""
+    import math
+    def require(value, reason):
+        if not value:
+            raise ForbiddenExternalIO('PRISTINE_PAPER_MARKET_CERTIFICATE:' + reason)
+    require(isinstance(quote,dict) and set(quote) == {
+        'symbol','con_id','bid','ask','last_price','quote_timestamp_utc'}, 'FIELDS')
+    require(quote['symbol'] == plan['symbol'] and type(quote['con_id']) is int
+        and quote['con_id'] == plan['con_id'], 'SECURITY')
+    require(all(type(quote[key]) in (int,float) and math.isfinite(quote[key])
+        and quote[key] > 0 for key in ('bid','ask','last_price')), 'PRICE')
+    require(quote['bid'] <= quote['last_price'] <= quote['ask'], 'SPREAD')
+    stamp = datetime.fromisoformat(quote['quote_timestamp_utc'])
+    require(stamp.tzinfo is not None and 0 <= (now-stamp).total_seconds() <= max_age, 'TIME')
+    return {key:value for key,value in quote.items() if key not in {'symbol','con_id'}}
+
+def validate_pristine_paper_execution_fact(*, actual_client, expected_client, core,
+        plan, dispatches, raw, now):
+    """Bind supplied financial callbacks to the already dispatched native leg."""
+    def require(value, reason):
+        if not value:
+            raise ForbiddenExternalIO('PRISTINE_PAPER_EXECUTION_CERTIFICATE:' + reason)
+    require(actual_client is expected_client and core is not None
+        and os.environ.get('EXECUTION_ENV') == 'TEST', 'CLIENT')
+    engine = core.execution_engine
+    require(core.run_mode.value == engine.run_mode.value == 'PAPER'
+        and engine._native_callback_client() is expected_client
+        and expected_client.isConnected() and expected_client.client_id == plan['client_id']
+        and expected_client._position_connection_epoch == plan['epoch'], 'SCOPE')
+    require(isinstance(raw,dict) and set(raw) == {'leg','contract','execution','status'}, 'FIELDS')
+    matches = [row for row in dispatches if row['role'] == raw['leg']]
+    require(len(matches) == 1 and raw['leg'] in {'entry','stop'}, 'LEG')
+    bound = matches[0]
+    entries = [row for row in dispatches if row['role'] == 'entry']
+    require(len(entries) == 1 and bound['root_id'] == entries[0]['root_id']
+        and bound['root_id'] in engine._native_orders, 'ROOT')
+    contract = raw['contract']; execution = raw['execution']; status = raw['status']
+    require(contract == dict(symbol=plan['symbol'],conId=plan['con_id'],exchange=plan['exchange'],
+        currency=plan['currency'],secType='STK'), 'SECURITY')
+    require(set(execution) == {'execId','acctNumber','clientId','side','shares','cumQty',
+        'price','avgPrice','time'} and isinstance(execution['execId'],str) and execution['execId']
+        and execution['acctNumber'] == plan['account'] and type(execution['clientId']) is int
+        and execution['clientId'] == plan['client_id'], 'IDENTITY')
+    require(type(execution['shares']) is int and type(execution['cumQty']) is int
+        and execution['shares'] == execution['cumQty'] == 1, 'QUANTITY')
+    expected_price = plan['fill_price'] if raw['leg'] == 'entry' else plan.get('stop_fill_price')
+    require(type(execution['price']) in (int,float) and type(execution['avgPrice']) in (int,float)
+        and execution['price'] == execution['avgPrice'] == expected_price
+        and status == dict(status='Filled',filled=1,remaining=0,avgFillPrice=expected_price), 'FILL')
+    stamp = datetime.fromisoformat(execution['time'])
+    require(stamp.tzinfo is not None and stamp <= now, 'TIME')
+    native = bound['order']
+    if raw['leg'] == 'entry':
+        require(execution['side'] == 'BOT' and native['action'] == 'BUY'
+            and native['orderType'] == 'MKT' and native['parentId'] == 0, 'ENTRY')
+    else:
+        require(execution['side'] == 'SLD' and native['action'] == 'SELL'
+            and native['orderType'] == 'STP' and native['auxPrice'] == plan['stop_price']
+            and native['parentId'] == entries[0]['native_id']
+            and native['orderRef'] == 'PROTECT|' + bound['root_id']
+            and expected_price <= plan['stop_price'], 'STOP')
+        trade = engine._trade_lifecycle_engine.get_trade(bound['root_id'])
+        require(trade is not None and trade.entry_avg_price == plan['fill_price']
+            and trade.stop_price == plan['stop_price'] and trade.target_price is None
+            and datetime.fromisoformat(trade.opened_at) <= stamp, 'ACCOUNTED_ENTRY')
+    return bound
+
+def observed_pristine_paper_exposure_release(actual_release, owner, label, *args, **kwargs):
+    """Observe and forward the actual instance method exactly once, unmodified."""
+    def exposure():
+        return (owner.total_used_exposure if label == 'capital'
+                else owner.strategy_used_exposure(kwargs['strategy_id']))
+    row = dict(authority=label,cycle=active_cycle[0],args=plain(args),kwargs=plain(kwargs),
+        exposure_before=exposure())
+    report['exposure_release_calls'].append(row)
+    try:
+        result = actual_release(*args, **kwargs)
+    except BaseException as exc:
+        row['exception'] = exception_record(exc)
+        raise
+    else:
+        row['result'] = plain(result)
+        return result
+    finally:
+        row['exposure_after'] = exposure()
+
 def validate_pristine_paper_history_read(*, actual_client, expected_client, core,
         plan, fields, owned_reads, timeframe_request, source_response, supplied_bars,
         now, monotonic_now, max_scope_age):
@@ -1074,6 +1161,14 @@ try:
         scanner_runner._select_ross_focus_contexts = observed_focus
         if facts.get('observe_pristine_paper_cycle'):
             report['execution_results'] = []
+            if facts.get('observe_pristine_paper_loss_feedback'):
+                report['exposure_release_calls'] = []
+                for label,owner in (('capital',core.execution_engine.capital_authority),
+                        ('allocation',core.execution_engine.strategy_allocation_authority)):
+                    actual_release = owner.release_exposure
+                    def observed_release(*args,_actual=actual_release,_owner=owner,_label=label,**kwargs):
+                        return observed_pristine_paper_exposure_release(_actual,_owner,_label,*args,**kwargs)
+                    owner.release_exposure = observed_release
             actual_execute = core.execution_engine.execute_trade
             def observed_execute(decision):
                 result = actual_execute(decision)
@@ -1107,6 +1202,11 @@ try:
                 cycle['exception'] = exception_record(exc)
                 report['cycle_exception'] = cycle['exception']
             cycle['engine'] = engine_snapshot(core.execution_engine)
+            governor = core.daily_risk_governor
+            cycle['daily_risk'] = dict(state=plain(governor.state),
+                decision=(governor.last_decision.to_dict() if governor.last_decision is not None else None))
+            if facts.get('observe_pristine_paper_loss_feedback'):
+                cycle['exposure_release_calls_after'] = len(report['exposure_release_calls'])
             cycle['database'] = database_snapshot()
             cycle['native'] = native_namespace(cycle['database'])
             cycle['cached_reads_after'] = len(report['cached_order_status_reads'])
@@ -1126,8 +1226,14 @@ try:
                 raise ValueError('PRISTINE_PAPER_STEPS_INVALID')
             from decimal import Decimal
             from ibapi.execution import Execution
+            report['paper_execution_callbacks'] = []
             for step in paper_steps:
                 observed = datetime.fromisoformat(step['now'])
+                if 'market_quote' in step:
+                    from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
+                    update = validate_pristine_paper_market_fact(plan=facts['paper_memory_plan'],
+                        quote=step['market_quote'],now=observed,max_age=get_ibkr_snapshot_max_age_seconds())
+                    candidates[facts['paper_memory_plan']['symbol']].update(update)
                 positions = [NS(**row) for row in step['positions']]
                 supplied_orders = []
                 for raw in step['open_orders']:
@@ -1150,10 +1256,9 @@ try:
                 for row in orders:
                     client.openOrder(row.orderId,row.contract,row.order,row.orderState)
                 for raw in step.get('executions', []):
-                    matches = [row for row in report['synthetic_memory_dispatches'] if row['role']==raw['leg']]
-                    if len(matches)!=1:
-                        raise ForbiddenExternalIO('UNBOUND_PAPER_EXECUTION_LEG')
-                    bound = matches[0]
+                    bound = validate_pristine_paper_execution_fact(actual_client=client,expected_client=client,
+                        core=core,plan=facts['paper_memory_plan'],dispatches=report['synthetic_memory_dispatches'],
+                        raw=raw,now=observed)
                     contract = Contract()
                     for name,value in raw['contract'].items():
                         setattr(contract,name,value)
@@ -1164,8 +1269,10 @@ try:
                     client.execDetails(-1,contract,execution)
                     status = raw['status']
                     client.orderStatus(bound['native_id'],status['status'],status['filled'],
-                        status['remaining'],status['avgFillPrice'],bound['native_id'],0,
+                        status['remaining'],status['avgFillPrice'],bound['native_id'],bound['order']['parentId'],
                         status['avgFillPrice'],raw['execution']['clientId'],'',0.)
+                    report['paper_execution_callbacks'].append(dict(leg=raw['leg'],native_id=bound['native_id'],
+                        root_id=bound['root_id'],parent_id=bound['order']['parentId'],execution=plain(execution)))
                 report['paper_external_steps'].append(plain(step))
                 run_actual_cycle(step['name'],1)
         elif scenarios is None:
