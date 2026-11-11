@@ -356,7 +356,7 @@ class DailyRiskGovernor:
         reset_key = f"{trading_day}:{self.timezone_name}:{self._reset_time_local().isoformat(timespec='minutes')}"
         event_metrics = self._metrics_from_events(trading_day)
         storage_metrics = self._metrics_from_storage(trading_day)
-        lifecycle_metrics = self._metrics_from_lifecycle(trading_day)
+        lifecycle_metrics = self._metrics_from_lifecycle(trading_day, now=now_utc)
         broker_metrics = self._metrics_from_broker_fills(trading_day)
 
         realized_metrics = self._merge_realized_metrics(
@@ -516,7 +516,7 @@ class DailyRiskGovernor:
         strategy = payload.get("strategy_name") or payload.get("strategy")
         return str(account or ""), str(root or ""), str(strategy or "")
 
-    def _metrics_from_lifecycle(self, trading_day: str) -> _DailyRiskMetrics:
+    def _metrics_from_lifecycle(self, trading_day: str, *, now: datetime) -> _DailyRiskMetrics:
         engine = self.trade_lifecycle_engine
         if engine is None:
             return _DailyRiskMetrics()
@@ -533,16 +533,30 @@ class DailyRiskGovernor:
                 metrics = self._metrics_from_trade_payloads(payloads, read_attempted=True, canonical=True)
                 failed = required and (not available or pending or uncertain)
                 include_unrealized = self._bool_config("DAILY_RISK_INCLUDE_UNREALIZED", False)
-                if not failed and required and include_unrealized and snapshot.get("native_unrealized_marks_present") is not True:
-                    # This shared owner flag detects absence/invalidity only;
-                    # it does not certify price freshness or mark provenance.
-                    return replace(metrics, read_failed=True, required_accounting=True,
-                        failure_reason="NATIVE_UNREALIZED_VALUATION_UNAVAILABLE")
                 raw_unrealized = snapshot.get("unrealized_pnl", 0.0)
+                if not failed and required and include_unrealized:
+                    try:
+                        valuation_reader = getattr(engine, "native_valuation_snapshot", None)
+                        valuation = (valuation_reader(now=now,
+                            max_age_seconds=get_config("IBKR_SNAPSHOT_MAX_AGE_SECONDS"))
+                            if callable(valuation_reader) else None)
+                        if not isinstance(valuation, dict) or valuation.get("available") is not True:
+                            detail = valuation.get("reason") if isinstance(valuation, dict) else "OWNER_UNAVAILABLE"
+                            raise ValueError(str(detail or "INCOMPLETE"))
+                        raw_unrealized = (self._finite_number(valuation.get("unrealized_pnl"))
+                            + self._finite_number(valuation.get("legacy_unrealized_pnl", 0.0)))
+                    except Exception as exc:
+                        # Valuation uncertainty must retain already committed
+                        # realized deltas and counts, never replace them by zero.
+                        return replace(metrics, read_failed=True, required_accounting=True,
+                            failure_reason="NATIVE_UNREALIZED_VALUATION_UNAVAILABLE:" + str(exc))
                 try:
                     unrealized = self._finite_number(raw_unrealized)
-                except (TypeError, ValueError):
+                except (TypeError, ValueError) as exc:
                     if include_unrealized:
+                        if required:
+                            return replace(metrics, read_failed=True, required_accounting=True,
+                                failure_reason="NATIVE_UNREALIZED_VALUATION_UNAVAILABLE:" + str(exc))
                         raise
                     # Excluded valuation cannot erase committed realized data.
                     # include_unrealized=False makes this an ignored projection.

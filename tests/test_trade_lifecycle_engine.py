@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -8,7 +9,7 @@ import pytest
 from src.config.config_resolver import set_config_overrides
 from src.core.orchestrator import CoreOrchestrator
 from src.core.engines.position_management_engine import ManagedPosition
-from src.core.engines.trade_lifecycle_engine import LifecycleEvent, TradeLifecycleEngine
+from src.core.engines.trade_lifecycle_engine import LifecycleEvent, NativeValuationObservation, TradeLifecycleEngine
 from src.core.portfolio.broker_position_adapter import BrokerPositionSnapshot
 from src.models.data_models import ExecutionResult, RiskDecision, TradeIntent
 from src.scanner.result_models import CandidateMetrics
@@ -21,7 +22,9 @@ def native_lifecycle(isolated_runtime_schema):
         "PERSISTENCE_ENABLED": True, "PERSISTENCE_BACKEND": "sqlite", "PERSIST_FLUSH_EACH_CYCLE": True})
     storage = StorageEngine()
     try:
-        yield TradeLifecycleEngine(storage), storage
+        engine = TradeLifecycleEngine(storage)
+        engine._test_native_valuation_client = SimpleNamespace(client_id=71, _position_connection_epoch=3, isConnected=lambda: True)
+        yield engine, storage
     finally:
         storage.shutdown()
         set_config_overrides(None)
@@ -891,3 +894,237 @@ def test_native_entry_equal_to_prior_exit_retains_existing_coarse_time_order(nat
     assert trade.gross_realized_pnl == prior_pnl and trade.closed_at is None
     assert trade.stop_price == 10. and trade.target_price is None
     assert engine.native_feedback_snapshot()['available']
+
+
+def _native_valuation(engine, **changes):
+    requirement = engine.native_valuation_requirements()[0]
+    return NativeValuationObservation(**{key: value for key, value in requirement.items()
+        if key != 'native_order_id'}, price=10.25, market_timestamp='2026-10-20T13:35:10+00:00',
+        acquisition_completed_at='2026-10-20T13:35:11+00:00', request_id=101,
+        source='IBKR', timestamp_kind='LAST_TRADE', market_data_type='LIVE', completed=True,
+        **changes)
+
+
+VALUATION_NOW = datetime(2026, 10, 20, 13, 35, 12, tzinfo=timezone.utc)
+
+
+def test_native_valuation_commits_audit_pair_without_creating_a_fill(native_lifecycle):
+    engine, storage = native_lifecycle
+    event, identity = _native_event('entry', 'ENTRY_FILL', 2, 10.5)
+    original = _apply_native(engine, event, identity, 0)
+    before = engine._trade_snapshot_payload(original)
+    observed = _native_valuation(engine)
+    marked = engine.apply_native_valuation(observed, now=VALUATION_NOW, max_age_seconds=15, source_client=engine._test_native_valuation_client)
+    assert original.last_mark_price is None  # Copy-on-write publication.
+    assert engine.get_trade('NATIVE-ROOT') is marked and marked.last_mark_price == 10.25
+    assert marked.unrealized_pnl == -.5
+    after = engine._trade_snapshot_payload(marked)
+    assert {key: value for key, value in before.items() if key not in {'last_mark_price', 'unrealized_pnl', 'updated_at'}} == {
+        key: value for key, value in after.items() if key not in {'last_mark_price', 'unrealized_pnl', 'updated_at'}}
+    assert marked.source_execution_ids == {'EXEC-entry'}
+    assert marked.stop_price == 10 and marked.target_price is None
+    assert len(engine.native_feedback_snapshot()['events']) == 1
+    persisted = storage.fetch_trade_lifecycle_events()
+    assert len(persisted) == 2 and {row['event_type'] for row in persisted} == {'ENTRY_FILL', 'NATIVE_MARK'}
+    mark = next(row for row in persisted if row['event_type'] == 'NATIVE_MARK')
+    assert mark['quantity'] == 0 and mark['execution_id'] is None
+    assert storage.fetch_trade_lifecycle_trades()[0]['unrealized_pnl'] == -.5
+    snapshot = engine.native_valuation_snapshot(now=VALUATION_NOW, max_age_seconds=15)
+    assert snapshot['available'] and snapshot['unrealized_pnl'] == -.5
+    assert snapshot['marks'][0]['basis_event_ids'] == ('entry',)
+    assert engine.apply_native_valuation(observed, now=VALUATION_NOW, max_age_seconds=15, source_client=engine._test_native_valuation_client) is marked
+    assert len(storage.fetch_trade_lifecycle_events()) == 2
+
+
+@pytest.mark.parametrize('changes', [
+    {'root_order_id': 'OTHER'}, {'account': 'OTHER'}, {'strategy': 'OTHER'}, {'symbol': 'AAPL'},
+    {'side': 'SHORT'}, {'con_id': 124}, {'con_id': True}, {'client_id': 72},
+    {'connection_epoch': 4}, {'quantity': 1}, {'quantity': True}, {'entry_avg_price': 11.},
+    {'basis_event_ids': ('missing',)}, {'basis_event_ids': ['entry']},
+    {'last_fill_timestamp': '2026-10-20T13:34:59+00:00'}, {'price': True},
+    {'price': float('nan')}, {'price': 0}, {'request_id': True}, {'request_id': 0},
+    {'source': 'SIM'}, {'timestamp_kind': 'CLOSE'}, {'market_data_type': 'DELAYED'},
+    {'completed': False}, {'completed': 1}, {'quality_flags': ('ERROR',)}, {'quality_flags': []},
+    {'market_timestamp': '2026-10-20T13:34:59+00:00'},
+    {'market_timestamp': '2026-10-20T13:35:13+00:00'},
+    {'market_timestamp': '2026-10-20T13:35:10'},
+    {'acquisition_completed_at': '2026-10-20T13:35:09+00:00'},
+    {'acquisition_completed_at': '2026-10-20T13:35:13+00:00'},
+])
+def test_native_valuation_rejects_unbound_or_incomplete_quote_without_financial_poison(native_lifecycle, changes):
+    engine, storage = native_lifecycle
+    entry, identity = _native_event('entry', 'ENTRY_FILL', 2, 10.5)
+    trade = _apply_native(engine, entry, identity, 0)
+    observation = replace(_native_valuation(engine), **changes)
+    with pytest.raises(ValueError):
+        engine.apply_native_valuation(observation, now=VALUATION_NOW, max_age_seconds=15, source_client=engine._test_native_valuation_client)
+    assert trade.last_mark_price is None and trade.unrealized_pnl == 0
+    assert len(storage.fetch_trade_lifecycle_events()) == 1
+    assert engine.native_feedback_snapshot()['available']
+    assert not engine.native_valuation_snapshot(now=VALUATION_NOW, max_age_seconds=15)['available']
+    assert not engine._native_valuation_uncertain
+
+
+def test_native_valuation_freshness_inclusive_boundary_and_refresh_revocation(native_lifecycle):
+    engine, storage = native_lifecycle
+    entry, identity = _native_event('entry', 'ENTRY_FILL', 1, 10.5)
+    _apply_native(engine, entry, identity, 0)
+    observation = _native_valuation(engine)
+    boundary = VALUATION_NOW + timedelta(seconds=13)
+    engine.apply_native_valuation(observation, now=boundary, max_age_seconds=15, source_client=engine._test_native_valuation_client)
+    assert engine.native_valuation_snapshot(now=boundary, max_age_seconds=15)['available']
+    assert not engine.native_valuation_snapshot(now=boundary + timedelta(microseconds=1), max_age_seconds=15)['available']
+    assert not engine.native_valuation_snapshot(now=VALUATION_NOW - timedelta(seconds=3), max_age_seconds=15)['available']
+    engine.mark_native_valuation_unavailable('NATIVE-ROOT', 'CURRENT_QUOTE_MISSING')
+    snapshot = engine.native_valuation_snapshot(now=VALUATION_NOW, max_age_seconds=15)
+    assert not snapshot['available'] and snapshot['reason'] == 'CURRENT_QUOTE_MISSING'
+    assert engine.native_feedback_snapshot()['available'] and not engine.native_feedback_snapshot()['native_unrealized_marks_present']
+    # A completed fresh acquisition can supersede unavailable facts, not an
+    # unknown persistence attempt. Identical already-committed facts dedupe.
+    engine.apply_native_valuation(observation, now=VALUATION_NOW, max_age_seconds=15, source_client=engine._test_native_valuation_client)
+    assert engine.native_valuation_snapshot(now=VALUATION_NOW, max_age_seconds=15)['available']
+    assert len(storage.fetch_trade_lifecycle_events()) == 2
+
+
+@pytest.mark.parametrize('failure', ['before_write', 'lost_ack'])
+def test_native_valuation_write_uncertainty_preserves_factual_fill_and_never_retries(native_lifecycle, monkeypatch, failure):
+    engine, storage = native_lifecycle
+    entry, identity = _native_event('entry', 'ENTRY_FILL', 2, 10.5)
+    original = _apply_native(engine, entry, identity, 0)
+    observation = _native_valuation(engine)
+    persist = storage.persist_native_lifecycle_feedback
+    calls = []
+    def interrupted(*args, **kwargs):
+        calls.append(args[1]['event_type'])
+        if failure == 'lost_ack':
+            persist(*args, **kwargs)
+        raise OSError('MARK_WRITE_UNKNOWN')
+    monkeypatch.setattr(storage, 'persist_native_lifecycle_feedback', interrupted)
+    with pytest.raises(OSError, match='MARK_WRITE_UNKNOWN'):
+        engine.apply_native_valuation(observation, now=VALUATION_NOW, max_age_seconds=15, source_client=engine._test_native_valuation_client)
+    assert engine.get_trade('NATIVE-ROOT') is original and original.last_mark_price is None
+    assert engine.native_feedback_snapshot()['available']
+    assert not engine.native_valuation_snapshot(now=VALUATION_NOW, max_age_seconds=15)['available']
+    persisted = storage.fetch_trade_lifecycle_trades()[0]
+    assert persisted['last_mark_price'] == (10.25 if failure == 'lost_ack' else None)
+    monkeypatch.setattr(storage, 'persist_native_lifecycle_feedback', persist)
+    with pytest.raises(RuntimeError, match='UNCERTAIN'):
+        engine.apply_native_valuation(observation, now=VALUATION_NOW, max_age_seconds=15, source_client=engine._test_native_valuation_client)
+    assert calls == ['NATIVE_MARK']
+    exit_event, child = _native_event('partial', 'STOP_EXIT', 1, 10.25,
+        native_id=72, timestamp='2026-10-20T13:35:20+00:00')
+    trade = _apply_native(engine, exit_event, child, 2)
+    assert trade.quantity_open == 1 and trade.gross_realized_pnl == -.25
+    assert trade.last_mark_price is None and trade.unrealized_pnl == 0
+    assert engine.native_feedback_snapshot()['available']
+    snapshot = engine.native_valuation_snapshot(now=VALUATION_NOW + timedelta(seconds=10), max_age_seconds=15)
+    assert not snapshot['available'] and snapshot['uncertain'] == {'NATIVE-ROOT': 'MARK_WRITE_UNKNOWN'}
+    final, child = _native_event('final', 'STOP_EXIT', 1, 10.25,
+        native_id=72, timestamp='2026-10-20T13:35:21+00:00')
+    _apply_native(engine, final, child, 1)
+    assert engine.native_feedback_snapshot()['available'] and trade.quantity_open == 0
+    snapshot = engine.native_valuation_snapshot(now=VALUATION_NOW + timedelta(seconds=10), max_age_seconds=15)
+    assert not snapshot['available'] and snapshot['uncertain']  # Flat is not recovery clearing.
+    assert [row['event_type'] for row in engine.native_feedback_snapshot()['events']] == ['ENTRY_FILL', 'STOP_EXIT', 'STOP_EXIT']
+
+
+def test_native_valuation_superseded_by_actual_partial_fill_requires_new_basis(native_lifecycle):
+    engine, storage = native_lifecycle
+    entry, identity = _native_event('entry', 'ENTRY_FILL', 2, 10.5)
+    _apply_native(engine, entry, identity, 0)
+    observation = _native_valuation(engine)
+    engine.apply_native_valuation(observation, now=VALUATION_NOW, max_age_seconds=15, source_client=engine._test_native_valuation_client)
+    exit_event, child = _native_event('partial', 'PARTIAL_EXIT', 1, 10.25,
+        native_id=72, timestamp='2026-10-20T13:35:20+00:00')
+    trade = _apply_native(engine, exit_event, child, 2)
+    assert trade.quantity_open == 1 and trade.last_mark_price is None and trade.unrealized_pnl == 0
+    assert not engine.native_valuation_snapshot(now=VALUATION_NOW + timedelta(seconds=10), max_age_seconds=15)['available']
+    with pytest.raises(ValueError, match='EVIDENCE_INVALID'):
+        engine.apply_native_valuation(observation, now=VALUATION_NOW + timedelta(seconds=10), max_age_seconds=15, source_client=engine._test_native_valuation_client)
+    requirement = engine.native_valuation_requirements()[0]
+    assert requirement['basis_event_ids'] == ('entry', 'partial')
+    assert requirement['last_fill_timestamp'] == '2026-10-20T13:35:20+00:00'
+    current = replace(observation, quantity=1, basis_event_ids=requirement['basis_event_ids'],
+        last_fill_timestamp=requirement['last_fill_timestamp'], market_timestamp='2026-10-20T13:35:21+00:00',
+        acquisition_completed_at='2026-10-20T13:35:22+00:00', request_id=102)
+    engine.apply_native_valuation(current, now=VALUATION_NOW + timedelta(seconds=10), max_age_seconds=15, source_client=engine._test_native_valuation_client)
+    snapshot = engine.native_valuation_snapshot(now=VALUATION_NOW + timedelta(seconds=10), max_age_seconds=15)
+    assert snapshot['available'] and snapshot['unrealized_pnl'] == -.25
+    assert engine.native_feedback_snapshot()['events'][-1]['metadata']['quantity_after'] == 1
+
+
+def test_native_valuation_cold_rows_and_legacy_handmark_are_not_scoped_authority(native_lifecycle):
+    engine, storage = native_lifecycle
+    entry, identity = _native_event('entry', 'ENTRY_FILL', 1, 10.5)
+    _apply_native(engine, entry, identity, 0)
+    engine.apply_mark_price(trade_id='NATIVE-ROOT', price=10.25)
+    assert engine.native_feedback_snapshot()['available']
+    assert not engine.native_feedback_snapshot()['native_unrealized_marks_present']
+    assert not engine.native_valuation_snapshot(now=VALUATION_NOW, max_age_seconds=15)['available']
+    cold = TradeLifecycleEngine(storage)
+    cold.recover_open_state()
+    assert cold.native_valuation_requirements() == [] and cold._native_valuations == {}
+    assert cold.get_trade('NATIVE-ROOT').last_mark_price == 10.25  # Inspection only.
+    with pytest.raises(ValueError, match='COMMITTED_OPEN_ROOT_REQUIRED'):
+        cold.apply_native_valuation(_native_valuation(engine), now=VALUATION_NOW, max_age_seconds=15, source_client=engine._test_native_valuation_client)
+
+
+@pytest.mark.parametrize('change', ['same_scope_replacement', 'epoch_changed', 'disconnected', 'stopped'])
+def test_native_valuation_rechecks_actual_client_object_scope_at_admission(native_lifecycle, change):
+    from threading import Event
+    engine, storage = native_lifecycle
+    entry, identity = _native_event('entry', 'ENTRY_FILL', 1, 10.5)
+    _apply_native(engine, entry, identity, 0)
+    client = engine._test_native_valuation_client
+    engine.apply_native_valuation(_native_valuation(engine), now=VALUATION_NOW, max_age_seconds=15, source_client=client)
+    expected_client = client
+    if change == 'same_scope_replacement':
+        expected_client = SimpleNamespace(client_id=71, _position_connection_epoch=3, isConnected=lambda: True)
+    elif change == 'epoch_changed':
+        client._position_connection_epoch = 4
+    elif change == 'disconnected':
+        client.isConnected = lambda: False
+    else:
+        client._stop_event = Event()
+        client._stop_event.set()
+    snapshot = engine.native_valuation_snapshot(now=VALUATION_NOW, max_age_seconds=15,
+        expected_source_client=expected_client)
+    assert not snapshot['available'] and snapshot['reason'] == 'NATIVE_VALUATION_SOURCE_SCOPE_CHANGED'
+    assert engine.native_feedback_snapshot()['available']
+    assert len(storage.fetch_trade_lifecycle_events()) == 2
+
+
+@pytest.mark.parametrize('interruption', ['factual_fill', 'scope_change'])
+def test_native_valuation_postwrite_change_cannot_overwrite_current_financial_facts(native_lifecycle, monkeypatch, interruption):
+    engine, storage = native_lifecycle
+    entry, identity = _native_event('entry', 'ENTRY_FILL', 2, 10.5)
+    _apply_native(engine, entry, identity, 0)
+    observation = _native_valuation(engine)
+    client = engine._test_native_valuation_client
+    persist = storage.persist_native_lifecycle_feedback
+    def changed_after_commit(*args, **kwargs):
+        receipt = persist(*args, **kwargs)
+        if args[1]['event_type'] == 'NATIVE_MARK':
+            if interruption == 'scope_change':
+                client._position_connection_epoch += 1
+            else:
+                partial, child = _native_event('raced-partial', 'STOP_EXIT', 1, 10.25,
+                    native_id=72, timestamp='2026-10-20T13:35:20+00:00')
+                _apply_native(engine, partial, child, 2)
+        return receipt
+    monkeypatch.setattr(storage, 'persist_native_lifecycle_feedback', changed_after_commit)
+    error = 'BASIS_CHANGED_DURING_PERSISTENCE' if interruption == 'factual_fill' else 'SOURCE_CHANGED_DURING_PERSISTENCE'
+    with pytest.raises(RuntimeError, match=error):
+        engine.apply_native_valuation(observation, now=VALUATION_NOW, max_age_seconds=15, source_client=client)
+    current = engine.get_trade('NATIVE-ROOT')
+    persisted = storage.fetch_trade_lifecycle_trades()[0]
+    assert current.last_mark_price is None  # No post-write stale publication.
+    assert current.quantity_open == (1 if interruption == 'factual_fill' else 2)
+    assert current.gross_realized_pnl == (-.25 if interruption == 'factual_fill' else 0)
+    assert persisted['quantity_open'] == current.quantity_open
+    assert persisted['gross_realized_pnl'] == current.gross_realized_pnl
+    assert engine.native_feedback_snapshot()['available']
+    assert engine.native_valuation_snapshot(now=VALUATION_NOW, max_age_seconds=15)['uncertain']
+    # The committed mark's audit remains; financial fill IDs never include it.
+    assert any(row['event_type'] == 'NATIVE_MARK' for row in storage.fetch_trade_lifecycle_events())
+    assert all(row['event_type'] != 'NATIVE_MARK' for row in engine.native_feedback_snapshot()['events'])

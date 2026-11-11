@@ -496,7 +496,13 @@ def test_duplicate_daily_history_trade_is_not_double_counted() -> None:
     assert decision.daily_trade_count == 1
 
 
-def test_orchestrator_gate_blocks_before_strategy_when_daily_risk_locked() -> None:
+def test_orchestrator_gate_blocks_before_strategy_when_daily_risk_locked(monkeypatch) -> None:
+    import src.core.orchestrator as orchestrator_module
+    class CoreClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return NOW if tz is None else NOW.astimezone(tz)
+    monkeypatch.setattr(orchestrator_module, "datetime", CoreClock)
     _set_config(DAILY_RISK_MAX_LOSS_AMOUNT=10.0)
     events = EventCollector()
     _record_closed_trade(events, -11.0)
@@ -1101,3 +1107,145 @@ def test_unrealized_mark_absence_barrier_does_not_enroll_legacy_roots(native_lif
     assert trade.last_mark_price is None
     decision = _native_governor(engine, storage).evaluate(run_mode="PAPER", now=NOW)
     assert not decision.blocks_new_entries
+
+
+def _qualified_native_mark(engine, *, now=NOW, price=10.32, market_time=None):
+    from threading import Event
+    from src.core.engines.trade_lifecycle_engine import NativeValuationObservation
+    required, = engine.native_valuation_requirements()
+    observation = NativeValuationObservation(**{key: value for key, value in required.items()
+        if key != "native_order_id"}, price=price,
+        market_timestamp=(market_time or now).isoformat(),
+        acquisition_completed_at=now.isoformat(), request_id=91,
+        source="IBKR", timestamp_kind="LAST_TRADE", market_data_type="LIVE", completed=True)
+    client = SimpleNamespace(client_id=required["client_id"],
+        _position_connection_epoch=required["connection_epoch"],
+        isConnected=lambda: True, _stop_event=Event())
+    engine.apply_native_valuation(observation, now=now, max_age_seconds=15, source_client=client)
+    return observation
+
+
+@pytest.mark.parametrize("price,blocked", [(10.34, False), (10.33, True), (10.32, True)])
+def test_qualified_native_unrealized_loss_obeys_existing_inclusive_daily_comparator(native_lifecycle, price, blocked):
+    engine, storage = native_lifecycle
+    _set_config(DAILY_RISK_INCLUDE_UNREALIZED=True, DAILY_RISK_MAX_LOSS_AMOUNT=.20)
+    _canonical_fill(engine, "entry", "ENTRY_FILL", 1, 10.53)
+    _qualified_native_mark(engine, price=price)
+    governor = _native_governor(engine, storage)
+    for _ in range(2):
+        decision = governor.evaluate(run_mode="PAPER", now=NOW)
+        assert governor.state.recovered and governor.state.recovery_error is None
+        assert decision.realized_pnl == 0
+        assert decision.unrealized_pnl == round(price - 10.53, 2)
+        assert decision.daily_trade_count == decision.losing_trade_count == 0
+        assert decision.blocks_new_entries is blocked
+        assert decision.allows_existing_position_management
+    assert engine.get_trade("NATIVE-ROOT").target_price is None
+    assert len(engine.native_feedback_snapshot()["events"]) == 1
+
+
+@pytest.mark.parametrize("age,blocked", [(0, False), (15, False), (15.000001, True), (-.000001, True)])
+def test_native_valuation_age_is_rechecked_at_daily_admission_without_renewal(native_lifecycle, age, blocked):
+    from datetime import timedelta
+    engine, storage = native_lifecycle
+    _set_config(DAILY_RISK_INCLUDE_UNREALIZED=True, DAILY_RISK_MAX_LOSS_AMOUNT=1.0,
+        IBKR_SNAPSHOT_MAX_AGE_SECONDS=15)
+    _canonical_fill(engine, "entry", "ENTRY_FILL", 1, 10.53)
+    _qualified_native_mark(engine, price=10.43)
+    decision = _native_governor(engine, storage).evaluate(run_mode="PAPER", now=NOW + timedelta(seconds=age))
+    assert decision.blocks_new_entries is blocked
+    assert decision.daily_trade_count == 0 and decision.realized_pnl == 0
+    if blocked:
+        assert "NATIVE_UNREALIZED_VALUATION_UNAVAILABLE" in decision.reason
+    else:
+        assert decision.unrealized_pnl == -.10
+    mark, = engine.native_valuation_snapshot(now=NOW, max_age_seconds=15)["marks"]
+    assert mark["market_timestamp"] == NOW.isoformat()
+
+
+def test_legacy_hand_mark_cannot_certify_strict_native_valuation(native_lifecycle):
+    engine, storage = native_lifecycle
+    _set_config(DAILY_RISK_INCLUDE_UNREALIZED=True)
+    trade = _canonical_fill(engine, "entry", "ENTRY_FILL", 1, 10.53)
+    engine.apply_mark_price(trade_id=trade.lifecycle_trade_id, price=10.43)
+    decision = _native_governor(engine, storage).evaluate(run_mode="PAPER", now=NOW)
+    assert decision.blocks_new_entries
+    assert "NATIVE_UNREALIZED_VALUATION_UNAVAILABLE" in decision.reason
+    assert decision.realized_pnl == 0 and decision.daily_trade_count == 0
+
+
+def test_real_fill_invalidates_previous_quantity_valuation_before_daily_gate(native_lifecycle):
+    engine, storage = native_lifecycle
+    _set_config(DAILY_RISK_INCLUDE_UNREALIZED=True, DAILY_RISK_MAX_LOSS_AMOUNT=1.0)
+    _canonical_fill(engine, "entry", "ENTRY_FILL", 2, 10.53)
+    _qualified_native_mark(engine, price=10.43)
+    _canonical_fill(engine, "partial", "PARTIAL_EXIT", 1, 10.28)
+    governor = _native_governor(engine, storage)
+    missing = governor.evaluate(run_mode="PAPER", now=NOW)
+    assert missing.blocks_new_entries and missing.realized_pnl == -.25
+    assert "NATIVE_UNREALIZED_VALUATION_UNAVAILABLE" in missing.reason
+    assert missing.daily_trade_count == 0 and missing.allows_existing_position_management
+    _qualified_native_mark(engine, price=10.43)
+    refreshed = governor.evaluate(run_mode="PAPER", now=NOW)
+    assert governor.state.recovered and not refreshed.blocks_new_entries
+    assert refreshed.realized_pnl == -.25 and refreshed.unrealized_pnl == -.10
+    assert refreshed.daily_trade_count == 0
+
+
+def test_revoked_quote_does_not_reuse_previous_fresh_native_mark(native_lifecycle):
+    engine, storage = native_lifecycle
+    _set_config(DAILY_RISK_INCLUDE_UNREALIZED=True)
+    _canonical_fill(engine, "entry", "ENTRY_FILL", 1, 10.53)
+    _qualified_native_mark(engine, price=10.43)
+    engine.mark_native_valuation_unavailable("NATIVE-ROOT", "EXTERNAL_QUOTE_MISSING")
+    decision = _native_governor(engine, storage).evaluate(run_mode="PAPER", now=NOW)
+    assert decision.blocks_new_entries and "EXTERNAL_QUOTE_MISSING" in decision.reason
+    assert decision.realized_pnl == 0 and decision.daily_trade_count == 0
+
+
+def test_uncertain_mark_commit_preserves_real_fill_and_realized_daily_risk(native_lifecycle, monkeypatch):
+    engine, storage = native_lifecycle
+    _set_config(DAILY_RISK_INCLUDE_UNREALIZED=True, DAILY_RISK_MAX_LOSS_AMOUNT=1.0)
+    _canonical_fill(engine, "entry", "ENTRY_FILL", 2, 10.53)
+    _canonical_fill(engine, "partial", "PARTIAL_EXIT", 1, 10.28)
+    persist = storage.persist_native_lifecycle_feedback
+    def commit_then_lose_ack(*args, **kwargs):
+        persist(*args, **kwargs)
+        raise OSError("synthetic native mark acknowledgement lost")
+    monkeypatch.setattr(storage, "persist_native_lifecycle_feedback", commit_then_lose_ack)
+    with pytest.raises(OSError, match="acknowledgement lost"):
+        _qualified_native_mark(engine, price=10.43)
+    governor = _native_governor(engine, storage)
+    uncertain = governor.evaluate(run_mode="PAPER", now=NOW)
+    assert uncertain.blocks_new_entries and uncertain.realized_pnl == -.25
+    assert uncertain.daily_trade_count == 0 and uncertain.allows_existing_position_management
+    assert engine.native_feedback_snapshot()["available"]
+    monkeypatch.setattr(storage, "persist_native_lifecycle_feedback", persist)
+    _canonical_fill(engine, "final", "STOP_EXIT", 1, 10.28)
+    final = governor.evaluate(run_mode="PAPER", now=NOW)
+    assert final.realized_pnl == -.50 and final.daily_trade_count == final.losing_trade_count == 1
+    assert final.blocks_new_entries and "NATIVE_UNREALIZED_VALUATION_UNAVAILABLE" in final.reason
+    assert engine.get_trade("NATIVE-ROOT").quantity_open == 0
+    assert engine.native_feedback_snapshot()["available"]
+    _set_config(DAILY_RISK_INCLUDE_UNREALIZED=False, DAILY_RISK_MAX_LOSS_AMOUNT=1.0)
+    excluded = governor.evaluate(run_mode="PAPER", now=NOW)
+    assert excluded.realized_pnl == -.50 and excluded.daily_trade_count == 1
+    assert not excluded.blocks_new_entries
+
+
+def test_invalid_legacy_valuation_cannot_erase_committed_native_partial_loss(native_lifecycle):
+    from src.core.engines.trade_lifecycle_engine import LifecycleEvent
+    engine, storage = native_lifecycle
+    _set_config(DAILY_RISK_INCLUDE_UNREALIZED=True, DAILY_RISK_MAX_LOSS_AMOUNT=1.0)
+    _canonical_fill(engine, "entry", "ENTRY_FILL", 2, 10.53)
+    _canonical_fill(engine, "partial", "PARTIAL_EXIT", 1, 10.28)
+    _qualified_native_mark(engine, price=10.43)
+    legacy = LifecycleEvent("legacy-entry", "LEGACY-ROOT", "LEGACY", "LONG", "ENTRY_FILL", 1, 10.53,
+        NOW.isoformat(), order_id="legacy-order", execution_id="legacy-exec")
+    engine.apply_event(legacy, strategy_name="legacy_strategy", stop_price=10.0)
+    engine.apply_mark_price(trade_id="LEGACY-ROOT", price=float("nan"))
+    decision = _native_governor(engine, storage).evaluate(run_mode="PAPER", now=NOW)
+    assert decision.blocks_new_entries and decision.allows_existing_position_management
+    assert decision.realized_pnl == -.25
+    assert decision.daily_trade_count == decision.losing_trade_count == 0
+    assert "NATIVE_UNREALIZED_VALUATION_UNAVAILABLE" in decision.reason

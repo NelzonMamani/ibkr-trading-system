@@ -3,6 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
+from hashlib import sha256
 import json
 import math
 from typing import Any
@@ -81,6 +82,33 @@ class LifecycleTrade:
     take_profit_events: list[dict[str, Any]] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class NativeValuationObservation:
+    """A qualified external quote bound to one committed financial basis."""
+
+    root_order_id: str
+    account: str
+    strategy: str
+    symbol: str
+    side: str
+    con_id: int
+    client_id: int
+    connection_epoch: int
+    quantity: int
+    entry_avg_price: float
+    basis_event_ids: tuple[str, ...]
+    last_fill_timestamp: str
+    price: float
+    market_timestamp: str
+    acquisition_completed_at: str
+    request_id: int
+    source: str
+    timestamp_kind: str
+    market_data_type: str
+    completed: bool
+    quality_flags: tuple[str, ...] = ()
+
+
 class TradeLifecycleEngine:
     """Canonical observer-only lifecycle authority with durable accounting."""
 
@@ -104,6 +132,11 @@ class TradeLifecycleEngine:
         self._native_feedback_required = False
         self._native_feedback_fault: str | None = None
         self._native_committed_event_ids: set[str] = set()
+        # Valuation permission is separate from factual fill completion. A
+        # failed mark must neither poison fill intake nor authorize a retry.
+        self._native_valuations: dict[str, dict[str, Any]] = {}
+        self._native_valuation_unavailable: dict[str, str] = {}
+        self._native_valuation_uncertain: dict[str, str] = {}
 
     def set_persistence_adapter(self, persistence_adapter: Any | None) -> None:
         self._persistence = persistence_adapter
@@ -389,7 +422,7 @@ class TradeLifecycleEngine:
                     or (not metadata["terminal"] and (trade.status not in OPEN_STATUSES or trade.closed_at is not None))):
                 conflict = "NATIVE_LIFECYCLE_SNAPSHOT_CONFLICT"
                 break
-        native_marks_present = True
+        native_marks_present = not self._native_valuation_uncertain
         for root in latest:
             trade = self._trades.get(root)
             if trade is None:
@@ -398,7 +431,9 @@ class TradeLifecycleEngine:
                 try:
                     mark = trade.last_mark_price
                     if (mark is None or isinstance(mark, bool)
-                            or not math.isfinite(float(mark)) or float(mark) <= 0):
+                            or not math.isfinite(float(mark)) or float(mark) <= 0
+                            or root in self._native_valuation_unavailable
+                            or not self._native_mark_matches_basis(root)):
                         native_marks_present = False
                 except (TypeError, ValueError, OverflowError):
                     native_marks_present = False
@@ -410,6 +445,185 @@ class TradeLifecycleEngine:
             # Absence barrier only: price presence does not certify freshness.
             "native_unrealized_marks_present": native_marks_present,
             "unrealized_pnl": sum(float(trade.unrealized_pnl) for trade in self.open_trades())}
+
+    def native_valuation_requirements(self) -> list[dict[str, Any]]:
+        """Current same-process strict roots; restored rows confer no authority."""
+        grouped: dict[str, list[LifecycleEvent]] = {}
+        for event in self._events:
+            if event.event_id in self._native_committed_event_ids:
+                grouped.setdefault(event.lifecycle_trade_id, []).append(event)
+        requirements = []
+        for root, events in grouped.items():
+            trade = self._trades.get(root)
+            if trade is None or trade.quantity_open <= 0:
+                continue
+            entry = next((event for event in events if event.event_type == "ENTRY_FILL"), None)
+            if entry is None:
+                continue
+            identity = entry.metadata["native_identity"]
+            requirements.append({key: deepcopy(identity.get(key)) for key in (
+                "root_order_id", "account", "strategy", "symbol", "side", "con_id",
+                "client_id", "connection_epoch", "native_order_id")})
+            requirements[-1].update(quantity=trade.quantity_open, entry_avg_price=trade.entry_avg_price,
+                basis_event_ids=tuple(event.event_id for event in events),
+                last_fill_timestamp=max(self._authoritative_time(event.timestamp) for event in events).isoformat())
+        return requirements
+
+    def _native_valuation_requirement(self, root: str) -> dict[str, Any] | None:
+        return next((row for row in self.native_valuation_requirements() if row["root_order_id"] == root), None)
+
+    def _native_mark_matches_basis(self, root: str) -> bool:
+        saved = self._native_valuations.get(root)
+        required = self._native_valuation_requirement(root)
+        trade = self._trades.get(root)
+        if saved is None or required is None or trade is None:
+            return False
+        observation = saved["observation"]
+        return (all(getattr(observation, key) == value for key, value in required.items()
+                    if key != "native_order_id")
+                and trade.last_mark_price == observation.price
+                and trade.unrealized_pnl == (observation.price - trade.entry_avg_price) * trade.quantity_open)
+
+    @staticmethod
+    def _native_valuation_client_matches(client: Any, observation: NativeValuationObservation) -> bool:
+        if client is None:
+            return False
+        try:
+            return (type(getattr(client, "client_id", None)) is int
+                and client.client_id == observation.client_id
+                and type(getattr(client, "_position_connection_epoch", None)) is int
+                and client._position_connection_epoch == observation.connection_epoch
+                and callable(getattr(client, "isConnected", None)) and client.isConnected() is True
+                and not getattr(getattr(client, "_stop_event", None), "is_set", lambda: False)())
+        except Exception:
+            return False
+
+    def mark_native_valuation_unavailable(self, root_order_id: str, reason: str) -> None:
+        """Revoke a previous observation before a new external acquisition."""
+        if self._native_valuation_requirement(root_order_id) is None:
+            raise ValueError("NATIVE_VALUATION_OPEN_ROOT_REQUIRED")
+        self._native_valuation_unavailable[root_order_id] = str(reason or "NATIVE_VALUATION_UNAVAILABLE")
+
+    @staticmethod
+    def _valuation_now(now: datetime, max_age_seconds: float) -> datetime:
+        if (not isinstance(now, datetime) or now.tzinfo is None or now.utcoffset() is None
+                or isinstance(max_age_seconds, bool) or not math.isfinite(float(max_age_seconds))
+                or float(max_age_seconds) < 0):
+            raise ValueError("NATIVE_VALUATION_CHECK_TIME_INVALID")
+        return now.astimezone(timezone.utc)
+
+    def native_valuation_snapshot(self, *, now: datetime, max_age_seconds: float,
+                                  expected_source_client: Any | None = None) -> dict[str, Any]:
+        """Admission-time freshness, without renewing any market timestamp."""
+        checked = self._valuation_now(now, max_age_seconds)
+        requirements = self.native_valuation_requirements()
+        reason = next(iter(self._native_valuation_uncertain.values()), None)
+        marks = []
+        for required in requirements:
+            root = required["root_order_id"]
+            saved = self._native_valuations.get(root)
+            if root in self._native_valuation_unavailable:
+                reason = reason or self._native_valuation_unavailable[root]
+            elif not self._native_mark_matches_basis(root):
+                reason = reason or "NATIVE_VALUATION_MISSING_OR_BASIS_CHANGED"
+            elif saved is not None:
+                observed = saved["observation"]
+                age = (checked - self._authoritative_time(observed.market_timestamp)).total_seconds()
+                if (not self._native_valuation_client_matches(saved["source_client"], observed)
+                        or (expected_source_client is not None and saved["source_client"] is not expected_source_client)):
+                    reason = reason or "NATIVE_VALUATION_SOURCE_SCOPE_CHANGED"
+                elif age < 0 or age > float(max_age_seconds):
+                    reason = reason or "NATIVE_VALUATION_STALE_OR_FUTURE"
+                else:
+                    marks.append({"event_id": saved["event_id"], **asdict(observed)})
+        if requirements and self.native_feedback_snapshot()["available"] is not True:
+            reason = reason or "NATIVE_VALUATION_FINANCIAL_FEEDBACK_UNAVAILABLE"
+        native_roots = {row["root_order_id"] for row in requirements}
+        return {"available": reason is None, "reason": reason,
+            "uncertain": deepcopy(self._native_valuation_uncertain), "marks": marks,
+            "native_roots": sorted(native_roots), "checked_at": checked.isoformat(),
+            "unrealized_pnl": sum(self._trades[root].unrealized_pnl for root in native_roots) if reason is None else None,
+            "legacy_unrealized_pnl": sum(trade.unrealized_pnl for trade in self.open_trades()
+                                         if trade.lifecycle_trade_id not in native_roots)}
+
+    def apply_native_valuation(self, observation: NativeValuationObservation, *, now: datetime,
+                               max_age_seconds: float, source_client: Any) -> LifecycleTrade:
+        """Persist one audited mark before publishing it; never apply an EXIT."""
+        root = getattr(observation, "root_order_id", None)
+        try:
+            checked = self._valuation_now(now, max_age_seconds)
+            if type(observation) is not NativeValuationObservation:
+                raise ValueError("NATIVE_VALUATION_OBSERVATION_REQUIRED")
+            if root in self._native_valuation_uncertain:
+                raise RuntimeError("NATIVE_VALUATION_UNCERTAIN")
+            required = self._native_valuation_requirement(root)
+            if required is None or self.native_feedback_snapshot()["available"] is not True:
+                raise ValueError("NATIVE_VALUATION_COMMITTED_OPEN_ROOT_REQUIRED")
+            if (any(getattr(observation, key) != value for key, value in required.items() if key != "native_order_id")
+                    or any(type(getattr(observation, key)) is not int or getattr(observation, key) < minimum
+                           for key, minimum in (("con_id", 1), ("client_id", 0), ("connection_epoch", 0),
+                                                ("quantity", 1), ("request_id", 1)))
+                    or type(observation.basis_event_ids) is not tuple
+                    or isinstance(observation.price, bool) or not math.isfinite(float(observation.price))
+                    or float(observation.price) <= 0 or isinstance(observation.entry_avg_price, bool)
+                    or not math.isfinite(float(observation.entry_avg_price)) or observation.entry_avg_price <= 0
+                    or observation.source != "IBKR" or observation.timestamp_kind != "LAST_TRADE"
+                    or observation.market_data_type != "LIVE" or observation.completed is not True
+                    or type(observation.quality_flags) is not tuple or observation.quality_flags
+                    or not self._native_valuation_client_matches(source_client, observation)):
+                raise ValueError("NATIVE_VALUATION_EVIDENCE_INVALID")
+            market = self._authoritative_time(observation.market_timestamp)
+            completed = self._authoritative_time(observation.acquisition_completed_at)
+            latest_fill = self._authoritative_time(observation.last_fill_timestamp)
+            if not latest_fill <= market <= completed <= checked:
+                raise ValueError("NATIVE_VALUATION_TIME_BINDING_INVALID")
+            if (checked - market).total_seconds() > float(max_age_seconds):
+                raise ValueError("NATIVE_VALUATION_STALE")
+            key = {name: getattr(observation, name) for name in (
+                "root_order_id", "account", "client_id", "connection_epoch", "request_id", "market_timestamp", "basis_event_ids")}
+            event_id = "native-mark:" + sha256(json.dumps(key, sort_keys=True).encode()).hexdigest()
+            prior = self._native_valuations.get(root)
+            if prior is not None and prior["event_id"] == event_id:
+                if (prior["observation"] != observation or prior["source_client"] is not source_client
+                        or not self._native_mark_matches_basis(root)):
+                    raise ValueError("NATIVE_VALUATION_OBSERVATION_CONFLICT")
+                self._native_valuation_unavailable.pop(root, None)
+                return self._trades[root]
+            before = self._trades[root]
+            candidate = deepcopy(before)
+            candidate.last_mark_price = float(observation.price)
+            candidate.unrealized_pnl = (candidate.last_mark_price - candidate.entry_avg_price) * candidate.quantity_open
+            event = LifecycleEvent(event_id, root, observation.symbol, "LONG", "NATIVE_MARK", 0,
+                candidate.last_mark_price, market.isoformat(), order_id=required["native_order_id"],
+                source="native_valuation", metadata={"native_valuation": asdict(observation)})
+            persist = getattr(self._persistence, "persist_native_lifecycle_feedback", None)
+            try:
+                if not callable(persist):
+                    raise RuntimeError("NATIVE_VALUATION_STORAGE_REQUIRED")
+                payload = {**asdict(event), "payload_json": json.dumps(event.metadata, sort_keys=True, allow_nan=False)}
+                receipt = persist(self._trade_snapshot_payload(candidate), payload,
+                    expected_trade=self._trade_snapshot_payload(before))
+                if (not isinstance(receipt, dict) or receipt.get("completed") is not True
+                        or receipt.get("event_id") != event_id):
+                    raise RuntimeError("NATIVE_VALUATION_PERSISTENCE_UNCONFIRMED")
+                if self._native_valuation_requirement(root) != required:
+                    raise RuntimeError("NATIVE_VALUATION_BASIS_CHANGED_DURING_PERSISTENCE")
+                if not self._native_valuation_client_matches(source_client, observation):
+                    raise RuntimeError("NATIVE_VALUATION_SOURCE_CHANGED_DURING_PERSISTENCE")
+            except BaseException as exc:
+                self._native_valuation_uncertain[root] = str(exc or "NATIVE_VALUATION_UNCERTAIN")
+                raise
+            self._trades[root] = candidate
+            self._events.append(event)
+            self._event_ids_seen.add(event_id)
+            self._native_valuations[root] = {"event_id": event_id, "observation": observation,
+                "source_client": source_client}
+            self._native_valuation_unavailable.pop(root, None)
+            return candidate
+        except BaseException as exc:
+            if isinstance(root, str):
+                self._native_valuation_unavailable[root] = str(exc or "NATIVE_VALUATION_UNAVAILABLE")
+            raise
 
     @staticmethod
     def _authoritative_time(value: str) -> datetime:
@@ -557,8 +771,16 @@ class TradeLifecycleEngine:
                 "terminal": terminal, "terminal_timestamp": terminal_timestamp,
                 "trade_pnl_after": trade.gross_realized_pnl, "entry_avg_price_after": trade.entry_avg_price,
                 "original_stop_price": trade.stop_price, "native_feedback_committed": True}
+            # A financial DELTA supersedes the old quantity/basis observation.
+            # Unknown mark outcomes remain latched separately and never impede
+            # factual fill intake through a mark-only snapshot discrepancy.
+            trade.last_mark_price = None
+            trade.unrealized_pnl = 0.0
+            self._native_valuations.pop(binding["root_order_id"], None)
+            self._native_valuation_unavailable[binding["root_order_id"]] = "NATIVE_VALUATION_FINANCIAL_BASIS_CHANGED"
             event_payload = {**asdict(owned), "payload_json": json.dumps(owned.metadata, sort_keys=True, allow_nan=False)}
-            receipt = persist(self._trade_snapshot_payload(trade), event_payload, expected_trade=expected_snapshot)
+            receipt = persist(self._trade_snapshot_payload(trade), event_payload, expected_trade=expected_snapshot,
+                financial_only=True)
             if not isinstance(receipt, dict) or receipt.get("completed") is not True or receipt.get("event_id") != owned.event_id:
                 raise RuntimeError("NATIVE_LIFECYCLE_PERSISTENCE_UNCONFIRMED")
             self._events.append(owned)
