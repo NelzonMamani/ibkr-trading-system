@@ -1,12 +1,17 @@
 """Offline broker callback authority; no network or order operations."""
 from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor
+import threading
 from types import SimpleNamespace
 
 import pytest
 from ibapi.client import EClient
-from ibapi.contract import Contract
+from ibapi.contract import Contract, ContractDetails
+from src.adapters.brokers.ibkr import ibkr_client as native_module
 from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
+from src.core.acquisition import acquisition_scope
 from src.ibkr import market_data_client as md
+from src.market_data.market_data_snapshot_manager import MarketDataSnapshotManager
 
 
 def contract():
@@ -282,3 +287,152 @@ def test_focus_snapshot_translation_does_not_invent_missing_timestamps(native, m
     assert "MD_TIMEOUT" in snapshot.data_quality_flags
     assert snapshot.snapshot_complete is False
     assert snapshot.completion_reason == "timeout"
+
+
+@pytest.fixture
+def source_bound_native_snapshot(native, monkeypatch):
+    """Synthetic external callbacks through genuine qualification/quote owners."""
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 11, 11, 13, 1, tzinfo=timezone.utc)
+
+    monkeypatch.setattr(native_module, "datetime", Clock)
+    monkeypatch.setattr(md, "datetime", Clock)
+    monkeypatch.setattr(native, "isConnected", lambda: True)
+    native.client_id = 71
+    native._position_connection_epoch = 23
+
+    def forbidden_connect(*args, **kwargs):
+        raise AssertionError("Synthetic snapshot controls must not connect")
+
+    monkeypatch.setattr(EClient, "connect", forbidden_connect)
+    facts = SimpleNamespace(qualifications=[], requests=[], before_quote=None)
+
+    def qualify(self, req_id, requested):
+        supplied = Contract()
+        supplied.symbol = requested.symbol
+        supplied.secType, supplied.exchange, supplied.currency = "STK", "SMART", "USD"
+        supplied.primaryExchange = "NASDAQ"
+        supplied.conId = {"AEMD": 123, "MSFT": 456}[requested.symbol]
+        supplied.tradingClass = supplied.localSymbol = requested.symbol
+        detail = ContractDetails()
+        detail.contract = supplied
+        facts.qualifications.append((self.client_id, self._position_connection_epoch,
+                                     supplied.symbol, supplied.conId, req_id))
+        self.contractDetails(req_id, detail)
+        self.contractDetailsEnd(req_id)
+
+    def quote(self, req_id, requested, *args):
+        facts.requests.append((requested.symbol, requested.conId, self.client_id,
+                               self._position_connection_epoch, req_id))
+        if facts.before_quote is not None:
+            facts.before_quote(requested.symbol)
+        native_ticks(self, req_id, returned=1)
+        if requested.symbol == "MSFT":
+            for kind, value in ((66, 8.0), (67, 8.1), (68, 8.05), (75, 7.8)):
+                self.tickPrice(req_id, kind, value, None)
+        self.tickString(req_id, 45, str(Clock.now().timestamp()))
+
+    monkeypatch.setattr(EClient, "reqContractDetails", qualify)
+    monkeypatch.setattr(EClient, "reqMktData", quote)
+    connection_manager = SimpleNamespace(get_client=lambda: native)
+    wrapper = md.MarketDataClient(connection_manager=connection_manager,
+        allow_direct_connection=False, client_id=999, market_data_type="LIVE",
+        snapshot_timeout_seconds=1)
+    wrapper.ib = native
+    facts.native, facts.wrapper = native, wrapper
+    facts.manager = MarketDataSnapshotManager(wrapper)
+    return facts
+
+
+def assert_native_quote_cleanup(*clients):
+    for client in clients:
+        assert not client._active_market_req_ids
+        assert not client._ticker_by_req_id
+        assert not client._market_events
+
+
+def snapshot_source_identity(snapshot):
+    return tuple(getattr(snapshot, name, None) for name in
+                 ("con_id", "client_id", "connection_epoch", "request_id"))
+
+
+def test_real_native_snapshot_source_identity_survives_focus_translation(source_bound_native_snapshot):
+    facts = source_bound_native_snapshot
+    with acquisition_scope():
+        raw = facts.wrapper.snapshot_stock("AEMD")
+        snapshot, quality = facts.manager.get_snapshot("AEMD")
+    assert len(facts.qualifications) == len(facts.requests) == 1
+    assert facts.qualifications[0][:4] == (71, 23, "AEMD", 123)
+    request = facts.requests[0]
+    assert request[:4] == ("AEMD", 123, 71, 23)
+    assert facts.wrapper.client_id == 999  # Configuration is not request identity.
+    assert raw.last == snapshot.last == 5.05
+    assert raw.snapshot_complete and snapshot.snapshot_complete
+    assert raw.request_id == snapshot.request_id == request[4]
+    assert not quality.data_quality_flags
+    assert_native_quote_cleanup(facts.native)
+    expected = request[1:]
+    assert {"raw": snapshot_source_identity(raw), "domain": snapshot_source_identity(snapshot)} == {
+        "raw": expected, "domain": expected}
+
+
+@pytest.mark.parametrize("scope_change", ["connection_epoch", "native_client"])
+def test_snapshot_and_qualification_cache_reacquire_after_native_scope_change(
+        source_bound_native_snapshot, monkeypatch, scope_change):
+    facts = source_bound_native_snapshot
+    clients = [facts.native]
+    with acquisition_scope():
+        first = facts.wrapper.snapshot_stock("AEMD")
+        if scope_change == "connection_epoch":
+            facts.native.connectionClosed()
+            assert facts.native._position_connection_epoch == 24
+            expected_scope = (71, 24)
+        else:
+            replacement = IbkrClient("127.0.0.1", 7497, 72, 1, "LIVE", True)
+            monkeypatch.setattr(replacement, "isConnected", lambda: True)
+            replacement._position_connection_epoch = 37
+            facts.wrapper.ib = replacement
+            clients.append(replacement)
+            expected_scope = (72, 37)
+        second = facts.wrapper.snapshot_stock("AEMD")
+    assert_native_quote_cleanup(*clients)
+    assert len(facts.requests) == 2, facts.requests
+    assert len(facts.qualifications) == 2, facts.qualifications
+    assert facts.qualifications[-1][:2] == expected_scope
+    assert second is not first
+    assert snapshot_source_identity(first) == (123, 71, 23, facts.requests[0][4])
+    assert snapshot_source_identity(second) == (123, *expected_scope, facts.requests[1][4])
+
+
+def test_concurrent_native_snapshot_identity_stays_with_its_own_symbol(source_bound_native_snapshot):
+    facts = source_bound_native_snapshot
+    first_request_started, release_first_request = threading.Event(), threading.Event()
+
+    def before_quote(symbol):
+        if symbol == "AEMD":
+            first_request_started.set()
+            assert release_first_request.wait(2), "Bounded synthetic AEMD request was not released"
+
+    facts.before_quote = before_quote
+    # A's native request is already owned while B qualifies, receives its own
+    # callbacks and completes translation. This overwrites shared diagnostics
+    # before A resumes; those diagnostics cannot authorize A's source identity.
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(facts.manager.get_snapshot, "AEMD")
+        try:
+            assert first_request_started.wait(2), "Synthetic AEMD request did not start"
+            second = executor.submit(facts.manager.get_snapshot, "MSFT")
+            msft, msft_quality = second.result(timeout=2)
+        finally:
+            release_first_request.set()
+        aemd, aemd_quality = first.result(timeout=2)
+    assert not aemd_quality.data_quality_flags and not msft_quality.data_quality_flags
+    assert (aemd.symbol, aemd.last, msft.symbol, msft.last) == ("AEMD", 5.05, "MSFT", 8.05)
+    assert len(facts.qualifications) == len(facts.requests) == 2
+    assert_native_quote_cleanup(facts.native)
+    expected = {symbol: (con_id, client_id, epoch, req_id)
+                for symbol, con_id, client_id, epoch, req_id in facts.requests}
+    assert expected["AEMD"][3] != expected["MSFT"][3]
+    assert {"AEMD": snapshot_source_identity(aemd), "MSFT": snapshot_source_identity(msft)} == expected
