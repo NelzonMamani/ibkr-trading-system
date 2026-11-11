@@ -193,13 +193,20 @@ class SyntheticWriteBoundary(BaseException):
 class ForbiddenExternalIO(BaseException):
     pass
 
-def no_network(*args, **kwargs):
-    report['network_attempts'].append({'operation': 'socket.connect'})
-    raise ForbiddenExternalIO('COLD_CORE_REAL_NETWORK_FORBIDDEN')
+def deny_network(operation):
+    def forbidden(*args, **kwargs):
+        report['network_attempts'].append({'operation': operation})
+        raise ForbiddenExternalIO('COLD_CORE_REAL_NETWORK_FORBIDDEN:' + operation)
+    return forbidden
 
+no_network = deny_network('socket.connect')
 socket.socket.connect = no_network
-socket.socket.connect_ex = no_network
-socket.create_connection = no_network
+socket.socket.connect_ex = deny_network('socket.connect_ex')
+socket.socket.sendto = deny_network('socket.sendto')
+for operation in ('create_connection', 'getaddrinfo', 'gethostbyname', 'gethostbyname_ex', 'gethostbyaddr'):
+    setattr(socket, operation, deny_network('socket.' + operation))
+if hasattr(socket.socket, 'sendmsg'):
+    socket.socket.sendmsg = deny_network('socket.sendmsg')
 
 def plain(value):
     if isinstance(value, dict):
@@ -266,6 +273,33 @@ def engine_snapshot(engine):
     })
 
 try:
+    # This check runs before application imports/cache setup/constructor. The
+    # startup guard also blocks native curl transfers, which socket patches do
+    # not observe. Missing guard inheritance must fail before any acquisition.
+    startup_guard = sys.modules.get('sitecustomize')
+    guard_path = Path(getattr(startup_guard, '__file__', '')).resolve()
+    if str(guard_path) != os.environ.get('COLD_CORE_EXPECTED_OFFLINE_GUARD'):
+        raise ForbiddenExternalIO('COLD_CORE_OFFLINE_STARTUP_GUARD_MISSING')
+    report['offline_guard'] = dict(path=str(guard_path), native_curl_checked=False)
+    report['native_curl_denials'] = []
+    # Observe the existing deny function without replacing either transfer entry
+    # point or its identity. The profile is owned by this bounded child only.
+    native_deny_code = getattr(getattr(startup_guard, '_deny_native_transfer', None), '__code__', None)
+    previous_profile = sys.getprofile()
+    previous_thread_profile = threading.getprofile()
+    def observe_native_denial(frame, event, arg):
+        if event == 'call' and frame.f_code is native_deny_code:
+            report['native_curl_denials'].append(dict(thread_id=threading.get_ident()))
+        if previous_profile is not None:
+            previous_profile(frame, event, arg)
+    sys.setprofile(observe_native_denial)
+    threading.setprofile(observe_native_denial)
+    if 'curl_cffi' in sys.modules:
+        from curl_cffi import Curl, AsyncCurl
+        if (Curl.perform is not startup_guard._deny_native_transfer
+                or AsyncCurl.add_handle is not startup_guard._deny_native_transfer):
+            raise ForbiddenExternalIO('COLD_CORE_NATIVE_CURL_GUARD_MISSING')
+        report['offline_guard']['native_curl_checked'] = True
     from ibapi.client import EClient
     from ibapi.contract import Contract
     from ibapi.order import Order
@@ -687,6 +721,8 @@ try:
 except BaseException as exc:
     report['harness_exception'] = exception_record(exc)
 finally:
+    sys.setprofile(globals().get('previous_profile'))
+    threading.setprofile(globals().get('previous_thread_profile'))
     # No synthetic flat/terminal outcome and no reservation/latch clearing.
     # Close only this interpreter's external connection and owned DB handle.
     try:
@@ -742,7 +778,10 @@ def run_native_core_cold_start(database_path, facts_path, evidence_dir, *,
     prep.write_text(json.dumps({'symbols': [], 'source': 'OFFLINE_EMPTY_FIXTURE'}), encoding='utf-8')
     report_path = evidence_dir / 'child-report.json'
     report_path.unlink(missing_ok=True)
-    env = dict(os.environ, PYTHONPATH=str(Path(__file__).resolve().parents[1]),
+    repository_root = Path(__file__).resolve().parents[1]
+    offline_root = repository_root / 'tests' / 'offline'
+    env = dict(os.environ, PYTHONPATH=os.pathsep.join((str(offline_root), str(repository_root))),
+        COLD_CORE_EXPECTED_OFFLINE_GUARD=str((offline_root / 'sitecustomize.py').resolve()),
         EXECUTION_ENV='TEST', PERSISTENCE_SQLITE_PATH=str(database_path),
         IBKR_ORDER_ID_STATE_PATH=str(sandbox / 'order-state.json'),
         IBKR_GUARD_PERSIST_PATH=str(sandbox / 'submission-guard.json'),
@@ -796,3 +835,80 @@ def run_native_core_cold_start(database_path, facts_path, evidence_dir, *,
     (evidence_dir / 'supervised-report.json').write_text(
         json.dumps(report, sort_keys=True, default=str), encoding='utf-8')
     return report
+
+
+
+def test_native_core_child_absolute_offline_guard_blocks_fake_backends(monkeypatch, tmp_path):
+    """Exercise captured child env using fake backends; never call networking."""
+    import json, os, subprocess, sys
+    import pytest
+    captured = {}
+    class CapturedEnvironment(BaseException):
+        pass
+    def capture_process(*args, **kwargs):
+        captured.update(kwargs['env'])
+        raise CapturedEnvironment()
+    facts = tmp_path / 'guard-facts.json'
+    facts.write_text('{}')
+    with monkeypatch.context() as context:
+        context.setattr(subprocess, 'Popen', capture_process)
+        with pytest.raises(CapturedEnvironment):
+            run_native_core_cold_start(tmp_path / 'never-opened.sqlite3', facts, tmp_path / 'capture-env')
+    backends = tmp_path / 'fake-backends'
+    backends.mkdir()
+    (backends / 'socket.py').write_text("""import sys
+calls=[]
+class socket:
+    def connect(self, address):
+        sys.audit('socket.connect', self, address)
+        calls.append('connect')
+    def connect_ex(self, address):
+        sys.audit('socket.connect_ex', self, address)
+        calls.append('connect_ex')
+    def sendto(self, data, address):
+        sys.audit('socket.sendto', self, data, address)
+        calls.append('sendto')
+def getaddrinfo(*args):
+    sys.audit('socket.getaddrinfo', *args)
+    calls.append('getaddrinfo')
+def create_connection(address):
+    socket().connect(address)
+""")
+    (backends / 'curl_cffi.py').write_text("""calls=[]
+class Curl:
+    def perform(self):
+        calls.append('native_curl')
+class AsyncCurl:
+    def add_handle(self, handle):
+        calls.append('async_curl')
+""")
+    script = """import json, socket, sys
+from curl_cffi import Curl, AsyncCurl
+calls={'dns':lambda:socket.getaddrinfo('fixture.invalid',1),
+       'connect':lambda:socket.socket().connect(('fixture.invalid',1)),
+       'connect_ex':lambda:socket.socket().connect_ex(('fixture.invalid',1)),
+       'create_connection':lambda:socket.create_connection(('fixture.invalid',1)),
+       'udp':lambda:socket.socket().sendto(b'x',('fixture.invalid',1)),
+       'curl':lambda:Curl.perform(None),
+       'async_curl':lambda:AsyncCurl.add_handle(None,None)}
+denied=[]
+for name,call in calls.items():
+    try:call()
+    except OSError:denied.append(name)
+import curl_cffi
+print(json.dumps({'denied':denied,'socket_backend_calls':socket.calls,
+ 'curl_backend_calls':curl_cffi.calls,
+ 'guard_file':getattr(sys.modules.get('sitecustomize'),'__file__',None)}))
+"""
+    env = dict(captured)
+    env['PYTHONPATH'] = str(backends) + os.pathsep + env['PYTHONPATH']
+    child = subprocess.run([sys.executable, '-c', script], cwd=backends, env=env,
+        text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10)
+    assert child.returncode == 0, child.stderr
+    result = json.loads(child.stdout)
+    (tmp_path / 'offline-backend-proof.json').write_text(json.dumps(result, indent=2))
+    assert result['socket_backend_calls'] == [] and result['curl_backend_calls'] == [], result
+    assert set(result['denied']) == {'dns','connect','connect_ex','create_connection','udp','curl','async_curl'}, result
+    root = Path(__file__).resolve().parents[1]
+    assert Path(result['guard_file']).resolve() == root / 'tests' / 'offline' / 'sitecustomize.py'
+    assert captured['PYTHONPATH'].split(os.pathsep)[0] == str(root / 'tests' / 'offline')
