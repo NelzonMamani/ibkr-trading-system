@@ -583,3 +583,38 @@ def test_native_fee_source_does_not_rebase_a_callback_across_epoch_before_execut
     assert observation['report_status'] == 'UNAVAILABLE' and observation['amount'] is None
     assert 'COMMISSION_REPORT_SCOPE_UNAVAILABLE' in observation['unavailable_reasons']
     assert client.commission_for_order(71) == .01
+
+
+@pytest.mark.parametrize('scope_alias', ['epoch_bool', 'client_bool', 'connected_integer'])
+def test_native_fee_source_invalid_later_scope_type_latches_conflict_after_current_scope_restored(
+        native_execution_client, monkeypatch, scope_alias):
+    client = native_execution_client
+    # Use the exact small identity values that alias Python bools numerically.
+    client.client_id = 1
+    _fee_execution(client, clientId=1)
+    _fee_report(client)
+    first, = client.cached_native_execution_fees(71)
+    assert first['report_status'] == 'BOUND_API_REPORT' and not first['conflict']
+    if scope_alias == 'epoch_bool':
+        assert client._position_connection_epoch == 0
+        client._position_connection_epoch = False
+    elif scope_alias == 'client_bool':
+        client.client_id = True
+    else:
+        monkeypatch.setattr(client, 'isConnected', lambda: 1)
+    _fee_report(client)  # Same payload, invalid type in this receipt's scope.
+    client.client_id = 1
+    client._position_connection_epoch = 0
+    monkeypatch.setattr(client, 'isConnected', lambda: True)
+    observation, = client.cached_native_execution_fees(71)
+    assert observation['conflict'], 'A malformed later receipt must not alias the first valid scope'
+    assert observation['report_status'] == 'UNAVAILABLE' and observation['amount'] is None
+    assert 'COMMISSION_REPORT_CONFLICT' in observation['unavailable_reasons']
+    assert observation['first_report'] == first['first_report']
+    assert observation['net_status'] == 'UNAVAILABLE_FOR_NET'
+    assert client.commission_for_order(71) == .01
+    _fee_report(client)  # Restoring scope and repeating cannot clear uncertainty.
+    repeated, = client.cached_native_execution_fees(71)
+    assert repeated['conflict'] and repeated['report_count'] == 3
+    assert repeated['first_report'] == first['first_report']
+    assert repeated['amount'] is None and repeated['net_status'] == 'UNAVAILABLE_FOR_NET'

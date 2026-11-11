@@ -2738,9 +2738,11 @@ class IbkrClient(EWrapper, EClient):
                 "currency": currency, **reception}
             amount_signature = (amount if amount is not None and amount.is_finite()
                 else str(amount) if amount is not None else (type(commission).__name__, str(commission)))
-            signature = (amount_signature,
-                currency, report["client_id"], report["connection_epoch"], report["managed_accounts"],
-                report["connected"], report["stopped"], report["transport_available"])
+            # Receipt scope compares exact types too: bool is numerically equal
+            # to 0/1, but cannot stand in for a native identity or availability.
+            scope_signature = tuple((type(report[key]), report[key]) for key in (
+                "client_id", "connection_epoch", "connected", "stopped", "transport_available"))
+            signature = (amount_signature, currency, scope_signature, report["managed_accounts"])
             previous = self._commission_by_exec_id.get(exec_id)
             if isinstance(previous, dict):
                 record = {**previous, "latest_report": report,
