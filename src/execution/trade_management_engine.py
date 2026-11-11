@@ -692,8 +692,11 @@ class TradeManagementEngine:
         )
         return position
 
-    def _evaluate_selected_completed_exit(self, order, bars, *, observed_at, session_plan, profit=False, entry_fill_price=None, micro_cost=False, revision_proof=False, micro_tighten=False):
+    def _evaluate_selected_completed_exit(self, order, bars, *, observed_at, session_plan, profit=False, entry_fill_price=None, micro_cost=False, revision_proof=False, micro_tighten=False, bull_tighten=False):
         """Pure occurrence-bound rule; execution owns the durable dispatch latch."""
+        if micro_tighten and bull_tighten:
+            return None
+        tightening = micro_tighten or bull_tighten
         from datetime import timedelta
         from src.strategies.common.candles.candle_types import Candle
         from src.strategies.common.triggers.trigger_abcd_continuation import abcd_candle_rejection
@@ -713,9 +716,11 @@ class TradeManagementEngine:
         if micro_cost and cost_basis is None:
             return None
         tightening_basis = None
-        if micro_tighten:
-            from src.strategies.ross_momentum.strategy_policy import standalone_micro_tightening_basis
-            tightening_basis = standalone_micro_tightening_basis(order, entry_fill_price)
+        if tightening:
+            from src.strategies.ross_momentum.strategy_policy import (standalone_cost_tightening_basis,
+                selected_micro_cost_tightening_profile, selected_bull_cost_tightening_profile)
+            selector = selected_micro_cost_tightening_profile if micro_tighten else selected_bull_cost_tightening_profile
+            tightening_basis = standalone_cost_tightening_basis(order, entry_fill_price) if selector(request) else None
             if not tightening_basis:
                 return None
         failure_profile = profile
@@ -726,9 +731,9 @@ class TradeManagementEngine:
         if revision_proof:
             from src.strategies.ross_momentum.strategy_policy import selected_unit_management_profile
             profile = "STOP_REVISION_PREREQUISITE" if selected_unit_management_profile(request) else None
-        if micro_tighten:
-            from src.strategies.ross_momentum.strategy_policy import STANDALONE_MICRO_COST_TIGHTENING_PROFILE
-            profile = STANDALONE_MICRO_COST_TIGHTENING_PROFILE
+        if tightening:
+            from src.strategies.ross_momentum.strategy_policy import selected_cost_tightening_profile
+            profile = selected_cost_tightening_profile(request)
         metadata = request.get("setup_metadata") or {}
         stream = metadata.get("execution_stream") or {}
         timeframe = stream.get("execution_trigger_timeframe")
@@ -749,8 +754,8 @@ class TradeManagementEngine:
             if (origin.tzinfo is None or origin > stamp
                     or to_ny_time(origin).date() != to_ny_time(observed_at).date()):
                 return None
-            if micro_cost or micro_tighten:
-                partial_stamp = datetime.fromisoformat((tightening_basis if micro_tighten else cost_basis)[2])
+            if micro_cost or tightening:
+                partial_stamp = datetime.fromisoformat((tightening_basis if tightening else cost_basis)[2])
                 if partial_stamp < stamp or partial_stamp > observed_at:
                     return None
                 stamp = partial_stamp
@@ -780,13 +785,13 @@ class TradeManagementEngine:
                 if _timeframe_provenance([bar], timeframe, PatternInputPolicy.from_policy_v2(),
                         symbol=order["symbol"], now_utc=observed_at) != "PRESENT":
                     continue
-                qualifies = (bar.close > tightening_basis[0]) if micro_tighten else revision_proof or (bar.close >= basis[2] if profit else
+                qualifies = (bar.close > tightening_basis[0]) if tightening else revision_proof or (bar.close >= basis[2] if profit else
                     bar.close < cost_basis[0] if micro_cost else bar.close < level)
                 if qualifies:
                     return ({"entry_fill_price": basis[0], "original_stop": basis[1], "milestone": basis[2]} if profit else
                         {"entry_fill_price": cost_basis[0], "original_stop": cost_basis[1],
                             "last_accounted_profit_fill_at": cost_basis[2]} if micro_cost else {"entry_fill_price": tightening_basis[0], "original_stop": tightening_basis[1],
-                            "last_accounted_profit_fill_at": tightening_basis[2]} if micro_tighten else {}) | {"profile": profile,
+                            "last_accounted_profit_fill_at": tightening_basis[2]} if tightening else {}) | {"profile": profile,
                         "bar_start": bar.timestamp.isoformat(), "close": bar.close,
                         ("selected_pmh" if profile == PMH_COMPLETED_BAR_FAILURE_PROFILE else "selected_entry"): level, "occurrence": metadata, "session_plan": session_plan}
         except (TypeError, ValueError, KeyError, AttributeError, OverflowError):
@@ -822,6 +827,13 @@ class TradeManagementEngine:
             return None
         return self._evaluate_selected_completed_exit(order,bars,observed_at=observed_at,
             session_plan=session_plan,entry_fill_price=entry_fill_price,micro_tighten=True)
+
+    def evaluate_selected_bull_cost_tightening(self, order, bars, *, observed_at, session_plan, entry_fill_price):
+        # Bull structural failure stays first; Micro cost failure is NOT Bull policy.
+        if self.evaluate_selected_completed_failure(order,bars,observed_at=observed_at,session_plan=session_plan):
+            return None
+        return self._evaluate_selected_completed_exit(order,bars,observed_at=observed_at,
+            session_plan=session_plan,entry_fill_price=entry_fill_price,bull_tighten=True)
 
     # Compatibility entry point; one implementation and explicit policy scope.
     evaluate_pmh_completed_failure = evaluate_selected_completed_failure

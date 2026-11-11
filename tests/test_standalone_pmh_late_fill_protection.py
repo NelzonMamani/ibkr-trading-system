@@ -2500,7 +2500,7 @@ def test_central_failure_later_bar_and_missing_timestamp_or_relationship_hold(re
         assert evaluate(row) is None,change
 
 
-def small_central_owned(reassessment,monkeypatch,tmp_path,capsys,family,*,partial=False,requested_base=8,risk_cap=2,synthetic_capital=400,fill=True,expected_admitted=None,quantity_fault=None,unit_stops=False,unit_fault=None,micro_fault=None,micro_clock=None):
+def small_central_owned(reassessment,monkeypatch,tmp_path,capsys,family,*,partial=False,requested_base=8,risk_cap=2,synthetic_capital=400,fill=True,expected_admitted=None,quantity_fault=None,unit_stops=False,unit_fault=None,micro_fault=None,micro_clock=None,bull_clock=None):
     from test_joined_core_pmh_readonly import pmh_joined,standalone_bull_joined,micro_joined,key_joined,consolidation_joined,flat_top_joined,orb_joined,hod_joined,momentum_joined,cup_joined,opening_drive_joined,indicator_pullback_joined,vwap_pullback_joined,stair_step_joined
     from test_abcd_production_handoff import abcd_joined
     from test_joined_core_first_pullback import first_joined
@@ -2516,6 +2516,7 @@ def small_central_owned(reassessment,monkeypatch,tmp_path,capsys,family,*,partia
         if family=='CUP_HANDLE':kwargs['clock_time']=(13,55,30)
         if family=='MICRO_PULLBACK' and micro_fault is not None:kwargs['market_fault']=micro_fault
         if family=='MICRO_PULLBACK' and micro_clock is not None:kwargs.update(clock_time=micro_clock,real_session=True)
+        if family=='BULL_FLAG' and bull_clock is not None:kwargs.update(clock_time=bull_clock,real_session=True)
         h=factory(*args,**kwargs)
         for row in h.rows.values():
             gap=(row['last_price']/row['prev_close']-1)*100;row.update(gap_pct=gap,pct_change=gap)
@@ -3984,10 +3985,10 @@ def test_unit_single_remainder_never_requests_unactionable_profit_quotes(reasses
         h.core.execution_engine.capital_authority.total_used_exposure)
 
 
-def micro_post_partial_case(reassessment,monkeypatch,tmp_path,capsys,*,family='MICRO_PULLBACK',fill_price=None,micro_fault=None,micro_clock=None):
+def micro_post_partial_case(reassessment,monkeypatch,tmp_path,capsys,*,family='MICRO_PULLBACK',fill_price=None,micro_fault=None,micro_clock=None,bull_clock=None):
     """Genuine all-registry native entry and accounted same-ID partial first."""
     prepared=small_central_owned(reassessment,monkeypatch,tmp_path,capsys,family,
-        requested_base=8,risk_cap=4,synthetic_capital=800,unit_stops=True,micro_fault=micro_fault,micro_clock=micro_clock)
+        requested_base=8,risk_cap=4,synthetic_capital=800,unit_stops=True,micro_fault=micro_fault,micro_clock=micro_clock,bull_clock=bull_clock)
     h,request,life=one_share_profit_case(reassessment,monkeypatch,tmp_path,capsys,prepared=prepared)
     enroll_unit_management(h,monkeypatch)
     assert h.core.run_once(),capsys.readouterr().out[-5000:]
@@ -3999,7 +4000,7 @@ def micro_post_partial_case(reassessment,monkeypatch,tmp_path,capsys,*,family='M
     return h,request,life
 
 
-def append_micro_cost_bar(h,request,life,capsys,*,fault='none'):
+def append_micro_cost_bar(h,request,life,capsys,*,fault='none',external_price=None):
     """New external completed history/quote facts, no prepared internal rule."""
     from dataclasses import replace
     from datetime import datetime
@@ -4011,6 +4012,7 @@ def append_micro_cost_bar(h,request,life,capsys,*,fault='none'):
     if fault=='equality':price=life.avg_fill_price
     if fault=='wick':price=life.avg_fill_price+.01
     if fault=='family_failure':price=request.setup_metadata['trigger_level']-.01
+    if external_price is not None:price=external_price
     bar=Candle(price+.005,price+.02,price-.02,price,1000,timestamp=start)
     if fault=='straddling':bar=replace(bar,timestamp=datetime.fromisoformat(h.failure_owner['unit_profit_exit']['last_accounted_fill_at'])-timedelta(seconds=1))
     if fault=='stale':bar=replace(bar,timestamp=start-timedelta(hours=1))

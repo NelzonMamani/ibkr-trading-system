@@ -3001,13 +3001,16 @@ class CoreOrchestrator:
                 order["pmh_management_expired"] = True
                 engine._save_selected_orders(order_id)
 
-    def inspect_stop_revision_prerequisite(self, order_id, *, micro_tighten=False):
+    def inspect_stop_revision_prerequisite(self, order_id, *, micro_tighten=False, bull_tighten=False):
         """Explicit internal inspection, NOT an enrolled automatic repricing policy.
 
         Generic inspection selects no strategy price. The separately enrolled
-        synthetic standalone Micro adopter reuses these immutable guards; no
+        synthetic standalone Bull/Micro adopters reuses these immutable guards; no
         operational BE/trailing/add/resumption permission is granted.
         """
+        if micro_tighten and bull_tighten:
+            return None
+        tightening = micro_tighten or bull_tighten
         from copy import deepcopy
         from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
         engine = self.execution_engine
@@ -3016,16 +3019,20 @@ class CoreOrchestrator:
             return None
         request = order["request"]
         life = engine.post_fill_lifecycle.get_trade(order_id)
-        if micro_tighten:
-            from src.strategies.ross_momentum.strategy_policy import standalone_micro_tightening_basis
-            if life is None or not standalone_micro_tightening_basis(order,life.avg_fill_price):
+        if tightening:
+            from src.strategies.ross_momentum.strategy_policy import standalone_cost_tightening_basis
+            if life is None or not standalone_cost_tightening_basis(order,life.avg_fill_price):
                 return None
         def evaluate(owner, candles, as_of, plan):
             if micro_tighten:
                 return self.trade_management_engine.evaluate_selected_micro_cost_tightening(owner,candles,
                     observed_at=as_of,session_plan=plan,entry_fill_price=life.avg_fill_price)
+            if bull_tighten:
+                return self.trade_management_engine.evaluate_selected_bull_cost_tightening(owner,candles,
+                    observed_at=as_of,session_plan=plan,entry_fill_price=life.avg_fill_price)
             return self.trade_management_engine.inspect_stop_revision_prerequisite(owner,candles,observed_at=as_of,session_plan=plan)
         evaluate_risk = (self.risk_engine.evaluate_micro_cost_tightening if micro_tighten
+            else self.risk_engine.evaluate_bull_cost_tightening if bull_tighten
             else self.risk_engine.evaluate_stop_revision_prerequisite)
         if self.run_mode != RunMode.PAPER or self._stop_requested_at_boundary("STOP_REVISION_PREREQUISITE"):
             return None
@@ -3048,7 +3055,7 @@ class CoreOrchestrator:
         position = self.trade_management_engine.snapshot_positions().get(order["symbol"])
         registered = self.trade_registry.get_trade(order["symbol"],request.get("trader_type"))
         decision = evaluate_risk(order_id=order_id,order=order,
-            position=position,registered=registered,life=life,snapshot=snapshot,observed_at=now,**({"quote":quote} if micro_tighten else {}))
+            position=position,registered=registered,life=life,snapshot=snapshot,observed_at=now,**({"quote":quote} if tightening else {}))
         if not decision.allowed or decision.execution_blocked:
             return None
         frozen_order,frozen_bars,frozen_proposal = deepcopy(order),deepcopy(bars),deepcopy(proposal)
@@ -3066,22 +3073,23 @@ class CoreOrchestrator:
             check = evaluate_risk(order_id=order_id,order=frozen_order,
                 position=self.trade_management_engine.snapshot_positions().get(order["symbol"]),
                 registered=self.trade_registry.get_trade(order["symbol"],request.get("trader_type")),
-                life=life,snapshot=frozen_truth,observed_at=as_of,**({"quote":quote} if micro_tighten else {}))
+                life=life,snapshot=frozen_truth,observed_at=as_of,**({"quote":quote} if tightening else {}))
             return current == frozen_proposal and check.allowed and not check.execution_blocked
         return proposal,quote,decision,guard
 
-    def _run_micro_cost_tightening(self):
+    def _run_selected_cost_tightening(self):
         """Default-off synthetic standalone adopter; existing failure pass runs first."""
         from copy import deepcopy
-        from src.strategies.ross_momentum.strategy_policy import selected_micro_cost_tightening_profile
-        if self._stop_requested_at_boundary("MICRO_COST_TIGHTENING"):
+        from src.strategies.ross_momentum.strategy_policy import selected_cost_tightening_profile, STANDALONE_BULL_COST_TIGHTENING_PROFILE
+        if self._stop_requested_at_boundary("SELECTED_COST_TIGHTENING"):
             return False
         engine = self.execution_engine
         for order_id, order in list(engine._selected_order_records().items()):
             if (order.get("side") not in {"LONG","BUY"} or order.get("stop_price_revision")
-                    or not selected_micro_cost_tightening_profile(order.get("request",{}))):
+                    or not selected_cost_tightening_profile(order.get("request",{}))):
                 continue
-            inspected = self.inspect_stop_revision_prerequisite(order_id,micro_tighten=True)
+            bull = selected_cost_tightening_profile(order["request"]) == STANDALONE_BULL_COST_TIGHTENING_PROFILE
+            inspected = self.inspect_stop_revision_prerequisite(order_id,micro_tighten=not bull,bull_tighten=bull)
             if inspected is None:
                 continue
             proposal, quote, decision, guard = inspected
@@ -3592,7 +3600,7 @@ class CoreOrchestrator:
                 and not self._latest_lifecycle_authority_verdict.get("block_exit_progression", True)):
             if not self._run_selected_failure_management(cycle_started_at, str(session_phase)):
                 return False
-            if not self._run_micro_cost_tightening():
+            if not self._run_selected_cost_tightening():
                 return False
         if not self._autonomous_recovery_allows_new_entries(cycle_started_at=cycle_started_at):
             return True

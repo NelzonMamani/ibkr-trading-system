@@ -229,3 +229,19 @@ def test_micro_tightening_default_and_environment_cannot_enroll(monkeypatch):
         resolver.set_config_overrides(None)
         assert not resolver.get_ross_synthetic_micro_cost_tightening()
     finally:resolver.set_config_overrides(previous)
+
+
+def test_bull_cost_tightening_default_env_and_own_unit_enrollment(monkeypatch):
+    from src.config import config_resolver as resolver
+    previous=dict(resolver._CONFIG_OVERRIDES)
+    monkeypatch.setenv('ROSS_SYNTHETIC_BULL_COST_TIGHTENING','true')
+    monkeypatch.setenv('EXECUTION_ENV','TEST')
+    try:
+        resolver.set_config_overrides(None)
+        assert not resolver.get_ross_synthetic_bull_cost_tightening()
+        resolver.set_config_overrides(dict(RUN_MODE='PAPER',RISK_PROFILE='SMALL',ROSS_SYNTHETIC_REQUESTED_BASE_SIZE=4,
+            ROSS_SYNTHETIC_UNIT_STOPS=True,ROSS_SYNTHETIC_UNIT_MANAGEMENT=True,ROSS_SYNTHETIC_BULL_COST_TIGHTENING=True))
+        assert resolver.get_ross_synthetic_bull_cost_tightening() and not resolver.get_ross_synthetic_micro_cost_failure()
+        resolver.set_config_overrides(dict(resolver._CONFIG_OVERRIDES,ROSS_SYNTHETIC_UNIT_MANAGEMENT=False))
+        with pytest.raises(resolver.ConfigResolutionError):resolver.get_ross_synthetic_bull_cost_tightening()
+    finally:resolver.set_config_overrides(previous)
