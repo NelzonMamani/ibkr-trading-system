@@ -579,16 +579,26 @@ class MarketDataClient:
             raise
 
     def qualify_contract(self, symbol: str, *, expected_client=None, expected_connection_epoch=None):
-        # Snapshot batches may first import the SDK on their worker thread.
-        safe_import_ib_insync()
-        from ib_insync import Contract
-
-        contract = Contract(
-            symbol=str(symbol or "").upper(),
-            secType="STK",
-            exchange="SMART",
-            currency="USD",
-        )
+        # Native descriptors need no optional async SDK or worker event loop.
+        # Verify strict scope before choosing; never resolve just to guess kind.
+        client = (self._snapshot_request_client(expected_client, expected_connection_epoch)
+                  if expected_client is not None or expected_connection_epoch is not None
+                  else getattr(self, "ib", None))
+        from ibapi.client import EClient
+        if isinstance(client, EClient):
+            from ibapi.contract import Contract
+            contract = Contract()
+            contract.symbol = str(symbol or "").upper()
+            contract.secType, contract.exchange, contract.currency = "STK", "SMART", "USD"
+        else:
+            safe_import_ib_insync()
+            from ib_insync import Contract
+            contract = Contract(
+                symbol=str(symbol or "").upper(),
+                secType="STK",
+                exchange="SMART",
+                currency="USD",
+            )
         qualified = (self.qualifyContracts(contract) if expected_client is None and expected_connection_epoch is None
                      else self.qualifyContracts(contract, expected_client=expected_client,
                                                 expected_connection_epoch=expected_connection_epoch))

@@ -4251,7 +4251,6 @@ def test_actual_snapshot_quality_contract_controls_native_pmh_profit_management(
         reassessment,monkeypatch,tmp_path,capsys,no_external_activity,quality_fault):
     from dataclasses import replace
     from datetime import datetime
-    from src.ibkr.market_data_client import MarketDataClient
     from src.market_data import market_data_snapshot_manager as snapshot_module
     from src.market_data.market_data_snapshot_manager import MarketDataSnapshotManager
     from test_joined_core_pmh_readonly import raw_fixture_quote,_snapshot
@@ -4264,7 +4263,12 @@ def test_actual_snapshot_quality_contract_controls_native_pmh_profit_management(
             timestamp=datetime(2026,10,20,13,35,42,tzinfo=timezone.utc))
         life=confirm_selected_fill(h,request,capsys,family='PREMARKET_HIGH_BREAK',fill_price=10.53,
             stop_price=request.stop_loss_price)
-        client=MarketDataClient(allow_direct_connection=False)
+        # This proof scripts only external raw fetching. SDK bootstrap is not
+        # part of that boundary and must not depend on a platform event loop.
+        def forbidden_quote_bootstrap():
+            pytest.fail('scripted raw quote source must not bootstrap SDK')
+        monkeypatch.setattr('src.ibkr.market_data_client.safe_import_ib_insync',forbidden_quote_bootstrap)
+        client=NS(snapshot_stock=None)
         raw_reads=[];quality_reads=[]
         def snapshot_stock(symbol):
             if quality_fault=='error':raise OSError('synthetic external snapshot failure')
