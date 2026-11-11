@@ -2275,12 +2275,46 @@ class ExecutionEngine:
                 for row in order.get("canonical_feedback", [])]
             if any(row.get("state") != "COMPLETE" for row in progress):
                 return True
-            getter = getattr(getattr(self, "_trade_lifecycle_engine", None), "native_feedback_snapshot", None)
+            lifecycle = getattr(self, "_trade_lifecycle_engine", None)
+            getter = getattr(lifecycle, "native_feedback_snapshot", None)
             if callable(getter):
                 snapshot = getter()
-                return bool(snapshot["required"]) and (not bool(snapshot["available"])
-                    or (bool(get_config("DAILY_RISK_INCLUDE_UNREALIZED"))
-                        and snapshot.get("native_unrealized_marks_present") is not True))
+                if not bool(snapshot["required"]):
+                    return False
+                if not bool(snapshot["available"]):
+                    return True
+                if bool(get_config("DAILY_RISK_INCLUDE_UNREALIZED")):
+                    reader = getattr(lifecycle, "native_valuation_snapshot", None)
+                    checked_at = datetime.now(timezone.utc)
+                    valuation = (reader(now=checked_at,
+                        max_age_seconds=get_config("IBKR_SNAPSHOT_MAX_AGE_SECONDS"))
+                        if callable(reader) else None)
+                    if not isinstance(valuation, dict) or valuation.get("available") is not True:
+                        return True
+                    marks = valuation.get("marks")
+                    if not isinstance(marks, list):
+                        return True
+                    if marks:
+                        client = self._native_callback_client()
+                        scope = self._native_scope
+                        if (scope is None or scope[1] is not client or client is None
+                                or not client.isConnected() or client._stop_event.is_set()
+                                or type(client.client_id) is not int
+                                or type(client._position_connection_epoch) is not int
+                                or not 0 <= (checked_at - scope[2]).total_seconds()
+                                    <= get_config("IBKR_SNAPSHOT_MAX_AGE_SECONDS")):
+                            return True
+                        if any(mark.get("account") != scope[0]
+                                or mark.get("client_id") != client.client_id
+                                or mark.get("connection_epoch") != client._position_connection_epoch
+                                for mark in marks):
+                            return True
+                        if reader(now=datetime.now(timezone.utc),
+                                max_age_seconds=get_config("IBKR_SNAPSHOT_MAX_AGE_SECONDS"),
+                                expected_source_client=client).get("available") is not True:
+                            return True
+                    return False
+                return False
             return bool(progress)  # A completed marker cannot replace its required owner.
         except Exception:
             return True  # Malformed/unavailable required progress is not accounting zero.

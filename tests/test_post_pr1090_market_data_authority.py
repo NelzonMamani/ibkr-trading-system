@@ -674,3 +674,76 @@ def test_clean_snapshot_rejects_invalid_required_values_even_with_contradictory_
     adverse = replace(snapshot, **{name: value})
     assert facts.manager.clean_snapshot({"AEMD": adverse}, {"AEMD": quality}, "AEMD") is None
     assert_native_quote_cleanup(facts.native)
+
+
+def test_native_batch_cold_worker_does_not_require_optional_async_sdk():
+    """Native qualification needs no optional async SDK or worker event loop."""
+    import subprocess
+    import sys
+    import textwrap
+    script=textwrap.dedent('''
+        import sys
+        from types import SimpleNamespace
+        from ibapi.client import EClient
+        from ibapi.contract import Contract,ContractDetails
+        from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
+        from src.ibkr.market_data_client import MarketDataClient
+        from src.market_data.market_data_snapshot_manager import MarketDataSnapshotManager
+        from datetime import datetime,timezone
+        assert 'sitecustomize' in sys.modules, 'Offline transport guard not inherited'
+        assert 'ib_insync' not in sys.modules, 'Optional SDK must initially be absent'
+        optional_bootstrap_calls=[]
+        def forbid_optional_bootstrap(*args,**kwargs):
+            optional_bootstrap_calls.append('bootstrap')
+            raise AssertionError('Native qualification must not initialize an async worker loop')
+        from src.ibkr import market_data_client as market_module
+        market_module.safe_import_ib_insync=forbid_optional_bootstrap
+        class ForbidOptionalSDK:
+            def find_spec(self,fullname,path=None,target=None):
+                if fullname=='ib_insync' or fullname.startswith('ib_insync.'):
+                    raise AssertionError('Native qualification must not import the optional async SDK')
+        sys.meta_path.insert(0,ForbidOptionalSDK())
+        def forbidden(*args,**kwargs):
+            raise AssertionError('Synthetic callback boundary must never connect or mutate')
+        for name in ('connect','placeOrder','cancelOrder','reqPositions','reqExecutions'):
+            setattr(EClient,name,forbidden)
+        native=IbkrClient('offline',0,71,.1,'LIVE',True)
+        native.isConnected=lambda:True
+        requests=[]
+        def qualify(self,request_id,requested):
+            assert isinstance(requested,Contract), 'Native qualification must use its native descriptor'
+            assert (requested.symbol,requested.secType,requested.exchange,requested.currency)==('JPM','STK','SMART','USD')
+            contract=Contract();contract.symbol=requested.symbol;contract.conId=123
+            contract.secType='STK';contract.exchange='SMART';contract.currency='USD'
+            contract.primaryExchange='NASDAQ'
+            details=ContractDetails();details.contract=contract
+            self.contractDetails(request_id,details);self.contractDetailsEnd(request_id)
+        def quote(self,request_id,contract,*args):
+            requests.append(request_id)
+            self.marketDataType(request_id,1)
+            for kind,value in ((1,10.31),(2,10.33),(4,10.32),(9,9.4)):
+                self.tickPrice(request_id,kind,value,None)
+            self.tickSize(request_id,8,2_000_000)
+            self.tickString(request_id,45,str(datetime.now(timezone.utc).timestamp()))
+            self.tickSnapshotEnd(request_id)
+        EClient.reqContractDetails=qualify;EClient.reqMktData=quote
+        EClient.reqMarketDataType=lambda *args:None
+        EClient.cancelMktData=lambda *args:None
+        wrapper=MarketDataClient(connection_manager=SimpleNamespace(get_client=forbidden),
+            allow_direct_connection=False,market_data_type='LIVE',snapshot_timeout_seconds=.1)
+        wrapper.ib=native
+        manager=MarketDataSnapshotManager(wrapper,max_workers=1)
+        values,quality=manager.batch_snapshots(['JPM'],expected_client=native,expected_connection_epoch=0)
+        snapshot=manager.clean_snapshot(values,quality,'JPM')
+        assert not optional_bootstrap_calls, 'Native qualification attempted optional async bootstrap'
+        assert 'ib_insync' not in sys.modules, 'Native path imported the optional async SDK'
+        assert snapshot is not None, (quality,wrapper.last_snapshot_debug)
+        assert snapshot.last==10.32 and snapshot.snapshot_complete
+        assert (snapshot.con_id,snapshot.client_id,snapshot.connection_epoch)==(123,71,0)
+        assert len(requests)==1
+        assert not native._active_market_req_ids and not native._ticker_by_req_id and not native._market_events
+        import threading
+        assert not any(thread.name.startswith('ThreadPoolExecutor') for thread in threading.enumerate())
+    ''')
+    result=subprocess.run([sys.executable,'-c',script],capture_output=True,text=True,timeout=20)
+    assert result.returncode==0,result.stdout+result.stderr

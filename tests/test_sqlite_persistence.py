@@ -5,6 +5,8 @@ from pathlib import Path
 import sys
 from uuid import uuid4
 
+import pytest
+
 sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
 
 from storage.serialization import canonical_json, compute_audit_hash
@@ -249,3 +251,92 @@ def test_audit_hash_chain_detects_tamper(tmp_path):
     assert result.first_bad_seq == 1
 
     store.close()
+
+
+@pytest.fixture
+def native_pair_store(isolated_runtime_schema):
+    # Existing copied schema supplies the same real SQLite owner without a
+    # second account/outcome ledger or operational runtime.
+    store = SQLiteStore(str(isolated_runtime_schema))
+    _insert_sample_run(store, "NATIVE-PAIR-RUN")
+    prior = dict(lifecycle_trade_id="NATIVE-ROOT", run_id="NATIVE-PAIR-RUN", symbol="JPM",
+        side="LONG", strategy_name="RossMomentumStrategyV1", status="OPEN",
+        quantity_open=2, quantity_closed=0, entry_avg_price=10.5, gross_realized_pnl=0.,
+        stop_price=10., target_price=None, target_quantity=0, target_type=None,
+        unrealized_pnl=0., last_mark_price=None, source_order_ids_json="['71']",
+        source_execution_ids_json="['ENTRY']", opened_at="2026-10-20T13:35:00+00:00",
+        closed_at=None, exit_avg_price=None, realized_pnl_by_exit_reason_json="{}",
+        reconciliation_flags_json="[]", drift_flags_json="[]", notes_json="[]",
+        take_profit_events_json="[]", created_at=now_iso(), updated_at=now_iso())
+    store.upsert_trade_lifecycle_trade(prior)
+    event = dict(event_id="EXIT-DELTA", run_id=prior["run_id"], lifecycle_trade_id=prior["lifecycle_trade_id"],
+        symbol="JPM", side="LONG", event_type="PARTIAL_EXIT", quantity=1, price=10.25,
+        timestamp="2026-10-20T13:36:00+00:00", order_id="72", execution_id="EXIT-EXEC",
+        source="native_cached_fill", payload_json=json.dumps({"native_feedback_committed": True}),
+        created_at=now_iso())
+    candidate = dict(prior, quantity_open=1, quantity_closed=1, status="PARTIALLY_CLOSED",
+        gross_realized_pnl=-.25, exit_avg_price=10.25, source_execution_ids_json="['ENTRY','EXIT-EXEC']")
+    try:
+        yield store, prior, candidate, event
+    finally:
+        store.close()
+
+
+def test_native_financial_pair_supersedes_only_mark_drift(native_pair_store):
+    store, prior, candidate, event = native_pair_store
+    # Represents a mark transaction that committed but lost its acknowledgement.
+    store.connection.execute("UPDATE trade_lifecycle_trades SET last_mark_price=10.2, unrealized_pnl=-.6")
+    store.connection.commit()
+    with pytest.raises(RuntimeError, match="STORED_TRADE_CONFLICT"):
+        store.persist_native_lifecycle_feedback(candidate, event, expected_trade=prior)
+    assert store.fetch_trade_lifecycle_events("NATIVE-PAIR-RUN") == []
+    receipt = store.persist_native_lifecycle_feedback(candidate, event, expected_trade=prior, financial_only=True)
+    assert receipt == {"completed": True, "event_id": "EXIT-DELTA", "duplicate": False}
+    row = store.fetch_trade_lifecycle_trades("NATIVE-PAIR-RUN")[0]
+    assert row["quantity_open"] == 1 and row["gross_realized_pnl"] == -.25
+    assert row["last_mark_price"] is None and row["unrealized_pnl"] == 0
+    assert row["stop_price"] == 10. and row["target_price"] is None
+    assert len(store.fetch_trade_lifecycle_events("NATIVE-PAIR-RUN")) == 1
+    # A duplicate's candidate snapshot still needs full equality, even though
+    # the expected financial precondition ignores only the two mark fields.
+    store.connection.execute("UPDATE trade_lifecycle_trades SET last_mark_price=10.3, unrealized_pnl=-.2")
+    store.connection.commit()
+    with pytest.raises(RuntimeError, match="STORED_EVENT_CONFLICT"):
+        store.persist_native_lifecycle_feedback(candidate, event, expected_trade=prior, financial_only=True)
+    assert len(store.fetch_trade_lifecycle_events("NATIVE-PAIR-RUN")) == 1
+
+
+@pytest.mark.parametrize("column,value", [
+    ("quantity_open", 3), ("quantity_closed", 1), ("entry_avg_price", 10.75),
+    ("gross_realized_pnl", -.5), ("stop_price", 9.5), ("target_price", 12.),
+    ("status", "CLOSED"), ("symbol", "MSFT"), ("side", "SHORT"),
+    ("strategy_name", "OtherStrategy"), ("source_execution_ids_json", "['FOREIGN']"),
+])
+def test_native_financial_pair_rejects_financial_or_ownership_drift(native_pair_store, column, value):
+    store, prior, candidate, event = native_pair_store
+    store.connection.execute(f"UPDATE trade_lifecycle_trades SET {column}=?", (value,))
+    store.connection.commit()
+    with pytest.raises(RuntimeError, match="STORED_TRADE_CONFLICT"):
+        store.persist_native_lifecycle_feedback(candidate, event, expected_trade=prior, financial_only=True)
+    assert store.fetch_trade_lifecycle_trades("NATIVE-PAIR-RUN")[0][column] == value
+    assert store.fetch_trade_lifecycle_events("NATIVE-PAIR-RUN") == []
+
+
+@pytest.mark.parametrize("case", ["mark_event", "uncommitted", "retained_price", "retained_pnl", "bool_mode"])
+def test_native_financial_mode_cannot_authorize_valuation_write(native_pair_store, case):
+    store, prior, candidate, event = native_pair_store
+    mode = True
+    if case == "mark_event":
+        event["event_type"] = "MARK_PRICE"
+    elif case == "uncommitted":
+        event["payload_json"] = "{}"
+    elif case == "retained_price":
+        candidate["last_mark_price"] = 10.3
+    elif case == "retained_pnl":
+        candidate["unrealized_pnl"] = -.2
+    else:
+        mode = 1
+    with pytest.raises(ValueError, match="COMPARISON_MODE_INVALID|FINANCIAL_SUPERSESSION_INVALID"):
+        store.persist_native_lifecycle_feedback(candidate, event, expected_trade=prior, financial_only=mode)
+    assert store.fetch_trade_lifecycle_events("NATIVE-PAIR-RUN") == []
+    assert store.fetch_trade_lifecycle_trades("NATIVE-PAIR-RUN")[0]["quantity_open"] == 2
