@@ -1027,3 +1027,227 @@ def test_bull_tightening_never_overwrites_unexpected_tighter_native_price(reasse
     assert len(h.unit_writes)==2 and not h.failure_owner.get('stop_price_revision')
     assert all(row.order.auxPrice==10.93 for row in h.native_open_orders)
     assert life.avg_fill_price==10.88 and life.selected_stop_price==10.63
+
+
+def retained_native_cold_start_case(reassessment,monkeypatch,tmp_path,capsys,*,family='BULL_FLAG',state='confirmed'):
+    """Seed through accepted owners; no reconstructed terminal lifecycle records."""
+    import json,sqlite3
+    if state=='pending_partial':
+        h,request,life=small_central_owned(reassessment,monkeypatch,tmp_path,capsys,family,
+            requested_base=8,risk_cap=4,synthetic_capital=800,unit_stops=True)
+        h,request,life=one_share_profit_case(reassessment,monkeypatch,tmp_path,capsys,prepared=(h,request,life))
+        enroll_unit_management(h,monkeypatch,fault='unknown')
+        assert not h.core.run_once();capsys.readouterr()
+        assert h.failure_owner['unit_profit_exit']['status']!='FILLED'
+        assert any(row.order.orderType=='MKT' for row in h.native_open_orders)
+    else:
+        factory=prepare_bull_tightening if family=='BULL_FLAG' else prepare_micro_tightening
+        uncertain=state in {'mixed','rejected','callback','before_accounting','between_projections'}
+        fault=('second_rejected' if state=='rejected' else 'second_unknown' if family=='BULL_FLAG' else 'unknown') if uncertain else 'none'
+        h,request,life,bar,contract=factory(reassessment,monkeypatch,tmp_path,capsys,fault=fault)
+        engine=h.core.execution_engine
+        if state=='before_dispatch':
+            write=engine._storage_engine.store_execution_order_state
+            def lost_commit(state_id,payload,**kwargs):
+                write(state_id,payload,**kwargs)
+                if payload['orders'][request.client_order_id].get('stop_price_revision'):
+                    raise OSError('synthetic lost reservation commit acknowledgement')
+            monkeypatch.setattr(engine._storage_engine,'store_execution_order_state',lost_commit)
+        outcome=h.core.run_once();capsys.readouterr()
+        assert outcome is (state=='confirmed')
+        root=h.failure_owner['stop_price_revision']
+        assert root['status']==('CONFIRMED' if state=='confirmed' else 'RESERVED')
+        if state in {'callback','before_accounting','between_projections'}:
+            identity=h.native_open_orders[0].orderId
+            h.facts[identity]=dict(status='Filled',filled=1,remaining=0,avgFillPrice=life.avg_fill_price,
+                symbol='JPM',side='SELL',orderId=identity,parentId=71,orderRef='PROTECT|'+life.trade_id)
+            h.native_open_orders[:]=[row for row in h.native_open_orders if row.orderId!=identity];h.native_quantity[0]-=1
+            if state=='before_accounting':
+                write=engine._storage_engine.store_execution_order_state
+                def lost_pending_commit(state_id,payload,**kwargs):
+                    write(state_id,payload,**kwargs)
+                    if any(row.get('cached_update_in_progress') for row in payload['orders'].values()):
+                        raise OSError('synthetic interrupted before accounting')
+                monkeypatch.setattr(engine._storage_engine,'store_execution_order_state',lost_pending_commit)
+            if state=='between_projections':
+                def interrupted(results):raise OSError('synthetic interrupted Core projection')
+                monkeypatch.setattr(h.core,'_apply_execution_results_to_trade_management',interrupted)
+            if state!='callback':
+                assert not h.core.run_once();capsys.readouterr()
+                assert any(row.get('cached_update_in_progress') for row in engine._native_orders.values())
+    engine=h.core.execution_engine
+    assert len(h.registry_batches[0][1])==33 and not request.relationship_context
+    database=tmp_path/'cold-retained.sqlite3'
+    with sqlite3.connect(database) as target:engine._storage_engine._store.connection.backup(target)
+    rows=[]
+    for row in h.native_open_orders:
+        rows.append(dict(orderId=row.orderId,
+            contract=dict(symbol=row.contract.symbol,conId=row.contract.conId,exchange='SMART',currency='USD',secType='STK'),
+            order={key:getattr(row.order,key,default) for key,default in dict(orderType='',parentId=71,orderRef='',action='SELL',totalQuantity=1,auxPrice=0.,tif='GTC',account='SYNTHETIC_TEST',clientId=71).items()},
+            orderState=dict(status=row.orderState.status)))
+    facts=dict(now=h.life.clock.current.isoformat(),account='SYNTHETIC_TEST',client_id=71,
+        epoch=h.failure_owner['unit_connection_epoch'],root_id=request.client_order_id,
+        positions=[dict(symbol='JPM',position=h.native_quantity[0],con_id=123,avgCost=life.avg_fill_price,account='SYNTHETIC_TEST')],
+        open_orders=rows,callbacks=h.facts,cycles=2,
+        candidate_observations=h.rows,source_timeframe_bars={key:[vars(bar) for bar in value] for key,value in h.streams.items()})
+    path=tmp_path/'cold-external-facts.json';path.write_text(json.dumps(facts,default=str))
+    return h,request,life,database,path
+
+
+def assert_full_core_cold_refusal(report):
+    summary={key:report.get(key) for key in ('constructor_exception','harness_exception','supervisor','evidence_dir')}
+    assert not report.get('harness_exception'),summary
+    assert report['constructor_complete'] and report['cycle_attempted'],summary
+    assert not report['sdk_attempts'] and not report['wire_attempts'] and not report['network_attempts'],summary
+    assert report['native_before']==report['native_after_constructor']==report['native_after_cycle'],summary
+    for phase in ('after_constructor','after_cycle'):
+        state=report[phase]
+        assert state['startup_recovery_state']=='RECOVERY_FAILED' and state['native_quarantined'],summary
+        assert state['failsafe_block_new_entries'] and state['native_orders']=={},summary
+        assert state['post_fill']=={},summary  # No generic aggregate STP/target promotion.
+    assert report['registry']==[],summary
+    assert len(report['cycles'])==2 and not report['cached_order_status_reads'],summary
+    for phase in ('database_after_constructor','database_after_cycle','database_final'):
+        assert {k:v for k,v in report[phase].items() if k!='runs'}=={k:v for k,v in report['database_before'].items() if k!='runs'},summary
+    supervisor=report['supervisor']
+    assert supervisor['reaped'] and not supervisor['timed_out'] and supervisor['distinct_process'],summary
+    assert supervisor['child_pid_matched'] and supervisor['child_parent_matched'],summary
+    assert report['cleanup']['live_threads']==[],summary
+    assert report['cleanup']['manager_disconnected'] and report['cleanup']['storage_closed'],summary
+
+
+
+def test_real_core_cold_start_cannot_rewrite_retained_bull_protection(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    from test_startup_recovery_and_stop_protection import run_native_core_cold_start
+    h,request,life,database,facts=retained_native_cold_start_case(reassessment,monkeypatch,tmp_path,capsys)
+    report=run_native_core_cold_start(database,facts,tmp_path/'child')
+    assert not report.get('sdk_attempts'),report
+    assert not report.get('wire_attempts'),report
+    assert report['native_before']==report['native_after_constructor']==report['native_after_cycle'],report
+    assert report['after_cycle']['native_quarantined'] and report['after_cycle']['failsafe_block_new_entries'],report
+    assert report['supervisor']['reaped'] and not report['supervisor']['timed_out'],report
+
+
+def test_real_core_cold_start_conflicting_flat_facts_cannot_clear_uncertainty(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    import json
+    from test_startup_recovery_and_stop_protection import run_native_core_cold_start
+    h,request,life,database,path=retained_native_cold_start_case(reassessment,monkeypatch,tmp_path,capsys,state='mixed')
+    facts=json.loads(path.read_text());facts.update(positions=[],open_orders=[]);path.write_text(json.dumps(facts))
+    report=run_native_core_cold_start(database,path,tmp_path/'child-flat-conflict')
+    assert report['constructor_complete'],report.get('constructor_exception')
+    assert report['after_constructor']['startup_recovery_state']=='RECOVERY_FAILED',report['after_constructor']['startup_recovery_result']
+    assert report['after_constructor']['native_quarantined'],report['after_constructor']['startup_recovery_result']
+    assert not report['sdk_attempts'] and not report['wire_attempts']
+
+
+@pytest.mark.parametrize('family,state',[
+    ('BULL_FLAG','confirmed'),('MICRO_PULLBACK','confirmed'),
+    ('BULL_FLAG','mixed'),('BULL_FLAG','rejected'),('MICRO_PULLBACK','mixed'),
+    ('BULL_FLAG','before_dispatch'),('BULL_FLAG','pending_partial'),
+    ('MICRO_PULLBACK','callback'),('BULL_FLAG','before_accounting'),('BULL_FLAG','between_projections')])
+def test_full_core_cold_start_retained_transition_matrix(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,family,state):
+    from test_startup_recovery_and_stop_protection import run_native_core_cold_start
+    h,request,life,database,path=retained_native_cold_start_case(reassessment,monkeypatch,tmp_path,capsys,family=family,state=state)
+    report=run_native_core_cold_start(database,path,tmp_path/'child-transition')
+    assert_full_core_cold_refusal(report)
+    if state=='pending_partial':
+        orders=report['native_before']['orders']
+        assert any(row.get('unit_amendment',{}).get('status')=='DISPATCH_UNCERTAIN' for row in orders.values())
+        assert all(not row.get('stop_price_revision') for row in orders.values())
+
+
+
+def test_real_core_corrupt_null_native_state_is_not_absent(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    import json,sqlite3
+    from test_startup_recovery_and_stop_protection import run_native_core_cold_start
+    h,request,life,database,path=retained_native_cold_start_case(reassessment,monkeypatch,tmp_path,capsys,state='mixed')
+    # Explicit CORRUPT-RECORD control, never positive lifecycle provenance.
+    with sqlite3.connect(database) as db:
+        db.execute("UPDATE position_lifecycle_transitions SET reason='null' WHERE transition_id='execution.native_orders.v1:PAPER'")
+    facts=json.loads(path.read_text());facts.update(positions=[],open_orders=[]);path.write_text(json.dumps(facts))
+    report=run_native_core_cold_start(database,path,tmp_path/'child-null-record')
+    assert not report['constructor_complete'],report.get('after_constructor')
+    assert not report['sdk_attempts'] and not report['wire_attempts']
+    assert report['supervisor']['reaped'] and not report['supervisor']['timed_out']
+
+
+def test_full_core_cold_start_external_disagreements_and_repeated_startup(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    import json
+    from datetime import timedelta
+    from test_startup_recovery_and_stop_protection import run_native_core_cold_start
+    h,request,life,database,path=retained_native_cold_start_case(reassessment,monkeypatch,tmp_path,capsys,state='mixed')
+    baseline=json.loads(path.read_text())
+    for fault in ('account','client','epoch','native_identity','quantity','flat','positions_missing','orders_incomplete','stale','callbacks','reenrollment','repeat'):
+        facts=deepcopy(baseline);boundary='none'
+        if fault=='account':facts['account']='OTHER_ACCOUNT'
+        if fault=='client':facts['client_id']+=1
+        if fault=='epoch':facts['epoch']+=1
+        if fault=='native_identity':facts['open_orders'][0]['orderId']+=1000
+        if fault=='quantity':facts['positions'][0]['position']+=1
+        if fault=='flat':facts.update(positions=[],open_orders=[])
+        if fault in ('positions_missing','orders_incomplete'):boundary=fault
+        if fault=='stale':facts['now']=(datetime.fromisoformat(facts['now'])+timedelta(days=1)).isoformat()
+        if fault=='callbacks':
+            identity=str(facts['open_orders'][0]['orderId'])
+            filled={identity:dict(status='Filled',filled=1,remaining=0,avgFillPrice=10.88,parentId=71,clientId=71)}
+            older={identity:dict(status='Submitted',filled=0,remaining=1,avgFillPrice=0,parentId=71,clientId=71)}
+            facts['callback_frames']=[filled,older,filled]
+        if fault=='reenrollment':facts['config']=dict(ROSS_SYNTHETIC_REQUESTED_BASE_SIZE=8,ROSS_SYNTHETIC_UNIT_STOPS=True,
+            ROSS_SYNTHETIC_UNIT_MANAGEMENT=True,ROSS_SYNTHETIC_BULL_COST_TIGHTENING=True,
+            ROSS_SYNTHETIC_MICRO_COST_FAILURE=True,ROSS_SYNTHETIC_MICRO_COST_TIGHTENING=True)
+        current=tmp_path/('facts-'+fault+'.json');current.write_text(json.dumps(facts))
+        report=run_native_core_cold_start(database,current,tmp_path/('child-'+fault),fault=boundary)
+        assert_full_core_cold_refusal(report)
+        assert report['types']['core']=='src.core.orchestrator.CoreOrchestrator'
+        assert report['types']['broker']=='src.brokers.ibkr_live_broker.IbkrLiveBroker'
+        assert report['types']['engine']=='src.execution.execution_engine.ExecutionEngine'
+        assert report['after_constructor']['startup_recovery_result']['reason']=='NATIVE_ORDER_RESTART_RECONCILIATION_REQUIRED'
+
+
+@pytest.mark.parametrize('raw',['{not-json','null','[]','42','{}'])
+def test_full_core_cold_start_corrupt_records_remain_unresolved(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,raw):
+    import sqlite3
+    from test_startup_recovery_and_stop_protection import run_native_core_cold_start
+    h,request,life,database,path=retained_native_cold_start_case(reassessment,monkeypatch,tmp_path,capsys)
+    # Deliberate corruption AFTER genuine lifecycle generation; not a positive seed.
+    with sqlite3.connect(database) as db:
+        db.execute("UPDATE position_lifecycle_transitions SET reason=? WHERE transition_id='execution.native_orders.v1:PAPER'",(raw,))
+    report=run_native_core_cold_start(database,path,tmp_path/'child-corrupt')
+    assert not report['sdk_attempts'] and not report['wire_attempts'] and not report['network_attempts']
+    assert report['database_before']['position_lifecycle_transitions']==report['database_final']['position_lifecycle_transitions']
+    if raw=='{}':
+        assert_full_core_cold_refusal(report)  # Existing opaque record is never absence.
+    else:
+        assert not report['constructor_complete'] and report['constructor_exception']
+        assert not report['cycle_attempted']
+    assert report['supervisor']['reaped'] and not report['supervisor']['timed_out']
+
+
+def test_full_core_no_retained_native_state_preserves_real_startup_control(runtime_schema_template,tmp_path):
+    import json,shutil
+    from test_startup_recovery_and_stop_protection import run_native_core_cold_start
+    database=tmp_path/'empty-core.sqlite3';shutil.copyfile(runtime_schema_template,database)
+    path=tmp_path/'empty-facts.json';path.write_text(json.dumps(dict(positions=[],open_orders=[],cycles=0)))
+    report=run_native_core_cold_start(database,path,tmp_path/'empty-child')
+    assert report['constructor_complete'],report.get('constructor_exception') or report.get('harness_exception')
+    state=report['after_constructor']
+    assert state['startup_recovery_state']=='RECOVERY_COMPLETE' and not state['native_quarantined']
+    assert state['native_state'] is None and not report['sdk_attempts'] and not report['network_attempts']
+    assert not report['cycle_attempted']  # Constructor control, NOT a new admission proof.
+    assert report['supervisor']['reaped'] and report['cleanup']['live_threads']==[]
+
+
+def test_full_core_child_failure_and_timeout_are_owned_and_reaped(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    import sqlite3
+    from test_startup_recovery_and_stop_protection import run_native_core_cold_start
+    h,request,life,database,path=retained_native_cold_start_case(reassessment,monkeypatch,tmp_path,capsys)
+    failed=run_native_core_cold_start(database,path,tmp_path/'failed-child',fault='constructor_failure')
+    assert not failed['constructor_complete'] and 'SYNTHETIC_EXTERNAL_MANAGER_FACTORY_FAILURE' in str(failed['constructor_exception'])
+    assert failed['supervisor']['reaped'] and failed['supervisor']['pipes_closed']
+    timed=run_native_core_cold_start(database,path,tmp_path/'timed-child',fault='timeout',timeout=3)
+    assert timed['supervisor']['timed_out'] and timed['supervisor']['reaped'] and timed['supervisor']['pipes_closed']
+    assert timed['supervisor']['child_pid_matched'] and timed['supervisor']['child_parent_matched']
+    assert not timed.get('sdk_attempts') and not timed.get('wire_attempts')
+    # OS process exit releases the child's handles; verify the DB is unlocked.
+    with sqlite3.connect(database,timeout=1) as db:
+        db.execute('BEGIN IMMEDIATE');db.rollback()

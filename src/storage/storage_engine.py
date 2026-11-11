@@ -329,7 +329,15 @@ class StorageEngine:
         row = self._store.connection.execute(
             "SELECT reason FROM position_lifecycle_transitions WHERE transition_id = ?", (state_id,)
         ).fetchone()
-        return json.loads(row[0]) if row else None
+        if row is None:
+            return None
+        payload = json.loads(row[0])
+        # None means ABSENT, not a corrupt stored JSON null/list/scalar. Every
+        # management snapshot is a mapping; never turn an existing bad record
+        # into permission to initialize/recover an empty owner.
+        if not isinstance(payload, dict):
+            raise ValueError("MANAGEMENT_STATE_NOT_OBJECT")
+        return payload
 
     def store_lifecycle_transition(self, transition: dict[str, Any]) -> None:
         if not self.enabled or self.backend != "sqlite" or not self._store:
