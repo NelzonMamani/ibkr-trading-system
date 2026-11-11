@@ -35,3 +35,29 @@ def test_storage_engine_recovers_missing_db(tmp_path):
         assert cursor.fetchone() is not None
     finally:
         engine.shutdown()
+
+
+def test_management_snapshot_distinguishes_absence_mapping_and_corruption(tmp_path):
+    set_config_overrides({"PERSISTENCE_SQLITE_PATH": str(tmp_path / "management.db")})
+    engine = StorageEngine()
+    try:
+        assert engine.fetch_management_state("absent") is None
+        payload = {"orders": {"native-1": {"status": "UNKNOWN", "quantity": 2}}}
+        engine.store_management_state("retained", payload)
+        assert engine.fetch_management_state("retained") == payload
+        connection = engine._store.connection
+        for raw in ("null", "[]", "42", '"unavailable"'):
+            connection.execute(
+                "UPDATE position_lifecycle_transitions SET reason=? WHERE transition_id=?",
+                (raw, "retained"),
+            )
+            connection.commit()
+            with pytest.raises(ValueError, match="MANAGEMENT_STATE_NOT_OBJECT"):
+                engine.fetch_management_state("retained")
+        connection.execute(
+            "UPDATE position_lifecycle_transitions SET reason='{}' WHERE transition_id='retained'"
+        )
+        connection.commit()
+        assert engine.fetch_management_state("retained") == {}
+    finally:
+        engine.shutdown()

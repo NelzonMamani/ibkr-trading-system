@@ -1107,6 +1107,18 @@ def assert_full_core_cold_refusal(report):
         assert state['post_fill']=={},summary  # No generic aggregate STP/target promotion.
     assert report['registry']==[],summary
     assert len(report['cycles'])==2 and not report['cached_order_status_reads'],summary
+    assert report['mutation_attempts']==dict(place=0,modify=0,cancel=0),summary
+    assert not report['external_provider_calls'] and not report['external_history_calls'],summary
+    available=report['external_fact_availability']
+    assert available['scope']=='RAW_EXTERNAL_FACTS_ONLY_NO_ELIGIBILITY_PROOF',summary
+    assert available['provider_boundary_installed'] and available['history_boundary_installed'],summary
+    assert available['quotes']['JPM']['bid']>0 and all(available['bar_counts']['JPM'].values()),summary
+    for cycle in report['cycles']:
+        faults=cycle['fault_events']
+        assert [(row['event_type'],row['payload']['message']) for row in faults]==[
+            ('FAULT_DETECTED','NATIVE_ORDER_RECOVERY_REQUIRED'),
+            ('FAULT_ACTION_TAKEN','NATIVE_ORDER_RECOVERY_REQUIRED')],summary
+        assert faults[1]['payload']['recommended_action']=='ABORT_CYCLE',summary
     for phase in ('database_after_constructor','database_after_cycle','database_final'):
         assert {k:v for k,v in report[phase].items() if k!='runs'}=={k:v for k,v in report['database_before'].items() if k!='runs'},summary
     supervisor=report['supervisor']

@@ -172,6 +172,8 @@ report = {'pid': os.getpid(), 'parent_pid': os.getppid(), 'fault': fault,
           'constructor_complete': False, 'cycle_attempted': False,
           'sdk_attempts': [], 'wire_attempts': [], 'network_attempts': [],
           'cached_order_status_reads': [], 'cycles': [], 'cleanup': {},
+          'external_provider_calls': [], 'external_history_calls': [],
+          'availability_witness_calls': [],
           'stage': 'BOOTSTRAP'}
 # Establish the child/supervisor binding before importing the application.  A
 # killed child cannot write terminal evidence, so timeout evidence stays partial.
@@ -273,6 +275,11 @@ try:
     from src.execution import position_truth, post_fill_lifecycle_engine
     from src.ibkr.position_snapshot import BrokerPositionResult
     from src.ibkr.mutation_audit import snapshot as mutation_snapshot
+    from src.scanner import scanner_runner
+    from src.scanner.providers import factory as scanner_factory
+    from src.scanner.providers.base import QuoteData, IntradayStats
+    from src.strategies.common.candles.candle_types import Candle
+    from src.strategies.ross_momentum.patterns import pattern_trace
 
     overrides = dict(RUN_MODE='PAPER', RUN_MODE_EFFECTIVE='PAPER',
         EXECUTION_ENABLED=True, RISK_PROFILE='SMALL',
@@ -292,7 +299,8 @@ try:
                 return cls.fromtimestamp(observed.timestamp(), tz=tz)
         # The clock is an external fact, not an admission/recovery outcome.
         for module in (core_module, execution_module, position_truth,
-                       post_fill_lifecycle_engine, broker_module):
+                       post_fill_lifecycle_engine, broker_module, scanner_runner,
+                       pattern_trace):
             module.datetime = Clock
     else:
         observed = datetime.now(timezone.utc)
@@ -341,6 +349,132 @@ try:
             'native_id': order_id, 'cycle': active_cycle[0]})
         return cached_order_status(order_id, *args, **kwargs)
     client.cached_order_status = observe_cached_order_status
+
+    # Supply discovery through its external provider protocol, never through a
+    # prepared scanner payload, Focus row, pattern result or admission decision.
+    raw_fields = frozenset(('symbol', 'company_name', 'con_id', 'exchange',
+        'primary_exchange', 'trading_class', 'local_symbol', 'currency',
+        'instrument_type', 'last_price', 'bid', 'ask', 'open', 'high', 'low',
+        'close', 'prev_close', 'ref_close_rth', 'volume', 'float_shares',
+        'current_intraday_volume', 'average_daily_volume_20d',
+        'average_daily_volume_window_days', 'volume_velocity_5m',
+        'volume_velocity_15m', 'quote_timestamp_utc', 'quote_timestamp_source',
+        'requested_market_data_type', 'returned_market_data_type',
+        'market_data_type_confirmed', 'received_at_utc',
+        'market_data_type_received_at_utc', 'request_id', 'snapshot_complete'))
+    candidates = {str(symbol).upper(): {key: copy.deepcopy(value)
+        for key, value in row.items() if key in raw_fields}
+        for symbol, row in facts.get('candidate_observations', {}).items()}
+    source_bars = {}
+    for timeframe, rows in facts.get('source_timeframe_bars', {}).items():
+        source_bars[timeframe] = [Candle(
+            open=row['open'], high=row['high'], low=row['low'], close=row['close'],
+            volume=row['volume'], timestamp=(datetime.fromisoformat(row['timestamp'])
+                if row.get('timestamp') else None)) for row in rows]
+    availability_phase = [False]
+    def external_call(kind, method, **details):
+        entry = dict(method=method, cycle=active_cycle[0], **details)
+        key = ('availability_witness_calls' if availability_phase[0] else
+               'external_provider_calls' if kind == 'provider' else 'external_history_calls')
+        report[key].append(dict(kind=kind, **entry))
+
+    class ExternalScannerFacts:
+        source_name = 'IBKR'
+        market_data_client = None
+        last_scan_details = {'symbol_details': {symbol: dict(
+            conId=row.get('con_id'), exchange=row.get('exchange'),
+            primaryExchange=row.get('primary_exchange'),
+            tradingClass=row.get('trading_class'), localSymbol=row.get('local_symbol'),
+            currency=row.get('currency'), secType=row.get('instrument_type'),
+            longName=row.get('company_name')) for symbol, row in candidates.items()}}
+
+        def connect(self):
+            external_call('provider', 'connect')
+
+        def disconnect(self):
+            external_call('provider', 'disconnect')
+
+        def get_top_gainers(self, limit, request=None):
+            external_call('provider', 'get_top_gainers', limit=limit)
+            return list(candidates)[:limit]
+
+        def get_quote(self, symbol):
+            external_call('provider', 'get_quote', symbol=symbol)
+            row = candidates[symbol]
+            return QuoteData(symbol=symbol, bid=row.get('bid'), ask=row.get('ask'),
+                last=row.get('last_price'), vwap=None, open=row.get('open'),
+                high=row.get('high'), low=row.get('low'),
+                close=row.get('close', row.get('prev_close')), change_percent=None,
+                volume=row.get('volume'), timestamp_utc=row.get('quote_timestamp_utc'),
+                timestamp_source=row.get('quote_timestamp_source', 'UNKNOWN'),
+                data_quality_flags=(), **{key: row[key] for key in (
+                    'requested_market_data_type', 'returned_market_data_type',
+                    'market_data_type_confirmed', 'received_at_utc',
+                    'market_data_type_received_at_utc', 'request_id', 'snapshot_complete')
+                    if key in row})
+
+        def get_prev_close(self, symbol):
+            external_call('provider', 'get_prev_close', symbol=symbol)
+            return candidates[symbol].get('prev_close')
+
+        def get_intraday_stats(self, symbol):
+            external_call('provider', 'get_intraday_stats', symbol=symbol)
+            row = candidates[symbol]
+            return IntradayStats(
+                current_intraday_volume=row.get('current_intraday_volume', row.get('volume')),
+                current_volume_source_label='SUPPLIED_SYNTHETIC_OBSERVATION',
+                average_daily_volume_20d=row.get('average_daily_volume_20d'),
+                average_daily_volume_window_days=row.get('average_daily_volume_window_days'),
+                relative_volume=None, relative_volume_category=None,
+                volume_velocity_5m=row.get('volume_velocity_5m'),
+                volume_velocity_15m=row.get('volume_velocity_15m'),
+                volume_data_quality_flag=None)
+
+        def get_float(self, symbol):
+            external_call('provider', 'get_float', symbol=symbol)
+            return candidates[symbol].get('float_shares')
+
+        def get_previous_rth_close(self, identity):
+            symbol = getattr(identity, 'symbol', identity)
+            external_call('provider', 'get_previous_rth_close', symbol=symbol)
+            return candidates[symbol].get('ref_close_rth')
+
+        def get_average_daily_volume(self, identity, window):
+            symbol = getattr(identity, 'symbol', identity)
+            external_call('provider', 'get_average_daily_volume', symbol=symbol, window=window)
+            row = candidates[symbol]
+            return row.get('average_daily_volume_20d'), row.get('average_daily_volume_window_days')
+
+        def get_daily_bars(self, identity, lookback_days, **kwargs):
+            external_call('provider', 'get_daily_bars',
+                symbol=getattr(identity, 'symbol', identity), lookback_days=lookback_days)
+            return []  # No daily-history completion was supplied by these facts.
+
+    scanner_facts = ExternalScannerFacts()
+    def external_provider_factory(*, market_data_client=None, connection_manager=None):
+        external_call('provider', 'build_provider')
+        scanner_facts.market_data_client = market_data_client
+        return scanner_facts
+    scanner_runner.build_provider = external_provider_factory
+    scanner_factory.build_provider = external_provider_factory
+    def external_history(*, symbol, timeframe='1m', limit=50, **kwargs):
+        external_call('history', 'get_intraday_bars', symbol=symbol,
+                      timeframe=timeframe, limit=limit)
+        return list(source_bars.get(timeframe, []))[-limit:] if symbol in candidates else []
+    pattern_trace.get_intraday_bars = external_history
+    pattern_trace.historical_data_provider.get_intraday_bars = external_history
+    # This availability witness tests only the external fixture boundary.  Its
+    # calls cannot be mistaken for discovery/history reads by an actual cycle.
+    availability_phase[0] = True
+    report['external_fact_availability'] = {
+        'scope': 'RAW_EXTERNAL_FACTS_ONLY_NO_ELIGIBILITY_PROOF',
+        'raw_candidate_fields': sorted(raw_fields), 'candidates': candidates,
+        'quotes': {symbol: plain(scanner_facts.get_quote(symbol)) for symbol in candidates},
+        'bar_counts': {symbol: {timeframe: len(external_history(
+            symbol=symbol, timeframe=timeframe, limit=len(bars)))
+            for timeframe, bars in source_bars.items()} for symbol in candidates},
+        'provider_boundary_installed': True, 'history_boundary_installed': True}
+    availability_phase[0] = False
     # Feed callback facts through the real callback owner and real cache reader.
     callbacks = facts.get('callbacks', {})
     callback_frames = facts.get('callback_frames', [callbacks])
@@ -427,6 +561,7 @@ try:
             report['stage'] = 'CORE_CYCLE_' + str(index + 1)
             cycle = {'index': index + 1,
                      'cached_reads_before': len(report['cached_order_status_reads'])}
+            events_before = len(core.event_collector.snapshot_all())
             try:
                 report['cycle_attempted'] = True
                 cycle['result'] = core.run_once()
@@ -438,6 +573,11 @@ try:
             cycle['native'] = native_namespace(database_snapshot())
             cycle['cached_reads_after'] = len(report['cached_order_status_reads'])
             cycle['sdk_attempts_after'] = len(report['sdk_attempts'])
+            cycle['events'] = plain(core.event_collector.snapshot_all()[events_before:])
+            cycle['fault_events'] = [event for event in cycle['events']
+                if event.get('event_type') in {'FAULT_DETECTED', 'FAULT_ACTION_TAKEN'}]
+            cycle['external_provider_calls_after'] = len(report['external_provider_calls'])
+            cycle['external_history_calls_after'] = len(report['external_history_calls'])
             report['cycles'].append(cycle)
             report['after_cycle'] = cycle['engine']
         active_cycle[0] = None
