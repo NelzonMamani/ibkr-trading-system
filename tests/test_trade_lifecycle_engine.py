@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -13,6 +14,7 @@ from src.core.engines.trade_lifecycle_engine import LifecycleEvent, NativeValuat
 from src.core.portfolio.broker_position_adapter import BrokerPositionSnapshot
 from src.models.data_models import ExecutionResult, RiskDecision, TradeIntent
 from src.scanner.result_models import CandidateMetrics
+from test_ibkr_cached_client_access import native_commission_decoder_source
 
 
 @pytest.fixture
@@ -1128,3 +1130,587 @@ def test_native_valuation_postwrite_change_cannot_overwrite_current_financial_fa
     # The committed mark's audit remains; financial fill IDs never include it.
     assert any(row['event_type'] == 'NATIVE_MARK' for row in storage.fetch_trade_lifecycle_events())
     assert all(row['event_type'] != 'NATIVE_MARK' for row in engine.native_feedback_snapshot()['events'])
+
+
+FEE_NOW = datetime(2026, 10, 20, 13, 36, tzinfo=timezone.utc)
+
+
+def _native_fee_case(native_lifecycle, monkeypatch, *, quantity=1, fees=(.01, .02),
+                     report_currencies=('USD', 'USD'), execution_currency='USD',
+                     entry_timestamp=None, exit_timestamp=None,
+                     entry_price=10.53, exit_price=10.28, root='NATIVE-ROOT',
+                     symbol='JPM', con_id=123, native_ids=(71, 72), prefix='fee',
+                     client=None, account_currency='USD', currency_query_id=81):
+    from decimal import Decimal
+    from ibapi.commission_report import CommissionReport
+    from ibapi.contract import Contract
+    from ibapi.execution import Execution
+    from src.adapters.brokers.ibkr import ibkr_client as native_module
+    from src.adapters.brokers.ibkr.ibkr_client import AccountCurrencyResult, IbkrClient
+    from src.core.daily_risk_governor import DailyRiskGovernor
+    engine, storage = native_lifecycle
+    monkeypatch.setenv('IBKR_ORDER_ID_STATE_PATH', str(storage._store.path) + '.fee-order-ids.json')
+    class FeeClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return FEE_NOW if tz is None else FEE_NOW.astimezone(tz)
+    monkeypatch.setattr(native_module, 'datetime', FeeClock)
+    if client is None:
+        client = IbkrClient('offline', 0, 71, 5, 'LIVE', True)
+        monkeypatch.setattr(client, 'isConnected', lambda: True)
+        client.nextValidId(native_ids[0])
+        client.managedAccounts('SYNTHETIC_TEST')
+    events = []
+    for event_id, kind, price, native_id, stamp, fee, report_currency in (
+             (prefix+'-entry', 'ENTRY_FILL', entry_price, native_ids[0], entry_timestamp or FEE_NOW - timedelta(seconds=50), fees[0], report_currencies[0]),
+             (prefix+'-exit', 'STOP_EXIT', exit_price, native_ids[1], exit_timestamp or FEE_NOW - timedelta(seconds=40), fees[1], report_currencies[1])):
+        event, identity = _native_event(event_id, kind, quantity, price, native_id=native_id,
+            timestamp=stamp.isoformat(), root=root)
+        event.symbol = symbol
+        identity.update(symbol=symbol, con_id=con_id)
+        identity['connection_epoch'] = client._position_connection_epoch
+        _apply_native(engine, event, identity, 0 if kind == 'ENTRY_FILL' else quantity)
+        contract = Contract()
+        contract.symbol, contract.secType, contract.conId, contract.currency = symbol, 'STK', con_id, execution_currency
+        execution = Execution()
+        execution.orderId, execution.execId, execution.acctNumber, execution.clientId = (
+            native_id, event.execution_id, 'SYNTHETIC_TEST', client.client_id)
+        execution.side = 'BOT' if kind == 'ENTRY_FILL' else 'SLD'
+        execution.shares = execution.cumQty = Decimal(quantity)
+        execution.price = execution.avgPrice = price
+        execution.time = stamp.isoformat()
+        client.execDetails(-1, contract, execution)
+        if fee is not None:
+            report = CommissionReport()
+            report.execId, report.commission, report.currency = event.execution_id, fee, report_currency
+            client.commissionReport(report)
+        events.append(event)
+    currency = AccountCurrencyResult('COMPLETE', currency_query_id, client._position_connection_epoch,
+        'SYNTHETIC_TEST', client.client_id, account_currency, FEE_NOW, ('CashBalance',), True)
+    governor = DailyRiskGovernor(trade_lifecycle_engine=engine, storage_engine=storage)
+    return SimpleNamespace(engine=engine, storage=storage, client=client, events=events,
+        currency=currency, quantity=quantity, trading_day_for=governor.trading_day_for, root=root, native_ids=native_ids)
+
+
+
+@contextmanager
+def _native_wire_fee_case(native_lifecycle, monkeypatch, *, fees=(0, .02),
+                          initial_fees=(None, None), empty=(False, False), **kwargs):
+    """Real first native connect/SDK decoding; only external wire facts are synthetic."""
+    from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
+    class WireFeeClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return FEE_NOW if tz is None else FEE_NOW.astimezone(tz)
+    client = IbkrClient('offline', 1, 71, 2, 'LIVE', True)
+    source = native_commission_decoder_source(client, monkeypatch, clock=WireFeeClock)
+    try:
+        h = _native_fee_case(native_lifecycle, monkeypatch, client=client, fees=initial_fees, **kwargs)
+        h.decoder_source = source
+        for event, amount, is_empty in zip(h.events, fees, empty):
+            if amount is not None:
+                source.deliver_commission_frame(event.execution_id, amount, empty=is_empty)
+        yield h
+    finally:
+        source.close()
+
+
+@pytest.mark.parametrize('fees,total', [((0, .02), .02), ((.01, 0), .01), ((0, 0), 0)])
+def test_native_roundtrip_explicit_wire_zero_has_durable_coverage_without_financial_changes(
+        native_lifecycle, monkeypatch, fees, total):
+    import json
+    from decimal import Decimal
+    with _native_wire_fee_case(native_lifecycle, monkeypatch, fees=fees) as h:
+        observation = _native_fee_observation(h)
+        assert all(row['report_status'] == 'BOUND_API_REPORT' for row in observation.fee_observations)
+        assert [row['amount'] for row in observation.fee_observations] == [Decimal(str(fee)) for fee in fees]
+        before = h.engine._trade_snapshot_payload(h.engine.get_trade(h.root))
+        evidence = _apply_native_fee(h, observation)
+        after = h.engine._trade_snapshot_payload(h.engine.get_trade(h.root))
+        assert {k: v for k, v in after.items() if k != 'updated_at'} == {
+            k: v for k, v in before.items() if k != 'updated_at'}
+        snapshot = h.engine.native_fee_feedback_snapshot(now=FEE_NOW, max_age_seconds=15,
+            expected_source_client=h.client)
+        assert snapshot['required'] and snapshot['available'] and not snapshot['uncertain']
+        assert evidence['total_commission'] == pytest.approx(total)
+        assert len(snapshot['covered_charges']) == 2
+        for fee, row, charge in zip(fees, evidence['fees'], snapshot['covered_charges']):
+            if fee == 0:
+                witness = row['zero_commission_witness']
+                assert witness == charge['zero_commission_witness']
+                assert witness['commission_field_present'] is True
+                assert witness['commission_client_object_id'] == id(h.client)
+                assert witness['commission_decoder_object_id'] == id(h.client.decoder)
+                assert witness['commission_decoder_epoch'] == h.client._position_connection_epoch
+                assert witness['commission_decoder_thread_id'] == h.client._thread.ident
+            else:
+                assert 'zero_commission_witness' not in row
+                assert 'zero_commission_witness' not in charge
+        persisted = h.storage.fetch_trade_lifecycle_events()
+        assert len(persisted) == 3
+        audit = json.loads(persisted[-1]['payload_json'])['native_roundtrip_fee']
+        assert audit['total_commission'] == pytest.approx(total)
+        assert audit['fees'] == list(evidence['fees'])
+        assert len(h.engine.native_feedback_snapshot()['events']) == 2
+        assert _apply_native_fee(h) == evidence
+        assert h.storage.fetch_trade_lifecycle_events() == persisted
+
+
+
+@pytest.mark.parametrize('initial_fees,empty', [((0, .02), (False, False)), ((None, None), (True, False))])
+def test_native_roundtrip_ambiguous_first_zero_never_gains_financial_authority(
+        native_lifecycle, monkeypatch, initial_fees, empty):
+    with _native_wire_fee_case(native_lifecycle, monkeypatch,
+            initial_fees=initial_fees, empty=empty) as h:
+        with pytest.raises(ValueError, match='REPORT_UNAVAILABLE'):
+            _apply_native_fee(h)
+        snapshot = h.engine.native_fee_feedback_snapshot(now=FEE_NOW, max_age_seconds=15)
+        assert snapshot['available'] and not snapshot['required']
+        assert snapshot['evidence'] == snapshot['covered_charges'] == []
+        assert len(h.storage.fetch_trade_lifecycle_events()) == 2
+        assert h.engine.get_trade(h.root).gross_realized_pnl == pytest.approx(-.25)
+
+
+@pytest.mark.parametrize('field,value', [
+    ('commission_field_present', False), ('commission_field_present', 1),
+    ('commission_presence_source', 'UNAVAILABLE'), ('commission_decoder_schema', None),
+    ('commission_client_object_id', 1), ('commission_client_object_id', True),
+    ('commission_decoder_object_id', 1), ('commission_decoder_epoch', False),
+    ('commission_decoder_epoch', -1),
+    ('commission_decoder_epoch', 999), ('commission_decoder_generation', True),
+    ('commission_decoder_generation', 2), ('commission_decoder_thread_id', 0),
+    ('commission_decoder_thread_id', True),
+])
+def test_native_roundtrip_zero_requires_exact_first_decoder_witness(
+        native_lifecycle, monkeypatch, field, value):
+    with _native_wire_fee_case(native_lifecycle, monkeypatch) as h:
+        observation = _native_fee_observation(h)
+        rows = list(observation.fee_observations)
+        first = dict(rows[0]['first_report'], **{field: value})
+        rows[0] = dict(rows[0], first_report=first)
+        with pytest.raises(ValueError, match='ZERO_COMMISSION_WITNESS'):
+            _apply_native_fee(h, replace(observation, fee_observations=tuple(rows)))
+        snapshot = h.engine.native_fee_feedback_snapshot(now=FEE_NOW, max_age_seconds=15)
+        assert not snapshot['required'] and snapshot['available']
+        assert snapshot['evidence'] == snapshot['covered_charges'] == []
+        assert len(h.storage.fetch_trade_lifecycle_events()) == 2
+
+
+def test_native_roundtrip_known_wire_zero_survives_identical_weaker_direct_receipt(
+        native_lifecycle, monkeypatch):
+    from ibapi.commission_report import CommissionReport
+    with _native_wire_fee_case(native_lifecycle, monkeypatch, fees=(0, 0)) as h:
+        evidence = _apply_native_fee(h)
+        events = h.storage.fetch_trade_lifecycle_events()
+        for event in h.events:
+            report = CommissionReport()
+            report.execId, report.commission, report.currency = event.execution_id, 0, 'USD'
+            h.client.commissionReport(report)
+        snapshot = h.engine.native_fee_feedback_snapshot(now=FEE_NOW, max_age_seconds=15)
+        assert snapshot['available'] and snapshot['required']
+        assert not snapshot['uncertain'] and len(snapshot['covered_charges']) == 2
+        assert snapshot['evidence'][0]['fees'] == evidence['fees']
+        assert _apply_native_fee(h) == evidence
+        assert h.storage.fetch_trade_lifecycle_events() == events
+
+
+@pytest.mark.parametrize('interruption', ['before_write', 'lost_ack'])
+def test_native_roundtrip_all_zero_write_uncertainty_never_retries_or_blocks_factual_fills(
+        native_lifecycle, monkeypatch, interruption):
+    with _native_wire_fee_case(native_lifecycle, monkeypatch, fees=(0, 0)) as h:
+        persist = h.storage.persist_native_lifecycle_feedback
+        calls = []
+        def interrupted(snapshot, event, **kwargs):
+            calls.append(event['event_type'])
+            if interruption == 'lost_ack':
+                persist(snapshot, event, **kwargs)
+            raise OSError('ZERO_FEE_WRITE_UNKNOWN')
+        monkeypatch.setattr(h.storage, 'persist_native_lifecycle_feedback', interrupted)
+        with pytest.raises(OSError, match='ZERO_FEE_WRITE_UNKNOWN'):
+            _apply_native_fee(h)
+        snapshot = h.engine.native_fee_feedback_snapshot(now=FEE_NOW, max_age_seconds=15)
+        assert snapshot['required'] and not snapshot['available'] and snapshot['uncertain']
+        assert snapshot['evidence'] == snapshot['covered_charges'] == []
+        assert len(h.storage.fetch_trade_lifecycle_events()) == (3 if interruption == 'lost_ack' else 2)
+        monkeypatch.setattr(h.storage, 'persist_native_lifecycle_feedback', persist)
+        with pytest.raises(RuntimeError, match='NO_RETRY'):
+            _apply_native_fee(h)
+        reopened, identity = _native_event('zero-fee-reopen', 'ENTRY_FILL', 1, 10.60,
+            timestamp=FEE_NOW.isoformat())
+        identity['connection_epoch'] = h.client._position_connection_epoch
+        assert _apply_native(h.engine, reopened, identity, 0).quantity_open == 1
+        assert h.engine.native_feedback_snapshot()['available']
+        assert calls == ['NATIVE_ROUNDTRIP_FEE']
+
+
+def _native_fee_observation(h, **changes):
+    from src.core.engines.trade_lifecycle_engine import NativeRoundtripFeeObservation
+    rows = tuple(row for native_id in h.native_ids for row in h.client.cached_native_execution_fees(native_id))
+    return replace(NativeRoundtripFeeObservation(h.root,
+        tuple(event.event_id for event in h.events), True, 'Filled', h.quantity, h.quantity,
+        rows, h.currency), **changes)
+
+
+def test_native_roundtrip_fee_evidence_preserves_financial_snapshot(native_lifecycle, monkeypatch):
+    h = _native_fee_case(native_lifecycle, monkeypatch)
+    before = h.engine._trade_snapshot_payload(h.engine.get_trade('NATIVE-ROOT'))
+    observation = _native_fee_observation(h)
+    h.engine.apply_native_roundtrip_fees(observation, source_client=h.client,
+        now=FEE_NOW, max_age_seconds=15, trading_day_for=h.trading_day_for)
+    after = h.engine._trade_snapshot_payload(h.engine.get_trade('NATIVE-ROOT'))
+    assert {k: v for k, v in before.items() if k != 'updated_at'} == {
+        k: v for k, v in after.items() if k != 'updated_at'}
+    snapshot = h.engine.native_fee_feedback_snapshot(now=FEE_NOW, max_age_seconds=15,
+        expected_source_client=h.client)
+    assert snapshot['required'] and snapshot['available'] and not snapshot['uncertain']
+    assert snapshot['evidence'][0]['total_commission'] == pytest.approx(.03)
+    assert snapshot['evidence'][0]['con_id'] == 123
+    assert snapshot['evidence'][0]['client_id'] == h.client.client_id
+    assert snapshot['evidence'][0]['connection_epoch'] == h.client._position_connection_epoch
+    assert snapshot['evidence'][0]['fees'][0]['report_received_at'] == FEE_NOW.isoformat()
+    assert snapshot['evidence'][0]['fees'][0]['report_source'] == 'IBKR_COMMISSION_REPORT'
+    assert {row['execution_id'] for row in snapshot['covered_charges']} == {'EXEC-fee-entry', 'EXEC-fee-exit'}
+    assert len(h.engine.native_feedback_snapshot()['events']) == 2
+    assert len(h.storage.fetch_trade_lifecycle_events()) == 3
+
+
+def _apply_native_fee(h, observation=None, *, now=FEE_NOW):
+    return h.engine.apply_native_roundtrip_fees(observation or _native_fee_observation(h),
+        source_client=h.client, now=now, max_age_seconds=15, trading_day_for=h.trading_day_for)
+
+
+def test_native_roundtrip_fee_duplicate_and_static_charge_do_not_expire_or_rewrite(native_lifecycle, monkeypatch):
+    h = _native_fee_case(native_lifecycle, monkeypatch)
+    original = _apply_native_fee(h)
+    events = h.storage.fetch_trade_lifecycle_events()
+    assert _apply_native_fee(h, now=FEE_NOW + timedelta(minutes=10)) == original
+    snapshot = h.engine.native_fee_feedback_snapshot(now=FEE_NOW + timedelta(minutes=10), max_age_seconds=15)
+    assert snapshot['available'] and len(snapshot['covered_charges']) == 2
+    assert h.storage.fetch_trade_lifecycle_events() == events
+    snapshot['covered_charges'][0]['amount'] = '999'
+    snapshot['evidence'][0]['fees'][0]['amount'] = '999'
+    current = h.engine.native_fee_feedback_snapshot(now=FEE_NOW, max_age_seconds=15)
+    assert current['covered_charges'][0]['amount'] == '0.01'
+    assert current['evidence'][0]['fees'][0]['amount'] == '0.01'
+
+
+@pytest.mark.parametrize('interruption', ['before_write', 'lost_ack'])
+def test_native_roundtrip_fee_uncertainty_does_not_retry_or_refuse_factual_fill(
+        native_lifecycle, monkeypatch, interruption):
+    h = _native_fee_case(native_lifecycle, monkeypatch)
+    persist = h.storage.persist_native_lifecycle_feedback
+    calls = []
+    def interrupted(snapshot, event, **kwargs):
+        calls.append(event['event_type'])
+        if interruption == 'lost_ack':
+            persist(snapshot, event, **kwargs)
+        raise OSError('FEE_WRITE_UNKNOWN')
+    monkeypatch.setattr(h.storage, 'persist_native_lifecycle_feedback', interrupted)
+    with pytest.raises(OSError, match='FEE_WRITE_UNKNOWN'):
+        _apply_native_fee(h)
+    assert calls == ['NATIVE_ROUNDTRIP_FEE']
+    snapshot = h.engine.native_fee_feedback_snapshot(now=FEE_NOW, max_age_seconds=15)
+    assert snapshot['required'] and not snapshot['available']
+    assert snapshot['uncertain'] and snapshot['covered_charges'] == []
+    assert h.engine.native_feedback_snapshot()['available']
+    assert len(h.storage.fetch_trade_lifecycle_events()) == (3 if interruption == 'lost_ack' else 2)
+    monkeypatch.setattr(h.storage, 'persist_native_lifecycle_feedback', persist)
+    with pytest.raises(RuntimeError, match='NO_RETRY'):
+        _apply_native_fee(h)
+    reopened, identity = _native_event('fee-reopen', 'ENTRY_FILL', 1, 10.60,
+        timestamp=(FEE_NOW + timedelta(seconds=1)).isoformat())
+    identity['connection_epoch'] = h.client._position_connection_epoch
+    trade = _apply_native(h.engine, reopened, identity, 0)
+    assert trade.quantity_open == 1 and trade.gross_realized_pnl == pytest.approx(-.25)
+    assert h.engine.native_feedback_snapshot()['available']
+    assert calls == ['NATIVE_ROUNDTRIP_FEE']
+    assert h.engine.native_fee_feedback_snapshot(now=FEE_NOW + timedelta(seconds=1),
+        max_age_seconds=15)['uncertain']
+
+
+@pytest.mark.parametrize('interruption', ['factual_fill', 'source_scope'])
+def test_native_roundtrip_confirmed_fee_charge_survives_postwrite_change(
+        native_lifecycle, monkeypatch, interruption):
+    h = _native_fee_case(native_lifecycle, monkeypatch)
+    persist = h.storage.persist_native_lifecycle_feedback
+    def changed_after_commit(snapshot, event, **kwargs):
+        receipt = persist(snapshot, event, **kwargs)
+        if event['event_type'] == 'NATIVE_ROUNDTRIP_FEE':
+            if interruption == 'source_scope':
+                h.client._invalidate_position_queries()
+            else:
+                reopened, identity = _native_event('fee-raced-entry', 'ENTRY_FILL', 1, 10.60,
+                    timestamp=FEE_NOW.isoformat())
+                identity['connection_epoch'] = h.client._position_connection_epoch
+                _apply_native(h.engine, reopened, identity, 0)
+        return receipt
+    monkeypatch.setattr(h.storage, 'persist_native_lifecycle_feedback', changed_after_commit)
+    with pytest.raises(RuntimeError, match='CHANGED_AFTER_COMMIT'):
+        _apply_native_fee(h)
+    snapshot = h.engine.native_fee_feedback_snapshot(now=FEE_NOW, max_age_seconds=15)
+    assert snapshot['required'] and not snapshot['available'] and snapshot['uncertain']
+    assert sum(float(row['amount']) for row in snapshot['covered_charges']) == pytest.approx(.03)
+    assert len(snapshot['evidence']) == 1
+    assert snapshot['evidence'][0]['matched_current_basis'] is (interruption == 'source_scope')
+    current = h.engine.get_trade('NATIVE-ROOT')
+    assert current.quantity_open == (1 if interruption == 'factual_fill' else 0)
+    assert current.gross_realized_pnl == pytest.approx(-.25) and current.target_price is None
+    assert current.last_mark_price is None and current.unrealized_pnl == 0
+    assert h.engine.native_feedback_snapshot()['available']
+    assert len(h.engine.native_feedback_snapshot()['events']) == (3 if interruption == 'factual_fill' else 2)
+
+
+@pytest.mark.parametrize('change', ['conflicting_report', 'source_epoch', 'source_replacement'])
+def test_native_roundtrip_fee_admission_rechecks_source_without_requery(
+        native_lifecycle, monkeypatch, change):
+    from ibapi.commission_report import CommissionReport
+    h = _native_fee_case(native_lifecycle, monkeypatch)
+    _apply_native_fee(h)
+    expected_client = h.client
+    if change == 'conflicting_report':
+        report = CommissionReport()
+        report.execId, report.commission, report.currency = 'EXEC-fee-exit', .04, 'USD'
+        h.client.commissionReport(report)
+    elif change == 'source_epoch':
+        h.client._invalidate_position_queries()
+    else:
+        expected_client = object()
+    snapshot = h.engine.native_fee_feedback_snapshot(now=FEE_NOW, max_age_seconds=15,
+        expected_source_client=expected_client)
+    assert not snapshot['available'] and snapshot['uncertain']
+    assert sum(float(row['amount']) for row in snapshot['covered_charges']) == pytest.approx(.03)
+    assert h.engine.native_feedback_snapshot()['available']
+    assert len(h.storage.fetch_trade_lifecycle_events()) == 3
+
+
+@pytest.mark.parametrize('changes', [
+    {'entry_terminal': False}, {'entry_status': 'Submitted'},
+    {'entry_requested_quantity': 2}, {'entry_filled_quantity': 2},
+    {'entry_requested_quantity': True}, {'entry_status': None},
+])
+def test_native_roundtrip_incomplete_original_entry_never_selects_fee_accounting(
+        native_lifecycle, monkeypatch, changes):
+    h = _native_fee_case(native_lifecycle, monkeypatch)
+    with pytest.raises(ValueError, match='ORIGINAL_ENTRY'):
+        _apply_native_fee(h, _native_fee_observation(h, **changes))
+    snapshot = h.engine.native_fee_feedback_snapshot(now=FEE_NOW, max_age_seconds=15)
+    assert not snapshot['required'] and snapshot['available'] and not snapshot['covered_charges']
+    assert len(h.storage.fetch_trade_lifecycle_events()) == 2
+
+
+@pytest.mark.parametrize('fees', [
+    (None, .02), (0.0, .02), (-.01, .02), (float('nan'), .02),
+    (float('inf'), .02), (__import__('sys').float_info.max, .02),
+])
+def test_native_roundtrip_missing_or_unsupported_report_keeps_default_gross(
+        native_lifecycle, monkeypatch, fees):
+    h = _native_fee_case(native_lifecycle, monkeypatch, fees=fees)
+    with pytest.raises(ValueError, match='REPORT_UNAVAILABLE'):
+        _apply_native_fee(h)
+    snapshot = h.engine.native_fee_feedback_snapshot(now=FEE_NOW, max_age_seconds=15)
+    assert not snapshot['required'] and not snapshot['covered_charges']
+    assert h.engine.get_trade('NATIVE-ROOT').gross_realized_pnl == pytest.approx(-.25)
+    assert h.engine.native_feedback_snapshot()['available']
+    assert len(h.storage.fetch_trade_lifecycle_events()) == 2
+
+
+@pytest.mark.parametrize('changes', [
+    {'status': 'TIMEOUT', 'currency': None}, {'currency': 'EUR'}, {'currency': 'BASE'},
+    {'completed_at': FEE_NOW - timedelta(seconds=16)},
+    {'completed_at': FEE_NOW + timedelta(microseconds=1)}, {'account': 'OTHER'},
+    {'client_id': 71.0}, {'connection_epoch': False}, {'tags': ()}, {'cleanup_complete': False},
+])
+def test_native_roundtrip_currency_failure_before_selection_creates_no_required_state(
+        native_lifecycle, monkeypatch, changes):
+    h = _native_fee_case(native_lifecycle, monkeypatch)
+    observation = _native_fee_observation(h, account_currency_result=replace(h.currency, **changes))
+    with pytest.raises(ValueError, match='ACCOUNT_CURRENCY'):
+        _apply_native_fee(h, observation)
+    assert not h.engine.native_fee_feedback_snapshot(now=FEE_NOW, max_age_seconds=15)['required']
+    assert len(h.storage.fetch_trade_lifecycle_events()) == 2
+
+
+def test_native_roundtrip_crossday_and_coverage_fail_before_financial_selection(native_lifecycle, monkeypatch):
+    h = _native_fee_case(native_lifecycle, monkeypatch,
+        entry_timestamp=FEE_NOW - timedelta(days=1))
+    observation = _native_fee_observation(h)
+    with pytest.raises(ValueError, match='SAME_TRADING_DAY'):
+        _apply_native_fee(h, observation)
+    with pytest.raises(ValueError, match='EXACT_EXECUTION_COVERAGE'):
+        _apply_native_fee(h, replace(observation, fee_observations=observation.fee_observations[:-1]))
+    assert not h.engine.native_fee_feedback_snapshot(now=FEE_NOW, max_age_seconds=15)['required']
+    assert h.engine.native_feedback_snapshot()['available']
+
+
+def test_native_roundtrip_auxiliary_evidence_does_not_restore_cold_permission(native_lifecycle, monkeypatch):
+    h = _native_fee_case(native_lifecycle, monkeypatch)
+    _apply_native_fee(h)
+    cold = TradeLifecycleEngine(h.storage)
+    cold.recover_open_state()
+    assert cold.native_roundtrip_fee_requirements() == []
+    snapshot = cold.native_fee_feedback_snapshot(now=FEE_NOW, max_age_seconds=15)
+    assert not snapshot['required'] and snapshot['evidence'] == snapshot['covered_charges'] == []
+    with pytest.raises(ValueError, match='BASIS_OR_SOURCE'):
+        cold.apply_native_roundtrip_fees(_native_fee_observation(h), source_client=h.client,
+            now=FEE_NOW, max_age_seconds=15, trading_day_for=h.trading_day_for)
+    assert len(h.storage.fetch_trade_lifecycle_events()) == 3
+
+
+@pytest.mark.parametrize('field,value', [
+    ('account', 'OTHER'), ('orderId', 999), ('conId', 999),
+    ('clientId', 71.0), ('connection_epoch', False),
+    ('side', 'SLD'), ('shares', True), ('price', 10.54),
+    ('timestamp_utc', FEE_NOW),
+])
+def test_native_roundtrip_source_must_bind_exact_committed_execution(
+        native_lifecycle, monkeypatch, field, value):
+    h = _native_fee_case(native_lifecycle, monkeypatch)
+    observation = _native_fee_observation(h)
+    rows = list(observation.fee_observations)
+    execution = dict(rows[0]['execution'], **{field: value})
+    rows[0] = dict(rows[0], execution=execution)
+    with pytest.raises(ValueError, match='EXECUTION_BINDING'):
+        _apply_native_fee(h, replace(observation, fee_observations=tuple(rows)))
+    snapshot = h.engine.native_fee_feedback_snapshot(now=FEE_NOW, max_age_seconds=15)
+    assert not snapshot['required'] and snapshot['covered_charges'] == []
+    assert len(h.storage.fetch_trade_lifecycle_events()) == 2
+    assert h.engine.native_feedback_snapshot()['available']
+
+
+def test_native_roundtrip_full_snapshot_cas_rejects_financial_drift_without_aux_commit(
+        native_lifecycle, monkeypatch):
+    h = _native_fee_case(native_lifecycle, monkeypatch)
+    persist = h.storage.persist_native_lifecycle_feedback
+    def drift_before_pair(snapshot, event, **kwargs):
+        drifted = dict(snapshot, gross_realized_pnl=.75)
+        h.storage.upsert_trade_lifecycle_trade(drifted)
+        return persist(snapshot, event, **kwargs)
+    monkeypatch.setattr(h.storage, 'persist_native_lifecycle_feedback', drift_before_pair)
+    with pytest.raises(RuntimeError, match='STORED_TRADE_CONFLICT'):
+        _apply_native_fee(h)
+    snapshot = h.engine.native_fee_feedback_snapshot(now=FEE_NOW, max_age_seconds=15)
+    assert snapshot['required'] and not snapshot['available'] and snapshot['covered_charges'] == []
+    assert h.engine.get_trade('NATIVE-ROOT').gross_realized_pnl == pytest.approx(-.25)
+    assert h.storage.fetch_trade_lifecycle_trades()[0]['gross_realized_pnl'] == .75
+    assert len(h.storage.fetch_trade_lifecycle_events()) == 2
+
+
+def test_native_roundtrip_eligible_missing_writer_requires_accounting_without_fake_charges(
+        native_lifecycle, monkeypatch):
+    h = _native_fee_case(native_lifecycle, monkeypatch)
+    h.engine.set_persistence_adapter(None)
+    with pytest.raises(RuntimeError, match='STORAGE_REQUIRED'):
+        _apply_native_fee(h)
+    snapshot = h.engine.native_fee_feedback_snapshot(now=FEE_NOW, max_age_seconds=15)
+    assert snapshot['required'] and not snapshot['available']
+    assert snapshot['uncertain'] and snapshot['covered_charges'] == []
+    assert h.engine.native_feedback_snapshot()['available']
+    assert len(h.storage.fetch_trade_lifecycle_events()) == 2
+    h.engine.set_persistence_adapter(h.storage)
+    with pytest.raises(RuntimeError, match='NO_RETRY'):
+        _apply_native_fee(h)
+    event, identity = _native_event('fee-after-missing-writer', 'ENTRY_FILL', 1, 10.60,
+        timestamp=FEE_NOW.isoformat())
+    identity['connection_epoch'] = h.client._position_connection_epoch
+    assert _apply_native(h.engine, event, identity, 0).quantity_open == 1
+    assert h.engine.native_feedback_snapshot()['available']
+
+
+def _native_fee_second_currency_case(h, monkeypatch):
+    return _native_fee_case((h.engine, h.storage), monkeypatch, client=h.client,
+        root='EUR-ROOT', symbol='EURX', con_id=124, native_ids=(73, 74),
+        prefix='fee-eur', execution_currency='EUR', report_currencies=('EUR', 'EUR'),
+        account_currency='EUR', currency_query_id=181)
+
+
+def test_native_roundtrip_same_account_day_currency_conflict_rejects_new_fee_evidence(
+        native_lifecycle, monkeypatch):
+    h = _native_fee_case(native_lifecycle, monkeypatch)
+    _apply_native_fee(h)
+    eur = _native_fee_second_currency_case(h, monkeypatch)
+    before = h.storage.fetch_trade_lifecycle_events()
+    with pytest.raises(ValueError, match='ACCOUNT_DAY_CURRENCY'):
+        _apply_native_fee(eur)
+    snapshot = h.engine.native_fee_feedback_snapshot(now=FEE_NOW, max_age_seconds=15)
+    assert snapshot['required'] and not snapshot['available'] and snapshot['uncertain']
+    assert 'EUR-ROOT' not in snapshot['states']
+    assert {row['currency'] for row in snapshot['covered_charges']} == {'USD'}
+    assert len(snapshot['evidence']) == 1
+    assert snapshot['currency_conflicts'][0]['existing_currency'] == 'USD'
+    assert snapshot['currency_conflicts'][0]['rejected_currency'] == 'EUR'
+    assert h.storage.fetch_trade_lifecycle_events() == before
+    assert all(trade.quantity_open == 0 for trade in h.engine._trades.values())
+    assert all(trade.gross_realized_pnl == pytest.approx(-.25) for trade in h.engine._trades.values())
+    assert h.engine.native_feedback_snapshot()['available']
+
+
+def test_native_roundtrip_duplicate_receipt_after_confirmed_write_keeps_static_fee_available(
+        native_lifecycle, monkeypatch):
+    from ibapi.commission_report import CommissionReport
+    from src.adapters.brokers.ibkr import ibkr_client as native_module
+    h = _native_fee_case(native_lifecycle, monkeypatch)
+    persist = h.storage.persist_native_lifecycle_feedback
+    class LaterReceiptClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return (FEE_NOW + timedelta(seconds=1)).astimezone(tz or timezone.utc)
+    def duplicate_after_commit(snapshot, event, **kwargs):
+        receipt = persist(snapshot, event, **kwargs)
+        if event['event_type'] == 'NATIVE_ROUNDTRIP_FEE':
+            monkeypatch.setattr(native_module, 'datetime', LaterReceiptClock)
+            report = CommissionReport()
+            report.execId, report.commission, report.currency = 'EXEC-fee-exit', .02, 'USD'
+            h.client.commissionReport(report)
+        return receipt
+    monkeypatch.setattr(h.storage, 'persist_native_lifecycle_feedback', duplicate_after_commit)
+    _apply_native_fee(h)
+    snapshot = h.engine.native_fee_feedback_snapshot(now=FEE_NOW, max_age_seconds=15)
+    assert snapshot['required'] and snapshot['available'] and snapshot['uncertain'] == {}
+    assert sum(float(row['amount']) for row in snapshot['covered_charges']) == pytest.approx(.03)
+    assert len(h.storage.fetch_trade_lifecycle_events()) == 3
+    assert h.client.cached_native_execution_fees(72)[0]['report_count'] == 2
+
+
+def test_native_roundtrip_inflight_currency_fence_cannot_be_cleared_by_successful_writer(
+        native_lifecycle, monkeypatch):
+    h = _native_fee_case(native_lifecycle, monkeypatch)
+    eur = _native_fee_second_currency_case(h, monkeypatch)
+    persist = h.storage.persist_native_lifecycle_feedback
+    def currency_conflict_during_ack(snapshot, event, **kwargs):
+        receipt = persist(snapshot, event, **kwargs)
+        if event['event_type'] == 'NATIVE_ROUNDTRIP_FEE':
+            with pytest.raises(ValueError, match='ACCOUNT_DAY_CURRENCY'):
+                _apply_native_fee(eur)
+        return receipt
+    monkeypatch.setattr(h.storage, 'persist_native_lifecycle_feedback', currency_conflict_during_ack)
+    with pytest.raises(RuntimeError, match='ATTEMPT_CHANGED_AFTER_COMMIT'):
+        _apply_native_fee(h)
+    snapshot = h.engine.native_fee_feedback_snapshot(now=FEE_NOW, max_age_seconds=15)
+    assert snapshot['required'] and not snapshot['available']
+    assert 'NATIVE_FEE_ACCOUNT_DAY_CURRENCY_CONFLICT' in snapshot['reason']
+    assert sum(float(row['amount']) for row in snapshot['covered_charges']) == pytest.approx(.03)
+    assert len(snapshot['evidence']) == 1 and 'EUR-ROOT' not in snapshot['states']
+    assert len(h.storage.fetch_trade_lifecycle_events()) == 5
+    assert h.engine.native_feedback_snapshot()['available']
+
+
+def test_native_roundtrip_reentrant_attempt_cannot_issue_another_sql_write(native_lifecycle, monkeypatch):
+    h = _native_fee_case(native_lifecycle, monkeypatch)
+    persist = h.storage.persist_native_lifecycle_feedback
+    calls, outcomes = [], []
+    def reentrant(snapshot, event, **kwargs):
+        calls.append(event['event_id'])
+        if len(calls) == 1:
+            try:
+                _apply_native_fee(h)
+            except RuntimeError as exc:
+                outcomes.append(str(exc))
+            else:
+                outcomes.append('NOT_REJECTED')
+        return persist(snapshot, event, **kwargs)
+    monkeypatch.setattr(h.storage, 'persist_native_lifecycle_feedback', reentrant)
+    _apply_native_fee(h)
+    assert len(calls) == 1
+    assert outcomes == ['NATIVE_FEE_IN_PROGRESS_NO_RETRY']
+    assert h.engine.native_fee_feedback_snapshot(now=FEE_NOW, max_age_seconds=15)['available']
+    assert len(h.storage.fetch_trade_lifecycle_events()) == 3

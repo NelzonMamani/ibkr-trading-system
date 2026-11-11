@@ -2283,6 +2283,18 @@ class ExecutionEngine:
                     return False
                 if not bool(snapshot["available"]):
                     return True
+                fee_reader = getattr(lifecycle, "native_fee_feedback_snapshot", None)
+                if callable(fee_reader):
+                    fee_state = fee_reader(now=datetime.now(timezone.utc),
+                        max_age_seconds=get_config("IBKR_SNAPSHOT_MAX_AGE_SECONDS"))
+                    if fee_state.get("required"):
+                        if fee_state.get("available") is not True:
+                            return True
+                        fee_client = self._native_callback_client()
+                        if fee_client is None or fee_reader(now=datetime.now(timezone.utc),
+                                max_age_seconds=get_config("IBKR_SNAPSHOT_MAX_AGE_SECONDS"),
+                                expected_source_client=fee_client).get("available") is not True:
+                            return True
                 if bool(get_config("DAILY_RISK_INCLUDE_UNREALIZED")):
                     reader = getattr(lifecycle, "native_valuation_snapshot", None)
                     checked_at = datetime.now(timezone.utc)
@@ -2318,6 +2330,141 @@ class ExecutionEngine:
             return bool(progress)  # A completed marker cannot replace its required owner.
         except Exception:
             return True  # Malformed/unavailable required progress is not accounting zero.
+
+    def native_roundtrip_fee_candidates(self):
+        """Read complete standalone round trips; never query or persist here.
+
+        Flat ownership alone cannot terminalize an unfinished entry. Every
+        associated native leg and every actual execution must already belong to
+        completed financial accounting before an auxiliary fee attempt is eligible.
+        """
+        from decimal import Decimal
+        from datetime import datetime as datetime_type
+        candidates = {}
+        lifecycle = getattr(self, "_trade_lifecycle_engine", None)
+        if not getattr(self, "_native_orders", None):
+            return candidates
+        try:
+            client = self._native_callback_client()
+        except AttributeError:
+            return candidates
+        if lifecycle is None or client is None or getattr(self, "_native_quarantined", False):
+            return candidates
+        snapshot = lifecycle.native_feedback_snapshot()
+        if snapshot.get("available") is not True:
+            return candidates
+        fee_reader = getattr(client, "cached_native_execution_fees", None)
+        if not callable(fee_reader):
+            return candidates
+        for root_id, root in tuple(getattr(self, "_native_orders", {}).items()):
+            request = root.get("request") or {}
+            if (root.get("side") not in {"LONG", "BUY"} or root.get("protection_parent_order_id")
+                    or request.get("relationship_context") or not root.get("terminal")
+                    or root.get("status") != "FILLED"
+                    or type(root.get("requested")) is not int or root["requested"] <= 0
+                    or type(root.get("filled")) is not int or root["filled"] != root["requested"]
+                    or type(request.get("quantity")) is not int or request["quantity"] != root["requested"]):
+                continue
+            try:
+                self._validate_native_binding(root_id, root, {})
+                trade = lifecycle.get_trade(root_id)
+                life = self.post_fill_lifecycle.get_trade(root.get("protection_trade_id") or root_id)
+                if (trade is None or trade.status != "CLOSED" or trade.quantity_open != 0
+                        or trade.quantity_closed != root["requested"] or trade.target_price is not None
+                        or life is None or life.filled_qty != 0 or life.exited_qty != root["requested"]
+                        or life.intended_qty != root["requested"]):
+                    continue
+                owned = [(oid, order) for oid, order in self._native_orders.items()
+                    if oid == root_id or order.get("protection_parent_order_id") == root_id]
+                events = [event for event in snapshot["events"] if event["lifecycle_trade_id"] == root_id]
+                event_ids = tuple(event["event_id"] for event in events)
+                executions = {event["execution_id"]: event for event in events}
+                if (not events or len(executions) != len(events)
+                        or sum(event["quantity"] for event in events if event["event_type"] == "ENTRY_FILL") != root["requested"]
+                        or sum(event["quantity"] for event in events if event["event_type"] != "ENTRY_FILL") != root["requested"]):
+                    continue
+                views = []
+                applied = []
+                valid = True
+                for order_id, order in owned:
+                    self._validate_native_binding(order_id, order, {})
+                    if (not order.get("terminal") or order.get("status") != "FILLED"
+                            or order.get("quarantine") or order.get("cached_update_in_progress")
+                            or type(order.get("filled")) is not int or type(order.get("requested")) is not int
+                            or order["requested"] <= 0 or order["filled"] != order["requested"]):
+                        valid = False
+                        break
+                    frames = order.get("canonical_feedback") or []
+                    if any(frame.get("state") != "COMPLETE" or frame.get("accounting_complete") is not True
+                           for frame in frames):
+                        valid = False
+                        break
+                    applied.extend(exec_id for frame in frames for exec_id in frame["applied_execution_ids"])
+                    rows = tuple(fee_reader(int(order["broker_order_id"])))
+                    if sum(row["execution"]["shares"] for row in rows) != order["filled"]:
+                        valid = False
+                        break
+                    views.extend(rows)
+                if (not valid or len(applied) != len(set(applied)) or set(applied) != set(executions)
+                        or len(views) != len(executions)
+                        or {row["execution"]["execId"] for row in views} != set(executions)):
+                    continue
+                currencies = set()
+                for row in views:
+                    execution = row["execution"]
+                    event = executions[execution["execId"]]
+                    identity = event["metadata"]["native_identity"]
+                    if (row["report_status"] != "BOUND_API_REPORT" or row["net_status"] != "UNAVAILABLE_FOR_NET"
+                            or row["conflict"] or row["unavailable_reasons"]
+                            or row["amount"] is None or row["amount"] < 0
+                            or row["execution_currency"] != row["report_currency"]
+                            or execution["account"] != root["account"]
+                            or execution["clientId"] != root["native_client_id"]
+                            or execution["connection_epoch"] != root["native_connection_epoch"]
+                            or execution["conId"] != root.get("security_id")
+                            or execution["symbol"] != root["symbol"]
+                            or execution["orderId"] != int(identity["native_order_id"])
+                            or execution["shares"] != event["quantity"]
+                            or execution["price"] != Decimal(str(event["price"]))
+                            or execution["timestamp_utc"].isoformat() != event["timestamp"]
+                            or execution["side"] != ("BOT" if event["event_type"] == "ENTRY_FILL" else "SLD")):
+                        valid = False
+                        break
+                    if row["amount"] == 0:
+                        from src.adapters.brokers.ibkr.ibkr_client import (
+                            SDK_COMMISSION_PRESENCE_SOURCE, SDK_COMMISSION_SCHEMA)
+                        first = row["first_report"]
+                        integer_fields = ("commission_client_object_id", "commission_decoder_object_id",
+                            "commission_decoder_thread_id", "commission_decoder_epoch", "commission_decoder_generation")
+                        if (first.get("commission_field_present") is not True
+                                or first.get("commission_presence_source") != SDK_COMMISSION_PRESENCE_SOURCE
+                                or first.get("commission_decoder_schema") != SDK_COMMISSION_SCHEMA
+                                or any(type(first.get(name)) is not int or first[name] < (0 if name == "commission_decoder_epoch" else 1)
+                                       for name in integer_fields)
+                                or first["commission_client_object_id"] != id(client)
+                                or first["commission_decoder_object_id"] != id(client.decoder)
+                                or first["commission_decoder_thread_id"] != getattr(client._thread, "ident", None)
+                                or first["commission_decoder_epoch"] != client._position_connection_epoch
+                                or first["commission_decoder_generation"] != 1):
+                            valid = False
+                            break
+                    receipts = [row["first_report"]["received_at"], row["latest_report"]["received_at"]]
+                    if any(not isinstance(receipt, datetime_type) or receipt.tzinfo is None
+                           or receipt.utcoffset() is None or receipt > datetime.now(timezone.utc)
+                           for receipt in receipts):
+                        valid = False
+                        break
+                    currencies.add(row["execution_currency"])
+                if not valid or len(currencies) != 1:
+                    continue
+                candidates[root_id] = {"root_order_id": root_id, "account": root["account"],
+                    "decision_id": root["decision_id"], "source_client": client,
+                    "basis_event_ids": event_ids, "entry_terminal": root["terminal"],
+                    "entry_status": root["status"], "entry_requested_quantity": root["requested"],
+                    "entry_filled_quantity": root["filled"], "fee_observations": tuple(views)}
+            except (KeyError, TypeError, ValueError, RuntimeError, AttributeError, OverflowError):
+                continue  # Before enrollment, unsupported facts retain GROSS.
+        return candidates
 
     def _prepare_native_feedback(self, plan, order_id, order, request, facts, prior, total, previous):
         from decimal import Decimal

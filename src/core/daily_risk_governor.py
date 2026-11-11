@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, time, timedelta, timezone
+from decimal import Decimal
 from enum import Enum
 import math
 from typing import Any, Iterable
@@ -532,6 +534,26 @@ class DailyRiskGovernor:
                 payloads = self._canonical_daily_payloads(snapshot, trading_day, available=available)
                 metrics = self._metrics_from_trade_payloads(payloads, read_attempted=True, canonical=True)
                 failed = required and (not available or pending or uncertain)
+                fee_required = fee_failed = False
+                fee_reason = None
+                fee_reader = getattr(engine, "native_fee_feedback_snapshot", None)
+                if callable(fee_reader):
+                    try:
+                        fees = fee_reader(now=now,
+                            max_age_seconds=get_config("IBKR_SNAPSHOT_MAX_AGE_SECONDS"))
+                        if not isinstance(fees, dict):
+                            raise ValueError("NATIVE_FEE_SNAPSHOT_INVALID")
+                        fee_required = fees.get("required") is True
+                        if fee_required:
+                            self._project_native_fee_evidence(payloads, snapshot, fees, trading_day)
+                            metrics = self._metrics_from_trade_payloads(payloads, read_attempted=True, canonical=True)
+                            fee_failed = fees.get("available") is not True
+                            fee_reason = str(fees.get("reason") or "INCOMPLETE")
+                    except Exception as exc:
+                        # Previously reconstructed facts remain visible when a
+                        # required auxiliary source cannot establish completeness.
+                        return replace(metrics, read_failed=True, required_accounting=True,
+                            failure_reason="NATIVE_FEE_FEEDBACK_UNAVAILABLE:" + str(exc))
                 include_unrealized = self._bool_config("DAILY_RISK_INCLUDE_UNREALIZED", False)
                 raw_unrealized = snapshot.get("unrealized_pnl", 0.0)
                 if not failed and required and include_unrealized:
@@ -563,9 +585,10 @@ class DailyRiskGovernor:
                     unrealized = 0.0
                 return replace(metrics,
                     unrealized_pnl=unrealized,
-                    required_accounting=required or metrics.required_accounting,
-                    read_failed=failed,
-                    failure_reason=("NATIVE_FEEDBACK_UNCERTAIN" if uncertain else "NATIVE_FEEDBACK_PENDING" if pending else "NATIVE_FEEDBACK_UNAVAILABLE") if failed else None)
+                    required_accounting=required or fee_required or metrics.required_accounting,
+                    read_failed=failed or fee_failed,
+                    failure_reason=(("NATIVE_FEEDBACK_UNCERTAIN" if uncertain else "NATIVE_FEEDBACK_PENDING" if pending else "NATIVE_FEEDBACK_UNAVAILABLE") if failed
+                        else "NATIVE_FEE_FEEDBACK_UNAVAILABLE:" + fee_reason if fee_failed else None))
             except Exception as exc:
                 return _DailyRiskMetrics(read_attempted=True, read_failed=True,
                     required_accounting=required is not False,
@@ -586,6 +609,136 @@ class DailyRiskGovernor:
         except Exception:
             return _DailyRiskMetrics(read_attempted=True, read_failed=True, failure_reason="LIFECYCLE_READ_FAILED")
         return _DailyRiskMetrics()
+
+    def _project_native_fee_evidence(self, payloads: list[dict[str, Any]], snapshot: dict[str, Any],
+                                     fees: dict[str, Any], trading_day: str) -> None:
+        """Apply committed charges to one existing root payload, never a second trade."""
+        roots = {self._owner_root(row): row for row in payloads if row.get("_native")}
+        executions: dict[tuple[tuple[str, str, str], str], dict[str, Any]] = {}
+        basis: dict[tuple[str, str, str], list[str]] = {}
+        for event in snapshot.get("events", ()):
+            identity = (event.get("metadata") or {}).get("native_identity") or {}
+            owner = self._owner_root(identity)
+            execution_id = event.get("execution_id")
+            if owner not in roots or not isinstance(execution_id, str) or not execution_id:
+                raise ValueError("NATIVE_FEE_FINANCIAL_IDENTITY_UNAVAILABLE")
+            key = (owner, execution_id)
+            if key in executions:
+                raise ValueError("NATIVE_FEE_FINANCIAL_EXECUTION_CONFLICT")
+            executions[key] = event
+            basis.setdefault(owner, []).append(event["event_id"])
+
+        covered: dict[tuple[tuple[str, str, str], str], tuple[Decimal, str, str]] = {}
+        zero_witnesses: dict[tuple[tuple[str, str, str], str], dict[str, Any]] = {}
+        for charge in fees.get("covered_charges", ()):
+            owner = self._owner_root(charge)
+            execution_id = charge.get("execution_id")
+            event = executions.get((owner, execution_id))
+            if event is None or owner not in roots:
+                raise ValueError("NATIVE_FEE_COVERAGE_IDENTITY_CONFLICT")
+            identity = event["metadata"]["native_identity"]
+            if (charge.get("symbol") != roots[owner]["symbol"]
+                    or str(charge.get("native_order_id")) != str(identity["native_order_id"])):
+                raise ValueError("NATIVE_FEE_COVERAGE_BINDING_CONFLICT")
+            amount = Decimal(str(charge.get("amount")))
+            self._finite_number(amount)
+            if not amount.is_finite() or amount < 0:
+                raise ValueError("NATIVE_FEE_COVERAGE_AMOUNT_INVALID")
+            if amount == 0:
+                from src.adapters.brokers.ibkr.ibkr_client import (
+                    SDK_COMMISSION_PRESENCE_SOURCE, SDK_COMMISSION_SCHEMA)
+                witness = charge.get("zero_commission_witness")
+                keys = {"commission_field_present", "commission_presence_source", "commission_decoder_schema",
+                    "commission_client_object_id", "commission_decoder_object_id", "commission_decoder_epoch",
+                    "commission_decoder_generation", "commission_decoder_thread_id"}
+                if (not isinstance(witness, Mapping) or set(witness) != keys
+                        or witness.get("commission_field_present") is not True
+                        or witness.get("commission_presence_source") != SDK_COMMISSION_PRESENCE_SOURCE
+                        or witness.get("commission_decoder_schema") != SDK_COMMISSION_SCHEMA
+                        or any(type(witness.get(key)) is not int or witness[key] <= 0 for key in (
+                            "commission_client_object_id", "commission_decoder_object_id", "commission_decoder_thread_id"))
+                        or type(witness.get("commission_decoder_epoch")) is not int
+                        or witness["commission_decoder_epoch"] != identity["connection_epoch"]
+                        or type(witness.get("commission_decoder_generation")) is not int
+                        or witness["commission_decoder_generation"] != 1):
+                    raise ValueError("NATIVE_FEE_ZERO_COMMISSION_WITNESS_REQUIRED")
+                key = (owner, execution_id)
+                if key in zero_witnesses and zero_witnesses[key] != dict(witness):
+                    raise ValueError("NATIVE_FEE_ZERO_COMMISSION_WITNESS_CONFLICT")
+                zero_witnesses[key] = dict(witness)
+            currency = charge.get("currency")
+            day = charge.get("trading_day")
+            if (not isinstance(currency, str) or len(currency) != 3 or not currency.isascii()
+                    or not currency.isalpha() or currency != currency.upper()
+                    or day != self.trading_day_for(self._accounting_timestamp(event["timestamp"]))):
+                raise ValueError("NATIVE_FEE_COVERAGE_UNIT_OR_DAY_CONFLICT")
+            value = (amount, currency, day)
+            old = covered.get((owner, execution_id))
+            if old is not None and old != value:
+                raise ValueError("NATIVE_FEE_COVERAGE_CONFLICT")
+            covered[(owner, execution_id)] = value
+
+        for owner, payload in roots.items():
+            charges = {execution_id: value for (key, execution_id), value in covered.items() if key == owner}
+            if not charges:
+                continue
+            currencies = {row[1] for row in charges.values()}
+            if len(currencies) != 1:
+                raise ValueError("NATIVE_FEE_COVERAGE_CURRENCY_CONFLICT")
+            payload["_known_fee_total"] = round(float(sum((row[0] for row in charges.values()), Decimal(0))), 4)
+            payload["_known_fee_day"] = round(float(sum((row[0] for row in charges.values()
+                if row[2] == trading_day), Decimal(0))), 4)
+            matching = ([row for row in fees.get("evidence", ())
+                if self._owner_root(row) == owner and row.get("matched_current_basis") is True]
+                if payload["_closed"] else [])
+            for evidence in matching:
+                ids = tuple(evidence.get("basis_event_ids") or ())
+                execution_ids = tuple(evidence.get("execution_ids") or ())
+                expected_ids = {execution_id for (key, execution_id) in executions if key == owner}
+                days = {self.trading_day_for(self._accounting_timestamp(event["timestamp"]))
+                    for (key, _), event in executions.items() if key == owner}
+                terminal = self._accounting_timestamp(evidence.get("terminal_timestamp"))
+                if (not payload["_closed"] or ids != tuple(basis[owner])
+                        or len(execution_ids) != len(expected_ids) or set(execution_ids) != expected_ids
+                        or set(charges) != expected_ids or len(days) != 1
+                        or evidence.get("trading_day") not in days
+                        or evidence.get("currency") not in currencies
+                        or evidence.get("symbol") != payload["symbol"]
+                        or terminal != self._accounting_timestamp(payload["timestamp"])
+                        or round(self._finite_number(evidence.get("gross_realized_pnl")), 2) != round(payload["_all_pnl"], 2)
+                        or round(self._finite_number(evidence.get("total_commission")), 4) != payload["_known_fee_total"]):
+                    raise ValueError("NATIVE_FEE_COMPLETE_BASIS_CONFLICT")
+                gross = round(payload["_all_pnl"], 2)
+                summary = dict(trade_id=owner[1], account=owner[0], strategy_name=owner[2],
+                    symbol=payload["symbol"], gross_realized_pnl=gross,
+                    commission=payload["_known_fee_total"],
+                    net_realized_pnl=round(gross-payload["_known_fee_total"], 2),
+                    timestamp=terminal, closed_at=terminal)
+                if payload.get("_native_fee_summary") not in (None, summary):
+                    raise ValueError("NATIVE_FEE_COMPLETE_EVIDENCE_CONFLICT")
+                payload["_native_fee_summary"] = summary
+            self._project_native_overlaps(payload, [], trading_day)
+
+    def _project_native_overlaps(self, native: dict[str, Any], overlaps: list[dict[str, Any]],
+                                 trading_day: str | None) -> None:
+        # This helper may run once for known canonical metrics and again for
+        # mixed history. Always restart from the immutable gross fill facts.
+        native["realized_pnl"] = sum(row["pnl"] for row in native["_exits"]
+            if trading_day is None or self.trading_day_for(row["timestamp"]) == trading_day)
+        native["_terminal_pnl"] = native["_all_pnl"]
+        summary = native.get("_native_fee_summary")
+        if summary is not None:
+            self._merge_native_overlap(native, [summary, *overlaps], trading_day)
+            return
+        known = native.get("_known_fee_total", 0.0)
+        if "_known_fee_total" in native and any(self._net_payload(row) for row in overlaps):
+            # A prior completed basis has known charges, but no current complete
+            # basis exists to reconcile their overlap with another NET result.
+            raise ValueError("NATIVE_FEE_COVERAGE_OVERLAP_UNRESOLVED")
+        if overlaps:
+            self._merge_native_overlap(native, overlaps, trading_day)
+        native["realized_pnl"] -= native.get("_known_fee_day", 0.0)
+        native["_terminal_pnl"] -= known
 
     def _canonical_daily_payloads(self, snapshot: dict[str, Any], trading_day: str, *, available: bool) -> list[dict[str, Any]]:
         groups: dict[tuple[str, str, str], dict[str, Any]] = {}
@@ -795,8 +948,7 @@ class DailyRiskGovernor:
                 resolved[identity] = payload
             for index, payload in enumerate(native):
                 overlaps = native_overlaps.get(index, [])
-                if overlaps:
-                    self._merge_native_overlap(payload, overlaps, trading_day)
+                self._project_native_overlaps(payload, overlaps, trading_day)
                 resolved[("native",) + self._owner_root(payload)] = payload
             payloads = list(resolved.values())
             payloads.sort(key=lambda row: self._accounting_timestamp(row.get("timestamp")))

@@ -568,3 +568,357 @@ def test_execution_history_without_request_owner_is_not_a_live_fill(strict_execu
     monkeypatch.setattr(client, '_emit_execution_callback', callbacks.append)
     client.execDetails(req_id, _execution_contract(), _execution_fact())
     assert not callbacks and not client._executions_snapshot and not client._exec_details_by_order
+
+
+# A currency observation is an end-confirmed source fact only. It grants no fee,
+# NET, equity conversion, capital, risk or order authority.
+_NATIVE_REQ_ACCOUNT_SUMMARY = EClient.reqAccountSummary
+_NATIVE_CANCEL_ACCOUNT_SUMMARY = EClient.cancelAccountSummary
+
+
+@pytest.fixture
+def account_currency_client(strict_execution_client, monkeypatch):
+    from src.adapters.brokers.ibkr import ibkr_client as native_module
+    from datetime import datetime, timezone
+    client = strict_execution_client
+    monkeypatch.setattr(client, 'isConnected', lambda: True)
+    clock = NS(monotonic=100.0, now=datetime(2026, 11, 11, 16, 30, tzinfo=timezone.utc))
+    monkeypatch.setattr(native_module, 'time', NS(monotonic=lambda: clock.monotonic))
+    class CallbackClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return clock.now if tz is None else clock.now.astimezone(tz)
+    monkeypatch.setattr(native_module, 'datetime', CallbackClock)
+    facts = NS(client=client, clock=clock, requests=[], cancels=[], on_request=None, on_cancel=None)
+    def send(message):
+        fields = message.split('\0')
+        if fields[0] == '62':
+            req_id = int(fields[2])
+            facts.requests.append((req_id, fields[3], fields[4]))
+            if facts.on_request is not None:
+                facts.on_request(req_id)
+        elif fields[0] == '63':
+            req_id = int(fields[2])
+            facts.cancels.append(req_id)
+            if facts.on_cancel is not None:
+                facts.on_cancel(req_id)
+        else:
+            pytest.fail('Unexpected native SDK message: ' + fields[0])
+    monkeypatch.setattr(client, 'sendMsg', send)
+    # Exercise the installed request encoders, with sendMsg as external boundary.
+    monkeypatch.setattr(client, 'reqAccountSummary',
+        lambda *args: _NATIVE_REQ_ACCOUNT_SUMMARY(client, *args))
+    monkeypatch.setattr(client, 'cancelAccountSummary',
+        lambda *args: _NATIVE_CANCEL_ACCOUNT_SUMMARY(client, *args))
+    return facts
+
+
+def _currency_rows(client, req_id, currency='USD', account='SYNTHETIC_TEST', *, end=True):
+    client.accountSummary(req_id, account, 'CashBalance', '123.45', currency)
+    client.accountSummary(req_id, account, 'AccruedCash', '0', currency)
+    if end:
+        client.accountSummaryEnd(req_id)
+
+
+def _assert_currency_retired(client, req_id):
+    assert req_id not in client._request_type_by_req_id
+    assert req_id not in client._account_summary_events
+    assert req_id not in client._account_summary_rows
+    assert 'account_currency_query' not in client._request_context_by_req_id.get(req_id, {})
+
+
+@pytest.mark.parametrize('currency', ['USD', 'EUR'])
+def test_strict_account_currency_uses_actual_ledger_encoder_and_owned_end(account_currency_client, currency):
+    facts = account_currency_client
+    client = facts.client
+    facts.on_request = lambda req_id: _currency_rows(client, req_id, currency)
+    # Synchronous callbacks during native cancellation cannot mutate the result.
+    facts.on_cancel = lambda req_id: _currency_rows(client, req_id, 'GBP')
+    result = client.account_currency_snapshot(expected_account='SYNTHETIC_TEST', timeout_seconds=1)
+    assert result.status == 'COMPLETE' and result.currency == currency
+    assert result.account == 'SYNTHETIC_TEST' and result.client_id == client.client_id
+    assert result.connection_epoch == client._position_connection_epoch
+    assert result.completed_at == facts.clock.now
+    assert result.completed_at.tzinfo is not None
+    assert result.source == 'IBKR_ACCOUNT_SUMMARY_LEDGER'
+    assert result.tags == ('AccruedCash', 'CashBalance')
+    assert facts.requests == [(result.request_id, 'All', '$LEDGER')]
+    assert facts.cancels == [result.request_id]
+    assert result.cancellation_attempted and result.cleanup_complete
+    _assert_currency_retired(client, result.request_id)
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        result.currency = 'GBP'
+    client.accountSummary(result.request_id, 'SYNTHETIC_TEST', 'CashBalance', '0', 'JPY')
+    client.accountSummaryEnd(result.request_id)
+    _assert_currency_retired(client, result.request_id)
+    assert result.currency == currency
+
+
+@pytest.mark.parametrize('currency', ['', 'BASE', 'usd', ' USD', 'USD ', 'US', 'USDT', '???', None])
+def test_strict_account_currency_has_no_default_for_unusable_currency(account_currency_client, currency):
+    facts = account_currency_client
+    facts.on_request = lambda req_id: _currency_rows(facts.client, req_id, currency)
+    result = facts.client.account_currency_snapshot(expected_account='SYNTHETIC_TEST', timeout_seconds=1)
+    assert result.status == 'INVALID' and result.currency is None and result.completed_at is None
+    assert facts.cancels == [result.request_id]
+    _assert_currency_retired(facts.client, result.request_id)
+
+
+@pytest.mark.parametrize('outcome,expected,cancel', [
+    ('empty', 'MISSING_CURRENCY', True), ('partial', 'TIMEOUT', True),
+    ('unowned_end', 'TIMEOUT', True), ('wrong_account', 'WRONG_ACCOUNT', True),
+    ('ambiguous', 'AMBIGUOUS_CURRENCY', True), ('error', 'ERROR', True),
+    ('error_after_end', 'ERROR', True), ('disconnected', 'DISCONNECTED', False),
+    ('epoch', 'DISCONNECTED', False), ('stopped', 'DISCONNECTED', False),
+    ('account_scope', 'SCOPE_CHANGED', True), ('client_id', 'SCOPE_CHANGED', False),
+    ('client_bool', 'SCOPE_CHANGED', False), ('epoch_bool', 'DISCONNECTED', False),
+    ('conflict', 'IDENTITY_CONFLICT', False), ('evicted', 'OWNERSHIP_LOST', False),
+    ('send_error', 'ERROR', True), ('cleanup_error', 'CLEANUP_UNCONFIRMED', True),
+    ('deadline_end', 'TIMEOUT', True), ('stale', 'STALE', True),
+    ('future', 'STALE', True),
+])
+def test_strict_account_currency_unavailable_states_do_not_publish_currency(
+        account_currency_client, outcome, expected, cancel):
+    from datetime import timedelta
+    from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
+    facts = account_currency_client
+    client = facts.client
+    def request(req_id):
+        if outcome == 'send_error':
+            raise OSError('synthetic query send uncertainty')
+        if outcome == 'empty':
+            client.accountSummaryEnd(req_id)
+            return
+        _currency_rows(client, req_id, end=False)
+        if outcome == 'partial':
+            facts.clock.monotonic += 1
+        elif outcome == 'unowned_end':
+            client.accountSummaryEnd(req_id + 999999)
+            facts.clock.monotonic += 1
+        elif outcome == 'wrong_account':
+            _currency_rows(client, req_id, account='UNRELATED')
+        elif outcome == 'ambiguous':
+            _currency_rows(client, req_id, 'EUR')
+        elif outcome == 'error':
+            client.error(req_id, 321, 'synthetic summary rejection')
+        elif outcome == 'error_after_end':
+            client.accountSummaryEnd(req_id)
+            client.error(req_id, 321, 'synthetic owned stream error')
+        elif outcome == 'disconnected':
+            client.connectionClosed()
+        elif outcome == 'epoch':
+            client._position_connection_epoch += 1
+            client.accountSummaryEnd(req_id)
+        elif outcome == 'stopped':
+            client._stop_event.set()
+            client.accountSummaryEnd(req_id)
+        elif outcome == 'account_scope':
+            client.managedAccounts('UNRELATED')
+            client.accountSummaryEnd(req_id)
+        elif outcome in {'client_id', 'client_bool'}:
+            client.client_id = True if outcome == 'client_bool' else 2
+            client.accountSummaryEnd(req_id)
+        elif outcome == 'epoch_bool':
+            assert client._position_connection_epoch == 0
+            client._position_connection_epoch = False
+            client.accountSummaryEnd(req_id)
+        elif outcome == 'conflict':
+            client.openOrder(req_id, _execution_contract(), NS(), NS())
+            client.accountSummaryEnd(req_id)
+        elif outcome == 'evicted':
+            client._request_context_by_req_id.pop(req_id)
+            client.accountSummaryEnd(req_id)
+            facts.clock.monotonic += 1
+        elif outcome == 'deadline_end':
+            facts.clock.monotonic += 1
+            client.accountSummaryEnd(req_id)
+        else:
+            client.accountSummaryEnd(req_id)
+            if outcome == 'stale':
+                facts.clock.now += timedelta(seconds=get_ibkr_snapshot_max_age_seconds(), microseconds=1)
+            elif outcome == 'future':
+                facts.clock.now -= timedelta(microseconds=1)
+    facts.on_request = request
+    if outcome == 'cleanup_error':
+        def failed_cancel(req_id):
+            raise OSError('synthetic cancellation uncertainty')
+        facts.on_cancel = failed_cancel
+    result = client.account_currency_snapshot(expected_account='SYNTHETIC_TEST', timeout_seconds=1)
+    assert result.status == expected, result
+    assert result.currency is None and result.completed_at is None
+    assert result.cleanup_complete and result.cancellation_attempted is cancel
+    assert facts.cancels == ([result.request_id] if cancel else [])
+    _assert_currency_retired(client, result.request_id)
+    client.accountSummary(result.request_id, 'SYNTHETIC_TEST', 'CashBalance', '0', 'USD')
+    client.accountSummaryEnd(result.request_id)
+    _assert_currency_retired(client, result.request_id)
+
+
+@pytest.mark.parametrize('scope', ['disconnected', 'stopped', 'multiple_accounts', 'wrong_account', 'no_account', 'zero_budget'])
+def test_strict_account_currency_requires_existing_exact_native_scope_without_dispatch(account_currency_client, scope, monkeypatch):
+    facts = account_currency_client
+    client = facts.client
+    if scope == 'disconnected':
+        monkeypatch.setattr(client, 'is_connected', lambda: False)
+    elif scope == 'stopped':
+        client._stop_event.set()
+    elif scope == 'multiple_accounts':
+        client.managedAccounts('SYNTHETIC_TEST,OTHER')
+    elif scope == 'wrong_account':
+        client.managedAccounts('OTHER')
+    elif scope == 'no_account':
+        client.managedAccounts('')
+    result = client.account_currency_snapshot(expected_account='SYNTHETIC_TEST',
+        timeout_seconds=0 if scope == 'zero_budget' else 1)
+    assert result.status in {'DISCONNECTED', 'ACCOUNT_SCOPE_UNAVAILABLE', 'TIMEOUT'}
+    assert result.request_id is None and result.currency is None and result.completed_at is None
+    assert result.cleanup_complete and not result.cancellation_attempted
+    assert not facts.requests and not facts.cancels
+
+
+@pytest.mark.parametrize('account,timeout', [('', 1), (' TEST', 1), ('TEST ', 1), (None, 1),
+    ('SYNTHETIC_TEST', True), ('SYNTHETIC_TEST', -1), ('SYNTHETIC_TEST', float('inf')),
+    ('SYNTHETIC_TEST', float('nan')), ('SYNTHETIC_TEST', '1')])
+def test_strict_account_currency_rejects_incomplete_call_scope(account_currency_client, account, timeout):
+    facts = account_currency_client
+    with pytest.raises(ValueError):
+        facts.client.account_currency_snapshot(expected_account=account, timeout_seconds=timeout)
+    assert not facts.requests and not facts.cancels
+
+
+def test_strict_account_currency_end_freezes_initial_rows_and_preserves_legacy_summary(account_currency_client):
+    facts = account_currency_client
+    client = facts.client
+    facts.on_request = lambda req_id: _currency_rows(client, req_id)
+    result = client.account_currency_snapshot(expected_account='SYNTHETIC_TEST')
+    assert result.status == 'COMPLETE' and result.currency == 'USD'
+    def legacy(req_id):
+        assert facts.requests[-1][2] == 'AvailableFunds,NetLiquidation,BuyingPower'
+        client.accountSummary(result.request_id, 'SYNTHETIC_TEST', 'AvailableFunds', 'BAD', 'EUR')
+        client.accountSummaryEnd(result.request_id)
+        client.accountSummary(req_id, 'SYNTHETIC_TEST', 'AvailableFunds', '100', 'BASE')
+        client.accountSummary(req_id, 'SYNTHETIC_TEST', 'NetLiquidation', '200', 'BASE')
+        client.accountSummary(req_id, 'SYNTHETIC_TEST', 'BuyingPower', '300', 'BASE')
+        client.accountSummaryEnd(req_id)
+    facts.on_request = legacy
+    assert client.get_account_summary() == {'AvailableFunds': '100', 'NetLiquidation': '200', 'BuyingPower': '300'}
+    assert result.currency == 'USD'
+    _assert_currency_retired(client, result.request_id)
+    # Evict bounded diagnostics: late strict data has no active legacy owner.
+    client._request_context_by_req_id.pop(result.request_id)
+    _currency_rows(client, result.request_id, 'GBP')
+    _assert_currency_retired(client, result.request_id)
+
+
+@pytest.mark.parametrize('kind', ['cancelled', 'deadline'])
+def test_strict_account_currency_control_flow_always_retires_and_cancels_owned_query(account_currency_client, kind):
+    from src.core.acquisition import AcquisitionCancelled, AcquisitionDeadlineExceeded
+    facts = account_currency_client
+    error = AcquisitionCancelled if kind == 'cancelled' else AcquisitionDeadlineExceeded
+    def interrupted(req_id):
+        raise error()
+    facts.on_request = interrupted
+    with pytest.raises(error):
+        facts.client.account_currency_snapshot(expected_account='SYNTHETIC_TEST')
+    req_id, _, _ = facts.requests[0]
+    assert facts.cancels == [req_id]
+    _assert_currency_retired(facts.client, req_id)
+
+
+@pytest.mark.parametrize('tag', ['', ' CashBalance', 'CashBalance ', None])
+def test_strict_account_currency_requires_actual_tagged_ledger_rows(account_currency_client, tag):
+    facts = account_currency_client
+    def request(req_id):
+        facts.client.accountSummary(req_id, 'SYNTHETIC_TEST', tag, '0', 'USD')
+        facts.client.accountSummaryEnd(req_id)
+    facts.on_request = request
+    result = facts.client.account_currency_snapshot(expected_account='SYNTHETIC_TEST')
+    assert result.status == 'INVALID' and result.currency is None and result.completed_at is None
+    _assert_currency_retired(facts.client, result.request_id)
+
+
+def test_strict_account_currency_retains_original_end_clock_at_inclusive_freshness_boundary(account_currency_client):
+    from datetime import timedelta
+    from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
+    facts = account_currency_client
+    ended_at = facts.clock.now
+    def request(req_id):
+        _currency_rows(facts.client, req_id)
+        facts.clock.now += timedelta(seconds=get_ibkr_snapshot_max_age_seconds())
+    facts.on_request = request
+    result = facts.client.account_currency_snapshot(expected_account='SYNTHETIC_TEST')
+    assert result.status == 'COMPLETE' and result.currency == 'USD'
+    assert result.completed_at == ended_at and result.completed_at != facts.clock.now
+    _assert_currency_retired(facts.client, result.request_id)
+
+
+def test_strict_account_currency_interleaved_requests_are_isolated_and_workers_finish(account_currency_client):
+    facts = account_currency_client
+    client = facts.client
+    admitted = threading.Event()
+    results = {}
+    errors = []
+    def request(req_id):
+        if len(facts.requests) == 2:
+            admitted.set()
+    facts.on_request = request
+    def query(label):
+        try:
+            results[label] = client.account_currency_snapshot(expected_account='SYNTHETIC_TEST', timeout_seconds=3)
+        except BaseException as exc:
+            errors.append(exc)
+    workers = [threading.Thread(target=query, args=(label,)) for label in ('a', 'b')]
+    try:
+        for worker in workers:
+            worker.start()
+        assert admitted.wait(2)
+        a, b = [item[0] for item in facts.requests]
+        client.accountSummaryEnd(999999)  # No request can inherit this End.
+        _currency_rows(client, b)
+        client.accountSummary(a, 'SYNTHETIC_TEST', 'CashBalance', '0', 'USD')
+        client.accountSummaryEnd(a)
+    finally:
+        # Always release any admitted synthetic waiter through its real End owner.
+        for req_id, _, _ in tuple(facts.requests):
+            client.accountSummaryEnd(req_id)
+        for worker in workers:
+            worker.join(4)
+    assert not errors and all(not worker.is_alive() for worker in workers)
+    assert set(results) == {'a', 'b'}
+    assert all(result.status == 'COMPLETE' and result.currency == 'USD' for result in results.values())
+    assert len({result.request_id for result in results.values()}) == 2
+    assert sorted(facts.cancels) == sorted(item[0] for item in facts.requests)
+    for result in results.values():
+        _assert_currency_retired(client, result.request_id)
+
+
+@pytest.mark.parametrize('scope_loss,expected', [('connection_closed', 'DISCONNECTED'), ('order_id_conflict', 'IDENTITY_CONFLICT')])
+def test_strict_account_currency_rechecks_scope_after_cleanup_signal_before_cancel(
+        account_currency_client, monkeypatch, scope_loss, expected):
+    facts = account_currency_client
+    client = facts.client
+    signals = []
+    def request(req_id):
+        _currency_rows(client, req_id)
+        # Initial End already used the real event. Interpose only this owned
+        # event's subsequent cleanup signal, never shared Event/time machinery.
+        query = client._request_context_by_req_id[req_id]['account_currency_query']
+        signal = query['event'].set
+        def cleanup_signal():
+            # Restore before delivering the fact: later owner signals keep the
+            # standard Event behavior and do not repeat this adverse ordering.
+            monkeypatch.setattr(query['event'], 'set', signal)
+            signals.append(req_id)
+            if scope_loss == 'connection_closed':
+                client.connectionClosed()
+            else:
+                client.openOrder(req_id, _execution_contract(), NS(), NS())
+            signal()
+        monkeypatch.setattr(query['event'], 'set', cleanup_signal)
+    facts.on_request = request
+    result = client.account_currency_snapshot(expected_account='SYNTHETIC_TEST')
+    assert signals == [result.request_id]
+    assert result.status == expected and result.currency is None and result.completed_at is None
+    assert facts.cancels == [], 'A retired request cannot retain cancellation permission across scope loss'
+    assert not result.cancellation_attempted and result.cleanup_complete
+    _assert_currency_retired(client, result.request_id)

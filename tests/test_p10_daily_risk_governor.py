@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from types import SimpleNamespace
 
@@ -1249,3 +1249,439 @@ def test_invalid_legacy_valuation_cannot_erase_committed_native_partial_loss(nat
     assert decision.realized_pnl == -.25
     assert decision.daily_trade_count == decision.losing_trade_count == 0
     assert "NATIVE_UNREALIZED_VALUATION_UNAVAILABLE" in decision.reason
+
+
+# These consumer controls use actual strict financial fills, native fee callbacks
+# and SQLite. The currency result is a typed component input; the joined Core
+# scenario separately exercises the actual request/End owner.
+from test_trade_lifecycle_engine import FEE_NOW, _native_fee_case, _native_fee_observation
+
+
+def _commit_native_fees(h):
+    return h.engine.apply_native_roundtrip_fees(_native_fee_observation(h),
+        source_client=h.client, now=FEE_NOW, max_age_seconds=15,
+        trading_day_for=h.trading_day_for)
+
+
+@pytest.mark.parametrize('limit,blocked', [(.27, True), (.28, True), (.29, False)])
+def test_complete_positive_native_fee_net_preserves_inclusive_limit_and_one_trade(
+        native_lifecycle, monkeypatch, limit, blocked):
+    _set_config(DAILY_RISK_MAX_LOSS_AMOUNT=limit)
+    h = _native_fee_case(native_lifecycle, monkeypatch)
+    before = h.engine._trade_snapshot_payload(h.engine.get_trade('NATIVE-ROOT'))
+    _commit_native_fees(h)
+    governor = _native_governor(h.engine, h.storage)
+    for _ in range(2):
+        decision = governor.evaluate(run_mode='PAPER', now=FEE_NOW)
+        assert governor.state.recovered
+        assert decision.realized_pnl == -.28 and decision.unrealized_pnl == 0
+        assert decision.daily_trade_count == decision.losing_trade_count == decision.consecutive_losses == 1
+        assert decision.blocks_new_entries is blocked
+        assert decision.source_counts['lifecycle'] == 1
+        assert decision.allows_existing_position_management
+    after = h.engine._trade_snapshot_payload(h.engine.get_trade('NATIVE-ROOT'))
+    assert {key: value for key, value in after.items() if key not in {'created_at', 'updated_at'}} == {
+        key: value for key, value in before.items() if key not in {'created_at', 'updated_at'}}
+    assert len(h.engine.native_feedback_snapshot()['events']) == 2
+    assert len(h.storage.fetch_trade_lifecycle_events()) == 3
+
+
+def test_unenrolled_fee_source_keeps_existing_gross_convention_without_certifying_zero(
+        native_lifecycle, monkeypatch):
+    _set_config(DAILY_RISK_MAX_LOSS_AMOUNT=.26)
+    h = _native_fee_case(native_lifecycle, monkeypatch)
+    # A source report is not higher-owner enrollment or a NET certificate.
+    assert not h.engine.native_fee_feedback_snapshot(now=FEE_NOW, max_age_seconds=15)['required']
+    decision = _native_governor(h.engine, h.storage).evaluate(run_mode='PAPER', now=FEE_NOW)
+    assert decision.realized_pnl == -.25 and decision.daily_trade_count == 1
+    assert not decision.blocks_new_entries
+    assert len(h.storage.fetch_trade_lifecycle_events()) == 2
+
+
+def test_committed_fee_is_static_not_an_expiring_quote(native_lifecycle, monkeypatch):
+    from datetime import timedelta
+    _set_config(DAILY_RISK_MAX_LOSS_AMOUNT=1.)
+    h = _native_fee_case(native_lifecycle, monkeypatch)
+    _commit_native_fees(h)
+    governor = _native_governor(h.engine, h.storage)
+    later = FEE_NOW + timedelta(seconds=30)
+    decision = governor.evaluate(run_mode='PAPER', now=later)
+    assert governor.state.recovered and not decision.blocks_new_entries
+    assert decision.realized_pnl == -.28 and decision.daily_trade_count == 1
+    assert h.engine.native_fee_feedback_snapshot(now=later, max_age_seconds=15)['available']
+    assert len(h.storage.fetch_trade_lifecycle_events()) == 3
+
+
+def test_invalid_quote_age_adds_no_fee_veto_before_enrollment(native_lifecycle, monkeypatch):
+    h = _native_fee_case(native_lifecycle, monkeypatch)
+    _set_config(DAILY_RISK_GOVERNOR_ENABLED=False, DAILY_RISK_MAX_LOSS_AMOUNT=.26,
+                IBKR_SNAPSHOT_MAX_AGE_SECONDS=-1)
+    governor = _native_governor(h.engine, h.storage)
+    decision = governor.evaluate(run_mode='PAPER', now=FEE_NOW)
+    assert not decision.blocks_new_entries and governor.state.recovered
+    assert decision.realized_pnl == -.25 and decision.daily_trade_count == 1
+    assert decision.allows_existing_position_management
+    assert not h.engine.native_fee_feedback_snapshot(now=FEE_NOW, max_age_seconds=-1)['required']
+    assert len(h.storage.fetch_trade_lifecycle_events()) == 2
+
+
+def test_invalid_quote_age_cannot_erase_committed_native_fee_net(native_lifecycle, monkeypatch):
+    h = _native_fee_case(native_lifecycle, monkeypatch)
+    _commit_native_fees(h)
+    _set_config(DAILY_RISK_GOVERNOR_ENABLED=False, DAILY_RISK_MAX_LOSS_AMOUNT=.26,
+                IBKR_SNAPSHOT_MAX_AGE_SECONDS=-1)
+    governor = _native_governor(h.engine, h.storage)
+    decision = governor.evaluate(run_mode='PAPER', now=FEE_NOW)
+    assert decision.realized_pnl == -.28 and decision.daily_trade_count == 1
+    assert not decision.blocks_new_entries and governor.state.recovered
+    assert decision.allows_existing_position_management
+    snapshot = h.engine.native_fee_feedback_snapshot(now=FEE_NOW, max_age_seconds=-1)
+    assert snapshot['required'] and snapshot['available']
+    assert sum(float(row['amount']) for row in snapshot['covered_charges']) == pytest.approx(.03)
+    assert len(h.storage.fetch_trade_lifecycle_events()) == 3
+
+
+def test_matching_legacy_and_execution_net_do_not_deduct_canonical_fees_twice(native_lifecycle, monkeypatch):
+    _set_config(DAILY_RISK_MAX_LOSS_AMOUNT=.29)
+    h = _native_fee_case(native_lifecycle, monkeypatch)
+    _commit_native_fees(h)
+    trade = h.engine.get_trade('NATIVE-ROOT')
+    _persist_existing_outcome(h.storage, trade,
+        timestamp=FEE_NOW - timedelta(seconds=40), commission=.03)
+    row = _actual_canonical_execution_history(h.engine, 'fee-exit', commission=.03)
+    governor = _native_governor(h.engine, h.storage)
+    governor.provider = SimpleNamespace(get_daily_fills=lambda: [row, row])
+    decision = governor.evaluate(run_mode='PAPER', now=FEE_NOW)
+    assert governor.state.recovered and not decision.blocks_new_entries
+    assert decision.realized_pnl == -.28 and decision.daily_trade_count == 1
+    assert h.engine.get_trade('NATIVE-ROOT').gross_realized_pnl == pytest.approx(-.25)
+
+
+@pytest.mark.parametrize('history_kind', ['summary', 'complete_execution'])
+def test_conflicting_full_net_preserves_known_canonical_fee_net_and_veto(
+        native_lifecycle, monkeypatch, history_kind):
+    from datetime import timedelta
+    _set_config(DAILY_RISK_MAX_LOSS_AMOUNT=.275)
+    h = _native_fee_case(native_lifecycle, monkeypatch)
+    _commit_native_fees(h)
+    governor = _native_governor(h.engine, h.storage)
+    if history_kind == 'summary':
+        _persist_existing_outcome(h.storage, h.engine.get_trade('NATIVE-ROOT'),
+            timestamp=FEE_NOW-timedelta(seconds=40), commission=.02)
+    else:
+        row = _actual_canonical_execution_history(h.engine, 'fee-exit', commission=.02)
+        governor.provider = SimpleNamespace(get_daily_fills=lambda: [row])
+    decision = governor.evaluate(run_mode='PAPER', now=FEE_NOW)
+    assert decision.blocks_new_entries and not governor.state.recovered
+    assert decision.realized_pnl == -.28 and decision.daily_trade_count == 1
+    assert 'CONFLICT' in decision.reason
+    assert decision.allows_existing_position_management
+
+
+@pytest.mark.parametrize('failure', ['before_write', 'lost_ack'])
+@pytest.mark.parametrize('enabled', [True, False])
+def test_selected_fee_write_uncertainty_blocks_even_optional_governor_off(
+        native_lifecycle, monkeypatch, failure, enabled):
+    _set_config(DAILY_RISK_MAX_LOSS_AMOUNT=.26, DAILY_RISK_GOVERNOR_ENABLED=enabled)
+    h = _native_fee_case(native_lifecycle, monkeypatch)
+    writer = h.storage.persist_native_lifecycle_feedback
+    calls = []
+    def interrupted(*args, **kwargs):
+        calls.append(args[1]['event_id'])
+        if failure == 'lost_ack':
+            writer(*args, **kwargs)
+        raise OSError('FEE_WRITE_UNKNOWN')
+    monkeypatch.setattr(h.storage, 'persist_native_lifecycle_feedback', interrupted)
+    with pytest.raises(OSError, match='FEE_WRITE_UNKNOWN'):
+        _commit_native_fees(h)
+    decision = _native_governor(h.engine, h.storage).evaluate(run_mode='PAPER', now=FEE_NOW)
+    assert decision.blocks_new_entries and decision.realized_pnl == -.25
+    assert decision.daily_trade_count == 1 and decision.allows_existing_position_management
+    assert 'NATIVE_FEE_FEEDBACK_UNAVAILABLE' in decision.reason
+    assert h.engine.native_feedback_snapshot()['available']
+    monkeypatch.setattr(h.storage, 'persist_native_lifecycle_feedback', writer)
+    with pytest.raises(RuntimeError, match='NO_RETRY'):
+        _commit_native_fees(h)
+    assert len(calls) == 1
+
+
+def test_fee_source_conflict_keeps_known_paid_charges_while_entries_close(native_lifecycle, monkeypatch):
+    from ibapi.commission_report import CommissionReport
+    _set_config(DAILY_RISK_MAX_LOSS_AMOUNT=.29)
+    h = _native_fee_case(native_lifecycle, monkeypatch)
+    _commit_native_fees(h)
+    report = CommissionReport()
+    report.execId, report.commission, report.currency = 'EXEC-fee-exit', .04, 'USD'
+    h.client.commissionReport(report)
+    decision = _native_governor(h.engine, h.storage).evaluate(run_mode='PAPER', now=FEE_NOW)
+    assert decision.realized_pnl == -.28 and decision.daily_trade_count == 1
+    assert decision.blocks_new_entries and 'NATIVE_FEE_FEEDBACK_UNAVAILABLE' in decision.reason
+    assert h.engine.native_feedback_snapshot()['available']
+    assert len(h.storage.fetch_trade_lifecycle_events()) == 3
+
+
+def test_financial_reopen_keeps_covered_fees_without_blocking_the_factual_fill(native_lifecycle, monkeypatch):
+    _set_config(DAILY_RISK_MAX_LOSS_AMOUNT=.29)
+    h = _native_fee_case(native_lifecycle, monkeypatch)
+    _commit_native_fees(h)
+    event, identity = _native_event('fee-reopen', 'ENTRY_FILL', 1, 10.53,
+        native_id=71, timestamp=FEE_NOW.isoformat())
+    identity['connection_epoch'] = h.client._position_connection_epoch
+    trade = _apply_native(h.engine, event, identity, 0)
+    assert trade.quantity_open == 1 and h.engine.native_feedback_snapshot()['available']
+    decision = _native_governor(h.engine, h.storage).evaluate(run_mode='PAPER', now=FEE_NOW)
+    assert decision.realized_pnl == -.28 and decision.daily_trade_count == 0
+    assert decision.blocks_new_entries and 'NATIVE_FEE_FEEDBACK_UNAVAILABLE' in decision.reason
+    assert len(h.storage.fetch_trade_lifecycle_events()) == 4
+
+
+def test_another_pending_financial_root_does_not_erase_known_fee_charges(native_lifecycle, monkeypatch):
+    _set_config(DAILY_RISK_MAX_LOSS_AMOUNT=.29)
+    h = _native_fee_case(native_lifecycle, monkeypatch)
+    _commit_native_fees(h)
+    _, identity = _native_event('other-pending', 'ENTRY_FILL', 1, 10.53, root='OTHER-ROOT', native_id=74)
+    identity['connection_epoch'] = h.client._position_connection_epoch
+    h.engine.require_native_feedback('OTHER-PENDING', identity)
+    decision = _native_governor(h.engine, h.storage).evaluate(run_mode='PAPER', now=FEE_NOW)
+    assert decision.blocks_new_entries and decision.realized_pnl == -.28
+    assert 'NATIVE_FEEDBACK_PENDING' in decision.reason
+
+
+def test_committed_fee_does_not_charge_the_following_trading_day(native_lifecycle, monkeypatch):
+    from datetime import timedelta
+    _set_config(DAILY_RISK_MAX_LOSS_AMOUNT=.01)
+    h = _native_fee_case(native_lifecycle, monkeypatch)
+    _commit_native_fees(h)
+    decision = _native_governor(h.engine, h.storage).evaluate(
+        run_mode='PAPER', now=FEE_NOW+timedelta(days=1))
+    assert decision.realized_pnl == 0 and decision.daily_trade_count == 0
+    assert not decision.blocks_new_entries
+
+
+@pytest.mark.parametrize('fees,report_currencies', [
+    ((None, .02), ('USD', 'USD')),
+    ((0, .02), ('USD', 'USD')),
+    ((-.01, .02), ('USD', 'USD')),
+    ((.01, .02), ('EUR', 'USD')),
+])
+def test_ineligible_fee_reports_keep_pre_enrollment_gross_without_invented_net(
+        native_lifecycle, monkeypatch, fees, report_currencies):
+    _set_config(DAILY_RISK_MAX_LOSS_AMOUNT=.26)
+    h = _native_fee_case(native_lifecycle, monkeypatch, fees=fees, report_currencies=report_currencies)
+    views = h.client.cached_native_execution_fees(71)+h.client.cached_native_execution_fees(72)
+    assert any(row['report_status'] != 'BOUND_API_REPORT' for row in views)
+    assert all(row['net_status'] == 'UNAVAILABLE_FOR_NET' for row in views)
+    assert not h.engine.native_fee_feedback_snapshot(now=FEE_NOW, max_age_seconds=15)['required']
+    decision = _native_governor(h.engine, h.storage).evaluate(run_mode='PAPER', now=FEE_NOW)
+    assert not decision.blocks_new_entries and decision.realized_pnl == -.25
+    assert decision.daily_trade_count == 1
+    assert len(h.storage.fetch_trade_lifecycle_events()) == 2
+
+
+def test_actual_late_fee_callbacks_use_fill_day_not_receipt_day(native_lifecycle, monkeypatch):
+    from dataclasses import replace
+    from ibapi.commission_report import CommissionReport
+    from src.adapters.brokers.ibkr import ibkr_client as native_module
+    _set_config(DAILY_RISK_MAX_LOSS_AMOUNT=.01)
+    h = _native_fee_case(native_lifecycle, monkeypatch, fees=(None, None))
+    later = FEE_NOW + timedelta(days=1)
+    class LateFeeClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return later if tz is None else later.astimezone(tz)
+    monkeypatch.setattr(native_module, 'datetime', LateFeeClock)
+    for execution_id, fee in [('EXEC-fee-entry', .01), ('EXEC-fee-exit', .02)]:
+        report = CommissionReport()
+        report.execId, report.commission, report.currency = execution_id, fee, 'USD'
+        h.client.commissionReport(report)
+    observed = replace(_native_fee_observation(h),
+        account_currency_result=replace(h.currency, completed_at=later))
+    h.engine.apply_native_roundtrip_fees(observed, source_client=h.client, now=later,
+        max_age_seconds=15, trading_day_for=h.trading_day_for)
+    fee_snapshot = h.engine.native_fee_feedback_snapshot(now=later, max_age_seconds=15)
+    assert {row['trading_day'] for row in fee_snapshot['covered_charges']} == {'2026-10-20'}
+    decision = _native_governor(h.engine, h.storage).evaluate(run_mode='PAPER', now=later)
+    assert decision.realized_pnl == 0 and decision.daily_trade_count == 0
+    assert not decision.blocks_new_entries
+
+
+def test_known_positive_fees_classify_small_gross_win_as_one_net_loss(native_lifecycle, monkeypatch):
+    _set_config(DAILY_RISK_MAX_LOSS_AMOUNT=1., DAILY_RISK_MAX_CONSECUTIVE_LOSSES=1)
+    h = _native_fee_case(native_lifecycle, monkeypatch, exit_price=10.54)
+    assert h.engine.get_trade('NATIVE-ROOT').gross_realized_pnl == pytest.approx(.01)
+    _commit_native_fees(h)
+    decision = _native_governor(h.engine, h.storage).evaluate(run_mode='PAPER', now=FEE_NOW)
+    assert decision.realized_pnl == -.02 and decision.daily_trade_count == 1
+    assert decision.losing_trade_count == decision.consecutive_losses == 1
+    assert decision.blocks_new_entries and 'MAX_CONSECUTIVE_LOSSES' in decision.reason
+    assert h.engine.get_trade('NATIVE-ROOT').gross_realized_pnl == pytest.approx(.01)
+
+
+def test_invalid_legacy_valuation_retains_committed_native_fee_net(native_lifecycle, monkeypatch):
+    from src.core.engines.trade_lifecycle_engine import LifecycleEvent
+    _set_config(DAILY_RISK_MAX_LOSS_AMOUNT=1., DAILY_RISK_INCLUDE_UNREALIZED=True)
+    h = _native_fee_case(native_lifecycle, monkeypatch)
+    _commit_native_fees(h)
+    legacy = LifecycleEvent('legacy-fee-entry', 'LEGACY-ROOT', 'LEGACY', 'LONG',
+        'ENTRY_FILL', 1, 10.53, FEE_NOW.isoformat(), order_id='legacy-order', execution_id='legacy-exec')
+    h.engine.apply_event(legacy, strategy_name='legacy_strategy', stop_price=10.)
+    h.engine.apply_mark_price(trade_id='LEGACY-ROOT', price=float('nan'))
+    decision = _native_governor(h.engine, h.storage).evaluate(run_mode='PAPER', now=FEE_NOW)
+    assert decision.blocks_new_entries and 'NATIVE_UNREALIZED_VALUATION_UNAVAILABLE' in decision.reason
+    assert decision.realized_pnl == -.28 and decision.daily_trade_count == decision.losing_trade_count == 1
+    assert decision.allows_existing_position_management
+
+
+def test_eligible_fee_without_canonical_writer_is_unknown_not_gross_permission(native_lifecycle, monkeypatch):
+    _set_config(DAILY_RISK_GOVERNOR_ENABLED=False, DAILY_RISK_MAX_LOSS_AMOUNT=.26)
+    h = _native_fee_case(native_lifecycle, monkeypatch)
+    monkeypatch.setattr(h.storage, 'persist_native_lifecycle_feedback', None)
+    with pytest.raises(RuntimeError, match='NATIVE_FEE_STORAGE_REQUIRED'):
+        _commit_native_fees(h)
+    decision = _native_governor(h.engine, h.storage).evaluate(run_mode='PAPER', now=FEE_NOW)
+    assert decision.blocks_new_entries
+    assert decision.realized_pnl == -.25 and decision.daily_trade_count == 1
+    assert 'NATIVE_FEE_FEEDBACK_UNAVAILABLE' in decision.reason
+    assert h.engine.native_feedback_snapshot()['available']
+    assert len(h.storage.fetch_trade_lifecycle_events()) == 2
+
+
+def test_account_day_currency_conflict_retains_usd_fee_and_vetoes_eur_enrollment(
+        native_lifecycle, monkeypatch):
+    from test_trade_lifecycle_engine import _native_fee_second_currency_case
+    _set_config(DAILY_RISK_MAX_LOSS_AMOUNT=1.)
+    h = _native_fee_case(native_lifecycle, monkeypatch)
+    _commit_native_fees(h)
+    eur = _native_fee_second_currency_case(h, monkeypatch)
+    before = h.storage.fetch_trade_lifecycle_events()
+    with pytest.raises(ValueError, match='ACCOUNT_DAY_CURRENCY'):
+        _commit_native_fees(eur)
+    assert h.storage.fetch_trade_lifecycle_events() == before
+    snapshot = h.engine.native_fee_feedback_snapshot(now=FEE_NOW, max_age_seconds=15)
+    assert not snapshot['available']
+    assert {row['currency'] for row in snapshot['covered_charges']} == {'USD'}
+    assert {row['root_order_id'] for row in snapshot['evidence']} == {'NATIVE-ROOT'}
+    assert snapshot['currency_conflicts'][0]['rejected_currency'] == 'EUR'
+    decision = _native_governor(h.engine, h.storage).evaluate(run_mode='PAPER', now=FEE_NOW)
+    assert decision.blocks_new_entries
+    assert 'ACCOUNT_DAY_CURRENCY' in decision.reason
+    # This is an unavailable legacy scalar projection, not an FX-converted NET:
+    # preserve both existing gross rows and the already confirmed USD charges;
+    # do not deduct the rejected EUR reports or fabricate a conversion.
+    assert decision.realized_pnl == -.53 and decision.daily_trade_count == 2
+    assert decision.losing_trade_count == 2
+    assert h.engine.native_feedback_snapshot()['available']
+    assert all(trade.quantity_open == 0 for trade in h.engine._trades.values())
+    assert all(trade.gross_realized_pnl == pytest.approx(-.25) for trade in h.engine._trades.values())
+
+
+@pytest.mark.parametrize('limit,blocked', [(.25, True), (.26, False)])
+def test_known_wire_zero_fees_have_complete_coverage_and_one_native_trade(
+        native_lifecycle, monkeypatch, limit, blocked):
+    from test_trade_lifecycle_engine import _native_wire_fee_case
+    _set_config(DAILY_RISK_MAX_LOSS_AMOUNT=limit)
+    with _native_wire_fee_case(native_lifecycle, monkeypatch, fees=(0, 0)) as h:
+        _commit_native_fees(h)
+        snapshot = h.engine.native_fee_feedback_snapshot(now=FEE_NOW, max_age_seconds=15)
+        assert snapshot['required'] and snapshot['available']
+        assert len(snapshot['evidence']) == 1 and snapshot['evidence'][0]['total_commission'] == 0
+        assert len(snapshot['covered_charges']) == 2
+        assert all(Decimal(row['amount']) == 0 and
+                   row['zero_commission_witness']['commission_field_present'] is True
+                   for row in snapshot['covered_charges'])
+        before = h.storage.fetch_trade_lifecycle_events()
+        assert len(before) == 3 and len(h.engine.native_feedback_snapshot()['events']) == 2
+        governor = _native_governor(h.engine, h.storage)
+        for _ in range(2):
+            decision = governor.evaluate(run_mode='PAPER', now=FEE_NOW)
+            assert governor.state.recovered and decision.blocks_new_entries is blocked
+            assert decision.realized_pnl == -.25 and decision.daily_trade_count == 1
+            assert decision.losing_trade_count == decision.consecutive_losses == 1
+            assert decision.source_counts['lifecycle'] == 1
+            assert decision.allows_existing_position_management
+            assert h.storage.fetch_trade_lifecycle_events() == before
+        assert h.engine.get_trade(h.root).gross_realized_pnl == pytest.approx(-.25)
+
+
+@pytest.mark.parametrize('fees', [(0, .02), (.02, 0)])
+def test_mixed_wire_zero_and_positive_fees_preserve_exact_total(native_lifecycle, monkeypatch, fees):
+    from test_trade_lifecycle_engine import _native_wire_fee_case
+    _set_config(DAILY_RISK_MAX_LOSS_AMOUNT=.26)
+    with _native_wire_fee_case(native_lifecycle, monkeypatch, fees=fees) as h:
+        _commit_native_fees(h)
+        snapshot = h.engine.native_fee_feedback_snapshot(now=FEE_NOW, max_age_seconds=15)
+        assert snapshot['available'] and snapshot['evidence'][0]['total_commission'] == .02
+        assert len(snapshot['covered_charges']) == 2
+        for row in snapshot['covered_charges']:
+            assert ('zero_commission_witness' in row) is (Decimal(row['amount']) == 0)
+        decision = _native_governor(h.engine, h.storage).evaluate(run_mode='PAPER', now=FEE_NOW)
+        assert decision.realized_pnl == -.27 and decision.blocks_new_entries
+        assert decision.daily_trade_count == decision.losing_trade_count == 1
+        assert h.engine.native_feedback_snapshot()['available']
+        assert len(h.storage.fetch_trade_lifecycle_events()) == 3
+
+
+def test_known_wire_zero_preserves_existing_rounding_and_inclusive_loss_boundary(native_lifecycle, monkeypatch):
+    from test_trade_lifecycle_engine import _native_wire_fee_case
+    _set_config(DAILY_RISK_MAX_LOSS_AMOUNT=.26)
+    with _native_wire_fee_case(native_lifecycle, monkeypatch, fees=(0, 0), exit_price=10.274) as h:
+        assert h.engine.get_trade(h.root).gross_realized_pnl == pytest.approx(-.256)
+        governor = _native_governor(h.engine, h.storage)
+        before = governor.evaluate(run_mode='PAPER', now=FEE_NOW)
+        assert before.realized_pnl == -.26 and before.blocks_new_entries
+        assert not h.engine.native_fee_feedback_snapshot(now=FEE_NOW, max_age_seconds=15)['required']
+        _commit_native_fees(h)
+        after = governor.evaluate(run_mode='PAPER', now=FEE_NOW)
+        assert after.realized_pnl == before.realized_pnl == -.26 and after.blocks_new_entries
+        assert after.daily_trade_count == before.daily_trade_count == 1
+        assert h.engine.native_fee_feedback_snapshot(now=FEE_NOW, max_age_seconds=15)['available']
+        assert len(h.storage.fetch_trade_lifecycle_events()) == 3
+
+
+@pytest.mark.parametrize('history', ['whole', 'execution'])
+@pytest.mark.parametrize('commission,conflict', [(0, False), (.02, True)])
+def test_known_wire_zero_net_dedupes_and_rejects_contradictory_net(
+        native_lifecycle, monkeypatch, history, commission, conflict):
+    from test_trade_lifecycle_engine import _native_wire_fee_case
+    _set_config(DAILY_RISK_MAX_LOSS_AMOUNT=.26)
+    with _native_wire_fee_case(native_lifecycle, monkeypatch, fees=(0, 0)) as h:
+        _commit_native_fees(h)
+        governor = _native_governor(h.engine, h.storage)
+        if history == 'whole':
+            _persist_existing_outcome(h.storage, h.engine.get_trade(h.root),
+                timestamp=FEE_NOW - timedelta(seconds=40), commission=commission)
+        else:
+            row = _actual_canonical_execution_history(h.engine, 'fee-exit', commission=commission)
+            governor.provider = SimpleNamespace(get_daily_fills=lambda: [row, row])
+        decision = governor.evaluate(run_mode='PAPER', now=FEE_NOW)
+        assert decision.realized_pnl == -.25 and decision.daily_trade_count == 1
+        assert decision.blocks_new_entries is conflict
+        assert governor.state.recovered is not conflict
+        if conflict:
+            assert 'CONFLICT' in decision.reason
+        assert h.engine.native_fee_feedback_snapshot(now=FEE_NOW, max_age_seconds=15)['available']
+        assert len(h.storage.fetch_trade_lifecycle_events()) == 3
+
+
+def test_reopened_zero_fee_coverage_cannot_accept_a_new_net_charge_on_old_execution(
+        native_lifecycle, monkeypatch):
+    from test_trade_lifecycle_engine import _native_wire_fee_case
+    _set_config(DAILY_RISK_MAX_LOSS_AMOUNT=1.)
+    with _native_wire_fee_case(native_lifecycle, monkeypatch, fees=(0, 0)) as h:
+        _commit_native_fees(h)
+        event, identity = _native_event('wire-zero-reopen', 'ENTRY_FILL', 1, 10.53,
+            native_id=71, timestamp=FEE_NOW.isoformat())
+        identity['connection_epoch'] = h.client._position_connection_epoch
+        trade = _apply_native(h.engine, event, identity, 0)
+        assert trade.quantity_open == 1 and h.engine.native_feedback_snapshot()['available']
+        row = _actual_canonical_execution_history(h.engine, 'fee-exit', commission=.02)
+        governor = _native_governor(h.engine, h.storage)
+        governor.provider = SimpleNamespace(get_daily_fills=lambda: [row])
+        decision = governor.evaluate(run_mode='PAPER', now=FEE_NOW)
+        assert decision.realized_pnl == -.25 and decision.daily_trade_count == 0
+        assert decision.blocks_new_entries and not governor.state.recovered
+        assert 'NATIVE_FEE_COVERAGE_OVERLAP_UNRESOLVED' in decision.reason
+        snapshot = h.engine.native_fee_feedback_snapshot(now=FEE_NOW, max_age_seconds=15)
+        assert not snapshot['available'] and len(snapshot['covered_charges']) == 2
+        assert all(Decimal(row['amount']) == 0 for row in snapshot['covered_charges'])
+        assert len(h.storage.fetch_trade_lifecycle_events()) == 4

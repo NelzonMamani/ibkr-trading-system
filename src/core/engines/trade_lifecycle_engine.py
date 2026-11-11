@@ -3,6 +3,8 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
+from collections.abc import Mapping
+from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 import json
 import math
@@ -109,6 +111,20 @@ class NativeValuationObservation:
     quality_flags: tuple[str, ...] = ()
 
 
+@dataclass(frozen=True)
+class NativeRoundtripFeeObservation:
+    """Complete positive source reports, not a prepared NET outcome."""
+
+    root_order_id: str
+    basis_event_ids: tuple[str, ...]
+    entry_terminal: bool
+    entry_status: str
+    entry_requested_quantity: int
+    entry_filled_quantity: int
+    fee_observations: tuple[Mapping, ...]
+    account_currency_result: Any
+
+
 class TradeLifecycleEngine:
     """Canonical observer-only lifecycle authority with durable accounting."""
 
@@ -137,6 +153,10 @@ class TradeLifecycleEngine:
         self._native_valuations: dict[str, dict[str, Any]] = {}
         self._native_valuation_unavailable: dict[str, str] = {}
         self._native_valuation_uncertain: dict[str, str] = {}
+        # Fee evidence shares the canonical journal, but its process-local
+        # uncertainty never becomes financial-fill refusal or native JSON replay.
+        self._native_roundtrip_fees: dict[str, dict[str, Any]] = {}
+        self._native_fee_currency_conflicts: list[dict[str, Any]] = []
 
     def set_persistence_adapter(self, persistence_adapter: Any | None) -> None:
         self._persistence = persistence_adapter
@@ -624,6 +644,379 @@ class TradeLifecycleEngine:
             if isinstance(root, str):
                 self._native_valuation_unavailable[root] = str(exc or "NATIVE_VALUATION_UNAVAILABLE")
             raise
+
+    def native_roundtrip_fee_requirements(self) -> list[dict[str, Any]]:
+        grouped: dict[str, list[LifecycleEvent]] = {}
+        for event in self._events:
+            if event.event_id in self._native_committed_event_ids:
+                grouped.setdefault(event.lifecycle_trade_id, []).append(event)
+        rows = []
+        for root, events in grouped.items():
+            trade = self._trades.get(root)
+            entries = [event for event in events if event.event_type == "ENTRY_FILL"]
+            if trade is None or not entries:
+                continue
+            identity = entries[0].metadata["native_identity"]
+            row = {key: identity.get(key) for key in (
+                "root_order_id", "account", "strategy", "symbol", "side", "con_id",
+                "client_id", "connection_epoch")}
+            row.update(basis_event_ids=tuple(event.event_id for event in events),
+                entry_native_order_id=identity["native_order_id"],
+                entry_quantity=sum(event.quantity for event in entries),
+                quantity_open=trade.quantity_open, status=trade.status,
+                terminal_timestamp=trade.closed_at, gross_realized_pnl=trade.gross_realized_pnl,
+                executions=tuple(dict(event_id=event.event_id, execution_id=event.execution_id,
+                    native_order_id=event.metadata["native_identity"]["native_order_id"],
+                    side="BOT" if event.event_type == "ENTRY_FILL" else "SLD",
+                    quantity=event.quantity, price=event.price, timestamp=event.timestamp)
+                    for event in events))
+            rows.append(row)
+        return rows
+
+    def _native_fee_requirement(self, root: str) -> dict[str, Any] | None:
+        return next((row for row in self.native_roundtrip_fee_requirements()
+                     if row["root_order_id"] == root), None)
+
+    @staticmethod
+    def _native_fee_source_matches(client, requirement) -> bool:
+        try:
+            return (client is not None and type(client.client_id) is int
+                and client.client_id == requirement["client_id"]
+                and type(client._position_connection_epoch) is int
+                and client._position_connection_epoch == requirement["connection_epoch"]
+                and client.isConnected() is True and client._stop_event.is_set() is False
+                and client._position_transport_available is True
+                and tuple(client._managed_accounts) == (requirement["account"],))
+        except (AttributeError, TypeError):
+            return False
+
+    def begin_native_roundtrip_fee_attempt(self, root_order_id: str,
+            basis_event_ids: tuple[str, ...], *, source_client: Any) -> bool:
+        previous = self._native_roundtrip_fees.get(root_order_id)
+        if previous is not None:
+            if (previous["state"] == "COMPLETE" and previous.get("reason") is None
+                    and previous["basis_event_ids"] == basis_event_ids
+                    and previous["source_client"] is source_client):
+                return False
+            raise RuntimeError("NATIVE_FEE_ATTEMPT_NO_RETRY")
+        required = self._native_fee_requirement(root_order_id)
+        if (required is None or type(basis_event_ids) is not tuple
+                or required["basis_event_ids"] != basis_event_ids
+                or required["status"] != "CLOSED" or required["quantity_open"] != 0
+                or required["terminal_timestamp"] is None
+                or type(required["con_id"]) is not int or required["con_id"] <= 0
+                or not self.native_feedback_snapshot()["available"]
+                or not self._native_fee_source_matches(source_client, required)):
+            raise ValueError("NATIVE_FEE_COMMITTED_CLOSED_BASIS_REQUIRED")
+        self._native_roundtrip_fees[root_order_id] = dict(state="IN_PROGRESS",
+            basis_event_ids=basis_event_ids, source_client=source_client,
+            requirement=deepcopy(required), evidence=None, reason=None)
+        return True
+
+    def mark_native_fee_uncertain(self, root_order_id: str, reason: str) -> None:
+        row = self._native_roundtrip_fees.get(root_order_id)
+        if row is None:
+            raise ValueError("NATIVE_FEE_SELECTED_ATTEMPT_REQUIRED")
+        row.update(state="UNCERTAIN", reason=row.get("reason") or str(reason or "NATIVE_FEE_UNCERTAIN"))
+
+    @staticmethod
+    def _native_fee_currency(value) -> bool:
+        return (isinstance(value, str) and len(value) == 3 and value.isascii()
+                and value.isalpha() and value == value.upper())
+
+    def _native_fee_rows(self, observations, requirement, *, now, source_client) -> tuple[dict[str, Any], ...]:
+        from ibapi.common import UNSET_DOUBLE
+        if type(observations) is not tuple:
+            raise ValueError("NATIVE_FEE_SOURCE_ROWS_REQUIRED")
+        expected = {row["execution_id"]: row for row in requirement["executions"]}
+        if len(expected) != len(requirement["executions"]):
+            raise ValueError("NATIVE_FEE_FINANCIAL_EXECUTION_CONFLICT")
+        result = {}
+        for row in observations:
+            if (not isinstance(row, Mapping) or row.get("report_status") != "BOUND_API_REPORT"
+                    or row.get("source") != "IBKR_COMMISSION_REPORT"
+                    or row.get("net_status") != "UNAVAILABLE_FOR_NET"
+                    or row.get("conflict") is not False or row.get("unavailable_reasons") != ()
+                    or not isinstance(row.get("execution"), Mapping)):
+                raise ValueError("NATIVE_FEE_SOURCE_REPORT_UNAVAILABLE")
+            execution = row["execution"]
+            execution_id = execution.get("execId")
+            financial = expected.get(execution_id)
+            if financial is None or execution_id in result:
+                raise ValueError("NATIVE_FEE_EXECUTION_COVERAGE_CONFLICT")
+            if (any(execution.get(key) != requirement[owner] for key, owner in (
+                    ("account", "account"), ("symbol", "symbol"), ("conId", "con_id"),
+                    ("clientId", "client_id"), ("connection_epoch", "connection_epoch")))
+                    or any(type(execution.get(key)) is not int for key in (
+                        "orderId", "conId", "clientId", "connection_epoch"))
+                    or str(execution.get("orderId")) != financial["native_order_id"]
+                    or execution.get("secType") != "STK" or execution.get("side") != financial["side"]
+                    or isinstance(execution.get("shares"), bool)
+                    or execution.get("shares") != financial["quantity"]
+                    or isinstance(execution.get("price"), bool)
+                    or float(execution.get("price")) != financial["price"]
+                    or execution.get("timestamp_utc") != self._authoritative_time(financial["timestamp"])):
+                raise ValueError("NATIVE_FEE_EXECUTION_BINDING_INVALID")
+            currency = row.get("execution_currency")
+            if (not self._native_fee_currency(currency) or row.get("report_currency") != currency
+                    or type(row.get("report_count")) is not int or row["report_count"] < 1):
+                raise ValueError("NATIVE_FEE_CURRENCY_UNAVAILABLE")
+            amount = row.get("amount")
+            if (isinstance(amount, bool) or not isinstance(amount, (Decimal, int, float))):
+                raise ValueError("NATIVE_FEE_POSITIVE_AMOUNT_REQUIRED")
+            try:
+                decimal_amount = Decimal(str(amount))
+            except InvalidOperation:
+                raise ValueError("NATIVE_FEE_POSITIVE_AMOUNT_REQUIRED") from None
+            if (not decimal_amount.is_finite() or not math.isfinite(float(decimal_amount))
+                    or decimal_amount < 0 or float(decimal_amount) == UNSET_DOUBLE):
+                raise ValueError("NATIVE_FEE_POSITIVE_AMOUNT_REQUIRED")
+            for report_name in ("first_report", "latest_report"):
+                report = row.get(report_name)
+                if (not isinstance(report, Mapping) or report.get("amount") != decimal_amount
+                        or report.get("currency") != currency
+                        or type(report.get("client_id")) is not int
+                        or report["client_id"] != requirement["client_id"]
+                        or type(report.get("connection_epoch")) is not int
+                        or report["connection_epoch"] != requirement["connection_epoch"]
+                        or report.get("managed_accounts") != (requirement["account"],)
+                        or report.get("connected") is not True or report.get("stopped") is not False
+                        or report.get("transport_available") is not True):
+                    raise ValueError("NATIVE_FEE_REPORT_SCOPE_UNAVAILABLE")
+                receipt = report.get("received_at")
+                if (not isinstance(receipt, datetime) or receipt.tzinfo is None
+                        or receipt.utcoffset() is None
+                        or (report_name == "first_report" and receipt > now)):
+                    raise ValueError("NATIVE_FEE_REPORT_RECEIPT_INVALID")
+            zero_witness = None
+            if decimal_amount == 0:
+                from src.adapters.brokers.ibkr.ibkr_client import (
+                    SDK_COMMISSION_PRESENCE_SOURCE, SDK_COMMISSION_SCHEMA)
+                first = row["first_report"]
+                keys = ("commission_field_present", "commission_presence_source", "commission_decoder_schema",
+                    "commission_client_object_id", "commission_decoder_object_id", "commission_decoder_epoch",
+                    "commission_decoder_generation", "commission_decoder_thread_id")
+                zero_witness = {key: first.get(key) for key in keys}
+                decoder = getattr(source_client, "decoder", None)
+                if (source_client is None or decoder is None
+                        or zero_witness["commission_field_present"] is not True
+                        or zero_witness["commission_presence_source"] != SDK_COMMISSION_PRESENCE_SOURCE
+                        or zero_witness["commission_decoder_schema"] != SDK_COMMISSION_SCHEMA
+                        or any(type(zero_witness[key]) is not int or zero_witness[key] <= 0 for key in (
+                            "commission_client_object_id", "commission_decoder_object_id", "commission_decoder_thread_id"))
+                        or zero_witness["commission_client_object_id"] != id(source_client)
+                        or zero_witness["commission_decoder_object_id"] != id(decoder)
+                        or type(zero_witness["commission_decoder_epoch"]) is not int
+                        or zero_witness["commission_decoder_epoch"] < 0
+                        or zero_witness["commission_decoder_epoch"] != requirement["connection_epoch"]
+                        or type(zero_witness["commission_decoder_generation"]) is not int
+                        or zero_witness["commission_decoder_generation"] != 1):
+                    raise ValueError("NATIVE_FEE_ZERO_COMMISSION_WITNESS_REQUIRED")
+                # Current source rereads below also require the actual native
+                # owner's still-valid constructor/decoder/thread witness.
+            result[execution_id] = dict(execution_id=execution_id,
+                native_order_id=financial["native_order_id"], amount=str(decimal_amount),
+                currency=currency, quantity=financial["quantity"], price=financial["price"],
+                timestamp=financial["timestamp"], event_id=financial["event_id"],
+                report_source=row["source"], report_received_at=row["first_report"]["received_at"].isoformat(),
+                report_client_id=requirement["client_id"], report_connection_epoch=requirement["connection_epoch"],
+                execution_currency=currency, report_currency=row["report_currency"])
+            if zero_witness is not None:
+                result[execution_id]["zero_commission_witness"] = zero_witness
+        if set(result) != set(expected):
+            raise ValueError("NATIVE_FEE_EXACT_EXECUTION_COVERAGE_REQUIRED")
+        return tuple(result[row["execution_id"]] for row in requirement["executions"])
+
+    def _native_fee_current_rows(self, client, requirement, *, now):
+        reader = getattr(client, "cached_native_execution_fees", None)
+        if not callable(reader):
+            raise ValueError("NATIVE_FEE_CURRENT_SOURCE_UNAVAILABLE")
+        observations = tuple(row for native_id in sorted({
+            int(row["native_order_id"]) for row in requirement["executions"]})
+            for row in reader(native_id))
+        return self._native_fee_rows(observations, requirement, now=now, source_client=client)
+
+    def apply_native_roundtrip_fees(self, observation: NativeRoundtripFeeObservation, *,
+            source_client: Any, now: datetime, max_age_seconds: float, trading_day_for) -> dict[str, Any]:
+        from src.adapters.brokers.ibkr.ibkr_client import AccountCurrencyResult
+        root = getattr(observation, "root_order_id", None)
+        selected = self._native_roundtrip_fees.get(root)
+        # A reentrant caller is not another financial attempt and must not
+        # submit duplicate SQL or poison the original still-owned write.
+        if selected is not None and selected["state"] == "IN_PROGRESS":
+            raise RuntimeError("NATIVE_FEE_IN_PROGRESS_NO_RETRY")
+        try:
+            checked = self._valuation_now(now, max_age_seconds)
+            if type(observation) is not NativeRoundtripFeeObservation:
+                raise ValueError("NATIVE_FEE_SELECTED_OBSERVATION_REQUIRED")
+            if selected is not None and (selected["state"] == "UNCERTAIN" or selected.get("reason") is not None):
+                raise RuntimeError("NATIVE_FEE_UNCERTAIN_NO_RETRY")
+            required = self._native_fee_requirement(root)
+            if (required is None or observation.basis_event_ids != required["basis_event_ids"]
+                    or required["status"] != "CLOSED" or required["quantity_open"] != 0
+                    or (selected is not None and (required != selected["requirement"]
+                        or selected["source_client"] is not source_client))
+                    or not self.native_feedback_snapshot()["available"]
+                    or not self._native_fee_source_matches(source_client, required)):
+                raise ValueError("NATIVE_FEE_FINANCIAL_BASIS_OR_SOURCE_CHANGED")
+            if (observation.entry_terminal is not True or not isinstance(observation.entry_status, str)
+                    or observation.entry_status.upper() != "FILLED"
+                    or type(observation.entry_requested_quantity) is not int
+                    or type(observation.entry_filled_quantity) is not int
+                    or observation.entry_requested_quantity <= 0
+                    or observation.entry_requested_quantity != observation.entry_filled_quantity
+                    or observation.entry_filled_quantity != required["entry_quantity"]):
+                raise ValueError("NATIVE_FEE_TERMINAL_ORIGINAL_ENTRY_REQUIRED")
+            rows = self._native_fee_rows(observation.fee_observations, required, now=checked, source_client=source_client)
+            if rows != self._native_fee_current_rows(source_client, required, now=checked):
+                raise ValueError("NATIVE_FEE_CURRENT_SOURCE_CONFLICT")
+            account = observation.account_currency_result
+            if (type(account) is not AccountCurrencyResult or account.status != "COMPLETE"
+                    or account.account != required["account"] or type(account.client_id) is not int
+                    or account.client_id != required["client_id"]
+                    or type(account.connection_epoch) is not int
+                    or account.connection_epoch != required["connection_epoch"]
+                    or type(account.request_id) is not int or account.request_id <= 0
+                    or account.source != "IBKR_ACCOUNT_SUMMARY_LEDGER" or account.cleanup_complete is not True
+                    or account.cancellation_attempted is not True or type(account.tags) is not tuple
+                    or not account.tags or any(not isinstance(tag, str) or not tag or tag != tag.strip()
+                                               for tag in account.tags)
+                    or not self._native_fee_currency(account.currency)
+                    or any(row["currency"] != account.currency for row in rows)
+                    or not isinstance(account.completed_at, datetime)
+                    or account.completed_at.tzinfo is None or account.completed_at.utcoffset() is None
+                    or ((selected is None or selected["state"] != "COMPLETE") and not
+                        0 <= (checked - account.completed_at).total_seconds() <= float(max_age_seconds))):
+                raise ValueError("NATIVE_FEE_ACCOUNT_CURRENCY_UNAVAILABLE")
+            if not callable(trading_day_for):
+                raise ValueError("NATIVE_FEE_TRADING_DAY_OWNER_REQUIRED")
+            days = {trading_day_for(self._authoritative_time(row["timestamp"])) for row in rows}
+            if len(days) != 1 or not all(isinstance(day, str) and day for day in days):
+                raise ValueError("NATIVE_FEE_SAME_TRADING_DAY_REQUIRED")
+            day, = days
+            if selected is not None and selected["state"] == "COMPLETE":
+                if selected["evidence"]["fees"] != rows:
+                    raise ValueError("NATIVE_FEE_COMMITTED_REPORT_CONFLICT")
+                return deepcopy(selected["evidence"])
+            # Two observed account denominations on one economic day cannot
+            # become a mixed-currency account projection without FX authority.
+            # Reject the new envelope before selection/SQL, retaining old charges.
+            for other_root, other in self._native_roundtrip_fees.items():
+                old = other.get("evidence") or {}
+                old_currency = old.get("currency", other.get("attempt_currency"))
+                old_day = old.get("trading_day", other.get("attempt_trading_day"))
+                old_account = old.get("account", other["requirement"]["account"])
+                if (other_root != root and old_account == required["account"] and old_day == day
+                        and old_currency is not None and old_currency != account.currency):
+                    conflict = dict(account=required["account"], trading_day=day,
+                        existing_currency=old_currency, rejected_currency=account.currency,
+                        existing_root_order_id=other_root, rejected_root_order_id=root)
+                    if conflict not in self._native_fee_currency_conflicts:
+                        self._native_fee_currency_conflicts.append(conflict)
+                    self.mark_native_fee_uncertain(other_root, "NATIVE_FEE_ACCOUNT_DAY_CURRENCY_CONFLICT")
+                    raise ValueError("NATIVE_FEE_ACCOUNT_DAY_CURRENCY_CONFLICT")
+            # All external monetary eligibility is established. Internal
+            # serialization/capability/SQL failures now require accounting.
+            if selected is None:
+                self.begin_native_roundtrip_fee_attempt(root, required["basis_event_ids"], source_client=source_client)
+                selected = self._native_roundtrip_fees[root]
+            selected.update(state="IN_PROGRESS", attempt_currency=account.currency, attempt_trading_day=day)
+            total = sum((Decimal(row["amount"]) for row in rows), Decimal(0))
+            if not math.isfinite(float(total)):
+                raise ValueError("NATIVE_FEE_TOTAL_NONFINITE")
+            evidence = dict(root_order_id=root, account=required["account"], strategy=required["strategy"],
+                symbol=required["symbol"], side=required["side"], currency=account.currency,
+                con_id=required["con_id"], client_id=required["client_id"],
+                connection_epoch=required["connection_epoch"],
+                entry_native_order_id=required["entry_native_order_id"],
+                basis_event_ids=required["basis_event_ids"], execution_ids=tuple(row["execution_id"] for row in rows),
+                trading_day=day, terminal_timestamp=required["terminal_timestamp"],
+                gross_realized_pnl=required["gross_realized_pnl"], total_commission=float(total), fees=rows)
+            event_id = "native-fee:" + sha256(json.dumps(evidence, sort_keys=True, allow_nan=False).encode()).hexdigest()
+            evidence["event_id"] = event_id
+            audit = dict(evidence, account_currency_observation=dict(
+                request_id=account.request_id, client_id=account.client_id,
+                connection_epoch=account.connection_epoch, completed_at=account.completed_at.isoformat(),
+                source=account.source, tags=account.tags))
+            event = LifecycleEvent(event_id, root, required["symbol"], "LONG", "NATIVE_ROUNDTRIP_FEE",
+                0, 0.0, required["terminal_timestamp"], source="native_roundtrip_fee",
+                metadata={"native_roundtrip_fee": audit})
+            snapshot = self._trade_snapshot_payload(self._trades[root])
+            persist = getattr(self._persistence, "persist_native_lifecycle_feedback", None)
+            if not callable(persist):
+                raise RuntimeError("NATIVE_FEE_STORAGE_REQUIRED")
+            receipt = persist(snapshot, {**asdict(event),
+                "payload_json": json.dumps(event.metadata, sort_keys=True, allow_nan=False)}, expected_trade=snapshot)
+            if (not isinstance(receipt, dict) or receipt.get("completed") is not True
+                    or receipt.get("event_id") != event_id):
+                raise RuntimeError("NATIVE_FEE_PERSISTENCE_UNCONFIRMED")
+            # Confirmed durable charges are retained even if a subsequent scope
+            # or financial DELTA prevents current NET permission.
+            selected["evidence"] = evidence
+            self._events.append(event)
+            self._event_ids_seen.add(event_id)
+            if (self._native_fee_requirement(root) != required
+                    or not self._native_fee_source_matches(source_client, required)
+                    or self._native_fee_current_rows(source_client, required, now=checked) != rows):
+                raise RuntimeError("NATIVE_FEE_BASIS_OR_SOURCE_CHANGED_AFTER_COMMIT")
+            if selected["state"] != "IN_PROGRESS" or selected.get("reason") is not None:
+                raise RuntimeError("NATIVE_FEE_ATTEMPT_CHANGED_AFTER_COMMIT")
+            # Never clear the separate reason latch, including an uncertainty
+            # raised at an external boundary while this write was in flight.
+            selected["state"] = "COMPLETE"
+            return deepcopy(evidence)
+        except BaseException as exc:
+            if selected is not None:
+                self.mark_native_fee_uncertain(root, str(exc))
+            raise
+
+    def native_fee_feedback_snapshot(self, *, now: datetime, max_age_seconds: float,
+            expected_source_client: Any | None = None) -> dict[str, Any]:
+        # Committed fees are static evidence, not quotes. The compatibility
+        # argument cannot add a quote-TTL veto or hide already known charges.
+        if not isinstance(now, datetime) or now.tzinfo is None or now.utcoffset() is None:
+            raise ValueError("NATIVE_FEE_CHECK_TIME_INVALID")
+        checked = now.astimezone(timezone.utc)
+        evidence, covered, uncertain, states = [], {}, {}, {}
+        for root, selected in self._native_roundtrip_fees.items():
+            saved = selected.get("evidence")
+            if saved is not None:
+                published = deepcopy(saved)
+                current = self._native_fee_requirement(root)
+                published["matched_current_basis"] = (current == selected["requirement"])
+                evidence.append(published)
+                for fee in saved["fees"]:
+                    key = (saved["account"], root, fee["execution_id"])
+                    charge = dict(root_order_id=root, account=saved["account"],
+                        strategy=saved["strategy"], symbol=saved["symbol"],
+                        execution_id=fee["execution_id"], native_order_id=fee["native_order_id"],
+                        amount=fee["amount"], currency=fee["currency"], trading_day=saved["trading_day"],
+                        event_id=saved["event_id"])
+                    if "zero_commission_witness" in fee:
+                        charge["zero_commission_witness"] = deepcopy(fee["zero_commission_witness"])
+                    if key in covered and covered[key] != charge:
+                        self.mark_native_fee_uncertain(root, "NATIVE_FEE_COVERED_CHARGE_CONFLICT")
+                    covered[key] = charge
+            if selected.get("reason") is not None and selected["state"] != "UNCERTAIN":
+                self.mark_native_fee_uncertain(root, selected["reason"])
+            if selected["state"] == "COMPLETE":
+                try:
+                    current = self._native_fee_requirement(root)
+                    client = selected["source_client"]
+                    if (current != selected["requirement"]
+                            or (expected_source_client is not None and client is not expected_source_client)
+                            or not self._native_fee_source_matches(client, selected["requirement"])
+                            or self._native_fee_current_rows(client, selected["requirement"], now=checked) != saved["fees"]):
+                        raise ValueError("NATIVE_FEE_CURRENT_BASIS_OR_SOURCE_CHANGED")
+                except Exception as exc:
+                    self.mark_native_fee_uncertain(root, str(exc))
+            states[root] = dict(state=selected["state"], basis_event_ids=selected["basis_event_ids"])
+            if selected["state"] != "COMPLETE" or selected.get("reason") is not None:
+                uncertain[root] = selected.get("reason") or "NATIVE_FEE_IN_PROGRESS"
+        return dict(required=bool(self._native_roundtrip_fees), available=not uncertain,
+            reason=next(iter(uncertain.values()), None), uncertain=uncertain, states=states,
+            evidence=evidence, covered_charges=list(covered.values()),
+            currency_conflicts=deepcopy(self._native_fee_currency_conflicts))
 
     @staticmethod
     def _authoritative_time(value: str) -> datetime:
