@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, time, timedelta, timezone
 from decimal import Decimal
@@ -628,6 +629,7 @@ class DailyRiskGovernor:
             basis.setdefault(owner, []).append(event["event_id"])
 
         covered: dict[tuple[tuple[str, str, str], str], tuple[Decimal, str, str]] = {}
+        zero_witnesses: dict[tuple[tuple[str, str, str], str], dict[str, Any]] = {}
         for charge in fees.get("covered_charges", ()):
             owner = self._owner_root(charge)
             execution_id = charge.get("execution_id")
@@ -640,8 +642,30 @@ class DailyRiskGovernor:
                 raise ValueError("NATIVE_FEE_COVERAGE_BINDING_CONFLICT")
             amount = Decimal(str(charge.get("amount")))
             self._finite_number(amount)
-            if not amount.is_finite() or amount <= 0:
+            if not amount.is_finite() or amount < 0:
                 raise ValueError("NATIVE_FEE_COVERAGE_AMOUNT_INVALID")
+            if amount == 0:
+                from src.adapters.brokers.ibkr.ibkr_client import (
+                    SDK_COMMISSION_PRESENCE_SOURCE, SDK_COMMISSION_SCHEMA)
+                witness = charge.get("zero_commission_witness")
+                keys = {"commission_field_present", "commission_presence_source", "commission_decoder_schema",
+                    "commission_client_object_id", "commission_decoder_object_id", "commission_decoder_epoch",
+                    "commission_decoder_generation", "commission_decoder_thread_id"}
+                if (not isinstance(witness, Mapping) or set(witness) != keys
+                        or witness.get("commission_field_present") is not True
+                        or witness.get("commission_presence_source") != SDK_COMMISSION_PRESENCE_SOURCE
+                        or witness.get("commission_decoder_schema") != SDK_COMMISSION_SCHEMA
+                        or any(type(witness.get(key)) is not int or witness[key] <= 0 for key in (
+                            "commission_client_object_id", "commission_decoder_object_id", "commission_decoder_thread_id"))
+                        or type(witness.get("commission_decoder_epoch")) is not int
+                        or witness["commission_decoder_epoch"] != identity["connection_epoch"]
+                        or type(witness.get("commission_decoder_generation")) is not int
+                        or witness["commission_decoder_generation"] != 1):
+                    raise ValueError("NATIVE_FEE_ZERO_COMMISSION_WITNESS_REQUIRED")
+                key = (owner, execution_id)
+                if key in zero_witnesses and zero_witnesses[key] != dict(witness):
+                    raise ValueError("NATIVE_FEE_ZERO_COMMISSION_WITNESS_CONFLICT")
+                zero_witnesses[key] = dict(witness)
             currency = charge.get("currency")
             day = charge.get("trading_day")
             if (not isinstance(currency, str) or len(currency) != 3 or not currency.isascii()
@@ -707,7 +731,7 @@ class DailyRiskGovernor:
             self._merge_native_overlap(native, [summary, *overlaps], trading_day)
             return
         known = native.get("_known_fee_total", 0.0)
-        if known and any(self._net_payload(row) for row in overlaps):
+        if "_known_fee_total" in native and any(self._net_payload(row) for row in overlaps):
             # A prior completed basis has known charges, but no current complete
             # basis exists to reconcile their overlap with another NET result.
             raise ValueError("NATIVE_FEE_COVERAGE_OVERLAP_UNRESOLVED")

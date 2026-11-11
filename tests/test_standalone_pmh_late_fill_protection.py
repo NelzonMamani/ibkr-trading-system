@@ -1,5 +1,6 @@
 """Joined native PMH callback investigation. No production changes or real I/O."""
 from copy import deepcopy
+from contextlib import contextmanager
 from datetime import timedelta, timezone
 from types import SimpleNamespace as NS
 
@@ -22,10 +23,12 @@ from src.models.execution_result import ExecutionResult
 from test_joined_core_pmh_paper_assessment import (
     paper_pmh, reassessment, lifecycle, _reset_config, forbid_io, no_external_activity,
 )
+from test_ibkr_cached_client_access import native_commission_decoder_source
 
 
 def late_pmh(reassessment,monkeypatch,tmp_path,*,paper_factory=paper_pmh,position_case='complete_empty',
-             fill_price=10.31,stop_price=10.3-max(.01,10.3*.001),expected_stop_quantity=1,unit_stops=False,unit_fault=None):
+             fill_price=10.31,stop_price=10.3-max(.01,10.3*.001),expected_stop_quantity=1,unit_stops=False,unit_fault=None,
+             native_client_initializer=None):
     facts={};reads=[];sent=[];stops=[];open_orders=[];quantity=[0]
     def cached(order_id):
         reads.append(order_id)
@@ -47,9 +50,11 @@ def late_pmh(reassessment,monkeypatch,tmp_path,*,paper_factory=paper_pmh,positio
     from src.adapters.brokers.ibkr.ibkr_connection_manager import IbkrConnectionManager, IbkrConnectionConfig
     from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
     native_client=IbkrClient('offline',0,999,5,'LIVE',not unit_stops)
-    # External connection state and callback facts only; the manager accessor,
-    # provider and all internal decisions remain real.
-    monkeypatch.setattr(native_client,'isConnected',lambda:True)
+    # Optional SDK decoder source owns a real synthetic connection/worker.
+    # Preserve its connection state so production shutdown can stop that worker.
+    if native_client_initializer is not None:native_client_initializer(native_client)
+    else:monkeypatch.setattr(native_client,'isConnected',lambda:True)
+    # External callback facts only; manager/provider/internal decisions stay real.
     monkeypatch.setattr(native_client,'cached_order_status',cached)
     connection=IbkrConnectionManager(IbkrConnectionConfig('offline',0,999,5,'LIVE',True,'PAPER'))
     connection._client=native_client
@@ -5103,14 +5108,18 @@ def test_native_partial_stop_refreshes_remaining_basis_and_combines_realized_unr
 
 
 
-def positive_fee_native_source(h,monkeypatch,*,currency='USD'):
+def positive_fee_native_source(h,monkeypatch,*,currency='USD',connected_native_source=False):
     """Actual installed SDK ledger encoder; only sendMsg supplies external facts."""
     from src.adapters.brokers.ibkr import ibkr_client as native_module
     monkeypatch.setattr(native_module,'datetime',h.life.clock)
     client=h.native_client
-    monkeypatch.setattr(client,'serverVersion',lambda:180)
-    client.nextValidId(71)
-    client.managedAccounts('SYNTHETIC_TEST')
+    if not connected_native_source:
+        monkeypatch.setattr(client,'serverVersion',lambda:180)
+        client.nextValidId(71)
+        client.managedAccounts('SYNTHETIC_TEST')
+    else:
+        assert client.serverVersion()==151 and client.isConnected()
+        assert client._managed_accounts==['SYNTHETIC_TEST']
     facts=NS(requests=[],cancels=[],currency=currency,on_request=None,on_cancel=None)
     def send(message):
         fields=message.split('\0')
@@ -5139,17 +5148,20 @@ def positive_fee_callback(h,*,execution_id,amount,currency='USD'):
     return report
 
 
-def positive_fee_roundtrip_case(reassessment,monkeypatch,tmp_path,capsys,*,report_case='positive',currency='USD',account_currency='USD'):
+def positive_fee_roundtrip_case(reassessment,monkeypatch,tmp_path,capsys,*,report_case='positive',currency='USD',account_currency='USD',
+        native_client_initializer=None,fee_reporter=None):
     from datetime import datetime
-    h=late_pmh(reassessment,monkeypatch,tmp_path,fill_price=10.53)
-    source=positive_fee_native_source(h,monkeypatch,currency=account_currency)
+    h=late_pmh(reassessment,monkeypatch,tmp_path,fill_price=10.53,native_client_initializer=native_client_initializer)
+    source=positive_fee_native_source(h,monkeypatch,currency=account_currency,
+        connected_native_source=native_client_initializer is not None)
+    reporter=fee_reporter or positive_fee_callback
     request=acknowledge(h,capsys)
     h.life.clock.current+=timedelta(seconds=1)
     deliver_native_execution(h,native_id=71,execution_id='fee-entry',side='BOT',quantity=1,
         cumulative=1,price=10.53,average=10.53,contract_currency=currency,
         timestamp=datetime(2026,10,20,13,35,42,tzinfo=timezone.utc))
     if report_case!='missing':
-        positive_fee_callback(h,execution_id='fee-entry',amount=0 if report_case=='zero' else .01,
+        reporter(h,execution_id='fee-entry',amount=0 if report_case=='zero' else .01,
             currency='EUR' if report_case=='report_currency' else 'USD')
     life=confirm_selected_fill(h,request,capsys,family='PREMARKET_HIGH_BREAK',fill_price=10.53,
         stop_price=request.stop_loss_price)
@@ -5159,7 +5171,7 @@ def positive_fee_roundtrip_case(reassessment,monkeypatch,tmp_path,capsys,*,repor
         cumulative=1,price=price,average=price,contract_currency=currency,
         timestamp=datetime(2026,10,20,13,35,53,tzinfo=timezone.utc))
     if report_case not in {'missing','entry_only'}:
-        positive_fee_callback(h,execution_id='fee-stop',amount=0 if report_case=='zero' else -.02 if report_case=='negative' else .02)
+        reporter(h,execution_id='fee-stop',amount=0 if report_case=='zero' else -.02 if report_case=='negative' else .02)
     return h,request,life,source
 
 
@@ -5469,3 +5481,172 @@ def test_native_positive_fee_reports_do_not_enroll_partial_roundtrip_or_unfinish
         assert engine.capital_authority.total_used_exposure==pytest.approx((quantity-1)*10.53)
         assert len(h.sent_native)==1 and len(h.registry_batches[0][1])==33
     finally:teardown_unsent_fixture(h,no_external_activity)
+
+
+
+@contextmanager
+def sdk_wire_fee_roundtrip_case(reassessment,monkeypatch,tmp_path,capsys,attempts,*,
+        amounts=(0,0),entry_order='wire',exit_order='wire'):
+    sources=[];h=None
+    def initialize(client):
+        # An unrelated queued frame exercises ownership established before the
+        # decoder worker starts. Economic entry/exit reports arrive later.
+        source=native_commission_decoder_source(client,monkeypatch,clock=reassessment.life.clock,
+            constructor_frames=([59,1,'constructor.unowned',0,'USD','','',0],))
+        sources.append(source)
+    def report(h,*,execution_id,amount,currency='USD'):
+        index=0 if execution_id=='fee-entry' else 1
+        ordering=entry_order if index==0 else exit_order
+        actual_amount=amounts[index]
+        if ordering in {'direct_first','direct_only'}:
+            positive_fee_callback(h,execution_id=execution_id,amount=actual_amount,currency=currency)
+        if ordering!='direct_only':
+            sources[0].deliver_commission_frame(execution_id,amount=actual_amount,currency=currency,
+                empty=ordering=='empty')
+        if ordering=='wire_then_direct':
+            positive_fee_callback(h,execution_id=execution_id,amount=actual_amount,currency=currency)
+    try:
+        h,request,life,currency_source=positive_fee_roundtrip_case(reassessment,monkeypatch,tmp_path,capsys,
+            native_client_initializer=initialize,fee_reporter=report)
+        yield h,request,life,currency_source,sources[0]
+    finally:
+        try:
+            if h is not None:teardown_unsent_fixture(h,attempts)
+        finally:
+            for source in sources:source.close()
+
+
+def test_native_first_connect_sdk_worker_preserves_existing_positive_fee_core_path(
+        reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    from src.config import config_resolver
+    with sdk_wire_fee_roundtrip_case(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,
+            amounts=(.01,.02)) as (h,request,life,currency_source,decoder_source):
+        config_resolver.set_config_overrides(dict(config_resolver._CONFIG_OVERRIDES,
+            DAILY_RISK_GOVERNOR_ENABLED=True,DAILY_RISK_INCLUDE_UNREALIZED=False,DAILY_RISK_MAX_LOSS_AMOUNT=.26))
+        assert h.core.run_once();capsys.readouterr()
+        assert h.core.daily_risk_governor.last_decision.realized_pnl==pytest.approx(-.28)
+        assert h.core.daily_risk_governor.last_decision.status.value=='MANAGED_ONLY'
+        assert h.core.daily_risk_governor.state.recovered
+        assert decoder_source.constructor_queued.is_set()
+        assert h.native_client.decoder is decoder_source.decoder and h.native_client.reader is decoder_source.reader
+        assert h.native_client._thread.is_alive()
+        assert len(currency_source.requests)==len(currency_source.cancels)==1
+
+
+@pytest.mark.parametrize('amounts,limit,blocked',[
+    ((0,0),.26,False),((0,.02),.26,True),((0,.02),.28,False),
+])
+def test_native_explicit_wire_zero_fee_reaches_actual_core_enrolled_net(
+        reassessment,monkeypatch,tmp_path,capsys,no_external_activity,amounts,limit,blocked):
+    from decimal import Decimal
+    from src.config import config_resolver
+    with sdk_wire_fee_roundtrip_case(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,
+            amounts=amounts) as (h,request,life,currency_source,decoder_source):
+        config_resolver.set_config_overrides(dict(config_resolver._CONFIG_OVERRIDES,
+            DAILY_RISK_GOVERNOR_ENABLED=True,DAILY_RISK_INCLUDE_UNREALIZED=False,DAILY_RISK_MAX_LOSS_AMOUNT=limit))
+        assert h.core.run_once();capsys.readouterr()
+        raw=[view for native_id in (71,72) for view in h.native_client.cached_native_execution_fees(native_id)]
+        assert len(raw)==2 and all(view['report_status']=='BOUND_API_REPORT' for view in raw)
+        assert [view['amount'] for view in raw]==list(map(lambda amount:Decimal(str(amount)),amounts))
+        state=h.core.trade_lifecycle_engine.native_fee_feedback_snapshot(now=h.life.clock.current,max_age_seconds=15)
+        assert state['required'] and state['available'] and len(state['covered_charges'])==2
+        assert {row['execution_id'] for row in state['covered_charges']}=={'fee-entry','fee-stop'}
+        assert sum(Decimal(row['amount']) for row in state['covered_charges'])==sum(map(lambda amount:Decimal(str(amount)),amounts))
+        decision=h.core.daily_risk_governor.last_decision
+        assert decision.realized_pnl==pytest.approx(-.25-sum(amounts))
+        assert decision.blocks_new_entries is blocked and h.core.daily_risk_governor.state.recovered
+        assert decision.daily_trade_count==decision.losing_trade_count==decision.consecutive_losses==1
+        canonical=h.core.trade_lifecycle_engine.get_trade(request.client_order_id)
+        assert canonical.gross_realized_pnl==life.realized_pnl==pytest.approx(-.25)
+        assert canonical.quantity_open==life.filled_qty==0 and canonical.target_price is request.take_profit_price is None
+        assert canonical.stop_price==life.selected_stop_price==request.stop_loss_price
+        assert len(h.registry_batches[0][1])==33 and len(h.sent_native)==len(h.stop_requests)==1
+        assert h.core.execution_engine.capital_authority.total_used_exposure==0
+        assert h.core.execution_engine.capital_authority.total_reserved_capital==0
+        events=h.core.storage_engine.fetch_trade_lifecycle_events()
+        assert len([event for event in events if event['source']=='native_roundtrip_fee'])==1
+        assert len([event for event in events if event['source']=='native_cached_fill'])==2
+        for _ in range(2):
+            h.life.clock.current+=timedelta(seconds=1)
+            assert h.core.run_once();capsys.readouterr()
+            assert h.core.storage_engine.fetch_trade_lifecycle_events()==events
+            assert len(currency_source.requests)==len(currency_source.cancels)==1
+        assert all(view['net_status']=='UNAVAILABLE_FOR_NET' for view in raw)
+
+
+@pytest.mark.parametrize('entry_order,eligible',[
+    ('empty',False),('direct_only',False),('direct_first',False),('wire_then_direct',True),
+])
+def test_native_zero_first_observation_ordering_controls_core_enrollment(
+        reassessment,monkeypatch,tmp_path,capsys,no_external_activity,entry_order,eligible):
+    from src.config import config_resolver
+    with sdk_wire_fee_roundtrip_case(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,
+            amounts=(0,.02),entry_order=entry_order) as (h,request,life,currency_source,decoder_source):
+        config_resolver.set_config_overrides(dict(config_resolver._CONFIG_OVERRIDES,
+            DAILY_RISK_GOVERNOR_ENABLED=True,DAILY_RISK_INCLUDE_UNREALIZED=False,DAILY_RISK_MAX_LOSS_AMOUNT=.26))
+        assert h.core.run_once();capsys.readouterr()
+        entry,=h.native_client.cached_native_execution_fees(71)
+        assert not entry['conflict']
+        assert entry['report_status']==('BOUND_API_REPORT' if eligible else 'UNAVAILABLE')
+        state=h.core.trade_lifecycle_engine.native_fee_feedback_snapshot(now=h.life.clock.current,max_age_seconds=15)
+        assert state['required'] is eligible and state['available']
+        assert bool(currency_source.requests) is eligible
+        assert h.core.daily_risk_governor.last_decision.realized_pnl==pytest.approx(-.27 if eligible else -.25)
+        assert h.core.daily_risk_governor.last_decision.blocks_new_entries is eligible
+        if eligible:
+            assert entry['first_report']['commission_field_present'] is True
+            assert entry['first_report']['commission_client_object_id']==id(h.native_client)
+        else:
+            assert entry['first_report']['commission_field_present'] is (False if entry_order=='empty' else None)
+        events=h.core.storage_engine.fetch_trade_lifecycle_events()
+        assert len([event for event in events if event['source']=='native_roundtrip_fee'])==int(eligible)
+        if eligible:
+            h.life.clock.current+=timedelta(seconds=1)
+            positive_fee_callback(h,execution_id='fee-entry',amount=0)
+            assert h.core.run_once();capsys.readouterr()
+            assert h.core.storage_engine.fetch_trade_lifecycle_events()==events
+            assert len(currency_source.requests)==len(currency_source.cancels)==1
+            assert h.core.daily_risk_governor.state.recovered
+            assert h.core.daily_risk_governor.last_decision.realized_pnl==pytest.approx(-.27)
+        assert life.filled_qty==0 and h.core.execution_engine.capital_authority.total_used_exposure==0
+
+
+
+@pytest.mark.parametrize('interruption',['before_pair','lost_pair_ack'])
+def test_native_explicit_zero_fee_financial_attempt_uncertainty_never_retries(
+        reassessment,monkeypatch,tmp_path,capsys,no_external_activity,interruption):
+    from src.config import config_resolver
+    with sdk_wire_fee_roundtrip_case(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,
+            amounts=(0,0)) as (h,request,life,currency_source,decoder_source):
+        config_resolver.set_config_overrides(dict(config_resolver._CONFIG_OVERRIDES,
+            DAILY_RISK_GOVERNOR_ENABLED=True,DAILY_RISK_INCLUDE_UNREALIZED=False,DAILY_RISK_MAX_LOSS_AMOUNT=.26))
+        writer=h.core.storage_engine.persist_native_lifecycle_feedback
+        attempted=[]
+        def interrupted(snapshot,event,**kwargs):
+            if event['source']=='native_roundtrip_fee':
+                attempted.append(event['event_id'])
+                if interruption=='lost_pair_ack':writer(snapshot,event,**kwargs)
+                raise OSError('Synthetic explicit zero fee pair interruption '+interruption)
+            return writer(snapshot,event,**kwargs)
+        monkeypatch.setattr(h.core.storage_engine,'persist_native_lifecycle_feedback',interrupted)
+        assert h.core.run_once();capsys.readouterr()
+        assert len(attempted)==len(currency_source.requests)==1
+        state=h.core.trade_lifecycle_engine.native_fee_feedback_snapshot(now=h.life.clock.current,max_age_seconds=15)
+        assert state['required'] and not state['available'] and not state['evidence']
+        assert request.client_order_id in state['uncertain']
+        monkeypatch.setattr(h.core.storage_engine,'persist_native_lifecycle_feedback',writer)
+        events=h.core.storage_engine.fetch_trade_lifecycle_events()
+        for _ in range(2):
+            h.life.clock.current+=timedelta(seconds=1)
+            assert h.core.run_once();capsys.readouterr()
+            decision=h.core.daily_risk_governor.last_decision
+            assert decision.status.value=='MANAGED_ONLY' and not h.core.daily_risk_governor.state.recovered
+            assert decision.realized_pnl==pytest.approx(-.25) and decision.daily_trade_count==1
+            assert len(attempted)==len(currency_source.requests)==len(currency_source.cancels)==1
+            assert h.core.storage_engine.fetch_trade_lifecycle_events()==events
+            assert h.core.execution_engine._native_feedback_blocks_new_entries()
+        assert len([event for event in events if event['source']=='native_roundtrip_fee'])==int(interruption=='lost_pair_ack')
+        assert len([event for event in events if event['source']=='native_cached_fill'])==2
+        assert h.core.trade_lifecycle_engine.native_feedback_snapshot()['available']
+        assert not h.core.execution_engine._native_quarantined
+        assert life.filled_qty==0 and h.core.execution_engine.capital_authority.total_used_exposure==0

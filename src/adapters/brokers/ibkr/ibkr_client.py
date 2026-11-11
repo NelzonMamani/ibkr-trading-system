@@ -5,6 +5,9 @@ from src.domain.quote_freshness import quote_time_rejection
 from src.core.acquisition import AcquisitionCancelled, AcquisitionDeadlineExceeded, checkpoint, wait_event, bounded_timeout
 
 import threading
+import hashlib
+import inspect
+from importlib.metadata import version as _sdk_distribution_version
 from copy import deepcopy
 from dataclasses import dataclass, replace
 from decimal import Decimal, InvalidOperation
@@ -23,6 +26,10 @@ from ibapi.common import TickerId
 from ibapi.contract import Contract, ContractDetails
 from ibapi.order import Order
 from ibapi.wrapper import EWrapper
+from ibapi.decoder import Decoder as _SDKDecoder
+from ibapi.message import IN as _SDK_IN
+from ibapi.utils import decode as _SDKDecode
+from ibapi.commission_report import CommissionReport as _SDKCommissionReport
 
 from src.ibkr.quote_diagnostics import QuoteDiagnostics
 from src.ibkr.position_snapshot import BrokerPositionResult
@@ -40,6 +47,151 @@ from src.ibkr.market_data_client import (
 )
 from src.ibkr.read_only_guard import assert_read_only_allows
 from src.ibkr.evidence_safety import register_account, sanitize
+
+
+
+SDK_COMMISSION_PRESENCE_SOURCE = "IBKR_SDK_DECODER"
+SDK_COMMISSION_SCHEMA = "IBAPI_9_81_1_POST1_COMMISSION_8_FIELDS"
+_SDK_COMMISSION_PROCESS = getattr(_SDKDecoder, "processCommissionReportMsg", None)
+_SDK_COMMISSION_CODE = getattr(_SDK_COMMISSION_PROCESS, "__code__", None)
+_SDK_COMMISSION_SOURCE_SHA256 = "624d4881337a7ed0551c225182b7ce5281d34c18dd8b79f965e63e88618914e2"
+_COMMISSION_PRESENCE_FIELDS = (
+    "commission_field_present", "commission_presence_source", "commission_decoder_schema",
+    "commission_client_object_id", "commission_decoder_object_id", "commission_decoder_epoch",
+    "commission_decoder_generation", "commission_decoder_thread_id")
+
+
+def _commission_sdk_schema_supported():
+    try:
+        return (_sdk_distribution_version("ibapi") == "9.81.1.post1"
+            and _SDK_COMMISSION_CODE is not None
+            and _SDK_COMMISSION_PROCESS.__code__ is _SDK_COMMISSION_CODE
+            and _SDK_COMMISSION_PROCESS.__globals__.get("decode") is _SDKDecode
+            and _SDK_COMMISSION_PROCESS.__globals__.get("CommissionReport") is _SDKCommissionReport
+            and hashlib.sha256(inspect.getsource(_SDK_COMMISSION_PROCESS).encode()).hexdigest()
+                == _SDK_COMMISSION_SOURCE_SHA256)
+    except Exception:
+        return False
+
+
+class _CommissionDecoderProxy:
+    """One decoder's forwarding wrapper, never a replacement EWrapper owner."""
+    def __init__(self, owner, decoder):
+        self.owner, self.decoder = owner, decoder
+        self.queue, self.reader, self.connection = owner.msg_queue, owner.reader, owner.conn
+        self.epoch, self.client_id = owner._position_connection_epoch, owner.client_id
+        self.server_version = decoder.serverVersion
+        self.account_scope = None
+        self.thread = None
+        self.local = threading.local()
+        self.process = self._process
+
+    def __getattr__(self, name):
+        return getattr(self.owner, name)  # Real client-bound methods, no inherited no-op callbacks.
+
+    def _process(self, decoder, fields):
+        # Freeze exactly what the untouched SDK will parse. The installed
+        # handler has eight fields and ignores the integer message version;
+        # this declares no additional guessed wire-version whitelist.
+        frozen = tuple(fields)
+        supported = (decoder is self.decoder and len(frozen) == 8
+            and all(type(field) is bytes for field in frozen)
+            and self.owner._commission_decoder_current(self, require_thread=True))
+        if not supported:
+            self.owner._commission_zero_disabled = True
+        previous = getattr(self.local, "context", None)
+        context = {"fields": frozen, "present": frozen[3] != b"",
+            "thread": threading.get_ident(), "complete": False,
+            "pending_zero": None, "zero_claimed": False} if supported else None
+        self.local.context = context
+        try:
+            result = _SDK_COMMISSION_PROCESS(decoder, iter(frozen))
+            if context is not None:
+                context["complete"] = True
+        except BaseException:
+            self.owner._commission_zero_disabled = True
+            if context is not None:
+                context["pending_zero"] = None
+            raise
+        finally:
+            self.local.context = previous
+        # A logging callback can call the proxy before the parser finishes.
+        # Publish ZERO only after NORMAL SDK return, never from that early call.
+        pending = context.pop("pending_zero") if context is not None else None
+        if pending is not None:
+            corroborated = None
+            if (not context["zero_claimed"]
+                    and self._corroborated_projection(context, pending) == "ZERO"):
+                context["zero_claimed"] = True
+                corroborated = context
+            # Normal SDK return still delivered a legacy callback even when
+            # current scope or corroboration no longer permits ZERO authority.
+            self.local.context = None  # No active parse frame in owner listeners.
+            try:
+                self._forward(pending, corroborated)
+            finally:
+                self.local.context = previous
+        return result
+
+    def _corroborated_projection(self, context, report):
+        # Object type/thread alone cannot prove SDK call origin. These are
+        # exact facts corroborated by the SAME immutable frame, not a second
+        # numeric parser or a claim of unforgeable report-object provenance.
+        if (context is None or type(report) is not _SDKCommissionReport
+                or type(report.execId) is not str or type(report.currency) is not str
+                or type(report.commission) is not float or report.commission != 0.0
+                or not self.owner._commission_decoder_current(self, require_thread=True)):
+            return None
+        try:
+            same_identity = (report.execId.encode("ascii") == context["fields"][2]
+                and report.currency.encode("ascii") == context["fields"][4])
+        except UnicodeEncodeError:
+            return None
+        if not same_identity:
+            return None
+        raw_amount = context["fields"][3]
+        if raw_amount == b"":
+            return "EMPTY"  # Honest SDK empty-to-zero projection, never known ZERO.
+        if raw_amount in (b"0", b"0.0"):
+            return "ZERO"
+        return None  # Other spellings are unsupported, not parsed a second time.
+
+    def commissionReport(self, report):
+        context = getattr(self.local, "context", None)
+        projection = self._corroborated_projection(context, report)
+        if projection == "ZERO":
+            # Every staged report agrees with the same raw zero fact. Keep the
+            # latest exact SDK object, recheck it at publication, and publish at
+            # most once AFTER the original handler has completed successfully.
+            context["pending_zero"] = report
+            return None
+        return self._forward(report, context if projection == "EMPTY" else None)
+
+    def _forward(self, report, corroborated):
+        previous = getattr(self.local, "forward", None)
+        self.local.forward = {"report": report, "context": corroborated, "used": False}
+        try:
+            return self.owner.commissionReport(report)
+        finally:
+            self.local.forward = previous
+
+    def consume(self, report):
+        forward = getattr(self.local, "forward", None)
+        if forward is None or forward["report"] is not report or forward["used"]:
+            return None
+        forward["used"] = True  # Before connection checks, diagnostics or listeners.
+        if type(report) is not _SDKCommissionReport:
+            self.owner._commission_zero_disabled = True
+            return None
+        context = forward["context"]
+        if (context is None
+                or (not context["complete"] and context is not getattr(self.local, "context", None))
+                or context["thread"] != threading.get_ident()
+                or not self.owner._commission_decoder_current(self, require_thread=True)):
+            return None
+        return dict(zip(_COMMISSION_PRESENCE_FIELDS, (
+            context["present"], SDK_COMMISSION_PRESENCE_SOURCE, SDK_COMMISSION_SCHEMA,
+            id(self.owner), id(self.decoder), self.epoch, 1, threading.get_ident())))
 
 
 @dataclass(frozen=True)
@@ -265,6 +417,10 @@ class IbkrClient(EWrapper, EClient):
         self._position_connection_epoch = 0
         self._position_transport_available = False
         self._position_upstream_lost = False
+        self._commission_constructor_queue = self.msg_queue
+        self._commission_connection_attempts = 0
+        self._commission_zero_disabled = False
+        self._commission_decoder_proxy = None
         self._open_order_count = 0
         self._order_status_count = 0
         self._exec_details_count = 0
@@ -482,7 +638,7 @@ class IbkrClient(EWrapper, EClient):
                         reasons.append("SDK_UNSET_COMMISSION")
                     elif amount < 0:
                         reasons.append("NEGATIVE_COMMISSION_POLICY_UNADOPTED")
-                    elif amount == 0:
+                    elif amount == 0 and not self._commission_zero_report_current(first):
                         reasons.append("ZERO_COMMISSION_WIRE_PRESENCE_UNAVAILABLE")
                     if not currency_valid(first["currency"]):
                         reasons.append("COMMISSION_CURRENCY_UNAVAILABLE")
@@ -539,7 +695,20 @@ class IbkrClient(EWrapper, EClient):
         )
         self._connection_event.clear()
         self._position_upstream_lost = False
-        super().connect(self.host, self.port, int(self.client_id))
+        with self._lock:
+            attempts = getattr(self, "_commission_connection_attempts", None)
+            if type(attempts) is not int or not hasattr(self, "_commission_constructor_queue"):
+                self._commission_zero_disabled = True
+            else:
+                self._commission_connection_attempts = attempts + 1
+            if getattr(self, "_commission_connection_attempts", None) != 1:
+                self._commission_zero_disabled = True
+        try:
+            super().connect(self.host, self.port, int(self.client_id))
+        except BaseException:
+            self._commission_zero_disabled = True
+            raise
+        self._install_commission_decoder_witness()
 
         self._stop_event.clear()
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
@@ -554,6 +723,97 @@ class IbkrClient(EWrapper, EClient):
         self.reqMarketDataType(data_type_code)
         print(f"[IBKR] connection_status={self.isConnected()}")
         print(f"[IBKR][CONNECTED] Connected client_id={self.client_id}")
+
+    def _install_commission_decoder_witness(self):
+        # Called only after the FIRST actual SDK connect installed its objects,
+        # before this native owner starts the decoder loop. No reconnect rearm.
+        from ibapi import decoder as sdk_decoder
+        with self._lock:
+            message_id = getattr(_SDK_IN, "COMMISSION_REPORT", None)
+            handle_type = getattr(sdk_decoder, "HandleInfo", None)
+            # Optional private SDK capability: unsupported installations retain
+            # the preexisting connection/callback APIs with ZERO unavailable.
+            if (not _commission_sdk_schema_supported() or type(message_id) is not int
+                    or not callable(handle_type)):
+                self._commission_zero_disabled = True
+                return
+            decoder = getattr(self, "decoder", None)
+            handle = getattr(decoder, "msgId2handleInfo", {}).get(message_id)
+            eligible = (not self._commission_zero_disabled and self._commission_connection_attempts == 1
+                and self._thread is None and self.msg_queue is self._commission_constructor_queue
+                and decoder is not None and decoder.wrapper is self
+                and handle is not None and handle.processMeth is _SDK_COMMISSION_PROCESS
+                and self.reader is not None and self.reader.msg_queue is self.msg_queue
+                and self.reader.conn is self.conn and self.is_connected()
+                and type(self.client_id) is int and type(self.clientId) is int
+                and self.client_id == self.clientId and type(self._position_connection_epoch) is int
+                and type(decoder.serverVersion) is int and decoder.serverVersion == self.serverVersion()
+                and _commission_sdk_schema_supported())
+            if not eligible:
+                self._commission_zero_disabled = True
+                return
+            proxy = _CommissionDecoderProxy(self, decoder)
+            decoder.msgId2handleInfo = dict(decoder.msgId2handleInfo)
+            decoder.msgId2handleInfo[message_id] = handle_type(proc=proxy.process)
+            decoder.wrapper = proxy
+            self._commission_decoder_proxy = proxy
+
+    def _commission_decoder_current(self, proxy, *, require_thread=False):
+        with self._lock:
+            if self._commission_zero_disabled:
+                return False
+            handle = getattr(self.decoder, "msgId2handleInfo", {}).get(
+                getattr(_SDK_IN, "COMMISSION_REPORT", None))
+            valid = (self._commission_decoder_proxy is proxy and self.decoder is proxy.decoder
+                and self.decoder.wrapper is proxy and self.msg_queue is proxy.queue
+                and self.msg_queue is self._commission_constructor_queue and self.reader is proxy.reader
+                and self.conn is proxy.connection and self.reader.msg_queue is proxy.queue
+                and self.reader.conn is proxy.connection and self._thread is not None
+                and self._thread.is_alive() and (not require_thread or self._thread is threading.current_thread())
+                and (proxy.thread is None or proxy.thread is self._thread)
+                and type(self.client_id) is int and self.client_id == proxy.client_id
+                and type(self.clientId) is int and self.clientId == proxy.client_id
+                and type(self._position_connection_epoch) is int and self._position_connection_epoch == proxy.epoch
+                and self.decoder.serverVersion == proxy.server_version == self.serverVersion()
+                and handle is not None and handle.processMeth is proxy.process
+                and _SDK_COMMISSION_PROCESS.__code__ is _SDK_COMMISSION_CODE
+                and _SDK_COMMISSION_PROCESS.__globals__.get("decode") is _SDKDecode
+                and _SDK_COMMISSION_PROCESS.__globals__.get("CommissionReport") is _SDKCommissionReport
+                and self.is_connected() and not self._stop_event.is_set()
+                and self._position_transport_available)
+            if not valid:
+                self._commission_zero_disabled = True
+                return False
+            accounts = tuple(self._managed_accounts)
+            if len(accounts) != 1:
+                if len(accounts) > 1:
+                    self._commission_zero_disabled = True
+                return False
+            if proxy.account_scope is None:
+                proxy.account_scope = accounts
+            elif accounts != proxy.account_scope:
+                self._commission_zero_disabled = True
+                return False
+            proxy.thread = self._thread
+            return True
+
+    def _consume_commission_witness(self, report):
+        proxy = getattr(self, "_commission_decoder_proxy", None)
+        witness = proxy.consume(report) if proxy is not None else None
+        return witness or {key: "UNAVAILABLE" if key == "commission_presence_source" else None
+                           for key in _COMMISSION_PRESENCE_FIELDS}
+
+    def _commission_zero_report_current(self, report):
+        proxy = getattr(self, "_commission_decoder_proxy", None)
+        return (proxy is not None and self._commission_decoder_current(proxy)
+            and report.get("commission_field_present") is True
+            and report.get("commission_presence_source") == SDK_COMMISSION_PRESENCE_SOURCE
+            and report.get("commission_decoder_schema") == SDK_COMMISSION_SCHEMA
+            and report.get("commission_client_object_id") == id(self)
+            and report.get("commission_decoder_object_id") == id(self.decoder)
+            and report.get("commission_decoder_epoch") == self._position_connection_epoch
+            and report.get("commission_decoder_generation") == 1
+            and report.get("commission_decoder_thread_id") == getattr(self._thread, "ident", None))
 
     def disconnect(self) -> None:  # type: ignore[override]
         print(f"[IBKR] Disconnecting client_id={self.client_id}")
@@ -1142,6 +1402,7 @@ class IbkrClient(EWrapper, EClient):
 
     def _invalidate_position_queries(self, *, clear_account_scope: bool = True) -> None:
         with self._lock:
+            self._commission_zero_disabled = True
             for query in getattr(self, "_price_rule_requests", {}).values():
                 self._finish_price_rule(query, "DISCONNECTED")
             self._position_connection_epoch += 1
@@ -2278,6 +2539,9 @@ class IbkrClient(EWrapper, EClient):
         with self._lock:
             accounts = [account.strip() for account in accountsList.split(",") if account.strip()]
             if accounts != self._managed_accounts:
+                proxy = getattr(self, "_commission_decoder_proxy", None)
+                if proxy is not None and proxy.account_scope is not None and tuple(accounts) != proxy.account_scope:
+                    self._commission_zero_disabled = True
                 for context in self._request_context_by_req_id.values():
                     query = context.get("execution_query")
                     if query is not None and query["status"] in ("PARTIAL", "COMPLETE"):
@@ -2699,6 +2963,7 @@ class IbkrClient(EWrapper, EClient):
         )
 
     def commissionReport(self, commissionReport):  # type: ignore[override]
+        wire_witness = self._consume_commission_witness(commissionReport)
         exec_id = getattr(commissionReport, "execId", None)
         commission = getattr(commissionReport, "commission", None)
         raw_currency = getattr(commissionReport, "currency", None)
@@ -2735,7 +3000,7 @@ class IbkrClient(EWrapper, EClient):
         # listener. Repeated receipts do not renew the original observation.
         with self._lock:
             report = {"amount": amount, "amount_type": type(commission).__name__,
-                "currency": currency, **reception}
+                "currency": currency, **reception, **wire_witness}
             amount_signature = (amount if amount is not None and amount.is_finite()
                 else str(amount) if amount is not None else (type(commission).__name__, str(commission)))
             # Receipt scope compares exact types too: bool is numerically equal

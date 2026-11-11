@@ -724,7 +724,7 @@ class TradeLifecycleEngine:
         return (isinstance(value, str) and len(value) == 3 and value.isascii()
                 and value.isalpha() and value == value.upper())
 
-    def _native_fee_rows(self, observations, requirement, *, now) -> tuple[dict[str, Any], ...]:
+    def _native_fee_rows(self, observations, requirement, *, now, source_client) -> tuple[dict[str, Any], ...]:
         from ibapi.common import UNSET_DOUBLE
         if type(observations) is not tuple:
             raise ValueError("NATIVE_FEE_SOURCE_ROWS_REQUIRED")
@@ -769,7 +769,7 @@ class TradeLifecycleEngine:
             except InvalidOperation:
                 raise ValueError("NATIVE_FEE_POSITIVE_AMOUNT_REQUIRED") from None
             if (not decimal_amount.is_finite() or not math.isfinite(float(decimal_amount))
-                    or decimal_amount <= 0 or float(decimal_amount) == UNSET_DOUBLE):
+                    or decimal_amount < 0 or float(decimal_amount) == UNSET_DOUBLE):
                 raise ValueError("NATIVE_FEE_POSITIVE_AMOUNT_REQUIRED")
             for report_name in ("first_report", "latest_report"):
                 report = row.get(report_name)
@@ -788,6 +788,32 @@ class TradeLifecycleEngine:
                         or receipt.utcoffset() is None
                         or (report_name == "first_report" and receipt > now)):
                     raise ValueError("NATIVE_FEE_REPORT_RECEIPT_INVALID")
+            zero_witness = None
+            if decimal_amount == 0:
+                from src.adapters.brokers.ibkr.ibkr_client import (
+                    SDK_COMMISSION_PRESENCE_SOURCE, SDK_COMMISSION_SCHEMA)
+                first = row["first_report"]
+                keys = ("commission_field_present", "commission_presence_source", "commission_decoder_schema",
+                    "commission_client_object_id", "commission_decoder_object_id", "commission_decoder_epoch",
+                    "commission_decoder_generation", "commission_decoder_thread_id")
+                zero_witness = {key: first.get(key) for key in keys}
+                decoder = getattr(source_client, "decoder", None)
+                if (source_client is None or decoder is None
+                        or zero_witness["commission_field_present"] is not True
+                        or zero_witness["commission_presence_source"] != SDK_COMMISSION_PRESENCE_SOURCE
+                        or zero_witness["commission_decoder_schema"] != SDK_COMMISSION_SCHEMA
+                        or any(type(zero_witness[key]) is not int or zero_witness[key] <= 0 for key in (
+                            "commission_client_object_id", "commission_decoder_object_id", "commission_decoder_thread_id"))
+                        or zero_witness["commission_client_object_id"] != id(source_client)
+                        or zero_witness["commission_decoder_object_id"] != id(decoder)
+                        or type(zero_witness["commission_decoder_epoch"]) is not int
+                        or zero_witness["commission_decoder_epoch"] < 0
+                        or zero_witness["commission_decoder_epoch"] != requirement["connection_epoch"]
+                        or type(zero_witness["commission_decoder_generation"]) is not int
+                        or zero_witness["commission_decoder_generation"] != 1):
+                    raise ValueError("NATIVE_FEE_ZERO_COMMISSION_WITNESS_REQUIRED")
+                # Current source rereads below also require the actual native
+                # owner's still-valid constructor/decoder/thread witness.
             result[execution_id] = dict(execution_id=execution_id,
                 native_order_id=financial["native_order_id"], amount=str(decimal_amount),
                 currency=currency, quantity=financial["quantity"], price=financial["price"],
@@ -795,6 +821,8 @@ class TradeLifecycleEngine:
                 report_source=row["source"], report_received_at=row["first_report"]["received_at"].isoformat(),
                 report_client_id=requirement["client_id"], report_connection_epoch=requirement["connection_epoch"],
                 execution_currency=currency, report_currency=row["report_currency"])
+            if zero_witness is not None:
+                result[execution_id]["zero_commission_witness"] = zero_witness
         if set(result) != set(expected):
             raise ValueError("NATIVE_FEE_EXACT_EXECUTION_COVERAGE_REQUIRED")
         return tuple(result[row["execution_id"]] for row in requirement["executions"])
@@ -806,7 +834,7 @@ class TradeLifecycleEngine:
         observations = tuple(row for native_id in sorted({
             int(row["native_order_id"]) for row in requirement["executions"]})
             for row in reader(native_id))
-        return self._native_fee_rows(observations, requirement, now=now)
+        return self._native_fee_rows(observations, requirement, now=now, source_client=client)
 
     def apply_native_roundtrip_fees(self, observation: NativeRoundtripFeeObservation, *,
             source_client: Any, now: datetime, max_age_seconds: float, trading_day_for) -> dict[str, Any]:
@@ -839,7 +867,7 @@ class TradeLifecycleEngine:
                     or observation.entry_requested_quantity != observation.entry_filled_quantity
                     or observation.entry_filled_quantity != required["entry_quantity"]):
                 raise ValueError("NATIVE_FEE_TERMINAL_ORIGINAL_ENTRY_REQUIRED")
-            rows = self._native_fee_rows(observation.fee_observations, required, now=checked)
+            rows = self._native_fee_rows(observation.fee_observations, required, now=checked, source_client=source_client)
             if rows != self._native_fee_current_rows(source_client, required, now=checked):
                 raise ValueError("NATIVE_FEE_CURRENT_SOURCE_CONFLICT")
             account = observation.account_currency_result
@@ -964,6 +992,8 @@ class TradeLifecycleEngine:
                         execution_id=fee["execution_id"], native_order_id=fee["native_order_id"],
                         amount=fee["amount"], currency=fee["currency"], trading_day=saved["trading_day"],
                         event_id=saved["event_id"])
+                    if "zero_commission_witness" in fee:
+                        charge["zero_commission_witness"] = deepcopy(fee["zero_commission_witness"])
                     if key in covered and covered[key] != charge:
                         self.mark_native_fee_uncertain(root, "NATIVE_FEE_COVERED_CHARGE_CONFLICT")
                     covered[key] = charge

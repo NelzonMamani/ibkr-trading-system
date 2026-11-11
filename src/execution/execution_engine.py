@@ -2416,7 +2416,7 @@ class ExecutionEngine:
                     identity = event["metadata"]["native_identity"]
                     if (row["report_status"] != "BOUND_API_REPORT" or row["net_status"] != "UNAVAILABLE_FOR_NET"
                             or row["conflict"] or row["unavailable_reasons"]
-                            or row["amount"] is None or row["amount"] <= 0
+                            or row["amount"] is None or row["amount"] < 0
                             or row["execution_currency"] != row["report_currency"]
                             or execution["account"] != root["account"]
                             or execution["clientId"] != root["native_client_id"]
@@ -2430,6 +2430,24 @@ class ExecutionEngine:
                             or execution["side"] != ("BOT" if event["event_type"] == "ENTRY_FILL" else "SLD")):
                         valid = False
                         break
+                    if row["amount"] == 0:
+                        from src.adapters.brokers.ibkr.ibkr_client import (
+                            SDK_COMMISSION_PRESENCE_SOURCE, SDK_COMMISSION_SCHEMA)
+                        first = row["first_report"]
+                        integer_fields = ("commission_client_object_id", "commission_decoder_object_id",
+                            "commission_decoder_thread_id", "commission_decoder_epoch", "commission_decoder_generation")
+                        if (first.get("commission_field_present") is not True
+                                or first.get("commission_presence_source") != SDK_COMMISSION_PRESENCE_SOURCE
+                                or first.get("commission_decoder_schema") != SDK_COMMISSION_SCHEMA
+                                or any(type(first.get(name)) is not int or first[name] < (0 if name == "commission_decoder_epoch" else 1)
+                                       for name in integer_fields)
+                                or first["commission_client_object_id"] != id(client)
+                                or first["commission_decoder_object_id"] != id(client.decoder)
+                                or first["commission_decoder_thread_id"] != getattr(client._thread, "ident", None)
+                                or first["commission_decoder_epoch"] != client._position_connection_epoch
+                                or first["commission_decoder_generation"] != 1):
+                            valid = False
+                            break
                     receipts = [row["first_report"]["received_at"], row["latest_report"]["received_at"]]
                     if any(not isinstance(receipt, datetime_type) or receipt.tzinfo is None
                            or receipt.utcoffset() is None or receipt > datetime.now(timezone.utc)
