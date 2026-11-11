@@ -5,6 +5,7 @@ from src.domain.quote_freshness import quote_time_rejection
 from src.core.acquisition import AcquisitionCancelled, AcquisitionDeadlineExceeded, checkpoint, wait_event, bounded_timeout
 
 import threading
+from copy import deepcopy
 from dataclasses import dataclass, replace
 from decimal import Decimal, InvalidOperation
 import math
@@ -13,8 +14,9 @@ import json
 import os
 from pathlib import Path
 from datetime import datetime, timezone
-from types import SimpleNamespace
-from typing import Dict, List, Optional, Tuple
+from types import MappingProxyType, SimpleNamespace
+from typing import Dict, List, Mapping, Optional, Tuple
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from ibapi.client import EClient
 from ibapi.common import TickerId
@@ -278,6 +280,122 @@ class IbkrClient(EWrapper, EClient):
     def cached_order_status(self, order_id: int) -> dict:
         """Read callback-owned facts only; does not request data or connect."""
         return dict(self._order_status.get(int(order_id), {}))
+
+    @staticmethod
+    def normalize_native_execution_time(value) -> datetime:
+        """Require an explicit broker instant; never infer a zone or receipt time."""
+        def utc(stamp):
+            try:
+                return stamp.astimezone(timezone.utc)
+            except (ValueError, OverflowError):
+                raise ValueError("NATIVE_EXECUTION_TIME_UNAVAILABLE") from None
+        if isinstance(value, datetime):
+            if value.tzinfo is None or value.utcoffset() is None:
+                raise ValueError("NATIVE_EXECUTION_TIME_UNAVAILABLE")
+            return utc(value)
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("NATIVE_EXECUTION_TIME_UNAVAILABLE")
+        text = value.strip()
+        try:
+            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            parsed = None
+        if parsed is not None:
+            if parsed.tzinfo is None or parsed.utcoffset() is None:
+                raise ValueError("NATIVE_EXECUTION_TIME_UNAVAILABLE")
+            return utc(parsed)
+
+        parts = text.split()
+        if len(parts) < 2:
+            raise ValueError("NATIVE_EXECUTION_TIME_UNAVAILABLE")
+        zone_name = parts[-1]
+        # Abbreviations such as EST/EDT and configured local zones are not an
+        # unambiguous execution-time contract. Explicit IANA aliases are valid.
+        if zone_name not in {"UTC", "GMT"} and "/" not in zone_name:
+            raise ValueError("NATIVE_EXECUTION_TIME_UNAVAILABLE")
+        try:
+            # Canonical spelling for the explicit IANA alias used by TWS;
+            # some installed zone databases omit the legacy alias file.
+            zone = ZoneInfo({"US/Eastern": "America/New_York"}.get(zone_name, zone_name))
+        except (ValueError, ZoneInfoNotFoundError):
+            raise ValueError("NATIVE_EXECUTION_TIME_UNAVAILABLE") from None
+        core = " ".join(parts[:-1])
+        local = None
+        for pattern in ("%Y%m%d %H:%M:%S", "%Y%m%d-%H:%M:%S", "%Y-%m-%d %H:%M:%S"):
+            try:
+                local = datetime.strptime(core, pattern)
+                break
+            except ValueError:
+                pass
+        if local is None:
+            raise ValueError("NATIVE_EXECUTION_TIME_UNAVAILABLE")
+        candidates = [local.replace(tzinfo=zone, fold=fold) for fold in (0, 1)]
+        valid = [stamp for stamp in candidates
+                 if utc(stamp).astimezone(zone).replace(tzinfo=None) == local]
+        if not valid or len({stamp.utcoffset() for stamp in valid}) != 1:
+            # Reject spring gaps and autumn folds instead of inventing an instant.
+            raise ValueError("NATIVE_EXECUTION_TIME_UNAVAILABLE")
+        return utc(valid[0])
+
+    def cached_native_executions(self, order_id: int) -> tuple[Mapping, ...]:
+        """Copy unsolicited execution facts only; no history/query/reconnect.
+
+        This is callback evidence, not permission or coverage/finality. The
+        existing native owner must bind account/client/epoch/security/root and
+        establish its exact cumulative interval before applying any DELTA.
+        """
+        if type(order_id) is not int or order_id < 0:
+            raise ValueError("NATIVE_EXECUTION_ORDER_ID_INVALID")
+        with self._lock:
+            # Reuse the sole existing per-order callback owner. History queries
+            # also append legacy rows here; their records carry no live authority.
+            all_rows = [deepcopy(row) for rows in self._exec_details_by_order.values()
+                        for row in rows if row.get("_native_unsolicited") is True]
+            identity_conflicted = self._request_id_conflicted(order_id)
+        selected = [row for row in all_rows if row.get("orderId") == order_id]
+        if selected and identity_conflicted:
+            raise ValueError("NATIVE_EXECUTION_IDENTITY_CONFLICT")
+        identities = {row.get("execId") for row in selected
+                      if isinstance(row.get("execId"), str)}
+        deduped = {}
+        # Conflicting use of one execution ID on another order is also visible;
+        # do not let a per-order lookup hide a wrong-root execution duplicate.
+        for row in all_rows:
+            if row.get("orderId") != order_id:
+                if not isinstance(row.get("execId"), str) or row["execId"] not in identities:
+                    continue
+            if (not isinstance(row.get("execId"), str) or not row["execId"].strip()
+                    or any(type(row.get(key)) is not int or row[key] < minimum
+                           for key, minimum in (("orderId", 0), ("clientId", 0),
+                                                ("conId", 1), ("connection_epoch", 0)))
+                    or not isinstance(row.get("account"), str) or not row["account"].strip()
+                    or not isinstance(row.get("symbol"), str) or not row["symbol"].strip()
+                    or row.get("secType") != "STK" or row.get("side") not in {"BOT", "SLD"}):
+                raise ValueError("NATIVE_EXECUTION_FACTS_INVALID")
+            normalized = {key: row[key] for key in (
+                "execId", "time", "orderId", "account", "clientId", "conId",
+                "symbol", "secType", "side", "shares", "price", "cumQty", "avgPrice",
+                "connection_epoch")}
+            try:
+                for key in ("shares", "price", "cumQty", "avgPrice"):
+                    if isinstance(row[key], bool):
+                        raise ValueError
+                    value = Decimal(str(row[key]))
+                    if not value.is_finite() or value <= 0:
+                        raise ValueError
+                    normalized[key] = value
+            except (KeyError, TypeError, ValueError, InvalidOperation):
+                raise ValueError("NATIVE_EXECUTION_FACTS_INVALID") from None
+            if normalized["cumQty"] < normalized["shares"]:
+                raise ValueError("NATIVE_EXECUTION_FACTS_INVALID")
+            normalized["timestamp_utc"] = self.normalize_native_execution_time(row["time"])
+            previous = deduped.get(row["execId"])
+            if previous is not None and previous != normalized:
+                raise ValueError("NATIVE_EXECUTION_DUPLICATE_CONFLICT")
+            deduped[row["execId"]] = normalized
+        return tuple(MappingProxyType(dict(row)) for row in sorted(
+            (row for row in deduped.values() if row["orderId"] == order_id),
+            key=lambda row: (row["cumQty"], row["execId"])))
 
     def register_execution_callback(self, callback, *, internal_reconciliation=False) -> None:
         if callback is None:
@@ -2122,26 +2240,28 @@ class IbkrClient(EWrapper, EClient):
         )
         self._ensure_order_state_registry()
         existing = self._order_status.get(orderId, {})
+        # Intake owns whole-share validation. Truncation here would conceal a
+        # fractional or malformed callback before that owner can reject it.
         self._order_status[orderId] = {
             **existing,
             "status": status,
-            "filled": int(filled),
-            "remaining": int(remaining),
+            "filled": filled,
+            "remaining": remaining,
             "avgFillPrice": avgFillPrice,
             "lastFillPrice": lastFillPrice,
         }
         print(
             "[ORDER][STATUS] "
-            f"order_id={orderId} status={status} filled={int(filled)} remaining={int(remaining)}"
+            f"order_id={orderId} status={status} filled={filled} remaining={remaining}"
         )
         print(
             "[IBKR][ORDER_STATUS] "
-            f"order_id={orderId} status={status} filled={int(filled)} remaining={int(remaining)} "
+            f"order_id={orderId} status={status} filled={filled} remaining={remaining} "
             f"avg_fill_price={avgFillPrice} last_fill_price={lastFillPrice}"
         )
         print(
             "[EXECUTION][ORDER_TRACK] "
-            f"order_id={orderId} status={status} filled={int(filled)} remaining={int(remaining)}"
+            f"order_id={orderId} status={status} filled={filled} remaining={remaining}"
         )
         open_order_row = self._open_orders_snapshot.get(orderId)
         ack_order = getattr(open_order_row, "order", None) if open_order_row is not None else None
@@ -2157,8 +2277,8 @@ class IbkrClient(EWrapper, EClient):
                 "event_type": "orderStatus",
                 "orderId": orderId,
                 "status": status,
-                "filled": int(filled),
-                "remaining": int(remaining),
+                "filled": filled,
+                "remaining": remaining,
                 "avgFillPrice": avgFillPrice,
                 "lastFillPrice": lastFillPrice,
                 "whyHeld": whyHeld,
@@ -2176,6 +2296,7 @@ class IbkrClient(EWrapper, EClient):
             # after bounded request metadata eviction or raw compatibility reuse.
             if reqId != -1 and getattr(self, "_request_type_by_req_id", {}).get(reqId) != "EXECUTIONS":
                 return
+            unsolicited_epoch = self._position_connection_epoch if reqId == -1 else None
         if getattr(execution, "orderId", None) is not None:
             self._observe_order_id(int(execution.orderId))
         if not hasattr(self, "_exec_details_count"):
@@ -2218,7 +2339,23 @@ class IbkrClient(EWrapper, EClient):
             "[EXECUTION][ORDER_TRACK] "
             f"order_id={order_id} status=Filled shares={getattr(execution, 'shares', None)}"
         )
-        self._exec_details_by_order.setdefault(order_id, []).append(details)
+        if reqId == -1:
+            # Only unsolicited callbacks can support active native feedback.
+            # Freeze primitive broker facts now, not when a later reader asks.
+            details = deepcopy({**details,
+                "_native_unsolicited": True,
+                "orderId": order_id,
+                "account": getattr(execution, "acctNumber", None),
+                "clientId": getattr(execution, "clientId", None),
+                "conId": getattr(contract, "conId", None),
+                "symbol": getattr(contract, "symbol", None),
+                "secType": getattr(contract, "secType", None),
+                "side": getattr(execution, "side", None),
+                "cumQty": getattr(execution, "cumQty", None),
+                "avgPrice": getattr(execution, "avgPrice", None),
+                "connection_epoch": unsolicited_epoch})
+        with self._lock:
+            self._exec_details_by_order.setdefault(order_id, []).append(details)
         self._executions_snapshot.append(
             SimpleNamespace(contract=contract, execution=execution, orderId=order_id)
         )

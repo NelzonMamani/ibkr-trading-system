@@ -1137,6 +1137,97 @@ def assert_full_core_cold_refusal(report,*,expected_cycles=2):
     assert report['cleanup']['manager_disconnected'] and report['cleanup']['storage_closed'],summary
 
 
+@pytest.mark.parametrize('progress_failure',['before_write','lost_write_ack'])
+def test_native_canonical_commit_progress_interruption_retains_cold_quarantine(
+        reassessment,monkeypatch,tmp_path,capsys,no_external_activity,progress_failure):
+    """Canonical commit does not imply cross-owner native progress committed."""
+    import json,sqlite3
+    from datetime import timedelta
+    from test_standalone_pmh_late_fill_protection import (
+        late_pmh,acknowledge,deliver_native_execution,teardown_unsent_fixture)
+    from test_startup_recovery_and_stop_protection import run_native_core_cold_start
+    h=late_pmh(reassessment,monkeypatch,tmp_path,fill_price=10.53)
+    try:
+        request=acknowledge(h,capsys)
+        engine=h.core.execution_engine
+        write=engine._storage_engine.store_execution_order_state
+        attempts=[]
+        def interrupted(state_id,payload,**kwargs):
+            feedback=[feedback for order in payload['orders'].values()
+                for feedback in order.get('canonical_feedback',[])]
+            if any(row.get('applied_execution_ids') for row in feedback):
+                attempts.append(progress_failure)
+                if progress_failure=='lost_write_ack':write(state_id,payload,**kwargs)
+                raise OSError('synthetic canonical-to-native progress '+progress_failure)
+            return write(state_id,payload,**kwargs)
+        monkeypatch.setattr(engine._storage_engine,'store_execution_order_state',interrupted)
+        deliver_native_execution(h,native_id=71,execution_id='committed-before-progress',side='BOT',
+            quantity=1,cumulative=1,price=10.53,average=10.53,
+            timestamp=datetime(2026,10,20,13,35,42,tzinfo=timezone.utc))
+        h.facts[71]=dict(status='Filled',filled=1,remaining=0,avgFillPrice=10.53)
+        h.native_quantity[0]=1;h.native_open_orders.clear()
+        h.life.clock.current+=timedelta(seconds=1)
+        assert not h.core.run_once();capsys.readouterr()
+        life=engine.post_fill_lifecycle.get_trade(request.client_order_id)
+        assert attempts and life.filled_qty==1 and life.avg_fill_price==10.53
+        assert life.selected_stop_price==request.stop_loss_price and life.selected_target_price is None
+        assert engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
+        assert h.manager.snapshot_positions()['JPM'].quantity==1
+        assert h.core.trade_registry.snapshot()[0].quantity==1
+        assert len(h.sent_native)==len(h.stop_requests)==1 and len(h.registry_batches[0][1])==33
+        canonical=h.core.trade_lifecycle_engine.get_trade(request.client_order_id)
+        assert canonical.quantity_open==1 and canonical.entry_avg_price==10.53
+        assert canonical.stop_price==request.stop_loss_price and canonical.target_price is None
+        events=h.core.storage_engine.fetch_trade_lifecycle_events()
+        assert len(events)==1 and events[0]['execution_id']=='committed-before-progress'
+        assert engine._native_quarantined and engine._failsafe_block_new_entries
+        parent=engine._native_orders[request.client_order_id]
+        assert parent['cached_update_in_progress'] and parent['canonical_feedback'][0]['state']=='UNCERTAIN'
+        assert not h.core.trade_lifecycle_engine.native_feedback_snapshot()['available']
+        retained=engine._storage_engine.fetch_management_state('execution.native_orders.v1:PAPER')
+        progress=retained['orders'][request.client_order_id]['canonical_feedback'][0]
+        assert progress['state']=='IN_PROGRESS'
+        assert progress['applied_execution_ids']==(
+            ['committed-before-progress'] if progress_failure=='lost_write_ack' else [])
+        monkeypatch.setattr(engine._storage_engine,'store_execution_order_state',write)
+        before=deepcopy((engine.position_records,parent,engine.capital_authority.total_used_exposure,
+            h.manager.snapshot_positions(),h.core.trade_registry.snapshot(),events))
+        for _ in range(2):
+            h.life.clock.current+=timedelta(seconds=1)
+            assert not h.core.run_once();capsys.readouterr()
+        assert before==deepcopy((engine.position_records,parent,engine.capital_authority.total_used_exposure,
+            h.manager.snapshot_positions(),h.core.trade_registry.snapshot(),
+            h.core.storage_engine.fetch_trade_lifecycle_events()))
+        assert engine._native_quarantined and len(h.sent_native)==len(h.stop_requests)==1
+
+        database=tmp_path/'canonical-progress-retained.sqlite3'
+        with sqlite3.connect(database) as target:engine._storage_engine._store.connection.backup(target)
+        inventory=[]
+        for row in h.native_open_orders:
+            inventory.append(dict(orderId=row.orderId,
+                contract=dict(symbol=row.contract.symbol,conId=row.contract.conId,
+                    exchange='SMART',currency='USD',secType='STK'),
+                order={key:getattr(row.order,key,default) for key,default in dict(orderType='',
+                    parentId=71,orderRef='',action='SELL',totalQuantity=1,auxPrice=0.,tif='GTC',
+                    account='SYNTHETIC_TEST',clientId=h.native_client.client_id).items()},
+                orderState=dict(status=row.orderState.status)))
+        facts=dict(now=h.life.clock.current.isoformat(),account='SYNTHETIC_TEST',
+            client_id=h.native_client.client_id,epoch=h.native_client._position_connection_epoch,
+            root_id=request.client_order_id,
+            positions=[dict(symbol='JPM',position=1,con_id=123,avgCost=10.53,account='SYNTHETIC_TEST')],
+            open_orders=inventory,callbacks=h.facts,cycles=2,candidate_observations=h.rows,
+            source_timeframe_bars={key:[vars(bar) for bar in value] for key,value in h.streams.items()})
+        path=tmp_path/'canonical-progress-external-facts.json'
+        path.write_text(json.dumps(facts,default=str))
+        report=run_native_core_cold_start(database,path,tmp_path/'canonical-progress-child')
+        assert_full_core_cold_refusal(report)
+        # The unchanged actual tables include the committed canonical pair, not
+        # just the retained native marker. Startup does not replay either owner.
+        assert len(report['database_before']['trade_lifecycle_events'])==1
+        assert report['database_before']['trade_lifecycle_events'][0]['execution_id']=='committed-before-progress'
+    finally:teardown_unsent_fixture(h,no_external_activity)
+
+
 
 def test_real_core_cold_start_cannot_rewrite_retained_bull_protection(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
     from test_startup_recovery_and_stop_protection import run_native_core_cold_start

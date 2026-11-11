@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from types import SimpleNamespace
 
+import pytest
+
 from src.config.config_resolver import set_config_overrides
 from src.core.orchestrator import CoreOrchestrator
 from src.core.engines.position_management_engine import ManagedPosition
@@ -10,6 +12,36 @@ from src.core.engines.trade_lifecycle_engine import LifecycleEvent, TradeLifecyc
 from src.core.portfolio.broker_position_adapter import BrokerPositionSnapshot
 from src.models.data_models import ExecutionResult, RiskDecision, TradeIntent
 from src.scanner.result_models import CandidateMetrics
+
+
+@pytest.fixture
+def native_lifecycle(isolated_runtime_schema):
+    from src.storage.storage_engine import StorageEngine
+    set_config_overrides({"PERSISTENCE_SQLITE_PATH": str(isolated_runtime_schema),
+        "PERSISTENCE_ENABLED": True, "PERSISTENCE_BACKEND": "sqlite", "PERSIST_FLUSH_EACH_CYCLE": True})
+    storage = StorageEngine()
+    try:
+        yield TradeLifecycleEngine(storage), storage
+    finally:
+        storage.shutdown()
+        set_config_overrides(None)
+
+
+def _native_event(event_id, event_type, quantity, price, *, native_id=71,
+                  timestamp="2026-10-20T13:35:00+00:00", root="NATIVE-ROOT"):
+    event = LifecycleEvent(event_id, root, "JPM", "LONG", event_type, quantity, price,
+        timestamp, order_id=str(native_id), execution_id="EXEC-" + event_id,
+        source="native_cached_fill", metadata={"feedback_id": "FB-" + event_id})
+    identity = dict(root_order_id=root, account="SYNTHETIC_TEST", strategy="RossMomentumStrategyV1",
+        native_order_id=str(native_id), client_id=71, connection_epoch=3, con_id=123, symbol="JPM", side="LONG")
+    return event, identity
+
+
+def _apply_native(engine, event, identity, before):
+    trade = engine.apply_event(event, strict=True, native_identity=identity,
+        expected_quantity=before, strategy_name=identity["strategy"], stop_price=10.0)
+    engine.complete_native_feedback(event.metadata["feedback_id"])
+    return trade
 
 
 @dataclass
@@ -517,3 +549,345 @@ def test_broker_fetch_failure_and_reconcile_failure_are_non_blocking(monkeypatch
         assert orchestrator.run_once() is True
     finally:
         set_config_overrides(None)
+
+
+def test_native_feedback_commits_partial_loss_and_duplicate_once(native_lifecycle):
+    import json
+    engine, storage = native_lifecycle
+    entry, identity = _native_event('entry', 'ENTRY_FILL', 2, 10.5)
+    engine.require_native_feedback('FB-entry', identity)
+    assert not engine.native_feedback_snapshot()['available']
+    trade = engine.apply_event(entry, strict=True, native_identity=identity,
+        expected_quantity=0, stop_price=10.0)
+    assert trade.quantity_open == 2 and storage.fetch_trade_lifecycle_events()[0]['event_id'] == 'entry'
+    assert not engine.native_feedback_snapshot()['available']  # Caller completion is separate.
+    engine.complete_native_feedback('FB-entry')
+    partial, child = _native_event('partial', 'STOP_EXIT', 1, 10.25, native_id=72,
+        timestamp='2026-10-20T13:35:10+00:00')
+    _apply_native(engine, partial, child, 2)
+    snapshot = engine.native_feedback_snapshot()
+    assert snapshot['available'] and snapshot['events'][-1]['metadata']['realized_increment'] == -.25
+    assert not snapshot['events'][-1]['metadata']['terminal']
+    assert trade.quantity_open == 1 and trade.gross_realized_pnl == -.25
+    final, child = _native_event('final', 'STOP_EXIT', 1, 10., native_id=72,
+        timestamp='2026-10-20T13:35:20+00:00')
+    _apply_native(engine, final, child, 1)
+    _apply_native(engine, final, child, 1)
+    assert trade.quantity_open == 0 and trade.quantity_closed == 2 and trade.gross_realized_pnl == -.75
+    assert trade.target_price is None and trade.stop_price == 10.
+    assert len(storage.fetch_trade_lifecycle_events()) == len(engine.native_feedback_snapshot()['events']) == 3
+    persisted = storage.fetch_trade_lifecycle_trades()[0]
+    assert persisted['gross_realized_pnl'] == -.75 and persisted['status'] == 'CLOSED'
+    final_payload = json.loads(storage.fetch_trade_lifecycle_events()[-1]['payload_json'])
+    assert final_payload['native_identity']['account'] == 'SYNTHETIC_TEST'
+    assert final_payload['terminal'] and final_payload['quantity_before'] == 1 and final_payload['quantity_after'] == 0
+
+
+def test_native_terminal_time_tracks_execution_time_not_arrival(native_lifecycle):
+    engine, _ = native_lifecycle
+    entry, identity = _native_event('entry', 'ENTRY_FILL', 2, 10.5,
+        timestamp='2026-10-19T13:35:00+00:00')
+    _apply_native(engine, entry, identity, 0)
+    newer, child = _native_event('newer', 'STOP_EXIT', 1, 10.25, native_id=72,
+        timestamp='2026-10-20T13:35:10+00:00')
+    _apply_native(engine, newer, child, 2)
+    older, child = _native_event('older', 'STOP_EXIT', 1, 10., native_id=72,
+        timestamp='2026-10-19T13:35:20+00:00')
+    trade = _apply_native(engine, older, child, 1)
+    snapshot = engine.native_feedback_snapshot()
+    assert snapshot['events'][-1]['timestamp'] == '2026-10-19T13:35:20+00:00'
+    assert trade.closed_at == snapshot['events'][-1]['metadata']['terminal_timestamp'] == '2026-10-20T13:35:10+00:00'
+
+
+@pytest.mark.parametrize('fault', ['root', 'account', 'side', 'quantity', 'prior_quantity', 'naive_time', 'target_event', 'price'])
+def test_native_invalid_fill_cannot_clamp_or_merge_ownership(native_lifecycle, fault):
+    engine, storage = native_lifecycle
+    entry, identity = _native_event('entry', 'ENTRY_FILL', 2, 10.5)
+    _apply_native(engine, entry, identity, 0)
+    event, identity = _native_event('exit', 'STOP_EXIT', 1, 10.25, native_id=72)
+    before = 2
+    if fault == 'root':
+        event.lifecycle_trade_id = identity['root_order_id'] = 'OTHER-ROOT'
+    elif fault == 'account': identity['account'] = 'OTHER-ACCOUNT'
+    elif fault == 'side': event.side = 'SELL'
+    elif fault == 'quantity': event.quantity = 3
+    elif fault == 'prior_quantity': before = 1
+    elif fault == 'naive_time': event.timestamp = '2026-10-20T13:35:00'
+    elif fault == 'target_event': event.event_type = 'TAKE_PROFIT_FILLED'
+    elif fault == 'price': event.price = float('nan')
+    with pytest.raises((ValueError, RuntimeError)):
+        _apply_native(engine, event, identity, before)
+    assert engine.get_trade('NATIVE-ROOT').quantity_open == 2
+    assert engine.get_trade('NATIVE-ROOT').gross_realized_pnl == 0
+    assert engine.get_trade('NATIVE-ROOT').target_price is None
+    assert len(storage.fetch_trade_lifecycle_events()) == 1
+    assert engine.native_feedback_snapshot()['uncertain'] and not engine.native_feedback_snapshot()['available']
+    with pytest.raises(RuntimeError, match='UNCERTAIN'):
+        engine.apply_event(event, strict=True, native_identity=identity, expected_quantity=before, stop_price=10.)
+
+
+def test_native_pair_failure_keeps_memory_uncertain_and_rolls_back_pair(native_lifecycle, monkeypatch):
+    engine, storage = native_lifecycle
+    write = storage._store.insert_trade_lifecycle_events
+    def fail_after_event_write(events):
+        write(events)
+        raise OSError('synthetic canonical event write acknowledgement lost')
+    monkeypatch.setattr(storage._store, 'insert_trade_lifecycle_events', fail_after_event_write)
+    entry, identity = _native_event('entry', 'ENTRY_FILL', 1, 10.5)
+    with pytest.raises(OSError):
+        _apply_native(engine, entry, identity, 0)
+    assert engine.get_trade('NATIVE-ROOT').quantity_open == 1  # Applied memory is not rolled back/fabricated away.
+    assert storage.fetch_trade_lifecycle_trades() == storage.fetch_trade_lifecycle_events() == []
+    assert not engine.native_feedback_snapshot()['available'] and engine.native_feedback_snapshot()['events'] == []
+    with pytest.raises(RuntimeError): engine.complete_native_feedback('FB-entry')
+    with pytest.raises(RuntimeError, match='UNCERTAIN'):
+        _apply_native(engine, entry, identity, 0)
+    assert storage._store.commit_each_write and not storage._store.connection.in_transaction
+
+
+def test_native_lost_commit_acknowledgement_does_not_grant_retry(native_lifecycle, monkeypatch):
+    engine, storage = native_lifecycle
+    connection = storage._store.connection
+    class LostCommitAcknowledgement:
+        def __getattr__(self, name): return getattr(connection, name)
+        def commit(self):
+            connection.commit()
+            raise OSError('synthetic committed canonical pair acknowledgement lost')
+    entry, identity = _native_event('entry', 'ENTRY_FILL', 1, 10.5)
+    with monkeypatch.context() as patch:
+        patch.setattr(storage._store, 'connection', LostCommitAcknowledgement())
+        with pytest.raises(OSError): _apply_native(engine, entry, identity, 0)
+    assert len(storage.fetch_trade_lifecycle_trades()) == len(storage.fetch_trade_lifecycle_events()) == 1
+    assert engine.get_trade('NATIVE-ROOT').quantity_open == 1
+    assert not engine.native_feedback_snapshot()['available'] and engine.native_feedback_snapshot()['events'] == []
+    with pytest.raises(RuntimeError, match='UNCERTAIN'): _apply_native(engine, entry, identity, 0)
+    assert len(storage.fetch_trade_lifecycle_events()) == 1
+
+
+def test_native_pending_may_gain_first_security_fact_but_committed_binding_cannot_change(native_lifecycle):
+    engine, _ = native_lifecycle
+    entry, identity = _native_event('entry', 'ENTRY_FILL', 1, 10.5)
+    incomplete = dict(identity); incomplete.pop('con_id')
+    engine.require_native_feedback('FB-entry', incomplete)
+    _apply_native(engine, entry, identity, 0)
+    exit_event, child = _native_event('exit', 'STOP_EXIT', 1, 10.25, native_id=72)
+    child['con_id'] = 456
+    with pytest.raises(ValueError, match='OWNERSHIP_CONFLICT'):
+        _apply_native(engine, exit_event, child, 1)
+    assert engine.get_trade('NATIVE-ROOT').quantity_open == 1
+    assert not engine.native_feedback_snapshot()['available']
+
+
+def test_native_real_execution_identity_dedupes_and_rejects_price_conflict(native_lifecycle):
+    engine, storage = native_lifecycle
+    event, identity = _native_event('entry', 'ENTRY_FILL', 1, 10.5)
+    _apply_native(engine, event, identity, 0)
+    duplicate, binding = _native_event('duplicate-id', 'ENTRY_FILL', 1, 10.5)
+    duplicate.execution_id = event.execution_id
+    _apply_native(engine, duplicate, binding, 0)
+    assert engine.get_trade('NATIVE-ROOT').quantity_open == 1
+    assert len(storage.fetch_trade_lifecycle_events()) == 1 and engine.native_feedback_snapshot()['available']
+    conflict, binding = _native_event('contradiction', 'ENTRY_FILL', 1, 10.75)
+    conflict.execution_id = event.execution_id
+    with pytest.raises(ValueError, match='EXECUTION_CONFLICT'):
+        _apply_native(engine, conflict, binding, 0)
+    assert engine.get_trade('NATIVE-ROOT').entry_avg_price == 10.5
+    assert not engine.native_feedback_snapshot()['available']
+    assert len(storage.fetch_trade_lifecycle_events()) == 1
+
+
+def test_native_disabled_storage_cannot_acknowledge_feedback(native_lifecycle):
+    engine, storage = native_lifecycle
+    entry, identity = _native_event('entry', 'ENTRY_FILL', 1, 10.5)
+    storage.enabled = False
+    try:
+        with pytest.raises(RuntimeError, match='STORAGE_UNAVAILABLE'):
+            _apply_native(engine, entry, identity, 0)
+    finally:
+        storage.enabled = True
+    assert storage.fetch_trade_lifecycle_trades() == storage.fetch_trade_lifecycle_events() == []
+    assert not engine.native_feedback_snapshot()['available']
+    with pytest.raises(RuntimeError, match='UNCERTAIN'):
+        _apply_native(engine, entry, identity, 0)
+
+
+def test_native_snapshot_exposes_untracked_canonical_mutation_as_unavailable(native_lifecycle):
+    engine, storage = native_lifecycle
+    event, identity = _native_event('entry', 'ENTRY_FILL', 1, 10.5)
+    _apply_native(engine, event, identity, 0)
+    # The old generic observer API remains nonblocking. It is not authority to
+    # alter the native producer's committed quantity/basis without its feedback.
+    engine.apply_event(LifecycleEvent('legacy', 'NATIVE-ROOT', 'JPM', 'LONG',
+        'ENTRY_FILL', 1, 11., '2026-10-20T13:36:00+00:00'))
+    assert engine.get_trade('NATIVE-ROOT').quantity_open == 2
+    snapshot = engine.native_feedback_snapshot()
+    assert not snapshot['available'] and snapshot['reason'] == 'NATIVE_LIFECYCLE_SNAPSHOT_CONFLICT'
+    assert snapshot['events'][0]['metadata']['quantity_after'] == 1
+    assert len(storage.fetch_trade_lifecycle_events()) == 2
+
+
+def test_native_reopened_root_clears_close_until_final_flat(native_lifecycle):
+    engine, storage = native_lifecycle
+    first, root = _native_event('entry-first', 'ENTRY_FILL', 1, 10.5)
+    _apply_native(engine, first, root, 0)
+    first_exit, child = _native_event('exit-first', 'STOP_EXIT', 1, 10.25,
+        native_id=72, timestamp='2026-10-20T13:35:10+00:00')
+    trade = _apply_native(engine, first_exit, child, 1)
+    assert trade.closed_at == '2026-10-20T13:35:10+00:00' and trade.quantity_open == 0
+    # This is another factual DELTA of the same accepted entry, not a request
+    # or permission for a new discretionary entry/root.
+    later_entry, root = _native_event('entry-remainder', 'ENTRY_FILL', 1, 10.75,
+        timestamp='2026-10-20T13:35:20+00:00')
+    assert _apply_native(engine, later_entry, root, 0) is trade
+    assert trade.quantity_open == 1 and trade.closed_at is None
+    assert trade.stop_price == 10. and trade.target_price is None
+    assert trade.gross_realized_pnl == -.25 and trade.entry_avg_price == 10.75
+    assert engine.native_feedback_snapshot()['available']
+    final, child = _native_event('exit-final', 'STOP_EXIT', 1, 10.5,
+        native_id=72, timestamp='2026-10-20T13:35:30+00:00')
+    _apply_native(engine, final, child, 1)
+    snapshot = engine.native_feedback_snapshot()
+    assert snapshot['available'] and len(snapshot['trades']) == 1
+    assert trade.status == 'CLOSED' and trade.closed_at == '2026-10-20T13:35:30+00:00'
+    assert trade.quantity_closed == 2 and trade.gross_realized_pnl == -.5
+    assert snapshot['events'][-1]['metadata']['terminal_timestamp'] == trade.closed_at
+    assert len(storage.fetch_trade_lifecycle_trades()) == 1
+    assert len(storage.fetch_trade_lifecycle_events()) == 4
+
+
+def test_native_pair_rejects_independent_snapshot_drift_without_overwrite(native_lifecycle):
+    engine, storage = native_lifecycle
+    entry, identity = _native_event('entry', 'ENTRY_FILL', 1, 10.5)
+    _apply_native(engine, entry, identity, 0)
+    # Deliberate corrupt/independent-writer control, not positive provenance.
+    connection = storage._store.connection
+    connection.execute("UPDATE trade_lifecycle_trades SET quantity_open=2 WHERE lifecycle_trade_id='NATIVE-ROOT'")
+    connection.commit()
+    exit_event, child = _native_event('exit', 'STOP_EXIT', 1, 10.25, native_id=72)
+    with pytest.raises(RuntimeError, match='STORED_TRADE_CONFLICT'):
+        _apply_native(engine, exit_event, child, 1)
+    assert engine.get_trade('NATIVE-ROOT').quantity_open == 0  # Correct applied facts remain inspectable.
+    assert storage.fetch_trade_lifecycle_trades()[0]['quantity_open'] == 2  # No invented reconciliation.
+    assert len(storage.fetch_trade_lifecycle_events()) == 1
+    snapshot = engine.native_feedback_snapshot()
+    assert snapshot['uncertain'] and not snapshot['available']
+    with pytest.raises(RuntimeError, match='UNCERTAIN'):
+        _apply_native(engine, exit_event, child, 1)
+
+
+def test_native_exit_before_earliest_entry_is_unavailable_without_application(native_lifecycle):
+    engine, storage = native_lifecycle
+    entry, identity = _native_event('entry', 'ENTRY_FILL', 1, 10.5,
+        timestamp='2026-10-20T13:35:00+00:00')
+    _apply_native(engine, entry, identity, 0)
+    exit_event, child = _native_event('exit-before-entry', 'STOP_EXIT', 1, 10.25,
+        native_id=72, timestamp='2026-10-19T13:35:00+00:00')
+    error = None
+    try:
+        _apply_native(engine, exit_event, child, 1)
+    except ValueError as exc:
+        error = exc
+    trade = engine.get_trade('NATIVE-ROOT')
+    observed = dict(quantity=trade.quantity_open, pnl=trade.gross_realized_pnl,
+        closed_at=trade.closed_at, persisted_events=storage.fetch_trade_lifecycle_events())
+    assert error is not None and str(error) == 'NATIVE_LIFECYCLE_EXIT_BEFORE_ENTRY', observed
+    assert trade.quantity_open == 1 and trade.gross_realized_pnl == 0 and trade.closed_at is None
+    assert len(storage.fetch_trade_lifecycle_events()) == 1
+    snapshot = engine.native_feedback_snapshot()
+    assert snapshot['uncertain'] and not snapshot['available']
+    assert snapshot['events'][0]['event_type'] == 'ENTRY_FILL'
+
+
+@pytest.mark.parametrize('case', ['equal_to_earliest', 'equal_to_latest_entry'])
+def test_native_entry_time_bound_preserves_equal_exit(native_lifecycle, case):
+    engine, storage = native_lifecycle
+    entry, identity = _native_event('entry-first', 'ENTRY_FILL', 1, 10.5,
+        timestamp='2026-10-20T13:35:00+00:00')
+    _apply_native(engine, entry, identity, 0)
+    quantity_before = 1
+    timestamp = entry.timestamp
+    if case == 'equal_to_latest_entry':
+        later_entry, identity = _native_event('entry-later', 'ENTRY_FILL', 1, 10.75,
+            timestamp='2026-10-20T13:36:00+00:00')
+        _apply_native(engine, later_entry, identity, 1)
+        quantity_before = 2
+        timestamp = later_entry.timestamp
+    exit_event, child = _native_event('exit', 'STOP_EXIT', 1, 10.25,
+        native_id=72, timestamp=timestamp)
+    trade = _apply_native(engine, exit_event, child, quantity_before)
+    snapshot = engine.native_feedback_snapshot()
+    assert snapshot['available'] and trade.quantity_open == quantity_before - 1
+    assert snapshot['events'][-1]['timestamp'] == timestamp
+    assert len(storage.fetch_trade_lifecycle_events()) == quantity_before + 1
+
+
+@pytest.mark.parametrize('direction', ['exit_before_later_entry', 'entry_before_committed_exit'])
+def test_native_cross_type_chronology_cannot_apply_an_unknown_historical_basis(native_lifecycle, direction):
+    engine, storage = native_lifecycle
+    first, identity = _native_event('entry-first', 'ENTRY_FILL', 1, 10.75,
+        timestamp='2026-10-20T13:35:00+00:00')
+    _apply_native(engine, first, identity, 0)
+    if direction == 'exit_before_later_entry':
+        later, identity = _native_event('entry-later', 'ENTRY_FILL', 1, 10.5,
+            timestamp='2026-10-20T13:36:00+00:00')
+        _apply_native(engine, later, identity, 1)
+        event, binding = _native_event('cross-exit', 'STOP_EXIT', 1, 10.6,
+            native_id=72, timestamp='2026-10-20T13:35:30+00:00')
+        quantity_before = 2
+    else:
+        prior_exit, child = _native_event('exit-first', 'STOP_EXIT', 1, 10.6,
+            native_id=72, timestamp='2026-10-20T13:35:30+00:00')
+        _apply_native(engine, prior_exit, child, 1)
+        event, binding = _native_event('cross-entry', 'ENTRY_FILL', 1, 10.5,
+            timestamp='2026-10-20T13:35:20+00:00')
+        quantity_before = 0
+    trade = engine.get_trade('NATIVE-ROOT')
+    prior = (trade.quantity_open, trade.gross_realized_pnl, trade.entry_avg_price, trade.closed_at)
+    error = None
+    try:
+        _apply_native(engine, event, binding, quantity_before)
+    except ValueError as exc:
+        error = exc
+    observed = dict(prior=prior, quantity=trade.quantity_open, pnl=trade.gross_realized_pnl,
+        entry_avg_price=trade.entry_avg_price, closed_at=trade.closed_at,
+        persisted_events=storage.fetch_trade_lifecycle_events())
+    assert error is not None and str(error) == 'NATIVE_LIFECYCLE_CROSS_FILL_CHRONOLOGY_UNAVAILABLE', observed
+    assert (trade.quantity_open, trade.gross_realized_pnl, trade.entry_avg_price, trade.closed_at) == prior
+    assert event.event_id not in engine._event_ids_seen
+    assert len(storage.fetch_trade_lifecycle_events()) == 2
+    snapshot = engine.native_feedback_snapshot()
+    assert snapshot['uncertain'] and not snapshot['available']
+
+
+def test_native_out_of_order_entries_before_any_exit_keep_weighted_basis(native_lifecycle):
+    engine, storage = native_lifecycle
+    later, identity = _native_event('entry-later', 'ENTRY_FILL', 1, 10.75,
+        timestamp='2026-10-20T13:36:00+00:00')
+    _apply_native(engine, later, identity, 0)
+    earlier, identity = _native_event('entry-earlier', 'ENTRY_FILL', 1, 10.5,
+        timestamp='2026-10-20T13:35:00+00:00')
+    trade = _apply_native(engine, earlier, identity, 1)
+    assert trade.quantity_open == 2 and trade.entry_avg_price == 10.625 and trade.gross_realized_pnl == 0
+    assert trade.opened_at == earlier.timestamp and trade.stop_price == 10. and trade.target_price is None
+    assert engine.native_feedback_snapshot()['available']
+    assert len(storage.fetch_trade_lifecycle_events()) == 2
+
+
+def test_native_entry_equal_to_prior_exit_retains_existing_coarse_time_order(native_lifecycle):
+    engine, _ = native_lifecycle
+    first, identity = _native_event('entry-first', 'ENTRY_FILL', 1, 10.75,
+        timestamp='2026-10-20T13:35:00+00:00')
+    _apply_native(engine, first, identity, 0)
+    exit_event, child = _native_event('exit-first', 'STOP_EXIT', 1, 10.6,
+        native_id=72, timestamp='2026-10-20T13:35:30+00:00')
+    trade = _apply_native(engine, exit_event, child, 1)
+    prior_pnl = trade.gross_realized_pnl
+    entry, identity = _native_event('entry-remainder', 'ENTRY_FILL', 1, 10.5,
+        timestamp=exit_event.timestamp)
+    _apply_native(engine, entry, identity, 0)
+    # Equal broker timestamps preserve the established arrival/accounting order;
+    # this control supplies no finer physical-order or broker certification.
+    assert trade.quantity_open == 1 and trade.entry_avg_price == 10.5
+    assert trade.gross_realized_pnl == prior_pnl and trade.closed_at is None
+    assert trade.stop_price == 10. and trade.target_price is None
+    assert engine.native_feedback_snapshot()['available']

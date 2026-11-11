@@ -379,6 +379,21 @@ class StorageEngine:
         payload.setdefault("created_at", now_iso())
         self._store.insert_trade_lifecycle_events([payload])
 
+    def persist_native_lifecycle_feedback(self, trade: dict[str, Any], event: dict[str, Any],
+                                          *, expected_trade: dict[str, Any] | None) -> dict[str, Any]:
+        """Strict canonical pair only; native/Core/protection effects are separate."""
+        if not self.enabled or self.backend != "sqlite" or self._store is None:
+            raise RuntimeError("NATIVE_LIFECYCLE_STORAGE_UNAVAILABLE")
+        snapshot = dict(trade)
+        record = dict(event)
+        snapshot.update(run_id=self.run_id)
+        snapshot.setdefault("created_at", now_iso())
+        snapshot.setdefault("updated_at", now_iso())
+        record.update(run_id=self.run_id)
+        record.setdefault("created_at", now_iso())
+        prior = dict(expected_trade, run_id=self.run_id) if expected_trade is not None else None
+        return self._store.persist_native_lifecycle_feedback(snapshot, record, expected_trade=prior)
+
     def insert_trade_lifecycle_reconciliation_event(self, event: dict[str, Any]) -> None:
         if not self.enabled or self.backend != "sqlite" or not self._store:
             return
