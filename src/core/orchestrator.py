@@ -2516,7 +2516,90 @@ class CoreOrchestrator:
         except Exception as exc:
             print(f"[DAILY_RISK][NATIVE_VALUATION_UNAVAILABLE] reason={exc}")
 
+    def _refresh_native_roundtrip_fees(self) -> None:
+        """Optionally enroll complete same-day positive native fee evidence.
+
+        Currency acquisition is not a financial write. Unsupported observations
+        preserve GROSS; an attempted financial pair has its own irreversible
+        lifecycle gate and is never retried through this discovery boundary.
+        """
+        if self.run_mode != RunMode.PAPER:
+            return
+        lifecycle = self.trade_lifecycle_engine
+        reader = getattr(lifecycle, "native_fee_feedback_snapshot", None)
+        candidate_reader = getattr(self.execution_engine, "native_roundtrip_fee_candidates", None)
+        if not callable(reader) or not callable(candidate_reader):
+            return
+        from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
+        from src.core.engines.trade_lifecycle_engine import NativeRoundtripFeeObservation
+        now = datetime.now(timezone.utc)
+        state = reader(now=now, max_age_seconds=get_ibkr_snapshot_max_age_seconds())
+        attempted = state.get("states") or {}
+        candidates = candidate_reader()
+        diagnostics = self.__dict__.setdefault("_latest_native_fee_currency_queries", {})
+        for root_id, candidate in candidates.items():
+            if root_id in attempted:
+                continue
+            client = candidate["source_client"]
+            scope = self.execution_engine._native_scope
+            def current_scope(checked_at):
+                truth = getattr(self, "_latest_position_truth_snapshot", None)
+                return (scope is not None and self.execution_engine._native_scope == scope
+                    and self.execution_engine._native_callback_client() is client and scope[1] is client
+                    and self.connection_manager.get_ibkr_client(ensure_connected=False) is client
+                    and scope[0] == candidate["account"] and client.isConnected()
+                    and not client._stop_event.is_set() and truth is not None
+                    and truth.snapshot_status == "HEALTHY"
+                    and 0 <= (checked_at - scope[2]).total_seconds() <= get_ibkr_snapshot_max_age_seconds()
+                    and getattr(truth.broker_positions.get(self.execution_engine._native_orders[root_id]["symbol"]),
+                        "quantity", 0) == 0
+                    and getattr(truth.system_positions.get(self.execution_engine._native_orders[root_id]["symbol"]),
+                        "quantity", 0) == 0)
+            try:
+                now = datetime.now(timezone.utc)
+                if not current_scope(now):
+                    continue
+                # Receipt time is never an economic-day substitute.
+                days = {self.daily_risk_governor.trading_day_for(row["execution"]["timestamp_utc"])
+                        for row in candidate["fee_observations"]}
+                if len(days) != 1:
+                    continue
+                key = (candidate["account"], client, client._position_connection_epoch)
+                previous = diagnostics.get(key)
+                if previous is not None and previous["unsafe_cleanup"]:
+                    continue  # Inspection diagnostic only; grants no money permission.
+                result = previous["result"] if previous is not None else None
+                if (result is None or result.status != "COMPLETE" or result.completed_at is None
+                        or not 0 <= (now-result.completed_at).total_seconds() <= get_ibkr_snapshot_max_age_seconds()):
+                    # A raised/control-flow read may leave cleanup unconfirmed.
+                    # This diagnostic fences acquisition only, never financial facts.
+                    diagnostics[key] = {"result": None, "unsafe_cleanup": True}
+                    result = client.account_currency_snapshot(expected_account=candidate["account"])
+                    unsafe = result.request_id is not None and result.status in {
+                        "CLEANUP_UNCONFIRMED", "OWNERSHIP_LOST", "IDENTITY_CONFLICT", "ERROR", "SCOPE_CHANGED", "DISCONNECTED"}
+                    diagnostics[key] = {"result": result, "unsafe_cleanup": unsafe}
+                now = datetime.now(timezone.utc)
+                current = candidate_reader().get(root_id)
+                if (result.status != "COMPLETE" or not current_scope(now) or current is None
+                        or current["source_client"] is not client
+                        or any(current[name] != candidate[name] for name in (
+                            "account", "decision_id", "basis_event_ids", "entry_terminal", "entry_status",
+                            "entry_requested_quantity", "entry_filled_quantity"))):
+                    continue
+                observation = NativeRoundtripFeeObservation(**{name: current[name] for name in (
+                    "root_order_id", "basis_event_ids", "entry_terminal", "entry_status",
+                    "entry_requested_quantity", "entry_filled_quantity", "fee_observations")},
+                    account_currency_result=result)
+                lifecycle.apply_native_roundtrip_fees(observation, source_client=client, now=now,
+                    max_age_seconds=get_ibkr_snapshot_max_age_seconds(),
+                    trading_day_for=self.daily_risk_governor.trading_day_for)
+            except (AcquisitionCancelled, AcquisitionDeadlineExceeded):
+                raise
+            except Exception as exc:
+                print(f"[DAILY_RISK][NATIVE_FEE_NO_NET] root={root_id} reason={exc}")
+
     def _daily_risk_allows_new_entries(self, *, cycle_started_at: datetime) -> bool:
+        self._refresh_native_roundtrip_fees()
         self._refresh_required_native_valuations()
         # Acquisition may consume time. Retain the cycle's audit identity, but
         # assess current valuation age against the actual post-acquisition clock.
