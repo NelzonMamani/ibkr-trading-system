@@ -761,6 +761,12 @@ class MarketDataClient:
             tracked = _track_insync_snapshot_callbacks(ib)
             request_started_at = datetime.now(timezone.utc)
             checkpoint()
+            # Type selection calls the SDK and may invalidate this scope.
+            # Refuse a new quote after that boundary loses its client witness.
+            if not self._snapshot_scope_unchanged(ib, epoch, client_id, connected=connected):
+                if strict:
+                    raise RuntimeError("SNAPSHOT_CLIENT_SCOPE_CHANGED")
+                break
             ticker = ib.reqMktData(contract, genericTickList="", snapshot=True, regulatorySnapshot=False)
             _prepare_snapshot_ticker(ib, ticker, requested_type, tracked, request_started_at)
             started_at = time.monotonic()

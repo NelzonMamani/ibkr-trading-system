@@ -581,6 +581,45 @@ def test_snapshot_scope_loss_during_actual_request_cannot_become_cached_permissi
     assert_native_quote_cleanup(facts.native)
 
 
+@pytest.mark.parametrize("strict", [False, True])
+@pytest.mark.parametrize("scope_loss", ["connection_epoch", "native_client", "stopped"])
+def test_scope_loss_during_type_call_cannot_start_a_quote(
+        source_bound_native_snapshot, monkeypatch, strict, scope_loss):
+    facts = source_bound_native_snapshot
+    clients = [facts.native]
+    type_sends = []
+
+    def lose_scope(self, requested_type):
+        type_sends.append((requested_type, self._position_connection_epoch))
+        if scope_loss == "connection_epoch":
+            self.connectionClosed()
+        elif scope_loss == "native_client":
+            replacement = IbkrClient("127.0.0.1", 7497, 72, 1, "LIVE", True)
+            monkeypatch.setattr(replacement, "isConnected", lambda: True)
+            replacement._position_connection_epoch = 37
+            clients.append(replacement)
+            facts.wrapper.ib = replacement
+        else:
+            self._stop_event.set()
+
+    monkeypatch.setattr(EClient, "reqMarketDataType", lose_scope)
+    with acquisition_scope():
+        if strict:
+            with pytest.raises(RuntimeError, match="SNAPSHOT_CLIENT_SCOPE_(CHANGED|UNAVAILABLE)"):
+                facts.wrapper.snapshot_stock("AEMD", expected_client=facts.native,
+                                             expected_connection_epoch=23)
+        else:
+            raw = facts.wrapper.snapshot_stock("AEMD")
+            assert "MD_SOURCE_SCOPE_CHANGED" in raw.data_quality_flags
+            snapshot, quality = facts.manager._translate_snapshot(raw)
+            assert facts.manager.clean_snapshot({"AEMD": snapshot}, {"AEMD": quality}, "AEMD") is None
+        assert not any(isinstance(key, tuple) and key[0] == "snapshot" for key in cycle_cache())
+    assert_native_quote_cleanup(*clients)
+    assert type_sends == [(1, 23)]
+    assert len(facts.qualifications) == 1
+    assert not facts.requests, facts.requests
+
+
 def test_legacy_sdk_snapshot_does_not_infer_native_scope():
     raw = client_for(OfflineInsync(lambda ib, tick: sdk_fields(ib))).snapshot_stock(contract())
     snapshot, quality = MarketDataSnapshotManager._translate_snapshot(raw)
