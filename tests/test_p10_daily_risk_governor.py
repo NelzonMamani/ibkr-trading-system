@@ -558,3 +558,311 @@ def test_execution_backstop_allows_existing_position_exit_when_locked() -> None:
 
     assert result.status == "Filled"
     assert len(provider.submitted_orders) == 1
+
+
+# Consumer controls use the actual strict canonical/storage owners.  They do not
+# supply prepared governor decisions or add a TRADE_CLOSED producer.
+from test_trade_lifecycle_engine import native_lifecycle, _native_event, _apply_native
+
+
+def _canonical_fill(engine, event_id, event_type, quantity, price, *,
+                    root="NATIVE-ROOT", timestamp=NOW, native_id=None):
+    event, identity = _native_event(event_id, event_type, quantity, price,
+        native_id=native_id or (71 if event_type == "ENTRY_FILL" else 72),
+        timestamp=timestamp.isoformat(), root=root)
+    before = engine.get_trade(root)
+    _apply_native(engine, event, identity, before.quantity_open if before else 0)
+    return engine.get_trade(root)
+
+
+def _native_governor(engine, storage):
+    return DailyRiskGovernor(event_collector=EventCollector(), storage_engine=storage,
+        trade_lifecycle_engine=engine)
+
+
+def _persist_existing_outcome(storage, trade, *, timestamp=NOW, commission=0.0,
+                              alias="trade_id", account="SYNTHETIC_TEST"):
+    """Controlled legacy storage input derived from actual canonical fills.
+
+    TradeOutcomeFactory owns its established gross/commission/net convention;
+    this inserts into the existing table, not another outcome stream/ledger.
+    """
+    import json
+    from dataclasses import asdict
+    from src.core.trade_outcome_factory import TradeOutcomeFactory
+    from src.models.data_models import ExecutionResult as ClosedExecution
+    result = ClosedExecution(symbol=trade.symbol, trader_type="HISTORY", attempted=True,
+        status="CLOSED", rationale="canonical consumer history fixture", direction="LONG",
+        quantity=trade.quantity_closed, entry_price=trade.entry_avg_price,
+        exit_price=trade.exit_avg_price, commission=commission)
+    outcome = TradeOutcomeFactory.from_execution_result(result, trade.strategy_name, "HISTORY")
+    payload = asdict(outcome)
+    payload.update({alias: trade.lifecycle_trade_id, "account": account})
+    storage._store.insert_trade_outcomes([dict(payload,
+        trade_outcome_id="history-" + trade.lifecycle_trade_id + "-" + alias,
+        run_id=storage.run_id, cycle_id=None, closed_at=timestamp.isoformat(),
+        payload_json=json.dumps(payload), created_at=timestamp.isoformat())])
+    return outcome
+
+
+@pytest.mark.parametrize("loss,limit,blocked", [(0.19, 0.20, False), (0.20, 0.20, True), (0.21, 0.20, True)])
+def test_canonical_daily_loss_preserves_existing_inclusive_comparator(native_lifecycle, loss, limit, blocked):
+    engine, storage = native_lifecycle
+    _set_config(DAILY_RISK_MAX_LOSS_AMOUNT=limit)
+    _canonical_fill(engine, "entry", "ENTRY_FILL", 1, 10.53)
+    _canonical_fill(engine, "exit", "STOP_EXIT", 1, 10.53-loss)
+    decision = _native_governor(engine, storage).evaluate(run_mode="PAPER", now=NOW)
+    assert decision.realized_pnl == -loss
+    assert decision.daily_trade_count == decision.losing_trade_count == 1
+    assert decision.blocks_new_entries is blocked
+    assert engine.get_trade("NATIVE-ROOT").target_price is None
+
+
+def test_canonical_partial_realized_loss_reaches_daily_gate_before_flat(native_lifecycle):
+    engine, storage = native_lifecycle
+    _set_config(DAILY_RISK_MAX_LOSS_AMOUNT=.20)
+    _canonical_fill(engine, "entry", "ENTRY_FILL", 2, 10.53)
+    trade = _canonical_fill(engine, "partial", "PARTIAL_EXIT", 1, 10.28)
+    governor = _native_governor(engine, storage)
+    partial = governor.evaluate(run_mode="PAPER", now=NOW)
+    assert trade.quantity_open == 1 and trade.target_price is None
+    assert partial.realized_pnl == -.25 and partial.blocks_new_entries
+    assert partial.daily_trade_count == partial.losing_trade_count == partial.consecutive_losses == 0
+    assert partial.allows_existing_position_management
+    _canonical_fill(engine, "final", "EXIT_FILL", 1, 10.43)
+    final = governor.evaluate(run_mode="PAPER", now=NOW)
+    assert final.realized_pnl == -.35 and final.daily_trade_count == final.losing_trade_count == 1
+    assert final.consecutive_losses == 1
+    for _ in range(2):
+        repeat = governor.evaluate(run_mode="PAPER", now=NOW)
+        assert repeat.realized_pnl == -.35 and repeat.daily_trade_count == 1
+
+
+def test_canonical_partial_wins_and_final_outcome_counts_remain_distinct(native_lifecycle):
+    engine, storage = native_lifecycle
+    _set_config()
+    _canonical_fill(engine, "entry", "ENTRY_FILL", 2, 10.53)
+    _canonical_fill(engine, "win", "PARTIAL_EXIT", 1, 10.83)
+    partial = _native_governor(engine, storage).evaluate(run_mode="PAPER", now=NOW)
+    assert partial.realized_pnl == .30 and partial.daily_trade_count == 0
+    _canonical_fill(engine, "loss", "EXIT_FILL", 1, 10.33)
+    final = _native_governor(engine, storage).evaluate(run_mode="PAPER", now=NOW)
+    assert final.realized_pnl == .10 and final.daily_trade_count == 1
+    assert final.losing_trade_count == final.consecutive_losses == 0
+
+
+def test_required_pending_and_uncertain_accounting_block_entries_even_when_optional_governor_disabled(native_lifecycle):
+    engine, storage = native_lifecycle
+    _set_config(DAILY_RISK_GOVERNOR_ENABLED=False)
+    _, identity = _native_event("pending", "ENTRY_FILL", 1, 10.53)
+    engine.require_native_feedback("pending", identity)
+    governor = _native_governor(engine, storage)
+    for mode in ("PAPER", "LIVE"):
+        decision = governor.evaluate(run_mode=mode, now=NOW)
+        assert decision.status == DailyRiskDecisionStatus.MANAGED_ONLY
+        assert decision.blocks_new_entries and decision.allows_existing_position_management
+        assert "NATIVE_FEEDBACK_PENDING" in decision.reason
+    engine.mark_native_feedback_uncertain("pending", "controlled persistence uncertainty")
+    decision = governor.evaluate(run_mode="PAPER", now=NOW)
+    assert decision.status == DailyRiskDecisionStatus.MANAGED_ONLY
+    assert "NATIVE_FEEDBACK_UNCERTAIN" in decision.reason
+
+
+def test_canonical_and_existing_stored_outcomes_keep_distinct_native_loss(native_lifecycle):
+    engine, storage = native_lifecycle
+    _set_config(DAILY_RISK_MAX_LOSS_AMOUNT=.50)
+    _canonical_fill(engine, "a-in", "ENTRY_FILL", 1, 10.53, root="A")
+    trade_a = _canonical_fill(engine, "a-out", "STOP_EXIT", 1, 10.28, root="A")
+    _persist_existing_outcome(storage, trade_a, commission=.02, alias="lifecycle_trade_id")
+    _canonical_fill(engine, "b-in", "ENTRY_FILL", 1, 10.53, root="B")
+    _canonical_fill(engine, "b-out", "STOP_EXIT", 1, 10.28, root="B")
+    decision = _native_governor(engine, storage).evaluate(run_mode="PAPER", now=NOW)
+    assert decision.realized_pnl == -.52  # A net -.27 once, plus distinct B gross -.25.
+    assert decision.daily_trade_count == decision.losing_trade_count == 2
+    assert decision.reason == "MAX_DAILY_LOSS_AMOUNT"
+
+
+def test_canonical_duplicate_alias_outcomes_do_not_double_count(native_lifecycle):
+    engine, storage = native_lifecycle
+    _set_config()
+    _canonical_fill(engine, "in", "ENTRY_FILL", 1, 10.53)
+    trade = _canonical_fill(engine, "out", "EXIT_FILL", 1, 10.28)
+    _persist_existing_outcome(storage, trade, alias="trade_id")
+    _persist_existing_outcome(storage, trade, alias="root_order_id")
+    decision = _native_governor(engine, storage).evaluate(run_mode="PAPER", now=NOW)
+    assert decision.realized_pnl == -.25 and decision.daily_trade_count == 1
+
+
+def test_canonical_wrong_account_overlap_is_unavailable_not_another_trade(native_lifecycle):
+    engine, storage = native_lifecycle
+    _set_config()
+    _canonical_fill(engine, "in", "ENTRY_FILL", 1, 10.53)
+    trade = _canonical_fill(engine, "out", "EXIT_FILL", 1, 10.28)
+    _persist_existing_outcome(storage, trade, account="OTHER_ACCOUNT")
+    decision = _native_governor(engine, storage).evaluate(run_mode="PAPER", now=NOW)
+    assert decision.status == DailyRiskDecisionStatus.MANAGED_ONLY
+    assert decision.blocks_new_entries and "OWNERSHIP_CONFLICT" in decision.reason
+
+
+def test_canonical_partial_and_final_day_attribution_uses_execution_stamps(native_lifecycle):
+    from datetime import timedelta
+    engine, storage = native_lifecycle
+    _set_config(DAILY_RISK_TIMEZONE="UTC", DAILY_RISK_RESET_TIME_LOCAL="09:30", DAILY_RISK_MAX_LOSS_AMOUNT=.20)
+    before = NOW.replace(hour=9, minute=29)
+    after = NOW.replace(hour=9, minute=31)
+    _canonical_fill(engine, "in", "ENTRY_FILL", 2, 10.53, timestamp=before-timedelta(minutes=1))
+    _canonical_fill(engine, "early", "PARTIAL_EXIT", 1, 10.43, timestamp=before)
+    _canonical_fill(engine, "late", "EXIT_FILL", 1, 10.38, timestamp=after)
+    governor = _native_governor(engine, storage)
+    current = governor.evaluate(run_mode="PAPER", now=after)
+    assert current.realized_pnl == -.15 and current.daily_trade_count == current.losing_trade_count == 1
+    assert not current.blocks_new_entries
+    previous = governor.evaluate(run_mode="PAPER", now=before)
+    assert previous.realized_pnl == -.10 and previous.daily_trade_count == 0
+
+
+def test_late_arriving_exit_does_not_move_terminal_count_to_arrival_or_older_day(native_lifecycle):
+    from datetime import timedelta
+    engine, storage = native_lifecycle
+    _set_config(DAILY_RISK_TIMEZONE="UTC")
+    yesterday = NOW-timedelta(days=1)
+    _canonical_fill(engine, "in", "ENTRY_FILL", 2, 10.53, timestamp=yesterday)
+    _canonical_fill(engine, "later-exec-first-arrival", "PARTIAL_EXIT", 1, 10.43, timestamp=NOW)
+    _canonical_fill(engine, "older-exec-late-arrival", "EXIT_FILL", 1, 10.38, timestamp=yesterday+timedelta(minutes=1))
+    current = _native_governor(engine, storage).evaluate(run_mode="PAPER", now=NOW)
+    assert current.realized_pnl == -.10 and current.daily_trade_count == 1
+    old = _native_governor(engine, storage).evaluate(run_mode="PAPER", now=yesterday+timedelta(hours=1))
+    assert old.realized_pnl == -.15 and old.daily_trade_count == 0
+
+
+def test_multi_day_whole_trade_net_adjustment_does_not_invent_fee_allocation(native_lifecycle):
+    from datetime import timedelta
+    engine, storage = native_lifecycle
+    _set_config()
+    yesterday = NOW-timedelta(days=1)
+    _canonical_fill(engine, "in", "ENTRY_FILL", 2, 10.53, timestamp=yesterday)
+    _canonical_fill(engine, "a", "PARTIAL_EXIT", 1, 10.43, timestamp=yesterday)
+    trade = _canonical_fill(engine, "b", "EXIT_FILL", 1, 10.38, timestamp=NOW)
+    _persist_existing_outcome(storage, trade, commission=.02)
+    decision = _native_governor(engine, storage).evaluate(run_mode="PAPER", now=NOW)
+    assert decision.status == DailyRiskDecisionStatus.MANAGED_ONLY
+    assert "NET_DAY_ATTRIBUTION_UNAVAILABLE" in decision.reason
+
+
+def test_current_reopened_root_suppresses_old_terminal_counts_until_final_close(native_lifecycle):
+    engine, storage = native_lifecycle
+    _set_config()
+    _canonical_fill(engine, "partial-entry", "ENTRY_FILL", 1, 10.53)
+    _canonical_fill(engine, "first-stop", "STOP_EXIT", 1, 10.43)
+    _canonical_fill(engine, "remaining-existing-buy", "ENTRY_FILL", 1, 10.63)
+    open_decision = _native_governor(engine, storage).evaluate(run_mode="PAPER", now=NOW)
+    assert open_decision.realized_pnl == -.10 and open_decision.daily_trade_count == 0
+    _canonical_fill(engine, "final-stop", "STOP_EXIT", 1, 10.43, native_id=73)
+    final = _native_governor(engine, storage).evaluate(run_mode="PAPER", now=NOW)
+    assert final.realized_pnl == -.30 and final.daily_trade_count == final.losing_trade_count == 1
+
+
+def test_unidentified_realized_aggregate_is_not_native_dedupe_evidence():
+    _set_config()
+    decision = _governor(lifecycle=_Lifecycle(realized=-.25)).evaluate(run_mode="PAPER", now=NOW)
+    assert decision.status == DailyRiskDecisionStatus.MANAGED_ONLY
+    assert "IDENTITY_UNAVAILABLE" in decision.reason
+
+
+def test_paper_read_failure_keeps_management_available_and_entries_closed():
+    class Broken:
+        def fetch_trade_outcomes(self, run_id):
+            raise OSError("controlled read failure")
+    storage = SimpleNamespace(_store=Broken(), run_id="current")
+    decision = DailyRiskGovernor(storage_engine=storage).evaluate(run_mode="PAPER", now=NOW)
+    assert decision.status == DailyRiskDecisionStatus.MANAGED_ONLY
+    assert decision.blocks_new_entries and decision.allows_existing_position_management
+
+
+def _actual_canonical_execution_history(engine, event_id, *, commission=0.0):
+    """Raw provider-history facts bound to a committed real canonical event."""
+    event = next(row for row in engine.native_feedback_snapshot()["events"] if row["event_id"] == event_id)
+    identity = event["metadata"]["native_identity"]
+    gross = event["metadata"]["realized_increment"]
+    return dict(execution_id=event["execution_id"], trade_id=identity["root_order_id"],
+        account=identity["account"], strategy_name=identity["strategy"], symbol=identity["symbol"],
+        timestamp=event["timestamp"], quantity=event["quantity"], price=event["price"],
+        order_id=event["order_id"], side="SELL", gross_realized_pnl=gross,
+        net_realized_pnl=round(gross-commission, 2), commission=commission)
+
+
+def test_native_partial_execution_history_dedupes_without_claiming_trade_closed(native_lifecycle):
+    engine, storage = native_lifecycle
+    _set_config()
+    _canonical_fill(engine, "in", "ENTRY_FILL", 2, 10.53)
+    _canonical_fill(engine, "partial", "PARTIAL_EXIT", 1, 10.43)
+    row = _actual_canonical_execution_history(engine, "partial", commission=.02)
+    governor = _native_governor(engine, storage)
+    governor.provider = SimpleNamespace(get_daily_fills=lambda: [SimpleNamespace(**row), SimpleNamespace(**row)])
+    decision = governor.evaluate(run_mode="PAPER", now=NOW)
+    assert decision.realized_pnl == -.12
+    assert decision.daily_trade_count == decision.losing_trade_count == 0
+    assert not decision.blocks_new_entries
+
+
+@pytest.mark.parametrize("field,value,reason", [
+    ("trade_id", "WRONG", "ROOT_CONFLICT"),
+    ("side", "BUY", "SIDE_CONFLICT"),
+    ("quantity", 2, "QUANTITY_CONFLICT"),
+    ("price", 10.44, "PRICE_CONFLICT"),
+    ("order_id", "999", "ORDER_CONFLICT"),
+])
+def test_native_execution_history_contradictions_fail_closed(native_lifecycle, field, value, reason):
+    engine, storage = native_lifecycle
+    _set_config()
+    _canonical_fill(engine, "in", "ENTRY_FILL", 2, 10.53)
+    _canonical_fill(engine, "partial", "PARTIAL_EXIT", 1, 10.43)
+    row = _actual_canonical_execution_history(engine, "partial")
+    row[field] = value
+    governor = _native_governor(engine, storage)
+    governor.provider = SimpleNamespace(get_daily_fills=lambda: [row])
+    decision = governor.evaluate(run_mode="PAPER", now=NOW)
+    assert decision.status == DailyRiskDecisionStatus.MANAGED_ONLY
+    assert decision.realized_pnl == -.10  # Known committed gross is not replaced by zero.
+    assert reason in decision.reason and decision.allows_existing_position_management
+
+
+def test_native_per_execution_net_history_preserves_day_and_final_loss_count(native_lifecycle):
+    from datetime import timedelta
+    engine, storage = native_lifecycle
+    _set_config()
+    previous = NOW-timedelta(days=1)
+    _canonical_fill(engine, "in", "ENTRY_FILL", 2, 10.53, timestamp=previous)
+    _canonical_fill(engine, "old", "PARTIAL_EXIT", 1, 10.63, timestamp=previous)
+    _canonical_fill(engine, "today", "EXIT_FILL", 1, 10.48, timestamp=NOW)
+    # Gross whole-trade +.05 becomes net -.05 after known prior-day fees.
+    old = _actual_canonical_execution_history(engine, "old", commission=.10)
+    today = _actual_canonical_execution_history(engine, "today")
+    governor = _native_governor(engine, storage)
+    governor.provider = SimpleNamespace(get_daily_fills=lambda: [old, today, old])
+    decision = governor.evaluate(run_mode="PAPER", now=NOW)
+    assert decision.realized_pnl == -.05 and decision.daily_trade_count == 1
+    assert decision.losing_trade_count == decision.consecutive_losses == 1
+    old_day = governor.evaluate(run_mode="PAPER", now=previous)
+    assert old_day.realized_pnl == 0.0 and old_day.daily_trade_count == 0
+
+
+def test_disabled_optional_governor_preserves_legacy_no_required_accounting_semantics():
+    _set_config(DAILY_RISK_GOVERNOR_ENABLED=False)
+    decision = _governor(lifecycle=_Lifecycle(realized=-.25)).evaluate(run_mode="PAPER", now=NOW)
+    assert decision.status == DailyRiskDecisionStatus.ALLOW
+    assert decision.reason == "DAILY_RISK_GOVERNOR_DISABLED"
+
+
+def test_native_fill_identity_cannot_alias_an_intake_event_id(native_lifecycle):
+    engine, storage = native_lifecycle
+    _set_config()
+    _canonical_fill(engine, "in", "ENTRY_FILL", 2, 10.53)
+    _canonical_fill(engine, "partial", "PARTIAL_EXIT", 1, 10.43)
+    row = _actual_canonical_execution_history(engine, "partial")
+    row["execution_id"] = "partial"  # Intake/event identity is not execution identity.
+    governor = _native_governor(engine, storage)
+    governor.provider = SimpleNamespace(get_daily_fills=lambda: [row])
+    decision = governor.evaluate(run_mode="PAPER", now=NOW)
+    assert decision.status == DailyRiskDecisionStatus.MANAGED_ONLY
+    assert "FILL_IDENTITY_CONFLICT" in decision.reason

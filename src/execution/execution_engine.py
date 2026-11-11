@@ -211,7 +211,9 @@ class ExecutionEngine:
             raise RuntimeError("NATIVE_ORDER_BINDING_INVALID")
         order = {"request": asdict(request), "decision_id": decision, "account": scope[0],
             "mode": self.run_mode.value, "symbol": request.symbol.upper(), "side": request.direction.upper(), "requested": request.quantity, "filled": 0, "notional": 0.,
-            "terminal": False, "status": "DISPATCH_UNCERTAIN", "broker_order_id": None}
+            "terminal": False, "status": "DISPATCH_UNCERTAIN", "broker_order_id": None,
+            "native_client_id": getattr(client, "client_id", None),
+            "native_connection_epoch": getattr(client, "_position_connection_epoch", None)}
         self._native_orders[request.client_order_id] = order
         self._save_native_orders()  # Before dispatch; lost ack never implies absence.
         return order
@@ -1207,7 +1209,7 @@ class ExecutionEngine:
                 risk_decision,
                 rationale=f"RUN_MODE_BLOCK:{self.run_mode.value}",
             )
-        if self._failsafe_block_new_entries and str(getattr(risk_decision, "direction", "")).upper() in {"BUY", "LONG"}:
+        if (self._failsafe_block_new_entries or self._native_feedback_blocks_new_entries()) and str(getattr(risk_decision, "direction", "")).upper() in {"BUY", "LONG"}:
             return self._blocked_execution_from_risk_decision(
                 risk_decision,
                 rationale="LIFECYCLE_FAILSAFE_BLOCK_NEW_ENTRIES",
@@ -1669,6 +1671,18 @@ class ExecutionEngine:
                     raise RuntimeError("OWNER_EFFECT_DECISION_ID_UNAVAILABLE")
                 owned["owner_effect_version"] = 1
                 owned["decision_id"] = decision_id
+                scope = self._native_scope
+                client = self._native_callback_client()
+                if scope is None or scope[1] is not client:
+                    raise RuntimeError("NATIVE_FEEDBACK_ACCOUNT_SCOPE_UNAVAILABLE")
+                binding = dict(account=scope[0], native_client_id=getattr(client, "client_id", None),
+                    native_connection_epoch=getattr(client, "_position_connection_epoch", None))
+                root = plan.orders[plan.initial_order_id]
+                if request.client_order_id != plan.initial_order_id and any(root.get(k) != v for k,v in binding.items()):
+                    raise RuntimeError("NATIVE_FEEDBACK_ORIGINAL_SCOPE_CHANGED")
+                if any(k in owned and owned[k] != v for k,v in binding.items()):
+                    raise RuntimeError("NATIVE_FEEDBACK_RETAINED_SCOPE_CHANGED")
+                owned.update(binding)
             manager._save_relationship_state()
             if native_owned:
                 self._storage_engine.validate_owner_effect_storage()
@@ -2240,6 +2254,146 @@ class ExecutionEngine:
             order["requested"] = max(order["requested"], filled + remaining)
         self.relationship_manager._save_relationship_state()
 
+    def _native_feedback_orders(self):
+        # Existing native/relationship order ownership, never another ledger.
+        manager = getattr(self, "relationship_manager", None)
+        return ([(None, oid, order) for oid, order in getattr(self, "_native_orders", {}).items()]
+            + [(plan, oid, order) for plan in getattr(manager, "_relationship_plans", {}).values()
+               for oid, order in plan.orders.items()])
+
+    def _native_feedback_blocks_new_entries(self):
+        try:
+            return any(row.get("state") != "COMPLETE"
+                for _, _, order in self._native_feedback_orders()
+                for row in order.get("canonical_feedback", []))
+        except (AttributeError, TypeError):
+            return True  # Malformed required progress is not accounting zero.
+
+    def _prepare_native_feedback(self, plan, order_id, order, request, facts, prior, total, previous):
+        from decimal import Decimal
+        root_id = plan.initial_order_id if plan is not None else order.get("protection_parent_order_id", order_id)
+        root = plan.orders[root_id] if plan is not None else self._native_orders[root_id]
+        initial = root["request"]
+        protection_id = (plan.protection_trade_id or root_id) if plan is not None else root.get("protection_trade_id", root_id)
+        life = self.post_fill_lifecycle.get_trade(protection_id)
+        entry = str(request.direction).upper() in {"BUY", "LONG"}
+        before = int(life.filled_qty) if life is not None else (0 if entry and prior == 0 else None)
+        identity = dict(root_order_id=root_id, account=root.get("account"),
+            strategy_name=initial.get("strategy_name"), native_order_id=str(order["broker_order_id"]),
+            client_id=root.get("native_client_id", root.get("unit_client_id")),
+            connection_epoch=root.get("native_connection_epoch", root.get("unit_connection_epoch")),
+            symbol=str(initial["symbol"]).upper(), side="LONG")
+        if type(root.get("security_id")) is int:
+            identity["con_id"] = root["security_id"]
+        if plan is not None and str(plan.security_id).startswith("conId:"):
+            identity["con_id"] = int(str(plan.security_id).split(":",1)[1])
+        feedback_id = f"native-feedback:{order_id}:{prior}:{total}"
+        ordinal = 1 + max((r.get("ordinal", 0) for _,_,o in self._native_feedback_orders()
+            for r in o.get("canonical_feedback", [])), default=0)
+        old_notional = (Decimal(str(previous["entry_price"])) * prior if previous
+                        else Decimal(str(order["notional"])))
+        row = dict(feedback_id=feedback_id, ordinal=ordinal, state="PENDING", accounting_complete=False,
+            prior=prior, total=total, quantity=total-prior,
+            prior_notional=str(old_notional),
+            notional=str(Decimal(str(facts["avgFillPrice"])) * total-old_notional),
+            quantity_before=before, quantity_after=(before+(total-prior)*(1 if entry else -1) if before is not None else None),
+            event_type="ENTRY_FILL" if entry else "STOP_EXIT" if request.order_type == "STP" else "PARTIAL_EXIT",
+            identity=identity, stop_price=initial.get("stop_loss_price"), applied_execution_ids=[], reason="EXECUTION_DETAILS_PENDING")
+        order.setdefault("canonical_feedback", []).append(row)
+        canonical = getattr(self, "_trade_lifecycle_engine", None)
+        require = getattr(canonical, "require_native_feedback", None)
+        if callable(require):
+            try:
+                require(feedback_id, identity)
+            except Exception as exc:
+                row.update(state="UNCERTAIN", reason=str(exc))
+        return row
+
+    def _drain_native_canonical_feedback(self):
+        from decimal import Decimal
+        from src.core.engines.trade_lifecycle_engine import LifecycleEvent
+        entries = [(r["ordinal"], plan, order, r) for plan,_,order in self._native_feedback_orders()
+            for r in order.get("canonical_feedback", [])
+            if r.get("accounting_complete") and r.get("state") == "PENDING"]
+        if not entries:
+            return
+        canonical = getattr(self, "_trade_lifecycle_engine", None)
+        if canonical is None or not callable(getattr(canonical, "require_native_feedback", None)):
+            return  # Durable PENDING and the final entry gate remain closed.
+        blocked_roots = set()
+        for _, plan, order, row in sorted(entries, key=lambda item:item[0]):
+            identity = row["identity"]
+            root_id = identity["root_order_id"]
+            if root_id in blocked_roots:
+                continue
+            save = self.relationship_manager._save_relationship_state if plan is not None else self._save_native_orders
+            try:
+                client = self._native_callback_client()
+                getter = getattr(client, "cached_native_executions", None)
+                if not callable(getter):
+                    blocked_roots.add(root_id)
+                    continue
+                executions = list(getter(int(identity["native_order_id"])))
+                relevant = sorted((r for r in executions if row["prior"] < r["cumQty"] <= row["total"]),
+                    key=lambda r:r["cumQty"])
+                cursor = row["prior"]
+                notional = Decimal(0)
+                for execution in relevant:
+                    shares, cumulative = execution["shares"], execution["cumQty"]
+                    expected_side = {"ENTRY_FILL":"BOT"}.get(row["event_type"], "SLD")
+                    if (shares != int(shares) or shares <= 0 or cumulative != int(cumulative)
+                            or cumulative-shares != cursor or execution["orderId"] != int(identity["native_order_id"])
+                            or execution["account"] != identity["account"]
+                            or execution["clientId"] != identity["client_id"]
+                            or execution["connection_epoch"] != identity["connection_epoch"]
+                            or execution["symbol"].upper() != identity["symbol"]
+                            or execution["side"] != expected_side
+                            or (identity.get("con_id") is not None and execution["conId"] != identity["con_id"])
+                            or execution["timestamp_utc"] > datetime.now(timezone.utc)):
+                        raise ValueError("NATIVE_CANONICAL_EXECUTION_BINDING_INVALID")
+                    cursor = int(cumulative)
+                    notional += execution["price"] * int(shares)
+                    if execution["avgPrice"] * cursor != Decimal(row["prior_notional"]) + notional:
+                        raise ValueError("NATIVE_CANONICAL_CUMULATIVE_PRICE_CONFLICT")
+                if cursor != row["total"]:
+                    blocked_roots.add(root_id)
+                    continue  # Normal orderStatus-before-execDetails ordering.
+                if notional != Decimal(row["notional"]):
+                    raise ValueError("NATIVE_CANONICAL_EXECUTION_NOTIONAL_CONFLICT")
+                if row["quantity_before"] is None:
+                    raise ValueError("NATIVE_CANONICAL_PRIOR_QUANTITY_UNAVAILABLE")
+                row.update(state="IN_PROGRESS", reason=None)
+                save()  # Separate durable native boundary, not a cross-owner transaction.
+                before = row["quantity_before"]
+                for execution in relevant:
+                    event_identity = dict(identity, con_id=execution["conId"])
+                    event = LifecycleEvent(event_id=f"{row['feedback_id']}:{execution['execId']}",
+                        lifecycle_trade_id=root_id, symbol=identity["symbol"], side="LONG",
+                        event_type=row["event_type"], quantity=int(execution["shares"]),
+                        price=float(execution["price"]), timestamp=execution["timestamp_utc"].isoformat(),
+                        order_id=identity["native_order_id"], execution_id=execution["execId"],
+                        source="native_cached_fill", metadata={"feedback_id":row["feedback_id"]})
+                    trade = canonical.apply_event(event, strategy_name=identity["strategy_name"],
+                        stop_price=row["stop_price"], strict=True, native_identity=event_identity, expected_quantity=before)
+                    after = before + event.quantity * (1 if row["event_type"] == "ENTRY_FILL" else -1)
+                    if trade is None or trade.lifecycle_trade_id != root_id or trade.quantity_open != after:
+                        raise RuntimeError("NATIVE_CANONICAL_PROJECTION_UNVERIFIED")
+                    row["applied_execution_ids"].append(execution["execId"])
+                    before = after
+                    save()
+                if before != row["quantity_after"]:
+                    raise RuntimeError("NATIVE_CANONICAL_FINAL_QUANTITY_CONFLICT")
+                canonical.complete_native_feedback(row["feedback_id"])
+                row.update(state="COMPLETE", reason=None)
+                save()
+            except Exception as exc:
+                # Canonical-only uncertainty vetoes ENTRIES. Correctly bound
+                # factual fill/protection accounting continues through its owner.
+                row.update(state="UNCERTAIN", reason=f"{type(exc).__name__}:{exc}")
+                canonical.mark_native_feedback_uncertain(row["feedback_id"], row["reason"])
+                save()  # If THIS fails, existing native storage quarantine applies.
+                blocked_roots.add(root_id)
+
     def _consume_cached_order(self, plan, order_id, order, facts, result_processor):
         manager = getattr(self, "relationship_manager", None)
         save = manager._save_relationship_state if plan is not None else self._save_native_orders
@@ -2283,6 +2437,7 @@ class ExecutionEngine:
         except (KeyError, TypeError, ValueError, OverflowError):
             raise ValueError("CACHED_EXECUTION_UPDATE_INVALID") from None
         if total == order["filled"] and status == order.get("status"):
+            self._drain_native_canonical_feedback()
             if order.get("protection_parent_order_id"):
                 _, life = self._native_protection_owner(order)
                 self._verify_native_remaining_stop(order, life, total)
@@ -2317,6 +2472,8 @@ class ExecutionEngine:
             result.average_fill_price = float(facts["avgFillPrice"])
         if plan is None and result_processor is None:
             raise RuntimeError("NATIVE_ORDER_PROCESSOR_REQUIRED")
+        feedback = (self._prepare_native_feedback(plan, order_id, order, request, facts, prior, total, previous)
+            if total > prior and result_processor is not None else None)
         if result_processor is not None:
             in_progress = {"filled": total, "remaining": remaining, "status": status,
                 "average_price": float(result.average_fill_price) if result.average_fill_price is not None else None}
@@ -2380,6 +2537,9 @@ class ExecutionEngine:
                             or (registered.quantity if registered else 0) != native_life.filled_qty):
                         raise RuntimeError("NATIVE_PROTECTION_PROJECTION_UNVERIFIED")
                     self._verify_native_remaining_stop(order, native_life, total)
+                if feedback is not None:
+                    feedback["accounting_complete"] = True
+                    self._drain_native_canonical_feedback()
                 if not order.get("lifecycle_application_rejected"):
                     order.pop("cached_update_in_progress")
                 if plan is None:
@@ -2433,7 +2593,7 @@ class ExecutionEngine:
         committed = self._selected_committed_order(order_id)
         if any(order.get(key) != committed.get(key) for key in
                ("request", "decision_id", "account", "mode", "symbol", "side", "broker_order_id", "requested", "action", "owner_effect_version",
-                "protection_parent_order_id", "protection_trade_id", "security_id", "last_accounted_entry_fill_at", "last_accounted_exit_fill_at", "pmh_failure_exit", "pmh_management_expired", "close_role", "unit_profit_exit", "unit_amendment", "unit_close_coverage_confirmed", "unit_connection_epoch", "unit_client_id", "unit_initial_protection_profile", "stop_price_revision")):
+                "protection_parent_order_id", "protection_trade_id", "security_id", "last_accounted_entry_fill_at", "last_accounted_exit_fill_at", "pmh_failure_exit", "pmh_management_expired", "close_role", "unit_profit_exit", "unit_amendment", "unit_close_coverage_confirmed", "unit_connection_epoch", "unit_client_id", "unit_initial_protection_profile", "stop_price_revision", "native_client_id", "native_connection_epoch", "canonical_feedback")):
             raise ValueError("NATIVE_ORDER_RETAINED_BINDING_CHANGED")
         facets = {"symbol": order["symbol"], "account": order["account"], "side": order["side"],
             "client_order_id": order_id, "orderId": order["broker_order_id"], "decision_id": order["decision_id"]}
@@ -3516,6 +3676,7 @@ class ExecutionEngine:
                 raise
             if result is not None:
                 results.append(result)
+        self._drain_native_canonical_feedback()
         return results
 
     def _get_open_trades_for_symbol(self, symbol: str) -> list[str]:

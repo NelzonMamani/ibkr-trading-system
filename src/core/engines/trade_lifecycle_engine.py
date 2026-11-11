@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 import json
+import math
 from typing import Any
 from uuid import uuid4
 
@@ -47,6 +49,7 @@ class LifecycleEvent:
     order_id: str | None = None
     execution_id: str | None = None
     source: str = "execution_engine"
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -95,6 +98,12 @@ class TradeLifecycleEngine:
             "duplicate_events_ignored": 0,
         }
         self._last_portfolio_state = PortfolioState()
+        # Native feedback uses the existing canonical events/trades. These are
+        # process-local completion fences, not another accounting ledger.
+        self._native_feedback: dict[str, dict[str, Any]] = {}
+        self._native_feedback_required = False
+        self._native_feedback_fault: str | None = None
+        self._native_committed_event_ids: set[str] = set()
 
     def set_persistence_adapter(self, persistence_adapter: Any | None) -> None:
         self._persistence = persistence_adapter
@@ -103,10 +112,8 @@ class TradeLifecycleEngine:
     def _now_iso() -> str:
         return datetime.now(timezone.utc).isoformat()
 
-    def _persist_trade_snapshot_best_effort(self, trade: LifecycleTrade) -> None:
-        if self._persistence is None:
-            return
-        payload = {
+    def _trade_snapshot_payload(self, trade: LifecycleTrade) -> dict[str, Any]:
+        return {
             "lifecycle_trade_id": trade.lifecycle_trade_id,
             "symbol": trade.symbol,
             "side": trade.side,
@@ -134,8 +141,12 @@ class TradeLifecycleEngine:
             "take_profit_events_json": json.dumps(trade.take_profit_events, sort_keys=True),
             "updated_at": self._now_iso(),
         }
+
+    def _persist_trade_snapshot_best_effort(self, trade: LifecycleTrade) -> None:
+        if self._persistence is None:
+            return
         try:
-            self._persistence.upsert_trade_lifecycle_trade(payload)
+            self._persistence.upsert_trade_lifecycle_trade(self._trade_snapshot_payload(trade))
         except Exception as exc:
             print(f"[LIFECYCLE][ERROR] stage=persist_trade_snapshot error={exc}")
 
@@ -143,7 +154,10 @@ class TradeLifecycleEngine:
         if self._persistence is None:
             return
         try:
-            self._persistence.insert_trade_lifecycle_event({**asdict(event), "timestamp": event.timestamp})
+            self._persistence.insert_trade_lifecycle_event({
+                **asdict(event), "timestamp": event.timestamp,
+                "payload_json": json.dumps(event.metadata, sort_keys=True, allow_nan=False) if event.metadata else None,
+            })
         except Exception as exc:
             print(f"[LIFECYCLE][ERROR] stage=persist_event event_id={event.event_id} error={exc}")
 
@@ -279,7 +293,261 @@ class TradeLifecycleEngine:
         print(f"[LIFECYCLE][RECOVERY][LOADED] records={len(records)} open={loaded}")
         return {"ok": True, "open_loaded": loaded, "degraded": False}
 
-    def apply_event(self, event: LifecycleEvent, *, strategy_name: str | None = None, stop_price: float | None = None) -> LifecycleTrade | None:
+    @staticmethod
+    def _native_identity(identity: dict[str, Any] | None) -> dict[str, Any]:
+        if not isinstance(identity, dict):
+            raise ValueError("NATIVE_LIFECYCLE_IDENTITY_REQUIRED")
+        result = {key: identity.get(key) for key in (
+            "root_order_id", "account", "symbol", "side", "client_id", "connection_epoch")}
+        strategy = identity.get("strategy", identity.get("strategy_name"))
+        if identity.get("strategy") is not None and identity.get("strategy_name") is not None and identity["strategy"] != identity["strategy_name"]:
+            raise ValueError("NATIVE_LIFECYCLE_STRATEGY_CONFLICT")
+        result["strategy"] = strategy
+        for key in ("root_order_id", "account", "symbol", "side", "strategy"):
+            value = result[key]
+            if not isinstance(value, str) or not value or value != value.strip():
+                raise ValueError("NATIVE_LIFECYCLE_IDENTITY_INVALID")
+        if result["side"] != "LONG" or result["symbol"] != result["symbol"].upper():
+            raise ValueError("NATIVE_LIFECYCLE_IDENTITY_INVALID")
+        for key in ("client_id", "connection_epoch"):
+            if type(result[key]) is not int or result[key] < 0:
+                raise ValueError("NATIVE_LIFECYCLE_IDENTITY_INVALID")
+        native_id = identity.get("native_order_id")
+        if isinstance(native_id, bool) or not isinstance(native_id, (str, int)):
+            raise ValueError("NATIVE_LIFECYCLE_NATIVE_ID_INVALID")
+        if not str(native_id).isdigit() or int(native_id) <= 0 or str(int(native_id)) != str(native_id):
+            raise ValueError("NATIVE_LIFECYCLE_NATIVE_ID_INVALID")
+        result["native_order_id"] = str(native_id)
+        if identity.get("con_id") is not None:
+            if type(identity["con_id"]) is not int or identity["con_id"] <= 0:
+                raise ValueError("NATIVE_LIFECYCLE_SECURITY_INVALID")
+            result["con_id"] = identity["con_id"]
+        return result
+
+    def require_native_feedback(self, feedback_id: str, identity: dict[str, Any] | None) -> None:
+        self._native_feedback_required = True
+        if not isinstance(feedback_id, str) or not feedback_id or feedback_id != feedback_id.strip():
+            self._native_feedback_fault = "NATIVE_FEEDBACK_ID_INVALID"
+            raise ValueError(self._native_feedback_fault)
+        try:
+            binding = self._native_identity(identity)
+        except Exception as exc:
+            self.mark_native_feedback_uncertain(feedback_id, str(exc))
+            raise
+        existing = self._native_feedback.get(feedback_id)
+        if existing is not None:
+            if existing.get("identity") != binding:
+                old = existing.get("identity") or {}
+                # An input-waiting frame may gain its first observed contract
+                # identity. A committed/uncertain binding can never change.
+                if (existing.get("state") == "PENDING" and existing.get("event_id") is None
+                        and "con_id" not in old and "con_id" in binding
+                        and old == {key: value for key, value in binding.items() if key != "con_id"}):
+                    existing["identity"] = binding
+                else:
+                    self.mark_native_feedback_uncertain(feedback_id, "NATIVE_FEEDBACK_IDENTITY_CONFLICT")
+                    raise ValueError("NATIVE_FEEDBACK_IDENTITY_CONFLICT")
+            if existing["state"] == "UNCERTAIN":
+                raise RuntimeError("NATIVE_FEEDBACK_UNCERTAIN")
+            return
+        self._native_feedback[feedback_id] = {"feedback_id": feedback_id, "identity": binding,
+            "state": "PENDING", "event_id": None, "reason": None}
+
+    def mark_native_feedback_uncertain(self, feedback_id: str, reason: str) -> None:
+        self._native_feedback_required = True
+        if not isinstance(feedback_id, str) or not feedback_id:
+            self._native_feedback_fault = str(reason or "NATIVE_FEEDBACK_UNCERTAIN")
+            return
+        row = self._native_feedback.setdefault(feedback_id, {"feedback_id": feedback_id,
+            "identity": None, "event_id": None})
+        row.update(state="UNCERTAIN", reason=str(reason or "NATIVE_FEEDBACK_UNCERTAIN"))
+
+    def complete_native_feedback(self, feedback_id: str) -> None:
+        row = self._native_feedback.get(feedback_id)
+        if (row is None or row.get("state") not in {"PENDING", "COMPLETE"}
+                or row.get("event_id") not in self._native_committed_event_ids):
+            raise RuntimeError("NATIVE_FEEDBACK_COMPLETION_UNCONFIRMED")
+        row["state"] = "COMPLETE"
+
+    def native_feedback_snapshot(self) -> dict[str, Any]:
+        pending = [deepcopy(row) for row in self._native_feedback.values() if row["state"] == "PENDING"]
+        uncertain = [deepcopy(row) for row in self._native_feedback.values() if row["state"] == "UNCERTAIN"]
+        committed = [event for event in self._events if event.event_id in self._native_committed_event_ids]
+        latest = {event.lifecycle_trade_id: event for event in committed}
+        conflict = None
+        for root, event in latest.items():
+            trade = self._trades.get(root)
+            metadata = event.metadata
+            binding = metadata["native_identity"]
+            if (trade is None or trade.symbol != binding["symbol"] or trade.side != "LONG"
+                    or trade.strategy_name != binding["strategy"] or trade.target_price is not None
+                    or trade.quantity_open != metadata["quantity_after"]
+                    or trade.gross_realized_pnl != metadata["trade_pnl_after"]
+                    or trade.entry_avg_price != metadata["entry_avg_price_after"]
+                    or trade.stop_price != metadata["original_stop_price"]
+                    or (metadata["terminal"] and (trade.status != "CLOSED" or trade.closed_at != metadata["terminal_timestamp"]))
+                    or (not metadata["terminal"] and (trade.status not in OPEN_STATUSES or trade.closed_at is not None))):
+                conflict = "NATIVE_LIFECYCLE_SNAPSHOT_CONFLICT"
+                break
+        return {"required": self._native_feedback_required,
+            "available": not pending and not uncertain and self._native_feedback_fault is None and conflict is None,
+            "pending": pending, "uncertain": uncertain, "reason": self._native_feedback_fault or conflict,
+            "events": [asdict(event) for event in committed],
+            "trades": [asdict(trade) for trade in self._trades.values()],
+            "unrealized_pnl": sum(float(trade.unrealized_pnl) for trade in self.open_trades())}
+
+    @staticmethod
+    def _authoritative_time(value: str) -> datetime:
+        if not isinstance(value, str):
+            raise ValueError("NATIVE_LIFECYCLE_TIME_REQUIRED")
+        try:
+            parsed = datetime.fromisoformat(value)
+        except ValueError:
+            raise ValueError("NATIVE_LIFECYCLE_TIME_INVALID") from None
+        if parsed.tzinfo is None or parsed.utcoffset() is None:
+            raise ValueError("NATIVE_LIFECYCLE_TIME_UNSCOPED")
+        return parsed.astimezone(timezone.utc)
+
+    def _apply_native_event(self, event: LifecycleEvent, *, strategy_name: str | None,
+                            stop_price: float | None, native_identity: dict[str, Any] | None,
+                            expected_quantity: int | None) -> LifecycleTrade:
+        metadata = event.metadata if isinstance(event.metadata, dict) else {}
+        feedback_id = metadata.get("feedback_id", event.event_id)
+        try:
+            self.require_native_feedback(feedback_id, native_identity)
+            binding = self._native_feedback[feedback_id]["identity"]
+            if not isinstance(event.metadata, dict):
+                raise ValueError("NATIVE_LIFECYCLE_METADATA_INVALID")
+            if (event.lifecycle_trade_id != binding["root_order_id"] or event.symbol != binding["symbol"]
+                    or event.side != "LONG" or str(event.order_id) != binding["native_order_id"]
+                    or (strategy_name is not None and strategy_name != binding["strategy"])):
+                raise ValueError("NATIVE_LIFECYCLE_BINDING_CONFLICT")
+            if (not isinstance(event.event_id, str) or not event.event_id or event.event_id != event.event_id.strip()
+                    or not isinstance(event.execution_id, str) or not event.execution_id or event.execution_id != event.execution_id.strip()
+                    or event.event_type not in {"ENTRY_FILL", "PARTIAL_EXIT", "STOP_EXIT", "EXIT_FILL"}
+                    or type(event.quantity) is not int or event.quantity <= 0
+                    or type(expected_quantity) is not int or expected_quantity < 0
+                    or isinstance(event.price, bool) or not math.isfinite(float(event.price)) or float(event.price) <= 0):
+                raise ValueError("NATIVE_LIFECYCLE_FILL_INVALID")
+            timestamp = self._authoritative_time(event.timestamp).isoformat()
+            reserved = {"native_identity", "realized_increment", "quantity_before", "quantity_after",
+                "terminal", "terminal_timestamp", "trade_pnl_after", "native_feedback_committed",
+                "entry_avg_price_after", "original_stop_price"}
+            if "native_identity" in metadata and self._native_identity(metadata["native_identity"]) != binding:
+                raise ValueError("NATIVE_LIFECYCLE_METADATA_CONFLICT")
+            if reserved.intersection(metadata) - {"native_identity"}:
+                raise ValueError("NATIVE_LIFECYCLE_COMPUTED_METADATA_RESERVED")
+            supplied_metadata = {key: deepcopy(value) for key, value in metadata.items()
+                                 if key not in {"native_identity", "feedback_id"}}
+            json.dumps(supplied_metadata, sort_keys=True, allow_nan=False)
+            owned = deepcopy(event)
+            owned.timestamp = timestamp
+            owned.price = float(event.price)
+            owned.order_id = binding["native_order_id"]
+            # Real execution identity, not another cumulative/status identity,
+            # distinguishes a duplicate from a contradictory callback.
+            for prior_event in self._events:
+                if prior_event.event_id not in self._native_committed_event_ids:
+                    continue
+                old_binding = prior_event.metadata["native_identity"]
+                same_execution = (old_binding["account"] == binding["account"]
+                                  and prior_event.execution_id == owned.execution_id)
+                if prior_event.event_id != owned.event_id and not same_execution:
+                    continue
+                old_metadata = {key: value for key, value in prior_event.metadata.items()
+                                if key not in reserved | {"feedback_id"}}
+                fields = ("lifecycle_trade_id", "symbol", "side", "event_type", "quantity", "price", "timestamp", "order_id", "execution_id", "source")
+                if (old_binding != binding or any(getattr(prior_event, key) != getattr(owned, key) for key in fields)
+                        or old_metadata != supplied_metadata):
+                    raise ValueError("NATIVE_LIFECYCLE_EXECUTION_CONFLICT")
+                self._native_feedback[feedback_id]["event_id"] = prior_event.event_id
+                self._session_counts["duplicate_events_ignored"] += 1
+                return self._trades[binding["root_order_id"]]
+            if event.event_id in self._event_ids_seen:
+                raise ValueError("NATIVE_LIFECYCLE_EVENT_CONFLICT")
+            for other in self._native_feedback.values():
+                if (other["state"] == "UNCERTAIN" and other.get("identity")
+                        and other["identity"]["root_order_id"] == binding["root_order_id"]):
+                    raise RuntimeError("NATIVE_LIFECYCLE_ROOT_UNCERTAIN")
+            trade = self._trades.get(binding["root_order_id"])
+            before = deepcopy(trade)
+            if (trade.quantity_open if trade else 0) != expected_quantity:
+                raise ValueError("NATIVE_LIFECYCLE_QUANTITY_CONFLICT")
+            if trade is not None:
+                entries = [row for row in self._events if row.event_id in self._native_committed_event_ids
+                           and row.lifecycle_trade_id == trade.lifecycle_trade_id and row.event_type == "ENTRY_FILL"]
+                if (not entries or trade.symbol != binding["symbol"] or trade.side != "LONG"
+                        or trade.strategy_name != binding["strategy"] or trade.target_price is not None
+                        or any(entries[0].metadata["native_identity"].get(key) != binding[key]
+                               for key in binding if key != "native_order_id")):
+                    raise ValueError("NATIVE_LIFECYCLE_TRADE_OWNERSHIP_CONFLICT")
+                if event.event_type == "ENTRY_FILL" and entries[0].metadata["native_identity"]["native_order_id"] != binding["native_order_id"]:
+                    raise ValueError("NATIVE_LIFECYCLE_ENTRY_ORDER_CONFLICT")
+                if stop_price is not None and float(stop_price) != trade.stop_price:
+                    raise ValueError("NATIVE_LIFECYCLE_ORIGINAL_STOP_CONFLICT")
+            elif event.event_type != "ENTRY_FILL" or self.find_open_trade_id_for_symbol(event.symbol) is not None:
+                raise ValueError("NATIVE_LIFECYCLE_ENTRY_OWNERSHIP_REQUIRED")
+            if event.event_type == "ENTRY_FILL":
+                if (stop_price is None or isinstance(stop_price, bool)
+                        or not math.isfinite(float(stop_price)) or float(stop_price) <= 0):
+                    raise ValueError("NATIVE_LIFECYCLE_ORIGINAL_STOP_REQUIRED")
+            elif event.quantity > expected_quantity:
+                raise ValueError("NATIVE_LIFECYCLE_EXIT_EXCEEDS_OWNERSHIP")
+            persist = getattr(self._persistence, "persist_native_lifecycle_feedback", None)
+            if not callable(persist):
+                raise RuntimeError("NATIVE_LIFECYCLE_STORAGE_REQUIRED")
+            expected_snapshot = self._trade_snapshot_payload(before) if before else None
+            self._event_ids_seen.add(owned.event_id)
+            if event.event_type == "ENTRY_FILL":
+                trade = self.apply_entry_fill(event=owned, strategy_name=binding["strategy"], stop_price=stop_price)
+                trade.opened_at = min(self._authoritative_time(trade.opened_at), self._authoritative_time(timestamp)).isoformat()
+                trade.closed_at = None
+                realized = 0.0
+                expected_after = expected_quantity + owned.quantity
+                expected_entry_price = (((before.entry_avg_price if before else 0.0) * expected_quantity
+                                         + owned.price * owned.quantity) / float(expected_after))
+            else:
+                trade = self.apply_exit_fill(event=owned)
+                realized = (owned.price - before.entry_avg_price) * owned.quantity
+                expected_after = expected_quantity - owned.quantity
+                expected_entry_price = before.entry_avg_price
+            expected_pnl = (before.gross_realized_pnl if before else 0.0) + realized
+            if (trade is None or trade.quantity_open != expected_after
+                    or trade.quantity_closed != (before.quantity_closed if before else 0) + (0 if event.event_type == "ENTRY_FILL" else owned.quantity)
+                    or trade.gross_realized_pnl != expected_pnl or trade.entry_avg_price != expected_entry_price
+                    or trade.target_price is not None or trade.stop_price != float(stop_price if stop_price is not None else before.stop_price)):
+                raise RuntimeError("NATIVE_LIFECYCLE_PROJECTION_CONFLICT")
+            terminal = event.event_type != "ENTRY_FILL" and trade.quantity_open == 0
+            terminal_timestamp = None
+            if terminal:
+                exits = [self._authoritative_time(row.timestamp) for row in self._events
+                         if row.event_id in self._native_committed_event_ids and row.lifecycle_trade_id == owned.lifecycle_trade_id
+                         and row.event_type != "ENTRY_FILL"]
+                terminal_timestamp = max(exits + [self._authoritative_time(timestamp)]).isoformat()
+                trade.closed_at = terminal_timestamp
+            owned.metadata = {**supplied_metadata, "feedback_id": feedback_id, "native_identity": binding,
+                "realized_increment": realized, "quantity_before": expected_quantity, "quantity_after": expected_after,
+                "terminal": terminal, "terminal_timestamp": terminal_timestamp,
+                "trade_pnl_after": trade.gross_realized_pnl, "entry_avg_price_after": trade.entry_avg_price,
+                "original_stop_price": trade.stop_price, "native_feedback_committed": True}
+            event_payload = {**asdict(owned), "payload_json": json.dumps(owned.metadata, sort_keys=True, allow_nan=False)}
+            receipt = persist(self._trade_snapshot_payload(trade), event_payload, expected_trade=expected_snapshot)
+            if not isinstance(receipt, dict) or receipt.get("completed") is not True or receipt.get("event_id") != owned.event_id:
+                raise RuntimeError("NATIVE_LIFECYCLE_PERSISTENCE_UNCONFIRMED")
+            self._events.append(owned)
+            self._native_committed_event_ids.add(owned.event_id)
+            self._native_feedback[feedback_id]["event_id"] = owned.event_id
+            return trade
+        except BaseException as exc:
+            self.mark_native_feedback_uncertain(feedback_id, str(exc))
+            raise
+
+    def apply_event(self, event: LifecycleEvent, *, strategy_name: str | None = None, stop_price: float | None = None,
+                    strict: bool = False, native_identity: dict[str, Any] | None = None,
+                    expected_quantity: int | None = None) -> LifecycleTrade | None:
+        if strict:
+            return self._apply_native_event(event, strategy_name=strategy_name, stop_price=stop_price,
+                native_identity=native_identity, expected_quantity=expected_quantity)
         if event.event_id in self._event_ids_seen:
             self._session_counts["duplicate_events_ignored"] += 1
             print(f"[LIFECYCLE][EVENT][DUPLICATE] event_id={event.event_id}")

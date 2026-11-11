@@ -879,6 +879,50 @@ class SQLiteStore:
         if self.commit_each_write:
             self.connection.commit()
 
+    def persist_native_lifecycle_feedback(self, trade: dict[str, Any], event: dict[str, Any],
+                                          *, expected_trade: dict[str, Any] | None) -> dict[str, Any]:
+        """Commit one canonical snapshot/event pair, with no cross-owner claim."""
+        if (self.connection.in_transaction
+                or self.connection.execute("PRAGMA query_only").fetchone()[0]):
+            raise RuntimeError("NATIVE_LIFECYCLE_STORAGE_UNAVAILABLE")
+        if trade.get("lifecycle_trade_id") != event.get("lifecycle_trade_id") or trade.get("run_id") != event.get("run_id"):
+            raise ValueError("NATIVE_LIFECYCLE_STORAGE_IDENTITY_CONFLICT")
+        event_keys = ("event_id", "run_id", "lifecycle_trade_id", "symbol", "side", "event_type",
+                      "quantity", "price", "timestamp", "order_id", "execution_id", "source", "payload_json")
+        def matches(row, expected):
+            return row is not None and all(row[key] == value for key, value in expected.items()
+                                          if key not in {"created_at", "updated_at"})
+        prior_commit_each_write = self.commit_each_write
+        try:
+            self.connection.execute("BEGIN IMMEDIATE")
+            old_event = self.connection.execute("SELECT * FROM trade_lifecycle_events WHERE event_id=?", (event["event_id"],)).fetchone()
+            old_trade = self.connection.execute("SELECT * FROM trade_lifecycle_trades WHERE lifecycle_trade_id=?", (trade["lifecycle_trade_id"],)).fetchone()
+            if old_event is not None:
+                if (any(old_event[key] != event.get(key) for key in event_keys)
+                        or not matches(old_trade, trade)):
+                    raise RuntimeError("NATIVE_LIFECYCLE_STORED_EVENT_CONFLICT")
+                self.connection.commit()
+                return {"completed": True, "event_id": event["event_id"], "duplicate": True}
+            if (old_trade is None) != (expected_trade is None) or (expected_trade is not None and not matches(old_trade, expected_trade)):
+                raise RuntimeError("NATIVE_LIFECYCLE_STORED_TRADE_CONFLICT")
+            # Existing writers obey this flag; suppress their individual commits
+            # only within this owned transaction. Snapshot precedes its FK event.
+            self.commit_each_write = False
+            self.upsert_trade_lifecycle_trade(trade)
+            self.insert_trade_lifecycle_events([event])
+            saved_trade = self.connection.execute("SELECT * FROM trade_lifecycle_trades WHERE lifecycle_trade_id=?", (trade["lifecycle_trade_id"],)).fetchone()
+            saved_event = self.connection.execute("SELECT * FROM trade_lifecycle_events WHERE event_id=?", (event["event_id"],)).fetchone()
+            if (not matches(saved_trade, trade) or saved_event is None
+                    or any(saved_event[key] != event.get(key) for key in event_keys)):
+                raise RuntimeError("NATIVE_LIFECYCLE_PERSISTENCE_UNCONFIRMED")
+            self.connection.commit()
+            return {"completed": True, "event_id": event["event_id"], "duplicate": False}
+        except BaseException:
+            self.connection.rollback()
+            raise
+        finally:
+            self.commit_each_write = prior_commit_each_write
+
     def insert_trade_lifecycle_events(self, events: Iterable[dict[str, Any]]) -> None:
         self.connection.executemany(
             """
