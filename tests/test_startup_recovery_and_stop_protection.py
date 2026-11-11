@@ -1304,6 +1304,8 @@ try:
 except BaseException as exc:
     report['harness_exception'] = exception_record(exc)
 finally:
+    sys.setprofile(globals().get('previous_profile'))
+    threading.setprofile(globals().get('previous_thread_profile'))
     if core is not None and facts.get('observe_pristine_readonly_cycle'):
         try:
             if (core.run_mode.value != 'READ_ONLY' or core.trade_registry.snapshot()
@@ -1357,8 +1359,6 @@ finally:
         report['database_final'] = database_snapshot()
     except BaseException as exc:
         report['snapshot_exception'] = exception_record(exc)
-    sys.setprofile(globals().get('previous_profile'))
-    threading.setprofile(globals().get('previous_thread_profile'))
     Path(report_path).write_text(json.dumps(plain(report), sort_keys=True, default=str), encoding='utf-8')
 '''
 
@@ -1401,7 +1401,11 @@ def run_native_core_cold_start(database_path, facts_path, evidence_dir, *,
         DECISION_TRACE_PATH=str(sandbox / 'decision-trace.jsonl'),
         FORCE_CLEAN_START='false', FLATTEN_ON_STARTUP='false',
         LEARNING_ENABLED='false', MANUAL_FOCUS_ENABLED='false')
-    process = subprocess.Popen([sys.executable, '-c', _NATIVE_CORE_COLD_START_CHILD,
+    # Keep the unchanged child body out of Windows' bounded command line.
+    # Retain the exact launched source alongside its existing private evidence.
+    child_source = evidence_dir / 'native-core-child.py'
+    child_source.write_text(_NATIVE_CORE_COLD_START_CHILD, encoding='utf-8')
+    process = subprocess.Popen([sys.executable, str(child_source),
         str(database_path), str(facts_path), str(report_path), str(fault)],
         cwd=sandbox, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     timed_out = False
@@ -1454,9 +1458,11 @@ def test_native_core_child_absolute_offline_guard_blocks_fake_backends(monkeypat
     import json, os, subprocess, sys
     import pytest
     captured = {}
+    captured_argv = []
     class CapturedEnvironment(BaseException):
         pass
-    def capture_process(*args, **kwargs):
+    def capture_process(argv, **kwargs):
+        captured_argv.extend(argv)
         captured.update(kwargs['env'])
         raise CapturedEnvironment()
     facts = tmp_path / 'guard-facts.json'
@@ -1465,6 +1471,15 @@ def test_native_core_child_absolute_offline_guard_blocks_fake_backends(monkeypat
         context.setattr(subprocess, 'Popen', capture_process)
         with pytest.raises(CapturedEnvironment):
             run_native_core_cold_start(tmp_path / 'never-opened.sqlite3', facts, tmp_path / 'capture-env')
+    # Windows CreateProcess rejects the grown child body when passed via -c.
+    # The same supervised source must live in the existing evidence directory.
+    assert captured_argv[1] != '-c', 'Child source must not occupy the Windows command line'
+    child_source = tmp_path / 'capture-env' / 'native-core-child.py'
+    assert captured_argv == [sys.executable, str(child_source.resolve()),
+        str((tmp_path / 'never-opened.sqlite3').resolve()), str(facts.resolve()),
+        str((tmp_path / 'capture-env' / 'child-report.json').resolve()), 'none']
+    assert child_source.read_text(encoding='utf-8') == _NATIVE_CORE_COLD_START_CHILD
+    assert len(subprocess.list2cmdline(captured_argv)) < 32767
     backends = tmp_path / 'fake-backends'
     backends.mkdir()
     (backends / 'socket.py').write_text("""import sys
