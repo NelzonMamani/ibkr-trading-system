@@ -710,6 +710,13 @@ def _get_ross_synthetic_base_size(name) -> int:
     return raw
 
 
+def get_ross_synthetic_micro_cost_tightening() -> bool:
+    record = get_config_record("ROSS_SYNTHETIC_MICRO_COST_TIGHTENING")
+    if record.value and not (record.source == "OVERRIDE" and get_ross_synthetic_micro_cost_failure()):
+        raise ConfigResolutionError("Micro tightening requires explicit synthetic Micro cost-failure enrollment")
+    return record.value
+
+
 def get_ross_synthetic_micro_cost_failure() -> bool:
     record = get_config_record("ROSS_SYNTHETIC_MICRO_COST_FAILURE")
     if record.value and not (record.source == "OVERRIDE" and get_ross_synthetic_unit_management()):

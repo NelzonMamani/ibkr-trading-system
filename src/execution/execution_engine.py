@@ -2384,11 +2384,18 @@ class ExecutionEngine:
             raise
         return result
 
-    def _validate_native_binding(self, order_id, order, facts):
+    def _validate_native_binding(self, order_id, order, facts, *, accounting_only=False):
         scope = self._native_scope
         client = self._native_callback_client()
         request = order["request"]
-        if (self._native_quarantined or scope is None or scope[0] != order["account"]
+        if accounting_only:
+            root = self._native_orders.get(order.get("protection_parent_order_id"),order)
+            if (not getattr(self,"_native_revision_fill_drain",False) or not self._native_quarantined
+                    or self._native_orders.get(order_id) is not order
+                    or root.get("unit_connection_epoch") != client._position_connection_epoch
+                    or root.get("unit_client_id") != client.client_id):
+                raise ValueError("NATIVE_REVISION_FILL_DRAIN_SCOPE_INVALID")
+        if ((self._native_quarantined and not accounting_only) or scope is None or scope[0] != order["account"]
                 or scope[1] is not client or order["mode"] != self.run_mode.value
                 or order["symbol"] != request["symbol"].upper() or order["side"] != request["direction"].upper()
                 or request["client_order_id"] != order_id or not order.get("decision_id")
@@ -2396,7 +2403,7 @@ class ExecutionEngine:
             raise ValueError("NATIVE_ORDER_BINDING_INVALID")
         from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
         if (RunMode(get_config("RUN_MODE_EFFECTIVE")) != self.run_mode or self.run_mode != RunMode.PAPER
-                or not 0 <= (datetime.now(timezone.utc) - scope[2]).total_seconds() <= get_ibkr_snapshot_max_age_seconds()):
+                or (not accounting_only and not 0 <= (datetime.now(timezone.utc) - scope[2]).total_seconds() <= get_ibkr_snapshot_max_age_seconds())):
             raise ValueError("NATIVE_ORDER_SCOPE_STALE_OR_CHANGED")
         selected_plan = self._selected_order_plan(order_id)
         if selected_plan is not None:
@@ -2419,7 +2426,7 @@ class ExecutionEngine:
             "client_order_id": order_id, "orderId": order["broker_order_id"], "decision_id": order["decision_id"]}
         parent, life = self._native_protection_owner(order)
         if parent is not None:
-            self._validate_native_binding(order["protection_parent_order_id"], parent, {})
+            self._validate_native_binding(order["protection_parent_order_id"], parent, {},accounting_only=accounting_only)
             facets.update(client_order_id="PROTECT|" + life.trade_id, orderRef="PROTECT|" + life.trade_id,
                 parentId=str(parent["broker_order_id"]))
         for key, expected in facets.items():
@@ -2773,7 +2780,7 @@ class ExecutionEngine:
 
     def request_stop_revision_prerequisite(self, order_id, *, proposal, proposed_price,
             price_rule, contract, route, quote, decision, authorization_guard):
-        """Explicit prerequisite mechanism; no automatic Core/strategy adopter.
+        """Existing one-attempt mechanism; separately default-off synthetic Micro adopter.
 
         One attempt per root/unit lifetime. Internal revision is NOT a native
         version token. Only matching independently requested complete inventory
@@ -2783,6 +2790,7 @@ class ExecutionEngine:
         from src.adapters.brokers.ibkr.ibkr_client import _price_decimal
         from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
         from src.strategies.ross_momentum.strategy_policy import selected_unit_management_profile, standalone_profit_quote_evidence
+        from src.strategies.ross_momentum.strategy_policy import STANDALONE_MICRO_COST_TIGHTENING_PROFILE, standalone_micro_tightening_basis, selected_micro_cost_tightening_profile
         parent = self._selected_order_records().get(order_id)
         if parent is None:
             return False
@@ -2798,16 +2806,25 @@ class ExecutionEngine:
                 or life is None or life.filled_qty <= 0 or life.target is not None
                 or not parent.get("terminal") or parent["filled"] != parent["requested"]
                 or not parent.get("protection_confirmed") or not life.preserve_selected_protection
-                or not decision.allowed or decision.execution_blocked or decision.rationale != "STOP_REVISION_PREREQUISITE"
+                or not decision.allowed or decision.execution_blocked or decision.rationale != ("MICRO_COST_LEVEL_TIGHTENING" if proposal.get("profile") == STANDALONE_MICRO_COST_TIGHTENING_PROFILE else "STOP_REVISION_PREREQUISITE")
                 or decision.decision_id != parent["decision_id"] or decision.direction != "SELL"
                 or decision.max_position_size != life.filled_qty
-                or proposal.get("profile") != "STOP_REVISION_PREREQUISITE"
+                or proposal.get("profile") not in {"STOP_REVISION_PREREQUISITE",STANDALONE_MICRO_COST_TIGHTENING_PROFILE}
                 or proposal.get("occurrence") != initial.get("setup_metadata")
                 or proposal.get("session_plan") != initial.get("management_session_plan")
                 or type(parent.get("unit_connection_epoch")) is not int
                 or parent["unit_connection_epoch"] != client._position_connection_epoch
                 or parent.get("unit_client_id") != client.client_id):
             return False
+        adopter = proposal.get("profile") == STANDALONE_MICRO_COST_TIGHTENING_PROFILE
+        basis = standalone_micro_tightening_basis(parent,life.avg_fill_price) if adopter else None
+        if adopter:
+            try:
+                if (not basis or _price_decimal(proposed_price) != _price_decimal(basis[0])
+                        or (proposal.get("entry_fill_price"),proposal.get("original_stop"),proposal.get("last_accounted_profit_fill_at")) != basis):
+                    return False
+            except (ValueError,TypeError):
+                return False
         now = datetime.now(timezone.utc)
         if not client.validate_price_rule(price_rule, contract, route=route, observed_at=now, max_age_seconds=age):
             return False
@@ -2839,7 +2856,7 @@ class ExecutionEngine:
                 or parent["filled"] != parent["requested"]
                 or (parent.get("unit_profit_exit") and parent["unit_profit_exit"].get("status") != "FILLED")):
             return False
-        root_reservation = dict(status="RESERVED", proposed_price=float(normalized),
+        root_reservation = dict(profile=proposal["profile"], status="RESERVED", proposed_price=float(normalized),
             original_stop=original, entry_fill_price=entry, invalidation=initial.get("invalidation_level"),
             occurrence=deepcopy(proposal), leg_ids=[leg.leg_id for leg in selected],
             rule_id=price_rule.rule_id, rule_sequence=price_rule.request_sequence,
@@ -2875,7 +2892,8 @@ class ExecutionEngine:
                 leg_refs = [(item,self._selected_order_records()[item.leg_id]) for item in life.stop_legs]
                 leg_seal = deepcopy([(vars(item),record) for item,record in leg_refs])
                 def final_guard(as_of, child=child, sealed=sealed):
-                    if (self._selected_order_records().get(order_id) is not parent
+                    if (self.post_fill_lifecycle.get_trade(order_id) is not life
+                            or self._selected_order_records().get(order_id) is not parent
                             or parent.get("request") is not initial or parent["request"] != retained[0]
                             or {key:parent.get(key) for key in parent_fields} != parent_binding
                             or self._native_scope != retained_scope
@@ -2886,11 +2904,15 @@ class ExecutionEngine:
                             or (initial, proposal, vars(decision), vars(quote)) != retained
                             or life.filled_qty != quantity or life.avg_fill_price != entry or life.selected_stop_price != original
                             or parent.get("quarantine") or self._native_quarantined or parent.get("cached_update_in_progress")
-                            or parent.get("pmh_failure_exit") or parent.get("stop_price_revision") is not root_reservation
+                            or parent.get("pmh_failure_exit")
+                            or (parent.get("unit_profit_exit") and parent["unit_profit_exit"].get("status") != "FILLED")
+                            or any(item.close_role != "PROTECTION" for item in selected)
+                            or parent.get("stop_price_revision") is not root_reservation
                             or root_reservation != sealed_root
                             or child.get("terminal") or child["filled"] != 0
                             or child.get("stop_price_revision") is not revision or revision != sealed
                             or not selected_unit_management_profile(initial)
+                            or (adopter and not selected_micro_cost_tightening_profile(initial))
                             or not authorization_guard(as_of)
                             or not client.validate_price_rule(price_rule, contract, route=route, observed_at=as_of, max_age_seconds=age)
                             or not standalone_profit_quote_evidence(quote, symbol=parent["symbol"],milestone=float(normalized),observed_at=as_of)):
@@ -2938,6 +2960,10 @@ class ExecutionEngine:
         return True
 
     def _verify_native_remaining_stop(self, order, life, cumulative_filled):
+        if getattr(self,"_native_revision_fill_drain",False):
+            # Read-only accounting during irreversible revision quarantine never
+            # mints protection/price authority, sends compensation, or retries.
+            return
         if life.filled_qty <= 0:
             return
         parent = self._selected_order_records().get(order.get("protection_parent_order_id"), {})
@@ -3229,14 +3255,111 @@ class ExecutionEngine:
         self._failsafe_block_new_entries = True
         self._save_selected_orders(order["request"]["client_order_id"])
 
+    def _validate_cached_order_enumeration(self, items, plans):
+        identities = [str(o["broker_order_id"]) for _,_,o in items if o.get("broker_order_id")]
+        standalone_ids = {o.get("broker_order_id") for o in self._native_orders.values() if o.get("broker_order_id")}
+        protection_ids = [str(p.protection_broker_order_id) for p in plans if p.protection_broker_order_id]
+        if (len(identities) != len(set(identities)) or len({oid for _,oid,_ in items}) != len(items)
+                or len(protection_ids) != len(set(protection_ids))
+                or any(identity in standalone_ids for identity in protection_ids)):
+            raise ValueError("CACHED_EXECUTION_DUPLICATE_NATIVE_ID")
+
+    def _collect_quarantined_revision_fills(self, *, result_processor):
+        """Read-only continuation of SAME live-process retained protection fills.
+
+        No order reconstruction/recovery, new entry/protection, version promotion
+        or discretionary write. Unknown accounting commits still veto replay.
+        """
+        from src.strategies.ross_momentum.strategy_policy import STANDALONE_MICRO_COST_TIGHTENING_PROFILE
+        roots = [(oid,root) for oid,root in self._native_orders.items()
+            if root.get("side") in {"LONG","BUY"} and root.get("quarantine")
+            and root.get("stop_price_revision",{}).get("profile") in {
+                "STOP_REVISION_PREREQUISITE",STANDALONE_MICRO_COST_TIGHTENING_PROFILE}]
+        if (not roots or not self._native_loaded or self._native_state is None
+                or self._native_orders != self._native_state.get("orders")
+                or getattr(self,"_native_revision_fill_drain",False)
+                or getattr(self,"_native_unit_update_batch",False) or not callable(result_processor)
+                or any(row.get("cached_update_in_progress") or row.get("owner_effect_pending")
+                    or row.get("lifecycle_application_rejected") for row in self._native_orders.values())):
+            raise RuntimeError("NATIVE_ORDER_RECOVERY_REQUIRED")
+        reader = getattr(self._provider,"cached_order_update",None)
+        if not callable(reader):
+            raise RuntimeError("NATIVE_REVISION_FILL_READER_UNAVAILABLE")
+        self._native_revision_fill_drain = self._native_unit_update_batch = True
+        results = []
+        try:
+            retained_lives = {oid:self.post_fill_lifecycle.get_trade(oid) for oid,_ in roots}
+            def validate_frame():
+                if self._native_orders != self._native_state.get("orders"):
+                    raise RuntimeError("NATIVE_REVISION_FILL_COMMITTED_BINDING_CHANGED")
+                plans = list(getattr(getattr(self,"relationship_manager",None),"_relationship_plans",{}).values())
+                entries = [(p,oid,row) for p in plans for oid,row in p.orders.items()]
+                entries += [(None,oid,row) for oid,row in self._native_orders.items()]
+                self._validate_cached_order_enumeration(entries,plans)
+                # Recheck ALL owners after each reader, before any accounting save.
+                for oid,root in roots:
+                    self._validate_native_binding(oid,root,{},accounting_only=True)
+                    life = self.post_fill_lifecycle.get_trade(oid)
+                    revision = root["stop_price_revision"]
+                    if (life is not retained_lives[oid] or life is None or life.avg_fill_price != revision["entry_fill_price"]
+                            or life.selected_stop_price != revision["original_stop"]
+                            or life.selected_stop_price != root["request"].get("stop_loss_price")
+                            or revision["invalidation"] != root["request"].get("invalidation_level")
+                            or life.target is not None or not life.preserve_selected_protection):
+                        raise RuntimeError("NATIVE_REVISION_FILL_BASIS_CHANGED")
+                    for child_id,child in self._native_orders.items():
+                        if child.get("protection_parent_order_id")==oid:
+                            self._validate_native_binding(child_id,child,{},accounting_only=True)
+            validate_frame()
+            for oid,root in roots:
+                self._validate_native_binding(oid,root,{},accounting_only=True)
+                life = self.post_fill_lifecycle.get_trade(oid)
+                if (life is None or not life.selected_stop_units or not root.get("terminal")
+                        or root["filled"] != root["requested"]):
+                    raise RuntimeError("NATIVE_REVISION_FILL_OWNER_UNAVAILABLE")
+                root["protection_confirmed"] = root["unit_close_coverage_confirmed"] = False
+                for leg in life.stop_legs:
+                    leg.independently_confirmed = False
+                self._save_native_orders()
+                for leg in life.stop_legs:
+                    child = self._native_orders.get(leg.leg_id)
+                    if child is None or child.get("protection_parent_order_id") != oid:
+                        raise RuntimeError("NATIVE_REVISION_FILL_CHILD_UNAVAILABLE")
+                    facts = dict(reader(child["broker_order_id"]) or {})
+                    validate_frame()  # A blocking reader cannot bless any sibling.
+                    self._validate_native_binding(leg.leg_id,child,facts,accounting_only=True)
+                    if facts:
+                        result = self._consume_cached_order(None,leg.leg_id,child,facts,result_processor)
+                        if result is not None:
+                            results.append(result)
+            return results
+        finally:
+            # Neither uncertainty nor capital/failsafe latches are cleared.
+            self._native_revision_fill_drain = self._native_unit_update_batch = False
+
     def collect_relationship_updates(self, *, result_processor=None):
+        # One live owner/frame across normal and quarantined factual accounting.
+        # Atomic setdefault also supports existing __new__ inspection fixtures;
+        # never clear quarantine or wait on another callback frame.
+        from threading import Lock
+        lock = getattr(self,"_native_callback_lock",None)
+        if lock is None:
+            lock = self.__dict__.setdefault("_native_callback_lock",Lock())
+        if not lock.acquire(blocking=False):
+            raise RuntimeError("NATIVE_UNIT_CALLBACK_REENTRANCY")
+        try:
+            return self._collect_selected_order_updates(result_processor=result_processor)
+        finally:
+            lock.release()
+
+    def _collect_selected_order_updates(self, *, result_processor=None):
         units = [(oid, parent) for oid, parent in self._selected_order_records().items()
             if parent.get("side") in {"BUY", "LONG"} and (parent.get("request", {}).get("selected_stop_units")
                 or parent.get("unit_initial_protection_profile"))]
         if not units:
             return self._collect_relationship_updates(result_processor=result_processor)
         if self._native_quarantined:
-            raise RuntimeError("NATIVE_ORDER_RECOVERY_REQUIRED")
+            return self._collect_quarantined_revision_fills(result_processor=result_processor)
         if getattr(self, "_native_unit_update_batch", False):
             raise RuntimeError("NATIVE_UNIT_CALLBACK_REENTRANCY")
         self._native_unit_update_batch = True
@@ -3323,15 +3446,7 @@ class ExecutionEngine:
             raise RuntimeError("CACHED_EXECUTION_UPDATE_RECOVERY_REQUIRED")
         if self._native_orders or (self.run_mode == RunMode.PAPER and self._provider is not None and callable(getattr(self._provider, "is_live", None)) and self._provider.is_live()):
             self._load_native_orders()
-        def validate_enumeration(items):
-            identities = [str(o["broker_order_id"]) for _,_,o in items if o.get("broker_order_id")]
-            standalone_ids = {o.get("broker_order_id") for o in self._native_orders.values() if o.get("broker_order_id")}
-            protection_ids = [str(p.protection_broker_order_id) for p in plans if p.protection_broker_order_id]
-            if (len(identities) != len(set(identities)) or len({oid for _,oid,_ in items}) != len(items)
-                    or len(protection_ids) != len(set(protection_ids))
-                    or any(identity in standalone_ids for identity in protection_ids)):
-                raise ValueError("CACHED_EXECUTION_DUPLICATE_NATIVE_ID")
-        validate_enumeration(entries)
+        self._validate_cached_order_enumeration(entries,plans)
         for plan in plans:
             manager.cancel_excess_milestone_orders(plan)
             if plan.pending_stop_resize:
@@ -3353,7 +3468,7 @@ class ExecutionEngine:
         self._retain_native_selected_stops()
         entries = [(p,oid,o) for p in plans for oid,o in list(p.orders.items())]
         entries += [(None,oid,o) for oid,o in list(self._native_orders.items())]
-        validate_enumeration(entries)
+        self._validate_cached_order_enumeration(entries,plans)
         results = []
         for plan,order_id,order in entries:
             checkpoint()

@@ -3503,10 +3503,11 @@ def enroll_unit_management(h, monkeypatch, *, fault='none', relationship=False, 
         _AUDITED_SDK_PLACE_ORDER(self,broker_id,contract,native)
         h.unit_writes.append((broker_id,deepcopy(native)))
         row=next(row for row in h.native_open_orders if row.orderId==broker_id)
-        if fault=='rejected':
+        revision_count=sum(order.orderType=='STP' for _,order in h.unit_writes) if price_revision else 0
+        if fault=='rejected' or (price_revision and fault=='second_rejected' and revision_count==2):
             raise RuntimeError('synthetic amendment329 rejected; original stop retained')
         row.order=deepcopy(native)
-        if fault=='unknown' or (relationship and fault=='second_unknown' and len(h.unit_writes)==2):
+        if fault=='unknown' or (relationship and fault=='second_unknown' and len(h.unit_writes)==2) or (price_revision and fault=='second_unknown' and revision_count==2):
             row.orderState.status='PendingSubmit'
     monkeypatch.setattr(EClient,'placeOrder',sdk)
     monkeypatch.setattr(engine._provider.broker,'convert_selected_stop_to_market',broker.convert_selected_stop_to_market,raising=not relationship)

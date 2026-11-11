@@ -203,3 +203,29 @@ def test_relationship_unit_profit_default_cannot_be_enrolled_by_environment_or_s
         resolver.set_config_overrides(dict(resolver._CONFIG_OVERRIDES,ROSS_SYNTHETIC_RELATIONSHIP_UNIT_PROFIT=True))
         assert resolver.get_ross_synthetic_relationship_unit_profit()
     finally:resolver.set_config_overrides(previous)
+
+
+
+@pytest.mark.parametrize('cost_failure',[False,True])
+def test_micro_tightening_requires_separate_cost_failure_enrollment(monkeypatch,cost_failure):
+    from src.config import config_resolver as resolver
+    previous=dict(resolver._CONFIG_OVERRIDES)
+    monkeypatch.setenv('EXECUTION_ENV','TEST')
+    try:
+        resolver.set_config_overrides(dict(ROSS_SYNTHETIC_MICRO_COST_TIGHTENING=True,
+            ROSS_SYNTHETIC_MICRO_COST_FAILURE=cost_failure,ROSS_SYNTHETIC_UNIT_MANAGEMENT=True,
+            ROSS_SYNTHETIC_UNIT_STOPS=True,ROSS_SYNTHETIC_REQUESTED_BASE_SIZE=4,RUN_MODE='PAPER',RISK_PROFILE='SMALL'))
+        if cost_failure:assert resolver.get_ross_synthetic_micro_cost_tightening()
+        else:
+            with pytest.raises(resolver.ConfigResolutionError):resolver.get_ross_synthetic_micro_cost_tightening()
+    finally:resolver.set_config_overrides(previous)
+
+
+def test_micro_tightening_default_and_environment_cannot_enroll(monkeypatch):
+    from src.config import config_resolver as resolver
+    previous=dict(resolver._CONFIG_OVERRIDES)
+    monkeypatch.setenv('ROSS_SYNTHETIC_MICRO_COST_TIGHTENING','true')
+    try:
+        resolver.set_config_overrides(None)
+        assert not resolver.get_ross_synthetic_micro_cost_tightening()
+    finally:resolver.set_config_overrides(previous)
