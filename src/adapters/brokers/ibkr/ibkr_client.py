@@ -237,7 +237,9 @@ class IbkrClient(EWrapper, EClient):
         self._order_errors: Dict[int, Tuple[int, str]] = {}
         self._order_warnings: Dict[int, Tuple[int, str]] = {}
         self._exec_details_by_order: Dict[int, List[dict]] = {}
-        self._commission_by_exec_id: Dict[str, float] = {}
+        # One existing cache: latest numeric legacy projection plus copied
+        # source-report metadata. This is not a fee/NET accounting ledger.
+        self._commission_by_exec_id: Dict[str, dict | float] = {}
         self._account_summary_events: Dict[int, threading.Event] = {}
         self._account_summary_rows: Dict[int, Dict[str, str]] = {}
         self._managed_accounts_event = threading.Event()
@@ -413,6 +415,93 @@ class IbkrClient(EWrapper, EClient):
         return tuple(MappingProxyType(dict(row)) for row in sorted(
             (row for row in deduped.values() if row["orderId"] == order_id),
             key=lambda row: (row["cumQty"], row["execId"])))
+
+    def cached_native_execution_fees(self, order_id: int) -> tuple[Mapping, ...]:
+        """Copy per-execution API report facts, never whole-trade NET authority.
+
+        The execution owner supplies identity and BOT/SLD side; a fee callback
+        supplies neither root/strategy nor account/security. Receipt time is
+        local observation time, not a fill timestamp or economic-day allocation.
+        """
+        from ibapi.common import UNSET_DOUBLE
+
+        def currency_valid(value):
+            return (isinstance(value, str) and len(value) == 3 and value.isascii()
+                    and value.isalpha() and value == value.upper())
+        with self._lock:
+            executions = self.cached_native_executions(order_id)
+            observations = []
+            for execution in executions:
+                reasons = []
+                currencies = tuple(row.get("currency") for row in self._exec_details_by_order.get(order_id, ())
+                    if row.get("_native_unsolicited") is True and row.get("execId") == execution["execId"])
+                instrument_currency = currencies[0] if currencies else None
+                if any(value != instrument_currency for value in currencies):
+                    reasons.append("EXECUTION_CURRENCY_CONFLICT")
+                    instrument_currency = None
+                if not currency_valid(instrument_currency):
+                    reasons.append("EXECUTION_CURRENCY_UNAVAILABLE")
+                if type(self.client_id) is not int or self.client_id != execution["clientId"]:
+                    reasons.append("CURRENT_CLIENT_SCOPE_CHANGED")
+                if (type(self._position_connection_epoch) is not int
+                        or self._position_connection_epoch != execution["connection_epoch"]):
+                    reasons.append("CURRENT_EXECUTION_EPOCH_CHANGED")
+                if (not self.is_connected() or self._stop_event.is_set()
+                        or not self._position_transport_available):
+                    reasons.append("CURRENT_CONNECTION_UNAVAILABLE")
+                if tuple(self._managed_accounts) != (execution["account"],):
+                    reasons.append("CURRENT_ACCOUNT_SCOPE_UNAVAILABLE")
+                cached = self._commission_by_exec_id.get(execution["execId"])
+                first = latest = None
+                count = 0
+                conflict = False
+                if cached is None:
+                    reasons.append("MISSING_COMMISSION_REPORT")
+                elif not isinstance(cached, dict):
+                    reasons.append("LEGACY_COMMISSION_UNSCOPED")
+                else:
+                    first, latest = cached["first_report"], cached["latest_report"]
+                    count, conflict = cached["report_count"], cached["conflict"]
+                    if conflict:
+                        reasons.append("COMMISSION_REPORT_CONFLICT")
+                    if cached["unscoped_prior"]:
+                        reasons.append("LEGACY_COMMISSION_UNSCOPED")
+                    if (type(first["client_id"]) is not int or first["client_id"] != execution["clientId"]
+                            or type(first["connection_epoch"]) is not int
+                            or first["connection_epoch"] != execution["connection_epoch"]
+                            or first["managed_accounts"] != (execution["account"],)
+                            or first["connected"] is not True or first["stopped"] is not False
+                            or first["transport_available"] is not True):
+                        reasons.append("COMMISSION_REPORT_SCOPE_UNAVAILABLE")
+                    amount = first["amount"]
+                    if amount is None:
+                        reasons.append("COMMISSION_AMOUNT_UNAVAILABLE")
+                    elif not amount.is_finite() or not math.isfinite(float(amount)):
+                        reasons.append("NONFINITE_COMMISSION")
+                    elif float(amount) == UNSET_DOUBLE:
+                        reasons.append("SDK_UNSET_COMMISSION")
+                    elif amount < 0:
+                        reasons.append("NEGATIVE_COMMISSION_POLICY_UNADOPTED")
+                    elif amount == 0:
+                        reasons.append("ZERO_COMMISSION_WIRE_PRESENCE_UNAVAILABLE")
+                    if not currency_valid(first["currency"]):
+                        reasons.append("COMMISSION_CURRENCY_UNAVAILABLE")
+                    elif currency_valid(instrument_currency) and first["currency"] != instrument_currency:
+                        reasons.append("COMMISSION_CURRENCY_MISMATCH")
+                bound = not reasons
+                observations.append(MappingProxyType({
+                    "execution": MappingProxyType(dict(execution)),
+                    "execution_currency": instrument_currency,
+                    "report_currency": first["currency"] if first is not None else None,
+                    "amount": first["amount"] if bound else None,
+                    "first_report": MappingProxyType(dict(first)) if first is not None else None,
+                    "latest_report": MappingProxyType(dict(latest)) if latest is not None else None,
+                    "report_count": count, "conflict": conflict,
+                    "report_status": "BOUND_API_REPORT" if bound else "UNAVAILABLE",
+                    "reason": reasons[0] if reasons else None,
+                    "unavailable_reasons": tuple(reasons),
+                    "net_status": "UNAVAILABLE_FOR_NET", "source": "IBKR_COMMISSION_REPORT"}))
+            return tuple(observations)
 
     def register_execution_callback(self, callback, *, internal_reconciliation=False) -> None:
         if callback is None:
@@ -764,6 +853,8 @@ class IbkrClient(EWrapper, EClient):
             if exec_id is None:
                 continue
             commission = self._commission_by_exec_id.get(exec_id)
+            if isinstance(commission, dict):
+                commission = commission["legacy_amount"]
             if commission is None:
                 continue
             found = True
@@ -2547,6 +2638,9 @@ class IbkrClient(EWrapper, EClient):
                 "conId": getattr(contract, "conId", None),
                 "symbol": getattr(contract, "symbol", None),
                 "secType": getattr(contract, "secType", None),
+                # Additive raw fact only. Existing financial projection/dedupe
+                # remains unchanged; the fee-source view validates this field.
+                "currency": getattr(contract, "currency", None),
                 "side": getattr(execution, "side", None),
                 "cumQty": getattr(execution, "cumQty", None),
                 "avgPrice": getattr(execution, "avgPrice", None),
@@ -2607,13 +2701,62 @@ class IbkrClient(EWrapper, EClient):
     def commissionReport(self, commissionReport):  # type: ignore[override]
         exec_id = getattr(commissionReport, "execId", None)
         commission = getattr(commissionReport, "commission", None)
+        raw_currency = getattr(commissionReport, "currency", None)
+        # Bind reception before diagnostics/conversion can interleave a new
+        # connection scope. Never label an old callback with a later epoch.
+        with self._lock:
+            reception = {"client_id": self.client_id,
+                "connection_epoch": self._position_connection_epoch,
+                "managed_accounts": tuple(self._managed_accounts),
+                "connected": self.is_connected(), "stopped": self._stop_event.is_set(),
+                "transport_available": self._position_transport_available,
+                "received_at": datetime.now(timezone.utc)}
         print(
             "[IBKR][CALLBACK_RAW] "
             f"event=commissionReport exec_id={exec_id} commission={commission}"
         )
-        if exec_id is None or commission is None:
+        if exec_id is None:
             return
-        self._commission_by_exec_id[exec_id] = float(commission)
+        legacy_amount = None
+        conversion_error = None
+        if commission is not None:
+            try:
+                legacy_amount = float(commission)
+            except (TypeError, ValueError, OverflowError) as exc:
+                conversion_error = exc
+        amount = None
+        if type(commission) in (int, float, Decimal):
+            try:
+                amount = Decimal(str(commission))
+            except InvalidOperation:
+                pass
+        currency = raw_currency if isinstance(raw_currency, str) else None
+        # Freeze primitive facts BEFORE exposing the mutable SDK report to any
+        # listener. Repeated receipts do not renew the original observation.
+        with self._lock:
+            report = {"amount": amount, "amount_type": type(commission).__name__,
+                "currency": currency, **reception}
+            amount_signature = (amount if amount is not None and amount.is_finite()
+                else str(amount) if amount is not None else (type(commission).__name__, str(commission)))
+            signature = (amount_signature,
+                currency, report["client_id"], report["connection_epoch"], report["managed_accounts"],
+                report["connected"], report["stopped"], report["transport_available"])
+            previous = self._commission_by_exec_id.get(exec_id)
+            if isinstance(previous, dict):
+                record = {**previous, "latest_report": report,
+                    "report_count": previous["report_count"] + 1,
+                    "conflict": previous["conflict"] or previous["signature"] != signature}
+            else:
+                record = {"legacy_amount": previous, "first_report": report, "latest_report": report,
+                    "report_count": 1, "conflict": False, "signature": signature,
+                    "unscoped_prior": previous is not None}
+            if commission is not None and conversion_error is None:
+                record["legacy_amount"] = legacy_amount
+            self._commission_by_exec_id[exec_id] = record
+        if conversion_error is not None:
+            raise conversion_error  # Preserve the legacy callback contract.
+        if commission is None:
+            return
         self._emit_execution_callback(
             {
                 "event_type": "commissionReport",

@@ -235,3 +235,351 @@ def test_native_execution_cache_rejects_request_order_identity_conflict(native_e
     client.execDetails(-1,_native_contract(),_native_execution(orderId=req_id))
     with pytest.raises(ValueError,match='NATIVE_EXECUTION_IDENTITY_CONFLICT'):
         client.cached_native_executions(req_id)
+
+
+def _fee_execution(client, *, exec_id='fee.1', order_id=71, side='BOT', currency='USD', **changes):
+    from ibapi.contract import Contract
+    from ibapi.execution import Execution
+    contract = Contract()
+    for key, value in vars(_native_contract(currency=currency)).items():
+        setattr(contract, key, value)
+    execution = Execution()
+    for key, value in vars(_native_execution(execId=exec_id, orderId=order_id, side=side, **changes)).items():
+        setattr(execution, key, value)
+    client.execDetails(-1, contract, execution)
+    return contract, execution
+
+
+def _fee_report(client, *, exec_id='fee.1', amount=.01, currency='USD'):
+    from ibapi.commission_report import CommissionReport
+    report = CommissionReport()
+    report.execId, report.commission, report.currency = exec_id, amount, currency
+    client.commissionReport(report)
+    return report
+
+
+@pytest.mark.parametrize('side', ['BOT', 'SLD'])
+def test_native_fee_source_observes_actual_execution_currency_without_net_enrollment(native_execution_client, side):
+    from decimal import Decimal
+    client = native_execution_client
+    contract, execution = _fee_execution(client, side=side)
+    financial_before = client.cached_native_executions(71)
+    report = _fee_report(client)
+    observation, = client.cached_native_execution_fees(71)
+    assert observation['report_status'] == 'BOUND_API_REPORT'
+    assert observation['net_status'] == 'UNAVAILABLE_FOR_NET'
+    assert observation['execution']['execId'] == 'fee.1'
+    assert observation['execution']['side'] == side
+    assert observation['execution']['account'] == 'SYNTHETIC_TEST'
+    assert observation['execution']['clientId'] == 999
+    assert observation['execution']['connection_epoch'] == client._position_connection_epoch
+    assert observation['execution']['conId'] == 123 and observation['execution']['symbol'] == 'JPM'
+    assert observation['execution_currency'] == observation['report_currency'] == 'USD'
+    assert observation['amount'] == Decimal('.01')
+    assert observation['first_report']['received_at'].tzinfo is not None
+    assert observation['source'] == 'IBKR_COMMISSION_REPORT'
+    assert observation['report_count'] == 1 and not observation['conflict']
+    assert client.cached_native_executions(71) == financial_before
+    assert 'currency' not in financial_before[0]  # Existing financial contract unchanged.
+    assert client.commission_for_order(71) == .01
+    contract.currency = 'EUR'
+    execution.acctNumber = 'OTHER'
+    report.currency, report.commission = 'GBP', 1000
+    assert client.cached_native_execution_fees(71) == (observation,)
+    with pytest.raises(TypeError):
+        observation['amount'] = Decimal('100')
+    with pytest.raises(TypeError):
+        observation['first_report']['currency'] = 'GBP'
+    with pytest.raises(TypeError):
+        observation['execution']['account'] = 'OTHER'
+
+
+@pytest.mark.parametrize('amount,reason', [
+    (None, 'COMMISSION_AMOUNT_UNAVAILABLE'), (True, 'COMMISSION_AMOUNT_UNAVAILABLE'),
+    ('0.01', 'COMMISSION_AMOUNT_UNAVAILABLE'), (float('nan'), 'NONFINITE_COMMISSION'),
+    (float('inf'), 'NONFINITE_COMMISSION'), (-float('inf'), 'NONFINITE_COMMISSION'),
+    (0., 'ZERO_COMMISSION_WIRE_PRESENCE_UNAVAILABLE'), (-0., 'ZERO_COMMISSION_WIRE_PRESENCE_UNAVAILABLE'),
+    (-.01, 'NEGATIVE_COMMISSION_POLICY_UNADOPTED'),
+])
+def test_native_fee_source_never_defaults_unsupported_amount_to_usable_zero(native_execution_client, amount, reason):
+    client = native_execution_client
+    _fee_execution(client)
+    _fee_report(client, amount=amount)
+    observation, = client.cached_native_execution_fees(71)
+    assert observation['report_status'] == 'UNAVAILABLE' and observation['amount'] is None
+    assert reason in observation['unavailable_reasons']
+    assert observation['net_status'] == 'UNAVAILABLE_FOR_NET'
+    # The supported legacy projection keeps its original numeric conventions.
+    legacy = client.commission_for_order(71)
+    if amount is None:
+        assert legacy is None
+    elif isinstance(amount, float) and amount != amount:
+        assert legacy != legacy
+    else:
+        assert legacy == round(float(amount), 2)
+
+
+def test_native_fee_source_rejects_exact_finite_sdk_unset_amount(native_execution_client):
+    import math
+    from ibapi.common import UNSET_DOUBLE
+    client = native_execution_client
+    _fee_execution(client)
+    assert math.isfinite(UNSET_DOUBLE)
+    _fee_report(client, amount=UNSET_DOUBLE)
+    observation, = client.cached_native_execution_fees(71)
+    assert observation['report_status'] == 'UNAVAILABLE'
+    assert 'SDK_UNSET_COMMISSION' in observation['unavailable_reasons']
+    assert observation['amount'] is None and observation['net_status'] == 'UNAVAILABLE_FOR_NET'
+    assert client.commission_for_order(71) == UNSET_DOUBLE
+
+
+@pytest.mark.parametrize('fee_currency', ['', 'BASE', None, 'usd', ' USD', 'USD ', 'US', 'USDT', 'EUR'])
+def test_native_fee_source_retains_currency_without_default_or_conversion(native_execution_client, fee_currency):
+    client = native_execution_client
+    _fee_execution(client)
+    _fee_report(client, currency=fee_currency)
+    observation, = client.cached_native_execution_fees(71)
+    reason = 'COMMISSION_CURRENCY_MISMATCH' if fee_currency == 'EUR' else 'COMMISSION_CURRENCY_UNAVAILABLE'
+    assert reason in observation['unavailable_reasons']
+    assert observation['amount'] is None and observation['net_status'] == 'UNAVAILABLE_FOR_NET'
+    assert observation['report_currency'] == fee_currency
+    assert observation['execution_currency'] == 'USD'
+    assert client.commission_for_order(71) == .01
+
+
+@pytest.mark.parametrize('instrument_currency', ['', 'BASE', None, 'usd', 'CAD'])
+def test_native_fee_source_requires_observed_matching_execution_currency(native_execution_client, instrument_currency):
+    client = native_execution_client
+    _fee_execution(client, currency=instrument_currency)
+    before = client.cached_native_executions(71)
+    _fee_report(client)
+    observation, = client.cached_native_execution_fees(71)
+    reason = 'COMMISSION_CURRENCY_MISMATCH' if instrument_currency == 'CAD' else 'EXECUTION_CURRENCY_UNAVAILABLE'
+    assert reason in observation['unavailable_reasons']
+    assert observation['amount'] is None and observation['net_status'] == 'UNAVAILABLE_FOR_NET'
+    assert client.cached_native_executions(71) == before
+
+
+def test_native_fee_source_conflicting_currency_does_not_change_financial_dedupe(native_execution_client):
+    client = native_execution_client
+    _fee_execution(client)
+    before = client.cached_native_executions(71)
+    _fee_execution(client, currency='EUR')  # Exact financial duplicate, contradictory new metadata.
+    _fee_report(client)
+    assert client.cached_native_executions(71) == before
+    observation, = client.cached_native_execution_fees(71)
+    assert 'EXECUTION_CURRENCY_CONFLICT' in observation['unavailable_reasons']
+    assert observation['net_status'] == 'UNAVAILABLE_FOR_NET'
+    assert client.commission_for_order(71) == .02  # Existing legacy duplicate-row sum preserved.
+
+
+def test_native_fee_source_pending_report_waits_for_actual_native_execution(native_execution_client):
+    client = native_execution_client
+    _fee_report(client)
+    assert client.cached_native_execution_fees(71) == () and client.commission_for_order(71) is None
+    _fee_execution(client)
+    observation, = client.cached_native_execution_fees(71)
+    assert observation['report_status'] == 'BOUND_API_REPORT' and observation['report_count'] == 1
+    assert observation['execution']['account'] == 'SYNTHETIC_TEST'
+    assert observation['execution']['side'] == 'BOT'
+    assert observation['net_status'] == 'UNAVAILABLE_FOR_NET'
+
+
+def test_native_fee_source_missing_report_is_not_a_zero_fee(native_execution_client):
+    client = native_execution_client
+    _fee_execution(client)
+    observation, = client.cached_native_execution_fees(71)
+    assert observation['report_status'] == 'UNAVAILABLE'
+    assert observation['reason'] == 'MISSING_COMMISSION_REPORT'
+    assert observation['amount'] is observation['first_report'] is None
+    assert observation['report_count'] == 0 and client.commission_for_order(71) is None
+
+
+def test_native_fee_source_mixed_reports_do_not_certify_a_complete_order(native_execution_client):
+    from decimal import Decimal
+    client = native_execution_client
+    _fee_execution(client)
+    _fee_execution(client, exec_id='fee.2', cumQty=Decimal('2'))
+    _fee_report(client)
+    observations = client.cached_native_execution_fees(71)
+    assert len(observations) == 2
+    assert [row['report_status'] for row in observations] == ['BOUND_API_REPORT', 'UNAVAILABLE']
+    assert observations[1]['reason'] == 'MISSING_COMMISSION_REPORT'
+    assert all(row['net_status'] == 'UNAVAILABLE_FOR_NET' for row in observations)
+    assert client.commission_for_order(71) == .01  # ANY found is the retained legacy behavior.
+
+
+@pytest.mark.parametrize('changed', ['amount', 'currency', 'scope'])
+def test_native_fee_source_conflicts_latch_while_legacy_latest_value_is_preserved(native_execution_client, changed):
+    client = native_execution_client
+    _fee_execution(client)
+    _fee_report(client)
+    before, = client.cached_native_execution_fees(71)
+    if changed == 'scope':
+        client._position_connection_epoch += 1
+    _fee_report(client, amount=.02 if changed == 'amount' else .01,
+        currency='EUR' if changed == 'currency' else 'USD')
+    observation, = client.cached_native_execution_fees(71)
+    assert observation['conflict'] and observation['report_count'] == 2
+    assert 'COMMISSION_REPORT_CONFLICT' in observation['unavailable_reasons']
+    assert observation['first_report'] == before['first_report']
+    assert client.commission_for_order(71) == (.02 if changed == 'amount' else .01)
+    _fee_report(client)  # Matching original fields cannot clear a prior conflict.
+    repeated, = client.cached_native_execution_fees(71)
+    assert repeated['conflict'] and repeated['report_count'] == 3
+    assert repeated['net_status'] == 'UNAVAILABLE_FOR_NET' and repeated['amount'] is None
+
+
+def test_native_fee_source_repeated_same_payload_does_not_renew_first_receipt_or_conflict(native_execution_client, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    from src.adapters.brokers.ibkr import ibkr_client as native_module
+    clock = NS(now=datetime(2026, 11, 11, 17, 0, tzinfo=timezone.utc))
+    class ReceiptClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return clock.now if tz is None else clock.now.astimezone(tz)
+    monkeypatch.setattr(native_module, 'datetime', ReceiptClock)
+    client = native_execution_client
+    _fee_execution(client)
+    _fee_report(client)
+    first, = client.cached_native_execution_fees(71)
+    clock.now += timedelta(seconds=20)
+    _fee_report(client)
+    repeated, = client.cached_native_execution_fees(71)
+    assert repeated['report_status'] == 'BOUND_API_REPORT' and not repeated['conflict']
+    assert repeated['report_count'] == 2 and repeated['first_report'] == first['first_report']
+    assert repeated['latest_report']['received_at'] > first['first_report']['received_at']
+    assert repeated['first_report']['received_at'] != repeated['execution']['timestamp_utc']
+
+
+def test_native_fee_source_freezes_primitives_before_sdk_listener_can_mutate(native_execution_client):
+    client = native_execution_client
+    _fee_execution(client)
+    def listener(payload):
+        report = payload.get('commissionReport')
+        if report is not None:
+            report.commission, report.currency = 5000, 'EUR'
+    client.register_reconciliation_callback(listener)
+    report = _fee_report(client)
+    assert report.commission == 5000 and report.currency == 'EUR'
+    observation, = client.cached_native_execution_fees(71)
+    assert observation['report_status'] == 'BOUND_API_REPORT'
+    assert observation['first_report']['currency'] == 'USD'
+    assert client.commission_for_order(71) == .01
+
+
+@pytest.mark.parametrize('fault', ['execution_other_client', 'execution_other_account', 'current_client',
+    'current_epoch', 'stopped', 'disconnected', 'account_scope', 'reception_disconnected', 'report_old_epoch'])
+def test_native_fee_source_current_and_reception_scope_cannot_be_upgraded(native_execution_client, monkeypatch, fault):
+    client = native_execution_client
+    if fault == 'report_old_epoch':
+        _fee_report(client)
+        client._invalidate_position_queries()
+        client.nextValidId(72)
+        client.managedAccounts('SYNTHETIC_TEST')
+        _fee_execution(client)
+    else:
+        _fee_execution(client, **({'clientId': 123} if fault == 'execution_other_client'
+            else {'acctNumber': 'OTHER'} if fault == 'execution_other_account' else {}))
+        if fault == 'reception_disconnected':
+            monkeypatch.setattr(client, 'isConnected', lambda: False)
+        _fee_report(client)
+        if fault == 'reception_disconnected':
+            monkeypatch.setattr(client, 'isConnected', lambda: True)
+        elif fault == 'current_client':
+            client.client_id = 123
+        elif fault == 'current_epoch':
+            client._invalidate_position_queries()
+        elif fault == 'stopped':
+            client._stop_event.set()
+        elif fault == 'disconnected':
+            monkeypatch.setattr(client, 'isConnected', lambda: False)
+        elif fault == 'account_scope':
+            client.managedAccounts('OTHER')
+    observation, = client.cached_native_execution_fees(71)
+    assert observation['report_status'] == 'UNAVAILABLE' and observation['amount'] is None
+    assert any('SCOPE' in reason or 'EPOCH' in reason or 'CONNECTION' in reason
+        for reason in observation['unavailable_reasons'])
+    assert observation['net_status'] == 'UNAVAILABLE_FOR_NET'
+    assert client.commission_for_order(71) == .01
+
+
+def test_native_fee_source_legacy_history_and_unowned_callbacks_cannot_supply_execution_binding(native_execution_client):
+    client = native_execution_client
+    req_id = client._next_req_id()
+    client._register_request(req_id, 'EXECUTIONS')
+    client.execDetails(req_id, _native_contract(currency='USD'), _native_execution(execId='fee.1'))
+    client.execDetailsEnd(req_id)
+    _fee_report(client)
+    assert client.cached_native_executions(71) == ()
+    assert client.cached_native_execution_fees(71) == ()
+    assert client.commission_for_order(71) == .01  # Historical legacy sum is not native authority.
+    client.execDetails(999999, _native_contract(currency='USD'), _native_execution(execId='unowned'))
+    _fee_report(client, exec_id='unowned')
+    assert client.cached_native_execution_fees(71) == ()
+
+
+def test_native_fee_source_legacy_float_seed_remains_unscoped_even_after_report(native_execution_client):
+    client = native_execution_client
+    _fee_execution(client)
+    client._commission_by_exec_id['fee.1'] = .01  # Old private cache format, no source witness.
+    observation, = client.cached_native_execution_fees(71)
+    assert observation['reason'] == 'LEGACY_COMMISSION_UNSCOPED' and observation['first_report'] is None
+    assert client.commission_for_order(71) == .01
+    _fee_report(client)
+    refreshed, = client.cached_native_execution_fees(71)
+    assert refreshed['report_status'] == 'UNAVAILABLE'
+    assert 'LEGACY_COMMISSION_UNSCOPED' in refreshed['unavailable_reasons']
+    assert client.commission_for_order(71) == .01
+
+
+def test_native_fee_source_invalid_callback_preserves_legacy_numeric_projection(native_execution_client):
+    client = native_execution_client
+    _fee_execution(client)
+    _fee_report(client)
+    with pytest.raises(ValueError):
+        _fee_report(client, amount='not-numeric')
+    observation, = client.cached_native_execution_fees(71)
+    assert observation['report_status'] == 'UNAVAILABLE' and observation['conflict']
+    assert observation['latest_report']['amount'] is None
+    assert client.commission_for_order(71) == .01
+
+
+def test_native_fee_source_missing_amount_does_not_replace_prior_legacy_amount(native_execution_client):
+    client = native_execution_client
+    _fee_execution(client)
+    _fee_report(client)
+    _fee_report(client, amount=None)
+    observation, = client.cached_native_execution_fees(71)
+    assert observation['report_status'] == 'UNAVAILABLE' and observation['conflict']
+    assert observation['latest_report']['amount'] is None
+    assert client.commission_for_order(71) == .01
+
+
+def test_native_fee_source_does_not_rebase_a_callback_across_epoch_before_execution_binding(native_execution_client, monkeypatch):
+    from src.adapters.brokers.ibkr import ibkr_client as native_module
+    client = native_execution_client
+    received_epoch = client._position_connection_epoch
+    original_print = print
+    crossed = []
+    def diagnostic_boundary(*args, **kwargs):
+        if args and 'event=commissionReport' in str(args[0]):
+            monkeypatch.setattr(native_module, 'print', original_print)
+            crossed.append(received_epoch)
+            # Real existing source callbacks model another owner interleaving
+            # after this old report entered, before its processing continues.
+            client.connectionClosed()
+            client.error(-1, 1101, 'synthetic restored upstream scope')
+            client.managedAccounts('SYNTHETIC_TEST')
+            client.nextValidId(72)
+        original_print(*args, **kwargs)
+    monkeypatch.setattr(native_module, 'print', diagnostic_boundary, raising=False)
+    _fee_report(client)  # Before any native execution is available to bind it.
+    assert crossed == [received_epoch] and client._position_connection_epoch > received_epoch
+    _fee_execution(client)
+    observation, = client.cached_native_execution_fees(71)
+    assert observation['execution']['connection_epoch'] == client._position_connection_epoch
+    assert observation['first_report']['connection_epoch'] == received_epoch
+    assert observation['report_status'] == 'UNAVAILABLE' and observation['amount'] is None
+    assert 'COMMISSION_REPORT_SCOPE_UNAVAILABLE' in observation['unavailable_reasons']
+    assert client.commission_for_order(71) == .01
