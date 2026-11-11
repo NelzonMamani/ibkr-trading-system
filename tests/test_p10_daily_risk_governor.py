@@ -1312,6 +1312,35 @@ def test_committed_fee_is_static_not_an_expiring_quote(native_lifecycle, monkeyp
     assert len(h.storage.fetch_trade_lifecycle_events()) == 3
 
 
+def test_invalid_quote_age_adds_no_fee_veto_before_enrollment(native_lifecycle, monkeypatch):
+    h = _native_fee_case(native_lifecycle, monkeypatch)
+    _set_config(DAILY_RISK_GOVERNOR_ENABLED=False, DAILY_RISK_MAX_LOSS_AMOUNT=.26,
+                IBKR_SNAPSHOT_MAX_AGE_SECONDS=-1)
+    governor = _native_governor(h.engine, h.storage)
+    decision = governor.evaluate(run_mode='PAPER', now=FEE_NOW)
+    assert not decision.blocks_new_entries and governor.state.recovered
+    assert decision.realized_pnl == -.25 and decision.daily_trade_count == 1
+    assert decision.allows_existing_position_management
+    assert not h.engine.native_fee_feedback_snapshot(now=FEE_NOW, max_age_seconds=-1)['required']
+    assert len(h.storage.fetch_trade_lifecycle_events()) == 2
+
+
+def test_invalid_quote_age_cannot_erase_committed_native_fee_net(native_lifecycle, monkeypatch):
+    h = _native_fee_case(native_lifecycle, monkeypatch)
+    _commit_native_fees(h)
+    _set_config(DAILY_RISK_GOVERNOR_ENABLED=False, DAILY_RISK_MAX_LOSS_AMOUNT=.26,
+                IBKR_SNAPSHOT_MAX_AGE_SECONDS=-1)
+    governor = _native_governor(h.engine, h.storage)
+    decision = governor.evaluate(run_mode='PAPER', now=FEE_NOW)
+    assert decision.realized_pnl == -.28 and decision.daily_trade_count == 1
+    assert not decision.blocks_new_entries and governor.state.recovered
+    assert decision.allows_existing_position_management
+    snapshot = h.engine.native_fee_feedback_snapshot(now=FEE_NOW, max_age_seconds=-1)
+    assert snapshot['required'] and snapshot['available']
+    assert sum(float(row['amount']) for row in snapshot['covered_charges']) == pytest.approx(.03)
+    assert len(h.storage.fetch_trade_lifecycle_events()) == 3
+
+
 def test_matching_legacy_and_execution_net_do_not_deduct_canonical_fees_twice(native_lifecycle, monkeypatch):
     _set_config(DAILY_RISK_MAX_LOSS_AMOUNT=.29)
     h = _native_fee_case(native_lifecycle, monkeypatch)

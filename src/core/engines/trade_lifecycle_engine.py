@@ -944,7 +944,11 @@ class TradeLifecycleEngine:
 
     def native_fee_feedback_snapshot(self, *, now: datetime, max_age_seconds: float,
             expected_source_client: Any | None = None) -> dict[str, Any]:
-        checked = self._valuation_now(now, max_age_seconds)
+        # Committed fees are static evidence, not quotes. The compatibility
+        # argument cannot add a quote-TTL veto or hide already known charges.
+        if not isinstance(now, datetime) or now.tzinfo is None or now.utcoffset() is None:
+            raise ValueError("NATIVE_FEE_CHECK_TIME_INVALID")
+        checked = now.astimezone(timezone.utc)
         evidence, covered, uncertain, states = [], {}, {}, {}
         for root, selected in self._native_roundtrip_fees.items():
             saved = selected.get("evidence")
