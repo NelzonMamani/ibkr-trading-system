@@ -548,7 +548,7 @@ def _session_context_for(session_label: str | None) -> SessionContext:
     session = str(session_label or "").strip().upper()
     if session in {"AH", "AFTER", "AFTER_HOURS"}:
         return SessionContext.AFTER
-    if session in {"RTH", "REG", "REGULAR", "RTH_OPEN", "RTH_MID", "RTH_LATE", "MIDDAY", "LATE", "POWER_HOUR"}:
+    if session in {"RTH", "REG", "REGULAR", "RTH_OPEN", "OPENING_0_30", "MORNING", "RTH_MID", "RTH_LATE", "MIDDAY", "LATE", "POWER_HOUR"}:
         return SessionContext.REGULAR
     return SessionContext.PRE
 

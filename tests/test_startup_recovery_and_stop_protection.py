@@ -175,7 +175,7 @@ external_fault = fault
 report = {'pid': os.getpid(), 'parent_pid': os.getppid(), 'fault': fault,
           'constructor_complete': False, 'constructor_count': 0,
           'cycle_attempted': False, 'scenarios': [],
-          'sdk_attempts': [], 'wire_attempts': [], 'network_attempts': [],
+          'sdk_attempts': [], 'wire_attempts': [], 'native_read_requests': [], 'network_attempts': [],
           'cached_order_status_reads': [], 'cycles': [], 'cleanup': {},
           'external_provider_calls': [], 'external_history_calls': [],
           'availability_witness_calls': [],
@@ -193,13 +193,20 @@ class SyntheticWriteBoundary(BaseException):
 class ForbiddenExternalIO(BaseException):
     pass
 
-def no_network(*args, **kwargs):
-    report['network_attempts'].append({'operation': 'socket.connect'})
-    raise ForbiddenExternalIO('COLD_CORE_REAL_NETWORK_FORBIDDEN')
+def deny_network(operation):
+    def forbidden(*args, **kwargs):
+        report['network_attempts'].append({'operation': operation})
+        raise ForbiddenExternalIO('COLD_CORE_REAL_NETWORK_FORBIDDEN:' + operation)
+    return forbidden
 
+no_network = deny_network('socket.connect')
 socket.socket.connect = no_network
-socket.socket.connect_ex = no_network
-socket.create_connection = no_network
+socket.socket.connect_ex = deny_network('socket.connect_ex')
+socket.socket.sendto = deny_network('socket.sendto')
+for operation in ('create_connection', 'getaddrinfo', 'gethostbyname', 'gethostbyname_ex', 'gethostbyaddr'):
+    setattr(socket, operation, deny_network('socket.' + operation))
+if hasattr(socket.socket, 'sendmsg'):
+    socket.socket.sendmsg = deny_network('socket.sendmsg')
 
 def plain(value):
     if isinstance(value, dict):
@@ -266,8 +273,35 @@ def engine_snapshot(engine):
     })
 
 try:
+    # This check runs before application imports/cache setup/constructor. The
+    # startup guard also blocks native curl transfers, which socket patches do
+    # not observe. Missing guard inheritance must fail before any acquisition.
+    startup_guard = sys.modules.get('sitecustomize')
+    guard_path = Path(getattr(startup_guard, '__file__', '')).resolve()
+    if str(guard_path) != os.environ.get('COLD_CORE_EXPECTED_OFFLINE_GUARD'):
+        raise ForbiddenExternalIO('COLD_CORE_OFFLINE_STARTUP_GUARD_MISSING')
+    report['offline_guard'] = dict(path=str(guard_path), native_curl_checked=False)
+    report['native_curl_denials'] = []
+    # Observe the existing deny function without replacing either transfer entry
+    # point or its identity. The profile is owned by this bounded child only.
+    native_deny_code = getattr(getattr(startup_guard, '_deny_native_transfer', None), '__code__', None)
+    previous_profile = sys.getprofile()
+    previous_thread_profile = threading.getprofile()
+    def observe_native_denial(frame, event, arg):
+        if event == 'call' and frame.f_code is native_deny_code:
+            report['native_curl_denials'].append(dict(thread_id=threading.get_ident()))
+        if previous_profile is not None:
+            previous_profile(frame, event, arg)
+    sys.setprofile(observe_native_denial)
+    threading.setprofile(observe_native_denial)
+    if 'curl_cffi' in sys.modules:
+        from curl_cffi import Curl, AsyncCurl
+        if (Curl.perform is not startup_guard._deny_native_transfer
+                or AsyncCurl.add_handle is not startup_guard._deny_native_transfer):
+            raise ForbiddenExternalIO('COLD_CORE_NATIVE_CURL_GUARD_MISSING')
+        report['offline_guard']['native_curl_checked'] = True
     from ibapi.client import EClient
-    from ibapi.contract import Contract
+    from ibapi.contract import Contract, ContractDetails
     from ibapi.order import Order
     from ibapi.message import OUT
     from src.config.config_resolver import set_config_overrides
@@ -318,6 +352,66 @@ try:
     else:
         observed = datetime.now(timezone.utc)
     base_observed = observed
+    if facts.get('observe_pristine_readonly_cycle'):
+        # Existing joined fixtures treat this UTC clock and canonical cache as
+        # external inputs. Classification, maintenance and Focus remain real.
+        from src.news import evidence_store, news_intelligence_service, standalone_lookup, maintenance, batch_rss_adapter, news_fetcher
+        from src.strategies.ross_momentum.policy import catalyst_policy
+        from src.domain import quote_freshness
+        from src.market_data import float_provider, reference_resolver, market_data_snapshot_manager
+        from src.ibkr import market_data_client as source_quote_module
+        from src.adapters.brokers.ibkr import ibkr_client as native_callback_module
+        from src.config import system_config as risk_calendar_module
+        from src.utils import time_utils as risk_utc_module
+        import time as real_elapsed_time
+        class ExternalUtcClock:
+            @staticmethod
+            def time():
+                return observed.timestamp()
+            def __getattr__(self,name):
+                return getattr(real_elapsed_time,name)
+        utc_clock = ExternalUtcClock()
+        # UTC facts are local module dependencies. Do not patch shared time.time
+        # or the real monotonic scheduling/timeout clocks.
+        for module in (scanner_runner,catalyst_policy,news_fetcher,batch_rss_adapter):
+            module.time = utc_clock
+        for module in (evidence_store, news_intelligence_service, standalone_lookup, quote_freshness,
+                       float_provider,reference_resolver,market_data_snapshot_manager,source_quote_module,native_callback_module,
+                       maintenance,batch_rss_adapter,news_fetcher,risk_calendar_module,risk_utc_module):
+            module.datetime = Clock
+        report['external_clock'] = dict(utc=observed.isoformat(),
+            monotonic_unchanged=utc_clock.monotonic is real_elapsed_time.monotonic)
+        # Supplied numeric fundamentals enter through their actual cache writer,
+        # never by replacing symbol enrichment or its float gate.
+        float_store = float_provider.FloatProvider()
+        report['supplied_float_observations'] = []
+        for symbol, row in facts.get('candidate_observations', {}).items():
+            value = row.get('float_shares')
+            if type(value) is int and value > 0:
+                float_store.record_discovery(symbol, value, 'SUPPLIED_SYNTHETIC_OBSERVATION')
+                report['supplied_float_observations'].append(dict(symbol=symbol, value=value,
+                    source='SUPPLIED_SYNTHETIC_OBSERVATION'))
+        from src.news.evidence_store import CanonicalNewsEvidenceStore, evidence_from_mapping
+        news_request = scanner_runner._ross_news_request()
+        source_evidence = facts.get('news_evidence', {})
+        news_items = {symbol: tuple(evidence_from_mapping(row, request=news_request)
+            for row in rows) for symbol, rows in source_evidence.items()}
+        if any(item is None for rows in news_items.values() for item in rows):
+            raise ValueError('SUPPLIED_CANONICAL_NEWS_EVIDENCE_INVALID')
+        report['news_cache_seed_receipt'] = plain(CanonicalNewsEvidenceStore(
+            Path(os.environ['NEWS_CACHE_FILE'])).write(news_items, news_request,
+            retrieval_by_symbol=facts.get('news_last_retrieval', {})))
+        if report['news_cache_seed_receipt'].get('cache_write_failed'):
+            raise ValueError('SUPPLIED_CANONICAL_NEWS_CACHE_WRITE_FAILED')
+        # No synthetic/operational capital scope may be enrolled by this proof.
+        from src.storage.storage_engine import StorageEngine
+        from src.storage.sqlite_store import SQLiteStore
+        report['capital_enrollment_attempts'] = []
+        def forbid_capital_enrollment(*args, **kwargs):
+            report['capital_enrollment_attempts'].append('initialize_synthetic_capital_scope')
+            raise ForbiddenExternalIO('PRISTINE_READONLY_CAPITAL_ENROLLMENT_FORBIDDEN')
+        StorageEngine.initialize_synthetic_capital_scope = forbid_capital_enrollment
+        SQLiteStore.initialize_synthetic_capital_scope = forbid_capital_enrollment
 
     account = facts.get('account', 'SYNTHETIC_TEST')
     client_id = int(facts.get('client_id', 999))
@@ -370,12 +464,13 @@ try:
 
     # Supply discovery through its external provider protocol, never through a
     # prepared scanner payload, Focus row, pattern result or admission decision.
-    raw_fields = frozenset(('symbol', 'company_name', 'con_id', 'exchange',
+    raw_fields = frozenset(('symbol', 'company_name', 'long_name', 'aliases', 'con_id', 'exchange',
         'primary_exchange', 'trading_class', 'local_symbol', 'currency',
         'instrument_type', 'last_price', 'bid', 'ask', 'open', 'high', 'low',
         'close', 'prev_close', 'ref_close_rth', 'volume', 'float_shares',
         'current_intraday_volume', 'average_daily_volume_20d',
-        'average_daily_volume_window_days', 'volume_velocity_5m',
+        'average_daily_volume_window_days', 'historical_outcome', 'historical_end_received',
+        'volume_velocity_5m',
         'volume_velocity_15m', 'quote_timestamp_utc', 'quote_timestamp_source',
         'requested_market_data_type', 'returned_market_data_type',
         'market_data_type_confirmed', 'received_at_utc',
@@ -385,9 +480,14 @@ try:
             for key, value in row.items() if key in raw_fields}
             for symbol, row in rows.items()}
     def historical_inventory(streams):
+        # This opt-in source clock is a datetime subclass. Preserve original
+        # external timestamps while satisfying its ordinary datetime type checks;
+        # retained-state cases keep their previous parser and clock behavior.
+        parse_timestamp = (Clock.fromisoformat if facts.get('observe_pristine_readonly_cycle')
+                           else datetime.fromisoformat)
         return {timeframe: [Candle(
             open=row['open'], high=row['high'], low=row['low'], close=row['close'],
-            volume=row['volume'], timestamp=(datetime.fromisoformat(row['timestamp'])
+            volume=row['volume'], timestamp=(parse_timestamp(row['timestamp'])
                 if row.get('timestamp') else None)) for row in rows]
             for timeframe, rows in streams.items()}
     candidates = candidate_inventory(facts.get('candidate_observations', {}))
@@ -408,7 +508,8 @@ try:
             primaryExchange=row.get('primary_exchange'),
             tradingClass=row.get('trading_class'), localSymbol=row.get('local_symbol'),
             currency=row.get('currency'), secType=row.get('instrument_type'),
-            longName=row.get('company_name')) for symbol, row in candidates.items()}}
+            longName=row.get('long_name',row.get('company_name')),company_name=row.get('company_name'),
+            aliases=row.get('aliases',())) for symbol, row in candidates.items()}}
 
         def connect(self):
             external_call('provider', 'connect')
@@ -450,7 +551,9 @@ try:
                 relative_volume=None, relative_volume_category=None,
                 volume_velocity_5m=row.get('volume_velocity_5m'),
                 volume_velocity_15m=row.get('volume_velocity_15m'),
-                volume_data_quality_flag=None)
+                volume_data_quality_flag=None,
+                historical_outcome=row.get('historical_outcome'),
+                historical_end_received=row.get('historical_end_received'))
 
         def get_float(self, symbol):
             external_call('provider', 'get_float', symbol=symbol)
@@ -482,7 +585,14 @@ try:
     def external_history(*, symbol, timeframe='1m', limit=50, **kwargs):
         external_call('history', 'get_intraday_bars', symbol=symbol,
                       timeframe=timeframe, limit=limit)
-        return list(source_bars.get(timeframe, []))[-limit:] if symbol in candidates else []
+        bars = list(source_bars.get(timeframe, []))[-limit:] if symbol in candidates else []
+        response = facts.get('historical_source_responses', {}).get(timeframe)
+        if response is not None:
+            from src.ibkr.market_data_client import HistoricalDataResult
+            from src.market_data.candidate_identity import CandidateIdentity
+            return HistoricalDataResult(response['status'],tuple(bars),response['end_received'],
+                contract_identity=CandidateIdentity(**response['contract_identity']))
+        return bars
     pattern_trace.get_intraday_bars = external_history
     pattern_trace.historical_data_provider.get_intraday_bars = external_history
     # This availability witness tests only the external fixture boundary.  Its
@@ -591,12 +701,55 @@ try:
             return _method(self, *args, **kwargs)
         setattr(EClient, method_name, observed_sdk)
 
+    owned_quote_reads = set()
     def send_message(message):
-        opcode = str(message).split('\0', 1)[0]
+        fields = str(message).split('\0')
+        opcode = fields[0]
         report['wire_attempts'].append({'opcode': opcode,
             'mutation': opcode in {str(OUT.PLACE_ORDER), str(OUT.CANCEL_ORDER), str(OUT.REQ_GLOBAL_CANCEL)}})
         if report['wire_attempts'][-1]['mutation']:
             raise SyntheticWriteBoundary('COLD_CORE_SYNTHETIC_NATIVE_WRITE_ATTEMPT')
+        if facts.get('observe_pristine_readonly_cycle'):
+            # Only this supplied security's real read encoders reach a memory
+            # transport. The actual Native callbacks retain request ownership.
+            if opcode in {str(OUT.REQ_CONTRACT_DATA),str(OUT.REQ_MKT_DATA)}:
+                request_id = int(fields[2])
+                context = client._request_context_by_req_id.get(request_id,{})
+                symbol = context.get('symbol')
+                row = candidates.get(symbol)
+                expected = ('CONTRACT_DETAILS' if opcode==str(OUT.REQ_CONTRACT_DATA) else 'MARKET_DATA')
+                if row is None or context.get('request_type')!=expected or context.get('con_id') not in (0,row['con_id']):
+                    raise ForbiddenExternalIO('UNSUPPLIED_SYNTHETIC_READ_SCOPE:'+opcode)
+                report['native_read_requests'].append(dict(opcode=opcode,request_id=request_id,
+                    symbol=symbol,request_type=expected,con_id=row['con_id']))
+                if expected=='CONTRACT_DETAILS':
+                    detail=ContractDetails();detail.contract=Contract()
+                    for name,value in dict(symbol=symbol,conId=row['con_id'],exchange=row['exchange'],
+                            currency=row['currency'],secType=row['instrument_type'],localSymbol=row['local_symbol']).items():
+                        setattr(detail.contract,name,value)
+                    detail.longName=row['company_name']
+                    client.contractDetails(request_id,detail)
+                    client.contractDetailsEnd(request_id)
+                else:
+                    owned_quote_reads.add(request_id)
+                    client.marketDataType(request_id,{'LIVE':1,'FROZEN':2,'DELAYED':3,'DELAYED_FROZEN':4}[row['returned_market_data_type']])
+                    for kind,value in ((1,row['bid']),(2,row['ask']),(4,row['last_price']),(9,row['prev_close'])):
+                        client.tickPrice(request_id,kind,value,None)
+                    client.tickSize(request_id,8,row['volume'])
+                    stamp=datetime.fromisoformat(row['quote_timestamp_utc'])
+                    client.tickString(request_id,45,str(int(stamp.timestamp())))
+                    if row['snapshot_complete'] is True:
+                        client.tickSnapshotEnd(request_id)
+                return
+            if opcode==str(OUT.REQ_MARKET_DATA_TYPE):
+                # Actual quote owner selects its request mode before reqMktData.
+                if int(fields[2])!=client._requested_market_data_type_code or not candidates:
+                    raise ForbiddenExternalIO('UNSUPPLIED_SYNTHETIC_READ_MODE')
+                report['native_read_requests'].append(dict(opcode=opcode,request_type='MARKET_DATA_MODE',mode=int(fields[2])))
+                return
+            if opcode==str(OUT.CANCEL_MKT_DATA) and int(fields[2]) in owned_quote_reads:
+                report['native_read_requests'].append(dict(opcode=opcode,request_type='OWNED_MARKET_DATA_CANCEL',request_id=int(fields[2])))
+                return  # Read subscription cleanup, never an order cancellation.
         raise ForbiddenExternalIO('UNSUPPLIED_SYNTHETIC_PROVIDER_REQUEST:' + opcode)
     client.sendMsg = send_message
     EClient.connect = no_network
@@ -629,6 +782,41 @@ try:
             'client': type(client).__module__ + '.' + type(client).__name__}
     report['database_after_constructor'] = database_snapshot()
     report['native_after_constructor'] = native_namespace(report['database_after_constructor'])
+    if report['constructor_complete'] and facts.get('observe_pristine_readonly_cycle'):
+        report['registry_evaluations'] = []
+        report['decision_artifacts'] = []
+        report['risk_evaluations'] = []
+        report['focus_selections'] = []
+        for strategy in core.strategy_runner.strategies:
+            registry = getattr(strategy, '_pattern_registry', None)
+            if registry is None:
+                continue
+            actual_registry_run = registry.run
+            def observed_registry(inputs, _actual=actual_registry_run, **kwargs):
+                result = _actual(inputs, **kwargs)
+                report['registry_evaluations'].append(plain(dict(
+                    result_count=len(result), results=result, source=inputs)))
+                return result
+            registry.run = observed_registry
+        actual_artifact_builder = core_module.build_decision_artifact
+        def observed_artifact(**kwargs):
+            artifact = actual_artifact_builder(**kwargs)
+            report['decision_artifacts'].append(plain(artifact))
+            return artifact
+        core_module.build_decision_artifact = observed_artifact
+        actual_risk = core.risk_engine.evaluate_trade_intent
+        def observed_risk(intent, *args, **kwargs):
+            decision = actual_risk(intent, *args, **kwargs)
+            report['risk_evaluations'].append(dict(intent=plain(intent), decision=plain(decision)))
+            return decision
+        core.risk_engine.evaluate_trade_intent = observed_risk
+        actual_focus = scanner_runner._select_ross_focus_contexts
+        def observed_focus(contexts, news, thresholds, **kwargs):
+            result = actual_focus(contexts, news, thresholds, **kwargs)
+            report['focus_selections'].append(dict(contexts=plain(contexts), news=plain(news),
+                selected=plain(result)))
+            return result
+        scanner_runner._select_ross_focus_contexts = observed_focus
     if report['constructor_complete']:
         def run_actual_cycle(scenario_name=None, scenario_cycle=None):
             index = len(report['cycles']) + 1
@@ -687,6 +875,18 @@ try:
 except BaseException as exc:
     report['harness_exception'] = exception_record(exc)
 finally:
+    if core is not None and facts.get('observe_pristine_readonly_cycle'):
+        try:
+            if (core.run_mode.value != 'READ_ONLY' or core.trade_registry.snapshot()
+                    or native_namespace(report.get('database_before', {})) is not None):
+                raise RuntimeError('PRISTINE_ONLY_SHUTDOWN_PRECONDITION_FAILED')
+            from src.core.stop_controller import StopMode
+            core._shutdown(StopMode.GRACEFUL)
+            report['cleanup']['core_shutdown_evidence'] = plain(core.shutdown_evidence.payload())
+            report['cleanup']['core_shutdown_complete'] = all(row['completed']
+                for row in core.shutdown_evidence.hooks)
+        except BaseException as exc:
+            report['cleanup']['core_shutdown_exception'] = exception_record(exc)
     # No synthetic flat/terminal outcome and no reservation/latch clearing.
     # Close only this interpreter's external connection and owned DB handle.
     try:
@@ -712,6 +912,8 @@ finally:
         report['database_final'] = database_snapshot()
     except BaseException as exc:
         report['snapshot_exception'] = exception_record(exc)
+    sys.setprofile(globals().get('previous_profile'))
+    threading.setprofile(globals().get('previous_thread_profile'))
     Path(report_path).write_text(json.dumps(plain(report), sort_keys=True, default=str), encoding='utf-8')
 '''
 
@@ -742,7 +944,10 @@ def run_native_core_cold_start(database_path, facts_path, evidence_dir, *,
     prep.write_text(json.dumps({'symbols': [], 'source': 'OFFLINE_EMPTY_FIXTURE'}), encoding='utf-8')
     report_path = evidence_dir / 'child-report.json'
     report_path.unlink(missing_ok=True)
-    env = dict(os.environ, PYTHONPATH=str(Path(__file__).resolve().parents[1]),
+    repository_root = Path(__file__).resolve().parents[1]
+    offline_root = repository_root / 'tests' / 'offline'
+    env = dict(os.environ, PYTHONPATH=os.pathsep.join((str(offline_root), str(repository_root))),
+        COLD_CORE_EXPECTED_OFFLINE_GUARD=str((offline_root / 'sitecustomize.py').resolve()),
         EXECUTION_ENV='TEST', PERSISTENCE_SQLITE_PATH=str(database_path),
         IBKR_ORDER_ID_STATE_PATH=str(sandbox / 'order-state.json'),
         IBKR_GUARD_PERSIST_PATH=str(sandbox / 'submission-guard.json'),
@@ -796,3 +1001,80 @@ def run_native_core_cold_start(database_path, facts_path, evidence_dir, *,
     (evidence_dir / 'supervised-report.json').write_text(
         json.dumps(report, sort_keys=True, default=str), encoding='utf-8')
     return report
+
+
+
+def test_native_core_child_absolute_offline_guard_blocks_fake_backends(monkeypatch, tmp_path):
+    """Exercise captured child env using fake backends; never call networking."""
+    import json, os, subprocess, sys
+    import pytest
+    captured = {}
+    class CapturedEnvironment(BaseException):
+        pass
+    def capture_process(*args, **kwargs):
+        captured.update(kwargs['env'])
+        raise CapturedEnvironment()
+    facts = tmp_path / 'guard-facts.json'
+    facts.write_text('{}')
+    with monkeypatch.context() as context:
+        context.setattr(subprocess, 'Popen', capture_process)
+        with pytest.raises(CapturedEnvironment):
+            run_native_core_cold_start(tmp_path / 'never-opened.sqlite3', facts, tmp_path / 'capture-env')
+    backends = tmp_path / 'fake-backends'
+    backends.mkdir()
+    (backends / 'socket.py').write_text("""import sys
+calls=[]
+class socket:
+    def connect(self, address):
+        sys.audit('socket.connect', self, address)
+        calls.append('connect')
+    def connect_ex(self, address):
+        sys.audit('socket.connect_ex', self, address)
+        calls.append('connect_ex')
+    def sendto(self, data, address):
+        sys.audit('socket.sendto', self, data, address)
+        calls.append('sendto')
+def getaddrinfo(*args):
+    sys.audit('socket.getaddrinfo', *args)
+    calls.append('getaddrinfo')
+def create_connection(address):
+    socket().connect(address)
+""")
+    (backends / 'curl_cffi.py').write_text("""calls=[]
+class Curl:
+    def perform(self):
+        calls.append('native_curl')
+class AsyncCurl:
+    def add_handle(self, handle):
+        calls.append('async_curl')
+""")
+    script = """import json, socket, sys
+from curl_cffi import Curl, AsyncCurl
+calls={'dns':lambda:socket.getaddrinfo('fixture.invalid',1),
+       'connect':lambda:socket.socket().connect(('fixture.invalid',1)),
+       'connect_ex':lambda:socket.socket().connect_ex(('fixture.invalid',1)),
+       'create_connection':lambda:socket.create_connection(('fixture.invalid',1)),
+       'udp':lambda:socket.socket().sendto(b'x',('fixture.invalid',1)),
+       'curl':lambda:Curl.perform(None),
+       'async_curl':lambda:AsyncCurl.add_handle(None,None)}
+denied=[]
+for name,call in calls.items():
+    try:call()
+    except OSError:denied.append(name)
+import curl_cffi
+print(json.dumps({'denied':denied,'socket_backend_calls':socket.calls,
+ 'curl_backend_calls':curl_cffi.calls,
+ 'guard_file':getattr(sys.modules.get('sitecustomize'),'__file__',None)}))
+"""
+    env = dict(captured)
+    env['PYTHONPATH'] = str(backends) + os.pathsep + env['PYTHONPATH']
+    child = subprocess.run([sys.executable, '-c', script], cwd=backends, env=env,
+        text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10)
+    assert child.returncode == 0, child.stderr
+    result = json.loads(child.stdout)
+    (tmp_path / 'offline-backend-proof.json').write_text(json.dumps(result, indent=2))
+    assert result['socket_backend_calls'] == [] and result['curl_backend_calls'] == [], result
+    assert set(result['denied']) == {'dns','connect','connect_ex','create_connection','udp','curl','async_curl'}, result
+    root = Path(__file__).resolve().parents[1]
+    assert Path(result['guard_file']).resolve() == root / 'tests' / 'offline' / 'sitecustomize.py'
+    assert captured['PYTHONPATH'].split(os.pathsep)[0] == str(root / 'tests' / 'offline')

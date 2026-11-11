@@ -5,6 +5,12 @@ from types import SimpleNamespace as NS
 from dataclasses import replace
 import pytest
 from ibapi.contract import Contract, ContractDetails
+from ibapi.client import EClient
+
+# Preserve the real READ encoders before function-scoped forbidden-I/O guards.
+# Only the new disconnected quote fixture binds them behind synthetic sendMsg.
+_NATIVE_QUOTE_CONTRACT_ENCODER = EClient.reqContractDetails
+_NATIVE_QUOTE_MARKET_ENCODER = EClient.reqMktData
 from src.config import config_resolver
 from test_standalone_pmh_late_fill_protection import (small_central_owned,one_share_profit_case,
     enroll_unit_management,fill_unit_ids,reassessment,lifecycle,forbid_io,no_external_activity,_reset_config)
@@ -1411,3 +1417,156 @@ def test_full_core_child_failure_and_timeout_are_owned_and_reaped(reassessment,m
     # OS process exit releases the child's handles; verify the DB is unlocked.
     with sqlite3.connect(database,timeout=1) as db:
         db.execute('BEGIN IMMEDIATE');db.rollback()
+
+
+
+
+def _pristine_native_quote_facts(h, monkeypatch, row):
+    """Actual SDK encoders/callback owners; only read transport is synthetic."""
+    from dataclasses import asdict
+    from ibapi.message import OUT
+    from src.adapters.brokers.ibkr import ibkr_client as native_module
+    from src.ibkr import market_data_client as source_quote_module
+    from test_news_catalyst_lifecycle_audit import CANDIDATE
+    native = native_module.IbkrClient('offline.invalid', 1, 999, 1, 'LIVE', True)
+    native.isConnected = lambda: True
+    native.serverVersion = lambda: 180  # Supplied synthetic SDK handshake; no connection.
+    native.managedAccounts('SYNTHETIC_TEST')
+    native.nextValidId(1000)
+    transport = []
+    supplied = ContractDetails()
+    supplied.contract = Contract()
+    for key,value in dict(symbol='JPM',conId=123,exchange='SMART',currency='USD',secType='STK',localSymbol='JPM').items():
+        setattr(supplied.contract,key,value)
+    supplied.longName = CANDIDATE.company_name
+    def read_transport(message):
+        fields = message.split('\0')
+        opcode = int(fields[0])
+        transport.append(opcode)
+        if opcode == OUT.REQ_CONTRACT_DATA:
+            req_id = int(fields[2])
+            native.contractDetails(req_id, supplied)
+            native.contractDetailsEnd(req_id)
+        elif opcode == OUT.REQ_MKT_DATA:
+            req_id = int(fields[2])
+            native.marketDataType(req_id,1)
+            for kind,value in ((1,row['bid']),(2,row['ask']),(4,row['last_price']),
+                    (9,row['prev_close'])):
+                native.tickPrice(req_id,kind,value,None)
+            native.tickSize(req_id,8,row['volume'])
+            stamp = __import__('datetime').datetime.fromisoformat(row['quote_timestamp_utc'])
+            native.tickString(req_id,45,str(int(stamp.timestamp())))
+            native.tickSnapshotEnd(req_id)
+        elif opcode not in (OUT.REQ_MARKET_DATA_TYPE, OUT.CANCEL_MKT_DATA):
+            raise AssertionError('Unprovided or mutating source quote request: '+str(opcode))
+    native.sendMsg = read_transport
+    with monkeypatch.context() as context:
+        context.setattr(native_module,'datetime',h.life.clock)
+        context.setattr(source_quote_module,'datetime',h.life.clock)
+        context.setattr(native,'reqContractDetails',_NATIVE_QUOTE_CONTRACT_ENCODER.__get__(native))
+        context.setattr(EClient,'reqMktData',_NATIVE_QUOTE_MARKET_ENCODER)
+        snapshot = native.get_market_snapshot('JPM')
+    assert snapshot.returned_market_data_type == 'LIVE' and snapshot.market_data_type_confirmed
+    assert snapshot.snapshot_complete and snapshot.market_timestamp_utc.isoformat() == row['quote_timestamp_utc']
+    assert snapshot.last == 10.53 and snapshot.close == 9.4
+    return asdict(snapshot), dict(company_name=supplied.longName,long_name=supplied.longName,
+        aliases=CANDIDATE.aliases,con_id=supplied.contract.conId,exchange=supplied.contract.exchange,
+        currency=supplied.contract.currency,instrument_type=supplied.contract.secType,
+        local_symbol=supplied.contract.localSymbol), transport
+
+def test_pristine_fresh_process_first_cycle_reaches_actual_readonly_risk(
+        reassessment, monkeypatch, tmp_path, capsys, no_external_activity, runtime_schema_template):
+    """New process proof; no retained native permission or prepared decision."""
+    import json, shutil
+    from test_joined_core_pmh_readonly import pmh_joined
+    from test_startup_recovery_and_stop_protection import run_native_core_cold_start
+    h = pmh_joined(reassessment, monkeypatch, tmp_path / 'external-facts', position_case='complete_empty')
+    from src.strategies.ross_momentum.patterns import pattern_trace
+    from src.scanner import scanner_runner
+    from test_ross_pr1051_readonly_catalyst_wiring import _RuntimeProvider
+    from src.utils.time_utils import to_ny_time
+    # These are independently supplied existing fixture facts, never inverted
+    # from a desired percentage/RVOL score: PMH PAPER's previous9.4 and the
+    # PR1051 external provider's explicit ADV200000/window20.
+    external_rows = deepcopy(h.rows)
+    raw_provider = _RuntimeProvider([dict(symbol='JPM',last=10.53,prev_close=9.4,
+        bid=10.52,ask=10.54,volume=2_000_000,avg_volume=200_000,float_shares=8_000_000)])
+    quote = h.c.provider.refresh_quote('JPM')
+    row = external_rows['JPM']
+    adv,window = raw_provider.get_average_daily_volume('JPM',20)
+    stats = raw_provider.get_intraday_stats('JPM')
+    row.update(prev_close=raw_provider.get_previous_rth_close('JPM'),
+        ref_close_rth=raw_provider.get_previous_rth_close('JPM'),
+        current_intraday_volume=stats.current_intraday_volume,
+        average_daily_volume_20d=adv,average_daily_volume_window_days=window,
+        historical_outcome=stats.historical_outcome,historical_end_received=stats.historical_end_received,
+        quote_timestamp_utc=quote.timestamp_utc,quote_timestamp_source=quote.timestamp_source)
+    snapshot,identity,quote_transport = _pristine_native_quote_facts(h,monkeypatch,row)
+    row.update(identity)
+    row.update(close=snapshot['close'],requested_market_data_type=snapshot['requested_market_data_type'],
+        returned_market_data_type=snapshot['returned_market_data_type'],
+        market_data_type_confirmed=snapshot['market_data_type_confirmed'],
+        received_at_utc=snapshot['received_at_utc'],
+        market_data_type_received_at_utc=snapshot['market_data_type_received_at_utc'],
+        snapshot_complete=snapshot['snapshot_complete'],request_id=snapshot['request_id'])
+    metadata = scanner_runner._news_symbol_metadata_for_contexts([dict(symbol='JPM',**identity)])
+    candidates = scanner_runner._news_candidates_for_symbols(['JPM'],metadata)
+    # Regenerate the receipt with the actual service and raw provider; do not
+    # hand-author a profile matching the future consumer.
+    h.life.service.get_news(candidates,h.life.request,h.life.policy)
+    cache = json.loads(h.life.store.cache_path.read_text())
+    bucket = cache['news_intelligence']['symbols']['JPM']
+    local_clock = to_ny_time(h.life.clock.current)
+    pre_limit = max(2,min(722,int((local_clock-local_clock.replace(hour=4,minute=0,second=0,microsecond=0)).total_seconds()//60)+2))
+    history = {tf:pattern_trace.get_intraday_bars(symbol='JPM',timeframe=tf,
+        limit=pre_limit if tf=='1m' else len(bars)) for tf,bars in h.streams.items()}
+    database = tmp_path / 'pristine-first-cycle.sqlite3'
+    shutil.copyfile(runtime_schema_template, database)
+    facts = dict(observe_pristine_readonly_cycle=True,
+        now=h.life.clock.current.isoformat(), account='SYNTHETIC_TEST', client_id=999,
+        positions=[], open_orders=[], cycles=1,
+        candidate_observations=external_rows,
+        source_timeframe_bars={tf: [vars(bar) for bar in response.bars] for tf,response in history.items()},
+        historical_source_responses={tf:dict(status=response.status,end_received=response.end_received,
+            contract_identity=__import__('dataclasses').asdict(response.contract_identity)) for tf,response in history.items()},
+        external_quote_snapshots={'JPM':snapshot},source_quote_transport=quote_transport,
+        news_evidence={'JPM': bucket['evidence']},
+        news_last_retrieval={'JPM': bucket['last_retrieval']},
+        config=dict(RUN_MODE='READ_ONLY', RUN_MODE_EFFECTIVE='READ_ONLY',
+            EXECUTION_ENABLED=False, IBKR_READONLY_ENABLED=True,
+            IBKR_ORDER_SUBMISSION_ENABLED=False, IBKR_API_WRITE_ALLOWED=False,
+            NEWS_ENABLED=True, ROSS_ISSUER_QUERY_ENABLED=True,
+            SCANNER_DATA_SOURCE='IBKR', LIVE_EXECUTION_PROBE_MODE=False))
+    path = tmp_path / 'pristine-first-cycle-facts.json'
+    path.write_text(json.dumps(facts, default=str))
+    report = run_native_core_cold_start(database, path, tmp_path / 'pristine-first-cycle-child')
+    summary = {key: report.get(key) for key in ('constructor_exception', 'harness_exception',
+        'cycle_exception', 'stage', 'supervisor', 'evidence_dir')}
+    assert report.get('constructor_complete') and report.get('cycle_attempted'), summary
+    assert report['cycle_result'] is True and not report.get('cycle_exception'), summary
+    assert not report.get('harness_exception'), summary
+    assert report['native_before'] is report['native_after_constructor'] is report['native_after_cycle'] is None
+    assert report['after_cycle']['capital_reservations'] == {}
+    assert report['after_cycle']['allocation_reservations'] == {}
+    assert not report['sdk_attempts'] and not any(row['mutation'] for row in report['wire_attempts']), summary
+    assert report['native_read_requests'] and len(report['native_read_requests'])==len(report['wire_attempts']), summary
+    assert not report['network_attempts'] and not report.get('native_curl_denials'), summary
+    assert not report.get('capital_enrollment_attempts'), summary
+    assert report.get('registry_evaluations') and all(row['result_count'] == 33
+        for row in report['registry_evaluations']), summary
+    assert report.get('decision_artifacts'), summary
+    assert len(report.get('risk_evaluations', [])) == 1, summary
+    assessed = report['risk_evaluations'][0]
+    decision, intent = assessed['decision'], assessed['intent']
+    artifact = report['decision_artifacts'][0]
+    assert decision['reason_code'] == 'LIVE_READ_ONLY_BLOCK' and decision['allowed'] is False, summary
+    assert decision['timestamp'] == intent['timestamp_utc'] == artifact['created_at'] == facts['now']
+    assert decision['evaluated_limits']['session'] == 'RTH'
+    assert decision['evaluated_limits']['prep_only'] is False
+    assert artifact['session_phase'] == 'OPENING_0_30'
+    assert decision['decision_id'] == intent['decision_id'] == artifact['decision_id']
+    assert intent['take_profit_price'] is None
+    assert report['supervisor']['reaped'] and not report['supervisor']['timed_out']
+    assert report['cleanup']['live_threads'] == []
+    assert report['cleanup']['core_shutdown_complete'] is True, report['cleanup']
+    assert no_external_activity==[]
