@@ -137,6 +137,7 @@ def test_ibkr_callbacks_emit_order_observability_logs(capsys: pytest.CaptureFixt
 
     client = IbkrClient.__new__(IbkrClient)
     client._lock = threading.Lock()
+    client._position_connection_epoch = 0  # Explicit synthetic callback generation.
     client._position_queries = {}
     client.NON_REJECTING_ORDER_WARNING_CODES = {2109}
     client._errors = {}

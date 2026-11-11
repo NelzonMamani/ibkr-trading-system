@@ -4359,7 +4359,7 @@ def test_native_canonical_becoming_unavailable_after_entry_preflight_blocks_actu
     finally:teardown_unsent_fixture(h,no_external_activity)
 
 
-@pytest.mark.parametrize('limit,blocked',[(.24,True),(.25,True),(.26,False)])
+@pytest.mark.parametrize('limit,blocked',[(.20,True),(.24,True),(.25,True),(.26,False)])
 def test_native_accounted_loss_reaches_actual_canonical_daily_limit(reassessment,monkeypatch,tmp_path,
         capsys,no_external_activity,limit,blocked):
     import json
@@ -4554,4 +4554,66 @@ def test_native_partial_stop_loss_reaches_daily_limit_before_final_flat(
             h.life.clock.current+=timedelta(seconds=1);assert h.core.run_once();capsys.readouterr()
         assert life.exited_qty==2 and len(h.core.storage_engine.fetch_trade_lifecycle_events())==3
         assert engine.capital_authority.total_used_exposure==0 and not h.manager.snapshot_positions()
+    finally:teardown_unsent_fixture(h,no_external_activity)
+
+
+def test_native_exit_before_authoritative_first_entry_time_vetoes_canonical_day_attribution(
+        reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    from datetime import datetime
+    h=late_pmh(reassessment,monkeypatch,tmp_path,fill_price=10.53)
+    try:
+        request=acknowledge(h,capsys)
+        deliver_native_execution(h,native_id=71,execution_id='causal-entry',side='BOT',quantity=1,
+            cumulative=1,price=10.53,average=10.53,timestamp=datetime(2026,10,20,13,35,42,tzinfo=timezone.utc))
+        life=confirm_selected_fill(h,request,capsys,family='PREMARKET_HIGH_BREAK',fill_price=10.53,
+            stop_price=request.stop_loss_price)
+        external_stop_facts(h,life)
+        deliver_native_execution(h,native_id=72,execution_id='impossible-earlier-stop',side='SLD',quantity=1,
+            cumulative=1,price=10.28,average=10.28,timestamp=datetime(2026,10,19,13,35,53,tzinfo=timezone.utc))
+        for _ in range(2):
+            assert h.core.run_once();capsys.readouterr();h.life.clock.current+=timedelta(seconds=1)
+        engine=h.core.execution_engine
+        canonical=h.core.trade_lifecycle_engine.get_trade(request.client_order_id)
+        assert canonical.quantity_open==1 and canonical.gross_realized_pnl==0 and canonical.closed_at is None
+        assert len(h.core.storage_engine.fetch_trade_lifecycle_events())==1
+        assert life.filled_qty==0 and life.exited_qty==1 and life.realized_pnl==pytest.approx(-.25)
+        assert not h.manager.snapshot_positions() and not h.core.trade_registry.snapshot()
+        assert engine.capital_authority.total_used_exposure==0 and not engine._native_quarantined
+        assert engine._native_feedback_blocks_new_entries()
+        assert not h.core._daily_risk_allows_new_entries(cycle_started_at=h.life.clock.current);capsys.readouterr()
+        assert not h.core.daily_risk_governor.state.recovered
+        assert len(h.sent_native)==len(h.stop_requests)==1
+    finally:teardown_unsent_fixture(h,no_external_activity)
+
+
+def test_native_required_unrealized_mark_absence_is_entry_veto_not_factual_zero(
+        reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    from datetime import datetime
+    from src.config import config_resolver
+    h=late_pmh(reassessment,monkeypatch,tmp_path,fill_price=10.53)
+    try:
+        request=acknowledge(h,capsys)
+        deliver_native_execution(h,native_id=71,execution_id='unmarked-entry',side='BOT',quantity=1,
+            cumulative=1,price=10.53,average=10.53,timestamp=datetime(2026,10,20,13,35,42,tzinfo=timezone.utc))
+        life=confirm_selected_fill(h,request,capsys,family='PREMARKET_HIGH_BREAK',fill_price=10.53,
+            stop_price=request.stop_loss_price)
+        canonical=h.core.trade_lifecycle_engine.get_trade(request.client_order_id)
+        assert canonical.quantity_open==1 and canonical.last_mark_price is None
+        assert h.core.trade_lifecycle_engine.native_feedback_snapshot()['available']
+        config_resolver.set_config_overrides(dict(config_resolver._CONFIG_OVERRIDES,
+            DAILY_RISK_GOVERNOR_ENABLED=True,DAILY_RISK_INCLUDE_UNREALIZED=True,DAILY_RISK_MAX_LOSS_AMOUNT=.20))
+        assert not h.core._daily_risk_allows_new_entries(cycle_started_at=h.life.clock.current);capsys.readouterr()
+        decision=h.core.daily_risk_governor.last_decision
+        assert decision.status.value=='MANAGED_ONLY' and not h.core.daily_risk_governor.state.recovered
+        assert 'NATIVE_UNREALIZED_VALUATION_UNAVAILABLE' in decision.reason
+        assert h.core.execution_engine._native_feedback_blocks_new_entries()
+        assert decision.allows_existing_position_management and canonical.gross_realized_pnl==0
+        assert life.filled_qty==1 and len(h.sent_native)==len(h.stop_requests)==1
+        assert h.core.execution_engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
+        # The existing option is OFF by default. Its explicit exclusion retains
+        # the fully available realized-only contract; no mark was fabricated.
+        config_resolver.set_config_overrides(dict(config_resolver._CONFIG_OVERRIDES,DAILY_RISK_INCLUDE_UNREALIZED=False))
+        assert h.core._daily_risk_allows_new_entries(cycle_started_at=h.life.clock.current);capsys.readouterr()
+        assert canonical.last_mark_price is None and h.core.daily_risk_governor.state.recovered
+        assert not h.core.execution_engine._native_feedback_blocks_new_entries()
     finally:teardown_unsent_fixture(h,no_external_activity)

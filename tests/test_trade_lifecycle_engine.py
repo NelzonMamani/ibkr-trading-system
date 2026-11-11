@@ -773,3 +773,121 @@ def test_native_pair_rejects_independent_snapshot_drift_without_overwrite(native
     assert snapshot['uncertain'] and not snapshot['available']
     with pytest.raises(RuntimeError, match='UNCERTAIN'):
         _apply_native(engine, exit_event, child, 1)
+
+
+def test_native_exit_before_earliest_entry_is_unavailable_without_application(native_lifecycle):
+    engine, storage = native_lifecycle
+    entry, identity = _native_event('entry', 'ENTRY_FILL', 1, 10.5,
+        timestamp='2026-10-20T13:35:00+00:00')
+    _apply_native(engine, entry, identity, 0)
+    exit_event, child = _native_event('exit-before-entry', 'STOP_EXIT', 1, 10.25,
+        native_id=72, timestamp='2026-10-19T13:35:00+00:00')
+    error = None
+    try:
+        _apply_native(engine, exit_event, child, 1)
+    except ValueError as exc:
+        error = exc
+    trade = engine.get_trade('NATIVE-ROOT')
+    observed = dict(quantity=trade.quantity_open, pnl=trade.gross_realized_pnl,
+        closed_at=trade.closed_at, persisted_events=storage.fetch_trade_lifecycle_events())
+    assert error is not None and str(error) == 'NATIVE_LIFECYCLE_EXIT_BEFORE_ENTRY', observed
+    assert trade.quantity_open == 1 and trade.gross_realized_pnl == 0 and trade.closed_at is None
+    assert len(storage.fetch_trade_lifecycle_events()) == 1
+    snapshot = engine.native_feedback_snapshot()
+    assert snapshot['uncertain'] and not snapshot['available']
+    assert snapshot['events'][0]['event_type'] == 'ENTRY_FILL'
+
+
+@pytest.mark.parametrize('case', ['equal_to_earliest', 'equal_to_latest_entry'])
+def test_native_entry_time_bound_preserves_equal_exit(native_lifecycle, case):
+    engine, storage = native_lifecycle
+    entry, identity = _native_event('entry-first', 'ENTRY_FILL', 1, 10.5,
+        timestamp='2026-10-20T13:35:00+00:00')
+    _apply_native(engine, entry, identity, 0)
+    quantity_before = 1
+    timestamp = entry.timestamp
+    if case == 'equal_to_latest_entry':
+        later_entry, identity = _native_event('entry-later', 'ENTRY_FILL', 1, 10.75,
+            timestamp='2026-10-20T13:36:00+00:00')
+        _apply_native(engine, later_entry, identity, 1)
+        quantity_before = 2
+        timestamp = later_entry.timestamp
+    exit_event, child = _native_event('exit', 'STOP_EXIT', 1, 10.25,
+        native_id=72, timestamp=timestamp)
+    trade = _apply_native(engine, exit_event, child, quantity_before)
+    snapshot = engine.native_feedback_snapshot()
+    assert snapshot['available'] and trade.quantity_open == quantity_before - 1
+    assert snapshot['events'][-1]['timestamp'] == timestamp
+    assert len(storage.fetch_trade_lifecycle_events()) == quantity_before + 1
+
+
+@pytest.mark.parametrize('direction', ['exit_before_later_entry', 'entry_before_committed_exit'])
+def test_native_cross_type_chronology_cannot_apply_an_unknown_historical_basis(native_lifecycle, direction):
+    engine, storage = native_lifecycle
+    first, identity = _native_event('entry-first', 'ENTRY_FILL', 1, 10.75,
+        timestamp='2026-10-20T13:35:00+00:00')
+    _apply_native(engine, first, identity, 0)
+    if direction == 'exit_before_later_entry':
+        later, identity = _native_event('entry-later', 'ENTRY_FILL', 1, 10.5,
+            timestamp='2026-10-20T13:36:00+00:00')
+        _apply_native(engine, later, identity, 1)
+        event, binding = _native_event('cross-exit', 'STOP_EXIT', 1, 10.6,
+            native_id=72, timestamp='2026-10-20T13:35:30+00:00')
+        quantity_before = 2
+    else:
+        prior_exit, child = _native_event('exit-first', 'STOP_EXIT', 1, 10.6,
+            native_id=72, timestamp='2026-10-20T13:35:30+00:00')
+        _apply_native(engine, prior_exit, child, 1)
+        event, binding = _native_event('cross-entry', 'ENTRY_FILL', 1, 10.5,
+            timestamp='2026-10-20T13:35:20+00:00')
+        quantity_before = 0
+    trade = engine.get_trade('NATIVE-ROOT')
+    prior = (trade.quantity_open, trade.gross_realized_pnl, trade.entry_avg_price, trade.closed_at)
+    error = None
+    try:
+        _apply_native(engine, event, binding, quantity_before)
+    except ValueError as exc:
+        error = exc
+    observed = dict(prior=prior, quantity=trade.quantity_open, pnl=trade.gross_realized_pnl,
+        entry_avg_price=trade.entry_avg_price, closed_at=trade.closed_at,
+        persisted_events=storage.fetch_trade_lifecycle_events())
+    assert error is not None and str(error) == 'NATIVE_LIFECYCLE_CROSS_FILL_CHRONOLOGY_UNAVAILABLE', observed
+    assert (trade.quantity_open, trade.gross_realized_pnl, trade.entry_avg_price, trade.closed_at) == prior
+    assert event.event_id not in engine._event_ids_seen
+    assert len(storage.fetch_trade_lifecycle_events()) == 2
+    snapshot = engine.native_feedback_snapshot()
+    assert snapshot['uncertain'] and not snapshot['available']
+
+
+def test_native_out_of_order_entries_before_any_exit_keep_weighted_basis(native_lifecycle):
+    engine, storage = native_lifecycle
+    later, identity = _native_event('entry-later', 'ENTRY_FILL', 1, 10.75,
+        timestamp='2026-10-20T13:36:00+00:00')
+    _apply_native(engine, later, identity, 0)
+    earlier, identity = _native_event('entry-earlier', 'ENTRY_FILL', 1, 10.5,
+        timestamp='2026-10-20T13:35:00+00:00')
+    trade = _apply_native(engine, earlier, identity, 1)
+    assert trade.quantity_open == 2 and trade.entry_avg_price == 10.625 and trade.gross_realized_pnl == 0
+    assert trade.opened_at == earlier.timestamp and trade.stop_price == 10. and trade.target_price is None
+    assert engine.native_feedback_snapshot()['available']
+    assert len(storage.fetch_trade_lifecycle_events()) == 2
+
+
+def test_native_entry_equal_to_prior_exit_retains_existing_coarse_time_order(native_lifecycle):
+    engine, _ = native_lifecycle
+    first, identity = _native_event('entry-first', 'ENTRY_FILL', 1, 10.75,
+        timestamp='2026-10-20T13:35:00+00:00')
+    _apply_native(engine, first, identity, 0)
+    exit_event, child = _native_event('exit-first', 'STOP_EXIT', 1, 10.6,
+        native_id=72, timestamp='2026-10-20T13:35:30+00:00')
+    trade = _apply_native(engine, exit_event, child, 1)
+    prior_pnl = trade.gross_realized_pnl
+    entry, identity = _native_event('entry-remainder', 'ENTRY_FILL', 1, 10.5,
+        timestamp=exit_event.timestamp)
+    _apply_native(engine, entry, identity, 0)
+    # Equal broker timestamps preserve the established arrival/accounting order;
+    # this control supplies no finer physical-order or broker certification.
+    assert trade.quantity_open == 1 and trade.entry_avg_price == 10.5
+    assert trade.gross_realized_pnl == prior_pnl and trade.closed_at is None
+    assert trade.stop_price == 10. and trade.target_price is None
+    assert engine.native_feedback_snapshot()['available']

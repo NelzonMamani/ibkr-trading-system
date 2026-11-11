@@ -532,8 +532,23 @@ class DailyRiskGovernor:
                 payloads = self._canonical_daily_payloads(snapshot, trading_day, available=available)
                 metrics = self._metrics_from_trade_payloads(payloads, read_attempted=True, canonical=True)
                 failed = required and (not available or pending or uncertain)
+                include_unrealized = self._bool_config("DAILY_RISK_INCLUDE_UNREALIZED", False)
+                if not failed and required and include_unrealized and snapshot.get("native_unrealized_marks_present") is not True:
+                    # This shared owner flag detects absence/invalidity only;
+                    # it does not certify price freshness or mark provenance.
+                    return replace(metrics, read_failed=True, required_accounting=True,
+                        failure_reason="NATIVE_UNREALIZED_VALUATION_UNAVAILABLE")
+                raw_unrealized = snapshot.get("unrealized_pnl", 0.0)
+                try:
+                    unrealized = self._finite_number(raw_unrealized)
+                except (TypeError, ValueError):
+                    if include_unrealized:
+                        raise
+                    # Excluded valuation cannot erase committed realized data.
+                    # include_unrealized=False makes this an ignored projection.
+                    unrealized = 0.0
                 return replace(metrics,
-                    unrealized_pnl=self._finite_number(snapshot.get("unrealized_pnl", 0.0)),
+                    unrealized_pnl=unrealized,
                     required_accounting=required or metrics.required_accounting,
                     read_failed=failed,
                     failure_reason=("NATIVE_FEEDBACK_UNCERTAIN" if uncertain else "NATIVE_FEEDBACK_PENDING" if pending else "NATIVE_FEEDBACK_UNAVAILABLE") if failed else None)
@@ -842,9 +857,12 @@ class DailyRiskGovernor:
                 summaries.append(row)
         adjustments = 0.0
         day_adjustments = 0.0
+        net_coverage: set[int] = set()
         for index, rows in per_fill.items():
             event = native["_exits"][index]
-            value, _ = self._overlap_pnl(rows, event["pnl"])
+            value, is_net = self._overlap_pnl(rows, event["pnl"])
+            if is_net:
+                net_coverage.add(index)
             adjustment = value-event["pnl"]
             adjustments += adjustment
             if trading_day is None or self.trading_day_for(event["timestamp"]) == trading_day:
@@ -856,6 +874,11 @@ class DailyRiskGovernor:
         if not native["_closed"]:
             raise ValueError("NATIVE_OPEN_TRADE_HAS_CLOSED_OUTCOME")
         outcome, is_net = self._overlap_pnl(summaries, native["_all_pnl"])
+        if (is_net and native["_exits"] and len(net_coverage) == len(native["_exits"])
+                and round(outcome, 2) != round(native["_terminal_pnl"], 2)):
+            # Both sources now describe the complete NET result.  Summary
+            # precedence over gross facts cannot override this contradiction.
+            raise ValueError("NATIVE_NET_SUMMARY_CONFLICT")
         if len(native["_exit_days"]) > 1:
             expected = native["_terminal_pnl"] if is_net else native["_all_pnl"]
             if round(outcome, 2) != round(expected, 2):

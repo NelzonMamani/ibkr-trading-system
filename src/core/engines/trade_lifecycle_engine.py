@@ -389,11 +389,26 @@ class TradeLifecycleEngine:
                     or (not metadata["terminal"] and (trade.status not in OPEN_STATUSES or trade.closed_at is not None))):
                 conflict = "NATIVE_LIFECYCLE_SNAPSHOT_CONFLICT"
                 break
+        native_marks_present = True
+        for root in latest:
+            trade = self._trades.get(root)
+            if trade is None:
+                native_marks_present = False
+            elif trade.quantity_open > 0:
+                try:
+                    mark = trade.last_mark_price
+                    if (mark is None or isinstance(mark, bool)
+                            or not math.isfinite(float(mark)) or float(mark) <= 0):
+                        native_marks_present = False
+                except (TypeError, ValueError, OverflowError):
+                    native_marks_present = False
         return {"required": self._native_feedback_required,
             "available": not pending and not uncertain and self._native_feedback_fault is None and conflict is None,
             "pending": pending, "uncertain": uncertain, "reason": self._native_feedback_fault or conflict,
             "events": [asdict(event) for event in committed],
             "trades": [asdict(trade) for trade in self._trades.values()],
+            # Absence barrier only: price presence does not certify freshness.
+            "native_unrealized_marks_present": native_marks_present,
             "unrealized_pnl": sum(float(trade.unrealized_pnl) for trade in self.open_trades())}
 
     @staticmethod
@@ -483,6 +498,18 @@ class TradeLifecycleEngine:
                     raise ValueError("NATIVE_LIFECYCLE_TRADE_OWNERSHIP_CONFLICT")
                 if event.event_type == "ENTRY_FILL" and entries[0].metadata["native_identity"]["native_order_id"] != binding["native_order_id"]:
                     raise ValueError("NATIVE_LIFECYCLE_ENTRY_ORDER_CONFLICT")
+                if (event.event_type != "ENTRY_FILL"
+                        and self._authoritative_time(timestamp) < min(self._authoritative_time(row.timestamp) for row in entries)):
+                    raise ValueError("NATIVE_LIFECYCLE_EXIT_BEFORE_ENTRY")
+                opposite = (entries if event.event_type != "ENTRY_FILL" else
+                    [row for row in self._events if row.event_id in self._native_committed_event_ids
+                     and row.lifecycle_trade_id == trade.lifecycle_trade_id and row.event_type != "ENTRY_FILL"])
+                # Entry averages and realized exits cannot be rewound without
+                # reconstructing an unknown historical basis. Same-type late
+                # arrivals remain commutative; equal broker timestamps retain
+                # the existing accounting order, not subsecond certification.
+                if opposite and self._authoritative_time(timestamp) < max(self._authoritative_time(row.timestamp) for row in opposite):
+                    raise ValueError("NATIVE_LIFECYCLE_CROSS_FILL_CHRONOLOGY_UNAVAILABLE")
                 if stop_price is not None and float(stop_price) != trade.stop_price:
                     raise ValueError("NATIVE_LIFECYCLE_ORIGINAL_STOP_CONFLICT")
             elif event.event_type != "ENTRY_FILL" or self.find_open_trade_id_for_symbol(event.symbol) is not None:

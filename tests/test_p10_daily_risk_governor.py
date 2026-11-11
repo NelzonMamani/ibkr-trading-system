@@ -941,3 +941,163 @@ def test_required_feedback_does_not_override_explicit_manual_halt_or_readonly_co
     decision = readonly.evaluate(run_mode="READ_ONLY", now=NOW)
     assert decision.status == DailyRiskDecisionStatus.READ_ONLY_EVALUATED
     assert readonly.state is None and readonly.last_decision is None
+
+
+def test_complete_execution_net_cannot_be_overwritten_by_conflicting_net_summary(native_lifecycle):
+    engine, storage = native_lifecycle
+    _set_config(DAILY_RISK_MAX_LOSS_AMOUNT=.28)
+    _canonical_fill(engine, "in", "ENTRY_FILL", 1, 10.53)
+    trade = _canonical_fill(engine, "out", "EXIT_FILL", 1, 10.28)
+    _persist_existing_outcome(storage, trade, commission=.02)  # Whole-trade NET -.27.
+    execution = _actual_canonical_execution_history(engine, "out", commission=.05)  # Complete NET -.30.
+    governor = _native_governor(engine, storage)
+    governor.provider = SimpleNamespace(get_daily_fills=lambda: [execution])
+    decision = governor.evaluate(run_mode="PAPER", now=NOW)
+    assert decision.blocks_new_entries, decision
+    assert decision.status == DailyRiskDecisionStatus.MANAGED_ONLY
+    assert "NATIVE_NET_SUMMARY_CONFLICT" in decision.reason
+    assert decision.allows_existing_position_management
+
+
+def test_complete_net_coverage_uses_unique_exit_identities_and_detects_summary_conflict(native_lifecycle):
+    engine, storage = native_lifecycle
+    _set_config(DAILY_RISK_MAX_LOSS_AMOUNT=.28)
+    _canonical_fill(engine, "in", "ENTRY_FILL", 2, 10.53)
+    _canonical_fill(engine, "first", "PARTIAL_EXIT", 1, 10.43)
+    trade = _canonical_fill(engine, "last", "EXIT_FILL", 1, 10.38)
+    _persist_existing_outcome(storage, trade, commission=.02)
+    first = _actual_canonical_execution_history(engine, "first", commission=.02)
+    last = _actual_canonical_execution_history(engine, "last", commission=.03)
+    governor = _native_governor(engine, storage)
+    governor.provider = SimpleNamespace(get_daily_fills=lambda: [last, first, first, last])
+    decision = governor.evaluate(run_mode="PAPER", now=NOW)
+    assert decision.status == DailyRiskDecisionStatus.MANAGED_ONLY
+    assert "NATIVE_NET_SUMMARY_CONFLICT" in decision.reason
+    assert decision.blocks_new_entries and decision.allows_existing_position_management
+
+
+def test_matching_complete_net_execution_and_summary_results_remain_usable(native_lifecycle):
+    engine, storage = native_lifecycle
+    _set_config(DAILY_RISK_MAX_LOSS_AMOUNT=.28)
+    _canonical_fill(engine, "in", "ENTRY_FILL", 2, 10.53)
+    _canonical_fill(engine, "first", "PARTIAL_EXIT", 1, 10.43)
+    trade = _canonical_fill(engine, "last", "EXIT_FILL", 1, 10.38)
+    _persist_existing_outcome(storage, trade, commission=.05)
+    first = _actual_canonical_execution_history(engine, "first", commission=.02)
+    last = _actual_canonical_execution_history(engine, "last", commission=.03)
+    governor = _native_governor(engine, storage)
+    governor.provider = SimpleNamespace(get_daily_fills=lambda: [last, first, first])
+    decision = governor.evaluate(run_mode="PAPER", now=NOW)
+    assert decision.realized_pnl == -.30 and decision.daily_trade_count == 1
+    assert decision.reason == "MAX_DAILY_LOSS_AMOUNT"
+
+
+def test_partial_net_coverage_duplicates_do_not_invent_complete_commission_allocation(native_lifecycle):
+    engine, storage = native_lifecycle
+    _set_config(DAILY_RISK_MAX_LOSS_AMOUNT=.33)
+    _canonical_fill(engine, "in", "ENTRY_FILL", 2, 10.53)
+    _canonical_fill(engine, "first", "PARTIAL_EXIT", 1, 10.43)
+    trade = _canonical_fill(engine, "last", "EXIT_FILL", 1, 10.38)
+    _persist_existing_outcome(storage, trade, commission=.07)
+    first = _actual_canonical_execution_history(engine, "first", commission=.05)
+    governor = _native_governor(engine, storage)
+    governor.provider = SimpleNamespace(get_daily_fills=lambda: [first, first])
+    decision = governor.evaluate(run_mode="PAPER", now=NOW)
+    assert decision.realized_pnl == -.32 and decision.daily_trade_count == 1
+    assert not decision.blocks_new_entries
+
+
+def test_complete_zero_adjustment_net_coverage_still_rejects_conflicting_summary_when_limits_disabled(native_lifecycle):
+    engine, storage = native_lifecycle
+    _set_config(DAILY_RISK_GOVERNOR_ENABLED=False)
+    _canonical_fill(engine, "in", "ENTRY_FILL", 1, 10.53)
+    trade = _canonical_fill(engine, "out", "EXIT_FILL", 1, 10.28)
+    _persist_existing_outcome(storage, trade, commission=.02)
+    execution = _actual_canonical_execution_history(engine, "out", commission=0)
+    governor = _native_governor(engine, storage)
+    governor.provider = SimpleNamespace(get_daily_fills=lambda: [execution])
+    decision = governor.evaluate(run_mode="PAPER", now=NOW)
+    assert decision.status == DailyRiskDecisionStatus.MANAGED_ONLY
+    assert "NATIVE_NET_SUMMARY_CONFLICT" in decision.reason
+    assert decision.blocks_new_entries
+
+
+def test_strict_native_open_position_without_requested_unrealized_mark_fails_closed(native_lifecycle):
+    engine, storage = native_lifecycle
+    _set_config(DAILY_RISK_INCLUDE_UNREALIZED=True, DAILY_RISK_MAX_LOSS_AMOUNT=.20)
+    trade = _canonical_fill(engine, "in", "ENTRY_FILL", 1, 10.53)
+    assert trade.quantity_open == 1 and trade.last_mark_price is None
+    decision = _native_governor(engine, storage).evaluate(run_mode="PAPER", now=NOW)
+    assert decision.blocks_new_entries, decision
+    assert decision.status == DailyRiskDecisionStatus.MANAGED_ONLY
+    assert "NATIVE_UNREALIZED_VALUATION_UNAVAILABLE" in decision.reason
+    assert decision.allows_existing_position_management
+
+
+@pytest.mark.parametrize("mark", [0.0, -1.0, float("nan"), float("inf")])
+def test_invalid_requested_native_mark_preserves_known_partial_realized_loss(native_lifecycle, mark):
+    engine, storage = native_lifecycle
+    _set_config(DAILY_RISK_INCLUDE_UNREALIZED=True, DAILY_RISK_MAX_LOSS_AMOUNT=1.0)
+    _canonical_fill(engine, "in", "ENTRY_FILL", 2, 10.53)
+    trade = _canonical_fill(engine, "partial", "PARTIAL_EXIT", 1, 10.28)
+    engine.apply_mark_price(trade_id=trade.lifecycle_trade_id, price=mark)
+    assert engine.native_feedback_snapshot()["native_unrealized_marks_present"] is False
+    decision = _native_governor(engine, storage).evaluate(run_mode="PAPER", now=NOW)
+    assert decision.status == DailyRiskDecisionStatus.MANAGED_ONLY
+    assert "NATIVE_UNREALIZED_VALUATION_UNAVAILABLE" in decision.reason
+    assert decision.realized_pnl == -.25 and decision.daily_trade_count == 0
+    assert decision.allows_existing_position_management
+
+
+@pytest.mark.parametrize("mark", [None, float("nan")])
+def test_nonrequired_missing_or_invalid_native_valuation_does_not_erase_realized_or_veto(native_lifecycle, mark):
+    engine, storage = native_lifecycle
+    _set_config(DAILY_RISK_INCLUDE_UNREALIZED=False, DAILY_RISK_MAX_LOSS_AMOUNT=1.0)
+    _canonical_fill(engine, "in", "ENTRY_FILL", 2, 10.53)
+    trade = _canonical_fill(engine, "partial", "PARTIAL_EXIT", 1, 10.28)
+    if mark is not None:
+        engine.apply_mark_price(trade_id=trade.lifecycle_trade_id, price=mark)
+    assert engine.native_feedback_snapshot()["native_unrealized_marks_present"] is False
+    decision = _native_governor(engine, storage).evaluate(run_mode="PAPER", now=NOW)
+    assert decision.realized_pnl == -.25 and decision.daily_trade_count == 0
+    assert not decision.blocks_new_entries and not decision.include_unrealized
+    assert decision.reason == "DAILY_RISK_APPROVED"
+
+
+@pytest.mark.parametrize("mode", ["PAPER", "LIVE"])
+def test_required_native_valuation_absence_veto_precedes_optional_limit_disable(native_lifecycle, mode):
+    engine, storage = native_lifecycle
+    _set_config(DAILY_RISK_INCLUDE_UNREALIZED=True, DAILY_RISK_GOVERNOR_ENABLED=False)
+    _canonical_fill(engine, "in", "ENTRY_FILL", 1, 10.53)
+    snapshot = engine.native_feedback_snapshot()
+    assert snapshot["available"] and snapshot["native_unrealized_marks_present"] is False
+    decision = _native_governor(engine, storage).evaluate(run_mode=mode, now=NOW)
+    assert decision.status == DailyRiskDecisionStatus.MANAGED_ONLY
+    assert decision.blocks_new_entries and "NATIVE_UNREALIZED_VALUATION_UNAVAILABLE" in decision.reason
+    assert decision.allows_existing_position_management
+
+
+def test_flat_strict_native_root_does_not_need_an_unrealized_mark(native_lifecycle):
+    engine, storage = native_lifecycle
+    _set_config(DAILY_RISK_INCLUDE_UNREALIZED=True, DAILY_RISK_MAX_LOSS_AMOUNT=1.0)
+    _canonical_fill(engine, "in", "ENTRY_FILL", 1, 10.53)
+    trade = _canonical_fill(engine, "out", "STOP_EXIT", 1, 10.28)
+    assert trade.quantity_open == 0 and trade.last_mark_price is None
+    assert engine.native_feedback_snapshot()["native_unrealized_marks_present"] is True
+    decision = _native_governor(engine, storage).evaluate(run_mode="PAPER", now=NOW)
+    assert decision.realized_pnl == -.25 and decision.daily_trade_count == 1
+    assert not decision.blocks_new_entries
+
+
+def test_unrealized_mark_absence_barrier_does_not_enroll_legacy_roots(native_lifecycle):
+    from src.core.engines.trade_lifecycle_engine import LifecycleEvent
+    engine, storage = native_lifecycle
+    _set_config(DAILY_RISK_INCLUDE_UNREALIZED=True)
+    event = LifecycleEvent("legacy-entry", "LEGACY-ROOT", "LEGACY", "LONG", "ENTRY_FILL", 1, 10.53,
+        NOW.isoformat(), order_id="legacy-order", execution_id="legacy-exec")
+    trade = engine.apply_event(event, strategy_name="legacy_strategy", stop_price=10.0)
+    snapshot = engine.native_feedback_snapshot()
+    assert not snapshot["required"] and snapshot["native_unrealized_marks_present"] is True
+    assert trade.last_mark_price is None
+    decision = _native_governor(engine, storage).evaluate(run_mode="PAPER", now=NOW)
+    assert not decision.blocks_new_entries

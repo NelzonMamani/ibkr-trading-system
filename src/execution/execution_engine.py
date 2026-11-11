@@ -2278,7 +2278,9 @@ class ExecutionEngine:
             getter = getattr(getattr(self, "_trade_lifecycle_engine", None), "native_feedback_snapshot", None)
             if callable(getter):
                 snapshot = getter()
-                return bool(snapshot["required"]) and not bool(snapshot["available"])
+                return bool(snapshot["required"]) and (not bool(snapshot["available"])
+                    or (bool(get_config("DAILY_RISK_INCLUDE_UNREALIZED"))
+                        and snapshot.get("native_unrealized_marks_present") is not True))
             return bool(progress)  # A completed marker cannot replace its required owner.
         except Exception:
             return True  # Malformed/unavailable required progress is not accounting zero.
