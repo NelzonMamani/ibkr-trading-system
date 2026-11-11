@@ -1,6 +1,6 @@
 """Explicit mechanism proof; no automatic BE/trailing policy is enrolled."""
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace as NS
 from dataclasses import replace
 import pytest
@@ -12,6 +12,8 @@ from ibapi.client import EClient
 _NATIVE_QUOTE_CONTRACT_ENCODER = EClient.reqContractDetails
 _NATIVE_QUOTE_MARKET_ENCODER = EClient.reqMktData
 _NATIVE_HISTORY_READ_ENCODER = EClient.reqHistoricalData
+_NATIVE_LEDGER_READ_ENCODER = EClient.reqAccountSummary
+_NATIVE_LEDGER_CANCEL_ENCODER = EClient.cancelAccountSummary
 from src.config import config_resolver
 from test_standalone_pmh_late_fill_protection import (small_central_owned,one_share_profit_case,
     enroll_unit_management,fill_unit_ids,reassessment,lifecycle,forbid_io,no_external_activity,_reset_config)
@@ -1591,6 +1593,307 @@ def _pristine_paper_child_function(name, namespace):
     return namespace[name]
 
 
+def _pristine_positive_fee_boundary_case(monkeypatch):
+    """Fake owners plus actual SDK packets; no Core or child application."""
+    import os
+    from threading import Event
+    from decimal import Decimal
+    monkeypatch.setenv('EXECUTION_ENV','TEST')
+    class Denied(BaseException):pass
+    now=datetime(2026,10,20,13,35,34,tzinfo=timezone.utc)
+    plan=dict(account='SYNTHETIC_TEST',client_id=999,epoch=0,symbol='JPM',con_id=123,
+        currency='USD',fill_price=10.53,stop_fill_price=10.28)
+    rows={native_id:[dict(orderId=native_id,execId=exec_id,account=plan['account'],clientId=999,
+        connection_epoch=0,conId=123,symbol='JPM',secType='STK',side=side,shares=1,cumQty=1,
+        price=Decimal(str(price)),avgPrice=Decimal(str(price)),timestamp_utc=now-timedelta(seconds=1))]
+        for native_id,exec_id,side,price in ((71,'fee-entry','BOT',10.53),(72,'fee-stop','SLD',10.28))}
+    client=NS(client_id=999,_position_connection_epoch=0,_managed_accounts=['SYNTHETIC_TEST'],
+        _stop_event=Event(),_position_transport_available=True,isConnected=lambda:True,
+        serverVersion=lambda:180,_request_id_conflicted=lambda rid:False)
+    client.cached_native_executions=lambda native_id:tuple(rows[native_id])
+    client.cached_native_execution_fees=lambda native_id:tuple(dict(execution=row,
+        execution_currency='USD') for row in rows[native_id])
+    parent=dict(account=plan['account'],native_client_id=999,native_connection_epoch=0,
+        decision_id='risk-1',request=dict(client_order_id='ROOT',symbol='JPM',quantity=1,take_profit_price=None))
+    candidate=dict(root_order_id='ROOT',source_client=client,account=plan['account'],
+        entry_terminal=True,entry_status='FILLED',entry_requested_quantity=1,entry_filled_quantity=1,
+        decision_id='risk-1')
+    candidates={'ROOT':candidate}
+    engine=NS(run_mode=NS(value='PAPER'),_native_scope=(plan['account'],client,now),
+        _native_callback_client=lambda:client,_native_quarantined=False,startup_recovery_complete=lambda:True,
+        capital_authority=NS(capital_scope=None,_capital_writer=None),_native_orders={'ROOT':parent},
+        native_roundtrip_fee_candidates=lambda:candidates)
+    core=NS(run_mode=NS(value='PAPER'),execution_engine=engine,
+        connection_manager=NS(get_ibkr_client=lambda **kwargs:client if kwargs=={'ensure_connected':False} else None),
+        _latest_position_truth_snapshot=NS(snapshot_status='HEALTHY',broker_positions={},system_positions={}))
+    query=dict(status='PARTIAL',account=plan['account'],client_id=999,epoch=0,
+        completed_at=None,currency=None,tags=set(),event=Event(),deadline=101.)
+    context=dict(request_type='ACCOUNT_CURRENCY_STRICT',account_currency_query=query)
+    client._request_context_by_req_id={91:context}
+    client._request_type_by_req_id={91:'ACCOUNT_CURRENCY_STRICT'}
+    packets=[];sdk=EClient(NS(error=lambda *args:pytest.fail('Unexpected synthetic SDK error')))
+    sdk.isConnected=lambda:True;sdk.serverVersion_=180;sdk.sendMsg=packets.append
+    _NATIVE_LEDGER_READ_ENCODER(sdk,91,'All','$LEDGER');_NATIVE_LEDGER_CANCEL_ENCODER(sdk,91)
+    response=dict(account=plan['account'],end_received=True,rows=[
+        dict(tag='CashBalance',value='123.45',currency='USD'),dict(tag='AccruedCash',value='0',currency='USD')])
+    dispatches=[dict(role='entry',native_id=71,root_id='ROOT',order=dict(parentId=0)),
+        dict(role='stop',native_id=72,root_id='ROOT',order=dict(parentId=71))]
+    return NS(client=client,core=core,engine=engine,plan=plan,now=now,Denied=Denied,
+        query=query,context=context,candidate=candidate,candidates=candidates,parent=parent,
+        packets=packets,response=response,owned={},dispatches=dispatches,rows=rows,
+        currency_guard=_pristine_paper_child_function('validate_pristine_paper_currency_read',
+            dict(os=os,datetime=datetime,ForbiddenExternalIO=Denied)),
+        fee_guard=_pristine_paper_child_function('validate_pristine_paper_fee_fact',
+            dict(os=os,datetime=datetime,ForbiddenExternalIO=Denied)))
+
+
+def _call_pristine_currency_guard(h,fields,*,actual_client=None):
+    return h.currency_guard(actual_client=h.client if actual_client is None else actual_client,
+        expected_client=h.client,core=h.core,plan=h.plan,fields=fields,owned_reads=h.owned,
+        response=h.response,now=h.now,monotonic_now=100.,max_scope_age=15)
+
+
+@pytest.mark.parametrize('fault',['none','other_client','mode','callback_owner','connection_owner',
+    'boolean_client','boolean_epoch','epoch','account','multiple_accounts','stopped','disconnected','transport',
+    'stale_scope','future_scope','quarantined','capital_writer','truth_unknown','truth_owned','no_candidate',
+    'unfinished_entry','boolean_filled','candidate_client','candidate_account','candidate_decision',
+    'unowned','context_kind','map_kind','conflict','repeat','query_status','query_account','query_client',
+    'query_epoch','query_event','query_currency','query_tags','query_completion','deadline_equal','deadline_late',
+    'packet_group','packet_tags','packet_version','packet_trailer','packet_extra','packet_id',
+    'response_end','response_account','response_currency'])
+def test_pristine_positive_fee_currency_read_requires_exact_owned_sdk_packet(monkeypatch,fault):
+    h=_pristine_positive_fee_boundary_case(monkeypatch);fields=h.packets[0].split('\0')
+    assert fields==['62','1','91','All','$LEDGER','']
+    actual=h.client
+    if fault=='other_client':actual=NS()
+    elif fault=='mode':h.core.run_mode.value='LIVE_READ_ONLY'
+    elif fault=='callback_owner':h.engine._native_callback_client=lambda:NS()
+    elif fault=='connection_owner':h.core.connection_manager.get_ibkr_client=lambda **kwargs:NS()
+    elif fault=='boolean_client':h.client.client_id=True
+    elif fault=='boolean_epoch':h.client._position_connection_epoch=False
+    elif fault=='epoch':h.client._position_connection_epoch=1
+    elif fault=='account':h.client._managed_accounts=['OTHER']
+    elif fault=='multiple_accounts':h.client._managed_accounts.append('OTHER')
+    elif fault=='stopped':h.client._stop_event.set()
+    elif fault=='disconnected':h.client.isConnected=lambda:False
+    elif fault=='transport':h.client._position_transport_available=False
+    elif fault=='stale_scope':h.engine._native_scope=(h.plan['account'],h.client,h.now-timedelta(seconds=16))
+    elif fault=='future_scope':h.engine._native_scope=(h.plan['account'],h.client,h.now+timedelta(microseconds=1))
+    elif fault=='quarantined':h.engine._native_quarantined=True
+    elif fault=='capital_writer':h.engine.capital_authority._capital_writer=object()
+    elif fault=='truth_unknown':h.core._latest_position_truth_snapshot.snapshot_status='UNKNOWN'
+    elif fault=='truth_owned':h.core._latest_position_truth_snapshot.broker_positions={'JPM':NS(quantity=1)}
+    elif fault=='no_candidate':h.candidates.clear()
+    elif fault=='unfinished_entry':h.candidate['entry_terminal']=False
+    elif fault=='boolean_filled':h.candidate['entry_filled_quantity']=True
+    elif fault=='candidate_client':h.candidate['source_client']=NS()
+    elif fault=='candidate_account':h.candidate['account']='OTHER'
+    elif fault=='candidate_decision':h.candidate['decision_id']='OTHER'
+    elif fault=='unowned':h.client._request_context_by_req_id.clear()
+    elif fault=='context_kind':h.context['request_type']='ACCOUNT_SUMMARY'
+    elif fault=='map_kind':h.client._request_type_by_req_id[91]='ACCOUNT_SUMMARY'
+    elif fault=='conflict':h.client._request_id_conflicted=lambda rid:True
+    elif fault=='repeat':h.owned[91]={}
+    elif fault=='query_status':h.query['status']='COMPLETE'
+    elif fault=='query_account':h.query['account']='OTHER'
+    elif fault=='query_client':h.query['client_id']=True
+    elif fault=='query_epoch':h.query['epoch']=False
+    elif fault=='query_event':h.query['event'].set()
+    elif fault=='query_currency':h.query['currency']='USD'
+    elif fault=='query_tags':h.query['tags']={'CashBalance'}
+    elif fault=='query_completion':h.query['completed_at']=h.now
+    elif fault=='deadline_equal':h.query['deadline']=100.
+    elif fault=='deadline_late':h.query['deadline']=99.
+    elif fault=='packet_group':fields[3]='OTHER'
+    elif fault=='packet_tags':fields[4]='AvailableFunds'
+    elif fault=='packet_version':fields[1]='2'
+    elif fault=='packet_trailer':fields[-1]='EXTRA'
+    elif fault=='packet_extra':fields.append('')
+    elif fault=='packet_id':fields[2]='0091'
+    elif fault=='response_end':h.response['end_received']=False
+    elif fault=='response_account':h.response['account']='OTHER'
+    elif fault=='response_currency':h.response['rows'][0]['currency']='EUR'
+    if fault!='none':
+        with pytest.raises(h.Denied):_call_pristine_currency_guard(h,fields,actual_client=actual)
+    else:
+        request_id,role,context,query=_call_pristine_currency_guard(h,fields)
+        assert (request_id,role)==(91,'REQUEST') and context is h.context and query is h.query
+    assert h.owned==({91:{}} if fault=='repeat' else {})
+
+
+@pytest.mark.parametrize('fault',['none','before_end','active_query','active_map','replaced_context','unowned',
+    'repeat','epoch','account','query_account','query_client','query_epoch','query_currency','query_status',
+    'query_tags','event_unset','future_completion','stale_completion','record_client','packet_id','packet_extra'])
+def test_pristine_positive_fee_currency_cancel_requires_retired_end_complete_owner(monkeypatch,fault):
+    h=_pristine_positive_fee_boundary_case(monkeypatch);fields=h.packets[1].split('\0')
+    assert fields==['63','1','91','']
+    h.query.update(status='COMPLETE',currency='USD',tags={'CashBalance','AccruedCash'},completed_at=h.now)
+    h.query['event'].set();h.context.pop('account_currency_query');h.client._request_type_by_req_id.clear()
+    record=dict(context=h.context,query=h.query,client=h.client,account=h.plan['account'],
+        epoch=0,cancelled=False,end_observed=True);h.owned[91]=record
+    if fault=='before_end':record['end_observed']=False
+    elif fault=='active_query':h.context['account_currency_query']=h.query
+    elif fault=='active_map':h.client._request_type_by_req_id[91]='ACCOUNT_CURRENCY_STRICT'
+    elif fault=='replaced_context':h.client._request_context_by_req_id[91]=dict(h.context)
+    elif fault=='unowned':h.owned.clear()
+    elif fault=='repeat':record['cancelled']=True
+    elif fault=='epoch':h.client._position_connection_epoch=1
+    elif fault=='account':h.client._managed_accounts=['OTHER']
+    elif fault=='query_account':h.query['account']='OTHER'
+    elif fault=='query_client':h.query['client_id']=True
+    elif fault=='query_epoch':h.query['epoch']=False
+    elif fault=='query_currency':h.query['currency']='EUR'
+    elif fault=='query_status':h.query['status']='TIMEOUT'
+    elif fault=='query_tags':h.query['tags']={'CashBalance'}
+    elif fault=='event_unset':h.query['event'].clear()
+    elif fault=='future_completion':h.query['completed_at']=h.now+timedelta(microseconds=1)
+    elif fault=='stale_completion':h.query['completed_at']=h.now-timedelta(seconds=16)
+    elif fault=='record_client':record['client']=NS()
+    elif fault=='packet_id':fields[2]='92'
+    elif fault=='packet_extra':fields.append('')
+    if fault!='none':
+        with pytest.raises(h.Denied):_call_pristine_currency_guard(h,fields)
+    else:
+        request_id,role,context,query=_call_pristine_currency_guard(h,fields)
+        assert (request_id,role)==(91,'CANCEL') and context is h.context and query is h.query
+    assert record['cancelled'] is (fault=='repeat')  # Validation does not forge cleanup.
+
+
+@pytest.mark.parametrize('leg',['entry','stop'])
+@pytest.mark.parametrize('fault',['none','other_client','epoch','missing_execution','extra_execution',
+    'wrong_execution','wrong_order','wrong_account','wrong_client','wrong_epoch','wrong_security',
+    'wrong_side','wrong_quantity','wrong_price','future','repeat','amount','zero','negative','boolean',
+    'currency','extra_field','unknown_leg','wrong_parent','raw_execution_currency'])
+def test_pristine_positive_fee_callback_requires_exact_cached_execution(monkeypatch,leg,fault):
+    h=_pristine_positive_fee_boundary_case(monkeypatch);native_id=71 if leg=='entry' else 72
+    execution=h.rows[native_id][0]
+    raw=dict(leg=leg,execId=execution['execId'],commission=.01 if leg=='entry' else .02,currency='USD')
+    delivered=set();actual=h.client
+    if fault=='other_client':actual=NS()
+    elif fault=='epoch':h.client._position_connection_epoch=1
+    elif fault=='missing_execution':h.rows[native_id].clear()
+    elif fault=='extra_execution':h.rows[native_id].append(dict(execution,execId='EXTRA'))
+    elif fault=='wrong_execution':raw['execId']='OTHER'
+    elif fault=='wrong_order':execution['orderId']=73
+    elif fault=='wrong_account':execution['account']='OTHER'
+    elif fault=='wrong_client':execution['clientId']=1
+    elif fault=='wrong_epoch':execution['connection_epoch']=False
+    elif fault=='wrong_security':execution['conId']=124
+    elif fault=='wrong_side':execution['side']='SLD' if leg=='entry' else 'BOT'
+    elif fault=='wrong_quantity':execution['shares']=2
+    elif fault=='wrong_price':execution['price']=10.54
+    elif fault=='future':execution['timestamp_utc']=h.now+timedelta(microseconds=1)
+    elif fault=='repeat':delivered.add(raw['execId'])
+    elif fault=='amount':raw['commission']=.03
+    elif fault=='zero':raw['commission']=0
+    elif fault=='negative':raw['commission']=-.01
+    elif fault=='boolean':raw['commission']=True
+    elif fault=='currency':raw['currency']='EUR'
+    elif fault=='extra_field':raw['unprovided']=True
+    elif fault=='unknown_leg':raw['leg']='OTHER'
+    elif fault=='wrong_parent':next(row for row in h.dispatches if row['role']==leg)['order']['parentId']=999
+    elif fault=='raw_execution_currency':h.client.cached_native_execution_fees=lambda native_id:tuple(
+        dict(execution=row,execution_currency='EUR') for row in h.rows[native_id])
+    call=lambda:h.fee_guard(actual_client=actual,expected_client=h.client,core=h.core,plan=h.plan,
+        dispatches=h.dispatches,raw=raw,delivered=delivered,now=h.now)
+    if fault!='none':
+        with pytest.raises(h.Denied):call()
+    else:
+        bound,row=call();assert bound['native_id']==native_id and row is execution
+
+
+@pytest.mark.parametrize('opcode',['62','63'])
+@pytest.mark.parametrize('opt_in',['absent','not_paper'])
+def test_pristine_positive_fee_read_does_not_open_default_or_nonpaper_wire_routes(opcode,opt_in):
+    from ibapi.message import OUT
+    class Denied(BaseException):pass
+    report=dict(wire_attempts=[]);underlying=[]
+    facts=dict(observe_pristine_paper_cycle=opt_in!='not_paper')
+    if opt_in=='not_paper':facts['observe_pristine_paper_positive_fee_feedback']=True
+    boundary=_pristine_paper_child_function('send_message',dict(OUT=OUT,report=report,
+        observe_pristine_cycle=True,facts=facts,ForbiddenExternalIO=Denied,SyntheticWriteBoundary=Denied,
+        client=NS(sendMsg=lambda packet:underlying.append(packet))))
+    with pytest.raises(Denied):boundary(opcode+'\0')
+    assert underlying==[] and report['wire_attempts']==[dict(opcode=opcode,mutation=False)]
+
+
+def test_pristine_positive_fee_boundary_uses_real_public_callbacks_and_sdk_ledger_owner(monkeypatch,tmp_path):
+    """Native source component only: fake Core owners, no Core construction/run."""
+    import time
+    from decimal import Decimal
+    from ibapi.execution import Execution
+    from ibapi.message import OUT
+    from src.adapters.brokers.ibkr import ibkr_client as native_module
+    h=_pristine_positive_fee_boundary_case(monkeypatch)
+    monkeypatch.setenv('IBKR_ORDER_ID_STATE_PATH',str(tmp_path/'native-fee-order-ids.json'))
+    class Clock(datetime):
+        @classmethod
+        def now(cls,tz=None):return cls.fromtimestamp(h.now.timestamp(),tz=tz)
+    monkeypatch.setattr(native_module,'datetime',Clock)
+    client=native_module.IbkrClient('offline.invalid',0,999,1,'LIVE',False)
+    client.isConnected=lambda:True;client.serverVersion_=180
+    client.nextValidId(71);client.managedAccounts('SYNTHETIC_TEST')
+    h.client=client;h.engine._native_scope=(h.plan['account'],client,h.now)
+    h.engine._native_callback_client=lambda:client;h.candidate['source_client']=client
+    h.core.connection_manager.get_ibkr_client=lambda **kwargs:client if kwargs=={'ensure_connected':False} else None
+    delivered=set()
+    deliver=_pristine_paper_child_function('deliver_pristine_paper_fee_fact',
+        dict(validate_pristine_paper_fee_fact=h.fee_guard))
+    for leg,native_id,exec_id,side,price,amount in (
+            ('entry',71,'fee-entry','BOT',10.53,.01),('stop',72,'fee-stop','SLD',10.28,.02)):
+        contract=Contract();contract.symbol='JPM';contract.secType='STK';contract.conId=123;contract.currency='USD'
+        execution=Execution();execution.orderId=native_id;execution.execId=exec_id
+        execution.acctNumber='SYNTHETIC_TEST';execution.clientId=999;execution.side=side
+        execution.shares=execution.cumQty=Decimal(1);execution.price=execution.avgPrice=price
+        execution.time=(h.now-timedelta(seconds=1)).isoformat()
+        client.execDetails(-1,contract,execution)
+        observed=deliver(client=client,core=h.core,plan=h.plan,dispatches=h.dispatches,
+            raw=dict(leg=leg,execId=exec_id,commission=amount,currency='USD'),delivered=delivered,now=h.now)
+        assert observed['native_id']==native_id and observed['exec_id']==exec_id
+    assert delivered=={'fee-entry','fee-stop'}
+    views=[row for native_id in (71,72) for row in client.cached_native_execution_fees(native_id)]
+    assert [row['amount'] for row in views]==[Decimal('.01'),Decimal('.02')]
+    assert all(row['report_status']=='BOUND_API_REPORT' and row['net_status']=='UNAVAILABLE_FOR_NET'
+        and row['first_report']['commission_presence_source']=='UNAVAILABLE' for row in views)
+    report=dict(wire_attempts=[],native_read_requests=[]);owned={}
+    facts=dict(observe_pristine_paper_cycle=True,observe_pristine_paper_positive_fee_feedback=True,
+        paper_memory_plan=h.plan,paper_currency_response=h.response)
+    boundary=_pristine_paper_child_function('send_message',dict(OUT=OUT,report=report,
+        observe_pristine_cycle=True,facts=facts,ForbiddenExternalIO=h.Denied,SyntheticWriteBoundary=h.Denied,
+        client=client,core=h.core,owned_currency_reads=owned,observed=h.now,real_elapsed_time=time,
+        validate_pristine_paper_currency_read=h.currency_guard,
+        plain=lambda value:value.isoformat() if isinstance(value,datetime) else value))
+    client.sendMsg=boundary
+    client.reqAccountSummary=lambda *args:_NATIVE_LEDGER_READ_ENCODER(client,*args)
+    client.cancelAccountSummary=lambda *args:_NATIVE_LEDGER_CANCEL_ENCODER(client,*args)
+    result=client.account_currency_snapshot(expected_account='SYNTHETIC_TEST',timeout_seconds=.5)
+    assert result.status=='COMPLETE' and result.currency=='USD' and result.account=='SYNTHETIC_TEST'
+    assert result.client_id==999 and result.connection_epoch==0 and result.completed_at==h.now
+    assert result.cancellation_attempted and result.cleanup_complete
+    assert [row['opcode'] for row in report['wire_attempts']]==['62','63']
+    assert [row['request_type'] for row in report['native_read_requests']]==[
+        'ACCOUNT_CURRENCY_STRICT','OWNED_ACCOUNT_CURRENCY_CANCEL']
+    assert result.request_id not in client._request_type_by_req_id
+    assert client._request_context_by_req_id[result.request_id].get('account_currency_query') is None
+    assert owned[result.request_id]['cancelled'] and owned[result.request_id]['end_observed']
+    # Exercise the exact report expression without constructing/running Core.
+    # Immutable Mapping views must survive JSON, not become diagnostic strings.
+    import ast,json
+    from test_startup_recovery_and_stop_protection import _NATIVE_CORE_COLD_START_CHILD
+    tree=ast.parse(_NATIVE_CORE_COLD_START_CHILD)
+    assignment=next(node for node in ast.walk(tree) if isinstance(node,ast.Assign)
+        and any(isinstance(target,ast.Subscript) and isinstance(target.slice,ast.Constant)
+            and target.slice.value=='fee_source_observations' for target in node.targets))
+    plain=_pristine_paper_child_function('plain',dict(datetime=datetime))
+    copied=eval(compile(ast.Expression(assignment.value),'<actual-fee-source-observer>','eval'),
+        dict(client=client,report=dict(synthetic_memory_dispatches=h.dispatches),plain=plain))
+    serialized=json.loads(json.dumps(copied,default=str))
+    assert len(serialized)==2 and all(isinstance(row,dict) for row in serialized)
+    assert {row['execution']['execId'] for row in serialized}=={'fee-entry','fee-stop'}
+    assert all(row['first_report']['currency']=='USD' and row['net_status']=='UNAVAILABLE_FOR_NET'
+        for row in serialized)
+
+
 @pytest.mark.parametrize('fault',['none','other_client','epoch','mode','size','boolean_size','side',
     'type','repeat','durable','target','risk','reservation','capital_order','allocation_order',
     'capital_symbol','allocation_symbol','capital_size','allocation_remaining','allocation_status',
@@ -2096,12 +2399,8 @@ def test_pristine_fresh_process_pmh_paper_ack_then_later_accounted_protected_fil
     assert no_external_activity==[]
 
 
-def test_pristine_fresh_process_pmh_protective_fill_reaches_canonical_daily_loss_veto(
-        reassessment,monkeypatch,tmp_path,capsys,no_external_activity,runtime_schema_template):
-    """One genuine startup, native STOP fill, canonical GROSS loss, then replay."""
-    import json,shutil
-    from datetime import timedelta
-    from test_startup_recovery_and_stop_protection import run_native_core_cold_start
+def _pristine_paper_loss_facts(reassessment,monkeypatch,tmp_path,*,loss_limit=.20):
+    """Shared external five-step tape; every application owner remains real."""
     facts=_pristine_native_cycle_facts(reassessment,monkeypatch,tmp_path)
     facts.pop('observe_pristine_readonly_cycle')
     facts['observe_pristine_paper_cycle']=True
@@ -2110,7 +2409,7 @@ def test_pristine_fresh_process_pmh_protective_fill_reaches_canonical_daily_loss
         RISK_PROFILE='SMALL',IBKR_READONLY_ENABLED=False,IBKR_ORDER_SUBMISSION_ENABLED=True,
         IBKR_ORDER_TRANSLATION_ENABLED=True,IBKR_API_WRITE_ALLOWED=True,IBKR_KILL_SWITCH=False,
         DAILY_RISK_GOVERNOR_ENABLED=True,DAILY_RISK_INCLUDE_UNREALIZED=False,
-        DAILY_RISK_MAX_LOSS_AMOUNT=.20)
+        DAILY_RISK_MAX_LOSS_AMOUNT=loss_limit)
     facts['paper_memory_plan']=dict(account='SYNTHETIC_TEST',client_id=999,epoch=0,symbol='JPM',
         con_id=123,currency='USD',exchange='SMART',entry_price=10.3,stop_price=10.2897,
         fill_price=10.53,stop_fill_price=10.28)
@@ -2143,6 +2442,17 @@ def test_pristine_fresh_process_pmh_protective_fill_reaches_canonical_daily_loss
         # time advances without renewing the economic fill timestamp.
         step('FLAT_DUPLICATE_REPLAY',4,owned=False,open_orders=[],executions=[protective],last=10.28),
     ]
+    return facts
+
+
+def test_pristine_fresh_process_pmh_protective_fill_reaches_canonical_daily_loss_veto(
+        reassessment,monkeypatch,tmp_path,capsys,no_external_activity,runtime_schema_template):
+    """One genuine startup, native STOP fill, canonical GROSS loss, then replay."""
+    import json,shutil
+    from datetime import timedelta
+    from test_startup_recovery_and_stop_protection import run_native_core_cold_start
+    facts=_pristine_paper_loss_facts(reassessment,monkeypatch,tmp_path)
+    protective=facts['paper_cycle_steps'][3]['executions'][0]
     database=tmp_path/'pristine-protective-loss.sqlite3'
     shutil.copyfile(runtime_schema_template,database)
     path=tmp_path/'pristine-protective-loss-facts.json';path.write_text(json.dumps(facts,default=str))
@@ -2241,6 +2551,138 @@ def test_pristine_fresh_process_pmh_protective_fill_reaches_canonical_daily_loss
         assert released['kwargs']['strategy_id']==request['strategy_name']
         assert released['exposure_before']==released['result']==10.53 and released['exposure_after']==0
     assert not any(row['opcode'] in {'62','63'} for row in report['wire_attempts'])
+    assert report['trade_exit_shutdown_calls']==[] and report['cleanup']['live_threads']==[]
+    assert report['cleanup']['paper_before_resource_close']==report['cleanup']['paper_after_resource_close']
+    assert report['cleanup']['news_maintenance_closed'] and report['cleanup']['execution_resource_close_complete']
+    assert report['cleanup']['scanner_runtime_close_complete']
+    assert report['supervisor']['returncode']==0 and report['supervisor']['reaped'] and not report['supervisor']['timed_out']
+    assert no_external_activity==[]
+
+
+def test_pristine_fresh_process_pmh_positive_fees_reach_actual_core_net_veto(
+        reassessment,monkeypatch,tmp_path,capsys,no_external_activity,runtime_schema_template):
+    """Separate positive-fee proof; shares the actual five-cycle GROSS tape."""
+    import json,shutil
+    from test_startup_recovery_and_stop_protection import run_native_core_cold_start
+    facts=_pristine_paper_loss_facts(reassessment,monkeypatch,tmp_path,loss_limit=.26)
+    facts['observe_pristine_paper_positive_fee_feedback']=True
+    facts['paper_currency_response']=dict(account='SYNTHETIC_TEST',end_received=True,rows=[
+        dict(tag='CashBalance',value='123.45',currency='USD'),
+        dict(tag='AccruedCash',value='0',currency='USD')])
+    steps=facts['paper_cycle_steps']
+    steps[1]['commissions']=[dict(leg='entry',execId='pristine-loss-entry',commission=.01,currency='USD')]
+    steps[3]['commissions']=[dict(leg='stop',execId='pristine-loss-stop',commission=.02,currency='USD')]
+    database=tmp_path/'pristine-positive-fee-net.sqlite3'
+    shutil.copyfile(runtime_schema_template,database)
+    path=tmp_path/'pristine-positive-fee-net-facts.json';path.write_text(json.dumps(facts,default=str))
+    report=run_native_core_cold_start(database,path,tmp_path/'pristine-positive-fee-net-child')
+    summary={key:report.get(key) for key in ('constructor_exception','harness_exception',
+        'cycle_exception','stage','supervisor','evidence_dir')}
+    assert report.get('constructor_complete') and report['constructor_count']==1,summary
+    assert not report.get('harness_exception') and not report.get('cycle_exception'),summary
+    assert len(report['cycles'])==5 and all(row['result'] is True and not row.get('exception')
+        for row in report['cycles']),summary
+    assert report['native_before'] is report['native_after_constructor'] is None
+    assert report['after_constructor']['startup_recovery_state']=='RECOVERY_COMPLETE'
+    assert report['offline_guard']['native_curl_checked']
+    assert not report['network_attempts'] and not report.get('native_curl_denials'),summary
+    assert not report['sdk_attempts'] and not any(row['mutation'] for row in report['wire_attempts']),summary
+    assert not report.get('capital_enrollment_attempts'),summary
+    assert report['registry_evaluations'] and all(row['result_count']==33 for row in report['registry_evaluations'])
+    dispatches=report['synthetic_memory_dispatches']
+    assert [row['role'] for row in dispatches]==['entry','stop'],summary
+    buy,selected_stop=dispatches;root=buy['root_id']
+    assert buy['cycle']==1 and selected_stop['cycle']==2 and selected_stop['root_id']==root
+    assert selected_stop['order']['parentId']==buy['native_id']
+    ack,filled,protected,closed,replayed=report['cycles']
+    retained=ack['engine']['native_orders'][root];request=retained['request']
+    assert request['setup_family_id']=='PREMARKET_HIGH_BREAK' and request['quantity']==1
+    assert request['invalidation_level']==10.3 and request['stop_loss_price']==10.2897
+    assert request['take_profit_price'] is None and request['setup_metadata'] and request['target_model']
+    artifacts=[row for row in report['decision_artifacts'] if row['decision_id']==retained['decision_id']]
+    admitted=[row for row in report['risk_evaluations'] if row['decision']['allowed']]
+    assert len(artifacts)==len(admitted)==len(report['execution_results'])==1
+    intent=admitted[0]['intent'];artifact=artifacts[0]
+    assert admitted[0]['decision']['decision_id']==artifact['decision_id']==retained['decision_id']==intent['decision_id']
+    assert admitted[0]['decision']['max_position_size']==1 and artifact['session_phase']=='OPENING_0_30'
+    assert artifact['intents'][0]['setup_metadata']==intent['setup_metadata']==request['setup_metadata']
+    assert ack['engine']['capital_reserved']==10.3 and ack['engine']['capital_used']==0
+    assert not ack['engine']['position_records'] and not ack['engine']['post_fill']
+    for cycle in (ack,filled,protected):
+        assert cycle['daily_risk']['state']['recovered'] and cycle['daily_risk']['decision']['status']=='ALLOW'
+        assert cycle['daily_risk']['decision']['realized_pnl']==0
+        assert not cycle['fee_feedback']['required'] and not cycle['fee_feedback']['covered_charges']
+    for cycle in (filled,protected):
+        canonical=cycle['engine']['canonical_trades'][root]
+        assert canonical['quantity_open']==1 and canonical['entry_avg_price']==10.53
+        assert canonical['stop_price']==10.2897 and canonical['target_price'] is None
+        assert cycle['engine']['protection'][root]['protected']
+        assert cycle['engine']['capital_used']==10.53 and cycle['engine']['capital_reserved']==0
+    for cycle in (closed,replayed):
+        state=cycle['engine'];canonical=state['canonical_trades'][root]
+        assert state['startup_recovery_state']=='RECOVERY_COMPLETE' and not state['native_quarantined']
+        assert state['native_orders'][root]['request']==request
+        assert canonical['status']=='CLOSED' and canonical['quantity_open']==0 and canonical['quantity_closed']==1
+        assert canonical['entry_avg_price']==10.53 and canonical['exit_avg_price']==10.28
+        assert canonical['gross_realized_pnl']==pytest.approx(-.25)
+        assert canonical['stop_price']==10.2897 and canonical['target_price'] is None
+        assert canonical['closed_at']==steps[3]['executions'][0]['execution']['time']
+        assert set(canonical['source_execution_ids'])=={'pristine-loss-entry','pristine-loss-stop'}
+        assert state['post_fill'][root]['filled_qty']==0 and not state['registry'] and not state['managed_positions']
+        assert state['capital_used']==state['capital_reserved']==0
+        assert not state['capital_reservations'] and not state['allocation_reservations']
+        assert state['capital_scope'] is None and not state['capital_writer_present']
+        feedback=cycle['fee_feedback']
+        assert feedback['required'] and feedback['available'] and not feedback['uncertain']
+        assert feedback['states'][root]['state']=='COMPLETE'
+        assert len(feedback['evidence'])==1 and feedback['evidence'][0]['matched_current_basis'] is True
+        evidence=feedback['evidence'][0]
+        assert evidence['root_order_id']==root and evidence['account']=='SYNTHETIC_TEST' and evidence['currency']=='USD'
+        assert evidence['gross_realized_pnl']==pytest.approx(-.25) and evidence['total_commission']==pytest.approx(.03)
+        assert set(evidence['execution_ids'])=={'pristine-loss-entry','pristine-loss-stop'}
+        charges=feedback['covered_charges']
+        assert len(charges)==2 and {row['execution_id'] for row in charges}==set(evidence['execution_ids'])
+        assert sorted(float(row['amount']) for row in charges)==[.01,.02]
+        assert all(row['currency']=='USD' and row['root_order_id']==root and 'zero_commission_witness' not in row
+            for row in charges)
+        source=cycle['fee_source_observations']
+        assert len(source)==2 and all(row['report_status']=='BOUND_API_REPORT'
+            and row['net_status']=='UNAVAILABLE_FOR_NET' and row['execution_currency']==row['report_currency']=='USD'
+            for row in source)
+        decision=cycle['daily_risk']['decision'];daily=cycle['daily_risk']['state']
+        assert daily['recovered'] and daily['recovery_error'] is None,cycle['daily_risk']
+        assert decision['status']=='MANAGED_ONLY' and decision['lock_status']=='LOCKED',cycle['daily_risk']
+        assert decision['reason']=='MAX_DAILY_LOSS_AMOUNT' and decision['blocks_new_entries']
+        assert decision['audit_payload']['source']=='CoreOrchestrator' and decision['audit_payload']['stage']=='PRE_STRATEGY'
+        assert decision['realized_pnl']==pytest.approx(-.28) and decision['unrealized_pnl']==0
+        assert (decision['daily_trade_count'],decision['losing_trade_count'],decision['consecutive_losses'])==(1,1,1)
+        rows=cycle['database']['trade_lifecycle_events']
+        financial=[row for row in rows if row['execution_id'] is not None]
+        auxiliary=[row for row in rows if row['event_type']=='NATIVE_ROUNDTRIP_FEE']
+        assert len(rows)==3 and len(financial)==2 and len(auxiliary)==1
+        assert {row['execution_id'] for row in financial}==set(evidence['execution_ids'])
+        audit=json.loads(auxiliary[0]['payload_json'])['native_roundtrip_fee']
+        assert audit['account']=='SYNTHETIC_TEST' and audit['currency']=='USD'
+        assert audit['total_commission']==pytest.approx(.03) and set(audit['basis_event_ids'])=={row['event_id'] for row in financial}
+        assert audit['account_currency_observation']['source']=='IBKR_ACCOUNT_SUMMARY_LEDGER'
+        assert audit['account_currency_observation']['client_id']==999 and audit['account_currency_observation']['connection_epoch']==0
+        assert not any(event['event_type']=='TRADE_CLOSED' for event in cycle['events'])
+    queries=[row for row in report['native_read_requests'] if row['request_type']=='ACCOUNT_CURRENCY_STRICT']
+    cancels=[row for row in report['native_read_requests'] if row['request_type']=='OWNED_ACCOUNT_CURRENCY_CANCEL']
+    assert len(queries)==len(cancels)==1 and queries[0]['request_id']==cancels[0]['request_id']
+    assert queries[0]['status']=='COMPLETE' and queries[0]['end_observed'] and queries[0]['currency']=='USD'
+    assert cancels[0]['active_type_absent'] and cancels[0]['query_retired']
+    assert queries[0]['completed_at']==steps[3]['now']
+    assert [row['opcode'] for row in report['wire_attempts'] if row['opcode'] in {'62','63'}]==['62','63']
+    assert [(row['leg'],row['exec_id'],row['amount']) for row in report['positive_fee_callbacks']]==[
+        ('entry','pristine-loss-entry',.01),('stop','pristine-loss-stop',.02)]
+    assert closed['database']['trade_lifecycle_events']==replayed['database']['trade_lifecycle_events']
+    assert closed['fee_feedback']==replayed['fee_feedback']
+    assert closed['engine']['position_records']==replayed['engine']['position_records']
+    releases=report['exposure_release_calls']
+    assert len(releases)==2 and {row['authority'] for row in releases}=={'capital','allocation'}
+    assert [cycle['exposure_release_calls_after'] for cycle in report['cycles']]==[0,0,0,2,2]
+    assert all(row['cycle']==4 and row['result']==10.53 and row['exposure_after']==0 and 'exception' not in row for row in releases)
     assert report['trade_exit_shutdown_calls']==[] and report['cleanup']['live_threads']==[]
     assert report['cleanup']['paper_before_resource_close']==report['cleanup']['paper_after_resource_close']
     assert report['cleanup']['news_maintenance_closed'] and report['cleanup']['execution_resource_close_complete']
