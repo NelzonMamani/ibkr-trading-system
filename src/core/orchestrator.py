@@ -2417,11 +2417,113 @@ class CoreOrchestrator:
             return bool(checker())
         return True
 
+    def _refresh_required_native_valuations(self) -> None:
+        """Acquire qualified marks for existing native roots before entry risk.
+
+        Financial fills, reconciliation and authorized protection/management run
+        before this optional valuation path. No client discovery or connection is
+        allowed here; unavailable quotes revoke earlier process-local permission.
+        """
+        if not get_config("DAILY_RISK_INCLUDE_UNREALIZED"):
+            return
+        lifecycle = self.trade_lifecycle_engine
+        requirements = lifecycle.native_valuation_requirements()
+        if not requirements:
+            return
+        for requirement in requirements:
+            lifecycle.mark_native_valuation_unavailable(
+                requirement["root_order_id"], "NATIVE_VALUATION_REFRESH_REQUIRED")
+        try:
+            engine = self.execution_engine
+            client = engine._native_callback_client()
+            scope = engine._native_scope
+            if (client is None or scope is None or scope[1] is not client
+                    or self.connection_manager.get_ibkr_client(ensure_connected=False) is not client):
+                return
+            client_id = getattr(client, "client_id", None)
+            epoch = getattr(client, "_position_connection_epoch", None)
+            if (type(client_id) is not int or type(epoch) is not int
+                    or not client.isConnected() or client._stop_event.is_set()):
+                return
+            from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
+            now = datetime.now(timezone.utc)
+            truth = getattr(self, "_latest_position_truth_snapshot", None)
+            if (truth is None or truth.snapshot_status != "HEALTHY"
+                    or not 0 <= (now - scope[2]).total_seconds() <= get_ibkr_snapshot_max_age_seconds()
+                    or not lifecycle.native_feedback_snapshot()["available"]):
+                return
+            quantities = {}
+            for row in requirements:
+                quantities[row["symbol"]] = quantities.get(row["symbol"], 0) + row["quantity"]
+            eligible = []
+            for row in requirements:
+                broker_position = truth.broker_positions.get(row["symbol"])
+                system_position = truth.system_positions.get(row["symbol"])
+                if (row["account"] == scope[0] and row["client_id"] == client_id
+                        and row["connection_epoch"] == epoch and broker_position is not None
+                        and system_position is not None and type(broker_position.con_id) is int
+                        and broker_position.con_id == row["con_id"]
+                        and broker_position.quantity == system_position.quantity == quantities[row["symbol"]]
+                        and engine.post_fill_lifecycle.assess_trade_stop_protection(
+                            row["root_order_id"])["protected"]):
+                    eligible.append(row)
+            if not eligible:
+                return
+            if self.market_data_snapshot_manager is None:
+                self.market_data_snapshot_manager = MarketDataSnapshotManager(
+                    self.connection_manager.optional_client)
+            values, qualities = self.market_data_snapshot_manager.batch_snapshots(
+                sorted({row["symbol"] for row in eligible}), expected_client=client,
+                expected_connection_epoch=epoch)
+            from src.core.engines.trade_lifecycle_engine import NativeValuationObservation
+            from src.domain.quote_freshness import evidence_rejection, quote_evidence
+            from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
+            for row in eligible:
+                quote = MarketDataSnapshotManager.clean_snapshot(values, qualities, row["symbol"])
+                now = datetime.now(timezone.utc)
+                if (quote is None or engine._native_callback_client() is not client
+                        or engine._native_scope != scope
+                        or self.connection_manager.get_ibkr_client(ensure_connected=False) is not client
+                        or not client.isConnected() or client._stop_event.is_set()
+                        or getattr(client, "client_id", None) != client_id
+                        or getattr(client, "_position_connection_epoch", None) != epoch
+                        or not 0 <= (now - scope[2]).total_seconds() <= get_ibkr_snapshot_max_age_seconds()):
+                    continue
+                if (quote.source != "IBKR" or quote.market_data_type != "LIVE"
+                        or quote.returned_market_data_type != "LIVE"
+                        or quote.market_data_type_confirmed is not True
+                        or quote.snapshot_complete is not True or quote.broker_errors
+                        or quote.field_availability.get("last") is not True
+                        or quote.con_id != row["con_id"] or type(quote.con_id) is not int
+                        or quote.client_id != client_id or type(quote.client_id) is not int
+                        or quote.connection_epoch != epoch or type(quote.connection_epoch) is not int
+                        or evidence_rejection(quote_evidence(quote.market_timestamp_utc,
+                            quote.timestamp_source, quote.data_quality_flags), now=now)):
+                    continue
+                binding = {key: row[key] for key in (
+                    "root_order_id", "account", "strategy", "symbol", "side", "con_id",
+                    "client_id", "connection_epoch", "quantity", "entry_avg_price",
+                    "basis_event_ids", "last_fill_timestamp")}
+                lifecycle.apply_native_valuation(NativeValuationObservation(**binding,
+                    price=quote.last, market_timestamp=quote.market_timestamp_utc.isoformat(),
+                    acquisition_completed_at=quote.request_completed_at_utc,
+                    request_id=quote.request_id, source=quote.source,
+                    timestamp_kind=quote.timestamp_source, market_data_type=quote.returned_market_data_type,
+                    completed=quote.snapshot_complete, quality_flags=tuple(quote.data_quality_flags)),
+                    now=now, max_age_seconds=get_ibkr_snapshot_max_age_seconds(), source_client=client)
+        except (AcquisitionCancelled, AcquisitionDeadlineExceeded):
+            raise
+        except Exception as exc:
+            print(f"[DAILY_RISK][NATIVE_VALUATION_UNAVAILABLE] reason={exc}")
+
     def _daily_risk_allows_new_entries(self, *, cycle_started_at: datetime) -> bool:
+        self._refresh_required_native_valuations()
+        # Acquisition may consume time. Retain the cycle's audit identity, but
+        # assess current valuation age against the actual post-acquisition clock.
         decision = self.daily_risk_governor.evaluate(
             run_mode=self.run_mode.value,
             recovery_complete=self._startup_recovery_complete_for_arbitration(),
-            now=cycle_started_at,
+            now=datetime.now(timezone.utc),
             is_new_entry=True,
             event_collector=self.event_collector,
             storage_engine=self.storage_engine,

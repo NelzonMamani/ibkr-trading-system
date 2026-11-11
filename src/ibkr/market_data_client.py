@@ -579,6 +579,8 @@ class MarketDataClient:
             raise
 
     def qualify_contract(self, symbol: str, *, expected_client=None, expected_connection_epoch=None):
+        # Snapshot batches may first import the SDK on their worker thread.
+        safe_import_ib_insync()
         from ib_insync import Contract
 
         contract = Contract(
