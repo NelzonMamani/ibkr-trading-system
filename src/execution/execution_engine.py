@@ -337,6 +337,19 @@ class ExecutionEngine:
         return provider
 
     def _recover_startup_state(self) -> None:
+        # Persisted native dispatch is inspection-only after process loss. Read
+        # it BEFORE generic recovery can adopt protection or rebuild financial
+        # projections from external flat/incomplete facts. A real Core owns a
+        # storage engine; storage/read/JSON errors must not become empty state.
+        if (self.run_mode == RunMode.PAPER and self._provider is not None
+                and self._provider.is_live() and self._storage_engine is not None):
+            try:
+                self._load_native_orders()
+            except RuntimeError as exc:
+                if (str(exc) != "NATIVE_ORDER_RESTART_RECONCILIATION_REQUIRED"
+                        or not self._native_quarantined or self.startup_recovery_complete()):
+                    raise
+                return  # Existing loader latched RECOVERY_FAILED; never reset it.
         authority = StartupRecoveryAuthority(
             run_mode=self.run_mode.value,
             provider=self._provider,
