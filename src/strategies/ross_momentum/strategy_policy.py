@@ -1569,13 +1569,17 @@ def selected_micro_cost_failure_profile(request):
 
 
 def standalone_micro_cost_failure_basis(order, entry_fill_price):
+    return _accounted_profitable_partial_basis(order, entry_fill_price, selected_micro_cost_failure_profile)
+
+
+def _accounted_profitable_partial_basis(order, entry_fill_price, profile_selector):
     """Only existing accounting's sealed completed partial facts can enroll."""
     from decimal import Decimal, InvalidOperation
     from datetime import datetime
     request = order.get("request", {})
     action = order.get("unit_profit_exit") or {}
     basis = standalone_one_share_profit_basis(order, entry_fill_price)
-    if (not selected_micro_cost_failure_profile(request) or not basis
+    if (not profile_selector(request) or not basis
             or not order.get("protection_confirmed") or order.get("pmh_failure_exit")
             or order.get("quarantine") or order.get("cached_update_in_progress")
             or action.get("status") != "FILLED"
@@ -1715,3 +1719,43 @@ def standalone_micro_tightening_basis(order, entry_fill_price):
     if not selected_micro_cost_tightening_profile(order.get("request", {})) or order.get("stop_price_revision"):
         return None
     return standalone_micro_cost_failure_basis(order, entry_fill_price)
+
+
+# NEW delegated project automation policy, 11 November 2026, standalone Bull.
+# Primary guidance: Ross Cameron, "Bull Flag Chart Pattern & Trading Strategies",
+# displayed update 22 October 2023, coordinator retrieval 11 November 2026:
+# https://www.warriortrading.com/bull-flag-trading/
+# "When to Take Exit a Trade in a Bull Flag Pattern" describes taking half at
+# the first target and moving the remainder stop to entry. It does NOT specify
+# these automation choices: retain accepted floor-half actual-2R partial; require
+# terminal accounted GROSS profit and independently reconciled/protected owned
+# remainder; first fresh COMPLETED retained 10s/1m bar START at/after LAST partial
+# fill, CLOSE strictly ABOVE frozen E0, executable confirmed bid also above the
+# qualified decimal-grid E0 ceiling; bar close must also exceed that ceiling.
+# Existing freshness/session/date expiry,
+# structural-failure priority, one durable all-unit same-ID/TOTAL1 attempt,
+# immutable final-write authority and irreversible mixed-outcome quarantine apply.
+# Never loosen/cross the market. Original S0 stays risk/milestone basis, separate
+# invalidation and TP=None remain. No Micro cost-failure exit is adopted for Bull.
+# Entry cost is gross, not fees/guaranteed break-even; observed price is not native
+# revision identity/atomicity/continuous protection. Default-off TEST/PAPER/SMALL
+# only; no relationship, trailing, adds, operational enrollment or resumption.
+STANDALONE_BULL_COST_TIGHTENING_PROFILE = "STANDALONE_BULL_POST_PARTIAL_COST_TIGHTENING_V1"
+
+
+def selected_bull_cost_tightening_profile(request):
+    from src.config.config_resolver import get_ross_synthetic_bull_cost_tightening
+    if (request.get("setup_family_id") == "BULL_FLAG" and not request.get("relationship_context")
+            and selected_unit_management_profile(request) and get_ross_synthetic_bull_cost_tightening()):
+        return STANDALONE_BULL_COST_TIGHTENING_PROFILE
+    return None
+
+
+def selected_cost_tightening_profile(request):
+    return selected_micro_cost_tightening_profile(request) or selected_bull_cost_tightening_profile(request)
+
+
+def standalone_cost_tightening_basis(order, entry_fill_price):
+    if order.get("stop_price_revision"):
+        return None
+    return _accounted_profitable_partial_basis(order, entry_fill_price, selected_cost_tightening_profile)

@@ -98,12 +98,13 @@ def validate_order(order, portfolio) -> ValidationResult:
 class RiskEngine:
     """Minimal risk engine placeholder with teaching-style log messages."""
 
-    def evaluate_selected_failure_exit(self, *, order_id, order, position, registered, life, snapshot, observed_at, profit=False, quote=None, micro_cost=False, revision_proof=False, micro_tighten=False):
+    def evaluate_selected_failure_exit(self, *, order_id, order, position, registered, life, snapshot, observed_at, profit=False, quote=None, micro_cost=False, revision_proof=False, micro_tighten=False, bull_tighten=False):
         """Owned reduction only; no entry permission or management defaults."""
         from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
         from src.strategies.ross_momentum.strategy_policy import (selected_completed_failure_profile, selected_unit_management_profile,
             selected_relationship_unit_profit_profile)
-        revision_proof = revision_proof or micro_tighten
+        tightening = micro_tighten or bull_tighten
+        revision_proof = revision_proof or tightening
         request = order.get("request", {})
         relationship_profit = bool((profit or revision_proof) and selected_relationship_unit_profit_profile(request))
         relationship_id = (request.get("relationship_context") or {}).get("relationship_id") if relationship_profit else None
@@ -142,9 +143,11 @@ class RiskEngine:
                     and str(get_config("RUN_MODE_EFFECTIVE")).upper() == "PAPER"
                     and position.entry_price == registered.entry_price == life.avg_fill_price
                     and not order.get("stop_price_revision"))
-            if micro_tighten:
-                from src.strategies.ross_momentum.strategy_policy import standalone_micro_tightening_basis, standalone_profit_quote_evidence
-                basis = standalone_micro_tightening_basis(order, life.avg_fill_price)
+            if tightening:
+                from src.strategies.ross_momentum.strategy_policy import (standalone_cost_tightening_basis, standalone_profit_quote_evidence,
+                    selected_micro_cost_tightening_profile, selected_bull_cost_tightening_profile)
+                selector = selected_micro_cost_tightening_profile if micro_tighten else selected_bull_cost_tightening_profile
+                basis = standalone_cost_tightening_basis(order, life.avg_fill_price) if selector(request) and not (micro_tighten and bull_tighten) else None
                 allowed = bool(allowed and basis and not request.get("relationship_context")
                     and standalone_profit_quote_evidence(quote,symbol=order["symbol"],milestone=basis[0],observed_at=observed_at)
                     and quote.bid > basis[0])
@@ -168,8 +171,9 @@ class RiskEngine:
         if profit and request.get("selected_stop_units"):
             quantity = quantity // 2
             allowed = bool(allowed and quantity > 0)
-        if micro_tighten:
-            rationale = "MICRO_COST_LEVEL_TIGHTENING" if allowed else "MICRO_COST_LEVEL_TIGHTENING_BLOCKED"
+        if tightening:
+            label = "MICRO_COST_LEVEL_TIGHTENING" if micro_tighten else "BULL_COST_LEVEL_TIGHTENING"
+            rationale = label if allowed else label+"_BLOCKED"
         elif revision_proof:
             rationale = "STOP_REVISION_PREREQUISITE" if allowed else "STOP_REVISION_PREREQUISITE_BLOCKED"
         elif micro_cost:
@@ -194,6 +198,9 @@ class RiskEngine:
 
     def evaluate_micro_cost_tightening(self, **facts):
         return self.evaluate_selected_failure_exit(**facts,micro_tighten=True)
+
+    def evaluate_bull_cost_tightening(self, **facts):
+        return self.evaluate_selected_failure_exit(**facts,bull_tighten=True)
 
     evaluate_pmh_failure_exit = evaluate_selected_failure_exit
 

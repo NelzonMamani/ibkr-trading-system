@@ -742,3 +742,288 @@ def test_micro_quarantine_reader_cannot_bless_sibling_binding(reassessment,monke
     assert after['orders'][sibling_id]['request']==before['orders'][sibling_id]['request']
     assert life.filled_qty==1 and engine.capital_authority.total_used_exposure>0
     assert len(h.unit_writes)==2 and engine._native_quarantined
+
+
+# Bull's separately adopted strategy route: genuine four-share native admission,
+# actual two-share accounted partial, own cost price, no Micro cost-failure flag.
+def prepare_bull_tightening(reassessment,monkeypatch,tmp_path,capsys,*,clock_time=(14,10,30),enroll=True,fault='none',external_price=None,bands=((0,.01),)):
+    from test_standalone_pmh_late_fill_protection import micro_post_partial_case,append_micro_cost_bar
+    h,request,life=micro_post_partial_case(reassessment,monkeypatch,tmp_path,capsys,family='BULL_FLAG',bull_clock=clock_time)
+    assert request.quantity==4 and life.filled_qty==2 and len(h.unit_writes)==2
+    assert not config_resolver.get_ross_synthetic_micro_cost_failure()
+    bar,_=append_micro_cost_bar(h,request,life,capsys,fault='wick',external_price=external_price)
+    enroll_unit_management(h,monkeypatch,price_revision=True,fault=fault)
+    _,contract=bind_native_price_rule(h,monkeypatch,query=False,bands=bands)
+    if enroll:
+        config_resolver.set_config_overrides(dict(config_resolver._CONFIG_OVERRIDES,ROSS_SYNTHETIC_BULL_COST_TIGHTENING=True))
+    return h,request,life,bar,contract
+
+
+@pytest.mark.parametrize('clock_time',[(14,10,30),(16,35,30)],ids=['MORNING_10s','RTH_MID_1m'])
+def test_bull_native_core_own_cost_tightening_to_accounted_flat(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,clock_time):
+    from src.strategies.ross_momentum.strategy_policy import STANDALONE_BULL_COST_TIGHTENING_PROFILE
+    h,request,life,bar,contract=prepare_bull_tightening(reassessment,monkeypatch,tmp_path,capsys,clock_time=clock_time)
+    engine=h.core.execution_engine
+    original=deepcopy((life.avg_fill_price,life.selected_stop_price,request.invalidation_level,request.setup_metadata,h.failure_owner['decision_id']))
+    assert len(h.registry_batches[0][1])==33 and request.take_profit_price is None and not request.relationship_context
+    assert request.setup_metadata['execution_stream']['execution_trigger_timeframe']==('1m' if clock_time[0]==16 else '10s')
+    assert h.core.run_once(),capsys.readouterr().out[-6000:]
+    capsys.readouterr();root=h.failure_owner['stop_price_revision']
+    assert root['profile']==STANDALONE_BULL_COST_TIGHTENING_PROFILE and root['status']=='CONFIRMED'
+    assert root['proposed_price']==life.avg_fill_price==10.88 and life.selected_stop_price==10.63
+    assert [order.orderType for _,order in h.unit_writes]==['MKT','MKT','STP','STP']
+    assert len(h.price_rule_dispatches)==1
+    assert all(leg.last_confirmed_effective_stop_price==10.88 for leg in life.stop_legs if leg.filled_quantity==0)
+    assert engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
+    for _ in range(2):
+        assert h.core.run_once();capsys.readouterr()
+    assert len(h.unit_writes)==4 and len(h.price_rule_dispatches)==1
+    assert original==(life.avg_fill_price,life.selected_stop_price,request.invalidation_level,request.setup_metadata,h.failure_owner['decision_id'])
+    fill_unit_ids(h,life,capsys,[row.orderId for row in list(h.native_open_orders)],price=10.88)
+    assert life.filled_qty==0 and not h.manager.snapshot_positions() and not h.core.trade_registry.snapshot()
+    assert engine.capital_authority.total_used_exposure==0 and no_external_activity==[]
+
+
+@pytest.mark.parametrize('fault',['default_off','quote_equality','quote_stale','quote_future','quote_unconfirmed','unknown_truth','broker_larger','missing_accounting','wrong_occurrence'])
+def test_bull_cost_tightening_native_admission_vetoes(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,fault):
+    from datetime import timedelta
+    h,request,life,bar,contract=prepare_bull_tightening(reassessment,monkeypatch,tmp_path,capsys,enroll=fault!='default_off')
+    if fault.startswith('quote_'):
+        original=h.core.market_data_snapshot_manager.batch_snapshots
+        def quotes(symbols):
+            values,errors=original(symbols)
+            stamp=h.life.clock.current+timedelta(seconds=-16 if fault=='quote_stale' else 1 if fault=='quote_future' else 0)
+            return {key:replace(v,bid=life.avg_fill_price if fault=='quote_equality' else v.bid,
+                market_timestamp_utc=stamp,asof_utc=stamp,market_data_type_confirmed=fault!='quote_unconfirmed') for key,v in values.items()},errors
+        monkeypatch.setattr(h.core.market_data_snapshot_manager,'batch_snapshots',quotes)
+    if fault=='unknown_truth':
+        from src.ibkr.position_snapshot import BrokerPositionResult
+        monkeypatch.setattr(h.native_client,'position_snapshot',lambda:BrokerPositionResult(status='TIMEOUT'))
+    if fault=='broker_larger':h.native_quantity[0]+=1
+    if fault=='missing_accounting':h.failure_owner['unit_profit_exit'].pop('accounted_fill_notional')
+    if fault=='wrong_occurrence':h.failure_owner['unit_profit_exit']['occurrence']=dict(request.setup_metadata,canonical_result_index=999)
+    h.core.run_once();capsys.readouterr()
+    assert len(h.unit_writes)==2 and not h.failure_owner.get('stop_price_revision')
+    assert all(row.order.auxPrice==10.63 for row in h.native_open_orders)
+
+
+@pytest.mark.parametrize('fault',['equality','wick','forming','straddling','stale','future','missing','no_partial','incomplete','gross_equality','no_stamp','phase','date'])
+def test_bull_cost_tightening_measured_partial_and_clock_boundaries(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,fault):
+    from datetime import timedelta
+    h,request,life,bar,contract=prepare_bull_tightening(reassessment,monkeypatch,tmp_path,capsys)
+    owner=deepcopy(h.failure_owner);now=h.life.clock.current;plan=request.management_session_plan
+    if fault in {'equality','wick'}:bar=replace(bar,close=life.avg_fill_price,high=life.avg_fill_price+.03)
+    if fault=='forming':bar=replace(bar,timestamp=now)
+    if fault=='straddling':bar=replace(bar,timestamp=datetime.fromisoformat(owner['unit_profit_exit']['last_accounted_fill_at'])-timedelta(seconds=1))
+    if fault=='stale':bar=replace(bar,timestamp=bar.timestamp-timedelta(hours=1))
+    if fault=='future':bar=replace(bar,timestamp=now+timedelta(seconds=60))
+    if fault=='no_partial':owner.pop('unit_profit_exit')
+    if fault=='incomplete':owner['unit_profit_exit']['status']='MKT'
+    if fault=='gross_equality':owner['unit_profit_exit']['accounted_fill_notional']=str(2*life.avg_fill_price)
+    if fault=='no_stamp':owner['unit_profit_exit'].pop('last_accounted_fill_at')
+    if fault=='phase':plan='RTH_MID'
+    if fault=='date':now+=timedelta(days=1)
+    assert h.manager.evaluate_selected_bull_cost_tightening(owner,[] if fault=='missing' else [bar],
+        observed_at=now,session_plan=plan,entry_fill_price=life.avg_fill_price) is None
+    assert len(h.unit_writes)==2 and not h.failure_owner.get('stop_price_revision')
+
+
+@pytest.mark.parametrize('tick,admitted',[(.005,True),(.03,False)])
+def test_bull_cost_tightening_qualified_grid_market_boundary(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,tick,admitted):
+    from ibapi.message import OUT
+    h,request,life,bar,contract=prepare_bull_tightening(reassessment,monkeypatch,tmp_path,capsys)
+    send=h.native_client.sendMsg
+    def wire(message):
+        if message.split('\0')[0]==str(OUT.REQ_MARKET_RULE):h.native_client.marketRule(26,[NS(lowEdge=0,increment=tick)])
+        else:send(message)
+    monkeypatch.setattr(h.native_client,'sendMsg',wire)
+    h.core.run_once();capsys.readouterr()
+    assert bool(h.failure_owner.get('stop_price_revision')) is admitted
+    assert len(h.unit_writes)==(4 if admitted else 2)
+    if admitted:assert all(row.order.auxPrice==10.88 for row in h.native_open_orders)
+
+
+@pytest.mark.parametrize('fault',['second_unknown','second_rejected','unknown'])
+def test_bull_own_tightening_mixed_outcomes_drain_without_retry(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,fault):
+    from datetime import timedelta
+    h,request,life,bar,contract=prepare_bull_tightening(reassessment,monkeypatch,tmp_path,capsys,fault=fault)
+    engine=h.core.execution_engine
+    assert not h.core.run_once();capsys.readouterr()
+    remaining=[leg for leg in life.stop_legs if leg.filled_quantity==0]
+    if fault.startswith('second_'):
+        assert [leg.stop_price_revision['status'] for leg in remaining]==['CONFIRMED','DISPATCH_UNCERTAIN']
+        assert [leg.last_confirmed_effective_stop_price for leg in remaining]==[10.88,10.63]
+    else:
+        assert remaining[0].stop_price_revision['status']=='DISPATCH_UNCERTAIN'
+        assert [leg.last_confirmed_effective_stop_price for leg in remaining]==[10.63,10.63]
+    writes=len(h.unit_writes)
+    assert writes==(4 if fault.startswith('second_') else 3)
+    assert engine._native_quarantined and h.failure_owner['stop_price_revision']['status']=='RESERVED'
+    # Opt-out cannot erase retained factual ownership; contradictory original
+    # price observations remain mixed, not compensation/retry permission.
+    config_resolver.set_config_overrides(dict(config_resolver._CONFIG_OVERRIDES,ROSS_SYNTHETIC_BULL_COST_TIGHTENING=False))
+    for index,leg in enumerate(remaining):
+        identity=int(leg.broker_order_id)
+        h.facts[identity]=dict(status='Filled',filled=1,remaining=0,avgFillPrice=leg.last_confirmed_effective_stop_price,
+            symbol='JPM',side='SELL',orderId=identity,parentId=71,orderRef='PROTECT|'+life.trade_id)
+        h.native_open_orders[:]=[row for row in h.native_open_orders if row.orderId!=identity]
+        h.native_quantity[0]-=1;h.life.clock.current+=timedelta(seconds=1)
+        assert not h.core.run_once();capsys.readouterr()
+        assert life.filled_qty==1-index and engine._native_quarantined and len(h.unit_writes)==writes
+        state=(life.filled_qty,life.exited_qty,engine.capital_authority.total_used_exposure)
+        assert not h.core.run_once();capsys.readouterr()
+        assert state==(life.filled_qty,life.exited_qty,engine.capital_authority.total_used_exposure)
+    assert not h.manager.snapshot_positions() and not h.core.trade_registry.snapshot()
+    assert engine.capital_authority.total_used_exposure==0 and engine._failsafe_block_new_entries
+
+
+@pytest.mark.parametrize('fault',['clock','owner','stop_fill','enrollment'])
+def test_bull_tightening_final_write_races_fail_closed(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,fault):
+    from datetime import timedelta
+    h,request,life,bar,contract=prepare_bull_tightening(reassessment,monkeypatch,tmp_path,capsys)
+    engine=h.core.execution_engine;inventory=h.native_client.openOrders;observed=[]
+    def changed(**kwargs):
+        rows=inventory(**kwargs)
+        if h.failure_owner.get('stop_price_revision') and not observed:
+            observed.append(True)
+            if fault=='clock':h.life.clock.current+=timedelta(seconds=20)
+            if fault=='owner':engine.post_fill_lifecycle._trades[life.trade_id]=deepcopy(life)
+            if fault=='enrollment':config_resolver.set_config_overrides(dict(config_resolver._CONFIG_OVERRIDES,ROSS_SYNTHETIC_BULL_COST_TIGHTENING=False))
+            if fault=='stop_fill':
+                identity=h.native_open_orders[0].orderId
+                h.facts[identity]=dict(status='Filled',filled=1,remaining=0,avgFillPrice=10.63,
+                    symbol='JPM',side='SELL',orderId=identity,parentId=71,orderRef='PROTECT|'+life.trade_id)
+                h.native_open_orders[:]=[row for row in h.native_open_orders if row.orderId!=identity]
+                h.native_quantity[0]-=1
+        return rows
+    monkeypatch.setattr(h.native_client,'openOrders',changed)
+    assert not h.core.run_once();capsys.readouterr()
+    assert observed and len(h.unit_writes)==2 and engine._native_quarantined
+    if fault=='stop_fill':
+        assert not h.core.run_once();capsys.readouterr()
+        assert life.filled_qty==1 and len(h.unit_writes)==2
+
+
+def test_bull_cost_tightening_cold_restart_remains_quarantined(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    from test_standalone_pmh_late_fill_protection import assert_readonly_selected_dispatch_restart
+    h,request,life,bar,contract=prepare_bull_tightening(reassessment,monkeypatch,tmp_path,capsys,fault='second_unknown')
+    assert not h.core.run_once();capsys.readouterr()
+    assert_readonly_selected_dispatch_restart(h,request,timeframe='10s',profile='UNIT_MANAGEMENT')
+    assert life.filled_qty==2 and h.core.execution_engine._native_quarantined
+
+
+def test_bull_tightening_scope_cannot_grant_micro_failure_or_relationship_permission(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    from dataclasses import asdict
+    from src.strategies.ross_momentum.strategy_policy import selected_bull_cost_tightening_profile, selected_micro_cost_failure_profile
+    h,request,life,bar,contract=prepare_bull_tightening(reassessment,monkeypatch,tmp_path,capsys)
+    facts=asdict(request)
+    assert selected_bull_cost_tightening_profile(facts) and not selected_micro_cost_failure_profile(facts)
+    assert not selected_bull_cost_tightening_profile(dict(facts,relationship_context={'profile':'BULL_FLAG_MICRO_2R_V1','action':'ENTRY'}))
+    assert not selected_bull_cost_tightening_profile(dict(facts,setup_family_id='MICRO_PULLBACK'))
+    below=replace(bar,close=10.86,low=10.84,high=10.89)
+    assert h.manager.evaluate_selected_bull_cost_tightening(h.failure_owner,[below],observed_at=h.life.clock.current,
+        session_plan=request.management_session_plan,entry_fill_price=life.avg_fill_price) is None
+    assert h.manager.evaluate_selected_micro_cost_failure(h.failure_owner,[below],observed_at=h.life.clock.current,
+        session_plan=request.management_session_plan,entry_fill_price=life.avg_fill_price) is None
+
+
+def test_bull_confirmed_cost_tightening_retains_structural_failure_exit(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    from test_standalone_pmh_late_fill_protection import append_micro_cost_bar
+    h,request,life,bar,contract=prepare_bull_tightening(reassessment,monkeypatch,tmp_path,capsys)
+    assert h.core.run_once();capsys.readouterr()
+    assert h.failure_owner['stop_price_revision']['status']=='CONFIRMED'
+    _,price=append_micro_cost_bar(h,request,life,capsys,fault='family_failure')
+    assert 10.63<price<request.setup_metadata['trigger_level']
+    assert h.failure_owner['pmh_failure_exit']['profile']=='CENTRAL_STANDALONE_COMPLETED_BAR_FAILURE_V1'
+    assert [order.orderType for _,order in h.unit_writes]==['MKT','MKT','STP','STP','MKT','MKT']
+    fill_unit_ids(h,life,capsys,[row.orderId for row in list(h.native_open_orders)],price=price)
+    assert life.filled_qty==0 and not h.manager.snapshot_positions() and not h.core.trade_registry.snapshot()
+    assert h.core.execution_engine.capital_authority.total_used_exposure==0
+
+
+def test_bull_quarantined_partial_accounting_interruption_forbids_replay(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    h,request,life,bar,contract=prepare_bull_tightening(reassessment,monkeypatch,tmp_path,capsys,fault='second_unknown')
+    assert not h.core.run_once();capsys.readouterr()
+    engine=h.core.execution_engine;identity=h.native_open_orders[0].orderId
+    h.facts[identity]=dict(status='Filled',filled=1,remaining=0,avgFillPrice=10.88,
+        symbol='JPM',side='SELL',orderId=identity,parentId=71,orderRef='PROTECT|'+life.trade_id)
+    h.native_open_orders[:]=[row for row in h.native_open_orders if row.orderId!=identity];h.native_quantity[0]-=1
+    apply=h.core._apply_execution_results_to_trade_management
+    def interrupted(results):raise OSError('synthetic Bull projection interruption')
+    monkeypatch.setattr(h.core,'_apply_execution_results_to_trade_management',interrupted)
+    assert not h.core.run_once();capsys.readouterr()
+    child=next(row for row in engine._native_orders.values() if row.get('broker_order_id')==str(identity))
+    assert child['cached_update_in_progress'] and life.filled_qty==1 and h.manager.snapshot_positions()['JPM'].quantity==2
+    state=(life.filled_qty,life.exited_qty,engine.capital_authority.total_used_exposure)
+    monkeypatch.setattr(h.core,'_apply_execution_results_to_trade_management',apply)
+    assert not h.core.run_once();capsys.readouterr()
+    assert state==(life.filled_qty,life.exited_qty,engine.capital_authority.total_used_exposure)
+    assert child['cached_update_in_progress'] and engine._native_quarantined and len(h.unit_writes)==4
+
+
+def test_bull_actual_cost_neutral_partial_never_enrolls(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    from test_standalone_pmh_late_fill_protection import micro_post_partial_case,append_micro_cost_bar
+    h,request,life=micro_post_partial_case(reassessment,monkeypatch,tmp_path,capsys,family='BULL_FLAG',fill_price=10.88,bull_clock=(14,10,30))
+    assert h.failure_owner['unit_profit_exit']['accounted_fill_notional']=='21.76'
+    enroll_unit_management(h,monkeypatch,price_revision=True)
+    config_resolver.set_config_overrides(dict(config_resolver._CONFIG_OVERRIDES,ROSS_SYNTHETIC_BULL_COST_TIGHTENING=True))
+    append_micro_cost_bar(h,request,life,capsys,fault='wick')
+    assert not h.failure_owner.get('stop_price_revision') and len(h.unit_writes)==2
+
+
+@pytest.mark.parametrize('partial_entry',[False,True])
+def test_bull_without_terminal_accounted_partial_stays_protected(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,partial_entry):
+    from test_standalone_pmh_late_fill_protection import pmh_failure_case
+    h,request,life=small_central_owned(reassessment,monkeypatch,tmp_path,capsys,'BULL_FLAG',requested_base=8,
+        risk_cap=4,synthetic_capital=800,unit_stops=True,partial=partial_entry,bull_clock=(14,10,30))
+    h,request,life=pmh_failure_case(reassessment,monkeypatch,tmp_path,capsys,prepared=(h,request,life),fault='equality',clock_step=5)
+    enroll_unit_management(h,monkeypatch,price_revision=True)
+    config_resolver.set_config_overrides(dict(config_resolver._CONFIG_OVERRIDES,ROSS_SYNTHETIC_BULL_COST_TIGHTENING=True))
+    assert h.core.run_once();capsys.readouterr()
+    parent=h.core.execution_engine._selected_order_records()[request.client_order_id]
+    assert not parent.get('unit_profit_exit') and not parent.get('stop_price_revision') and not h.unit_writes
+    assert life.filled_qty==(1 if partial_entry else 4)
+    assert h.core.execution_engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
+
+
+
+@pytest.mark.parametrize('bands,admitted',[(((0,.01),(10.25,.05)),True),(((0,.01),(10.,.03)),False)],ids=['legal_ceiling','ambiguous_origin_denied'])
+def test_bull_cost_tightening_legal_upward_grid_rounding_keeps_frozen_basis(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,bands,admitted):
+    h,request,life,bar,contract=prepare_bull_tightening(reassessment,monkeypatch,tmp_path,capsys,
+        external_price=10.91,bands=bands)
+    assert h.core.run_once();capsys.readouterr()
+    assert bool(h.failure_owner.get('stop_price_revision')) is admitted
+    if admitted:
+        assert h.failure_owner['stop_price_revision']['status']=='CONFIRMED'
+        assert all(row.order.auxPrice==10.90 for row in h.native_open_orders)
+    else:
+        assert all(row.order.auxPrice==10.63 for row in h.native_open_orders)
+    assert life.avg_fill_price==10.88 and life.selected_stop_price==10.63 and request.invalidation_level==10.63
+    assert life.target is None and len(h.unit_writes)==(4 if admitted else 2)
+
+
+@pytest.mark.parametrize('fault',['wrong_owner','oversized','fractional'])
+def test_bull_quarantine_rejects_unbound_or_nonunit_callbacks(reassessment,monkeypatch,tmp_path,capsys,no_external_activity,fault):
+    h,request,life,bar,contract=prepare_bull_tightening(reassessment,monkeypatch,tmp_path,capsys,fault='second_unknown')
+    assert not h.core.run_once();capsys.readouterr()
+    engine=h.core.execution_engine;identity=h.native_open_orders[0].orderId
+    facts=dict(status='Filled',filled=1,remaining=0,avgFillPrice=10.88,
+        symbol='JPM',side='SELL',orderId=identity,parentId=71,orderRef='PROTECT|'+life.trade_id)
+    if fault=='wrong_owner':facts['orderRef']='PROTECT|OTHER'
+    if fault=='oversized':facts['filled']=2
+    if fault=='fractional':facts.update(filled=.5,remaining=.5)
+    h.facts[identity]=facts
+    assert not h.core.run_once();capsys.readouterr()
+    assert life.filled_qty==2 and engine._native_quarantined and engine.capital_authority.total_used_exposure>0
+    assert len(h.unit_writes)==4
+
+
+def test_bull_tightening_never_overwrites_unexpected_tighter_native_price(reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    h,request,life,bar,contract=prepare_bull_tightening(reassessment,monkeypatch,tmp_path,capsys,external_price=10.95)
+    # Independent unexpected external inventory is not authority to loosen or
+    # bless an unowned revision. Original retained structural basis stays intact.
+    for row in h.native_open_orders:row.order.auxPrice=10.93
+    h.core.run_once();capsys.readouterr()
+    assert len(h.unit_writes)==2 and not h.failure_owner.get('stop_price_revision')
+    assert all(row.order.auxPrice==10.93 for row in h.native_open_orders)
+    assert life.avg_fill_price==10.88 and life.selected_stop_price==10.63

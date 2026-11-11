@@ -1631,6 +1631,12 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
         "mutable": "dynamic",
         "description": "Default fraction of available account capital assigned to one strategy when no explicit allocation is configured.",
     },
+    "ROSS_SYNTHETIC_BULL_COST_TIGHTENING": {
+        "type": bool, "default": False, "env": [],
+        "affects": ["TradeManagementEngine", "RiskEngine", "CoreOrchestrator", "ExecutionEngine"],
+        "enforcement": "HARD", "mutable": "dynamic",
+        "description": "Explicit synthetic standalone Bull once-only post-accounted-partial entry-cost tightening; no Micro cost-failure or operational enrollment.",
+    },
     "ROSS_SYNTHETIC_MICRO_COST_TIGHTENING": {
         "type": bool, "default": False, "env": [],
         "affects": ["TradeManagementEngine", "RiskEngine", "CoreOrchestrator", "ExecutionEngine"],

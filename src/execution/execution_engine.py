@@ -2790,7 +2790,8 @@ class ExecutionEngine:
         from src.adapters.brokers.ibkr.ibkr_client import _price_decimal
         from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
         from src.strategies.ross_momentum.strategy_policy import selected_unit_management_profile, standalone_profit_quote_evidence
-        from src.strategies.ross_momentum.strategy_policy import STANDALONE_MICRO_COST_TIGHTENING_PROFILE, standalone_micro_tightening_basis, selected_micro_cost_tightening_profile
+        from src.strategies.ross_momentum.strategy_policy import (STANDALONE_MICRO_COST_TIGHTENING_PROFILE, STANDALONE_BULL_COST_TIGHTENING_PROFILE,
+            standalone_cost_tightening_basis, selected_cost_tightening_profile)
         parent = self._selected_order_records().get(order_id)
         if parent is None:
             return False
@@ -2806,21 +2807,22 @@ class ExecutionEngine:
                 or life is None or life.filled_qty <= 0 or life.target is not None
                 or not parent.get("terminal") or parent["filled"] != parent["requested"]
                 or not parent.get("protection_confirmed") or not life.preserve_selected_protection
-                or not decision.allowed or decision.execution_blocked or decision.rationale != ("MICRO_COST_LEVEL_TIGHTENING" if proposal.get("profile") == STANDALONE_MICRO_COST_TIGHTENING_PROFILE else "STOP_REVISION_PREREQUISITE")
+                or not decision.allowed or decision.execution_blocked or decision.rationale != ("MICRO_COST_LEVEL_TIGHTENING" if proposal.get("profile") == STANDALONE_MICRO_COST_TIGHTENING_PROFILE else "BULL_COST_LEVEL_TIGHTENING" if proposal.get("profile") == STANDALONE_BULL_COST_TIGHTENING_PROFILE else "STOP_REVISION_PREREQUISITE")
                 or decision.decision_id != parent["decision_id"] or decision.direction != "SELL"
                 or decision.max_position_size != life.filled_qty
-                or proposal.get("profile") not in {"STOP_REVISION_PREREQUISITE",STANDALONE_MICRO_COST_TIGHTENING_PROFILE}
+                or proposal.get("profile") not in {"STOP_REVISION_PREREQUISITE",STANDALONE_MICRO_COST_TIGHTENING_PROFILE,STANDALONE_BULL_COST_TIGHTENING_PROFILE}
                 or proposal.get("occurrence") != initial.get("setup_metadata")
                 or proposal.get("session_plan") != initial.get("management_session_plan")
                 or type(parent.get("unit_connection_epoch")) is not int
                 or parent["unit_connection_epoch"] != client._position_connection_epoch
                 or parent.get("unit_client_id") != client.client_id):
             return False
-        adopter = proposal.get("profile") == STANDALONE_MICRO_COST_TIGHTENING_PROFILE
-        basis = standalone_micro_tightening_basis(parent,life.avg_fill_price) if adopter else None
+        adopter = proposal.get("profile") in {STANDALONE_MICRO_COST_TIGHTENING_PROFILE,STANDALONE_BULL_COST_TIGHTENING_PROFILE}
+        basis = standalone_cost_tightening_basis(parent,life.avg_fill_price) if adopter else None
         if adopter:
             try:
-                if (not basis or _price_decimal(proposed_price) != _price_decimal(basis[0])
+                if (not basis or selected_cost_tightening_profile(initial) != proposal.get("profile")
+                        or _price_decimal(proposed_price) != _price_decimal(basis[0])
                         or (proposal.get("entry_fill_price"),proposal.get("original_stop"),proposal.get("last_accounted_profit_fill_at")) != basis):
                     return False
             except (ValueError,TypeError):
@@ -2912,7 +2914,7 @@ class ExecutionEngine:
                             or child.get("terminal") or child["filled"] != 0
                             or child.get("stop_price_revision") is not revision or revision != sealed
                             or not selected_unit_management_profile(initial)
-                            or (adopter and not selected_micro_cost_tightening_profile(initial))
+                            or (adopter and selected_cost_tightening_profile(initial) != proposal.get("profile"))
                             or not authorization_guard(as_of)
                             or not client.validate_price_rule(price_rule, contract, route=route, observed_at=as_of, max_age_seconds=age)
                             or not standalone_profit_quote_evidence(quote, symbol=parent["symbol"],milestone=float(normalized),observed_at=as_of)):
@@ -3270,11 +3272,11 @@ class ExecutionEngine:
         No order reconstruction/recovery, new entry/protection, version promotion
         or discretionary write. Unknown accounting commits still veto replay.
         """
-        from src.strategies.ross_momentum.strategy_policy import STANDALONE_MICRO_COST_TIGHTENING_PROFILE
+        from src.strategies.ross_momentum.strategy_policy import STANDALONE_MICRO_COST_TIGHTENING_PROFILE, STANDALONE_BULL_COST_TIGHTENING_PROFILE
         roots = [(oid,root) for oid,root in self._native_orders.items()
             if root.get("side") in {"LONG","BUY"} and root.get("quarantine")
             and root.get("stop_price_revision",{}).get("profile") in {
-                "STOP_REVISION_PREREQUISITE",STANDALONE_MICRO_COST_TIGHTENING_PROFILE}]
+                "STOP_REVISION_PREREQUISITE",STANDALONE_MICRO_COST_TIGHTENING_PROFILE,STANDALONE_BULL_COST_TIGHTENING_PROFILE}]
         if (not roots or not self._native_loaded or self._native_state is None
                 or self._native_orders != self._native_state.get("orders")
                 or getattr(self,"_native_revision_fill_drain",False)

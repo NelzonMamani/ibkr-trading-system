@@ -2629,12 +2629,15 @@ def test_joined_gap_fill_context_never_becomes_entry_or_veto(reassessment,monkey
 
 
 def standalone_bull_joined(reassessment,monkeypatch,tmp_path,*,news_fault='none',peer=False,
-        position_case='complete_empty',runtime_options=None,clock_time=(14,10,30)):
+        position_case='complete_empty',runtime_options=None,clock_time=(14,10,30),real_session=False):
     from src.strategies.common.candles.candle_types import Candle
     from test_bull_flag_production_authority import TAIL
     from src.strategies.common.triggers.trigger_registry import TRIGGER_EVALUATOR_REGISTRY
+    from src.market_data.session_pct_change import resolve_market_session_label
+    moment=reassessment.life.clock.current.replace(hour=clock_time[0],minute=clock_time[1],second=clock_time[2],microsecond=0)
+    session=resolve_market_session_label(moment)
     h=pmh_joined(reassessment,monkeypatch,tmp_path,news_fault=news_fault,peer=peer,
-        position_case=position_case,runtime_options=runtime_options,clock_time=clock_time)
+        position_case=position_case,runtime_options=runtime_options,clock_time=clock_time,context_session=session if real_session else None)
     end=h.life.clock.current.replace(second=0,microsecond=0)
     rows=[(10.,10.02,9.98,10.,1000)]*41+TAIL
     primary=_candles(rows,end=end-timedelta(minutes=1))
