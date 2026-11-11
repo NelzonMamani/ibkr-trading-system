@@ -11,6 +11,7 @@ from ibapi.client import EClient
 # Only the new disconnected quote fixture binds them behind synthetic sendMsg.
 _NATIVE_QUOTE_CONTRACT_ENCODER = EClient.reqContractDetails
 _NATIVE_QUOTE_MARKET_ENCODER = EClient.reqMktData
+_NATIVE_HISTORY_READ_ENCODER = EClient.reqHistoricalData
 from src.config import config_resolver
 from test_standalone_pmh_late_fill_protection import (small_central_owned,one_share_profit_case,
     enroll_unit_management,fill_unit_ids,reassessment,lifecycle,forbid_io,no_external_activity,_reset_config)
@@ -1474,12 +1475,10 @@ def _pristine_native_quote_facts(h, monkeypatch, row):
         currency=supplied.contract.currency,instrument_type=supplied.contract.secType,
         local_symbol=supplied.contract.localSymbol), transport
 
-def test_pristine_fresh_process_first_cycle_reaches_actual_readonly_risk(
-        reassessment, monkeypatch, tmp_path, capsys, no_external_activity, runtime_schema_template):
-    """New process proof; no retained native permission or prepared decision."""
-    import json, shutil
+def _pristine_native_cycle_facts(reassessment, monkeypatch, tmp_path):
+    """Reuse raw PMH observations; child owners determine selection/admission."""
+    import json
     from test_joined_core_pmh_readonly import pmh_joined
-    from test_startup_recovery_and_stop_protection import run_native_core_cold_start
     h = pmh_joined(reassessment, monkeypatch, tmp_path / 'external-facts', position_case='complete_empty')
     from src.strategies.ross_momentum.patterns import pattern_trace
     from src.scanner import scanner_runner
@@ -1520,8 +1519,6 @@ def test_pristine_fresh_process_first_cycle_reaches_actual_readonly_risk(
     pre_limit = max(2,min(722,int((local_clock-local_clock.replace(hour=4,minute=0,second=0,microsecond=0)).total_seconds()//60)+2))
     history = {tf:pattern_trace.get_intraday_bars(symbol='JPM',timeframe=tf,
         limit=pre_limit if tf=='1m' else len(bars)) for tf,bars in h.streams.items()}
-    database = tmp_path / 'pristine-first-cycle.sqlite3'
-    shutil.copyfile(runtime_schema_template, database)
     facts = dict(observe_pristine_readonly_cycle=True,
         now=h.life.clock.current.isoformat(), account='SYNTHETIC_TEST', client_id=999,
         positions=[], open_orders=[], cycles=1,
@@ -1537,6 +1534,17 @@ def test_pristine_fresh_process_first_cycle_reaches_actual_readonly_risk(
             IBKR_ORDER_SUBMISSION_ENABLED=False, IBKR_API_WRITE_ALLOWED=False,
             NEWS_ENABLED=True, ROSS_ISSUER_QUERY_ENABLED=True,
             SCANNER_DATA_SOURCE='IBKR', LIVE_EXECUTION_PROBE_MODE=False))
+    return facts
+
+
+def test_pristine_fresh_process_first_cycle_reaches_actual_readonly_risk(
+        reassessment, monkeypatch, tmp_path, capsys, no_external_activity, runtime_schema_template):
+    """New process proof; no retained native permission or prepared decision."""
+    import json, shutil
+    from test_startup_recovery_and_stop_protection import run_native_core_cold_start
+    facts = _pristine_native_cycle_facts(reassessment,monkeypatch,tmp_path)
+    database = tmp_path / 'pristine-first-cycle.sqlite3'
+    shutil.copyfile(runtime_schema_template,database)
     path = tmp_path / 'pristine-first-cycle-facts.json'
     path.write_text(json.dumps(facts, default=str))
     report = run_native_core_cold_start(database, path, tmp_path / 'pristine-first-cycle-child')
@@ -1569,4 +1577,395 @@ def test_pristine_fresh_process_first_cycle_reaches_actual_readonly_risk(
     assert report['supervisor']['reaped'] and not report['supervisor']['timed_out']
     assert report['cleanup']['live_threads'] == []
     assert report['cleanup']['core_shutdown_complete'] is True, report['cleanup']
+    assert no_external_activity==[]
+
+
+def _pristine_paper_child_function(name, namespace):
+    """Compile only the actual fixture boundary, never run a Core child."""
+    import ast
+    from test_startup_recovery_and_stop_protection import _NATIVE_CORE_COLD_START_CHILD
+    tree=ast.parse(_NATIVE_CORE_COLD_START_CHILD)
+    node=next(node for node in ast.walk(tree) if isinstance(node,ast.FunctionDef) and node.name==name)
+    exec(compile(ast.fix_missing_locations(ast.Module(body=[node],type_ignores=[])),
+        '<actual-pristine-paper-boundary>','exec'),namespace)
+    return namespace[name]
+
+
+@pytest.mark.parametrize('fault',['none','other_client','epoch','mode','size','boolean_size','side',
+    'type','repeat','durable','target','risk','reservation','capital_order','allocation_order',
+    'capital_symbol','allocation_symbol','capital_size','allocation_remaining','allocation_status',
+    'capital_side','allocation_strategy','allocation_mode','allocation_missing','capital_decision_missing',
+    'allocation_global_link','stop_none','stop_wrong_parent',
+    'stop_wrong_price','stop_wrong_position','stop_wrong_progress','stop_missing_accounting',
+    'stop_missing_execution','stop_wrong_execution'])
+def test_pristine_paper_memory_boundary_rejects_unprovided_writes(monkeypatch,fault):
+    """Pure fake-owner safety check: no Core/application or real transport."""
+    import os
+    monkeypatch.setenv('EXECUTION_ENV','TEST')
+    class Denied(BaseException):pass
+    guard=_pristine_paper_child_function('validate_pristine_paper_memory_write',
+        dict(os=os,ForbiddenExternalIO=Denied))
+    now=datetime(2026,10,20,13,35,30,tzinfo=timezone.utc)
+    plan=dict(account='SYNTHETIC_TEST',client_id=999,epoch=0,symbol='JPM',con_id=123,
+        currency='USD',exchange='SMART',entry_price=10.3,stop_price=10.2897,fill_price=10.53)
+    client=NS(client_id=999,_position_connection_epoch=0,readonly_enabled=False,isConnected=lambda:True)
+    request=dict(client_order_id='root',symbol='JPM',quantity=1,setup_family_id='PREMARKET_HIGH_BREAK',
+        relationship_context=None,setup_metadata=dict(occurrence='component-only'),stop_loss_price=10.2897,
+        invalidation_level=10.3,take_profit_price=None,target_model='component descriptive objective',
+        direction='LONG',strategy_name='RossMomentumStrategyV1')
+    parent=dict(request=request,requested=1,account='SYNTHETIC_TEST',native_client_id=999,
+        native_connection_epoch=0,decision_id='decision',status='DISPATCH_UNCERTAIN',
+        broker_order_id=None,filled=0,terminal=False)
+    state=dict(version=1,mode='PAPER',orders=dict(root=parent))
+    capital_reservation=NS(decision_id='cap-component',order_id='root',symbol='JPM',side='LONG',
+        strategy_id='RossMomentumStrategyV1',run_mode='PAPER',status='ACTIVE',quantity=1,
+        remaining_quantity=1,filled_quantity=0,exposure_notional=0.,notional=10.3,remaining_notional=10.3)
+    allocation_reservation=NS(**vars(capital_reservation))
+    allocation_reservation.decision_id='strat-alloc-component'
+    allocation_reservation.strategy_id='ROSSMOMENTUMSTRATEGYV1'
+    allocation_reservation.global_capital_decision_id='cap-component'
+    capital=NS(capital_scope=None,_capital_writer=None,total_reserved_capital=10.3,total_used_exposure=0,
+        active_reservations=dict(r=capital_reservation))
+    allocation=NS(active_reservations=dict(a=allocation_reservation))
+    engine=NS(run_mode=NS(value='PAPER'),_native_scope=('SYNTHETIC_TEST',client,now),
+        capital_authority=capital,strategy_allocation_authority=allocation,
+        _native_quarantined=False,startup_recovery_complete=lambda:True,
+        _native_state=state,_native_orders=state['orders'],position_records={},trade_registry=NS(snapshot=lambda:[]))
+    core=NS(run_mode=NS(value='PAPER'),execution_engine=engine)
+    contract=NS(symbol='JPM',secType='STK',currency='USD',exchange='SMART',conId=0)
+    native=NS(action='BUY',orderType='MKT',totalQuantity=1,parentId=0,orderRef='')
+    risk=[dict(decision=dict(decision_id='decision',allowed=True,max_position_size=1),
+        intent=dict(entry_price=10.3,setup_metadata=deepcopy(request['setup_metadata']),target_model=request['target_model']))]
+    args=dict(actual_client=client,expected_client=client,core=core,plan=plan,dispatches=[],native_id=1000,
+        contract=contract,native=native,committed=deepcopy(state),risk_rows=risk,now=now,max_scope_age=15)
+    if fault.startswith('stop_'):
+        args['native_id']=1001
+        args['dispatches']=[dict(native_id=1000,role='entry')]
+        parent['broker_order_id']='1000'
+        parent['cached_update_in_progress']=dict(filled=1,remaining=0,status='FILLED',average_price=10.53)
+        capital.total_reserved_capital=0;capital.total_used_exposure=10.53
+        engine.position_records=dict(root=dict(filled_qty=1,entry_price=10.53))
+        life=NS(filled_qty=1,avg_fill_price=10.53,selected_stop_price=10.2897,stop=NS(status='PENDING_SUBMIT'))
+        engine.post_fill_lifecycle=NS(get_trade=lambda key:life)
+        external_position=NS(symbol='JPM',position=1,con_id=123,account='SYNTHETIC_TEST',avgCost=10.53)
+        client.positions=lambda:[external_position]
+        execution=dict(orderId=1000,account='SYNTHETIC_TEST',clientId=999,connection_epoch=0,
+            conId=123,symbol='JPM',side='BOT',shares=1,cumQty=1,price=10.53,avgPrice=10.53,timestamp_utc=now)
+        client.cached_native_executions=lambda native_id:[execution]
+        native.action='SELL';native.orderType='STP';native.auxPrice=10.2897
+        native.parentId=1000;native.orderRef='PROTECT|root'
+        if fault=='stop_wrong_parent':native.parentId=999
+        if fault=='stop_wrong_price':native.auxPrice=10.29
+        if fault=='stop_wrong_position':external_position.position=2
+        if fault=='stop_wrong_progress':parent['cached_update_in_progress']['filled']=2
+        if fault=='stop_missing_accounting':engine.position_records={}
+        if fault=='stop_missing_execution':client.cached_native_executions=lambda native_id:[]
+        if fault=='stop_wrong_execution':execution['side']='SLD'
+        args['committed']=deepcopy(state)
+    if fault=='other_client':args['actual_client']=NS()
+    if fault=='epoch':client._position_connection_epoch=1
+    if fault=='mode':core.run_mode.value='READ_ONLY'
+    if fault=='size':native.totalQuantity=2
+    if fault=='boolean_size':native.totalQuantity=True
+    if fault=='side':native.action='SELL'
+    if fault=='type':native.orderType='LMT'
+    if fault=='repeat':args['dispatches']=[dict(native_id=1000,role='entry')]
+    if fault=='durable':args['committed']={}
+    if fault=='target':
+        request['target_model']=None
+        args['committed']=deepcopy(state)
+    if fault=='risk':risk[0]['decision']['allowed']=False
+    if fault=='reservation':capital.total_reserved_capital=0
+    if fault=='capital_order':capital_reservation.order_id='unrelated'
+    if fault=='allocation_order':allocation_reservation.order_id='unrelated'
+    if fault=='capital_symbol':capital_reservation.symbol='PEER'
+    if fault=='allocation_symbol':allocation_reservation.symbol='PEER'
+    if fault=='capital_size':capital_reservation.quantity=True
+    if fault=='allocation_remaining':allocation_reservation.remaining_quantity=0
+    if fault=='allocation_status':allocation_reservation.status='RELEASED'
+    if fault=='capital_side':capital_reservation.side='SELL'
+    if fault=='allocation_strategy':allocation_reservation.strategy_id='OTHER'
+    if fault=='allocation_mode':allocation_reservation.run_mode='LIVE'
+    if fault=='allocation_missing':allocation.active_reservations={}
+    if fault=='capital_decision_missing':capital_reservation.decision_id=None
+    if fault=='allocation_global_link':allocation_reservation.global_capital_decision_id=parent['decision_id']
+    underlying=[]
+    def fake_memory_transport():
+        binding=guard(**args)
+        underlying.append(binding)
+    if fault in {'none','stop_none'}:
+        fake_memory_transport()
+        assert underlying==[('root','stop' if fault=='stop_none' else 'entry')]
+    else:
+        with pytest.raises(Denied):fake_memory_transport()
+        assert underlying==[]
+
+
+@pytest.mark.parametrize('opcode',['3','4','58','25','987654'])
+def test_pristine_paper_global_wire_boundary_denies_mutations_and_unknown(opcode):
+    """Actual child send boundary; fake underlying writer is never invoked."""
+    from ibapi.message import OUT
+    class Denied(BaseException):pass
+    underlying=[];report=dict(wire_attempts=[])
+    boundary=_pristine_paper_child_function('send_message',dict(OUT=OUT,report=report,
+        observe_pristine_cycle=True,facts=dict(observe_pristine_paper_cycle=True),
+        ForbiddenExternalIO=Denied,SyntheticWriteBoundary=Denied,
+        client=NS(sendMsg=lambda message:underlying.append(message))))
+    with pytest.raises(Denied):boundary(opcode+'\0')
+    assert underlying==[] and report['wire_attempts']
+
+
+@pytest.mark.parametrize('fault',['none','other_client','epoch','mode','unprotected','wrong_family',
+    'wrong_timeframe','accounting_pending','root_account','root_client','root_epoch','root_security',
+    'unowned','retired','late','repeat','conflict','not_sent',
+    'packet_security','packet_timeframe','packet_duration','packet_end','packet_rth','packet_streaming',
+    'packet_options','missing_end','missing_bars'])
+def test_pristine_paper_history_boundary_uses_owned_sdk_request_and_original_bars(monkeypatch,fault):
+    """Real read encoder, fake owners/underlying transport; no Core process."""
+    import os
+    from src.adapters.data.historical_bar_timeframes import resolve_intraday_timeframe_request
+    monkeypatch.setenv('EXECUTION_ENV','TEST')
+    class Denied(BaseException):pass
+    guard=_pristine_paper_child_function('validate_pristine_paper_history_read',
+        dict(os=os,ForbiddenExternalIO=Denied))
+    request=resolve_intraday_timeframe_request(timeframe='10s',requested_bars=10)
+    packets=[];sdk=EClient(NS(error=lambda *args:pytest.fail('Unexpected synthetic SDK error')))
+    sdk.isConnected=lambda:True;sdk.serverVersion_=180;sdk.sendMsg=packets.append
+    contract=Contract();contract.symbol='JPM';contract.conId=123;contract.secType='STK'
+    contract.exchange='SMART';contract.currency='USD';contract.localSymbol='JPM'
+    _NATIVE_HISTORY_READ_ENCODER(sdk,1007,contract,'',str(request.duration_seconds)+' S',
+        request.bar_size_setting,'TRADES',0,1,False,[])
+    assert len(packets)==1
+    fields=packets[0].split('\0')
+    now=datetime(2026,10,20,13,35,31,tzinfo=timezone.utc)
+    state=dict(status='PENDING',sent=True,end_received=False,streaming=False,deadline=10.)
+    client=NS(client_id=999,_position_connection_epoch=0,isConnected=lambda:True,serverVersion=lambda:180,
+        _request_context_by_req_id={1007:dict(request_type='HISTORICAL_DATA',symbol='JPM',con_id=123)},
+        _request_type_by_req_id={1007:'HISTORICAL_DATA'},_historical_states={1007:state},
+        _request_id_conflicted=lambda request_id:False)
+    parent=dict(side='LONG',symbol='JPM',terminal=True,filled=1,requested=1,protection_confirmed=True,
+        account='SYNTHETIC_TEST',native_client_id=999,native_connection_epoch=0,security_id=123,
+        request=dict(client_order_id='root',symbol='JPM',setup_family_id='PREMARKET_HIGH_BREAK',
+            relationship_context={},stop_loss_price=10.2897,invalidation_level=10.3,take_profit_price=None,
+            setup_metadata=dict(execution_stream=dict(execution_trigger_timeframe='10s'))))
+    engine=NS(run_mode=NS(value='PAPER'),_native_scope=('SYNTHETIC_TEST',client,now),
+        _native_callback_client=lambda:client,_native_orders=dict(root=parent),_native_quarantined=False)
+    core=NS(run_mode=NS(value='PAPER'),execution_engine=engine)
+    plan=dict(account='SYNTHETIC_TEST',client_id=999,epoch=0,symbol='JPM',con_id=123,
+        exchange='SMART',currency='USD',entry_price=10.3,stop_price=10.2897)
+    bars=[NS(timestamp=datetime(2026,10,20,13,35,20,tzinfo=timezone.utc),
+        open=10.31,high=10.55,low=10.30,close=10.53,volume=1500)]
+    args=dict(actual_client=client,expected_client=client,core=core,plan=plan,fields=fields,
+        owned_reads=set(),timeframe_request=request,source_response=dict(status='COMPLETE_BARS',end_received=True),
+        supplied_bars=bars,now=now,monotonic_now=1.,max_scope_age=15.)
+    if fault=='other_client':args['actual_client']=NS()
+    if fault=='epoch':client._position_connection_epoch=1
+    if fault=='mode':core.run_mode.value='READ_ONLY'
+    if fault=='unprotected':parent['protection_confirmed']=False
+    if fault=='wrong_family':parent['request']['setup_family_id']='KEY_LEVEL_BREAK'
+    if fault=='wrong_timeframe':parent['request']['setup_metadata']['execution_stream']['execution_trigger_timeframe']='1m'
+    if fault=='accounting_pending':parent['cached_update_in_progress']={'filled':1}
+    if fault=='root_account':parent['account']='OTHER'
+    if fault=='root_client':parent['native_client_id']=998
+    if fault=='root_epoch':parent['native_connection_epoch']=1
+    if fault=='root_security':parent['security_id']=456
+    if fault=='unowned':client._request_context_by_req_id[1007]['con_id']=999
+    if fault=='retired':client._historical_states={}
+    if fault=='late':args['monotonic_now']=11.
+    if fault=='repeat':args['owned_reads']={1007}
+    if fault=='conflict':client._request_id_conflicted=lambda request_id:True
+    if fault=='not_sent':state['sent']=False
+    if fault=='packet_security':fields[2]='999'
+    if fault=='packet_timeframe':fields[16]='1 min'
+    if fault=='packet_duration':fields[17]='1 D'
+    if fault=='packet_end':fields[15]='20261020 14:00:00 UTC'
+    if fault=='packet_rth':fields[18]='1'
+    if fault=='packet_streaming':fields[21]='1'
+    if fault=='packet_options':fields[22]='unprovided=true;'
+    if fault=='missing_end':args['source_response']['end_received']=False
+    if fault=='missing_bars':args['supplied_bars']=[]
+    underlying=[]
+    def fake_response():
+        request_id=guard(**args)
+        underlying.append((request_id,[vars(bar).copy() for bar in args['supplied_bars']]))
+    if fault=='none':
+        original=[vars(bar).copy() for bar in bars]
+        fake_response()
+        assert underlying==[(1007,original)] and bars[-1].timestamp<now
+    else:
+        with pytest.raises(Denied):fake_response()
+        assert underlying==[]
+
+
+def test_pristine_paper_trade_exit_shutdown_observer_forwards_owned_hook():
+    """Pure observer check; the real child hook is recorded and forwarded."""
+    report=dict(trade_exit_shutdown_calls=[])
+    engine=NS();underlying=[];sentinel=object()
+    def actual_shutdown(actual_engine,*args,**kwargs):
+        underlying.append((actual_engine,args,kwargs))
+        return sentinel
+    observer=_pristine_paper_child_function('observed_trade_exit_shutdown',dict(report=report,
+        active_cycle=[4],core=NS(trade_exit_engine=engine),actual_trade_exit_shutdown=actual_shutdown))
+    assert observer(engine,current_tick=4) is sentinel
+    assert report['trade_exit_shutdown_calls']==[dict(cycle=4,core_owned=True)]
+    assert underlying==[(engine,(),dict(current_tick=4))]
+
+
+def test_pristine_fresh_process_pmh_paper_ack_then_later_accounted_protected_fill(
+        reassessment,monkeypatch,tmp_path,capsys,no_external_activity,runtime_schema_template):
+    """Synthetic PAPER owns new state in one fresh process; no recovery grant."""
+    import json,shutil
+    from datetime import timedelta
+    from test_startup_recovery_and_stop_protection import run_native_core_cold_start
+    facts=_pristine_native_cycle_facts(reassessment,monkeypatch,tmp_path)
+    facts.pop('observe_pristine_readonly_cycle')
+    facts['observe_pristine_paper_cycle']=True
+    facts['config'].update(RUN_MODE='PAPER',RUN_MODE_EFFECTIVE='PAPER',EXECUTION_ENABLED=True,
+        RISK_PROFILE='SMALL',IBKR_READONLY_ENABLED=False,IBKR_ORDER_SUBMISSION_ENABLED=True,
+        IBKR_ORDER_TRANSLATION_ENABLED=True,IBKR_API_WRITE_ALLOWED=True,IBKR_KILL_SWITCH=False)
+    facts['paper_memory_plan']=dict(account='SYNTHETIC_TEST',client_id=999,epoch=0,symbol='JPM',
+        con_id=123,currency='USD',exchange='SMART',entry_price=10.3,stop_price=10.2897,fill_price=10.53)
+    stamp=datetime.fromisoformat(facts['now'])
+    contract=dict(symbol='JPM',conId=123,exchange='SMART',currency='USD',secType='STK')
+    position=dict(symbol='JPM',position=1,con_id=123,avgCost=10.53,account='SYNTHETIC_TEST')
+    stop=dict(leg='stop',contract=contract,
+        order=dict(orderType='STP',parentId='$ENTRY_NATIVE_ID',orderRef='PROTECT|$RETAINED_ROOT',
+            action='SELL',totalQuantity=1,auxPrice=10.2897,account='SYNTHETIC_TEST',clientId=999),
+        orderState=dict(status='Submitted'))
+    execution=dict(leg='entry',contract=contract,
+        execution=dict(execId='pristine-paper-entry',acctNumber='SYNTHETIC_TEST',clientId=999,
+            side='BOT',shares=1,cumQty=1,price=10.53,avgPrice=10.53,
+            time=(stamp+timedelta(seconds=1)).isoformat()),
+        status=dict(status='Filled',filled=1,remaining=0,avgFillPrice=10.53))
+    facts['paper_cycle_steps']=[
+        dict(name='ACK_ONLY',now=stamp.isoformat(),positions=[],open_orders=[]),
+        dict(name='LATER_ENTRY_FILL',now=(stamp+timedelta(seconds=1)).isoformat(),
+            positions=[position],open_orders=[],executions=[execution]),
+        dict(name='PROTECTED_REPEAT_ONE',now=(stamp+timedelta(seconds=2)).isoformat(),
+            positions=[position],open_orders=[stop]),
+        dict(name='PROTECTED_REPEAT_TWO',now=(stamp+timedelta(seconds=3)).isoformat(),
+            positions=[position],open_orders=[stop]),
+    ]
+    database=tmp_path/'pristine-paper-first-fill.sqlite3'
+    shutil.copyfile(runtime_schema_template,database)
+    path=tmp_path/'pristine-paper-facts.json';path.write_text(json.dumps(facts,default=str))
+    report=run_native_core_cold_start(database,path,tmp_path/'pristine-paper-child')
+    summary={key:report.get(key) for key in ('constructor_exception','harness_exception',
+        'cycle_exception','stage','supervisor','evidence_dir')}
+    assert report.get('constructor_complete') and report['constructor_count']==1,summary
+    assert not report.get('harness_exception') and not report.get('cycle_exception'),summary
+    assert len(report['cycles'])==4 and all(row['result'] is True and not row.get('exception')
+        for row in report['cycles']),summary
+    assert report['native_before'] is report['native_after_constructor'] is None
+    assert report['after_constructor']['startup_recovery_state']=='RECOVERY_COMPLETE'
+    assert report['offline_guard']['native_curl_checked']
+    assert not report['network_attempts'] and not report.get('native_curl_denials'),summary
+    assert not report['sdk_attempts'] and not any(row['mutation'] for row in report['wire_attempts']),summary
+    assert not report.get('capital_enrollment_attempts'),summary
+    assert report['registry_evaluations'] and all(row['result_count']==33 for row in report['registry_evaluations'])
+    dispatches=report['synthetic_memory_dispatches']
+    assert [row['role'] for row in dispatches]==['entry','stop'],summary
+    root=dispatches[0]['root_id']
+    assert dispatches[1]['root_id']==root and dispatches[0]['cycle']==1 and dispatches[1]['cycle']==2
+    ack=report['cycles'][0]['engine'];retained=ack['native_orders'][root];request=retained['request']
+    assert retained['filled']==0 and not retained['terminal'] and retained['broker_order_id']==str(dispatches[0]['native_id'])
+    assert ack['capital_reserved']==10.3 and ack['capital_used']==0
+    assert len(ack['capital_reservations'])==len(ack['allocation_reservations'])==1
+    capital=next(iter(ack['capital_reservations'].values()))
+    allocation=next(iter(ack['allocation_reservations'].values()))
+    assert isinstance(capital['decision_id'],str) and capital['decision_id']
+    assert isinstance(allocation['decision_id'],str) and allocation['decision_id']
+    assert allocation['global_capital_decision_id']==capital['decision_id']
+    for reservation in (capital,allocation):
+        assert reservation['order_id']==root and reservation['symbol']==request['symbol']
+        assert reservation['side']==request['direction'].upper()
+        assert reservation['strategy_id'].upper()==request['strategy_name'].upper()
+        assert reservation['run_mode']=='PAPER' and reservation['status']=='ACTIVE'
+        assert type(reservation['quantity']) is int and reservation['quantity']==1
+        assert type(reservation['remaining_quantity']) is int and reservation['remaining_quantity']==1
+        assert reservation['filled_quantity']==0 and reservation['exposure_notional']==0
+        assert reservation['notional']==reservation['remaining_notional']==10.3
+    assert not ack['position_records'] and not ack['registry'] and not ack['managed_positions']
+    assert not ack['post_fill'] and not ack['protection'] and ack['canonical_trades'][root] is None
+    assert request['setup_family_id']=='PREMARKET_HIGH_BREAK' and request['quantity']==1
+    assert request['stop_loss_price']==10.2897 and request['invalidation_level']==10.3
+    assert request['take_profit_price'] is None and request['target_model'] and request['setup_metadata']
+    artifacts=[row for row in report['decision_artifacts'] if row['decision_id']==retained['decision_id']]
+    assessments=[row for row in report['risk_evaluations']
+        if row['decision']['decision_id']==retained['decision_id']]
+    assert len(artifacts)==len(assessments)==1
+    artifact=artifacts[0];assessment=assessments[0];intent=assessment['intent']
+    assert len(artifact['intents'])==1
+    selected=artifact['intents'][0]
+    assert assessment['decision']['allowed'] is True
+    assert assessment['decision']['decision_id']==intent['decision_id']==artifact['decision_id']==retained['decision_id']
+    assert artifact['session_phase']=='OPENING_0_30'
+    assert assessment['decision']['evaluated_limits']['session']=='RTH'
+    assert assessment['decision']['evaluated_limits']['prep_only'] is False
+    assert artifact['created_at']==intent['timestamp_utc']==assessment['decision']['timestamp']==facts['now']
+    assert request['client_order_id']==root
+    for field in ('symbol','setup_family_id','trigger_id','target_model','stop_loss_price',
+            'invalidation_level','take_profit_price','setup_metadata'):
+        assert selected[field]==intent[field]==request[field],field
+    assert selected['entry_price']==intent['entry_price']==facts['paper_memory_plan']['entry_price']
+    assert len(report['execution_results'])==1
+    result=report['execution_results'][0]
+    assert result['filled_quantity']==0 and result['remaining_quantity']==1
+    assert result['client_order_id']==root and str(result['ibkr_order_id'])==str(dispatches[0]['native_id'])
+    for cycle in report['cycles'][1:]:
+        state=cycle['engine'];parent=state['native_orders'][root];life=state['post_fill'][root]
+        canonical=state['canonical_trades'][root]
+        assert state['startup_recovery_state']=='RECOVERY_COMPLETE' and not state['native_quarantined']
+        assert parent['decision_id']==retained['decision_id']
+        assert parent['request']==request and parent['filled']==1 and parent['terminal']
+        assert parent['protection_confirmed'] and not parent.get('cached_update_in_progress')
+        assert not parent.get('pmh_failure_exit')
+        assert len(parent['canonical_feedback'])==1
+        assert parent['canonical_feedback'][0]['state']=='COMPLETE' and parent['canonical_feedback'][0]['accounting_complete']
+        binding=parent['canonical_feedback'][0]['identity']
+        assert binding['root_order_id']==root and binding['native_order_id']==str(dispatches[0]['native_id'])
+        assert binding['account']=='SYNTHETIC_TEST' and binding['client_id']==999 and binding['connection_epoch']==0
+        assert binding['symbol']=='JPM' and binding['con_id']==123
+        assert canonical['lifecycle_trade_id']==life['trade_id']==root
+        assert canonical['quantity_open']==1 and canonical['quantity_closed']==0
+        assert canonical['entry_avg_price']==10.53 and canonical['stop_price']==10.2897 and canonical['target_price'] is None
+        assert canonical['source_execution_ids']==['pristine-paper-entry']
+        assert life['filled_qty']==1 and life['avg_fill_price']==10.53 and life['selected_stop_price']==10.2897
+        assert life['target_model']==request['target_model'] and life['selected_target_price'] is None
+        protective=life['stop']
+        assert protective['broker_order_id']==str(dispatches[1]['native_id'])
+        assert protective['entry_order_id']==str(dispatches[0]['native_id'])
+        assert protective['lifecycle_trade_id']==protective['entry_intent_id']==root
+        assert protective['order_type']=='STOP' and protective['side']=='SELL'
+        assert protective['quantity']==life['filled_qty']==1 and protective['trigger_price']==request['stop_loss_price']
+        assert protective['status'].upper() in {'SUBMITTED','PRESUBMITTED'}
+        assert state['protection'][root]['protected']
+        assert len(state['position_records'])==len(state['registry'])==len(state['managed_positions'])==1
+        assert state['capital_scope'] is None and not state['capital_writer_present']
+        assert state['capital_reserved']==0 and state['capital_used']==10.53
+        assert not state['capital_reservations'] and not state['allocation_reservations']
+    history=[row for row in report['native_read_requests'] if row['request_type']=='HISTORICAL_DATA']
+    evaluations=report['selected_failure_evaluations']
+    assert len(history)==len(evaluations)==3 and not report['native_history_pending_ids']
+    original_bars=facts['source_timeframe_bars']['10s']
+    original_dates=[row['timestamp'].isoformat() for row in original_bars]
+    for read in history:
+        assert read['timeframe']=='10s' and read['source_count']==len(original_bars)
+        assert read['source_dates']==original_dates
+    accounted_at=datetime.fromisoformat(report['cycles'][1]['engine']['native_orders'][root]['last_accounted_entry_fill_at'])
+    assert accounted_at==datetime.fromisoformat(execution['execution']['time'])
+    for evaluated in evaluations:
+        assert evaluated['root_id']==root and evaluated['result'] is None
+        assert [bar['date'] for bar in evaluated['bars']]==original_dates[-10:]
+        assert all(datetime.fromisoformat(bar['date'])<accounted_at for bar in evaluated['bars'])
+        for actual,original in zip(evaluated['bars'],original_bars[-10:]):
+            assert all(actual[field]==original[field] for field in ('open','high','low','close','volume'))
+    assert report['cleanup']['news_maintenance_closed'] and report['cleanup']['execution_resource_close_complete']
+    assert report['trade_exit_shutdown_calls']==[]
+    assert report['cleanup']['scanner_runtime_close_complete']
+    assert report['cleanup']['paper_before_resource_close']==report['cleanup']['paper_after_resource_close']
+    assert (report['database_after_cycle']['position_lifecycle_transitions']
+        == report['database_final']['position_lifecycle_transitions'])
+    assert report['cleanup']['live_threads']==[] and not report['cleanup'].get('paper_resource_close_exception')
+    assert report['supervisor']['returncode']==0 and report['supervisor']['reaped'] and not report['supervisor']['timed_out']
     assert no_external_activity==[]

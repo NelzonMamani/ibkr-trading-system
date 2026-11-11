@@ -64,6 +64,56 @@ def context(result):
     return ross._ross_news_contexts_from_news_intelligence_result(result)['JPM']
 
 
+@pytest.mark.parametrize('reader',['service','maintenance'])
+@pytest.mark.parametrize('case',['positive','positive_expired_receipt','positive_legacy_receipt',
+    'absent','stale','future','wrong_issuer','dilution','corrupt'])
+def test_paper_cache_only_scanner_consumes_original_facts_without_refresh_or_write(
+        lifecycle,monkeypatch,reader,case):
+    """Real canonical cache/qualification; no prepared catalyst or acquisition."""
+    from src.config import config_resolver
+    from src.news.maintenance import NewsMaintenance
+    from src.news.batch_rss_adapter import BatchRssNewsIntelligenceProvider
+    life=lifecycle
+    config_resolver.set_config_overrides(dict(config_resolver._CONFIG_OVERRIDES,
+        RUN_MODE='PAPER',RUN_MODE_EFFECTIVE='PAPER'))
+    policy=life.policy
+    if case=='positive_legacy_receipt':
+        policy=replace(policy,metadata={},source_groups=('FAST_TRADING',),refresh_interval_seconds=None)
+    if case=='absent':life.provider.articles=()
+    if case=='future':life.provider.articles=(life.article(published=life.clock.current+timedelta(seconds=1)),)
+    if case=='wrong_issuer':life.provider.articles=(life.article('AAPL reports earnings beat'),)
+    if case=='dilution':life.provider.articles=(life.article(),life.article('JPM announces registered direct offering'))
+    life.service.get_news((CANDIDATE,),life.request,policy)
+    if case=='stale':life.clock.current=PUB+timedelta(hours=6,microseconds=1)
+    if case=='positive_expired_receipt':life.clock.current=PUB+timedelta(hours=2,minutes=30)
+    if case=='corrupt':life.store.cache_path.write_text('{broken canonical cache')
+    before=life.store.cache_path.read_bytes();calls=life.provider.calls
+    def forbidden(*args,**kwargs):pytest.fail('PAPER cache-only must not acquire, submit or publish')
+    monkeypatch.setattr(life.provider,'get_news',forbidden)
+    monkeypatch.setattr(BatchRssNewsIntelligenceProvider,'get_news',forbidden)
+    monkeypatch.setattr(life.store,'write',forbidden)
+    monkeypatch.setattr(life.store,'write_with_retrieval_metadata',forbidden)
+    monkeypatch.setattr(ross,'_news_intelligence_service_for_scanner',lambda:life.service)
+    maintenance=NewsMaintenance(store=life.store) if reader=='maintenance' else None
+    if maintenance is not None:monkeypatch.setattr(maintenance,'submit',forbidden)
+    try:
+        contexts,diagnostics=ross._enrich_news_context(['JPM'],'IBKR',
+            symbol_metadata_by_symbol={'JPM':dict(company_name=CANDIDATE.company_name,aliases=CANDIDATE.aliases)},
+            news_maintenance=maintenance,cache_only=True)
+        row=contexts['JPM']
+        assert row['ross_catalyst_valid'] is case.startswith('positive')
+        if case=='positive_expired_receipt':
+            assert row['qualification_reason']=='verified_issuer_event_valid'
+            assert row['acquisition_health']!='healthy'
+        if case=='dilution':assert row['dilution_flag']
+        if case=='corrupt':assert diagnostics.news_intelligence_diagnostics['cache_read_failed']
+        assert life.store.cache_path.read_bytes()==before and life.provider.calls==calls
+        if maintenance is not None:
+            assert maintenance.stats['submitted']==0 and maintenance.threads==[] and maintenance.lifecycles==[]
+    finally:
+        if maintenance is not None:assert maintenance.close()
+
+
 def test_same_batch_reassesses_exact_expiry_within_one_second(lifecycle):
     life=lifecycle
     result=life.service.get_news((CANDIDATE,),life.request,life.policy)
