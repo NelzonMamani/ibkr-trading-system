@@ -676,8 +676,8 @@ def test_clean_snapshot_rejects_invalid_required_values_even_with_contradictory_
     assert_native_quote_cleanup(facts.native)
 
 
-def test_native_batch_cold_worker_uses_existing_async_bootstrap():
-    """Cold SDK import must succeed inside the actual snapshot batch worker."""
+def test_native_batch_cold_worker_does_not_require_optional_async_sdk():
+    """Native qualification needs no optional async SDK or worker event loop."""
     import subprocess
     import sys
     import textwrap
@@ -691,7 +691,18 @@ def test_native_batch_cold_worker_uses_existing_async_bootstrap():
         from src.market_data.market_data_snapshot_manager import MarketDataSnapshotManager
         from datetime import datetime,timezone
         assert 'sitecustomize' in sys.modules, 'Offline transport guard not inherited'
-        assert 'ib_insync' not in sys.modules, 'SDK import must be cold'
+        assert 'ib_insync' not in sys.modules, 'Optional SDK must initially be absent'
+        optional_bootstrap_calls=[]
+        def forbid_optional_bootstrap(*args,**kwargs):
+            optional_bootstrap_calls.append('bootstrap')
+            raise AssertionError('Native qualification must not initialize an async worker loop')
+        from src.ibkr import market_data_client as market_module
+        market_module.safe_import_ib_insync=forbid_optional_bootstrap
+        class ForbidOptionalSDK:
+            def find_spec(self,fullname,path=None,target=None):
+                if fullname=='ib_insync' or fullname.startswith('ib_insync.'):
+                    raise AssertionError('Native qualification must not import the optional async SDK')
+        sys.meta_path.insert(0,ForbidOptionalSDK())
         def forbidden(*args,**kwargs):
             raise AssertionError('Synthetic callback boundary must never connect or mutate')
         for name in ('connect','placeOrder','cancelOrder','reqPositions','reqExecutions'):
@@ -700,6 +711,8 @@ def test_native_batch_cold_worker_uses_existing_async_bootstrap():
         native.isConnected=lambda:True
         requests=[]
         def qualify(self,request_id,requested):
+            assert isinstance(requested,Contract), 'Native qualification must use its native descriptor'
+            assert (requested.symbol,requested.secType,requested.exchange,requested.currency)==('JPM','STK','SMART','USD')
             contract=Contract();contract.symbol=requested.symbol;contract.conId=123
             contract.secType='STK';contract.exchange='SMART';contract.currency='USD'
             contract.primaryExchange='NASDAQ'
@@ -722,6 +735,8 @@ def test_native_batch_cold_worker_uses_existing_async_bootstrap():
         manager=MarketDataSnapshotManager(wrapper,max_workers=1)
         values,quality=manager.batch_snapshots(['JPM'],expected_client=native,expected_connection_epoch=0)
         snapshot=manager.clean_snapshot(values,quality,'JPM')
+        assert not optional_bootstrap_calls, 'Native qualification attempted optional async bootstrap'
+        assert 'ib_insync' not in sys.modules, 'Native path imported the optional async SDK'
         assert snapshot is not None, (quality,wrapper.last_snapshot_debug)
         assert snapshot.last==10.32 and snapshot.snapshot_complete
         assert (snapshot.con_id,snapshot.client_id,snapshot.connection_epoch)==(123,71,0)
