@@ -787,7 +787,8 @@ def _actual_canonical_execution_history(engine, event_id, *, commission=0.0):
     return dict(execution_id=event["execution_id"], trade_id=identity["root_order_id"],
         account=identity["account"], strategy_name=identity["strategy"], symbol=identity["symbol"],
         timestamp=event["timestamp"], quantity=event["quantity"], price=event["price"],
-        order_id=event["order_id"], side="SELL", gross_realized_pnl=gross,
+        order_id=event["order_id"], side="SELL", client_id=identity["client_id"],
+        connection_epoch=identity["connection_epoch"], con_id=identity.get("con_id"), gross_realized_pnl=gross,
         net_realized_pnl=round(gross-commission, 2), commission=commission)
 
 
@@ -811,6 +812,10 @@ def test_native_partial_execution_history_dedupes_without_claiming_trade_closed(
     ("quantity", 2, "QUANTITY_CONFLICT"),
     ("price", 10.44, "PRICE_CONFLICT"),
     ("order_id", "999", "ORDER_CONFLICT"),
+    ("client_id", 999, "CLIENT_CONFLICT"),
+    ("connection_epoch", 99, "EPOCH_CONFLICT"),
+    ("con_id", 456, "SECURITY_CONFLICT"),
+    ("symbol", "WRONG", "SYMBOL_CONFLICT"),
 ])
 def test_native_execution_history_contradictions_fail_closed(native_lifecycle, field, value, reason):
     engine, storage = native_lifecycle
@@ -866,3 +871,73 @@ def test_native_fill_identity_cannot_alias_an_intake_event_id(native_lifecycle):
     decision = governor.evaluate(run_mode="PAPER", now=NOW)
     assert decision.status == DailyRiskDecisionStatus.MANAGED_ONLY
     assert "FILL_IDENTITY_CONFLICT" in decision.reason
+
+
+def test_broker_object_execution_alias_can_resolve_root_without_weak_child_order_alias(native_lifecycle):
+    engine, storage = native_lifecycle
+    _set_config()
+    _canonical_fill(engine, "in", "ENTRY_FILL", 2, 10.53)
+    _canonical_fill(engine, "partial", "PARTIAL_EXIT", 1, 10.43)
+    row = _actual_canonical_execution_history(engine, "partial")
+    row.pop("trade_id")
+    row["execId"] = row.pop("execution_id")
+    row["time"] = row.pop("timestamp")
+    row["client_order_id"] = "CHILD-REQUEST-IS-NOT-THE-ROOT"
+    governor = _native_governor(engine, storage)
+    governor.provider = SimpleNamespace(get_daily_fills=lambda: [SimpleNamespace(**row)])
+    decision = governor.evaluate(run_mode="PAPER", now=NOW)
+    assert decision.realized_pnl == -.10 and decision.daily_trade_count == 0
+    assert not decision.blocks_new_entries
+
+
+def test_same_day_net_outcome_and_gross_execution_overlap_preserve_net_precedence(native_lifecycle):
+    engine, storage = native_lifecycle
+    _set_config()
+    _canonical_fill(engine, "in", "ENTRY_FILL", 1, 10.53)
+    trade = _canonical_fill(engine, "out", "EXIT_FILL", 1, 10.28)
+    _persist_existing_outcome(storage, trade, commission=.02)
+    gross = _actual_canonical_execution_history(engine, "out")
+    gross.pop("net_realized_pnl")
+    gross.pop("commission")
+    governor = _native_governor(engine, storage)
+    governor.provider = SimpleNamespace(get_daily_fills=lambda: [gross])
+    decision = governor.evaluate(run_mode="PAPER", now=NOW)
+    assert decision.realized_pnl == -.27 and decision.daily_trade_count == 1
+    assert decision.losing_trade_count == 1
+
+
+@pytest.mark.parametrize("fault", ["missing_time", "invalid_time", "unknown_pnl"])
+def test_required_history_unavailability_never_substitutes_now_or_zero(native_lifecycle, fault):
+    engine, storage = native_lifecycle
+    _set_config(DAILY_RISK_GOVERNOR_ENABLED=False)
+    _canonical_fill(engine, "in", "ENTRY_FILL", 2, 10.53)
+    _canonical_fill(engine, "partial", "PARTIAL_EXIT", 1, 10.43)
+    row = _actual_canonical_execution_history(engine, "partial")
+    if fault == "missing_time":
+        row.pop("timestamp")
+    elif fault == "invalid_time":
+        row["timestamp"] = "not-an-authoritative-time"
+    else:
+        row["net_realized_pnl"] = row["gross_realized_pnl"] = None
+    governor = _native_governor(engine, storage)
+    governor.provider = SimpleNamespace(get_daily_fills=lambda: [row])
+    decision = governor.evaluate(run_mode="PAPER", now=NOW)
+    assert decision.status == DailyRiskDecisionStatus.MANAGED_ONLY
+    assert decision.realized_pnl == -.10 and decision.blocks_new_entries
+    assert decision.allows_existing_position_management
+    assert "UNAVAILABLE" in decision.reason or "INVALID" in decision.reason
+
+
+def test_required_feedback_does_not_override_explicit_manual_halt_or_readonly_contract(native_lifecycle):
+    engine, storage = native_lifecycle
+    _, identity = _native_event("pending", "ENTRY_FILL", 1, 10.53)
+    engine.require_native_feedback("pending", identity)
+    _set_config(DAILY_RISK_MANUAL_HALT=True)
+    governor = _native_governor(engine, storage)
+    halted = governor.evaluate(run_mode="PAPER", now=NOW)
+    assert halted.status == DailyRiskDecisionStatus.MANUAL_HALT and halted.blocks_new_entries
+    _set_config(DAILY_RISK_MANUAL_HALT=False)
+    readonly = _native_governor(engine, storage)
+    decision = readonly.evaluate(run_mode="READ_ONLY", now=NOW)
+    assert decision.status == DailyRiskDecisionStatus.READ_ONLY_EVALUATED
+    assert readonly.state is None and readonly.last_decision is None

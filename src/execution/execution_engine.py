@@ -1586,6 +1586,14 @@ class ExecutionEngine:
         return ExecutionResult.submission_confirmed(result)
 
     def _route_order(self, request: BrokerOrderRequest) -> ExecutionResult:
+        # Recheck at the actual route, after order construction/preflight and
+        # before native ownership/reservation or any provider dispatch.
+        if (str(request.direction).upper() in {"BUY", "LONG"}
+                and self._native_feedback_blocks_new_entries()):
+            reason = "NATIVE_CANONICAL_FEEDBACK_UNAVAILABLE"
+            self._release_strategy_allocation_for_order(request, reason=reason)
+            self._release_capital_for_order(request, reason=reason)
+            return self._blocked_execution_from_request(request, rationale=reason)
         readonly = get_ibkr_readonly_enabled()
         submission_enabled = bool(get_config("IBKR_ORDER_SUBMISSION_ENABLED"))
         print("[EXECUTION][GATE]", f"execution_enabled={self.execution_enabled}", f"readonly={readonly}", f"submission_enabled={submission_enabled}")
@@ -2263,11 +2271,17 @@ class ExecutionEngine:
 
     def _native_feedback_blocks_new_entries(self):
         try:
-            return any(row.get("state") != "COMPLETE"
-                for _, _, order in self._native_feedback_orders()
-                for row in order.get("canonical_feedback", []))
-        except (AttributeError, TypeError):
-            return True  # Malformed required progress is not accounting zero.
+            progress = [row for _,_,order in self._native_feedback_orders()
+                for row in order.get("canonical_feedback", [])]
+            if any(row.get("state") != "COMPLETE" for row in progress):
+                return True
+            getter = getattr(getattr(self, "_trade_lifecycle_engine", None), "native_feedback_snapshot", None)
+            if callable(getter):
+                snapshot = getter()
+                return bool(snapshot["required"]) and not bool(snapshot["available"])
+            return bool(progress)  # A completed marker cannot replace its required owner.
+        except Exception:
+            return True  # Malformed/unavailable required progress is not accounting zero.
 
     def _prepare_native_feedback(self, plan, order_id, order, request, facts, prior, total, previous):
         from decimal import Decimal
@@ -2314,7 +2328,7 @@ class ExecutionEngine:
         from src.core.engines.trade_lifecycle_engine import LifecycleEvent
         entries = [(r["ordinal"], plan, order, r) for plan,_,order in self._native_feedback_orders()
             for r in order.get("canonical_feedback", [])
-            if r.get("accounting_complete") and r.get("state") == "PENDING"]
+            if r.get("state") != "COMPLETE"]
         if not entries:
             return
         canonical = getattr(self, "_trade_lifecycle_engine", None)
@@ -2326,23 +2340,37 @@ class ExecutionEngine:
             root_id = identity["root_order_id"]
             if root_id in blocked_roots:
                 continue
+            if row.get("state") != "PENDING" or not row.get("accounting_complete"):
+                blocked_roots.add(root_id)
+                continue  # No later canonical frame may pass unresolved native progress.
             save = self.relationship_manager._save_relationship_state if plan is not None else self._save_native_orders
             try:
+                root = plan.orders[root_id] if plan is not None else self._native_orders[root_id]
+                con_id = root.get("security_id")
+                if plan is not None and str(plan.security_id).startswith("conId:"):
+                    con_id = int(str(plan.security_id).split(":",1)[1])
+                if type(con_id) is not int or con_id <= 0:
+                    blocked_roots.add(root_id)
+                    continue  # Independent protection/security reconciliation is required.
+                if identity.get("con_id") not in (None, con_id):
+                    raise ValueError("NATIVE_CANONICAL_RETAINED_SECURITY_CONFLICT")
+                identity["con_id"] = con_id
                 client = self._native_callback_client()
                 getter = getattr(client, "cached_native_executions", None)
                 if not callable(getter):
                     blocked_roots.add(root_id)
                     continue
                 executions = list(getter(int(identity["native_order_id"])))
-                relevant = sorted((r for r in executions if row["prior"] < r["cumQty"] <= row["total"]),
+                history = sorted((r for r in executions if 0 < r["cumQty"] <= row["total"]),
                     key=lambda r:r["cumQty"])
-                cursor = row["prior"]
+                cursor = 0
                 notional = Decimal(0)
-                for execution in relevant:
+                gap = False
+                for execution in history:
                     shares, cumulative = execution["shares"], execution["cumQty"]
                     expected_side = {"ENTRY_FILL":"BOT"}.get(row["event_type"], "SLD")
                     if (shares != int(shares) or shares <= 0 or cumulative != int(cumulative)
-                            or cumulative-shares != cursor or execution["orderId"] != int(identity["native_order_id"])
+                            or cumulative-shares < cursor or execution["orderId"] != int(identity["native_order_id"])
                             or execution["account"] != identity["account"]
                             or execution["clientId"] != identity["client_id"]
                             or execution["connection_epoch"] != identity["connection_epoch"]
@@ -2351,15 +2379,25 @@ class ExecutionEngine:
                             or (identity.get("con_id") is not None and execution["conId"] != identity["con_id"])
                             or execution["timestamp_utc"] > datetime.now(timezone.utc)):
                         raise ValueError("NATIVE_CANONICAL_EXECUTION_BINDING_INVALID")
+                    if cumulative-shares > cursor:
+                        gap = True
+                        break  # Missing earlier execDetails is ordinary callback ordering.
                     cursor = int(cumulative)
                     notional += execution["price"] * int(shares)
-                    if execution["avgPrice"] * cursor != Decimal(row["prior_notional"]) + notional:
+                    # The API reports average prices as IEEE754 doubles. Compare
+                    # in that domain; actual per-execution prices remain the
+                    # canonical accounting facts. No arbitrary price tolerance.
+                    if float(execution["avgPrice"]) != float(notional / cursor):
                         raise ValueError("NATIVE_CANONICAL_CUMULATIVE_PRICE_CONFLICT")
-                if cursor != row["total"]:
+                if gap or cursor != row["total"]:
                     blocked_roots.add(root_id)
                     continue  # Normal orderStatus-before-execDetails ordering.
-                if notional != Decimal(row["notional"]):
+                reported_notional = Decimal(row["prior_notional"]) + Decimal(row["notional"])
+                if float(notional / cursor) != float(reported_notional / cursor):
                     raise ValueError("NATIVE_CANONICAL_EXECUTION_NOTIONAL_CONFLICT")
+                relevant = [r for r in history if row["prior"] < r["cumQty"]]
+                if not relevant or relevant[0]["cumQty"]-relevant[0]["shares"] != row["prior"]:
+                    raise ValueError("NATIVE_CANONICAL_EXECUTION_DELTA_BOUNDARY_CONFLICT")
                 if row["quantity_before"] is None:
                     raise ValueError("NATIVE_CANONICAL_PRIOR_QUANTITY_UNAVAILABLE")
                 row.update(state="IN_PROGRESS", reason=None)
@@ -3975,9 +4013,8 @@ class ExecutionEngine:
         )
 
     def _blocked_execution_from_request(
-        self, request: BrokerOrderRequest
+        self, request: BrokerOrderRequest, *, rationale: str = "EXECUTION_DISABLED"
     ) -> ExecutionResult:
-        rationale = "EXECUTION_DISABLED"
         self.event_collector.emit(
             event_type="ORDER_BLOCKED_READONLY",
             source="ExecutionEngine",
@@ -4017,8 +4054,8 @@ class ExecutionEngine:
             filled_quantity=0,
             remaining_quantity=request.quantity,
             fill_status="NONE",
-            note="EXECUTION_DISABLED",
-            rejection_reason="EXECUTION_DISABLED",
+            note=rationale,
+            rejection_reason=rationale,
             attempt_number=request.attempt_number,
             client_order_id=request.client_order_id,
             retry_scheduled=False,

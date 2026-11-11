@@ -2500,13 +2500,14 @@ def test_central_failure_later_bar_and_missing_timestamp_or_relationship_hold(re
         assert evaluate(row) is None,change
 
 
-def small_central_owned(reassessment,monkeypatch,tmp_path,capsys,family,*,partial=False,requested_base=8,risk_cap=2,synthetic_capital=400,fill=True,expected_admitted=None,quantity_fault=None,unit_stops=False,unit_fault=None,micro_fault=None,micro_clock=None,bull_clock=None):
+def small_central_owned(reassessment,monkeypatch,tmp_path,capsys,family,*,partial=False,requested_base=8,risk_cap=2,synthetic_capital=400,fill=True,expected_admitted=None,quantity_fault=None,unit_stops=False,unit_fault=None,micro_fault=None,micro_clock=None,bull_clock=None,fill_price_override=None):
     from test_joined_core_pmh_readonly import pmh_joined,standalone_bull_joined,micro_joined,key_joined,consolidation_joined,flat_top_joined,orb_joined,hod_joined,momentum_joined,cup_joined,opening_drive_joined,indicator_pullback_joined,vwap_pullback_joined,stair_step_joined
     from test_abcd_production_handoff import abcd_joined
     from test_joined_core_first_pullback import first_joined
     factory={'PREMARKET_HIGH_BREAK':pmh_joined,'BULL_FLAG':standalone_bull_joined,'FIRST_PULLBACK':first_joined,'MICRO_PULLBACK':micro_joined,'KEY_LEVEL_BREAK':key_joined,'CONSOLIDATION_BREAKOUT':consolidation_joined,'FLAT_TOP_BREAKOUT':flat_top_joined,'OPENING_RANGE_BREAKOUT':orb_joined,'HOD_BREAK':hod_joined,'ABCD':abcd_joined,'VWAP_RECLAIM_CONTINUATION':momentum_joined,'CUP_HANDLE':cup_joined,'OPENING_DRIVE':opening_drive_joined,'EMA_PULLBACK':indicator_pullback_joined,'VWAP_PULLBACK':vwap_pullback_joined,'TREND_CONTINUATION_STAIR_STEP':stair_step_joined}[family]
     prices={'PREMARKET_HIGH_BREAK':(10.53,10.3-max(.01,10.3*.001)),'BULL_FLAG':(10.88,10.63),'FIRST_PULLBACK':(10.55,10.15),'MICRO_PULLBACK':(10.88,10.6),'KEY_LEVEL_BREAK':(11.02,10.88),'CONSOLIDATION_BREAKOUT':(10.43,10.21),'FLAT_TOP_BREAKOUT':(10.27,9.99),'OPENING_RANGE_BREAKOUT':(10.42,9.95),'HOD_BREAK':(10.34,10.2),'ABCD':(11.02,10.35),'VWAP_RECLAIM_CONTINUATION':(10.34,10.23),'CUP_HANDLE':(10.55,10.3),'OPENING_DRIVE':(10.62,10.47),'EMA_PULLBACK':(10.53,10.29),'VWAP_PULLBACK':(10.8,10.23),'TREND_CONTINUATION_STAIR_STEP':(10.68,10.34)}
     price,stop=prices[family]
+    if fill_price_override is not None:price=fill_price_override
     monkeypatch.setenv('TRADING_DEFAULT_CAPITAL',str(synthetic_capital))
     def small_joined(*args,**kwargs):
         kwargs['runtime_options']['config_overrides'].update(RISK_PROFILE='SMALL',RISK_MAX_POSITION_SIZE=risk_cap)
@@ -4241,6 +4242,121 @@ def deliver_native_execution(h, *, native_id, execution_id, side, quantity, cumu
     execution.side=side;execution.shares=Decimal(str(quantity));execution.cumQty=Decimal(str(cumulative))
     execution.price=price;execution.avgPrice=average;execution.time=timestamp.isoformat()
     h.native_client.execDetails(-1,contract,execution)
+
+
+@pytest.mark.parametrize('callback_order',['complete','last_first'])
+def test_native_canonical_repeating_average_and_late_execution_gap(
+        reassessment,monkeypatch,tmp_path,capsys,no_external_activity,callback_order):
+    from datetime import datetime
+    average=float(31.60/3)
+    h,request,_=small_central_owned(reassessment,monkeypatch,tmp_path,capsys,'PREMARKET_HIGH_BREAK',
+        risk_cap=3,synthetic_capital=800,unit_stops=True,fill=False,fill_price_override=average)
+    try:
+        when=datetime(2026,10,20,13,35,42,tzinfo=timezone.utc)
+        def deliver(index):
+            deliver_native_execution(h,native_id=71,execution_id='thirds-'+str(index),side='BOT',
+                quantity=1,cumulative=index,price=10.54 if index==3 else 10.53,
+                average=average if index==3 else 10.53,timestamp=when)
+        for index in ([1,2,3] if callback_order=='complete' else [3]):deliver(index)
+        h.facts[71]=dict(status='Filled',filled=3,remaining=0,avgFillPrice=average)
+        h.native_quantity[0]=3;h.native_open_orders.clear();h.life.clock.current+=timedelta(seconds=1)
+        assert h.core.run_once();capsys.readouterr()
+        engine=h.core.execution_engine
+        life=engine.post_fill_lifecycle.get_trade(request.client_order_id)
+        assert life.filled_qty==3 and len(h.stop_requests)==3
+        assert engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
+        if callback_order=='last_first':
+            row=engine._native_orders[request.client_order_id]['canonical_feedback'][0]
+            assert row['state']=='PENDING' and not row['applied_execution_ids']
+            assert not h.core.trade_lifecycle_engine.get_trade(request.client_order_id)
+            assert engine._native_feedback_blocks_new_entries() and not engine._native_quarantined
+            deliver(2);deliver(1)
+        for _ in range(2):
+            h.life.clock.current+=timedelta(seconds=1);assert h.core.run_once();capsys.readouterr()
+        canonical=h.core.trade_lifecycle_engine.get_trade(request.client_order_id)
+        assert canonical is not None and canonical.quantity_open==3
+        assert canonical.entry_avg_price==pytest.approx(31.60/3)
+        assert canonical.stop_price==request.stop_loss_price and canonical.target_price is None
+        assert len(h.core.storage_engine.fetch_trade_lifecycle_events())==3
+        assert engine._native_orders[request.client_order_id]['canonical_feedback'][0]['state']=='COMPLETE'
+        assert not engine._native_feedback_blocks_new_entries()
+        assert life.filled_qty==3 and len(h.sent_native)==1 and len(h.stop_requests)==3
+    finally:teardown_unsent_fixture(h,no_external_activity)
+
+
+def test_native_canonical_rejects_execution_security_different_from_confirmed_protection(
+        reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    from datetime import datetime
+    h=late_pmh(reassessment,monkeypatch,tmp_path,fill_price=10.53)
+    try:
+        request=acknowledge(h,capsys)
+        deliver_native_execution(h,native_id=71,execution_id='wrong-security',side='BOT',quantity=1,
+            cumulative=1,price=10.53,average=10.53,con_id=987,
+            timestamp=datetime(2026,10,20,13,35,42,tzinfo=timezone.utc))
+        life=confirm_selected_fill(h,request,capsys,family='PREMARKET_HIGH_BREAK',fill_price=10.53,
+            stop_price=request.stop_loss_price)
+        engine=h.core.execution_engine
+        assert engine._native_orders[request.client_order_id]['security_id']==123
+        assert not h.core.trade_lifecycle_engine.get_trade(request.client_order_id)
+        assert engine._native_feedback_blocks_new_entries() and not engine._native_quarantined
+        assert engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
+        assert not h.core.storage_engine.fetch_trade_lifecycle_events()
+    finally:teardown_unsent_fixture(h,no_external_activity)
+
+
+@pytest.mark.parametrize('fault',['account','side','quantity','price','average','future','client','order'])
+def test_native_canonical_invalid_execution_veto_preserves_factual_owned_protection(
+        reassessment,monkeypatch,tmp_path,capsys,no_external_activity,fault):
+    from datetime import datetime
+    h=late_pmh(reassessment,monkeypatch,tmp_path,fill_price=10.53)
+    try:
+        request=acknowledge(h,capsys)
+        facts=dict(native_id=71,execution_id='bad-'+fault,side='BOT',quantity=1,cumulative=1,
+            price=10.53,average=10.53,timestamp=datetime(2026,10,20,13,35,42,tzinfo=timezone.utc))
+        facts.update({'account':dict(account='UNRELATED'),'side':dict(side='SLD'),
+            'quantity':dict(quantity=2),'price':dict(price=10.52),'average':dict(average=10.52),
+            'future':dict(timestamp=datetime(2026,10,21,13,35,42,tzinfo=timezone.utc)),
+            'client':dict(client_id=1000),'order':dict(native_id=99)}[fault])
+        deliver_native_execution(h,**facts)
+        life=confirm_selected_fill(h,request,capsys,family='PREMARKET_HIGH_BREAK',fill_price=10.53,
+            stop_price=request.stop_loss_price)
+        engine=h.core.execution_engine
+        assert not h.core.trade_lifecycle_engine.get_trade(request.client_order_id)
+        assert engine._native_feedback_blocks_new_entries() and not engine._native_quarantined
+        assert not h.core._daily_risk_allows_new_entries(cycle_started_at=h.life.clock.current);capsys.readouterr()
+        assert h.core.daily_risk_governor.last_decision.allows_existing_position_management
+        assert engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
+        assert life.filled_qty==1 and engine.capital_authority.total_used_exposure==10.53
+        assert not h.core.storage_engine.fetch_trade_lifecycle_events()
+        for _ in range(2):
+            h.life.clock.current+=timedelta(seconds=1);assert h.core.run_once();capsys.readouterr()
+        assert len(h.sent_native)==len(h.stop_requests)==1 and life.filled_qty==1
+        assert not h.core.storage_engine.fetch_trade_lifecycle_events()
+    finally:teardown_unsent_fixture(h,no_external_activity)
+
+
+def test_native_canonical_becoming_unavailable_after_entry_preflight_blocks_actual_route(
+        reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    h=late_pmh(reassessment,monkeypatch,tmp_path,fill_price=10.53)
+    try:
+        engine=h.core.execution_engine
+        build=engine._order_from_risk_decision
+        constructed=[]
+        def unavailable_after_preflight(*args,**kwargs):
+            request=build(*args,**kwargs);constructed.append(request)
+            h.core.trade_lifecycle_engine.mark_native_feedback_uncertain('existing-unresolved-fill',
+                'synthetic persistence uncertainty after entry preflight')
+            return request
+        monkeypatch.setattr(engine,'_order_from_risk_decision',unavailable_after_preflight)
+        assert h.core.run_once();capsys.readouterr()
+        h.life.clock.current+=timedelta(seconds=11)
+        assert h.core.run_once();capsys.readouterr()
+        assert len(constructed)==len(h.evaluated)==1 and h.evaluated[0][2].allowed
+        assert not h.sent_native and not h.stop_requests and not engine._native_orders
+        assert engine.capital_authority.total_reserved_capital==engine.capital_authority.total_used_exposure==0
+        assert engine._native_feedback_blocks_new_entries()
+        assert not h.manager.snapshot_positions() and not h.core.trade_registry.snapshot()
+    finally:teardown_unsent_fixture(h,no_external_activity)
 
 
 @pytest.mark.parametrize('limit,blocked',[(.24,True),(.25,True),(.26,False)])

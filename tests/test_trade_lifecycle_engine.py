@@ -724,3 +724,52 @@ def test_native_snapshot_exposes_untracked_canonical_mutation_as_unavailable(nat
     assert not snapshot['available'] and snapshot['reason'] == 'NATIVE_LIFECYCLE_SNAPSHOT_CONFLICT'
     assert snapshot['events'][0]['metadata']['quantity_after'] == 1
     assert len(storage.fetch_trade_lifecycle_events()) == 2
+
+
+def test_native_reopened_root_clears_close_until_final_flat(native_lifecycle):
+    engine, storage = native_lifecycle
+    first, root = _native_event('entry-first', 'ENTRY_FILL', 1, 10.5)
+    _apply_native(engine, first, root, 0)
+    first_exit, child = _native_event('exit-first', 'STOP_EXIT', 1, 10.25,
+        native_id=72, timestamp='2026-10-20T13:35:10+00:00')
+    trade = _apply_native(engine, first_exit, child, 1)
+    assert trade.closed_at == '2026-10-20T13:35:10+00:00' and trade.quantity_open == 0
+    # This is another factual DELTA of the same accepted entry, not a request
+    # or permission for a new discretionary entry/root.
+    later_entry, root = _native_event('entry-remainder', 'ENTRY_FILL', 1, 10.75,
+        timestamp='2026-10-20T13:35:20+00:00')
+    assert _apply_native(engine, later_entry, root, 0) is trade
+    assert trade.quantity_open == 1 and trade.closed_at is None
+    assert trade.stop_price == 10. and trade.target_price is None
+    assert trade.gross_realized_pnl == -.25 and trade.entry_avg_price == 10.75
+    assert engine.native_feedback_snapshot()['available']
+    final, child = _native_event('exit-final', 'STOP_EXIT', 1, 10.5,
+        native_id=72, timestamp='2026-10-20T13:35:30+00:00')
+    _apply_native(engine, final, child, 1)
+    snapshot = engine.native_feedback_snapshot()
+    assert snapshot['available'] and len(snapshot['trades']) == 1
+    assert trade.status == 'CLOSED' and trade.closed_at == '2026-10-20T13:35:30+00:00'
+    assert trade.quantity_closed == 2 and trade.gross_realized_pnl == -.5
+    assert snapshot['events'][-1]['metadata']['terminal_timestamp'] == trade.closed_at
+    assert len(storage.fetch_trade_lifecycle_trades()) == 1
+    assert len(storage.fetch_trade_lifecycle_events()) == 4
+
+
+def test_native_pair_rejects_independent_snapshot_drift_without_overwrite(native_lifecycle):
+    engine, storage = native_lifecycle
+    entry, identity = _native_event('entry', 'ENTRY_FILL', 1, 10.5)
+    _apply_native(engine, entry, identity, 0)
+    # Deliberate corrupt/independent-writer control, not positive provenance.
+    connection = storage._store.connection
+    connection.execute("UPDATE trade_lifecycle_trades SET quantity_open=2 WHERE lifecycle_trade_id='NATIVE-ROOT'")
+    connection.commit()
+    exit_event, child = _native_event('exit', 'STOP_EXIT', 1, 10.25, native_id=72)
+    with pytest.raises(RuntimeError, match='STORED_TRADE_CONFLICT'):
+        _apply_native(engine, exit_event, child, 1)
+    assert engine.get_trade('NATIVE-ROOT').quantity_open == 0  # Correct applied facts remain inspectable.
+    assert storage.fetch_trade_lifecycle_trades()[0]['quantity_open'] == 2  # No invented reconciliation.
+    assert len(storage.fetch_trade_lifecycle_events()) == 1
+    snapshot = engine.native_feedback_snapshot()
+    assert snapshot['uncertain'] and not snapshot['available']
+    with pytest.raises(RuntimeError, match='UNCERTAIN'):
+        _apply_native(engine, exit_event, child, 1)

@@ -192,13 +192,11 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
             # transport responses are synthetic. is_live/ack handling stay real.
             from src.adapters.brokers.ibkr.ibkr_connection_manager import IbkrConnectionManager, IbkrConnectionConfig
             manager=IbkrConnectionManager(IbkrConnectionConfig('offline',0,999,5,'LIVE',True,'PAPER'))
-            manager._client=NS(cached_order_status=cached_status,is_connected=lambda:True)
-            if relationship_sizing_case:
-                from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
-                client=IbkrClient('offline',0,999,5,'LIVE',False)
-                monkeypatch.setattr(client,'isConnected',lambda:True)
-                monkeypatch.setattr(client,'cached_order_status',cached_status)
-                manager._client=client
+            from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
+            client=IbkrClient('offline',0,999,5,'LIVE',False)
+            monkeypatch.setattr(client,'isConnected',lambda:True)
+            monkeypatch.setattr(client,'cached_order_status',cached_status)
+            manager._client=client
             for method in ('connect','ensure_connected','get_client','_connect_locked'):
                 monkeypatch.setattr(manager,method,lambda *a,**k:pytest.fail('Implicit provider connection forbidden'))
             provider=IbkrExecutionProvider(broker=NS(positions=lambda:[],open_orders=external_open_orders,
@@ -218,6 +216,15 @@ def test_active_core_native_bull_micro_management_handoff(reassessment,monkeypat
             IBKR_READONLY_ENABLED=False,IBKR_ORDER_SUBMISSION_ENABLED=True,
             IBKR_ORDER_TRANSLATION_ENABLED=True,IBKR_API_WRITE_ALLOWED=True,
             **({"STRATEGY_CAPITAL_ALLOCATIONS":{"ROSSMOMENTUMSTRATEGYV1":{"max_allocation_usd":1.0}}} if transport=="allocation_denied" else {}))))
+    if native_provider:
+        # Core truth and execution observe ONE existing external client identity.
+        # Keep the inherited external inventory producer; no truth/entry result
+        # is replaced and no execution timestamp is invented by a cache read.
+        prior_client=h.core.connection_manager._ibkr_connection_manager.existing_client
+        client=providers[0].broker.connection_manager.existing_client
+        client.position_snapshot=prior_client.position_snapshot
+        h.core.connection_manager._ibkr_connection_manager.existing_client=client
+        h.native_client=client
     if green_child_case:
         from dataclasses import replace
         # Same external child high/low and all prior management assertions;

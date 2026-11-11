@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field, replace
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 from enum import Enum
 import math
 from typing import Any, Iterable
@@ -262,7 +262,16 @@ class DailyRiskGovernor:
         limit_snapshot = self._limit_snapshot()
         reasons: list[str] = []
 
-        if not state.recovered and str(state.recovery_error or "").startswith("CANONICAL_ACCOUNTING_UNAVAILABLE"):
+        if self.enabled and run_mode_u == "READ_ONLY":
+            status = DailyRiskDecisionStatus.READ_ONLY_EVALUATED
+            reason = "READ_ONLY_EVALUATED_NO_STATE_MUTATION"
+            lock_status = DailyRiskLockStatus.UNLOCKED
+        elif self.enabled and self._bool_config("DAILY_RISK_MANUAL_HALT", False):
+            status = DailyRiskDecisionStatus.MANUAL_HALT
+            reason = "MANUAL_HALT"
+            reasons.append(reason)
+            lock_status = DailyRiskLockStatus.LOCKED
+        elif not state.recovered and str(state.recovery_error or "").startswith("CANONICAL_ACCOUNTING_UNAVAILABLE"):
             # Entry uncertainty must not suppress already-authorized factual
             # accounting, protection or exits.  Core evaluates those first.
             status = DailyRiskDecisionStatus.MANAGED_ONLY
@@ -273,15 +282,6 @@ class DailyRiskGovernor:
             status = DailyRiskDecisionStatus.ALLOW
             reason = "DAILY_RISK_GOVERNOR_DISABLED"
             lock_status = DailyRiskLockStatus.UNLOCKED
-        elif run_mode_u == "READ_ONLY":
-            status = DailyRiskDecisionStatus.READ_ONLY_EVALUATED
-            reason = "READ_ONLY_EVALUATED_NO_STATE_MUTATION"
-            lock_status = DailyRiskLockStatus.UNLOCKED
-        elif self._bool_config("DAILY_RISK_MANUAL_HALT", False):
-            status = DailyRiskDecisionStatus.MANUAL_HALT
-            reason = "MANUAL_HALT"
-            reasons.append(reason)
-            lock_status = DailyRiskLockStatus.LOCKED
         elif not recovery_complete:
             status = DailyRiskDecisionStatus.RECOVERY_NOT_COMPLETE
             reason = "RECOVERY_NOT_COMPLETE"
@@ -608,6 +608,7 @@ class DailyRiskGovernor:
                     raise ValueError("CANONICAL_EXIT_PROJECTION_INVALID")
                 group["exits"].append(dict(timestamp=timestamp, pnl=increment, quantity=int(quantity),
                     price=self._finite_number(event["price"]), native_order_id=str(identity.get("native_order_id") or ""),
+                    client_id=identity.get("client_id"), connection_epoch=identity.get("connection_epoch"), con_id=identity.get("con_id"),
                     ids={str(event.get("execution_id") or "")}))
                 if self.trading_day_for(timestamp) == trading_day:
                     group["day_pnl"] += increment
@@ -735,6 +736,9 @@ class DailyRiskGovernor:
                     if possible:
                         raise ValueError("NATIVE_HISTORY_IDENTITY_UNAVAILABLE")
                 if candidates:
+                    symbol = payload.get("symbol")
+                    if symbol is not None and str(symbol).upper() != native[candidates[0]]["symbol"]:
+                        raise ValueError("NATIVE_HISTORY_SYMBOL_CONFLICT")
                     native_overlaps.setdefault(candidates[0], []).append(payload)
                     continue
                 if trading_day is not None and self.trading_day_for(self._accounting_timestamp(payload.get("timestamp"))) != trading_day:
@@ -817,6 +821,14 @@ class DailyRiskGovernor:
                 native_id = row.get("order_id", row.get("ibkr_order_id", row.get("orderId")))
                 if native_id is not None and str(native_id) != event["native_order_id"]:
                     raise ValueError("NATIVE_FILL_ORDER_CONFLICT")
+                client_id = row.get("client_id", row.get("clientId"))
+                if client_id is not None and client_id != event["client_id"]:
+                    raise ValueError("NATIVE_FILL_CLIENT_CONFLICT")
+                if row.get("connection_epoch") is not None and row["connection_epoch"] != event["connection_epoch"]:
+                    raise ValueError("NATIVE_FILL_EPOCH_CONFLICT")
+                con_id = row.get("con_id", row.get("conId"))
+                if con_id is not None and con_id != event["con_id"]:
+                    raise ValueError("NATIVE_FILL_SECURITY_CONFLICT")
                 if row.get("side") is not None and str(row["side"]).upper() not in {"SELL", "SLD"}:
                     raise ValueError("NATIVE_FILL_SIDE_CONFLICT")
                 for field in ("quantity", "filled_quantity", "shares"):
@@ -1014,35 +1026,11 @@ class DailyRiskGovernor:
         except (TypeError, ValueError):
             return int(default)
 
-    def _parse_datetime(self, value: Any) -> datetime:
-        if isinstance(value, datetime):
-            return self._as_aware(value)
-        if isinstance(value, date):
-            return datetime.combine(value, time.min, tzinfo=timezone.utc)
-        text = str(value or "").strip()
-        if not text:
-            return datetime.now(timezone.utc)
-        try:
-            return self._as_aware(datetime.fromisoformat(text.replace("Z", "+00:00")))
-        except ValueError:
-            return datetime.now(timezone.utc)
-
     @staticmethod
     def _as_aware(value: datetime) -> datetime:
         if value.tzinfo is None:
             return value.replace(tzinfo=timezone.utc)
         return value
-
-    @staticmethod
-    def _float_from_payload(payload: dict[str, Any], *keys: str) -> float:
-        for key in keys:
-            if key not in payload:
-                continue
-            try:
-                return float(payload.get(key) or 0.0)
-            except (TypeError, ValueError):
-                return 0.0
-        return 0.0
 
     def _trade_identity(self, payload: dict[str, Any]) -> tuple[str, ...]:
         owner = self._owner_root(payload)
@@ -1092,6 +1080,7 @@ class DailyRiskGovernor:
             "fill_id", "execution_id", "broker_fill_id", "event_id", "order_id", "ibkr_order_id",
             "account", "account_id", "acctNumber", "strategy_name", "strategy", "symbol",
             "exec_id", "execId", "orderId", "side", "direction", "quantity", "filled_quantity", "shares",
+            "client_id", "clientId", "connection_epoch", "con_id", "conId",
             "price", "execution_price", "fill_price", "avgFillPrice", "average_fill_price",
             "gross_realised_pnl", "gross_realized_pnl", "commission", "closed_at",
         ):
