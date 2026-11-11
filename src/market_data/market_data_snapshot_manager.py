@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from collections.abc import Mapping
+import math
 from typing import Iterable, Optional
 
 from src.domain.market_snapshot import MarketSnapshot
@@ -28,7 +30,8 @@ class MarketDataSnapshotManager:
         self.market_data_client = market_data_client
         self.max_workers = max_workers
 
-    def get_snapshot(self, symbol: str) -> tuple[MarketSnapshot, SnapshotQuality]:
+    def get_snapshot(self, symbol: str, *, expected_client=None,
+                     expected_connection_epoch=None) -> tuple[MarketSnapshot, SnapshotQuality]:
         if self.market_data_client is None:
             snapshot = MarketSnapshot(
                 symbol=symbol,
@@ -47,7 +50,10 @@ class MarketDataSnapshotManager:
             )
             self._log_quality(quality)
             return snapshot, quality
-        raw = self.market_data_client.snapshot_stock(symbol)
+        raw = (self.market_data_client.snapshot_stock(symbol) if
+            expected_client is None and expected_connection_epoch is None else
+            self.market_data_client.snapshot_stock(symbol, expected_client=expected_client,
+                expected_connection_epoch=expected_connection_epoch))
         snapshot, quality = self._translate_snapshot(raw)
         self._log_quality(quality)
         return snapshot, quality
@@ -55,6 +61,7 @@ class MarketDataSnapshotManager:
     def batch_snapshots(
         self,
         symbols: Iterable[str],
+        *, expected_client=None, expected_connection_epoch=None,
     ) -> tuple[dict[str, MarketSnapshot], dict[str, SnapshotQuality]]:
         resolved_symbols = [symbol for symbol in symbols if symbol]
         snapshots: dict[str, MarketSnapshot] = {}
@@ -62,9 +69,11 @@ class MarketDataSnapshotManager:
         if not resolved_symbols:
             return snapshots, quality_by_symbol
         max_workers = min(max(self.max_workers, 1), len(resolved_symbols))
+        scope = ({} if expected_client is None and expected_connection_epoch is None else
+                 {"expected_client": expected_client, "expected_connection_epoch": expected_connection_epoch})
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_map = {
-                executor.submit(self.get_snapshot, symbol): symbol
+                executor.submit(self.get_snapshot, symbol, **scope): symbol
                 for symbol in resolved_symbols
             }
             for future in as_completed(future_map):
@@ -92,6 +101,29 @@ class MarketDataSnapshotManager:
                 snapshots[symbol] = snapshot
                 quality_by_symbol[symbol] = quality
         return snapshots, quality_by_symbol
+
+    @staticmethod
+    def clean_snapshot(snapshots, quality_by_symbol, symbol):
+        """Select one complete per-symbol result; a quality map is not an error list."""
+        if not isinstance(snapshots, Mapping) or not isinstance(quality_by_symbol, Mapping):
+            return None
+        snapshot, quality = snapshots.get(symbol), quality_by_symbol.get(symbol)
+        if (not isinstance(quality, SnapshotQuality) or quality.symbol != symbol
+                or getattr(snapshot, "symbol", None) != symbol
+                or not isinstance(quality.missing_fields, (list, tuple)) or quality.missing_fields
+                or not isinstance(quality.data_quality_flags, (list, tuple)) or quality.data_quality_flags
+                or not isinstance(getattr(snapshot, "data_quality_flags", None), (list, tuple))
+                or snapshot.data_quality_flags):
+            return None
+        try:
+            for name in ("bid", "ask", "last", "close", "volume"):
+                value = getattr(snapshot, name, None)
+                if (isinstance(value, bool) or not math.isfinite(value)
+                        or (value < 0 if name == "volume" else value <= 0)):
+                    return None
+        except (TypeError, ValueError, OverflowError):
+            return None
+        return snapshot
 
     @staticmethod
     def _translate_snapshot(
@@ -144,6 +176,7 @@ class MarketDataSnapshotManager:
                 "bid_size", "ask_size", "last_size",
             )},
             source="IBKR",
+            **{name: getattr(raw, name, None) for name in ("con_id", "client_id", "connection_epoch")},
         )
         quality = SnapshotQuality(
             symbol=raw.symbol,

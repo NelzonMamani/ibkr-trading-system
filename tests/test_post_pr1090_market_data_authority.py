@@ -1,6 +1,7 @@
 """Offline broker callback authority; no network or order operations."""
 from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 import threading
 from types import SimpleNamespace
 
@@ -9,9 +10,9 @@ from ibapi.client import EClient
 from ibapi.contract import Contract, ContractDetails
 from src.adapters.brokers.ibkr import ibkr_client as native_module
 from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
-from src.core.acquisition import acquisition_scope
+from src.core.acquisition import acquisition_scope, cycle_cache
 from src.ibkr import market_data_client as md
-from src.market_data.market_data_snapshot_manager import MarketDataSnapshotManager
+from src.market_data.market_data_snapshot_manager import MarketDataSnapshotManager, SnapshotQuality
 
 
 def contract():
@@ -406,6 +407,87 @@ def test_snapshot_and_qualification_cache_reacquire_after_native_scope_change(
     assert snapshot_source_identity(second) == (123, *expected_scope, facts.requests[1][4])
 
 
+def test_first_unbound_acquisition_cannot_cache_old_native_scope_under_replacement(
+        source_bound_native_snapshot, monkeypatch):
+    facts = source_bound_native_snapshot
+    replacement = IbkrClient("127.0.0.1", 7497, 72, 1, "LIVE", True)
+    monkeypatch.setattr(replacement, "isConnected", lambda: True)
+    replacement._position_connection_epoch = 37
+    facts.wrapper.ib = None
+    acquire = facts.wrapper._snapshot_stock_uncached
+    switched = []
+
+    def acquire_then_replace(*args, **kwargs):
+        raw = acquire(*args, **kwargs)  # Real A qualification, callbacks and cleanup.
+        if not switched:
+            switched.append(True)
+            facts.wrapper.ib = replacement
+        return raw
+
+    monkeypatch.setattr(facts.wrapper, "_snapshot_stock_uncached", acquire_then_replace)
+    with acquisition_scope():
+        first = facts.wrapper.snapshot_stock("AEMD")
+        assert snapshot_source_identity(first) == (123, 71, 23, facts.requests[0][4])
+        try:
+            second = facts.wrapper.snapshot_stock("AEMD", expected_client=replacement,
+                                                 expected_connection_epoch=37)
+        except RuntimeError as exc:
+            assert str(exc) in {"SNAPSHOT_CLIENT_SCOPE_CHANGED", "SNAPSHOT_CLIENT_SCOPE_UNAVAILABLE"}
+        else:
+            assert_native_quote_cleanup(facts.native, replacement)
+            assert second is not first
+            assert len(facts.requests) == 2
+            assert snapshot_source_identity(second) == (123, 72, 37, facts.requests[1][4])
+    assert_native_quote_cleanup(facts.native, replacement)
+
+
+@pytest.mark.parametrize("adverse_scope", [{"client_id": 72}, {"connection_epoch": 24},
+                                         {"client_id": None}, {"connection_epoch": None}])
+def test_strict_cached_snapshot_rejects_contradictory_or_missing_request_scope(
+        source_bound_native_snapshot, adverse_scope):
+    facts = source_bound_native_snapshot
+    with acquisition_scope():
+        raw = facts.wrapper.snapshot_stock("AEMD")
+        cache = cycle_cache()
+        key = next(key for key in cache if key[0] == "snapshot")
+        _, debug = cache[key]
+        # Adverse cache-integrity control only; the unmodified positive result
+        # above came through actual qualification and native quote callbacks.
+        cache[key] = (replace(raw, **adverse_scope), debug)
+        with pytest.raises(RuntimeError, match="SNAPSHOT_CLIENT_SCOPE_UNAVAILABLE"):
+            facts.wrapper.snapshot_stock("AEMD", expected_client=facts.native,
+                                         expected_connection_epoch=23)
+    assert len(facts.requests) == 1
+    assert_native_quote_cleanup(facts.native)
+
+
+@pytest.mark.parametrize("adverse_scope", [{"client_id": True}, {"connection_epoch": False}])
+def test_strict_cached_snapshot_rejects_bool_aliases_of_native_integer_scope(
+        source_bound_native_snapshot, monkeypatch, adverse_scope):
+    facts = source_bound_native_snapshot
+    facts.native.client_id = 1
+    facts.native._position_connection_epoch = 0
+    resolutions = []
+    def forbidden_resolution():
+        resolutions.append(True)
+        raise AssertionError("Malformed cached scope must not resolve another client")
+    monkeypatch.setattr(facts.wrapper.connection_manager, "get_client", forbidden_resolution)
+    with acquisition_scope():
+        raw = facts.wrapper.snapshot_stock("AEMD")
+        assert snapshot_source_identity(raw) == (123, 1, 0, facts.requests[0][4])
+        cache = cycle_cache()
+        key = next(key for key in cache if key[0] == "snapshot")
+        _, debug = cache[key]
+        cache[key] = (replace(raw, **adverse_scope), debug)
+        try:
+            with pytest.raises(RuntimeError, match="SNAPSHOT_CLIENT_SCOPE_UNAVAILABLE"):
+                facts.wrapper.snapshot_stock("AEMD", expected_client=facts.native,
+                                             expected_connection_epoch=0)
+        finally:
+            assert not resolutions and len(facts.requests) == 1
+            assert_native_quote_cleanup(facts.native)
+
+
 def test_concurrent_native_snapshot_identity_stays_with_its_own_symbol(source_bound_native_snapshot):
     facts = source_bound_native_snapshot
     first_request_started, release_first_request = threading.Event(), threading.Event()
@@ -436,3 +518,120 @@ def test_concurrent_native_snapshot_identity_stays_with_its_own_symbol(source_bo
                 for symbol, con_id, client_id, epoch, req_id in facts.requests}
     assert expected["AEMD"][3] != expected["MSFT"][3]
     assert {"AEMD": snapshot_source_identity(aemd), "MSFT": snapshot_source_identity(msft)} == expected
+
+
+def test_strict_snapshot_manager_uses_existing_native_scope(source_bound_native_snapshot):
+    facts = source_bound_native_snapshot
+    values, qualities = facts.manager.batch_snapshots(["AEMD"], expected_client=facts.native,
+                                                     expected_connection_epoch=23)
+    snapshot = facts.manager.clean_snapshot(values, qualities, "AEMD")
+    assert snapshot is values["AEMD"]
+    assert snapshot_source_identity(snapshot) == (123, 71, 23, facts.requests[0][4])
+    assert_native_quote_cleanup(facts.native)
+
+
+@pytest.mark.parametrize("problem", ["wrong_client", "wrong_epoch", "missing_epoch", "bool_epoch",
+                                     "disconnected", "stopped"])
+def test_strict_snapshot_scope_rejection_does_not_resolve_or_send(
+        source_bound_native_snapshot, monkeypatch, problem):
+    facts = source_bound_native_snapshot
+    resolutions = []
+    def forbidden_resolution():
+        resolutions.append(True)
+        raise AssertionError("Strict snapshot may not resolve or create a connection")
+    monkeypatch.setattr(facts.wrapper.connection_manager, "get_client", forbidden_resolution)
+    expected = facts.native
+    epoch = 23
+    if problem == "wrong_client":
+        expected = object()
+    elif problem == "wrong_epoch":
+        epoch = 24
+    elif problem == "missing_epoch":
+        facts.native._position_connection_epoch = None
+    elif problem == "bool_epoch":
+        epoch = True
+    elif problem == "disconnected":
+        monkeypatch.setattr(facts.native, "isConnected", lambda: False)
+    else:
+        facts.native._stop_event.set()
+    with pytest.raises(RuntimeError, match="SNAPSHOT_CLIENT_SCOPE_UNAVAILABLE"):
+        facts.wrapper.snapshot_stock("AEMD", expected_client=expected, expected_connection_epoch=epoch)
+    assert not resolutions and not facts.qualifications and not facts.requests
+    assert_native_quote_cleanup(facts.native)
+
+
+@pytest.mark.parametrize("strict", [False, True])
+def test_snapshot_scope_loss_during_actual_request_cannot_become_cached_permission(
+        source_bound_native_snapshot, strict):
+    facts = source_bound_native_snapshot
+    facts.before_quote = lambda symbol: facts.native.connectionClosed()
+    with acquisition_scope():
+        if strict:
+            with pytest.raises(RuntimeError, match="SNAPSHOT_CLIENT_SCOPE_(CHANGED|UNAVAILABLE)"):
+                facts.wrapper.snapshot_stock("AEMD", expected_client=facts.native,
+                                             expected_connection_epoch=23)
+        else:
+            raw = facts.wrapper.snapshot_stock("AEMD")
+            assert "MD_SOURCE_SCOPE_CHANGED" in raw.data_quality_flags
+            assert snapshot_source_identity(raw) == (123, 71, 23, facts.requests[0][4])
+            snapshot, quality = facts.manager._translate_snapshot(raw)
+            assert facts.manager.clean_snapshot({"AEMD": snapshot}, {"AEMD": quality}, "AEMD") is None
+        assert not any(isinstance(key, tuple) and key[0] == "snapshot" for key in cycle_cache())
+    assert len(facts.requests) == 1  # Scope loss cannot start another attempt.
+    assert_native_quote_cleanup(facts.native)
+
+
+def test_legacy_sdk_snapshot_does_not_infer_native_scope():
+    raw = client_for(OfflineInsync(lambda ib, tick: sdk_fields(ib))).snapshot_stock(contract())
+    snapshot, quality = MarketDataSnapshotManager._translate_snapshot(raw)
+    assert raw.con_id == snapshot.con_id == 123
+    assert raw.client_id is snapshot.client_id is None
+    assert raw.connection_epoch is snapshot.connection_epoch is None
+
+
+@pytest.mark.parametrize("problem", [None, "snapshots_not_mapping", "quality_not_mapping", "missing_quality",
+    "wrong_quality_symbol", "fake_quality", "missing_fields", "error_flags", "malformed_missing",
+    "malformed_flags", "wrong_snapshot_symbol", "snapshot_flags"])
+def test_clean_snapshot_requires_its_actual_per_symbol_quality(source_bound_native_snapshot, problem):
+    facts = source_bound_native_snapshot
+    snapshot, quality = facts.manager.get_snapshot("AEMD")
+    values, qualities = {"AEMD": snapshot}, {"AEMD": quality}
+    if problem == "snapshots_not_mapping":
+        values = []
+    elif problem == "quality_not_mapping":
+        qualities = []
+    elif problem == "missing_quality":
+        qualities = {}
+    elif problem == "wrong_quality_symbol":
+        qualities["AEMD"] = replace(quality, symbol="MSFT")
+    elif problem == "fake_quality":
+        qualities["AEMD"] = SimpleNamespace(symbol="AEMD", missing_fields=[], data_quality_flags=[])
+    elif problem == "missing_fields":
+        qualities["AEMD"] = replace(quality, missing_fields=["close"])
+    elif problem == "error_flags":
+        qualities["AEMD"] = replace(quality, data_quality_flags=["MD_TIMEOUT"])
+    elif problem == "malformed_missing":
+        qualities["AEMD"] = replace(quality, missing_fields=None)
+    elif problem == "malformed_flags":
+        qualities["AEMD"] = replace(quality, data_quality_flags=None)
+    elif problem == "wrong_snapshot_symbol":
+        values["AEMD"] = replace(snapshot, symbol="MSFT")
+    elif problem == "snapshot_flags":
+        values["AEMD"] = replace(snapshot, data_quality_flags=("MD_TIMEOUT",))
+    # An unrelated result's failure does not erase this symbol's clean result.
+    if isinstance(qualities, dict):
+        qualities["UNRELATED"] = SnapshotQuality("UNRELATED", ["last"], ["MD_TIMEOUT"])
+    selected = facts.manager.clean_snapshot(values, qualities, "AEMD")
+    assert selected is (snapshot if problem is None else None)
+    assert_native_quote_cleanup(facts.native)
+
+
+@pytest.mark.parametrize("name", ["bid", "ask", "last", "close", "volume"])
+@pytest.mark.parametrize("value", [None, float("nan"), float("inf"), True, "5.0", -1])
+def test_clean_snapshot_rejects_invalid_required_values_even_with_contradictory_clean_quality(
+        source_bound_native_snapshot, name, value):
+    facts = source_bound_native_snapshot
+    snapshot, quality = facts.manager.get_snapshot("AEMD")
+    adverse = replace(snapshot, **{name: value})
+    assert facts.manager.clean_snapshot({"AEMD": adverse}, {"AEMD": quality}, "AEMD") is None
+    assert_native_quote_cleanup(facts.native)

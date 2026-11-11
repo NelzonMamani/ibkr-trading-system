@@ -2102,6 +2102,8 @@ def _prepare_relationship_profit_evidence(h,request,life,*,native_orders,native_
         reassessment,monkeypatch,tmp_path,capsys,fault='none'):
     """Existing joined owner plus common external bar/quote fixture; no alternate pipeline."""
     from src.ibkr.market_data_client import HistoricalDataResult
+    from dataclasses import replace
+    from test_joined_core_pmh_readonly import fixture_quote_batch
     h.native_manager=h.core.execution_engine._provider.broker.connection_manager
     h.native_client=h.native_manager.existing_client
     h.native_open_orders=native_orders;h.native_quantity=native_quantity;h.facts=cached_statuses
@@ -2121,6 +2123,21 @@ def _prepare_relationship_profit_evidence(h,request,life,*,native_orders,native_
         rows=h.failure_bars if kwargs['timeframe']==retained_timeframe else h.streams[kwargs['timeframe']][-kwargs['lookback_bars']:]
         return HistoricalDataResult('COMPLETE_BARS',tuple(rows),True)
     monkeypatch.setattr(h.core.connection_manager,'_client',NS(intraday_bars_from_history=later_history))
+    inherited_quotes=h.core.market_data_snapshot_manager.batch_snapshots
+    def relationship_quotes(symbols):
+        values,legacy_quality=inherited_quotes(symbols)
+        # This specific older joined fixture has an empty-list result shape.
+        # Produce factual quality through the shared real translator instead;
+        # all subsequent adverse bar/quote facts remain outside this adapter.
+        assert legacy_quality==[]
+        snapshots={};qualities={}
+        for symbol,value in values.items():
+            projected,quality=fixture_quote_batch(h,value,[symbol])
+            snapshots[symbol]=replace(projected[symbol],asof_utc=value.asof_utc,
+                market_timestamp_utc=value.market_timestamp_utc,received_at_utc=value.received_at_utc)
+            qualities.update(quality)
+        return snapshots,qualities
+    h.core.market_data_snapshot_manager.batch_snapshots=relationship_quotes
     # Common existing completed-bar/quote preparation, with
     # relationship enrollment still OFF: milestone alone cannot dispatch.
     one_share_profit_case(reassessment,monkeypatch,tmp_path,capsys,prepared=(h,request,life),fault=fault)

@@ -43,3 +43,6 @@ class MarketSnapshot:
     ask_size: Optional[float] = None
     last_size: Optional[float] = None
     data_quality_flags: tuple[str, ...] = field(default_factory=tuple)
+    con_id: Optional[int] = None
+    client_id: Optional[int] = None
+    connection_epoch: Optional[int] = None

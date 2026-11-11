@@ -3040,10 +3040,10 @@ class CoreOrchestrator:
         if timeframe not in {"10s", "1m"}:
             return None
         bars, _ = self._get_trade_management_recent_candles(order["symbol"],10,timeframe=timeframe)
-        values, errors = self.market_data_snapshot_manager.batch_snapshots([order["symbol"]])
-        if errors or order["symbol"] not in values:
+        values, quality_by_symbol = self.market_data_snapshot_manager.batch_snapshots([order["symbol"]])
+        quote = MarketDataSnapshotManager.clean_snapshot(values, quality_by_symbol, order["symbol"])
+        if quote is None:
             return None
-        quote = values[order["symbol"]]
         now = datetime.now(timezone.utc)
         plan = normalize_session_label(market_session_phase(now))
         self._expire_selected_failure_enrollment(now,plan)
@@ -3157,8 +3157,8 @@ class CoreOrchestrator:
                     from src.strategies.ross_momentum.strategy_policy import (standalone_profit_quote_evidence,
                         standalone_micro_cost_quote_evidence)
                     try:
-                        values, errors = self.market_data_snapshot_manager.batch_snapshots([order["symbol"]])
-                        quote = values.get(order["symbol"]) if not errors else None
+                        values, quality_by_symbol = self.market_data_snapshot_manager.batch_snapshots([order["symbol"]])
+                        quote = MarketDataSnapshotManager.clean_snapshot(values, quality_by_symbol, order["symbol"])
                     except (AcquisitionCancelled, AcquisitionDeadlineExceeded):
                         raise
                     except Exception:
