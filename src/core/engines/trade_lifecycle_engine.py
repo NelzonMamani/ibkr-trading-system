@@ -694,7 +694,9 @@ class TradeLifecycleEngine:
             basis_event_ids: tuple[str, ...], *, source_client: Any) -> bool:
         previous = self._native_roundtrip_fees.get(root_order_id)
         if previous is not None:
-            if previous["state"] == "COMPLETE" and previous["basis_event_ids"] == basis_event_ids:
+            if (previous["state"] == "COMPLETE" and previous.get("reason") is None
+                    and previous["basis_event_ids"] == basis_event_ids
+                    and previous["source_client"] is source_client):
                 return False
             raise RuntimeError("NATIVE_FEE_ATTEMPT_NO_RETRY")
         required = self._native_fee_requirement(root_order_id)
@@ -811,11 +813,15 @@ class TradeLifecycleEngine:
         from src.adapters.brokers.ibkr.ibkr_client import AccountCurrencyResult
         root = getattr(observation, "root_order_id", None)
         selected = self._native_roundtrip_fees.get(root)
+        # A reentrant caller is not another financial attempt and must not
+        # submit duplicate SQL or poison the original still-owned write.
+        if selected is not None and selected["state"] == "IN_PROGRESS":
+            raise RuntimeError("NATIVE_FEE_IN_PROGRESS_NO_RETRY")
         try:
             checked = self._valuation_now(now, max_age_seconds)
             if type(observation) is not NativeRoundtripFeeObservation:
                 raise ValueError("NATIVE_FEE_SELECTED_OBSERVATION_REQUIRED")
-            if selected is not None and selected["state"] == "UNCERTAIN":
+            if selected is not None and (selected["state"] == "UNCERTAIN" or selected.get("reason") is not None):
                 raise RuntimeError("NATIVE_FEE_UNCERTAIN_NO_RETRY")
             required = self._native_fee_requirement(root)
             if (required is None or observation.basis_event_ids != required["basis_event_ids"]
@@ -925,7 +931,11 @@ class TradeLifecycleEngine:
                     or not self._native_fee_source_matches(source_client, required)
                     or self._native_fee_current_rows(source_client, required, now=checked) != rows):
                 raise RuntimeError("NATIVE_FEE_BASIS_OR_SOURCE_CHANGED_AFTER_COMMIT")
-            selected.update(state="COMPLETE", reason=None)
+            if selected["state"] != "IN_PROGRESS" or selected.get("reason") is not None:
+                raise RuntimeError("NATIVE_FEE_ATTEMPT_CHANGED_AFTER_COMMIT")
+            # Never clear the separate reason latch, including an uncertainty
+            # raised at an external boundary while this write was in flight.
+            selected["state"] = "COMPLETE"
             return deepcopy(evidence)
         except BaseException as exc:
             if selected is not None:
@@ -953,6 +963,8 @@ class TradeLifecycleEngine:
                     if key in covered and covered[key] != charge:
                         self.mark_native_fee_uncertain(root, "NATIVE_FEE_COVERED_CHARGE_CONFLICT")
                     covered[key] = charge
+            if selected.get("reason") is not None and selected["state"] != "UNCERTAIN":
+                self.mark_native_fee_uncertain(root, selected["reason"])
             if selected["state"] == "COMPLETE":
                 try:
                     current = self._native_fee_requirement(root)
@@ -965,7 +977,7 @@ class TradeLifecycleEngine:
                 except Exception as exc:
                     self.mark_native_fee_uncertain(root, str(exc))
             states[root] = dict(state=selected["state"], basis_event_ids=selected["basis_event_ids"])
-            if selected["state"] != "COMPLETE":
+            if selected["state"] != "COMPLETE" or selected.get("reason") is not None:
                 uncertain[root] = selected.get("reason") or "NATIVE_FEE_IN_PROGRESS"
         return dict(required=bool(self._native_roundtrip_fees), available=not uncertain,
             reason=next(iter(uncertain.values()), None), uncertain=uncertain, states=states,

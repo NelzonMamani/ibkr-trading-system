@@ -1516,3 +1516,48 @@ def test_native_roundtrip_duplicate_receipt_after_confirmed_write_keeps_static_f
     assert sum(float(row['amount']) for row in snapshot['covered_charges']) == pytest.approx(.03)
     assert len(h.storage.fetch_trade_lifecycle_events()) == 3
     assert h.client.cached_native_execution_fees(72)[0]['report_count'] == 2
+
+
+def test_native_roundtrip_inflight_currency_fence_cannot_be_cleared_by_successful_writer(
+        native_lifecycle, monkeypatch):
+    h = _native_fee_case(native_lifecycle, monkeypatch)
+    eur = _native_fee_second_currency_case(h, monkeypatch)
+    persist = h.storage.persist_native_lifecycle_feedback
+    def currency_conflict_during_ack(snapshot, event, **kwargs):
+        receipt = persist(snapshot, event, **kwargs)
+        if event['event_type'] == 'NATIVE_ROUNDTRIP_FEE':
+            with pytest.raises(ValueError, match='ACCOUNT_DAY_CURRENCY'):
+                _apply_native_fee(eur)
+        return receipt
+    monkeypatch.setattr(h.storage, 'persist_native_lifecycle_feedback', currency_conflict_during_ack)
+    with pytest.raises(RuntimeError, match='ATTEMPT_CHANGED_AFTER_COMMIT'):
+        _apply_native_fee(h)
+    snapshot = h.engine.native_fee_feedback_snapshot(now=FEE_NOW, max_age_seconds=15)
+    assert snapshot['required'] and not snapshot['available']
+    assert 'NATIVE_FEE_ACCOUNT_DAY_CURRENCY_CONFLICT' in snapshot['reason']
+    assert sum(float(row['amount']) for row in snapshot['covered_charges']) == pytest.approx(.03)
+    assert len(snapshot['evidence']) == 1 and 'EUR-ROOT' not in snapshot['states']
+    assert len(h.storage.fetch_trade_lifecycle_events()) == 5
+    assert h.engine.native_feedback_snapshot()['available']
+
+
+def test_native_roundtrip_reentrant_attempt_cannot_issue_another_sql_write(native_lifecycle, monkeypatch):
+    h = _native_fee_case(native_lifecycle, monkeypatch)
+    persist = h.storage.persist_native_lifecycle_feedback
+    calls, outcomes = [], []
+    def reentrant(snapshot, event, **kwargs):
+        calls.append(event['event_id'])
+        if len(calls) == 1:
+            try:
+                _apply_native_fee(h)
+            except RuntimeError as exc:
+                outcomes.append(str(exc))
+            else:
+                outcomes.append('NOT_REJECTED')
+        return persist(snapshot, event, **kwargs)
+    monkeypatch.setattr(h.storage, 'persist_native_lifecycle_feedback', reentrant)
+    _apply_native_fee(h)
+    assert len(calls) == 1
+    assert outcomes == ['NATIVE_FEE_IN_PROGRESS_NO_RETRY']
+    assert h.engine.native_fee_feedback_snapshot(now=FEE_NOW, max_age_seconds=15)['available']
+    assert len(h.storage.fetch_trade_lifecycle_events()) == 3
