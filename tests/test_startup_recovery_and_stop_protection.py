@@ -283,6 +283,86 @@ def engine_snapshot(engine):
             if getattr(engine, 'relationship_manager', None) is not None else {}),
     })
 
+def native_shutdown_snapshot(core, provided_positions, provided_orders):
+    """Observe retained ownership separately from local connection availability."""
+    engine = core.execution_engine
+    strategies = {row['request'].get('strategy_name') for row in engine._native_orders.values()}
+    return plain(dict(engine=engine_snapshot(engine), database=database_snapshot(),
+        allocation_used_by_strategy={name:engine.strategy_allocation_authority.strategy_used_exposure(name)
+            for name in strategies if name},
+        supplied_positions=provided_positions, supplied_open_orders=provided_orders,
+        manager_has_original_client=manager.existing_client is client,
+        client_stop_event_set=client._stop_event.is_set()))
+
+def observe_pristine_native_graceful_shutdown(core, provided_positions, provided_orders):
+    """Call actual shutdown only after the genuine protected PAPER precondition.
+
+    This observer never repairs a mutation, supplies a fill, clears ownership or
+    interprets disconnection as flat. The parent test asserts the desired truth
+    invariant; an actual legacy failure remains a failed reproduction.
+    """
+    probe = dict(attempted=False, verify_empty_calls=[])
+    report['native_graceful_shutdown'] = probe
+    if core is None:
+        raise ForbiddenExternalIO('NATIVE_GRACEFUL_SHUTDOWN_NO_CORE')
+    probe['before'] = native_shutdown_snapshot(core,provided_positions,provided_orders)
+    engine = core.execution_engine
+    before = probe['before']['engine']
+    roots = [(key,row) for key,row in before['native_orders'].items() if row.get('side') in {'LONG','BUY'}]
+    if (os.environ.get('EXECUTION_ENV') != 'TEST' or core.run_mode.value != 'PAPER'
+            or not facts.get('observe_pristine_paper_cycle') or not engine.provider.is_live() or len(roots) != 1
+            or report.get('native_before') is not None or report['after_constructor']['native_state'] is not None
+            or not report.get('cycles') or any(row.get('result') is not True or row.get('exception')
+                for row in report['cycles'])
+            or [row['role'] for row in report['synthetic_memory_dispatches']] != ['entry','stop']
+            or before['capital_scope'] is not None or before['capital_writer_present']
+            or before['native_quarantined'] or before['startup_recovery_state'] != 'RECOVERY_COMPLETE'):
+        raise ForbiddenExternalIO('NATIVE_GRACEFUL_SHUTDOWN_PROTECTED_PRECONDITION')
+    root_id,parent = roots[0]
+    plan = facts['paper_memory_plan']
+    life = before['post_fill'].get(root_id)
+    canonical = before['canonical_trades'].get(root_id)
+    if (not parent.get('terminal') or parent.get('filled') != 1 or not parent.get('protection_confirmed')
+            or parent.get('cached_update_in_progress') or parent['request'].get('setup_family_id') != 'PREMARKET_HIGH_BREAK'
+            or parent['request'].get('relationship_context')
+            or life is None or life['filled_qty'] != 1 or not before['protection'][root_id]['protected']
+            or canonical is None or canonical['quantity_open'] != 1 or canonical['quantity_closed'] != 0
+            or before['capital_used'] != plan['fill_price']
+            or before['capital_reserved'] != 0 or before['capital_reservations'] or before['allocation_reservations']
+            or len(before['registry']) != 1 or len(provided_positions) != 1 or provided_positions[0].position != 1
+            or provided_positions[0].symbol != plan['symbol'] or provided_positions[0].con_id != plan['con_id']
+            or provided_positions[0].account != plan['account'] or provided_positions[0].avgCost != plan['fill_price']
+            or len(provided_orders) != 1 or provided_orders[0].order.orderType != 'STP'
+            or provided_orders[0].contract.conId != plan['con_id'] or provided_orders[0].contract.symbol != plan['symbol']
+            or provided_orders[0].order.action != 'SELL' or provided_orders[0].order.totalQuantity != 1
+            or provided_orders[0].order.auxPrice != plan['stop_price']
+            or str(provided_orders[0].orderId) != str(life['stop']['broker_order_id'])
+            or str(provided_orders[0].order.parentId) != str(parent['broker_order_id'])
+            or provided_orders[0].order.orderRef != 'PROTECT|' + root_id
+            or any(row.get('leg') != 'entry' for row in report['paper_execution_callbacks'])):
+        raise ForbiddenExternalIO('NATIVE_GRACEFUL_SHUTDOWN_OWNERSHIP_PRECONDITION')
+    actual_verify_empty = core.trade_registry.verify_empty
+    def observed_shutdown_verify_empty(*args,**kwargs):
+        result = actual_verify_empty(*args,**kwargs)
+        probe['verify_empty_calls'].append(dict(result=result,registry=plain(core.trade_registry.snapshot())))
+        return result
+    core.trade_registry.verify_empty = observed_shutdown_verify_empty
+    events_before = len(core.event_collector.snapshot_all())
+    probe['mutation_attempts_before'] = mutation_snapshot()
+    probe['attempted'] = True
+    try:
+        from src.core.stop_controller import StopMode
+        core._shutdown(StopMode.GRACEFUL)
+    except BaseException as exc:
+        probe['exception'] = exception_record(exc)
+    finally:
+        core.trade_registry.verify_empty = actual_verify_empty
+        probe['after'] = native_shutdown_snapshot(core,provided_positions,provided_orders)
+        proof = getattr(core,'shutdown_evidence',None)
+        probe['shutdown_evidence'] = plain(proof.payload()) if proof is not None else None
+        probe['events'] = plain(core.event_collector.snapshot_all()[events_before:])
+        probe['mutation_attempts_after'] = mutation_snapshot()
+
 def validate_pristine_paper_memory_write(*, actual_client, expected_client, core,
         plan, dispatches, native_id, contract, native, committed, risk_rows, now, max_scope_age):
     """Observe actual owners before an exclusively in-memory external ACK.
@@ -1513,6 +1593,9 @@ try:
     if facts.get('observe_pristine_paper_cycle'):
         report['native_history_pending_ids'] = sorted(client._historical_states)
     report['mutation_attempts'] = mutation_snapshot()
+    if facts.get('observe_pristine_native_graceful_shutdown'):
+        report['stage'] = 'NATIVE_PAPER_GRACEFUL_SHUTDOWN'
+        observe_pristine_native_graceful_shutdown(core,positions,orders)
     report['stage'] = 'COMPLETE'
 except BaseException as exc:
     report['harness_exception'] = exception_record(exc)

@@ -2689,3 +2689,87 @@ def test_pristine_fresh_process_pmh_positive_fees_reach_actual_core_net_veto(
     assert report['cleanup']['scanner_runtime_close_complete']
     assert report['supervisor']['returncode']==0 and report['supervisor']['reaped'] and not report['supervisor']['timed_out']
     assert no_external_activity==[]
+
+
+@pytest.mark.parametrize('actual_result',[False,True])
+def test_native_graceful_shutdown_verify_observer_preserves_actual_result(actual_result):
+    """Pure observer check; no Core construction, shutdown or transport."""
+    registry=[NS(symbol='JPM',quantity=1)]
+    calls=[];probe=dict(verify_empty_calls=[])
+    def actual_verify(*args,**kwargs):
+        calls.append((args,kwargs))
+        return actual_result
+    plain=_pristine_paper_child_function('plain',dict(datetime=datetime))
+    observer=_pristine_paper_child_function('observed_shutdown_verify_empty',
+        dict(actual_verify_empty=actual_verify,probe=probe,plain=plain,
+            core=NS(trade_registry=NS(snapshot=lambda:list(registry)))))
+    assert observer('argument',label='supplied') is actual_result
+    assert calls==[(('argument',),dict(label='supplied'))]
+    assert probe['verify_empty_calls']==[dict(result=actual_result,registry=[dict(symbol='JPM',quantity=1)])]
+    registry[0].quantity=0
+    assert probe['verify_empty_calls'][0]['registry'][0]['quantity']==1
+
+
+def test_pristine_native_paper_graceful_shutdown_preserves_accounted_owned_position(
+        reassessment,monkeypatch,tmp_path,capsys,no_external_activity,runtime_schema_template):
+    """Causal invariant: resource shutdown cannot stand in for a native fill."""
+    import json,shutil
+    from test_startup_recovery_and_stop_protection import run_native_core_cold_start
+    # Reuse the existing raw entry/protection tape and stop BEFORE any supplied
+    # exit. No target, flat snapshot, cancellation or broker outcome is added.
+    facts=_pristine_paper_loss_facts(reassessment,monkeypatch,tmp_path)
+    facts.pop('observe_pristine_paper_loss_feedback')
+    facts['config'].pop('DAILY_RISK_MAX_LOSS_AMOUNT')
+    facts['paper_memory_plan'].pop('stop_fill_price')
+    facts['paper_cycle_steps']=facts['paper_cycle_steps'][:3]
+    facts['observe_pristine_native_graceful_shutdown']=True
+    assert [row['name'] for row in facts['paper_cycle_steps']]==['ACK_ONLY','LATER_ENTRY_FILL','PROTECTED_REPEAT']
+    assert all(raw['leg']=='entry' for step in facts['paper_cycle_steps'] for raw in step['executions'])
+    database=tmp_path/'native-graceful-shutdown.sqlite3'
+    shutil.copyfile(runtime_schema_template,database)
+    path=tmp_path/'native-graceful-shutdown-facts.json';path.write_text(json.dumps(facts,default=str))
+    report=run_native_core_cold_start(database,path,tmp_path/'native-graceful-shutdown-child')
+    summary={key:report.get(key) for key in ('constructor_exception','harness_exception','cycle_exception',
+        'stage','supervisor','evidence_dir','native_graceful_shutdown')}
+    assert report.get('constructor_complete') and report['constructor_count']==1,summary
+    assert not report.get('harness_exception') and not report.get('cycle_exception'),summary
+    assert len(report['cycles'])==3 and all(row['result'] is True for row in report['cycles']),summary
+    assert [row['role'] for row in report['synthetic_memory_dispatches']]==['entry','stop'],summary
+    assert [row['leg'] for row in report['paper_execution_callbacks']]==['entry'],summary
+    assert report['registry_evaluations'] and all(row['result_count']==33 for row in report['registry_evaluations'])
+    assert not report['sdk_attempts'] and not any(row['mutation'] for row in report['wire_attempts'])
+    assert not report['network_attempts'] and not report.get('native_curl_denials')
+    assert not report.get('capital_enrollment_attempts') and no_external_activity==[]
+    assert report['supervisor']['returncode']==0 and report['supervisor']['reaped'] and not report['supervisor']['timed_out']
+    assert report['cleanup']['live_threads']==[]
+    probe=report['native_graceful_shutdown']
+    assert probe['attempted'] and not probe.get('exception'),summary
+    assert len(report['trade_exit_shutdown_calls'])==1 and report['trade_exit_shutdown_calls'][0]['core_owned']
+    before,after=probe['before'],probe['after']
+    root=report['synthetic_memory_dispatches'][0]['root_id']
+    assert before['manager_has_original_client'] and not after['manager_has_original_client']
+    assert after['client_stop_event_set']
+    assert before['supplied_positions']==after['supplied_positions']
+    assert before['supplied_open_orders']==after['supplied_open_orders']
+    assert before['supplied_positions'][0]['position']==1
+    assert before['supplied_open_orders'][0]['order']['totalQuantity']==1
+    assert probe['mutation_attempts_before']==probe['mutation_attempts_after']
+    for field in ('native_state','native_orders','post_fill','canonical_trades','capital_used','capital_reserved',
+            'capital_reservations','allocation_reservations','position_records','managed_positions','protection',
+            'native_quarantined','startup_recovery_state','failsafe_block_new_entries'):
+        assert before['engine'][field]==after['engine'][field],(field,summary)
+    assert before['engine']['canonical_trades'][root]['quantity_open']==1
+    assert before['engine']['capital_used']==10.53 and before['engine']['protection'][root]['protected']
+    assert before['allocation_used_by_strategy']==after['allocation_used_by_strategy']
+    for table in ('trade_lifecycle_events','trade_lifecycle_trades','trade_records','trades','trade_outcomes','capital_audit_events'):
+        assert before['database'][table]==after['database'][table],(table,summary)
+    assert not any(event['event_type']=='TRADE_CLOSED' for event in probe['events']),summary
+    # Expected pre-repair failure: legacy shutdown mutates this real registry
+    # before its later hook exception. Do not turn that exception into a pass or
+    # infer a successful synthetic exit/PnL event which never occurred.
+    assert after['engine']['registry']==before['engine']['registry'],summary
+    assert len(after['engine']['registry'])==1
+    assert len(probe['verify_empty_calls'])==1 and probe['verify_empty_calls'][0]['result'] is False,summary
+    hooks=probe['shutdown_evidence']['hooks']
+    verification=next(row for row in hooks if row['hook']=='active_trade_registry.verify_empty')
+    assert verification['completed'] is False,summary
