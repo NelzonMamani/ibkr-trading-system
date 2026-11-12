@@ -8,8 +8,8 @@
     Set-StrictMode -Version 2.0
     $ErrorActionPreference = 'Stop'
     $release = [pscustomobject]@{
-        Commit = '14c8d01c5bfd7e3f70678210422cbcb65aac46d6'
-        Tree = '8eb1b88aa9fda2540cfc4a78f159b4b4df7acc8c'
+        Commit = '3991e1200a22f6751b5ccbaf1c312ea4bfd7c83f'
+        Tree = '61d3ecbe1d41b49c9edfdf157eb650118c78dcc6'
         PreparationBlob = '5cbb8bcdbed3041b41f5fce7cd64b1bf72a37ee4'
         # Exact accepted ASCII preparation file, allowing only LF or CRLF checkout bytes.
         PreparationFileSha256 = @('25166f54a9ad17c0b8fc6877d9cfd100f9b00d1a05e9ade669b08606d48d6c2c',
