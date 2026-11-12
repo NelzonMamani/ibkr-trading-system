@@ -160,7 +160,8 @@ def test_entire_final_preflight_body_requires_fresh_manifest_and_final_guards(tm
         a=ns['repo']/'a';stat=a.stat();a.write_bytes(b'two!');os.utime(a,ns=(stat.st_atime_ns,stat.st_mtime_ns))
     if case=='missing':(ns['repo']/'a').unlink()
     from scripts.certification import readonly_cache_probe
-    def probe(*args):
+    def probe(*args, **kwargs):
+        assert kwargs == {"require_news_dependencies": True}
         if case=='cache-unowned':raise RuntimeError('controlled cleanup unavailable')
         if case=='hook-change':(tmp_path/'state/startup/sitecustomize.py').write_text('different')
     monkeypatch.setattr(readonly_cache_probe,'run_cache_probe',probe)
@@ -226,3 +227,32 @@ def test_actual_operator_duration_parser_remains_fail_closed(tmp_path,duration):
     assert ('Runtime duration must be between180 and1800' in result.stderr or
             'invalid literal for int()' in result.stderr)
     assert not (tmp_path/'e').exists()
+
+
+@pytest.mark.parametrize('case', ['valid', 'feedparser-missing', 'requests-missing', 'broken-parser'])
+def test_effective_runtime_child_requires_news_before_admission(tmp_path, case):
+    from scripts.certification.readonly_cache_probe import run_cache_probe
+    startup = tmp_path/'startup'; startup.mkdir()
+    package = startup/'yfinance'; package.mkdir()
+    (package/'__init__.py').write_text('')
+    (package/'cache.py').write_text('_readonly_cache_isolated=True\n_readonly_cache_locations=[]\n')
+    (startup/'sitecustomize.py').write_text('def probe_stage(stage): pass\n')
+    # Child-only import failures reproduce an otherwise healthy parent console.
+    if case in {'feedparser-missing', 'requests-missing'}:
+        name = case.split('-')[0]
+        (startup/(name+'.py')).write_text("raise ModuleNotFoundError('controlled child-only dependency absence')\n")
+    if case == 'broken-parser':
+        (startup/'feedparser.py').write_text("from types import SimpleNamespace\n__version__='broken-child'\ndef parse(value): return SimpleNamespace(entries=[])\n")
+    evidence=tmp_path/'e'; evidence.mkdir()
+    child_env=dict(os.environ, PYTHONPATH=str(startup), PR1108_YFINANCE_CACHE=str(tmp_path/'cache'))
+    child_env.pop('PYTHONHOME', None)
+    if case == 'valid':
+        receipt=run_cache_probe(sys.executable,REPO,evidence,child_env,require_news_dependencies=True)
+        assert 'CHILD_NEWS_DEPENDENCIES_VERIFIED' in receipt['stdout']
+    else:
+        with pytest.raises(RuntimeError,match='required news'):
+            run_cache_probe(sys.executable,REPO,evidence,child_env,require_news_dependencies=True)
+    receipt=json.loads((evidence/'child-cache-probe.json').read_text())
+    assert receipt['required_news_dependencies'] and receipt['child_exited']
+    assert not receipt['timed_out'] and receipt['exit_code']==(0 if case=='valid' else 1)
+    assert not (evidence/'preflight-result.json').exists()

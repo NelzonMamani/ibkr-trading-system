@@ -242,7 +242,7 @@ elif phase == 'preflight':
             preflight_timing(preflight_stage)
             hook = state/'startup/sitecustomize.py'
             from scripts.certification.readonly_cache_probe import run_cache_probe
-            run_cache_probe(sys.executable, repo, evidence, env)
+            run_cache_probe(sys.executable, repo, evidence, env, require_news_dependencies=True)
             write_json(evidence/'operator-startup-config.json', {'scope': 'yfinance cache location only',
                 'sha256': digest(hook), 'source': hook.read_text(), 'path': str(hook)})
             preflight_stage = 'baseline_finalization'

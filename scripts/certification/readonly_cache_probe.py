@@ -7,7 +7,7 @@ import sys
 import time
 
 
-def run_cache_probe(python, repo, evidence, env, *, timeout=30, cleanup=5):
+def run_cache_probe(python, repo, evidence, env, *, timeout=30, cleanup=5, require_news_dependencies=False):
     evidence = Path(evidence)
     trace = evidence / 'child-cache-stages.jsonl'
     child_env = dict(env, PR1108_CACHE_PROBE_TRACE=str(trace))
@@ -19,8 +19,19 @@ def run_cache_probe(python, repo, evidence, env, *, timeout=30, cleanup=5):
         "print('CHILD_CACHE_ISOLATION_VERIFIED', c._readonly_cache_locations, flush=True); "
         "s.probe_stage('probe_body_complete')"
     )
+    if require_news_dependencies:
+        # Same executable, environment and startup flags as the runtime child.
+        # Import and parse locally; this qualification must never fetch a feed.
+        sample = "<rss version='2.0'><channel><title>offline</title><item><title>dependency probe</title></item></channel></rss>"
+        body += (
+            "; s.probe_stage('news_dependencies_begin'); import requests, feedparser; "
+            "assert callable(requests.Session); "
+            f"assert len(feedparser.parse({sample!r}).entries) == 1; "
+            "print('CHILD_NEWS_DEPENDENCIES_VERIFIED', requests.__version__, feedparser.__version__, flush=True); "
+            "s.probe_stage('news_dependencies_complete')"
+        )
     flags = ['-u', '-X', 'importtime', '-c']
-    receipt = {'child_flags': flags, 'parent_ignore_environment': bool(sys.flags.ignore_environment),
+    receipt = {'required_news_dependencies': require_news_dependencies, 'child_flags': flags, 'parent_ignore_environment': bool(sys.flags.ignore_environment),
                'timeout_seconds': timeout, 'cleanup_seconds': cleanup, 'timed_out': False,
                'child_exited': None, 'exit_code': None, 'pid': None,
                'stdout_path': 'child-cache.stdout.log', 'stderr_path': 'child-cache.stderr.log',
@@ -71,5 +82,7 @@ def run_cache_probe(python, repo, evidence, env, *, timeout=30, cleanup=5):
     if receipt['timed_out']:
         raise subprocess.TimeoutExpired([python, *flags, '<cache-isolation-probe>'], timeout)
     if not receipt['child_exited'] or receipt['exit_code'] != 0 or 'CHILD_CACHE_ISOLATION_VERIFIED' not in receipt.get('stdout', ''):
-        raise RuntimeError('Child startup/cache isolation failed; no runtime launch.')
+        raise RuntimeError('Child startup/cache isolation or required news qualification failed; no runtime launch.')
+    if require_news_dependencies and 'CHILD_NEWS_DEPENDENCIES_VERIFIED' not in receipt.get('stdout', ''):
+        raise RuntimeError('Child required news dependencies unavailable; no runtime launch.')
     return receipt

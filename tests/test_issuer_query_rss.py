@@ -54,8 +54,8 @@ def settings(tmp_path, **kw):
     return LookupSettings(profile=QUERY_PROFILE, cache_file=tmp_path/'canonical.json', **kw)
 
 
-def entry(title='JPMorgan Chase & Co. announces results', age=60, **kw):
-    return SimpleNamespace(title=title, summary='', link='https://publisher.test/article',
+def entry(title='JPMorgan Chase & Co. announces results', age=60, link='https://publisher.test/article', **kw):
+    return SimpleNamespace(title=title, summary='', link=link,
                            published_parsed=time.gmtime(time.time()-age), **kw)
 
 
@@ -103,7 +103,7 @@ def test_canonical_batch_publisher_dates_grouping_and_cache(monkeypatch,tmp_path
         calls.append(url)
         if url == google:
             return feed([entry(title='JPMorgan Chase & Co. announces results - Publisher A', source={'title':'Publisher A'}),
-                         entry(title='JPMorgan Chase & Co. announces results - Publisher B', source={'title':'Publisher B'}, age=120)])
+                         entry(title='JPMorgan Chase & Co. announces results - Publisher B', source={'title':'Publisher B'}, age=120, link='https://publisher-b.test/article')])
         if url == yahoo:
             return feed([entry(source={'title':'Publisher A'})])
         return feed()

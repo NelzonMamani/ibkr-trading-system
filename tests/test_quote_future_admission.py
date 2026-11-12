@@ -421,3 +421,33 @@ def test_explicit_future_rejection_flag_cannot_be_bypassed_by_current_time():
         'selection':freshness.quote_evidence(NOW.isoformat(), 'LAST_TRADE'), 'snapshot':None},
         data_quality_flags=['MD_TIMESTAMP_FUTURE'])
     assert freshness.ross_intent_quote_rejection(intent, RunMode.PAPER) == 'MD_TIMESTAMP_FUTURE'
+
+
+def test_clock_advancement_during_native_acquisition_is_not_future(native, monkeypatch, clock):
+    # Synthetic causal check: broker trade is later than request start, earlier
+    # than acquisition completion. The current owner must use its later clock.
+    stamp = NOW + timedelta(seconds=2)
+    def send(self, req, *args):
+        native_ticks(self, req)
+        self.tickString(req, 45, str(stamp.timestamp()))
+        clock.value = NOW + timedelta(seconds=3)
+    monkeypatch.setattr(EClient, 'reqMktData', send)
+    monkeypatch.setattr(native, 'resolve_contract', lambda _: NS(contract=contract()))
+    result = client_for(native).snapshot_stock('FIXTURE')
+    assert result.timestamp_utc == stamp.isoformat()
+    assert not set(result.data_quality_flags) & {'MD_TIMESTAMP_FUTURE','MD_STALE','MD_TIMESTAMP_UNKNOWN'}
+
+
+def test_shortlist_reports_retained_future_separately_from_current_time(monkeypatch, thresholds, clock, capsys):
+    row = context()
+    row.update(data_quality_flags=['MD_TIMESTAMP_FUTURE'], quote_timestamp_utc=NOW.isoformat(),
+               quote_timestamp_source='LAST_TRADE')
+    clock.value = NOW + timedelta(seconds=1)
+    # A future rejection really observed earlier remains a veto as time advances.
+    out = scanner._refresh_provisional_shortlist([row], NS(refresh_quote=lambda _:pytest.fail('historical future retried')),
+        'RTH_OPEN', {}, 1, thresholds, {})
+    assert out == []
+    log = capsys.readouterr().out
+    assert 'reason=DROP_FUTURE_MARKET_DATA current_time_rejection=None' in log
+    assert "retained_time_rejections=['MD_TIMESTAMP_FUTURE']" in log
+    assert row['data_quality_flags'] == ['MD_TIMESTAMP_FUTURE']

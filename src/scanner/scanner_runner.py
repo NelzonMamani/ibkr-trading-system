@@ -4791,7 +4791,9 @@ def _refresh_provisional_shortlist(candidates, provider, session_label, float_ca
         assessed_at = datetime.now(timezone.utc).isoformat()
         print(f"[SCANNER][SHORTLIST_ASSESSMENT] symbol={context['symbol']} "
               f"assessed_at={assessed_at} market_timestamp={context.get('quote_timestamp_utc')} "
-              f"request_id={context.get('quote_request_id')} reason={reason or 'PASS'}")
+              f"request_id={context.get('quote_request_id')} reason={reason or 'PASS'} "
+              f"current_time_rejection={quote_time_rejection(context.get('quote_timestamp_utc'), context.get('quote_timestamp_source'), now=datetime.fromisoformat(assessed_at))} "
+              f"retained_time_rejections={sorted(set(context.get('data_quality_flags') or ()) & {'MD_TIMESTAMP_FUTURE', 'MD_STALE', 'MD_TIMESTAMP_UNKNOWN'})}")
         if reason:
             drop_ledger[context["symbol"]] = reason
             print(f"[SCANNER][DROP] symbol={context['symbol']} reason={reason} boundary=shortlist_refresh")

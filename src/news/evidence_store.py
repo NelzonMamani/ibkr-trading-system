@@ -641,11 +641,13 @@ def dedupe_evidence(evidence: Sequence[NewsEvidence], *, max_items: int) -> list
             item.url or "",
         )
         # Persistence formats use different ID prefixes for the same article.
-        # Keep URL case intact; without a URL, publication time distinguishes repeats.
+        # URL + headline identify an article independently of publisher display
+        # aliases (e.g. www.example.com versus example.com). Keep URL case
+        # intact; without a URL, publisher and publication distinguish repeats.
         article = (
             item.normalized_symbol,
             " ".join(str(item.headline or "").split()).casefold(),
-            str(item.observed_source or item.original_source or "").strip().casefold(),
+            "" if item.url else str(item.observed_source or item.original_source or "").strip().casefold(),
             str(item.url or "").strip(),
             "" if item.url else (item.published_at.isoformat() if item.published_at else ""),
         )
