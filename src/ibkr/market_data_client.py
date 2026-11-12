@@ -708,7 +708,7 @@ class MarketDataClient:
                 snapshot.data_quality_flags.append("MD_SOURCE_SCOPE_CHANGED")
         assessed_at = datetime.now(timezone.utc)
         reason = quote_time_rejection(snapshot.timestamp_utc, getattr(snapshot, "timestamp_source", "UNKNOWN"), now=assessed_at)
-        record_time_assessment(getattr(self, 'ib', None), getattr(snapshot, 'request_id', None), timestamp=snapshot.timestamp_utc,
+        record_time_assessment(client, getattr(snapshot, 'request_id', None), timestamp=snapshot.timestamp_utc,
             source=getattr(snapshot, 'timestamp_source', 'UNKNOWN'), assessed_at=assessed_at, reason=reason,
             assessor='MarketDataClient.snapshot_stock.return', timestamp_input=self.last_snapshot_debug.get('timestamp_input'),
             completed_at=getattr(snapshot, 'request_completed_at_utc', None),

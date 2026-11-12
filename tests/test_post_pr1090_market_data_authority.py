@@ -1,5 +1,5 @@
 """Offline broker callback authority; no network or order operations."""
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 import threading
@@ -747,3 +747,35 @@ def test_native_batch_cold_worker_does_not_require_optional_async_sdk():
     ''')
     result=subprocess.run([sys.executable,'-c',script],capture_output=True,text=True,timeout=20)
     assert result.returncode==0,result.stdout+result.stderr
+
+
+def test_replacement_reused_request_id_cannot_receive_old_quote_time_provenance(
+        source_bound_native_snapshot, monkeypatch):
+    facts=source_bound_native_snapshot
+    replacement=IbkrClient('127.0.0.1',7497,72,1,'LIVE',True)
+    monkeypatch.setattr(replacement,'isConnected',lambda:True)
+    replacement._position_connection_epoch=37
+    baseline=md.datetime.now(timezone.utc)
+    current=[baseline]
+    monkeypatch.setattr(md.datetime,'now',classmethod(lambda cls,tz=None:
+        cls.fromtimestamp(current[0].timestamp(),timezone.utc)))
+    acquire=facts.wrapper._snapshot_stock_uncached
+    def acquire_then_replace(*args,**kwargs):
+        raw=acquire(*args,**kwargs)
+        other=replacement.get_market_snapshot('MSFT')
+        assert raw.request_id==other.request_id
+        assert 'MD_TIMESTAMP_FUTURE' not in other.data_quality_flags
+        facts.wrapper.ib=replacement
+        current[0]=baseline-timedelta(seconds=1)
+        return raw
+    monkeypatch.setattr(facts.wrapper,'_snapshot_stock_uncached',acquire_then_replace)
+    with acquisition_scope():result=facts.wrapper.snapshot_stock('AEMD')
+    assert snapshot_source_identity(result)==(123,71,23,result.request_id)
+    assert {'MD_SOURCE_SCOPE_CHANGED','MD_TIMESTAMP_FUTURE'} <= set(result.data_quality_flags)
+    first=result.snapshot_attempts[0]['first_time_rejection']
+    assert (first['client_id'],first['connection_epoch'],first['con_id'])==(71,23,123)
+    assert first['assessor']=='MarketDataClient.snapshot_stock.return'
+    other=replacement._quote_trace.requests[result.request_id]
+    assert other['identity']['symbol']=='MSFT' and other['con_id']==456
+    assert 'MD_TIMESTAMP_FUTURE' not in other.get('time_assessments',{})
+    assert_native_quote_cleanup(facts.native,replacement)

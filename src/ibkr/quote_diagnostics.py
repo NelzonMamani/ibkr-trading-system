@@ -122,13 +122,19 @@ class QuoteDiagnostics:
         return facts
 
     def assess_time(self, req_id, *, timestamp, source, assessed_at, reason, assessor,
-                    timestamp_input=None, completed_at=None):
+                    timestamp_input=None, completed_at=None, expected_scope=None):
         if reason not in {'MD_TIMESTAMP_FUTURE', 'MD_STALE', 'MD_TIMESTAMP_UNKNOWN'}:
             return
         with self._lock:
             row = self.requests.get(req_id)
             if row is None:
                 return
+            if expected_scope is not None:
+                actual = {'client_id': self.client_id, 'connection_epoch': row.get('connection_epoch'),
+                          'con_id': row.get('con_id')}
+                if any(type(expected_scope.get(key)) is not int or type(value) is not int
+                       or expected_scope[key] != value for key, value in actual.items()):
+                    return  # Unknown/incompatible scope cannot attribute facts by reused ID.
             prior = row.setdefault('time_assessments', {})
             if reason in prior:
                 return
@@ -183,7 +189,7 @@ def record_time_assessment(client, req_id, *, attempts=(), scope=None, **facts):
                     attempt.setdefault('first_time_rejection', dict(captured))
         trace = getattr(client, '_quote_trace', None)
         if trace is not None:
-            trace.assess_time(req_id, **facts)
+            trace.assess_time(req_id, expected_scope=scope, **facts)
     except Exception:
         pass
 

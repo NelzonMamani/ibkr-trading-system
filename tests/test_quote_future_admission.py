@@ -468,7 +468,7 @@ def test_first_future_origin_retains_numeric_callback_and_assessor(native,monkey
     monkeypatch.setattr(EClient,'reqMktData',send)
     monkeypatch.setattr(native,'resolve_contract',lambda _:NS(contract=contract()))
     client=client_for(native)
-    result=client.snapshot_stock('FIXTURE')
+    result=client.snapshot_stock(contract())
     assert 'MD_TIMESTAMP_FUTURE' in result.data_quality_flags
     row=native._quote_trace.requests[result.request_id]
     first=row['first_time_rejection']
@@ -508,7 +508,7 @@ def test_class_only_refresh_valueerror_is_reproduced_without_inventing_aimd_caus
 def test_timestamp_origin_survives_trace_saturation_in_existing_snapshot_attempts(native,monkeypatch,clock,thresholds,capsys):
     native._quote_trace.MAX_LOGS=1
     install_ticks(native,monkeypatch,NOW+timedelta(seconds=.842))
-    result=client_for(native).snapshot_stock('FIXTURE')
+    result=client_for(native).snapshot_stock(contract())
     assert native._quote_trace.suppressed_logs>0
     origin=result.snapshot_attempts[0]
     assert origin['timestamp_input']['raw_input']==str((NOW+timedelta(seconds=.842)).timestamp())
@@ -544,10 +544,10 @@ def test_cache_first_future_origin_survives_saturated_trace(native,monkeypatch,c
     install_ticks(native,monkeypatch,NOW)
     client=client_for(native);client.ib=native
     with acquisition_scope(lambda:False):
-        fresh=client.snapshot_stock('FIXTURE')
+        fresh=client.snapshot_stock(contract())
         assert 'MD_TIMESTAMP_FUTURE' not in fresh.data_quality_flags
         clock.value=NOW-timedelta(microseconds=1)
-        cached=client.snapshot_stock('FIXTURE')
+        cached=client.snapshot_stock(contract())
     assert cached is fresh and 'MD_TIMESTAMP_FUTURE' in cached.data_quality_flags
     attempt=cached.snapshot_attempts[0]
     assert attempt['timestamp_assessment']['reason'] is None
