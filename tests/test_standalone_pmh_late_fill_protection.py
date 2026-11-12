@@ -4049,6 +4049,155 @@ def append_micro_cost_bar(h,request,life,capsys,*,fault='none',external_price=No
     return bar,price
 
 
+def test_first_confirmed_project_partial_retains_original_stop_then_own_failure_to_flat(
+        reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    from src.config import config_resolver
+    from src.storage.serialization import to_jsonable
+    from src.strategies.ross_momentum.strategy_policy import (
+        CENTRAL_STANDALONE_FAILURE_PROFILE, STANDALONE_ONE_SHARE_PROFIT_PROFILE,
+        STANDALONE_FIRST_ORIGINAL_STOP_RETENTION_PROFILE, selected_first_original_stop_retention_profile,
+    )
+    h,request,life=micro_post_partial_case(reassessment,monkeypatch,tmp_path,capsys,family='FIRST_PULLBACK')
+    try:
+        engine=h.core.execution_engine;owner=h.failure_owner
+        intent,serialized,decision=h.evaluated[0]
+        occurrence=deepcopy(request.setup_metadata)
+        retained_request=deepcopy(owner['request'])
+        partial=deepcopy(owner['unit_profit_exit'])
+        remaining=[leg for leg in life.stop_legs if leg.quantity>leg.filled_quantity]
+        remaining_ids=[int(leg.broker_order_id) for leg in remaining]
+        profit_ids=[identity for identity,_ in h.unit_writes]
+        assert intent.setup_family_id==request.setup_family_id=='FIRST_PULLBACK'
+        assert serialized==vars(intent) and occurrence==to_jsonable(intent.setup_metadata)
+        assert (intent.entry_price,request.stop_loss_price,request.invalidation_level)==(10.42,10.15,10.15)
+        assert decision.allowed and request.quantity==4 and len(h.registry_batches[0][1])==33
+        assert life.avg_fill_price==10.55 and life.filled_qty==life.exited_qty==2
+        assert profit_ids==[72,73] and remaining_ids==[74,75]
+        assert partial['status']=='FILLED' and partial['accounted_fill_quantity']==partial['reserved_quantity']==2
+        assert partial['profile']==STANDALONE_ONE_SHARE_PROFIT_PROFILE
+        assert partial['occurrence']==occurrence and partial['original_stop']==10.15
+        assert partial['entry_fill_price']==10.55 and partial['last_accounted_fill_at']
+        # Other families' synthetic opt-ins cannot lend First a cost policy.
+        config_resolver.set_config_overrides(dict(config_resolver._CONFIG_OVERRIDES,
+            ROSS_SYNTHETIC_BULL_COST_TIGHTENING=True,ROSS_SYNTHETIC_MICRO_COST_FAILURE=True,
+            ROSS_SYNTHETIC_MICRO_COST_TIGHTENING=True))
+
+        def assert_original_remainder():
+            position=h.manager.snapshot_positions()['JPM']
+            assert owner['request']==retained_request and owner['unit_profit_exit']==partial
+            assert selected_first_original_stop_retention_profile(owner['request'])==STANDALONE_FIRST_ORIGINAL_STOP_RETENTION_PROFILE
+            assert not owner.get('pmh_failure_exit') and not owner.get('stop_price_revision')
+            assert owner['protection_confirmed'] and owner['unit_close_coverage_confirmed']
+            assert life.selected_stop_price==position.stop_loss_price==position.last_trail_price==10.15
+            assert life.filled_qty==position.quantity==2 and life.exited_qty==2
+            assert not position.partial_taken and not position.trailing_active and not life.trailing_active
+            assert request.take_profit_price is life.target is life.selected_target_price is None
+            assert position.first_target_price is position.second_target_price is None
+            assert position.target_type=='DESCRIPTIVE_ONLY' and not h.manager._relationship_plans
+            protection=engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)
+            assert protection['protected'] and protection['confirmed_stop_quantity']==2
+            assert [row.orderId for row in h.native_open_orders]==remaining_ids
+            for leg,row in zip(remaining,h.native_open_orders):
+                child=engine._native_orders[leg.leg_id]
+                assert child['protection_parent_order_id']==request.client_order_id
+                assert child['requested']==leg.quantity==row.order.totalQuantity==1
+                assert child['close_role']==leg.close_role=='PROTECTION' and leg.independently_confirmed
+                assert leg.trigger_price==leg.last_confirmed_effective_stop_price==row.order.auxPrice==10.15
+                assert row.order.orderType=='STP' and row.order.action=='SELL' and row.order.parentId==71
+                assert row.order.orderRef=='PROTECT|'+life.trade_id and row.contract.conId==123
+                assert not child.get('stop_price_revision') and not child.get('unit_amendment')
+            assert len(h.sent_native)==1 and len(h.stop_requests)==4
+            assert [identity for identity,_ in h.unit_writes]==profit_ids and len(h.unit_wires)==2
+            assert engine.capital_authority.total_used_exposure==pytest.approx(2*10.55)
+
+        assert_original_remainder()
+        below_cost,price=append_micro_cost_bar(h,request,life,capsys,external_price=10.50)
+        assert 10.42<below_cost.close==price<life.avg_fill_price
+        assert_original_remainder()
+        for _ in range(2):
+            h.life.clock.current+=timedelta(seconds=1)
+            assert h.core.run_once();capsys.readouterr()
+            assert_original_remainder()
+        # Independent own structural failure remains actionable above S0.
+        bar,price=append_micro_cost_bar(h,request,life,capsys,fault='family_failure')
+        assert 10.15<price==bar.close<10.42
+        failure=owner['pmh_failure_exit']
+        assert failure['profile']==CENTRAL_STANDALONE_FAILURE_PROFILE
+        assert failure['occurrence']==occurrence and failure['reserved_quantity']==2
+        assert failure['leg_ids']==[leg.leg_id for leg in remaining]
+        assert [identity for identity,_ in h.unit_writes]==profit_ids+remaining_ids
+        assert all(order.orderType=='MKT' for _,order in h.unit_writes)
+        assert owner['unit_profit_exit']==partial and not owner.get('stop_price_revision')
+        assert not engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
+        fill_unit_ids(h,life,capsys,remaining_ids,price=price)
+        assert life.filled_qty==0 and life.exited_qty==4
+        assert not h.manager.snapshot_positions() and not h.core.trade_registry.snapshot()
+        assert engine.capital_authority.total_used_exposure==0
+        assert engine.capital_authority.total_reserved_capital==0
+        assert not engine.capital_authority.active_reservations and not engine.strategy_allocation_authority.active_reservations
+        before=(len(engine.position_records),life.realized_pnl,len(h.unit_writes),len(h.stop_requests))
+        for _ in range(2):
+            h.life.clock.current+=timedelta(seconds=1)
+            assert h.core.run_once();capsys.readouterr()
+        assert before==(len(engine.position_records),life.realized_pnl,len(h.unit_writes),len(h.stop_requests))
+        assert owner['request']==retained_request and owner['unit_profit_exit']==partial
+        assert len(h.sent_native)==1 and len(h.unit_writes)==len(h.stop_requests)==4
+        assert mutations()==dict(place=4,modify=0,cancel=0)  # Audited SDK writes end at memory sendMsg.
+    finally:assert no_external_activity==[]
+
+
+def test_first_pending_partial_and_competing_stop_preserve_remainder_without_replay(
+        reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
+    prepared=small_central_owned(reassessment,monkeypatch,tmp_path,capsys,'FIRST_PULLBACK',
+        requested_base=8,risk_cap=4,synthetic_capital=800,unit_stops=True)
+    h,request,life=one_share_profit_case(reassessment,monkeypatch,tmp_path,capsys,prepared=prepared)
+    try:
+        enroll_unit_management(h,monkeypatch)
+        assert h.core.run_once();capsys.readouterr()
+        engine=h.core.execution_engine;owner=h.failure_owner;action=owner['unit_profit_exit']
+        assert [identity for identity,_ in h.unit_writes]==[72,73]
+        fill_unit_ids(h,life,capsys,[72],price=h.failure_exit_price)
+        assert action['status']=='MKT' and not action.get('last_accounted_fill_at')
+        assert life.filled_qty==3 and life.exited_qty==1
+        protection=engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)
+        assert not protection['protected'] and protection['confirmed_stop_quantity']==2
+        assert not owner['protection_confirmed'] and owner['unit_close_coverage_confirmed']
+        assert life.stop_legs[1].close_role=='REDUCTION' and not life.stop_legs[1].independently_confirmed
+        assert all(leg.trigger_price==10.15 for leg in life.stop_legs)
+        before=(life.filled_qty,life.exited_qty,life.realized_pnl,len(engine.position_records),
+            engine.capital_authority.total_used_exposure,len(h.unit_writes))
+        assert h.core.run_once();capsys.readouterr()
+        assert before==(life.filled_qty,life.exited_qty,life.realized_pnl,len(engine.position_records),
+            engine.capital_authority.total_used_exposure,len(h.unit_writes))
+        # An untouched original stop fills while the other reduction unit is pending.
+        fill_unit_ids(h,life,capsys,[75])
+        protection=engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)
+        assert life.filled_qty==life.exited_qty==2
+        assert not protection['protected'] and protection['confirmed_stop_quantity']==1
+        assert action['status']=='MKT' and not action.get('last_accounted_fill_at')
+        fill_unit_ids(h,life,capsys,[73],price=h.failure_exit_price)
+        assert action['status']=='FILLED' and action['accounted_fill_quantity']==2
+        assert life.filled_qty==1 and life.exited_qty==3
+        assert engine.post_fill_lifecycle.assess_trade_stop_protection(life.trade_id)['protected']
+        position=h.manager.snapshot_positions()['JPM']
+        assert life.selected_stop_price==position.stop_loss_price==position.last_trail_price==10.15
+        assert not position.partial_taken and not position.trailing_active
+        assert not owner.get('pmh_failure_exit') and not owner.get('stop_price_revision')
+        assert len(h.native_open_orders)==1 and h.native_open_orders[0].orderId==74
+        assert h.native_open_orders[0].order.auxPrice==10.15
+        fill_unit_ids(h,life,capsys,[74])
+        assert life.filled_qty==0 and life.exited_qty==4
+        assert not h.manager.snapshot_positions() and not h.core.trade_registry.snapshot()
+        assert engine.capital_authority.total_used_exposure==0
+        assert engine.capital_authority.total_reserved_capital==0
+        assert not engine.capital_authority.active_reservations and not engine.strategy_allocation_authority.active_reservations
+        assert [identity for identity,_ in h.unit_writes]==[72,73]
+        assert len(h.sent_native)==1 and len(h.stop_requests)==4
+        assert request.take_profit_price is life.target is None
+        assert mutations()==dict(place=2,modify=0,cancel=0)  # Only the two reserved reduction IDs.
+    finally:assert no_external_activity==[]
+
+
 def enroll_micro_cost_failure():
     from src.config import config_resolver
     config_resolver.set_config_overrides(dict(config_resolver._CONFIG_OVERRIDES,
