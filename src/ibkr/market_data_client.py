@@ -689,7 +689,9 @@ class MarketDataClient:
             record_time_assessment(client, getattr(snapshot, 'request_id', None), timestamp=snapshot.timestamp_utc,
                 source=getattr(snapshot, 'timestamp_source', 'UNKNOWN'), assessed_at=assessed_at, reason=reason,
                 assessor='MarketDataClient.snapshot_stock.cache', timestamp_input=debug.get('timestamp_input'),
-                completed_at=getattr(snapshot, 'request_completed_at_utc', None))
+                completed_at=getattr(snapshot, 'request_completed_at_utc', None),
+                attempts=getattr(snapshot, 'snapshot_attempts', ()), scope={key: getattr(snapshot, key, None)
+                    for key in ('client_id', 'connection_epoch', 'con_id')})
             if reason and reason not in snapshot.data_quality_flags:
                 snapshot.data_quality_flags.append(reason)
             if strict:
@@ -709,7 +711,9 @@ class MarketDataClient:
         record_time_assessment(getattr(self, 'ib', None), getattr(snapshot, 'request_id', None), timestamp=snapshot.timestamp_utc,
             source=getattr(snapshot, 'timestamp_source', 'UNKNOWN'), assessed_at=assessed_at, reason=reason,
             assessor='MarketDataClient.snapshot_stock.return', timestamp_input=self.last_snapshot_debug.get('timestamp_input'),
-            completed_at=getattr(snapshot, 'request_completed_at_utc', None))
+            completed_at=getattr(snapshot, 'request_completed_at_utc', None),
+            attempts=getattr(snapshot, 'snapshot_attempts', ()), scope={key: getattr(snapshot, key, None)
+                for key in ('client_id', 'connection_epoch', 'con_id')})
         if reason and reason not in snapshot.data_quality_flags:
             snapshot.data_quality_flags.append(reason)
         if cache is not None and cache_key() == key and not any(flag in snapshot.data_quality_flags for flag in (
@@ -903,7 +907,8 @@ class MarketDataClient:
         record_time_assessment(ib, best_debug['request_id'], timestamp=snapshot_timestamp,
             source="LAST_TRADE" if snapshot_timestamp is not None else "UNKNOWN", assessed_at=assessed_at,
             reason=reason, assessor="MarketDataClient._snapshot_stock_uncached",
-            timestamp_input=best_debug.get('timestamp_input'), completed_at=best_debug.get('request_completed_at_utc'))
+            timestamp_input=best_debug.get('timestamp_input'), completed_at=best_debug.get('request_completed_at_utc'),
+            attempts=debug['attempts'], scope={'client_id': client_id, 'connection_epoch': epoch, 'con_id': con_id})
         if reason:
             final_flags.append(reason)
         if any(event["code"] == 10197 for attempt in debug["attempts"] for event in attempt["broker_errors"]):

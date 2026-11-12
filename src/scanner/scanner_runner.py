@@ -2015,12 +2015,12 @@ def _stale_market_data_drop(context: Dict[str, Any]) -> Optional[str]:
     # Production contexts always carry these keys, including explicit None on
     # absence. Historical prep-only monitoring has no quote permission to grant.
     if "quote_timestamp_utc" in context or "quote_timestamp_source" in context:
-        reason = quote_time_rejection(context.get("quote_timestamp_utc"), context.get("quote_timestamp_source"),
-                                      now=datetime.now(timezone.utc))
+        assessed_at = datetime.now(timezone.utc)
+        reason = quote_time_rejection(context.get("quote_timestamp_utc"), context.get("quote_timestamp_source"), now=assessed_at)
         if reason and reason not in flags:
             flags.append(reason)
             context.setdefault('quote_time_assessments', {}).setdefault(reason, {
-                'assessor': 'scanner._stale_market_data_drop', 'assessed_at_utc': datetime.now(timezone.utc).isoformat(),
+                'assessor': 'scanner._stale_market_data_drop', 'assessed_at_utc': assessed_at.isoformat(),
                 'reason': reason, 'request_id': context.get('quote_request_id'),
                 'timestamp_utc': context.get('quote_timestamp_utc'), 'timestamp_source': context.get('quote_timestamp_source')})
             context["data_quality_flags"] = flags
@@ -4813,7 +4813,7 @@ def _refresh_provisional_shortlist(candidates, provider, session_label, float_ca
               f"retained_time_rejections={sorted(set(context.get('data_quality_flags') or ()) & {'MD_TIMESTAMP_FUTURE', 'MD_STALE', 'MD_TIMESTAMP_UNKNOWN'})} "
               f"acquisition_to_assessment_seconds={_quote_assessment_delay(context, assessed_at)} "
               f"first_consumer_time_rejections={context.get('quote_time_assessments', {})} "
-              f"timestamp_origin={next(({'timestamp_input': a.get('timestamp_input'), 'timestamp_assessment': a.get('timestamp_assessment')} for a in (context.get('snapshot_evidence') or {}).get('snapshot_attempts', ()) if a.get('request_id') == context.get('quote_request_id')), None)}")
+              f"timestamp_origin={next(({'timestamp_input': a.get('timestamp_input'), 'timestamp_assessment': a.get('timestamp_assessment'), 'first_time_rejection': a.get('first_time_rejection'), 'time_rejections': a.get('time_rejections')} for a in (context.get('snapshot_evidence') or {}).get('snapshot_attempts', ()) if a.get('request_id') == context.get('quote_request_id')), None)}")
         if reason:
             drop_ledger[context["symbol"]] = reason
             print(f"[SCANNER][DROP] symbol={context['symbol']} reason={reason} boundary=shortlist_refresh")

@@ -454,11 +454,14 @@ def test_shortlist_reports_retained_future_separately_from_current_time(monkeypa
 
 
 @pytest.mark.parametrize('lead',[.266,.342,.842])
-def test_first_future_origin_retains_numeric_callback_and_assessor(native,monkeypatch,clock,capsys,lead):
+@pytest.mark.parametrize('wire_form',['integer','fractional'])
+def test_first_future_origin_retains_numeric_callback_and_assessor(native,monkeypatch,clock,capsys,lead,wire_form):
     import src.ibkr.quote_diagnostics as diagnostics
     monkeypatch.setattr(diagnostics,'datetime',Clock)
-    stamp=NOW+timedelta(seconds=lead)
-    raw=str(stamp.timestamp())
+    assessed=NOW if wire_form=='fractional' else NOW+timedelta(seconds=1-lead)
+    stamp=assessed+timedelta(seconds=lead)
+    clock.value=assessed
+    raw=str(stamp.timestamp()) if wire_form=='fractional' else str(int(stamp.timestamp()))
     def send(self,req,*args):
         native_ticks(self,req)
         self.tickString(req,45,raw)
@@ -470,17 +473,17 @@ def test_first_future_origin_retains_numeric_callback_and_assessor(native,monkey
     row=native._quote_trace.requests[result.request_id]
     first=row['first_time_rejection']
     assert first['assessor']=='MarketDataClient._snapshot_stock_uncached'
-    assert first['assessed_at_utc']==NOW.isoformat()
+    assert first['assessed_at_utc']==assessed.isoformat()
     assert first['timestamp_input']=={'raw_input':raw,'decoded_utc':stamp.isoformat(),
-        'callback_utc':NOW.isoformat(),'tick_type':45}
-    assert first['request_completed_at_utc']==NOW.isoformat()
+        'callback_utc':assessed.isoformat(),'tick_type':45}
+    assert first['request_completed_at_utc']==assessed.isoformat()
     assert row['time_assessments']['MD_TIMESTAMP_FUTURE']==first
     assert result.snapshot_attempts[0]['timestamp_input']==first['timestamp_input']
     clock.value=NOW+timedelta(seconds=30)
     from src.ibkr.quote_diagnostics import record_time_assessment
     record_time_assessment(native,result.request_id,timestamp=stamp,source='LAST_TRADE',
         assessed_at=clock.value,reason='MD_STALE',assessor='later.synthetic')
-    assert row['first_time_rejection']==first and first['assessed_at_utc']==NOW.isoformat()
+    assert row['first_time_rejection']==first and first['assessed_at_utc']==assessed.isoformat()
     assert 'MD_STALE' in row['time_assessments']
     assert not native._active_market_req_ids
 
@@ -521,3 +524,43 @@ def test_timestamp_origin_survives_trace_saturation_in_existing_snapshot_attempt
     assert "timestamp_origin={'timestamp_input': {'raw_input':" in log
     assert 'MarketDataClient._snapshot_stock_uncached' in log
     assert 'acquisition_to_assessment_seconds=0.0' in log
+
+
+def test_scanner_first_assessor_uses_actual_classification_clock(monkeypatch):
+    moments=iter([NOW,NOW+timedelta(microseconds=10)])
+    calls=[]
+    def now(*args):
+        current=next(moments);calls.append(current);return current
+    monkeypatch.setattr(scanner,'datetime',NS(now=now))
+    row=context();row.update(quote_timestamp_utc=(NOW+timedelta(microseconds=1)).isoformat(),data_quality_flags=[])
+    assert scanner._stale_market_data_drop(row)=='DROP_FUTURE_MARKET_DATA'
+    assert row['quote_time_assessments']['MD_TIMESTAMP_FUTURE']['assessed_at_utc']==NOW.isoformat()
+    assert len(calls)==1
+
+
+def test_cache_first_future_origin_survives_saturated_trace(native,monkeypatch,clock,thresholds,capsys):
+    from src.core.acquisition import acquisition_scope
+    native._quote_trace.MAX_LOGS=1
+    install_ticks(native,monkeypatch,NOW)
+    client=client_for(native);client.ib=native
+    with acquisition_scope(lambda:False):
+        fresh=client.snapshot_stock('FIXTURE')
+        assert 'MD_TIMESTAMP_FUTURE' not in fresh.data_quality_flags
+        clock.value=NOW-timedelta(microseconds=1)
+        cached=client.snapshot_stock('FIXTURE')
+    assert cached is fresh and 'MD_TIMESTAMP_FUTURE' in cached.data_quality_flags
+    attempt=cached.snapshot_attempts[0]
+    assert attempt['timestamp_assessment']['reason'] is None
+    first=attempt['first_time_rejection']
+    assert first['assessor']=='MarketDataClient.snapshot_stock.cache'
+    assert first['assessed_at_utc']==clock.value.isoformat()
+    assert first['timestamp_input']['decoded_utc']==NOW.isoformat()
+    assert first['request_id']==cached.request_id and first['client_id']==cached.client_id
+    clock.value=NOW+timedelta(seconds=1)
+    row=context();row.update(quote_timestamp_utc=cached.timestamp_utc,quote_request_id=cached.request_id,
+        data_quality_flags=list(cached.data_quality_flags),snapshot_evidence={'snapshot_attempts':cached.snapshot_attempts})
+    capsys.readouterr()
+    assert scanner._refresh_provisional_shortlist([row],NS(refresh_quote=lambda _:pytest.fail('historical future retried')),
+        'RTH_MID',{},1,thresholds,{})==[]
+    assert 'MarketDataClient.snapshot_stock.cache' in capsys.readouterr().out
+    assert attempt['first_time_rejection']==first and not native._active_market_req_ids

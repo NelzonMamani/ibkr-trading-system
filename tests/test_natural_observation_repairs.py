@@ -197,6 +197,15 @@ def test_post_pr1223_distinct_articles_share_one_declared_publisher(monkeypatch,
     metrics=normalize_headlines(headlines,now_ts=now.timestamp())
     assert metrics['news_sources_count']==1 and metrics['news_total_headlines']==2
     expected_heat=compute_news_heat_score(metrics)  # No assumed direction of change.
+    from src.news.batch_rss_adapter import _evidence_from_headline
+    candidate=NewsCandidate('MYPS',company_name=items[0].company_name)
+    produced=tuple(_evidence_from_headline(candidate,replace(headline,source_tier='operational_query'),
+        request=NewsRequest(),retrieval_status='partial',provider_status='partial_request_failure',
+        budget_exhausted=False,fetched_at=now,now_ts=now.timestamp()) for headline in headlines)
+    produced=owner.enrich_evidence_metrics(produced,now_ts=now.timestamp())
+    assert len(produced)==2 and {i.independent_source_count for i in produced}=={1}
+    assert {i.publication_count for i in produced}=={2} and all(i.verified_source is None for i in produced)
+    assert [i.raw['source_provenance'] for i in produced]==[h.source_provenance for h in headlines]
     fresh=owner.enrich_evidence_metrics(items,now_ts=now.timestamp())
     assert len(fresh)==2 and {i.independent_source_count for i in fresh}=={1}
     assert {i.publication_count for i in fresh}=={2}

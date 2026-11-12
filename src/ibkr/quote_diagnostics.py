@@ -161,9 +161,26 @@ class QuoteDiagnostics:
                 self._emit('cleanup', req_id, row['cleanup'])
 
 
-def record_time_assessment(client, req_id, **facts):
+def record_time_assessment(client, req_id, *, attempts=(), scope=None, **facts):
     """Diagnostic failure must never change a quote's admission or cleanup."""
     try:
+        if facts.get('reason') in {'MD_TIMESTAMP_FUTURE', 'MD_STALE', 'MD_TIMESTAMP_UNKNOWN'}:
+            # Reuse the existing selected-attempt carrier when bounded native
+            # trace emission is exhausted. First facts are never renewed.
+            for attempt in attempts[:3]:
+                if attempt.get('request_id') != req_id:
+                    continue
+                prior = attempt.setdefault('time_rejections', {})
+                if facts['reason'] not in prior:
+                    stamp = facts.get('timestamp')
+                    captured = {**(scope or {}), 'request_id': req_id,
+                        'assessor': facts['assessor'], 'assessed_at_utc': facts['assessed_at'].isoformat(),
+                        'reason': facts['reason'], 'timestamp_source': facts['source'],
+                        'timestamp_utc': stamp.isoformat() if isinstance(stamp, datetime) else QuoteDiagnostics._text(stamp),
+                        'request_completed_at_utc': facts.get('completed_at'),
+                        'timestamp_input': dict(attempt.get('timestamp_input') or facts.get('timestamp_input') or {})}
+                    prior[facts['reason']] = captured
+                    attempt.setdefault('first_time_rejection', dict(captured))
         trace = getattr(client, '_quote_trace', None)
         if trace is not None:
             trace.assess_time(req_id, **facts)
