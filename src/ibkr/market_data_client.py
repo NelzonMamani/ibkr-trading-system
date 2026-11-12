@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from src.domain.quote_freshness import quote_time_rejection
+from src.ibkr.quote_diagnostics import record_time_assessment, timestamp_input_facts
 
 from src.core.acquisition import AcquisitionCancelled, AcquisitionDeadlineExceeded, checkpoint, cycle_cache, contract_key, cooperative_await, bounded_timeout, history_attempt_cache, historical_enrichment_attempt, history_enrichment, HISTORY_ATTEMPT_MAX_REQUESTS
 
@@ -183,6 +184,7 @@ def _copy_snapshot_ticker(ticker):
     # Numeric/time attributes are immutable. Copy mutable authority metadata too,
     # without traversing SDK event handlers, contracts or synchronization objects.
     observed = copy.copy(ticker)
+    observed.timestampInput = dict(getattr(ticker, 'timestampInput', {}) or {})
     observed.fieldReceivedAt = dict(getattr(ticker, "fieldReceivedAt", {}) or {})
     observed.brokerErrors = copy.deepcopy(getattr(ticker, "brokerErrors", []) or [])
     return observed
@@ -251,6 +253,7 @@ def _track_insync_snapshot_callbacks(ib):
                 ticker.lastTime = datetime.fromtimestamp(float(value), timezone.utc)
             except (TypeError, ValueError, OverflowError, OSError):
                 return
+            ticker.timestampInput = timestamp_input_facts(value, ticker.lastTime, datetime.now(timezone.utc), tick_type)
             _record_field_receipt(ticker, ["market_timestamp"])
 
     def price_size_tick(req_id, tick_type, price, size):
@@ -681,8 +684,12 @@ class MarketDataClient:
             self.last_snapshot_debug = debug
             # Reuse data, never the age decision from the earlier acquisition.
             # Keep the original broker timestamp, authority and request evidence.
-            reason = quote_time_rejection(snapshot.timestamp_utc, getattr(snapshot, "timestamp_source", "UNKNOWN"),
-                                          now=datetime.now(timezone.utc))
+            assessed_at = datetime.now(timezone.utc)
+            reason = quote_time_rejection(snapshot.timestamp_utc, getattr(snapshot, "timestamp_source", "UNKNOWN"), now=assessed_at)
+            record_time_assessment(client, getattr(snapshot, 'request_id', None), timestamp=snapshot.timestamp_utc,
+                source=getattr(snapshot, 'timestamp_source', 'UNKNOWN'), assessed_at=assessed_at, reason=reason,
+                assessor='MarketDataClient.snapshot_stock.cache', timestamp_input=debug.get('timestamp_input'),
+                completed_at=getattr(snapshot, 'request_completed_at_utc', None))
             if reason and reason not in snapshot.data_quality_flags:
                 snapshot.data_quality_flags.append(reason)
             if strict:
@@ -697,8 +704,12 @@ class MarketDataClient:
         elif client is not None and not self._snapshot_scope_unchanged(client, epoch, client_id, connected=connected):
             if "MD_SOURCE_SCOPE_CHANGED" not in snapshot.data_quality_flags:
                 snapshot.data_quality_flags.append("MD_SOURCE_SCOPE_CHANGED")
-        reason = quote_time_rejection(snapshot.timestamp_utc, getattr(snapshot, "timestamp_source", "UNKNOWN"),
-                                      now=datetime.now(timezone.utc))
+        assessed_at = datetime.now(timezone.utc)
+        reason = quote_time_rejection(snapshot.timestamp_utc, getattr(snapshot, "timestamp_source", "UNKNOWN"), now=assessed_at)
+        record_time_assessment(getattr(self, 'ib', None), getattr(snapshot, 'request_id', None), timestamp=snapshot.timestamp_utc,
+            source=getattr(snapshot, 'timestamp_source', 'UNKNOWN'), assessed_at=assessed_at, reason=reason,
+            assessor='MarketDataClient.snapshot_stock.return', timestamp_input=self.last_snapshot_debug.get('timestamp_input'),
+            completed_at=getattr(snapshot, 'request_completed_at_utc', None))
         if reason and reason not in snapshot.data_quality_flags:
             snapshot.data_quality_flags.append(reason)
         if cache is not None and cache_key() == key and not any(flag in snapshot.data_quality_flags for flag in (
@@ -829,6 +840,7 @@ class MarketDataClient:
                     ),
                     "completion_reason": completion_reason,
                     "raw_fields": raw_fields,
+                    "timestamp_input": dict(getattr(observed, "timestampInput", {}) or {}),
                     "missing_fields": missing_fields,
                     **_snapshot_authority_metadata(observed, raw_fields, completed_at=completed_at, completion_reason=completion_reason),
                 }
@@ -877,8 +889,21 @@ class MarketDataClient:
                 raise RuntimeError("SNAPSHOT_CLIENT_SCOPE_CHANGED")
             final_flags.append("MD_SOURCE_SCOPE_CHANGED")
         debug.update(best_debug)
-        reason = quote_time_rejection(snapshot_timestamp, "LAST_TRADE" if snapshot_timestamp is not None else "UNKNOWN",
-                                      now=datetime.now(timezone.utc))
+        assessed_at = datetime.now(timezone.utc)
+        reason = quote_time_rejection(snapshot_timestamp, "LAST_TRADE" if snapshot_timestamp is not None else "UNKNOWN", now=assessed_at)
+        for attempt in debug['attempts']:
+            if attempt.get('request_id') == best_debug['request_id']:
+                attempt['timestamp_assessment'] = {
+                    'assessor': 'MarketDataClient._snapshot_stock_uncached',
+                    'request_id': best_debug['request_id'], 'client_id': client_id,
+                    'connection_epoch': epoch, 'con_id': con_id,
+                    'assessed_at_utc': assessed_at.isoformat(), 'reason': reason,
+                    'timestamp_utc': snapshot_timestamp.isoformat() if snapshot_timestamp else None,
+                    'request_completed_at_utc': best_debug.get('request_completed_at_utc')}
+        record_time_assessment(ib, best_debug['request_id'], timestamp=snapshot_timestamp,
+            source="LAST_TRADE" if snapshot_timestamp is not None else "UNKNOWN", assessed_at=assessed_at,
+            reason=reason, assessor="MarketDataClient._snapshot_stock_uncached",
+            timestamp_input=best_debug.get('timestamp_input'), completed_at=best_debug.get('request_completed_at_utc'))
         if reason:
             final_flags.append(reason)
         if any(event["code"] == 10197 for attempt in debug["attempts"] for event in attempt["broker_errors"]):

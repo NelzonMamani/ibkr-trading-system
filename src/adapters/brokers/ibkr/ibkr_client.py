@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from src.domain.quote_freshness import quote_time_rejection
+from src.ibkr.quote_diagnostics import record_time_assessment
 
 from src.core.acquisition import AcquisitionCancelled, AcquisitionDeadlineExceeded, checkpoint, wait_event, bounded_timeout
 
@@ -1894,7 +1895,8 @@ class IbkrClient(EWrapper, EClient):
         req_id = values["reqId"]
         self._quote_trace.start(req_id, values["contract"],
             getattr(self, "_requested_market_data_type_code", _market_data_type_code(self.market_data_type)),
-            values["genericTickList"], values["snapshot"], values["regulatorySnapshot"], values["mktDataOptions"])
+            values["genericTickList"], values["snapshot"], values["regulatorySnapshot"], values["mktDataOptions"],
+            connection_epoch=getattr(self, "_position_connection_epoch", None))
         try:
             result = super().reqMktData(*args, **kwargs)
         except BaseException:
@@ -2240,8 +2242,12 @@ class IbkrClient(EWrapper, EClient):
             flags.append("MD_SNAPSHOT_INCOMPLETE")
         if any(event["code"] == 10197 for event in ticker.brokerErrors):
             flags.append("MD_CONFLICT_10197")
-        reason = quote_time_rejection(timestamp, "LAST_TRADE" if timestamp is not None else "UNKNOWN",
-                                      now=datetime.now(timezone.utc))
+        assessed_at = datetime.now(timezone.utc)
+        reason = quote_time_rejection(timestamp, "LAST_TRADE" if timestamp is not None else "UNKNOWN", now=assessed_at)
+        record_time_assessment(self, req_id, timestamp=timestamp,
+            source="LAST_TRADE" if timestamp is not None else "UNKNOWN", assessed_at=assessed_at,
+            reason=reason, assessor="IbkrClient.get_market_snapshot",
+            timestamp_input=getattr(ticker, 'timestampInput', {}), completed_at=completed_at.isoformat())
         if reason:
             flags.append(reason)
         fields = {name: _clean(getattr(ticker, name, None)) for name in ("bid", "ask", "last", "volume", "close", "open", "high", "low")}
@@ -2456,6 +2462,10 @@ class IbkrClient(EWrapper, EClient):
             if ticker is None:
                 return
             ticker.lastTime = timestamp
+            try:
+                ticker.timestampInput = self._quote_trace.timestamp_input(reqId, value, timestamp, datetime.now(timezone.utc), tickType)
+            except Exception:
+                ticker.timestampInput = {}  # Diagnostic failure cannot reject a valid callback.
             _record_field_receipt(ticker, ["market_timestamp"])
         self._market_update_event.set()
 
