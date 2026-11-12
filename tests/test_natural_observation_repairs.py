@@ -151,3 +151,29 @@ def test_duplicate_aliases_do_not_inflate_fresh_or_persisted_metrics(monkeypatch
     store.write({'MYPS':()},NewsRequest(max_evidence_per_symbol=10))
     item,=store.read((candidate,),include_prep=False).evidence_by_symbol['MYPS']
     assert item.publication_count==item.independent_source_count==item.velocity_5m==1
+
+
+def test_protected_qualification_merge_repairs_duplicate_alias_metrics(monkeypatch, tmp_path):
+    from src.news.evidence_store import serialize_evidence
+    import src.news.evidence_store as owner
+    clock=NOW.replace(hour=15,minute=47)
+    class Clock(datetime):
+        @classmethod
+        def now(cls,tz=None): return clock
+    monkeypatch.setattr(owner,'datetime',Clock)
+    polluted=[replace(item,publication_count=2,independent_source_count=2,velocity_5m=2)
+              for item in parsed('MYPS')[:2]]
+    cache=tmp_path/'protected.json'
+    cache.write_text(json.dumps({'news_intelligence':{'symbols':{'MYPS':{
+        'evidence':[serialize_evidence(polluted[0])],
+        'ross_qualification_evidence':[serialize_evidence(item) for item in polluted]}}}}))
+    store=CanonicalNewsEvidenceStore(cache,prep_artifact_loader=lambda:{})
+    store.write({'MYPS':()},NewsRequest(max_evidence_per_symbol=10))
+    for field in ('evidence','ross_qualification_evidence'):
+        item,=json.loads(cache.read_text())['news_intelligence']['symbols']['MYPS'][field]
+        assert item['publication_count']==item['independent_source_count']==item['velocity_5m']==1
+        assert item['published_at']==polluted[0].published_at.isoformat()
+        assert item['raw'] in (polluted[0].raw,polluted[1].raw)
+    candidate=NewsCandidate('MYPS',company_name=polluted[0].company_name)
+    item,=store.read((candidate,),include_prep=False).evidence_by_symbol['MYPS']
+    assert item.publication_count==item.independent_source_count==item.velocity_5m==1

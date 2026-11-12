@@ -296,7 +296,14 @@ class CanonicalNewsEvidenceStore:
             if request and request.query_start_utc is None and request.strategy_id == "ross_momentum":
                 ross_rows = [serialize_evidence(item) for item in merged]
             protected = [item for row in ross_rows if (item := evidence_from_mapping(row, now=now)) is not None]
-            combined = dedupe_evidence(list(merged) + protected, max_items=len(merged)+len(protected) or 1)
+            unique_protected = dedupe_evidence(protected, max_items=len(protected) or 1)
+            if len(unique_protected) != len(protected):
+                protected = list(enrich_evidence_metrics(protected, now_ts=now.timestamp()))
+                ross_rows = [serialize_evidence(item) for item in protected]
+            combined_inputs = list(merged) + protected
+            combined = dedupe_evidence(combined_inputs, max_items=len(combined_inputs) or 1)
+            if len(combined) != len(combined_inputs):
+                combined = list(enrich_evidence_metrics(combined_inputs, now_ts=now.timestamp()))
             bucket = {"updated_at": now.isoformat(),
                       "evidence": [serialize_evidence(item) for item in combined]}
             if ross_rows:
