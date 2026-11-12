@@ -5119,8 +5119,9 @@ class CoreOrchestrator:
             f"focus_count_final={focus_passed} evaluated_count={focus_evaluated} focus_rejected={focus_rejected} setup_trigger_count={intent_count} "
             f"no_setup_count={no_setup_count} intent_count={intent_count} order_submission_count={paper_submission_count} "
             f"open_positions_count={self.trade_registry.count_active()} dominant_drop_reasons=NA dominant_no_trade_reasons={dominant_no_trade_reasons} "
-            f"execution_allowed={session_execution_allowed} "
-            f"execution_ready={session_execution_allowed} focus_source={focus_source}"
+            f"session_execution_allowed={session_execution_allowed} "
+            f"execution_allowed={session_execution_allowed and bool(mode_manager.allow_orders)} "
+            f"execution_ready={session_execution_allowed and bool(mode_manager.allow_orders)} focus_source={focus_source}"
         )
         print(
             "[PIPELINE] "

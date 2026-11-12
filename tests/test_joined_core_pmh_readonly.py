@@ -200,6 +200,8 @@ def test_native_pmh_joined_artifact_and_actual_risk_denial(reassessment,monkeypa
     assert h.focus_calls and any([r['symbol'] for r in selected_rows]==['JPM'] for _,_,selected_rows in h.focus_calls)
     for name,method in h.real_core_methods.items():assert getattr(h.core,name).__func__ is method
     assert '[PIPELINE][RISK_OUTPUT] approved_count=0 blocked_count=1' in out
+    cycle_lines=[line for line in out.splitlines() if line.startswith('[CYCLE_END]')]
+    assert cycle_lines and all('session_execution_allowed=True execution_allowed=False execution_ready=False' in line for line in cycle_lines)
     assert 'ORDER_SUBMITTED' not in out
     no_effects(h)
     retained=deepcopy(vars(intent))

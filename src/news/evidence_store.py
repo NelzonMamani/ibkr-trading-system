@@ -70,10 +70,12 @@ def evidence_max_entries(request: NewsRequest | None = None) -> int:
 
 def retained_evidence(evidence, request):
     selector = request.metadata.get("retention_selector") if request is not None else None
+    unique = dedupe_evidence(evidence, max_items=max(1, len(evidence)))
+    if len(unique) != len(evidence):
+        unique = list(enrich_evidence_metrics(evidence, now_ts=datetime.now(timezone.utc).timestamp()))
     if callable(selector):
-        unique = dedupe_evidence(evidence, max_items=max(1, len(evidence)))
         return selector(unique, request)
-    return dedupe_evidence(evidence, max_items=evidence_max_entries(request))
+    return unique[:evidence_max_entries(request)]
 
 
 def evidence_cache_path() -> Path:
@@ -179,6 +181,8 @@ class CanonicalNewsEvidenceStore:
                     source_credibility_score=None, source_reliability_score=None,
                     independent_source_count=None,
                 ) for item in accepted), now_ts=now.timestamp()))
+            if len(dedupe_evidence(accepted, max_items=len(accepted) or 1)) != len(accepted):
+                accepted = list(enrich_evidence_metrics(accepted, now_ts=now.timestamp()))
             deduped = (dedupe_evidence(accepted, max_items=len(accepted) or 1)
                        if request and request.metadata.get("read_retained_cohort") else retained_evidence(accepted, request))
             evidence_by_symbol[symbol] = tuple(deduped)
@@ -292,7 +296,14 @@ class CanonicalNewsEvidenceStore:
             if request and request.query_start_utc is None and request.strategy_id == "ross_momentum":
                 ross_rows = [serialize_evidence(item) for item in merged]
             protected = [item for row in ross_rows if (item := evidence_from_mapping(row, now=now)) is not None]
-            combined = dedupe_evidence(list(merged) + protected, max_items=len(merged)+len(protected) or 1)
+            unique_protected = dedupe_evidence(protected, max_items=len(protected) or 1)
+            if len(unique_protected) != len(protected):
+                protected = list(enrich_evidence_metrics(protected, now_ts=now.timestamp()))
+                ross_rows = [serialize_evidence(item) for item in protected]
+            combined_inputs = list(merged) + protected
+            combined = dedupe_evidence(combined_inputs, max_items=len(combined_inputs) or 1)
+            if len(combined) != len(combined_inputs):
+                combined = list(enrich_evidence_metrics(combined_inputs, now_ts=now.timestamp()))
             bucket = {"updated_at": now.isoformat(),
                       "evidence": [serialize_evidence(item) for item in combined]}
             if ross_rows:
@@ -579,6 +590,15 @@ def enrich_evidence_metrics(
     *,
     now_ts: float,
 ) -> tuple[NewsEvidence, ...]:
+    unique = dedupe_evidence(evidence, max_items=len(evidence) or 1)
+    if len(unique) != len(evidence):
+        # Publisher-label aliases are one article, not independent publications.
+        # Persisted cohort metrics may already include those duplicates. Rebuild
+        # only derived metrics; retain article times, IDs and raw provenance.
+        evidence = tuple(replace(item, velocity_5m=None, velocity_10m=None,
+            velocity_30m=None, velocity_60m=None, heat_score=None, hotness_score=None,
+            source_credibility_score=None, source_reliability_score=None,
+            independent_source_count=None, publication_count=None) for item in unique)
     headlines = [
         Headline(
             title=str(item.headline or ""),
@@ -641,11 +661,13 @@ def dedupe_evidence(evidence: Sequence[NewsEvidence], *, max_items: int) -> list
             item.url or "",
         )
         # Persistence formats use different ID prefixes for the same article.
-        # Keep URL case intact; without a URL, publication time distinguishes repeats.
+        # URL + headline identify an article independently of publisher display
+        # aliases (e.g. www.example.com versus example.com). Keep URL case
+        # intact; without a URL, publisher and publication distinguish repeats.
         article = (
             item.normalized_symbol,
             " ".join(str(item.headline or "").split()).casefold(),
-            str(item.observed_source or item.original_source or "").strip().casefold(),
+            "" if item.url else str(item.observed_source or item.original_source or "").strip().casefold(),
             str(item.url or "").strip(),
             "" if item.url else (item.published_at.isoformat() if item.published_at else ""),
         )

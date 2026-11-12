@@ -1,0 +1,218 @@
+{
+  "evidence_zip_sha256": "45358499da385ee2a95f3386b47a165de907527bde6060dc006524a4b6accb0e",
+  "scope": "Retained cache rows only; no reconstruction of uncaptured full feed responses.",
+  "symbols": {
+    "MFI": [
+      {
+        "evidence_id": "rss-operational:MFI:ace6937c77f9b53d26a5f426",
+        "headline": "Maple Leaf Foods Inc. (MFI.TO) Stock Price, News, Quote & History",
+        "summary": "Maple Leaf Foods Inc. (MFI.TO) Stock Price, News, Quote & History &nbsp;&nbsp; Yahoo! Finance Canada Maple Leaf Foods Inc. (MFI.TO) Stock Price, News, Quote & History &nbsp;&nbsp; Yahoo! Finance Canada",
+        "url": "https://news.google.com/rss/articles/CBMiVEFVX3lxTE1NN3JXcFM4NF9Jci04YzJZdW52V0ZqcHNzOVBHMmxFZEo3Wnc3a1k1b3BaZ0lEMUJxeE0yaWlHbFEza0E3dlNrcXBjMHdBcy12alpVZA?oc=5",
+        "observed_source": "Yahoo! Finance Canada",
+        "original_source": "Yahoo! Finance Canada",
+        "published_at": "2026-11-12T15:14:20+00:00",
+        "provider": "rss_batch",
+        "company_name": "MF INTERNATIONAL LTD-A",
+        "match_type": "ticker_token",
+        "source_tier": "operational_query",
+        "raw": {
+          "match_type": "ticker_token",
+          "matched_field": "title",
+          "raw_title": "Maple Leaf Foods Inc. (MFI.TO) Stock Price, News, Quote & History - Yahoo! Finance Canada",
+          "source": "Yahoo! Finance Canada",
+          "source_provenance": {
+            "feed_label": "\"(\"MF INTERNATIONAL LTD-A\" OR \"$MFI\")\" - Google News",
+            "publisher_label_basis": "entry_source",
+            "publisher_url": "https://ca.finance.yahoo.com",
+            "source_group": "ROSS_ISSUER_QUERY"
+          },
+          "source_tier": "operational_query",
+          "timestamp_provenance": {
+            "published_original": "Thu, 12 Nov 2026 15:14:20 GMT",
+            "published_utc": "2026-11-12T15:14:20+00:00",
+            "selected_time_basis": "published",
+            "updated_original": null,
+            "updated_utc": null
+          }
+        },
+        "symbol": "MFI"
+      }
+    ],
+    "MYPS": [
+      {
+        "evidence_id": "rss-operational:MYPS:63b673b82991031eef8033af",
+        "headline": "PLAYSTUDIOS, Inc. authorizes a Buyback Plan.",
+        "summary": "PLAYSTUDIOS, Inc. authorizes a Buyback Plan. &nbsp;&nbsp; marketscreener.com PLAYSTUDIOS, Inc. authorizes a Buyback Plan. &nbsp;&nbsp; marketscreener.com",
+        "url": "https://news.google.com/rss/articles/CBMimgFBVV95cUxOdFJpWjBwTmx4M2NjUlQzUDJDQUt4OWRRLTNNTkdXUXNSZUw1T2V1bmtKZ2d5T2ZpTUhiRVRuWVFWcWpqQmxKWGZIWXd6QWpHSFNYZnRIM2s1a1luSUxwWVFpZzF6ZlJHQ1pZUEpWMkRMTS03dmZrd0lxZTIxekQxcWIwYlpmT0R1UW82NWxoRURIdlpXVC1wQTN3?oc=5",
+        "observed_source": "marketscreener.com",
+        "original_source": "marketscreener.com",
+        "published_at": "2026-11-12T15:46:17+00:00",
+        "provider": "rss_batch",
+        "company_name": "PLAYSTUDIOS INC",
+        "match_type": "company_name",
+        "source_tier": "operational_query",
+        "raw": {
+          "match_type": "company_name",
+          "matched_field": "title",
+          "raw_title": "PLAYSTUDIOS, Inc. authorizes a Buyback Plan. - marketscreener.com",
+          "source": "marketscreener.com",
+          "source_provenance": {
+            "feed_label": "\"(\"PLAYSTUDIOS INC\" OR \"$MYPS\")\" - Google News",
+            "publisher_label_basis": "entry_source",
+            "publisher_url": "https://www.marketscreener.com",
+            "source_group": "ROSS_ISSUER_QUERY"
+          },
+          "source_tier": "operational_query",
+          "timestamp_provenance": {
+            "published_original": "Thu, 12 Nov 2026 15:46:17 GMT",
+            "published_utc": "2026-11-12T15:46:17+00:00",
+            "selected_time_basis": "published",
+            "updated_original": null,
+            "updated_utc": null
+          }
+        },
+        "symbol": "MYPS"
+      },
+      {
+        "evidence_id": "rss-operational:MYPS:6ebe5b7cf0b50ad3de035f1c",
+        "headline": "PLAYSTUDIOS, Inc. authorizes a Buyback Plan.",
+        "summary": "PLAYSTUDIOS, Inc. authorizes a Buyback Plan. &nbsp;&nbsp; www.marketscreener.com PLAYSTUDIOS, Inc. authorizes a Buyback Plan. &nbsp;&nbsp; www.marketscreener.com",
+        "url": "https://news.google.com/rss/articles/CBMimgFBVV95cUxOdFJpWjBwTmx4M2NjUlQzUDJDQUt4OWRRLTNNTkdXUXNSZUw1T2V1bmtKZ2d5T2ZpTUhiRVRuWVFWcWpqQmxKWGZIWXd6QWpHSFNYZnRIM2s1a1luSUxwWVFpZzF6ZlJHQ1pZUEpWMkRMTS03dmZrd0lxZTIxekQxcWIwYlpmT0R1UW82NWxoRURIdlpXVC1wQTN3?oc=5",
+        "observed_source": "www.marketscreener.com",
+        "original_source": "www.marketscreener.com",
+        "published_at": "2026-11-12T15:46:17+00:00",
+        "provider": "rss_batch",
+        "company_name": "PLAYSTUDIOS INC",
+        "match_type": "company_name",
+        "source_tier": "operational_query",
+        "raw": {
+          "match_type": "company_name",
+          "matched_field": "title",
+          "raw_title": "PLAYSTUDIOS, Inc. authorizes a Buyback Plan. - www.marketscreener.com",
+          "source": "www.marketscreener.com",
+          "source_provenance": {
+            "feed_label": "\"(\"PLAYSTUDIOS INC\" OR \"$MYPS\")\" - Google News",
+            "publisher_label_basis": "entry_source",
+            "publisher_url": "https://www.marketscreener.com",
+            "source_group": "ROSS_ISSUER_QUERY"
+          },
+          "source_tier": "operational_query",
+          "timestamp_provenance": {
+            "published_original": "Thu, 12 Nov 2026 15:46:17 GMT",
+            "published_utc": "2026-11-12T15:46:17+00:00",
+            "selected_time_basis": "published",
+            "updated_original": null,
+            "updated_utc": null
+          }
+        },
+        "symbol": "MYPS"
+      },
+      {
+        "evidence_id": "rss-operational:MYPS:3676def5a16163a97c4d5553",
+        "headline": "PLAYSTUDIOS, Inc. Commences a Modified Dutch Auction Tender Offer to Repurchase up to $15,000,000 of Its Class A Common Stock",
+        "summary": "PLAYSTUDIOS, Inc. Commences a Modified Dutch Auction Tender Offer to Repurchase up to $15,000,000 of Its Class A Common Stock &nbsp;&nbsp; Stock Titan PLAYSTUDIOS, Inc. Commences a Modified Dutch Auction Tender Offer to Repurchase up to $15,000,000 of Its Class A Common Stock &nbsp;&nbsp; Stock Titan",
+        "url": "https://news.google.com/rss/articles/CBMivgFBVV95cUxOQk41Q3BKQnFPaW14YjFaR3NmU3VwdjZ3eXNBaXR2d3Jhckg2Vm1hVUxhQUVOTnh4YXJnNFNLU2xMRE9TdmNzbEhacGd2OXVlY3ZSTENpdVZVY0RIZ2Y5d19DbzJvaHEwbG1WOGZiaGRkWUZMelgxTzlVcTdwdnd6MUd2UGc3bDUybE94dGc0R0VHYUhZUjFzTl92OE0ydnNhcjg5dEgzNzBxeUNFcFhzd2dnOUQ1SjVRVlZPdW5B?oc=5",
+        "observed_source": "Stock Titan",
+        "original_source": "Stock Titan",
+        "published_at": "2026-11-12T12:00:00+00:00",
+        "provider": "rss_batch",
+        "company_name": "PLAYSTUDIOS INC",
+        "match_type": "company_name",
+        "source_tier": "operational_query",
+        "raw": {
+          "match_type": "company_name",
+          "matched_field": "title",
+          "raw_title": "PLAYSTUDIOS, Inc. Commences a Modified Dutch Auction Tender Offer to Repurchase up to $15,000,000 of Its Class A Common Stock - Stock Titan",
+          "source": "Stock Titan",
+          "source_provenance": {
+            "feed_label": "\"(\"PLAYSTUDIOS INC\" OR \"$MYPS\")\" - Google News",
+            "publisher_label_basis": "entry_source",
+            "publisher_url": "https://www.stocktitan.net",
+            "source_group": "ROSS_ISSUER_QUERY"
+          },
+          "source_tier": "operational_query",
+          "timestamp_provenance": {
+            "published_original": "Thu, 12 Nov 2026 12:00:00 GMT",
+            "published_utc": "2026-11-12T12:00:00+00:00",
+            "selected_time_basis": "published",
+            "updated_original": null,
+            "updated_utc": null
+          }
+        },
+        "symbol": "MYPS"
+      }
+    ],
+    "ADXN": [
+      {
+        "evidence_id": "rss-operational:ADXN:f0cd15531bbe6787d7a91a55",
+        "headline": "Funding closes for planned schizophrenia trials at Addex (ADXN) spin-out Neurosterix.",
+        "summary": "Funding closes for planned schizophrenia trials at Addex (ADXN) spin-out Neurosterix. &nbsp;&nbsp; Stock Titan Funding closes for planned schizophrenia trials at Addex (ADXN) spin-out Neurosterix. &nbsp;&nbsp; Stock Titan",
+        "url": "https://news.google.com/rss/articles/CBMiugFBVV95cUxNa2hfcGZyVEdDOUd1UHhYd0FhbS1CVzF2ZmtBc2ktUTBWRUdnUkRCYWdGR1FwdkxMR1BycFMyVmp4ZTNJX3hqMUptVlo4Nm44T19YMjR4RERhVWY5S3JkNDZfMmkzaGlnVzJRSm90WVB3MmpTQzJLd1pnT3VlRFJoRll0c1pTb0Rqa25vV3hubk41cXdzZmVObGZreEhMdE4tdlVTazZ1MWdiRlg0Z2pPb3IyMFJMRVBsSlE?oc=5",
+        "observed_source": "Stock Titan",
+        "original_source": "Stock Titan",
+        "published_at": "2026-11-12T11:07:13+00:00",
+        "provider": "rss_batch",
+        "company_name": "ADDEX THERAPEUTICS LTD",
+        "match_type": "ticker_token",
+        "source_tier": "operational_query",
+        "raw": {
+          "match_type": "ticker_token",
+          "matched_field": "title",
+          "raw_title": "Funding closes for planned schizophrenia trials at Addex (ADXN) spin-out Neurosterix. - Stock Titan",
+          "source": "Stock Titan",
+          "source_provenance": {
+            "feed_label": "\"(\"ADDEX THERAPEUTICS LTD\" OR \"$ADXN\")\" - Google News",
+            "publisher_label_basis": "entry_source",
+            "publisher_url": "https://www.stocktitan.net",
+            "source_group": "ROSS_ISSUER_QUERY"
+          },
+          "source_tier": "operational_query",
+          "timestamp_provenance": {
+            "published_original": "Thu, 12 Nov 2026 11:07:13 GMT",
+            "published_utc": "2026-11-12T11:07:13+00:00",
+            "selected_time_basis": "published",
+            "updated_original": null,
+            "updated_utc": null
+          }
+        },
+        "symbol": "ADXN"
+      }
+    ],
+    "CRE": [
+      {
+        "evidence_id": "rss-operational:CRE:19a0f7617b6561fb9ee64e71",
+        "headline": "Cre8 Enterprise Limited (CRE) Stock Price, News, Quote & History",
+        "summary": "Cre8 Enterprise Limited (CRE) Stock Price, News, Quote & History &nbsp;&nbsp; Yahoo! Finance Canada Cre8 Enterprise Limited (CRE) Stock Price, News, Quote & History &nbsp;&nbsp; Yahoo! Finance Canada",
+        "url": "https://news.google.com/rss/articles/CBMiUEFVX3lxTE5pMzhUSnBWNFdFTlBsM0d5cmtIbkR0cVJjTVFiaWZDTFZheF9yVDZzX2pRZHY5bFhIV0NzV2JXNU5LVEo1ZUJqOEo3Y21sQS11?oc=5",
+        "observed_source": "Yahoo! Finance Canada",
+        "original_source": "Yahoo! Finance Canada",
+        "published_at": "2026-11-12T12:07:22+00:00",
+        "provider": "rss_batch",
+        "company_name": "CRE8 ENTERPRISE LTD-CL A",
+        "match_type": "ticker_token",
+        "source_tier": "operational_query",
+        "raw": {
+          "match_type": "ticker_token",
+          "matched_field": "title",
+          "raw_title": "Cre8 Enterprise Limited (CRE) Stock Price, News, Quote & History - Yahoo! Finance Canada",
+          "source": "Yahoo! Finance Canada",
+          "source_provenance": {
+            "feed_label": "\"(\"CRE8 ENTERPRISE LTD-CL A\" OR \"$CRE\")\" - Google News",
+            "publisher_label_basis": "entry_source",
+            "publisher_url": "https://ca.finance.yahoo.com",
+            "source_group": "ROSS_ISSUER_QUERY"
+          },
+          "source_tier": "operational_query",
+          "timestamp_provenance": {
+            "published_original": "Thu, 12 Nov 2026 12:07:22 GMT",
+            "published_utc": "2026-11-12T12:07:22+00:00",
+            "selected_time_basis": "published",
+            "updated_original": null,
+            "updated_utc": null
+          }
+        },
+        "symbol": "CRE"
+      }
+    ]
+  }
+}

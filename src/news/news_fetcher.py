@@ -168,15 +168,17 @@ def _compile_symbol_patterns(
         # Summary prose can contain ordinary words or another company's brand
         # (egg, hour, Link, CNET). Only explicit security notation establishes a
         # ticker there. Preserve exact uppercase ticker titles and issuer aliases.
+        # A market/class suffix is part of the security token: MFI.TO is
+        # not MFI. Sentence punctuation followed by whitespace remains valid.
         explicit = (
-            rf"(?<![A-Z0-9$])\${escaped}(?![A-Z0-9])"
+            rf"(?<![A-Z0-9$])\${escaped}(?![A-Z0-9]|[./-][A-Z0-9])"
             rf"|\({escaped}\)"
             rf"|(?<![A-Z0-9])(?:NASDAQ|NYSE(?:\s+AMERICAN|\s+ARCA)?|AMEX|OTCQX|OTCQB|OTC)"
-            rf"\s*:\s*{escaped}(?![A-Z0-9])"
+            rf"\s*:\s*{escaped}(?![A-Z0-9]|[./-][A-Z0-9])"
         )
         pattern = rf"(?i:{explicit})"
         if allow_bare:
-            pattern += rf"|(?<![A-Za-z0-9]){escaped}(?![A-Za-z0-9])"
+            pattern += rf"|(?<![A-Za-z0-9.$/-]){escaped}(?![A-Za-z0-9]|[./-][A-Za-z0-9])"
         patterns[normalized] = re.compile(pattern)
     return patterns
 
