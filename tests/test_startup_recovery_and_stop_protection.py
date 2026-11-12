@@ -188,6 +188,8 @@ Path(report_path).write_text(json.dumps(report), encoding='utf-8')
 core = None
 client = None
 manager = None
+first_sdk_source = None
+first_sdk_patcher = None
 
 class SyntheticWriteBoundary(BaseException):
     pass
@@ -631,8 +633,8 @@ def observed_pristine_paper_exposure_release(actual_release, owner, label, *args
         row['exposure_after'] = exposure()
 
 def validate_pristine_paper_fee_fact(*, actual_client, expected_client, core,
-        plan, dispatches, raw, delivered, now):
-    """Bind supplied positive commission callbacks to actual cached fills."""
+        plan, dispatches, raw, delivered, now, first_sdk_source=None):
+    """Bind supplied commission facts to actual cached fills and source."""
     import math
     def require(value, reason):
         if not value:
@@ -665,9 +667,17 @@ def validate_pristine_paper_fee_fact(*, actual_client, expected_client, core,
         and parent['request']['client_order_id'] == bound['root_id']
         and parent['request']['symbol'] == plan['symbol']
         and parent['request']['quantity'] == 1 and parent['request']['take_profit_price'] is None, 'ROOT')
-    require(type(raw['commission']) in (int,float) and math.isfinite(raw['commission'])
-        and raw['commission'] == {'entry':.01,'stop':.02}[raw['leg']]
-        and raw['currency'] == plan['currency'] == 'USD', 'SUPPLIED_POSITIVE_AMOUNT')
+    if first_sdk_source is None:
+        require(type(raw['commission']) in (int,float) and math.isfinite(raw['commission'])
+            and raw['commission'] == {'entry':.01,'stop':.02}[raw['leg']]
+            and raw['currency'] == plan['currency'] == 'USD', 'SUPPLIED_POSITIVE_AMOUNT')
+    else:
+        validate_pristine_first_sdk_scope(expected_client,first_sdk_source)
+        require(raw['currency'] == plan['currency'] == 'USD'
+            and ((raw['leg']=='entry' and type(raw['commission']) is str
+                    and raw['commission'] in {'0','0.0','0.00'})
+                or (raw['leg']=='stop' and type(raw['commission']) is float and raw['commission']==.02)),
+            'SUPPLIED_FIRST_SDK_AMOUNT')
     require(raw['execId'] not in delivered, 'REPEAT')
     rows = expected_client.cached_native_executions(bound['native_id'])
     require(len(rows) == 1 and rows[0]['execId'] == raw['execId'], 'EXECUTION')
@@ -689,18 +699,45 @@ def validate_pristine_paper_fee_fact(*, actual_client, expected_client, core,
         and fee_rows[0]['execution_currency'] == plan['currency'], 'EXECUTION_CURRENCY')
     return bound, execution
 
-def deliver_pristine_paper_fee_fact(*, client, core, plan, dispatches, raw, delivered, now):
+def deliver_pristine_paper_fee_fact(*, client, core, plan, dispatches, raw, delivered, now,
+        first_sdk_source=None):
     """Supply the public callback; never construct financial owner results."""
     bound,execution = validate_pristine_paper_fee_fact(actual_client=client,
         expected_client=client,core=core,plan=plan,dispatches=dispatches,
-        raw=raw,delivered=delivered,now=now)
-    from ibapi.commission_report import CommissionReport
-    commission = CommissionReport()
-    commission.execId,commission.commission,commission.currency = raw['execId'],raw['commission'],raw['currency']
-    delivered.add(raw['execId'])
-    client.commissionReport(commission)
+        raw=raw,delivered=delivered,now=now,first_sdk_source=first_sdk_source)
+    if first_sdk_source is None:
+        from ibapi.commission_report import CommissionReport
+        commission = CommissionReport()
+        commission.execId,commission.commission,commission.currency = raw['execId'],raw['commission'],raw['currency']
+        delivered.add(raw['execId'])
+        client.commissionReport(commission)
+    else:
+        delivered.add(raw['execId'])
+        first_sdk_source.deliver_commission_frame(raw['execId'],raw['commission'],raw['currency'])
     return dict(leg=raw['leg'],native_id=bound['native_id'],exec_id=execution['execId'],
         amount=raw['commission'],currency=raw['currency'],received_at=now.isoformat())
+
+def validate_pristine_first_sdk_opt_in(facts):
+    """The new first-SDK path is an explicit bounded PAPER-only fixture."""
+    def require(value,reason):
+        if not value:
+            raise ForbiddenExternalIO('PRISTINE_FIRST_SDK_OPT_IN:' + reason)
+    require(facts.get('observe_pristine_paper_first_sdk_zero_fee_feedback') is True
+        and facts.get('observe_pristine_paper_cycle') is True
+        and facts.get('observe_pristine_paper_positive_fee_feedback') is True
+        and facts.get('observe_pristine_paper_loss_feedback') is True
+        and not facts.get('observe_pristine_readonly_cycle')
+        and facts.get('cycle_scenarios') is None, 'SCOPE')
+    config = facts.get('config',{})
+    require(config.get('RUN_MODE') == config.get('RUN_MODE_EFFECTIVE') == 'PAPER'
+        and config.get('EXECUTION_ENABLED') is True, 'MODE')
+    require(type(facts.get('client_id')) is int and facts['client_id'] >= 0
+        and type(facts.get('epoch',0)) is int and facts.get('epoch',0) == 0
+        and isinstance(facts.get('account'),str) and facts['account']
+        and facts['account'] == facts['account'].strip() and ',' not in facts['account']
+        and 'next_order_id' not in facts and facts.get('connected',True) is True, 'FIRST_SCOPE')
+    require(isinstance(facts.get('paper_cycle_steps'),list) and len(facts['paper_cycle_steps']) == 5,
+        'FIVE_STEPS')
 
 def validate_pristine_first_sdk_packet(payload, *, client_id, seen):
     """Only the original SDK's three memory-bootstrap writes are supplied."""
@@ -1197,12 +1234,35 @@ try:
     client_id = int(facts.get('client_id', 999))
     client = IbkrClient('offline.invalid', 7497, client_id, 1, 'LIVE', False)
     connected = [True]
-    client.isConnected = lambda: connected[0]
-    client.serverVersion_ = 180
-    client._position_connection_epoch = int(facts.get('epoch', 0))
-    client._managed_accounts = [account]
-    client._managed_accounts_event.set()
-    client.nextValidId(int(facts.get('next_order_id', 1000)))
+    if facts.get('observe_pristine_paper_first_sdk_zero_fee_feedback'):
+        validate_pristine_first_sdk_opt_in(facts)
+        # Capture the accepted fixture's real SDK owners BEFORE installing the
+        # global denies. Only its exclusive adapter may enter MemorySocket.
+        sys.path.insert(0,str(guard_path.parent.parent))
+        from test_ibkr_cached_client_access import (
+            native_commission_decoder_source as _FIRST_SDK_INITIALIZER,
+            _NATIVE_SDK_CONNECT as _FIRST_SDK_CONNECT,
+            _NATIVE_SOURCE_CONNECT as _FIRST_NATIVE_CONNECT)
+        from ibapi.connection import Connection
+        from pytest import MonkeyPatch
+        _FIRST_SDK_CONNECT_CODE = _FIRST_SDK_CONNECT.__code__
+        _FIRST_NATIVE_CONNECT_CODE = _FIRST_NATIVE_CONNECT.__code__
+        EClient.connect = no_network
+        Connection.connect = no_network
+        first_sdk_patcher = MonkeyPatch()
+        first_sdk_source = bootstrap_pristine_first_sdk(client,first_sdk_patcher,account=account,clock=Clock)
+        report['first_sdk_bootstrap'] = dict(server_version=client.serverVersion(),client_id=client.clientId,
+            account=tuple(client._managed_accounts),epoch=client._position_connection_epoch,
+            attempts=client._commission_connection_attempts,packets=copy.deepcopy(first_sdk_source.bootstrap_packets),
+            reader_alive=first_sdk_source.initial_reader.is_alive(),worker_alive=first_sdk_source.initial_worker.is_alive(),
+            global_denies_restored=EClient.connect is no_network and Connection.connect is no_network)
+    else:
+        client.isConnected = lambda: connected[0]
+        client.serverVersion_ = 180
+        client._position_connection_epoch = int(facts.get('epoch', 0))
+        client._managed_accounts = [account]
+        client._managed_accounts_event.set()
+        client.nextValidId(int(facts.get('next_order_id', 1000)))
     positions = [NS(**row) for row in facts.get('positions', [])]
     def native_inventory(rows):
         result = []
@@ -1425,6 +1485,8 @@ try:
         # no application latch, ledger, reservation or owner is reset here.
         global observed, account, client_id, positions, orders, candidates
         global source_bars, current_external_facts, external_fault
+        if first_sdk_source is not None:
+            raise ForbiddenExternalIO('PRISTINE_FIRST_SDK_SCENARIO_REBIND_FORBIDDEN')
         current_external_facts = copy.deepcopy(base_external_facts)
         current_external_facts.update({key: copy.deepcopy(value)
             for key, value in scenario.items() if key != 'name'})
@@ -1502,7 +1564,8 @@ try:
                     plan=facts['paper_memory_plan'],fields=fields,owned_reads=owned_currency_reads,
                     response=facts['paper_currency_response'],now=observed,
                     monotonic_now=real_elapsed_time.monotonic(),
-                    max_scope_age=get_ibkr_snapshot_max_age_seconds())
+                    max_scope_age=get_ibkr_snapshot_max_age_seconds(),
+                    **({'first_sdk_source':first_sdk_source} if facts.get('observe_pristine_paper_first_sdk_zero_fee_feedback') else {}))
                 if role == 'REQUEST':
                     record = dict(context=context,query=query,client=client,
                         account=query['account'],epoch=query['epoch'],cancelled=False,end_observed=False)
@@ -1574,7 +1637,8 @@ try:
                     core=core,plan=facts['paper_memory_plan'],fields=fields,owned_reads=owned_history_reads,
                     timeframe_request=request,source_response=facts.get('historical_source_responses',{}).get('10s',{}),
                     supplied_bars=bars,now=observed,monotonic_now=real_elapsed_time.monotonic(),
-                    max_scope_age=get_ibkr_snapshot_max_age_seconds())
+                    max_scope_age=get_ibkr_snapshot_max_age_seconds(),
+                    **({'first_sdk_source':first_sdk_source} if facts.get('observe_pristine_paper_first_sdk_zero_fee_feedback') else {}))
                 owned_history_reads.add(request_id)
                 report['native_read_requests'].append(dict(opcode=opcode,request_type='HISTORICAL_DATA',
                     request_id=request_id,symbol=facts['paper_memory_plan']['symbol'],timeframe='10s',
@@ -1602,6 +1666,8 @@ try:
         delivered_fee_executions = set()
         if facts.get('observe_pristine_paper_positive_fee_feedback'):
             report['positive_fee_callbacks'] = []
+        if first_sdk_source is not None:
+            report['first_sdk_fee_callbacks'] = []
         report['trade_exit_shutdown_calls'] = []
         from src.execution.trade_exit_engine import TradeExitEngine
         actual_trade_exit_shutdown = TradeExitEngine.shutdown
@@ -1827,10 +1893,12 @@ try:
                 for raw_fee in step.get('commissions',[]):
                     if not facts.get('observe_pristine_paper_positive_fee_feedback'):
                         raise ForbiddenExternalIO('UNSUPPLIED_PRISTINE_PAPER_FEE_CALLBACK')
-                    report['positive_fee_callbacks'].append(deliver_pristine_paper_fee_fact(
+                    destination = 'positive_fee_callbacks' if first_sdk_source is None else 'first_sdk_fee_callbacks'
+                    report[destination].append(deliver_pristine_paper_fee_fact(
                         client=client,core=core,plan=facts['paper_memory_plan'],
                         dispatches=report['synthetic_memory_dispatches'],raw=raw_fee,
-                        delivered=delivered_fee_executions,now=observed))
+                        delivered=delivered_fee_executions,now=observed,
+                        **({'first_sdk_source':first_sdk_source} if facts.get('observe_pristine_paper_first_sdk_zero_fee_feedback') else {})))
                 report['paper_external_steps'].append(plain(step))
                 run_actual_cycle(step['name'],1)
         elif scenarios is None:
@@ -1907,6 +1975,18 @@ finally:
     finally:
         if client is not None:
             connected[0] = False
+    if first_sdk_patcher is not None:
+        try:
+            if first_sdk_source is not None:
+                first_sdk_source.close()
+                report['cleanup']['first_sdk_source'] = dict(closed=first_sdk_source.closed,
+                    retained_connection_closed=first_sdk_source.initial_connection.socket is None,
+                    reader_alive=first_sdk_source.initial_reader.is_alive(),
+                    worker_alive=first_sdk_source.initial_worker.is_alive())
+        except BaseException as exc:
+            report['cleanup']['first_sdk_exception'] = exception_record(exc)
+        finally:
+            first_sdk_patcher.undo()
     try:
         storage = getattr(core, 'storage_engine', None)
         if storage is not None:
