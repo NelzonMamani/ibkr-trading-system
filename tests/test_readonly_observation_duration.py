@@ -229,7 +229,7 @@ def test_actual_operator_duration_parser_remains_fail_closed(tmp_path,duration):
     assert not (tmp_path/'e').exists()
 
 
-@pytest.mark.parametrize('case', ['valid', 'feedparser-missing', 'requests-missing', 'broken-parser'])
+@pytest.mark.parametrize('case', ['valid', 'feedparser-missing', 'requests-missing', 'broken-parser', 'optimized-broken-parser', 'optimized-broken-requests'])
 def test_effective_runtime_child_requires_news_before_admission(tmp_path, case):
     from scripts.certification.readonly_cache_probe import run_cache_probe
     startup = tmp_path/'startup'; startup.mkdir()
@@ -241,11 +241,15 @@ def test_effective_runtime_child_requires_news_before_admission(tmp_path, case):
     if case in {'feedparser-missing', 'requests-missing'}:
         name = case.split('-')[0]
         (startup/(name+'.py')).write_text("raise ModuleNotFoundError('controlled child-only dependency absence')\n")
-    if case == 'broken-parser':
+    if case in {'broken-parser', 'optimized-broken-parser'}:
         (startup/'feedparser.py').write_text("from types import SimpleNamespace\n__version__='broken-child'\ndef parse(value): return SimpleNamespace(entries=[])\n")
+    if case == 'optimized-broken-requests':
+        (startup/'requests.py').write_text("__version__='broken-child'\nSession=None\n")
     evidence=tmp_path/'e'; evidence.mkdir()
     child_env=dict(os.environ, PYTHONPATH=str(startup), PR1108_YFINANCE_CACHE=str(tmp_path/'cache'))
     child_env.pop('PYTHONHOME', None)
+    if case.startswith('optimized-'):
+        child_env['PYTHONOPTIMIZE']='1'
     if case == 'valid':
         receipt=run_cache_probe(sys.executable,REPO,evidence,child_env,require_news_dependencies=True)
         assert 'CHILD_NEWS_DEPENDENCIES_VERIFIED' in receipt['stdout']

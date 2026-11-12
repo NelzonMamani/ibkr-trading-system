@@ -24,10 +24,12 @@ def run_cache_probe(python, repo, evidence, env, *, timeout=30, cleanup=5, requi
         # Import and parse locally; this qualification must never fetch a feed.
         sample = "<rss version='2.0'><channel><title>offline</title><item><title>dependency probe</title></item></channel></rss>"
         body += (
-            "; s.probe_stage('news_dependencies_begin'); import requests, feedparser; "
-            "assert callable(requests.Session); "
-            f"assert len(feedparser.parse({sample!r}).entries) == 1; "
-            "print('CHILD_NEWS_DEPENDENCIES_VERIFIED', requests.__version__, feedparser.__version__, flush=True); "
+            "; s.probe_stage('news_dependencies_begin'); import requests, feedparser\n"
+            "if not callable(requests.Session):\n"
+            "    raise RuntimeError('Required requests Session unavailable')\n"
+            f"if len(feedparser.parse({sample!r}).entries) != 1:\n"
+            "    raise RuntimeError('Required RSS parser qualification failed')\n"
+            "print('CHILD_NEWS_DEPENDENCIES_VERIFIED', requests.__version__, feedparser.__version__, flush=True)\n"
             "s.probe_stage('news_dependencies_complete')"
         )
     flags = ['-u', '-X', 'importtime', '-c']

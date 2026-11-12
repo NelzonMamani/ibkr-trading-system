@@ -70,10 +70,12 @@ def evidence_max_entries(request: NewsRequest | None = None) -> int:
 
 def retained_evidence(evidence, request):
     selector = request.metadata.get("retention_selector") if request is not None else None
+    unique = dedupe_evidence(evidence, max_items=max(1, len(evidence)))
+    if len(unique) != len(evidence):
+        unique = list(enrich_evidence_metrics(evidence, now_ts=datetime.now(timezone.utc).timestamp()))
     if callable(selector):
-        unique = dedupe_evidence(evidence, max_items=max(1, len(evidence)))
         return selector(unique, request)
-    return dedupe_evidence(evidence, max_items=evidence_max_entries(request))
+    return unique[:evidence_max_entries(request)]
 
 
 def evidence_cache_path() -> Path:
@@ -179,6 +181,8 @@ class CanonicalNewsEvidenceStore:
                     source_credibility_score=None, source_reliability_score=None,
                     independent_source_count=None,
                 ) for item in accepted), now_ts=now.timestamp()))
+            if len(dedupe_evidence(accepted, max_items=len(accepted) or 1)) != len(accepted):
+                accepted = list(enrich_evidence_metrics(accepted, now_ts=now.timestamp()))
             deduped = (dedupe_evidence(accepted, max_items=len(accepted) or 1)
                        if request and request.metadata.get("read_retained_cohort") else retained_evidence(accepted, request))
             evidence_by_symbol[symbol] = tuple(deduped)
@@ -579,6 +583,15 @@ def enrich_evidence_metrics(
     *,
     now_ts: float,
 ) -> tuple[NewsEvidence, ...]:
+    unique = dedupe_evidence(evidence, max_items=len(evidence) or 1)
+    if len(unique) != len(evidence):
+        # Publisher-label aliases are one article, not independent publications.
+        # Persisted cohort metrics may already include those duplicates. Rebuild
+        # only derived metrics; retain article times, IDs and raw provenance.
+        evidence = tuple(replace(item, velocity_5m=None, velocity_10m=None,
+            velocity_30m=None, velocity_60m=None, heat_score=None, hotness_score=None,
+            source_credibility_score=None, source_reliability_score=None,
+            independent_source_count=None, publication_count=None) for item in unique)
     headlines = [
         Headline(
             title=str(item.headline or ""),
