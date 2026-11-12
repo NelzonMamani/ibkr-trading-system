@@ -61,6 +61,131 @@
         return $lines
     }
 
+
+    function Assert-UnusedStandardSystemLfs {
+        param([string]$At, [ValidateSet('source','working')][string]$Mode)
+        # Binary NUL-framed Git plumbing stays inside Python subprocess pipes.
+        # Native --source is mandatory: index/worktree substitution is forbidden.
+        $qualificationProgram = @'
+"""Embedded external-operator qualification; no checkout, filters or broker activity."""
+import hashlib, json, os, pathlib, re, subprocess, sys
+
+STANDARD = {b'filter.lfs.clean': b'git-lfs clean -- %f',
+            b'filter.lfs.smudge': b'git-lfs smudge -- %f',
+            b'filter.lfs.process': b'git-lfs filter-process'}
+UNSAFE = re.compile(rb'^(include\.path|includeif\..*\.path|core\.(hookspath|fsmonitor)|extensions\.(partialclone|worktreeconfig)|remote\..*\.(promisor|partialclonefilter)|attr\.tree)$')
+
+def qualify(git, repo, commit, tree, working=False):
+    def run(*args, data=None, absent=False):
+        p = subprocess.run([git, '--no-optional-locks', '-C', repo, *args], input=data,
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
+        if p.stderr or p.returncode not in ((0, 1) if absent else (0,)):
+            raise ValueError('Native Git inspection unsupported, failed or emitted diagnostics')
+        return p.stdout
+    def records(raw, width):
+        if not raw or not raw.endswith(b'\0'):
+            raise ValueError('Incomplete NUL-framed Git inspection')
+        parts = raw[:-1].split(b'\0')
+        if len(parts) % width:
+            raise ValueError('Ambiguous Git inspection framing')
+        return [parts[i:i+width] for i in range(0, len(parts), width)]
+    def config():
+        raw = run('config', '--no-includes', '--null', '--show-origin', '--show-scope', '--list')
+        entries = records(raw, 3)
+        seen = set()
+        for scope, origin, item in entries:
+            if b'\n' not in item: raise ValueError('Incomplete config key/value')
+            key, value = item.split(b'\n', 1)
+            if UNSAFE.fullmatch(key): raise ValueError('Unadmitted Git execution/source configuration')
+            if key.lower().startswith(b'filter.'):
+                if key not in STANDARD or value != STANDARD[key] or scope != b'system' or not origin.startswith(b'file:') or len(origin) <= 5 or key in seen:
+                    raise ValueError('Only exact non-overridden standard system-origin LFS definitions qualify')
+                seen.add(key)
+            if key == b'core.attributesfile':
+                # Relative paths differ across the source and new linked checkout.
+                if not os.path.isabs(os.fsdecode(value)):
+                    raise ValueError('Relative or tilde attribute-file configuration is ambiguous across worktrees')
+        if seen and seen != set(STANDARD):
+            raise ValueError('Incomplete standard LFS command set')
+        return raw, entries, seen
+    def externals(entries):
+        explicit = any(item.split(b'\n', 1)[0].lower() == b'core.attributesfile' for _, _, item in entries)
+        result = []
+        for label, args in [('info', ('rev-parse', '--git-path', 'info/attributes')),
+                            ('global', ('var', 'GIT_ATTR_GLOBAL')),
+                            ('system', ('var', 'GIT_ATTR_SYSTEM'))]:
+            raw = run(*args)
+            if not raw.endswith(b'\n') or b'\n' in raw.rstrip(b'\r\n'):
+                raise ValueError('Attribute source path is incomplete or ambiguous')
+            name = os.fsdecode(raw.rstrip(b'\r\n'))
+            if not name: raise ValueError('Missing native attribute-source path')
+            path = pathlib.Path(name)
+            if not path.is_absolute(): path = pathlib.Path(repo) / path
+            for ancestor in [path, *path.parents]:
+                try: stat = ancestor.lstat()
+                except FileNotFoundError: continue
+                if ancestor.is_symlink() or getattr(stat, 'st_file_attributes', 0) & 0x400:
+                    raise ValueError('Unverified attribute-source reparse ancestry')
+            if path.exists():
+                if not path.is_file(): raise ValueError('Attribute source is not a regular file')
+                payload = path.read_bytes()
+            else:
+                if label == 'global' and explicit:
+                    raise ValueError('Configured attribute file is missing')
+                payload = None
+            result.append([label, os.fsencode(str(path)).hex(), None if payload is None else payload.hex()])
+        return result
+    before, entries, seen = config()
+    sources = externals(entries)
+    actual = run('rev-parse', '--verify', commit + '^{tree}').strip()
+    if actual != tree.encode('ascii'): raise ValueError('Pinned commit/tree differs')
+    paths = run('ls-tree', '-r', '-t', '-z', '--full-tree', '--name-only', tree)
+    names = [p[0] for p in records(paths, 1)]
+    if any(not p or p.startswith(b'/') for p in names) or len(set(names)) != len(names):
+        raise ValueError('Incomplete or ambiguous target-tree path inventory')
+    def attributes(source):
+        args = ['check-attr', '-z', '--stdin']
+        if source: args.append('--source=' + tree)
+        raw = run(*args, 'filter', data=paths)
+        rows = records(raw, 3)
+        if len(rows) != len(names): raise ValueError('Incomplete filter-attribute coverage')
+        for expected, (name, attr, value) in zip(names, rows):
+            if name != expected or attr != b'filter' or value not in (b'unspecified', b'unset'):
+                raise ValueError('Active, ambiguous or incomplete effective filter attribute')
+        return raw
+    pinned = attributes(True)
+    live = attributes(False) if working else b''
+    after, entries_after, _ = config()
+    if after != before or externals(entries_after) != sources:
+        raise ValueError('Relevant configuration/attributes changed during inspection')
+    digest = hashlib.sha256(before + paths + pinned + live + json.dumps(sources, sort_keys=True).encode()).hexdigest()
+    return {'snapshot': digest, 'paths': len(names), 'standard_system_lfs_keys': len(seen),
+            'native_pinned_tree': tree, 'working_tree_also_qualified': working}
+
+if __name__ == '__main__':
+    try:
+        if len(sys.argv) != 6 or sys.argv[5] not in ('source', 'working'):
+            raise ValueError('Incomplete qualification arguments')
+        print(json.dumps(qualify(*sys.argv[1:5], working=sys.argv[5] == 'working'), sort_keys=True))
+    except Exception as error:
+        print('FILTER_QUALIFICATION_REFUSED: ' + str(error), file=sys.stderr)
+        sys.exit(1)
+'@
+        $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($qualificationProgram))
+        $bootstrap = "import base64;exec(base64.b64decode('$encoded'))"
+        $answer = @(& $pythonExe -E -c $bootstrap $gitExe $At $release.Commit $release.Tree $Mode)
+        if ($global:LASTEXITCODE -ne 0 -or $answer.Count -ne 1) {
+            throw 'Complete native pinned-tree filter qualification failed; no preparation or launch.'
+        }
+        $qualified = $answer[0] | ConvertFrom-Json -ErrorAction Stop
+        if ($qualified.snapshot -cnotmatch '^[0-9a-f]{64}$' -or $qualified.paths -lt 1 -or
+            $qualified.native_pinned_tree -cne $release.Tree -or
+            $qualified.working_tree_also_qualified -ne ($Mode -eq 'working')) {
+            throw 'Incomplete qualification result; no preparation or launch.'
+        }
+        return [string]$qualified.snapshot
+    }
+
     try {
         if ($env:OS -ne 'Windows_NT' -or $PSVersionTable.PSEdition -ne 'Desktop' -or
             $PSVersionTable.PSVersion.Major -ne 5 -or $PSVersionTable.PSVersion.Minor -ne 1) {
@@ -101,10 +226,10 @@
         # Inspect only Git execution surfaces used by this exact preparation.
         # Config reads do not execute hooks, filters or fsmonitor. Refuse unknown
         # include/conditional-include behavior before any worktree/status command.
-        $unsafeConfig = @(& $gitExe --no-optional-locks -C $sourceCheckout config --no-includes --get-regexp '^(include\.path|includeif\..*\.path|core\.(hookspath|fsmonitor)|filter\..*\.(smudge|clean|process)|extensions\.partialclone|remote\..*\.(promisor|partialclonefilter))$')
+        $unsafeConfig = @(& $gitExe --no-optional-locks -C $sourceCheckout config --no-includes --get-regexp '^(include\.path|includeif\..*\.path|core\.(hookspath|fsmonitor)|extensions\.partialclone|remote\..*\.(promisor|partialclonefilter))$')
         $configExit = $global:LASTEXITCODE
         if ($configExit -notin @(0,1)) { throw 'Cannot inspect Git execution configuration; no preparation.' }
-        if ($unsafeConfig.Count -ne 0) { throw 'Configured Git includes/hooks/fsmonitor/filters or partial/promisor clone behavior is not admitted by this block; no configuration is changed.' }
+        if ($unsafeConfig.Count -ne 0) { throw 'Configured Git includes/hooks/fsmonitor or partial/promisor clone behavior is not admitted by this block; no configuration is changed.' }
         $repoTop = ((Invoke-CheckedGit -GitExe $gitExe -At $sourceCheckout -Arguments @('rev-parse','--show-toplevel')) -join '').Trim()
         $repoTop = [IO.Path]::GetFullPath($repoTop.Replace('/','\'))
         if ($repoTop.TrimEnd('\') -ine $sourceCheckout.TrimEnd('\')) { throw 'Select the actual repository root, not a subdirectory.' }
@@ -135,9 +260,15 @@
         $prepareFileHash = (Get-FileHash -LiteralPath $prepareFile -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
         if ($release.PreparationFileSha256 -notcontains $prepareFileHash) { throw 'Preparation file bytes differ from the authenticated accepted owner; no execution.' }
 
+        # Only the exact complete system-origin LFS triplet may qualify, and only
+        # when ALL pinned paths have native effective filter=unspecified/unset.
+        $sourceFilterSnapshot = Assert-UnusedStandardSystemLfs -At $sourceCheckout -Mode source
         $beforeRoots = @(Get-ChildItem -LiteralPath $evidenceBase -Directory -Force -Filter 'ro-*' -ErrorAction Stop | ForEach-Object { $_.FullName })
         # Invoke the authenticated maintained FILE normally: current execution
         # policy applies here too. It makes a fresh worktree, not a connection.
+        if ((Assert-UnusedStandardSystemLfs -At $sourceCheckout -Mode source) -cne $sourceFilterSnapshot) {
+            throw 'Filter/configuration facts changed before checkout; no preparation.'
+        }
         $prepareMessages = @(& $prepareFile -ExpectedCommit $release.Commit -Python $pythonExe -SourceCheckout $sourceCheckout -BaseDirectory $evidenceBase -RuntimeSeconds $release.RuntimeSeconds 6>&1)
         foreach ($message in $prepareMessages) {
             $display = [string]$message
@@ -162,6 +293,10 @@
         if (!(Test-Path -LiteralPath $runner -PathType Leaf)) { throw 'Maintained runner missing from prepared checkout.' }
         $preparedHead = ((Invoke-CheckedGit -GitExe $gitExe -At $preparedCheckout -Arguments @('rev-parse','HEAD')) -join '').Trim()
         $preparedTree = ((Invoke-CheckedGit -GitExe $gitExe -At $preparedCheckout -Arguments @('rev-parse','HEAD^{tree}')) -join '').Trim()
+        if ((Assert-UnusedStandardSystemLfs -At $sourceCheckout -Mode source) -cne $sourceFilterSnapshot) {
+            throw 'Source filter/configuration facts changed during preparation; no launch.'
+        }
+        $preparedFilterSnapshot = Assert-UnusedStandardSystemLfs -At $preparedCheckout -Mode working
         $preparedStatus = @(Invoke-CheckedGit -GitExe $gitExe -At $preparedCheckout -Arguments @('status','--porcelain'))
         if ($preparedHead -cne $release.Commit -or $preparedTree -cne $release.Tree -or $preparedStatus.Count -ne 0) {
             throw 'Prepared pin/tree/cleanliness check failed; no observation launch.'
@@ -198,6 +333,12 @@
         Write-Host 'Now invoking the existing prepare->preflight->observe->package->seal owner ONCE; no separate preflight-only run.'
         Write-Host 'It verifies exact Windows Python3.13.3/source/config/guards, canonical RTH with the full1260s observation envelope remaining, recognized runtime inventory and fresh single-use admission.'
         Write-Host 'Cleanup remains identity-scoped to its newly owned runtime. No wrapper kill, connection probe, external-client termination, retry or recovery clearing is added.'
+        # Requalify immediately before the maintained owner's attribute-sensitive
+        # status/admission boundary. No config edits or filter suppression.
+        if ((Assert-UnusedStandardSystemLfs -At $sourceCheckout -Mode source) -cne $sourceFilterSnapshot -or
+            (Assert-UnusedStandardSystemLfs -At $preparedCheckout -Mode working) -cne $preparedFilterSnapshot) {
+            throw 'Relevant filter/configuration facts changed before runner admission; no launch.'
+        }
         # No execution-policy override. A policy refusal must remain a refusal.
         & $windowsPowerShell -NoProfile -File $runner -Python $pythonExe -Root $resolvedRunRoot -ExpectedCommit $release.Commit -RuntimeSeconds $release.RuntimeSeconds
         $ownerExit = [int]$global:LASTEXITCODE
