@@ -4053,7 +4053,10 @@ def test_first_confirmed_project_partial_retains_original_stop_then_own_failure_
         reassessment,monkeypatch,tmp_path,capsys,no_external_activity):
     from src.config import config_resolver
     from src.storage.serialization import to_jsonable
-    from src.strategies.ross_momentum.strategy_policy import CENTRAL_STANDALONE_FAILURE_PROFILE, STANDALONE_ONE_SHARE_PROFIT_PROFILE
+    from src.strategies.ross_momentum.strategy_policy import (
+        CENTRAL_STANDALONE_FAILURE_PROFILE, STANDALONE_ONE_SHARE_PROFIT_PROFILE,
+        STANDALONE_FIRST_ORIGINAL_STOP_RETENTION_PROFILE, selected_first_original_stop_retention_profile,
+    )
     h,request,life=micro_post_partial_case(reassessment,monkeypatch,tmp_path,capsys,family='FIRST_PULLBACK')
     try:
         engine=h.core.execution_engine;owner=h.failure_owner
@@ -4082,6 +4085,7 @@ def test_first_confirmed_project_partial_retains_original_stop_then_own_failure_
         def assert_original_remainder():
             position=h.manager.snapshot_positions()['JPM']
             assert owner['request']==retained_request and owner['unit_profit_exit']==partial
+            assert selected_first_original_stop_retention_profile(owner['request'])==STANDALONE_FIRST_ORIGINAL_STOP_RETENTION_PROFILE
             assert not owner.get('pmh_failure_exit') and not owner.get('stop_price_revision')
             assert owner['protection_confirmed'] and owner['unit_close_coverage_confirmed']
             assert life.selected_stop_price==position.stop_loss_price==position.last_trail_price==10.15
