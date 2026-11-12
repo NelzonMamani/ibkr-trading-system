@@ -417,3 +417,61 @@ def test_premarket_bootstrap_does_not_acquire_a_weekend_reference(monkeypatch,tm
     assert inputs.levels.premarket_reference['reason']=='PRE_REFERENCE_OUTSIDE_TRADING_DATE'
     assert [kw['timeframe'] for kw in calls]==['10s','1m','5m']
     assert not (tmp_path/'ref.json').exists()
+
+
+@pytest.mark.parametrize(('label', 'expected', 'observed'), [
+    ('OPENING_0_30', 'REGULAR', datetime(2026, 10, 20, 13, 35, 30, tzinfo=timezone.utc)),
+    ('MORNING', 'REGULAR', datetime(2026, 10, 20, 14, 35, 30, tzinfo=timezone.utc)),
+    ('RTH_OPEN', 'REGULAR', datetime(2026, 10, 20, 13, 35, 30, tzinfo=timezone.utc)),
+    ('PRE', 'PRE', datetime(2026, 10, 20, 13, 25, 30, tzinfo=timezone.utc)),
+    ('UNKNOWN', 'PRE', datetime(2026, 10, 20, 13, 35, 30, tzinfo=timezone.utc)),
+])
+def test_runtime_phase_preserves_coarse_session_and_own_opening_permission(
+        monkeypatch, tmp_path, label, expected, observed):
+    from ibapi.client import EClient
+    from src.core_engine.state import SessionState
+    from src.strategies.common.patterns.pattern_opening_drive import detect_opening_drive
+    from src.strategies.ross_momentum.patterns import pattern_trace
+    from src.strategies.ross_momentum.policy.pattern_input_policy import PatternInputPolicy
+    from src.utils.time_utils import market_session_phase, resolve_session_state
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError('Broker/SDK activity forbidden in raw-history component control')
+    for method in ('connect', 'placeOrder', 'cancelOrder', 'reqGlobalCancel'):
+        monkeypatch.setattr(EClient, method, forbidden)
+    monkeypatch.chdir(tmp_path)
+    policy = PatternInputPolicy.from_policy_v2()
+    assert policy.plan_for_session(label) == policy.plan_for_session('RTH_OPEN')
+    if label in {'OPENING_0_30', 'MORNING'}:
+        assert market_session_phase(observed) == label
+        assert resolve_session_state(observed) is SessionState.REG
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return observed.astimezone(tz) if tz else observed
+    monkeypatch.setattr(pattern_trace, 'datetime', Clock)
+    streams = {tf: _candles(50, latest=observed-timedelta(seconds=seconds), step_seconds=seconds)
+        for tf, seconds in (('10s', 10), ('1m', 60), ('5m', 300))}
+    original_clocks = {tf: [c.timestamp for c in bars] for tf, bars in streams.items()}
+    calls = []
+    def supplied_history(**kwargs):
+        calls.append(kwargs)
+        return streams[kwargs['timeframe']][-kwargs.get('limit', 50):]
+    monkeypatch.setattr(pattern_trace, 'get_intraday_bars', supplied_history)
+    # Only raw observations enter the real builder; it derives quality, levels,
+    # percentage change, RVOL, session context and the existing timeframe plan.
+    row = dict(symbol='AREN', last_price=10.8, bid=10.79, ask=10.81, volume=2_000_000,
+        previous_close=9.9, average_daily_volume_20d=200_000, float_shares=8_000_000)
+    inputs, _ = build_runtime_pattern_inputs(symbol='AREN', row=row, snapshot=None,
+        session_label=label, session_phase=label)
+    assert inputs is not None and inputs.session_context.value == expected
+    assert inputs.session_label == inputs.session_phase == label
+    assert (inputs.primary_timeframe, inputs.execution_refinement_timeframe, inputs.context_timeframe) == ('1m', '10s', '5m')
+    assert [call['timeframe'] for call in calls] == ['10s', '1m', '5m']
+    assert {tf: [c.timestamp for c in bars] for tf, bars in streams.items()} == original_clocks
+    if label == 'MORNING':
+        # A regular session does not extend this family's own opening window.
+        result = detect_opening_drive(inputs)
+        assert not result.detected and result.rejection_reason == 'invalid_phase'
+        assert result.target_suggestion is None

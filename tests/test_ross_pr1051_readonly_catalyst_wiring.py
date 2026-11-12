@@ -18,6 +18,7 @@ from src.scanner import scanner_runner
 from src.scanner.providers.base import IntradayStats, QuoteData
 from src.scanner.scanner_contract import scanner_request_from_policy
 from src.strategies.ross_momentum.strategy_policy import RossMomentumPolicy
+from test_news_catalyst_lifecycle_audit import lifecycle, CANDIDATE
 
 
 class _RuntimeProvider:
@@ -250,6 +251,99 @@ def test_pr1051_news_config_disabled_fails_closed_with_diagnostics(monkeypatch, 
     assert news["provider_status"] == "provider_disabled"
     assert news["result_status_counts"] == {"provider_disabled": 1}
     assert payload["float_focus_diagnostics"]["focus_drop_reason_counts"] == {"DROP_NO_CATALYST": 1}
+
+
+@pytest.mark.parametrize('mode,news_enabled,expected_focus,expected_status,identity_case',[
+    ('PAPER',True,['JPM'],None,'ross'),
+    ('PAPER',False,[],'provider_disabled','ross'),
+    ('LIVE',True,[],'provider_disabled_for_live','ross'),
+    ('PAPER',True,['JPM'],None,'ross_maintenance'),
+    ('PAPER',True,['JPM'],None,'ross_default_request'),
+    ('PAPER',True,None,'provider_disabled_for_paper','mean_reversion'),
+    ('PAPER',True,None,'provider_disabled_for_paper','statistical_intraday_momentum'),
+    ('PAPER',True,[],'provider_disabled_for_paper','policy_name'),
+    ('PAPER',True,[],'provider_disabled_for_paper','request_policy_name'),
+    ('PAPER',True,[],'provider_disabled_for_paper','policy_ranking'),
+    ('PAPER',True,[],'provider_disabled_for_paper','request_ranking'),
+    ('PAPER',True,[],'provider_disabled_for_paper','request_strategy'),
+])
+def test_paper_full_scan_reads_canonical_cache_while_live_and_disabled_remain_closed(
+        lifecycle,monkeypatch,tmp_path,mode,news_enabled,expected_focus,expected_status,identity_case):
+    """Actual scanner mode/policy and Focus; external provider facts only."""
+    from src.config import config_resolver
+    from src.domain import quote_freshness
+    from src.news.batch_rss_adapter import BatchRssNewsIntelligenceProvider
+    from src.news.maintenance import NewsMaintenance
+    life=lifecycle
+    life.clock.current=life.clock.current.replace(hour=13,minute=35,second=30,microsecond=0)
+    monkeypatch.setattr(quote_freshness,'datetime',life.clock)
+    config_resolver.set_config_overrides(dict(config_resolver._CONFIG_OVERRIDES,
+        RUN_MODE=mode,RUN_MODE_EFFECTIVE=mode,EXECUTION_ENABLED=False,EXECUTION_ENABLED_EFFECTIVE=False,
+        IBKR_READONLY_ENABLED=True,IBKR_API_WRITE_ALLOWED=False,IBKR_ORDER_SUBMISSION_ENABLED=False,
+        SCANNER_DATA_SOURCE='IBKR',SCANNER_MODE='LIVE_READONLY',IBKR_FALLBACK_ENABLED=False,
+        NEWS_ENABLED=news_enabled,ROSS_VALIDATION_OVERRIDE_ENABLED=False,ALLOW_UNKNOWN_FLOAT=False))
+    life.service.get_news((CANDIDATE,),life.request,life.policy)
+    before=life.store.cache_path.read_bytes();calls=life.provider.calls
+    def forbidden(*args,**kwargs):pytest.fail('PAPER cache consumption cannot acquire or publish')
+    monkeypatch.setattr(life.provider,'get_news',forbidden)
+    monkeypatch.setattr(BatchRssNewsIntelligenceProvider,'get_news',forbidden)
+    monkeypatch.setattr(life.store,'write',forbidden)
+    monkeypatch.setattr(life.store,'write_with_retrieval_metadata',forbidden)
+    monkeypatch.setattr(scanner_runner,'_news_intelligence_service_for_scanner',lambda:life.service)
+    _seed_float_cache(monkeypatch,tmp_path,symbol='JPM')
+    provider=_RuntimeProvider([_row('JPM')])
+    provider.last_scan_details['symbol_details']['JPM'].update(longName=CANDIDATE.company_name,
+        aliases=CANDIDATE.aliases)
+    actual_enrich=scanner_runner._enrich_news_context;read_flags=[]
+    def observed_enrich(*args,**kwargs):
+        read_flags.append(kwargs.get('cache_only',False))
+        return actual_enrich(*args,**kwargs)
+    monkeypatch.setattr(scanner_runner,'_enrich_news_context',observed_enrich)
+    policy=_policy()
+    request=scanner_request_from_policy(policy,strategy_name='ross_momentum')
+    if identity_case=='mean_reversion':
+        from src.strategies.mean_reversion.scanner_policy import mean_reversion_stock_selection_spec
+        policy=mean_reversion_stock_selection_spec()
+        request=scanner_request_from_policy(policy,strategy_name='mean_reversion')
+    elif identity_case=='statistical_intraday_momentum':
+        from src.strategies.statistical_intraday_momentum.strategy_policy import statistical_stock_selection_spec
+        policy=statistical_stock_selection_spec()
+        request=scanner_request_from_policy(policy,strategy_name='statistical_intraday_momentum')
+    elif identity_case=='policy_name':policy=replace(policy,policy_name='MEAN_REVERSION')
+    elif identity_case=='request_policy_name':request=replace(request,policy_name='MEAN_REVERSION')
+    elif identity_case=='policy_ranking':policy=replace(policy,ranking_intent='MEAN_REVERSION_STOCK_SELECTION')
+    elif identity_case=='request_ranking':request=replace(request,ranking_intent='MEAN_REVERSION_STOCK_SELECTION')
+    elif identity_case=='request_strategy':request=replace(request,strategy_name='mean_reversion')
+    elif identity_case=='ross_default_request':request=scanner_request_from_policy(policy)
+    maintenance=NewsMaintenance(store=life.store) if identity_case!='ross' else None
+    maintenance_reads=[]
+    if maintenance is not None:
+        monkeypatch.setattr(maintenance,'submit',forbidden)
+        actual_read=maintenance.read
+        def observed_read(candidates,news_request,retrieval_policy):
+            maintenance_reads.append(retrieval_policy)
+            assert retrieval_policy.network_allowed is False and retrieval_policy.allow_cache_write is False
+            assert retrieval_policy.refresh_mode=='cache_only'
+            return actual_read(candidates,news_request,retrieval_policy)
+        monkeypatch.setattr(maintenance,'read',observed_read)
+    try:
+        payload=scanner_runner.run_scanner_cycle(mode='READONLY',policy=policy,
+            scanner_request=request,news_maintenance=maintenance,
+            provider=provider,forced_session_label='RTH_OPEN',forced_session_source='PAPER_CACHE_ONLY_TEST')
+        if expected_focus is not None:assert payload['focus_m_symbols']==expected_focus
+        news=payload['diagnostics']['news']
+        if expected_status is not None:
+            assert news['provider_status']==expected_status and news['news_skipped'] is True
+            assert read_flags==[] and maintenance_reads==[]
+        else:
+            assert read_flags and all(read_flags) and news['news_skipped'] is False
+            assert news['confirmed_catalyst_count']==1
+            if maintenance is not None:assert maintenance_reads
+        if maintenance is not None:
+            assert maintenance.stats['submitted']==0 and maintenance.threads==[] and maintenance.lifecycles==[]
+        assert life.store.cache_path.read_bytes()==before and life.provider.calls==calls
+    finally:
+        if maintenance is not None:assert maintenance.close()
 
 
 def test_pr1070_runtime_news_deadline_skip_is_not_reported_as_provider_disabled() -> None:

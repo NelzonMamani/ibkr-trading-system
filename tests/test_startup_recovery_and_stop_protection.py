@@ -168,6 +168,8 @@ from types import SimpleNamespace as NS
 
 database_path, facts_path, report_path, fault = sys.argv[1:]
 facts = json.loads(Path(facts_path).read_text(encoding='utf-8'))
+observe_pristine_cycle = bool(facts.get('observe_pristine_readonly_cycle')
+                              or facts.get('observe_pristine_paper_cycle'))
 base_external_facts = {key: copy.deepcopy(value) for key, value in facts.items()
                        if key != 'cycle_scenarios'}
 current_external_facts = copy.deepcopy(base_external_facts)
@@ -175,7 +177,7 @@ external_fault = fault
 report = {'pid': os.getpid(), 'parent_pid': os.getppid(), 'fault': fault,
           'constructor_complete': False, 'constructor_count': 0,
           'cycle_attempted': False, 'scenarios': [],
-          'sdk_attempts': [], 'wire_attempts': [], 'network_attempts': [],
+          'sdk_attempts': [], 'wire_attempts': [], 'native_read_requests': [], 'network_attempts': [],
           'cached_order_status_reads': [], 'cycles': [], 'cleanup': {},
           'external_provider_calls': [], 'external_history_calls': [],
           'availability_witness_calls': [],
@@ -270,7 +272,276 @@ def engine_snapshot(engine):
         'capital_recovery_failed': engine.capital_authority.recovery_failed,
         'capital_reservations': engine.capital_authority.active_reservations,
         'allocation_reservations': engine.strategy_allocation_authority.active_reservations,
+        'capital_scope': engine.capital_authority.capital_scope,
+        'capital_writer_present': engine.capital_authority._capital_writer is not None,
+        'canonical_trades': {key: engine._trade_lifecycle_engine.get_trade(key)
+            for key in engine._native_orders} if engine._trade_lifecycle_engine is not None else {},
+        'protection': {key: engine.post_fill_lifecycle.assess_trade_stop_protection(key)
+            for key in engine._native_orders if engine.post_fill_lifecycle.get_trade(key) is not None},
+        'registry': engine.trade_registry.snapshot(),
+        'managed_positions': (engine.relationship_manager.snapshot_positions()
+            if getattr(engine, 'relationship_manager', None) is not None else {}),
     })
+
+def validate_pristine_paper_memory_write(*, actual_client, expected_client, core,
+        plan, dispatches, native_id, contract, native, committed, risk_rows, now, max_scope_age):
+    """Observe actual owners before an exclusively in-memory external ACK.
+
+    This is a fixture boundary, not execution permission. The ordinary submit
+    owner and its final read-only guard have already run before this function.
+    No SDK encoder or underlying transport is called by the memory boundary.
+    """
+    def require(value, reason):
+        if not value:
+            raise ForbiddenExternalIO('PRISTINE_PAPER_MEMORY_CERTIFICATE:' + reason)
+    require(actual_client is expected_client and core is not None, 'CLIENT')
+    engine = core.execution_engine
+    scope = engine._native_scope
+    require(core.run_mode.value == engine.run_mode.value == 'PAPER'
+        and os.environ.get('EXECUTION_ENV') == 'TEST', 'MODE')
+    require(scope is not None and scope[0] == plan['account'] and scope[1] is expected_client
+        and 0 <= (now-scope[2]).total_seconds() <= max_scope_age
+        and expected_client.client_id == plan['client_id']
+        and expected_client._position_connection_epoch == plan['epoch']
+        and expected_client.isConnected() and not expected_client.readonly_enabled, 'SCOPE')
+    require(engine.capital_authority.capital_scope is None
+        and engine.capital_authority._capital_writer is None
+        and not engine._native_quarantined and engine.startup_recovery_complete(), 'OWNER')
+    require(committed == engine._native_state
+        and committed == dict(version=1, mode='PAPER', orders=engine._native_orders), 'DURABLE')
+    require(len(engine._native_orders) == 1 and type(native_id) is int and native_id > 0
+        and native_id not in [row['native_id'] for row in dispatches], 'UNIQUE')
+    root_id, parent = next(iter(engine._native_orders.items()))
+    request = parent['request']
+    require(parent['account'] == plan['account'] and parent['native_client_id'] == plan['client_id']
+        and parent['native_connection_epoch'] == plan['epoch']
+        and request['client_order_id'] == root_id and request['symbol'] == plan['symbol']
+        and request['quantity'] == parent['requested'] == 1
+        and request['setup_family_id'] == 'PREMARKET_HIGH_BREAK'
+        and not request['relationship_context'] and request['setup_metadata']
+        and request['stop_loss_price'] == plan['stop_price']
+        and request['invalidation_level'] == plan['entry_price']
+        and request['take_profit_price'] is None and request['target_model'], 'REQUEST')
+    matched = [row for row in risk_rows if row['decision']['decision_id'] == parent['decision_id']]
+    require(len(matched) == 1 and matched[0]['decision']['allowed'] is True
+        and matched[0]['decision']['max_position_size'] == 1
+        and matched[0]['intent']['entry_price'] == plan['entry_price']
+        and matched[0]['intent']['setup_metadata'] == request['setup_metadata']
+        and matched[0]['intent']['target_model'] == request['target_model'], 'RISK')
+    require(contract.symbol == plan['symbol'] and contract.secType == 'STK'
+        and contract.currency == plan['currency'] and contract.exchange == plan['exchange']
+        and contract.conId in (0, plan['con_id'])
+        and not isinstance(native.totalQuantity, bool) and native.totalQuantity == 1, 'SECURITY_SIZE')
+    if not dispatches:
+        require(native.action == 'BUY' and native.orderType == 'MKT'
+            and native.parentId == 0 and not native.orderRef
+            and parent['status'] == 'DISPATCH_UNCERTAIN' and parent['broker_order_id'] is None
+            and parent['filled'] == 0 and not parent['terminal'], 'ENTRY')
+        reservations = list(engine.capital_authority.active_reservations.values())
+        allocations = list(engine.strategy_allocation_authority.active_reservations.values())
+        require(len(reservations) == len(allocations) == 1, 'RESERVATION_COUNT')
+        capital, allocation = reservations[0], allocations[0]
+        # Risk, capital and strategy allocation issue different decisions. The
+        # existing order binding and allocation's global-capital link join them;
+        # the retained native parent carries only the original Risk decision.
+        require(isinstance(capital.decision_id,str) and capital.decision_id
+            and isinstance(allocation.decision_id,str) and allocation.decision_id
+            and allocation.global_capital_decision_id == capital.decision_id, 'RESERVATION_LINK')
+        for reservation in (capital,allocation):
+            require(reservation.order_id == root_id and reservation.symbol == request['symbol']
+                and reservation.side == request['direction'].upper()
+                and reservation.strategy_id.upper() == request['strategy_name'].upper()
+                and reservation.run_mode == 'PAPER' and reservation.status == 'ACTIVE'
+                and type(reservation.quantity) is int and reservation.quantity == 1
+                and type(reservation.remaining_quantity) is int and reservation.remaining_quantity == 1
+                and reservation.filled_quantity == 0 and reservation.exposure_notional == 0
+                and reservation.notional == reservation.remaining_notional == plan['entry_price'], 'RESERVATION_BINDING')
+        require(engine.capital_authority.total_reserved_capital == plan['entry_price']
+            and engine.capital_authority.total_used_exposure == 0
+            and not engine.position_records and not engine.trade_registry.snapshot(), 'RESERVATION')
+        role = 'entry'
+    else:
+        require(len(dispatches) == 1 and dispatches[0]['role'] == 'entry'
+            and native.action == 'SELL' and native.orderType == 'STP'
+            and native.auxPrice == plan['stop_price']
+            and native.parentId == dispatches[0]['native_id']
+            and native.orderRef == 'PROTECT|' + root_id
+            and parent['broker_order_id'] == str(dispatches[0]['native_id'])
+            and parent.get('cached_update_in_progress') == dict(filled=1, remaining=0,
+                status='FILLED', average_price=plan['fill_price']), 'STOP')
+        # Initial protection is installed within factual accounting, before
+        # canonical completion/terminal native progress. Observe that ordering;
+        # do not manufacture terminal-accounted state to satisfy this boundary.
+        position = engine.position_records.get(root_id, {})
+        life = engine.post_fill_lifecycle.get_trade(root_id)
+        require(position.get('filled_qty') == 1 and position.get('entry_price') == plan['fill_price']
+            and engine.capital_authority.total_used_exposure == plan['fill_price']
+            and engine.capital_authority.total_reserved_capital == 0
+            and life is not None and life.filled_qty == 1
+            and life.avg_fill_price == plan['fill_price']
+            and life.selected_stop_price == plan['stop_price'] and life.stop.status == 'PENDING_SUBMIT', 'ACCOUNTING')
+        executions = expected_client.cached_native_executions(dispatches[0]['native_id'])
+        require(len(executions) == 1, 'EXECUTION_COVERAGE')
+        execution = executions[0]
+        require(execution['orderId'] == dispatches[0]['native_id']
+            and execution['account'] == plan['account'] and execution['clientId'] == plan['client_id']
+            and execution['connection_epoch'] == plan['epoch'] and execution['conId'] == plan['con_id']
+            and execution['symbol'] == plan['symbol'] and execution['side'] == 'BOT'
+            and execution['shares'] == execution['cumQty'] == 1
+            and float(execution['price']) == float(execution['avgPrice']) == plan['fill_price']
+            and execution['timestamp_utc'] <= now, 'EXECUTION_BINDING')
+        positions = expected_client.positions()
+        require(len(positions) == 1 and positions[0].symbol == plan['symbol']
+            and positions[0].position == 1 and positions[0].con_id == plan['con_id']
+            and positions[0].account == plan['account'] and positions[0].avgCost == plan['fill_price'], 'POSITION_FACT')
+        role = 'stop'
+    return root_id, role
+
+def validate_pristine_paper_market_fact(*, plan, quote, now, max_age):
+    """Accept raw quote facts only; actual source callbacks still build quotes."""
+    import math
+    def require(value, reason):
+        if not value:
+            raise ForbiddenExternalIO('PRISTINE_PAPER_MARKET_CERTIFICATE:' + reason)
+    require(isinstance(quote,dict) and set(quote) == {
+        'symbol','con_id','bid','ask','last_price','quote_timestamp_utc'}, 'FIELDS')
+    require(quote['symbol'] == plan['symbol'] and type(quote['con_id']) is int
+        and quote['con_id'] == plan['con_id'], 'SECURITY')
+    require(all(type(quote[key]) in (int,float) and math.isfinite(quote[key])
+        and quote[key] > 0 for key in ('bid','ask','last_price')), 'PRICE')
+    require(quote['bid'] <= quote['last_price'] <= quote['ask'], 'SPREAD')
+    stamp = datetime.fromisoformat(quote['quote_timestamp_utc'])
+    require(stamp.tzinfo is not None and 0 <= (now-stamp).total_seconds() <= max_age, 'TIME')
+    return {key:value for key,value in quote.items() if key not in {'symbol','con_id'}}
+
+def validate_pristine_paper_execution_fact(*, actual_client, expected_client, core,
+        plan, dispatches, raw, now):
+    """Bind supplied financial callbacks to the already dispatched native leg."""
+    def require(value, reason):
+        if not value:
+            raise ForbiddenExternalIO('PRISTINE_PAPER_EXECUTION_CERTIFICATE:' + reason)
+    require(actual_client is expected_client and core is not None
+        and os.environ.get('EXECUTION_ENV') == 'TEST', 'CLIENT')
+    engine = core.execution_engine
+    require(core.run_mode.value == engine.run_mode.value == 'PAPER'
+        and engine._native_callback_client() is expected_client
+        and expected_client.isConnected() and expected_client.client_id == plan['client_id']
+        and expected_client._position_connection_epoch == plan['epoch'], 'SCOPE')
+    require(isinstance(raw,dict) and set(raw) == {'leg','contract','execution','status'}, 'FIELDS')
+    matches = [row for row in dispatches if row['role'] == raw['leg']]
+    require(len(matches) == 1 and raw['leg'] in {'entry','stop'}, 'LEG')
+    bound = matches[0]
+    entries = [row for row in dispatches if row['role'] == 'entry']
+    require(len(entries) == 1 and bound['root_id'] == entries[0]['root_id']
+        and bound['root_id'] in engine._native_orders, 'ROOT')
+    contract = raw['contract']; execution = raw['execution']; status = raw['status']
+    require(contract == dict(symbol=plan['symbol'],conId=plan['con_id'],exchange=plan['exchange'],
+        currency=plan['currency'],secType='STK'), 'SECURITY')
+    require(set(execution) == {'execId','acctNumber','clientId','side','shares','cumQty',
+        'price','avgPrice','time'} and isinstance(execution['execId'],str) and execution['execId']
+        and execution['acctNumber'] == plan['account'] and type(execution['clientId']) is int
+        and execution['clientId'] == plan['client_id'], 'IDENTITY')
+    require(type(execution['shares']) is int and type(execution['cumQty']) is int
+        and execution['shares'] == execution['cumQty'] == 1, 'QUANTITY')
+    expected_price = plan['fill_price'] if raw['leg'] == 'entry' else plan.get('stop_fill_price')
+    require(type(execution['price']) in (int,float) and type(execution['avgPrice']) in (int,float)
+        and execution['price'] == execution['avgPrice'] == expected_price
+        and status == dict(status='Filled',filled=1,remaining=0,avgFillPrice=expected_price), 'FILL')
+    stamp = datetime.fromisoformat(execution['time'])
+    require(stamp.tzinfo is not None and stamp <= now, 'TIME')
+    native = bound['order']
+    if raw['leg'] == 'entry':
+        require(execution['side'] == 'BOT' and native['action'] == 'BUY'
+            and native['orderType'] == 'MKT' and native['parentId'] == 0, 'ENTRY')
+    else:
+        require(execution['side'] == 'SLD' and native['action'] == 'SELL'
+            and native['orderType'] == 'STP' and native['auxPrice'] == plan['stop_price']
+            and native['parentId'] == entries[0]['native_id']
+            and native['orderRef'] == 'PROTECT|' + bound['root_id']
+            and expected_price <= plan['stop_price'], 'STOP')
+        trade = engine._trade_lifecycle_engine.get_trade(bound['root_id'])
+        require(trade is not None and trade.entry_avg_price == plan['fill_price']
+            and trade.stop_price == plan['stop_price'] and trade.target_price is None
+            and datetime.fromisoformat(trade.opened_at) <= stamp, 'ACCOUNTED_ENTRY')
+    return bound
+
+def observed_pristine_paper_exposure_release(actual_release, owner, label, *args, **kwargs):
+    """Observe and forward the actual instance method exactly once, unmodified."""
+    def exposure():
+        return (owner.total_used_exposure if label == 'capital'
+                else owner.strategy_used_exposure(kwargs['strategy_id']))
+    row = dict(authority=label,cycle=active_cycle[0],args=plain(args),kwargs=plain(kwargs),
+        exposure_before=exposure())
+    report['exposure_release_calls'].append(row)
+    try:
+        result = actual_release(*args, **kwargs)
+    except BaseException as exc:
+        row['exception'] = exception_record(exc)
+        raise
+    else:
+        row['result'] = plain(result)
+        return result
+    finally:
+        row['exposure_after'] = exposure()
+
+def validate_pristine_paper_history_read(*, actual_client, expected_client, core,
+        plan, fields, owned_reads, timeframe_request, source_response, supplied_bars,
+        now, monotonic_now, max_scope_age):
+    """One supplied native history response; no management/result substitution."""
+    def require(value, reason):
+        if not value:
+            raise ForbiddenExternalIO('PRISTINE_PAPER_HISTORY_CERTIFICATE:' + reason)
+    require(actual_client is expected_client and core is not None
+        and os.environ.get('EXECUTION_ENV') == 'TEST', 'CLIENT')
+    engine = core.execution_engine
+    scope = engine._native_scope
+    require(core.run_mode.value == engine.run_mode.value == 'PAPER'
+        and engine._native_callback_client() is expected_client
+        and scope is not None and scope[0] == plan['account'] and scope[1] is expected_client
+        and 0 <= (now-scope[2]).total_seconds() <= max_scope_age
+        and expected_client.client_id == plan['client_id']
+        and expected_client._position_connection_epoch == plan['epoch']
+        and expected_client.isConnected() and not engine._native_quarantined, 'SCOPE')
+    parents = [(key,row) for key,row in engine._native_orders.items()
+        if row.get('side') in {'LONG','BUY'} and row.get('symbol') == plan['symbol']]
+    require(len(parents) == 1, 'ROOT_COUNT')
+    root_id,parent = parents[0]
+    request = parent['request']
+    stream = (request.get('setup_metadata') or {}).get('execution_stream') or {}
+    require(parent.get('terminal') and parent.get('filled') == parent.get('requested') == 1
+        and parent.get('protection_confirmed') and not parent.get('cached_update_in_progress')
+        and parent.get('account') == plan['account'] and parent.get('native_client_id') == plan['client_id']
+        and parent.get('native_connection_epoch') == plan['epoch'] and parent.get('security_id') == plan['con_id']
+        and request.get('setup_family_id') == 'PREMARKET_HIGH_BREAK' and not request.get('relationship_context')
+        and request.get('symbol') == plan['symbol'] and request.get('client_order_id') == root_id
+        and request.get('stop_loss_price') == plan['stop_price']
+        and request.get('invalidation_level') == plan['entry_price'] and request.get('take_profit_price') is None
+        and stream.get('execution_trigger_timeframe') == timeframe_request.logical_timeframe == '10s', 'ROOT')
+    # Pinned SDK server180 omits the historical VERSION field. Use its actual
+    # read encoder layout, distinct from quote requests' reqId at fields[2].
+    require(expected_client.serverVersion() == 180 and len(fields) == 24
+        and fields[0] == '20' and fields[-1] == '', 'PACKET')
+    require(fields[1].isdigit(), 'REQUEST_ID')
+    request_id = int(fields[1])
+    context = expected_client._request_context_by_req_id.get(request_id,{})
+    state = expected_client._historical_states.get(request_id)
+    require(request_id not in owned_reads
+        and expected_client._request_type_by_req_id.get(request_id) == 'HISTORICAL_DATA'
+        and context.get('request_type') == 'HISTORICAL_DATA'
+        and context.get('symbol') == plan['symbol'] and context.get('con_id') == plan['con_id']
+        and state is not None and state.get('status') == 'PENDING' and state.get('sent') is True
+        and state.get('end_received') is False and state.get('streaming') is False
+        and monotonic_now <= state['deadline']
+        and not expected_client._request_id_conflicted(request_id), 'REQUEST_OWNER')
+    require(fields[2] == str(plan['con_id']) and fields[3] == plan['symbol'] and fields[4] == 'STK'
+        and fields[9] == plan['exchange'] and fields[11] == plan['currency']
+        and fields[12] in {'',plan['symbol']} and fields[14] == '0'
+        and fields[15] == '' and fields[16] == timeframe_request.bar_size_setting
+        and fields[17] == str(timeframe_request.duration_seconds) + ' S'
+        and fields[18:23] == ['0','TRADES','1','0',''], 'PARAMETERS')
+    require(source_response.get('status') == 'COMPLETE_BARS'
+        and source_response.get('end_received') is True and supplied_bars, 'SUPPLIED_COMPLETION')
+    return request_id
 
 try:
     # This check runs before application imports/cache setup/constructor. The
@@ -301,7 +572,7 @@ try:
             raise ForbiddenExternalIO('COLD_CORE_NATIVE_CURL_GUARD_MISSING')
         report['offline_guard']['native_curl_checked'] = True
     from ibapi.client import EClient
-    from ibapi.contract import Contract
+    from ibapi.contract import Contract, ContractDetails
     from ibapi.order import Order
     from ibapi.message import OUT
     from src.config.config_resolver import set_config_overrides
@@ -352,6 +623,69 @@ try:
     else:
         observed = datetime.now(timezone.utc)
     base_observed = observed
+    if observe_pristine_cycle:
+        # Existing joined fixtures treat this UTC clock and canonical cache as
+        # external inputs. Classification, maintenance and Focus remain real.
+        from src.news import evidence_store, news_intelligence_service, standalone_lookup, maintenance, batch_rss_adapter, news_fetcher
+        from src.strategies.ross_momentum.policy import catalyst_policy
+        from src.domain import quote_freshness
+        from src.market_data import float_provider, reference_resolver, market_data_snapshot_manager
+        from src.ibkr import market_data_client as source_quote_module
+        from src.adapters.brokers.ibkr import ibkr_client as native_callback_module
+        from src.adapters.brokers.ibkr import ibkr_order_submitter as native_submitter_module
+        from src.config import system_config as risk_calendar_module
+        from src.utils import time_utils as risk_utc_module
+        import time as real_elapsed_time
+        class ExternalUtcClock:
+            @staticmethod
+            def time():
+                return observed.timestamp()
+            def __getattr__(self,name):
+                return getattr(real_elapsed_time,name)
+        utc_clock = ExternalUtcClock()
+        # UTC facts are local module dependencies. Do not patch shared time.time
+        # or the real monotonic scheduling/timeout clocks.
+        for module in (scanner_runner,catalyst_policy,news_fetcher,batch_rss_adapter):
+            module.time = utc_clock
+        for module in (evidence_store, news_intelligence_service, standalone_lookup, quote_freshness,
+                       float_provider,reference_resolver,market_data_snapshot_manager,source_quote_module,native_callback_module,
+                       maintenance,batch_rss_adapter,news_fetcher,risk_calendar_module,risk_utc_module,
+                       native_submitter_module):
+            module.datetime = Clock
+        report['external_clock'] = dict(utc=observed.isoformat(),
+            monotonic_unchanged=utc_clock.monotonic is real_elapsed_time.monotonic)
+        # Supplied numeric fundamentals enter through their actual cache writer,
+        # never by replacing symbol enrichment or its float gate.
+        float_store = float_provider.FloatProvider()
+        report['supplied_float_observations'] = []
+        for symbol, row in facts.get('candidate_observations', {}).items():
+            value = row.get('float_shares')
+            if type(value) is int and value > 0:
+                float_store.record_discovery(symbol, value, 'SUPPLIED_SYNTHETIC_OBSERVATION')
+                report['supplied_float_observations'].append(dict(symbol=symbol, value=value,
+                    source='SUPPLIED_SYNTHETIC_OBSERVATION'))
+        from src.news.evidence_store import CanonicalNewsEvidenceStore, evidence_from_mapping
+        news_request = scanner_runner._ross_news_request()
+        source_evidence = facts.get('news_evidence', {})
+        news_items = {symbol: tuple(evidence_from_mapping(row, request=news_request)
+            for row in rows) for symbol, rows in source_evidence.items()}
+        if any(item is None for rows in news_items.values() for item in rows):
+            raise ValueError('SUPPLIED_CANONICAL_NEWS_EVIDENCE_INVALID')
+        report['news_cache_seed_receipt'] = plain(CanonicalNewsEvidenceStore(
+            Path(os.environ['NEWS_CACHE_FILE'])).write(news_items, news_request,
+            retrieval_by_symbol=facts.get('news_last_retrieval', {})))
+        if report['news_cache_seed_receipt'].get('cache_write_failed'):
+            raise ValueError('SUPPLIED_CANONICAL_NEWS_CACHE_WRITE_FAILED')
+        # Neither proof enrolls atomic/operational capital. PAPER reuses the
+        # existing unenrolled process-local owners, not restart authority.
+        from src.storage.storage_engine import StorageEngine
+        from src.storage.sqlite_store import SQLiteStore
+        report['capital_enrollment_attempts'] = []
+        def forbid_capital_enrollment(*args, **kwargs):
+            report['capital_enrollment_attempts'].append('initialize_synthetic_capital_scope')
+            raise ForbiddenExternalIO('PRISTINE_READONLY_CAPITAL_ENROLLMENT_FORBIDDEN')
+        StorageEngine.initialize_synthetic_capital_scope = forbid_capital_enrollment
+        SQLiteStore.initialize_synthetic_capital_scope = forbid_capital_enrollment
 
     account = facts.get('account', 'SYNTHETIC_TEST')
     client_id = int(facts.get('client_id', 999))
@@ -404,12 +738,13 @@ try:
 
     # Supply discovery through its external provider protocol, never through a
     # prepared scanner payload, Focus row, pattern result or admission decision.
-    raw_fields = frozenset(('symbol', 'company_name', 'con_id', 'exchange',
+    raw_fields = frozenset(('symbol', 'company_name', 'long_name', 'aliases', 'con_id', 'exchange',
         'primary_exchange', 'trading_class', 'local_symbol', 'currency',
         'instrument_type', 'last_price', 'bid', 'ask', 'open', 'high', 'low',
         'close', 'prev_close', 'ref_close_rth', 'volume', 'float_shares',
         'current_intraday_volume', 'average_daily_volume_20d',
-        'average_daily_volume_window_days', 'volume_velocity_5m',
+        'average_daily_volume_window_days', 'historical_outcome', 'historical_end_received',
+        'volume_velocity_5m',
         'volume_velocity_15m', 'quote_timestamp_utc', 'quote_timestamp_source',
         'requested_market_data_type', 'returned_market_data_type',
         'market_data_type_confirmed', 'received_at_utc',
@@ -419,9 +754,14 @@ try:
             for key, value in row.items() if key in raw_fields}
             for symbol, row in rows.items()}
     def historical_inventory(streams):
+        # This opt-in source clock is a datetime subclass. Preserve original
+        # external timestamps while satisfying its ordinary datetime type checks;
+        # retained-state cases keep their previous parser and clock behavior.
+        parse_timestamp = (Clock.fromisoformat if observe_pristine_cycle
+                           else datetime.fromisoformat)
         return {timeframe: [Candle(
             open=row['open'], high=row['high'], low=row['low'], close=row['close'],
-            volume=row['volume'], timestamp=(datetime.fromisoformat(row['timestamp'])
+            volume=row['volume'], timestamp=(parse_timestamp(row['timestamp'])
                 if row.get('timestamp') else None)) for row in rows]
             for timeframe, rows in streams.items()}
     candidates = candidate_inventory(facts.get('candidate_observations', {}))
@@ -442,7 +782,8 @@ try:
             primaryExchange=row.get('primary_exchange'),
             tradingClass=row.get('trading_class'), localSymbol=row.get('local_symbol'),
             currency=row.get('currency'), secType=row.get('instrument_type'),
-            longName=row.get('company_name')) for symbol, row in candidates.items()}}
+            longName=row.get('long_name',row.get('company_name')),company_name=row.get('company_name'),
+            aliases=row.get('aliases',())) for symbol, row in candidates.items()}}
 
         def connect(self):
             external_call('provider', 'connect')
@@ -484,7 +825,9 @@ try:
                 relative_volume=None, relative_volume_category=None,
                 volume_velocity_5m=row.get('volume_velocity_5m'),
                 volume_velocity_15m=row.get('volume_velocity_15m'),
-                volume_data_quality_flag=None)
+                volume_data_quality_flag=None,
+                historical_outcome=row.get('historical_outcome'),
+                historical_end_received=row.get('historical_end_received'))
 
         def get_float(self, symbol):
             external_call('provider', 'get_float', symbol=symbol)
@@ -516,7 +859,14 @@ try:
     def external_history(*, symbol, timeframe='1m', limit=50, **kwargs):
         external_call('history', 'get_intraday_bars', symbol=symbol,
                       timeframe=timeframe, limit=limit)
-        return list(source_bars.get(timeframe, []))[-limit:] if symbol in candidates else []
+        bars = list(source_bars.get(timeframe, []))[-limit:] if symbol in candidates else []
+        response = facts.get('historical_source_responses', {}).get(timeframe)
+        if response is not None:
+            from src.ibkr.market_data_client import HistoricalDataResult
+            from src.market_data.candidate_identity import CandidateIdentity
+            return HistoricalDataResult(response['status'],tuple(bars),response['end_received'],
+                contract_identity=CandidateIdentity(**response['contract_identity']))
+        return bars
     pattern_trace.get_intraday_bars = external_history
     pattern_trace.historical_data_provider.get_intraday_bars = external_history
     # This availability witness tests only the external fixture boundary.  Its
@@ -625,15 +975,126 @@ try:
             return _method(self, *args, **kwargs)
         setattr(EClient, method_name, observed_sdk)
 
+    owned_quote_reads = set()
+    owned_history_reads = set()
     def send_message(message):
-        opcode = str(message).split('\0', 1)[0]
+        fields = str(message).split('\0')
+        opcode = fields[0]
         report['wire_attempts'].append({'opcode': opcode,
             'mutation': opcode in {str(OUT.PLACE_ORDER), str(OUT.CANCEL_ORDER), str(OUT.REQ_GLOBAL_CANCEL)}})
         if report['wire_attempts'][-1]['mutation']:
             raise SyntheticWriteBoundary('COLD_CORE_SYNTHETIC_NATIVE_WRITE_ATTEMPT')
+        if observe_pristine_cycle:
+            # Only this supplied security's real read encoders reach a memory
+            # transport. The actual Native callbacks retain request ownership.
+            if opcode in {str(OUT.REQ_CONTRACT_DATA),str(OUT.REQ_MKT_DATA)}:
+                request_id = int(fields[2])
+                context = client._request_context_by_req_id.get(request_id,{})
+                symbol = context.get('symbol')
+                row = candidates.get(symbol)
+                expected = ('CONTRACT_DETAILS' if opcode==str(OUT.REQ_CONTRACT_DATA) else 'MARKET_DATA')
+                if row is None or context.get('request_type')!=expected or context.get('con_id') not in (0,row['con_id']):
+                    raise ForbiddenExternalIO('UNSUPPLIED_SYNTHETIC_READ_SCOPE:'+opcode)
+                report['native_read_requests'].append(dict(opcode=opcode,request_id=request_id,
+                    symbol=symbol,request_type=expected,con_id=row['con_id']))
+                if expected=='CONTRACT_DETAILS':
+                    detail=ContractDetails();detail.contract=Contract()
+                    for name,value in dict(symbol=symbol,conId=row['con_id'],exchange=row['exchange'],
+                            currency=row['currency'],secType=row['instrument_type'],localSymbol=row['local_symbol']).items():
+                        setattr(detail.contract,name,value)
+                    detail.longName=row['company_name']
+                    client.contractDetails(request_id,detail)
+                    client.contractDetailsEnd(request_id)
+                else:
+                    owned_quote_reads.add(request_id)
+                    client.marketDataType(request_id,{'LIVE':1,'FROZEN':2,'DELAYED':3,'DELAYED_FROZEN':4}[row['returned_market_data_type']])
+                    for kind,value in ((1,row['bid']),(2,row['ask']),(4,row['last_price']),(9,row['prev_close'])):
+                        client.tickPrice(request_id,kind,value,None)
+                    client.tickSize(request_id,8,row['volume'])
+                    stamp=datetime.fromisoformat(row['quote_timestamp_utc'])
+                    client.tickString(request_id,45,str(int(stamp.timestamp())))
+                    if row['snapshot_complete'] is True:
+                        client.tickSnapshotEnd(request_id)
+                return
+            if opcode==str(OUT.REQ_MARKET_DATA_TYPE):
+                # Actual quote owner selects its request mode before reqMktData.
+                if int(fields[2])!=client._requested_market_data_type_code or not candidates:
+                    raise ForbiddenExternalIO('UNSUPPLIED_SYNTHETIC_READ_MODE')
+                report['native_read_requests'].append(dict(opcode=opcode,request_type='MARKET_DATA_MODE',mode=int(fields[2])))
+                return
+            if opcode==str(OUT.CANCEL_MKT_DATA) and int(fields[2]) in owned_quote_reads:
+                report['native_read_requests'].append(dict(opcode=opcode,request_type='OWNED_MARKET_DATA_CANCEL',request_id=int(fields[2])))
+                return  # Read subscription cleanup, never an order cancellation.
+            if facts.get('observe_pristine_paper_cycle') and opcode==str(OUT.REQ_HISTORICAL_DATA):
+                from src.adapters.data.historical_bar_timeframes import resolve_intraday_timeframe_request
+                from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
+                from ibapi.common import BarData
+                request = resolve_intraday_timeframe_request(timeframe='10s',requested_bars=10)
+                bars = source_bars.get('10s',[])
+                request_id = validate_pristine_paper_history_read(actual_client=client,expected_client=client,
+                    core=core,plan=facts['paper_memory_plan'],fields=fields,owned_reads=owned_history_reads,
+                    timeframe_request=request,source_response=facts.get('historical_source_responses',{}).get('10s',{}),
+                    supplied_bars=bars,now=observed,monotonic_now=real_elapsed_time.monotonic(),
+                    max_scope_age=get_ibkr_snapshot_max_age_seconds())
+                owned_history_reads.add(request_id)
+                report['native_read_requests'].append(dict(opcode=opcode,request_type='HISTORICAL_DATA',
+                    request_id=request_id,symbol=facts['paper_memory_plan']['symbol'],timeframe='10s',
+                    source_dates=[bar.timestamp.isoformat() for bar in bars],source_count=len(bars)))
+                for supplied in bars:
+                    bar = BarData()
+                    # Existing callback date field carries the ORIGINAL supplied
+                    # aware ISO time. This is no broker date-wire normalization
+                    # certificate and never retimes a pre-fill completed bar.
+                    bar.date = supplied.timestamp.isoformat()
+                    for name in ('open','high','low','close','volume'):
+                        setattr(bar,name,getattr(supplied,name))
+                    client.historicalData(request_id,bar)
+                client.historicalDataEnd(request_id,bars[0].timestamp.isoformat(),bars[-1].timestamp.isoformat())
+                return  # Normal End-complete nonstreaming reads need no opcode25.
         raise ForbiddenExternalIO('UNSUPPLIED_SYNTHETIC_PROVIDER_REQUEST:' + opcode)
     client.sendMsg = send_message
     EClient.connect = no_network
+    if facts.get('observe_pristine_paper_cycle'):
+        from types import MethodType
+        from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
+        paper_plan = facts['paper_memory_plan']
+        report['synthetic_memory_dispatches'] = []
+        report['paper_external_steps'] = []
+        report['trade_exit_shutdown_calls'] = []
+        from src.execution.trade_exit_engine import TradeExitEngine
+        actual_trade_exit_shutdown = TradeExitEngine.shutdown
+        def observed_trade_exit_shutdown(actual_engine, *args, **kwargs):
+            report['trade_exit_shutdown_calls'].append(dict(cycle=active_cycle[0],
+                core_owned=core is not None and actual_engine is core.trade_exit_engine))
+            return actual_trade_exit_shutdown(actual_engine, *args, **kwargs)
+        TradeExitEngine.shutdown = observed_trade_exit_shutdown
+        def memory_place_order(actual_client, native_id, contract, native):
+            committed = native_namespace(database_snapshot())
+            root_id, role = validate_pristine_paper_memory_write(
+                actual_client=actual_client, expected_client=client, core=core, plan=paper_plan,
+                dispatches=report['synthetic_memory_dispatches'], native_id=native_id,
+                contract=contract, native=native, committed=committed,
+                risk_rows=report.get('risk_evaluations', []), now=observed,
+                max_scope_age=get_ibkr_snapshot_max_age_seconds())
+            # No SDK encoder/sendMsg call: this single instance has a provided
+            # memory-only external exchange. Global mutation barriers remain.
+            report['synthetic_memory_dispatches'].append(dict(role=role, native_id=native_id,
+                root_id=root_id, contract=plain(contract), order=plain(native),
+                committed_before_ack=copy.deepcopy(committed), cycle=active_cycle[0]))
+            supplied_contract = Contract()
+            for name,value in dict(symbol=paper_plan['symbol'], conId=paper_plan['con_id'],
+                    exchange=paper_plan['exchange'], currency=paper_plan['currency'], secType='STK').items():
+                setattr(supplied_contract,name,value)
+            supplied_order = copy.deepcopy(native)
+            supplied_order.account = paper_plan['account']
+            supplied_order.clientId = paper_plan['client_id']
+            row = NS(orderId=native_id, contract=supplied_contract, order=supplied_order,
+                orderState=NS(status='Submitted'))
+            orders.append(row)
+            client.openOrder(native_id, supplied_contract, supplied_order, row.orderState)
+            client.orderStatus(native_id, 'Submitted', 0, 1, 0., native_id, native.parentId,
+                0., paper_plan['client_id'], '', 0.)
+        client.placeOrder = MethodType(memory_place_order,client)
 
     report['database_before'] = database_snapshot()
     report['native_before'] = native_namespace(report['database_before'])
@@ -663,6 +1124,65 @@ try:
             'client': type(client).__module__ + '.' + type(client).__name__}
     report['database_after_constructor'] = database_snapshot()
     report['native_after_constructor'] = native_namespace(report['database_after_constructor'])
+    if report['constructor_complete'] and observe_pristine_cycle:
+        report['registry_evaluations'] = []
+        report['decision_artifacts'] = []
+        report['risk_evaluations'] = []
+        report['focus_selections'] = []
+        for strategy in core.strategy_runner.strategies:
+            registry = getattr(strategy, '_pattern_registry', None)
+            if registry is None:
+                continue
+            actual_registry_run = registry.run
+            def observed_registry(inputs, _actual=actual_registry_run, **kwargs):
+                result = _actual(inputs, **kwargs)
+                report['registry_evaluations'].append(plain(dict(
+                    result_count=len(result), results=result, source=inputs)))
+                return result
+            registry.run = observed_registry
+        actual_artifact_builder = core_module.build_decision_artifact
+        def observed_artifact(**kwargs):
+            artifact = actual_artifact_builder(**kwargs)
+            report['decision_artifacts'].append(plain(artifact))
+            return artifact
+        core_module.build_decision_artifact = observed_artifact
+        actual_risk = core.risk_engine.evaluate_trade_intent
+        def observed_risk(intent, *args, **kwargs):
+            decision = actual_risk(intent, *args, **kwargs)
+            report['risk_evaluations'].append(dict(intent=plain(intent), decision=plain(decision)))
+            return decision
+        core.risk_engine.evaluate_trade_intent = observed_risk
+        actual_focus = scanner_runner._select_ross_focus_contexts
+        def observed_focus(contexts, news, thresholds, **kwargs):
+            result = actual_focus(contexts, news, thresholds, **kwargs)
+            report['focus_selections'].append(dict(contexts=plain(contexts), news=plain(news),
+                selected=plain(result)))
+            return result
+        scanner_runner._select_ross_focus_contexts = observed_focus
+        if facts.get('observe_pristine_paper_cycle'):
+            report['execution_results'] = []
+            if facts.get('observe_pristine_paper_loss_feedback'):
+                report['exposure_release_calls'] = []
+                for label,owner in (('capital',core.execution_engine.capital_authority),
+                        ('allocation',core.execution_engine.strategy_allocation_authority)):
+                    actual_release = owner.release_exposure
+                    def observed_release(*args,_actual=actual_release,_owner=owner,_label=label,**kwargs):
+                        return observed_pristine_paper_exposure_release(_actual,_owner,_label,*args,**kwargs)
+                    owner.release_exposure = observed_release
+            actual_execute = core.execution_engine.execute_trade
+            def observed_execute(decision):
+                result = actual_execute(decision)
+                report['execution_results'].append(plain(result))
+                return result
+            core.execution_engine.execute_trade = observed_execute
+            report['selected_failure_evaluations'] = []
+            actual_selected_failure = core.trade_management_engine.evaluate_selected_completed_failure
+            def observed_selected_failure(order,bars,**kwargs):
+                result = actual_selected_failure(order,bars,**kwargs)
+                report['selected_failure_evaluations'].append(dict(root_id=order['request']['client_order_id'],
+                    bars=plain(bars),result=plain(result),observed_at=plain(kwargs['observed_at'])))
+                return result
+            core.trade_management_engine.evaluate_selected_completed_failure = observed_selected_failure
     if report['constructor_complete']:
         def run_actual_cycle(scenario_name=None, scenario_cycle=None):
             index = len(report['cycles']) + 1
@@ -682,6 +1202,11 @@ try:
                 cycle['exception'] = exception_record(exc)
                 report['cycle_exception'] = cycle['exception']
             cycle['engine'] = engine_snapshot(core.execution_engine)
+            governor = core.daily_risk_governor
+            cycle['daily_risk'] = dict(state=plain(governor.state),
+                decision=(governor.last_decision.to_dict() if governor.last_decision is not None else None))
+            if facts.get('observe_pristine_paper_loss_feedback'):
+                cycle['exposure_release_calls_after'] = len(report['exposure_release_calls'])
             cycle['database'] = database_snapshot()
             cycle['native'] = native_namespace(cycle['database'])
             cycle['cached_reads_after'] = len(report['cached_order_status_reads'])
@@ -694,7 +1219,63 @@ try:
             report['cycles'].append(cycle)
             report['after_cycle'] = cycle['engine']
             return index
-        if scenarios is None:
+        paper_steps = facts.get('paper_cycle_steps')
+        if paper_steps is not None:
+            if (not facts.get('observe_pristine_paper_cycle') or scenarios is not None
+                    or not isinstance(paper_steps,list) or not 1 <= len(paper_steps) <= 5):
+                raise ValueError('PRISTINE_PAPER_STEPS_INVALID')
+            from decimal import Decimal
+            from ibapi.execution import Execution
+            report['paper_execution_callbacks'] = []
+            for step in paper_steps:
+                observed = datetime.fromisoformat(step['now'])
+                if 'market_quote' in step:
+                    from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
+                    update = validate_pristine_paper_market_fact(plan=facts['paper_memory_plan'],
+                        quote=step['market_quote'],now=observed,max_age=get_ibkr_snapshot_max_age_seconds())
+                    candidates[facts['paper_memory_plan']['symbol']].update(update)
+                positions = [NS(**row) for row in step['positions']]
+                supplied_orders = []
+                for raw in step['open_orders']:
+                    matches = [row for row in report['synthetic_memory_dispatches'] if row['role']==raw['leg']]
+                    if len(matches)!=1:
+                        raise ForbiddenExternalIO('UNBOUND_PAPER_INVENTORY_LEG')
+                    bound = matches[0]
+                    value = copy.deepcopy(raw)
+                    value['orderId'] = bound['native_id']
+                    if value['order'].get('orderRef') == '$RETAINED_ROOT':
+                        value['order']['orderRef'] = bound['root_id']
+                    if value['order'].get('orderRef') == 'PROTECT|$RETAINED_ROOT':
+                        value['order']['orderRef'] = 'PROTECT|' + bound['root_id']
+                    if value['order'].get('parentId') == '$ENTRY_NATIVE_ID':
+                        value['order']['parentId'] = next(row['native_id'] for row in
+                            report['synthetic_memory_dispatches'] if row['role']=='entry')
+                    supplied_orders.extend(native_inventory([value]))
+                orders = supplied_orders
+                client._open_orders_snapshot = {row.orderId:row for row in orders}
+                for row in orders:
+                    client.openOrder(row.orderId,row.contract,row.order,row.orderState)
+                for raw in step.get('executions', []):
+                    bound = validate_pristine_paper_execution_fact(actual_client=client,expected_client=client,
+                        core=core,plan=facts['paper_memory_plan'],dispatches=report['synthetic_memory_dispatches'],
+                        raw=raw,now=observed)
+                    contract = Contract()
+                    for name,value in raw['contract'].items():
+                        setattr(contract,name,value)
+                    execution = Execution()
+                    for name,value in raw['execution'].items():
+                        setattr(execution,name,Decimal(str(value)) if name in {'shares','cumQty'} else value)
+                    execution.orderId = bound['native_id']
+                    client.execDetails(-1,contract,execution)
+                    status = raw['status']
+                    client.orderStatus(bound['native_id'],status['status'],status['filled'],
+                        status['remaining'],status['avgFillPrice'],bound['native_id'],bound['order']['parentId'],
+                        status['avgFillPrice'],raw['execution']['clientId'],'',0.)
+                    report['paper_execution_callbacks'].append(dict(leg=raw['leg'],native_id=bound['native_id'],
+                        root_id=bound['root_id'],parent_id=bound['order']['parentId'],execution=plain(execution)))
+                report['paper_external_steps'].append(plain(step))
+                run_actual_cycle(step['name'],1)
+        elif scenarios is None:
             cycle_count = int(facts.get('cycles', 2))
             if not 0 <= cycle_count <= 5:
                 raise ValueError('COLD_CORE_CYCLE_COUNT_MUST_BE_BETWEEN_ZERO_AND_FIVE')
@@ -716,6 +1297,8 @@ try:
         report['registry'] = plain(core.trade_registry.snapshot())
     report['database_after_cycle'] = database_snapshot()
     report['native_after_cycle'] = native_namespace(report['database_after_cycle'])
+    if facts.get('observe_pristine_paper_cycle'):
+        report['native_history_pending_ids'] = sorted(client._historical_states)
     report['mutation_attempts'] = mutation_snapshot()
     report['stage'] = 'COMPLETE'
 except BaseException as exc:
@@ -723,6 +1306,34 @@ except BaseException as exc:
 finally:
     sys.setprofile(globals().get('previous_profile'))
     threading.setprofile(globals().get('previous_thread_profile'))
+    if core is not None and facts.get('observe_pristine_readonly_cycle'):
+        try:
+            if (core.run_mode.value != 'READ_ONLY' or core.trade_registry.snapshot()
+                    or native_namespace(report.get('database_before', {})) is not None):
+                raise RuntimeError('PRISTINE_ONLY_SHUTDOWN_PRECONDITION_FAILED')
+            from src.core.stop_controller import StopMode
+            core._shutdown(StopMode.GRACEFUL)
+            report['cleanup']['core_shutdown_evidence'] = plain(core.shutdown_evidence.payload())
+            report['cleanup']['core_shutdown_complete'] = all(row['completed']
+                for row in core.shutdown_evidence.hooks)
+        except BaseException as exc:
+            report['cleanup']['core_shutdown_exception'] = exception_record(exc)
+    elif core is not None and facts.get('observe_pristine_paper_cycle'):
+        # Preserve the owned protected PAPER position. Core._shutdown would
+        # invoke TradeExitEngine's synthetic force-close; never use that as a
+        # fabricated broker terminal fact. Close only this process's resources.
+        report['cleanup']['paper_before_resource_close'] = engine_snapshot(core.execution_engine)
+        maintenance = getattr(core,'_news_maintenance',None)
+        try:
+            report['cleanup']['news_maintenance_closed'] = maintenance is None or maintenance.close()
+            scanner_runner.reset_scanner_runtime_state(clear_persistent_provider=True,
+                suppress_disconnect_errors=False)
+            report['cleanup']['scanner_runtime_close_complete'] = True
+            core.execution_engine.shutdown()
+            report['cleanup']['execution_resource_close_complete'] = True
+        except BaseException as exc:
+            report['cleanup']['paper_resource_close_exception'] = exception_record(exc)
+        report['cleanup']['paper_after_resource_close'] = engine_snapshot(core.execution_engine)
     # No synthetic flat/terminal outcome and no reservation/latch clearing.
     # Close only this interpreter's external connection and owned DB handle.
     try:
@@ -789,14 +1400,18 @@ def run_native_core_cold_start(database_path, facts_path, evidence_dir, *,
         SCANNER_FLOAT_CACHE_FILE=str(sandbox / 'float.json'),
         DECISION_TRACE_PATH=str(sandbox / 'decision-trace.jsonl'),
         FORCE_CLEAN_START='false', FLATTEN_ON_STARTUP='false',
-        LEARNING_ENABLED='false', MANUAL_FOCUS_ENABLED='false')
+        LEARNING_ENABLED='false', MANUAL_FOCUS_ENABLED='false',
+        # Redirected Windows stdio otherwise uses the locale code page: real
+        # pipeline logging can abort a cycle before any native entry exists.
+        PYTHONIOENCODING='utf-8')
     # Keep the unchanged child body out of Windows' bounded command line.
     # Retain the exact launched source alongside its existing private evidence.
     child_source = evidence_dir / 'native-core-child.py'
     child_source.write_text(_NATIVE_CORE_COLD_START_CHILD, encoding='utf-8')
     process = subprocess.Popen([sys.executable, str(child_source),
         str(database_path), str(facts_path), str(report_path), str(fault)],
-        cwd=sandbox, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        cwd=sandbox, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True, encoding='utf-8')
     timed_out = False
     supervisor_errors = []
     stdout = stderr = ''
@@ -848,11 +1463,15 @@ def test_native_core_child_absolute_offline_guard_blocks_fake_backends(monkeypat
     import pytest
     captured = {}
     captured_argv = []
+    captured_stdio = {}
+    # Reproduce Windows redirected-stdio encoding even on a UTF-8 host.
+    monkeypatch.setenv('PYTHONIOENCODING', 'cp1252')
     class CapturedEnvironment(BaseException):
         pass
     def capture_process(argv, **kwargs):
         captured_argv.extend(argv)
         captured.update(kwargs['env'])
+        captured_stdio['encoding'] = kwargs.get('encoding')
         raise CapturedEnvironment()
     facts = tmp_path / 'guard-facts.json'
     facts.write_text('{}')
@@ -913,14 +1532,20 @@ for name,call in calls.items():
 import curl_cffi
 print(json.dumps({'denied':denied,'socket_backend_calls':socket.calls,
  'curl_backend_calls':curl_cffi.calls,
- 'guard_file':getattr(sys.modules.get('sitecustomize'),'__file__',None)}))
+ 'guard_file':getattr(sys.modules.get('sitecustomize'),'__file__',None),
+ 'unicode_log':'native \u2192 pipeline \u2014'},ensure_ascii=False))
+sys.stderr.write('stderr \u2192 \u2014 \u00e9')
 """
     env = dict(captured)
     env['PYTHONPATH'] = str(backends) + os.pathsep + env['PYTHONPATH']
     child = subprocess.run([sys.executable, '-c', script], cwd=backends, env=env,
-        text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10)
+        text=True, encoding=captured_stdio['encoding'],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10)
     assert child.returncode == 0, child.stderr
     result = json.loads(child.stdout)
+    assert result['unicode_log'] == 'native \u2192 pipeline \u2014'
+    assert child.stderr == 'stderr \u2192 \u2014 \u00e9'
+    assert captured['PYTHONIOENCODING'] == captured_stdio['encoding'] == 'utf-8'
     (tmp_path / 'offline-backend-proof.json').write_text(json.dumps(result, indent=2))
     assert result['socket_backend_calls'] == [] and result['curl_backend_calls'] == [], result
     assert set(result['denied']) == {'dns','connect','connect_ex','create_connection','udp','curl','async_curl'}, result

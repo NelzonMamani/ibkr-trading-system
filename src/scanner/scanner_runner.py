@@ -3694,10 +3694,11 @@ def _extended_only_tier_budget() -> float:
     return max(0.0, total_budget_seconds - _fast_only_tier_budget())
 
 
-def _enrich_news_context(symbols, provider_source, symbol_metadata_by_symbol=None, news_maintenance=None):
+def _enrich_news_context(symbols, provider_source, symbol_metadata_by_symbol=None, news_maintenance=None, *, cache_only=False):
     started = time.monotonic()
     checkpoint()
-    contexts, diagnostic = _enrich_news_context_impl(symbols, provider_source, symbol_metadata_by_symbol, news_maintenance)
+    contexts, diagnostic = _enrich_news_context_impl(symbols, provider_source, symbol_metadata_by_symbol, news_maintenance,
+        **({"cache_only": True} if cache_only else {}))
     checkpoint()
     if RossPolicy().issuer_query_enabled:
         diagnostic.news_intelligence_diagnostics["ross_consumer_elapsed_seconds"] = time.monotonic() - started
@@ -3709,6 +3710,8 @@ def _enrich_news_context_impl(
     provider_source: str,
     symbol_metadata_by_symbol: Optional[Dict[str, Dict[str, Any]]] = None,
     news_maintenance=None,
+    *,
+    cache_only=False,
 ) -> tuple[Dict[str, Dict[str, Any]], NewsDiagnostics]:
     candidates = _news_candidates_for_symbols(symbols, symbol_metadata_by_symbol)
     if not candidates:
@@ -3716,6 +3719,16 @@ def _enrich_news_context_impl(
         return {}, diagnostics
 
     request = _ross_news_request()
+    if cache_only:
+        # PAPER consumes original canonical facts under the existing issuer/
+        # publication/dilution policy. This grants no acquisition or publication
+        # authority, including on cache miss or degraded coverage.
+        policy = replace(_ross_retrieval_policy(refresh_mode="cache_only", network_allowed=False),
+            allow_cache_write=False)
+        result = (news_maintenance.read(candidates,request,policy) if news_maintenance is not None
+            else _news_intelligence_service_for_scanner().get_news(candidates,request,policy))
+        contexts = _ross_news_contexts_from_news_intelligence_result(result)
+        return contexts, _news_diagnostics_from_news_intelligence_result(result,contexts)
     if news_maintenance is not None:
         policy = _ross_retrieval_policy(refresh_mode="bounded_refresh", network_allowed=True)
         news_maintenance.submit(candidates,request,policy)
@@ -6474,10 +6487,13 @@ def run_scanner_cycle(
         watchlist_limit = limits["watchlist_limit"]
         news_enabled = bool(get_config("NEWS_ENABLED"))
         news_skip_status: str | None = None
-        allow_news = news_enabled and run_mode not in {
-            RunMode.LIVE,
-            RunMode.PAPER,
-        }
+        # This PAPER cache enrollment is bounded to the existing P01 selection
+        # identity. Other strategies keep their previous PAPER news exclusion.
+        paper_news_allowed = (run_mode != RunMode.PAPER or (
+            resolved_policy.policy_name == request.policy_name == "ROSS_MOMENTUM"
+            and resolved_policy.ranking_intent == request.ranking_intent == "ROSS_MOMENTUM_STOCK_SELECTION"
+            and str(request.strategy_name).strip().lower() == "ross_momentum"))
+        allow_news = news_enabled and run_mode != RunMode.LIVE and paper_news_allowed
         if explicit_mock:
             allow_news = False
         if allow_news and _runtime_bound_reached("pre_news"):
@@ -6541,6 +6557,7 @@ def run_scanner_cycle(
                 provider_source,
                 symbol_metadata_by_symbol=news_symbol_metadata,
                 **({"news_maintenance": news_maintenance} if news_maintenance is not None else {}),
+                **({"cache_only": True} if run_mode == RunMode.PAPER else {}),
             )
             news_by_symbol = _merge_news_contexts(fetched_news, prep_news_by_symbol)
             news_diag = _with_news_status_index(news_diag, news_by_symbol)
@@ -6931,6 +6948,7 @@ def run_scanner_cycle(
                 provider_source,
                 symbol_metadata_by_symbol=news_symbol_metadata,
                 **({"news_maintenance": news_maintenance} if news_maintenance is not None else {}),
+                **({"cache_only": True} if run_mode == RunMode.PAPER else {}),
             )
             news_by_symbol = _merge_news_contexts(fetched_news, news_by_symbol)
             news_diag = _with_news_status_index(news_diag, news_by_symbol)
