@@ -1400,14 +1400,18 @@ def run_native_core_cold_start(database_path, facts_path, evidence_dir, *,
         SCANNER_FLOAT_CACHE_FILE=str(sandbox / 'float.json'),
         DECISION_TRACE_PATH=str(sandbox / 'decision-trace.jsonl'),
         FORCE_CLEAN_START='false', FLATTEN_ON_STARTUP='false',
-        LEARNING_ENABLED='false', MANUAL_FOCUS_ENABLED='false')
+        LEARNING_ENABLED='false', MANUAL_FOCUS_ENABLED='false',
+        # Redirected Windows stdio otherwise uses the locale code page: real
+        # pipeline logging can abort a cycle before any native entry exists.
+        PYTHONIOENCODING='utf-8')
     # Keep the unchanged child body out of Windows' bounded command line.
     # Retain the exact launched source alongside its existing private evidence.
     child_source = evidence_dir / 'native-core-child.py'
     child_source.write_text(_NATIVE_CORE_COLD_START_CHILD, encoding='utf-8')
     process = subprocess.Popen([sys.executable, str(child_source),
         str(database_path), str(facts_path), str(report_path), str(fault)],
-        cwd=sandbox, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        cwd=sandbox, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True, encoding='utf-8')
     timed_out = False
     supervisor_errors = []
     stdout = stderr = ''
@@ -1459,11 +1463,15 @@ def test_native_core_child_absolute_offline_guard_blocks_fake_backends(monkeypat
     import pytest
     captured = {}
     captured_argv = []
+    captured_stdio = {}
+    # Reproduce Windows redirected-stdio encoding even on a UTF-8 host.
+    monkeypatch.setenv('PYTHONIOENCODING', 'cp1252')
     class CapturedEnvironment(BaseException):
         pass
     def capture_process(argv, **kwargs):
         captured_argv.extend(argv)
         captured.update(kwargs['env'])
+        captured_stdio['encoding'] = kwargs.get('encoding')
         raise CapturedEnvironment()
     facts = tmp_path / 'guard-facts.json'
     facts.write_text('{}')
@@ -1524,14 +1532,20 @@ for name,call in calls.items():
 import curl_cffi
 print(json.dumps({'denied':denied,'socket_backend_calls':socket.calls,
  'curl_backend_calls':curl_cffi.calls,
- 'guard_file':getattr(sys.modules.get('sitecustomize'),'__file__',None)}))
+ 'guard_file':getattr(sys.modules.get('sitecustomize'),'__file__',None),
+ 'unicode_log':'native \u2192 pipeline \u2014'},ensure_ascii=False))
+sys.stderr.write('stderr \u2192 \u2014 \u00e9')
 """
     env = dict(captured)
     env['PYTHONPATH'] = str(backends) + os.pathsep + env['PYTHONPATH']
     child = subprocess.run([sys.executable, '-c', script], cwd=backends, env=env,
-        text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10)
+        text=True, encoding=captured_stdio['encoding'],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10)
     assert child.returncode == 0, child.stderr
     result = json.loads(child.stdout)
+    assert result['unicode_log'] == 'native \u2192 pipeline \u2014'
+    assert child.stderr == 'stderr \u2192 \u2014 \u00e9'
+    assert captured['PYTHONIOENCODING'] == captured_stdio['encoding'] == 'utf-8'
     (tmp_path / 'offline-backend-proof.json').write_text(json.dumps(result, indent=2))
     assert result['socket_backend_calls'] == [] and result['curl_backend_calls'] == [], result
     assert set(result['denied']) == {'dns','connect','connect_ex','create_connection','udp','curl','async_curl'}, result
