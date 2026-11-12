@@ -277,7 +277,7 @@ def test_shutdown_event_failure_does_not_skip_cleanup(monkeypatch):
     from src.core.stop_controller import StopMode
     from src.ibkr import shutdown_evidence
     called = []
-    engine = SimpleNamespace(shutdown=lambda: called.append("engine"))
+    engine = SimpleNamespace(shutdown=lambda **kwargs: called.append("engine"))
     instance = object.__new__(CoreOrchestrator)
     from src.core.stop_controller import StopController
     instance.stop_controller = StopController()

@@ -3,6 +3,7 @@ import pytest
 from core.orchestrator import CoreOrchestrator
 from core.stop_controller import StopMode
 from src.config.config_resolver import set_config_overrides
+from src.execution.trade_exit_engine import ShutdownExecutionContext
 
 
 @pytest.fixture(autouse=True)
@@ -50,9 +51,11 @@ def test_shutdown_hooks_continue_after_failure():
     class RecordingEngine:
         def __init__(self):
             self.called = False
+            self.execution_context = None
 
-        def shutdown(self):
+        def shutdown(self, *, execution_context=None):
             self.called = True
+            self.execution_context = execution_context
 
     orchestrator.execution_engine = FailingEngine()
     orchestrator.trade_exit_engine = RecordingEngine()
@@ -68,6 +71,10 @@ def test_shutdown_hooks_continue_after_failure():
 
     assert orchestrator.trade_exit_engine.called is True
     assert orchestrator.storage_engine.called is True
+    # Replacing execution with an incomplete owner leaves context unknown;
+    # that fail-closed fact must still reach the later trade-exit hook.
+    assert orchestrator.trade_exit_engine.execution_context == ShutdownExecutionContext()
+    assert orchestrator.storage_engine.execution_context is None
     assert "SHUTDOWN_HOOK_FAILED" in event_types
     assert "SHUTDOWN_COMPLETE" in event_types
 

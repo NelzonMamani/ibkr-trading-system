@@ -84,7 +84,7 @@ def fake_orchestrator(monkeypatch, nonessential=None, execution=None):
     instance._stop_payload = lambda mode: {}
     called = []
     def hook(name):
-        def invoke():
+        def invoke(**kwargs):
             called.append(name)
             if nonessential is not None:
                 return nonessential()
@@ -122,6 +122,249 @@ def test_graceful_hook_failure_is_isolated(monkeypatch):
     instance._shutdown(StopMode.GRACEFUL)
     assert called == list(shutdown.REQUIRED_HOOKS)[1:]
     assert instance.shutdown_evidence.hooks[0]["completed"] is False
+
+
+def _shutdown_ownership_owner(mode, provider_kind="native"):
+    """Build existing owners without a Core constructor or external clients."""
+    from src.core.active_trade_registry import ActiveTradeRegistry
+    from src.core.orchestrator import CoreOrchestrator
+    from src.execution.execution_engine import ExecutionEngine
+    from src.execution.execution_providers import IbkrExecutionProvider, PaperExecutionProvider
+    from src.execution.order_models import PendingOrderBook
+    from src.sim.price_feed import DeterministicPriceFeed
+
+    core = object.__new__(CoreOrchestrator)
+    core.run_mode = mode
+    engine = object.__new__(ExecutionEngine)
+    engine.run_mode = mode
+    engine.execution_enabled = True
+    engine._native_orders = {}
+    engine._native_state = None
+    engine._native_quarantined = False
+    engine.position_records = {}
+    engine.pending_book = PendingOrderBook()
+    engine.capital_authority = SimpleNamespace(capital_scope=None, active_reservations={})
+    engine.strategy_allocation_authority = SimpleNamespace(active_reservations={})
+    if provider_kind == "native":
+        engine._provider = IbkrExecutionProvider(
+            broker=SimpleNamespace(connected=True), trade_registry=ActiveTradeRegistry(), run_mode=mode)
+    elif provider_kind == "simulator":
+        engine._provider = PaperExecutionProvider(
+            price_feed=DeterministicPriceFeed(), trade_registry=ActiveTradeRegistry(),
+            event_collector=SimpleNamespace(), run_mode=mode)
+    elif provider_kind == "disabled":
+        engine._provider = None
+        engine.execution_enabled = False
+    else:
+        engine._provider = SimpleNamespace(is_live=lambda: False)
+    core.execution_engine = engine
+    return core, engine
+
+
+@pytest.mark.parametrize("provider_kind,mode,simulator", [
+    ("native", "PAPER", False), ("native", "LIVE", False),
+    ("simulator", "PAPER", True), ("simulator", "SIM", True),
+    ("disabled", "SIM", True), ("disabled", "READ_ONLY", False),
+])
+def test_shutdown_context_uses_resolved_provider_not_connection(provider_kind, mode, simulator):
+    from src.config.runtime_config import RunMode
+
+    core, engine = _shutdown_ownership_owner(RunMode(mode), provider_kind)
+    if provider_kind == "native":
+        engine._provider.broker.connected = False
+    context = core._trade_exit_shutdown_context()
+    assert context.run_mode == RunMode(mode)
+    assert context.simulator_backed is simulator
+    assert context.retained_native_ownership is False
+
+
+@pytest.mark.parametrize("retained", [
+    "protected", "ack_only", "partial", "historical_state", "quarantined",
+    "position_record", "pending", "capital_reservation", "allocation_reservation", "capital_scope",
+])
+@pytest.mark.parametrize("provider_kind", ["native", "simulator"])
+def test_shutdown_context_distinguishes_native_from_generic_simulator_ownership(retained, provider_kind):
+    from src.config.runtime_config import RunMode
+
+    core, engine = _shutdown_ownership_owner(RunMode.PAPER, provider_kind)
+    if retained in {"protected", "ack_only", "partial"}:
+        engine._native_orders["root"] = {"requested": 1,
+            "filled": {"protected": 1, "ack_only": 0, "partial": .5}[retained],
+            "terminal": retained == "protected"}
+        if retained != "ack_only":
+            engine.position_records["root"] = {"quantity": engine._native_orders["root"]["filled"]}
+    elif retained == "historical_state":
+        engine._native_state = {"orders": {}}
+    elif retained == "quarantined":
+        engine._native_quarantined = True
+    elif retained == "position_record":
+        engine.position_records["root"] = {"filled_qty": 1}
+    elif retained == "pending":
+        engine.pending_book.add(SimpleNamespace(client_order_id="pending"))
+    elif retained == "capital_reservation":
+        engine.capital_authority.active_reservations["cap"] = object()
+    elif retained == "allocation_reservation":
+        engine.strategy_allocation_authority.active_reservations["allocation"] = object()
+    else:
+        engine.capital_authority.capital_scope = object()
+    context = core._trade_exit_shutdown_context()
+    assert context.simulator_backed is (provider_kind == "simulator")
+    assert context.retained_native_ownership is (provider_kind == "native" or retained in {
+        "protected", "ack_only", "partial", "historical_state", "quarantined", "capital_scope"})
+    assert core._trade_exit_shutdown_context() == context
+
+
+def test_shutdown_real_simulator_fill_keeps_generic_position_record_and_teaching_close():
+    from src.brokers.base_broker import BrokerOrderRequest
+    from src.brokers.sim_broker import SimBroker
+    from src.config.config_resolver import clear_config_overrides, set_config_overrides
+    from src.config.runtime_config import RunMode
+    from src.core.orchestrator import CoreOrchestrator
+    from src.execution.execution_engine import ExecutionEngine
+    from src.execution.execution_providers import PaperExecutionProvider
+    from src.execution.trade_exit_engine import TradeExitEngine
+
+    class Price:
+        def price_for(self, *args):
+            return 10.75
+
+    set_config_overrides({"RUN_MODE": "PAPER", "RUN_MODE_EFFECTIVE": "PAPER",
+        "EXECUTION_ENABLED": True, "EXECUTION_ENABLED_EFFECTIVE": True,
+        "IBKR_READONLY_ENABLED": False})
+    try:
+        engine = ExecutionEngine(price_feed=Price())
+        assert isinstance(engine._provider, PaperExecutionProvider)
+        assert isinstance(engine._provider.broker, SimBroker)
+        assert engine.capital_authority.capital_scope is None
+        request = BrokerOrderRequest(client_order_id="sim-shutdown-entry", symbol="ABC",
+            direction="LONG", quantity=1, trader_type="SCALPER", strategy_name="TestStrategy",
+            created_tick=0, stop_loss_price=10.30, take_profit_price=None)
+        result = engine._provider.place_order(request)
+        assert result.filled_quantity == 1
+        engine._record_fill_and_position(request, result)
+        assert engine.position_records[request.client_order_id]["filled_qty"] == 1
+        assert len(engine.trade_registry.snapshot()) == 1
+        assert engine._selected_order_records() == {} and engine._native_state is None
+        core = object.__new__(CoreOrchestrator)
+        core.run_mode = RunMode.PAPER
+        core.execution_engine = engine
+        context = core._trade_exit_shutdown_context()
+        assert context.simulator_backed is True
+        assert context.retained_native_ownership is False
+        before_positions = dict(engine.position_records)
+        used_capital = engine.capital_authority.total_used_exposure
+        used_allocation = engine.strategy_allocation_authority.strategy_used_exposure("TestStrategy")
+        exit_owner = TradeExitEngine(engine.trade_registry, engine.event_collector, Price())
+        assert exit_owner.shutdown(current_tick=7, execution_context=context) is True
+        assert engine.trade_registry.snapshot() == []
+        assert len(engine.event_collector.filter_by_type("TRADE_CLOSED")) == 1
+        assert engine.event_collector.filter_by_type("TRADE_CLOSED")[0].payload["mode"] == "PAPER"
+        # Shutdown preserves the simulator's existing accounting semantics; it
+        # neither clears generic records nor claims a factual capital release.
+        assert engine.position_records == before_positions
+        assert engine.capital_authority.total_used_exposure == used_capital
+        assert engine.strategy_allocation_authority.strategy_used_exposure("TestStrategy") == used_allocation
+    finally:
+        clear_config_overrides()
+
+
+@pytest.mark.parametrize("uncertainty", [
+    "foreign_provider", "mode_mismatch", "missing_mode", "missing_native_state",
+    "malformed_records", "malformed_pending", "malformed_quarantine", "missing_capital",
+    "provider_mode_mismatch", "broker_mode_mismatch", "provider_live_contradiction",
+    "unknown_capital_reservations", "unknown_allocation_reservations",
+])
+def test_shutdown_context_never_converts_missing_or_inconsistent_facts_to_flat(uncertainty):
+    from src.config.runtime_config import RunMode
+
+    core, engine = _shutdown_ownership_owner(RunMode.PAPER, "simulator")
+    if uncertainty == "foreign_provider":
+        engine._provider = SimpleNamespace(is_live=lambda: False)
+    elif uncertainty == "mode_mismatch":
+        engine.run_mode = RunMode.SIM
+    elif uncertainty == "missing_mode":
+        del core.run_mode
+    elif uncertainty == "missing_native_state":
+        del engine._native_state
+    elif uncertainty == "malformed_records":
+        engine._native_orders = None
+    elif uncertainty == "malformed_pending":
+        engine.pending_book = SimpleNamespace(count=lambda: False)
+    elif uncertainty == "malformed_quarantine":
+        engine._native_quarantined = None
+    elif uncertainty == "missing_capital":
+        del engine.capital_authority
+    elif uncertainty == "provider_mode_mismatch":
+        engine._provider.run_mode = RunMode.LIVE
+    elif uncertainty == "broker_mode_mismatch":
+        engine._provider.broker.run_mode = RunMode.LIVE
+    elif uncertainty == "unknown_capital_reservations":
+        engine.capital_authority.active_reservations = None
+    elif uncertainty == "unknown_allocation_reservations":
+        engine.strategy_allocation_authority.active_reservations = None
+    else:
+        engine._provider.is_live = lambda: True
+    context = core._trade_exit_shutdown_context()
+    assert context.run_mode is None
+    assert context.simulator_backed is False
+    assert context.retained_native_ownership is None
+
+
+@pytest.mark.parametrize("ownership", ["protected", "ack_only", "partial"])
+def test_graceful_native_ownership_context_precedes_disconnect_and_other_hooks_continue(monkeypatch, ownership):
+    from src.config.runtime_config import RunMode
+    from src.core.active_trade_registry import ActiveTrade
+    from src.core.event_collector import EventCollector
+    from src.core.stop_controller import StopMode
+    from src.execution.trade_exit_engine import TradeExitEngine
+
+    instance, called = fake_orchestrator(monkeypatch)
+    owner, engine = _shutdown_ownership_owner(RunMode.PAPER)
+    instance.run_mode = owner.run_mode
+    quantity = {"protected": 1, "ack_only": 0, "partial": .5}[ownership]
+    engine._native_orders["root"] = {"requested": 1, "filled": quantity,
+        "terminal": ownership == "protected"}
+    instance.execution_engine = engine
+    registry = engine._provider.trade_registry
+    trade = ActiveTrade(symbol="JPM", trader_type="SCALPER", entry_tick=1,
+        entry_price=10.53, direction="LONG", quantity=quantity, strategy_name="ross_momentum",
+        stop_loss_price=10.2897)
+    if quantity:
+        registry.register_trade(trade)
+    else:
+        engine.capital_authority.active_reservations["cap"] = {"remaining_qty": 1}
+    expected_registry = [trade] if quantity else []
+    instance.trade_registry = registry
+    collector = EventCollector()
+    instance.trade_exit_engine = TradeExitEngine(registry, collector,
+        price_feed=SimpleNamespace(price_for=lambda *a: pytest.fail("native teaching price")))
+    original_capture = instance._trade_exit_shutdown_context
+    captures = []
+    def capture():
+        captures.append(engine._provider.broker.connected)
+        return original_capture()
+    instance._trade_exit_shutdown_context = capture
+    def disconnect():
+        called.append("execution_engine.shutdown")
+        engine._provider.broker.connected = False
+    engine.shutdown = disconnect
+    instance._shutdown(StopMode.GRACEFUL)
+    assert captures == [True]
+    assert registry.snapshot() == expected_registry
+    if quantity:
+        assert trade.state.value == "OPEN"
+    else:
+        assert engine.capital_authority.active_reservations == {"cap": {"remaining_qty": 1}}
+    assert not collector.filter_by_type("TRADE_CLOSED")
+    hooks = {row["hook"]: row for row in instance.shutdown_evidence.hooks}
+    assert hooks["trade_exit_engine.shutdown"]["completed"] is False
+    assert hooks["active_trade_registry.verify_empty"]["completed"] is (not bool(quantity))
+    assert all(hooks[name]["completed"] for name in (
+        "storage_engine.shutdown", "scanner_reset", "manager_disconnect",
+        "event_collector.flush_summary", "console_flush"))
+    instance._shutdown(StopMode.GRACEFUL)
+    assert captures == [True]
+    assert registry.snapshot() == expected_registry
 
 
 @pytest.mark.parametrize("execution_fails", [False, True])

@@ -283,6 +283,152 @@ def engine_snapshot(engine):
             if getattr(engine, 'relationship_manager', None) is not None else {}),
     })
 
+def native_shutdown_snapshot(core, provided_positions, provided_orders):
+    """Observe retained ownership separately from local connection availability."""
+    engine = core.execution_engine
+    strategies = {row['request'].get('strategy_name') for row in engine._native_orders.values()}
+    return plain(dict(engine=engine_snapshot(engine), database=database_snapshot(),
+        allocation_used_by_strategy={name:engine.strategy_allocation_authority.strategy_used_exposure(name)
+            for name in strategies if name},
+        supplied_positions=provided_positions, supplied_open_orders=provided_orders,
+        manager_has_original_client=manager.existing_client is client,
+        client_stop_event_set=client._stop_event.is_set()))
+
+def validate_pristine_native_ack_shutdown_ownership(*, before, parent, root_id, plan,
+        provided_positions, provided_orders, callbacks, dispatches, cycles):
+    """Observe the unfilled native request and its real reservation binding."""
+    def require(value, reason):
+        if not value:
+            raise ForbiddenExternalIO('NATIVE_GRACEFUL_SHUTDOWN_ACK_PRECONDITION:' + reason)
+    request = parent['request']
+    require(len(cycles) == 1 and [row['role'] for row in dispatches] == ['entry']
+        and dispatches[0]['root_id'] == root_id
+        and str(dispatches[0]['native_id']) == str(parent.get('broker_order_id'))
+        and not callbacks and not provided_positions and len(provided_orders) == 1, 'ACK_ONLY')
+    working = provided_orders[0]
+    contract = getattr(working,'contract',None)
+    order = getattr(working,'order',None)
+    require(str(getattr(working,'orderId',None)) == str(parent.get('broker_order_id'))
+        and getattr(contract,'conId',None) == plan['con_id'] and getattr(contract,'symbol',None) == plan['symbol']
+        and getattr(contract,'currency',None) == plan['currency'] and getattr(contract,'exchange',None) == plan['exchange']
+        and getattr(order,'orderType',None) == 'MKT' and getattr(order,'action',None) == 'BUY'
+        and getattr(order,'totalQuantity',None) == 1 and getattr(order,'parentId',None) == 0
+        and getattr(order,'orderRef',None) == '' and getattr(order,'account',None) == plan['account']
+        and getattr(order,'clientId',None) == plan['client_id']
+        and getattr(getattr(working,'orderState',None),'status',None) == 'Submitted', 'WORKING_ENTRY')
+    require(type(parent.get('requested')) is int and parent['requested'] == 1
+        and type(parent.get('filled')) is int and parent['filled'] == 0
+        and parent.get('terminal') is False and not parent.get('protection_confirmed')
+        and not parent.get('cached_update_in_progress') and parent.get('notional') == 0
+        and parent.get('mode') == 'PAPER' and parent.get('account') == plan['account']
+        and parent.get('native_client_id') == plan['client_id']
+        and parent.get('native_connection_epoch') == plan['epoch']
+        and parent.get('symbol') == plan['symbol'] and parent.get('side') in {'LONG','BUY'}
+        and isinstance(parent.get('decision_id'),str) and bool(parent['decision_id']), 'RETAINED_REQUEST')
+    require(request.get('client_order_id') == root_id and request.get('symbol') == plan['symbol']
+        and request.get('quantity') == 1 and request.get('direction') == parent['side']
+        and request.get('setup_family_id') == 'PREMARKET_HIGH_BREAK'
+        and request.get('stop_loss_price') == plan['stop_price']
+        and request.get('invalidation_level') == plan['entry_price']
+        and request.get('take_profit_price') is None and bool(request.get('target_model'))
+        and bool(request.get('setup_metadata')) and not request.get('relationship_context'), 'NATIVE_CONTRACT')
+    require(before['capital_used'] == 0 and before['capital_reserved'] == plan['entry_price']
+        and not before['position_records'] and not before['registry'] and not before['managed_positions']
+        and not before['post_fill'] and not before['protection']
+        and before['canonical_trades'].get(root_id) is None
+        and len(before['capital_reservations']) == len(before['allocation_reservations']) == 1,
+        'UNFILLED_OWNERS')
+    capital = next(iter(before['capital_reservations'].values()))
+    allocation = next(iter(before['allocation_reservations'].values()))
+    require(isinstance(capital.get('decision_id'),str) and bool(capital['decision_id'])
+        and isinstance(allocation.get('decision_id'),str) and bool(allocation['decision_id'])
+        and allocation.get('global_capital_decision_id') == capital['decision_id'], 'ALLOCATION_BINDING')
+    for reservation in (capital,allocation):
+        require(reservation.get('order_id') == root_id and reservation.get('symbol') == request['symbol']
+            and reservation.get('side') == request['direction'].upper()
+            and reservation.get('strategy_id','').upper() == request['strategy_name'].upper()
+            and reservation.get('run_mode') == 'PAPER' and reservation.get('status') == 'ACTIVE'
+            and type(reservation.get('quantity')) is int and reservation['quantity'] == 1
+            and type(reservation.get('remaining_quantity')) is int and reservation['remaining_quantity'] == 1
+            and reservation.get('filled_quantity') == 0 and reservation.get('exposure_notional') == 0
+            and reservation.get('notional') == reservation.get('remaining_notional') == plan['entry_price'],
+            'RESERVATION')
+
+def observe_pristine_native_graceful_shutdown(core, provided_positions, provided_orders):
+    """Call actual shutdown only after explicit ACK-only or protected PAPER facts.
+
+    This observer never repairs a mutation, supplies a fill, clears ownership or
+    interprets disconnection as flat. The parent test asserts the desired truth
+    invariant; an actual legacy failure remains a failed reproduction.
+    """
+    probe = dict(attempted=False, verify_empty_calls=[])
+    report['native_graceful_shutdown'] = probe
+    if core is None:
+        raise ForbiddenExternalIO('NATIVE_GRACEFUL_SHUTDOWN_NO_CORE')
+    probe['before'] = native_shutdown_snapshot(core,provided_positions,provided_orders)
+    engine = core.execution_engine
+    before = probe['before']['engine']
+    ack_only = facts.get('observe_pristine_native_ack_graceful_shutdown') is True
+    roots = [(key,row) for key,row in before['native_orders'].items() if row.get('side') in {'LONG','BUY'}]
+    if (os.environ.get('EXECUTION_ENV') != 'TEST' or core.run_mode.value != 'PAPER'
+            or not facts.get('observe_pristine_paper_cycle') or not engine.provider.is_live() or len(roots) != 1
+            or report.get('native_before') is not None or report['after_constructor']['native_state'] is not None
+            or not report.get('cycles') or any(row.get('result') is not True or row.get('exception')
+                for row in report['cycles'])
+            or [row['role'] for row in report['synthetic_memory_dispatches']] != (['entry'] if ack_only else ['entry','stop'])
+            or before['capital_scope'] is not None or before['capital_writer_present']
+            or before['native_quarantined'] or before['startup_recovery_state'] != 'RECOVERY_COMPLETE'):
+        raise ForbiddenExternalIO('NATIVE_GRACEFUL_SHUTDOWN_PROTECTED_PRECONDITION')
+    root_id,parent = roots[0]
+    plan = facts['paper_memory_plan']
+    life = before['post_fill'].get(root_id)
+    canonical = before['canonical_trades'].get(root_id)
+    if ack_only:
+        validate_pristine_native_ack_shutdown_ownership(before=before,parent=parent,root_id=root_id,plan=plan,
+            provided_positions=provided_positions,provided_orders=provided_orders,
+            callbacks=report['paper_execution_callbacks'],dispatches=report['synthetic_memory_dispatches'],
+            cycles=report['cycles'])
+    elif (not parent.get('terminal') or parent.get('filled') != 1 or not parent.get('protection_confirmed')
+            or parent.get('cached_update_in_progress') or parent['request'].get('setup_family_id') != 'PREMARKET_HIGH_BREAK'
+            or parent['request'].get('relationship_context')
+            or life is None or life['filled_qty'] != 1 or not before['protection'][root_id]['protected']
+            or canonical is None or canonical['quantity_open'] != 1 or canonical['quantity_closed'] != 0
+            or before['capital_used'] != plan['fill_price']
+            or before['capital_reserved'] != 0 or before['capital_reservations'] or before['allocation_reservations']
+            or len(before['registry']) != 1 or len(provided_positions) != 1 or provided_positions[0].position != 1
+            or provided_positions[0].symbol != plan['symbol'] or provided_positions[0].con_id != plan['con_id']
+            or provided_positions[0].account != plan['account'] or provided_positions[0].avgCost != plan['fill_price']
+            or len(provided_orders) != 1 or provided_orders[0].order.orderType != 'STP'
+            or provided_orders[0].contract.conId != plan['con_id'] or provided_orders[0].contract.symbol != plan['symbol']
+            or provided_orders[0].order.action != 'SELL' or provided_orders[0].order.totalQuantity != 1
+            or provided_orders[0].order.auxPrice != plan['stop_price']
+            or str(provided_orders[0].orderId) != str(life['stop']['broker_order_id'])
+            or str(provided_orders[0].order.parentId) != str(parent['broker_order_id'])
+            or provided_orders[0].order.orderRef != 'PROTECT|' + root_id
+            or any(row.get('leg') != 'entry' for row in report['paper_execution_callbacks'])):
+        raise ForbiddenExternalIO('NATIVE_GRACEFUL_SHUTDOWN_OWNERSHIP_PRECONDITION')
+    actual_verify_empty = core.trade_registry.verify_empty
+    def observed_shutdown_verify_empty(*args,**kwargs):
+        result = actual_verify_empty(*args,**kwargs)
+        probe['verify_empty_calls'].append(dict(result=result,registry=plain(core.trade_registry.snapshot())))
+        return result
+    core.trade_registry.verify_empty = observed_shutdown_verify_empty
+    events_before = len(core.event_collector.snapshot_all())
+    probe['mutation_attempts_before'] = mutation_snapshot()
+    probe['attempted'] = True
+    try:
+        from src.core.stop_controller import StopMode
+        core._shutdown(StopMode.GRACEFUL)
+    except BaseException as exc:
+        probe['exception'] = exception_record(exc)
+    finally:
+        core.trade_registry.verify_empty = actual_verify_empty
+        probe['after'] = native_shutdown_snapshot(core,provided_positions,provided_orders)
+        proof = getattr(core,'shutdown_evidence',None)
+        probe['shutdown_evidence'] = plain(proof.payload()) if proof is not None else None
+        probe['events'] = plain(core.event_collector.snapshot_all()[events_before:])
+        probe['mutation_attempts_after'] = mutation_snapshot()
+
 def validate_pristine_paper_memory_write(*, actual_client, expected_client, core,
         plan, dispatches, native_id, contract, native, committed, risk_rows, now, max_scope_age):
     """Observe actual owners before an exclusively in-memory external ACK.
@@ -483,6 +629,167 @@ def observed_pristine_paper_exposure_release(actual_release, owner, label, *args
         return result
     finally:
         row['exposure_after'] = exposure()
+
+def validate_pristine_paper_fee_fact(*, actual_client, expected_client, core,
+        plan, dispatches, raw, delivered, now):
+    """Bind supplied positive commission callbacks to actual cached fills."""
+    import math
+    def require(value, reason):
+        if not value:
+            raise ForbiddenExternalIO('PRISTINE_PAPER_FEE_CERTIFICATE:' + reason)
+    require(actual_client is expected_client and core is not None
+        and os.environ.get('EXECUTION_ENV') == 'TEST', 'CLIENT')
+    engine = core.execution_engine
+    require(type(plan['client_id']) is int and type(plan['epoch']) is int and plan['epoch'] >= 0
+        and core.run_mode.value == engine.run_mode.value == 'PAPER'
+        and engine._native_callback_client() is expected_client
+        and expected_client.isConnected() and not expected_client._stop_event.is_set()
+        and expected_client._position_transport_available is True
+        and type(expected_client.client_id) is int and expected_client.client_id == plan['client_id']
+        and type(expected_client._position_connection_epoch) is int
+        and expected_client._position_connection_epoch == plan['epoch']
+        and tuple(expected_client._managed_accounts) == (plan['account'],), 'SCOPE')
+    require(isinstance(raw,dict) and set(raw) == {'leg','execId','commission','currency'}, 'FIELDS')
+    require(raw['leg'] in {'entry','stop'} and isinstance(raw['execId'],str) and raw['execId'], 'LEG')
+    matches = [row for row in dispatches if row['role'] == raw['leg']]
+    require(len(matches) == 1, 'DISPATCH')
+    bound = matches[0]
+    entries = [row for row in dispatches if row['role']=='entry']
+    require(len(entries)==1 and bound['root_id']==entries[0]['root_id']
+        and type(bound['native_id']) is int and bound['native_id'] > 0
+        and bound['order']['parentId'] == (0 if raw['leg']=='entry' else entries[0]['native_id']), 'LEG_BINDING')
+    parent = engine._native_orders.get(bound['root_id'])
+    require(parent is not None and parent['account'] == plan['account']
+        and parent['native_client_id'] == plan['client_id']
+        and parent['native_connection_epoch'] == plan['epoch']
+        and parent['request']['client_order_id'] == bound['root_id']
+        and parent['request']['symbol'] == plan['symbol']
+        and parent['request']['quantity'] == 1 and parent['request']['take_profit_price'] is None, 'ROOT')
+    require(type(raw['commission']) in (int,float) and math.isfinite(raw['commission'])
+        and raw['commission'] == {'entry':.01,'stop':.02}[raw['leg']]
+        and raw['currency'] == plan['currency'] == 'USD', 'SUPPLIED_POSITIVE_AMOUNT')
+    require(raw['execId'] not in delivered, 'REPEAT')
+    rows = expected_client.cached_native_executions(bound['native_id'])
+    require(len(rows) == 1 and rows[0]['execId'] == raw['execId'], 'EXECUTION')
+    execution = rows[0]
+    require(all(type(execution[key]) is int for key in ('orderId','clientId','connection_epoch','conId'))
+        and execution['orderId'] == bound['native_id']
+        and execution['account'] == plan['account'] and execution['clientId'] == plan['client_id']
+        and execution['connection_epoch'] == plan['epoch'] and execution['conId'] == plan['con_id']
+        and execution['symbol'] == plan['symbol'] and execution['secType'] == 'STK'
+        and execution['side'] == ('BOT' if raw['leg']=='entry' else 'SLD')
+        and not isinstance(execution['shares'],bool) and not isinstance(execution['cumQty'],bool)
+        and execution['shares'] == execution['cumQty'] == 1
+        and float(execution['price']) == float(execution['avgPrice'])
+        == (plan['fill_price'] if raw['leg']=='entry' else plan['stop_fill_price'])
+        and isinstance(execution['timestamp_utc'],datetime) and execution['timestamp_utc'].tzinfo is not None
+        and execution['timestamp_utc'] <= now, 'EXECUTION_BINDING')
+    fee_rows = expected_client.cached_native_execution_fees(bound['native_id'])
+    require(len(fee_rows) == 1 and fee_rows[0]['execution']['execId'] == raw['execId']
+        and fee_rows[0]['execution_currency'] == plan['currency'], 'EXECUTION_CURRENCY')
+    return bound, execution
+
+def deliver_pristine_paper_fee_fact(*, client, core, plan, dispatches, raw, delivered, now):
+    """Supply the public callback; never construct financial owner results."""
+    bound,execution = validate_pristine_paper_fee_fact(actual_client=client,
+        expected_client=client,core=core,plan=plan,dispatches=dispatches,
+        raw=raw,delivered=delivered,now=now)
+    from ibapi.commission_report import CommissionReport
+    commission = CommissionReport()
+    commission.execId,commission.commission,commission.currency = raw['execId'],raw['commission'],raw['currency']
+    delivered.add(raw['execId'])
+    client.commissionReport(commission)
+    return dict(leg=raw['leg'],native_id=bound['native_id'],exec_id=execution['execId'],
+        amount=raw['commission'],currency=raw['currency'],received_at=now.isoformat())
+
+def validate_pristine_paper_currency_read(*, actual_client, expected_client, core,
+        plan, fields, owned_reads, response, now, monotonic_now, max_scope_age):
+    """Certify only this complete native root's real SDK ledger read/cleanup."""
+    import math
+    def require(value, reason):
+        if not value:
+            raise ForbiddenExternalIO('PRISTINE_PAPER_CURRENCY_CERTIFICATE:' + reason)
+    require(actual_client is expected_client and core is not None
+        and os.environ.get('EXECUTION_ENV') == 'TEST', 'CLIENT')
+    engine = core.execution_engine
+    scope = engine._native_scope
+    require(type(plan['client_id']) is int and type(plan['epoch']) is int and plan['epoch'] >= 0
+        and isinstance(now,datetime) and now.tzinfo is not None
+        and type(max_scope_age) in (int,float) and math.isfinite(max_scope_age) and max_scope_age >= 0
+        and core.run_mode.value == engine.run_mode.value == 'PAPER'
+        and engine._native_callback_client() is expected_client
+        and core.connection_manager.get_ibkr_client(ensure_connected=False) is expected_client
+        and scope is not None and scope[0] == plan['account'] and scope[1] is expected_client
+        and isinstance(scope[2],datetime) and scope[2].tzinfo is not None
+        and 0 <= (now-scope[2]).total_seconds() <= max_scope_age
+        and type(expected_client.client_id) is int and expected_client.client_id == plan['client_id']
+        and type(expected_client._position_connection_epoch) is int
+        and expected_client._position_connection_epoch == plan['epoch']
+        and expected_client.isConnected() and not expected_client._stop_event.is_set()
+        and expected_client._position_transport_available is True
+        and tuple(expected_client._managed_accounts) == (plan['account'],), 'SCOPE')
+    require(not engine._native_quarantined and engine.startup_recovery_complete()
+        and engine.capital_authority.capital_scope is None
+        and engine.capital_authority._capital_writer is None, 'OWNER')
+    truth = core._latest_position_truth_snapshot
+    require(truth is not None and truth.snapshot_status == 'HEALTHY'
+        and getattr(truth.broker_positions.get(plan['symbol']),'quantity',0) == 0
+        and getattr(truth.system_positions.get(plan['symbol']),'quantity',0) == 0, 'FLAT_TRUTH')
+    candidates = engine.native_roundtrip_fee_candidates()
+    require(len(candidates) == 1, 'COMPLETE_CANDIDATE')
+    root, candidate = next(iter(candidates.items()))
+    parent = engine._native_orders.get(root)
+    require(parent is not None and candidate['root_order_id'] == root
+        and candidate['source_client'] is expected_client and candidate['account'] == plan['account']
+        and candidate['entry_terminal'] is True and candidate['entry_status'] == 'FILLED'
+        and type(candidate['entry_requested_quantity']) is int
+        and type(candidate['entry_filled_quantity']) is int
+        and candidate['entry_requested_quantity'] == candidate['entry_filled_quantity'] == 1
+        and candidate['decision_id'] == parent['decision_id']
+        and parent['request']['symbol'] == plan['symbol'], 'CANDIDATE_BINDING')
+    require(isinstance(response,dict) and set(response) == {'account','rows','end_received'}
+        and response['account'] == plan['account'] and response['end_received'] is True
+        and isinstance(response['rows'],list) and len(response['rows']) == 2, 'SUPPLIED_RESPONSE')
+    require(response['rows'] == [dict(tag='CashBalance',value='123.45',currency=plan['currency']),
+        dict(tag='AccruedCash',value='0',currency=plan['currency'])]
+        and plan['currency'] == 'USD', 'SUPPLIED_CURRENCY')
+    require(expected_client.serverVersion() == 180 and len(fields) in (4,6)
+        and fields[0] in {'62','63'} and fields[1] == '1'
+        and fields[-1] == '' and fields[2].isdigit(), 'PACKET')
+    request_id = int(fields[2])
+    require(request_id > 0 and fields[2] == str(request_id)
+        and not expected_client._request_id_conflicted(request_id), 'REQUEST_ID')
+    context = expected_client._request_context_by_req_id.get(request_id)
+    require(isinstance(context,dict) and context.get('request_type') == 'ACCOUNT_CURRENCY_STRICT', 'CONTEXT')
+    if fields[0] == '62':
+        require(fields == ['62','1',str(request_id),'All','$LEDGER','']
+            and request_id not in owned_reads
+            and expected_client._request_type_by_req_id.get(request_id) == 'ACCOUNT_CURRENCY_STRICT', 'REQUEST_PACKET')
+        query = context.get('account_currency_query')
+        require(isinstance(query,dict) and query.get('status') == 'PARTIAL'
+            and query.get('account') == plan['account'] and type(query.get('client_id')) is int
+            and query['client_id'] == plan['client_id'] and type(query.get('epoch')) is int
+            and query['epoch'] == plan['epoch'] and query.get('completed_at') is None
+            and query.get('currency') is None and type(query.get('tags')) is set and not query['tags']
+            and type(query.get('deadline')) in (int,float) and math.isfinite(query['deadline'])
+            and not query['event'].is_set() and monotonic_now < query['deadline'], 'QUERY')
+        return request_id, 'REQUEST', context, query
+    require(fields == ['63','1',str(request_id),''] and request_id in owned_reads, 'CANCEL_PACKET')
+    previous = owned_reads[request_id]
+    query = previous['query']
+    require(previous['context'] is context and previous['client'] is expected_client
+        and previous['epoch'] == plan['epoch'] and previous['account'] == plan['account']
+        and not previous['cancelled'] and previous['end_observed'] is True
+        and context.get('account_currency_query') is None
+        and request_id not in expected_client._request_type_by_req_id, 'RETIREMENT')
+    require(query['status'] == 'COMPLETE' and query['currency'] == plan['currency']
+        and query['account'] == plan['account'] and type(query['client_id']) is int
+        and query['client_id'] == plan['client_id'] and type(query['epoch']) is int
+        and query['epoch'] == plan['epoch']
+        and query['tags'] == {'CashBalance','AccruedCash'} and query['event'].is_set()
+        and isinstance(query['completed_at'],datetime) and query['completed_at'].tzinfo is not None
+        and 0 <= (now-query['completed_at']).total_seconds() <= max_scope_age, 'END_COMPLETION')
+    return request_id, 'CANCEL', context, query
 
 def validate_pristine_paper_history_read(*, actual_client, expected_client, core,
         plan, fields, owned_reads, timeframe_request, source_response, supplied_bars,
@@ -977,6 +1284,7 @@ try:
 
     owned_quote_reads = set()
     owned_history_reads = set()
+    owned_currency_reads = {}
     def send_message(message):
         fields = str(message).split('\0')
         opcode = fields[0]
@@ -987,6 +1295,38 @@ try:
         if observe_pristine_cycle:
             # Only this supplied security's real read encoders reach a memory
             # transport. The actual Native callbacks retain request ownership.
+            if (facts.get('observe_pristine_paper_positive_fee_feedback')
+                    and facts.get('observe_pristine_paper_cycle') and opcode in {'62','63'}):
+                from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
+                request_id,role,context,query = validate_pristine_paper_currency_read(
+                    actual_client=client,expected_client=client,core=core,
+                    plan=facts['paper_memory_plan'],fields=fields,owned_reads=owned_currency_reads,
+                    response=facts['paper_currency_response'],now=observed,
+                    monotonic_now=real_elapsed_time.monotonic(),
+                    max_scope_age=get_ibkr_snapshot_max_age_seconds())
+                if role == 'REQUEST':
+                    record = dict(context=context,query=query,client=client,
+                        account=query['account'],epoch=query['epoch'],cancelled=False,end_observed=False)
+                    owned_currency_reads[request_id] = record
+                    response = facts['paper_currency_response']
+                    for row in response['rows']:
+                        client.accountSummary(request_id,response['account'],row['tag'],row['value'],row['currency'])
+                    client.accountSummaryEnd(request_id)
+                    record['end_observed'] = (query['status']=='COMPLETE' and query['event'].is_set()
+                        and query['currency']==facts['paper_memory_plan']['currency']
+                        and query['tags']=={'CashBalance','AccruedCash'})
+                    report['native_read_requests'].append(dict(opcode=opcode,request_id=request_id,
+                        request_type='ACCOUNT_CURRENCY_STRICT',account=query['account'],
+                        epoch=query['epoch'],currency=query['currency'],status=query['status'],
+                        completed_at=plain(query['completed_at']),end_observed=record['end_observed']))
+                else:
+                    owned_currency_reads[request_id]['cancelled'] = True
+                    report['native_read_requests'].append(dict(opcode=opcode,request_id=request_id,
+                        request_type='OWNED_ACCOUNT_CURRENCY_CANCEL',account=query['account'],
+                        epoch=query['epoch'],currency=query['currency'],status=query['status'],
+                        active_type_absent=request_id not in client._request_type_by_req_id,
+                        query_retired=context.get('account_currency_query') is None))
+                return  # Synthetic read cleanup, never an order cancellation.
             if opcode in {str(OUT.REQ_CONTRACT_DATA),str(OUT.REQ_MKT_DATA)}:
                 request_id = int(fields[2])
                 context = client._request_context_by_req_id.get(request_id,{})
@@ -1060,6 +1400,9 @@ try:
         paper_plan = facts['paper_memory_plan']
         report['synthetic_memory_dispatches'] = []
         report['paper_external_steps'] = []
+        delivered_fee_executions = set()
+        if facts.get('observe_pristine_paper_positive_fee_feedback'):
+            report['positive_fee_callbacks'] = []
         report['trade_exit_shutdown_calls'] = []
         from src.execution.trade_exit_engine import TradeExitEngine
         actual_trade_exit_shutdown = TradeExitEngine.shutdown
@@ -1205,6 +1548,15 @@ try:
             governor = core.daily_risk_governor
             cycle['daily_risk'] = dict(state=plain(governor.state),
                 decision=(governor.last_decision.to_dict() if governor.last_decision is not None else None))
+            if facts.get('observe_pristine_paper_positive_fee_feedback'):
+                from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
+                cycle['fee_feedback'] = plain(core.trade_lifecycle_engine.native_fee_feedback_snapshot(
+                    now=observed,max_age_seconds=get_ibkr_snapshot_max_age_seconds()))
+                cycle['fee_source_observations'] = plain(tuple({key:
+                    (dict(value) if key in {'execution','first_report','latest_report'} and value is not None else value)
+                    for key,value in row.items()}
+                    for dispatch in report['synthetic_memory_dispatches']
+                    for row in client.cached_native_execution_fees(dispatch['native_id'])))
             if facts.get('observe_pristine_paper_loss_feedback'):
                 cycle['exposure_release_calls_after'] = len(report['exposure_release_calls'])
             cycle['database'] = database_snapshot()
@@ -1273,6 +1625,13 @@ try:
                         status['avgFillPrice'],raw['execution']['clientId'],'',0.)
                     report['paper_execution_callbacks'].append(dict(leg=raw['leg'],native_id=bound['native_id'],
                         root_id=bound['root_id'],parent_id=bound['order']['parentId'],execution=plain(execution)))
+                for raw_fee in step.get('commissions',[]):
+                    if not facts.get('observe_pristine_paper_positive_fee_feedback'):
+                        raise ForbiddenExternalIO('UNSUPPLIED_PRISTINE_PAPER_FEE_CALLBACK')
+                    report['positive_fee_callbacks'].append(deliver_pristine_paper_fee_fact(
+                        client=client,core=core,plan=facts['paper_memory_plan'],
+                        dispatches=report['synthetic_memory_dispatches'],raw=raw_fee,
+                        delivered=delivered_fee_executions,now=observed))
                 report['paper_external_steps'].append(plain(step))
                 run_actual_cycle(step['name'],1)
         elif scenarios is None:
@@ -1300,6 +1659,10 @@ try:
     if facts.get('observe_pristine_paper_cycle'):
         report['native_history_pending_ids'] = sorted(client._historical_states)
     report['mutation_attempts'] = mutation_snapshot()
+    if (facts.get('observe_pristine_native_graceful_shutdown')
+            or facts.get('observe_pristine_native_ack_graceful_shutdown')):
+        report['stage'] = 'NATIVE_PAPER_GRACEFUL_SHUTDOWN'
+        observe_pristine_native_graceful_shutdown(core,positions,orders)
     report['stage'] = 'COMPLETE'
 except BaseException as exc:
     report['harness_exception'] = exception_record(exc)

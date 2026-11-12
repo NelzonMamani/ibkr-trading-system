@@ -393,3 +393,144 @@ def test_exit_precedence_stop_overrides_risk_and_strategy():
 
     assert decision is not None
     assert decision.category in {"EXIT_STOP_LOSS", "EXIT_FAILED_SETUP"}
+
+
+# The shutdown authority is produced by canonical Core; legacy imports above
+# intentionally retain their existing enum aliases and test semantics.
+from copy import deepcopy  # noqa: E402
+from dataclasses import asdict  # noqa: E402
+
+import pytest  # noqa: E402
+
+from src.config.runtime_config import RunMode as ShutdownRunMode  # noqa: E402
+from execution.trade_exit_engine import ShutdownExecutionContext  # noqa: E402
+
+
+class _ShutdownPriceBoundary:
+    def __init__(self, *, allowed=False):
+        self.allowed = allowed
+        self.calls = []
+
+    def price_for(self, symbol, tick):
+        self.calls.append((symbol, tick))
+        if not self.allowed:
+            raise AssertionError("Shutdown cannot invent a native execution price")
+        return 10.75
+
+
+def _shutdown_owner(*, allow_price=False, open_trade=True):
+    """Existing TradeExit/registry/event owners only; no Core or provider I/O."""
+    registry = ActiveTradeRegistry()
+    events = EventCollector()
+    feed = _ShutdownPriceBoundary(allowed=allow_price)
+    trade = ActiveTrade(
+        symbol="JPM", trader_type="MOMENTUM", strategy_name="RossMomentumStrategyV1",
+        entry_tick=3, entry_price=10.53, direction="LONG", quantity=1,
+        stop_loss_price=10.2897, invalidation_level=10.30, take_profit_price=None,
+    )
+    if open_trade:
+        registry.register_trade(trade)
+    owner = TradeExitEngine(trade_registry=registry, event_collector=events, price_feed=feed)
+    return owner, registry, events, feed, trade
+
+
+@pytest.mark.parametrize("context", [
+    None,
+    ShutdownExecutionContext(),
+    ShutdownExecutionContext(run_mode="SIM", simulator_backed=True, retained_native_ownership=False),
+    ShutdownExecutionContext(run_mode=ShutdownRunMode.SIM, simulator_backed=True),
+], ids=["no-context", "unknown-context", "raw-mode-is-not-authority", "unknown-ownership"])
+def test_shutdown_unknown_authority_preserves_owned_trade_without_price(context):
+    owner, registry, events, feed, trade = _shutdown_owner()
+    before = deepcopy(asdict(trade))
+    if context is None:
+        assert owner.shutdown() is False
+        assert registry.snapshot() == [trade] and asdict(trade) == before
+    for tick in (7, 70, 700):
+        assert owner.shutdown(current_tick=tick, execution_context=context) is False
+        assert registry.snapshot() == [trade]
+        assert asdict(trade) == before
+    assert feed.calls == []
+    assert events.snapshot_all() == []
+
+
+@pytest.mark.parametrize("mode", [ShutdownRunMode.PAPER, ShutdownRunMode.LIVE, ShutdownRunMode.READ_ONLY])
+@pytest.mark.parametrize("claimed_simulator", [False, True])
+def test_shutdown_native_or_observation_mode_cannot_synthesize_a_protective_exit(mode, claimed_simulator):
+    owner, registry, events, feed, trade = _shutdown_owner()
+    before = deepcopy(asdict(trade))
+    context = ShutdownExecutionContext(
+        run_mode=mode,
+        simulator_backed=claimed_simulator,
+        retained_native_ownership=bool(mode == ShutdownRunMode.PAPER and claimed_simulator),
+    )
+    # A large explicit tick must not convert protection/resource shutdown into
+    # an elapsed-time exit or a locally fabricated fill.
+    for tick in (7, 100_000):
+        assert owner.shutdown(current_tick=tick, execution_context=context) is False
+        assert registry.get_trade("JPM", "MOMENTUM") is trade
+        assert asdict(trade) == before
+    assert trade.stop_loss_price == 10.2897 and trade.invalidation_level == 10.30
+    assert trade.take_profit_price is None and trade.quantity == 1 and trade.state.value == "OPEN"
+    assert feed.calls == [] and events.snapshot_all() == []
+
+
+@pytest.mark.parametrize("mode", [ShutdownRunMode.SIM, ShutdownRunMode.PAPER])
+@pytest.mark.parametrize("retained", [True, None, 0, "false"])
+def test_shutdown_retained_or_unknown_evidence_overrides_simulator_claim(mode, retained):
+    owner, registry, events, feed, trade = _shutdown_owner()
+    before = deepcopy(asdict(trade))
+    context = ShutdownExecutionContext(
+        run_mode=mode, simulator_backed=True, retained_native_ownership=retained,
+    )
+    assert owner.shutdown(current_tick=100_000, execution_context=context) is False
+    assert registry.snapshot() == [trade] and asdict(trade) == before
+    assert feed.calls == [] and events.snapshot_all() == []
+
+
+@pytest.mark.parametrize("mode", [ShutdownRunMode.SIM, ShutdownRunMode.PAPER])
+def test_shutdown_explicit_simulator_closes_through_actual_events_and_lifecycle_once(mode):
+    owner, registry, events, feed, trade = _shutdown_owner(allow_price=True)
+    context = ShutdownExecutionContext(
+        run_mode=mode, simulator_backed=True, retained_native_ownership=False,
+    )
+    assert owner.shutdown(current_tick=7, execution_context=context) is True
+    assert registry.snapshot() == [] and trade.state.value == "CLOSED"
+    assert feed.calls == [("JPM", 7)]
+    closed = events.filter_by_type("TRADE_CLOSED")
+    assert len(closed) == 1
+    payload = closed[0].payload
+    assert payload["mode"] == mode.value and payload["quantity"] == 1
+    assert payload["entry_price"] == 10.53 and payload["exit_tick"] == 7
+    assert payload["stop_loss_price"] == 10.2897 and payload["take_profit_price"] is None
+    assert payload["exit_reason"] == "Forced shutdown exit"
+    transitions = events.filter_by_type("LIFECYCLE_TRANSITION")
+    assert [row.payload["to_state"] for row in transitions] == ["EXIT_PENDING", "CLOSED"]
+    assert all(row.payload["mode"] == mode.value for row in transitions)
+    assert all(row.payload["filled_quantity"] == 1 and row.payload["quantity_after"] == 0
+        for row in transitions)
+    assert len(events.filter_by_type("EXIT_TIME")) == 1
+    before = deepcopy(events.snapshot_all())
+    assert owner.shutdown(current_tick=8, execution_context=context) is True
+    assert feed.calls == [("JPM", 7)] and events.snapshot_all() == before
+
+
+@pytest.mark.parametrize("mode", [ShutdownRunMode.PAPER, ShutdownRunMode.LIVE, ShutdownRunMode.READ_ONLY])
+def test_shutdown_empty_known_native_or_observation_scope_needs_no_synthetic_close(mode):
+    owner, registry, events, feed, _ = _shutdown_owner(open_trade=False)
+    context = ShutdownExecutionContext(
+        run_mode=mode, simulator_backed=False, retained_native_ownership=False,
+    )
+    assert owner.shutdown(current_tick=7, execution_context=context) is True
+    assert owner.shutdown(current_tick=8, execution_context=context) is True
+    assert registry.snapshot() == [] and feed.calls == [] and events.snapshot_all() == []
+
+
+def test_shutdown_empty_registry_cannot_erase_pending_native_ownership():
+    owner, registry, events, feed, _ = _shutdown_owner(open_trade=False)
+    context = ShutdownExecutionContext(
+        run_mode=ShutdownRunMode.PAPER, simulator_backed=False, retained_native_ownership=True,
+    )
+    assert owner.shutdown(current_tick=7, execution_context=context) is False
+    assert owner.shutdown(current_tick=8, execution_context=context) is False
+    assert registry.snapshot() == [] and feed.calls == [] and events.snapshot_all() == []
