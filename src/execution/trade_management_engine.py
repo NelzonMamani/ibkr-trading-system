@@ -697,6 +697,10 @@ class TradeManagementEngine:
         if micro_tighten and bull_tighten:
             return None
         tightening = micro_tighten or bull_tighten
+        if tightening:
+            from src.strategies.ross_momentum.strategy_policy import selected_first_original_stop_retention_profile
+            if selected_first_original_stop_retention_profile(order.get("request", {})):
+                return None
         from datetime import timedelta
         from src.strategies.common.candles.candle_types import Candle
         from src.strategies.common.triggers.trigger_abcd_continuation import abcd_candle_rejection

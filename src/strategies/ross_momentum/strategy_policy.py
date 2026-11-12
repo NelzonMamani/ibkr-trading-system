@@ -1751,7 +1751,27 @@ def selected_bull_cost_tightening_profile(request):
     return None
 
 
+# NEW project policy adopted 12 November 2026 by explicit user instruction;
+# not a Ross quotation. The confirmed post-PROJECT2R-partial standalone First
+# Pullback remainder retains its OWN measured pullback-low S0. Existing family
+# failure, frozen E0/S0/invalidation/objective, TP=None and truth/uncertainty gates
+# remain authoritative. No entry-cost stop, cost-failure exit, trail, add or
+# resumption is adopted. Applicability below does not certify a partial or owned
+# protection; existing accounting/lifecycle owners establish those facts. Reuse
+# existing synthetic unit-management enrollment and quantity/cap owners.
+STANDALONE_FIRST_ORIGINAL_STOP_RETENTION_PROFILE = "STANDALONE_FIRST_POST_PARTIAL_ORIGINAL_STOP_RETENTION_V1"
+
+
+def selected_first_original_stop_retention_profile(request):
+    if (request.get("setup_family_id") == "FIRST_PULLBACK" and not request.get("relationship_context")
+            and selected_unit_management_profile(request)):
+        return STANDALONE_FIRST_ORIGINAL_STOP_RETENTION_PROFILE
+    return None
+
+
 def selected_cost_tightening_profile(request):
+    if selected_first_original_stop_retention_profile(request):
+        return None
     return selected_micro_cost_tightening_profile(request) or selected_bull_cost_tightening_profile(request)
 
 

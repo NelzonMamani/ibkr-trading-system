@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta, timezone
 import inspect
 
+import pytest
+
 from src.strategies.ross_momentum.exit_intelligence import ExitDecision
 from src.execution.trade_management_engine import TradeManagementEngine
 
@@ -212,3 +214,107 @@ def test_generic_management_layer_does_not_embed_ross_threshold_rules() -> None:
     assert "NO_IMMEDIATE_FOLLOW_THROUGH" not in source
     assert "STALL_AT_LEVEL" not in source
     assert "MOMENTUM_WEAKNESS" not in source
+
+
+@pytest.fixture
+def first_retention_case():
+    """Pure selected-policy facts; native ownership is proved by Core fixtures."""
+    from src.config import config_resolver
+    from src.strategies.common.candles.candle_types import Candle
+
+    original = dict(config_resolver._CONFIG_OVERRIDES)
+    config_resolver.set_config_overrides(dict(original, RUN_MODE="PAPER", RUN_MODE_EFFECTIVE="PAPER",
+        RISK_PROFILE="SMALL", ROSS_SYNTHETIC_REQUESTED_BASE_SIZE=4, ROSS_SYNTHETIC_UNIT_STOPS=True,
+        ROSS_SYNTHETIC_UNIT_MANAGEMENT=True, ROSS_SYNTHETIC_BULL_COST_TIGHTENING=True,
+        ROSS_SYNTHETIC_MICRO_COST_FAILURE=True, ROSS_SYNTHETIC_MICRO_COST_TIGHTENING=True))
+    now = datetime(2026, 11, 12, 15, 0, 30, tzinfo=timezone.utc)
+    metadata = {"canonical_result_index": 0, "source_metadata": {"synthetic": True},
+        "trigger_level": 9.9, "stop_level": 9.5, "invalidation_level": 9.5,
+        "execution_stream": {"execution_trigger_timeframe": "10s",
+            "observed_at_utc": (now - timedelta(minutes=2)).isoformat()}}
+    request = {"setup_family_id": "FIRST_PULLBACK", "selected_stop_units": True, "quantity": 4,
+        "stop_loss_price": 9.5, "invalidation_level": 9.5, "take_profit_price": None,
+        "management_session_plan": "RTH_OPEN", "setup_metadata": metadata}
+    order = {"symbol": "ABCD", "request": request, "filled": 4, "requested": 4, "terminal": True,
+        "protection_confirmed": True, "last_accounted_entry_fill_at": (now - timedelta(minutes=1)).isoformat(),
+        "unit_profit_exit": {"status": "FILLED", "profile": "STANDALONE_ONE_SHARE_2R_COMPLETED_CLOSE_V1",
+            "occurrence": metadata, "entry_fill_price": 10.01, "original_stop": 9.5, "milestone": 11.03,
+            "owned_quantity": 4, "reserved_quantity": 2, "leg_ids": ["unit1", "unit2"],
+            "accounted_fill_quantity": 2, "accounted_fill_notional": "22.06",
+            "last_accounted_fill_at": (now - timedelta(seconds=30)).isoformat()}}
+    bar = Candle(10.02, 10.05, 9.98, 10.04, 100, timestamp=now - timedelta(seconds=20))
+    try:
+        yield order, bar, now
+    finally:
+        config_resolver.set_config_overrides(original)
+
+
+@pytest.mark.parametrize("change", [
+    {"setup_family_id": "BULL_FLAG"}, {"setup_family_id": "MICRO_PULLBACK"},
+    {"setup_family_id": "PREMARKET_HIGH_BREAK"}, {"setup_family_id": "UNKNOWN"},
+    {"relationship_context": {"profile": "BULL_FLAG_MICRO_2R_V1", "action": "ENTRY"}},
+    {"target_model": "BULL_FLAG_MICRO_2R_V1"}, {"take_profit_price": 11.03},
+    {"selected_stop_units": False},
+])
+def test_first_original_stop_retention_has_only_existing_standalone_unit_scope(first_retention_case, change):
+    from src.strategies.ross_momentum.strategy_policy import selected_first_original_stop_retention_profile
+    order, _, _ = first_retention_case
+    request = order["request"]
+    assert selected_first_original_stop_retention_profile(request)
+    assert selected_first_original_stop_retention_profile(dict(request, **change)) is None
+
+
+def test_first_original_stop_retention_does_not_enable_unit_management(first_retention_case):
+    from src.config import config_resolver
+    from src.strategies.ross_momentum.strategy_policy import selected_first_original_stop_retention_profile
+    order, _, _ = first_retention_case
+    config_resolver.set_config_overrides(dict(config_resolver._CONFIG_OVERRIDES, ROSS_SYNTHETIC_UNIT_MANAGEMENT=False,
+        ROSS_SYNTHETIC_BULL_COST_TIGHTENING=False, ROSS_SYNTHETIC_MICRO_COST_FAILURE=False,
+        ROSS_SYNTHETIC_MICRO_COST_TIGHTENING=False))
+    assert selected_first_original_stop_retention_profile(order["request"]) is None
+
+
+@pytest.mark.parametrize("close", [9.99, 10.01, 10.04])
+def test_first_confirmed_partial_cannot_adopt_bull_or_micro_cost_actions(first_retention_case, close):
+    from copy import deepcopy
+    from dataclasses import replace
+    from src.strategies.ross_momentum.strategy_policy import (
+        selected_first_original_stop_retention_profile, selected_cost_tightening_profile,
+        selected_micro_cost_failure_profile, standalone_cost_tightening_basis,
+    )
+    order, bar, now = first_retention_case
+    bar = replace(bar, close=close)
+    before = deepcopy(order)
+    engine = TradeManagementEngine()
+    arguments = dict(observed_at=now, session_plan=order["request"]["management_session_plan"], entry_fill_price=10.01)
+    assert selected_first_original_stop_retention_profile(order["request"])
+    assert selected_cost_tightening_profile(order["request"]) is None
+    assert selected_micro_cost_failure_profile(order["request"]) is None
+    assert standalone_cost_tightening_basis(order, 10.01) is None
+    assert engine.evaluate_selected_micro_cost_failure(order, [bar], **arguments) is None
+    assert engine.evaluate_selected_micro_cost_tightening(order, [bar], **arguments) is None
+    assert engine.evaluate_selected_bull_cost_tightening(order, [bar], **arguments) is None
+    assert order == before and engine.snapshot_positions() == {}
+
+
+def test_first_retention_preserves_existing_completed_failure_and_project_2r(first_retention_case):
+    from copy import deepcopy
+    from dataclasses import replace
+    from src.strategies.ross_momentum.strategy_policy import (
+        CENTRAL_STANDALONE_FAILURE_PROFILE, STANDALONE_ONE_SHARE_PROFIT_PROFILE,
+    )
+    order, bar, now = first_retention_case
+    before = deepcopy(order)
+    engine = TradeManagementEngine()
+    arguments = dict(observed_at=now, session_plan=order["request"]["management_session_plan"])
+    assert engine.evaluate_selected_completed_failure(order, [bar], **arguments) is None
+    failure = engine.evaluate_selected_completed_failure(order, [replace(bar, open=9.9, low=9.78, high=9.95, close=9.8)], **arguments)
+    assert failure and failure["profile"] == CENTRAL_STANDALONE_FAILURE_PROFILE
+    assert failure["selected_entry"] == 9.9 and failure["occurrence"] == order["request"]["setup_metadata"]
+    entry = deepcopy(order)
+    entry.pop("unit_profit_exit")
+    profit = engine.evaluate_selected_completed_profit(entry, [replace(bar, open=11.01, low=11.0, high=11.04, close=11.03)],
+        **arguments, entry_fill_price=10.01)
+    assert profit and profit["profile"] == STANDALONE_ONE_SHARE_PROFIT_PROFILE
+    assert (profit["entry_fill_price"], profit["original_stop"], profit["milestone"]) == (10.01, 9.5, 11.03)
+    assert order == before and engine.snapshot_positions() == {}
