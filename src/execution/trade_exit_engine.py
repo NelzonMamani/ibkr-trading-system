@@ -34,6 +34,15 @@ class ExitDecision:
     exit_price: float
 
 
+@dataclass(frozen=True)
+class ShutdownExecutionContext:
+    """Execution ownership captured by Core before resource disconnection."""
+
+    run_mode: Optional[RunMode] = None
+    simulator_backed: bool = False
+    retained_native_ownership: Optional[bool] = None
+
+
 class TradeExitEngine:
     """
     Teaching-first engine responsible for closing active trades explicitly.
@@ -614,14 +623,16 @@ class TradeExitEngine:
             fill_status_override="FULL",
         )
 
-    def _force_close_all_trades(self, resolved_tick: int, runtime_config: RuntimeConfig) -> None:
+    def _force_close_all_trades(
+        self, resolved_tick: int, runtime_config: RuntimeConfig, *, run_mode: RunMode
+    ) -> None:
         active_trades = self.trade_registry.snapshot()
         if not active_trades:
             print("[TRADE_EXIT] No active trades to close during shutdown.")
             return
 
         print(f"[TRADE_EXIT] Force-closing {len(active_trades)} trade(s) during shutdown.")
-        normalized_run_mode = "UNKNOWN"
+        normalized_run_mode = run_mode.value
         for trade in active_trades:
             symbol = getattr(trade, "symbol", None)
             trader_type = getattr(trade, "trader_type", "UNKNOWN")
@@ -733,12 +744,30 @@ class TradeExitEngine:
                 timestamp=datetime.utcnow(),
             )
 
-    def shutdown(self, current_tick: Optional[int] = None) -> None:
+    def shutdown(
+        self,
+        current_tick: Optional[int] = None,
+        *,
+        execution_context: Optional[ShutdownExecutionContext] = None,
+    ) -> bool:
         """
-        Guaranteed shutdown cleanup for trade exit resources.
+        Preserve factual ownership; teaching closure requires explicit authority.
         """
+
+        if (execution_context is None
+                or not isinstance(execution_context.run_mode, RunMode)
+                or execution_context.retained_native_ownership is not False):
+            print("[TRADE_EXIT] Shutdown incomplete — execution ownership retained or unknown.")
+            return False
+        if (execution_context.run_mode not in {RunMode.SIM, RunMode.PAPER}
+                or execution_context.simulator_backed is not True):
+            # A native/disconnected provider never supplies a synthetic fill.
+            return not bool(self.trade_registry.snapshot())
 
         runtime_config = self._last_runtime_config or RuntimeConfig()
         resolved_tick = current_tick if current_tick is not None else (self._last_tick or 0)
-        self._force_close_all_trades(resolved_tick, runtime_config)
+        self._force_close_all_trades(
+            resolved_tick, runtime_config, run_mode=execution_context.run_mode
+        )
         print("[TRADE_EXIT] Shutdown completed — all trades force-closed.")
+        return True

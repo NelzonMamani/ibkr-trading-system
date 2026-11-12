@@ -2691,6 +2691,81 @@ def test_pristine_fresh_process_pmh_positive_fees_reach_actual_core_net_veto(
     assert no_external_activity==[]
 
 
+@pytest.mark.parametrize('fault',[
+    'none','root','native_id','filled','terminal','protection','extra_stop','callback',
+    'truth_position','missing_reservation','wrong_order','partial_remaining','allocation_link',
+    'missing_working_order','working_id','working_ref','working_security','working_client',
+    'protective_order','malformed_order','working_status','parent_client','parent_epoch',
+])
+def test_native_ack_graceful_shutdown_requires_real_unfilled_ownership(fault):
+    """Pure fixture prerequisite: no Core, shutdown, provider or transport."""
+    class Denied(BaseException):
+        pass
+    validate=_pristine_paper_child_function('validate_pristine_native_ack_shutdown_ownership',
+        dict(ForbiddenExternalIO=Denied))
+    root='decision-root-order'
+    plan=dict(account='SYNTHETIC_TEST',symbol='JPM',entry_price=10.30,stop_price=10.2897,
+        con_id=123,currency='USD',exchange='SMART',client_id=999,epoch=0)
+    request=dict(client_order_id=root,symbol='JPM',direction='LONG',quantity=1,
+        strategy_name='RossMomentumStrategyV1',setup_family_id='PREMARKET_HIGH_BREAK',
+        stop_loss_price=10.2897,invalidation_level=10.30,take_profit_price=None,
+        target_model='HOD / next resistance extension after PMH acceptance',
+        setup_metadata=dict(canonical_result_index=4,execution_stream=dict(execution_trigger_timeframe='10s')),
+        relationship_context=None)
+    parent=dict(request=request,requested=1,filled=0,terminal=False,protection_confirmed=False,
+        notional=0.,mode='PAPER',account='SYNTHETIC_TEST',symbol='JPM',side='LONG',
+        decision_id='decision-root',broker_order_id='1001',native_client_id=999,native_connection_epoch=0)
+    reservation=dict(order_id=root,symbol='JPM',side='LONG',strategy_id='ROSSMOMENTUMSTRATEGYV1',
+        run_mode='PAPER',status='ACTIVE',quantity=1,remaining_quantity=1,filled_quantity=0,
+        exposure_notional=0.,notional=10.30,remaining_notional=10.30)
+    capital=dict(reservation,decision_id='capital-decision')
+    allocation=dict(reservation,decision_id='allocation-decision',global_capital_decision_id='capital-decision')
+    before=dict(capital_used=0.,capital_reserved=10.30,position_records={},registry=[],managed_positions={},
+        post_fill={},protection={},canonical_trades={root:None},
+        capital_reservations={'capital-reservation':capital},
+        allocation_reservations={'allocation-reservation':allocation})
+    dispatch=dict(role='entry',root_id=root,native_id=1001,
+        contract=dict(symbol='JPM',conId=123,currency='USD',exchange='SMART',secType='STK'),
+        order=dict(orderType='MKT',action='BUY',totalQuantity=1,parentId=0,orderRef=''))
+    # The real memory ACK publishes a working entry: copy its supplied native
+    # contract/order, then apply independent account/client callback facts.
+    supplied_order=NS(**deepcopy(dispatch['order']))
+    supplied_order.account=plan['account'];supplied_order.clientId=plan['client_id']
+    working=NS(orderId=dispatch['native_id'],contract=NS(**deepcopy(dispatch['contract'])),
+        order=supplied_order,orderState=NS(status='Submitted'))
+    args=dict(before=before,parent=parent,root_id=root,plan=plan,provided_positions=[],provided_orders=[working],
+        callbacks=[],dispatches=[dispatch],cycles=[dict(result=True)])
+    if fault=='root':args['dispatches'][0]['root_id']='another-root'
+    elif fault=='native_id':args['dispatches'][0]['native_id']=1002
+    elif fault=='filled':parent['filled']=1
+    elif fault=='terminal':parent['terminal']=True
+    elif fault=='protection':parent['protection_confirmed']=True
+    elif fault=='extra_stop':args['dispatches'].append(dict(role='stop',root_id=root,native_id=1002))
+    elif fault=='callback':args['callbacks'].append(dict(status='Filled',filled=1,orderId=1001))
+    elif fault=='truth_position':args['provided_positions'].append(dict(symbol='JPM',position=1,con_id=123))
+    elif fault=='missing_reservation':before['capital_reservations']={}
+    elif fault=='wrong_order':capital['order_id']='another-order'
+    elif fault=='partial_remaining':capital['remaining_quantity']=0
+    elif fault=='allocation_link':allocation['global_capital_decision_id']='unrelated-capital-decision'
+    elif fault=='missing_working_order':args['provided_orders']=[]
+    elif fault=='working_id':working.orderId=1002
+    elif fault=='working_ref':working.order.orderRef='PROTECT|unrelated-root'
+    elif fault=='working_security':working.contract.conId=124
+    elif fault=='working_client':working.order.clientId=998
+    elif fault=='protective_order':working.order.action='SELL';working.order.orderType='STP'
+    elif fault=='malformed_order':del working.order
+    elif fault=='working_status':working.orderState.status='PendingSubmit'
+    elif fault=='parent_client':parent['native_client_id']=998
+    elif fault=='parent_epoch':parent['native_connection_epoch']=1
+    unchanged=deepcopy(args)
+    if fault=='none':
+        assert validate(**args) is None
+    else:
+        with pytest.raises(Denied,match='NATIVE_GRACEFUL_SHUTDOWN_ACK_PRECONDITION:'):
+            validate(**args)
+    assert args==unchanged  # Observation cannot manufacture ownership or repair the adverse facts.
+
+
 @pytest.mark.parametrize('actual_result',[False,True])
 def test_native_graceful_shutdown_verify_observer_preserves_actual_result(actual_result):
     """Pure observer check; no Core construction, shutdown or transport."""
@@ -2773,3 +2848,94 @@ def test_pristine_native_paper_graceful_shutdown_preserves_accounted_owned_posit
     hooks=probe['shutdown_evidence']['hooks']
     verification=next(row for row in hooks if row['hook']=='active_trade_registry.verify_empty')
     assert verification['completed'] is False,summary
+
+
+def test_pristine_native_paper_ack_shutdown_preserves_pending_request_and_reservations(
+        reassessment,monkeypatch,tmp_path,capsys,no_external_activity,runtime_schema_template):
+    """An empty filled registry does not erase an acknowledged native liability."""
+    import json,shutil
+    from test_startup_recovery_and_stop_protection import run_native_core_cold_start
+    facts=_pristine_paper_loss_facts(reassessment,monkeypatch,tmp_path)
+    facts.pop('observe_pristine_paper_loss_feedback')
+    facts['config'].pop('DAILY_RISK_MAX_LOSS_AMOUNT')
+    facts['paper_memory_plan'].pop('stop_fill_price')
+    facts['paper_cycle_steps']=facts['paper_cycle_steps'][:1]
+    facts['observe_pristine_native_ack_graceful_shutdown']=True
+    assert [row['name'] for row in facts['paper_cycle_steps']]==['ACK_ONLY']
+    assert facts['paper_cycle_steps'][0]['executions']==[]
+    assert facts['paper_cycle_steps'][0]['positions']==facts['paper_cycle_steps'][0]['open_orders']==[]
+    database=tmp_path/'native-ack-graceful-shutdown.sqlite3'
+    shutil.copyfile(runtime_schema_template,database)
+    path=tmp_path/'native-ack-graceful-shutdown-facts.json';path.write_text(json.dumps(facts,default=str))
+    report=run_native_core_cold_start(database,path,tmp_path/'native-ack-graceful-shutdown-child')
+    summary={key:report.get(key) for key in ('constructor_exception','harness_exception','cycle_exception',
+        'stage','supervisor','evidence_dir','native_graceful_shutdown')}
+    assert report.get('constructor_complete') and report['constructor_count']==1,summary
+    assert not report.get('harness_exception') and not report.get('cycle_exception'),summary
+    assert len(report['cycles'])==1 and report['cycles'][0]['result'] is True,summary
+    assert [row['role'] for row in report['synthetic_memory_dispatches']]==['entry'],summary
+    assert report['paper_execution_callbacks']==[],summary
+    assert report['registry_evaluations'] and all(row['result_count']==33 for row in report['registry_evaluations'])
+    assert report['native_before'] is report['native_after_constructor'] is None
+    assert not report['sdk_attempts'] and not any(row['mutation'] for row in report['wire_attempts'])
+    assert not report['network_attempts'] and not report.get('native_curl_denials')
+    assert not report.get('capital_enrollment_attempts') and no_external_activity==[]
+    assert report['supervisor']['returncode']==0 and report['supervisor']['reaped'] and not report['supervisor']['timed_out']
+    assert report['cleanup']['live_threads']==[]
+    probe=report['native_graceful_shutdown']
+    assert probe['attempted'] and not probe.get('exception'),summary
+    assert len(report['trade_exit_shutdown_calls'])==1 and report['trade_exit_shutdown_calls'][0]['core_owned']
+    before,after=probe['before'],probe['after']
+    assert before['manager_has_original_client'] and not after['manager_has_original_client']
+    assert after['client_stop_event_set']
+    assert before['supplied_positions']==after['supplied_positions']==[]
+    assert before['supplied_open_orders']==after['supplied_open_orders']
+    assert len(before['supplied_open_orders'])==1
+    assert probe['mutation_attempts_before']==probe['mutation_attempts_after']
+    root=report['synthetic_memory_dispatches'][0]['root_id']
+    retained=before['engine']['native_orders'][root];request=retained['request']
+    assert retained['filled']==0 and retained['terminal'] is False
+    assert retained['broker_order_id']==str(report['synthetic_memory_dispatches'][0]['native_id'])
+    working=before['supplied_open_orders'][0]
+    assert str(working['orderId'])==retained['broker_order_id']
+    assert working['contract']['conId']==123 and working['contract']['symbol']=='JPM'
+    assert working['order']['action']=='BUY' and working['order']['orderType']=='MKT'
+    assert working['order']['totalQuantity']==1 and working['order']['parentId']==0
+    assert working['order']['account']=='SYNTHETIC_TEST' and working['order']['clientId']==999
+    assert working['orderState']['status']=='Submitted'
+    assert request['quantity']==1 and request['setup_family_id']=='PREMARKET_HIGH_BREAK'
+    assert request['invalidation_level']==10.3 and request['stop_loss_price']==10.2897
+    assert request['take_profit_price'] is None and request['target_model'] and request['setup_metadata']
+    allowed=[row for row in report['risk_evaluations'] if row['decision']['allowed']]
+    assert len(allowed)==1 and allowed[0]['decision']['decision_id']==retained['decision_id']
+    assert any(row['decision_id']==retained['decision_id'] for row in report['decision_artifacts'])
+    for field in ('native_state','native_orders','post_fill','canonical_trades','capital_used','capital_reserved',
+            'capital_reservations','allocation_reservations','position_records','managed_positions','protection',
+            'registry','native_quarantined','startup_recovery_state','failsafe_block_new_entries'):
+        assert before['engine'][field]==after['engine'][field],(field,summary)
+    assert before['engine']['capital_reserved']==10.3 and before['engine']['capital_used']==0
+    assert len(before['engine']['capital_reservations'])==len(before['engine']['allocation_reservations'])==1
+    capital=next(iter(before['engine']['capital_reservations'].values()))
+    allocation=next(iter(before['engine']['allocation_reservations'].values()))
+    assert allocation['global_capital_decision_id']==capital['decision_id']
+    for reservation in (capital,allocation):
+        assert reservation['order_id']==root and reservation['status']=='ACTIVE'
+        assert reservation['quantity']==reservation['remaining_quantity']==1
+        assert reservation['filled_quantity']==0 and reservation['exposure_notional']==0
+        assert reservation['notional']==reservation['remaining_notional']==10.3
+    for field in ('post_fill','protection','position_records','registry','managed_positions'):
+        assert not before['engine'][field]
+    assert before['engine']['canonical_trades'][root] is None
+    assert before['allocation_used_by_strategy']==after['allocation_used_by_strategy']
+    assert all(value==0 for value in before['allocation_used_by_strategy'].values())
+    for table in ('trade_lifecycle_events','trade_lifecycle_trades','trade_records','trades','trade_outcomes','capital_audit_events'):
+        assert before['database'][table]==after['database'][table],(table,summary)
+    assert not any(event['event_type']=='TRADE_CLOSED' for event in probe['events']),summary
+    assert probe['verify_empty_calls']==[dict(result=True,registry=[])],summary
+    hooks={row['hook']:row for row in probe['shutdown_evidence']['hooks']}
+    assert hooks['active_trade_registry.verify_empty']['completed'] is True,summary
+    assert hooks['trade_exit_engine.shutdown']['completed'] is False,summary
+    assert hooks['trade_exit_engine.shutdown']['error_type']=='RuntimeError',summary
+    assert all(row['completed'] for name,row in hooks.items() if name!='trade_exit_engine.shutdown'),summary
+    completions=[row for row in probe['shutdown_evidence']['events'] if row['event']=='SHUTDOWN_COMPLETE']
+    assert completions and completions[-1]['completed'] is False,summary

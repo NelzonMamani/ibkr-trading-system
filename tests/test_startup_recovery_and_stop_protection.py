@@ -294,8 +294,68 @@ def native_shutdown_snapshot(core, provided_positions, provided_orders):
         manager_has_original_client=manager.existing_client is client,
         client_stop_event_set=client._stop_event.is_set()))
 
+def validate_pristine_native_ack_shutdown_ownership(*, before, parent, root_id, plan,
+        provided_positions, provided_orders, callbacks, dispatches, cycles):
+    """Observe the unfilled native request and its real reservation binding."""
+    def require(value, reason):
+        if not value:
+            raise ForbiddenExternalIO('NATIVE_GRACEFUL_SHUTDOWN_ACK_PRECONDITION:' + reason)
+    request = parent['request']
+    require(len(cycles) == 1 and [row['role'] for row in dispatches] == ['entry']
+        and dispatches[0]['root_id'] == root_id
+        and str(dispatches[0]['native_id']) == str(parent.get('broker_order_id'))
+        and not callbacks and not provided_positions and len(provided_orders) == 1, 'ACK_ONLY')
+    working = provided_orders[0]
+    contract = getattr(working,'contract',None)
+    order = getattr(working,'order',None)
+    require(str(getattr(working,'orderId',None)) == str(parent.get('broker_order_id'))
+        and getattr(contract,'conId',None) == plan['con_id'] and getattr(contract,'symbol',None) == plan['symbol']
+        and getattr(contract,'currency',None) == plan['currency'] and getattr(contract,'exchange',None) == plan['exchange']
+        and getattr(order,'orderType',None) == 'MKT' and getattr(order,'action',None) == 'BUY'
+        and getattr(order,'totalQuantity',None) == 1 and getattr(order,'parentId',None) == 0
+        and getattr(order,'orderRef',None) == '' and getattr(order,'account',None) == plan['account']
+        and getattr(order,'clientId',None) == plan['client_id']
+        and getattr(getattr(working,'orderState',None),'status',None) == 'Submitted', 'WORKING_ENTRY')
+    require(type(parent.get('requested')) is int and parent['requested'] == 1
+        and type(parent.get('filled')) is int and parent['filled'] == 0
+        and parent.get('terminal') is False and not parent.get('protection_confirmed')
+        and not parent.get('cached_update_in_progress') and parent.get('notional') == 0
+        and parent.get('mode') == 'PAPER' and parent.get('account') == plan['account']
+        and parent.get('native_client_id') == plan['client_id']
+        and parent.get('native_connection_epoch') == plan['epoch']
+        and parent.get('symbol') == plan['symbol'] and parent.get('side') in {'LONG','BUY'}
+        and isinstance(parent.get('decision_id'),str) and bool(parent['decision_id']), 'RETAINED_REQUEST')
+    require(request.get('client_order_id') == root_id and request.get('symbol') == plan['symbol']
+        and request.get('quantity') == 1 and request.get('direction') == parent['side']
+        and request.get('setup_family_id') == 'PREMARKET_HIGH_BREAK'
+        and request.get('stop_loss_price') == plan['stop_price']
+        and request.get('invalidation_level') == plan['entry_price']
+        and request.get('take_profit_price') is None and bool(request.get('target_model'))
+        and bool(request.get('setup_metadata')) and not request.get('relationship_context'), 'NATIVE_CONTRACT')
+    require(before['capital_used'] == 0 and before['capital_reserved'] == plan['entry_price']
+        and not before['position_records'] and not before['registry'] and not before['managed_positions']
+        and not before['post_fill'] and not before['protection']
+        and before['canonical_trades'].get(root_id) is None
+        and len(before['capital_reservations']) == len(before['allocation_reservations']) == 1,
+        'UNFILLED_OWNERS')
+    capital = next(iter(before['capital_reservations'].values()))
+    allocation = next(iter(before['allocation_reservations'].values()))
+    require(isinstance(capital.get('decision_id'),str) and bool(capital['decision_id'])
+        and isinstance(allocation.get('decision_id'),str) and bool(allocation['decision_id'])
+        and allocation.get('global_capital_decision_id') == capital['decision_id'], 'ALLOCATION_BINDING')
+    for reservation in (capital,allocation):
+        require(reservation.get('order_id') == root_id and reservation.get('symbol') == request['symbol']
+            and reservation.get('side') == request['direction'].upper()
+            and reservation.get('strategy_id','').upper() == request['strategy_name'].upper()
+            and reservation.get('run_mode') == 'PAPER' and reservation.get('status') == 'ACTIVE'
+            and type(reservation.get('quantity')) is int and reservation['quantity'] == 1
+            and type(reservation.get('remaining_quantity')) is int and reservation['remaining_quantity'] == 1
+            and reservation.get('filled_quantity') == 0 and reservation.get('exposure_notional') == 0
+            and reservation.get('notional') == reservation.get('remaining_notional') == plan['entry_price'],
+            'RESERVATION')
+
 def observe_pristine_native_graceful_shutdown(core, provided_positions, provided_orders):
-    """Call actual shutdown only after the genuine protected PAPER precondition.
+    """Call actual shutdown only after explicit ACK-only or protected PAPER facts.
 
     This observer never repairs a mutation, supplies a fill, clears ownership or
     interprets disconnection as flat. The parent test asserts the desired truth
@@ -308,13 +368,14 @@ def observe_pristine_native_graceful_shutdown(core, provided_positions, provided
     probe['before'] = native_shutdown_snapshot(core,provided_positions,provided_orders)
     engine = core.execution_engine
     before = probe['before']['engine']
+    ack_only = facts.get('observe_pristine_native_ack_graceful_shutdown') is True
     roots = [(key,row) for key,row in before['native_orders'].items() if row.get('side') in {'LONG','BUY'}]
     if (os.environ.get('EXECUTION_ENV') != 'TEST' or core.run_mode.value != 'PAPER'
             or not facts.get('observe_pristine_paper_cycle') or not engine.provider.is_live() or len(roots) != 1
             or report.get('native_before') is not None or report['after_constructor']['native_state'] is not None
             or not report.get('cycles') or any(row.get('result') is not True or row.get('exception')
                 for row in report['cycles'])
-            or [row['role'] for row in report['synthetic_memory_dispatches']] != ['entry','stop']
+            or [row['role'] for row in report['synthetic_memory_dispatches']] != (['entry'] if ack_only else ['entry','stop'])
             or before['capital_scope'] is not None or before['capital_writer_present']
             or before['native_quarantined'] or before['startup_recovery_state'] != 'RECOVERY_COMPLETE'):
         raise ForbiddenExternalIO('NATIVE_GRACEFUL_SHUTDOWN_PROTECTED_PRECONDITION')
@@ -322,7 +383,12 @@ def observe_pristine_native_graceful_shutdown(core, provided_positions, provided
     plan = facts['paper_memory_plan']
     life = before['post_fill'].get(root_id)
     canonical = before['canonical_trades'].get(root_id)
-    if (not parent.get('terminal') or parent.get('filled') != 1 or not parent.get('protection_confirmed')
+    if ack_only:
+        validate_pristine_native_ack_shutdown_ownership(before=before,parent=parent,root_id=root_id,plan=plan,
+            provided_positions=provided_positions,provided_orders=provided_orders,
+            callbacks=report['paper_execution_callbacks'],dispatches=report['synthetic_memory_dispatches'],
+            cycles=report['cycles'])
+    elif (not parent.get('terminal') or parent.get('filled') != 1 or not parent.get('protection_confirmed')
             or parent.get('cached_update_in_progress') or parent['request'].get('setup_family_id') != 'PREMARKET_HIGH_BREAK'
             or parent['request'].get('relationship_context')
             or life is None or life['filled_qty'] != 1 or not before['protection'][root_id]['protected']
@@ -1593,7 +1659,8 @@ try:
     if facts.get('observe_pristine_paper_cycle'):
         report['native_history_pending_ids'] = sorted(client._historical_states)
     report['mutation_attempts'] = mutation_snapshot()
-    if facts.get('observe_pristine_native_graceful_shutdown'):
+    if (facts.get('observe_pristine_native_graceful_shutdown')
+            or facts.get('observe_pristine_native_ack_graceful_shutdown')):
         report['stage'] = 'NATIVE_PAPER_GRACEFUL_SHUTDOWN'
         observe_pristine_native_graceful_shutdown(core,positions,orders)
     report['stage'] = 'COMPLETE'

@@ -64,7 +64,7 @@ from src.execution.execution_engine import ExecutionEngine
 from src.execution.autonomous_recovery_authority import AutonomousRecoveryAuthority
 from src.execution.clean_start_session import enforce_clean_start_session
 from src.execution.dev_tools.flatten_positions import force_flatten_all_positions
-from src.execution.execution_providers import IbkrExecutionProvider
+from src.execution.execution_providers import IbkrExecutionProvider, PaperExecutionProvider
 from src.execution.position_truth import (
     PositionTruthSnapshot,
     PositionTruthVerdict,
@@ -83,7 +83,7 @@ from src.core.managers import (
     RuntimeModeManager,
     ScannerDiagnosticsManager,
 )
-from src.execution.trade_exit_engine import TradeExitEngine
+from src.execution.trade_exit_engine import ShutdownExecutionContext, TradeExitEngine
 from src.learning.scheduler import LearningScheduler
 from src.market_data.market_data_hub import MarketDataHub
 from src.market_data.market_data_price_feed import MarketDataPriceFeed
@@ -7630,6 +7630,69 @@ class CoreOrchestrator:
             print(f"[OPS][SUMMARY] Failed to write report: {exc}")
             raise
 
+    def _trade_exit_shutdown_context(self) -> ShutdownExecutionContext:
+        """Read existing ownership before any shutdown hook disconnects a provider.
+
+        Retained native records (including historical records) conservatively
+        preclude teaching closure. Missing or inconsistent facts are unknown,
+        never evidence that a broker-backed position has become flat.
+        """
+        try:
+            execution = self.execution_engine
+            run_mode = self.run_mode
+            if not isinstance(run_mode, RunMode) or execution.run_mode != run_mode:
+                return ShutdownExecutionContext()
+            provider = execution._provider
+            simulator = False
+            if isinstance(provider, PaperExecutionProvider):
+                if (not isinstance(provider.broker, SimBroker)
+                        or provider.is_live() is not False
+                        or provider.run_mode != run_mode
+                        or provider.broker.run_mode != run_mode
+                        or run_mode not in {RunMode.SIM, RunMode.PAPER}):
+                    return ShutdownExecutionContext()
+                simulator = True
+            elif isinstance(provider, IbkrExecutionProvider):
+                if (provider.is_live() is not True or provider.run_mode != run_mode
+                        or run_mode not in {RunMode.PAPER, RunMode.LIVE, RunMode.READ_ONLY}):
+                    return ShutdownExecutionContext()
+            elif provider is None and execution.execution_enabled is False:
+                simulator = run_mode == RunMode.SIM
+            else:
+                return ShutdownExecutionContext()
+
+            records = execution._selected_order_records()
+            positions = execution.position_records
+            pending = execution.pending_book.count()
+            quarantined = execution._native_quarantined
+            capital = execution.capital_authority
+            allocation = execution.strategy_allocation_authority
+            if (not isinstance(records, dict) or not isinstance(positions, dict)
+                    or type(pending) is not int or pending < 0
+                    or type(quarantined) is not bool):
+                return ShutdownExecutionContext()
+            scoped_capital = capital.capital_scope is not None
+            if scoped_capital:
+                # Enrollment itself is retained authority; do not load/recover
+                # a scoped projection as part of shutdown classification.
+                reservations = True
+            else:
+                capital_reservations = capital.active_reservations
+                allocation_reservations = allocation.active_reservations
+                if (not isinstance(capital_reservations, dict)
+                        or not isinstance(allocation_reservations, dict)):
+                    return ShutdownExecutionContext()
+                reservations = bool(capital_reservations or allocation_reservations)
+            # Position records, retries and local reservations also belong to
+            # the deterministic simulator. They are not native provenance.
+            # Native records/quarantine and scoped authority still veto even
+            # if the currently resolved provider is a simulator.
+            retained = bool(records or quarantined or execution._native_state is not None
+                or scoped_capital or (not simulator and (positions or pending or reservations)))
+            return ShutdownExecutionContext(run_mode, simulator, retained)
+        except Exception:
+            return ShutdownExecutionContext()
+
     def _shutdown(self, mode: StopMode) -> None:
         from src.ibkr.shutdown_evidence import ShutdownEvidence, reset_scanner, disconnect_manager
         from src.ibkr.evidence_safety import finish_console_protection
@@ -7674,6 +7737,7 @@ class CoreOrchestrator:
 
         proof.record("GRACEFUL_STOP_REQUESTED", completed=(
             self.stop_controller.is_stop_requested() and resolved_mode == StopMode.GRACEFUL))
+        trade_exit_context = self._trade_exit_shutdown_context()
 
         def emit_shutdown(event_type, payload):
             try:
@@ -7696,7 +7760,8 @@ class CoreOrchestrator:
             ("ops_summary", self._emit_ops_summary),
             ("learning_scheduler", self.learning_scheduler.on_shutdown),
             ("execution_engine.shutdown", self.execution_engine.shutdown),
-            ("trade_exit_engine.shutdown", self.trade_exit_engine.shutdown),
+            ("trade_exit_engine.shutdown", lambda: self.trade_exit_engine.shutdown(
+                execution_context=trade_exit_context)),
             ("storage_engine.shutdown", self.storage_engine.shutdown),
             ("active_trade_registry.verify_empty", self.trade_registry.verify_empty),
             ("scanner_reset", reset_scanner),
