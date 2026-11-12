@@ -75,7 +75,7 @@ STANDARD = {b'filter.lfs.clean': b'git-lfs clean -- %f',
             b'filter.lfs.process': b'git-lfs filter-process'}
 OPTIONAL = {b'filter.lfs.required': b'true'}
 _WINDOWS = sys.platform == 'win32'
-UNSAFE = re.compile(rb'^(include\.path|includeif\..*\.path|core\.(hookspath|fsmonitor)|extensions\.(partialclone|worktreeconfig)|remote\..*\.(promisor|partialclonefilter)|attr\.tree)$')
+UNSAFE = re.compile(rb'^(include\.path|includeif\..*\.path|core\.(hookspath|fsmonitor)|extensions\.partialclone|remote\..*\.(promisor|partialclonefilter)|attr\.tree)$')
 
 def _windows_drive_type(root):
     import ctypes
@@ -128,10 +128,19 @@ def qualify(git, repo, commit, tree, working=False):
         raw = run('config', '--no-includes', '--null', '--show-origin', '--show-scope', '--list')
         entries = records(raw, 3)
         seen = set()
+        worktree_config_seen = False
         for scope, origin, item in entries:
             if b'\n' not in item: raise ValueError('Incomplete config key/value')
             key, value = item.split(b'\n', 1)
             if UNSAFE.fullmatch(key): raise ValueError('Unadmitted Git execution/source configuration')
+            # Native Git includes the current worktree's effective entries in
+            # this complete --show-scope listing when the extension is enabled.
+            # Admit only the observed common/local true flag, once; inspect all
+            # resulting worktree entries with the same guards and snapshots.
+            if key == b'extensions.worktreeconfig':
+                if scope != b'local' or not origin.startswith(b'file:') or len(origin) <= 5 or value != b'true' or worktree_config_seen:
+                    raise ValueError('Unadmitted worktree-config extension scope, value or override')
+                worktree_config_seen = True
             if key.lower().startswith(b'filter.'):
                 allowed = STANDARD.get(key, OPTIONAL.get(key))
                 if allowed is None or value != allowed or scope != b'system' or not origin.startswith(b'file:') or len(origin) <= 5 or key in seen:
