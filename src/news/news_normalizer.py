@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 from collections import Counter
+from collections.abc import Mapping
 from typing import Dict, Iterable, List
 from urllib.parse import urlparse
 
@@ -60,6 +62,28 @@ def _domain_from_url(url: str) -> str:
         return host
     except Exception:
         return ""
+
+
+def publisher_identity(label: str, provenance=None) -> str:
+    """Declared publisher grouping only; never verification/confirmation authority.
+
+    Prefer an explicit HTTP(S) publisher URL, never an article/transport URL.
+    Only host case and the conventional www prefix are normalized. Distinct
+    subdomains remain distinct; human names have no inferred domain mapping.
+    """
+    declared = (provenance or {}).get('publisher_url') if isinstance(provenance, Mapping) else None
+    if isinstance(declared, str):
+        try:
+            parsed = urlparse(declared)
+            if parsed.scheme.lower() in {'http', 'https'} and parsed.hostname and not parsed.username and not parsed.password:
+                host = parsed.hostname.lower().removeprefix('www.')
+                return 'host:' + host
+        except ValueError:
+            pass
+    text = str(label or '').strip().casefold()
+    if re.fullmatch(r'(?:[a-z0-9-]+\.)+[a-z]{2,63}', text):
+        return 'host:' + text.removeprefix('www.')
+    return 'label:' + text if text else ''
 
 
 def _region_from_domain(domain: str) -> str:
@@ -136,8 +160,14 @@ def normalize_headlines(
     unique = len(unique_headlines)
     replicated = total - unique
 
-    source_counts = Counter(headline.source for headline in headlines if headline.source)
-    top_sources = [source for source, _ in source_counts.most_common(5)]
+    source_counts = Counter()
+    source_labels = {}
+    for headline in headlines:
+        identity = publisher_identity(headline.source, headline.source_provenance)
+        if identity:
+            source_counts[identity] += 1
+            source_labels.setdefault(identity, set()).add(headline.source or identity.removeprefix("host:"))
+    top_sources = [sorted(source_labels[identity])[0] for identity, _ in source_counts.most_common(5)]
 
     regions = []
     for headline in headlines:
@@ -168,7 +198,7 @@ def normalize_headlines(
     )
 
     credibility_count = sum(
-        1 for source in source_counts if any(token in source.lower() for token in HIGH_CREDIBILITY_SOURCES)
+        1 for identity in source_counts if any(token in label.lower() for label in source_labels[identity] for token in HIGH_CREDIBILITY_SOURCES)
     )
     top_source_score = round(min(credibility_count / 3.0, 1.0), 2)
 

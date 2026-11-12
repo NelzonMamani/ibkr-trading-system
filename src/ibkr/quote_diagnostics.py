@@ -1,11 +1,13 @@
 """Bounded native quote transport facts; never quote/entitlement authority.
 
 No prices, account data, error text or arbitrary callback payloads are retained.
+Only bounded numeric broker timestamp strings are retained as raw time inputs.
 SDK return is deliberately distinct from broker receipt/acknowledgement.
 """
 from collections import OrderedDict
 from datetime import datetime, timezone
 import json
+import re
 import sys
 from importlib.metadata import PackageNotFoundError, version
 import threading
@@ -65,7 +67,7 @@ class QuoteDiagnostics:
             # Diagnostics cannot change transport/qualification/control flow.
             self.suppressed_logs = min(self.MAX_COUNT, self.suppressed_logs + 1)
 
-    def start(self, req_id, contract, requested_type, generic_ticks, snapshot, regulatory, options):
+    def start(self, req_id, contract, requested_type, generic_ticks, snapshot, regulatory, options, *, connection_epoch=None):
         with self._lock:
             if len(self.requests) >= self.MAX_REQUESTS:
                 self.requests.popitem(last=False)
@@ -73,6 +75,7 @@ class QuoteDiagnostics:
             row = {'identity': {key: self._text(getattr(contract, key, None)) for key in
                    ('symbol', 'secType', 'exchange', 'primaryExchange', 'currency')},
                    'con_id': int(getattr(contract, 'conId', 0) or 0),
+                   'connection_epoch': connection_epoch if type(connection_epoch) is int else None,
                    'requested_type': requested_type, 'returned_type': None,
                    'generic_ticks': self._text(generic_ticks), 'snapshot': bool(snapshot),
                    'regulatory_snapshot': bool(regulatory), 'option_count': len(options or []),
@@ -109,6 +112,41 @@ class QuoteDiagnostics:
                     'owner': owner if owner in ('MARKET_DATA', 'HISTORICAL_DATA', 'CONTRACT_DETAILS', 'SCANNER_DATA') else 'OTHER_OR_NONE',
                     'returned_type': returned_type if returned_type in (1, 2, 3, 4) else None})
 
+    def timestamp_input(self, req_id, value, decoded, callback_at, tick_type):
+        # Do not retain arbitrary callback text or permit it to mint authority.
+        facts = timestamp_input_facts(value, decoded, callback_at, tick_type)
+        with self._lock:
+            row = self.requests.get(req_id)
+            if row is not None:
+                row['timestamp_input'] = dict(facts)
+        return facts
+
+    def assess_time(self, req_id, *, timestamp, source, assessed_at, reason, assessor,
+                    timestamp_input=None, completed_at=None, expected_scope=None):
+        if reason not in {'MD_TIMESTAMP_FUTURE', 'MD_STALE', 'MD_TIMESTAMP_UNKNOWN'}:
+            return
+        with self._lock:
+            row = self.requests.get(req_id)
+            if row is None:
+                return
+            if expected_scope is not None:
+                actual = {'client_id': self.client_id, 'connection_epoch': row.get('connection_epoch'),
+                          'con_id': row.get('con_id')}
+                if any(type(expected_scope.get(key)) is not int or type(value) is not int
+                       or expected_scope[key] != value for key, value in actual.items()):
+                    return  # Unknown/incompatible scope cannot attribute facts by reused ID.
+            prior = row.setdefault('time_assessments', {})
+            if reason in prior:
+                return
+            facts = {'reason': reason, 'assessor': assessor, 'assessed_at_utc': assessed_at.isoformat(),
+                'timestamp_utc': timestamp.isoformat() if isinstance(timestamp, datetime) else self._text(timestamp),
+                'timestamp_source': self._text(source), 'request_completed_at_utc': completed_at,
+                'timestamp_input': dict(timestamp_input or {}), 'identity': row['identity'], 'con_id': row['con_id'],
+                'connection_epoch': row.get('connection_epoch')}
+            prior[reason] = facts
+            row.setdefault('first_time_rejection', dict(facts))
+            self._emit('time_rejection', req_id, {**facts, 'first_time_rejection': row['first_time_rejection']})
+
     def finish(self, req_id, reason):
         with self._lock:
             row = self.requests.get(req_id)
@@ -116,7 +154,8 @@ class QuoteDiagnostics:
                 row['completion'] = reason
                 self._emit('completion', req_id, {'reason': reason, 'callbacks': dict(row['callbacks']),
                     'requested_type': row['requested_type'], 'returned_type': row['returned_type'],
-                    'tick_counts': dict(row['tick_counts'])})
+                    'tick_counts': dict(row['tick_counts']),
+                    'timestamp_input': dict(row.get('timestamp_input', {}))})
 
     def cleanup(self, req_id, outcome, *, active, ticker_present, event_present):
         with self._lock:
@@ -126,3 +165,36 @@ class QuoteDiagnostics:
                     'ticker_present_after': ticker_present, 'event_present_after': event_present,
                     'broker_cancel_acknowledged': False}
                 self._emit('cleanup', req_id, row['cleanup'])
+
+
+def record_time_assessment(client, req_id, *, attempts=(), scope=None, **facts):
+    """Diagnostic failure must never change a quote's admission or cleanup."""
+    try:
+        if facts.get('reason') in {'MD_TIMESTAMP_FUTURE', 'MD_STALE', 'MD_TIMESTAMP_UNKNOWN'}:
+            # Reuse the existing selected-attempt carrier when bounded native
+            # trace emission is exhausted. First facts are never renewed.
+            for attempt in attempts[:3]:
+                if attempt.get('request_id') != req_id:
+                    continue
+                prior = attempt.setdefault('time_rejections', {})
+                if facts['reason'] not in prior:
+                    stamp = facts.get('timestamp')
+                    captured = {**(scope or {}), 'request_id': req_id,
+                        'assessor': facts['assessor'], 'assessed_at_utc': facts['assessed_at'].isoformat(),
+                        'reason': facts['reason'], 'timestamp_source': facts['source'],
+                        'timestamp_utc': stamp.isoformat() if isinstance(stamp, datetime) else QuoteDiagnostics._text(stamp),
+                        'request_completed_at_utc': facts.get('completed_at'),
+                        'timestamp_input': dict(attempt.get('timestamp_input') or facts.get('timestamp_input') or {})}
+                    prior[facts['reason']] = captured
+                    attempt.setdefault('first_time_rejection', dict(captured))
+        trace = getattr(client, '_quote_trace', None)
+        if trace is not None:
+            trace.assess_time(req_id, expected_scope=scope, **facts)
+    except Exception:
+        pass
+
+
+def timestamp_input_facts(value, decoded, callback_at, tick_type):
+    raw = value if isinstance(value, str) and re.fullmatch(r'[+\-0-9.eE]{1,32}', value) else 'INVALID_OR_OVERSIZE_REDACTED'
+    return {'raw_input': raw, 'decoded_utc': decoded.isoformat(),
+            'callback_utc': callback_at.isoformat(), 'tick_type': tick_type}

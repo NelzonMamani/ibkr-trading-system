@@ -177,3 +177,67 @@ def test_protected_qualification_merge_repairs_duplicate_alias_metrics(monkeypat
     candidate=NewsCandidate('MYPS',company_name=polluted[0].company_name)
     item,=store.read((candidate,),include_prep=False).evidence_by_symbol['MYPS']
     assert item.publication_count==item.independent_source_count==item.velocity_5m==1
+
+
+def test_post_pr1223_distinct_articles_share_one_declared_publisher(monkeypatch,tmp_path):
+    from src.news import evidence_store as owner
+    from src.news.news_normalizer import normalize_headlines
+    from src.news.news_fetcher import Headline
+    from src.news.news_heat import compute_news_heat_score
+    facts=json.loads((Path(__file__).parent/'fixtures/post_pr1223_myps_publisher.json').read_text())['evidence']
+    now=datetime(2026,11,12,18,45,tzinfo=timezone.utc)
+    class Clock(datetime):
+        @classmethod
+        def now(cls,tz=None):return now
+    monkeypatch.setattr(owner,'datetime',Clock)
+    items=tuple(owner.evidence_from_mapping(row,now=now) for row in facts)
+    assert len({i.url for i in items})==2 and {i.independent_source_count for i in items}=={2}
+    headlines=[Headline(i.headline,i.observed_source,i.published_at.timestamp(),i.url,
+        source_provenance=i.raw['source_provenance']) for i in items]
+    metrics=normalize_headlines(headlines,now_ts=now.timestamp())
+    assert metrics['news_sources_count']==1 and metrics['news_total_headlines']==2
+    expected_heat=compute_news_heat_score(metrics)  # No assumed direction of change.
+    from src.news.batch_rss_adapter import _evidence_from_headline
+    candidate=NewsCandidate('MYPS',company_name=items[0].company_name)
+    produced=tuple(_evidence_from_headline(candidate,replace(headline,source_tier='operational_query'),
+        request=NewsRequest(),retrieval_status='partial',provider_status='partial_request_failure',
+        budget_exhausted=False,fetched_at=now,now_ts=now.timestamp()) for headline in headlines)
+    produced=owner.enrich_evidence_metrics(produced,now_ts=now.timestamp())
+    assert len(produced)==2 and {i.independent_source_count for i in produced}=={1}
+    assert {i.publication_count for i in produced}=={2} and all(i.verified_source is None for i in produced)
+    assert [i.raw['source_provenance'] for i in produced]==[h.source_provenance for h in headlines]
+    fresh=owner.enrich_evidence_metrics(items,now_ts=now.timestamp())
+    assert len(fresh)==2 and {i.independent_source_count for i in fresh}=={1}
+    assert {i.publication_count for i in fresh}=={2}
+    assert {i.heat_score for i in fresh}=={expected_heat}
+    cache=tmp_path/'diversity.json'
+    cache.write_text(json.dumps({'news_intelligence':{'symbols':{'MYPS':{
+        'evidence':facts,'ross_qualification_evidence':facts}}}}))
+    store=owner.CanonicalNewsEvidenceStore(cache,prep_artifact_loader=lambda:{})
+    candidate=NewsCandidate('MYPS',company_name=items[0].company_name)
+    for metadata in ({},{'read_retained_cohort':True}):
+        result=store.read((candidate,),NewsRequest(max_evidence_per_symbol=10,metadata=metadata),include_prep=False)
+        assert result.summaries_by_symbol['MYPS'].independent_source_count==1
+        assert len(result.evidence_by_symbol['MYPS'])==2
+        for i in result.evidence_by_symbol['MYPS']:
+            assert i.independent_source_count==1 and i.publication_count==2
+            original=next(x for x in items if x.evidence_id==i.evidence_id)
+            assert i.raw==original.raw and i.published_at==original.published_at
+            assert i.verified_source==original.verified_source
+    store.write({'MYPS':()},NewsRequest(max_evidence_per_symbol=10))
+    bucket=json.loads(cache.read_text())['news_intelligence']['symbols']['MYPS']
+    for field in ('evidence','ross_qualification_evidence'):
+        assert len(bucket[field])==2 and {i['independent_source_count'] for i in bucket[field]}=={1}
+        assert {i['publication_count'] for i in bucket[field]}=={2}
+
+
+@pytest.mark.parametrize('left,right,equal',[
+    ('https://WWW.marketscreener.com/news','http://marketscreener.com',True),
+    ('https://news.publisher.test','https://publisher.test',False),
+    ('https://one.test','https://two.test',False),
+    ('ftp://same.test','https://same.test',False),
+])
+def test_declared_publisher_host_scope_only(left,right,equal):
+    from src.news.news_normalizer import publisher_identity
+    assert (publisher_identity('label A',{'publisher_url':left})==
+            publisher_identity('label B',{'publisher_url':right})) is equal

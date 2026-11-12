@@ -2015,10 +2015,14 @@ def _stale_market_data_drop(context: Dict[str, Any]) -> Optional[str]:
     # Production contexts always carry these keys, including explicit None on
     # absence. Historical prep-only monitoring has no quote permission to grant.
     if "quote_timestamp_utc" in context or "quote_timestamp_source" in context:
-        reason = quote_time_rejection(context.get("quote_timestamp_utc"), context.get("quote_timestamp_source"),
-                                      now=datetime.now(timezone.utc))
+        assessed_at = datetime.now(timezone.utc)
+        reason = quote_time_rejection(context.get("quote_timestamp_utc"), context.get("quote_timestamp_source"), now=assessed_at)
         if reason and reason not in flags:
             flags.append(reason)
+            context.setdefault('quote_time_assessments', {}).setdefault(reason, {
+                'assessor': 'scanner._stale_market_data_drop', 'assessed_at_utc': assessed_at.isoformat(),
+                'reason': reason, 'request_id': context.get('quote_request_id'),
+                'timestamp_utc': context.get('quote_timestamp_utc'), 'timestamp_source': context.get('quote_timestamp_source')})
             context["data_quality_flags"] = flags
     reason = next((flag for flag in ("MD_TIMESTAMP_FUTURE", "MD_STALE", "MD_TIMESTAMP_UNKNOWN")
                    if flag in flags), None)
@@ -4757,6 +4761,33 @@ def _shortlist_selection_deadline(contexts, thresholds):
     return min(deadlines) if deadlines else None
 
 
+def _quote_timestamp_origin(evidence, request_id):
+    """Selected existing attempt only; preserve bounds even on refresh rejection."""
+    if not isinstance(evidence, dict) or type(request_id) is not int or request_id < 0:
+        return None
+    attempts = evidence.get('snapshot_attempts', ())
+    if not isinstance(attempts, (list, tuple)):
+        return None
+    for attempt in attempts[:3]:
+        if isinstance(attempt, dict) and attempt.get('request_id') == request_id:
+            return {key: attempt.get(key) for key in ('timestamp_input', 'timestamp_assessment',
+                'first_time_rejection', 'time_rejections')}
+    return None
+
+
+def _quote_assessment_delay(context, assessed_at):
+    """Elapsed acquisition-to-assessment only, never a market-time substitute."""
+    try:
+        raw = (context.get('snapshot_evidence') or {}).get('request_completed_at_utc')
+        stamp = datetime.fromisoformat(raw.replace('Z', '+00:00'))
+        end = datetime.fromisoformat(assessed_at)
+        if stamp.tzinfo is None or stamp.utcoffset() is None or end.tzinfo is None:
+            return None
+        return round((end - stamp).total_seconds(), 6)
+    except (TypeError, AttributeError, ValueError, OverflowError):
+        return None
+
+
 def _refresh_provisional_shortlist(candidates, provider, session_label, float_cache,
                                    limit, thresholds, drop_ledger, runtime_bound_reached=None, deadline_s=None):
     # Rank with the existing authority and bound acquisition to K. Later slow
@@ -4793,7 +4824,10 @@ def _refresh_provisional_shortlist(candidates, provider, session_label, float_ca
               f"assessed_at={assessed_at} market_timestamp={context.get('quote_timestamp_utc')} "
               f"request_id={context.get('quote_request_id')} reason={reason or 'PASS'} "
               f"current_time_rejection={quote_time_rejection(context.get('quote_timestamp_utc'), context.get('quote_timestamp_source'), now=datetime.fromisoformat(assessed_at))} "
-              f"retained_time_rejections={sorted(set(context.get('data_quality_flags') or ()) & {'MD_TIMESTAMP_FUTURE', 'MD_STALE', 'MD_TIMESTAMP_UNKNOWN'})}")
+              f"retained_time_rejections={sorted(set(context.get('data_quality_flags') or ()) & {'MD_TIMESTAMP_FUTURE', 'MD_STALE', 'MD_TIMESTAMP_UNKNOWN'})} "
+              f"acquisition_to_assessment_seconds={_quote_assessment_delay(context, assessed_at)} "
+              f"first_consumer_time_rejections={context.get('quote_time_assessments', {})} "
+              f"timestamp_origin={_quote_timestamp_origin(context.get('snapshot_evidence'), context.get('quote_request_id'))}")
         if reason:
             drop_ledger[context["symbol"]] = reason
             print(f"[SCANNER][DROP] symbol={context['symbol']} reason={reason} boundary=shortlist_refresh")
@@ -4818,24 +4852,33 @@ def _refresh_shortlisted_quote(context, provider, session_label, float_cache, *,
     symbol = str(context.get("symbol") or "")
     before_stamp = context.get("quote_timestamp_utc")
     before_request = context.get("quote_request_id")
+    stage = "REFRESH_ACQUISITION"
+    quote = None
     try:
         with acquisition_deadline(deadline_s):
             quote = refresh(symbol)
             checkpoint()
+            stage = "REFRESH_SYMBOL"
             if str(getattr(quote, "symbol", "")).upper() != symbol.upper():
                 raise ValueError("refresh symbol mismatch")
+            stage = "REFRESH_TIMESTAMP_PARSE"
             stamp = datetime.fromisoformat(quote.timestamp_utc.replace("Z", "+00:00"))
+            stage = "REFRESH_TIMESTAMP_AUTHORITY"
             if stamp.tzinfo is None or getattr(quote, "timestamp_source", "UNKNOWN") != "LAST_TRADE":
                 raise ValueError("refresh lacks broker market timestamp")
+            stage = "REFRESH_UNAVAILABLE_FLAGS"
             if any(flag in (getattr(quote, "data_quality_flags", ()) or ()) for flag in
                    ("MD_TIMEOUT", "SNAPSHOT_TIMEOUT", "MD_EMPTY", "MD_TIMESTAMP_UNKNOWN", "MD_TIMESTAMP_FUTURE")):
                 raise ValueError("refresh unavailable")
+            stage = "REFRESH_FUTURE_TIMESTAMP"
             if quote_time_rejection(quote.timestamp_utc, quote.timestamp_source, now=datetime.now(timezone.utc)) == "MD_TIMESTAMP_FUTURE":
                 raise ValueError("refresh has future broker timestamp")
+            stage = "REFRESH_REBUILD"
             rebuilt = _build_symbol_context(
                 provider, symbol, session_label, float_cache=float_cache,
                 universe_rank=context.get("universe_rank"), quote_override=quote,
             )
+            stage = "REFRESH_IDENTITY"
             if rebuilt is None or _context_identity(rebuilt).key != _context_identity(context).key:
                 raise ValueError("refresh identity mismatch or unavailable")
             checkpoint()
@@ -4851,7 +4894,12 @@ def _refresh_shortlisted_quote(context, provider, session_label, float_cache, *,
               f"assessed_at={datetime.now(timezone.utc).isoformat()} "
               f"flags={context.get('data_quality_flags')}")
     except Exception as exc:
-        print(f"[SCANNER][SHORTLIST_REFRESH] symbol={symbol} status=failed error={type(exc).__name__}")
+        print(f"[SCANNER][SHORTLIST_REFRESH] symbol={symbol} status=failed error={type(exc).__name__} "
+              f"stage={stage} request_id={getattr(quote, 'request_id', None)} "
+              f"market_timestamp={getattr(quote, 'timestamp_utc', None)} "
+              f"timestamp_source={getattr(quote, 'timestamp_source', None)} "
+              f"flags={getattr(quote, 'data_quality_flags', ())} "
+              f"timestamp_origin={_quote_timestamp_origin(getattr(quote, 'snapshot_evidence', None), getattr(quote, 'request_id', None))}")
 
 
 def _quote_market_data_provenance(quote) -> dict[str, Any]:

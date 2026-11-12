@@ -21,7 +21,7 @@ from src.news.news_intelligence_contract import (
     NewsRequest,
     RetrievalStatus,
 )
-from src.news.news_normalizer import normalize_headlines
+from src.news.news_normalizer import normalize_headlines, publisher_identity
 from src.news.issuer_relevance import evidence_issuer_relevance_verified
 from src.prep.premarket_prep_artifact import load_canonical_premarket_prep_artifact
 
@@ -70,9 +70,8 @@ def evidence_max_entries(request: NewsRequest | None = None) -> int:
 
 def retained_evidence(evidence, request):
     selector = request.metadata.get("retention_selector") if request is not None else None
-    unique = dedupe_evidence(evidence, max_items=max(1, len(evidence)))
-    if len(unique) != len(evidence):
-        unique = list(enrich_evidence_metrics(evidence, now_ts=datetime.now(timezone.utc).timestamp()))
+    unique = dedupe_evidence(enrich_evidence_metrics(evidence, now_ts=datetime.now(timezone.utc).timestamp()),
+        max_items=max(1, len(evidence)))
     if callable(selector):
         return selector(unique, request)
     return unique[:evidence_max_entries(request)]
@@ -181,8 +180,7 @@ class CanonicalNewsEvidenceStore:
                     source_credibility_score=None, source_reliability_score=None,
                     independent_source_count=None,
                 ) for item in accepted), now_ts=now.timestamp()))
-            if len(dedupe_evidence(accepted, max_items=len(accepted) or 1)) != len(accepted):
-                accepted = list(enrich_evidence_metrics(accepted, now_ts=now.timestamp()))
+            accepted = list(enrich_evidence_metrics(accepted, now_ts=now.timestamp()))
             deduped = (dedupe_evidence(accepted, max_items=len(accepted) or 1)
                        if request and request.metadata.get("read_retained_cohort") else retained_evidence(accepted, request))
             evidence_by_symbol[symbol] = tuple(deduped)
@@ -296,14 +294,12 @@ class CanonicalNewsEvidenceStore:
             if request and request.query_start_utc is None and request.strategy_id == "ross_momentum":
                 ross_rows = [serialize_evidence(item) for item in merged]
             protected = [item for row in ross_rows if (item := evidence_from_mapping(row, now=now)) is not None]
-            unique_protected = dedupe_evidence(protected, max_items=len(protected) or 1)
-            if len(unique_protected) != len(protected):
-                protected = list(enrich_evidence_metrics(protected, now_ts=now.timestamp()))
+            protected = list(enrich_evidence_metrics(protected, now_ts=now.timestamp()))
+            if ross_rows:
                 ross_rows = [serialize_evidence(item) for item in protected]
             combined_inputs = list(merged) + protected
-            combined = dedupe_evidence(combined_inputs, max_items=len(combined_inputs) or 1)
-            if len(combined) != len(combined_inputs):
-                combined = list(enrich_evidence_metrics(combined_inputs, now_ts=now.timestamp()))
+            combined = dedupe_evidence(enrich_evidence_metrics(combined_inputs, now_ts=now.timestamp()),
+                max_items=len(combined_inputs) or 1)
             bucket = {"updated_at": now.isoformat(),
                       "evidence": [serialize_evidence(item) for item in combined]}
             if ross_rows:
@@ -413,7 +409,7 @@ def summarize_news_evidence(
         for value in (item.source_reliability_score, item.source_credibility_score)
         if value is not None
     ]
-    source_count = len({item.observed_source or item.original_source or item.source_domain for item in items if item.observed_source or item.original_source or item.source_domain})
+    source_count = len({publisher_identity(item.observed_source or item.original_source or item.source_domain, dict(item.raw or {}).get("source_provenance")) for item in items} - {""})
     event_counts: dict[str, int] = {}
     for item in items:
         event = str(item.event_class or item.catalyst_classification or "").strip()
@@ -599,6 +595,14 @@ def enrich_evidence_metrics(
             velocity_30m=None, velocity_60m=None, heat_score=None, hotness_score=None,
             source_credibility_score=None, source_reliability_score=None,
             independent_source_count=None, publication_count=None) for item in unique)
+    raw_sources = {str(item.observed_source or item.original_source or item.source_domain or '') for item in evidence} - {''}
+    declared_sources = {publisher_identity(item.observed_source or item.original_source or item.source_domain,
+        dict(item.raw or {}).get('source_provenance')) for item in evidence} - {''}
+    if len(declared_sources) != len(raw_sources) or any(
+            item.publication_count == len(evidence) and item.independent_source_count is not None and item.independent_source_count != len(declared_sources)
+            for item in evidence):
+        evidence = tuple(replace(item, independent_source_count=None, heat_score=None, hotness_score=None,
+            source_credibility_score=None, source_reliability_score=None) for item in evidence)
     headlines = [
         Headline(
             title=str(item.headline or ""),
@@ -609,6 +613,7 @@ def enrich_evidence_metrics(
             source_tier=str(item.source_tier or ""),
             match_type=str(item.match_type or ""),
             matched_field=str(item.matched_field or ""),
+            source_provenance=dict(item.raw or {}).get("source_provenance", {}),
         )
         for item in evidence
         if item.headline and item.published_at is not None and item.published_at.timestamp() <= now_ts

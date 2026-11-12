@@ -167,3 +167,18 @@ def test_broker_error_arrival_retains_owner_but_not_message_in_trace(native, cap
     assert 'Not subscribed' not in json.dumps(trace)
     assert 'DU123456789' not in json.dumps(trace)
     assert ticker.brokerErrors[0]['code'] == 354  # Existing sanitized error evidence remains.
+
+
+@pytest.mark.parametrize('field,value,valid',[
+    ('client_id',71,True),('client_id',72,False),('connection_epoch',37,False),
+    ('con_id',456,False),('connection_epoch',None,False)])
+def test_first_timestamp_assessor_refuses_unknown_or_mismatched_scope(field,value,valid):
+    from datetime import datetime,timedelta,timezone
+    trace=QuoteDiagnostics(71)
+    trace.start(2,contract(),1,'',True,False,[],connection_epoch=23)
+    expected={'client_id':71,'connection_epoch':23,'con_id':123}
+    expected[field]=value
+    now=datetime(2026,11,12,18,37,tzinfo=timezone.utc)
+    trace.assess_time(2,timestamp=now+timedelta(seconds=.5),source='LAST_TRADE',assessed_at=now,
+        reason='MD_TIMESTAMP_FUTURE',assessor='synthetic.scope.control',expected_scope=expected)
+    assert bool(trace.requests[2].get('first_time_rejection')) is valid
