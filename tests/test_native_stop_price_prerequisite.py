@@ -2939,3 +2939,146 @@ def test_pristine_native_paper_ack_shutdown_preserves_pending_request_and_reserv
     assert all(row['completed'] for name,row in hooks.items() if name!='trade_exit_engine.shutdown'),summary
     completions=[row for row in probe['shutdown_evidence']['events'] if row['event']=='SHUTDOWN_COMPLETE']
     assert completions and completions[-1]['completed'] is False,summary
+
+
+@pytest.mark.parametrize('prepared_result',[False,True])
+def test_pristine_open_valuation_quote_remains_raw_external_evidence(prepared_result):
+    """The new price tape supplies facts, never a mark or risk result."""
+    class Denied(BaseException):pass
+    guard=_pristine_paper_child_function('validate_pristine_paper_market_fact',
+        dict(datetime=datetime,ForbiddenExternalIO=Denied))
+    now=datetime(2026,10,20,13,35,32,tzinfo=timezone.utc)
+    quote=dict(symbol='JPM',con_id=123,bid=10.31,ask=10.33,last_price=10.32,
+        quote_timestamp_utc=now.isoformat())
+    assert 10.2897<quote['last_price']<10.53
+    if prepared_result:quote['native_valuation']=dict(price=10.32,unrealized_pnl=-.21)
+    before=deepcopy(quote)
+    if prepared_result:
+        with pytest.raises(Denied,match='PRISTINE_PAPER_MARKET_CERTIFICATE:FIELDS'):
+            guard(plan=dict(symbol='JPM',con_id=123),quote=quote,now=now,max_age=15.)
+    else:
+        result=guard(plan=dict(symbol='JPM',con_id=123),quote=quote,now=now,max_age=15.)
+        assert result=={key:value for key,value in quote.items() if key not in {'symbol','con_id'}}
+    assert quote==before
+
+
+@pytest.mark.parametrize('include_unrealized,loss_limit,open_blocked',[
+    pytest.param(True,.20,True,id='included-loss'),
+    pytest.param(True,.22,False,id='included-below-limit'),
+    pytest.param(False,.20,False,id='excluded-control'),
+])
+def test_pristine_fresh_process_native_open_valuation_reaches_actual_core_loss_gate(
+        reassessment,monkeypatch,tmp_path,capsys,no_external_activity,runtime_schema_template,
+        include_unrealized,loss_limit,open_blocked):
+    """A real source LAST marks owned exposure before a later factual stop fill."""
+    import json,shutil
+    from test_startup_recovery_and_stop_protection import run_native_core_cold_start
+    facts=_pristine_paper_loss_facts(reassessment,monkeypatch,tmp_path,loss_limit=loss_limit)
+    facts['config']['DAILY_RISK_INCLUDE_UNREALIZED']=include_unrealized
+    quote=facts['paper_cycle_steps'][2]['market_quote']
+    quote.update(bid=10.31,ask=10.33,last_price=10.32)
+    assert facts['paper_memory_plan']['stop_price']<quote['last_price']<facts['paper_memory_plan']['fill_price']
+    assert facts['paper_cycle_steps'][2]['executions']==[]
+    assert datetime.fromisoformat(quote['quote_timestamp_utc'])>datetime.fromisoformat(
+        facts['paper_cycle_steps'][1]['executions'][0]['execution']['time'])
+    database=tmp_path/'pristine-open-valuation.sqlite3'
+    shutil.copyfile(runtime_schema_template,database)
+    path=tmp_path/'pristine-open-valuation-facts.json';path.write_text(json.dumps(facts,default=str))
+    report=run_native_core_cold_start(database,path,tmp_path/'pristine-open-valuation-child')
+    summary={key:report.get(key) for key in ('constructor_exception','harness_exception','cycle_exception',
+        'stage','supervisor','evidence_dir')}
+    assert report.get('constructor_complete') and report['constructor_count']==1,summary
+    assert not report.get('harness_exception') and not report.get('cycle_exception'),summary
+    assert len(report['cycles'])==5 and all(row['result'] is True and not row.get('exception')
+        for row in report['cycles']),summary
+    assert report['native_before'] is report['native_after_constructor'] is None
+    assert report['after_constructor']['startup_recovery_state']=='RECOVERY_COMPLETE'
+    assert report['offline_guard']['native_curl_checked']
+    assert not report['network_attempts'] and not report.get('native_curl_denials'),summary
+    assert not report['sdk_attempts'] and not any(row['mutation'] for row in report['wire_attempts']),summary
+    assert not report.get('capital_enrollment_attempts'),summary
+    assert report['registry_evaluations'] and all(row['result_count']==33 for row in report['registry_evaluations'])
+    dispatches=report['synthetic_memory_dispatches']
+    assert [row['role'] for row in dispatches]==['entry','stop'],summary
+    buy,stop=dispatches;root=buy['root_id']
+    assert buy['cycle']==1 and stop['cycle']==2 and stop['root_id']==root
+    assert stop['order']['parentId']==buy['native_id'] and stop['order']['auxPrice']==10.2897
+    ack,filled,marked,closed,replayed=report['cycles']
+    request=ack['engine']['native_orders'][root]['request']
+    assert request['setup_family_id']=='PREMARKET_HIGH_BREAK' and request['quantity']==1
+    assert request['stop_loss_price']==10.2897 and request['invalidation_level']==10.3
+    assert request['take_profit_price'] is None and request['target_model'] and request['setup_metadata']
+    assert ack['engine']['capital_reserved']==10.3 and ack['engine']['capital_used']==0
+    assert not ack['engine']['post_fill'] and not ack['engine']['position_records']
+    assert len(report['execution_results'])==1
+    assert len([row for row in report['risk_evaluations'] if row['decision']['allowed']])==1
+    for cycle in (filled,marked):
+        state=cycle['engine'];canonical=state['canonical_trades'][root]
+        assert state['native_orders'][root]['request']==request
+        assert canonical['quantity_open']==state['post_fill'][root]['filled_qty']==1
+        assert canonical['quantity_closed']==0 and canonical['entry_avg_price']==10.53
+        assert canonical['stop_price']==10.2897 and canonical['target_price'] is None
+        assert canonical['gross_realized_pnl']==0
+        assert state['protection'][root]['protected'] and state['capital_used']==10.53
+        assert len(state['registry'])==len(state['managed_positions'])==1
+        assert not state['native_quarantined'] and state['startup_recovery_state']=='RECOVERY_COMPLETE'
+    decision=marked['daily_risk']['decision'];canonical=marked['engine']['canonical_trades'][root]
+    assert marked['daily_risk']['state']['recovered'],marked['daily_risk']
+    assert decision['include_unrealized'] is include_unrealized
+    assert decision['realized_pnl']==0 and decision['daily_trade_count']==0
+    assert decision['unrealized_pnl']==pytest.approx(-.21 if include_unrealized else 0),marked['daily_risk']
+    assert decision['blocks_new_entries'] is open_blocked,marked['daily_risk']
+    assert decision['audit_payload']['source']=='CoreOrchestrator' and decision['audit_payload']['stage']=='PRE_STRATEGY'
+    if open_blocked:
+        assert decision['status']=='MANAGED_ONLY' and decision['lock_status']=='LOCKED'
+        assert decision['reason']=='MAX_DAILY_LOSS_AMOUNT'
+    if include_unrealized:
+        assert canonical['last_mark_price']==10.32 and canonical['unrealized_pnl']==pytest.approx(-.21)
+        entry=next(row for row in marked['database']['trade_lifecycle_events'] if row['execution_id']=='pristine-loss-entry')
+        marks=[row for row in marked['database']['trade_lifecycle_events'] if row['source']=='native_valuation']
+        assert marks
+        selected=[row for row in marks if row['price']==10.32]
+        assert selected  # No cache clearing or prepared mark may create this witness.
+        for row in selected:
+            assert row['quantity']==0 and row['execution_id'] is None and row['event_type']=='NATIVE_MARK'
+            witness=json.loads(row['payload_json'])['native_valuation']
+            assert witness['root_order_id']==root and witness['basis_event_ids']==[entry['event_id']]
+            assert witness['account']=='SYNTHETIC_TEST' and witness['con_id']==123 and witness['client_id']==999
+            assert witness['connection_epoch']==0 and witness['symbol']=='JPM'
+            assert witness['quantity']==1 and witness['entry_avg_price']==10.53
+            assert witness['market_timestamp']==quote['quote_timestamp_utc']
+            assert witness['last_fill_timestamp']==facts['paper_cycle_steps'][1]['executions'][0]['execution']['time']
+            assert witness['source']=='IBKR' and witness['market_data_type']=='LIVE' and witness['completed'] is True
+            assert type(witness['request_id']) is int
+    else:
+        assert canonical['last_mark_price'] is None and canonical['unrealized_pnl']==0
+        assert not any(row['source']=='native_valuation' for row in marked['database']['trade_lifecycle_events'])
+    for cycle in (closed,replayed):
+        state=cycle['engine'];canonical=state['canonical_trades'][root]
+        assert canonical['status']=='CLOSED' and canonical['quantity_open']==state['post_fill'][root]['filled_qty']==0
+        assert canonical['quantity_closed']==1 and canonical['gross_realized_pnl']==pytest.approx(-.25)
+        assert canonical['unrealized_pnl']==0 and set(canonical['source_execution_ids'])=={'pristine-loss-entry','pristine-loss-stop'}
+        assert state['capital_used']==state['capital_reserved']==0
+        assert not state['registry'] and not state['managed_positions']
+        assert not state['capital_reservations'] and not state['allocation_reservations']
+        assert state['capital_scope'] is None and not state['capital_writer_present']
+        daily=cycle['daily_risk']['decision']
+        assert daily['status']=='MANAGED_ONLY' and daily['reason']=='MAX_DAILY_LOSS_AMOUNT'
+        assert daily['realized_pnl']==pytest.approx(-.25) and daily['unrealized_pnl']==0
+        assert daily['daily_trade_count']==daily['losing_trade_count']==daily['consecutive_losses']==1
+        financial=[row for row in cycle['database']['trade_lifecycle_events'] if row['source']!='native_valuation']
+        assert len(financial)==2 and {row['execution_id'] for row in financial}=={'pristine-loss-entry','pristine-loss-stop'}
+        assert not any(event['event_type']=='TRADE_CLOSED' for event in cycle['events'])
+    assert [row['leg'] for row in report['paper_execution_callbacks']]==['entry','stop','stop']
+    assert report['paper_execution_callbacks'][1]['execution']==report['paper_execution_callbacks'][2]['execution']
+    assert closed['database']['trade_lifecycle_events']==replayed['database']['trade_lifecycle_events']
+    assert closed['engine']['position_records']==replayed['engine']['position_records']
+    assert [row['exposure_release_calls_after'] for row in report['cycles']]==[0,0,0,2,2]
+    assert len(report['exposure_release_calls'])==2
+    assert {row['authority'] for row in report['exposure_release_calls']}=={'capital','allocation'}
+    assert all(row['cycle']==4 and row['kwargs']['quantity']==1 and row['kwargs']['price']==10.53
+        and row['result']==10.53 and 'exception' not in row for row in report['exposure_release_calls'])
+    assert report['trade_exit_shutdown_calls']==[]
+    assert report['cleanup']['live_threads']==[] and report['cleanup']['execution_resource_close_complete']
+    assert report['supervisor']['returncode']==0 and report['supervisor']['reaped'] and not report['supervisor']['timed_out']
+    assert no_external_activity==[]
