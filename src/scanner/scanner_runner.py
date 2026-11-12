@@ -4761,6 +4761,20 @@ def _shortlist_selection_deadline(contexts, thresholds):
     return min(deadlines) if deadlines else None
 
 
+def _quote_timestamp_origin(evidence, request_id):
+    """Selected existing attempt only; preserve bounds even on refresh rejection."""
+    if not isinstance(evidence, dict) or type(request_id) is not int or request_id < 0:
+        return None
+    attempts = evidence.get('snapshot_attempts', ())
+    if not isinstance(attempts, (list, tuple)):
+        return None
+    for attempt in attempts[:3]:
+        if isinstance(attempt, dict) and attempt.get('request_id') == request_id:
+            return {key: attempt.get(key) for key in ('timestamp_input', 'timestamp_assessment',
+                'first_time_rejection', 'time_rejections')}
+    return None
+
+
 def _quote_assessment_delay(context, assessed_at):
     """Elapsed acquisition-to-assessment only, never a market-time substitute."""
     try:
@@ -4813,7 +4827,7 @@ def _refresh_provisional_shortlist(candidates, provider, session_label, float_ca
               f"retained_time_rejections={sorted(set(context.get('data_quality_flags') or ()) & {'MD_TIMESTAMP_FUTURE', 'MD_STALE', 'MD_TIMESTAMP_UNKNOWN'})} "
               f"acquisition_to_assessment_seconds={_quote_assessment_delay(context, assessed_at)} "
               f"first_consumer_time_rejections={context.get('quote_time_assessments', {})} "
-              f"timestamp_origin={next(({'timestamp_input': a.get('timestamp_input'), 'timestamp_assessment': a.get('timestamp_assessment'), 'first_time_rejection': a.get('first_time_rejection'), 'time_rejections': a.get('time_rejections')} for a in (context.get('snapshot_evidence') or {}).get('snapshot_attempts', ()) if a.get('request_id') == context.get('quote_request_id')), None)}")
+              f"timestamp_origin={_quote_timestamp_origin(context.get('snapshot_evidence'), context.get('quote_request_id'))}")
         if reason:
             drop_ledger[context["symbol"]] = reason
             print(f"[SCANNER][DROP] symbol={context['symbol']} reason={reason} boundary=shortlist_refresh")
@@ -4884,7 +4898,8 @@ def _refresh_shortlisted_quote(context, provider, session_label, float_cache, *,
               f"stage={stage} request_id={getattr(quote, 'request_id', None)} "
               f"market_timestamp={getattr(quote, 'timestamp_utc', None)} "
               f"timestamp_source={getattr(quote, 'timestamp_source', None)} "
-              f"flags={getattr(quote, 'data_quality_flags', ())}")
+              f"flags={getattr(quote, 'data_quality_flags', ())} "
+              f"timestamp_origin={_quote_timestamp_origin(getattr(quote, 'snapshot_evidence', None), getattr(quote, 'request_id', None))}")
 
 
 def _quote_market_data_provenance(quote) -> dict[str, Any]:

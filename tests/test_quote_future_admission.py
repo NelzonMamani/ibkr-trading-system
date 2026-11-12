@@ -564,3 +564,21 @@ def test_cache_first_future_origin_survives_saturated_trace(native,monkeypatch,c
         'RTH_MID',{},1,thresholds,{})==[]
     assert 'MarketDataClient.snapshot_stock.cache' in capsys.readouterr().out
     assert attempt['first_time_rejection']==first and not native._active_market_req_ids
+
+
+def test_failed_future_refresh_retains_origin_after_native_trace_saturation(native,monkeypatch,clock,thresholds,capsys):
+    native._quote_trace.MAX_LOGS=1
+    install_ticks(native,monkeypatch,NOW+timedelta(seconds=.342))
+    snapshot=client_for(native).snapshot_stock(contract())
+    row=context();row.update(symbol=snapshot.symbol,quote_timestamp_utc=(NOW-timedelta(seconds=90)).isoformat())
+    quote=NS(symbol=snapshot.symbol,timestamp_utc=snapshot.timestamp_utc,timestamp_source=snapshot.timestamp_source,
+        request_id=snapshot.request_id,data_quality_flags=snapshot.data_quality_flags,
+        snapshot_evidence={'snapshot_attempts':snapshot.snapshot_attempts})
+    capsys.readouterr()
+    scanner._refresh_shortlisted_quote(row,NS(refresh_quote=lambda _:quote),'RTH_MID',{})
+    log=capsys.readouterr().out
+    assert 'status=failed error=ValueError stage=REFRESH_UNAVAILABLE_FLAGS' in log
+    assert "timestamp_origin={'timestamp_input': {'raw_input':" in log
+    assert 'MarketDataClient._snapshot_stock_uncached' in log
+    assert row['quote_timestamp_utc']==(NOW-timedelta(seconds=90)).isoformat()
+    assert scanner._stale_market_data_drop(row)=='DROP_STALE_MARKET_DATA'
