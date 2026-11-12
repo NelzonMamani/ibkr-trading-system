@@ -17,6 +17,15 @@ _NATIVE_LEDGER_CANCEL_ENCODER = EClient.cancelAccountSummary
 from src.config import config_resolver
 from test_standalone_pmh_late_fill_protection import (small_central_owned,one_share_profit_case,
     enroll_unit_management,fill_unit_ids,reassessment,lifecycle,forbid_io,no_external_activity,_reset_config)
+from test_ibkr_cached_client_access import (
+    native_commission_decoder_source as _FIRST_SDK_INITIALIZER,
+    _NATIVE_SDK_CONNECT as _FIRST_SDK_CONNECT,
+    _NATIVE_SOURCE_CONNECT as _FIRST_NATIVE_CONNECT,
+)
+
+# Capture the accepted owners at collection, before function-scoped I/O guards.
+_FIRST_SDK_CONNECT_CODE = _FIRST_SDK_CONNECT.__code__
+_FIRST_NATIVE_CONNECT_CODE = _FIRST_NATIVE_CONNECT.__code__
 
 
 def prepare_revision(reassessment,monkeypatch,tmp_path,capsys):
@@ -1593,6 +1602,311 @@ def _pristine_paper_child_function(name, namespace):
     return namespace[name]
 
 
+def _pristine_first_sdk_functions():
+    import sys,threading
+    class Denied(BaseException):pass
+    namespace=dict(sys=sys,threading=threading,ForbiddenExternalIO=Denied,
+        _FIRST_SDK_INITIALIZER=_FIRST_SDK_INITIALIZER,_FIRST_SDK_CONNECT=_FIRST_SDK_CONNECT,
+        _FIRST_NATIVE_CONNECT=_FIRST_NATIVE_CONNECT,_FIRST_SDK_CONNECT_CODE=_FIRST_SDK_CONNECT_CODE,
+        _FIRST_NATIVE_CONNECT_CODE=_FIRST_NATIVE_CONNECT_CODE)
+    for name in ('validate_pristine_first_sdk_opt_in','validate_pristine_first_sdk_packet',
+            'validate_pristine_first_sdk_scope','bootstrap_pristine_first_sdk'):
+        _pristine_paper_child_function(name,namespace)
+    return NS(Denied=Denied,namespace=namespace,bootstrap=namespace['bootstrap_pristine_first_sdk'],
+        scope=namespace['validate_pristine_first_sdk_scope'],packet=namespace['validate_pristine_first_sdk_packet'])
+
+
+@pytest.mark.parametrize('fault',['none','not_opted_in','readonly','no_paper','no_fee','no_loss','scenario',
+    'live','disabled','boolean_client','epoch','boolean_epoch','account','next_id','disconnected','steps'])
+def test_pristine_first_sdk_opt_in_requires_bounded_explicit_paper_scope(fault):
+    f=_pristine_first_sdk_functions()
+    facts=dict(observe_pristine_paper_first_sdk_zero_fee_feedback=True,observe_pristine_paper_cycle=True,
+        observe_pristine_paper_positive_fee_feedback=True,observe_pristine_paper_loss_feedback=True,
+        config=dict(RUN_MODE='PAPER',RUN_MODE_EFFECTIVE='PAPER',EXECUTION_ENABLED=True),
+        client_id=999,account='SYNTHETIC_TEST',paper_cycle_steps=[{} for _ in range(5)])
+    if fault=='not_opted_in':facts['observe_pristine_paper_first_sdk_zero_fee_feedback']='true'
+    elif fault=='readonly':facts['observe_pristine_readonly_cycle']=True
+    elif fault=='no_paper':facts['observe_pristine_paper_cycle']=False
+    elif fault=='no_fee':facts['observe_pristine_paper_positive_fee_feedback']=False
+    elif fault=='no_loss':facts['observe_pristine_paper_loss_feedback']=False
+    elif fault=='scenario':facts['cycle_scenarios']=[]
+    elif fault=='live':facts['config']['RUN_MODE']='LIVE'
+    elif fault=='disabled':facts['config']['EXECUTION_ENABLED']=False
+    elif fault=='boolean_client':facts['client_id']=True
+    elif fault=='epoch':facts['epoch']=1
+    elif fault=='boolean_epoch':facts['epoch']=False
+    elif fault=='account':facts['account']='SYNTHETIC_TEST,OTHER'
+    elif fault=='next_id':facts['next_order_id']=1000
+    elif fault=='disconnected':facts['connected']=False
+    elif fault=='steps':facts['paper_cycle_steps'].pop()
+    before=deepcopy(facts)
+    if fault=='none':f.namespace['validate_pristine_first_sdk_opt_in'](facts)
+    else:
+        with pytest.raises(f.Denied):f.namespace['validate_pristine_first_sdk_opt_in'](facts)
+    assert facts==before
+
+
+def _pristine_first_sdk_observed_patch(monkeypatch, installed):
+    """Observe only the temporary pure-memory wrappers, preserving restoration."""
+    from contextlib import contextmanager
+    @contextmanager
+    def context():
+        with monkeypatch.context() as scoped:
+            def setattr(obj,name,value):
+                scoped.setattr(obj,name,installed(obj,name,value))
+            yield NS(setattr=setattr)
+    return NS(context=context,setattr=monkeypatch.setattr)
+
+
+def test_pristine_first_sdk_bootstrap_closes_retained_connection_after_sdk_reset(
+        monkeypatch,tmp_path,no_external_activity):
+    """An actual SDK reset must not hide a still-blocked memory reader."""
+    from ibapi import comm
+    from ibapi.connection import Connection
+    from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
+    f=_pristine_first_sdk_functions();owned={}
+    monkeypatch.setenv('IBKR_ORDER_ID_STATE_PATH',str(tmp_path/'first-sdk-reset-order-ids.json'))
+    client=IbkrClient('offline.invalid',7497,999,1,'LIVE',False)
+    previous_sdk,previous_connection=EClient.connect,Connection.connect
+    def installed(obj,name,value):
+        if obj is not Connection or name!='connect':return value
+        def connect(connection):
+            value(connection)
+            send=connection.socket.send
+            def reset_after_reader(payload):
+                result=send(payload)
+                if not payload.startswith(b'API\0') and comm.read_fields(comm.read_msg(payload)[1])[0]==b'71':
+                    owned.update(connection=connection,reader=client.reader,socket=connection.socket)
+                    client.reset()  # The real SDK reset clears the client's refs.
+                    raise RuntimeError('Synthetic startup interrupted after SDK reset')
+                return result
+            connection.socket.send=reset_after_reader
+        return connect
+    try:
+        with pytest.raises(RuntimeError,match='Synthetic startup interrupted'):
+            f.bootstrap(client,_pristine_first_sdk_observed_patch(monkeypatch,installed),account='SYNTHETIC_TEST')
+        assert client.conn is None and owned['connection'].socket is None
+        assert not owned['reader'].is_alive()
+        assert EClient.connect is previous_sdk and Connection.connect is previous_connection
+    finally:
+        # Even the causal pre-repair failure leaves no test-owned worker behind.
+        if owned:
+            owned['connection'].disconnect()
+            owned['reader'].join(2)
+    assert no_external_activity==[]
+
+
+def test_pristine_first_sdk_cleanup_attempts_both_retained_joins_after_one_failure(
+        monkeypatch,tmp_path,no_external_activity):
+    from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
+    f=_pristine_first_sdk_functions();joined=[]
+    monkeypatch.setenv('IBKR_ORDER_ID_STATE_PATH',str(tmp_path/'first-sdk-join-order-ids.json'))
+    client=IbkrClient('offline.invalid',7497,999,1,'LIVE',False)
+    source=f.bootstrap(client,monkeypatch,account='SYNTHETIC_TEST')
+    reader,worker=source.initial_reader,source.initial_worker
+    reader_join,worker_join=reader.join,worker.join
+    def unavailable_reader_join(*args,**kwargs):
+        raise RuntimeError('Synthetic retained reader join failure')
+    def observed_worker_join(*args,**kwargs):
+        joined.append('worker')
+        return worker_join(*args,**kwargs)
+    monkeypatch.setattr(reader,'join',unavailable_reader_join)
+    monkeypatch.setattr(worker,'join',observed_worker_join)
+    try:
+        with pytest.raises(RuntimeError,match='Synthetic retained reader join failure'):source.close()
+        # Native.disconnect performs its own join first; the outer retained
+        # cleanup must still attempt the worker after the reader join raises.
+        assert len(joined)>=2 and source.initial_connection.socket is None
+    finally:
+        source.initial_connection.disconnect()
+        reader_join(2);worker_join(2)
+    assert not reader.is_alive() and not worker.is_alive() and no_external_activity==[]
+
+
+def test_pristine_first_sdk_temporary_wrappers_deny_foreign_reentry_and_mutation(
+        monkeypatch,tmp_path,no_external_activity):
+    from ibapi import comm
+    from ibapi.connection import Connection
+    from threading import Thread
+    from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
+    f=_pristine_first_sdk_functions();denied=[]
+    monkeypatch.setenv('IBKR_ORDER_ID_STATE_PATH',str(tmp_path/'first-sdk-exclusive-order-ids.json'))
+    client=IbkrClient('offline.invalid',7497,999,1,'LIVE',False)
+    foreign=IbkrClient('offline.invalid',7497,998,1,'LIVE',False)
+    peer=Connection(client.host,client.port)
+    previous_sdk,previous_connection=EClient.connect,Connection.connect
+    original_ack=client.connectAck
+    def reject(label,call):
+        with pytest.raises(f.Denied):call()
+        denied.append(label)
+    def acknowledgement():
+        original_ack()
+        # The original SDK is genuinely active here, but its single permit
+        # belongs only to this client and this already-entered connection.
+        reject('foreign',lambda:EClient.connect(foreign,foreign.host,foreign.port,998))
+        reject('repeat',lambda:EClient.connect(client,client.host,client.port,999))
+        reject('peer',peer.connect)
+        reject('connection_repeat',client.conn.connect)
+        cross=[]
+        def other_thread():
+            try:EClient.connect(client,client.host,client.port,999)
+            except f.Denied:cross.append('thread')
+        thread=Thread(target=other_thread);thread.start();thread.join(2)
+        assert not thread.is_alive() and cross==['thread']
+        for opcode in ('3','4','58','987654'):
+            reject('packet_'+opcode,lambda opcode=opcode:client.conn.sendMsg(comm.make_msg(opcode+'\0')))
+        assert peer.socket is None and foreign.conn is None and foreign._commission_connection_attempts==0
+    monkeypatch.setattr(client,'connectAck',acknowledgement)
+    source=f.bootstrap(client,monkeypatch,account='SYNTHETIC_TEST')
+    try:
+        assert len(denied)==8 and [row['opcode'] for row in source.bootstrap_packets]==['API','71','59']
+        assert len(source.sent)==3 and f.scope(client,source)==151
+        assert EClient.connect is previous_sdk and Connection.connect is previous_connection
+    finally:source.close()
+    assert not source.initial_reader.is_alive() and not source.initial_worker.is_alive()
+    assert no_external_activity==[]
+
+
+@pytest.mark.parametrize('stage',['reader','worker'])
+def test_pristine_first_sdk_startup_failure_releases_workers_and_restores_denies(
+        monkeypatch,tmp_path,no_external_activity,stage):
+    from ibapi.connection import Connection
+    from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
+    f=_pristine_first_sdk_functions();owned={}
+    monkeypatch.setenv('IBKR_ORDER_ID_STATE_PATH',str(tmp_path/'first-sdk-startup-order-ids.json'))
+    client=IbkrClient('offline.invalid',7497,999,1,'LIVE',False)
+    previous_sdk,previous_connection=EClient.connect,Connection.connect
+    original=client.connectAck if stage=='reader' else client.reqMarketDataType
+    def interrupted(*args):
+        result=original(*args)
+        owned.update(connection=client.conn,reader=client.reader,worker=client._thread)
+        raise RuntimeError('Synthetic startup '+stage+' interruption')
+    monkeypatch.setattr(client,'connectAck' if stage=='reader' else 'reqMarketDataType',interrupted)
+    with pytest.raises(RuntimeError,match='Synthetic startup '+stage):
+        f.bootstrap(client,monkeypatch,account='SYNTHETIC_TEST')
+    assert EClient.connect is previous_sdk and Connection.connect is previous_connection
+    assert owned['connection'].socket is None and not owned['reader'].is_alive()
+    assert (owned['worker'] is None)==(stage=='reader')
+    if owned['worker'] is not None:assert not owned['worker'].is_alive()
+    assert no_external_activity==[]
+
+
+@pytest.mark.parametrize('raw_zero',[0,0.0])
+def test_pristine_first_sdk_bootstrap_preserves_real_scope_and_retained_reset_cleanup(
+        monkeypatch,tmp_path,no_external_activity,raw_zero):
+    """Actual SDK+MemorySocket only; no Core/strategy/capital application."""
+    from decimal import Decimal
+    from ibapi.connection import Connection
+    from ibapi.execution import Execution
+    from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
+    f=_pristine_first_sdk_functions()
+    monkeypatch.setenv('IBKR_ORDER_ID_STATE_PATH',str(tmp_path/'first-sdk-order-ids.json'))
+    client=IbkrClient('offline.invalid',7497,999,1,'LIVE',False)
+    denied_sdk,denied_connection=EClient.connect,Connection.connect
+    source=f.bootstrap(client,monkeypatch,account='SYNTHETIC_TEST')
+    reader,worker=source.initial_reader,source.initial_worker
+    try:
+        assert EClient.connect is denied_sdk and Connection.connect is denied_connection
+        assert f.scope(client,source)==client.serverVersion()==client.decoder.serverVersion==151
+        assert client.client_id==client.clientId==999 and client._position_connection_epoch==0
+        assert client._managed_accounts==['SYNTHETIC_TEST'] and client._commission_connection_attempts==1
+        assert client.msg_queue is source.initial_queue is client._commission_constructor_queue
+        assert [row['opcode'] for row in source.bootstrap_packets]==['API','71','59']
+        assert reader.is_alive() and worker.is_alive()
+        contract=Contract();contract.symbol='JPM';contract.secType='STK';contract.conId=123;contract.currency='USD'
+        execution=Execution();execution.orderId=71;execution.execId='first-sdk-zero';execution.acctNumber='SYNTHETIC_TEST'
+        execution.clientId=999;execution.side='BOT';execution.shares=execution.cumQty=Decimal(1)
+        execution.price=execution.avgPrice=10.53;execution.time=datetime.now(timezone.utc).isoformat()
+        client.execDetails(-1,contract,execution)
+        source.deliver_commission_frame('first-sdk-zero',raw_zero,'USD')
+        row,=client.cached_native_execution_fees(71)
+        assert row['report_status']=='BOUND_API_REPORT' and row['amount']==Decimal(0)
+        assert row['net_status']=='UNAVAILABLE_FOR_NET'
+        assert row['first_report']['commission_field_present'] is True
+        assert row['first_report']['commission_decoder_object_id']==id(source.initial_decoder)
+        assert row['first_report']['commission_decoder_thread_id']==worker.ident
+        # Model reset performed by another real owner: retained refs still join.
+        client.disconnect()
+        assert client.conn is None and client.reader is None and client.serverVersion() is None
+        with pytest.raises(f.Denied):f.scope(client,source)
+    finally:
+        source.close()
+        source.close()  # The outer retained-ref check cannot rely on closed alone.
+    assert not reader.is_alive() and not worker.is_alive() and no_external_activity==[]
+
+
+@pytest.mark.parametrize('fault',['manual_connected','manual_server','manual_account','epoch','boolean_epoch',
+    'boolean_client','attempted','disabled','reader','decoder','worker','connection','queue','queued','optimized'])
+def test_pristine_first_sdk_bootstrap_rejects_unproved_initial_state(monkeypatch,tmp_path,fault):
+    from queue import Queue
+    from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
+    f=_pristine_first_sdk_functions()
+    monkeypatch.setenv('IBKR_ORDER_ID_STATE_PATH',str(tmp_path/'first-sdk-rejected-order-ids.json'))
+    client=IbkrClient('offline.invalid',7497,999,1,'LIVE',False)
+    if fault=='manual_connected':client.isConnected=lambda:True
+    elif fault=='manual_server':client.serverVersion_=151
+    elif fault=='manual_account':client._managed_accounts=['SYNTHETIC_TEST']
+    elif fault=='epoch':client._position_connection_epoch=1
+    elif fault=='boolean_epoch':client._position_connection_epoch=False
+    elif fault=='boolean_client':client.client_id=True
+    elif fault=='attempted':client._commission_connection_attempts=1
+    elif fault=='disabled':client._commission_zero_disabled=True
+    elif fault=='reader':client.reader=NS()
+    elif fault=='decoder':client.decoder=NS()
+    elif fault=='worker':client._thread=NS()
+    elif fault=='connection':client.conn=NS()
+    elif fault=='queue':client.msg_queue=Queue()
+    elif fault=='queued':client.msg_queue.put(b'unprovided')
+    elif fault=='optimized':f.namespace['sys']=NS(flags=NS(optimize=1))
+    previous=EClient.connect
+    with pytest.raises(f.Denied):f.bootstrap(client,monkeypatch,account='SYNTHETIC_TEST')
+    assert EClient.connect is previous
+    assert client._commission_connection_attempts==(1 if fault=='attempted' else 0)
+
+
+@pytest.mark.parametrize('phase',[0,1,2,3])
+@pytest.mark.parametrize('kind',['order','cancel','global_cancel','unknown','wrong_client','wrong_mode','trailing'])
+def test_pristine_first_sdk_bootstrap_packet_certificate_denies_unprovided_bytes(phase,kind):
+    from ibapi import comm
+    from ibapi.message import OUT
+    f=_pristine_first_sdk_functions();seen=[]
+    version='v%d..%d'%(_FIRST_SDK_CONNECT.__globals__['MIN_CLIENT_VER'],_FIRST_SDK_CONNECT.__globals__['MAX_CLIENT_VER'])
+    provided=[b'API\0'+comm.make_msg(version),comm.make_msg('71\x002\x00999\x00\x00'),comm.make_msg('59\x001\x001\x00')]
+    for payload in provided[:phase]:f.packet(payload,client_id=999,seen=seen)
+    opcode={'order':OUT.PLACE_ORDER,'cancel':OUT.CANCEL_ORDER,'global_cancel':OUT.REQ_GLOBAL_CANCEL,'unknown':999}.get(kind)
+    if opcode is not None:payload=comm.make_msg(str(opcode)+'\0')
+    elif kind=='wrong_client':payload=comm.make_msg('71\x002\x001\x00\x00')
+    elif kind=='wrong_mode':payload=comm.make_msg('59\x001\x002\x00')
+    else:payload=provided[min(phase,2)]+b'unprovided'
+    before=list(seen)
+    with pytest.raises(f.Denied):f.packet(payload,client_id=999,seen=seen)
+    assert seen==before
+
+
+@pytest.mark.parametrize('fault',['epoch','account','queue','reader','decoder','connection'])
+def test_pristine_first_sdk_observed_scope_loss_cannot_rearm(monkeypatch,tmp_path,fault,no_external_activity):
+    from queue import Queue
+    from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
+    f=_pristine_first_sdk_functions()
+    monkeypatch.setenv('IBKR_ORDER_ID_STATE_PATH',str(tmp_path/'first-sdk-scope-order-ids.json'))
+    client=IbkrClient('offline.invalid',7497,999,1,'LIVE',False)
+    source=f.bootstrap(client,monkeypatch,account='SYNTHETIC_TEST')
+    attribute={'epoch':'_position_connection_epoch','account':'_managed_accounts','queue':'msg_queue',
+        'reader':'reader','decoder':'decoder','connection':'conn'}[fault]
+    previous=getattr(client,attribute)
+    try:
+        setattr(client,attribute,{'epoch':1,'account':['OTHER'],'queue':Queue()}.get(fault,NS()))
+        with pytest.raises(f.Denied):f.scope(client,source)
+        setattr(client,attribute,previous)
+        with pytest.raises(f.Denied):f.scope(client,source)
+        assert client._commission_zero_disabled is True
+    finally:
+        setattr(client,attribute,previous)
+        source.close()
+    assert not source.initial_reader.is_alive() and not source.initial_worker.is_alive()
+    assert no_external_activity==[]
+
+
 def _pristine_positive_fee_boundary_case(monkeypatch):
     """Fake owners plus actual SDK packets; no Core or child application."""
     import os
@@ -1651,6 +1965,153 @@ def _call_pristine_currency_guard(h,fields,*,actual_client=None):
     return h.currency_guard(actual_client=h.client if actual_client is None else actual_client,
         expected_client=h.client,core=h.core,plan=h.plan,fields=fields,owned_reads=h.owned,
         response=h.response,now=h.now,monotonic_now=100.,max_scope_age=15)
+
+
+def test_pristine_first_sdk_151_ledger_uses_real_request_end_and_cleanup(
+        monkeypatch,tmp_path,no_external_activity):
+    import time
+    from ibapi.message import OUT
+    from src.adapters.brokers.ibkr import ibkr_client as native_module
+    h=_pristine_positive_fee_boundary_case(monkeypatch);f=_pristine_first_sdk_functions()
+    class Clock(datetime):
+        @classmethod
+        def now(cls,tz=None):return cls.fromtimestamp(h.now.timestamp(),tz=tz)
+    monkeypatch.setenv('IBKR_ORDER_ID_STATE_PATH',str(tmp_path/'first-sdk-ledger-order-ids.json'))
+    client=native_module.IbkrClient('offline.invalid',7497,999,1,'LIVE',False)
+    source=f.bootstrap(client,monkeypatch,account=h.plan['account'],clock=Clock)
+    try:
+        h.client=client;h.engine._native_scope=(h.plan['account'],client,h.now)
+        h.engine._native_callback_client=lambda:client;h.candidate['source_client']=client
+        h.core.connection_manager.get_ibkr_client=lambda **kwargs:client if kwargs=={'ensure_connected':False} else None
+        h.currency_guard.__globals__['validate_pristine_first_sdk_scope']=f.scope
+        default_denials=[]
+        def guarded(**kwargs):
+            # Merely observing server151 cannot enable the old default path.
+            with pytest.raises(h.Denied,match='PACKET'):h.currency_guard(**kwargs)
+            default_denials.append(kwargs['fields'][0])
+            return h.currency_guard(**kwargs,first_sdk_source=source)
+        report=dict(wire_attempts=[],native_read_requests=[]);owned={}
+        facts=dict(observe_pristine_paper_cycle=True,observe_pristine_paper_positive_fee_feedback=True,
+            paper_memory_plan=h.plan,paper_currency_response=h.response)
+        boundary=_pristine_paper_child_function('send_message',dict(OUT=OUT,report=report,
+            observe_pristine_cycle=True,facts=facts,ForbiddenExternalIO=h.Denied,SyntheticWriteBoundary=h.Denied,
+            client=client,core=h.core,owned_currency_reads=owned,observed=h.now,real_elapsed_time=time,
+            validate_pristine_paper_currency_read=guarded,
+            plain=lambda value:value.isoformat() if isinstance(value,datetime) else value))
+        monkeypatch.setattr(client,'sendMsg',boundary)
+        monkeypatch.setattr(client,'reqAccountSummary',lambda *args:_NATIVE_LEDGER_READ_ENCODER(client,*args))
+        monkeypatch.setattr(client,'cancelAccountSummary',lambda *args:_NATIVE_LEDGER_CANCEL_ENCODER(client,*args))
+        result=client.account_currency_snapshot(expected_account=h.plan['account'],timeout_seconds=.5)
+        assert result.status=='COMPLETE' and result.currency=='USD' and result.account==h.plan['account']
+        assert result.client_id==999 and result.connection_epoch==0 and result.completed_at==h.now
+        assert result.cancellation_attempted and result.cleanup_complete
+        assert default_denials==['62','63']
+        assert [row['opcode'] for row in report['wire_attempts']]==['62','63']
+        assert len(owned)==1 and owned[result.request_id]['end_observed'] and owned[result.request_id]['cancelled']
+        assert result.request_id not in client._request_type_by_req_id
+        assert client._request_context_by_req_id[result.request_id].get('account_currency_query') is None
+        assert f.scope(client,source)==151 and len(source.sent)==3
+    finally:source.close()
+    assert not source.initial_reader.is_alive() and not source.initial_worker.is_alive()
+    assert no_external_activity==[]
+
+
+@pytest.mark.parametrize('raw_zero',['0','0.0','0.00'])
+def test_pristine_first_sdk_fee_delivery_keeps_actual_raw_zero_support_boundary(
+        monkeypatch,tmp_path,no_external_activity,raw_zero):
+    from decimal import Decimal
+    from ibapi.execution import Execution
+    from src.adapters.brokers.ibkr import ibkr_client as native_module
+    h=_pristine_positive_fee_boundary_case(monkeypatch);f=_pristine_first_sdk_functions()
+    class Clock(datetime):
+        @classmethod
+        def now(cls,tz=None):return cls.fromtimestamp(h.now.timestamp(),tz=tz)
+    monkeypatch.setenv('IBKR_ORDER_ID_STATE_PATH',str(tmp_path/'first-sdk-fee-order-ids.json'))
+    client=native_module.IbkrClient('offline.invalid',7497,999,1,'LIVE',False)
+    source=f.bootstrap(client,monkeypatch,account=h.plan['account'],clock=Clock)
+    try:
+        h.engine._native_scope=(h.plan['account'],client,h.now)
+        h.engine._native_callback_client=lambda:client;h.candidate['source_client']=client
+        h.fee_guard.__globals__['validate_pristine_first_sdk_scope']=f.scope
+        deliver=_pristine_paper_child_function('deliver_pristine_paper_fee_fact',
+            dict(validate_pristine_paper_fee_fact=h.fee_guard))
+        delivered=set();observed=[]
+        for leg,native_id,exec_id,side,price,amount in (
+                ('entry',71,'fee-entry','BOT',10.53,raw_zero),('stop',72,'fee-stop','SLD',10.28,.02)):
+            contract=Contract();contract.symbol='JPM';contract.secType='STK';contract.conId=123;contract.currency='USD'
+            execution=Execution();execution.orderId=native_id;execution.execId=exec_id
+            execution.acctNumber='SYNTHETIC_TEST';execution.clientId=999;execution.side=side
+            execution.shares=execution.cumQty=Decimal(1);execution.price=execution.avgPrice=price
+            execution.time=(h.now-timedelta(seconds=1)).isoformat()
+            client.execDetails(-1,contract,execution)
+            raw=dict(leg=leg,execId=exec_id,commission=amount,currency='USD')
+            observed.append(deliver(client=client,core=h.core,plan=h.plan,dispatches=h.dispatches,
+                raw=raw,delivered=delivered,now=h.now,first_sdk_source=source))
+            with pytest.raises(h.Denied):deliver(client=client,core=h.core,plan=h.plan,dispatches=h.dispatches,
+                raw=raw,delivered=delivered,now=h.now,first_sdk_source=source)
+        entry,=client.cached_native_execution_fees(71);stop,=client.cached_native_execution_fees(72)
+        assert entry['net_status']==stop['net_status']=='UNAVAILABLE_FOR_NET'
+        if raw_zero=='0.00':
+            assert entry['report_status']=='UNAVAILABLE' and entry['amount'] is None
+        else:
+            assert entry['report_status']=='BOUND_API_REPORT' and entry['amount']==Decimal(0)
+            assert entry['first_report']['commission_field_present'] is True
+            assert entry['first_report']['commission_decoder_object_id']==id(source.initial_decoder)
+        assert stop['report_status']=='BOUND_API_REPORT' and stop['amount']==Decimal('.02')
+        assert [row['amount'] for row in observed]==[raw_zero,.02] and len(delivered)==2
+        assert len(source.sent)==3 and f.scope(client,source)==151
+    finally:source.close()
+    assert not source.initial_reader.is_alive() and not source.initial_worker.is_alive()
+    assert no_external_activity==[]
+
+
+def test_pristine_first_sdk_151_history_preserves_original_packet_and_owning_source(
+        monkeypatch,tmp_path,no_external_activity):
+    import os
+    from src.adapters.data.historical_bar_timeframes import resolve_intraday_timeframe_request
+    from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
+    h=_pristine_positive_fee_boundary_case(monkeypatch);f=_pristine_first_sdk_functions()
+    monkeypatch.setenv('IBKR_ORDER_ID_STATE_PATH',str(tmp_path/'first-sdk-history-order-ids.json'))
+    client=IbkrClient('offline.invalid',7497,999,1,'LIVE',False)
+    source=f.bootstrap(client,monkeypatch,account=h.plan['account'])
+    try:
+        request=resolve_intraday_timeframe_request(timeframe='10s',requested_bars=10)
+        packets=[];monkeypatch.setattr(client,'sendMsg',packets.append)
+        contract=Contract();contract.symbol='JPM';contract.conId=123;contract.secType='STK'
+        contract.exchange='SMART';contract.currency='USD';contract.localSymbol='JPM'
+        _NATIVE_HISTORY_READ_ENCODER(client,1007,contract,'',str(request.duration_seconds)+' S',
+            request.bar_size_setting,'TRADES',0,1,False,[])
+        fields,=packets
+        fields=fields.split('\0')
+        assert len(fields)==24 and fields[0]=='20' and fields[1]=='1007'
+        client._request_context_by_req_id[1007]=dict(request_type='HISTORICAL_DATA',symbol='JPM',con_id=123)
+        client._request_type_by_req_id[1007]='HISTORICAL_DATA'
+        client._historical_states[1007]=dict(status='PENDING',sent=True,end_received=False,
+            streaming=False,deadline=10.,event=f.namespace['threading'].Event())
+        h.engine._native_callback_client=lambda:client
+        h.engine._native_scope=(h.plan['account'],client,h.now)
+        h.parent.update(side='LONG',symbol='JPM',terminal=True,filled=1,requested=1,
+            protection_confirmed=True,security_id=123)
+        h.parent['request'].update(setup_family_id='PREMARKET_HIGH_BREAK',relationship_context={},
+            stop_loss_price=10.2897,invalidation_level=10.3,
+            setup_metadata=dict(execution_stream=dict(execution_trigger_timeframe='10s')))
+        h.plan.update(exchange='SMART',entry_price=10.3,stop_price=10.2897)
+        guard=_pristine_paper_child_function('validate_pristine_paper_history_read',
+            dict(os=os,ForbiddenExternalIO=h.Denied,validate_pristine_first_sdk_scope=f.scope))
+        bars=[NS(timestamp=h.now-timedelta(seconds=10),open=10.31,high=10.55,low=10.30,close=10.53,volume=1500)]
+        args=dict(actual_client=client,expected_client=client,core=h.core,plan=h.plan,fields=fields,
+            owned_reads=set(),timeframe_request=request,source_response=dict(status='COMPLETE_BARS',end_received=True),
+            supplied_bars=bars,now=h.now,monotonic_now=1.,max_scope_age=15.)
+        with pytest.raises(h.Denied,match='PACKET'):guard(**args)
+        assert guard(**args,first_sdk_source=source)==1007
+        for index,value in ((16,'1 min'),(17,'1 D'),(21,'1'),(22,'unprovided=true;')):
+            changed=list(fields);changed[index]=value
+            with pytest.raises(h.Denied):guard(**dict(args,fields=changed),first_sdk_source=source)
+        assert vars(bars[0])==dict(timestamp=h.now-timedelta(seconds=10),open=10.31,high=10.55,low=10.30,close=10.53,volume=1500)
+        assert len(source.sent)==3 and f.scope(client,source)==151
+    finally:source.close()
+    assert not source.initial_reader.is_alive() and not source.initial_worker.is_alive()
+    assert no_external_activity==[]
 
 
 @pytest.mark.parametrize('fault',['none','other_client','mode','callback_owner','connection_owner',
@@ -2685,6 +3146,161 @@ def test_pristine_fresh_process_pmh_positive_fees_reach_actual_core_net_veto(
     assert all(row['cycle']==4 and row['result']==10.53 and row['exposure_after']==0 and 'exception' not in row for row in releases)
     assert report['trade_exit_shutdown_calls']==[] and report['cleanup']['live_threads']==[]
     assert report['cleanup']['paper_before_resource_close']==report['cleanup']['paper_after_resource_close']
+    assert report['cleanup']['news_maintenance_closed'] and report['cleanup']['execution_resource_close_complete']
+    assert report['cleanup']['scanner_runtime_close_complete']
+    assert report['supervisor']['returncode']==0 and report['supervisor']['reaped'] and not report['supervisor']['timed_out']
+    assert no_external_activity==[]
+
+
+@pytest.mark.parametrize('raw_zero,known_net',[('0',True),('0.00',False)])
+def test_pristine_fresh_process_pmh_first_sdk_zero_and_positive_fees_reach_real_consumption(
+        reassessment,monkeypatch,tmp_path,capsys,no_external_activity,runtime_schema_template,raw_zero,known_net):
+    """Separate first-SDK proof definition; no prepared witness or NET fields."""
+    import json,shutil
+    from test_startup_recovery_and_stop_protection import run_native_core_cold_start
+    from src.adapters.brokers.ibkr.ibkr_client import SDK_COMMISSION_PRESENCE_SOURCE,SDK_COMMISSION_SCHEMA
+    facts=_pristine_paper_loss_facts(reassessment,monkeypatch,tmp_path,loss_limit=.26)
+    facts['observe_pristine_paper_positive_fee_feedback']=True
+    facts['observe_pristine_paper_first_sdk_zero_fee_feedback']=True
+    facts['paper_currency_response']=dict(account='SYNTHETIC_TEST',end_received=True,rows=[
+        dict(tag='CashBalance',value='123.45',currency='USD'),
+        dict(tag='AccruedCash',value='0',currency='USD')])
+    steps=facts['paper_cycle_steps']
+    steps[1]['commissions']=[dict(leg='entry',execId='pristine-loss-entry',commission=raw_zero,currency='USD')]
+    steps[3]['commissions']=[dict(leg='stop',execId='pristine-loss-stop',commission=.02,currency='USD')]
+    database=tmp_path/'pristine-first-sdk-mixed-fee.sqlite3'
+    shutil.copyfile(runtime_schema_template,database)
+    path=tmp_path/'pristine-first-sdk-mixed-fee-facts.json';path.write_text(json.dumps(facts,default=str))
+    report=run_native_core_cold_start(database,path,tmp_path/'pristine-first-sdk-mixed-fee-child')
+    summary={key:report.get(key) for key in ('constructor_exception','harness_exception',
+        'cycle_exception','stage','supervisor','evidence_dir')}
+    assert report.get('constructor_complete') and report['constructor_count']==1,summary
+    assert not report.get('harness_exception') and not report.get('cycle_exception'),summary
+    assert len(report['cycles'])==5 and all(row['result'] is True and not row.get('exception')
+        for row in report['cycles']),summary
+    assert report['native_before'] is report['native_after_constructor'] is None
+    assert report['after_constructor']['startup_recovery_state']=='RECOVERY_COMPLETE'
+    assert report['offline_guard']['native_curl_checked']
+    assert not report['network_attempts'] and not report.get('native_curl_denials'),summary
+    assert not report['sdk_attempts'] and not any(row['mutation'] for row in report['wire_attempts']),summary
+    assert not report.get('capital_enrollment_attempts'),summary
+    bootstrap=report['first_sdk_bootstrap']
+    assert bootstrap['server_version']==151 and bootstrap['client_id']==999 and bootstrap['epoch']==0
+    assert bootstrap['account']==['SYNTHETIC_TEST'] and bootstrap['attempts']==1
+    assert bootstrap['global_denies_restored'] and bootstrap['reader_alive'] and bootstrap['worker_alive']
+    assert [row['opcode'] for row in bootstrap['packets']]==['API','71','59']
+    assert report['registry_evaluations'] and all(row['result_count']==33 for row in report['registry_evaluations'])
+    dispatches=report['synthetic_memory_dispatches']
+    assert [row['role'] for row in dispatches]==['entry','stop'],summary
+    buy,selected_stop=dispatches;root=buy['root_id']
+    assert buy['cycle']==1 and selected_stop['cycle']==2 and selected_stop['root_id']==root
+    assert selected_stop['order']['parentId']==buy['native_id'] and selected_stop['order']['auxPrice']==10.2897
+    ack,filled,protected,closed,replayed=report['cycles']
+    retained=ack['engine']['native_orders'][root];request=retained['request']
+    assert request['setup_family_id']=='PREMARKET_HIGH_BREAK' and request['quantity']==1
+    assert request['invalidation_level']==10.3 and request['stop_loss_price']==10.2897
+    assert request['take_profit_price'] is None and request['setup_metadata'] and request['target_model']
+    artifacts=[row for row in report['decision_artifacts'] if row['decision_id']==retained['decision_id']]
+    admitted=[row for row in report['risk_evaluations'] if row['decision']['allowed']]
+    assert len(artifacts)==len(admitted)==len(report['execution_results'])==1
+    assert admitted[0]['decision']['decision_id']==artifacts[0]['decision_id']==retained['decision_id']
+    assert artifacts[0]['intents'][0]['setup_metadata']==admitted[0]['intent']['setup_metadata']==request['setup_metadata']
+    assert ack['engine']['capital_reserved']==10.3 and ack['engine']['capital_used']==0
+    assert not ack['engine']['position_records'] and not ack['engine']['post_fill']
+    for cycle in (ack,filled,protected):
+        assert cycle['daily_risk']['decision']['status']=='ALLOW' and cycle['daily_risk']['decision']['realized_pnl']==0
+        assert not cycle['fee_feedback']['required'] and not cycle['fee_feedback']['covered_charges']
+    for cycle in (filled,protected):
+        canonical=cycle['engine']['canonical_trades'][root]
+        assert canonical['quantity_open']==1 and canonical['entry_avg_price']==10.53
+        assert canonical['stop_price']==10.2897 and canonical['target_price'] is None
+        assert cycle['engine']['protection'][root]['protected']
+        assert cycle['engine']['capital_used']==10.53 and cycle['engine']['capital_reserved']==0
+    for cycle in (closed,replayed):
+        state=cycle['engine'];canonical=state['canonical_trades'][root]
+        assert state['startup_recovery_state']=='RECOVERY_COMPLETE' and not state['native_quarantined']
+        assert state['native_orders'][root]['request']==request
+        assert canonical['status']=='CLOSED' and canonical['quantity_open']==0 and canonical['quantity_closed']==1
+        assert canonical['entry_avg_price']==10.53 and canonical['exit_avg_price']==10.28
+        assert canonical['gross_realized_pnl']==pytest.approx(-.25)
+        assert canonical['stop_price']==10.2897 and canonical['target_price'] is None
+        assert set(canonical['source_execution_ids'])=={'pristine-loss-entry','pristine-loss-stop'}
+        assert state['post_fill'][root]['filled_qty']==0 and not state['registry'] and not state['managed_positions']
+        assert state['capital_used']==state['capital_reserved']==0
+        assert not state['capital_reservations'] and not state['allocation_reservations']
+        assert state['capital_scope'] is None and not state['capital_writer_present']
+        source=cycle['fee_source_observations']
+        entry=next(row for row in source if row['execution']['side']=='BOT')
+        stop=next(row for row in source if row['execution']['side']=='SLD')
+        assert len(source)==2 and all(row['net_status']=='UNAVAILABLE_FOR_NET'
+            and row['execution_currency']==row['report_currency']=='USD' for row in source)
+        assert stop['report_status']=='BOUND_API_REPORT' and float(stop['amount'])==.02
+        feedback=cycle['fee_feedback'];decision=cycle['daily_risk']['decision'];daily=cycle['daily_risk']['state']
+        assert daily['recovered'] and daily['recovery_error'] is None
+        assert not feedback['uncertain']
+        assert decision['audit_payload']['source']=='CoreOrchestrator' and decision['audit_payload']['stage']=='PRE_STRATEGY'
+        assert decision['unrealized_pnl']==0
+        assert (decision['daily_trade_count'],decision['losing_trade_count'],decision['consecutive_losses'])==(1,1,1)
+        rows=cycle['database']['trade_lifecycle_events']
+        financial=[row for row in rows if row['execution_id'] is not None]
+        auxiliary=[row for row in rows if row['event_type']=='NATIVE_ROUNDTRIP_FEE']
+        assert len(financial)==2 and {row['execution_id'] for row in financial}=={'pristine-loss-entry','pristine-loss-stop'}
+        if known_net:
+            assert entry['report_status']=='BOUND_API_REPORT' and float(entry['amount'])==0
+            assert feedback['required'] and feedback['available'] and feedback['states'][root]['state']=='COMPLETE'
+            assert len(feedback['evidence'])==1 and feedback['evidence'][0]['matched_current_basis']
+            evidence=feedback['evidence'][0]
+            assert evidence['root_order_id']==root and evidence['account']=='SYNTHETIC_TEST' and evidence['currency']=='USD'
+            assert evidence['gross_realized_pnl']==pytest.approx(-.25) and evidence['total_commission']==pytest.approx(.02)
+            charges=feedback['covered_charges']
+            assert len(charges)==2 and sorted(float(row['amount']) for row in charges)==[0,.02]
+            zero=next(row for row in charges if float(row['amount'])==0)
+            witness=zero['zero_commission_witness']
+            assert zero['execution_id']=='pristine-loss-entry' and witness['commission_field_present'] is True
+            assert witness['commission_presence_source']==SDK_COMMISSION_PRESENCE_SOURCE
+            assert witness['commission_decoder_schema']==SDK_COMMISSION_SCHEMA
+            assert witness['commission_decoder_epoch']==0 and witness['commission_decoder_generation']==1
+            assert witness=={key:entry['first_report'][key] for key in witness}
+            assert decision['status']=='MANAGED_ONLY' and decision['lock_status']=='LOCKED'
+            assert decision['blocks_new_entries'] and decision['reason']=='MAX_DAILY_LOSS_AMOUNT'
+            assert decision['realized_pnl']==pytest.approx(-.27)
+            assert len(rows)==3 and len(auxiliary)==1
+            audit=json.loads(auxiliary[0]['payload_json'])['native_roundtrip_fee']
+            assert audit['total_commission']==pytest.approx(.02)
+            assert set(audit['basis_event_ids'])=={row['event_id'] for row in financial}
+            assert audit['account_currency_observation']['source']=='IBKR_ACCOUNT_SUMMARY_LEDGER'
+            assert audit['account_currency_observation']['client_id']==999
+            assert audit['account_currency_observation']['connection_epoch']==0
+        else:
+            # Same healthy source/truth; unsupported lexical zero is unknown,
+            # so no financial selection/query occurs and old GROSS remains.
+            assert entry['report_status']=='UNAVAILABLE' and entry['amount'] is None
+            assert not feedback['required'] and not feedback['covered_charges'] and not feedback['evidence']
+            assert decision['status']=='ALLOW' and not decision['blocks_new_entries']
+            assert decision['realized_pnl']==pytest.approx(-.25)
+            assert len(rows)==2 and not auxiliary
+        assert not any(event['event_type']=='TRADE_CLOSED' for event in cycle['events'])
+    queries=[row for row in report['native_read_requests'] if row['request_type']=='ACCOUNT_CURRENCY_STRICT']
+    cancels=[row for row in report['native_read_requests'] if row['request_type']=='OWNED_ACCOUNT_CURRENCY_CANCEL']
+    assert len(queries)==len(cancels)==int(known_net)
+    if known_net:
+        assert queries[0]['request_id']==cancels[0]['request_id'] and queries[0]['end_observed']
+        assert queries[0]['status']=='COMPLETE' and queries[0]['currency']=='USD'
+        assert queries[0]['completed_at']==steps[3]['now'] and cancels[0]['active_type_absent'] and cancels[0]['query_retired']
+    assert not report['positive_fee_callbacks']
+    assert [(row['leg'],row['amount']) for row in report['first_sdk_fee_callbacks']]==[('entry',raw_zero),('stop',.02)]
+    assert closed['database']['trade_lifecycle_events']==replayed['database']['trade_lifecycle_events']
+    assert closed['fee_feedback']==replayed['fee_feedback']
+    assert closed['engine']['position_records']==replayed['engine']['position_records']
+    releases=report['exposure_release_calls']
+    assert len(releases)==2 and {row['authority'] for row in releases}=={'capital','allocation'}
+    assert [cycle['exposure_release_calls_after'] for cycle in report['cycles']]==[0,0,0,2,2]
+    assert all(row['cycle']==4 and row['result']==10.53 and row['exposure_after']==0 and 'exception' not in row for row in releases)
+    assert report['trade_exit_shutdown_calls']==[] and report['cleanup']['live_threads']==[]
+    assert report['cleanup']['paper_before_resource_close']==report['cleanup']['paper_after_resource_close']
+    assert report['cleanup']['first_sdk_source']==dict(closed=True,retained_connection_closed=True,
+        reader_alive=False,worker_alive=False)
+    assert not report['cleanup'].get('first_sdk_exception')
     assert report['cleanup']['news_maintenance_closed'] and report['cleanup']['execution_resource_close_complete']
     assert report['cleanup']['scanner_runtime_close_complete']
     assert report['supervisor']['returncode']==0 and report['supervisor']['reaped'] and not report['supervisor']['timed_out']
