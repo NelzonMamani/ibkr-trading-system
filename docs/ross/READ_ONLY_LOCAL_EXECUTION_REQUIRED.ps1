@@ -68,12 +68,47 @@
         # Native --source is mandatory: index/worktree substitution is forbidden.
         $qualificationProgram = @'
 """Embedded external-operator qualification; no checkout, filters or broker activity."""
-import hashlib, json, os, pathlib, re, subprocess, sys
+import hashlib, json, ntpath, os, pathlib, re, subprocess, sys
 
 STANDARD = {b'filter.lfs.clean': b'git-lfs clean -- %f',
             b'filter.lfs.smudge': b'git-lfs smudge -- %f',
             b'filter.lfs.process': b'git-lfs filter-process'}
+OPTIONAL = {b'filter.lfs.required': b'true'}
+_WINDOWS = sys.platform == 'win32'
 UNSAFE = re.compile(rb'^(include\.path|includeif\..*\.path|core\.(hookspath|fsmonitor)|extensions\.(partialclone|worktreeconfig)|remote\..*\.(promisor|partialclonefilter)|attr\.tree)$')
+
+def _windows_drive_type(root):
+    import ctypes
+    api = ctypes.WinDLL('kernel32', use_last_error=True).GetDriveTypeW
+    api.argtypes = [ctypes.c_wchar_p]
+    api.restype = ctypes.c_uint
+    return int(api(root))
+
+def _attribute_source_location(name, repo):
+    # No attribute-source filesystem access until lexical location and, on
+    # Windows, native root-drive classification establish known local scope.
+    if not name or '\0' in name or name.startswith(('\\\\', '//')):
+        raise ValueError('UNC/device or unresolved attribute-source location')
+    if _WINDOWS:
+        value = name.replace('/', '\\')
+        drive, tail = ntpath.splitdrive(value)
+        if drive:
+            if not re.fullmatch('[A-Za-z]:', drive) or not tail.startswith('\\'):
+                raise ValueError('Unresolved drive-relative attribute source')
+        else:
+            if tail.startswith('\\'):
+                raise ValueError('Unresolved root-relative attribute source')
+            value = ntpath.join(repo, value)
+        value = ntpath.normpath(value)
+        if not re.match(r'^[A-Za-z]:\\', value):
+            raise ValueError('Attribute source lacks a fully qualified local drive')
+        # UNKNOWN(0), NO_ROOT_DIR(1), REMOTE(4) and unsupported results refuse.
+        if _windows_drive_type(value[:3]) not in (2, 3, 5, 6):
+            raise ValueError('Network, unknown or unresolved attribute-source drive')
+        return value
+    if ntpath.splitdrive(name)[0] or name.startswith('\\'):
+        raise ValueError('Attribute-source location cannot be resolved locally')
+    return os.path.abspath(os.path.join(repo, name))
 
 def qualify(git, repo, commit, tree, working=False):
     def run(*args, data=None, absent=False):
@@ -98,14 +133,15 @@ def qualify(git, repo, commit, tree, working=False):
             key, value = item.split(b'\n', 1)
             if UNSAFE.fullmatch(key): raise ValueError('Unadmitted Git execution/source configuration')
             if key.lower().startswith(b'filter.'):
-                if key not in STANDARD or value != STANDARD[key] or scope != b'system' or not origin.startswith(b'file:') or len(origin) <= 5 or key in seen:
+                allowed = STANDARD.get(key, OPTIONAL.get(key))
+                if allowed is None or value != allowed or scope != b'system' or not origin.startswith(b'file:') or len(origin) <= 5 or key in seen:
                     raise ValueError('Only exact non-overridden standard system-origin LFS definitions qualify')
                 seen.add(key)
             if key == b'core.attributesfile':
                 # Relative paths differ across the source and new linked checkout.
                 if not os.path.isabs(os.fsdecode(value)):
                     raise ValueError('Relative or tilde attribute-file configuration is ambiguous across worktrees')
-        if seen and seen != set(STANDARD):
+        if seen and (seen & set(STANDARD)) != set(STANDARD):
             raise ValueError('Incomplete standard LFS command set')
         return raw, entries, seen
     def externals(entries):
@@ -118,10 +154,9 @@ def qualify(git, repo, commit, tree, working=False):
             if not raw.endswith(b'\n') or b'\n' in raw.rstrip(b'\r\n'):
                 raise ValueError('Attribute source path is incomplete or ambiguous')
             name = os.fsdecode(raw.rstrip(b'\r\n'))
-            if not name: raise ValueError('Missing native attribute-source path')
-            path = pathlib.Path(name)
-            if not path.is_absolute(): path = pathlib.Path(repo) / path
-            for ancestor in [path, *path.parents]:
+            path = pathlib.Path(_attribute_source_location(name, repo))
+            # Verify parents before touching descendants through a junction.
+            for ancestor in reversed([path, *path.parents]):
                 try: stat = ancestor.lstat()
                 except FileNotFoundError: continue
                 if ancestor.is_symlink() or getattr(stat, 'st_file_attributes', 0) & 0x400:
@@ -260,7 +295,8 @@ if __name__ == '__main__':
         $prepareFileHash = (Get-FileHash -LiteralPath $prepareFile -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
         if ($release.PreparationFileSha256 -notcontains $prepareFileHash) { throw 'Preparation file bytes differ from the authenticated accepted owner; no execution.' }
 
-        # Only the exact complete system-origin LFS triplet may qualify, and only
+        # Only the exact complete system-origin LFS triplet, with optional
+        # system-origin required=true metadata, may qualify, and only
         # when ALL pinned paths have native effective filter=unspecified/unset.
         $sourceFilterSnapshot = Assert-UnusedStandardSystemLfs -At $sourceCheckout -Mode source
         $beforeRoots = @(Get-ChildItem -LiteralPath $evidenceBase -Directory -Force -Filter 'ro-*' -ErrorAction Stop | ForEach-Object { $_.FullName })
