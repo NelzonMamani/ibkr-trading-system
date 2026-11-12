@@ -238,6 +238,14 @@ def test_risk_future_rejection_precedes_force_execute(alias, mode):
 
 @pytest.mark.parametrize('delay_stage', ['none', 'before_decision', 'before_emission'])
 def test_real_ross_valid_flow_reages_during_pattern_and_decision_work(monkeypatch, tmp_path, clock, delay_stage):
+    import test_pr1082_trigger_to_intent_terminal_semantics as runtime_fixture
+    from src.strategies.ross_momentum.patterns import pattern_trace
+
+    # Imported helpers do not inherit their module's autouse clock fixture.
+    # Keep bars and their observation on this quote clock so wall time cannot
+    # make the execution stream expire before the intended quote checkpoint.
+    monkeypatch.setattr(runtime_fixture, 'datetime', clock)
+    monkeypatch.setattr(pattern_trace, 'datetime', clock)
     from test_pr1082_trigger_to_intent_terminal_semantics import _base_strategy, _watchlist_row, _snapshot
     strategy = _base_strategy(monkeypatch, tmp_path, state='ready')
     from test_pr1082_trigger_to_intent_terminal_semantics import FakeRegistry, _detected_three
