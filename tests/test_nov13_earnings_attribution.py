@@ -129,3 +129,30 @@ def test_captured_canonical_evidence_reaches_actual_core_focus(reassessment, cas
     assert len(scans) == 1 and c.life.provider.calls == 1
     assert c.calls == ([candidate.symbol] if control == 'positive' else [])
     assert (c.life.store.cache_path.read_bytes() if c.life.store.cache_path.exists() else None) == persisted
+
+
+@pytest.mark.parametrize('title,name,qualified', [
+    ('SBC MEDICAL GROUP & ($SBC) Releases Q3 2026 Earnings', 'SBC MEDICAL GROUP HOLDINGS I', False),
+    ('SBC & MEDICAL GROUP ($SBC) Releases Q3 2026 Earnings', 'SBC MEDICAL GROUP HOLDINGS I', False),
+    ('SBC MEDICAL & GROUP ($SBC) Releases Q3 2026 Earnings', 'SBC MEDICAL & GROUP HOLDINGS I', True),
+    ('SBC MEDICAL GROUP & HOLDINGS I Reports Q3 Earnings', 'SBC MEDICAL GROUP HOLDINGS I', False),
+    ('SBC MEDICAL GROUP HOLDINGS I Reports Q3 Earnings', 'SBC MEDICAL GROUP HOLDINGS I', True),
+])
+def test_coordination_cannot_be_erased_from_trusted_subject(title, name, qualified, monkeypatch):
+    case = FACTS[1]
+    _, item, candidate = captured(case, case['observation_times'][0], monkeypatch)
+    item = replace(item, headline=title, company_name=name)
+    candidate = replace(candidate, company_name=name)
+    assert cp.assess_issuer_event('SBC', item, (candidate,))['qualified'] is qualified
+
+
+@pytest.mark.parametrize('title,qualified', [
+    ('Digi Power X & Inc Reports Q3 Earnings', False),
+    ('Digi Power X, Inc. Reports Q3 Earnings', True),
+    ('$DGXX Reports Q3 Earnings', True),
+    ('Digi Power X Reports Q3 Earnings', True),
+])
+def test_legal_suffix_consumption_preserves_exact_symbols_and_issuer_names(title, qualified, monkeypatch):
+    case = FACTS[0]
+    _, item, candidate = captured(case, case['observation_times'][0], monkeypatch)
+    assert cp.assess_issuer_event('DGXX', replace(item, headline=title), (candidate,))['qualified'] is qualified

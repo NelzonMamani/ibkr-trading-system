@@ -295,8 +295,8 @@ def assess_issuer_event(symbol, item, candidates=()):
         match = ticker.match(text)
         end = match.end() if match else None
         for alias in aliases:
-            words = re.findall(r'[A-Z0-9]+', alias.upper())
-            match = re.match(r'[^A-Z0-9]*' + r'[^A-Z0-9]+'.join(map(re.escape, words)) + r'(?![A-Z0-9])', text.upper())
+            words = re.findall(r'[A-Z0-9]+|&', alias.upper())
+            match = re.match(r'[^A-Z0-9&]*' + r'[^A-Z0-9&]+'.join(map(re.escape, words)) + r'\.?(?![A-Z0-9])', text.upper())
             if match:
                 end = max(end or 0, match.end())
         return end
@@ -307,12 +307,12 @@ def assess_issuer_event(symbol, item, candidates=()):
         # candidate legal name, omitting only corporate/display-class suffixes.
         labelled = re.match(r'([A-Za-z0-9][A-Za-z0-9 .,&-]*?)\s+\(\$?' + re.escape(symbol) + r'\)', text, re.I)
         if labelled:
-            displayed = re.findall(r'[A-Z0-9]+', labelled.group(1).upper())
+            displayed = re.findall(r'[A-Z0-9]+|&', labelled.group(1).upper())
             authority = candidate.company_name if candidate else metadata.get('company_name')
-            supplied = re.findall(r'[A-Z0-9]+', str(authority or '').upper())
+            supplied = re.findall(r'[A-Z0-9]+|&', str(authority or '').upper())
             omitted = supplied[len(displayed):]
             corporate_tail = omitted[:-1] if omitted and re.fullmatch(r'I{1,3}|IV|V', omitted[-1]) else omitted
-            specific = [word for word in displayed if word not in _LEGAL_SUFFIXES | {'THE', 'A', 'AN'}]
+            specific = [word for word in displayed if word not in _LEGAL_SUFFIXES | {'THE', 'A', 'AN', '&'}]
             exact = displayed == supplied and len(specific) >= 2
             bounded = (len(displayed) >= 3 and len(specific) >= 2
                        and supplied[:len(displayed)] == displayed

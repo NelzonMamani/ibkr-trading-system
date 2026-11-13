@@ -253,7 +253,7 @@ def company_aliases_for_symbol(symbol: str, metadata: Any = None, *, include_leg
         # Subject attribution must consume an actually supplied legal suffix,
         # rather than leave it in the event assertion. The same specificity
         # check still governs admission; this does not invent a shorter alias.
-        legal_name = " ".join(words)
+        legal_name = " ".join(re.findall(r"[A-Z0-9]+|&", name.upper()))
         if include_legal_name and alias and legal_name not in aliases:
             aliases.append(legal_name)
     return tuple(aliases)
