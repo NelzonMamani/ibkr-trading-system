@@ -253,7 +253,22 @@ def company_aliases_for_symbol(symbol: str, metadata: Any = None, *, include_leg
         # Subject attribution must consume an actually supplied legal suffix,
         # rather than leave it in the event assertion. The same specificity
         # check still governs admission; this does not invent a shorter alias.
-        legal_name = " ".join(re.findall(r"[A-Z0-9]+|&", name.upper()))
+        identity_tokens = re.findall(r"[A-Z0-9]+|&", name.upper())
+        # Preserve supplied coordination in both the suffix-stripped identity
+        # and complete legal name. A punctuation-free default alias alone must
+        # not erase an inserted '&', or reject an authoritative one.
+        core_tokens: list[str] = []
+        remaining = len(alias.split()) if alias else 0
+        for token in identity_tokens:
+            if remaining == 0:
+                break
+            core_tokens.append(token)
+            if token != "&":
+                remaining -= 1
+        punctuated_alias = " ".join(core_tokens)
+        if include_legal_name and alias and punctuated_alias not in aliases:
+            aliases.append(punctuated_alias)
+        legal_name = " ".join(identity_tokens)
         if include_legal_name and alias and legal_name not in aliases:
             aliases.append(legal_name)
     return tuple(aliases)

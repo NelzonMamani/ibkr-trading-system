@@ -156,3 +156,18 @@ def test_legal_suffix_consumption_preserves_exact_symbols_and_issuer_names(title
     case = FACTS[0]
     _, item, candidate = captured(case, case['observation_times'][0], monkeypatch)
     assert cp.assess_issuer_event('DGXX', replace(item, headline=title), (candidate,))['qualified'] is qualified
+
+
+@pytest.mark.parametrize('subject,qualified', [
+    ('Johnson & Johnson', True),
+    ('Johnson&Johnson Inc.', True),
+    ('Johnson&Johnson', True),
+    ('Johnson & Johnson & Inc.', False),
+])
+def test_supplied_ampersand_survives_suffix_stripping_and_normal_spacing(subject, qualified, monkeypatch):
+    case = FACTS[0]
+    _, item, _ = captured(case, case['observation_times'][0], monkeypatch)
+    candidate = NewsCandidate('JNJ', company_name='JOHNSON & JOHNSON INC')
+    item = replace(item, symbol='JNJ', company_name=candidate.company_name,
+                   headline=subject+' Reports Q3 Earnings')
+    assert cp.assess_issuer_event('JNJ', item, (candidate,))['qualified'] is qualified

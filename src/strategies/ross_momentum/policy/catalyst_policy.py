@@ -296,7 +296,13 @@ def assess_issuer_event(symbol, item, candidates=()):
         end = match.end() if match else None
         for alias in aliases:
             words = re.findall(r'[A-Z0-9]+|&', alias.upper())
-            match = re.match(r'[^A-Z0-9&]*' + r'[^A-Z0-9&]+'.join(map(re.escape, words)) + r'\.?(?![A-Z0-9])', text.upper())
+            if not words:
+                continue
+            phrase = re.escape(words[0])
+            for previous, word in zip(words, words[1:]):
+                separator = r'[^A-Z0-9&]*' if '&' in (previous, word) else r'[^A-Z0-9&]+'
+                phrase += separator + re.escape(word)
+            match = re.match(r'[^A-Z0-9&]*' + phrase + r'\.?(?![A-Z0-9])', text.upper())
             if match:
                 end = max(end or 0, match.end())
         return end
