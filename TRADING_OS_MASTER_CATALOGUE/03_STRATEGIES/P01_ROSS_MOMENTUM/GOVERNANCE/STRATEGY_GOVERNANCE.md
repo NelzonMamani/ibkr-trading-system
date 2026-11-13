@@ -241,3 +241,8 @@ Final30fcaabd/tree13cfaa1e independently cleared5881019687 and integrated ascaee
 ## 2026-11-12 — PR1224 launcher inspection completed
 
 External launchera3ba6056 pins acceptedcaee2c04/tree13cfaa1e; only release Commit/Tree changed, independent byte review/repository equality verified. SAME checkpoint/handoff carry exact artifact hash and continuation. Next native evidence requires a fresh root and configured RTH; standing project authorization persists across days. No observer, main/source change, ownership/recovery clearing or readiness upgrade. All five vetoes remain. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+
+## 2026-11-13 — Actual PR1224 observation and attribution queue
+
+Acceptedcaee2c04 user-side READ_ONLY ro-e5d2fbc1 completed with terminal safety PASS and partial natural acquisition, but official focus/intents remain0 and all five ownership vetoes persist. SAME checkpoint/handoff retain exact evidence and distinct proof scopes. New diagnostics localize one FCUV future-input rejection to its deliberate guard; original clock/AIMD causes remain unproved. Source-bound observation-clock replay reproduces recognized EARNINGS rejected by legal-name/ticker subject grammar (DGXX/SBC). Next is bounded existing-owner attribution repair with negative controls and consumer/Core proof; a separate source/governance audit may assess the current six-hour horizon without silently changing it. No main/source change, repeated observer, gate/state/recovery change or readiness upgrade in this receipt. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
