@@ -728,6 +728,11 @@ def _fetch_headlines_from_sources(
     if raw_capture is not None:
         raw_capture.evaluation_time_utc = datetime.fromtimestamp(now, timezone.utc).isoformat()
     min_ts = now - (lookback_hours * 3600)
+    bound_resolver = retention_request.metadata.get("publication_lower_bound_resolver") if retention_request is not None else None
+    if callable(bound_resolver):
+        absolute_bound = bound_resolver(retention_request, now_ts=now)
+        if absolute_bound is not None:
+            min_ts = min(min_ts, absolute_bound)
     symbol_patterns = _compile_symbol_patterns(normalized_symbols)
     summary_symbol_patterns = _compile_symbol_patterns(normalized_symbols, allow_bare=False)
     company_patterns = _compile_company_patterns(normalized_symbols, symbol_metadata)

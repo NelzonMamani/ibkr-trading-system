@@ -3,6 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, time, timezone, timedelta
 import math
+import hashlib
+import json
+import os
+from datetime import date
+from urllib.parse import urlparse
 from typing import Optional
 
 from zoneinfo import ZoneInfo
@@ -12,6 +17,10 @@ from src.core.time.calendar_session import resolve_calendar_session
 
 
 _NY_TZ = ZoneInfo("America/New_York")
+_PRE_START = time(4, 0)
+_RTH_OPEN = time(9, 30)
+_OPENING_END = time(10, 30)
+_RTH_CLOSE = time(16, 0)
 PHASE_VOLUME_RATIOS: dict[str, float] = {
     "PRE": 0.05,
     "RTH_OPEN": 0.40,
@@ -189,10 +198,10 @@ def resolve_market_session_context(
             context = MarketSessionContext(coarse="CLOSED", phase="CLOSED", source="TIME", market_time=market_time)
         else:
             ny_clock = ny_time.time()
-            if time(4, 0) <= ny_clock < time(9, 30):
+            if _PRE_START <= ny_clock < _RTH_OPEN:
                 context = MarketSessionContext(coarse="PRE", phase="PRE", source="TIME", market_time=market_time)
-            elif time(9, 30) <= ny_clock < time(16, 0):
-                if ny_clock < time(10, 30):
+            elif _RTH_OPEN <= ny_clock < _RTH_CLOSE:
+                if ny_clock < _OPENING_END:
                     context = MarketSessionContext(coarse="RTH", phase="RTH_OPEN", source="TIME", market_time=market_time)
                 elif ny_clock < time(14, 30):
                     context = MarketSessionContext(coarse="RTH", phase="RTH_MID", source="TIME", market_time=market_time)
@@ -234,6 +243,125 @@ def previous_valid_trading_day(now: Optional[datetime] = None) -> datetime.date:
     while cursor.weekday() >= 5 or cursor in holidays:
         cursor -= timedelta(days=1)
     return cursor
+
+
+@dataclass(frozen=True)
+class CoveredOpeningWindow:
+    """Explicit reviewed schedule declaration, not a live calendar verifier."""
+    target_session: str
+    previous_session: str
+    pre_start: datetime
+    current_open: datetime
+    opening_end: datetime
+    current_close: datetime
+    previous_close: datetime
+    phase: str
+    provenance: tuple[tuple[str, str], ...]
+    covered_days: tuple[tuple[str, str, str, str, str, str], ...]
+    fingerprint: str
+
+    def snapshot(self) -> dict:
+        return {key: value.isoformat() if isinstance(value, datetime) else value
+                for key, value in self.__dict__.items()}
+
+
+def covered_opening_window(now: datetime, *, override_phase=None) -> CoveredOpeningWindow | None:
+    """Fail closed on missing coverage, conflicts, overrides or actual phase.
+
+    The finite explicit date map supplies completeness; weekdays alone never do.
+    Existing holiday/half-day facts and scanner phase semantics remain shared.
+    """
+    if now.tzinfo is None or now.utcoffset() is None or override_phase:
+        return None
+    if any(os.getenv(key, "").strip() for key in ("FORCE_SESSION", "SESSION_OVERRIDE", "MARKET_SESSION_OVERRIDE")):
+        return None
+    if get_config("SESSION_PHASE_OVERRIDE"):
+        return None
+    raw = get_config("MARKET_SESSION_COVERAGE")
+    holidays = frozenset(get_config("MARKET_HOLIDAYS"))
+    half_days = frozenset(get_config("MARKET_HALF_DAYS"))
+    early_close = get_config("MARKET_EARLY_CLOSE_TIME")
+    def unique_object(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate schedule field")
+            result[key] = value
+        return result
+    try:
+        receipt = json.loads(raw, object_pairs_hook=unique_object)
+        if set(receipt) != {"schema", "authority", "source_url", "version", "review_reference", "days"}:
+            return None
+        if receipt["schema"] != "market.session_coverage.v1" or receipt["authority"] not in {"NYSE", "NASDAQ"}:
+            return None
+        if any(not isinstance(receipt[k], str) or not receipt[k].strip()
+               for k in ("source_url", "version", "review_reference")):
+            return None
+        source = urlparse(receipt["source_url"])
+        host = "nyse.com" if receipt["authority"] == "NYSE" else "nasdaq.com"
+        if source.scheme != "https" or source.hostname not in {host, "www." + host}:
+            return None
+        days = receipt["days"]
+        if not isinstance(days, dict) or not days:
+            return None
+        parsed = {date.fromisoformat(key): row for key, row in days.items()}
+        if any(day.isoformat() not in days for day in parsed):
+            return None
+        today = now.astimezone(_NY_TZ).date()
+        prior = max(day for day, row in parsed.items() if day < today and row.get("status") == "OPEN")
+        if previous_valid_trading_day(now) != prior:
+            return None
+        facts = []
+        cursor = prior
+        while cursor <= today:
+            row = parsed[cursor]  # Every intervening date must be explicitly covered.
+            closed = cursor.weekday() >= 5 or cursor in holidays
+            if cursor in holidays and cursor in half_days:
+                return None
+            if closed:
+                if row.get("status") != "CLOSED" or set(row) - {"status", "reason"}:
+                    return None
+                if row.get("reason", "weekend" if cursor.weekday() >= 5 else "holiday") != ("weekend" if cursor.weekday() >= 5 else "holiday"):
+                    return None
+                facts.append((cursor.isoformat(), "CLOSED", "", "", "", ""))
+            else:
+                close = early_close if cursor in half_days else _RTH_CLOSE
+                if close.second or close.microsecond or close.tzinfo is not None:
+                    return None  # Unsupported precision is unknown, never rounded.
+                end = min(_OPENING_END, close)
+                expected = {"status": "OPEN", "pre_start": _PRE_START.strftime("%H:%M"), "rth_open": _RTH_OPEN.strftime("%H:%M"),
+                            "rth_close": close.strftime("%H:%M"), "opening_end": end.strftime("%H:%M")}
+                if row != expected or not (_PRE_START < _RTH_OPEN < close <= _RTH_CLOSE):
+                    return None
+                facts.append((cursor.isoformat(), "OPEN", expected["pre_start"], expected["rth_open"], expected["opening_end"], expected["rth_close"]))
+            cursor += timedelta(days=1)
+        if parsed[today].get("status") != "OPEN":
+            return None
+        phase = resolve_market_session_context(now).phase
+        if phase not in {"PRE", "RTH_OPEN"}:
+            return None
+        def utc(day, clock):
+            return datetime.combine(day, time.fromisoformat(clock), _NY_TZ).astimezone(timezone.utc)
+        row = parsed[today]
+        boundaries = dict(pre_start=utc(today, row["pre_start"]), current_open=utc(today, row["rth_open"]),
+                          opening_end=utc(today, row["opening_end"]), current_close=utc(today, row["rth_close"]),
+                          previous_close=utc(prior, parsed[prior]["rth_close"]))
+        if not boundaries["pre_start"] <= now < min(boundaries["opening_end"], boundaries["current_close"]):
+            return None
+        # Dynamic configuration must not change during this authority read.
+        if (get_config("SESSION_PHASE_OVERRIDE") or any(os.getenv(key, "").strip() for key in ("FORCE_SESSION", "SESSION_OVERRIDE", "MARKET_SESSION_OVERRIDE"))
+                or raw != get_config("MARKET_SESSION_COVERAGE") or holidays != frozenset(get_config("MARKET_HOLIDAYS"))
+                or half_days != frozenset(get_config("MARKET_HALF_DAYS")) or early_close != get_config("MARKET_EARLY_CLOSE_TIME")):
+            return None
+        provenance = tuple((key, receipt[key]) for key in ("schema", "authority", "source_url", "version", "review_reference"))
+        identity = dict(target_session=today.isoformat(), previous_session=prior.isoformat(), phase=phase,
+                        provenance=provenance, covered_days=tuple(facts),
+                        **{key: value.isoformat() for key, value in boundaries.items()})
+        fingerprint = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
+        return CoveredOpeningWindow(today.isoformat(), prior.isoformat(), **boundaries, phase=phase,
+                                    provenance=provenance, covered_days=tuple(facts), fingerprint=fingerprint)
+    except (TypeError, ValueError, KeyError, AttributeError):
+        return None
 
 
 def reference_trading_day(now: Optional[datetime] = None) -> datetime.date:

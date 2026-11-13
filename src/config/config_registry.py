@@ -1343,6 +1343,11 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
         "affects": ["NewsEngine", "RossPolicy"], "enforcement": "SOFT", "mutable": "dynamic",
         "description": "Opt in to bounded canonical Ross Google issuer queries; readiness remains separate.",
     },
+    "ROSS_NEXT_SESSION_CATALYST_ENABLED": {
+        "type": bool, "default": False, "env": ["ROSS_NEXT_SESSION_CATALYST_ENABLED"],
+        "affects": ["RossPolicy"], "enforcement": "SOFT", "mutable": "dynamic",
+        "description": "Default-off project next-session catalyst contract; requires covered actual session authority.",
+    },
     "NEWS_ENABLED": {
         "type": bool,
         "default": True,
@@ -1484,6 +1489,11 @@ CONFIG_REGISTRY: Dict[str, Dict[str, Any]] = {
         "enforcement": "SOFT",
         "mutable": "dynamic",
         "description": "Comma-separated list of YYYY-MM-DD market holidays.",
+    },
+    "MARKET_SESSION_COVERAGE": {
+        "type": str, "default": "", "env": ["MARKET_SESSION_COVERAGE"],
+        "affects": ["SystemConfig"], "enforcement": "SOFT", "mutable": "dynamic",
+        "description": "Reviewed explicit per-date exchange schedule receipt JSON; empty means unknown coverage.",
     },
     "MARKET_HALF_DAYS": {
         "type": set,

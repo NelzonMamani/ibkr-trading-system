@@ -16,7 +16,7 @@ from src.news.batch_rss_adapter import (
 from src.news.retrieval_diagnostics import emit_retrieval_diagnostics
 from src.news.evidence_store import (
     CanonicalNewsEvidenceStore,
-    dedupe_evidence, retained_evidence,
+    dedupe_evidence, retained_evidence, protected_data_request,
     evidence_max_entries,
     evidence_freshness_seconds,
     evidence_in_query_window,
@@ -123,6 +123,9 @@ def _acquisition_profile(candidate: NewsCandidate, request: NewsRequest, policy:
     if request.query_start_utc is not None:
         profile["request"].update(query_start_utc=request.query_start_utc.isoformat(),
                                   query_end_utc=request.query_end_utc.isoformat())
+    if request.strategy_id == "ross_momentum" and request.metadata.get("next_session_contract"):
+        profile["request"]["next_session_contract"] = request.metadata["next_session_contract"]
+        profile["request"]["next_session_calendar"] = _json_value(request.metadata.get("next_session_calendar"))
     # Old available-empty coverage cannot certify this stricter transport/parser
     # contract. This changes coverage compatibility, never stored article facts.
     if provider_id == "rss_batch":
@@ -337,7 +340,9 @@ class CanonicalNewsIntelligenceService(NewsIntelligenceProvider):
             if request.query_start_utc is not None:
                 items = [refresh_evidence_age(item, request=request, now=started_at) for item in items
                          if evidence_in_query_window(item, request, now=started_at)]
-            merged = tuple(retained_evidence(items, request))
+            effective_request = protected_data_request(request,
+                cache_diagnostics.get("ross_retention_contract_by_symbol", {}).get(symbol))
+            merged = tuple(retained_evidence(items, effective_request))
             combined_evidence[symbol] = merged
             cached_retrieval = (cache_diagnostics.get("last_retrieval_by_symbol", {}).get(symbol, {})
                                 if symbol in cache_diagnostics.get("cadence_cache_hit_symbols", []) else {})
