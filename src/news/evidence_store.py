@@ -96,6 +96,14 @@ def auxiliary_veto_version(item):
     return original_publication_binding(item).get("role") == "veto_version"
 
 
+def mark_original_established(item, established):
+    binding = original_publication_binding(item)
+    if not binding or auxiliary_veto_version(item):
+        return item
+    return replace(item, raw={**dict(item.raw or {}), "original_publication_binding": {
+        **binding, "established": established}})
+
+
 def publication_facts(evidence):
     """An auxiliary veto version is retained evidence, not another publication."""
     return [item for item in evidence if not auxiliary_veto_version(item)]
@@ -145,12 +153,14 @@ def coalesce_original_publications(items, *, veto_predicate, contract):
         stamp = publication_stamp(item)
         return (stamp if stamp is not None else float("-inf"),
                 json.dumps(asdict(item), sort_keys=True, default=str))
-    def bind(item, base, role):
+    def bind(item, base, role, conflict):
         stamp = publication_stamp(base)
         previous = original_publication_binding(item)
         binding = {"schema": "news.original_publication.v1", "contract": contract, "role": role,
                    "anchor": list(fact_version_key(base)[:5]), "original_published_ts": stamp,
-                   "observed_published_ts": previous.get("observed_published_ts", publication_stamp(item))}
+                   "observed_published_ts": previous.get("observed_published_ts", publication_stamp(item)),
+                   "established": bool(original_publication_binding(base).get("established")),
+                   "original_conflict": conflict}
         if isinstance(item, NewsEvidence):
             value = replace(item, published_at=datetime.fromtimestamp(stamp, timezone.utc) if stamp is not None else None,
                             raw={**dict(item.raw or {}), "original_publication_binding": binding})
@@ -167,11 +177,19 @@ def coalesce_original_publications(items, *, veto_predicate, contract):
             # Never turn an orphaned auxiliary veto into a positive base.
             output.extend(sorted(group, key=order)[:1])
             continue
-        base = min(bases, key=order)
-        output.append(bind(base, base, "base"))
+        earliest = min(bases, key=order)
+        tied = [item for item in bases if publication_stamp(item) == publication_stamp(earliest)]
+        known = [item for item in tied if original_publication_binding(item).get("established") is True]
+        original_choices = known or tied
+        base = min(original_choices, key=order)
+        contents = {" ".join(str(getattr(item, "headline", getattr(item, "title", ""))).split()).casefold()
+                    for item in original_choices}
+        conflict = (len(contents) > 1 or any(original_publication_binding(item).get("original_conflict")
+                                           for item in original_choices))
+        output.append(bind(base, base, "base", conflict))
         vetoes = [item for item in group if veto_predicate(item)]
         if vetoes and not veto_predicate(base):
-            output.append(bind(min(vetoes, key=order), base, "veto_version"))
+            output.append(bind(min(vetoes, key=order), base, "veto_version", conflict))
     return sorted(output, key=lambda item: (publication_stamp(item) or float("-inf"), fact_version_key(item)), reverse=True)
 
 
@@ -405,7 +423,7 @@ class CanonicalNewsEvidenceStore:
                 if (item := evidence_from_mapping(row, request=request, now=now)) is not None
             ]
             incoming = [
-                replace(item, cache_state="hit" if item.cache_state == "not_checked" else item.cache_state)
+                mark_original_established(replace(item, cache_state="hit" if item.cache_state == "not_checked" else item.cache_state), False)
                 for item in evidence
                 if isinstance(item, NewsEvidence)
             ]
@@ -432,6 +450,7 @@ class CanonicalNewsEvidenceStore:
             if marker:
                 protection_request = protected_data_request(request, marker, for_write=True)
                 protected = list(retained_evidence(protected + existing + incoming, protection_request))
+                protected = [mark_original_established(item, True) for item in protected]
                 ross_rows = [serialize_evidence(item) for item in protected]
             protected = list(enrich_evidence_metrics(protected, now_ts=now.timestamp()))
             if ross_rows:
@@ -728,6 +747,7 @@ def enrich_evidence_metrics(
     now_ts: float,
 ) -> tuple[NewsEvidence, ...]:
     if any(original_publication_binding(item) for item in evidence):
+        evidence = dedupe_evidence(evidence, max_items=len(evidence) or 1)
         # Protected versions are not independent publications, and old cohort
         # aggregates cannot survive cap/identity changes as current metrics.
         evidence = tuple(replace(item, velocity_5m=None, velocity_10m=None,
@@ -798,9 +818,9 @@ def enrich_evidence_metrics(
 def dedupe_evidence(evidence: Sequence[NewsEvidence], *, max_items: int) -> list[NewsEvidence]:
     bound = next((original_publication_binding(item) for item in evidence if original_publication_binding(item)), None)
     if bound:
+        from src.strategies.ross_momentum.policy.catalyst_policy import retained_veto
         versions = coalesce_original_publications(evidence, contract=bound["contract"],
-            veto_predicate=lambda item: auxiliary_veto_version(item) or bool(item.dilution_or_offering)
-            or str(dict(item.raw or {}).get("catalyst_tag") or "").lower() == "offering")
+            veto_predicate=lambda item: auxiliary_veto_version(item) or retained_veto(item))
         return versions[:max(1, int(max_items or 1))]
     seen: set[str] = set()
     seen_articles: set[tuple[str, ...]] = set()

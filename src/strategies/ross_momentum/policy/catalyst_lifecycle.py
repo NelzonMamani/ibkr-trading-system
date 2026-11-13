@@ -12,12 +12,13 @@ from datetime import datetime, timezone
 import time
 from src.config.config_resolver import get_config
 
-from src.news.evidence_store import CanonicalNewsEvidenceStore, evidence_from_mapping, serialize_evidence, evidence_max_entries
+from src.news.evidence_store import (CanonicalNewsEvidenceStore, evidence_from_mapping, serialize_evidence,
+    evidence_max_entries, coalesce_original_publications, original_publication_binding)
 from src.news.issuer_relevance import evidence_issuer_relevance_verified
 from src.news.news_intelligence_contract import NewsBatchResult, NewsCandidate, NewsRequest
 from .catalyst_policy import (ISSUER_EVENT_MAX_AGE_SECONDS, assess_issuer_event, detect_dilution,
     retained_veto, protected_ross_request, NEXT_SESSION_CONTRACT, fact_binding,
-    next_session_request_metadata, ROSS_ISSUER_EVENT_PROFILE, select_qualification_evidence)
+    next_session_request_metadata, ROSS_ISSUER_EVENT_PROFILE, select_qualification_evidence, temporal_binding_matches)
 from .runtime_safety import validation_override_allowed, log_validation_override_active
 
 
@@ -81,6 +82,9 @@ def revalidate_handoff(symbol, handoff, *, store=None, request=None):
     batch = NewsBatchResult(candidates=(candidate,))
     facts = [item for item in facts if item.symbol == symbol
              and evidence_issuer_relevance_verified(symbol, item, batch)]
+    if (handoff.get("next_session_contract") == NEXT_SESSION_CONTRACT or any(
+            original_publication_binding(item).get("contract") == NEXT_SESSION_CONTRACT for item in facts)):
+        facts = coalesce_original_publications(facts, veto_predicate=retained_veto, contract=NEXT_SESSION_CONTRACT)
     if request is None:
         request = NewsRequest(strategy_id="ross_momentum", metadata={
             "qualification_profile": ROSS_ISSUER_EVENT_PROFILE,
@@ -91,8 +95,7 @@ def revalidate_handoff(symbol, handoff, *, store=None, request=None):
         temporal = decision.get("temporal_authority", {})
         if temporal.get("route") == "next_session_opening" and fact_binding(item) not in canonical_bindings:
             stored = handoff.get("temporal_bindings", {}).get(fact_binding(item)) if isinstance(handoff.get("temporal_bindings"), Mapping) else None
-            import json
-            if handoff.get("next_session_contract") != NEXT_SESSION_CONTRACT or json.dumps(stored, sort_keys=True) != json.dumps(temporal, sort_keys=True):
+            if handoff.get("next_session_contract") != NEXT_SESSION_CONTRACT or not temporal_binding_matches(stored, temporal):
                 decision.update(qualified=False, reason="canonical_extra_binding_invalid")
     positive = [row for row in decisions if row["qualified"] and row["evidence_id"]]
     veto = retained_dilution(facts)

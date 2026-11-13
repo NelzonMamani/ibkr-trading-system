@@ -357,7 +357,7 @@ def covered_opening_window(now: datetime, *, override_phase=None) -> CoveredOpen
         identity = dict(target_session=today.isoformat(), previous_session=prior.isoformat(), phase=phase,
                         provenance=provenance, covered_days=tuple(facts),
                         **{key: value.isoformat() for key, value in boundaries.items()})
-        fingerprint = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
+        fingerprint = hashlib.sha256(json.dumps({key: value for key, value in identity.items() if key != "phase"}, sort_keys=True).encode()).hexdigest()
         return CoveredOpeningWindow(today.isoformat(), prior.isoformat(), **boundaries, phase=phase,
                                     provenance=provenance, covered_days=tuple(facts), fingerprint=fingerprint)
     except (TypeError, ValueError, KeyError, AttributeError):

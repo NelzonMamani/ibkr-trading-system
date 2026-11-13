@@ -464,7 +464,8 @@ def test_pre_to_open_rebinds_current_calendar_then_expires_at_end(lifecycle,monk
     assert decision(life,item)['qualified']
     old_request=life.request
     life.clock.current=datetime(2026,11,13,14,30,tzinfo=UTC)
-    assert not decision(life,item)['qualified']  # PRE snapshot cannot certify another phase.
+    assert decision(life,item)['qualified']  # Same immutable window; actual OPEN is independently re-evaluated.
+    assert decision(life,item)['temporal_authority']['calendar']['phase']=='RTH_OPEN'
     life.request=ross._ross_news_request()
     assert decision(life,item)['qualified']
     assert life.request.metadata['next_session_calendar']!=old_request.metadata['next_session_calendar']
@@ -504,3 +505,100 @@ def test_unserializable_calendar_binding_refuses_only_additional_route(lifecycle
     life.request=replace(life.request,metadata={**life.request.metadata,'next_session_calendar':{'bad':object()}})
     assert not decision(life,article(life))['qualified']
     assert decision(life,article(life,published=NOW-timedelta(minutes=1)))['qualified']
+
+
+@pytest.mark.parametrize('overlay',['prep','cache'])
+@pytest.mark.parametrize('identity',['url','id'])
+def test_intermediate_overlay_dedup_cannot_erase_headline_veto(lifecycle,monkeypatch,overlay,identity):
+    from src.news.evidence_store import serialize_evidence
+    life=configure(lifecycle,monkeypatch)
+    base=article(life)
+    life.store.write({'JPM':(base,)},life.request)
+    observed=NOW-timedelta(minutes=5)
+    update=article(life,'B' if identity=='id' else 'UPDATE','JPM announces registered direct offering',observed)
+    update=replace(update,url=base.url if identity=='url' else 'https://fixture.invalid/different-version-url',
+                   is_generic=True,dilution_or_offering=False)
+    if overlay=='prep':
+        life.store._prep_artifact_loader=lambda:{'symbols':[{'symbol':'JPM','news_context':[{
+            'title':update.headline,'url':update.url,'evidence_id':update.evidence_id,
+            'published_at':observed.isoformat(),'source':'fixture','catalyst_tag':'generic'}]}]}
+    else:
+        payload=json.loads(life.store.cache_path.read_text())
+        payload['news_intelligence']['symbols']['JPM']['evidence'].append(serialize_evidence(update))
+        life.store.cache_path.write_text(json.dumps(payload))  # Synthetic external persisted overlay.
+    result=life.service.get_news((CANDIDATE,),life.request,replace(life.policy,network_allowed=False,refresh_mode='cache_only'))
+    rows=result.evidence_for_symbol('JPM')
+    assert retained_dilution(rows)
+    auxiliary=next(row for row in rows if auxiliary_veto_version(row))
+    assert auxiliary.published_at==base.published_at and auxiliary.stale
+    assert original_publication_binding(auxiliary)['observed_published_ts']==observed.timestamp()
+    context=ross._ross_news_contexts_from_news_intelligence_result(result)['JPM']
+    assert context['dilution_flag'] and not context['ross_catalyst_valid']
+    assert context['fresh_news_count']==0 and context['news_count']==1
+
+
+@pytest.mark.parametrize('original_kind',['generic','old_earnings'])
+def test_lifecycle_merged_identity_cannot_renew_newer_wrapper(lifecycle,monkeypatch,original_kind):
+    life=configure(lifecycle,monkeypatch)
+    newer=article(life,published=NOW-timedelta(minutes=1))
+    life.provider.articles=(newer,)
+    batch=life.service.get_news((CANDIDATE,),life.request,life.policy)
+    handoff=ross._ross_news_contexts_from_news_intelligence_result(batch)['JPM']['catalyst_evidence']
+    assert revalidate_handoff('JPM',handoff,store=life.store)['qualified']
+    original=article(life,title='JPM market bulletin' if original_kind=='generic' else 'JPM reports Q3 earnings beat',
+                     published=PUB-timedelta(days=1))
+    life.store.write({'JPM':(original,)},life.request)
+    current=life.store.read((CANDIDATE,),life.request).evidence_by_symbol['JPM']
+    assert not any(decision(life,row)['qualified'] for row in current)
+    assert not revalidate_handoff('JPM',handoff,store=life.store)['qualified']
+
+
+@pytest.mark.parametrize('initial_title,later_title,expected',[
+    ('JPM market bulletin','JPM reports Q3 earnings beat',False),
+    ('JPM reports Q3 earnings beat','JPM market bulletin',True),
+])
+def test_equal_time_update_preserves_established_original(lifecycle,monkeypatch,initial_title,later_title,expected):
+    life=configure(lifecycle,monkeypatch)
+    original=article(life,'B',initial_title)
+    update=replace(article(life,'A',later_title),url=original.url)
+    life.store.write({'JPM':(original,)},life.request)
+    life.store.write({'JPM':(update,)},life.request)
+    rows=life.store.read((CANDIDATE,),life.request).evidence_by_symbol['JPM']
+    assert len(rows)==1 and rows[0].headline==original.headline
+    assert decision(life,rows[0])['qualified'] is expected
+
+
+def test_unresolved_equal_time_content_conflict_never_grants_positive(lifecycle,monkeypatch):
+    life=configure(lifecycle,monkeypatch)
+    original=article(life,'B','JPM market bulletin')
+    update=replace(article(life,'A','JPM reports Q3 earnings beat'),url=original.url)
+    for rows in ((original,update),(update,original)):
+        selected=retained_evidence(rows,life.request)
+        assert not any(decision(life,row)['qualified'] for row in selected)
+
+
+def test_retained_pre_handoff_survives_open_but_not_expiry_without_store(lifecycle,monkeypatch):
+    life=configure(lifecycle,monkeypatch,now=datetime(2026,11,13,14,29,tzinfo=UTC))
+    life.provider.articles=(article(life),)
+    result=life.service.get_news((CANDIDATE,),life.request,life.policy)
+    handoff=ross._ross_news_contexts_from_news_intelligence_result(result)['JPM']['catalyst_evidence']
+    life.store.cache_path.unlink()  # Only the synthetic temporary canonical store.
+    assert revalidate_handoff('JPM',handoff,store=life.store)['qualified']
+    life.clock.current=datetime(2026,11,13,14,30,tzinfo=UTC)
+    assert revalidate_handoff('JPM',handoff,store=life.store)['qualified']
+    forged=deepcopy(handoff)
+    for row in forged['temporal_bindings'].values(): row['calendar']['phase']='AH'
+    assert not revalidate_handoff('JPM',forged,store=life.store)['qualified']
+    life.clock.current=datetime(2026,11,13,15,30,tzinfo=UTC)
+    assert not revalidate_handoff('JPM',handoff,store=life.store)['qualified']
+
+
+def test_equal_time_offering_update_still_preserves_veto_against_known_positive(lifecycle,monkeypatch):
+    life=configure(lifecycle,monkeypatch)
+    positive=article(life,'B')
+    veto=replace(article(life,'A','JPM announces registered direct offering'),url=positive.url)
+    life.store.write({'JPM':(positive,)},life.request)
+    life.store.write({'JPM':(veto,)},life.request)
+    rows=life.store.read((CANDIDATE,),life.request).evidence_by_symbol['JPM']
+    assert any(decision(life,row)['qualified'] for row in rows)
+    assert retained_dilution(rows) and len(rows)==2

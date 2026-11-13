@@ -50,11 +50,30 @@ def next_session_window(request, now_ts=None):
     if window is None:
         return None
     try:
-        if json.dumps(window.snapshot(), sort_keys=True) != json.dumps(request.metadata.get("next_session_calendar"), sort_keys=True):
+        if json.dumps(opening_calendar_binding(window.snapshot()), sort_keys=True) != json.dumps(opening_calendar_binding(request.metadata.get("next_session_calendar")), sort_keys=True):
             return None
     except (TypeError, ValueError):
         return None
     return window
+
+
+def opening_calendar_binding(snapshot):
+    """Immutable covered window; current actual phase is revalidated separately."""
+    if not isinstance(snapshot, Mapping) or snapshot.get("phase") not in {"PRE", "RTH_OPEN"}:
+        raise ValueError("unknown/ineligible observed phase")
+    return {key: value for key, value in snapshot.items() if key != "phase"}
+
+
+def temporal_binding_matches(stored, current):
+    try:
+        if not isinstance(stored, Mapping) or not isinstance(current, Mapping):
+            return False
+        left, right = dict(stored), dict(current)
+        left['calendar'] = opening_calendar_binding(left['calendar'])
+        right['calendar'] = opening_calendar_binding(right['calendar'])
+        return json.dumps(left, sort_keys=True) == json.dumps(right, sort_keys=True)
+    except (TypeError, ValueError, KeyError):
+        return False
 
 
 def next_session_publication_lower_bound(request, *, now_ts):
@@ -88,10 +107,11 @@ def original_publication_verified(item, stamp):
 
 
 def temporal_authority(item, request=None, *, now_ts=None):
-    from src.news.evidence_store import publication_stamp, auxiliary_veto_version
+    from src.news.evidence_store import publication_stamp, auxiliary_veto_version, original_publication_binding
     stamp = publication_stamp(item)
     now_ts = time.time() if now_ts is None else now_ts
-    if stamp is None or not 0 <= now_ts - stamp or auxiliary_veto_version(item):
+    if (stamp is None or not 0 <= now_ts - stamp or auxiliary_veto_version(item)
+            or original_publication_binding(item).get("original_conflict")):
         return None
     if now_ts - stamp <= ISSUER_EVENT_MAX_AGE_SECONDS:
         return {"route": "ordinary_six_hour", "valid_until": stamp + ISSUER_EVENT_MAX_AGE_SECONDS}
@@ -365,8 +385,9 @@ def assess_issuer_event(symbol, item, candidates=(), *, request=None, _retention
         return result
     authority = temporal_authority(item, request)
     if _retention_attribution:
+        from src.news.evidence_store import original_publication_binding
         if (timestamp is None or age is None or age < 0 or not original_publication_verified(item, timestamp)
-                or retained_veto(item)):
+                or retained_veto(item) or original_publication_binding(item).get("original_conflict")):
             result['reason'] = 'retention_original_fact_unverified_or_veto'
             return result
     elif authority is None:
