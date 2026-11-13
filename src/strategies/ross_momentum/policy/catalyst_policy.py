@@ -246,7 +246,7 @@ def assess_issuer_event(symbol, item, candidates=()):
     A supplied research/legacy classification is never qualification authority.
     Existing event vocabulary is unchanged. Unknown syntax fails closed.
     """
-    from src.news.news_fetcher import company_aliases_for_symbol, symbol_relevance_match, _compile_symbol_patterns
+    from src.news.news_fetcher import company_aliases_for_symbol, symbol_relevance_match, _compile_symbol_patterns, _LEGAL_SUFFIXES
     title = str(getattr(item, 'headline', getattr(item, 'title', '')) or '')
     candidate = next((c for c in candidates if c.normalized_symbol == symbol), None)
     metadata = dict(candidate.metadata) if candidate else {}
@@ -285,7 +285,7 @@ def assess_issuer_event(symbol, item, candidates=()):
     if re.search(r'\b(prediction|preview|could|might|may|rumou?r|watchlist|speculat\w*)\b|\?', title, re.I):
         result['reason'] = 'event_assertion_uncertain'
         return result
-    aliases = company_aliases_for_symbol(symbol, metadata)
+    aliases = company_aliases_for_symbol(symbol, metadata, include_legal_name=True)
     if kind == LISTING_COMPLIANCE_EVENT:
         # Consume the complete supplied legal identity (including suffixes), not
         # an inferred one-word brand or a peer named later in the headline.
@@ -299,6 +299,26 @@ def assess_issuer_event(symbol, item, candidates=()):
             match = re.match(r'[^A-Z0-9]*' + r'[^A-Z0-9]+'.join(map(re.escape, words)) + r'(?![A-Z0-9])', text.upper())
             if match:
                 end = max(end or 0, match.end())
+        return end
+    def subject_end(text):
+        end = identity_end(text)
+        # A display-name abbreviation is not an alias. Require the immediately
+        # attached, exact security token AND a specific prefix of the supplied
+        # candidate legal name, omitting only corporate/display-class suffixes.
+        labelled = re.match(r'([A-Za-z0-9][A-Za-z0-9 .,&-]*?)\s+\(\$?' + re.escape(symbol) + r'\)', text, re.I)
+        if labelled:
+            displayed = re.findall(r'[A-Z0-9]+', labelled.group(1).upper())
+            authority = candidate.company_name if candidate else metadata.get('company_name')
+            supplied = re.findall(r'[A-Z0-9]+', str(authority or '').upper())
+            omitted = supplied[len(displayed):]
+            corporate_tail = omitted[:-1] if omitted and re.fullmatch(r'I{1,3}|IV|V', omitted[-1]) else omitted
+            specific = [word for word in displayed if word not in _LEGAL_SUFFIXES | {'THE', 'A', 'AN'}]
+            exact = displayed == supplied and len(specific) >= 2
+            bounded = (len(displayed) >= 3 and len(specific) >= 2
+                       and supplied[:len(displayed)] == displayed
+                       and bool(corporate_tail) and all(word in _LEGAL_SUFFIXES for word in corporate_tail))
+            if exact or bounded:
+                end = max(end or 0, labelled.end())
         return end
     if kind == LISTING_COMPLIANCE_EVENT:
         if not _listing_provenance_verified(item, timestamp):
@@ -322,7 +342,7 @@ def assess_issuer_event(symbol, item, candidates=()):
     # A leading verified issuer may itself be AS (or contain a boundary word).
     # Protect only that identity span; later clauses still cannot inherit it.
     title = title.strip()
-    protected_end = identity_end(title) or 0
+    protected_end = subject_end(title) or 0
     boundaries = [m for m in re.finditer(r';|\s+[—–]\s+|\b(?:while|whereas|versus|alongside|after|but|as)\b', title, re.I)
                   if m.start() >= protected_end]
     clauses = []
@@ -333,10 +353,10 @@ def assess_issuer_event(symbol, item, candidates=()):
     clauses.append(title[start:])
     for clause in clauses:
         clause = clause.strip()
-        subject_end = identity_end(clause)
-        if subject_end is None:
+        subject_span_end = subject_end(clause)
+        if subject_span_end is None:
             continue
-        remainder = clause[subject_end:]
+        remainder = clause[subject_span_end:]
         # Identity words (e.g. AI Group) cannot supply the asserted event.
         # Classify only the text outside the verified issuer identity span.
         clause_kind = classify_headline(remainder)

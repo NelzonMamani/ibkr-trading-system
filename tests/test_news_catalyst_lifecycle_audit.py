@@ -46,7 +46,9 @@ def lifecycle(monkeypatch, tmp_path):
         def get_news(self, candidates, request, policy):
             self.calls += 1
             return NewsBatchResult(candidates=tuple(candidates), request=request,
-                evidence_by_symbol={'JPM':() if self.failure else self.articles},
+                evidence_by_symbol={candidate.normalized_symbol: () if self.failure else tuple(
+                    item for item in self.articles if item.symbol == candidate.normalized_symbol)
+                    for candidate in candidates},
                 diagnostics=RetrievalDiagnostics(retrieval_status='provider_error' if self.failure else 'available',
                     provider_status='provider_request_failure' if self.failure else 'available',
                     provider_available=not self.failure), completed_at=Clock.now(timezone.utc))

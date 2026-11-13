@@ -236,7 +236,7 @@ def _metadata_values(value: Any) -> list[Any]:
     return [value]
 
 
-def company_aliases_for_symbol(symbol: str, metadata: Any = None) -> tuple[str, ...]:
+def company_aliases_for_symbol(symbol: str, metadata: Any = None, *, include_legal_name: bool = False) -> tuple[str, ...]:
     normalized_symbol = str(symbol or "").strip().upper()
     aliases: list[str] = []
     for value in _metadata_values(metadata):
@@ -250,6 +250,12 @@ def company_aliases_for_symbol(symbol: str, metadata: Any = None) -> tuple[str, 
         alias = _company_alias_from_words(words, normalized_symbol)
         if alias and alias not in aliases:
             aliases.append(alias)
+        # Subject attribution must consume an actually supplied legal suffix,
+        # rather than leave it in the event assertion. The same specificity
+        # check still governs admission; this does not invent a shorter alias.
+        legal_name = " ".join(words)
+        if include_legal_name and alias and legal_name not in aliases:
+            aliases.append(legal_name)
     return tuple(aliases)
 
 
