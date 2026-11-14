@@ -113,7 +113,7 @@ receive a bound, inspectable source fact; absence/conflict means veto.
 
 | Canonical requirement | Existing evidence / owner and remaining dependency |
 | --- | --- |
-| C_TIME_OF_DAY_ALLOWED, C_SESSION_PHASE_ALLOWED | P02 ActivationSpec 30..360 minutes plus actual covered RTH boundaries. session_pct_change.covered_opening_window validates finite provenance/configuration but deliberately rejects post-minute30; extract a general covered-RTH primitive from its validator while preserving the existing opening-only wrapper. Do not call the opening validator with a forged earlier assessment time. |
+| C_TIME_OF_DAY_ALLOWED, C_SESSION_PHASE_ALLOWED | P02 ActivationSpec 30..360 minutes plus actual covered RTH boundaries. The proposed first bridge is restricted to the existing session_pct_change.covered_opening_window: RTH_OPEN extends from09:30 until10:30 New York (minute60). The proposed thirty-minute OR plus a completed five-minute hold can therefore qualify from10:05 until10:30, subject to actual receipt coverage and all other gates. No calendar extraction is needed for that bounded interval. Later-session enrollment would need a separately reviewed general-RTH coverage owner. Do not call the opening validator with a forged earlier assessment time. |
 | C_HALT_STATE_ALLOWED, C_SSR_STATE_ALLOWED | CandidateMetrics halted/ssr with known boolean source facts; stock_selection_spec.allow_halts=False / allow_ssr=True. Unknown halt/SSR provenance cannot become false by default; no halt-resumption enrollment. |
 | C_DATA_QUALITY_OK, K_DATA_QUALITY_CONFIRM | Existing candidate quality/resolution flags, completed HistoricalDataResult, matching qualified CandidateIdentity and real quote snapshot. No cached positive flags or externally supplied detected setup. |
 | C_REFERENCE_PRICE_VALID | Existing reference_resolved, reference_quality_tier and prior-completed-session reference provenance, bound to the same security; missing/nonpositive/nonfinite reference vetoes. |
@@ -137,8 +137,9 @@ Exact next policy decision: define P02 ATR measurement (true-range/ATR formula,
 completed timeframe and lookback), units and finite admissible bounds, with
 source/evidence rationale independent of the desired positive fixture. This is
 not another permission to flip activation and cannot be resolved by renaming the
-existing return-volatility gate. Calendar/context/cooldown read guarantees and
-complete C/K mapping must also be implemented and reviewed before admission.
+existing return-volatility gate. Completed-context, existing covered-opening-window binding and cooldown read
+guarantees, plus complete C/K mapping, must also be implemented and reviewed
+before admission.
 Until then this document remains DRAFT/not adopted; native P02 PAPER admission
 and a claimed positive Core accounting proof remain blocked.
 
