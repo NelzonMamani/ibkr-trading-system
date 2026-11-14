@@ -646,3 +646,110 @@ def test_reference_discard_of_missing_cache_preserves_no_publication_default(tmp
     cache=PersistentReferenceCache(path)
     cache.discard(('missing',))
     assert not path.exists() and not path.parent.exists()
+
+
+@pytest.mark.parametrize('size,what,fmt,streaming,semantics', [
+    ('1 min','TRADES',2,False,'UTC_BAR_START'),
+    ('1 min','MIDPOINT',2,False,'UTC_BAR_START'),
+    ('1 min','TRADES',1,False,None),
+    ('custom','TRADES',2,False,None),
+    ('1 day','TRADES',1,False,None),
+    ('1 min','TRADES',2,True,'UTC_BAR_START'),
+])
+def test_actual_native_request_metadata_is_wire_owned_and_detached(owner, monkeypatch,
+        size,what,fmt,streaming,semantics):
+    con=contract();wire=[]
+    def send(self,req,actual,end,duration,bar_size,feed,rth,format_date,keep,options):
+        wire.append((req,end,duration,bar_size,feed,rth,format_date,keep,options))
+        self.historicalData(req,NS(date=1794578400,open=10.,high=11.,low=9.,close=10.,volume=100))
+        self.historicalDataEnd(req,'raw-start','raw-end')
+    monkeypatch.setattr(EClient,'reqHistoricalData',send)
+    result=owner.client.reqHistoricalData(con,endDateTime='',durationStr='1800 S',
+        barSizeSetting=size,whatToShow=what,useRTH=False,formatDate=fmt,keepUpToDate=streaming)
+    assert result.completed and result.contract_identity.con_id==123
+    spec=result.request_spec
+    assert (spec.end_date_time,spec.duration_str,spec.bar_size_setting,spec.what_to_show,
+        spec.use_rth,spec.format_date,spec.keep_up_to_date)==wire[0][1:8]
+    assert spec.timestamp_semantics==semantics and spec.chart_options_empty
+    assert datetime.fromisoformat(result.request_dispatched_at_utc)<=datetime.fromisoformat(result.completed_at_utc)
+    assert (result.callback_start,result.callback_end)==('raw-start','raw-end')
+    con.conId=456;con.symbol='FOREIGN'
+    assert result.contract_identity.con_id==123 and result.contract_identity.symbol=='SYNTH'
+    from dataclasses import FrozenInstanceError
+    with pytest.raises(FrozenInstanceError):spec.bar_size_setting='1 min'
+
+
+def test_actual_metadata_survives_attempt_reuse_and_conflicting_cache_refuses(chain,monkeypatch):
+    from dataclasses import replace
+    x=chain;calls=[]
+    def send(self,req,*args):
+        calls.append(req);self.historicalDataEnd(req,'source-start','source-end')
+    monkeypatch.setattr(EClient,'reqHistoricalData',send)
+    with historical_enrichment_attempt() as scope:
+        first=x.md.daily_bars_from_history(contract(),use_rth=False)
+        reused=x.md.daily_bars_from_history(contract(),use_rth=False)
+        assert reused.reused and len(calls)==1
+        assert reused.request_spec==first.request_spec and reused.contract_identity==first.contract_identity
+        assert reused.request_dispatched_at_utc==first.request_dispatched_at_utc
+        assert reused.completed_at_utc==first.completed_at_utc
+        key=next(iter(scope))
+        scope[key]=replace(first,request_spec=replace(first.request_spec,what_to_show='MIDPOINT'))
+        conflict=x.md.daily_bars_from_history(contract(),use_rth=False)
+        assert conflict.status=='REQUEST_SPEC_CONFLICT' and not conflict.completed and len(calls)==1
+        assert conflict.request_spec.what_to_show=='MIDPOINT'  # Never replace the conflicting witness.
+        scope[key]=replace(first,contract_identity=replace(first.contract_identity,con_id=456))
+        assert x.md.daily_bars_from_history(contract(),use_rth=False).status=='CONTRACT_IDENTITY_CONFLICT'
+
+
+@pytest.mark.parametrize('outcome',['timeout','error'])
+def test_native_unfinished_request_preserves_dispatch_without_fabricated_end(owner,monkeypatch,outcome):
+    def send(self,req,*args):
+        if outcome=='error':self.error(req,162,'Synthetic failure')
+    monkeypatch.setattr(EClient,'reqHistoricalData',send)
+    result=owner.client.reqHistoricalData(contract(),barSizeSetting='1 min',formatDate=2)
+    assert result.status==outcome.upper() and not result.completed
+    assert result.request_spec.bar_size_setting=='1 min' and result.request_dispatched_at_utc
+    assert result.completed_at_utc is None and result.callback_start is None and result.callback_end is None
+
+
+def test_insync_metadata_binds_effective_wire_end_and_synchronous_callback(monkeypatch):
+    from ib_insync import IB, util, BarData
+    async def run():
+        ib=IB();monkeypatch.setattr(ib.client,'getReqId',lambda:902)
+        wire=[];con=contract()
+        end=datetime(2026,11,13,15,5,tzinfo=timezone.utc)
+        def send(req,actual,wire_end,duration,size,what,rth,fmt,stream,options):
+            wire.append((wire_end,duration,size,what,rth,fmt,stream,options))
+            ib.wrapper.historicalData(req,BarData(date='1794578400',open=10.,high=11.,low=9.,close=10.,volume=100))
+            ib.wrapper.historicalDataEnd(req,'raw-async-start','raw-async-end')
+        monkeypatch.setattr(ib.client,'reqHistoricalData',send)
+        monkeypatch.setattr(ib.client,'cancelHistoricalData',lambda req:pytest.fail('Completed request cancellation'))
+        md=MarketDataClient(connection_manager=NS(),allow_direct_connection=False)
+        result=await md._cancellable_insync_history(ib,con,endDateTime=end,durationStr='1800 S',
+            barSizeSetting='1 min',whatToShow='TRADES',useRTH=False,formatDate=2)
+        assert result.status=='COMPLETE_BARS' and result.contract_identity==CandidateIdentity.from_contract(con)
+        assert isinstance(result[0].date,datetime) and result[0].date.utcoffset().total_seconds()==0
+        assert result.raw_bar_timestamps==(result[0].date,) and result.source_bar_count==1
+        assert result.request_spec.end_date_time==wire[0][0]==util.formatIBDatetime(end)
+        assert result.request_spec.timestamp_semantics=='UTC_BAR_START'
+        assert datetime.fromisoformat(result.request_dispatched_at_utc)<=datetime.fromisoformat(result.completed_at_utc)
+        assert (result.callback_start,result.callback_end)==('raw-async-start','raw-async-end')
+        con.conId=456
+        assert result.contract_identity.con_id==123
+    asyncio.run(run())
+
+
+def test_cached_mutable_sdk_bar_cannot_replace_original_completion_facts(chain,monkeypatch):
+    x=chain;calls=[]
+    def send(self,req,*args):
+        calls.append(req)
+        self.historicalData(req,NS(date='20261112',open=10.,high=11.,low=9.,close=10.,volume=100))
+        self.historicalDataEnd(req,'start','end')
+    monkeypatch.setattr(EClient,'reqHistoricalData',send)
+    with historical_enrichment_attempt():
+        first=x.md.daily_bars_from_history(contract(),use_rth=False)
+        assert first.raw_source_bars[0]['close']==10.
+        first[0].close=999.
+        later=x.md.daily_bars_from_history(contract(),use_rth=False)
+        assert later.status=='SOURCE_BAR_CONFLICT' and not later.completed and len(calls)==1
+        assert later.raw_source_bars[0]['close']==10.

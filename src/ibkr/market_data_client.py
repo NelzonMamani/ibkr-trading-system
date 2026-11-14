@@ -40,6 +40,31 @@ if TYPE_CHECKING:
 
 
 @dataclass(frozen=True)
+class HistoricalRequestSpec:
+    """Detached facts from the actual SDK dispatch, never inferred from bars."""
+    end_date_time: str | None
+    duration_str: str | None
+    bar_size_setting: str | None
+    what_to_show: str | None
+    use_rth: int
+    format_date: int
+    keep_up_to_date: bool
+    chart_options_empty: bool
+    timestamp_semantics: str | None = None
+
+
+def historical_request_spec(*, end_date_time, duration_str, bar_size_setting,
+                            what_to_show, use_rth, format_date, keep_up_to_date,
+                            chart_options):
+    """Call only at dispatch with the effective, transmitted arguments."""
+    texts = tuple(value if type(value) is str else None for value in
+                  (end_date_time, duration_str, bar_size_setting, what_to_show))
+    supported = texts[2] in {"10 secs", "1 min", "5 mins"} and format_date == 2
+    return HistoricalRequestSpec(*texts, use_rth, format_date, keep_up_to_date, not bool(chart_options),
+        "UTC_BAR_START" if supported else None)
+
+
+@dataclass(frozen=True)
 class HistoricalDataResult(Sequence):
     """End-confirmed history facts. Incomplete partial bars are never exposed.
 
@@ -56,6 +81,19 @@ class HistoricalDataResult(Sequence):
     reused: bool = False
     # Optional acquisition identity; sequence compatibility never invents it.
     contract_identity: CandidateIdentity | None = None
+    dispatched_contract_identity: CandidateIdentity | None = None
+    request_spec: HistoricalRequestSpec | None = None
+    request_dispatched_at_utc: str | None = None
+    completed_at_utc: str | None = None
+    callback_start: str | None = None
+    callback_end: str | None = None
+    raw_bar_timestamps: tuple = ()
+    source_bar_count: int | None = None
+    raw_source_bars: tuple | None = None
+    normalization_source_bars: tuple | None = None
+    normalization_selected_count: int | None = None
+    normalization_rejected_count: int | None = None
+    normalized_raw_bar_timestamps: tuple = ()
 
     def __post_init__(self):
         if self.status in {"COMPLETE_BARS", "COMPLETE_EMPTY"} and not self.end_received:
@@ -104,6 +142,27 @@ def historical_result(value):
     if isinstance(value, HistoricalDataResult):
         return value
     return HistoricalDataResult("UNVERIFIED")
+
+
+def historical_binding_result(result, contract, expected_spec):
+    """Check an existing witness; missing metadata is never manufactured here."""
+    from src.market_data.candidate_identity import CandidateIdentity
+    actual = CandidateIdentity.from_contract(contract)
+    if any(identity is not None and identity != actual for identity in
+           (result.contract_identity, result.dispatched_contract_identity)):
+        return replace(result, status="CONTRACT_IDENTITY_CONFLICT")
+    if result.request_spec is not None and result.request_spec != expected_spec:
+        return replace(result, status="REQUEST_SPEC_CONFLICT")
+    if (result.normalization_selected_count is None and result.raw_source_bars is not None
+            and result.completed and historical_bar_facts(result.bars) != result.raw_source_bars):
+        return replace(result, status="SOURCE_BAR_CONFLICT")
+    return result
+
+
+def historical_bar_facts(bars):
+    """Detached callback input values; mutable SDK bar objects are not a fence."""
+    return tuple({key: copy.deepcopy(getattr(bar, key, None)) for key in
+                  ("date", "open", "high", "low", "close", "volume")} for bar in bars)
 
 
 def _market_data_type_code(market_data_type: str) -> int:
@@ -1069,16 +1128,24 @@ class MarketDataClient:
                 return HistoricalDataResult("DISCONNECTED")
             if callable(getattr(client, "isConnected", None)) and not client.isConnected():
                 return HistoricalDataResult("DISCONNECTED")
+            wire_end = params["endDateTime"]
+            if callable(getattr(client, "reqHistoricalDataAsync", None)):
+                from ib_insync import util
+                wire_end = util.formatIBDatetime(wire_end)
+            expected_spec = historical_request_spec(end_date_time=wire_end,
+                duration_str=params["durationStr"], bar_size_setting=params["barSizeSetting"],
+                what_to_show=params["whatToShow"], use_rth=int(bool(params["useRTH"])),
+                format_date=int(params["formatDate"]), keep_up_to_date=False, chart_options=[])
             key = (id(self), id(client), getattr(client, "_position_connection_epoch", None),
                    contract_key(contract), tuple(sorted(params.items())), False, ())
             with cache.lock:
                 if cache.closed:
                     return HistoricalDataResult("ATTEMPT_CLOSED")
                 if key in cache:
-                    value = cache[key]
+                    value = historical_binding_result(cache[key], contract, expected_spec)
                     conflict = getattr(client, "_request_id_conflicted", None)
                     if value.request_id is not None and callable(conflict) and conflict(value.request_id):
-                        value = HistoricalDataResult("REQUEST_ID_CONFLICT", request_id=value.request_id)
+                        value = replace(value, status="REQUEST_ID_CONFLICT")
                         cache[key] = value
                     result = replace(value, reused=True)
                     print(f"[IBKR][HIST_REUSE] outcome={result.status} req_id={result.request_id}")
@@ -1093,7 +1160,7 @@ class MarketDataClient:
                     result = self._run_async(cooperative_await(self._cancellable_insync_history(client, contract, **params)))
                 else:
                     result = client.reqHistoricalData(contract, **params)
-                result = historical_result(result)
+                result = historical_binding_result(historical_result(result), contract, expected_spec)
             except (AcquisitionCancelled, AcquisitionDeadlineExceeded) as exc:
                 with cache.lock:
                     if not cache.closed:
@@ -1142,7 +1209,10 @@ class MarketDataClient:
             def ended(request_id, *args):
                 owner = tracker["owners"].get(request_id)
                 if owner is not None and owner["status"] == "PENDING" and time.monotonic() <= owner["deadline"]:
-                    owner.update(status="COMPLETE", end_received=True)
+                    owner.update(status="COMPLETE", end_received=True,
+                        completed_at_utc=datetime.now(timezone.utc).isoformat(),
+                        callback_start=args[0] if args else None,
+                        callback_end=args[1] if len(args) > 1 else None)
                 return original_end(request_id, *args)
             def errored(request_id, error_code, *args, **kwargs):
                 owner = tracker["owners"].get(request_id)
@@ -1192,6 +1262,7 @@ class MarketDataClient:
                  "deadline": time.monotonic() + 60}
         future = None
         sent = False
+        spec = identity = None
         epoch = getattr(ib.client, "_startTime", None)
         if req_id in getattr(ib.wrapper, "_futures", {}):
             return HistoricalDataResult("REQUEST_ID_CONFLICT", request_id=req_id)
@@ -1201,9 +1272,17 @@ class MarketDataClient:
             try:
                 future = ib.wrapper.startReq(req_id, contract, container=bars)
                 checkpoint()
+                from src.market_data.candidate_identity import CandidateIdentity
+                wire_end = util.formatIBDatetime(params["endDateTime"])
+                spec = historical_request_spec(end_date_time=wire_end,
+                    duration_str=params["durationStr"], bar_size_setting=params["barSizeSetting"],
+                    what_to_show=params["whatToShow"], use_rth=int(bool(params["useRTH"])),
+                    format_date=int(params["formatDate"]), keep_up_to_date=False, chart_options=[])
+                identity = CandidateIdentity.from_contract(contract)
+                state["request_dispatched_at_utc"] = datetime.now(timezone.utc).isoformat()
                 sent = True
                 ib.client.reqHistoricalData(
-                    req_id, contract, util.formatIBDatetime(params["endDateTime"]),
+                    req_id, contract, wire_end,
                     params["durationStr"], params["barSizeSetting"], params["whatToShow"],
                     params["useRTH"], params["formatDate"], False, [])
                 await asyncio.wait_for(future, 60)
@@ -1249,7 +1328,14 @@ class MarketDataClient:
                     except Exception as exc:
                         print(f"[IBKR][HIST_CANCEL_ERROR] req_id={req_id} error_type={type(exc).__name__}")
         return HistoricalDataResult(state["status"], tuple(bars), state["end_received"],
-                                    req_id, state["error_code"], len(bars) if not state["end_received"] else 0)
+            req_id, state["error_code"], len(bars) if not state["end_received"] else 0,
+            contract_identity=identity if sent else None, dispatched_contract_identity=identity if sent else None,
+            request_spec=spec if sent else None,
+            request_dispatched_at_utc=state.get("request_dispatched_at_utc"),
+            completed_at_utc=state.get("completed_at_utc"),
+            callback_start=state.get("callback_start"), callback_end=state.get("callback_end"),
+            raw_bar_timestamps=tuple(getattr(bar, "date", None) for bar in bars),
+            source_bar_count=len(bars), raw_source_bars=historical_bar_facts(bars))
 
     def prev_close_from_history(self, symbol: str, use_rth: bool = True) -> Optional[float]:
         try:

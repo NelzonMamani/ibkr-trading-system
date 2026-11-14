@@ -109,3 +109,21 @@ def decide_intent(
         signal_intent=SignalIntent.NO_TRADE,
         reasons=[],
     )
+
+
+def decide_completed_intent(context, policy, *, assessed_at, in_position=False):
+    """Consume completed component facts; never construct an executable intent.
+
+    Activation and native signal thresholds remain unchanged. A signal-component
+    ENTER_LONG is not SF/XL/ATR/risk permission or a native Core entry contract.
+    """
+    from .features import CompletedSignalContext, CompletedContextError
+    if not isinstance(context, CompletedSignalContext):
+        return DecisionIntent(allow_state=AllowState.DISALLOW, signal_intent=SignalIntent.NO_TRADE,
+            reasons=[ReasonCode.DATA_QUALITY_FAIL.value], metadata={"context_rejection": "CONTEXT_TYPE_UNKNOWN"})
+    try:
+        values = context.revalidated(assessed_at=assessed_at)
+    except (CompletedContextError, TypeError, ValueError, KeyError, OverflowError, AttributeError) as exc:
+        return DecisionIntent(allow_state=AllowState.DISALLOW, signal_intent=SignalIntent.NO_TRADE,
+            reasons=[ReasonCode.DATA_QUALITY_FAIL.value], metadata={"context_rejection": str(exc)})
+    return decide_intent(values, policy, in_position=in_position)
