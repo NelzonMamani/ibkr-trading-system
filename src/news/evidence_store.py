@@ -70,11 +70,176 @@ def evidence_max_entries(request: NewsRequest | None = None) -> int:
 
 def retained_evidence(evidence, request):
     selector = request.metadata.get("retention_selector") if request is not None else None
+    if callable(selector) and request.metadata.get("protected_retention_contract"):
+        # Select/coalesce original versions BEFORE legacy newest-first dedup.
+        selected = [refresh_evidence_age(item, request=request) for item in selector(list(evidence), request)]
+        return list(enrich_evidence_metrics(selected, now_ts=datetime.now(timezone.utc).timestamp()))
     unique = dedupe_evidence(enrich_evidence_metrics(evidence, now_ts=datetime.now(timezone.utc).timestamp()),
         max_items=max(1, len(evidence)))
+    if any(original_publication_binding(item) for item in unique):
+        unique = [refresh_evidence_age(item, request=request) for item in unique]
     if callable(selector):
         return selector(unique, request)
     return unique[:evidence_max_entries(request)]
+
+
+def original_publication_binding(item):
+    raw = dict(getattr(item, "raw", {}) or {})
+    times = getattr(item, "timestamp_provenance", None) or raw.get("timestamp_provenance", {})
+    value = raw.get("original_publication_binding") or (times.get("original_publication_binding") if isinstance(times, Mapping) else None)
+    return value if (isinstance(value, Mapping) and value.get("schema") == "news.original_publication.v1"
+                    and isinstance(value.get("contract"), str) and value["contract"]
+                    and value.get("role") in {"base", "veto_version"}) else {}
+
+
+def auxiliary_veto_version(item):
+    return original_publication_binding(item).get("role") == "veto_version"
+
+
+def mark_original_established(item, established):
+    binding = original_publication_binding(item)
+    if not binding or auxiliary_veto_version(item):
+        return item
+    return replace(item, raw={**dict(item.raw or {}), "original_publication_binding": {
+        **binding, "established": established}})
+
+
+def publication_facts(evidence):
+    """An auxiliary veto version is retained evidence, not another publication."""
+    return [item for item in evidence if not auxiliary_veto_version(item)]
+
+
+def publication_stamp(item):
+    value = getattr(item, "published_at", None)
+    if value is not None:
+        return value.timestamp() if value.tzinfo is not None else None
+    return getattr(item, "published_ts", None)
+
+
+def fact_version_key(item):
+    return (str(getattr(item, "symbol", "")).strip().upper(), str(getattr(item, "evidence_id", "")),
+            str(getattr(item, "url", "")), str(getattr(item, "headline", getattr(item, "title", ""))),
+            str(publication_stamp(item)), str(original_publication_binding(item).get("role", "base")))
+
+
+def coalesce_original_publications(items, *, veto_predicate, contract):
+    """Bounded input identity union; retain original base and actual veto version.
+
+    Source facts survive unchanged except conservative canonical-time anchoring;
+    the observed version timestamp remains in the derived/raw binding.
+    """
+    items = list(items)
+    parents = list(range(len(items)))
+    def root(index):
+        while parents[index] != index:
+            parents[index] = parents[parents[index]]
+            index = parents[index]
+        return index
+    seen = {}
+    for index, item in enumerate(items):
+        symbol = str(getattr(item, "symbol", "")).strip().upper()
+        keys = [(symbol, kind, str(value).strip()) for kind, value in (
+            ("id", getattr(item, "evidence_id", None)), ("url", getattr(item, "url", None))) if value]
+        if not keys:
+            keys = [(symbol, "fact", repr(fact_version_key(item)))]
+        for key in keys:
+            if key in seen:
+                parents[root(index)] = root(seen[key])
+            seen[key] = index
+    groups = {}
+    for index, item in enumerate(items):
+        groups.setdefault(root(index), []).append(item)
+    def order(item):
+        stamp = publication_stamp(item)
+        return (stamp if stamp is not None else float("-inf"),
+                json.dumps(asdict(item), sort_keys=True, default=str))
+    def bind(item, base, role, conflict):
+        stamp = publication_stamp(base)
+        previous = original_publication_binding(item)
+        binding = {"schema": "news.original_publication.v1", "contract": contract, "role": role,
+                   "anchor": list(fact_version_key(base)[:5]), "original_published_ts": stamp,
+                   "observed_published_ts": previous.get("observed_published_ts", publication_stamp(item)),
+                   "established": bool(original_publication_binding(base).get("established")),
+                   "original_conflict": conflict}
+        if isinstance(item, NewsEvidence):
+            value = replace(item, published_at=datetime.fromtimestamp(stamp, timezone.utc) if stamp is not None else None,
+                            raw={**dict(item.raw or {}), "original_publication_binding": binding})
+            if publication_stamp(item) != stamp:
+                age = (datetime.now(timezone.utc).timestamp() - stamp) if stamp is not None else None
+                return replace(value, age_seconds=age, stale=None)
+            return value
+        return replace(item, published_ts=stamp, timestamp_provenance={
+            **dict(getattr(item, "timestamp_provenance", {}) or {}), "original_publication_binding": binding})
+    output = []
+    for group in groups.values():
+        bases = publication_facts(group)
+        if not bases:
+            # Never turn an orphaned auxiliary veto into a positive base.
+            output.extend(sorted(group, key=order)[:1])
+            continue
+        earliest = min(bases, key=order)
+        tied = [item for item in bases if publication_stamp(item) == publication_stamp(earliest)]
+        known = [item for item in tied if original_publication_binding(item).get("established") is True]
+        original_choices = known or tied
+        base = min(original_choices, key=order)
+        contents = {" ".join(str(getattr(item, "headline", getattr(item, "title", ""))).split()).casefold()
+                    for item in original_choices}
+        conflict = (len(contents) > 1 or any(original_publication_binding(item).get("original_conflict")
+                                           for item in original_choices))
+        output.append(bind(base, base, "base", conflict))
+        vetoes = [item for item in group if veto_predicate(item)]
+        if vetoes and not veto_predicate(base):
+            output.append(bind(min(vetoes, key=order), base, "veto_version", conflict))
+    return sorted(output, key=lambda item: (publication_stamp(item) or float("-inf"), fact_version_key(item)), reverse=True)
+
+
+def protected_data_request(request, marker, *, for_write=False, marker_present=False):
+    """Existing canonical bucket protection grants no consumer eligibility."""
+    if not marker_present and marker is None and not (request and request.metadata.get("protected_retention_contract")):
+        return request
+    from src.strategies.ross_momentum.policy.catalyst_policy import (
+        NEXT_SESSION_CONTRACT, PROTECTED_WITNESS_SLOTS, ROSS_ISSUER_EVENT_PROFILE, next_session_request_metadata,
+        protected_ross_request, select_qualification_evidence)
+    if protected_ross_request(request):
+        return request
+    if not for_write and (not request or request.strategy_id != "ross_momentum" or request.query_start_utc is not None):
+        return request
+    limit = marker.get("presentation_limit") if isinstance(marker, Mapping) else None
+    if (not isinstance(marker, Mapping) or marker.get("contract") != NEXT_SESSION_CONTRACT
+            or type(limit) is not int or limit < 1):
+        if for_write:
+            return request  # The canonical writer separately refuses unsupported state.
+        # Unsupported retained state cannot certify veto absence via the old
+        # age-limited selector. Read known facts conservatively with today's
+        # bounded data selector; this never changes the actual consumer request.
+        limit = request.metadata.get("presentation_limit", evidence_max_entries(request))
+        if type(limit) is not int or limit < 1:
+            limit = evidence_max_entries(request)
+    if request and request.strategy_id == "ross_momentum" and request.query_start_utc is None:
+        limit = int(request.metadata.get("presentation_limit", limit))
+    metadata = {"qualification_profile": ROSS_ISSUER_EVENT_PROFILE, "presentation_limit": limit,
+                "retention_selector": select_qualification_evidence, **next_session_request_metadata(),
+                "protected_retention_contract": NEXT_SESSION_CONTRACT}
+    if request and request.strategy_id == "ross_momentum" and request.query_start_utc is None:
+        # This is a data-selection request only. Preserve the caller's original
+        # request separately at service/eligibility boundaries; it cannot alter
+        # the protected bucket's selector/profile or clear its witnesses.
+        metadata = {**request.metadata, **metadata}
+        return replace(request, max_evidence_per_symbol=limit + PROTECTED_WITNESS_SLOTS, metadata=metadata)
+    return NewsRequest(strategy_id="ross_momentum", max_evidence_per_symbol=limit + PROTECTED_WITNESS_SLOTS, metadata=metadata)
+
+
+def issuer_accepted_evidence(symbol, items, candidates=()):
+    result = NewsBatchResult(candidates=tuple(candidates))
+    return [item for item in items if item.normalized_symbol == normalize_symbol(symbol)
+            and evidence_issuer_relevance_verified(symbol, item, result)]
+
+
+def canonical_original_facts(items, contract, *, symbol, candidates=()):
+    """Only canonical-owned retained facts establish original precedence."""
+    from src.strategies.ross_momentum.policy.catalyst_policy import retained_veto
+    return [mark_original_established(item, True) for item in coalesce_original_publications(
+        issuer_accepted_evidence(symbol, items, candidates), veto_predicate=retained_veto, contract=contract)]
 
 
 def evidence_cache_path() -> Path:
@@ -147,6 +312,12 @@ class CanonicalNewsEvidenceStore:
             symbol = candidate.normalized_symbol
             if not symbol:
                 continue
+            bucket = buckets.get(symbol) or {}
+            marker_present = "ross_retention_contract" in bucket
+            marker = bucket.get("ross_retention_contract")
+            if marker_present:
+                diagnostics.setdefault("ross_retention_contract_by_symbol", {})[symbol] = marker
+            effective_request = protected_data_request(request, marker, marker_present=marker_present)
             evidence: list[NewsEvidence] = []
             for row in list(cache_rows.get(symbol, ())) + list(legacy_rows.get(symbol, ())):
                 parsed = evidence_from_mapping(row, request=request, now=now)
@@ -154,6 +325,15 @@ class CanonicalNewsEvidenceStore:
                     evidence.append(parsed)
             if symbol in legacy_rows:
                 diagnostics["legacy_news_cache_symbols"].append(symbol)
+            if marker_present or (effective_request and effective_request.metadata.get("protected_retention_contract")):
+                from src.strategies.ross_momentum.policy.catalyst_policy import NEXT_SESSION_CONTRACT, retained_veto, protected_ross_request
+                if protected_ross_request(effective_request) or isinstance(marker, Mapping) and marker.get("contract") == NEXT_SESSION_CONTRACT:
+                    # Cache-origin facts precede fresh/prep claims. Establish
+                    # their data origin before merging any external overlay.
+                    checked = issuer_accepted_evidence(symbol, evidence, (candidate,))
+                    if len(checked) != len(evidence):
+                        diagnostics.setdefault("issuer_relevance_rejected_by_symbol", {})[symbol] = len(evidence) - len(checked)
+                    evidence = canonical_original_facts(checked, NEXT_SESSION_CONTRACT, symbol=symbol, candidates=(candidate,))
             if symbol in prep_rows:
                 prep_evidence = evidence_from_prep_entry(
                     prep_rows[symbol],
@@ -172,7 +352,8 @@ class CanonicalNewsEvidenceStore:
                 symbol, item, NewsBatchResult(candidates=(candidate,))
             )]
             if len(accepted) != len(in_window):
-                diagnostics.setdefault("issuer_relevance_rejected_by_symbol", {})[symbol] = len(in_window) - len(accepted)
+                rejected_counts = diagnostics.setdefault("issuer_relevance_rejected_by_symbol", {})
+                rejected_counts[symbol] = rejected_counts.get(symbol, 0) + len(in_window) - len(accepted)
                 # Old cohort metrics may include rejected articles; recompute from facts.
                 accepted = list(enrich_evidence_metrics(tuple(replace(
                     item, velocity_5m=None, velocity_10m=None, velocity_30m=None,
@@ -182,10 +363,10 @@ class CanonicalNewsEvidenceStore:
                 ) for item in accepted), now_ts=now.timestamp()))
             accepted = list(enrich_evidence_metrics(accepted, now_ts=now.timestamp()))
             deduped = (dedupe_evidence(accepted, max_items=len(accepted) or 1)
-                       if request and request.metadata.get("read_retained_cohort") else retained_evidence(accepted, request))
+                       if request and request.metadata.get("read_retained_cohort") else retained_evidence(accepted, effective_request))
             evidence_by_symbol[symbol] = tuple(deduped)
-            fresh_count = sum(1 for item in deduped if item.stale is False)
-            stale_count = sum(1 for item in deduped if item.stale is True)
+            fresh_count = sum(1 for item in publication_facts(deduped) if item.stale is False)
+            stale_count = sum(1 for item in publication_facts(deduped) if item.stale is True)
             if fresh_count:
                 diagnostics["cache_hits_by_symbol"][symbol] = fresh_count
                 diagnostics["cache_hit_symbols"].append(symbol)
@@ -275,7 +456,7 @@ class CanonicalNewsEvidenceStore:
                 if (item := evidence_from_mapping(row, request=request, now=now)) is not None
             ]
             incoming = [
-                replace(item, cache_state="hit" if item.cache_state == "not_checked" else item.cache_state)
+                mark_original_established(replace(item, cache_state="hit" if item.cache_state == "not_checked" else item.cache_state), False)
                 for item in evidence
                 if isinstance(item, NewsEvidence)
             ]
@@ -283,8 +464,49 @@ class CanonicalNewsEvidenceStore:
                 existing = [item for item in existing if evidence_in_query_window(item, request, now=now)]
                 incoming = [refresh_evidence_age(item, request=request, now=now) for item in incoming
                             if evidence_in_query_window(item, request, now=now)]
-            merged = retained_evidence(existing + incoming, request)
             previous = symbols_payload.get(symbol) or {}
+            marker = previous.get("ross_retention_contract")
+            if "ross_retention_contract" in previous:
+                from src.strategies.ross_momentum.policy.catalyst_policy import NEXT_SESSION_CONTRACT
+                marker_issuer = marker.get("issuer") if isinstance(marker, Mapping) else None
+                issuer_invalid = isinstance(marker, Mapping) and "issuer" in marker and (
+                    not isinstance(marker_issuer, Mapping)
+                    or set(marker_issuer) != {"symbol", "company_name", "aliases"}
+                    or marker_issuer.get("symbol") != symbol
+                    or (marker_issuer.get("company_name") is not None and not isinstance(marker_issuer["company_name"], str))
+                    or not isinstance(marker_issuer.get("aliases"), list)
+                    or not all(isinstance(alias, str) for alias in marker_issuer.get("aliases", ())))
+                if (not isinstance(marker, Mapping) or marker.get("contract") != NEXT_SESSION_CONTRACT
+                        or type(marker.get("presentation_limit")) is not int or marker["presentation_limit"] < 1
+                        or issuer_invalid):
+                    diagnostics.update(cache_write_failed=True, cache_write_error="protected_retention_marker_invalid")
+                    return diagnostics  # Preserve owned state; never clear an unknown cohort.
+            effective_request = protected_data_request(request, marker)
+            protection_request = protected_data_request(request, marker, for_write=True)
+            protected_selection = False
+            write_candidates = ()
+            if protection_request and protection_request.metadata.get("protected_retention_contract"):
+                from src.strategies.ross_momentum.policy.catalyst_policy import protected_ross_request
+                protected_selection = protected_ross_request(protection_request)
+            if protected_selection:
+                retrieval = (retrieval_by_symbol or {}).get(symbol, {})
+                # Generic acquisition metadata cannot replace the protected
+                # Ross candidate. Retain its identity as data; live consumers
+                # still revalidate against their current accepted candidate.
+                prior_profile = previous.get("last_retrieval", {}).get("acquisition_profile", {})
+                issuer = ((marker.get("issuer") if isinstance(marker, Mapping) else None)
+                          or (retrieval.get("acquisition_profile", {}).get("issuer")
+                              if protected_ross_request(request) else None)
+                          or (prior_profile.get("issuer") if prior_profile.get("request", {}).get("qualification_profile")
+                              in {"ross_issuer_event_v9", "ross_issuer_event_v10_listing_compliance"} else None))
+                if isinstance(issuer, Mapping) and issuer.get("symbol") == symbol:
+                    aliases = issuer.get("aliases", ())
+                    write_candidates = (NewsCandidate(symbol, company_name=issuer.get("company_name"),
+                        aliases=tuple(aliases) if isinstance(aliases, (list, tuple)) else ()),)
+                existing = canonical_original_facts(existing, protection_request.metadata["protected_retention_contract"],
+                    symbol=symbol, candidates=write_candidates)
+                incoming = issuer_accepted_evidence(symbol, incoming, write_candidates)
+            merged = retained_evidence(existing + incoming, effective_request)
             # Consumer-specific research/presentation caps cannot evict an existing
             # Ross qualification cohort. It remains bounded by its original policy.
             ross_rows = previous.get("ross_qualification_evidence", ())
@@ -293,7 +515,20 @@ class CanonicalNewsEvidenceStore:
                 ross_rows = previous.get("evidence", ())
             if request and request.query_start_utc is None and request.strategy_id == "ross_momentum":
                 ross_rows = [serialize_evidence(item) for item in merged]
+                if protected_selection:
+                    marker = {"contract": protection_request.metadata["protected_retention_contract"],
+                              "presentation_limit": int(protection_request.metadata["presentation_limit"])}
             protected = [item for row in ross_rows if (item := evidence_from_mapping(row, now=now)) is not None]
+            if marker:
+                if write_candidates:
+                    marker = {**marker, "issuer": {"symbol": symbol,
+                        "company_name": write_candidates[0].company_name,
+                        "aliases": list(write_candidates[0].aliases)}}
+                protection_request = protected_data_request(request, marker, for_write=True)
+                protected = issuer_accepted_evidence(symbol, protected, write_candidates)
+                protected = list(retained_evidence(protected + existing + incoming, protection_request))
+                protected = [mark_original_established(item, True) for item in protected]
+                ross_rows = [serialize_evidence(item) for item in protected]
             protected = list(enrich_evidence_metrics(protected, now_ts=now.timestamp()))
             if ross_rows:
                 ross_rows = [serialize_evidence(item) for item in protected]
@@ -304,6 +539,8 @@ class CanonicalNewsEvidenceStore:
                       "evidence": [serialize_evidence(item) for item in combined]}
             if ross_rows:
                 bucket["ross_qualification_evidence"] = list(ross_rows)
+            if marker:
+                bucket["ross_retention_contract"] = marker
             retrieval = (retrieval_by_symbol or {}).get(symbol)
             if retrieval is not None:
                 previous_retrieval = previous.get("last_retrieval", {})
@@ -398,7 +635,7 @@ def summarize_news_evidence(
     diagnostics: Mapping[str, Any] | None = None,
 ) -> NewsEvidenceSummary:
     normalized = normalize_symbol(symbol)
-    items = list(retained_evidence(evidence, request))
+    items = publication_facts(retained_evidence(evidence, request))
     fresh_items = [item for item in items if item.stale is False]
     generic_count = sum(1 for item in items if item.is_generic is True)
     qualifying_count = sum(1 for item in items if item.is_qualifying_event_class is True)
@@ -586,6 +823,17 @@ def enrich_evidence_metrics(
     *,
     now_ts: float,
 ) -> tuple[NewsEvidence, ...]:
+    if any(original_publication_binding(item) for item in evidence):
+        evidence = dedupe_evidence(evidence, max_items=len(evidence) or 1)
+        # Protected versions are not independent publications, and old cohort
+        # aggregates cannot survive cap/identity changes as current metrics.
+        evidence = tuple(replace(item, velocity_5m=None, velocity_10m=None,
+            velocity_30m=None, velocity_60m=None, heat_score=None, hotness_score=None,
+            source_credibility_score=None, source_reliability_score=None,
+            independent_source_count=None, publication_count=None) for item in evidence)
+    auxiliary = [item for item in evidence if auxiliary_veto_version(item)]
+    if auxiliary:
+        return (*enrich_evidence_metrics(publication_facts(evidence), now_ts=now_ts), *auxiliary)
     unique = dedupe_evidence(evidence, max_items=len(evidence) or 1)
     if len(unique) != len(evidence):
         # Publisher-label aliases are one article, not independent publications.
@@ -645,6 +893,12 @@ def enrich_evidence_metrics(
 
 
 def dedupe_evidence(evidence: Sequence[NewsEvidence], *, max_items: int) -> list[NewsEvidence]:
+    bound = next((original_publication_binding(item) for item in evidence if original_publication_binding(item)), None)
+    if bound:
+        from src.strategies.ross_momentum.policy.catalyst_policy import retained_veto
+        versions = coalesce_original_publications(evidence, contract=bound["contract"],
+            veto_predicate=lambda item: auxiliary_veto_version(item) or retained_veto(item))
+        return versions[:max(1, int(max_items or 1))]
     seen: set[str] = set()
     seen_articles: set[tuple[str, ...]] = set()
     ordered = sorted(

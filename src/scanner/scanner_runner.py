@@ -2881,6 +2881,8 @@ def _news_config_int(name: str, default: int) -> int:
 def _ross_news_request() -> NewsRequest:
     presentation = max(1, _news_config_int("NEWS_MAX_ENTRIES_PER_SYMBOL", 5))
     enabled = RossPolicy().issuer_query_enabled
+    from src.strategies.ross_momentum.policy.catalyst_policy import next_session_request_metadata, PROTECTED_WITNESS_SLOTS
+    extra = next_session_request_metadata() if enabled else {}
     return NewsRequest(
         strategy_id="ross_momentum",
         lookback_seconds=max(0.0, _news_config_float("NEWS_LOOKBACK_HOURS", 24.0)) * 3600.0,
@@ -2889,9 +2891,9 @@ def _ross_news_request() -> NewsRequest:
         need_heat=True,
         need_velocity=True,
         need_reliability=True,
-        max_evidence_per_symbol=presentation + int(enabled),
+        max_evidence_per_symbol=presentation + (PROTECTED_WITNESS_SLOTS if extra else int(enabled)),
         metadata=({"qualification_profile": ROSS_ISSUER_EVENT_PROFILE, "presentation_limit": presentation,
-                   "retention_selector": select_qualification_evidence, "fallback_resolver": unresolved_issuer_news} if enabled else {}),
+                   "retention_selector": select_qualification_evidence, "fallback_resolver": unresolved_issuer_news, **extra} if enabled else {}),
         audit_reason="ross_readonly_scanner_news",
     )
 
@@ -3293,7 +3295,10 @@ def _ross_news_context_from_evidence(
         )
     )
     presentation_limit = int(result.request.metadata.get("presentation_limit", len(ordered))) if result.request else len(ordered)
-    presentation = ordered[:presentation_limit]
+    from src.news.evidence_store import publication_facts
+    presentation = tuple(publication_facts(ordered)[:presentation_limit])
+    if not presentation:
+        presentation = ordered[:presentation_limit]  # Orphan veto still cannot disappear.
     qualification_split = bool(result.request and result.request.metadata.get("qualification_profile"))
     metrics_filtered = relevance_filtered or qualification_split
     diagnostics = _news_intelligence_diag(result)
@@ -3326,7 +3331,7 @@ def _ross_news_context_from_evidence(
     vel10 = _summary_velocity(velocity_summary, presentation, "velocity_10m", 10 * 60)
     vel30 = _summary_velocity(velocity_summary, presentation, "velocity_30m", 30 * 60)
     vel60 = _summary_velocity(velocity_summary, presentation, "velocity_60m", 60 * 60)
-    attribution = [assess_issuer_event(symbol, item, result.candidates) for item in ordered]
+    attribution = [assess_issuer_event(symbol, item, result.candidates, request=result.request) for item in ordered]
     qualifying_ids = {row["evidence_id"] for row in attribution if row["qualified"]}
     catalyst_type = next((row["catalyst_type"] for row in attribution if row["qualified"]), None)
     dilution_flag = _dilution_from_evidence(ordered)
@@ -3342,7 +3347,7 @@ def _ross_news_context_from_evidence(
     candidate = next((row for row in result.candidates if row.normalized_symbol == symbol), None)
     from src.strategies.ross_momentum.policy.catalyst_lifecycle import evidence_handoff
     handoff = evidence_handoff(symbol, ordered, candidate,
-        acquisition_health=acquisition_health, acquisition_reason=acquisition_reason)
+        acquisition_health=acquisition_health, acquisition_reason=acquisition_reason, request=result.request)
     if ross_catalyst_valid:
         news_status = "catalyst_confirmed"
     elif budget_exhausted:
@@ -3468,7 +3473,7 @@ def _ross_news_contexts_from_news_intelligence_result(
         now_ts = time.time()
         # Integer-second metric reuse must not retain authority across the exact
         # publication/future or inclusive six-hour qualification boundary.
-        time_states = tuple(issuer_event_time_state(item, now_ts=now_ts) for item in evidence)
+        time_states = tuple(issuer_event_time_state(item, now_ts=now_ts, request=result.request) for item in evidence)
         signature = (*signature, int(now_ts), time_states, result.request.metadata.get("qualification_profile") if result.request else None,
                      repr(_ross_operational_acquisition_scope(normalized, summary, result)))
         if cached and cached.get("signature") == signature:

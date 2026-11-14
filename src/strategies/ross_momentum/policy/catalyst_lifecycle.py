@@ -12,27 +12,34 @@ from datetime import datetime, timezone
 import time
 from src.config.config_resolver import get_config
 
-from src.news.evidence_store import CanonicalNewsEvidenceStore, evidence_from_mapping, serialize_evidence, evidence_max_entries
+from src.news.evidence_store import (CanonicalNewsEvidenceStore, evidence_from_mapping, serialize_evidence,
+    evidence_max_entries, coalesce_original_publications, original_publication_binding, mark_original_established, canonical_original_facts)
 from src.news.issuer_relevance import evidence_issuer_relevance_verified
 from src.news.news_intelligence_contract import NewsBatchResult, NewsCandidate, NewsRequest
-from .catalyst_policy import ISSUER_EVENT_MAX_AGE_SECONDS, assess_issuer_event, detect_dilution
+from .catalyst_policy import (ISSUER_EVENT_MAX_AGE_SECONDS, assess_issuer_event, detect_dilution,
+    retained_veto, protected_ross_request, NEXT_SESSION_CONTRACT, fact_binding,
+    next_session_request_metadata, ROSS_ISSUER_EVENT_PROFILE, select_qualification_evidence, temporal_binding_matches)
 from .runtime_safety import validation_override_allowed, log_validation_override_active
 
 
 def retained_dilution(items):
     # Preserve the existing final consumer veto, including retained older facts.
-    return any(detect_dilution(str(item.headline or "")) or item.dilution_or_offering
-               or str(dict(item.raw or {}).get("catalyst_tag") or "").strip().lower() == "offering"
-               for item in items)
+    return any(retained_veto(item) for item in items)
 
 
-def evidence_handoff(symbol, evidence, candidate, *, acquisition_health, acquisition_reason):
-    return {"schema": "ross_catalyst_evidence_v1", "symbol": symbol,
+def evidence_handoff(symbol, evidence, candidate, *, acquisition_health, acquisition_reason, request=None):
+    result = {"schema": "ross_catalyst_evidence_v1", "symbol": symbol,
             "issuer": {"symbol": symbol, "company_name": candidate.company_name if candidate else None,
                        "aliases": list(candidate.aliases) if candidate else []},
             "evidence": [serialize_evidence(item) for item in evidence],
             "publication_max_age_seconds": ISSUER_EVENT_MAX_AGE_SECONDS,
             "acquisition_snapshot": {"health": acquisition_health, "reason": acquisition_reason}}
+    if protected_ross_request(request):
+        decisions = [assess_issuer_event(symbol, item, (candidate,) if candidate else (), request=request) for item in evidence]
+        result.update(next_session_contract=NEXT_SESSION_CONTRACT,
+            temporal_bindings={fact_binding(item): row["temporal_authority"] for item, row in zip(evidence, decisions)
+                               if row["qualified"] and row.get("temporal_authority")})
+    return result
 
 
 def revalidate_handoff(symbol, handoff, *, store=None, request=None):
@@ -64,19 +71,41 @@ def revalidate_handoff(symbol, handoff, *, store=None, request=None):
     if not facts:
         return rejected
     # Read the existing bounded presentation+witness cohort without trimming its
-    # extra slot or reselecting away an already-retained older veto.
+    # witness/anchor slots or reselecting away an already-retained older veto.
     read_request = NewsRequest(max_evidence_per_symbol=evidence_max_entries() + 1, metadata={"read_retained_cohort": True})
     current = (store or CanonicalNewsEvidenceStore()).read((candidate,), read_request, include_prep=False)
     if current.diagnostics.get("cache_read_failed"):
         return {**rejected, "qualification_reason": "canonical_store_unreadable"}
-    facts.extend(current.evidence_by_symbol.get(symbol, ()))
     batch = NewsBatchResult(candidates=(candidate,))
-    facts = [item for item in facts if item.symbol == symbol
-             and evidence_issuer_relevance_verified(symbol, item, batch)]
-    decisions = [assess_issuer_event(symbol, item, (candidate,)) for item in facts]
+    def accepted(item):
+        return item.symbol == symbol and evidence_issuer_relevance_verified(symbol, item, batch)
+    retained_facts = [item for item in facts if accepted(item)]
+    current_facts = [item for item in current.evidence_by_symbol.get(symbol, ()) if accepted(item)]
+    canonical_bindings = {fact_binding(item) for item in current_facts}
+    facts = retained_facts + current_facts
+    if (handoff.get("next_session_contract") == NEXT_SESSION_CONTRACT or any(
+            original_publication_binding(item).get("contract") == NEXT_SESSION_CONTRACT for item in facts)):
+        # Only the current canonical owner establishes precedence; a retained
+        # carrier's marker is data, not original-assertion authority.
+        retained = [mark_original_established(item, False) for item in retained_facts]
+        canonical = canonical_original_facts(current_facts, NEXT_SESSION_CONTRACT, symbol=symbol, candidates=(candidate,))
+        canonical_bindings = {fact_binding(item) for item in canonical}
+        facts = coalesce_original_publications(retained + canonical, veto_predicate=retained_veto, contract=NEXT_SESSION_CONTRACT)
+    if request is None:
+        request = NewsRequest(strategy_id="ross_momentum", metadata={
+            "qualification_profile": ROSS_ISSUER_EVENT_PROFILE,
+            "presentation_limit": evidence_max_entries(), "retention_selector": select_qualification_evidence,
+            **next_session_request_metadata()})
+    decisions = [assess_issuer_event(symbol, item, (candidate,), request=request) for item in facts]
+    for item, decision in zip(facts, decisions):
+        temporal = decision.get("temporal_authority", {})
+        if temporal.get("route") == "next_session_opening" and fact_binding(item) not in canonical_bindings:
+            stored = handoff.get("temporal_bindings", {}).get(fact_binding(item)) if isinstance(handoff.get("temporal_bindings"), Mapping) else None
+            if handoff.get("next_session_contract") != NEXT_SESSION_CONTRACT or not temporal_binding_matches(stored, temporal):
+                decision.update(qualified=False, reason="canonical_extra_binding_invalid")
     positive = [row for row in decisions if row["qualified"] and row["evidence_id"]]
     veto = retained_dilution(facts)
-    valid_until = max((item.published_at.timestamp() + ISSUER_EVENT_MAX_AGE_SECONDS
+    valid_until = max((decision.get("temporal_authority", {}).get("valid_until", item.published_at.timestamp() + ISSUER_EVENT_MAX_AGE_SECONDS)
                        for item, decision in zip(facts, decisions)
                        if decision["qualified"] and decision["evidence_id"] and item.published_at), default=None)
     # Inspect latest persisted acquisition facts without invoking acquisition.

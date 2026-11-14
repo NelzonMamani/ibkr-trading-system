@@ -8,6 +8,8 @@ from typing import Any
 from collections.abc import Mapping
 import re
 import time
+import json
+import hashlib
 from datetime import datetime, timezone
 
 from src.strategies.ross_momentum.strategy_policy import StockSelectionSpec
@@ -17,6 +19,114 @@ from .runtime_safety import normalize_run_mode, validation_override_allowed
 
 ISSUER_EVENT_MAX_AGE_SECONDS = 6 * 60 * 60
 ROSS_ISSUER_EVENT_PROFILE = "ross_issuer_event_v10_listing_compliance"
+NEXT_SESSION_CONTRACT = "ross_next_session_opening_v1"
+PROTECTED_WITNESS_SLOTS = 3  # Independent positive, veto and original-base anchor.
+
+
+def protected_ross_request(request):
+    return bool(request and request.strategy_id == "ross_momentum" and request.query_start_utc is None
+                and request.metadata.get("qualification_profile") == ROSS_ISSUER_EVENT_PROFILE
+                and request.metadata.get("protected_retention_contract") == NEXT_SESSION_CONTRACT)
+
+
+def next_session_request_metadata():
+    from src.config.config_resolver import get_config
+    from src.market_data.session_pct_change import covered_opening_window
+    if not (get_config("ROSS_NEXT_SESSION_CATALYST_ENABLED") and get_config("ROSS_ISSUER_QUERY_ENABLED")):
+        return {}
+    window = covered_opening_window(datetime.fromtimestamp(time.time(), timezone.utc))
+    return {"next_session_contract": NEXT_SESSION_CONTRACT, "protected_retention_contract": NEXT_SESSION_CONTRACT,
+            "next_session_calendar": window.snapshot() if window else None,
+            "publication_lower_bound_resolver": next_session_publication_lower_bound}
+
+
+def next_session_window(request, now_ts=None):
+    from src.config.config_resolver import get_config
+    from src.market_data.session_pct_change import covered_opening_window
+    if not (protected_ross_request(request) and request.metadata.get("next_session_contract") == NEXT_SESSION_CONTRACT
+            and get_config("ROSS_NEXT_SESSION_CATALYST_ENABLED") and get_config("ROSS_ISSUER_QUERY_ENABLED")):
+        return None
+    window = covered_opening_window(datetime.fromtimestamp(time.time() if now_ts is None else now_ts, timezone.utc))
+    if window is None:
+        return None
+    try:
+        if json.dumps(opening_calendar_binding(window.snapshot()), sort_keys=True) != json.dumps(opening_calendar_binding(request.metadata.get("next_session_calendar")), sort_keys=True):
+            return None
+    except (TypeError, ValueError):
+        return None
+    return window
+
+
+def opening_calendar_binding(snapshot):
+    """Immutable covered window; current actual phase is revalidated separately."""
+    if not isinstance(snapshot, Mapping) or snapshot.get("phase") not in {"PRE", "RTH_OPEN"}:
+        raise ValueError("unknown/ineligible observed phase")
+    return {key: value for key, value in snapshot.items() if key != "phase"}
+
+
+def temporal_binding_matches(stored, current):
+    try:
+        if not isinstance(stored, Mapping) or not isinstance(current, Mapping):
+            return False
+        left, right = dict(stored), dict(current)
+        left['calendar'] = opening_calendar_binding(left['calendar'])
+        right['calendar'] = opening_calendar_binding(right['calendar'])
+        return json.dumps(left, sort_keys=True) == json.dumps(right, sort_keys=True)
+    except (TypeError, ValueError, KeyError):
+        return False
+
+
+def next_session_publication_lower_bound(request, *, now_ts):
+    window = next_session_window(request, now_ts)
+    return window.previous_close.timestamp() if window else None
+
+
+def fact_binding(item):
+    from src.news.evidence_store import fact_version_key
+    return hashlib.sha256(json.dumps(fact_version_key(item)).encode()).hexdigest()
+
+
+def original_publication_verified(item, stamp):
+    from email.utils import parsedate_to_datetime
+    raw = dict(getattr(item, "raw", {}) or {})
+    facts = getattr(item, "timestamp_provenance", None) or raw.get("timestamp_provenance", {})
+    try:
+        if facts.get("selected_time_basis") != "published":
+            return False
+        original = str(facts["published_original"])
+        try:
+            original = parsedate_to_datetime(original)
+        except (ValueError, TypeError):
+            original = datetime.fromisoformat(original.replace("Z", "+00:00"))
+        decoded = datetime.fromisoformat(str(facts["published_utc"]).replace("Z", "+00:00"))
+        first_seen = getattr(item, "first_seen_at", None)
+        return bool(original.tzinfo and decoded.tzinfo and original.timestamp() == decoded.timestamp() == stamp
+                    and (first_seen is None or first_seen.tzinfo is not None and first_seen.timestamp() >= stamp))
+    except (ValueError, TypeError, KeyError, AttributeError):
+        return False
+
+
+def temporal_authority(item, request=None, *, now_ts=None):
+    from src.news.evidence_store import publication_stamp, auxiliary_veto_version, original_publication_binding
+    stamp = publication_stamp(item)
+    now_ts = time.time() if now_ts is None else now_ts
+    if (stamp is None or not 0 <= now_ts - stamp or auxiliary_veto_version(item)
+            or original_publication_binding(item).get("original_conflict")):
+        return None
+    if now_ts - stamp <= ISSUER_EVENT_MAX_AGE_SECONDS:
+        return {"route": "ordinary_six_hour", "valid_until": stamp + ISSUER_EVENT_MAX_AGE_SECONDS}
+    window = next_session_window(request, now_ts)
+    if window and window.previous_close.timestamp() <= stamp < window.current_open.timestamp() and original_publication_verified(item, stamp):
+        return {"route": "next_session_opening", "contract": NEXT_SESSION_CONTRACT,
+                "fact_binding": fact_binding(item), "original_publication": stamp,
+                "calendar": window.snapshot(), "valid_until": min(window.opening_end, window.current_close).timestamp()}
+    return None
+
+
+def retained_veto(item):
+    return bool(detect_dilution(str(getattr(item, "headline", getattr(item, "title", "")) or ""))
+                or getattr(item, "dilution_or_offering", False)
+                or str(dict(getattr(item, "raw", {}) or {}).get("catalyst_tag") or "").strip().lower() == "offering")
 
 # Deliberate 27October policy addition, not historical Ross vocabulary. A single
 # verified, directly attributed completed event can qualify; syndication counts
@@ -229,7 +339,7 @@ def detect_dilution(title: str) -> bool:
                for keyword in DILUTION_KEYWORDS)
 
 
-def issuer_event_time_state(item, *, now_ts):
+def issuer_event_time_state(item, *, now_ts, request=None):
     """Qualification-time cache boundary, never a replacement publication time."""
     published = getattr(item, 'published_at', None)
     timestamp = (published.timestamp() if published is not None and published.tzinfo is not None
@@ -237,10 +347,13 @@ def issuer_event_time_state(item, *, now_ts):
     if timestamp is None:
         return 'unknown'
     age = now_ts - timestamp
+    if protected_ross_request(request):
+        authority = temporal_authority(item, request, now_ts=now_ts)
+        return json.dumps(authority, sort_keys=True) if authority else 'ineligible'
     return 'future' if age < 0 else 'stale' if age > ISSUER_EVENT_MAX_AGE_SECONDS else 'current'
 
 
-def assess_issuer_event(symbol, item, candidates=()):
+def assess_issuer_event(symbol, item, candidates=(), *, request=None, _retention_attribution=False):
     """Conservative title-clause attribution, not semantic event inference.
 
     A supplied research/legacy classification is never qualification authority.
@@ -270,9 +383,18 @@ def assess_issuer_event(symbol, item, candidates=()):
     if timestamp_facts.get('selected_time_basis') == 'updated':
         result['reason'] = 'publication_time_unverified_update_only'
         return result
-    if age is None or age < 0 or age > ISSUER_EVENT_MAX_AGE_SECONDS:
+    authority = temporal_authority(item, request)
+    if _retention_attribution:
+        from src.news.evidence_store import original_publication_binding
+        if (timestamp is None or age is None or age < 0 or not original_publication_verified(item, timestamp)
+                or retained_veto(item) or original_publication_binding(item).get("original_conflict")):
+            result['reason'] = 'retention_original_fact_unverified_or_veto'
+            return result
+    elif authority is None:
         result['reason'] = 'missing_future_or_stale_publication_time'
         return result
+    if protected_ross_request(request) and not _retention_attribution:
+        result['temporal_authority'] = authority
     if symbol_relevance_match(symbol, title=title, summary=str(getattr(item, 'summary', '') or ''), metadata=metadata) is None:
         result['reason'] = 'issuer_match_unverified'
         return result
@@ -339,9 +461,11 @@ def assess_issuer_event(symbol, item, candidates=()):
         if end is None or not _LISTING_ASSERTION.fullmatch(title.strip()[end:]):
             result['reason'] = 'listing_compliance_not_attributed_to_requested_issuer'
             return result
-        result.update(qualified=True, reason='listing_compliance_issuer_event_attributed',
+        result.update(qualified=not _retention_attribution, reason='listing_compliance_issuer_event_attributed',
                       confirmation_basis='single_verified_source_assertion_not_independent_confirmation',
                       independent_confirmation_verified=False)
+        if _retention_attribution:
+            result.update(retention_candidate=True, reason='attributable_original_candidate_not_eligibility')
         return result
     ownership_rejected = False
     # Clause boundaries prevent a later co-mention from inheriting an event.
@@ -446,19 +570,45 @@ def assess_issuer_event(symbol, item, candidates=()):
         if owner_uncertain:
             ownership_rejected = True
             continue
-        result.update(qualified=True, catalyst_type=clause_kind, reason='issuer_subject_event_attributed')
+        result.update(qualified=not _retention_attribution, catalyst_type=clause_kind, reason='issuer_subject_event_attributed')
+        if _retention_attribution:
+            result.update(retention_candidate=True, reason='attributable_original_candidate_not_eligibility')
         return result
     result['reason'] = 'event_ownership_uncertain_or_other_issuer' if ownership_rejected else 'event_not_attributed_to_requested_issuer'
     return result
 
 
 def select_qualification_evidence(items, request):
-    """Latest presentation slots plus ONE policy witness (veto first).
+    """Default: latest plus one veto-first witness; opt-in: N+3 protected facts.
 
     Re-evaluated from text/time/provenance on every store/read/merge. Neither
     stored flags nor a larger arbitrary article cap confer qualification.
+    Closed-period candidates are data only and never report qualified=True.
     """
     display_limit = int(request.metadata['presentation_limit'])
+    if protected_ross_request(request):
+        from src.news.evidence_store import (coalesce_original_publications, publication_facts,
+                                            publication_stamp, fact_version_key, original_publication_binding)
+        versions = coalesce_original_publications(items, veto_predicate=retained_veto, contract=NEXT_SESSION_CONTRACT)
+        def order(item):
+            stamp = publication_stamp(item)
+            return (stamp if stamp is not None else float('-inf'), fact_version_key(item))
+        bases = sorted(publication_facts(versions), key=order, reverse=True)
+        selected = bases[:display_limit]
+        positives = [item for item in bases if not retained_veto(item)
+                     and assess_issuer_event(getattr(item, 'symbol', ''), item, request=request)['qualified']]
+        if not positives:
+            positives = [item for item in bases if assess_issuer_event(getattr(item, 'symbol', ''), item,
+                request=request, _retention_attribution=True).get('retention_candidate')]
+        vetoes = [item for item in versions if retained_veto(item)]
+        positive = max(positives, key=order) if positives else None
+        veto = min(vetoes, key=order) if vetoes else None
+        anchor = next((base for base in bases if veto is not None and
+                       original_publication_binding(base).get('anchor') == original_publication_binding(veto).get('anchor')), None)
+        for item in (positive, veto, anchor):
+            if item is not None and fact_version_key(item) not in {fact_version_key(row) for row in selected}:
+                selected.append(item)
+        return selected
     latest = []
     witness = None
     witness_rank = (-1, -1.0)
@@ -492,7 +642,7 @@ def unresolved_issuer_news(headlines_by_symbol, request):
     """
     unresolved = []
     for symbol, items in headlines_by_symbol.items():
-        positive = any(assess_issuer_event(symbol, item)['qualified'] for item in items)
+        positive = any(assess_issuer_event(symbol, item, request=request)['qualified'] for item in items)
         veto = any(0 <= time.time() - item.published_ts <= request.freshness_seconds
                    and detect_dilution(item.title) for item in items)
         if not positive and not veto:

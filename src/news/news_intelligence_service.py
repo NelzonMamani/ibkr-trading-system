@@ -16,7 +16,7 @@ from src.news.batch_rss_adapter import (
 from src.news.retrieval_diagnostics import emit_retrieval_diagnostics
 from src.news.evidence_store import (
     CanonicalNewsEvidenceStore,
-    dedupe_evidence, retained_evidence,
+    dedupe_evidence, retained_evidence, protected_data_request, mark_original_established, original_publication_binding, issuer_accepted_evidence,
     evidence_max_entries,
     evidence_freshness_seconds,
     evidence_in_query_window,
@@ -123,6 +123,17 @@ def _acquisition_profile(candidate: NewsCandidate, request: NewsRequest, policy:
     if request.query_start_utc is not None:
         profile["request"].update(query_start_utc=request.query_start_utc.isoformat(),
                                   query_end_utc=request.query_end_utc.isoformat())
+    if request.strategy_id == "ross_momentum" and request.metadata.get("next_session_contract"):
+        from src.strategies.ross_momentum.policy.catalyst_policy import opening_calendar_binding
+        profile["request"]["next_session_contract"] = request.metadata["next_session_contract"]
+        calendar = request.metadata.get("next_session_calendar")
+        try:
+            # Observed phase changes eligibility/cache context, not this
+            # immutable source plan's acquisition cadence within one window.
+            calendar = opening_calendar_binding(calendar)
+        except (TypeError, ValueError):
+            pass  # Unsupported input remains distinct; never mint valid coverage.
+        profile["request"]["next_session_calendar"] = _json_value(calendar)
     # Old available-empty coverage cannot certify this stricter transport/parser
     # contract. This changes coverage compatibility, never stored article facts.
     if provider_id == "rss_batch":
@@ -273,6 +284,18 @@ class CanonicalNewsIntelligenceService(NewsIntelligenceProvider):
                 metadata=refresh_metadata,
             )
             refresh_result = self.retrieval_provider.get_news(refresh_candidates, request, refresh_policy)
+            if request.metadata.get("protected_retention_contract") or cache_diagnostics.get("ross_retention_contract_by_symbol"):
+                from src.strategies.ross_momentum.policy.catalyst_policy import protected_ross_request
+                if protected_ross_request(request) or cache_diagnostics.get("ross_retention_contract_by_symbol"):
+                    refresh_result = replace(refresh_result, evidence_by_symbol={
+                        key: tuple(issuer_accepted_evidence(key, rows, ordered_candidates))
+                        for key, rows in refresh_result.evidence_by_symbol.items()})
+            if any(original_publication_binding(item) for rows in refresh_result.evidence_by_symbol.values() for item in rows):
+                # Provider data cannot assert canonical-owner precedence. Use
+                # the same normalized facts for persistence and live assembly.
+                refresh_result = replace(refresh_result, evidence_by_symbol={
+                    key: tuple(mark_original_established(item, False) for item in rows)
+                    for key, rows in refresh_result.evidence_by_symbol.items()})
             mark("provider_seconds")
             if retrieval_policy.allow_cache_write or require_compatible:
                 completed_at = refresh_result.completed_at or datetime.now(timezone.utc)
@@ -337,7 +360,10 @@ class CanonicalNewsIntelligenceService(NewsIntelligenceProvider):
             if request.query_start_utc is not None:
                 items = [refresh_evidence_age(item, request=request, now=started_at) for item in items
                          if evidence_in_query_window(item, request, now=started_at)]
-            merged = tuple(retained_evidence(items, request))
+            effective_request = protected_data_request(request,
+                cache_diagnostics.get("ross_retention_contract_by_symbol", {}).get(symbol),
+                marker_present=symbol in cache_diagnostics.get("ross_retention_contract_by_symbol", {}))
+            merged = tuple(retained_evidence(items, effective_request))
             combined_evidence[symbol] = merged
             cached_retrieval = (cache_diagnostics.get("last_retrieval_by_symbol", {}).get(symbol, {})
                                 if symbol in cache_diagnostics.get("cadence_cache_hit_symbols", []) else {})
