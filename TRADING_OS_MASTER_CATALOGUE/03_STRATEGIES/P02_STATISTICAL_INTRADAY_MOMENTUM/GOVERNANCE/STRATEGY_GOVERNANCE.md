@@ -404,3 +404,67 @@ Numerical bounds remain null/unavailable, ATR admission UNKNOWN, eligibleFalse.
 This adoption supplies no numerical calibration, native entry, stop/management,
 activation, positive Core proof or readiness upgrade. Independent review cleared
 the full bytes/report contract before implementation.
+
+
+### 2026-11-14 — P02 measurement-only ATR and immutable offline validation
+
+Accepted base881e47ff/tree540a6bd9 and receipt698e12ef are preserved once.
+Independent next_session_contract_review cleared the complete measurement/bytes/
+report contract; adoptionac0c117d precedes implementation. This adopts only the
+recorded measurement, not its unresolved numeric bounds or native-entry draft.
+Existing features.py now measures Wilder14 TR from the revalidated PR1230
+completed context: bars2..15 seed, then every subsequent completed bar, session
+reset/no overnight predecessor, USD/share and each step's own completed-close
+percent. Immutable result retains member timestamps, TRs/seed/updates and context
+hashes. Nonfinite derived arithmetic refuses. No decision/scoring/risk change.
+
+The same feature owner validates bounded immutable UTF8 bytes with exact expected
+SHA256, exact schema, duplicate/nonfinite/depth/size controls and expected source/
+derived fingerprints. Existing source validation at recorded assessment is marked
+HISTORICAL_REPLAY_ONLY; effective covered calendar/configuration must reproduce
+the expected derived hash. No configuration is installed from input. Reports are
+deterministic canonical bytes, retain original source facts and request/member/
+completion provenance, complete1m/5m/TR coverage and explicit context-quote
+availability. CostsUNAVAILABLE, boundsnull, admissionUNKNOWN/eligibleFalse; no
+dataset approval or performance claim. Missing data is refused, never rebuilt
+from completion counters. MARKET_UNVERIFIED and SYNTHETIC are labels only.
+
+Focused causal validation:182passed/2warnings/4.76s across existing P02 tests,
+historical completion owners and actual-Core dependency veto. This includes29
+new ATR checks (overlap, not additive): independent Fraction recurrence and gap
+oracle; seed/update boundaries; no cross-call carry; zero-range measurement
+without admission; async aware/raw timestamp serialization; immutable/report
+repeatability; source/derived/hash mismatch, stale/forming/foreign/missing inputs,
+unknown schema/classification/cost claims, malformed datetime, duplicate keys/
+sessions, invalid/deep/oversized bytes and finite-input arithmetic overflow.
+Original47context controls and actual Core structural veto remain passing.
+No failed test invocation occurred in this implementation prefix; earlier PR1230
+failures remain history in preceding entries. Required exact-head review and CI
+remain pending; focused passes are not CI acceptance.
+
+Read-only metadata inventory identified no explicitly approved immutable P02
+calibration dataset. Across repeated workspace checkouts:166CSV (W02/W03 evidence
+matrices),1206DB/SQLite files,249JSONL and3Ross uploadZIPs; no Parquet/Feather/Arrow/
+HDF5/Pickle/NumPy files. Original databases/ZIPs were not opened; filenames are
+not a completeness claim about their contents or independent market samples.
+No schema-writing constructor, acquisition or provider was invoked.
+
+Concrete calibration plan: approve an exact immutable available input manifest
+and intended reuse first; if DB examination is needed, use an isolated snapshot,
+never a schema-initializing original. Validate qualified security/session/
+adjustment/gap/halts provenance and original completed OHLCV; separately establish
+quote/cost availability. Freeze chronological/security development and held-out
+splits and bound-selection procedure before evaluation. While management/outcome
+semantics remain unresolved, publish measurement distributions/coverage only, no
+profit labels, expectancy or net-performance claims. Generic STATISTICAL zero
+slippage/commission fallback is not observed P02 cost. Numerical bounds remain
+unavailable and C_ATR_WITHIN_BOUNDS UNKNOWN.
+
+Cooldown PR1230 observations remain unchanged: every old outcome retains
+coverageUNKNOWN/eligibleFalse. A separate observable-local-state versioned
+policy is under contract investigation/review; no broker-history completeness
+certificate is fabricated from execDetailsEnd, uptime, terminal orders or flags.
+Native entry/ATR/management vetoes and all five ownership safeguards remain.
+Frozen observation distribution3f48bf3f/sourcec65/calendar unchanged. No observer,
+broker/provider, operational recovery or readiness upgrade.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.

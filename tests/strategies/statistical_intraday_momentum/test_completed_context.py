@@ -1,7 +1,7 @@
 """Real historical dispatch/callback/provider/context owners; synthetic SDK only."""
 import asyncio
 from copy import deepcopy
-from dataclasses import asdict, replace
+from dataclasses import asdict, replace, FrozenInstanceError
 from datetime import datetime, timedelta, timezone
 import json
 from types import SimpleNamespace as NS
@@ -287,3 +287,178 @@ def test_dispatch_routing_identity_is_retained_and_conflicts_refuse(facts,monkey
     assert h.status=='CONTRACT_IDENTITY_CONFLICT' and not h.completed
     assert h.dispatched_contract_identity.exchange=='FOREIGN'
     with pytest.raises(CompletedContextError):build(facts,history=h)
+
+
+# ATR tests use the same genuine SDK->provider->completed-context fixture above.
+from fractions import Fraction
+import hashlib
+from src.strategies.statistical_intraday_momentum.signal_engine.features import (
+    measure_completed_atr, offline_atr_report, _context_fingerprint,
+)
+
+
+def encoded(value):
+    return json.dumps(value, sort_keys=True, separators=(',', ':'),
+        default=lambda x: {'datetime': x.isoformat(), 'fold': x.fold}, allow_nan=False).encode()
+
+
+def bundle_for(context, *, assessed_at=NOW):
+    return dict(schema='P02_ATR_OFFLINE_V1', dataset_id='synthetic-native-callbacks', classification='SYNTHETIC',
+        sessions=[dict(source_facts=context.source_facts, assessed_at=assessed_at.isoformat(),
+            expected_source_sha256=context.source_fingerprint, expected_derived_sha256=context.derived_fingerprint)])
+
+
+def report(bundle):
+    raw = encoded(bundle)
+    return offline_atr_report(raw, expected_sha256=hashlib.sha256(raw).hexdigest())
+
+
+def arithmetic_context(facts, *, value=100.):
+    h = facts.history
+    bars = tuple(replace(b, open=value, close=value,
+        high=value + (1 if i == 34 else .5), low=value - (1 if i == 34 else .5))
+        for i, b in enumerate(h.bars))
+    raw = tuple(dict(r, **{key: getattr(b, key) for key in ('open','high','low','close','volume')})
+                for b, r in zip(bars, h.raw_source_bars))
+    return build(facts, history=replace(h, bars=bars, raw_source_bars=raw, normalization_source_bars=raw))
+
+
+def test_atr_seed_recurrence_and_immutable_report(facts):
+    context = arithmetic_context(facts)
+    result = measure_completed_atr(context, assessed_at=NOW)
+    assert result.seed_usd == 1 and result.true_ranges == (1.,)*33 + (2.,)
+    assert result.seed_at == (OPEN+timedelta(minutes=15)).isoformat()
+    assert result.atr_usd[:-1] == (1.,)*20
+    assert result.atr_usd[-1] == pytest.approx(float(Fraction(15,14)))
+    assert result.atr_pct[-1] == pytest.approx(float(Fraction(15,14)))
+    assert result.lower_bound_pct is None and result.upper_bound_pct is None
+    assert result.admission == 'UNKNOWN' and result.eligible is False
+    before = deepcopy(context.source_facts)
+    raw = encoded(bundle_for(context))
+    first = offline_atr_report(raw, expected_sha256=hashlib.sha256(raw).hexdigest())
+    assert first == offline_atr_report(raw, expected_sha256=hashlib.sha256(raw).hexdigest())
+    parsed = json.loads(first)
+    assert parsed['approved_dataset'] is False and parsed['performance_claims'] is False
+    row = parsed['sessions'][0]
+    assert row['assessment_use'] == 'HISTORICAL_REPLAY_ONLY'
+    assert row['coverage']['completed_1m'] == 35 and row['coverage']['true_range_count'] == 34
+    assert row['quote_availability'] == 'VALIDATED_CONTEXT_QUOTE' and row['costs_availability'] == 'UNAVAILABLE'
+    assert row['measurement']['source_sha256'] == context.source_fingerprint
+    assert before == context.source_facts and raw == encoded(bundle_for(context))
+    with pytest.raises(FrozenInstanceError):
+        result.seed_usd = 123
+
+
+def test_atr_independent_fraction_oracle_and_gap(facts):
+    c = build(facts)
+    bars = c['bars_1m']
+    def f(x): return Fraction(str(x))
+    tr = [max(f(b['high'])-f(b['low']), abs(f(b['high'])-f(p['close'])),
+        abs(f(b['low'])-f(p['close']))) for p,b in zip(bars,bars[1:])]
+    assert any(t > f(b['high'])-f(b['low']) for t,b in zip(tr,bars[1:]))
+    state = sum(tr[:14])/14
+    oracle = [state]
+    for t in tr[14:]:
+        state = (13*state+t)/14
+        oracle.append(state)
+    actual = measure_completed_atr(c, assessed_at=NOW)
+    assert actual.atr_usd == pytest.approx([float(x) for x in oracle])
+    assert actual.atr_pct == pytest.approx([float(100*x/f(b['close'])) for x,b in zip(oracle,bars[14:])])
+    assert len(actual.member_starts) == 35  # first bar supplies predecessor, not TR
+
+
+@pytest.mark.parametrize('fault', ['hash', 'mutable_bytes', 'duplicate_key', 'nan', 'schema', 'classification',
+    'empty', 'too_many', 'duplicate_session', 'source_hash', 'derived_hash', 'fold', 'naive',
+    'missing_fact', 'foreign', 'forming', 'stale', 'missing_quote', 'renewed_assessment', 'cost_claim'])
+def test_offline_atr_invalid_inputs_refuse(facts, fault):
+    c = build(facts); bundle = bundle_for(c)
+    row = bundle['sessions'][0]
+    if fault == 'hash':
+        with pytest.raises(CompletedContextError, match='HASH'): offline_atr_report(encoded(bundle), expected_sha256='0'*64)
+        return
+    if fault == 'mutable_bytes':
+        raw=encoded(bundle)
+        with pytest.raises(CompletedContextError, match='BYTES'): offline_atr_report(bytearray(raw), expected_sha256=hashlib.sha256(raw).hexdigest())
+        return
+    if fault in ('duplicate_key','nan'):
+        raw = b'{"schema":1,"schema":2}' if fault=='duplicate_key' else b'{"bad":NaN}'
+        with pytest.raises(CompletedContextError): offline_atr_report(raw, expected_sha256=hashlib.sha256(raw).hexdigest())
+        return
+    if fault == 'schema': bundle['extra']=True
+    if fault == 'classification': bundle['classification']='APPROVED'
+    if fault == 'empty': bundle['sessions']=[]
+    if fault == 'too_many': bundle['sessions']*=513
+    if fault == 'duplicate_session': bundle['sessions']*=2
+    if fault == 'source_hash': row['expected_source_sha256']='0'*64
+    if fault == 'derived_hash': row['expected_derived_sha256']='0'*64
+    if fault == 'fold': row['source_facts']['history']['bars'][0]['timestamp']={'datetime':OPEN.isoformat(),'fold':True}
+    if fault == 'naive': row['assessed_at']=NOW.replace(tzinfo=None).isoformat()
+    if fault == 'missing_fact': del row['source_facts']['history']['raw_source_bars']
+    if fault == 'foreign': row['source_facts']['history']['dispatched_contract_identity']['con_id']=456
+    if fault == 'forming': row['source_facts']['history']['completed_at_utc']=(END-timedelta(minutes=1)).isoformat()
+    if fault == 'stale': row['assessed_at']=(NOW+timedelta(minutes=1)).isoformat()
+    if fault == 'missing_quote': row['source_facts']['quote']['market_timestamp_utc']=None
+    if fault == 'renewed_assessment': row['assessed_at']=(NOW+timedelta(seconds=1)).isoformat()
+    if fault == 'cost_claim': bundle['costs']=0
+    # Reach causal owner validation rather than only stopping at the input hash.
+    if fault in ('missing_fact','foreign','forming','missing_quote'):
+        row['expected_source_sha256']=_context_fingerprint(row['source_facts'])
+    with pytest.raises(CompletedContextError): report(bundle)
+
+
+def test_atr_mutation_staleness_and_overflow_refuse(facts):
+    c=build(facts)
+    c.payload['bars_1m'][0]['close']=1
+    with pytest.raises(CompletedContextError,match='MUTATED'): measure_completed_atr(c,assessed_at=NOW)
+    with pytest.raises(CompletedContextError): measure_completed_atr(build(facts),assessed_at=NOW+timedelta(minutes=1))
+    # Individually finite prices may overflow TR sums/recurrence; no inf report.
+    c=arithmetic_context(facts,value=1e308)
+    # At this scale .5 rounds away: construct wide finite valid OHLC instead.
+    source=deepcopy(c.source_facts)
+    for name in ('bars','raw_source_bars','normalization_source_bars'):
+        for row in source['history'][name]: row.update(high=1.7e308,low=1.)
+    from src.strategies.statistical_intraday_momentum.signal_engine.features import _completed_context_values, CompletedSignalContext
+    values=_completed_context_values(source,assessed_at=NOW)
+    c=CompletedSignalContext(source,values,_context_fingerprint(source),_context_fingerprint(values))
+    with pytest.raises(CompletedContextError,match='ARITHMETIC'): measure_completed_atr(c,assessed_at=NOW)
+
+
+def test_atr_reset_no_carry_and_finite_zero_range(facts):
+    first=arithmetic_context(facts)
+    measured=measure_completed_atr(first,assessed_at=NOW)
+    second=build(facts)
+    measure_completed_atr(second,assessed_at=NOW)
+    assert measure_completed_atr(first,assessed_at=NOW)==measured
+    source=deepcopy(first.source_facts)
+    for name in ('bars','raw_source_bars','normalization_source_bars'):
+        for bar in source['history'][name]: bar.update(open=100.,high=100.,low=100.,close=100.)
+    from src.strategies.statistical_intraday_momentum.signal_engine.features import _completed_context_values, CompletedSignalContext
+    values=_completed_context_values(source,assessed_at=NOW)
+    flat=CompletedSignalContext(source,values,_context_fingerprint(source),_context_fingerprint(values))
+    result=measure_completed_atr(flat,assessed_at=NOW)
+    assert result.seed_usd==0 and result.atr_usd==(0.,)*21
+    assert result.eligible is False and result.admission=='UNKNOWN'
+    assert measure_completed_atr(first,assessed_at=NOW)==measured
+
+
+def test_offline_report_preserves_aware_raw_callbacks(facts):
+    c=build(facts)
+    source=deepcopy(c.source_facts)
+    from src.strategies.statistical_intraday_momentum.signal_engine.features import _completed_context_values, CompletedSignalContext
+    stamps=[OPEN+timedelta(minutes=i) for i in range(35)]
+    source['history']['raw_bar_timestamps']=stamps
+    source['history']['normalized_raw_bar_timestamps']=stamps
+    for name in ('raw_source_bars','normalization_source_bars'):
+        for row,stamp in zip(source['history'][name],stamps): row['date']=stamp
+    values=_completed_context_values(source,assessed_at=NOW)
+    c=CompletedSignalContext(source,values,_context_fingerprint(source),_context_fingerprint(values))
+    value=json.loads(report(bundle_for(c)))['sessions'][0]
+    assert value['raw_member_timestamps'][0]=={'datetime':OPEN.isoformat(),'fold':0}
+    assert value['source_facts']['history']['request_id']==source['history']['request_id']
+    assert value['measurement']['derived_sha256']==c.derived_fingerprint
+
+
+@pytest.mark.parametrize('raw',[b'',b'x'*(16*1024*1024+1),b'\xff',b'['*1100])
+def test_offline_bytes_bounded_and_decodable(raw):
+    with pytest.raises(CompletedContextError):
+        offline_atr_report(raw,expected_sha256=hashlib.sha256(raw).hexdigest())
