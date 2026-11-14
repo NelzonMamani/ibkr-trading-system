@@ -215,10 +215,19 @@ def protected_data_request(request, marker, *, for_write=False):
                 "retention_selector": select_qualification_evidence, **next_session_request_metadata(),
                 "protected_retention_contract": NEXT_SESSION_CONTRACT}
     if request and request.strategy_id == "ross_momentum" and request.query_start_utc is None:
-        # Preserve the caller's actual policy/calendar snapshot for eligibility.
-        metadata = {**metadata, **request.metadata, "protected_retention_contract": NEXT_SESSION_CONTRACT}
+        # This is a data-selection request only. Preserve the caller's original
+        # request separately at service/eligibility boundaries; it cannot alter
+        # the protected bucket's selector/profile or clear its witnesses.
+        metadata = {**request.metadata, **metadata}
         return replace(request, max_evidence_per_symbol=limit + PROTECTED_WITNESS_SLOTS, metadata=metadata)
     return NewsRequest(strategy_id="ross_momentum", max_evidence_per_symbol=limit + PROTECTED_WITNESS_SLOTS, metadata=metadata)
+
+
+def canonical_original_facts(items, contract):
+    """Only canonical-owned retained facts establish original precedence."""
+    from src.strategies.ross_momentum.policy.catalyst_policy import retained_veto
+    return [mark_original_established(item, True) for item in coalesce_original_publications(
+        items, veto_predicate=retained_veto, contract=contract)]
 
 
 def evidence_cache_path() -> Path:
@@ -302,6 +311,12 @@ class CanonicalNewsEvidenceStore:
                     evidence.append(parsed)
             if symbol in legacy_rows:
                 diagnostics["legacy_news_cache_symbols"].append(symbol)
+            if marker or (effective_request and effective_request.metadata.get("protected_retention_contract")):
+                from src.strategies.ross_momentum.policy.catalyst_policy import NEXT_SESSION_CONTRACT, retained_veto, protected_ross_request
+                if protected_ross_request(effective_request) or isinstance(marker, Mapping) and marker.get("contract") == NEXT_SESSION_CONTRACT:
+                    # Cache-origin facts precede fresh/prep claims. Establish
+                    # their data origin before merging any external overlay.
+                    evidence = canonical_original_facts(evidence, NEXT_SESSION_CONTRACT)
             if symbol in prep_rows:
                 prep_evidence = evidence_from_prep_entry(
                     prep_rows[symbol],
@@ -434,6 +449,13 @@ class CanonicalNewsEvidenceStore:
             previous = symbols_payload.get(symbol) or {}
             marker = previous.get("ross_retention_contract")
             effective_request = protected_data_request(request, marker)
+            protection_request = protected_data_request(request, marker, for_write=True)
+            protected_selection = False
+            if protection_request and protection_request.metadata.get("protected_retention_contract"):
+                from src.strategies.ross_momentum.policy.catalyst_policy import protected_ross_request
+                protected_selection = protected_ross_request(protection_request)
+            if protected_selection:
+                existing = canonical_original_facts(existing, protection_request.metadata["protected_retention_contract"])
             merged = retained_evidence(existing + incoming, effective_request)
             # Consumer-specific research/presentation caps cannot evict an existing
             # Ross qualification cohort. It remains bounded by its original policy.
@@ -443,9 +465,9 @@ class CanonicalNewsEvidenceStore:
                 ross_rows = previous.get("evidence", ())
             if request and request.query_start_utc is None and request.strategy_id == "ross_momentum":
                 ross_rows = [serialize_evidence(item) for item in merged]
-                if effective_request.metadata.get("protected_retention_contract"):
-                    marker = {"contract": effective_request.metadata["protected_retention_contract"],
-                              "presentation_limit": int(effective_request.metadata["presentation_limit"])}
+                if protected_selection:
+                    marker = {"contract": protection_request.metadata["protected_retention_contract"],
+                              "presentation_limit": int(protection_request.metadata["presentation_limit"])}
             protected = [item for row in ross_rows if (item := evidence_from_mapping(row, now=now)) is not None]
             if marker:
                 protection_request = protected_data_request(request, marker, for_write=True)

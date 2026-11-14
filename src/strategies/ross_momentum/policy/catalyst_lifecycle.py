@@ -13,7 +13,7 @@ import time
 from src.config.config_resolver import get_config
 
 from src.news.evidence_store import (CanonicalNewsEvidenceStore, evidence_from_mapping, serialize_evidence,
-    evidence_max_entries, coalesce_original_publications, original_publication_binding)
+    evidence_max_entries, coalesce_original_publications, original_publication_binding, mark_original_established, canonical_original_facts)
 from src.news.issuer_relevance import evidence_issuer_relevance_verified
 from src.news.news_intelligence_contract import NewsBatchResult, NewsCandidate, NewsRequest
 from .catalyst_policy import (ISSUER_EVENT_MAX_AGE_SECONDS, assess_issuer_event, detect_dilution,
@@ -76,15 +76,21 @@ def revalidate_handoff(symbol, handoff, *, store=None, request=None):
     current = (store or CanonicalNewsEvidenceStore()).read((candidate,), read_request, include_prep=False)
     if current.diagnostics.get("cache_read_failed"):
         return {**rejected, "qualification_reason": "canonical_store_unreadable"}
-    current_facts = current.evidence_by_symbol.get(symbol, ())
-    canonical_bindings = {fact_binding(item) for item in current_facts}
-    facts.extend(current_facts)
     batch = NewsBatchResult(candidates=(candidate,))
-    facts = [item for item in facts if item.symbol == symbol
-             and evidence_issuer_relevance_verified(symbol, item, batch)]
+    def accepted(item):
+        return item.symbol == symbol and evidence_issuer_relevance_verified(symbol, item, batch)
+    retained_facts = [item for item in facts if accepted(item)]
+    current_facts = [item for item in current.evidence_by_symbol.get(symbol, ()) if accepted(item)]
+    canonical_bindings = {fact_binding(item) for item in current_facts}
+    facts = retained_facts + current_facts
     if (handoff.get("next_session_contract") == NEXT_SESSION_CONTRACT or any(
             original_publication_binding(item).get("contract") == NEXT_SESSION_CONTRACT for item in facts)):
-        facts = coalesce_original_publications(facts, veto_predicate=retained_veto, contract=NEXT_SESSION_CONTRACT)
+        # Only the current canonical owner establishes precedence; a retained
+        # carrier's marker is data, not original-assertion authority.
+        retained = [mark_original_established(item, False) for item in retained_facts]
+        canonical = canonical_original_facts(current_facts, NEXT_SESSION_CONTRACT)
+        canonical_bindings = {fact_binding(item) for item in canonical}
+        facts = coalesce_original_publications(retained + canonical, veto_predicate=retained_veto, contract=NEXT_SESSION_CONTRACT)
     if request is None:
         request = NewsRequest(strategy_id="ross_momentum", metadata={
             "qualification_profile": ROSS_ISSUER_EVENT_PROFILE,

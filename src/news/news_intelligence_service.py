@@ -16,7 +16,7 @@ from src.news.batch_rss_adapter import (
 from src.news.retrieval_diagnostics import emit_retrieval_diagnostics
 from src.news.evidence_store import (
     CanonicalNewsEvidenceStore,
-    dedupe_evidence, retained_evidence, protected_data_request,
+    dedupe_evidence, retained_evidence, protected_data_request, mark_original_established, original_publication_binding,
     evidence_max_entries,
     evidence_freshness_seconds,
     evidence_in_query_window,
@@ -276,6 +276,12 @@ class CanonicalNewsIntelligenceService(NewsIntelligenceProvider):
                 metadata=refresh_metadata,
             )
             refresh_result = self.retrieval_provider.get_news(refresh_candidates, request, refresh_policy)
+            if any(original_publication_binding(item) for rows in refresh_result.evidence_by_symbol.values() for item in rows):
+                # Provider data cannot assert canonical-owner precedence. Use
+                # the same normalized facts for persistence and live assembly.
+                refresh_result = replace(refresh_result, evidence_by_symbol={
+                    key: tuple(mark_original_established(item, False) for item in rows)
+                    for key, rows in refresh_result.evidence_by_symbol.items()})
             mark("provider_seconds")
             if retrieval_policy.allow_cache_write or require_compatible:
                 completed_at = refresh_result.completed_at or datetime.now(timezone.utc)

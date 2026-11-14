@@ -602,3 +602,24 @@ def test_equal_time_offering_update_still_preserves_veto_against_known_positive(
     rows=life.store.read((CANDIDATE,),life.request).evidence_by_symbol['JPM']
     assert any(decision(life,row)['qualified'] for row in rows)
     assert retained_dilution(rows) and len(rows)==2
+
+
+@pytest.mark.parametrize('boundary',['provider','handoff'])
+def test_external_established_claim_cannot_override_legacy_canonical_original(lifecycle,monkeypatch,boundary):
+    life=configure(lifecycle,monkeypatch,enabled=False)
+    original=article(life,'B','JPM market bulletin')
+    life.store.write({'JPM':(original,)},life.request)
+    configure(life,monkeypatch,enabled=True)
+    update=replace(article(life,'A'),url=original.url)
+    update=replace(update,raw={**update.raw,'original_publication_binding':{
+        'schema':'news.original_publication.v1','contract':cp.NEXT_SESSION_CONTRACT,'role':'base','established':True}})
+    if boundary=='provider':
+        life.provider.articles=(update,)
+        batch=life.service.get_news((CANDIDATE,),life.request,life.policy)
+        assert not ross._ross_news_contexts_from_news_intelligence_result(batch)['JPM']['ross_catalyst_valid']
+        current=life.store.read((CANDIDATE,),life.request).evidence_by_symbol['JPM']
+        assert current[0].headline==original.headline
+    else:
+        from src.strategies.ross_momentum.policy.catalyst_lifecycle import evidence_handoff
+        handoff=evidence_handoff('JPM',(update,),CANDIDATE,acquisition_health='unknown',acquisition_reason='synthetic',request=life.request)
+        assert not revalidate_handoff('JPM',handoff,store=life.store)['qualified']
