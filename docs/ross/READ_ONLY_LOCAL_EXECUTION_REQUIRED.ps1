@@ -78,7 +78,7 @@ STANDARD = {b'filter.lfs.clean': b'git-lfs clean -- %f',
             b'filter.lfs.process': b'git-lfs filter-process'}
 OPTIONAL = {b'filter.lfs.required': b'true'}
 _WINDOWS = sys.platform == 'win32'
-UNSAFE = re.compile(rb'^(include\.path|includeif\..*\.path|core\.(hookspath|fsmonitor)|extensions\.(partialclone|worktreeconfig)|remote\..*\.(promisor|partialclonefilter)|attr\.tree)$')
+UNSAFE = re.compile(rb'^(include\.path|includeif\..*\.path|core\.(hookspath|fsmonitor)|extensions\.partialclone|remote\..*\.(promisor|partialclonefilter)|attr\.tree)$')
 
 def _windows_drive_type(root):
     import ctypes
@@ -131,10 +131,19 @@ def qualify(git, repo, commit, tree, working=False):
         raw = run('config', '--no-includes', '--null', '--show-origin', '--show-scope', '--list')
         entries = records(raw, 3)
         seen = set()
+        worktree_config_seen = False
         for scope, origin, item in entries:
             if b'\n' not in item: raise ValueError('Incomplete config key/value')
             key, value = item.split(b'\n', 1)
             if UNSAFE.fullmatch(key): raise ValueError('Unadmitted Git execution/source configuration')
+            # Native Git includes the current worktree's effective entries in
+            # this complete --show-scope listing when the extension is enabled.
+            # Admit only the observed common/local true flag, once; inspect all
+            # resulting worktree entries with the same guards and snapshots.
+            if key == b'extensions.worktreeconfig':
+                if scope != b'local' or not origin.startswith(b'file:') or len(origin) <= 5 or value != b'true' or worktree_config_seen:
+                    raise ValueError('Unadmitted worktree-config extension scope, value or override')
+                worktree_config_seen = True
             if key.lower().startswith(b'filter.'):
                 allowed = STANDARD.get(key, OPTIONAL.get(key))
                 if allowed is None or value != allowed or scope != b'system' or not origin.startswith(b'file:') or len(origin) <= 5 or key in seen:
@@ -352,15 +361,15 @@ if __name__ == '__main__':
         Write-Host 'REQUIRED CONTEMPORANEOUS OPERATOR VERIFICATION (NOT machine/API-proven by this block):'
         Write-Host '1. This is the authorized Windows laptop. TWS visibly shows the intended PAPER login; do not infer PAPER from port7497.'
         Write-Host '2. TWS Read-Only API and the socket setting are ALREADY enabled at127.0.0.1:7497; the local listener belongs to that TWS. No settings/permissions are changed here.'
-        Write-Host '3. Client71 is verified free and reserved for this single attempt. No other Ross runtime, pytest session or independent broker operation is active or will be started during it.'
+        Write-Host '3. Client71 is reserved for this single attempt. No other known Ross runtime, pytest session or independent broker operation is active or will be started during it. Client71 availability is NOT an operator-verified fact: the maintained exact-ID connection must establish admission; it cannot fall back to another ID.'
         Write-Host '4. Required market/scanner data login and entitlements are already active. Holdings, orders and recovery/submission state will remain untouched.'
-        Write-Host 'If ANY fact is unknown, unverifiable, false or conflicting, STOP. Do not probe, change permissions or terminate a client to make it pass.'
+        Write-Host 'If ANY OPERATOR fact above is unknown, unverifiable, false or conflicting, STOP. Client71 native admission remains unknown until the maintained connection result. Do not probe, change permissions or terminate a client to make it pass.'
         Write-Host '5. This attempt explicitly selects the reviewed finite calendar and its narrower actual RTH_OPEN1260-second envelope; no calendar/host/account/client fact is inferred from an old run.'
-        $attestation = Read-Host 'Only after checking every fact, type exactly VERIFIED LOCAL PAPER READONLY CLIENT71 REVIEWED CALENDAR (anything else refuses launch)'
-        if ($attestation -cne 'VERIFIED LOCAL PAPER READONLY CLIENT71 REVIEWED CALENDAR') { throw 'Required local prerequisites were not verified; observation was not launched.' }
+        $attestation = Read-Host 'After checking the operator facts above, type exactly CONFIRM LOCAL PAPER READONLY CLIENT71 RESERVED REVIEWED CALENDAR (anything else refuses launch)'
+        if ($attestation -cne 'CONFIRM LOCAL PAPER READONLY CLIENT71 RESERVED REVIEWED CALENDAR') { throw 'Required local prerequisites were not verified; observation was not launched.' }
         $attestationPath = Join-Path $resolvedRunRoot 'local-operator-attestations.json'
         [ordered]@{
-            scope = 'OPERATOR_ATTESTED_LOCAL_PREREQUISITES_NOT_MACHINE_PROOF'
+            scope = 'OPERATOR_ATTESTED_LOCAL_FACTS_AND_RESERVATION_NOT_NATIVE_ADMISSION'
             attested_utc = [datetime]::UtcNow.ToString('o')
             source_commit = $release.Commit
             reviewed_calendar_opt_in = $true
@@ -369,7 +378,9 @@ if __name__ == '__main__':
             runtime_seconds = $release.RuntimeSeconds
             endpoint = '127.0.0.1:7497'
             client_id = 71
-            facts = @('LOCAL_WINDOWS_LAPTOP','INTENDED_PAPER_LOGIN','TWS_API_READ_ONLY_ALREADY_ENABLED','LOCAL_LISTENER_BELONGS_TO_TWS','CLIENT71_FREE_AND_RESERVED','NO_CONCURRENT_RUNTIME_PYTEST_OR_BROKER_OPERATION','EXISTING_MARKET_DATA_LOGIN','NO_HOLDINGS_ORDERS_RECOVERY_OR_PERMISSION_CHANGES','REVIEWED_FINITE_CALENDAR_SCOPE_ACKNOWLEDGED')
+            client71_availability = 'UNKNOWN_UNTIL_NATIVE_ADMISSION'
+            native_client71_admission = 'NOT_ATTEMPTED'
+            facts = @('LOCAL_WINDOWS_LAPTOP','INTENDED_PAPER_LOGIN','TWS_API_READ_ONLY_ALREADY_ENABLED','LOCAL_LISTENER_BELONGS_TO_TWS','CLIENT71_RESERVED_FOR_THIS_ATTEMPT','NO_KNOWN_CONCURRENT_RUNTIME_PYTEST_OR_BROKER_OPERATION','EXISTING_MARKET_DATA_LOGIN','NO_HOLDINGS_ORDERS_RECOVERY_OR_PERMISSION_CHANGES','REVIEWED_FINITE_CALENDAR_SCOPE_ACKNOWLEDGED')
             machine_preflight_status = 'NOT_RUN_YET_EXISTING_OWNER_MUST_PASS'
             PAPER_READY = $false
         } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $attestationPath -Encoding UTF8 -ErrorAction Stop
