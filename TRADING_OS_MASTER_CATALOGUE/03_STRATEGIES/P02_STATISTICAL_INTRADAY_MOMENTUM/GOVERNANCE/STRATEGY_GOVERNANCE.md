@@ -342,3 +342,32 @@ positive Core admission is claimed. Full source, failure, evidence and remaining
 guarantee details are in SAME3's latest bounded-prerequisite entry. ATR proposal
 remains NOT ADOPTED with numerical bounds unresolved; original entry, target and
 management draft scope is not implicitly adopted by these prerequisites.
+
+
+### Independent ATR authority/data audit (read-only; no numerical adoption)
+
+Bounded review at b17e7a93 confirms bounds cannot presently be justified:
+strategy_assumptions.md3–8 is qualitative; ALGORITHM104–106 supplies no values;
+strategy_policy_v2.py546/560/565/594/607 says pending replay calibration.
+V1 strategy_policy48–49/features45–48,82–83 measures return population stdev;
+risk_policy15/34 is a placeholder stop multiplier, not admission authority.
+Test_scoring_determinism9–10 and test_completed_context61–76 are authored
+synthetic streams/callbacks, not representative security/session/cost outcomes.
+Existing src/core/replay_engine.py19–24,52–73 replays recorded events; it does
+not supply a calibrated dataset. src/learning/models.py8–24 has trade records
+without enforced held-out/provenance/cost contracts, and policy_proposal.py7
+imports RossMomentumPolicy. It cannot authorize P02 calibration. Fixed
+src/execution/slippage_model.py16–21 and commission_model.py10–13 are simulation
+assumptions, not observed P02 costs. Tracked news-source evidence CSVs are not
+P02 OHLCV training samples; no approved P02 dataset manifest was identified.
+Retained databases/logs were not opened or treated as calibration authority.
+
+Smallest separate calibration prerequisite: approved already-available immutable
+offline OHLCV/quote manifest with security/session/time/adjustment/missing/halts
+and cost provenance; freeze chronological/security development versus held-out
+splits and P02 outcome/bound-selection procedure before validation. Report
+sensitivity/adverse regimes/coverage uncertainty. No provider acquisition,
+fixture-tuned bounds, new engine or activation is authorized here. ATR admission
+remains UNKNOWN/fail-closed. Full cooldown clearance also remains blocked by the
+separate native intake/request-history guarantee documented above. The SAME3
+acceptance receipt carries exact integration/review/CI identities and limits.
