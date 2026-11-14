@@ -193,22 +193,28 @@ def coalesce_original_publications(items, *, veto_predicate, contract):
     return sorted(output, key=lambda item: (publication_stamp(item) or float("-inf"), fact_version_key(item)), reverse=True)
 
 
-def protected_data_request(request, marker, *, for_write=False):
+def protected_data_request(request, marker, *, for_write=False, marker_present=False):
     """Existing canonical bucket protection grants no consumer eligibility."""
-    if not marker and not (request and request.metadata.get("protected_retention_contract")):
+    if not marker_present and marker is None and not (request and request.metadata.get("protected_retention_contract")):
         return request
     from src.strategies.ross_momentum.policy.catalyst_policy import (
         NEXT_SESSION_CONTRACT, PROTECTED_WITNESS_SLOTS, ROSS_ISSUER_EVENT_PROFILE, next_session_request_metadata,
         protected_ross_request, select_qualification_evidence)
     if protected_ross_request(request):
         return request
-    if not isinstance(marker, Mapping) or marker.get("contract") != NEXT_SESSION_CONTRACT:
-        return request
     if not for_write and (not request or request.strategy_id != "ross_momentum" or request.query_start_utc is not None):
         return request
-    limit = marker.get("presentation_limit")
-    if type(limit) is not int or limit < 1:
-        return request
+    limit = marker.get("presentation_limit") if isinstance(marker, Mapping) else None
+    if (not isinstance(marker, Mapping) or marker.get("contract") != NEXT_SESSION_CONTRACT
+            or type(limit) is not int or limit < 1):
+        if for_write:
+            return request  # The canonical writer separately refuses unsupported state.
+        # Unsupported retained state cannot certify veto absence via the old
+        # age-limited selector. Read known facts conservatively with today's
+        # bounded data selector; this never changes the actual consumer request.
+        limit = request.metadata.get("presentation_limit", evidence_max_entries(request))
+        if type(limit) is not int or limit < 1:
+            limit = evidence_max_entries(request)
     if request and request.strategy_id == "ross_momentum" and request.query_start_utc is None:
         limit = int(request.metadata.get("presentation_limit", limit))
     metadata = {"qualification_profile": ROSS_ISSUER_EVENT_PROFILE, "presentation_limit": limit,
@@ -306,10 +312,12 @@ class CanonicalNewsEvidenceStore:
             symbol = candidate.normalized_symbol
             if not symbol:
                 continue
-            marker = (buckets.get(symbol) or {}).get("ross_retention_contract")
-            if marker:
+            bucket = buckets.get(symbol) or {}
+            marker_present = "ross_retention_contract" in bucket
+            marker = bucket.get("ross_retention_contract")
+            if marker_present:
                 diagnostics.setdefault("ross_retention_contract_by_symbol", {})[symbol] = marker
-            effective_request = protected_data_request(request, marker)
+            effective_request = protected_data_request(request, marker, marker_present=marker_present)
             evidence: list[NewsEvidence] = []
             for row in list(cache_rows.get(symbol, ())) + list(legacy_rows.get(symbol, ())):
                 parsed = evidence_from_mapping(row, request=request, now=now)
@@ -317,7 +325,7 @@ class CanonicalNewsEvidenceStore:
                     evidence.append(parsed)
             if symbol in legacy_rows:
                 diagnostics["legacy_news_cache_symbols"].append(symbol)
-            if marker or (effective_request and effective_request.metadata.get("protected_retention_contract")):
+            if marker_present or (effective_request and effective_request.metadata.get("protected_retention_contract")):
                 from src.strategies.ross_momentum.policy.catalyst_policy import NEXT_SESSION_CONTRACT, retained_veto, protected_ross_request
                 if protected_ross_request(effective_request) or isinstance(marker, Mapping) and marker.get("contract") == NEXT_SESSION_CONTRACT:
                     # Cache-origin facts precede fresh/prep claims. Establish

@@ -277,9 +277,8 @@ class CanonicalNewsIntelligenceService(NewsIntelligenceProvider):
             )
             refresh_result = self.retrieval_provider.get_news(refresh_candidates, request, refresh_policy)
             if request.metadata.get("protected_retention_contract") or cache_diagnostics.get("ross_retention_contract_by_symbol"):
-                from src.strategies.ross_momentum.policy.catalyst_policy import protected_ross_request, NEXT_SESSION_CONTRACT
-                if protected_ross_request(request) or any(isinstance(marker, Mapping) and marker.get("contract") == NEXT_SESSION_CONTRACT
-                        for marker in cache_diagnostics.get("ross_retention_contract_by_symbol", {}).values()):
+                from src.strategies.ross_momentum.policy.catalyst_policy import protected_ross_request
+                if protected_ross_request(request) or cache_diagnostics.get("ross_retention_contract_by_symbol"):
                     refresh_result = replace(refresh_result, evidence_by_symbol={
                         key: tuple(issuer_accepted_evidence(key, rows, ordered_candidates))
                         for key, rows in refresh_result.evidence_by_symbol.items()})
@@ -354,7 +353,8 @@ class CanonicalNewsIntelligenceService(NewsIntelligenceProvider):
                 items = [refresh_evidence_age(item, request=request, now=started_at) for item in items
                          if evidence_in_query_window(item, request, now=started_at)]
             effective_request = protected_data_request(request,
-                cache_diagnostics.get("ross_retention_contract_by_symbol", {}).get(symbol))
+                cache_diagnostics.get("ross_retention_contract_by_symbol", {}).get(symbol),
+                marker_present=symbol in cache_diagnostics.get("ross_retention_contract_by_symbol", {}))
             merged = tuple(retained_evidence(items, effective_request))
             combined_evidence[symbol] = merged
             cached_retrieval = (cache_diagnostics.get("last_retrieval_by_symbol", {}).get(symbol, {})

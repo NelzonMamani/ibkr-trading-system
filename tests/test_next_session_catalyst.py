@@ -706,3 +706,28 @@ def test_malformed_protected_issuer_refuses_destructive_generic_write(lifecycle,
                               NewsRequest(strategy_id='unrelated', max_evidence_per_symbol=1))
     assert result['cache_write_failed'] and result['cache_write_error'] == 'protected_retention_marker_invalid'
     assert life.store.cache_path.read_bytes() == before
+
+
+@pytest.mark.parametrize('marker', [None, {}, [], {'contract': 'unknown'},
+    {'contract': cp.NEXT_SESSION_CONTRACT, 'presentation_limit': 0},
+    {'contract': cp.NEXT_SESSION_CONTRACT, 'presentation_limit': 1, 'issuer': {'symbol': 'OTHER'}}])
+@pytest.mark.parametrize('refresh', [False, True])
+def test_unsupported_marker_cannot_hide_retained_veto_after_disable(lifecycle, monkeypatch, marker, refresh):
+    life = configure(lifecycle, monkeypatch)
+    veto = article(life, 'V', 'JPM announces registered direct offering', NOW-timedelta(days=2))
+    positive = article(life, 'P', published=NOW-timedelta(minutes=1))
+    life.store.write({'JPM': (positive, veto)}, life.request)
+    payload = json.loads(life.store.cache_path.read_text())
+    payload['news_intelligence']['symbols']['JPM']['ross_retention_contract'] = marker
+    life.store.cache_path.write_text(json.dumps(payload))
+    cfg.set_config_overrides(dict(cfg._CONFIG_OVERRIDES, ROSS_NEXT_SESSION_CATALYST_ENABLED=False))
+    life.request = ross._ross_news_request()
+    foreign = replace(article(life, 'FOREIGN', '$JPM.TO announces registered direct offering',
+                              veto.published_at-timedelta(days=1)), url=veto.url)
+    life.provider.articles = (positive, foreign)
+    policy = life.policy if refresh else replace(life.policy, network_allowed=False, refresh_mode='cache_only', allow_cache_write=False)
+    result = life.service.get_news((CANDIDATE,), life.request, policy)
+    context = ross._ross_news_contexts_from_news_intelligence_result(result)['JPM']
+    assert context['dilution_flag'] and not context['ross_catalyst_valid']
+    assert retained_dilution(result.evidence_by_symbol['JPM'])
+    assert not any(row.evidence_id == foreign.evidence_id for row in result.evidence_by_symbol['JPM'])
