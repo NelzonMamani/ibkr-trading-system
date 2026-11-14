@@ -328,9 +328,13 @@ class StorageEngine:
     def fetch_management_state(self, state_id: str) -> dict[str, Any] | None:
         if not self.enabled or self.backend != "sqlite" or not self._store:
             return None
-        row = self._store.connection.execute(
+        cursor = self._store.connection.execute(
             "SELECT reason FROM position_lifecycle_transitions WHERE transition_id = ?", (state_id,)
-        ).fetchone()
+        )
+        try:
+            row = cursor.fetchone()
+        finally:
+            cursor.close()
         if row is None:
             return None
         payload = json.loads(row[0])

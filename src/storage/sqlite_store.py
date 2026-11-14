@@ -76,7 +76,7 @@ def _local_cursor_execute(facade, kind, sql, parameters=()):
         if not parameters_ok(parameters):
             row['state'].refuse('CUSTOM_SQL_PARAMETERS')
         row['cursor'].execute(sql,parameters)
-    row['active'] = row['cursor'].description is not None
+    row['state'].set_cursor_active(row,row['cursor'].description is not None)
     return facade
 
 
@@ -140,7 +140,7 @@ class _LocalConnectionFacade(_LocalOpaque):
     def close(self):
         state = _LOCAL_CONNECTIONS[self]
         try:
-            return state.operation('close', state.raw.close)
+            return state.operation('close', state.close_owned)
         finally:
             state.closed = True
             state.uncertain = 'CONNECTION_CLOSED'
@@ -190,7 +190,7 @@ class _LocalCursorFacade(_LocalOpaque):
         def fetch():
             value = row['cursor'].fetchone()
             if value is None:
-                row['active'] = False
+                row['state'].set_cursor_active(row,False)
             return value
         return row['state'].operation('fetchone', fetch)
 
@@ -201,7 +201,7 @@ class _LocalCursorFacade(_LocalOpaque):
         def fetch():
             value = row['cursor'].fetchmany(size)
             if not value:
-                row['active'] = False
+                row['state'].set_cursor_active(row,False)
             return value
         return row['state'].operation('fetchmany', fetch)
 
@@ -209,7 +209,7 @@ class _LocalCursorFacade(_LocalOpaque):
         row = _LOCAL_CURSORS[self]
         def fetch():
             value = row['cursor'].fetchall()
-            row['active'] = False
+            row['state'].set_cursor_active(row,False)
             return value
         return row['state'].operation('fetchall', fetch)
 
@@ -217,7 +217,7 @@ class _LocalCursorFacade(_LocalOpaque):
         row = _LOCAL_CURSORS[self]
         def close():
             row['cursor'].close()
-            row['active'] = False
+            row['state'].set_cursor_active(row,False)
         return row['state'].operation('cursor.close', close)
 
     @property
@@ -263,7 +263,9 @@ class _LocalSQLiteState:
         self._facade_ref = weakref.ref(facade)
         _LOCAL_CONNECTIONS[facade] = self
         store._connection = facade
-        self.cursors = weakref.WeakSet()
+        # A facade's weak lifetime cannot prove its underlying VM settled.
+        # Keep active raw records until verified exhaustion or explicit close.
+        self.active_cursors = {}
         self.fencing = False
         self.private_checks = False
         self.private_configuring = False
@@ -308,8 +310,22 @@ class _LocalSQLiteState:
         cursor = self.raw.cursor()
         cursor.row_factory = sqlite3.Row
         _LOCAL_CURSORS[facade] = dict(state=self,cursor=cursor,active=False)
-        self.cursors.add(facade)
         return facade
+
+    def set_cursor_active(self, row, active):
+        row['active'] = active
+        key = id(row['cursor'])
+        if active:
+            self.active_cursors[key] = row
+        else:
+            self.active_cursors.pop(key,None)
+
+    def close_owned(self):
+        # Only the creator-thread operation gate may settle abandoned VMs.
+        for row in tuple(self.active_cursors.values()):
+            row['cursor'].close()
+            self.set_cursor_active(row,False)
+        self.raw.close()
 
     def authorize(self, action, first, second, database, trigger):
         if (self.private_configuring and action == sqlite3.SQLITE_PRAGMA
@@ -469,7 +485,7 @@ class SQLiteStore:
                 or config_resolver.get_config('RUN_MODE_EFFECTIVE') != 'PAPER'):
             state.refuse('TEST_PAPER_ENROLLMENT_CHANGED')
         if (not self.local_cooldown_state()['supported'] or state.lease is not None or state.inflight
-                or state.raw.in_transaction or any(_LOCAL_CURSORS[cursor]['active'] for cursor in state.cursors)
+                or state.raw.in_transaction or state.active_cursors
                 or (expected_revision is not None and expected_revision != state.revision)):
             raise RuntimeError('LOCAL_SQLITE_FENCE_UNAVAILABLE')
         fence = _LocalCooldownFence()
@@ -503,16 +519,23 @@ class SQLiteStore:
     def close(self) -> None:
         self.connection.close()
 
+    def _owned_fetchone(self, sql, parameters=()):
+        cursor = self.connection.execute(sql,parameters)
+        try:
+            return cursor.fetchone()
+        finally:
+            cursor.close()
+
     def initialize_schema(self) -> None:
         # Refuse future base schemas before any DDL or schema stamp.
-        if self.connection.execute("SELECT 1 FROM sqlite_master WHERE name='schema_meta'").fetchone():
-            version = self.connection.execute('SELECT MAX(version) FROM schema_meta').fetchone()[0]
+        if self._owned_fetchone("SELECT 1 FROM sqlite_master WHERE name='schema_meta'"):
+            version = self._owned_fetchone('SELECT MAX(version) FROM schema_meta')[0]
             if version is not None and version > SCHEMA_VERSION:
                 raise RuntimeError('STORAGE_FUTURE_SCHEMA_UNSUPPORTED')
-        if self.connection.execute("SELECT 1 FROM sqlite_master WHERE name='capital_owner_state'").fetchone():
+        if self._owned_fetchone("SELECT 1 FROM sqlite_master WHERE name='capital_owner_state'"):
             if os.environ.get('EXECUTION_ENV') != 'TEST':
                 raise RuntimeError('CAPITAL_OPERATIONAL_ACCESS_UNFENCED')
-            if self.connection.execute("SELECT 1 FROM capital_owner_state WHERE NOT ((schema_version=1 AND fence='SYNTHETIC_ONLY_V1') OR (schema_version=2 AND fence='SYNTHETIC_ONLY_V2')) LIMIT 1").fetchone():
+            if self._owned_fetchone("SELECT 1 FROM capital_owner_state WHERE NOT ((schema_version=1 AND fence='SYNTHETIC_ONLY_V1') OR (schema_version=2 AND fence='SYNTHETIC_ONLY_V2')) LIMIT 1"):
                 raise RuntimeError('CAPITAL_EXTENSION_SCHEMA_UNSUPPORTED')
         cursor = self.connection.cursor()
         cursor.executescript(
@@ -1332,7 +1355,7 @@ class SQLiteStore:
                                           financial_only: bool = False) -> dict[str, Any]:
         """Commit one canonical snapshot/event pair, with no cross-owner claim."""
         if (self.connection.in_transaction
-                or self.connection.execute("PRAGMA query_only").fetchone()[0]):
+                or self._owned_fetchone("PRAGMA query_only")[0]):
             raise RuntimeError("NATIVE_LIFECYCLE_STORAGE_UNAVAILABLE")
         if trade.get("lifecycle_trade_id") != event.get("lifecycle_trade_id") or trade.get("run_id") != event.get("run_id"):
             raise ValueError("NATIVE_LIFECYCLE_STORAGE_IDENTITY_CONFLICT")
@@ -1359,8 +1382,8 @@ class SQLiteStore:
         prior_commit_each_write = self.commit_each_write
         try:
             self.connection.execute("BEGIN IMMEDIATE")
-            old_event = self.connection.execute("SELECT * FROM trade_lifecycle_events WHERE event_id=?", (event["event_id"],)).fetchone()
-            old_trade = self.connection.execute("SELECT * FROM trade_lifecycle_trades WHERE lifecycle_trade_id=?", (trade["lifecycle_trade_id"],)).fetchone()
+            old_event = self._owned_fetchone("SELECT * FROM trade_lifecycle_events WHERE event_id=?", (event["event_id"],))
+            old_trade = self._owned_fetchone("SELECT * FROM trade_lifecycle_trades WHERE lifecycle_trade_id=?", (trade["lifecycle_trade_id"],))
             if old_event is not None:
                 if (any(old_event[key] != event.get(key) for key in event_keys)
                         or not matches(old_trade, trade)):
@@ -1379,8 +1402,8 @@ class SQLiteStore:
             self.commit_each_write = False
             self.upsert_trade_lifecycle_trade(trade)
             self.insert_trade_lifecycle_events([event])
-            saved_trade = self.connection.execute("SELECT * FROM trade_lifecycle_trades WHERE lifecycle_trade_id=?", (trade["lifecycle_trade_id"],)).fetchone()
-            saved_event = self.connection.execute("SELECT * FROM trade_lifecycle_events WHERE event_id=?", (event["event_id"],)).fetchone()
+            saved_trade = self._owned_fetchone("SELECT * FROM trade_lifecycle_trades WHERE lifecycle_trade_id=?", (trade["lifecycle_trade_id"],))
+            saved_event = self._owned_fetchone("SELECT * FROM trade_lifecycle_events WHERE event_id=?", (event["event_id"],))
             if (not matches(saved_trade, trade) or saved_event is None
                     or any(saved_event[key] != event.get(key) for key in event_keys)):
                 raise RuntimeError("NATIVE_LIFECYCLE_PERSISTENCE_UNCONFIRMED")

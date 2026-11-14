@@ -434,3 +434,161 @@ def test_native_initial_local_enrollment_refuses_preexisting_callback_owner(loca
         assert getattr(h.client,'_p02_local_ingress',None) is None
         assert mutations()==dict(place=0,modify=0,cancel=0)
     finally:storage.shutdown()
+
+
+def test_native_enrollment_refuses_callback_already_running_before_bind(
+        local_component,native_execution_client,monkeypatch):
+    client=native_execution_client;entered=threading.Event();release=threading.Event();errors=[]
+    original=client._observe_order_id
+    def blocked(order_id):
+        entered.set();assert release.wait(timeout=3)
+        return original(order_id)
+    monkeypatch.setattr(client,'_observe_order_id',blocked)
+    def callback():
+        try:client.orderStatus(43000,'Submitted',0,1,0,0,0,0,999,'',0)
+        except BaseException as exc:errors.append(exc)
+    worker=threading.Thread(target=callback)
+    try:
+        worker.start();assert entered.wait(timeout=2)
+        assert getattr(client,'_p02_local_ingress',None) is None
+        with pytest.raises(RuntimeError,match='P02_LOCAL_NATIVE_.*'):
+            local_component()
+        assert getattr(client,'_p02_local_ingress',None) is None
+    finally:
+        release.set();worker.join(timeout=3)
+    assert not worker.is_alive() and not errors
+    assert client.cached_order_status(43000)['remaining']==1
+
+
+def test_native_lifetime_is_visible_before_bound_intake_registration(local_component,monkeypatch):
+    from test_p02_observable_local_cooldown import NOW
+    h=local_component();_settle(h)
+    initial=h.engine.observe_p02_local_cooldown(identity=h.identity,
+        context_fingerprint='before-registration',assessed_at=NOW)
+    assert initial.local_condition_satisfied and not initial.admission_authorized
+    entered=threading.Event();release=threading.Event();errors=[]
+    original=h.client.begin_local_intake
+    def blocked(kind):
+        entered.set();assert release.wait(timeout=3)
+        return original(kind)
+    monkeypatch.setattr(h.client,'begin_local_intake',blocked)
+    def callback():
+        try:h.client.orderStatus(43000,'Submitted',0,1,0,0,0,0,999,'',0)
+        except BaseException as exc:errors.append(exc)
+    worker=threading.Thread(target=callback)
+    try:
+        worker.start();assert entered.wait(timeout=2)
+        snapshot=h.client.local_intake_snapshot()
+        assert snapshot.inflight and all(identifier<0 for identifier in snapshot.inflight)
+        assert snapshot.dirty==()  # No bound ticket exists yet; lifetime still vetoes.
+        _settle(h)
+        value=h.engine.observe_p02_local_cooldown(identity=h.identity,
+            context_fingerprint='paused-before-registration',assessed_at=NOW)
+        assert not value.local_condition_satisfied and not value['available']
+        assert 'P02_LOCAL_INTAKE_NOT_SETTLED' in value['findings']
+    finally:
+        release.set();worker.join(timeout=3)
+    assert not worker.is_alive() and not errors
+    assert not h.client.local_intake_snapshot().inflight
+    assert h.client.cached_order_status(43000)['remaining']==1
+
+
+def test_native_unbound_lifetime_metadata_is_bounded_and_unknown_intake_sticky(
+        native_execution_client,local_component):
+    client=native_execution_client;state=client._p02_source_lifetime
+    before=state['revision']
+    for _ in range(5):client.execDetails(999999,Contract(),Execution())
+    assert state['revision']>before and state['operations']=={}
+    assert state['tickets']=={} and state['origins']=={} and not state['inflight']
+    assert state['supported'] is False and state['unsupported']=='PREBIND_execDetails'
+    assert getattr(client,'_p02_local_ingress',None) is None
+    assert client._exec_details_by_order=={}
+    with pytest.raises(RuntimeError,match='P02_LOCAL_NATIVE_LIFETIME_UNAVAILABLE'):
+        local_component(client=client)
+    assert client._p02_source_lifetime is state and not state['supported']
+
+
+def test_native_prebind_critical_rebind_cannot_be_laundered_by_restoring_value(
+        native_execution_client,local_component):
+    client=native_execution_client;state=client._p02_source_lifetime;revision=state['revision']
+    client.client_id=1000;client.client_id=999
+    assert state['revision']>revision and not state['operations']
+    assert state['unsupported']=='PREBIND_SET_client_id'
+    with pytest.raises(RuntimeError,match='P02_LOCAL_NATIVE_LIFETIME_UNAVAILABLE'):
+        local_component(client=client)
+    assert client.client_id==999 and state is client._p02_source_lifetime
+
+
+def test_native_reinitialization_never_resets_original_lifetime(native_execution_client,local_component):
+    client=native_execution_client;state=client._p02_source_lifetime;revision=state['revision']
+    client.__init__('offline',0,999,1,'LIVE',True)
+    assert client._p02_source_lifetime is state and state['revision']>revision
+    assert not state['supported'] and state['unsupported']=='NATIVE_REINITIALIZATION'
+    with pytest.raises(RuntimeError,match='P02_LOCAL_NATIVE_LIFETIME_UNAVAILABLE'):
+        local_component(client=client)
+
+
+def test_native_missing_constructor_metadata_cannot_enroll(local_component):
+    from src.core.engines.trade_lifecycle_engine import TradeLifecycleEngine
+    from src.storage.storage_engine import StorageEngine
+    legacy=IbkrClient.__new__(IbkrClient)
+    legacy.client_id=999;legacy._position_connection_epoch=0
+    legacy._managed_accounts=[ACCOUNT];legacy._execution_callbacks=[]
+    legacy._stop_event=threading.Event();legacy.isConnected=lambda:True
+    assert getattr(legacy,'_p02_source_lifetime',None) is None
+    h=local_component(enrolled=False,client=legacy)
+    storage=StorageEngine(local_cooldown_mode='PAPER')
+    try:
+        h.engine._storage_engine=storage;h.engine._trade_lifecycle_engine=TradeLifecycleEngine(storage)
+        assert storage.local_cooldown_state()['supported']
+        with pytest.raises(RuntimeError,match='P02_LOCAL_NATIVE_ENROLLMENT_UNAVAILABLE'):
+            h.engine.enable_p02_local_cooldown(account=ACCOUNT,client=legacy)
+        assert getattr(legacy,'_p02_source_lifetime',None) is None
+        assert getattr(legacy,'_p02_local_ingress',None) is None
+    finally:storage.shutdown()
+
+
+def test_native_failed_bound_intake_registration_remains_dirty(local_component,monkeypatch):
+    h=local_component();_settle(h)
+    def failed(kind):raise RuntimeError('Synthetic failure before bound-ticket registration')
+    monkeypatch.setattr(h.client,'begin_local_intake',failed)
+    with pytest.raises(RuntimeError,match='before bound-ticket'):
+        _status(h.client)
+    snapshot=h.client.local_intake_snapshot()
+    assert not snapshot.inflight
+    assert any(ticket.kind=='orderStatus' and ticket.finished and ticket.failed
+        for ticket in snapshot.dirty)
+    assert h.client._order_status=={}
+    _settle(h)
+    assert h.client.local_intake_snapshot().dirty
+
+
+def test_native_lifetime_uses_real_primitives_with_existing_history_event_seam(
+        native_execution_client,monkeypatch):
+    from types import SimpleNamespace
+    import src.adapters.brokers.ibkr.ibkr_client as native_module
+    client=native_execution_client
+    monkeypatch.setattr(native_module,'threading',SimpleNamespace(Event=threading.Event))
+    _status(client)
+    assert client.cached_order_status(71)['filled']==1
+    assert client._p02_source_lifetime['operations']=={}
+    assert client._p02_source_lifetime['tickets']=={}
+    assert getattr(client,'_p02_local_ingress',None) is None
+
+
+def test_native_bound_reinitialization_invalidates_snapshot_without_resetting_cache(local_component):
+    from test_p02_observable_local_cooldown import NOW
+    h=local_component();_settle(h)
+    old=h.engine.observe_p02_local_cooldown(identity=h.identity,
+        context_fingerprint='before-bound-reinitialization',assessed_at=NOW)
+    assert old.local_condition_satisfied and not old.admission_authorized
+    state=h.client._p02_source_lifetime;cache=h.client._order_status
+    with pytest.raises(RuntimeError,match='REINITIALIZATION_UNSUPPORTED'):
+        h.client.__init__('offline',0,999,1,'LIVE',True)
+    assert h.client._p02_source_lifetime is state and h.client._order_status is cache
+    assert state['supported'] is False and state['ready'] is False
+    with pytest.raises(RuntimeError,match='LIFETIME_UNAVAILABLE'):
+        h.client.local_intake_snapshot()
+    with pytest.raises(RuntimeError,match='LIFETIME_UNAVAILABLE'):
+        h.engine.revalidate_p02_local_cooldown(old,assessed_at=NOW)
+    assert not h.engine._p02_local['gate'].locked()

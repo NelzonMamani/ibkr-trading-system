@@ -14,6 +14,7 @@ from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
 from src.config.config_resolver import set_config_overrides
 from src.config.runtime_config import RunMode
 from src.core.active_trade_registry import ActiveTradeRegistry
+from src.core.daily_risk_governor import DailyRiskGovernor
 from src.core.engines.trade_lifecycle_engine import TradeLifecycleEngine
 from src.execution.execution_engine import ExecutionEngine
 from src.execution.execution_providers import IbkrExecutionProvider
@@ -57,6 +58,8 @@ def local_component(isolated_runtime_schema, native_execution_client, monkeypatc
         engine._trade_lifecycle_engine = lifecycle
         engine._provider = provider
         engine.relationship_manager = None
+        engine.daily_risk_governor = DailyRiskGovernor(storage_engine=storage,
+            trade_lifecycle_engine=lifecycle, provider=provider)
         if enrolled:
             engine.enable_p02_local_cooldown(account=ACCOUNT, client=client)
         return NS(engine=engine, lifecycle=lifecycle, storage=storage,
@@ -263,6 +266,60 @@ def test_current_and_prior_run_entries_share_original_local_timing(local_compone
     assert {row["run_id"] for row in value["entries"]} == {previous_run, current.storage.run_id}
     assert len(current.storage.fetch_trade_lifecycle_events()) == 1
     assert current.lifecycle.get_trade("PRIOR-P02") is None
+
+
+@pytest.mark.parametrize("fee_case,total", [("positive", .03), ("known_zero", .02)])
+def test_actual_durable_fee_history_uses_owned_governor_day_policy(
+        local_component, monkeypatch, fee_case, total):
+    from contextlib import nullcontext
+    from test_trade_lifecycle_engine import (
+        _native_fee_case, _native_wire_fee_case, _apply_native_fee, FEE_NOW,
+    )
+    from test_standalone_pmh_late_fill_protection import positive_fee_native_source
+    prior = local_component(enrolled=False)
+    owners = (prior.lifecycle, prior.storage)
+    case = (_native_wire_fee_case(owners, monkeypatch, fees=(0, .02))
+        if fee_case == "known_zero" else nullcontext(_native_fee_case(owners, monkeypatch)))
+    class CurrencyClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return FEE_NOW if tz is None else FEE_NOW.astimezone(tz)
+    with case as h:
+        # Preserve the accepted actual fee callback owner. Obtain its currency
+        # input through the real strict SDK summary owner, not a prepared result.
+        source = positive_fee_native_source(NS(native_client=h.client, life=NS(clock=CurrencyClock)),
+            monkeypatch, connected_native_source=fee_case == "known_zero")
+        h.currency = h.client.account_currency_snapshot(expected_account=ACCOUNT, timeout_seconds=.1)
+        assert h.currency.status == "COMPLETE" and h.currency.currency == "USD"
+        assert h.currency.cleanup_complete and len(source.requests) == len(source.cancels) == 1
+        evidence = _apply_native_fee(h)
+        assert evidence["total_commission"] == pytest.approx(total)
+        actual = h.engine.get_trade(h.root)
+        assert actual.quantity_open == 0 and actual.gross_realized_pnl == pytest.approx(-.25)
+        assert len(h.storage.fetch_trade_lifecycle_events()) == 3
+    local_component.close(prior)
+    # The new source owns an empty native cache; historical auxiliary fees are
+    # read without copying prior runtime fee latches or adopting native orders.
+    current = local_component()
+    assert current.lifecycle.native_fee_feedback_snapshot(now=FEE_NOW, max_age_seconds=15)["required"] is False
+    _settle(current)
+    value = _observe(current, at=FEE_NOW + timedelta(seconds=120))
+    assert value["available"] and value.local_condition_satisfied, value["findings"]
+    assert value["timing"] == "EMPTY_LOCAL" and value["findings"] == ()
+    assert value.admission_authorized is False
+    if fee_case == "positive":
+        current.engine.daily_risk_governor = DailyRiskGovernor(storage_engine=prior.storage,
+            trade_lifecycle_engine=current.lifecycle, provider=current.engine._provider)
+    else:
+        current.engine.daily_risk_governor = None
+    assert not current.engine.revalidate_p02_local_cooldown(value,
+        assessed_at=FEE_NOW + timedelta(seconds=120))
+    unavailable = current.engine.observe_p02_local_cooldown(identity=current.identity,
+        context_fingerprint=value.context_fingerprint, assessed_at=FEE_NOW + timedelta(seconds=120))
+    assert not unavailable["available"] and not unavailable.local_condition_satisfied
+    assert "P02_LOCAL_DAILY_GOVERNOR_OWNER_UNAVAILABLE" in unavailable["findings"]
+    assert unavailable.admission_authorized is False
+    assert len(source.requests) == len(source.cancels) == 1
 
 
 @pytest.mark.parametrize("callback", ["execution", "status", "error"])

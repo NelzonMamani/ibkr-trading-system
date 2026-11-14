@@ -519,7 +519,8 @@ class ExecutionEngine:
                 observation["available"] = observation["available"] and not findings
                 observation["local_condition_satisfied"] = bool(observation["available"]
                     and observation["local_condition_satisfied"])
-                source = (*current,lease.revision,id(self._storage_engine),id(lease.owner))
+                source = (*current,lease.revision,id(self._storage_engine),id(lease.owner),
+                    observation["governor_owner_id"])
             evidence = _P02LocalObservation(self,identity,context_fingerprint,assessed_at,
                 source,_p02_detach(observation))
             state["observations"][id(evidence)] = evidence

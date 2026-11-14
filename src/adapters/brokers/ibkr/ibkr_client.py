@@ -6,6 +6,7 @@ from src.ibkr.quote_diagnostics import record_time_assessment
 from src.core.acquisition import AcquisitionCancelled, AcquisitionDeadlineExceeded, checkpoint, wait_event, bounded_timeout
 
 import threading
+from threading import Lock as _LocalSourceLock, local as _LocalSourceThread, get_ident as _local_source_thread_id
 import hashlib
 import inspect
 from importlib.metadata import version as _sdk_distribution_version
@@ -376,22 +377,25 @@ def _local_native_value(value):
 
 
 def _instrument_local_native_intake(cls, name):
-    """Outermost source boundary, including existing account-registration hooks."""
+    """Constructor-lifetime boundary outside registration/parsing/publication."""
     from functools import wraps
     original = getattr(cls, name)
     @wraps(original)
     def intake(self, *args, **kwargs):
-        ticket = self.begin_local_intake(name)
-        if ticket is None:
-            return original(self, *args, **kwargs)
-        state = self._p02_local_ingress
-        stack = getattr(state["thread"], "intake", ())
-        state["thread"].intake = (*stack, ticket)
+        operation = self._begin_local_source_operation(name)
+        ticket = None
+        state = None
+        stack = ()
         failed = False
         try:
+            ticket = self.begin_local_intake(name)
+            if ticket is None:
+                return original(self, *args, **kwargs)
+            state = self._p02_local_ingress
+            stack = getattr(state["thread"], "intake", ())
+            state["thread"].intake = (*stack, ticket)
             try:
-                # Fingerprinting occurs after ingress bookkeeping and before
-                # existing parsing/registration, entirely outside I.
+                # Outside I; failed/unknown inputs still reach the old owner.
                 raw = _local_native_value((args, kwargs))
                 fingerprint = hashlib.sha256(repr(raw).encode()).hexdigest()
                 self._local_intake_fingerprint(ticket, fingerprint)
@@ -402,8 +406,14 @@ def _instrument_local_native_intake(cls, name):
             failed = True
             raise
         finally:
-            state["thread"].intake = stack
-            self.finish_local_intake(ticket, "FAILED" if failed else "RETURNED")
+            try:
+                if ticket is not None:
+                    state["thread"].intake = stack
+                    self.finish_local_intake(ticket, "FAILED" if failed else "RETURNED")
+            finally:
+                # Lifetime ownership outlives bound-ticket completion. There is
+                # no registration or completion gap between these domains.
+                self._finish_local_source_operation(operation, failed=failed)
     setattr(cls, name, intake)
 
 
@@ -422,43 +432,164 @@ class IbkrClient(EWrapper, EClient):
     - Report simple health status
     """
 
+    def _initialize_local_source_lifetime(self):
+        values = object.__getattribute__(self, "__dict__")
+        existing = values.get("_p02_source_lifetime")
+        if existing is not None:
+            with existing["lock"]:
+                existing["revision"] += 1
+                existing["supported"] = False
+                existing["unsupported"] = existing["unsupported"] or "NATIVE_REINITIALIZATION"
+                existing["ready"] = False
+            if values.get("_p02_local_ingress") is not None:
+                raise RuntimeError("P02_LOCAL_NATIVE_REINITIALIZATION_UNSUPPORTED")
+            return existing  # Legacy reinit never resets the lifetime witness.
+        state = dict(owner=None, lock=_LocalSourceLock(), revision=0, next_ticket=0,
+            tickets={}, origins={}, intake_threads={}, inflight=set(), thread=_LocalSourceThread(),
+            process=os.getpid(), client_object_id=id(self), ready=False,
+            supported=not bool(values), unsupported="NATIVE_PRECONSTRUCTION_STATE" if values else None,
+            constructor_thread=_local_source_thread_id(), next_operation=0, operations={}, operation_tickets={},
+            bootstrap_accounts=None, connect_count=0)
+        object.__setattr__(self, "_p02_source_lifetime", state)
+        return state
+
+    def _begin_local_source_operation(self, kind):
+        state = object.__getattribute__(self, "__dict__").get("_p02_source_lifetime")
+        if state is None:
+            return None  # Legacy __new__ callbacks continue, but can never enroll.
+        if type(kind) is not str or not kind:
+            raise RuntimeError("P02_LOCAL_NATIVE_LIFETIME_KIND_INVALID")
+        with state["lock"]:
+            state["revision"] += 1
+            state["next_operation"] += 1
+            operation_id = -state["next_operation"]
+            operation = (operation_id, object(), _local_source_thread_id(), kind, state["revision"])
+            state["operations"][operation_id] = operation
+            stack = getattr(state["thread"], "operations", ())
+            state["thread"].operations = (*stack, operation)
+            if state["owner"] is None:
+                initializing = (not state["ready"] and _local_source_thread_id() == state["constructor_thread"]
+                    and kind.startswith("INITIALIZE_"))
+                bootstrap = kind in {"nextValidId", "managedAccounts", "connect", "connectAck"}
+                if kind == "connect":
+                    state["connect_count"] += 1
+                    bootstrap = state["connect_count"] == 1
+                if not initializing and not bootstrap:
+                    state["supported"] = False
+                    state["unsupported"] = state["unsupported"] or "PREBIND_" + kind
+            return operation
+
+    def _finish_local_source_operation(self, operation, *, failed=False):
+        if operation is None:
+            return
+        state = self._p02_source_lifetime
+        with state["lock"]:
+            current = state["operations"].get(operation[0])
+            stack = getattr(state["thread"], "operations", ())
+            if current is not operation or operation[2] != _local_source_thread_id() or not stack or stack[-1] is not operation:
+                state["supported"] = False
+                state["unsupported"] = state["unsupported"] or "NATIVE_LIFETIME_OPERATION_CONFLICT"
+                raise RuntimeError("P02_LOCAL_NATIVE_LIFETIME_OPERATION_INVALID")
+            associated = state["operation_tickets"].pop(operation[0], None)
+            if failed and state["owner"] is None:
+                state["supported"] = False
+                state["unsupported"] = state["unsupported"] or "PREBIND_CALLBACK_FAILED"
+            elif failed and state["owner"] is not None:
+                state["revision"] += 1
+                current_ticket = state["tickets"].get(associated)
+                if current_ticket is None:
+                    # An exception before bound registration is still observed
+                    # intake. It cannot disappear with the lifetime counter.
+                    state["next_ticket"] += 1
+                    current_ticket = LocalIntakeTicket(state["next_ticket"], operation[3], True, True,
+                        operation[4], state["revision"], None, *self._local_scope_fields())
+                    state["origins"][current_ticket.ticket_id] = current_ticket
+                    state["intake_threads"][current_ticket.ticket_id] = _local_source_thread_id()
+                else:
+                    current_ticket = replace(current_ticket, finished=True, failed=True,
+                        revision_end=state["revision"])
+                    state["inflight"].discard(current_ticket.ticket_id)
+                state["tickets"][current_ticket.ticket_id] = current_ticket
+            del state["operations"][operation[0]]
+            state["thread"].operations = stack[:-1]
+            state["revision"] += 1
+
     def __setattr__(self, name, value):
-        state = self.__dict__.get("_p02_local_ingress")
-        if state is None or name not in {"client_id", "_position_connection_epoch", "_managed_accounts"}:
+        values = object.__getattribute__(self, "__dict__")
+        lifetime = values.get("_p02_source_lifetime")
+        if lifetime is None or name not in {"client_id", "_position_connection_epoch", "_managed_accounts"}:
             return object.__setattr__(self, name, value)
-        active = getattr(state["thread"], "intake", ())
-        kind = active[-1].kind if active else "SET_" + name
-        ticket = self.begin_local_intake(kind)
+        active = getattr(lifetime["thread"], "intake", ())
+        operations = getattr(lifetime["thread"], "operations", ())
+        if not lifetime["ready"] and _local_source_thread_id() == lifetime["constructor_thread"]:
+            kind = "INITIALIZE_" + name
+        else:
+            kind = active[-1].kind if active else operations[-1][3] if operations else "SET_" + name
+        operation = self._begin_local_source_operation(kind)
+        ticket = None
+        failed = False
         try:
-            self._local_intake_fingerprint(ticket,
-                hashlib.sha256(repr((name, _local_native_value(value))).encode()).hexdigest())
+            if lifetime["owner"] is None and name == "_managed_accounts" and lifetime["ready"]:
+                accounts = tuple(value) if type(value) in (list, tuple) and all(type(row) is str for row in value) else None
+                with lifetime["lock"]:
+                    if accounts is None or (lifetime["bootstrap_accounts"] is not None
+                            and lifetime["bootstrap_accounts"] != accounts):
+                        lifetime["supported"] = False
+                        lifetime["unsupported"] = lifetime["unsupported"] or "PREBIND_ACCOUNT_REBIND"
+                    elif accounts:
+                        lifetime["bootstrap_accounts"] = accounts
+            ticket = self.begin_local_intake(kind)
+            if ticket is not None:
+                self._local_intake_fingerprint(ticket,
+                    hashlib.sha256(repr((name, _local_native_value(value))).encode()).hexdigest())
             object.__setattr__(self, name, value)
         except BaseException:
-            self.finish_local_intake(ticket, "FAILED")
+            failed = True
             raise
-        else:
-            self.finish_local_intake(ticket, "RETURNED")
+        finally:
+            try:
+                if ticket is not None:
+                    self.finish_local_intake(ticket, "FAILED" if failed else "RETURNED")
+            finally:
+                self._finish_local_source_operation(operation, failed=failed)
 
     def bind_local_cooldown_owner(self, owner) -> None:
         """Dedicated synthetic TEST/PAPER participation only, default off.
 
-        This requires a dedicated client; empty callbacks do not certify global
+        Constructor-lifetime observation is bounded metadata, not global client
         exclusivity or broker history. Shared operational enrollment is unsupported.
         """
         from src.execution.execution_engine import ExecutionEngine
         from src.config.runtime_config import RunMode
         from src.config.config_resolver import get_config
+        state = object.__getattribute__(self, "__dict__").get("_p02_source_lifetime")
         if (type(owner) is not ExecutionEngine or os.environ.get("EXECUTION_ENV") != "TEST"
                 or owner.run_mode != RunMode.PAPER or get_config("RUN_MODE_EFFECTIVE") != "PAPER"
                 or getattr(owner, "_p02_local", {}).get("client") is not self
-                or getattr(self, "_p02_local_ingress", None) is not None):
+                or getattr(self, "_p02_local_ingress", None) is not None or state is None):
             raise RuntimeError("P02_LOCAL_NATIVE_ENROLLMENT_UNAVAILABLE")
-        self._p02_local_ingress = dict(owner=owner, lock=threading.Lock(), revision=0,
-            next_ticket=0, tickets={}, origins={}, intake_threads={}, inflight=set(),
-            thread=threading.local(), process=os.getpid())
-        ticket = self.begin_local_intake("BASELINE")
-        self._local_intake_fingerprint(ticket, "INITIAL_OBSERVED_LOCAL_STATE")
-        self.finish_local_intake(ticket, "RETURNED")
+        if not state["lock"].acquire(blocking=False):
+            raise RuntimeError("P02_LOCAL_NATIVE_ENROLLMENT_BUSY")
+        try:
+            if (not state["ready"] or not state["supported"] or state["owner"] is not None
+                    or state["process"] != os.getpid() or state["client_object_id"] != id(self)
+                    or state["operations"] or state["inflight"]):
+                raise RuntimeError("P02_LOCAL_NATIVE_LIFETIME_UNAVAILABLE")
+            state["owner"] = owner
+            # SAME lifetime lock/revision, seeded directly: no recursive lock
+            # acquisition, reset, or window for an earlier callback to disappear.
+            state["revision"] += 1
+            state["next_ticket"] += 1
+            start = state["revision"]
+            state["revision"] += 1
+            ticket = LocalIntakeTicket(state["next_ticket"], "BASELINE", True, False,
+                start, state["revision"], "INITIAL_OBSERVED_LOCAL_STATE", *self._local_scope_fields())
+            state["tickets"][ticket.ticket_id] = ticket
+            state["origins"][ticket.ticket_id] = ticket
+            state["intake_threads"][ticket.ticket_id] = _local_source_thread_id()
+            object.__setattr__(self, "_p02_local_ingress", state)
+        finally:
+            state["lock"].release()
 
     def _local_scope_fields(self):
         # Exact builtin owner fields only; no property/parser/SDK invocation in I.
@@ -483,8 +614,11 @@ class IbkrClient(EWrapper, EClient):
                 state["revision"], None, None, *self._local_scope_fields())
             state["tickets"][ticket.ticket_id] = ticket
             state["origins"][ticket.ticket_id] = ticket
-            state["intake_threads"][ticket.ticket_id] = threading.get_ident()
+            state["intake_threads"][ticket.ticket_id] = _local_source_thread_id()
             state["inflight"].add(ticket.ticket_id)
+            operations = getattr(state["thread"], "operations", ())
+            if operations:
+                state["operation_tickets"][operations[-1][0]] = ticket.ticket_id
             return ticket
 
     def _local_intake_fingerprint(self, ticket, fingerprint):
@@ -512,7 +646,7 @@ class IbkrClient(EWrapper, EClient):
             current = state["tickets"].get(ticket.ticket_id)
             if (current is None or current.client_object_id != id(self)
                     or state["origins"].get(ticket.ticket_id) is not ticket
-                    or state["intake_threads"].get(ticket.ticket_id) != threading.get_ident()
+                    or state["intake_threads"].get(ticket.ticket_id) != _local_source_thread_id()
                     or ticket.revision_start != current.revision_start
                     or ticket.ticket_id not in state["inflight"]):
                 raise RuntimeError("P02_LOCAL_INTAKE_TICKET_INVALID")
@@ -525,9 +659,10 @@ class IbkrClient(EWrapper, EClient):
 
     def _local_intake_snapshot_locked(self):
         state = self._p02_local_ingress
-        if state["process"] != os.getpid():
-            raise RuntimeError("P02_LOCAL_NATIVE_PROCESS_CHANGED")
-        return LocalIntakeSnapshot(state["revision"], tuple(sorted(state["inflight"])),
+        if (state["process"] != os.getpid() or state["client_object_id"] != id(self)
+                or not state["ready"] or not state["supported"]):
+            raise RuntimeError("P02_LOCAL_NATIVE_LIFETIME_UNAVAILABLE")
+        return LocalIntakeSnapshot(state["revision"], tuple(sorted((*state["inflight"], *state["operations"]))),
             tuple(state["tickets"].values()), *self._local_scope_fields())
 
     def local_intake_snapshot(self):
@@ -624,6 +759,7 @@ class IbkrClient(EWrapper, EClient):
         market_data_type: str,
         readonly_enabled: bool,
     ):
+        lifetime = self._initialize_local_source_lifetime()
         EWrapper.__init__(self)
         EClient.__init__(self, wrapper=self)
         self.host = host
@@ -695,6 +831,9 @@ class IbkrClient(EWrapper, EClient):
         self._open_order_count = 0
         self._order_status_count = 0
         self._exec_details_count = 0
+        with lifetime["lock"]:
+            lifetime["ready"] = True
+            lifetime["revision"] += 1
 
     def _order_id_state_path(self) -> Path:
         return Path(os.environ.get("IBKR_ORDER_ID_STATE_PATH", Path.home() / ".ibkr_order_id_state.json"))
@@ -3431,7 +3570,8 @@ instrument_mutation(IbkrClient, "placeOrder")
 
 
 # Outermost wrappers run BEFORE the existing account-registration decorators.
-# Only explicitly enrolled instances participate; ordinary defaults are inert.
+# Bounded constructor-lifetime bookkeeping is always on; policy binding stays
+# default off, and ordinary external callback behavior remains unchanged.
 for _local_intake_name in (
         "connect", "disconnect", "connectionClosed", "nextValidId", "managedAccounts",
         "register_execution_callback", "register_reconciliation_callback",

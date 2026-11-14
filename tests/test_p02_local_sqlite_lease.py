@@ -4,6 +4,7 @@ from __future__ import annotations
 import copy
 import sqlite3
 import threading
+import weakref
 
 import pytest
 
@@ -58,6 +59,42 @@ def test_actual_fence_reads_immutable_journal_and_restores_original_connection(s
     assert not facade.in_transaction
     with store.acquire_local_cooldown_fence() as second:
         assert second.validate()
+
+
+def test_reopened_schema_checks_close_their_owned_read_cursors(store):
+    path=store.path
+    store.close()
+    reopened=SQLiteStore(path,local_cooldown_mode='PAPER')
+    try:
+        reopened.initialize_schema()
+        with reopened.acquire_local_cooldown_fence() as lease:
+            assert lease.validate() and lease.read_committed_accounting()['events']==()
+    finally:reopened.close()
+
+
+def test_actual_canonical_fill_writer_closes_its_owned_single_row_checks(store):
+    from src.core.engines.trade_lifecycle_engine import TradeLifecycleEngine
+    from src.storage.storage_engine import StorageEngine
+    from test_trade_lifecycle_engine import _native_event, _apply_native
+    store.close()
+    config_resolver.set_config_overrides(dict(config_resolver._CONFIG_OVERRIDES,
+        PERSISTENCE_ENABLED=True,PERSISTENCE_BACKEND='sqlite',
+        PERSISTENCE_SQLITE_PATH=store.path,PERSIST_FLUSH_EACH_CYCLE=True))
+    storage=StorageEngine(local_cooldown_mode='PAPER')
+    try:
+        lifecycle=TradeLifecycleEngine(storage)
+        for identifier,event_type,price,quantity_before,native_id in (
+                ('owned-entry','ENTRY_FILL',10.5,0,71),
+                ('owned-stop','STOP_EXIT',10.25,1,72)):
+            event,binding=_native_event(identifier,event_type,1,price,native_id=native_id)
+            trade=_apply_native(lifecycle,event,binding,quantity_before)
+            assert trade.quantity_open==(1 if event_type=='ENTRY_FILL' else 0)
+            with storage.acquire_local_cooldown_fence(run_mode='PAPER') as lease:
+                rows=lease.read_committed_accounting()
+                assert lease.validate() and rows['events'][-1]['event_id']==identifier
+        assert trade.gross_realized_pnl==-.25
+        assert len(storage.fetch_trade_lifecycle_events())==2
+    finally:storage.shutdown()
 
 
 def test_fence_materializes_real_current_and_prior_accounting_rows(store):
@@ -145,6 +182,82 @@ def test_preexisting_returning_vm_refuses_fence_without_rolling_back_its_work(st
     cursor.close()
     with store.acquire_local_cooldown_fence() as lease:assert lease.validate()
     assert [row[0] for row in connection.execute('SELECT value FROM probe').fetchall()]==[11,12]
+
+
+def test_returning_vm_remains_a_veto_while_its_facade_finalizer_is_paused(store):
+    connection=store.connection
+    connection.execute('CREATE TABLE probe(value)').close()
+    connection.executemany('INSERT INTO probe VALUES(?)',[(1,),(2,)]).close();connection.commit()
+    cursor=connection.execute('WITH witness AS(SELECT 1) UPDATE probe SET value=value+10 RETURNING value')
+    assert not connection.in_transaction
+    entered,release=threading.Event(),threading.Event()
+    def facade_died(reference):
+        entered.set()
+        release.wait(3)
+    witness=weakref.ref(cursor,facade_died)
+    transferred=[cursor]
+    del cursor
+    worker=threading.Thread(target=transferred.pop)
+    worker.start()
+    lease=None
+    try:
+        assert entered.wait(2)
+        try:
+            lease=store.acquire_local_cooldown_fence()
+        except RuntimeError as exc:
+            assert 'FENCE_UNAVAILABLE' in str(exc)
+        else:
+            pytest.fail('Fence admitted while a raw RETURNING VM was pending behind facade finalization')
+    finally:
+        if lease is not None:lease.close()
+        release.set();worker.join(3)
+        assert not worker.is_alive()
+    assert witness() is None
+    # Facade death is not evidence of statement exhaustion or explicit close.
+    with pytest.raises(RuntimeError,match='FENCE_UNAVAILABLE'):
+        store.acquire_local_cooldown_fence()
+
+
+@pytest.mark.parametrize('settle',['fetchall','fetchone','fetchmany','close'])
+def test_only_verified_exhaustion_or_explicit_close_settles_a_returning_vm(store,settle):
+    connection=store.connection
+    connection.execute('CREATE TABLE probe(value)').close()
+    connection.executemany('INSERT INTO probe VALUES(?)',[(1,),(2,)]).close();connection.commit()
+    cursor=connection.execute('WITH witness AS(SELECT 1) UPDATE probe SET value=value+10 RETURNING value')
+    with pytest.raises(RuntimeError,match='FENCE_UNAVAILABLE'):store.acquire_local_cooldown_fence()
+    if settle=='fetchall':
+        assert [row[0] for row in cursor.fetchall()]==[11,12]
+    elif settle=='fetchone':
+        assert cursor.fetchone()[0]==11
+        with pytest.raises(RuntimeError,match='FENCE_UNAVAILABLE'):store.acquire_local_cooldown_fence()
+        assert cursor.fetchone()[0]==12
+        assert cursor.fetchone() is None
+    elif settle=='fetchmany':
+        assert [row[0] for row in cursor.fetchmany(2)]==[11,12]
+        with pytest.raises(RuntimeError,match='FENCE_UNAVAILABLE'):store.acquire_local_cooldown_fence()
+        assert cursor.fetchmany(2)==[]
+    else:
+        cursor.close()
+    with store.acquire_local_cooldown_fence() as lease:assert lease.validate()
+
+
+def test_owner_close_settles_abandoned_active_vm_and_releases_connection(store):
+    connection=store.connection
+    connection.execute('CREATE TABLE probe(value)').close()
+    connection.executemany('INSERT INTO probe VALUES(?)',[(1,),(2,)]).close();connection.commit()
+    cursor=connection.execute('WITH witness AS(SELECT 1) UPDATE probe SET value=value+10 RETURNING value')
+    witness=weakref.ref(cursor)
+    del cursor
+    assert witness() is None
+    with pytest.raises(RuntimeError,match='FENCE_UNAVAILABLE'):store.acquire_local_cooldown_fence()
+    store.close()
+    assert not store.local_cooldown_state()['supported']
+    with pytest.raises(RuntimeError):store.acquire_local_cooldown_fence()
+    peer=sqlite3.connect(store.path,timeout=0)
+    try:
+        peer.execute('BEGIN IMMEDIATE')
+        assert [row[0] for row in peer.execute('SELECT value FROM probe').fetchall()]==[11,12]
+    finally:peer.rollback();peer.close()
 
 
 def test_pending_transaction_is_not_committed_or_rolled_back_by_acquisition(store):

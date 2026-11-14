@@ -616,12 +616,23 @@ class TradeLifecycleEngine:
             run_mode=run_mode, assessed_at=assessed_at, reader=reader)
         findings = [row["reason"] for row in timing["findings"]
             if row["reason"] != "P02_COOLDOWN_INTAKE_AND_OWNED_REQUEST_COVERAGE_UNKNOWN"]
+        governor = getattr(authority, "daily_risk_governor", None)
+        day_method = getattr(governor, "trading_day_for", None)
+        valid_day_owner = (type(governor) is DailyRiskGovernor
+            and governor.storage_engine is self._persistence
+            and governor.trade_lifecycle_engine is self
+            and governor.provider is authority._provider
+            and getattr(day_method, "__self__", None) is governor
+            and getattr(day_method, "__func__", None) is DailyRiskGovernor.trading_day_for)
+        if not valid_day_owner and any(row.get("event_type") == "NATIVE_ROUNDTRIP_FEE"
+                for row in durable.get("events", [])):
+            findings.append("P02_LOCAL_DAILY_GOVERNOR_OWNER_UNAVAILABLE")
         # The same canonical validator checks the entire original financial
         # chain, including current roots. Targets are deliberately independent
         # for this timing observation; existing financial view defaults do not
         # change and P02's independent numeric 2R contract is not enrolled here.
         financial = self._committed_accounting_from_reader(run_mode=run_mode,
-            trading_day_for=DailyRiskGovernor.trading_day_for, reader=reader,
+            trading_day_for=day_method if valid_day_owner else None, reader=reader,
             include_live=True, target_independent=True)
         if not financial["available"]:
             findings.append(financial["reason"] or "P02_LOCAL_FINANCIAL_CHAIN_UNAVAILABLE")
@@ -698,6 +709,7 @@ class TradeLifecycleEngine:
             duration_seconds=timing["duration_seconds"], last_entry_at=timing["last_entry_at"],
             expires_at=timing["expires_at"], entries=deepcopy(timing["entries"]),
             scope=deepcopy(timing["scope"]), findings=sorted(set(findings)),
+            governor_owner_id=id(governor) if valid_day_owner else None,
             journal_fingerprint=sha256(json.dumps(durable,sort_keys=True,allow_nan=False,
                 default=str).encode()).hexdigest(), lifecycle_revision=self._p02_local_revision)
 
