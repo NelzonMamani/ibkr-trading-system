@@ -5707,3 +5707,80 @@ windows-offline aggregate rejects failed/cancelled/skipped mandatory jobs; only
 authoritative harness-only permits the full-suite job skip. No production ATR/
 context/test fixture bytes were changed or focused source suites rerun. These
 workflow checks do not replace required automatic corrected-head CI.
+
+
+### 2026-11-14 — PR1231 accepted measurement-only ATR; complete CI receipt
+
+[PR1231](https://github.com/NelzonMamani/ibkr-trading-system/pull/1231) integrated
+from base881e47ff791e6c2bafc8fdb1a6249a12a95b1388, reviewed final head
+29e9c4ac9a5ab0f15320062f2a29ea182ea929d6, candidate tree
+c2e77a3be5f8cc339012ae46eb9fb900b203cd9c. Independent original ATR review
+5906997378 and exact correction review5907288495 are preserved; corrected source/
+test ATR bytes equal the original reviewed d7c171aa. Tested PR checkout
+dfba9283418e6da883432c36ff228e64706ef31c has ordered parents881e47ff then29e9c4ac.
+Authorized expected-head mergeabfc822d804ab966e9abd8638ed052e842393d75 has those
+SAME ordered parents and treec2e77a3b; reviewed/candidate/tested/accepted trees
+match. Main was verified after integration; no source candidate was changed to
+append acceptance receipts.
+
+[Corrected PR CI43644351093](https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/43644351093)
+attempt1 SUCCESS: scope132598669821; Linux job132598752257:7974passed/3skipped/
+4warnings/804.71s; Windows suite job132598752304:7975passed/2skipped/6156warnings/
+3205.34s; controlled132598752229 and required aggregate132613943724 SUCCESS.
+All original focused95/news37/float9/serial46/cache6/actualPS5exit13/stub-only
+harness48/quote-parser/evidence-upload gates passed. Both actual test checkouts
+and controlled checkout identify dfba9283; original required windows-offline
+strictly required both Windows results. Only authoritative conditional
+harness-only/dependency-only alternatives skipped, no mandatory gate skipped.
+Linux30/Windows60 budgets and all child timeouts are unchanged.
+
+[Automatic main CI43649428902](https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/43649428902):
+attempt1 SUCCESS at acceptedabfc822d: scope132614364986; Linux132614409609
+7974passed/3skipped/4warnings/805.10s; Windows suite132614409564
+7975passed/2skipped/6156warnings/2750.41s; controlled132614409595 and required
+aggregate132627068361 SUCCESS. Every original mandatory downstream gate passed.
+Actual Linux/Windows/controlled git-log checkouts identifyabfc822d; treec2e77a3b
+and ordered parents881e47ff then29e9c4ac equal reviewed/PR-tested integration.
+Remote main remainedabfc822d after COMPLETE main CI verification.
+
+Archive figures below are GitHub service metadata, NOT independent downloaded-
+byte hash claims. PR focused14135216586,727bytes,SHA256
+53b2f41fb92b628eb731fe89b398005f41ec98d54ec21c7ceec1dd27fc8c1d82; PR controlled
+14133765339,745245bytes,SHA256
+3d9a4a01431bb42e7856aadf16ddb0344f306d9cc74a1e8098ee5f2d2fe18836.
+Main focused14137225972,727bytes,SHA256
+9504732041bee208f40651afd4e29df0d2b346734199b1dbec80a72d3d92a6bb; main controlled
+14135022614,744934bytes,SHA256
+ebae55e323d0546fee5ff0670070ac08dbab6c90e432e38e78fde69d8a128881.
+
+Preserved failure: original CI43638331204 at d7c171aa/tree3e60bf62 was CANCELLED
+at the60-minute Windows job limit AFTER7971passed/2skipped/6156warnings/3375.69s
+and serial46; cache had77seconds for three intentional30-second children, later
+gates unrun. Its Linux7970passed/3skipped/4warnings/1202.99s and full Windows
+passes are historical partial evidence, NOT complete CI acceptance. The old
+729-byte artifact is only earlier focused evidence. Diagnosis/failed budget and
+all earlier causal fixture failures remain in preceding entries. No production
+defect or causal individual slow test was demonstrated. No blind unchanged-head
+retry occurred: the reviewed workflow correction changed the head and required
+automatic full CI. Main automatic CI is likewise not a manual successful-suite
+rerun. Counts overlap focused review and prior runs, not additive inventory.
+
+Accepted behavior: Wilder14 on original validated completed current-session
+stream, seed bars2..15/update16+, no overnight predecessor, USD/share and each
+step's completed-close percent; raw input/hash/source/request/calendar/member/
+completion provenance retained. Immutable bounded offline input/report tooling
+rejects invalid/missing/conflicting facts; retrospective replay is explicit and
+grants no live permission. No approved representative P02 market dataset was
+identified; original DBs were not opened/initialized. Quote availability is
+explicit, costs remain UNAVAILABLE, no zero-cost fallback/calibration/profit labels.
+Measurement-only adoption supplies NO numerical ATR bounds: admissionUNKNOWN/
+eligibleFalse and native-entry/management vetoes remain.
+
+ONE next bounded task is the separately reviewed local-observation/fencing
+foundation [PR1232](https://github.com/NelzonMamani/ibkr-trading-system/pull/1232),
+through its own complete required CI/expected-head integration. It must retain
+its precise unsupported stages and old UNKNOWN observations; this receipt does
+not count unmerged B source as accepted ATR scope. Observation distribution
+3f48bf3f/sourcec65/reviewed calendar untouched; no observer/provider/broker,
+operational capital/recovery, native ownership or readiness upgrade. All five
+ownership vetoes and parked work remain. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
