@@ -478,6 +478,14 @@ class StorageEngine:
             symbol=symbol,
         )
 
+    def fetch_committed_lifecycle_accounting(self, *, run_mode: str) -> dict[str, list[dict[str, Any]]]:
+        """Inspection-only accounting history; never an order recovery API."""
+        if run_mode not in {"PAPER", "LIVE"}:
+            raise ValueError("COMMITTED_ACCOUNTING_RUN_MODE_INVALID")
+        if not self.enabled or self.backend != "sqlite" or not self._store:
+            raise RuntimeError("COMMITTED_ACCOUNTING_STORAGE_UNAVAILABLE")
+        return self._store.fetch_committed_lifecycle_accounting(run_mode=run_mode)
+
     def fetch_trade_lifecycle_reconciliation_events(
         self,
         *,

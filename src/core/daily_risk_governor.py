@@ -358,7 +358,7 @@ class DailyRiskGovernor:
         reset_key = f"{trading_day}:{self.timezone_name}:{self._reset_time_local().isoformat(timespec='minutes')}"
         event_metrics = self._metrics_from_events(trading_day)
         storage_metrics = self._metrics_from_storage(trading_day)
-        lifecycle_metrics = self._metrics_from_lifecycle(trading_day, now=now_utc)
+        lifecycle_metrics = self._metrics_from_lifecycle(trading_day, now=now_utc, run_mode=run_mode)
         broker_metrics = self._metrics_from_broker_fills(trading_day)
 
         realized_metrics = self._merge_realized_metrics(
@@ -518,7 +518,8 @@ class DailyRiskGovernor:
         strategy = payload.get("strategy_name") or payload.get("strategy")
         return str(account or ""), str(root or ""), str(strategy or "")
 
-    def _metrics_from_lifecycle(self, trading_day: str, *, now: datetime) -> _DailyRiskMetrics:
+    def _metrics_from_lifecycle(self, trading_day: str, *, now: datetime,
+                                run_mode: str | None = None) -> _DailyRiskMetrics:
         engine = self.trade_lifecycle_engine
         if engine is None:
             return _DailyRiskMetrics()
@@ -527,6 +528,24 @@ class DailyRiskGovernor:
             required: bool | None = None
             try:
                 snapshot = getter()
+                history_reader = getattr(engine, "committed_accounting_snapshot", None)
+                history = (history_reader(run_mode=run_mode,trading_day_for=self.trading_day_for)
+                    if callable(history_reader) else None)
+                if history and history.get("required"):
+                    # This is accounting inspection only. Runtime native/source
+                    # fences and recovery/quarantine remain owned elsewhere.
+                    independently_available = set(history["verified_historical_roots"])
+                    if snapshot.get("available") is True:
+                        independently_available.update(row["lifecycle_trade_id"] for row in snapshot.get("events", ()))
+                    trades = {row["lifecycle_trade_id"]:row for row in snapshot.get("trades", ())}
+                    trades.update({row["lifecycle_trade_id"]:row for row in history["trades"]})
+                    snapshot = dict(snapshot, required=True,
+                        available=snapshot.get("available") is True and history["available"],
+                        events=[*snapshot.get("events", ()), *history["events"]],trades=list(trades.values()),
+                        available_accounting_roots=independently_available,
+                        historical_roots=history["historical_roots"],
+                        historical_open_roots=history["open_roots"],
+                        historical_reason=history.get("reason"))
                 required = bool(snapshot.get("required"))
                 available = bool(snapshot.get("available"))
                 pending = bool(snapshot.get("pending"))
@@ -543,6 +562,13 @@ class DailyRiskGovernor:
                             max_age_seconds=get_config("IBKR_SNAPSHOT_MAX_AGE_SECONDS"))
                         if not isinstance(fees, dict):
                             raise ValueError("NATIVE_FEE_SNAPSHOT_INVALID")
+                        if history and history.get("fees", {}).get("required"):
+                            historical_fees = history["fees"]
+                            fees = dict(fees,required=True,
+                                available=fees.get("available") is True and historical_fees["available"],
+                                reason=fees.get("reason") or historical_fees.get("reason"),
+                                evidence=[*fees.get("evidence", ()), *historical_fees["evidence"]],
+                                covered_charges=[*fees.get("covered_charges", ()), *historical_fees["covered_charges"]])
                         fee_required = fees.get("required") is True
                         if fee_required:
                             self._project_native_fee_evidence(payloads, snapshot, fees, trading_day)
@@ -558,6 +584,8 @@ class DailyRiskGovernor:
                 raw_unrealized = snapshot.get("unrealized_pnl", 0.0)
                 if not failed and required and include_unrealized:
                     try:
+                        if snapshot.get("historical_open_roots"):
+                            raise ValueError("COMMITTED_OPEN_POSITION_HAS_NO_FRESH_VALUATION_AUTHORITY")
                         valuation_reader = getattr(engine, "native_valuation_snapshot", None)
                         valuation = (valuation_reader(now=now,
                             max_age_seconds=get_config("IBKR_SNAPSHOT_MAX_AGE_SECONDS"))
@@ -573,6 +601,14 @@ class DailyRiskGovernor:
                         return replace(metrics, read_failed=True, required_accounting=True,
                             failure_reason="NATIVE_UNREALIZED_VALUATION_UNAVAILABLE:" + str(exc))
                 try:
+                    if snapshot.get("historical_roots"):
+                        # Recovered native snapshots can carry old mark values,
+                        # including when financial history is incomplete. None
+                        # grants fresh valuation authority in this process.
+                        raw_unrealized = sum(self._finite_number(row.get("unrealized_pnl",0.))
+                            for row in snapshot.get("trades",())
+                            if row["lifecycle_trade_id"] not in snapshot["historical_roots"]
+                            and row.get("quantity_open",0) > 0)
                     unrealized = self._finite_number(raw_unrealized)
                 except (TypeError, ValueError) as exc:
                     if include_unrealized:
@@ -587,7 +623,7 @@ class DailyRiskGovernor:
                     unrealized_pnl=unrealized,
                     required_accounting=required or fee_required or metrics.required_accounting,
                     read_failed=failed or fee_failed,
-                    failure_reason=(("NATIVE_FEEDBACK_UNCERTAIN" if uncertain else "NATIVE_FEEDBACK_PENDING" if pending else "NATIVE_FEEDBACK_UNAVAILABLE") if failed
+                    failure_reason=(("NATIVE_FEEDBACK_UNCERTAIN" if uncertain else "NATIVE_FEEDBACK_PENDING" if pending else snapshot.get("historical_reason") or "NATIVE_FEEDBACK_UNAVAILABLE") if failed
                         else "NATIVE_FEE_FEEDBACK_UNAVAILABLE:" + fee_reason if fee_failed else None))
             except Exception as exc:
                 return _DailyRiskMetrics(read_attempted=True, read_failed=True,
@@ -804,7 +840,7 @@ class DailyRiskGovernor:
             if trade is None:
                 raise ValueError("CANONICAL_TRADE_UNAVAILABLE")
             closed = False
-            if available:
+            if available or root in snapshot.get("available_accounting_roots", ()):
                 if int(trade.get("quantity_open", -1)) != group["quantity"] or not math.isclose(self._finite_number(trade.get("gross_realized_pnl")), group["pnl"], abs_tol=1e-8):
                     raise ValueError("CANONICAL_SNAPSHOT_CONFLICT")
                 if str(trade.get("side") or "").upper() != "LONG" or str(trade.get("strategy_name") or "") != strategy:

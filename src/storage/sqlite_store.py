@@ -1554,6 +1554,46 @@ class SQLiteStore:
         cursor = self.connection.execute(query, params)
         return [dict(row) for row in cursor.fetchall()]
 
+    def fetch_committed_lifecycle_accounting(self, *, run_mode: str) -> dict[str, list[dict[str, Any]]]:
+        """Read historical accounting without restoring any runtime ownership.
+
+        All reads share one SQLite snapshot. Unknown run metadata is returned
+        for the accounting validator to reject, rather than silently treating
+        a missing scope as an empty journal. Event order is commit/insertion
+        order; authoritative fill timestamps need not arrive in that order.
+        """
+        if run_mode not in {"PAPER", "LIVE"}:
+            raise ValueError("COMMITTED_ACCOUNTING_RUN_MODE_INVALID")
+        if self.connection.in_transaction:
+            raise RuntimeError("COMMITTED_ACCOUNTING_CALLER_TRANSACTION_ACTIVE")
+        self.connection.execute("BEGIN")
+        try:
+            result = {}
+            for key, table in (("trades", "trade_lifecycle_trades"),
+                               ("events", "trade_lifecycle_events")):
+                cursor = self.connection.execute(
+                    f"""SELECT accounting.*, runs.run_mode, runs.effective_run_mode,
+                               runs.event_replay_mode,
+                               (runs.run_id IS NOT NULL) AS run_metadata_present
+                        FROM {table} AS accounting
+                        LEFT JOIN runs ON runs.run_id = accounting.run_id
+                        WHERE runs.effective_run_mode = ?
+                           OR runs.effective_run_mode IS NULL
+                           OR runs.effective_run_mode NOT IN ('SIM','PAPER','LIVE','READ_ONLY')
+                        ORDER BY accounting.rowid ASC""",
+                    (run_mode,),
+                )
+                result[key] = [dict(row) for row in cursor.fetchall()]
+            result["native_states"] = [dict(row) for row in self.connection.execute(
+                "SELECT transition_id, reason FROM position_lifecycle_transitions WHERE transition_id = ?",
+                ("execution.native_orders.v1:" + run_mode,),
+            ).fetchall()]
+            return result
+        finally:
+            # This method owns only its deferred read transaction. In
+            # particular it never commits or rolls back a caller's work.
+            self.connection.rollback()
+
     def fetch_trade_lifecycle_reconciliation_events(self, run_id: str) -> list[dict[str, Any]]:
         cursor = self.connection.execute(
             """

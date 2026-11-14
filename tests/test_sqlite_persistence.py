@@ -340,3 +340,139 @@ def test_native_financial_mode_cannot_authorize_valuation_write(native_pair_stor
         store.persist_native_lifecycle_feedback(candidate, event, expected_trade=prior, financial_only=mode)
     assert store.fetch_trade_lifecycle_events("NATIVE-PAIR-RUN") == []
     assert store.fetch_trade_lifecycle_trades("NATIVE-PAIR-RUN")[0]["quantity_open"] == 2
+
+
+def test_committed_accounting_reads_prior_runs_in_insertion_order(native_pair_store):
+    store, prior, _, event = native_pair_store
+    store.insert_trade_lifecycle_events([dict(event, event_id="first", timestamp="2026-10-20T14:00:00+00:00")])
+    for name, mode in (("second", "PAPER"), ("live", "LIVE"), ("sim", "SIM"), ("readonly", "READ_ONLY")):
+        _insert_sample_run(store, name)
+        store.connection.execute("UPDATE runs SET run_mode=?, effective_run_mode=? WHERE run_id=?", (mode, mode, name))
+        store.connection.commit()
+        store.upsert_trade_lifecycle_trade(dict(prior, run_id=name, lifecycle_trade_id=name))
+        store.insert_trade_lifecycle_events([dict(event, run_id=name, lifecycle_trade_id=name,
+            event_id=name, timestamp="2026-10-20T13:00:00+00:00")])
+    store.insert_lifecycle_transitions([dict(transition_id="execution.native_orders.v1:" + mode,
+        run_id=prior["run_id"], reason=json.dumps({"mode": mode}), transition_seq=0)
+        for mode in ("PAPER", "LIVE")])
+    result = store.fetch_committed_lifecycle_accounting(run_mode="PAPER")
+    assert {row["lifecycle_trade_id"] for row in result["trades"]} == {prior["lifecycle_trade_id"], "second"}
+    assert [row["event_id"] for row in result["events"]] == ["first", "second"]
+    assert all(row["effective_run_mode"] == "PAPER" and row["run_metadata_present"] == 1
+        and row["event_replay_mode"] == "CYCLE" for row in result["events"])
+    assert result["native_states"] == [dict(transition_id="execution.native_orders.v1:PAPER",
+        reason=json.dumps({"mode": "PAPER"}))]
+    # Existing readers still use their caller-provided run and economic order.
+    assert [row["event_id"] for row in store.fetch_trade_lifecycle_events("second")] == ["second"]
+    live = store.fetch_committed_lifecycle_accounting(run_mode="LIVE")
+    assert [row["event_id"] for row in live["events"]] == ["live"]
+    assert live["native_states"][0]["transition_id"] == "execution.native_orders.v1:LIVE"
+
+
+@pytest.mark.parametrize("missing", ["effective_mode", "invalid_mode", "run_row"])
+def test_committed_accounting_exposes_unknown_run_scope(native_pair_store, missing):
+    store, prior, _, event = native_pair_store
+    store.insert_trade_lifecycle_events([event])
+    if missing == "run_row":
+        store.connection.execute("PRAGMA foreign_keys=OFF")
+        store.connection.execute("DELETE FROM runs WHERE run_id=?", (prior["run_id"],))
+    else:
+        mode = None if missing == "effective_mode" else "UNRECOGNIZED_MODE"
+        store.connection.execute("UPDATE runs SET effective_run_mode=? WHERE run_id=?", (mode, prior["run_id"]))
+    store.connection.commit()
+    result = store.fetch_committed_lifecycle_accounting(run_mode="PAPER")
+    assert len(result["trades"]) == len(result["events"]) == 1
+    for row in result["trades"] + result["events"]:
+        assert row["run_metadata_present"] == (0 if missing == "run_row" else 1)
+        assert row["effective_run_mode"] == ("UNRECOGNIZED_MODE" if missing == "invalid_mode" else None)
+
+
+def test_committed_accounting_read_allows_query_only_and_changes_nothing(native_pair_store):
+    store, _, _, event = native_pair_store
+    store.insert_trade_lifecycle_events([event])
+    changes = store.connection.total_changes
+    statements = []
+    store.connection.execute("PRAGMA query_only=ON")
+    store.connection.set_trace_callback(statements.append)
+    result = store.fetch_committed_lifecycle_accounting(run_mode="PAPER")
+    store.connection.set_trace_callback(None)
+    assert len(result["events"]) == 1 and not store.connection.in_transaction
+    assert store.connection.total_changes == changes
+    assert statements[0] == "BEGIN" and statements[-1] == "ROLLBACK"
+    assert not any(sql.lstrip().upper().startswith(("COMMIT", "INSERT", "UPDATE", "DELETE")) for sql in statements)
+
+
+def test_committed_accounting_does_not_commit_or_rollback_caller_transaction(native_pair_store):
+    store, prior, _, _ = native_pair_store
+    store.connection.execute("BEGIN IMMEDIATE")
+    store.connection.execute("UPDATE trade_lifecycle_trades SET gross_realized_pnl=-1")
+    with pytest.raises(RuntimeError, match="CALLER_TRANSACTION_ACTIVE"):
+        store.fetch_committed_lifecycle_accounting(run_mode="PAPER")
+    assert store.connection.in_transaction
+    assert store.fetch_trade_lifecycle_trades(prior["run_id"])[0]["gross_realized_pnl"] == -1
+    store.connection.rollback()
+    assert store.fetch_trade_lifecycle_trades(prior["run_id"])[0]["gross_realized_pnl"] == 0
+
+
+def test_committed_accounting_uses_one_snapshot_across_concurrent_commit(native_pair_store):
+    store, prior, candidate, event = native_pair_store
+    assert store.connection.execute("PRAGMA journal_mode=WAL").fetchone()[0] == "wal"
+    writer = SQLiteStore(store.path)
+    commits = []
+    def after_trade_read(sql):
+        if "FROM trade_lifecycle_events AS accounting" in sql and not commits:
+            writer.persist_native_lifecycle_feedback(candidate, event, expected_trade=prior)
+            commits.append(event["event_id"])
+    store.connection.set_trace_callback(after_trade_read)
+    try:
+        before = store.fetch_committed_lifecycle_accounting(run_mode="PAPER")
+    finally:
+        store.connection.set_trace_callback(None)
+        writer.close()
+    assert commits == [event["event_id"]]
+    assert before["trades"][0]["quantity_open"] == 2 and before["events"] == []
+    after = store.fetch_committed_lifecycle_accounting(run_mode="PAPER")
+    assert after["trades"][0]["quantity_open"] == 1
+    assert [row["event_id"] for row in after["events"]] == [event["event_id"]]
+
+
+def test_committed_accounting_read_error_propagates_and_releases_own_transaction(native_pair_store):
+    import sqlite3
+    store, _, _, _ = native_pair_store
+    store.connection.execute("DROP TABLE trade_lifecycle_events")
+    store.connection.commit()
+    with pytest.raises(sqlite3.OperationalError, match="no such table"):
+        store.fetch_committed_lifecycle_accounting(run_mode="PAPER")
+    assert not store.connection.in_transaction
+
+
+@pytest.mark.parametrize("mode", ["SIM", "", True, None])
+def test_committed_accounting_requires_explicit_operational_mode(native_pair_store, mode):
+    store, _, _, _ = native_pair_store
+    with pytest.raises(ValueError, match="RUN_MODE_INVALID"):
+        store.fetch_committed_lifecycle_accounting(run_mode=mode)
+
+
+@pytest.mark.parametrize("case", ["disabled", "other_backend", "no_store"])
+def test_committed_accounting_adapter_unavailable_cannot_certify_empty(case):
+    from src.storage.storage_engine import StorageEngine
+    engine = StorageEngine.__new__(StorageEngine)
+    engine.enabled = case != "disabled"
+    engine.backend = "jsonl" if case == "other_backend" else "sqlite"
+    engine._store = None if case == "no_store" else object()
+    with pytest.raises(RuntimeError, match="COMMITTED_ACCOUNTING_STORAGE_UNAVAILABLE"):
+        engine.fetch_committed_lifecycle_accounting(run_mode="PAPER")
+
+
+def test_committed_accounting_adapter_delegates_and_preserves_read_failure(native_pair_store):
+    from src.storage.storage_engine import StorageEngine
+    engine = StorageEngine.__new__(StorageEngine)
+    engine.enabled = True
+    engine.backend = "sqlite"
+    engine._store = native_pair_store[0]
+    result = engine.fetch_committed_lifecycle_accounting(run_mode="PAPER")
+    assert len(result["trades"]) == 1 and result["trades"][0]["run_mode"] == "PAPER"
+    engine._store.close()
+    import sqlite3
+    with pytest.raises(sqlite3.ProgrammingError, match="closed database"):
+        engine.fetch_committed_lifecycle_accounting(run_mode="PAPER")

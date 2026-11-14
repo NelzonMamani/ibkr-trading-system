@@ -431,6 +431,27 @@ def observe_pristine_native_graceful_shutdown(core, provided_positions, provided
         probe['events'] = plain(core.event_collector.snapshot_all()[events_before:])
         probe['mutation_attempts_after'] = mutation_snapshot()
 
+def pristine_paper_quantity(plan):
+    """Default one; the bounded partial-accounting proof may enroll two."""
+    quantity = plan.get('quantity',1)
+    if type(quantity) is not int or quantity not in {1,2}:
+        raise ForbiddenExternalIO('PRISTINE_PAPER_QUANTITY_CERTIFICATE:SIZE')
+    if quantity == 2:
+        from src.config.config_resolver import get_config, get_ross_synthetic_requested_base_size
+        supplied = globals().get('facts',{})
+        try:
+            enrolled = (supplied.get('observe_pristine_paper_cycle') is True
+                and supplied.get('observe_pristine_paper_partial_accounting') is True
+                and os.environ.get('EXECUTION_ENV') == 'TEST'
+                and get_ross_synthetic_requested_base_size() == 8
+                and type(get_config('RISK_MAX_POSITION_SIZE')) is int
+                and get_config('RISK_MAX_POSITION_SIZE') == 2)
+        except Exception:
+            enrolled = False
+        if not enrolled:
+            raise ForbiddenExternalIO('PRISTINE_PAPER_QUANTITY_CERTIFICATE:ENROLLMENT')
+    return quantity
+
 def validate_pristine_paper_memory_write(*, actual_client, expected_client, core,
         plan, dispatches, native_id, contract, native, committed, risk_rows, now, max_scope_age):
     """Observe actual owners before an exclusively in-memory external ACK.
@@ -442,6 +463,7 @@ def validate_pristine_paper_memory_write(*, actual_client, expected_client, core
     def require(value, reason):
         if not value:
             raise ForbiddenExternalIO('PRISTINE_PAPER_MEMORY_CERTIFICATE:' + reason)
+    quantity = pristine_paper_quantity(plan)
     require(actual_client is expected_client and core is not None, 'CLIENT')
     engine = core.execution_engine
     scope = engine._native_scope
@@ -464,7 +486,7 @@ def validate_pristine_paper_memory_write(*, actual_client, expected_client, core
     require(parent['account'] == plan['account'] and parent['native_client_id'] == plan['client_id']
         and parent['native_connection_epoch'] == plan['epoch']
         and request['client_order_id'] == root_id and request['symbol'] == plan['symbol']
-        and request['quantity'] == parent['requested'] == 1
+        and request['quantity'] == parent['requested'] == quantity
         and request['setup_family_id'] == 'PREMARKET_HIGH_BREAK'
         and not request['relationship_context'] and request['setup_metadata']
         and request['stop_loss_price'] == plan['stop_price']
@@ -472,14 +494,17 @@ def validate_pristine_paper_memory_write(*, actual_client, expected_client, core
         and request['take_profit_price'] is None and request['target_model'], 'REQUEST')
     matched = [row for row in risk_rows if row['decision']['decision_id'] == parent['decision_id']]
     require(len(matched) == 1 and matched[0]['decision']['allowed'] is True
-        and matched[0]['decision']['max_position_size'] == 1
+        and matched[0]['decision']['max_position_size'] == quantity
         and matched[0]['intent']['entry_price'] == plan['entry_price']
         and matched[0]['intent']['setup_metadata'] == request['setup_metadata']
         and matched[0]['intent']['target_model'] == request['target_model'], 'RISK')
+    if quantity == 2:
+        require(type(matched[0]['intent'].get('quantity')) is int
+            and quantity <= matched[0]['intent']['quantity'] <= 8, 'PRODUCER_REQUEST')
     require(contract.symbol == plan['symbol'] and contract.secType == 'STK'
         and contract.currency == plan['currency'] and contract.exchange == plan['exchange']
         and contract.conId in (0, plan['con_id'])
-        and not isinstance(native.totalQuantity, bool) and native.totalQuantity == 1, 'SECURITY_SIZE')
+        and not isinstance(native.totalQuantity, bool) and native.totalQuantity == quantity, 'SECURITY_SIZE')
     if not dispatches:
         require(native.action == 'BUY' and native.orderType == 'MKT'
             and native.parentId == 0 and not native.orderRef
@@ -500,11 +525,11 @@ def validate_pristine_paper_memory_write(*, actual_client, expected_client, core
                 and reservation.side == request['direction'].upper()
                 and reservation.strategy_id.upper() == request['strategy_name'].upper()
                 and reservation.run_mode == 'PAPER' and reservation.status == 'ACTIVE'
-                and type(reservation.quantity) is int and reservation.quantity == 1
-                and type(reservation.remaining_quantity) is int and reservation.remaining_quantity == 1
+                and type(reservation.quantity) is int and reservation.quantity == quantity
+                and type(reservation.remaining_quantity) is int and reservation.remaining_quantity == quantity
                 and reservation.filled_quantity == 0 and reservation.exposure_notional == 0
-                and reservation.notional == reservation.remaining_notional == plan['entry_price'], 'RESERVATION_BINDING')
-        require(engine.capital_authority.total_reserved_capital == plan['entry_price']
+                and reservation.notional == reservation.remaining_notional == quantity*plan['entry_price'], 'RESERVATION_BINDING')
+        require(engine.capital_authority.total_reserved_capital == quantity*plan['entry_price']
             and engine.capital_authority.total_used_exposure == 0
             and not engine.position_records and not engine.trade_registry.snapshot(), 'RESERVATION')
         role = 'entry'
@@ -515,17 +540,17 @@ def validate_pristine_paper_memory_write(*, actual_client, expected_client, core
             and native.parentId == dispatches[0]['native_id']
             and native.orderRef == 'PROTECT|' + root_id
             and parent['broker_order_id'] == str(dispatches[0]['native_id'])
-            and parent.get('cached_update_in_progress') == dict(filled=1, remaining=0,
+            and parent.get('cached_update_in_progress') == dict(filled=quantity, remaining=0,
                 status='FILLED', average_price=plan['fill_price']), 'STOP')
         # Initial protection is installed within factual accounting, before
         # canonical completion/terminal native progress. Observe that ordering;
         # do not manufacture terminal-accounted state to satisfy this boundary.
         position = engine.position_records.get(root_id, {})
         life = engine.post_fill_lifecycle.get_trade(root_id)
-        require(position.get('filled_qty') == 1 and position.get('entry_price') == plan['fill_price']
-            and engine.capital_authority.total_used_exposure == plan['fill_price']
+        require(position.get('filled_qty') == quantity and position.get('entry_price') == plan['fill_price']
+            and engine.capital_authority.total_used_exposure == quantity*plan['fill_price']
             and engine.capital_authority.total_reserved_capital == 0
-            and life is not None and life.filled_qty == 1
+            and life is not None and life.filled_qty == quantity
             and life.avg_fill_price == plan['fill_price']
             and life.selected_stop_price == plan['stop_price'] and life.stop.status == 'PENDING_SUBMIT', 'ACCOUNTING')
         executions = expected_client.cached_native_executions(dispatches[0]['native_id'])
@@ -535,12 +560,12 @@ def validate_pristine_paper_memory_write(*, actual_client, expected_client, core
             and execution['account'] == plan['account'] and execution['clientId'] == plan['client_id']
             and execution['connection_epoch'] == plan['epoch'] and execution['conId'] == plan['con_id']
             and execution['symbol'] == plan['symbol'] and execution['side'] == 'BOT'
-            and execution['shares'] == execution['cumQty'] == 1
+            and execution['shares'] == execution['cumQty'] == quantity
             and float(execution['price']) == float(execution['avgPrice']) == plan['fill_price']
             and execution['timestamp_utc'] <= now, 'EXECUTION_BINDING')
         positions = expected_client.positions()
         require(len(positions) == 1 and positions[0].symbol == plan['symbol']
-            and positions[0].position == 1 and positions[0].con_id == plan['con_id']
+            and positions[0].position == quantity and positions[0].con_id == plan['con_id']
             and positions[0].account == plan['account'] and positions[0].avgCost == plan['fill_price'], 'POSITION_FACT')
         role = 'stop'
     return root_id, role
@@ -568,6 +593,7 @@ def validate_pristine_paper_execution_fact(*, actual_client, expected_client, co
     def require(value, reason):
         if not value:
             raise ForbiddenExternalIO('PRISTINE_PAPER_EXECUTION_CERTIFICATE:' + reason)
+    quantity = pristine_paper_quantity(plan)
     require(actual_client is expected_client and core is not None
         and os.environ.get('EXECUTION_ENV') == 'TEST', 'CLIENT')
     engine = core.execution_engine
@@ -590,14 +616,21 @@ def validate_pristine_paper_execution_fact(*, actual_client, expected_client, co
         and execution['acctNumber'] == plan['account'] and type(execution['clientId']) is int
         and execution['clientId'] == plan['client_id'], 'IDENTITY')
     require(type(execution['shares']) is int and type(execution['cumQty']) is int
-        and execution['shares'] == execution['cumQty'] == 1, 'QUANTITY')
+        and 1 <= execution['shares'] == execution['cumQty'] <= quantity
+        and (raw['leg'] == 'stop' or execution['cumQty'] == quantity), 'QUANTITY')
+    remaining = quantity-execution['cumQty']
     expected_price = plan['fill_price'] if raw['leg'] == 'entry' else plan.get('stop_fill_price')
     require(type(execution['price']) in (int,float) and type(execution['avgPrice']) in (int,float)
         and execution['price'] == execution['avgPrice'] == expected_price
-        and status == dict(status='Filled',filled=1,remaining=0,avgFillPrice=expected_price), 'FILL')
+        and type(status.get('filled')) is int and type(status.get('remaining')) is int
+        and status == dict(status='Submitted' if remaining else 'Filled',filled=execution['cumQty'],
+            remaining=remaining,avgFillPrice=expected_price), 'FILL')
     stamp = datetime.fromisoformat(execution['time'])
     require(stamp.tzinfo is not None and stamp <= now, 'TIME')
     native = bound['order']
+    if quantity == 2:
+        require(native.get('totalQuantity') == quantity
+            and entries[0]['order'].get('totalQuantity') == quantity, 'DISPATCH_QUANTITY')
     if raw['leg'] == 'entry':
         require(execution['side'] == 'BOT' and native['action'] == 'BUY'
             and native['orderType'] == 'MKT' and native['parentId'] == 0, 'ENTRY')
@@ -1033,6 +1066,7 @@ def validate_pristine_paper_history_read(*, actual_client, expected_client, core
     def require(value, reason):
         if not value:
             raise ForbiddenExternalIO('PRISTINE_PAPER_HISTORY_CERTIFICATE:' + reason)
+    quantity = pristine_paper_quantity(plan)
     require(actual_client is expected_client and core is not None
         and os.environ.get('EXECUTION_ENV') == 'TEST', 'CLIENT')
     engine = core.execution_engine
@@ -1050,7 +1084,7 @@ def validate_pristine_paper_history_read(*, actual_client, expected_client, core
     root_id,parent = parents[0]
     request = parent['request']
     stream = (request.get('setup_metadata') or {}).get('execution_stream') or {}
-    require(parent.get('terminal') and parent.get('filled') == parent.get('requested') == 1
+    require(parent.get('terminal') and parent.get('filled') == parent.get('requested') == quantity
         and parent.get('protection_confirmed') and not parent.get('cached_update_in_progress')
         and parent.get('account') == plan['account'] and parent.get('native_client_id') == plan['client_id']
         and parent.get('native_connection_epoch') == plan['epoch'] and parent.get('security_id') == plan['con_id']
@@ -1059,6 +1093,17 @@ def validate_pristine_paper_history_read(*, actual_client, expected_client, core
         and request.get('stop_loss_price') == plan['stop_price']
         and request.get('invalidation_level') == plan['entry_price'] and request.get('take_profit_price') is None
         and stream.get('execution_trigger_timeframe') == timeframe_request.logical_timeframe == '10s', 'ROOT')
+    if quantity == 2:
+        life = engine.post_fill_lifecycle.get_trade(root_id)
+        canonical = engine._trade_lifecycle_engine.get_trade(root_id)
+        current_positions = expected_client.positions()
+        require(request.get('quantity') == quantity and life is not None
+            and life.filled_qty in {1,2} and life.selected_stop_price == plan['stop_price']
+            and engine.post_fill_lifecycle.assess_trade_stop_protection(root_id).get('protected') is True
+            and canonical is not None and canonical.quantity_open == life.filled_qty
+            and len(current_positions) == 1 and current_positions[0].position == life.filled_qty
+            and current_positions[0].symbol == plan['symbol'] and current_positions[0].con_id == plan['con_id']
+            and current_positions[0].account == plan['account'], 'CURRENT_OWNERSHIP')
     # SDK server151 and180 omit the historical VERSION field. Use the actual
     # read encoder layout, distinct from quote requests' reqId at fields[2].
     server_version = (180 if first_sdk_source is None else validate_pristine_first_sdk_scope(expected_client,first_sdk_source))
@@ -1163,6 +1208,11 @@ try:
                        post_fill_lifecycle_engine, broker_module, scanner_runner,
                        pattern_trace):
             module.datetime = Clock
+        if facts.get('inspect_committed_accounting'):
+            # Narrow economic-day input for the real constructor's governor
+            # recovery; no global wall/monotonic clock or result is replaced.
+            from src.core import daily_risk_governor as daily_risk_module
+            daily_risk_module.datetime = Clock
     else:
         observed = datetime.now(timezone.utc)
     base_observed = observed
@@ -1700,7 +1750,7 @@ try:
                 orderState=NS(status='Submitted'))
             orders.append(row)
             client.openOrder(native_id, supplied_contract, supplied_order, row.orderState)
-            client.orderStatus(native_id, 'Submitted', 0, 1, 0., native_id, native.parentId,
+            client.orderStatus(native_id, 'Submitted', 0, native.totalQuantity, 0., native_id, native.parentId,
                 0., paper_plan['client_id'], '', 0.)
         client.placeOrder = MethodType(memory_place_order,client)
 
@@ -1724,6 +1774,21 @@ try:
     engine = getattr(core, 'execution_engine', None)
     if engine is not None:
         report['after_constructor'] = engine_snapshot(engine)
+        if facts.get('inspect_committed_accounting'):
+            if (not engine._native_quarantined or engine._native_orders
+                    or facts.get('observe_pristine_paper_cycle') or facts.get('paper_cycle_steps')):
+                raise ForbiddenExternalIO('COLD_ACCOUNTING_INSPECTION_REQUIRES_UNADOPTED_NATIVE_QUARANTINE')
+            report['daily_risk_after_constructor'] = plain(core.daily_risk_governor.state)
+            report['committed_accounting'] = plain(core.trade_lifecycle_engine.committed_accounting_snapshot(
+                run_mode=core.run_mode.value,trading_day_for=core.daily_risk_governor.trading_day_for))
+            report['runtime_accounting_fences'] = plain(dict(
+                native_feedback=core.trade_lifecycle_engine._native_feedback,
+                committed_event_ids=core.trade_lifecycle_engine._native_committed_event_ids,
+                fees=core.trade_lifecycle_engine._native_roundtrip_fees,
+                valuations=core.trade_lifecycle_engine._native_valuations))
+            report['cold_accounting_daily_decision'] = core.daily_risk_governor.evaluate(
+                run_mode=core.run_mode.value,now=observed,recovery_complete=engine.startup_recovery_complete(),
+                audit_payload=dict(source='COLD_ACCOUNTING_READ_ONLY_INSPECTION')).to_dict()
         report['types'] = {'core': type(core).__module__ + '.' + type(core).__name__,
             'engine': type(engine).__module__ + '.' + type(engine).__name__,
             'provider': type(engine.provider).__module__ + '.' + type(engine.provider).__name__,

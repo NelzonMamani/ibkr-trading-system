@@ -157,6 +157,9 @@ class TradeLifecycleEngine:
         # uncertainty never becomes financial-fill refusal or native JSON replay.
         self._native_roundtrip_fees: dict[str, dict[str, Any]] = {}
         self._native_fee_currency_conflicts: list[dict[str, Any]] = []
+        # Inspection provenance only: recovered snapshot marks are not fresh
+        # observations acquired by this process.
+        self._recovered_accounting_trade_ids: set[str] = set()
 
     def set_persistence_adapter(self, persistence_adapter: Any | None) -> None:
         self._persistence = persistence_adapter
@@ -340,6 +343,7 @@ class TradeLifecycleEngine:
                 take_profit_events=json.loads(row.get("take_profit_events_json") or "[]"),
             )
             self._trades[trade.lifecycle_trade_id] = trade
+            self._recovered_accounting_trade_ids.add(trade.lifecycle_trade_id)
             if trade.status in OPEN_STATUSES and trade.quantity_open > 0:
                 self._symbol_to_open_trade_id[trade.symbol] = trade.lifecycle_trade_id
         loaded = len(self._symbol_to_open_trade_id)
@@ -421,6 +425,322 @@ class TradeLifecycleEngine:
                 or row.get("event_id") not in self._native_committed_event_ids):
             raise RuntimeError("NATIVE_FEEDBACK_COMPLETION_UNCONFIRMED")
         row["state"] = "COMPLETE"
+
+    def committed_accounting_snapshot(self, *, run_mode: str, trading_day_for=None) -> dict[str, Any]:
+        """Read historical financial facts; restore no runtime/native authority.
+
+        NEW bounded project policy: validate the committed journal and latest
+        snapshot across runs of the same effective mode. Original commit order
+        and economic timestamps have different roles. This view never fills the
+        process-local completion, fee, valuation or execution-replay fences.
+        """
+        result = dict(required=False, available=True, reason=None, events=[], trades=[],
+            verified_historical_roots=[], historical_roots=[], open_roots=[], findings={},
+            fees=dict(required=False, available=True, evidence=[], covered_charges=[]),
+            fee_coverage="UNKNOWN")
+        reader = getattr(self._persistence, "fetch_committed_lifecycle_accounting", None)
+        if run_mode not in {"PAPER", "LIVE"} or not callable(reader):
+            return result
+        live_roots = {event.lifecycle_trade_id for event in self._events
+            if event.event_id in self._native_committed_event_ids}
+        result["historical_roots"] = sorted(self._recovered_accounting_trade_ids - live_roots)
+        errors = result["findings"]
+        try:
+            durable = reader(run_mode=run_mode)
+        except Exception as exc:
+            result.update(required=True, available=False, reason="COMMITTED_ACCOUNTING_READ_FAILED:" + str(exc))
+            return result
+        def require(condition, reason):
+            if not condition:
+                raise ValueError(reason)
+        def number(value):
+            require(not isinstance(value, bool), "COMMITTED_NUMBER_INVALID")
+            value = float(value)
+            require(math.isfinite(value), "COMMITTED_NUMBER_INVALID")
+            return value
+        def equal(left, right):
+            return math.isclose(number(left), number(right), rel_tol=1e-12, abs_tol=1e-8)
+        def scoped(row):
+            require(row.get("run_metadata_present") == 1
+                and row.get("effective_run_mode") == run_mode
+                and row.get("run_mode") in {"SIM", "PAPER", "LIVE", "READ_ONLY"}
+                and row.get("event_replay_mode") in {"OFF", "CYCLE", "RUN"},
+                "COMMITTED_RUN_SCOPE_UNAVAILABLE")
+        expected, expected_bindings = {}, {}
+        for state in durable["native_states"]:
+            try:
+                payload = json.loads(state["reason"])
+                require(isinstance(payload, dict) and type(payload.get("version")) is int and payload["version"] == 1
+                    and payload.get("mode") == run_mode and isinstance(payload.get("orders"), dict),
+                    "COMMITTED_NATIVE_WITNESS_INVALID")
+                for order_id, order in payload["orders"].items():
+                    root = order.get("protection_parent_order_id") or order_id
+                    require(isinstance(root,str) and root and root == root.strip(),
+                        "COMMITTED_FINANCIAL_WITNESS_ROOT_INVALID")
+                    if root in live_roots:
+                        continue
+                    frames = order.get("canonical_feedback") or []
+                    if order.get("filled", 0) and not frames:
+                        errors[root] = "COMMITTED_FINANCIAL_WITNESS_MISSING"
+                    for frame in frames:
+                        binding = self._native_identity(frame.get("identity"))
+                        root = binding["root_order_id"]
+                        expected.setdefault(root, set())
+                        ids = frame.get("applied_execution_ids")
+                        require(isinstance(ids,list) and ids and all(isinstance(value,str) and value for value in ids),
+                            "COMMITTED_FINANCIAL_WITNESS_EXECUTIONS_MISSING")
+                        expected[root].update(ids)
+                        for execution_id in ids:
+                            old = expected_bindings.setdefault(root, {}).setdefault(execution_id,binding)
+                            require(old == binding,"COMMITTED_FINANCIAL_WITNESS_IDENTITY_CONFLICT")
+                        if frame.get("state") != "COMPLETE" or frame.get("accounting_complete") is not True:
+                            errors[root] = "COMMITTED_FINANCIAL_WITNESS_INCOMPLETE"
+            except Exception as exc:
+                errors["native_state"] = str(exc)
+        groups, fee_rows, seen = {}, [], {}
+        fields = tuple(LifecycleEvent.__dataclass_fields__)
+        for row in durable["events"]:
+            root = str(row.get("lifecycle_trade_id") or "")
+            if root in live_roots:
+                continue
+            try:
+                metadata = json.loads(row.get("payload_json") or "{}")
+                strict = (isinstance(metadata, dict) and metadata.get("native_feedback_committed") is True)
+                if not strict and row.get("event_type") != "NATIVE_ROUNDTRIP_FEE":
+                    if root in expected or str(row.get("source") or "").startswith("native_"):
+                        # Saved valuations are never accounting/freshness authority.
+                        if row.get("event_type") == "NATIVE_MARK":
+                            continue
+                        raise ValueError("COMMITTED_NATIVE_EVENT_MARKER_MISSING")
+                    continue
+                scoped(row)
+                event = {key: deepcopy(metadata) if key == "metadata" else row.get(key) for key in fields}
+                old = seen.get(event["event_id"])
+                require(old is None or old == event, "COMMITTED_EVENT_ID_CONFLICT")
+                if old is not None:
+                    continue
+                seen[event["event_id"]] = event
+                if strict:
+                    groups.setdefault(root, []).append(event)
+                else:
+                    fee_rows.append(event)
+            except Exception as exc:
+                errors[root] = str(exc)
+        snapshots = {str(row["lifecycle_trade_id"]): row for row in durable["trades"]}
+        global_executions = set()
+        by_root = {}
+        for root, events in groups.items():
+            valid, quantity, closed_quantity, average, pnl, exit_notional = [], 0, 0, 0., 0., 0.
+            identity, stop, opened, terminal, entry_native_id = None, None, None, None, None
+            entry_times, exit_times = [], []
+            orders, executions = set(), set()
+            try:
+                for event in events:
+                    metadata = event["metadata"]
+                    binding = self._native_identity(metadata.get("native_identity"))
+                    require(binding.get("con_id") is not None and root == binding["root_order_id"]
+                        and event["symbol"] == binding["symbol"] and event["side"] == "LONG"
+                        and str(event["order_id"]) == binding["native_order_id"], "COMMITTED_IDENTITY_CONFLICT")
+                    require(expected_bindings.get(root,{}).get(event["execution_id"],binding) == binding,
+                        "COMMITTED_FINANCIAL_WITNESS_IDENTITY_CONFLICT")
+                    owner = {key:value for key,value in binding.items() if key != "native_order_id"}
+                    require(identity in (None, owner), "COMMITTED_OWNER_CONFLICT")
+                    require(isinstance(event["event_id"], str) and event["event_id"]
+                        and isinstance(event["execution_id"], str) and event["execution_id"]
+                        and (binding["account"], event["execution_id"]) not in global_executions,
+                        "COMMITTED_EXECUTION_CONFLICT")
+                    require(event["event_type"] in {"ENTRY_FILL", "PARTIAL_EXIT", "STOP_EXIT", "EXIT_FILL"}
+                        and type(event["quantity"]) is int and event["quantity"] > 0
+                        and type(metadata.get("quantity_before")) is int
+                        and metadata["quantity_before"] == quantity, "COMMITTED_QUANTITY_CHAIN_INVALID")
+                    price = number(event["price"]); count = event["quantity"]
+                    require(price > 0, "COMMITTED_PRICE_INVALID")
+                    stamp = self._authoritative_time(event["timestamp"])
+                    original_stop = number(metadata.get("original_stop_price"))
+                    require(original_stop > 0 and stop in (None, original_stop), "COMMITTED_STOP_CONFLICT")
+                    if event["event_type"] == "ENTRY_FILL":
+                        require(entry_native_id in (None,binding["native_order_id"]),
+                            "COMMITTED_ENTRY_NATIVE_ID_CONFLICT")
+                        require(not exit_times or stamp >= max(exit_times), "COMMITTED_FILL_CHRONOLOGY_INVALID")
+                        new_average = (quantity * average + count * price) / (quantity + count)
+                        after, increment = quantity + count, 0.
+                        is_terminal, terminal_time = False, None
+                    else:
+                        require(entry_times and stamp >= max(entry_times) and count <= quantity,
+                            "COMMITTED_EXIT_WITHOUT_OWNERSHIP")
+                        new_average = average
+                        after, increment = quantity-count, (price-average)*count
+                        is_terminal = after == 0
+                        terminal_time = max(exit_times+[stamp]).isoformat() if is_terminal else None
+                    require(type(metadata.get("quantity_after")) is int and metadata["quantity_after"] == after
+                        and type(metadata.get("terminal")) is bool and metadata["terminal"] is is_terminal
+                        and metadata.get("terminal_timestamp") == terminal_time
+                        and equal(metadata.get("realized_increment"), increment)
+                        and equal(metadata.get("entry_avg_price_after"), new_average)
+                        and equal(metadata.get("trade_pnl_after"), pnl+increment),
+                        "COMMITTED_FINANCIAL_CHAIN_CONFLICT")
+                    # Publish only a fully validated prefix; a bad later record
+                    # cannot erase a previously established loss.
+                    identity, stop, average, quantity = owner, original_stop, new_average, after
+                    pnl += increment; terminal = terminal_time
+                    if event["event_type"] == "ENTRY_FILL":
+                        entry_native_id = binding["native_order_id"]
+                        entry_times.append(stamp); opened = min(entry_times).isoformat()
+                    else:
+                        exit_times.append(stamp); closed_quantity += count; exit_notional += count*price
+                    orders.add(str(event["order_id"])); executions.add(event["execution_id"])
+                    global_executions.add((binding["account"], event["execution_id"]))
+                    valid.append(event)
+                trade = snapshots.get(root)
+                require(trade is not None, "COMMITTED_SNAPSHOT_MISSING")
+                scoped(trade)
+                require(trade["symbol"] == identity["symbol"] and trade["side"] == "LONG"
+                    and trade["strategy_name"] == identity["strategy"] and trade["target_price"] is None
+                    and trade["quantity_open"] == quantity and trade["quantity_closed"] == closed_quantity
+                    and equal(trade["entry_avg_price"], average) and equal(trade["gross_realized_pnl"], pnl)
+                    and equal(trade["stop_price"], stop) and trade["opened_at"] == opened
+                    and trade["closed_at"] == terminal
+                    and (trade["status"] == "CLOSED" if quantity == 0 else trade["status"] in OPEN_STATUSES)
+                    and (equal(trade["exit_avg_price"], exit_notional/closed_quantity) if closed_quantity
+                        else trade["exit_avg_price"] is None), "COMMITTED_SNAPSHOT_CONFLICT")
+                import ast
+                require(set(ast.literal_eval(trade["source_execution_ids_json"])) == executions
+                    and set(ast.literal_eval(trade["source_order_ids_json"])) == orders,
+                    "COMMITTED_SNAPSHOT_EXECUTION_CONFLICT")
+                require(expected.get(root, set()) <= executions, "COMMITTED_EXPECTED_EXECUTION_MISSING")
+                if root not in errors:
+                    result["verified_historical_roots"].append(root)
+            except Exception as exc:
+                errors[root] = str(exc)
+            if valid:
+                # This is an explicitly derived read-only financial prefix,
+                # not a recovered LifecycleTrade or a replacement SQL snapshot.
+                projected = dict(lifecycle_trade_id=root, symbol=identity["symbol"], side="LONG",
+                    strategy_name=identity["strategy"], status="CLOSED" if quantity == 0 else "OPEN",
+                    quantity_open=quantity, quantity_closed=closed_quantity, entry_avg_price=average,
+                    stop_price=stop, target_price=None, gross_realized_pnl=pnl, opened_at=opened,
+                    closed_at=terminal, last_mark_price=None, unrealized_pnl=0.)
+                result["events"].extend(valid); result["trades"].append(projected)
+                by_root[root] = valid
+                if quantity:
+                    result["open_roots"].append(root)
+        for root in expected.keys() - by_root.keys():
+            errors[root] = "COMMITTED_EXPECTED_ROOT_MISSING"
+        fees = result["fees"]
+        denominations = {}
+        for event in fee_rows:
+            root = event["lifecycle_trade_id"]
+            try:
+                audit = event["metadata"]["native_roundtrip_fee"]
+                evidence = {key:deepcopy(value) for key,value in audit.items()
+                    if key != "account_currency_observation"}
+                hashed = {key:value for key,value in evidence.items() if key != "event_id"}
+                require(event["event_id"] == evidence.get("event_id") == "native-fee:" +
+                    sha256(json.dumps(hashed,sort_keys=True,allow_nan=False).encode()).hexdigest(),
+                    "COMMITTED_FEE_HASH_CONFLICT")
+                financial = by_root.get(root, [])
+                require(financial and root == evidence["root_order_id"] and event["quantity"] == 0
+                    and event["price"] == 0 and event["side"] == "LONG"
+                    and event["source"] == "native_roundtrip_fee"
+                    and event["symbol"] == evidence["symbol"]
+                    and event["timestamp"] == evidence["terminal_timestamp"], "COMMITTED_FEE_EVENT_CONFLICT")
+                first = financial[0]["metadata"]["native_identity"]
+                require(all(evidence.get(key) == first[key] for key in (
+                    "account","strategy","symbol","side","con_id","client_id","connection_epoch"))
+                    and evidence.get("entry_native_order_id") == first["native_order_id"],
+                    "COMMITTED_FEE_OWNER_CONFLICT")
+                observation = audit["account_currency_observation"]
+                require(observation.get("source") == "IBKR_ACCOUNT_SUMMARY_LEDGER"
+                    and type(observation.get("request_id")) is int and observation["request_id"] > 0
+                    and observation.get("client_id") == first["client_id"]
+                    and observation.get("connection_epoch") == first["connection_epoch"]
+                    and all(type(observation.get(key)) is int for key in ("client_id","connection_epoch"))
+                    and isinstance(observation.get("tags"), list) and observation["tags"]
+                    and all(isinstance(tag,str) and tag and tag == tag.strip() for tag in observation["tags"]),
+                    "COMMITTED_FEE_CURRENCY_OBSERVATION_INVALID")
+                self._authoritative_time(observation["completed_at"])
+                original = {row["event_id"]:row for row in financial}
+                require(isinstance(evidence["fees"], list) and evidence["fees"], "COMMITTED_FEE_COVERAGE_MISSING")
+                basis = evidence["basis_event_ids"]
+                require(isinstance(basis,list) and basis
+                    and basis == [row["event_id"] for row in financial[:len(basis)]]
+                    and financial[len(basis)-1]["metadata"]["terminal"] is True
+                    and evidence["terminal_timestamp"] == financial[len(basis)-1]["metadata"]["terminal_timestamp"]
+                    and equal(evidence["gross_realized_pnl"],financial[len(basis)-1]["metadata"]["trade_pnl_after"])
+                    and callable(trading_day_for), "COMMITTED_FEE_FINANCIAL_BASIS_INVALID")
+                days = {trading_day_for(self._authoritative_time(original[key]["timestamp"])) for key in basis}
+                require(len(days) == 1 and evidence["trading_day"] in days
+                    and self._native_fee_currency(evidence["currency"]), "COMMITTED_FEE_UNIT_OR_DAY_CONFLICT")
+                denomination_key = (evidence["account"],evidence["trading_day"])
+                require(denominations.get(denomination_key,evidence["currency"]) == evidence["currency"],
+                    "COMMITTED_FEE_ACCOUNT_DAY_CURRENCY_CONFLICT")
+                charges = []
+                for fee in evidence["fees"]:
+                    match = original.get(fee["event_id"])
+                    binding = (match or {}).get("metadata", {}).get("native_identity", {})
+                    require(match is not None and fee["execution_id"] == match["execution_id"]
+                        and str(fee["native_order_id"]) == binding.get("native_order_id")
+                        and fee["quantity"] == match["quantity"] and equal(fee["price"], match["price"])
+                        and fee["timestamp"] == match["timestamp"]
+                        and fee["report_client_id"] == binding["client_id"]
+                        and fee["report_connection_epoch"] == binding["connection_epoch"]
+                        and fee["report_source"] == "IBKR_COMMISSION_REPORT"
+                        and fee["execution_currency"] == fee["report_currency"] == fee["currency"] == evidence["currency"],
+                        "COMMITTED_FEE_EXECUTION_CONFLICT")
+                    self._authoritative_time(fee["report_received_at"])
+                    amount = Decimal(str(fee["amount"]))
+                    require(amount.is_finite() and math.isfinite(float(amount)) and amount >= 0,
+                        "COMMITTED_FEE_AMOUNT_INVALID")
+                    if amount == 0:
+                        from src.adapters.brokers.ibkr.ibkr_client import SDK_COMMISSION_PRESENCE_SOURCE, SDK_COMMISSION_SCHEMA
+                        witness = fee.get("zero_commission_witness")
+                        keys = {"commission_field_present","commission_presence_source","commission_decoder_schema",
+                            "commission_client_object_id","commission_decoder_object_id","commission_decoder_thread_id",
+                            "commission_decoder_epoch","commission_decoder_generation"}
+                        require(isinstance(witness,dict) and set(witness) == keys
+                            and witness["commission_field_present"] is True
+                            and witness["commission_presence_source"] == SDK_COMMISSION_PRESENCE_SOURCE
+                            and witness["commission_decoder_schema"] == SDK_COMMISSION_SCHEMA
+                            and all(type(witness[key]) is int and witness[key] > 0 for key in (
+                                "commission_client_object_id","commission_decoder_object_id","commission_decoder_thread_id"))
+                            and type(witness["commission_decoder_epoch"]) is int
+                            and witness["commission_decoder_epoch"] == binding["connection_epoch"]
+                            and type(witness["commission_decoder_generation"]) is int
+                            and witness["commission_decoder_generation"] == 1, "COMMITTED_FEE_ZERO_WITNESS_INVALID")
+                    charge = dict(root_order_id=root,account=evidence["account"],strategy=evidence["strategy"],
+                        symbol=evidence["symbol"],execution_id=fee["execution_id"],native_order_id=fee["native_order_id"],
+                        amount=fee["amount"],currency=fee["currency"],trading_day=evidence["trading_day"],event_id=event["event_id"])
+                    if "zero_commission_witness" in fee:
+                        charge["zero_commission_witness"] = deepcopy(fee["zero_commission_witness"])
+                    charges.append(charge)
+                ids = [row["execution_id"] for row in evidence["fees"]]
+                require(len(ids) == len(set(ids)) == len(basis)
+                    and len(evidence["execution_ids"]) == len(ids)
+                    and set(ids) == set(evidence["execution_ids"])
+                    and {row["event_id"] for row in evidence["fees"]} == set(basis)
+                    and equal(evidence["total_commission"],sum(Decimal(str(row["amount"])) for row in evidence["fees"])),
+                    "COMMITTED_FEE_EXACT_COVERAGE_CONFLICT")
+                evidence["matched_current_basis"] = (root in result["verified_historical_roots"]
+                    and evidence["basis_event_ids"] == [row["event_id"] for row in financial])
+                fees["evidence"].append(evidence); fees["covered_charges"].extend(charges)
+                denominations[denomination_key] = evidence["currency"]
+                if not evidence["matched_current_basis"]:
+                    errors[root] = "COMMITTED_FEE_BASIS_CONFLICT"
+            except Exception as exc:
+                errors[root] = str(exc)
+        result["required"] = bool(groups or fee_rows or expected or errors)
+        result["historical_roots"] = sorted(set(result["historical_roots"]) | set(groups) | set(expected)
+            | {row["lifecycle_trade_id"] for row in fee_rows} | (set(errors)-{"native_state"}))
+        result["available"] = not errors
+        result["reason"] = next(iter(errors.values()), None)
+        fees.update(required=bool(fee_rows),available=not errors,reason=result["reason"])
+        covered_roots = {row["root_order_id"] for row in fees["evidence"] if row["matched_current_basis"]}
+        if covered_roots and covered_roots == set(by_root) and not errors:
+            result["fee_coverage"] = "COMPLETE_DURABLE_BASIS"
+        elif fees["covered_charges"]:
+            result["fee_coverage"] = "KNOWN_CHARGES_INCOMPLETE_BASIS"
+        fees["coverage"] = result["fee_coverage"]
+        return result
 
     def native_feedback_snapshot(self) -> dict[str, Any]:
         pending = [deepcopy(row) for row in self._native_feedback.values() if row["state"] == "PENDING"]
