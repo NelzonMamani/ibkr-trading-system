@@ -731,3 +731,26 @@ def test_unsupported_marker_cannot_hide_retained_veto_after_disable(lifecycle, m
     assert context['dilution_flag'] and not context['ross_catalyst_valid']
     assert retained_dilution(result.evidence_by_symbol['JPM'])
     assert not any(row.evidence_id == foreign.evidence_id for row in result.evidence_by_symbol['JPM'])
+
+
+def test_phase_only_transition_preserves_source_profile_and_real_acquisition_cadence(lifecycle, monkeypatch):
+    from src.news.news_intelligence_service import _acquisition_profile
+    life = configure(lifecycle, monkeypatch, now=datetime(2026,11,13,14,29,59,tzinfo=UTC))
+    life.policy = replace(life.policy, refresh_mode='bounded_refresh', refresh_interval_seconds=120)
+    before = _acquisition_profile(CANDIDATE, life.request, life.policy, batch_candidates=(CANDIDATE,))
+    life.provider.articles = (article(life),)
+    first = life.service.get_news((CANDIDATE,), life.request, life.policy)
+    assert life.provider.calls == 1
+    assert ross._ross_news_contexts_from_news_intelligence_result(first)['JPM']['ross_catalyst_valid']
+    life.clock.current = datetime(2026,11,13,14,30,tzinfo=UTC)
+    life.request = ross._ross_news_request()
+    after = _acquisition_profile(CANDIDATE, life.request, life.policy, batch_candidates=(CANDIDATE,))
+    assert before == after
+    assert life.request.metadata['next_session_calendar']['phase'] == 'RTH_OPEN'
+    second = life.service.get_news((CANDIDATE,), life.request, life.policy)
+    assert life.provider.calls == 1
+    assert ross._ross_news_contexts_from_news_intelligence_result(second)['JPM']['ross_catalyst_valid']
+    life.clock.current = datetime(2026,11,13,15,30,tzinfo=UTC)
+    life.request = ross._ross_news_request()
+    assert _acquisition_profile(CANDIDATE, life.request, life.policy, batch_candidates=(CANDIDATE,)) != before
+    assert not decision(life, article(life))['qualified']

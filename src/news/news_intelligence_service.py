@@ -124,8 +124,16 @@ def _acquisition_profile(candidate: NewsCandidate, request: NewsRequest, policy:
         profile["request"].update(query_start_utc=request.query_start_utc.isoformat(),
                                   query_end_utc=request.query_end_utc.isoformat())
     if request.strategy_id == "ross_momentum" and request.metadata.get("next_session_contract"):
+        from src.strategies.ross_momentum.policy.catalyst_policy import opening_calendar_binding
         profile["request"]["next_session_contract"] = request.metadata["next_session_contract"]
-        profile["request"]["next_session_calendar"] = _json_value(request.metadata.get("next_session_calendar"))
+        calendar = request.metadata.get("next_session_calendar")
+        try:
+            # Observed phase changes eligibility/cache context, not this
+            # immutable source plan's acquisition cadence within one window.
+            calendar = opening_calendar_binding(calendar)
+        except (TypeError, ValueError):
+            pass  # Unsupported input remains distinct; never mint valid coverage.
+        profile["request"]["next_session_calendar"] = _json_value(calendar)
     # Old available-empty coverage cannot certify this stricter transport/parser
     # contract. This changes coverage compatibility, never stored article facts.
     if provider_id == "rss_batch":
