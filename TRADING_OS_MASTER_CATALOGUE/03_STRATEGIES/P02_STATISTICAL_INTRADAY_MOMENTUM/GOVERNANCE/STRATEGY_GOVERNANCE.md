@@ -329,3 +329,16 @@ controls; retain native admission veto until a separately justified guarantee is
 established. No order replay, ownership restoration, fence restoration, quarantine
 clearing, operational enrollment or resumption follows. Actual Core structural
 veto and ATR UNKNOWN remain; all five ownership vetoes are intact.
+
+
+### Implementation checkpoint (offline candidate; final review/CI pending)
+
+Completed-context implementationd889f7d4 and bounded cooldown observatione435f218
+follow their separately reviewed/adopted contracts above. Source owner and
+consumer tests177pass; independent context136pass subset. Cooldown42new cases
+independently pass with coverageUNKNOWN/eligibleFalse in all outcomes. Actual Core
+still rejects incomplete native P02 entry; no complete cooldown clearance or
+positive Core admission is claimed. Full source, failure, evidence and remaining
+guarantee details are in SAME3's latest bounded-prerequisite entry. ATR proposal
+remains NOT ADOPTED with numerical bounds unresolved; original entry, target and
+management draft scope is not implicitly adopted by these prerequisites.
