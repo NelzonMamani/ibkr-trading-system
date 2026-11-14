@@ -5728,3 +5728,60 @@ broker history, unseen late fills, SDK send success or cold ownership. ATR
 numerical bounds, native entry and management vetoes remain. No observer or
 broker/provider/operational action; observation release3f48bf3f/sourcec65/calendar
 and all five ownership safeguards unchanged. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+### 2026-11-14 — PR1231 Windows aggregate budget failure and scoped correction
+
+Original reviewed candidate d7c171aac3a7b0fda87a83f55cad5cb9b3725efb/tree3e60bf62
+remains historical evidence. Independent exact-head review5906997378 cleared ATR
+source and29focused controls; local182passes overlap and are not additive.
+Automatic CI43638331204 attempt1 was CANCELLED, not accepted: Linux132580038763
+passed7970/3skipped/4warnings in1202.99s. Windows132580038753 completed full
+7971passed/2skipped/6156warnings in3375.69s, then serial46passed in32.88s, but hit
+the unchanged60-minute JOB limit during cache diagnostics. Both actual checkout
+logs identify353dcead26f9df5e0c081a8c71a339f7e0bc7c6f, ordered parents881e47ff
+then d7c171aa, candidate tree3e60bf62. Full-suite passes do not substitute for
+complete CI. PR1231 remains draft/unmerged pending corrected required CI.
+
+Causal diagnosis: full Windows suite ran20:38:02–21:34:19UTC. Cache checks began
+21:34:54; cancellation21:36:11 left77seconds. Existing verify_cache_probe.py has
+THREE intentional blocked-child cases with startup30s/cleanup5s; their startup
+budgets alone require about90s. Later actualPS5 exit/harness/parser checks never
+ran. Focused95/news37/float9 had passed before the full suite. No failing test or
+production defect was demonstrated; quiet progress logs cannot identify a causal
+slow individual test. Full Windows was17–25percent slower than PR1230's cited
+2708.68/2878.89s runs. Preserve the cancellation and unrun gates as limits.
+The729-byte partial artifact14132683319 (service-reported SHA256
+309d7f1330639943f766ebc345217a4c75569175f5fd4415339d5ff459936a89) contains
+only earlier focused evidence, not missing downstream proof; archive bytes were
+not independently downloaded/hashed.
+
+The minimal correction separates the existing Windows full-suite and controlled
+process gates into bounded jobs, preserving60minutes per Windows job, Linux30,
+every test/child timeout, dependency/environment branch, inherited-order-state
+guard and evidence upload. The existing required windows-offline name becomes
+an explicit always-run aggregate that requires both upstream successes; suite
+skip is allowed ONLY under authoritative harness_only=true. A skipped/cancelled/
+failed mandatory upstream cannot become aggregate success. Focused suite logs
+retain a separate unique artifact; the controlled harness artifact name stays.
+No optional bypass, threshold change, suite exclusion, retry or widening.
+
+ATR feature/test bytes stay unchanged; their passing focused evidence and review
+are reused. Independent exact-head workflow delta review and required automatic
+CI for the CHANGED head remain mandatory; no already-successful unchanged-head
+suite was manually rerun. This is scoped completion of demonstrated CI budget
+exhaustion, not another observer/source policy or documentation-only cycle.
+Default-off cooldown work continues independently; old UNKNOWN observations,
+ATR numerical-bounds/native-entry/management vetoes and all five ownership
+protections remain. Observation distribution3f48bf3f/sourcec65/calendar unchanged.
+No observer/provider/broker or operational recovery/readiness activity.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+Workflow correctionc3422219f92e01aa3a43682bfe1b5ffdd2eb8461 focused validation:
+4checks passed, including actual embedded aggregate execution across128 causal
+scope/suite/controlled status combinations plus missing/malformed/ambiguous
+inputs. Parsed YAML confirms all15original Windows steps retained exactly across
+the split, and original scope/Linux blocks semantically unchanged. Required
+windows-offline aggregate rejects failed/cancelled/skipped mandatory jobs; only
+authoritative harness-only permits the full-suite job skip. No production ATR/
+context/test fixture bytes were changed or focused source suites rerun. These
+workflow checks do not replace required automatic corrected-head CI.
