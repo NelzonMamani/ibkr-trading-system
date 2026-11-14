@@ -1008,3 +1008,119 @@ windows-offline aggregate rejects failed/cancelled/skipped mandatory jobs; only
 authoritative harness-only permits the full-suite job skip. No production ATR/
 context/test fixture bytes were changed or focused source suites rerun. These
 workflow checks do not replace required automatic corrected-head CI.
+
+
+### 2026-11-14 — Default-off P02 observable-local foundation implemented (bounded)
+
+Sourceb5f4f0f589810ca5796b3053f9a80c04024dfa66 follows reviewed adoptiond427f27b.
+Final contract5e57f035/treecd45901d was independently cleared before source work.
+Integration3a3cedd5a5f50703896647b346346bce90f67442/tree434a2774 has ordered
+parentsb5f4f0f5 then corrected ATR prerequisite29e9c4ac; all9 source/test blobs
+were preserved byte-for-byte. Only EOF record conflicts were resolved, retaining
+both exact histories once. No source duplication, new database/ledger or manager.
+
+NEW P02_OBSERVABLE_LOCAL_COOLDOWN_V1 is explicit TEST/PAPER keyword opt-in only;
+default raw storage/native behavior remains. Actual canonical TLE writes and
+current/prior committed journal, actual native bootstrap facts and existing
+collect_relationship_updates feed a same-original-connection fenced source read
+and immutable context/version-bound AS-OF LOCAL observation. Original authoritative
+entry times including partials anchor the existing120s; duplicates and late older
+facts never renew by receipt. Empty observed local state or exact120 elapsed can
+satisfy ONLY local_condition_satisfied. Every evidence retains coverageUNKNOWN,
+broker_history_completeFalse and admission_authorizedFalse. Old PR1230 public
+reader still always returns coverageUNKNOWN/eligibleFalse. This is not capture
+completeness, broker-history proof or a guarantee against unseen late executions.
+
+Opt-in SQLite ownership uses opaque connection/cursor facades from FIRST creation
+with no raw-handle/custom-factory escapes. Operation-entry revisions cover cached
+SQL; outstanding statements/RETURNING VMs refuse acquisition. Blob, backup,
+deserialize and custom hooks/configuration are unsupported. SAME original
+BEGIN IMMEDIATE after pre-send commit, timeout0, query_only/authorizer and actual
+finally restoration exclude interfering writers. Fixed issuer SQL has no bound
+parameters that could invoke global adapter callbacks. Strict actual source/read
+frames are capabilities; RLock/thread identity is not permission. Best-effort
+persistence failures become local uncertainty. The existing financial/timestamp/
+identity/chain validators are reused; P02 numeric2R and independent stop are not
+rewritten. Missing snapshots/events/current known commits, foreign journal changes
+and unknown current/prior native-state scope cannot silently become EMPTY_LOCAL.
+
+Native I registration precedes existing account registration/parsing/cache
+publication; completion never clears dirty intake. Listener failures preserve
+raw facts; actual ticket/thread ownership and callback-registration revisions
+are checked. Initial BASELINE settles only via an opaque receipt issued after
+actual collector/cache+journal verification. The component G+SQL lease exercises
+one-shot, argument/callback race and lexical-abandonment cleanup at immutable
+native ENTRY; locks close BEFORE SDK body. No actual SDK send was performed.
+The mutation audit counts direct/refused calls, immediate owner-to-base SDK
+delegation once, and distinct reentrant/cross-client/before_submit commands
+independently; every wrapper still runs read-only guards.
+
+Initial client scope is DEDICATED_SYNTHETIC_ONLY, a REQUIREMENT, not a global
+unshared-client/capture certificate. Initial retained native/plans/callback owners
+refuse enrollment. Unknown/foreign/unleased BUY remains blocked on that enrolled
+client; this is not positive mixed-strategy enrollment. Default/unbound BUY uses
+existing SDK guards, and protective SELL without an entry lease preserves them.
+Changing a bound BUY lease to SELL refuses rather than escaping comparison.
+
+EXACT LIMIT: positive observations use synthetic ENTRY LifecycleEvents through
+REAL canonical accounting and EMPTY native-cache/bootstrap settlement, NOT a
+retained-native-fill/protection P02 pipeline. NONEMPTY execution/order/open-order
+caches, retained request states and relationship state remain unsupported;
+financial/error/ignored/inherited/unknown callback tickets stay dirty. No positive
+financial-ticket settlement or new P02 bridge is proved. Actual proposal/risk/
+canonical decision/planned reservation nonce/final Core dispatch integration is
+CLOSED: stage revalidation except LOCAL_CHECK returnsFalse. This is a foundation,
+NOT complete policy enforcement or full Core enrollment. Cold native ownership,
+adoption, valuations, resumption and recovery clearing remain ungranted.
+
+Latest implementation receipts: SQLite42passed/.86s; ASOF24passed/26warnings/1.13s;
+Native WHOLE30passed/26warnings/1.25s plus ONLY2newscopecontrols passed with30
+deselected/3warnings/.69s. Thus98 DISTINCT new controls across scoped batches,
+not a claimed whole98 or whole32Native invocation. Earlier33/20/21/24 prefixes
+overlap and are not additive. Existing affected checks ran ONCE after relevant
+changes: lifecycle/SQLite/schema285passed/246warnings/12.31s; cached-client/
+read-only/guard/submitter164passed/1warning/11.85s; exactly4actual-Core cold
+accounting variants (gross/positive fee/known-zero fee/partial gross)4passed/
+8warnings/21.40s. These453existing checks overlap future CI, not new inventory.
+No old1600/full suite was manually repeated. Compile/whitespace checks passed.
+Independent assembled exact-head source review and required final-head CI remain
+mandatory; no pending or isolated prefix substitutes for them.
+
+Failures remain failures, with overlapping after-passes identified:
+1. SQLite first1passed/32SETUPERROR/3.52s: overbroad PRAGMA filter denied readonly
+   table_info(table); exact introspection/private-config handling fixed it.
+2. First composed run19failed/1passed/21warnings/6.33s: trusted feedback->open_trades
+   reacquired nonreentrant G. Exact source/private READ frame fixed it. Separate
+   single1failed/.79s hit the constructor PRAGMA issue BEFORE that frame; corrected
+   single1passed/.62s overlaps final24, not another full-module result.
+3. Missing-all-events control1failed/1warning/.78s: known runtime commit/snapshot
+   could falsely become EMPTY_LOCAL. Full verified snapshot chains and exact
+   current committed-event durable matches now required; after1pass/.67s overlaps24.
+4. Runtime/journal controls3failed/21deselected/4warnings/.75s: PAPER->LIVE, TEST
+   departure and coherent other-connection original-time changes revalidated old
+   evidence. Fresh actual context/generation+journal fingerprint fixed them;
+   after3passed/.72s overlaps24.
+5. Native cache control1failed/12deselected/1warning/.70s: callback after ID reserve
+   could be erased by cache reset. Enrolled CACHE_OCCUPIED refuses before hook and
+   setdefault preserves raw facts; default-off old path unchanged.
+6. Initial audit adaptation reentry1failed/20deselected/.61s undercounted2commands
+   as1; class-qualified one-use delegation fixed it (after1pass/.76s overlaps30).
+7. Callback audit1failed/29deselected/.72s suppressed a distinct before_submit
+   command before an exception; immediate caller ORIGINAL CODE identity is now
+   also required (after1pass/.80s overlaps30).
+These source-development failures and the earlier disproven Blob/backup/activeVM/
+second-file assumptions are not baseline passes or production certification.
+Detailed offline logs remain in /workspace/p02-local-*-20261114.log; originals
+and accepted failure history were not removed.
+
+ONE next bounded prerequisite: establish actual per-occurrence financial callback
+settlement through existing retained request/accounting/protection owners before
+expanding local observation consumption. Preserve unsupported-stage vetoes until
+the native bridge/decision bindings are adopted and implemented; do not invent
+P02 admission to demonstrate them. ATR numeric bounds remain a separate unresolved
+approved-data/calibration requirement; use the recorded plan, no acquisition or
+profit labels while management outcomes/cost evidence remain unresolved. All five
+ownership vetoes and native-entry/ATR/management gates stay closed. Observation
+distribution3f48bf3f/sourcec65/calendar unchanged. No observer, broker/provider,
+operational capital/recovery action or readiness upgrade.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
