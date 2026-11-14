@@ -458,10 +458,19 @@ class CanonicalNewsEvidenceStore:
                             if evidence_in_query_window(item, request, now=now)]
             previous = symbols_payload.get(symbol) or {}
             marker = previous.get("ross_retention_contract")
-            if marker:
+            if "ross_retention_contract" in previous:
                 from src.strategies.ross_momentum.policy.catalyst_policy import NEXT_SESSION_CONTRACT
+                marker_issuer = marker.get("issuer") if isinstance(marker, Mapping) else None
+                issuer_invalid = isinstance(marker, Mapping) and "issuer" in marker and (
+                    not isinstance(marker_issuer, Mapping)
+                    or set(marker_issuer) != {"symbol", "company_name", "aliases"}
+                    or marker_issuer.get("symbol") != symbol
+                    or (marker_issuer.get("company_name") is not None and not isinstance(marker_issuer["company_name"], str))
+                    or not isinstance(marker_issuer.get("aliases"), list)
+                    or not all(isinstance(alias, str) for alias in marker_issuer.get("aliases", ())))
                 if (not isinstance(marker, Mapping) or marker.get("contract") != NEXT_SESSION_CONTRACT
-                        or type(marker.get("presentation_limit")) is not int or marker["presentation_limit"] < 1):
+                        or type(marker.get("presentation_limit")) is not int or marker["presentation_limit"] < 1
+                        or issuer_invalid):
                     diagnostics.update(cache_write_failed=True, cache_write_error="protected_retention_marker_invalid")
                     return diagnostics  # Preserve owned state; never clear an unknown cohort.
             effective_request = protected_data_request(request, marker)
@@ -473,9 +482,15 @@ class CanonicalNewsEvidenceStore:
                 protected_selection = protected_ross_request(protection_request)
             if protected_selection:
                 retrieval = (retrieval_by_symbol or {}).get(symbol, {})
-                issuer = (retrieval.get("acquisition_profile", {}).get("issuer")
-                          or (marker.get("issuer") if isinstance(marker, Mapping) else None)
-                          or previous.get("last_retrieval", {}).get("acquisition_profile", {}).get("issuer", {}))
+                # Generic acquisition metadata cannot replace the protected
+                # Ross candidate. Retain its identity as data; live consumers
+                # still revalidate against their current accepted candidate.
+                prior_profile = previous.get("last_retrieval", {}).get("acquisition_profile", {})
+                issuer = ((marker.get("issuer") if isinstance(marker, Mapping) else None)
+                          or (retrieval.get("acquisition_profile", {}).get("issuer")
+                              if protected_ross_request(request) else None)
+                          or (prior_profile.get("issuer") if prior_profile.get("request", {}).get("qualification_profile")
+                              in {"ross_issuer_event_v9", "ross_issuer_event_v10_listing_compliance"} else None))
                 if isinstance(issuer, Mapping) and issuer.get("symbol") == symbol:
                     aliases = issuer.get("aliases", ())
                     write_candidates = (NewsCandidate(symbol, company_name=issuer.get("company_name"),

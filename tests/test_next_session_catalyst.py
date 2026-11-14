@@ -652,7 +652,9 @@ def test_foreign_identity_cannot_coalesce_away_owned_veto(lifecycle, monkeypatch
     assert not any(row.evidence_id == foreign.evidence_id for row in rows)
 
 
-def test_company_name_only_veto_survives_repeated_generic_metadata_writes(lifecycle, monkeypatch):
+@pytest.mark.parametrize('generic_issuer', [None, {'symbol': 'JPM', 'company_name': None, 'aliases': []},
+    {'symbol': 'JPM', 'company_name': 'Unrelated Foreign Company', 'aliases': ['Foreign Company']}])
+def test_company_name_only_veto_survives_repeated_generic_metadata_writes(lifecycle, monkeypatch, generic_issuer):
     life = configure(lifecycle, monkeypatch)
     positive = article(life, 'P')
     veto = replace(article(life, 'V', 'JPMorgan Chase announces registered direct offering', NOW),
@@ -663,19 +665,44 @@ def test_company_name_only_veto_survives_repeated_generic_metadata_writes(lifecy
     for index in range(3):
         life.store.write({'JPM': (article(life, str(index), 'JPM market bulletin', NOW),)},
                          NewsRequest(strategy_id='unrelated', max_evidence_per_symbol=1),
-                         retrieval_by_symbol={'JPM': {'completed_at': NOW.isoformat()}})
+                         retrieval_by_symbol={'JPM': {'completed_at': NOW.isoformat(),
+                             **({'acquisition_profile': {'issuer': generic_issuer}} if generic_issuer else {})}})
         rows = life.store.read((CANDIDATE,), life.request).evidence_by_symbol['JPM']
         assert retained_dilution(rows)
         assert any(row.evidence_id == veto.evidence_id for row in rows)
 
 
-def test_unknown_protected_retention_marker_refuses_write_without_mutating_cache(lifecycle, monkeypatch):
+@pytest.mark.parametrize('invalid_marker', [None, {}, [], '', 0, {'contract': 'unknown'},
+    {'contract': cp.NEXT_SESSION_CONTRACT, 'presentation_limit': True}])
+def test_unknown_protected_retention_marker_refuses_write_without_mutating_cache(lifecycle, monkeypatch, invalid_marker):
     life = configure(lifecycle, monkeypatch)
     life.store.write({'JPM': (article(life),)}, life.request)
     payload = json.loads(life.store.cache_path.read_text())
-    payload['news_intelligence']['symbols']['JPM']['ross_retention_contract']['contract'] = 'unknown'
+    payload['news_intelligence']['symbols']['JPM']['ross_retention_contract'] = invalid_marker
     life.store.cache_path.write_text(json.dumps(payload))
     before = life.store.cache_path.read_bytes()
     result = life.store.write({'JPM': (article(life, 'G', 'JPM market bulletin', NOW),)}, life.request)
+    assert result['cache_write_failed'] and result['cache_write_error'] == 'protected_retention_marker_invalid'
+    assert life.store.cache_path.read_bytes() == before
+
+
+@pytest.mark.parametrize('invalid_issuer', [None, {'symbol': 'OTHER'},
+    {'symbol': 'OTHER', 'company_name': None, 'aliases': []},
+    {'symbol': 'JPM', 'company_name': ['unexpected'], 'aliases': []},
+    {'symbol': 'JPM', 'company_name': None, 'aliases': 'unexpected'},
+    {'symbol': 'JPM', 'company_name': None, 'aliases': [None]}])
+def test_malformed_protected_issuer_refuses_destructive_generic_write(lifecycle, monkeypatch, invalid_issuer):
+    life = configure(lifecycle, monkeypatch)
+    veto = replace(article(life, 'V', 'JPMorgan Chase announces registered direct offering', NOW),
+                   company_name=None, aliases=())
+    issuer = {'symbol': 'JPM', 'company_name': CANDIDATE.company_name, 'aliases': list(CANDIDATE.aliases)}
+    life.store.write({'JPM': (article(life), veto)}, life.request,
+                     retrieval_by_symbol={'JPM': {'acquisition_profile': {'issuer': issuer}}})
+    payload = json.loads(life.store.cache_path.read_text())
+    payload['news_intelligence']['symbols']['JPM']['ross_retention_contract']['issuer'] = invalid_issuer
+    life.store.cache_path.write_text(json.dumps(payload))
+    before = life.store.cache_path.read_bytes()
+    result = life.store.write({'JPM': (article(life, 'G', 'JPM market bulletin', NOW),)},
+                              NewsRequest(strategy_id='unrelated', max_evidence_per_symbol=1))
     assert result['cache_write_failed'] and result['cache_write_error'] == 'protected_retention_marker_invalid'
     assert life.store.cache_path.read_bytes() == before
