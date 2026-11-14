@@ -1058,3 +1058,94 @@ ownership vetoes and native-entry/ATR/management gates stay closed. Observation
 distribution3f48bf3f/sourcec65/calendar unchanged. No observer, broker/provider,
 operational capital/recovery action or readiness upgrade.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+
+### 2026-11-14 — Scoped independent review findings repaired; final review pending
+
+Accepted ATR prerequisite PR1231 mergedabfc822d804ab966e9abd8638ed052e842393d75,
+treec2e77a3b, after corrected CI43644351093 attempt1 SUCCESS: Linux7974/3skipped/
+4warnings/804.71s, Windows7975/2skipped/6156warnings/3205.34s, all original
+controlled-process gates and required aggregate SUCCESS. Actual test checkouts
+dfba9283 have ordered parents881e47ff then29e9c4ac and reviewed treec2e77a3b;
+accepted merge has the same ordered parents/tree. Original cancelled43638331204
+remains failure history. Automatic main43649428902 is RUNNING at this entry; do
+not infer its result. Receipt publication follows complete CI, without changing
+the frozen source merely to append receipts. Observation release3f48bf3f unchanged.
+
+Independent source review at46f457f94541ccbf629f19423ac142f1a9ca0f04/tree3c228986
+ran99focused controls (57warnings), which PASSED but MISSED3blocking findings;
+that head was NOT CLEAR. Two bounded public-source probes released/joined their
+workers: pre-bind Native.orderStatus could be in flight while baseline/read
+reported local_conditionTrue; weak facade finalization could remove an active
+RETURNING VM from weak tracking before raw finalization, admitting a fence.
+The third source defect passed UNBOUND DailyRiskGovernor.trading_day_for to fee
+validation, rejecting valid fee-bearing history. None is a passing certification.
+
+Consolidated source correction435d8e55a291777ae9d555d9e7f69c50d1b42d0f
+(tree4ca55f43, parent46f457f9) changes only8scoped source/test paths. Constructor-
+FIRST bounded actual lifetime-operation/revision bookkeeping and the SAME I lock
+now participate before binding. Atomic quiescent bind never resets the witness;
+actual negative operation IDs remain visible before ordinary ticket registration
+and after ticket finish. Unknown/failure/rebind is sticky unsupported. No callback
+history/raw-fingerprint accumulation or inferred capture certificate. Missing
+constructor provenance and reinitialization refuse; stable actual stdlib thread
+primitives preserve existing history Event fixtures. Default transport/cache
+semantics and all operational permissions remain; this bookkeeping supplies no
+broker history or global unshared-client guarantee.
+
+SQLite keeps strong RAW active-operation records independently of weak facade
+lifetime until verified exhaustion/explicit close. Abandoned active VM refuses
+fencing until creator-store shutdown closes the actual operation. Dead weakrefs
+never mean settled; no strong facade retention. This exposed actual owned-read
+leaks, repaired by finally-closing4schema probes,5strict canonical-pair checks
+and the StorageEngine native-state reader. No caller VM auto-clear, rollback of
+caller work, capital redesign or relaxed active-VM rule was introduced.
+
+ONLY the new local helper now uses the ACTUAL bound governor day owner, verifying
+exact governor/Storage/TLE/provider and bound-method provenance; governor identity
+is in the immutable source version. Synthetic positive-fee and known-wire-zero
+CHARGE evidence is validated through real canonical auxiliary owners and offline
+SDK-summary fixtures. A known-zero wire leg does NOT mean all round-trip fees
+are zero. No fallback timezone/fee, empirical-cost or net-performance claim.
+Wrong/missing governor ownership refuses. All actual P02 stage/bridge restrictions
+from the preceding foundation entry remain unchanged.
+
+Failure chronology (prefixes overlap final checks; not additive inventory):
+- Maintained pre-bind regression1failed/32deselected/1warning/.73s ->1passed/.65s.
+  A failure before ticket registration was separately1failed/38deselected/
+  1warning/.79s; source-minted failed-intake fallback repaired it, targeted2passed
+  /.70s including real-threading-alias control. Bound-reinit expectation1failed/
+  .96s was a TEST expectation error: existing API correctly raised unavailable,
+  rather than returningFalse. Test-only correction1passed/.68s; source unchanged.
+- Weak cursor finalizer1failed/.43s ->1passed/.45s. Strong tracking then exposed
+  reopened-schema1failed/.48s and strict canonical ENTRY/STOP1failed/1warning/
+  .76s; actual owned reads were closed, not silently declared inactive.
+- Fee probe first2failed/4warnings/1.37s stopped at the schema VM refusal BEFORE
+  the day branch; this is NOT TypeError proof. After reader repair,2failed/
+  4warnings/.97s causally REACHED the unbound-day missing-timestamp defect with
+  valid synthetic auxiliary facts. Bound-owner repair2passed/.89s, then expanded
+  wrong/missing-owner controls2passed/1.12s overlap final26.
+
+Latest defined NEW controls117=SQLite50+ASOF26+Native41; NOT a claimed whole117
+invocation. SQLite whole50passed/1warning/1.15s; ASOF whole26passed/30warnings/
+1.42s; Native whole38passed/36warnings/1.49s plus ONLY2newfocusedpassed/1warning/
+.70s and1newfocusedpassed/1warning/.68s. Earlier42/48/49/24/30/32/38 prefixes
+overlap and remain attributed to their actual source.
+
+Affected existing checks ran ONCE after these constructor/default-callback and
+owned-reader corrections:285lifecycle/SQLite/schema passed/246warnings/11.36s;
+253native/read-only/submitter/history passed/1warning/12.91s (includes89existing
+history-completion cases); exactly4actual-Core cold accounting variants passed/
+8warnings/16.44s. These542existing nodes overlap earlier453 and future CI; they
+are not new inventory. Logs: /workspace/p02-local-review-fixed-*-20261114.log.
+No old fullCore/full-suite blind rerun, manual CI retry or observer.
+
+Final assembled exact-head correction review and complete automatic CI remain
+mandatory before expected-head integration. Local condition observations and
+component lease cleanup are NOT complete policy enforcement: nonempty native
+caches/request/relationship states and financial tickets remain unsupported,
+actual proposal/risk/planned nonce/final Core stages stay closed. Original
+UNKNOWN API, numerical ATR/entry/management vetoes, all five ownership safeguards
+and dedicated synthetic-only scope remain. No native ownership restoration,
+broker/provider activity, capital/recovery action or readiness upgrade.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
