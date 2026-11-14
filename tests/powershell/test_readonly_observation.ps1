@@ -17,6 +17,9 @@ def no_network(event,args):
 sys.addaudithook(no_network)
 phase, root, head, *duration_args = sys.argv[1:]
 p = pathlib.Path(root); e=p/'e'; e.mkdir(exist_ok=True)
+calendar = duration_args[-1:] == ['--reviewed-calendar']
+if calendar: duration_args.pop()
+with (e/'calendar_modes').open('a') as modes: modes.write(phase+':'+str(calendar)+'\n')
 with (e/'durations').open('a') as durations: durations.write(phase+':'+(duration_args[0] if duration_args else '180')+'\n')
 with (e/'phases').open('a') as out: out.write(phase+'\n')
 case=os.environ.get('OBS_TEST_CASE','success')
@@ -401,6 +404,15 @@ print('CACHE_STARTUP_CHECKS_PASS')
     $inventory=Invoke-ObservationChild -Python $Python -ChildArguments @('-E','-u',(Join-Path $repo 'tests\powershell\verify_windows_inventory.py')) -LogPrefix (Join-Path $scratch 'inventory') -BudgetSeconds 60
     Check ($inventory.ExitCode -eq 0) 'Windows inventory checks failed.'
     Get-Content ($scratch+'\inventory.stdout.log') | ForEach-Object { Write-Host $_ }
+    $passed++
+    # Every owned phase receives the explicit opt-in, never an ambient override.
+    $calendarRoot=Join-Path $scratch 'calendar-propagation'
+    New-Item -ItemType Directory $calendarRoot | Out-Null
+    $env:OBS_TEST_CASE='success'
+    $calendarResult=Invoke-ReadonlyObservation -Python $Python -Operator $stub -Root $calendarRoot -ExpectedCommit ('a'*40) -RuntimeSeconds 900 -ReviewedCalendar
+    Check ($calendarResult -eq 0) 'Scoped calendar stub pipeline failed.'
+    $modes=@(Get-Content (Join-Path $calendarRoot 'e/calendar_modes'))
+    Check (($modes -join ',') -eq 'prepare:True,preflight:True,observe:True,package:True,seal:True') 'Calendar opt-in lost across owned phase boundaries.'
     $passed++
     # Real packaging implementation with synthetic terminal/inventory; no supervisor.main.
     $result=Invoke-ObservationChild -Python $Python -ChildArguments @('-E','-u',(Join-Path $repo 'tests\powershell\verify_observation_package.py'),$repo,$scratch) -LogPrefix (Join-Path $scratch 'real-package') -BudgetSeconds 45

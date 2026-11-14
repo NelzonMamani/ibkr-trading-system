@@ -3,6 +3,9 @@ import hashlib, json, os, shutil, subprocess, sys, zipfile, time
 from datetime import datetime, timezone
 from pathlib import Path
 phase, root_text, expected, *duration_args = sys.argv[1:]
+reviewed_calendar = duration_args[-1:] == ['--reviewed-calendar']
+if reviewed_calendar:
+    duration_args.pop()
 if len(duration_args) > 1:
     raise SystemExit('At most one bounded runtime duration is allowed')
 runtime_seconds = int(duration_args[0]) if duration_args else 180
@@ -33,10 +36,51 @@ if hasattr(sys.modules.get('sitecustomize'), 'offline'):
 from scripts.certification.pr1040_real_readonly_runtime_observation_adapter import build_safe_readonly_env, assert_safe_runtime_env
 from src.config.config_registry import CONFIG_REGISTRY
 preflight_timing('adapter_and_registry_imports_complete')
+
+def reviewed_calendar_environment(checkout, enabled, safe_env, source_head):
+    """One fixed reviewed input, admitted only inside this READ_ONLY owner.
+
+    No caller-supplied calendar/configuration or ambient enrollment authority.
+    Calendar owners must still be identical to those reviewed at PR1226;
+    the caller separately pins the accepted harness commit passed as expected.
+    """
+    if not enabled:
+        return {}, {'enabled': False}
+    assert_safe_runtime_env(safe_env)
+    if (safe_env.get('IBKR_CLIENT_ID') != '71' or safe_env.get('IBKR_HOST') != '127.0.0.1'
+            or safe_env.get('IBKR_PORT') != '7497'):
+        raise SystemExit('Reviewed calendar requires the existing exact local client71 scope.')
+    head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=checkout, text=True).strip()
+    if head != source_head:
+        raise SystemExit('Reviewed-calendar source pin differs from the owned checkout.')
+    raw = (checkout/'docs/ross/PR1226_OFFICIAL_CALENDAR_REVIEW_20261114.json').read_bytes()
+    normalized = raw.replace(b'\r\n', b'\n')
+    reviewed_hash = 'd487d73d2e0f9ef44a4345dbf4269da9e945589333c10fface07cc393cab99cd'
+    if b'\r' in normalized or hashlib.sha256(normalized).hexdigest() != reviewed_hash:
+        raise SystemExit('Reviewed calendar evidence bytes differ; no admission.')
+    reviewed = json.loads(normalized)
+    for item in reviewed['files'].values():
+        if hashlib.sha256(item['utf8'].encode('utf-8')).hexdigest() != item['sha256']:
+            raise SystemExit('Reviewed calendar embedded input hash differs.')
+    manifest = json.loads(reviewed['files']['source_manifest.json']['utf8'])
+    for path, wanted in manifest['blobs'].items():
+        actual = subprocess.check_output(['git', 'rev-parse', source_head+':'+path], cwd=checkout, text=True).strip()
+        if actual != wanted:
+            raise SystemExit('Calendar/configuration source owner changed since receipt review.')
+    coverage = reviewed['files']['calendar_receipt.json']['utf8']
+    updates = dict(ROSS_NEXT_SESSION_CATALYST_ENABLED='true', MARKET_SESSION_COVERAGE=coverage,
+                   MARKET_HOLIDAYS='2026-11-26', MARKET_HALF_DAYS='2026-11-27', MARKET_EARLY_CLOSE_TIME='13:00')
+    return updates, {'enabled': True, 'review_commit': '196c45f0c34749aa17d74c67022656d0e6837f60',
+        'reviewed_source': manifest['commit'], 'source_head': head,
+        'evidence_sha256': reviewed_hash, 'checkout_bytes_sha256': hashlib.sha256(raw).hexdigest(),
+        'calendar_sha256': reviewed['files']['calendar_receipt.json']['sha256']}
+
 env = dict(os.environ)
 env.pop('PR1108_CACHE_PROBE_TRACE', None)
 env.pop('PYTHONHOME', None)
 env.pop('PYTHONSTARTUP', None)
+for key in ('FORCE_SESSION', 'SESSION_OVERRIDE', 'MARKET_SESSION_OVERRIDE'):
+    env.pop(key, None)
 for entry in CONFIG_REGISTRY.values():
     for key in entry.get('env', ()):
         env.pop(key, None)
@@ -56,6 +100,8 @@ env.update(PYTHONPATH=os.pathsep.join((str(state/'startup'),str(repo))), PYTHONU
     IBKR_GUARD_PERSIST_PATH=str(state/'submission-guard.json'),
     SCANNER_FLOAT_CACHE_FILE=str(state/'float.json'), NEWS_CACHE_FILE=str(state/'news.json'),
     PERSISTENCE_SQLITE_PATH=str(state/'runtime.sqlite3'), DECISION_TRACE_PATH=str(state/'decision-trace.jsonl'))
+calendar_updates, calendar_enrollment = reviewed_calendar_environment(repo, reviewed_calendar, env, expected)
+env.update(calendar_updates)
 assert_safe_runtime_env(env)
 original_state = Path(os.environ.get('IBKR_ORDER_ID_STATE_PATH') or Path.home()/'.ibkr_order_id_state.json')
 os.environ.clear(); os.environ.update(env)
@@ -104,7 +150,11 @@ def binding():
     actual_head = subprocess.check_output(['git','rev-parse','HEAD'], cwd=repo, text=True).strip()
     if actual_head != expected:
         raise SystemExit('Pinned source root does not match expected commit.')
+    updates, enrollment = reviewed_calendar_environment(repo, globals().get('reviewed_calendar', False), os.environ, expected)
+    if any(os.environ.get(key) != value for key, value in updates.items()):
+        raise SystemExit('Reviewed calendar environment changed after admission.')
     return {'root': str(root.resolve()), 'head': actual_head,
+        'calendar_enrollment': enrollment,
         'tree': subprocess.check_output(['git','rev-parse','HEAD^{tree}'], cwd=repo, text=True).strip(),
         'seconds': runtime_seconds, 'config': {key: canonical_config(get_config(key)) for key in CONFIG_REGISTRY},
         'hook': digest(state/'startup/sitecustomize.py'),
@@ -134,6 +184,14 @@ def session_check():
     # Same configured calendar/session owner, including holidays and early close.
     # Reserve the whole supervisor envelope, not just runtime, before RTH ends.
     from datetime import timedelta
+    if globals().get('reviewed_calendar', False):
+        reviewed_calendar_environment(repo, True, os.environ, expected)
+        from src.market_data.session_pct_change import covered_opening_window
+        start = covered_opening_window(now)
+        end = covered_opening_window(now + timedelta(seconds=runtime_seconds + 360))
+        if (start is None or end is None or start.phase != 'RTH_OPEN' or end.phase != 'RTH_OPEN'
+                or start.fingerprint != end.fingerprint):
+            raise SystemExit('Full opt-in observation envelope must stay in one reviewed RTH_OPEN window.')
     if (get_current_market_session(now) != 'RTH' or
             get_current_market_session(now + timedelta(seconds=runtime_seconds + 360)) != 'RTH'):
         raise SystemExit('Requires normal configured RTH with runtime and finalization time remaining; no session override.')
