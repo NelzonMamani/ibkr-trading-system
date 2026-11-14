@@ -178,7 +178,7 @@ def test_entire_final_preflight_body_requires_fresh_manifest_and_final_guards(tm
         if case=='operator-delete':original.unlink()
         if case=='operator-edit':original.write_bytes(b'changed')
     ns['shutil']=types.SimpleNamespace(copy2=copy_state)
-    ns.update(os=types.SimpleNamespace(name='nt'),sys=types.SimpleNamespace(version_info=(3,13,3),executable=sys.executable),
+    ns.update(os=types.SimpleNamespace(name='nt',environ=os.environ),sys=types.SimpleNamespace(version_info=(3,13,3),executable=sys.executable),
         require_controller=lambda:{'pid':1,'token':'fixture'},require_prepared=lambda:json.loads((tmp_path/'preparation/prepared.json').read_text()),
         session_check=session,verify_write_guards=lambda:guards.append(True),
         supervisor=types.SimpleNamespace(require_clean_certification_worktree=lambda _:None,runtime_inventory=inventory),
@@ -206,7 +206,7 @@ def test_actual_prepare_body_is_filesystem_only_and_captures_full_m0(tmp_path):
     def forbidden(*args,**kwargs):raise AssertionError('Session/operator/broker admission forbidden in preparation')
     writes=[]
     def write(path,value):writes.append(path.name);path.parent.mkdir(parents=True,exist_ok=True);path.write_text(json.dumps(value))
-    ns.update(phase='prepare',os=types.SimpleNamespace(name='nt'),
+    ns.update(phase='prepare',os=types.SimpleNamespace(name='nt',environ=os.environ),
         sys=types.SimpleNamespace(version_info=(3,13,3),executable=sys.executable),
         supervisor=types.SimpleNamespace(require_clean_certification_worktree=lambda _:None),
         session_check=forbidden,require_controller=forbidden,write_json=write)

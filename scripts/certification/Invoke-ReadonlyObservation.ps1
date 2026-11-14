@@ -132,10 +132,12 @@ function Invoke-ReadonlyObservation {
           [double]$PreflightSeconds = 150, [double]$ObservationSeconds = 540,
           [double]$StopSeconds = 30, [double]$PackageSeconds = 150,
           [double]$PreparationSeconds = 150, [double]$SealSeconds = 90,
-          [ValidateRange(180,1800)][int]$RuntimeSeconds = 180, [switch]$PreflightOnly)
+          [ValidateRange(180,1800)][int]$RuntimeSeconds = 180, [switch]$PreflightOnly,
+          [switch]$ReviewedCalendar)
     $ErrorActionPreference = 'Stop'
     $durationArguments = @()
     if ($RuntimeSeconds -ne 180) { $durationArguments = @([string]$RuntimeSeconds) }
+    if ($ReviewedCalendar) { $durationArguments += '--reviewed-calendar' }
     $evidence = Join-Path $Root 'e'
     if (Test-Path -LiteralPath $evidence) { throw 'Evidence already exists; prepare a fresh run root. Existing evidence preserved.' }
     $preparation = Join-Path $Root 'preparation'
