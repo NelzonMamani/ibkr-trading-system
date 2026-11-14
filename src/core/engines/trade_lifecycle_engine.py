@@ -426,6 +426,147 @@ class TradeLifecycleEngine:
             raise RuntimeError("NATIVE_FEEDBACK_COMPLETION_UNCONFIRMED")
         row["state"] = "COMPLETE"
 
+    def p02_entry_cooldown_snapshot(self, *, account: str, identity, run_mode: str,
+                                   assessed_at: datetime) -> dict[str, Any]:
+        """Observe durable P02 entry timing, never certify cooldown clearance.
+
+        The existing 120-second policy has no complete finite intake/owned-order
+        coverage guarantee. A valid recent entry can establish an active veto;
+        an elapsed anchor or an empty query cannot establish eligibility. This
+        reads current AND prior runs without restoring any process-local fences.
+        """
+        from datetime import timedelta
+        import ast
+        from src.market_data.candidate_identity import CandidateIdentity
+        from src.strategies.statistical_intraday_momentum.strategy_policy import default_policy
+        from src.strategies.statistical_intraday_momentum.strategy import StatisticalIntradayMomentum
+
+        policy = default_policy()
+        aliases = {policy.name, StatisticalIntradayMomentum.name}
+        result = dict(timing="UNKNOWN", eligible=False, coverage="UNKNOWN",
+            duration_seconds=policy.activation.cooldown_seconds, last_entry_at=None, expires_at=None,
+            observed_entry_count=0, entries=[], findings=[], journal_read_available=False, scope={})
+        def finding(reason, row=None):
+            result["findings"].append(dict(reason=reason,
+                root_order_id=(row or {}).get("lifecycle_trade_id"),event_id=(row or {}).get("event_id")))
+        def require(condition, reason):
+            if not condition:
+                raise ValueError(reason)
+        def scoped(row):
+            require(row.get("run_metadata_present") == 1 and row.get("effective_run_mode") == run_mode
+                and row.get("run_mode") in {"SIM","PAPER","LIVE","READ_ONLY"}
+                and row.get("event_replay_mode") in {"OFF","CYCLE","RUN"}, "P02_ENTRY_RUN_SCOPE_UNKNOWN")
+        try:
+            require(isinstance(account,str) and account and account == account.strip()
+                and type(identity) is CandidateIdentity and type(identity.con_id) is int and identity.con_id > 0
+                and isinstance(identity.symbol,str) and identity.symbol and identity.symbol == identity.symbol.strip().upper()
+                and identity.sec_type == "STK" and identity.currency == "USD"
+                and run_mode in {"PAPER","LIVE"}, "P02_COOLDOWN_SCOPE_UNAVAILABLE")
+            require(isinstance(assessed_at,datetime), "P02_COOLDOWN_ASSESSMENT_UNAVAILABLE")
+            now = self._authoritative_time(assessed_at.isoformat())
+            result["scope"] = dict(strategy_id=policy.name,account=account,run_mode=run_mode,
+                symbol=identity.symbol,con_id=identity.con_id,sec_type=identity.sec_type,currency=identity.currency)
+            reader = getattr(self._persistence,"fetch_committed_lifecycle_accounting",None)
+            require(callable(reader), "P02_ENTRY_HISTORY_STORAGE_UNAVAILABLE")
+            durable = reader(run_mode=run_mode)
+            require(isinstance(durable,dict) and isinstance(durable.get("events"),list)
+                and isinstance(durable.get("trades"),list), "P02_ENTRY_HISTORY_RESPONSE_INVALID")
+        except Exception as exc:
+            finding(str(exc))
+            return result
+        result["journal_read_available"] = True
+        snapshots, bad_roots = {}, set()
+        for row in durable["trades"]:
+            if not isinstance(row,dict) or not isinstance(row.get("lifecycle_trade_id"),str):
+                finding("P02_ENTRY_SNAPSHOT_IDENTITY_UNKNOWN")
+                continue
+            root = row.get("lifecycle_trade_id")
+            if root in snapshots and snapshots[root] != row:
+                bad_roots.add(root)
+            snapshots[root] = row
+        # A contradictory event/execution cannot remain a trusted anchor even
+        # if one copy independently looks valid. Exact repeated reads dedupe.
+        unique, bad_events, executions, bad_executions = {}, set(), {}, set()
+        for row in durable["events"]:
+            if not isinstance(row,dict):
+                finding("P02_ENTRY_HISTORY_ROW_INVALID")
+                continue
+            if row.get("event_type") != "ENTRY_FILL":
+                continue  # Requests, ACKs, reservations and exits never reset.
+            event_id = row.get("event_id")
+            if not isinstance(event_id,str) or not event_id or not isinstance(row.get("lifecycle_trade_id"),str):
+                finding("P02_ENTRY_IDENTITY_CONFLICT",row)
+                continue
+            if event_id in unique:
+                if unique[event_id] != row:
+                    bad_events.add(event_id)
+                continue
+            unique[event_id] = row
+            try:
+                metadata = json.loads(row.get("payload_json") or "null")
+                raw_identity = metadata.get("native_identity") if isinstance(metadata,dict) else None
+                raw_account = (raw_identity or {}).get("account")
+                execution_id = row.get("execution_id")
+                if isinstance(raw_account,str) and isinstance(execution_id,str) and execution_id:
+                    key = (raw_account,execution_id)
+                    if key in executions:
+                        bad_executions.add(key)
+                    executions[key] = event_id
+            except (TypeError,ValueError,AttributeError):
+                pass
+        for event_id, row in unique.items():
+            trade = snapshots.get(row.get("lifecycle_trade_id"))
+            try:
+                metadata = json.loads(row.get("payload_json") or "null")
+                raw_identity = metadata.get("native_identity") if isinstance(metadata,dict) else None
+                native_strategy = raw_identity.get("strategy",raw_identity.get("strategy_name")) if isinstance(raw_identity,dict) else None
+                snapshot_strategy = (trade or {}).get("strategy_name")
+                if native_strategy not in aliases and snapshot_strategy not in aliases:
+                    continue  # Proven foreign strategy is not P02 history.
+                require(isinstance(metadata,dict) and metadata.get("native_feedback_committed") is True
+                    and row.get("source") == "native_cached_fill", "P02_ENTRY_EXECUTION_TIME_AUTHORITY_UNKNOWN")
+                binding = self._native_identity(raw_identity)
+                if binding["account"] != account or binding.get("con_id") != identity.con_id:
+                    continue  # Explicit account/security isolation, not aliases.
+                require(binding["strategy"] in aliases and snapshot_strategy in aliases,
+                    "P02_ENTRY_STRATEGY_CONFLICT")
+                require(event_id not in bad_events and (account,row.get("execution_id")) not in bad_executions
+                    and row.get("lifecycle_trade_id") not in bad_roots, "P02_ENTRY_IDENTITY_CONFLICT")
+                scoped(row)
+                require(trade is not None,"P02_ENTRY_SNAPSHOT_MISSING")
+                scoped(trade)
+                require(isinstance(event_id,str) and event_id and event_id == event_id.strip()
+                    and isinstance(row.get("execution_id"),str) and row["execution_id"]
+                    and row["execution_id"] == row["execution_id"].strip()
+                    and binding["root_order_id"] == row["lifecycle_trade_id"] == trade["lifecycle_trade_id"]
+                    and row["symbol"] == binding["symbol"] == trade["symbol"] == identity.symbol
+                    and row["side"] == trade["side"] == "LONG"
+                    and str(row["order_id"]) == binding["native_order_id"], "P02_ENTRY_IDENTITY_CONFLICT")
+                quantity = row.get("quantity")
+                before, after = metadata.get("quantity_before"), metadata.get("quantity_after")
+                accounted_executions = ast.literal_eval(trade["source_execution_ids_json"])
+                require(type(quantity) is int and quantity > 0 and type(before) is int and before >= 0
+                    and type(after) is int and after == before+quantity
+                    and not isinstance(row.get("price"),bool) and math.isfinite(float(row["price"])) and row["price"] > 0
+                    and not isinstance(metadata.get("realized_increment"),bool) and metadata.get("realized_increment") == 0
+                    and isinstance(accounted_executions,list) and row["execution_id"] in accounted_executions,
+                    "P02_ENTRY_ACCOUNTING_UNCONFIRMED")
+                timestamp = self._authoritative_time(row["timestamp"])
+                require(timestamp <= now,"P02_ENTRY_FUTURE_TIMESTAMP")
+                result["entries"].append(dict(event_id=event_id,root_order_id=binding["root_order_id"],
+                    execution_id=row["execution_id"],timestamp=timestamp.isoformat(),raw_timestamp=row["timestamp"],
+                    native_order_id=binding["native_order_id"],quantity=quantity,run_id=row["run_id"]))
+            except Exception as exc:
+                finding(str(exc),row)
+        result["observed_entry_count"] = len(result["entries"])
+        if result["entries"]:
+            latest = max(self._authoritative_time(row["timestamp"]) for row in result["entries"])
+            expiry = latest+timedelta(seconds=policy.activation.cooldown_seconds)
+            result.update(last_entry_at=latest.isoformat(),expires_at=expiry.isoformat(),
+                timing="ACTIVE" if now < expiry else "ELAPSED")
+        finding("P02_COOLDOWN_INTAKE_AND_OWNED_REQUEST_COVERAGE_UNKNOWN")
+        return result
+
     def committed_accounting_snapshot(self, *, run_mode: str, trading_day_for=None) -> dict[str, Any]:
         """Read historical financial facts; restore no runtime/native authority.
 
