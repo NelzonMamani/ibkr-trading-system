@@ -1597,7 +1597,10 @@ def _pristine_paper_child_function(name, namespace):
     from test_startup_recovery_and_stop_protection import _NATIVE_CORE_COLD_START_CHILD
     tree=ast.parse(_NATIVE_CORE_COLD_START_CHILD)
     node=next(node for node in ast.walk(tree) if isinstance(node,ast.FunctionDef) and node.name==name)
-    exec(compile(ast.fix_missing_locations(ast.Module(body=[node],type_ignores=[])),
+    helpers=([next(node for node in ast.walk(tree) if isinstance(node,ast.FunctionDef)
+        and node.name=='pristine_paper_quantity')] if name in {'validate_pristine_paper_memory_write',
+        'validate_pristine_paper_execution_fact','validate_pristine_paper_history_read'} else [])
+    exec(compile(ast.fix_missing_locations(ast.Module(body=helpers+[node],type_ignores=[])),
         '<actual-pristine-paper-boundary>','exec'),namespace)
     return namespace[name]
 
@@ -2361,34 +2364,46 @@ def test_pristine_positive_fee_boundary_uses_real_public_callbacks_and_sdk_ledge
     'capital_side','allocation_strategy','allocation_mode','allocation_missing','capital_decision_missing',
     'allocation_global_link','stop_none','stop_wrong_parent',
     'stop_wrong_price','stop_wrong_position','stop_wrong_progress','stop_missing_accounting',
-    'stop_missing_execution','stop_wrong_execution'])
+    'stop_missing_execution','stop_wrong_execution','two_entry','two_stop','two_no_enrollment',
+    'two_wrong_cap','two_missing_base','two_wrong_quantity','two_oversize','two_wrong_reservation',
+    'two_wrong_stop_size','two_wrong_producer'])
 def test_pristine_paper_memory_boundary_rejects_unprovided_writes(monkeypatch,fault):
     """Pure fake-owner safety check: no Core/application or real transport."""
     import os
     monkeypatch.setenv('EXECUTION_ENV','TEST')
     class Denied(BaseException):pass
+    supplied={}
     guard=_pristine_paper_child_function('validate_pristine_paper_memory_write',
-        dict(os=os,ForbiddenExternalIO=Denied))
+        dict(os=os,facts=supplied,ForbiddenExternalIO=Denied))
+    quantity=2 if fault.startswith('two_') else 1
+    if quantity==2:
+        from src.config import config_resolver
+        config_resolver.set_config_overrides(dict(config_resolver._CONFIG_OVERRIDES,
+            RUN_MODE='PAPER',RUN_MODE_EFFECTIVE='PAPER',RISK_PROFILE='SMALL',
+            RISK_MAX_POSITION_SIZE=2,ROSS_SYNTHETIC_REQUESTED_BASE_SIZE=8))
+        supplied.update(observe_pristine_paper_cycle=True,observe_pristine_paper_partial_accounting=True)
     now=datetime(2026,10,20,13,35,30,tzinfo=timezone.utc)
     plan=dict(account='SYNTHETIC_TEST',client_id=999,epoch=0,symbol='JPM',con_id=123,
         currency='USD',exchange='SMART',entry_price=10.3,stop_price=10.2897,fill_price=10.53)
+    if quantity==2:plan['quantity']=2
     client=NS(client_id=999,_position_connection_epoch=0,readonly_enabled=False,isConnected=lambda:True)
-    request=dict(client_order_id='root',symbol='JPM',quantity=1,setup_family_id='PREMARKET_HIGH_BREAK',
+    request=dict(client_order_id='root',symbol='JPM',quantity=quantity,setup_family_id='PREMARKET_HIGH_BREAK',
         relationship_context=None,setup_metadata=dict(occurrence='component-only'),stop_loss_price=10.2897,
         invalidation_level=10.3,take_profit_price=None,target_model='component descriptive objective',
         direction='LONG',strategy_name='RossMomentumStrategyV1')
-    parent=dict(request=request,requested=1,account='SYNTHETIC_TEST',native_client_id=999,
+    parent=dict(request=request,requested=quantity,account='SYNTHETIC_TEST',native_client_id=999,
         native_connection_epoch=0,decision_id='decision',status='DISPATCH_UNCERTAIN',
         broker_order_id=None,filled=0,terminal=False)
     state=dict(version=1,mode='PAPER',orders=dict(root=parent))
     capital_reservation=NS(decision_id='cap-component',order_id='root',symbol='JPM',side='LONG',
-        strategy_id='RossMomentumStrategyV1',run_mode='PAPER',status='ACTIVE',quantity=1,
-        remaining_quantity=1,filled_quantity=0,exposure_notional=0.,notional=10.3,remaining_notional=10.3)
+        strategy_id='RossMomentumStrategyV1',run_mode='PAPER',status='ACTIVE',quantity=quantity,
+        remaining_quantity=quantity,filled_quantity=0,exposure_notional=0.,
+        notional=quantity*10.3,remaining_notional=quantity*10.3)
     allocation_reservation=NS(**vars(capital_reservation))
     allocation_reservation.decision_id='strat-alloc-component'
     allocation_reservation.strategy_id='ROSSMOMENTUMSTRATEGYV1'
     allocation_reservation.global_capital_decision_id='cap-component'
-    capital=NS(capital_scope=None,_capital_writer=None,total_reserved_capital=10.3,total_used_exposure=0,
+    capital=NS(capital_scope=None,_capital_writer=None,total_reserved_capital=quantity*10.3,total_used_exposure=0,
         active_reservations=dict(r=capital_reservation))
     allocation=NS(active_reservations=dict(a=allocation_reservation))
     engine=NS(run_mode=NS(value='PAPER'),_native_scope=('SYNTHETIC_TEST',client,now),
@@ -2397,24 +2412,26 @@ def test_pristine_paper_memory_boundary_rejects_unprovided_writes(monkeypatch,fa
         _native_state=state,_native_orders=state['orders'],position_records={},trade_registry=NS(snapshot=lambda:[]))
     core=NS(run_mode=NS(value='PAPER'),execution_engine=engine)
     contract=NS(symbol='JPM',secType='STK',currency='USD',exchange='SMART',conId=0)
-    native=NS(action='BUY',orderType='MKT',totalQuantity=1,parentId=0,orderRef='')
-    risk=[dict(decision=dict(decision_id='decision',allowed=True,max_position_size=1),
+    native=NS(action='BUY',orderType='MKT',totalQuantity=quantity,parentId=0,orderRef='')
+    risk=[dict(decision=dict(decision_id='decision',allowed=True,max_position_size=quantity),
         intent=dict(entry_price=10.3,setup_metadata=deepcopy(request['setup_metadata']),target_model=request['target_model']))]
+    if quantity==2:risk[0]['intent']['quantity']=2
+    if fault=='two_stop':risk[0]['intent']['quantity']=6
     args=dict(actual_client=client,expected_client=client,core=core,plan=plan,dispatches=[],native_id=1000,
         contract=contract,native=native,committed=deepcopy(state),risk_rows=risk,now=now,max_scope_age=15)
-    if fault.startswith('stop_'):
+    if fault.startswith('stop_') or fault in {'two_stop','two_wrong_stop_size'}:
         args['native_id']=1001
         args['dispatches']=[dict(native_id=1000,role='entry')]
         parent['broker_order_id']='1000'
-        parent['cached_update_in_progress']=dict(filled=1,remaining=0,status='FILLED',average_price=10.53)
-        capital.total_reserved_capital=0;capital.total_used_exposure=10.53
-        engine.position_records=dict(root=dict(filled_qty=1,entry_price=10.53))
-        life=NS(filled_qty=1,avg_fill_price=10.53,selected_stop_price=10.2897,stop=NS(status='PENDING_SUBMIT'))
+        parent['cached_update_in_progress']=dict(filled=quantity,remaining=0,status='FILLED',average_price=10.53)
+        capital.total_reserved_capital=0;capital.total_used_exposure=quantity*10.53
+        engine.position_records=dict(root=dict(filled_qty=quantity,entry_price=10.53))
+        life=NS(filled_qty=quantity,avg_fill_price=10.53,selected_stop_price=10.2897,stop=NS(status='PENDING_SUBMIT'))
         engine.post_fill_lifecycle=NS(get_trade=lambda key:life)
-        external_position=NS(symbol='JPM',position=1,con_id=123,account='SYNTHETIC_TEST',avgCost=10.53)
+        external_position=NS(symbol='JPM',position=quantity,con_id=123,account='SYNTHETIC_TEST',avgCost=10.53)
         client.positions=lambda:[external_position]
         execution=dict(orderId=1000,account='SYNTHETIC_TEST',clientId=999,connection_epoch=0,
-            conId=123,symbol='JPM',side='BOT',shares=1,cumQty=1,price=10.53,avgPrice=10.53,timestamp_utc=now)
+            conId=123,symbol='JPM',side='BOT',shares=quantity,cumQty=quantity,price=10.53,avgPrice=10.53,timestamp_utc=now)
         client.cached_native_executions=lambda native_id:[execution]
         native.action='SELL';native.orderType='STP';native.auxPrice=10.2897
         native.parentId=1000;native.orderRef='PROTECT|root'
@@ -2426,6 +2443,16 @@ def test_pristine_paper_memory_boundary_rejects_unprovided_writes(monkeypatch,fa
         if fault=='stop_missing_execution':client.cached_native_executions=lambda native_id:[]
         if fault=='stop_wrong_execution':execution['side']='SLD'
         args['committed']=deepcopy(state)
+    if fault=='two_no_enrollment':supplied.pop('observe_pristine_paper_partial_accounting')
+    if fault in {'two_wrong_cap','two_missing_base'}:
+        config_resolver.set_config_overrides(dict(config_resolver._CONFIG_OVERRIDES,
+            **({'RISK_MAX_POSITION_SIZE':1} if fault=='two_wrong_cap' else {'ROSS_SYNTHETIC_REQUESTED_BASE_SIZE':1})))
+    if fault=='two_wrong_quantity':
+        request['quantity']=1;args['committed']=deepcopy(state)
+    if fault=='two_oversize':plan['quantity']=3
+    if fault=='two_wrong_reservation':capital_reservation.notional=10.3
+    if fault=='two_wrong_stop_size':native.totalQuantity=1
+    if fault=='two_wrong_producer':risk[0]['intent']['quantity']=1
     if fault=='other_client':args['actual_client']=NS()
     if fault=='epoch':client._position_connection_epoch=1
     if fault=='mode':core.run_mode.value='READ_ONLY'
@@ -2457,12 +2484,16 @@ def test_pristine_paper_memory_boundary_rejects_unprovided_writes(monkeypatch,fa
     def fake_memory_transport():
         binding=guard(**args)
         underlying.append(binding)
-    if fault in {'none','stop_none'}:
+    if fault in {'none','stop_none','two_entry','two_stop'}:
         fake_memory_transport()
-        assert underlying==[('root','stop' if fault=='stop_none' else 'entry')]
+        assert underlying==[('root','stop' if fault in {'stop_none','two_stop'} else 'entry')]
     else:
         with pytest.raises(Denied):fake_memory_transport()
         assert underlying==[]
+        if fault=='two_wrong_producer':
+            risk[0]['intent']['quantity']=9
+            with pytest.raises(Denied):fake_memory_transport()
+            assert underlying==[]
 
 
 @pytest.mark.parametrize('opcode',['3','4','58','25','987654'])
@@ -2483,15 +2514,23 @@ def test_pristine_paper_global_wire_boundary_denies_mutations_and_unknown(opcode
     'wrong_timeframe','accounting_pending','root_account','root_client','root_epoch','root_security',
     'unowned','retired','late','repeat','conflict','not_sent',
     'packet_security','packet_timeframe','packet_duration','packet_end','packet_rth','packet_streaming',
-    'packet_options','missing_end','missing_bars'])
+    'packet_options','missing_end','missing_bars','two_owned','two_remainder','two_wrong_owned',
+    'two_unprotected','two_wrong_canonical','two_missing_enrollment'])
 def test_pristine_paper_history_boundary_uses_owned_sdk_request_and_original_bars(monkeypatch,fault):
     """Real read encoder, fake owners/underlying transport; no Core process."""
     import os
     from src.adapters.data.historical_bar_timeframes import resolve_intraday_timeframe_request
     monkeypatch.setenv('EXECUTION_ENV','TEST')
     class Denied(BaseException):pass
+    supplied={}
     guard=_pristine_paper_child_function('validate_pristine_paper_history_read',
-        dict(os=os,ForbiddenExternalIO=Denied))
+        dict(os=os,facts=supplied,ForbiddenExternalIO=Denied))
+    if fault.startswith('two_'):
+        from src.config import config_resolver
+        config_resolver.set_config_overrides(dict(config_resolver._CONFIG_OVERRIDES,
+            RUN_MODE='PAPER',RUN_MODE_EFFECTIVE='PAPER',RISK_PROFILE='SMALL',
+            RISK_MAX_POSITION_SIZE=2,ROSS_SYNTHETIC_REQUESTED_BASE_SIZE=8))
+        supplied.update(observe_pristine_paper_cycle=True,observe_pristine_paper_partial_accounting=True)
     request=resolve_intraday_timeframe_request(timeframe='10s',requested_bars=10)
     packets=[];sdk=EClient(NS(error=lambda *args:pytest.fail('Unexpected synthetic SDK error')))
     sdk.isConnected=lambda:True;sdk.serverVersion_=180;sdk.sendMsg=packets.append
@@ -2522,6 +2561,19 @@ def test_pristine_paper_history_boundary_uses_owned_sdk_request_and_original_bar
     args=dict(actual_client=client,expected_client=client,core=core,plan=plan,fields=fields,
         owned_reads=set(),timeframe_request=request,source_response=dict(status='COMPLETE_BARS',end_received=True),
         supplied_bars=bars,now=now,monotonic_now=1.,max_scope_age=15.)
+    if fault.startswith('two_'):
+        plan['quantity']=2;parent['filled']=parent['requested']=parent['request']['quantity']=2
+        owned=2 if fault=='two_owned' else 1
+        life=NS(filled_qty=owned,selected_stop_price=10.2897)
+        canonical=NS(quantity_open=owned)
+        external_position=NS(position=owned,symbol='JPM',con_id=123,account='SYNTHETIC_TEST')
+        engine.post_fill_lifecycle=NS(get_trade=lambda _:life,
+            assess_trade_stop_protection=lambda _:dict(protected=fault!='two_unprotected'))
+        engine._trade_lifecycle_engine=NS(get_trade=lambda _:canonical)
+        client.positions=lambda:[external_position]
+        if fault=='two_wrong_owned':external_position.position=2
+        if fault=='two_wrong_canonical':canonical.quantity_open=2
+        if fault=='two_missing_enrollment':supplied.pop('observe_pristine_paper_partial_accounting')
     if fault=='other_client':args['actual_client']=NS()
     if fault=='epoch':client._position_connection_epoch=1
     if fault=='mode':core.run_mode.value='READ_ONLY'
@@ -2552,7 +2604,7 @@ def test_pristine_paper_history_boundary_uses_owned_sdk_request_and_original_bar
     def fake_response():
         request_id=guard(**args)
         underlying.append((request_id,[vars(bar).copy() for bar in args['supplied_bars']]))
-    if fault=='none':
+    if fault in {'none','two_owned','two_remainder'}:
         original=[vars(bar).copy() for bar in bars]
         fake_response()
         assert underlying==[(1007,original)] and bars[-1].timestamp<now
@@ -2578,14 +2630,23 @@ def test_pristine_paper_trade_exit_shutdown_observer_forwards_owned_hook():
 @pytest.mark.parametrize('fault',['none','client','epoch','account','security','currency','leg',
     'duplicate_leg','root','native_parent','native_ref','native_side','native_price','side','quantity',
     'boolean_quantity','cumulative','price','status','future','straddles_entry','missing_accounting',
-    'target','injected_native_id','entry','entry_wrong_parent','entry_wrong_side'])
+    'target','injected_native_id','entry','entry_wrong_parent','entry_wrong_side','two_entry','two_partial_stop',
+    'two_final_stop','two_partial_wrong_remaining','two_partial_wrong_cumulative','two_partial_wrong_size',
+    'two_no_enrollment','two_overfill','two_wrong_native_size'])
 def test_pristine_paper_execution_fact_boundary_rejects_unbound_stop(monkeypatch,fault):
     """Pure fixture guard: no application constructor, process, or SDK write."""
     import os
     monkeypatch.setenv('EXECUTION_ENV','TEST')
     class Denied(BaseException):pass
+    supplied={}
     guard=_pristine_paper_child_function('validate_pristine_paper_execution_fact',
-        dict(os=os,datetime=datetime,ForbiddenExternalIO=Denied))
+        dict(os=os,datetime=datetime,facts=supplied,ForbiddenExternalIO=Denied))
+    if fault.startswith('two_'):
+        from src.config import config_resolver
+        config_resolver.set_config_overrides(dict(config_resolver._CONFIG_OVERRIDES,
+            RUN_MODE='PAPER',RUN_MODE_EFFECTIVE='PAPER',RISK_PROFILE='SMALL',
+            RISK_MAX_POSITION_SIZE=2,ROSS_SYNTHETIC_REQUESTED_BASE_SIZE=8))
+        supplied.update(observe_pristine_paper_cycle=True,observe_pristine_paper_partial_accounting=True)
     now=datetime(2026,10,20,13,35,33,tzinfo=timezone.utc)
     plan=dict(account='SYNTHETIC_TEST',client_id=999,epoch=0,symbol='JPM',con_id=123,
         currency='USD',exchange='SMART',fill_price=10.53,stop_price=10.2897,stop_fill_price=10.28)
@@ -2603,6 +2664,22 @@ def test_pristine_paper_execution_fact_boundary_rejects_unbound_stop(monkeypatch
         execution=dict(execId='synthetic-stop',acctNumber='SYNTHETIC_TEST',clientId=999,side='SLD',
             shares=1,cumQty=1,price=10.28,avgPrice=10.28,time=now.isoformat()),
         status=dict(status='Filled',filled=1,remaining=0,avgFillPrice=10.28))
+    if fault.startswith('two_'):
+        plan['quantity']=2
+        for row in dispatches:row['order']['totalQuantity']=2
+        if fault in {'two_entry','two_final_stop'}:
+            raw['execution'].update(shares=2,cumQty=2)
+            raw['status']['filled']=2
+        else:raw['status'].update(status='Submitted',remaining=1)
+        if fault=='two_entry':
+            raw['leg']='entry';raw['execution'].update(side='BOT',price=10.53,avgPrice=10.53)
+            raw['status']['avgFillPrice']=10.53
+        if fault=='two_partial_wrong_remaining':raw['status']['remaining']=0
+        if fault=='two_partial_wrong_cumulative':raw['execution']['cumQty']=2
+        if fault=='two_partial_wrong_size':raw['execution']['shares']=2
+        if fault=='two_no_enrollment':supplied.pop('observe_pristine_paper_partial_accounting')
+        if fault=='two_overfill':raw['execution'].update(shares=3,cumQty=3)
+        if fault=='two_wrong_native_size':dispatches[-1]['order']['totalQuantity']=1
     if fault.startswith('entry'):
         raw['leg']='entry'
         raw['execution'].update(side='BOT',price=10.53,avgPrice=10.53)
@@ -2635,7 +2712,8 @@ def test_pristine_paper_execution_fact_boundary_rejects_unbound_stop(monkeypatch
     if fault=='injected_native_id':raw['execution']['orderId']=9999
     invoke=lambda:guard(actual_client=actual,expected_client=client,core=core,plan=plan,
         dispatches=dispatches,raw=raw,now=now)
-    if fault in {'none','entry'}:assert invoke() is dispatches[0 if fault=='entry' else -1]
+    if fault in {'none','entry','two_entry','two_partial_stop','two_final_stop'}:
+        assert invoke() is dispatches[0 if fault in {'entry','two_entry'} else -1]
     else:
         with pytest.raises(Denied):invoke()
 
@@ -2904,6 +2982,100 @@ def _pristine_paper_loss_facts(reassessment,monkeypatch,tmp_path,*,loss_limit=.2
         step('FLAT_DUPLICATE_REPLAY',4,owned=False,open_orders=[],executions=[protective],last=10.28),
     ]
     return facts
+
+
+@pytest.mark.parametrize('fees,expected',[('gross',-.25),('positive',-.28),('known_zero',-.27),('partial_gross',-.25)])
+def test_actual_core_cold_restart_inspects_committed_accounting_without_native_adoption(
+        reassessment,monkeypatch,tmp_path,capsys,no_external_activity,runtime_schema_template,fees,expected):
+    """Generate real journal in one Core process, inspect it in another."""
+    import json,shutil
+    from test_startup_recovery_and_stop_protection import run_native_core_cold_start
+    facts=_pristine_paper_loss_facts(reassessment,monkeypatch,tmp_path,loss_limit=.26)
+    partial=fees=='partial_gross'
+    if partial:
+        # Existing synthetic-only producer opt-in, real quality sizing and cap;
+        # operational/default request1 remains unchanged.
+        facts['observe_pristine_paper_partial_accounting']=True
+        monkeypatch.setenv('TRADING_DEFAULT_CAPITAL','800')
+        facts['config'].update(ROSS_SYNTHETIC_REQUESTED_BASE_SIZE=8,RISK_MAX_POSITION_SIZE=2)
+        facts['paper_memory_plan']['quantity']=2
+        steps=facts['paper_cycle_steps']
+        for step in steps[1:3]:step['positions'][0]['position']=2
+        entry=steps[1]['executions'][0]
+        entry['execution'].update(shares=2,cumQty=2)
+        entry['status'].update(filled=2)
+        stop=steps[2]['open_orders'][0]
+        stop['order']['totalQuantity']=2
+        for step in steps[3:]:
+            step['positions']=[dict(steps[1]['positions'][0],position=1)]
+            step['open_orders']=[deepcopy(stop)]
+            step['executions'][0]['status'].update(status='Submitted',remaining=1)
+            step['name']='PARTIAL_STOP_FILL' if step is steps[3] else 'PARTIAL_STOP_REPLAY'
+    if fees not in {'gross','partial_gross'}:
+        facts['observe_pristine_paper_positive_fee_feedback']=True
+        facts['paper_currency_response']=dict(account='SYNTHETIC_TEST',end_received=True,rows=[
+            dict(tag='CashBalance',value='123.45',currency='USD'),dict(tag='AccruedCash',value='0',currency='USD')])
+        entry_fee=.01
+        if fees=='known_zero':
+            facts['observe_pristine_paper_first_sdk_zero_fee_feedback']=True
+            entry_fee='0'
+        facts['paper_cycle_steps'][1]['commissions']=[dict(leg='entry',execId='pristine-loss-entry',
+            commission=entry_fee,currency='USD')]
+        facts['paper_cycle_steps'][3]['commissions']=[dict(leg='stop',execId='pristine-loss-stop',
+            commission=.02,currency='USD')]
+    database=tmp_path/'committed-accounting.sqlite3';shutil.copyfile(runtime_schema_template,database)
+    path=tmp_path/'generation-facts.json';path.write_text(json.dumps(facts,default=str))
+    original=run_native_core_cold_start(database,path,tmp_path/'generation-child')
+    assert original.get('constructor_complete') and not original.get('harness_exception'),original
+    assert not original.get('cycle_exception') and len(original['cycles'])==5
+    root=original['synthetic_memory_dispatches'][0]['root_id']
+    assert original['cycles'][-1]['daily_risk']['decision']['realized_pnl']==pytest.approx(expected)
+    assert original['supervisor']['reaped'] and original['cleanup']['live_threads']==[]
+    # Separate fresh constructor receives external clock/flat inventory only.
+    # Native state remains quarantined; no prepared TradeClosed/PnL/NET fields.
+    cold=dict(now=facts['paper_cycle_steps'][-1]['now'],account='SYNTHETIC_TEST',client_id=999,
+        positions=[],open_orders=[],cycles=2,inspect_committed_accounting=True,
+        config=dict(facts['config']))
+    if partial:
+        buy,stop_dispatch=original['synthetic_memory_dispatches']
+        supplied=deepcopy(facts['paper_cycle_steps'][-1]['open_orders'][0])
+        supplied['orderId']=stop_dispatch['native_id']
+        supplied['order']['parentId']=buy['native_id']
+        supplied['order']['orderRef']='PROTECT|'+root
+        cold['open_orders']=[supplied]
+        cold['positions']=deepcopy(facts['paper_cycle_steps'][-1]['positions'])
+        prior=original['cycles'][-1]['engine']
+        assert prior['post_fill'][root]['filled_qty']==prior['canonical_trades'][root]['quantity_open']==1
+        assert prior['protection'][root]['protected'] and prior['capital_used']==10.53
+    cold_path=tmp_path/'inspection-facts.json';cold_path.write_text(json.dumps(cold))
+    restarted=run_native_core_cold_start(database,cold_path,tmp_path/'inspection-child')
+    summary={key:restarted.get(key) for key in ('constructor_exception','harness_exception',
+        'cycle_exception','stage','evidence_dir','supervisor')}
+    assert restarted.get('constructor_complete') and not restarted.get('harness_exception'),summary
+    assert not restarted.get('cycle_exception'),summary
+    assert restarted['after_constructor']['native_quarantined']
+    assert restarted['after_constructor']['native_orders']=={}
+    assert all(not value for value in restarted['runtime_accounting_fences'].values())
+    history=restarted['committed_accounting']
+    assert history['required'] and history['available'] and history['verified_historical_roots']==[root],history
+    assert len(history['events'])==2 and history['trades'][0]['gross_realized_pnl']==pytest.approx(-.25)
+    assert history['trades'][0]['last_mark_price'] is None and history['trades'][0]['unrealized_pnl']==0
+    assert history['trades'][0]['quantity_open']==(1 if partial else 0)
+    assert len(history['fees']['evidence'])==(0 if fees in {'gross','partial_gross'} else 1)
+    assert history['fee_coverage']==('UNKNOWN' if fees in {'gross','partial_gross'} else 'COMPLETE_DURABLE_BASIS')
+    assert restarted['daily_risk_after_constructor']['realized_pnl']==pytest.approx(expected)
+    decision=restarted['cold_accounting_daily_decision']
+    assert decision['realized_pnl']==pytest.approx(expected) and decision['daily_trade_count']==(0 if partial else 1)
+    assert decision['blocks_new_entries'] and decision['status']=='RECOVERY_NOT_COMPLETE'
+    assert not restarted['sdk_attempts'] and not restarted['wire_attempts'] and not restarted['network_attempts']
+    for cycle in restarted['cycles']:
+        assert cycle['engine']['native_quarantined'] and not cycle['engine']['native_orders']
+        assert cycle['daily_risk']['decision']['realized_pnl']==pytest.approx(expected)
+    for table in ('trade_lifecycle_trades','trade_lifecycle_events'):
+        assert original['database_final'][table]==restarted['database_final'][table]
+    assert restarted['cleanup']['live_threads']==[] and restarted['supervisor']['reaped']
+    assert not restarted['supervisor']['timed_out'] and restarted['supervisor']['returncode']==0
+    assert no_external_activity==[]
 
 
 def test_pristine_fresh_process_pmh_protective_fill_reaches_canonical_daily_loss_veto(

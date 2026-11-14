@@ -17,6 +17,356 @@ from src.scanner.result_models import CandidateMetrics
 from test_ibkr_cached_client_access import native_commission_decoder_source
 
 
+@pytest.mark.parametrize('terminal',[False,True])
+def test_committed_accounting_survives_fresh_governor_without_runtime_adoption(
+        isolated_runtime_schema,terminal):
+    from src.storage.storage_engine import StorageEngine
+    from src.core.daily_risk_governor import DailyRiskGovernor
+    set_config_overrides(dict(RUN_MODE='PAPER',RUN_MODE_EFFECTIVE='PAPER',PERSISTENCE_ENABLED=True,
+        PERSISTENCE_SQLITE_PATH=str(isolated_runtime_schema),PERSISTENCE_BACKEND='sqlite',
+        PERSIST_FLUSH_EACH_CYCLE=True,DAILY_RISK_GOVERNOR_ENABLED=True,
+        DAILY_RISK_INCLUDE_UNREALIZED=False,DAILY_RISK_MAX_LOSS_AMOUNT=.20))
+    storage=StorageEngine()
+    try:
+        original=TradeLifecycleEngine(storage)
+        entry,identity=_native_event('cold-entry','ENTRY_FILL',2,10.5)
+        _apply_native(original,entry,identity,0)
+        partial,child=_native_event('cold-partial','STOP_EXIT',1,10.25,native_id=72,
+            timestamp='2026-10-20T13:36:00+00:00')
+        _apply_native(original,partial,child,2)
+        _apply_native(original,partial,child,1)  # Actual duplicate owner, no extra SQL event.
+        if terminal:
+            final,child=_native_event('cold-final','STOP_EXIT',1,10.,native_id=72,
+                timestamp='2026-10-20T13:37:00+00:00')
+            _apply_native(original,final,child,1)
+        prior_run=storage.run_id
+    finally:storage.shutdown()
+    cold_storage=StorageEngine()
+    try:
+        assert cold_storage.run_id!=prior_run
+        fresh=TradeLifecycleEngine(cold_storage)
+        governor=DailyRiskGovernor(storage_engine=cold_storage,trade_lifecycle_engine=fresh)
+        before=cold_storage._store.fetch_committed_lifecycle_accounting(run_mode='PAPER')
+        for _ in range(2):
+            decision=governor.evaluate(run_mode='PAPER',recovery_complete=False,
+                now=datetime(2026,10,20,13,38,tzinfo=timezone.utc))
+            assert decision.realized_pnl==pytest.approx(-.75 if terminal else -.25)
+            assert decision.daily_trade_count==(1 if terminal else 0)
+            assert decision.status.value=='RECOVERY_NOT_COMPLETE' and decision.blocks_new_entries
+        tomorrow=governor.evaluate(run_mode='PAPER',recovery_complete=False,
+            now=datetime(2026,10,21,13,38,tzinfo=timezone.utc))
+        assert tomorrow.realized_pnl==0 and tomorrow.daily_trade_count==0
+        assert fresh._native_feedback=={} and fresh._native_committed_event_ids==set()
+        assert fresh._native_roundtrip_fees=={} and fresh._trades=={} and fresh._events==[]
+        assert cold_storage._store.fetch_committed_lifecycle_accounting(run_mode='PAPER')==before
+    finally:
+        cold_storage.shutdown()
+        set_config_overrides(None)
+
+
+@pytest.fixture
+def committed_lifecycle(isolated_runtime_schema):
+    """Explicit synthetic PAPER journal, separate from all runtime adoption."""
+    from src.storage.storage_engine import StorageEngine
+    set_config_overrides(dict(RUN_MODE='PAPER',RUN_MODE_EFFECTIVE='PAPER',PERSISTENCE_ENABLED=True,
+        PERSISTENCE_SQLITE_PATH=str(isolated_runtime_schema),PERSISTENCE_BACKEND='sqlite',
+        PERSIST_FLUSH_EACH_CYCLE=True,DAILY_RISK_GOVERNOR_ENABLED=True,
+        DAILY_RISK_INCLUDE_UNREALIZED=False,DAILY_RISK_MAX_LOSS_AMOUNT=.20))
+    storage=StorageEngine()
+    try:yield TradeLifecycleEngine(storage),storage
+    finally:
+        storage.shutdown();set_config_overrides(None)
+
+
+def _committed_loss_tape(engine,*,root='NATIVE-ROOT',terminal=True):
+    entry,identity=_native_event(root+'-entry','ENTRY_FILL',2,10.5,root=root)
+    _apply_native(engine,entry,identity,0)
+    partial,child=_native_event(root+'-partial','STOP_EXIT',1,10.25,native_id=72,root=root,
+        timestamp='2026-10-20T13:36:00+00:00')
+    _apply_native(engine,partial,child,2)
+    if terminal:
+        final,child=_native_event(root+'-final','STOP_EXIT',1,10.,native_id=72,root=root,
+            timestamp='2026-10-20T13:37:00+00:00')
+        _apply_native(engine,final,child,1)
+    return engine.get_trade(root)
+
+
+@pytest.mark.parametrize('damage',['snapshot_pnl','final_price','entry_average','stop','terminal_time',
+    'native_id','duplicate_execution','unsupported_event','marker','missing_final','missing_all',
+    'unknown_event_run','unknown_snapshot_run','native_witness_missing','native_witness_incomplete','native_witness_identity'])
+def test_committed_accounting_conflicts_preserve_valid_prefix_and_fail_closed(committed_lifecycle,damage):
+    import json
+    from src.core.daily_risk_governor import DailyRiskGovernor
+    engine,storage=committed_lifecycle
+    _committed_loss_tape(engine)
+    conn=storage._store.connection
+    rows=storage.fetch_trade_lifecycle_events()
+    last=next(row for row in rows if row['event_id']=='NATIVE-ROOT-final')
+    metadata=json.loads(last['payload_json'])
+    if damage in {'unknown_event_run','unknown_snapshot_run'}:
+        conn.execute("INSERT INTO runs (run_id,run_mode,effective_run_mode,event_replay_mode) VALUES ('UNKNOWN','PAPER','UNKNOWN','CYCLE')")
+    if damage=='snapshot_pnl':
+        conn.execute('UPDATE trade_lifecycle_trades SET gross_realized_pnl=99')
+    elif damage=='final_price':conn.execute('UPDATE trade_lifecycle_events SET price=99 WHERE event_id=?',(last['event_id'],))
+    elif damage=='duplicate_execution':
+        conn.execute('UPDATE trade_lifecycle_events SET execution_id=? WHERE event_id=?',
+            ('EXEC-NATIVE-ROOT-partial',last['event_id']))
+    elif damage=='unsupported_event':conn.execute("UPDATE trade_lifecycle_events SET event_type='TAKE_PROFIT_FILL' WHERE event_id=?",(last['event_id'],))
+    elif damage=='unknown_event_run':conn.execute("UPDATE trade_lifecycle_events SET run_id='UNKNOWN' WHERE event_id=?",(last['event_id'],))
+    elif damage=='unknown_snapshot_run':conn.execute("UPDATE trade_lifecycle_trades SET run_id='UNKNOWN'")
+    elif damage=='missing_final':conn.execute('DELETE FROM trade_lifecycle_events WHERE event_id=?',(last['event_id'],))
+    elif damage in {'entry_average','stop','terminal_time','native_id','marker'}:
+        if damage=='entry_average':metadata['entry_avg_price_after']=99
+        if damage=='stop':metadata['original_stop_price']=9.
+        if damage=='terminal_time':metadata['terminal_timestamp']='2026-10-20T13:36:00+00:00'
+        if damage=='native_id':metadata['native_identity']['native_order_id']='999'
+        if damage=='marker':metadata['native_feedback_committed']=False
+        conn.execute('UPDATE trade_lifecycle_events SET payload_json=? WHERE event_id=?',
+            (json.dumps(metadata),last['event_id']))
+    else:
+        frames=[dict(identity=json.loads(row['payload_json'])['native_identity'],state='COMPLETE',
+            accounting_complete=True,applied_execution_ids=[row['execution_id']]) for row in rows]
+        if damage=='native_witness_incomplete':frames[-1]['accounting_complete']=False
+        if damage=='native_witness_missing':frames[-1]['applied_execution_ids'].append('EXEC-MISSING')
+        if damage=='native_witness_identity':frames[-1]['identity']['account']='OTHER'
+        namespace=dict(version=1,mode='PAPER',orders={'NATIVE-ROOT':dict(filled=2,canonical_feedback=frames)})
+        conn.execute('INSERT INTO position_lifecycle_transitions (transition_id,reason) VALUES (?,?)',
+            ('execution.native_orders.v1:PAPER',json.dumps(namespace)))
+        if damage=='missing_all':conn.execute('DELETE FROM trade_lifecycle_events')
+    conn.commit()
+    fresh=TradeLifecycleEngine(storage)
+    history=fresh.committed_accounting_snapshot(run_mode='PAPER')
+    assert history['required'] and not history['available'] and history['findings']
+    decision=DailyRiskGovernor(storage_engine=storage,trade_lifecycle_engine=fresh).evaluate(
+        run_mode='PAPER',recovery_complete=True,now=datetime(2026,10,20,14,tzinfo=timezone.utc))
+    assert decision.blocks_new_entries and decision.status.value=='MANAGED_ONLY'
+    assert decision.realized_pnl==pytest.approx(0 if damage=='missing_all' else
+        -.75 if damage in {'snapshot_pnl','unknown_snapshot_run','native_witness_missing','native_witness_incomplete'} else -.25)
+    assert fresh._native_feedback=={} and fresh._events==[] and fresh._trades=={}
+
+
+def test_committed_accounting_rejects_changed_original_entry_native_order(committed_lifecycle):
+    import json
+    engine,storage=committed_lifecycle
+    for identifier,price,before in (('entry-a',10.5,0),('entry-b',10.7,1)):
+        event,identity=_native_event(identifier,'ENTRY_FILL',1,price)
+        _apply_native(engine,event,identity,before)
+    conn=storage._store.connection
+    row=next(row for row in storage.fetch_trade_lifecycle_events() if row['event_id']=='entry-b')
+    metadata=json.loads(row['payload_json']);metadata['native_identity']['native_order_id']='999'
+    conn.execute('UPDATE trade_lifecycle_events SET order_id=?,payload_json=? WHERE event_id=?',
+        ('999',json.dumps(metadata),'entry-b'))
+    conn.execute('UPDATE trade_lifecycle_trades SET source_order_ids_json=?',("['71', '999']",))
+    conn.commit()
+    history=TradeLifecycleEngine(storage).committed_accounting_snapshot(run_mode='PAPER')
+    assert not history['available'] and history['reason']=='COMMITTED_ENTRY_NATIVE_ID_CONFLICT'
+    assert [event['event_id'] for event in history['events']]==['entry-a']
+
+
+@pytest.mark.parametrize('uncertain',[False,True])
+def test_committed_accounting_pending_runtime_fence_cannot_erase_prior_committed_loss(committed_lifecycle,uncertain):
+    from src.core.daily_risk_governor import DailyRiskGovernor
+    engine,storage=committed_lifecycle
+    _committed_loss_tape(engine)
+    fresh=TradeLifecycleEngine(storage)
+    _,identity=_native_event('not-committed','ENTRY_FILL',1,10.5)
+    fresh.require_native_feedback('UNCOMMITTED-FENCE',identity)
+    if uncertain:fresh.mark_native_feedback_uncertain('UNCOMMITTED-FENCE','Synthetic unknown accounting')
+    governor=DailyRiskGovernor(storage_engine=storage,trade_lifecycle_engine=fresh)
+    decision=governor.evaluate(run_mode='PAPER',now=datetime(2026,10,20,14,tzinfo=timezone.utc))
+    assert decision.realized_pnl==pytest.approx(-.75) and decision.daily_trade_count==1
+    assert not governor.state.recovered and decision.blocks_new_entries
+    assert not fresh._events and not fresh._native_committed_event_ids and not fresh._trades
+
+
+@pytest.mark.parametrize('corrupt',['order_root','frame_root','list_root'])
+def test_committed_accounting_malformed_namespace_cannot_erase_valid_loss(committed_lifecycle,corrupt):
+    import json
+    from src.core.daily_risk_governor import DailyRiskGovernor
+    engine,storage=committed_lifecycle
+    _committed_loss_tape(engine)
+    _,identity=_native_event('not-committed','ENTRY_FILL',1,10.5)
+    order=dict(filled=1,canonical_feedback=[])
+    if corrupt=='order_root':order['protection_parent_order_id']=123
+    elif corrupt=='list_root':order['protection_parent_order_id']=['INVALID']
+    else:
+        identity['root_order_id']=True
+        order['canonical_feedback']=[dict(identity=identity,state='COMPLETE',accounting_complete=True,
+            applied_execution_ids=['EXEC-not-committed'])]
+    storage._store.connection.execute('INSERT INTO position_lifecycle_transitions (transition_id,reason) VALUES (?,?)',
+        ('execution.native_orders.v1:PAPER',json.dumps(dict(version=1,mode='PAPER',orders={'INVALID':order}))))
+    storage._store.connection.commit()
+    fresh=TradeLifecycleEngine(storage)
+    governor=DailyRiskGovernor(storage_engine=storage,trade_lifecycle_engine=fresh)
+    decision=governor.evaluate(run_mode='PAPER',now=datetime(2026,10,20,14,tzinfo=timezone.utc))
+    assert decision.realized_pnl==pytest.approx(-.75) and decision.daily_trade_count==1
+    assert not governor.state.recovered and decision.blocks_new_entries
+
+
+def test_committed_accounting_damaged_other_root_does_not_erase_valid_loss(committed_lifecycle):
+    from src.core.daily_risk_governor import DailyRiskGovernor
+    engine,storage=committed_lifecycle
+    _committed_loss_tape(engine,root='GOOD')
+    _committed_loss_tape(engine,root='BAD')
+    storage._store.connection.execute("UPDATE trade_lifecycle_trades SET entry_avg_price=99 WHERE lifecycle_trade_id='BAD'")
+    storage._store.connection.commit()
+    fresh=TradeLifecycleEngine(storage)
+    governor=DailyRiskGovernor(storage_engine=storage,trade_lifecycle_engine=fresh)
+    result=governor.evaluate(run_mode='PAPER',recovery_complete=True,
+        now=datetime(2026,10,20,14,tzinfo=timezone.utc))
+    assert not governor.state.recovered and result.realized_pnl==pytest.approx(-1.5)
+    assert result.daily_trade_count==1 and result.losing_trade_count==1
+    assert result.blocks_new_entries and 'COMMITTED_SNAPSHOT_CONFLICT' in result.reason
+
+
+def test_committed_accounting_uses_commit_order_and_existing_economic_days(committed_lifecycle):
+    from src.core.daily_risk_governor import DailyRiskGovernor
+    engine,storage=committed_lifecycle
+    for identifier,kind,price,before,stamp in (
+        ('late-entry-one','ENTRY_FILL',10.5,0,'2026-10-20T13:35:10+00:00'),
+        ('late-entry-two','ENTRY_FILL',10.7,1,'2026-10-20T13:35:00+00:00'),
+        ('partial-exit','STOP_EXIT',10.3,2,'2026-10-20T13:36:10+00:00'),
+        ('final-exit','STOP_EXIT',10.1,1,'2026-10-21T13:36:00+00:00')):
+        event,identity=_native_event(identifier,kind,1,price,native_id=71 if kind=='ENTRY_FILL' else 72,timestamp=stamp)
+        _apply_native(engine,event,identity,before)
+    fresh=TradeLifecycleEngine(storage)
+    history=fresh.committed_accounting_snapshot(run_mode='PAPER')
+    assert history['available'],history
+    assert [row['event_id'] for row in history['events']]==['late-entry-one','late-entry-two','partial-exit','final-exit']
+    governor=DailyRiskGovernor(storage_engine=storage,trade_lifecycle_engine=fresh)
+    first=governor.evaluate(run_mode='PAPER',now=datetime(2026,10,20,14,tzinfo=timezone.utc))
+    second=governor.evaluate(run_mode='PAPER',now=datetime(2026,10,21,14,tzinfo=timezone.utc))
+    assert first.realized_pnl==pytest.approx(-.3) and first.daily_trade_count==0
+    assert second.realized_pnl==pytest.approx(-.5) and second.daily_trade_count==1
+
+
+@pytest.mark.parametrize('damaged',[False,True])
+@pytest.mark.parametrize('include_unrealized',[False,True])
+def test_committed_accounting_never_refreshes_saved_unrealized_authority(committed_lifecycle,damaged,include_unrealized):
+    from src.core.daily_risk_governor import DailyRiskGovernor
+    engine,storage=committed_lifecycle
+    _committed_loss_tape(engine,terminal=False)
+    engine.apply_mark_price(trade_id='NATIVE-ROOT',price=100.)
+    if damaged:
+        storage._store.connection.execute('UPDATE trade_lifecycle_trades SET entry_avg_price=99')
+        storage._store.connection.commit()
+    set_config_overrides(dict(RUN_MODE='PAPER',DAILY_RISK_GOVERNOR_ENABLED=True,
+        DAILY_RISK_INCLUDE_UNREALIZED=include_unrealized,DAILY_RISK_MAX_LOSS_AMOUNT=.20))
+    fresh=TradeLifecycleEngine(storage)
+    fresh.recover_open_state()
+    governor=DailyRiskGovernor(storage_engine=storage,trade_lifecycle_engine=fresh)
+    result=governor.evaluate(run_mode='PAPER',now=datetime(2026,10,20,14,tzinfo=timezone.utc))
+    assert result.realized_pnl==pytest.approx(-.25) and result.unrealized_pnl==0
+    assert governor.state.recovered is (not damaged and not include_unrealized)
+    if damaged:assert 'COMMITTED_SNAPSHOT_CONFLICT' in result.reason
+    elif include_unrealized:assert 'NO_FRESH_VALUATION_AUTHORITY' in result.reason
+    assert fresh._native_valuations=={} and fresh._native_committed_event_ids==set()
+
+
+@pytest.mark.parametrize('unavailable',[False,True])
+def test_committed_accounting_deduplicates_reads_and_keeps_live_loss_on_read_failure(
+        committed_lifecycle,monkeypatch,unavailable):
+    from src.core.daily_risk_governor import DailyRiskGovernor
+    engine,storage=committed_lifecycle
+    _committed_loss_tape(engine)
+    reader=storage.fetch_committed_lifecycle_accounting
+    def observed(**kwargs):
+        if unavailable:raise OSError('Synthetic journal unavailable')
+        value=reader(**kwargs)
+        return dict(value,events=value['events']+value['events'])
+    monkeypatch.setattr(storage,'fetch_committed_lifecycle_accounting',observed)
+    owner=engine if unavailable else TradeLifecycleEngine(storage)
+    governor=DailyRiskGovernor(storage_engine=storage,trade_lifecycle_engine=owner)
+    result=governor.evaluate(run_mode='PAPER',now=datetime(2026,10,20,14,tzinfo=timezone.utc))
+    assert result.realized_pnl==pytest.approx(-.75) and result.daily_trade_count==1
+    assert governor.state.recovered is not unavailable
+    if unavailable:assert 'COMMITTED_ACCOUNTING_READ_FAILED' in result.reason
+
+
+@pytest.mark.parametrize('damage',['unknown_event_scope','malformed_native_payload','reader_failure'])
+@pytest.mark.parametrize('include_unrealized',[False,True])
+def test_committed_accounting_excludes_saved_marks_when_native_journal_cannot_be_classified(
+        committed_lifecycle,monkeypatch,damage,include_unrealized):
+    from src.core.daily_risk_governor import DailyRiskGovernor
+    engine,storage=committed_lifecycle
+    entry,identity=_native_event('entry-only','ENTRY_FILL',1,10.5)
+    _apply_native(engine,entry,identity,0)
+    engine.apply_mark_price(trade_id='NATIVE-ROOT',price=100.)
+    conn=storage._store.connection
+    if damage=='unknown_event_scope':
+        conn.execute("UPDATE runs SET effective_run_mode='UNKNOWN'")
+    elif damage=='malformed_native_payload':
+        conn.execute("UPDATE trade_lifecycle_events SET payload_json='NOT_JSON'")
+    conn.commit()
+    fresh=TradeLifecycleEngine(storage)
+    fresh.recover_open_state()
+    if damage=='reader_failure':
+        def unavailable(**kwargs):raise OSError('Synthetic unavailable historical journal')
+        monkeypatch.setattr(storage,'fetch_committed_lifecycle_accounting',unavailable)
+    set_config_overrides(dict(RUN_MODE='PAPER',DAILY_RISK_GOVERNOR_ENABLED=True,
+        DAILY_RISK_INCLUDE_UNREALIZED=include_unrealized,DAILY_RISK_MAX_LOSS_AMOUNT=.20))
+    governor=DailyRiskGovernor(storage_engine=storage,trade_lifecycle_engine=fresh)
+    result=governor.evaluate(run_mode='PAPER',now=datetime(2026,10,20,14,tzinfo=timezone.utc))
+    assert result.realized_pnl==result.unrealized_pnl==0 and result.daily_trade_count==0
+    assert not governor.state.recovered and result.status.value=='MANAGED_ONLY'
+    assert fresh._native_valuations=={} and fresh._native_feedback=={}
+
+
+@pytest.mark.parametrize('amounts',[(0,0),(.01,.02)])
+def test_committed_fee_complete_zero_and_positive_history_are_static_only(
+        committed_lifecycle,monkeypatch,amounts):
+    from src.core.daily_risk_governor import DailyRiskGovernor
+    with _native_wire_fee_case(committed_lifecycle,monkeypatch,fees=amounts) as h:
+        _apply_native_fee(h)
+        fresh=TradeLifecycleEngine(h.storage)
+        governor=DailyRiskGovernor(storage_engine=h.storage,trade_lifecycle_engine=fresh)
+        for day,pnl,count in ((20,-.25-sum(amounts),1),(21,0.,0)):
+            result=governor.evaluate(run_mode='PAPER',now=datetime(2026,10,day,14,tzinfo=timezone.utc))
+            assert result.realized_pnl==pytest.approx(pnl) and result.daily_trade_count==count
+        history=fresh.committed_accounting_snapshot(run_mode='PAPER',trading_day_for=governor.trading_day_for)
+        assert history['fee_coverage']==history['fees']['coverage']=='COMPLETE_DURABLE_BASIS'
+        assert len(history['fees']['covered_charges'])==2
+        assert fresh._native_roundtrip_fees=={} and fresh._events==[]
+
+
+@pytest.mark.parametrize('damage',['none','missing_aux','hash','binding','day','negative','duplicate_coverage','missing_witness'])
+def test_committed_fee_history_validates_exact_evidence_without_source_adoption(
+        committed_lifecycle,monkeypatch,damage):
+    import json
+    from hashlib import sha256
+    from src.core.daily_risk_governor import DailyRiskGovernor
+    with _native_wire_fee_case(committed_lifecycle,monkeypatch,fees=(0,.02)) as h:
+        _apply_native_fee(h)
+        storage=h.storage;conn=storage._store.connection
+        row=next(row for row in storage.fetch_trade_lifecycle_events() if row['event_type']=='NATIVE_ROUNDTRIP_FEE')
+        if damage=='missing_aux':conn.execute('DELETE FROM trade_lifecycle_events WHERE event_id=?',(row['event_id'],))
+        elif damage!='none':
+            payload=json.loads(row['payload_json']);audit=payload['native_roundtrip_fee']
+            if damage=='hash':audit['total_commission']=99
+            if damage=='binding':audit['fees'][0]['native_order_id']='999'
+            if damage=='day':audit['trading_day']='2026-10-21'
+            if damage=='negative':audit['fees'][0]['amount']='-.01'
+            if damage=='duplicate_coverage':audit['fees'].append(dict(audit['fees'][0]))
+            if damage=='missing_witness':audit['fees'][0].pop('zero_commission_witness')
+            if damage!='hash':
+                evidence={key:value for key,value in audit.items() if key not in {'event_id','account_currency_observation'}}
+                audit['event_id']='native-fee:'+sha256(json.dumps(evidence,sort_keys=True,allow_nan=False).encode()).hexdigest()
+            conn.execute('UPDATE trade_lifecycle_events SET event_id=?,payload_json=? WHERE event_id=?',
+                (audit['event_id'],json.dumps(payload),row['event_id']))
+        conn.commit()
+        fresh=TradeLifecycleEngine(storage)
+        governor=DailyRiskGovernor(storage_engine=storage,trade_lifecycle_engine=fresh)
+        result=governor.evaluate(run_mode='PAPER',now=FEE_NOW)
+        history=fresh.committed_accounting_snapshot(run_mode='PAPER',trading_day_for=governor.trading_day_for)
+        assert result.realized_pnl==pytest.approx(-.27 if damage=='none' else -.25)
+        assert history['available'] is (damage in {'none','missing_aux'})
+        assert bool(history['fees']['evidence']) is (damage=='none')
+        if damage=='missing_aux':assert history['fee_coverage']=='UNKNOWN'
+        assert governor.state.recovered is (damage in {'none','missing_aux'})
+        assert fresh.native_fee_feedback_snapshot(now=FEE_NOW,max_age_seconds=15)['required'] is False
+        assert fresh._native_feedback=={} and fresh._native_committed_event_ids==set() and fresh._trades=={}
+
+
 @pytest.fixture
 def native_lifecycle(isolated_runtime_schema):
     from src.storage.storage_engine import StorageEngine
