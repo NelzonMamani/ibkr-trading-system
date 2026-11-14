@@ -1,3 +1,10 @@
+> Current-status correction (2026-11-14): the dated snapshot below is retained
+> as historical certification/declared evidence, including its original readiness
+> claims and failures. It is not current operational authority. Current truth is
+> [SYSTEM_STATE.md](../SYSTEM_STATE.md) and the maintained Ross checkpoint/handoff/governance.
+> PAPER_READY=NO; PAPER_READINESS_GATE=FAIL. Historical launch/reset commands
+> must not be reused as current instructions; see [RUNBOOK.md](../RUNBOOK.md).
+
 # SYSTEM_STATE.md
 # IBKR Trading OS — Declared State (Unverified Starting Snapshot)
 

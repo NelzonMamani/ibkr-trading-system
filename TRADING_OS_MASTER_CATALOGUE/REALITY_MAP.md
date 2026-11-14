@@ -13,7 +13,7 @@ Reality-first catalogue map that records what exists now, what is partial, and w
 | E4 Data Quality & Market State | `src/market_data/`, `src/sim/price_feed.py`, `src/market_data/market_data_hub.py` | PARTIAL | Market data infrastructure exists; canonical market state taxonomy not fully codified. |
 | E5 Execution Engine Authority | `src/execution/execution_engine.py`, `src/execution/order_router.py` | PARTIAL | Execution components exist; authority boundary contracts require formalization. |
 | E6 Scanner → Strategy Contract | `src/scanner/scanner_contract.py`, `src/strategies/strategy_contracts.py` | PARTIAL | Implicit contracts exist; need canonical contract document and registry alignment. |
-| E7 Mode Parity & Safety | `RUN_*` scripts, `src/sim/clock.py`, `src/core/readiness.py` | PARTIAL | Multiple modes exist; formal parity checks and safety gates are incomplete. |
+| E7 Mode Parity & Safety | `src/main.py` CLI and runtime/config owners, `src/sim/clock.py`, `src/core/readiness.py` | PARTIAL | Multiple modes exist; formal parity checks and safety gates are incomplete. |
 | E8 Regime & Microstructure Layer | `src/regime/` | PARTIAL | Regime scaffolding exists; integration across strategy selection is partial. |
 | E9 Performance Analytics | `src/performance/`, `src/core/performance_registry.py` | PARTIAL | Analytics modules exist; certification-ready reporting is incomplete. |
 | E10 Capital Allocation | `src/strategy_portfolio/allocation.py`, `src/strategy_portfolio/registry.py` | PARTIAL | Allocation framework exists; portfolio-level governance and constraints are partial. |
@@ -27,7 +27,7 @@ Reality-first catalogue map that records what exists now, what is partial, and w
 | E18 Strategy Foundation Layer | `src/strategies/common/` | PARTIAL | Common strategy utilities exist; foundation contract is not yet formalized. |
 | E19 Strategy Interface & Certification | `src/strategies/strategy_contracts.py`, `src/strategies/strategy_registry.py` | PARTIAL | Interface definitions exist but certification workflow is incomplete. |
 | E20 Strategy Foundation Completion | `src/strategies/` | PARTIAL | Strategy base layers exist; end-to-end foundation sign-off is missing. |
-| E21 Trading Ready Verification & End-to-End Simulation | `RUN_SIMULATION.ps1`, `RUN_LIVE_READ_ONLY.ps1` | PARTIAL | Run scripts exist; consolidated verification ladder is not certified. |
+| E21 Trading Ready Verification & End-to-End Simulation | `src/main.py`, `src/config/runtime_config.py` | PARTIAL | Unsafe legacy live/PAPER wrappers retired; focused offline mode checks do not establish operational readiness. |
 
 ## Metadata Epochs (M0–M10)
 | Epoch | Current Evidence (files/modules) | Status | Notes |
@@ -35,7 +35,7 @@ Reality-first catalogue map that records what exists now, what is partial, and w
 | M0 Canon & Sources of Truth | `TRADING_OS_MASTER_CATALOGUE/00_READ_FIRST/`, `SYSTEM_CONSTITUTION*.md` | OK | Canonical governance exists. |
 | M1 Architecture Map | `src/directory_tree_report.txt`, `SYSTEM_TREE_AND_MODULE_MAP.md` | PARTIAL | Architecture map exists but not fully synchronized with catalogue. |
 | M2 Contract Registry | `src/scanner/contracts.py`, `src/strategies/strategy_contracts.py` | PARTIAL | Contracts are implicit; registry is not consolidated. |
-| M3 Mode Semantics Certification | `RUN_*` scripts, `src/sim/` | PARTIAL | Mode scripts exist; certification evidence is incomplete. |
+| M3 Mode Semantics Certification | `src/main.py` CLI and runtime/config owners, `src/sim/` | PARTIAL | Mode scripts exist; certification evidence is incomplete. |
 | M4 Traceability Semantics | `src/events/event_schema.py`, `src/events/event_types.py` | OK | Schemas exist; traceability semantics certified. |
 | M5 Verification Authority | `TRADING_OS_MASTER_CATALOGUE/00_READ_FIRST/01_PROGRAM_RULES_LOCKED.md` | PARTIAL | Authority is declared; operational governance still requires evidence. |
 | M6 Data Lifecycle Governance | `src/storage/`, `src/learning/storage.py` | PARTIAL | Storage tooling exists; lifecycle governance documentation incomplete. |

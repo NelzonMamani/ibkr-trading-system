@@ -330,8 +330,16 @@ class StrategyRunner:
         enabled = safe_get_config(
             "ROSS_MOMENTUM_STRATEGY_ENABLED", default=True, required=False)
 
+        ross_selected = str(strategy_key or "").strip().lower() == "ross_momentum"
         if not enabled:
-            raise RuntimeError("ROSS STRATEGY DISABLED — HARD FAILURE")
+            if ross_selected:
+                raise RuntimeError("ROSS STRATEGY DISABLED — HARD FAILURE")
+            # Recheck the owner at dispatch as configuration can change after
+            # registration (and injected registries must not bypass it).
+            strategies = [
+                strategy for strategy in strategies
+                if getattr(strategy, "name", "") != "RossMomentumStrategyV1"
+            ]
 
         print("[STRATEGY_RUNNER][CONFIG_SNAPSHOT]")
         print(
@@ -482,7 +490,10 @@ class StrategyRunner:
         validation_override_requested = bool(
             safe_get_config("ROSS_VALIDATION_OVERRIDE_ENABLED", default=False, required=False)
         )
-        force_execution_requested = _env_flag("FORCE_EXECUTION_WINDOW", False) or mock_scanner_mode
+        # Ross validation scaffolding is not another strategy's signal path.
+        force_execution_requested = ross_selected and (
+            _env_flag("FORCE_EXECUTION_WINDOW", False) or mock_scanner_mode
+        )
         force_execution_window = force_execution_requested and synthetic_intent_allowed(
             run_mode,
             validation_override_requested,

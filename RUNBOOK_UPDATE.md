@@ -1,3 +1,8 @@
+> This flow sketch is architectural context only. Current launch authority and
+> offline/READ_ONLY boundaries are in [RUNBOOK.md](RUNBOOK.md). It does not
+> authorize orders, recovery clearing or operational enrollment.
+> PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
 # RUNBOOK UPDATE — STRATEGY DEPLOYMENT
 
 ## Canonical Execution Flow

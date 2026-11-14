@@ -6,12 +6,12 @@ Define what verification means for each core and metadata epoch in plain languag
 ## Environment Assumptions
 - Run from repository root.
 - Python environment with dependencies installed.
-- Use the run-mode scripts in the repo root when applicable.
+- Use the existing offline transport guard (`PYTHONPATH=tests/offline:src:.` on POSIX) for regression checks. See `../RUNBOOK.md` for PowerShell and current observation authority.
+- Historical runtime launchers and writable smoke commands are not baseline verification. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
 
 ## Baseline Commands (All Epochs)
 ```
-python -m compileall src
-pytest
+PYTHONPATH=tests/offline:src:. python -m pytest -q <affected-test-paths>
 ```
 
 ## Core Epoch Verification
@@ -38,7 +38,7 @@ pytest
 | E18 Strategy Foundation Layer | Validate strategy base and contracts. | `pytest tests/strategy_portfolio/test_registry.py tests/strategy_portfolio/test_normaliser_defaults.py` |
 | E19 Strategy Interface & Certification | Validate strategy contracts and adapters. | `pytest tests/strategy_portfolio/test_contracts.py tests/strategy_portfolio/test_ross_adapter.py` |
 | E20 Strategy Foundation Completion | Validate strategy orchestration end-to-end. | `pytest tests/strategy_portfolio/test_end_to_end_smoke.py` |
-| E21 Trading Ready Verification & End-to-End Simulation | Validate full-mode parity and run scripts. | `pytest tests/smoke` and `RUN_SIMULATION.ps1` `RUN_PAPER_TRADING.ps1` `RUN_LIVE_READ_ONLY.ps1` |
+| E21 Trading Ready Verification & End-to-End Simulation | Offline mode/authority regressions; no runtime or readiness certification. | `pytest tests/test_mode_drift_guard.py tests/test_read_only_guard.py tests/test_execution_authority_epoch5.py` with the offline guard |
 
 ## Metadata Epoch Verification
 | Epoch | Verification Intent | Commands |
