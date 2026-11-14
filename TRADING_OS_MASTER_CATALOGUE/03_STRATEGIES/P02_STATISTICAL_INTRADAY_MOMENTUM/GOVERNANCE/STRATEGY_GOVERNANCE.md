@@ -148,3 +148,197 @@ superseded by a possible future entry/fill/initial-protection proof. Such a boun
 proof would terminate before claiming managed continuation, full P02 deployment
 or operational enrollment. Existing one-share/default behavior, all five ownership
 vetoes and PAPER_READY=NO; PAPER_READINESS_GATE=FAIL remain.
+
+
+## 2026-11-14 — Separate ATR measurement/calibration proposal (NOT ADOPTED)
+
+This is a concrete proposal for the unresolved C_ATR_WITHIN_BOUNDS prerequisite,
+not adoption of the native-entry draft, an admission bound, stop model or exit
+policy. ATR admission remains UNKNOWN/fail-closed. The existing .005..05
+population standard deviation of one-minute returns in signal_engine/features.py
+is a separate measurement. risk_policy.py's atr_multiple1.5 is a placeholder
+stop multiplier and supplies no admission bounds.
+
+Measurement candidate, explicitly NEW project choices where specified:
+
+- Use Wilder true range and Wilder smoothing, as defined in J. Welles Wilder Jr.,
+  *New Concepts in Technical Trading Systems* (1978), the original ATR reference.
+  This bibliographic formula attribution is not a claim of a new online source
+  retrieval or empirical P02 calibration. Canonical P02 ALGORITHM and
+  STRATEGY_CAPABILITY_MAP require ATR but supply no numerical bounds.
+- Propose fourteen completed one-minute true ranges, computed from the same
+  validated current-session stream as the completed-context prerequisite. For
+  bar i, TR_i=max(H_i-L_i, abs(H_i-C_(i-1)), abs(L_i-C_(i-1))). Need fifteen
+  contiguous completed current-session bars to obtain fourteen true ranges.
+  Exclude the first bar's opening gap: its predecessor must be an actual
+  completed bar from this session, not a fabricated close or prior-day reference.
+  Session reset and this exclusion are NEW project measurement choices, not a
+  quotation from Wilder or Ross. No overnight carry or forming-bar update.
+- Seed ATR_14 with the arithmetic mean of the first fourteen TRs; then update
+  ATR_i=(13*ATR_(i-1)+TR_i)/14 over every subsequent completed current-session bar.
+  The lookback14 is a smoothing period, not permission to discard earlier seed
+  history and reseed from an arbitrary rolling suffix. Contiguous open-aligned
+  context makes the seed/reproduction deterministic. Preserve all input/member
+  timestamps, identity, source request and completion provenance.
+- Publish ATR in USD/share and ATR_pct=100*ATR/C_latest_completed for comparison
+  across prices. Use the latest completed close as denominator, not a newly
+  received quote or proposed fill. Reject unknown identity, currency, timestamp,
+  nonfinite/nonpositive price, invalid OHLC, incomplete/gapped/foreign/stale/future
+  context and insufficient warmup; never substitute zero or return volatility.
+- Independent arithmetic oracle: fourteen TRs of1 seed ATR1; next TR2 produces
+  ATR15/14 (about1.0714285714), and at completed close100 yields the same numeric
+  percent. A gap from prior close100 to H102/L101 has TR2, not its intrabar range1.
+  These synthetic examples test formula correctness only; they justify no gate.
+
+Admissible-bound contract proposed: a separately adopted finite lower/upper pair
+in ATR_pct units with 0<=lower<upper, inclusive endpoints. The actual lower and
+upper values are UNRESOLVED, represented as unavailable, not zero/infinity or an
+unbounded pass. Even a correctly measured ATR cannot establish admission while
+bounds or their authority are missing. No OR/RVOL exception is introduced to
+bypass the canonical required ATR condition.
+
+Calibration rationale and required evidence: the repository's synthetic signal
+and execution fixtures establish mechanics, not representative market
+performance. No approved representative, independently held-out P02 historical
+sample with costs/coverage and outcome definitions has been established here.
+Therefore numerical bounds cannot presently be justified. Do not choose them to
+admit the positive fixture or copy the return-stdev band/stop multiplier.
+Before numerical adoption, define the approved historical source/provenance,
+security/session/price/liquidity universe and missing/halts/corporate-action rules;
+separate development from validation by dates and securities; freeze the bound
+selection procedure before held-out evaluation; report sample/coverage limits,
+low/high/adverse cases, sensitivity and uncertainty against unchanged P02 signal,
+risk and target/management rules. This is a calibration prerequisite, not
+permission to acquire provider data in this batch. Reuse only separately approved
+available offline data; no observer/provider/broker collection is authorized.
+
+Context/cooldown work can proceed independently after its bounded contracts are
+reviewed and adopted. This ATR proposal does not grant activation, risk ALLOW,
+a TradeIntent, native SF/XL/invalidation adoption, management enrollment or a
+positive Core proof. P02's own existing target/management contracts and all five
+ownership vetoes remain. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+
+## 2026-11-14 — ADOPTED bounded completed-context prerequisite (NEW project policy)
+
+After independent contract review by next_session_contract_review, adopt ONLY the
+following completed-market-context prerequisite under the user's delegated
+authority. This supersedes the insufficient self-declared synthetic-frame
+proposal; it does NOT adopt Template A/native entry, ATR calibration, risk ALLOW,
+activation or target/management changes.
+
+Existing HistoricalDataResult gains additive optional request ownership facts,
+unknown by default. A frozen HistoricalRequestSpec in its existing module retains
+actual normalized transmitted barSizeSetting, whatToShow, useRTH, formatDate,
+endDateTime, durationStr and keepUpToDate. Existing native and ib_insync request
+owners capture these plus detached dispatched contract identity at actual SDK
+dispatch, original aware UTC dispatch clock, and actual matching end-callback
+clock/raw start/end facts. Timeout/error/no end cannot manufacture completion.
+Existing cache, reuse, fallback, slicing and normalized-provider wrappers must
+preserve these facts without renewing their clocks or overwriting conflicts.
+UTC_BAR_START semantics are granted only by the supported actual intraday
+formatDate2 request owner; daily/custom/ambiguous/unknown semantics are ineligible.
+No global history request default changes to force qualification.
+
+P02 consumes exact completed nonstreaming one-minute TRADES facts through the
+existing history/identity/session/quote/reference owners. Require matching
+positive integer con_id and canonical symbol; accepted/history/reference
+identities must be STK/USD. Quote binding uses only its exposed symbol/con_id,
+not invented fields. Require known request/completion identity, finite valid
+positive OHLC/nonnegative volume, aware bar-start times, strictly ordered unique
+contiguous current-session bars from actual covered RTH open through the latest
+completed minute. No sorting, gap filling, dropping forming tails, snapshot
+fallback or foreign/prior-session substitution. Preserve original raw timestamps,
+request/cache/acquisition provenance and normalized UTC interval bounds.
+
+NEW interval-quality choice: newest completed end age is [0,60)seconds at actual
+assessment; equality60 is stale. Require original dispatch<=original completion
+<=current assessment and EVERY bar end<=original completion: a bar forming at
+retrieval cannot become eligible by waiting or cache reuse. Require at least16
+completed one-minute bars for the existing fifteen-minute return and at least
+three complete five-minute blocks. Derive five-minute bars solely from complete
+five-member blocks aligned to actual open; retain the members, never use a
+second independent history or partial block.
+
+Use covered_opening_window at the real current assessment, requiring RTH_OPEN
+and its original coverage fingerprint/boundaries; no forged earlier clock,
+phase override or new calendar engine. Existing quote_time_rejection and
+historical evidence vetoes remain; original positive bid<=ask, quote/volume
+facts and acquisition/market times stay distinct. Require qualified resolved
+execution-usable, nondegraded/non-synthetic positive canonical reference for the
+same security and covered previous completed session, preserving provenance.
+
+The producer detaches nested input facts and fingerprints raw plus derived
+content. A new explicit consumer in existing signal_decision.py revalidates
+these facts, current calendar/configuration and freshness before delegating to
+unchanged decide_intent. No mutable cached positive authority or default
+activation follows. The native bar decision is a component proposal only;
+ATR remains UNKNOWN and actual Core structural veto remains intact. All five
+ownership vetoes and ordinary defaults remain. The separate ATR proposal above
+was independently cleared as an accurate NOT-ADOPTED proposal; no numerical
+admission bounds or stop/management rule are adopted.
+
+
+## 2026-11-14 — ADOPTED bounded durable cooldown observation (NEW project policy)
+
+Independent next_session_contract_review cleared this bounded read contract;
+under delegated authority adopt it BEFORE implementation. Existing120 seconds
+remains unchanged. This adopts observed timing and fail-closed unknown-history
+behavior only, not the native-entry draft or a negative-clearance capability.
+
+Every distinct positive, durably accounted P02 ENTRY_FILL, including partial
+entry fills, contributes its ORIGINAL authoritative execution timestamp. The
+anchor is the maximum validated original timestamp. Later distinct executions
+reset that anchor; late older events/duplicates do not reset from receipt or
+registration time. Proposals, reservations, risk decisions, acknowledgement-only,
+cancellation/rejection, exits/reductions and process/session/day changes neither
+start nor clear cooldown. Generic lifecycle register-time or receipt-time
+fallbacks do not establish an authoritative entry timestamp and remain UNKNOWN.
+
+Bind exact P02 policy/execution identity (statistical_intraday_momentum /
+StatisticalIntradayMomentum), actual account, qualified positive con_id with
+consistent symbol/STK/currency and actual effective mode. No trader_type guess,
+symbol-only alias, configured-default account or foreign strategy/mode sharing.
+Read the existing canonical lifecycle/storage authority coherently across current
+AND prior same-mode runs; PR1229's filtered financial projection is not a complete
+cooldown history source. Target-independent entry observation must not rewrite
+P02's own numeric2R or management contracts. Validate positive accounted entry,
+original timestamp/source, execution identity and durable journal binding;
+conflicting versions of the anchor invalidate it. Independently validated recent
+facts survive other missing/conflicting/unavailable evidence where available.
+
+At aware current UTC assessment, negative age is UNKNOWN; observed timing is
+ACTIVE for age[0,120) and ELAPSED at EXACT equality120 and above. This is a timing
+classification only. Missing/unavailable/unmarked/conflicting history, incomplete
+prior-run scope or pending/uncertain intake cannot become proof cooldown is clear.
+EMPTY/EXPIRED eligibility requires authoritative complete capture of the entire
+preceding120-second interval and its boundary across all intersecting runs and
+owned request/intake states. Existing execution_snapshot explicitly supplies
+REQUEST_ONLY completion, not a no-late-fill/interval guarantee; neither
+execDetailsEnd nor fill-stall telemetry nor new run timestamps/120s uptime fills
+that gap. Therefore coverage remains UNKNOWN and eligibility=False for every
+currently supported read outcome, including ELAPSED/no-known-entry.
+
+Do NOT add capture-complete flags, a synthetic certificate, timer, capture ledger
+or run/genesis timestamps claiming this missing guarantee. The exact unresolved
+capability is authoritative finite interval intake plus owned-request completeness,
+including pending/uncertain and late-fill ordering, through existing owners. No
+positive negative-clearance test can be manufactured from prepared flags.
+Implement the honest observational read and causal current/prior-run/fresh-process
+controls; retain native admission veto until a separately justified guarantee is
+established. No order replay, ownership restoration, fence restoration, quarantine
+clearing, operational enrollment or resumption follows. Actual Core structural
+veto and ATR UNKNOWN remain; all five ownership vetoes are intact.
+
+
+### Implementation checkpoint (offline candidate; final review/CI pending)
+
+Completed-context implementationd889f7d4 and bounded cooldown observatione435f218
+follow their separately reviewed/adopted contracts above. Source owner and
+consumer tests177pass; independent context136pass subset. Cooldown42new cases
+independently pass with coverageUNKNOWN/eligibleFalse in all outcomes. Actual Core
+still rejects incomplete native P02 entry; no complete cooldown clearance or
+positive Core admission is claimed. Full source, failure, evidence and remaining
+guarantee details are in SAME3's latest bounded-prerequisite entry. ATR proposal
+remains NOT ADOPTED with numerical bounds unresolved; original entry, target and
+management draft scope is not implicitly adopted by these prerequisites.

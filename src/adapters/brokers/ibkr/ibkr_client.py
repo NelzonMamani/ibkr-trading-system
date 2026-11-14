@@ -2100,6 +2100,15 @@ class IbkrClient(EWrapper, EClient):
                         or not self.isConnected()):
                     state["status"] = "DISCONNECTED"
                 else:
+                    from src.ibkr.market_data_client import historical_request_spec
+                    from src.market_data.candidate_identity import CandidateIdentity
+                    state["request_spec"] = historical_request_spec(
+                        end_date_time=endDateTime, duration_str=durationStr,
+                        bar_size_setting=barSizeSetting, what_to_show=whatToShow,
+                        use_rth=int(bool(useRTH)), format_date=int(formatDate),
+                        keep_up_to_date=bool(keepUpToDate), chart_options=chartOptions or [])
+                    state["contract_identity"] = CandidateIdentity.from_contract(contract)
+                    state["request_dispatched_at_utc"] = datetime.now(timezone.utc).isoformat()
                     state["sent"] = True
                     super().reqHistoricalData(req_id, contract, endDateTime, durationStr,
                         barSizeSetting, whatToShow, int(bool(useRTH)), int(formatDate),
@@ -2127,8 +2136,16 @@ class IbkrClient(EWrapper, EClient):
             self._raise_if_request_id_conflicted(req_id)
         finally:
             self._retire_historical_request(req_id, state)
+        from src.ibkr.market_data_client import historical_bar_facts
         return HistoricalDataResult(state["status"], tuple(state["bars"]),
-            state["end_received"], req_id, state["error_code"], len(state["bars"]) if not state["end_received"] else 0)
+            state["end_received"], req_id, state["error_code"], len(state["bars"]) if not state["end_received"] else 0,
+            contract_identity=state.get("contract_identity"),
+            dispatched_contract_identity=state.get("contract_identity"), request_spec=state.get("request_spec"),
+            request_dispatched_at_utc=state.get("request_dispatched_at_utc"),
+            completed_at_utc=state.get("completed_at_utc"),
+            callback_start=state.get("callback_start"), callback_end=state.get("callback_end"),
+            raw_bar_timestamps=tuple(getattr(bar, "date", None) for bar in state["bars"]),
+            source_bar_count=len(state["bars"]), raw_source_bars=historical_bar_facts(state["bars"]))
 
     def _retire_historical_request(self, req_id, state):
         with self._lock:
@@ -2484,6 +2501,8 @@ class IbkrClient(EWrapper, EClient):
                     or time.monotonic() > state["deadline"]):
                 return
             state["end_received"] = True
+            state["completed_at_utc"] = datetime.now(timezone.utc).isoformat()
+            state["callback_start"], state["callback_end"] = start, end
             state["status"] = "COMPLETE_BARS" if state["bars"] else "COMPLETE_EMPTY"
             state["event"].set()
             print(f"[IBKR][HIST_DONE] req_id={reqId} bars={len(state['bars'])}")

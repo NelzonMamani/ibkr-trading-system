@@ -2064,3 +2064,301 @@ def test_native_roundtrip_reentrant_attempt_cannot_issue_another_sql_write(nativ
     assert outcomes == ['NATIVE_FEE_IN_PROGRESS_NO_RETRY']
     assert h.engine.native_fee_feedback_snapshot(now=FEE_NOW, max_age_seconds=15)['available']
     assert len(h.storage.fetch_trade_lifecycle_events()) == 3
+
+
+def _p02_cooldown_identity(**changes):
+    from src.market_data.candidate_identity import CandidateIdentity
+    values=dict(symbol='JPM',con_id=123,sec_type='STK',exchange='SMART',currency='USD')
+    values.update(changes)
+    return CandidateIdentity(**values)
+
+
+def _p02_cooldown_entry(engine,*,event_id='p02-entry',quantity=1,
+        timestamp='2026-10-20T13:35:00+00:00',strategy='StatisticalIntradayMomentum',root='P02-ROOT'):
+    event,identity=_native_event(event_id,'ENTRY_FILL',quantity,10.5,timestamp=timestamp,root=root)
+    identity['strategy']=strategy
+    trade=engine.get_trade(root)
+    _apply_native(engine,event,identity,trade.quantity_open if trade is not None else 0)
+    return event,identity
+
+
+def test_p02_cooldown_observes_actual_committed_entry_without_clearance(committed_lifecycle):
+    engine,storage=committed_lifecycle
+    event,_=_p02_cooldown_entry(engine)
+    snapshot=engine.p02_entry_cooldown_snapshot(account='SYNTHETIC_TEST',identity=_p02_cooldown_identity(),
+        run_mode='PAPER',assessed_at=datetime(2026,10,20,13,35,30,tzinfo=timezone.utc))
+    assert snapshot['timing']=='ACTIVE' and snapshot['observed_entry_count']==1
+    assert snapshot['eligible'] is False and snapshot['coverage']=='UNKNOWN'
+    assert snapshot['duration_seconds']==120 and snapshot['journal_read_available'] is True
+    assert datetime.fromisoformat(snapshot['last_entry_at'])==datetime.fromisoformat(event.timestamp)
+    assert datetime.fromisoformat(snapshot['expires_at'])==datetime.fromisoformat(event.timestamp)+timedelta(seconds=120)
+    assert len(storage.fetch_trade_lifecycle_events())==1
+
+
+def _p02_cooldown_read(engine,**changes):
+    values=dict(account='SYNTHETIC_TEST',identity=_p02_cooldown_identity(),run_mode='PAPER',
+        assessed_at=datetime(2026,10,20,13,35,30,tzinfo=timezone.utc))
+    values.update(changes)
+    snapshot=engine.p02_entry_cooldown_snapshot(**values)
+    assert snapshot['eligible'] is False and snapshot['coverage']=='UNKNOWN'
+    assert snapshot['duration_seconds']==120
+    assert isinstance(snapshot['findings'],list)
+    assert all(isinstance(row.get('reason'),str) and row['reason'] for row in snapshot['findings'])
+    return snapshot
+
+
+@pytest.mark.parametrize('seconds,timing',[(119.999,'ACTIVE'),(120,'ELAPSED'),(120.001,'ELAPSED')])
+@pytest.mark.parametrize('timestamp',['2026-10-20T13:35:00+00:00','2026-10-20T23:59:30+00:00'])
+def test_p02_cooldown_exact_duration_is_not_day_reset_or_clearance(committed_lifecycle,seconds,timing,timestamp):
+    engine,storage=committed_lifecycle
+    event,_=_p02_cooldown_entry(engine,timestamp=timestamp)
+    before=storage.fetch_committed_lifecycle_accounting(run_mode='PAPER')
+    now=datetime.fromisoformat(timestamp)+timedelta(seconds=seconds)
+    for _ in range(2):
+        snapshot=_p02_cooldown_read(engine,assessed_at=now)
+        assert snapshot['timing']==timing and snapshot['observed_entry_count']==1
+        assert snapshot['last_entry_at']==event.timestamp
+        assert datetime.fromisoformat(snapshot['expires_at'])==datetime.fromisoformat(timestamp)+timedelta(seconds=120)
+    assert storage.fetch_committed_lifecycle_accounting(run_mode='PAPER')==before
+
+
+@pytest.mark.parametrize('strategy',['StatisticalIntradayMomentum','statistical_intraday_momentum'])
+def test_p02_cooldown_partial_entry_duplicate_and_late_original_time(committed_lifecycle,strategy):
+    engine,storage=committed_lifecycle
+    first,binding=_p02_cooldown_entry(engine,strategy=strategy)
+    _apply_native(engine,first,binding,1)  # Real owner suppresses duplicate SQL.
+    second,_=_p02_cooldown_entry(engine,event_id='p02-entry-second',strategy=strategy,
+        timestamp='2026-10-20T13:35:50+00:00')
+    late,_=_p02_cooldown_entry(engine,event_id='p02-entry-late',strategy=strategy,
+        timestamp='2026-10-20T13:34:50+00:00')
+    snapshot=_p02_cooldown_read(engine,assessed_at=datetime(2026,10,20,13,36,10,tzinfo=timezone.utc))
+    assert snapshot['timing']=='ACTIVE' and snapshot['observed_entry_count']==3
+    assert snapshot['last_entry_at']==second.timestamp and snapshot['last_entry_at']!=late.timestamp
+    assert {row['execution_id'] for row in snapshot['entries']}=={first.execution_id,second.execution_id,late.execution_id}
+    assert len(storage.fetch_trade_lifecycle_events())==3
+    assert engine.get_trade('P02-ROOT').quantity_open==3
+
+
+@pytest.mark.parametrize('change',['foreign_account','foreign_security','foreign_strategy','foreign_mode',
+    'unsupported_mode','missing_security','wrong_currency','wrong_security_type','wrong_symbol','naive_assessment'])
+def test_p02_cooldown_scope_cannot_borrow_an_entry(committed_lifecycle,change):
+    engine,_=committed_lifecycle
+    strategy='RossMomentumStrategyV1' if change=='foreign_strategy' else 'StatisticalIntradayMomentum'
+    _p02_cooldown_entry(engine,strategy=strategy)
+    changes={}
+    if change=='foreign_account':changes['account']='OTHER_ACCOUNT'
+    if change=='foreign_security':changes['identity']=_p02_cooldown_identity(con_id=124)
+    if change=='foreign_mode':changes['run_mode']='LIVE'
+    if change=='unsupported_mode':changes['run_mode']='SIM'
+    if change=='missing_security':changes['identity']=_p02_cooldown_identity(con_id=None)
+    if change=='wrong_currency':changes['identity']=_p02_cooldown_identity(currency='EUR')
+    if change=='wrong_security_type':changes['identity']=_p02_cooldown_identity(sec_type='OPT')
+    if change=='wrong_symbol':changes['identity']=_p02_cooldown_identity(symbol='OTHER')
+    if change=='naive_assessment':changes['assessed_at']=datetime(2026,10,20,13,35,30)
+    snapshot=_p02_cooldown_read(engine,**changes)
+    assert snapshot['timing']=='UNKNOWN' and snapshot['observed_entry_count']==0
+    assert snapshot['last_entry_at'] is snapshot['expires_at'] is None
+
+
+@pytest.mark.parametrize('damage',['future_time','naive_time','generic_source','missing_marker','zero_quantity',
+    'missing_execution_id','unknown_run','snapshot_missing','snapshot_membership_missing','logical_execution_conflict'])
+def test_p02_cooldown_damaged_own_anchor_is_unknown(committed_lifecycle,damage):
+    import json
+    engine,storage=committed_lifecycle
+    event,_=_p02_cooldown_entry(engine)
+    connection=storage._store.connection
+    if damage=='future_time':
+        connection.execute('UPDATE trade_lifecycle_events SET timestamp=? WHERE event_id=?',
+            ('2026-10-20T13:35:31+00:00',event.event_id))
+    elif damage=='naive_time':connection.execute('UPDATE trade_lifecycle_events SET timestamp=?',('2026-10-20T13:35:00',))
+    elif damage=='generic_source':connection.execute("UPDATE trade_lifecycle_events SET source='IBKR_EVENT'")
+    elif damage=='missing_marker':
+        row=storage.fetch_trade_lifecycle_events()[0];metadata=json.loads(row['payload_json'])
+        metadata.pop('native_feedback_committed')
+        connection.execute('UPDATE trade_lifecycle_events SET payload_json=?',(json.dumps(metadata),))
+    elif damage=='zero_quantity':connection.execute('UPDATE trade_lifecycle_events SET quantity=0')
+    elif damage=='missing_execution_id':connection.execute("UPDATE trade_lifecycle_events SET execution_id=''")
+    elif damage=='unknown_run':connection.execute('UPDATE runs SET effective_run_mode=NULL')
+    elif damage=='snapshot_missing':
+        connection.execute('PRAGMA foreign_keys=OFF')
+        connection.execute('DELETE FROM trade_lifecycle_trades')
+    elif damage=='snapshot_membership_missing':
+        connection.execute("UPDATE trade_lifecycle_trades SET source_execution_ids_json='[]'")
+    else:
+        row=dict(storage.fetch_trade_lifecycle_events()[0])
+        row.update(event_id='p02-conflicting-copy',price=10.6)
+        storage._store.insert_trade_lifecycle_events([row])
+    connection.commit()
+    snapshot=_p02_cooldown_read(engine)
+    assert snapshot['timing']=='UNKNOWN' and snapshot['observed_entry_count']==0
+    assert snapshot['journal_read_available'] is True and snapshot['findings']
+    assert snapshot['last_entry_at'] is snapshot['expires_at'] is None
+
+
+def test_p02_cooldown_unrelated_bad_prefix_keeps_valid_recent_anchor(committed_lifecycle):
+    engine,storage=committed_lifecycle
+    _p02_cooldown_entry(engine,event_id='bad-p02-entry',root='BAD-P02',timestamp='2026-10-20T13:30:00+00:00')
+    exit_event,binding=_native_event('bad-p02-exit','STOP_EXIT',1,10.4,native_id=72,root='BAD-P02',
+        timestamp='2026-10-20T13:31:00+00:00')
+    binding['strategy']='StatisticalIntradayMomentum'
+    _apply_native(engine,exit_event,binding,1)
+    valid,_=_p02_cooldown_entry(engine,event_id='good-p02-entry',root='GOOD-P02')
+    storage._store.connection.execute("UPDATE trade_lifecycle_events SET payload_json='not-json' WHERE event_id='bad-p02-entry'")
+    storage._store.connection.commit()
+    snapshot=_p02_cooldown_read(engine)
+    assert snapshot['timing']=='ACTIVE' and snapshot['observed_entry_count']==1
+    assert snapshot['last_entry_at']==valid.timestamp
+    assert [row['root_order_id'] for row in snapshot['entries']]==['GOOD-P02']
+    assert snapshot['findings']
+
+
+@pytest.mark.parametrize('state',['pending','uncertain'])
+def test_p02_cooldown_pending_runtime_fence_never_becomes_clearance(committed_lifecycle,state):
+    engine,_=committed_lifecycle
+    _p02_cooldown_entry(engine)
+    _,binding=_native_event('waiting-p02','ENTRY_FILL',1,10.5,root='WAITING-P02')
+    binding['strategy']='StatisticalIntradayMomentum'
+    engine.require_native_feedback('WAITING-P02',binding)
+    if state=='uncertain':engine.mark_native_feedback_uncertain('WAITING-P02','Synthetic unknown callback outcome')
+    snapshot=_p02_cooldown_read(engine)
+    assert snapshot['timing']=='ACTIVE' and snapshot['observed_entry_count']==1
+    assert engine._native_feedback['WAITING-P02']['state']==state.upper()
+
+
+@pytest.mark.parametrize('unavailable',['empty','disabled','missing_api','read_error'])
+def test_p02_cooldown_no_history_cannot_certify_clearance(committed_lifecycle,unavailable):
+    engine,storage=committed_lifecycle
+    if unavailable=='disabled':storage.enabled=False
+    if unavailable=='missing_api':engine=TradeLifecycleEngine(SimpleNamespace())
+    if unavailable=='read_error':
+        storage._store.connection.execute('DROP TABLE trade_lifecycle_events')
+        storage._store.connection.commit()
+    snapshot=_p02_cooldown_read(engine)
+    assert snapshot['timing']=='UNKNOWN' and snapshot['observed_entry_count']==0
+    assert snapshot['journal_read_available'] is (unavailable=='empty')
+    assert snapshot['last_entry_at'] is snapshot['expires_at'] is None
+
+
+@pytest.mark.parametrize('existing_entry',[False,True])
+def test_p02_cooldown_proposal_ack_and_reservation_audits_are_not_fills(committed_lifecycle,existing_entry):
+    import json
+    engine,storage=committed_lifecycle
+    if existing_entry:event,_=_p02_cooldown_entry(engine)
+    stamp='2026-10-20T13:38:00+00:00'
+    storage.store_lifecycle_transition(dict(transition_id='p02-proposal',run_id=storage.run_id,
+        intent='ENTRY_PROPOSAL',symbol='JPM',strategy_owner='StatisticalIntradayMomentum',
+        filled_quantity=0,requested_quantity=1,timestamp=stamp))
+    storage._store.insert_execution_results([dict(execution_result_id='p02-ack',run_id=storage.run_id,
+        symbol='JPM',trader_type='STATISTICAL',status='ACKNOWLEDGED',attempted=1,direction='LONG',
+        requested_quantity=1,filled_quantity=0,remaining_quantity=1,created_at=stamp,
+        payload_json=json.dumps(dict(strategy_name='StatisticalIntradayMomentum',timestamp=stamp)))])
+    storage._store.insert_capital_audit_event(dict(event_id='p02-reserved',run_id=storage.run_id,
+        event_type='RESERVED',symbol='JPM',strategy_id='StatisticalIntradayMomentum',run_mode='PAPER',
+        approved_quantity=1,reserved_capital=10.5,timestamp=stamp,created_at=stamp))
+    snapshot=_p02_cooldown_read(engine,assessed_at=datetime(2026,10,20,13,38,20,tzinfo=timezone.utc))
+    assert snapshot['timing']==('ELAPSED' if existing_entry else 'UNKNOWN')
+    assert snapshot['observed_entry_count']==int(existing_entry)
+    assert snapshot['last_entry_at']==(event.timestamp if existing_entry else None)
+
+
+def test_p02_cooldown_exit_and_numeric_target_never_replace_entry_time(committed_lifecycle):
+    from src.core.take_profit_authority import TakeProfitAuthority
+    engine,storage=committed_lifecycle
+    entry,_=_p02_cooldown_entry(engine)
+    exit_event,binding=_native_event('p02-exit','STOP_EXIT',1,10.4,native_id=72,root='P02-ROOT',
+        timestamp='2026-10-20T13:36:00+00:00')
+    binding['strategy']='StatisticalIntradayMomentum'
+    _apply_native(engine,exit_event,binding,1)
+    target=TakeProfitAuthority.r_multiple_price(entry_price=10.5,stop_loss_price=10.,
+        side='LONG',r_multiple=2.,decimals=4)
+    assert target==11.5
+    engine.apply_event(LifecycleEvent('p02-target-audit','P02-ROOT','JPM','LONG','TAKE_PROFIT_CREATED',
+        1,target,'2026-10-20T13:36:10+00:00',source='take_profit_authority'))
+    before=storage.fetch_committed_lifecycle_accounting(run_mode='PAPER')
+    snapshot=_p02_cooldown_read(engine,assessed_at=datetime(2026,10,20,13,37,30,tzinfo=timezone.utc))
+    assert snapshot['timing']=='ELAPSED' and snapshot['observed_entry_count']==1
+    assert snapshot['last_entry_at']==entry.timestamp
+    assert engine.get_trade('P02-ROOT').target_price==11.5
+    assert storage.fetch_committed_lifecycle_accounting(run_mode='PAPER')==before
+
+
+def test_p02_cooldown_current_prior_runs_survive_fresh_offline_reader(committed_lifecycle,tmp_path):
+    import json,os,subprocess,sys
+    from pathlib import Path
+    from src.storage.storage_engine import StorageEngine
+    engine,storage=committed_lifecycle
+    first,_=_p02_cooldown_entry(engine,event_id='prior-p02-entry',root='PRIOR-P02',
+        timestamp='2026-10-20T13:34:00+00:00')
+    exit_event,binding=_native_event('prior-p02-exit','STOP_EXIT',1,10.4,native_id=72,root='PRIOR-P02',
+        timestamp='2026-10-20T13:34:30+00:00')
+    binding['strategy']='StatisticalIntradayMomentum'
+    _apply_native(engine,exit_event,binding,1)
+    prior_run=storage.run_id;database=storage.sqlite_path
+    storage.shutdown()
+    reopened=StorageEngine()
+    try:
+        assert reopened.run_id!=prior_run
+        current=TradeLifecycleEngine(reopened)
+        latest,_=_p02_cooldown_entry(current,event_id='current-p02-entry',root='CURRENT-P02')
+        snapshot=_p02_cooldown_read(current)
+        assert snapshot['timing']=='ACTIVE' and snapshot['observed_entry_count']==2
+        assert snapshot['last_entry_at']==latest.timestamp
+        assert {row['run_id'] for row in snapshot['entries']}=={prior_run,reopened.run_id}
+        committed=reopened.fetch_committed_lifecycle_accounting(run_mode='PAPER')
+        assert len(committed['events'])==3
+        current_run=reopened.run_id
+    finally:reopened.shutdown()
+    repository=Path(__file__).resolve().parents[1]
+    offline=repository/'tests'/'offline'
+    child=r'''
+import json,sys
+from datetime import datetime,timezone
+from pathlib import Path
+guard=sys.modules.get('sitecustomize')
+assert guard is not None and Path(guard.__file__).resolve()==Path(sys.argv[2]).resolve()
+from src.config.config_resolver import set_config_overrides
+from src.storage.storage_engine import StorageEngine
+from src.core.engines.trade_lifecycle_engine import TradeLifecycleEngine
+from src.market_data.candidate_identity import CandidateIdentity
+set_config_overrides(dict(RUN_MODE='PAPER',RUN_MODE_EFFECTIVE='PAPER',PERSISTENCE_ENABLED=True,
+    PERSISTENCE_SQLITE_PATH=sys.argv[1],PERSISTENCE_BACKEND='sqlite',PERSIST_FLUSH_EACH_CYCLE=True))
+storage=StorageEngine()
+engine=TradeLifecycleEngine(storage)
+snapshot=engine.p02_entry_cooldown_snapshot(account='SYNTHETIC_TEST',
+    identity=CandidateIdentity(symbol='JPM',con_id=123,sec_type='STK',exchange='SMART',currency='USD'),
+    run_mode='PAPER',assessed_at=datetime(2026,10,20,13,35,30,tzinfo=timezone.utc))
+result=dict(snapshot=snapshot,run_id=storage.run_id,events=len(storage.fetch_committed_lifecycle_accounting(run_mode='PAPER')['events']),
+    no_runtime_adoption=(not engine._trades and not engine._events and not engine._native_feedback
+        and not engine._native_committed_event_ids and not engine._native_roundtrip_fees and not engine._native_valuations))
+storage.shutdown()
+print(json.dumps(result))
+'''
+    completed=subprocess.run([sys.executable,'-c',child,database,str(offline/'sitecustomize.py')],
+        cwd=tmp_path,env=dict(os.environ,PYTHONPATH=os.pathsep.join((str(offline),str(repository)))),
+        stdin=subprocess.DEVNULL,capture_output=True,text=True,encoding='utf-8',errors='strict',timeout=10)
+    assert completed.returncode==0,completed.stdout+'\n'+completed.stderr
+    result=json.loads(completed.stdout.splitlines()[-1]);snapshot=result['snapshot']
+    assert result['run_id'] not in {prior_run,current_run} and result['no_runtime_adoption']
+    assert result['events']==3 and snapshot['timing']=='ACTIVE' and snapshot['observed_entry_count']==2
+    assert snapshot['eligible'] is False and snapshot['coverage']=='UNKNOWN'
+    assert snapshot['last_entry_at']==latest.timestamp
+    assert {row['timestamp'] for row in snapshot['entries']}=={first.timestamp,latest.timestamp}
+
+
+@pytest.mark.parametrize('conflict',[False,True])
+def test_p02_cooldown_repeated_reader_row_or_conflicting_event_id(committed_lifecycle,monkeypatch,conflict):
+    """Adapter-boundary adversity; SQLite's event primary key stays intact."""
+    engine,storage=committed_lifecycle
+    _p02_cooldown_entry(engine)
+    read=storage.fetch_committed_lifecycle_accounting
+    def duplicated_read(**kwargs):
+        result=read(**kwargs)
+        duplicate=dict(result['events'][0])
+        if conflict:duplicate['price']=10.6
+        result['events'].append(duplicate)
+        return result
+    monkeypatch.setattr(storage,'fetch_committed_lifecycle_accounting',duplicated_read)
+    snapshot=_p02_cooldown_read(engine)
+    assert snapshot['timing']==('UNKNOWN' if conflict else 'ACTIVE')
+    assert snapshot['observed_entry_count']==(0 if conflict else 1)
+    assert len(storage.fetch_trade_lifecycle_events())==1
