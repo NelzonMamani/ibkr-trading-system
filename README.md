@@ -1,26 +1,21 @@
 # IBKR Trading System
 
-A modular, multi-strategy algorithmic trading system designed for Interactive Brokers (IBKR).
+A multi-strategy trading system under active development for Interactive Brokers.
+Ross Momentum is the current completion priority. Strategy modules and historical
+certification matrices do not establish positive Core integration or operational
+readiness for every strategy.
 
-## Implemented Strategies
+**PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.** Synthetic execution, accounting and
+protection proofs are distinct from natural progression and broker validation.
+All five ownership vetoes remain active. Operational recovery and trading are
+not authorized by development or test results.
 
-- Ross Momentum — Intraday momentum trading (LIVE)
-- Statistical Intraday Momentum — Quantitative intraday continuation/reversion (PAPER/LIVE)
-- Long Horizon Value — Fundamental investing (execution locked)
-- Mean Reversion — Intraday exhaustion-based mean reversion (implemented, execution locked)
+Read [SYSTEM_STATE.md](SYSTEM_STATE.md) for current scope and
+[RUNBOOK.md](RUNBOOK.md) for offline verification and the maintained READ_ONLY
+operator boundary. Existing evidence, limitations and the current work queue are
+maintained in the Ross checkpoint, setup handoff and strategy governance records.
 
-Mean Reversion is governed, tested, and integrated, but not yet enabled for live execution.
-
-Refer to SYSTEM_STATE.md for authoritative runtime status.
-
-## Paper Open Smoke Trade Command (P01–P04)
-
-Run the full PAPER open smoke path (scan → watchlist → runners → intents → risk gate → single order submit → audit artifacts):
-
-```bash
-scripts/run_paper_open_smoke_trade.sh
-```
-
-The verification script writes evidence to:
-
-`TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/paper_open_smoke_trade/<timestamp>/`
+The old root/console live and unbounded PAPER launchers are retired. The previous
+paper-open smoke command may submit an order; it is not an offline verification
+command or evidence of readiness. See [DEPRECATION_LEDGER.md](DEPRECATION_LEDGER.md)
+for retired paths and retained compatibility obligations.

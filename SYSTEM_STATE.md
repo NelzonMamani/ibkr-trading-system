@@ -1,56 +1,48 @@
-SYSTEM_STATE.md
+# IBKR Trading System — Current development state
 
-IBKR Trading System — Authoritative Runtime State
+Updated 2026-11-14. This current-status record supersedes historical readiness
+claims in generated certification snapshots; their original evidence is retained.
 
-Last Updated: 2026-03-04
-Status: ACTIVE DEVELOPMENT — LIVE READINESS HARDENING
-Authority Level: Canonical (supersedes prior SYSTEM_STATE versions)
+**PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.** No natural, broker, restart-resumption
+or full multi-strategy readiness upgrade is established by synthetic proofs.
 
-1. LIVE READINESS CRITERIA (CURRENT)
+## Active authority and scope
 
-LIVE trading is considered enabled only when all are true:
-- RUN_MODE=LIVE
-- EXECUTION_ENABLED=true
-- IBKR_ORDER_TRANSLATION_ENABLED=true
-- IBKR_ORDER_SUBMISSION_ENABLED=true
-- IBKR_READONLY_ENABLED=false
-- IBKR_KILL_SWITCH=false
-- IBKR_LIVE_PORT=7496 (hard requirement for LIVE)
-- SCANNER_MODE=LIVE_READONLY (scanner remains strict)
+- Runtime/configuration: `src/main.py`, `src/config/runtime_config.py` and
+  `src/config/config_resolver.py`. CLI modes are SIM, READ_ONLY, PAPER and LIVE.
+  READONLY remains a configuration compatibility alias only.
+- Active orchestration: `src/core/orchestrator.py`; strategy policy/runner,
+  shared risk, execution, fill, lifecycle and capital owners retain their gates.
+  Module presence, imports, NO_TRADE smoke results and old P01–P20 matrix statuses
+  do not establish positive integration for every strategy.
+- Ross is the completion priority. Existing synthetic family/management proofs,
+  natural evidence and unresolved limits are in the SAME3 records linked below.
+  Committed-accounting cold restart, non-Ross positive Core integration and
+  targeted legacy retirement are the grounded offline queue, not certified
+  completed capabilities merely because they were proposed.
+- All five ownership vetoes remain. Cold startup quarantine, broker-truth
+  quantities, protection, uncertainty/replay latches and risk/capital gates
+  remain authoritative; this status record grants no resumption or clearing.
+- Corporate/listing-compliance/SEC remains parked; direct GAP_GO and HALT and
+  existing confidence vetoes remain unchanged. No additional strategy is enabled
+  by this documentation.
 
-Port policy:
-- 7496 = LIVE account socket
-- 7497 = PAPER account socket
+## Observation distribution
 
-2. STRATEGY ENABLEMENT (P01/P02/P03)
+The corrected next-week caller remains frozen at
+`3f48bf3fb769cbffc6ddfdc515d965968e71c31a`, accepted runtime source
+`c65bc001fc3428c8eef0315fd1e1b8a903b7c53c` / tree
+`6ece4121d7e2350a6fba94cdfe0e687b64b20328`, with its reviewed finite calendar.
+Unrelated accepted engineering changes do not automatically repin it. No observer
+is launched in this batch. See [RUNBOOK.md](RUNBOOK.md) for the guard boundary.
 
-Canonical keys:
-- ROSS_MOMENTUM_STRATEGY_ENABLED (alias: STRATEGY_ROSS_MOMENTUM_ENABLED)
-- STATISTICAL_INTRADAY_MOMENTUM_STRATEGY_ENABLED (alias: STRATEGY_STATISTICAL_INTRADAY_MOMENTUM_ENABLED)
-- MEAN_REVERSION_STRATEGY_ENABLED (alias: STRATEGY_MEAN_REVERSION_ENABLED)
+## Maintained evidence and continuation
 
-Startup prints an explicit "Enabled strategies" banner with source/env provenance.
+- [Natural checkpoint](docs/ross/NATURAL_READONLY_CHECKPOINT.md)
+- [Setup/trigger handoff](docs/architecture/ROSS_SETUP_TRIGGER_HANDOFF.md)
+- [Ross governance](TRADING_OS_MASTER_CATALOGUE/03_STRATEGIES/P01_ROSS_MOMENTUM/GOVERNANCE/STRATEGY_GOVERNANCE.md)
+- [Deprecation ledger](DEPRECATION_LEDGER.md)
 
-3. MULTI-STRATEGY ORCHESTRATION POLICY
-
-Each enabled strategy receives its own scanner request derived from its StrategyPolicyV2/V1 policy surface.
-Expected logs per cycle include:
-- [ORCH][SCANNER_REQUEST] strategy=ross_momentum ...
-- [ORCH][SCANNER_REQUEST] strategy=statistical_intraday_momentum ...
-- [ORCH][SCANNER_REQUEST] strategy=mean_reversion ...
-
-Per-strategy watchlist snapshots are cached and reused intra-session when a cycle yields an empty list.
-
-4. LIVE VERIFICATION COMMANDS
-
-- python -m compileall src
-- pytest -q
-- scripts/run_paper_open_smoke_trade.sh
-- python verification_scripts/multi_strategy_orch_smoke.py
-- scripts/run_live_open_smoke_trade.sh
-
-Evidence roots:
-- TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/multi_strategy_orch_smoke/
-- TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/live_open_smoke_trade/
-
-END OF SYSTEM_STATE.md
+Historical certification files, receipts, failed runs, databases and accounting/
+recovery state are preserved. Operational enrollment, trading, broker/provider
+activity and recovery clearing remain outside this offline engineering scope.

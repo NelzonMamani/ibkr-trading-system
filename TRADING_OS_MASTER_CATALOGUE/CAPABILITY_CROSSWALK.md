@@ -16,7 +16,7 @@ Map catalogue requirements to existing system components with explicit OK / PART
 | E4 Data Quality & Market State | Market data hub | `src/market_data/market_data_hub.py` | PARTIAL |
 | E5 Execution Engine Authority | Execution router | `src/execution/execution_engine.py`, `src/execution/order_router.py` | PARTIAL |
 | E6 Scanner → Strategy Contract | Scanner contracts | `src/scanner/scanner_contract.py`, `tests/test_scanner_request_validation.py`, `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/BLOCKER_01/` | PARTIAL |
-| E7 Mode Parity & Safety | Mode scripts | `RUN_SIMULATION.ps1`, `RUN_LIVE_READ_ONLY.ps1`, `tests/test_mode_drift_guard.py`, `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/BLOCKER_02/` | PARTIAL |
+| E7 Mode Parity & Safety | Runtime/config and guarded mode tests | `src/main.py`, `src/config/runtime_config.py`, `tests/test_mode_drift_guard.py`, `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/BLOCKER_02/` | PARTIAL |
 | E8 Regime & Microstructure | Regime layer | `src/regime/`, `tests/test_regime_classifier.py`, `tests/test_regime_observers.py`, `tests/test_regime_policy_application.py`, `tests/test_regime_live_readonly_missingness.py`, `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_08/` | OK |
 | E9 Performance Analytics | Performance registry | `src/core/performance_registry.py`, `tests/test_performance_registry_epoch9.py`, `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_09/EPOCH_09_E9_PERFORMANCE_ANALYTICS.md` | OK |
 | E10 Capital Allocation | Allocation arbitration | `src/strategy_portfolio/allocation.py`, `tests/strategy_portfolio/test_allocation.py`, `tests/strategy_portfolio/test_arbitration.py`, `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_10/EPOCH_10_E10_CAPITAL_ALLOCATION.md` | OK |
@@ -30,7 +30,7 @@ Map catalogue requirements to existing system components with explicit OK / PART
 | E18 Strategy Foundation Layer | Common strategy utilities | `src/strategies/common/`, `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_18/EPOCH_18_E18_STRATEGY_FOUNDATION_LAYER.md` | OK |
 | E19 Strategy Interface & Certification | Strategy contracts | `src/strategies/strategy_contracts.py`, `src/strategies/strategy_registry.py`, `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_19/EPOCH_19_E19_STRATEGY_INTERFACE_AND_CERTIFICATION.md` | OK |
 | E20 Strategy Foundation Completion | Strategy foundation | `src/strategies/common/foundation.py`, `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_20/EPOCH_20_E20_STRATEGY_FOUNDATION_COMPLETION.md` | OK |
-| E21 Trading Ready Verification | Run scripts | `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_21/EPOCH_21_E21_TRADING_READY_VERIFICATION_AND_END_TO_END_SIMULATION.md` | OK |
+| E21 Trading Ready Verification | Historical audit evidence only | `TRADING_OS_MASTER_CATALOGUE/AUDIT_EVIDENCE/EPOCH_21/EPOCH_21_E21_TRADING_READY_VERIFICATION_AND_END_TO_END_SIMULATION.md` | PARTIAL |
 
 ## Metadata Epoch Crosswalk
 | Catalogue Item | Capability Anchor | Evidence Pointer(s) | Status |
@@ -38,7 +38,7 @@ Map catalogue requirements to existing system components with explicit OK / PART
 | M0 Canon & Sources of Truth | Programme canon | `TRADING_OS_MASTER_CATALOGUE/00_READ_FIRST/` | OK |
 | M1 Architecture Map | System tree | `src/directory_tree_report.txt`, `SYSTEM_TREE_AND_MODULE_MAP.md` | PARTIAL |
 | M2 Contract Registry | Contract artifacts | `src/scanner/contracts.py`, `src/strategies/strategy_contracts.py` | PARTIAL |
-| M3 Mode Semantics Certification | Mode scripts | `RUN_*` scripts, `src/sim/` | PARTIAL |
+| M3 Mode Semantics Certification | Runtime/config owners | `src/main.py` CLI and runtime/config owners, `src/sim/` | PARTIAL |
 | M4 Traceability Semantics | Event schema | `src/events/event_schema.py` | OK |
 | M5 Verification Authority | Programme rules | `TRADING_OS_MASTER_CATALOGUE/00_READ_FIRST/01_PROGRAM_RULES_LOCKED.md` | PARTIAL |
 | M6 Data Lifecycle Governance | Storage engine | `src/storage/storage_engine.py`, `src/learning/storage.py` | PARTIAL |

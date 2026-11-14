@@ -1,64 +1,52 @@
-# RUNBOOK — Epoch 5 Operations
+# Development and READ_ONLY runbook
 
-## Canonical Run Commands (from repo root)
+**PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.** Development authorization does not
+authorize operational enrollment, orders, broker-state changes or recovery clearing.
 
-### Track A (Ross Momentum) — Orchestrator via `src.main`
-```
-python -m src.main --mode SIM --strategy ross_momentum --cycles 1
-python -m src.main --mode READONLY --strategy ross_momentum --cycles 1
-python -m src.main --mode PAPER --strategy ross_momentum --cycles 1
-python -m src.main --mode LIVE_1SHARE --strategy ross_momentum --cycles 1
-```
+## Offline verification
 
-### Track B (Adaptive Regime Layer) — SIM / LIVE_READ_ONLY
-SIM (policy off):
-```
-python -m src.main --mode SIM --strategy ross_momentum --cycles 1 --regime-layer
+Use the project interpreter with its installed dependencies, from the repository
+root. Select focused affected tests before required final-head CI. The offline
+transport guard must be present for regression checks:
+
+```bash
+PYTHONPATH=tests/offline:src:. python -m pytest -q tests/test_mode_drift_guard.py tests/test_read_only_guard.py tests/test_execution_authority_epoch5.py
 ```
 
-SIM (policy on):
-```
-python -m src.main --mode SIM --strategy ross_momentum --cycles 1 --regime-layer --regime-policy
-```
+On PowerShell, set `$env:PYTHONPATH = 'tests/offline;src;.'` for the test child
+process and restore its previous value afterwards. Do not use that environment
+for natural observation. Tests provide synthetic/offline evidence only.
 
-LIVE_READ_ONLY (policy off):
-```
-python -m src.main --mode READONLY --strategy ross_momentum --cycles 1 --regime-layer
-```
+## Runtime and observation authority
 
-LIVE_READ_ONLY (policy on):
-```
-python -m src.main --mode READONLY --strategy ross_momentum --cycles 1 --regime-layer --regime-policy
-```
+The active entry point is `src.main` / `src.core.orchestrator.CoreOrchestrator`.
+CLI mode choices are SIM, READ_ONLY, PAPER and LIVE (`src/main.py`); unsupported
+LIVE_MICRO, LIVE_READ_ONLY and LIVE_1SHARE spellings are not executable recipes.
+The config-only READONLY compatibility alias is not a CLI choice. SIM is bounded
+by `RUN_SIMULATION.ps1`; it is not a natural or broker certification command.
+PAPER and LIVE can be writable and require separate operational authorization.
+Do not translate an obsolete live spelling into LIVE.
 
-### Doctor / Bootstrap (READONLY scanner validation)
-```
-python -m src.core_engine.doctor
-```
+Natural READ_ONLY observation uses the maintained guarded operator/harness,
+not a bare main/scanner command or old core_engine orchestrator. The frozen
+next-week distribution is commit `3f48bf3fb769cbffc6ddfdc515d965968e71c31a`, with
+accepted source `c65bc001fc3428c8eef0315fd1e1b8a903b7c53c` and the unchanged reviewed
+finite calendar. Preparation and observation require the existing contemporaneous
+PAPER/read-only, disabled submission, exact client71/session ownership,
+fresh-root and bounded owned-cleanup checks. This runbook does not launch it or
+replace its immutable caller. Unrelated merges do not repin that distribution.
 
-### Scanner Standalone (READONLY, single cycle)
-```
-python -m src.scanner.scanner_runner --mode READONLY --cycles 1
-```
+## Failure handling
 
-### Orchestrator (SIM)
-```
-python -m src.core_engine.orchestrator --mode SIM --cycles 1
-```
+An empty Focus/watchlist is a valid gated outcome. Inspect original evidence,
+source coverage and rejection reasons; do not relax catalyst/freshness gates to
+produce a trade. READ_ONLY can connect to external services and is not an offline
+mode. Do not reset databases, clear quarantine, assume cancellation succeeded,
+terminate another client, or use writable smoke scripts as diagnostics.
 
-### Orchestrator (READONLY)
-```
-python -m src.core_engine.orchestrator --mode READONLY --cycles 1
-```
-
-### Orchestrator (LIVE_1SHARE) — Safety Warning
-LIVE_1SHARE submits orders only when explicitly enabled and risk-approved.
-Ensure IBKR connectivity and confirm all safety flags before running:
-```
-python -m src.core_engine.orchestrator --mode LIVE_1SHARE --cycles 1
-```
-
-## Troubleshooting
-- **Import errors**: run `python -c "import src"` to verify package visibility.
-- **Scanner empty**: empty watchlists are valid; verify drop reasons in console output.
-- **IBKR connection**: READONLY/SIM do not require IBKR; LIVE_1SHARE expects a configured gateway.
+Current scope and limitations: [SYSTEM_STATE.md](SYSTEM_STATE.md),
+[checkpoint](docs/ross/NATURAL_READONLY_CHECKPOINT.md),
+[handoff](docs/architecture/ROSS_SETUP_TRIGGER_HANDOFF.md),
+[governance](TRADING_OS_MASTER_CATALOGUE/03_STRATEGIES/P01_ROSS_MOMENTUM/GOVERNANCE/STRATEGY_GOVERNANCE.md).
+Historical epoch/certification commands remain evidence of their original runs,
+not current launch authority.
