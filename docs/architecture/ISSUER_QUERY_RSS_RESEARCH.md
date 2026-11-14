@@ -8,14 +8,16 @@ It does not enable Ross trading or qualify catalysts.
 
 ## Recovered source contracts and callers
 
-The archived `troubleshooting/stock_selection/stock_selection_scanner_25_jan_2026.py`
-defines `fetch_latest_news_headline`, called by that script's scanner loop.
+The retired `troubleshooting/stock_selection/stock_selection_scanner_25_jan_2026.py`
+(previous source retained in Git history) defined `fetch_latest_news_headline`, called by that script's scanner loop.
 The dated `ross_stock_selection_scanner_v1`, `v2`, `v2_1` and
-`ross_stock_selection_2026_01_27_001734_UTC` scripts define and call
+`ross_stock_selection_2026_01_27_001734_UTC` scripts defined and called
 `has_recent_news` locally. They use Yahoo's
 `https://feeds.finance.yahoo.com/rss/2.0/headline?s=...&region=US&lang=en-US`.
-The backup copy has the same older helper. No active canonical caller imports
-these scripts. Their direct HTTP/XML/title-only behavior is not reused.
+The duplicate backup had the same older helper. These six standalone executable
+files were deleted after complete local caller checks; original output evidence
+remains. No canonical caller imported them. Their direct HTTP/XML/title-only
+behavior is not reused; see `DEPRECATION_LEDGER.md`.
 
 `verified_rss.txt` already contains Google News `/rss/search` URLs with `q`,
 `hl`, `gl` and `ceid` parameters for fixed Fed/ECB topics. The existing loader
