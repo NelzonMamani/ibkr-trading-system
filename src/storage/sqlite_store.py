@@ -9,6 +9,8 @@ import weakref
 from uuid import uuid4
 import os
 import sqlite3
+import threading
+from types import MappingProxyType
 from typing import Any, Iterable
 
 from src.storage.serialization import compute_audit_hash
@@ -42,15 +44,461 @@ class _CapitalWriter:
         raise TypeError('CAPITAL_WRITER_NOT_TRANSFERABLE')
 
 
+_LOCAL_CONNECTIONS = weakref.WeakKeyDictionary()
+_LOCAL_CURSORS = weakref.WeakKeyDictionary()
+_LOCAL_FENCES = weakref.WeakKeyDictionary()
+
+
+def _local_freeze(value):
+    if isinstance(value, dict):
+        return MappingProxyType({key: _local_freeze(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_local_freeze(item) for item in value)
+    return value
+
+
+def _local_cursor_execute(facade, kind, sql, parameters=()):
+    row = _LOCAL_CURSORS[facade]
+    if type(sql) is not str:
+        row['state'].refuse('CUSTOM_SQL_OBJECT')
+    def basic(value):
+        return type(value) in {type(None),bool,int,float,str,bytes,bytearray}
+    def parameters_ok(value):
+        return ((type(value) in {tuple,list} and all(basic(item) for item in value))
+            or (type(value) is dict and all(type(key) is str and basic(item) for key,item in value.items())))
+    if kind == 'executemany':
+        if type(parameters) not in {tuple,list} or not all(parameters_ok(item) for item in parameters):
+            row['state'].refuse('CUSTOM_SQL_PARAMETERS')
+        row['cursor'].executemany(sql,parameters)
+    elif kind == 'executescript':
+        row['cursor'].executescript(sql)
+    else:
+        if not parameters_ok(parameters):
+            row['state'].refuse('CUSTOM_SQL_PARAMETERS')
+        row['cursor'].execute(sql,parameters)
+    row['active'] = row['cursor'].description is not None
+    return facade
+
+
+class _LocalOpaque:
+    __slots__ = ('__weakref__',)
+
+    def __reduce__(self):
+        raise TypeError('LOCAL_SQLITE_NOT_TRANSFERABLE')
+
+    def __copy__(self):
+        raise TypeError('LOCAL_SQLITE_NOT_TRANSFERABLE')
+
+    def __deepcopy__(self, memo):
+        raise TypeError('LOCAL_SQLITE_NOT_TRANSFERABLE')
+
+
+class _LocalConnectionFacade(_LocalOpaque):
+    __slots__ = ()
+
+    def __getattr__(self, name):
+        _LOCAL_CONNECTIONS[self].refuse('UNSUPPORTED_CONNECTION_API:' + name)
+
+    def __setattr__(self, name, value):
+        _LOCAL_CONNECTIONS[self].refuse('CONNECTION_CONFIGURATION:' + name)
+
+    def cursor(self, *args, **kwargs):
+        state = _LOCAL_CONNECTIONS[self]
+        if args or kwargs:
+            state.refuse('CUSTOM_CURSOR_FACTORY')
+        return state.operation('cursor', lambda: state.cursor())
+
+    def execute(self, sql, parameters=()):
+        state = _LOCAL_CONNECTIONS[self]
+        return state.operation('execute', lambda: _local_cursor_execute(state.cursor(),'execute',sql,parameters))
+
+    def executemany(self, sql, parameters):
+        state = _LOCAL_CONNECTIONS[self]
+        return state.operation('executemany', lambda: _local_cursor_execute(state.cursor(),'executemany',sql,parameters))
+
+    def executescript(self, sql):
+        state = _LOCAL_CONNECTIONS[self]
+        return state.operation('executescript', lambda: _local_cursor_execute(state.cursor(),'executescript',sql))
+
+    def __call__(self, *args, **kwargs):
+        _LOCAL_CONNECTIONS[self].refuse('RAW_STATEMENT_API')
+
+    def __enter__(self):
+        _LOCAL_CONNECTIONS[self].refuse('PUBLIC_CONNECTION_CONTEXT')
+
+    def __exit__(self, *args):
+        _LOCAL_CONNECTIONS[self].refuse('PUBLIC_CONNECTION_CONTEXT')
+
+    def commit(self):
+        state = _LOCAL_CONNECTIONS[self]
+        return state.operation('commit', state.raw.commit)
+
+    def rollback(self):
+        state = _LOCAL_CONNECTIONS[self]
+        return state.operation('rollback', state.raw.rollback)
+
+    def close(self):
+        state = _LOCAL_CONNECTIONS[self]
+        try:
+            return state.operation('close', state.raw.close)
+        finally:
+            state.closed = True
+            state.uncertain = 'CONNECTION_CLOSED'
+
+    @property
+    def in_transaction(self):
+        state = _LOCAL_CONNECTIONS[self]
+        return state.operation('in_transaction', lambda: state.raw.in_transaction)
+
+    @property
+    def total_changes(self):
+        state = _LOCAL_CONNECTIONS[self]
+        return state.operation('total_changes', lambda: state.raw.total_changes)
+
+    @property
+    def row_factory(self):
+        return sqlite3.Row
+
+    @property
+    def text_factory(self):
+        return str
+
+
+class _LocalCursorFacade(_LocalOpaque):
+    __slots__ = ()
+
+    def __getattr__(self, name):
+        _LOCAL_CURSORS[self]['state'].refuse('UNSUPPORTED_CURSOR_API:' + name)
+
+    def __setattr__(self, name, value):
+        _LOCAL_CURSORS[self]['state'].refuse('CURSOR_CONFIGURATION:' + name)
+
+    def execute(self, sql, parameters=()):
+        state = _LOCAL_CURSORS[self]['state']
+        return state.operation('cursor.execute', lambda: _local_cursor_execute(self,'execute',sql,parameters))
+
+    def executemany(self, sql, parameters):
+        state = _LOCAL_CURSORS[self]['state']
+        return state.operation('cursor.executemany', lambda: _local_cursor_execute(self,'executemany',sql,parameters))
+
+    def executescript(self, sql):
+        state = _LOCAL_CURSORS[self]['state']
+        return state.operation('cursor.executescript', lambda: _local_cursor_execute(self,'executescript',sql))
+
+    def fetchone(self):
+        row = _LOCAL_CURSORS[self]
+        def fetch():
+            value = row['cursor'].fetchone()
+            if value is None:
+                row['active'] = False
+            return value
+        return row['state'].operation('fetchone', fetch)
+
+    def fetchmany(self, size=1):
+        row = _LOCAL_CURSORS[self]
+        if type(size) is not int or size < 0:
+            row['state'].refuse('CUSTOM_FETCH_SIZE')
+        def fetch():
+            value = row['cursor'].fetchmany(size)
+            if not value:
+                row['active'] = False
+            return value
+        return row['state'].operation('fetchmany', fetch)
+
+    def fetchall(self):
+        row = _LOCAL_CURSORS[self]
+        def fetch():
+            value = row['cursor'].fetchall()
+            row['active'] = False
+            return value
+        return row['state'].operation('fetchall', fetch)
+
+    def close(self):
+        row = _LOCAL_CURSORS[self]
+        def close():
+            row['cursor'].close()
+            row['active'] = False
+        return row['state'].operation('cursor.close', close)
+
+    @property
+    def connection(self):
+        return _LOCAL_CURSORS[self]['state'].facade
+
+    @property
+    def row_factory(self):
+        return sqlite3.Row
+
+    @property
+    def description(self):
+        row = _LOCAL_CURSORS[self]
+        return row['state'].operation('description', lambda: row['cursor'].description)
+
+    @property
+    def rowcount(self):
+        row = _LOCAL_CURSORS[self]
+        return row['state'].operation('rowcount', lambda: row['cursor'].rowcount)
+
+    @property
+    def lastrowid(self):
+        row = _LOCAL_CURSORS[self]
+        return row['state'].operation('lastrowid', lambda: row['cursor'].lastrowid)
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        value = self.fetchone()
+        if value is None:
+            raise StopIteration
+        return value
+
+
+class _LocalSQLiteState:
+    def __init__(self, store, raw):
+        self._store_ref, self.raw = weakref.ref(store), raw
+        self.thread = threading.get_ident()
+        self.revision, self.inflight = 0, 0
+        self.uncertain, self.lease, self.closed = None, None, False
+        facade = _LocalConnectionFacade()
+        self._facade_ref = weakref.ref(facade)
+        _LOCAL_CONNECTIONS[facade] = self
+        store._connection = facade
+        self.cursors = weakref.WeakSet()
+        self.fencing = False
+        self.private_checks = False
+        self.private_configuring = False
+        self.configuration = (raw.isolation_level,getattr(raw,'autocommit',None))
+        raw.set_authorizer(self.authorize)
+
+    @property
+    def store(self):
+        return self._store_ref()
+
+    @property
+    def facade(self):
+        return self._facade_ref()
+
+    def refuse(self, reason):
+        self.revision += 1
+        self.uncertain = 'LOCAL_SQLITE_' + reason
+        raise RuntimeError(self.uncertain)
+
+    def check_thread(self):
+        if threading.get_ident() != self.thread:
+            self.refuse('CREATOR_THREAD_REQUIRED')
+
+    def operation(self, kind, action):
+        self.check_thread()
+        if self.lease is not None:
+            self.refuse('PUBLIC_OPERATION_DURING_LEASE:' + kind)
+        if self.inflight:
+            self.refuse('REENTRANT_OPERATION')
+        self.revision += 1
+        self.inflight += 1
+        try:
+            return action()
+        except BaseException:
+            self.uncertain = self.uncertain or 'LOCAL_SQLITE_OPERATION_FAILED:' + kind
+            raise
+        finally:
+            self.inflight -= 1
+
+    def cursor(self):
+        facade = _LocalCursorFacade()
+        cursor = self.raw.cursor()
+        cursor.row_factory = sqlite3.Row
+        _LOCAL_CURSORS[facade] = dict(state=self,cursor=cursor,active=False)
+        self.cursors.add(facade)
+        return facade
+
+    def authorize(self, action, first, second, database, trigger):
+        if (self.private_configuring and action == sqlite3.SQLITE_PRAGMA
+                and first in {'query_only','busy_timeout'}):
+            return sqlite3.SQLITE_OK
+        if self.fencing:
+            return (sqlite3.SQLITE_OK if action in {sqlite3.SQLITE_SELECT,sqlite3.SQLITE_READ,
+                getattr(sqlite3,'SQLITE_RECURSIVE',33)} or (self.private_checks
+                and action == sqlite3.SQLITE_PRAGMA and first in {'query_only','busy_timeout'}
+                and second is None) else sqlite3.SQLITE_DENY)
+        if (action == sqlite3.SQLITE_PRAGMA and second is not None
+                and first not in {'table_info','table_xinfo','index_list','index_info','index_xinfo','foreign_key_list'}) or action in {
+                sqlite3.SQLITE_ATTACH,sqlite3.SQLITE_DETACH} or (
+                action == sqlite3.SQLITE_FUNCTION and second == 'load_extension'):
+            self.uncertain = 'LOCAL_SQLITE_UNSUPPORTED_SQL_CONFIGURATION'
+            return sqlite3.SQLITE_DENY
+        return sqlite3.SQLITE_OK
+
+
+class _LocalCooldownFence(_LocalOpaque):
+    __slots__ = ()
+
+    @property
+    def owner(self):
+        return _LOCAL_FENCES[self]['state'].store
+
+    @property
+    def revision(self):
+        return _LOCAL_FENCES[self]['revision']
+
+    def validate(self):
+        row = _LOCAL_FENCES.get(self)
+        if row is None or row['closed']:
+            return False
+        state = row['state']
+        try:
+            valid = (threading.get_ident() == state.thread and state.lease is self and state.fencing
+                and state.store.connection is state.facade and state.revision == row['revision']
+                and not state.uncertain and not state.closed and not state.inflight and state.raw.in_transaction
+                and state.raw.row_factory is sqlite3.Row and state.raw.text_factory is str
+                and (state.raw.isolation_level,getattr(state.raw,'autocommit',None)) == state.configuration
+                and os.environ.get('EXECUTION_ENV') == 'TEST'
+                and os.environ.get('RUN_MODE') == row['mode_environment']
+                and row['config_module']._CONFIG_CACHE is row['config_cache'])
+            if not valid:
+                return False
+            # Raw ownership and the API fence make these verified acquisition
+            # settings immutable until issuer cleanup. This predicate performs
+            # no SQL or arbitrary callback at native-entry consumption.
+            return row.get('settings_verified') is True
+        except Exception:
+            return False
+        finally:
+            state.private_checks = False
+
+    def read_committed_accounting(self):
+        if not self.validate():
+            raise RuntimeError('LOCAL_SQLITE_FENCE_INVALID')
+        row = _LOCAL_FENCES[self]
+        try:
+            result = self.owner._materialize_committed_lifecycle_accounting(
+                row['state'].raw,row['run_mode'],issuer_fence=True)
+            result['relationship_states'] = [dict(item) for item in row['state'].raw.execute(
+                "SELECT transition_id, reason FROM position_lifecycle_transitions "
+                "WHERE transition_id = 'ross-bull-micro:PAPER'").fetchall()]
+            if not self.validate():
+                raise RuntimeError('LOCAL_SQLITE_FENCE_CHANGED')
+            return _local_freeze(result)
+        except BaseException:
+            row['state'].uncertain = 'LOCAL_SQLITE_FENCE_READ_FAILED'
+            raise
+
+    def close(self):
+        row = _LOCAL_FENCES.get(self)
+        if row is None or row['closed']:
+            return
+        state = row['state']
+        if threading.get_ident() != state.thread:
+            state.refuse('FENCE_CREATOR_THREAD_REQUIRED')
+        try:
+            state.fencing = False
+            state.raw.set_authorizer(state.authorize)
+            state.raw.rollback()
+            state.private_configuring = True
+            state.raw.execute('PRAGMA query_only=' + str(row['query_only']))
+            state.raw.execute('PRAGMA busy_timeout=' + str(row['busy_timeout']))
+            if (state.raw.in_transaction
+                    or state.raw.execute('PRAGMA query_only').fetchone()[0] != row['query_only']
+                    or state.raw.execute('PRAGMA busy_timeout').fetchone()[0] != row['busy_timeout']):
+                raise RuntimeError('LOCAL_SQLITE_FENCE_RESTORE_UNCONFIRMED')
+        except BaseException:
+            state.uncertain = 'LOCAL_SQLITE_FENCE_CLEANUP_FAILED'
+            raise
+        finally:
+            state.private_configuring = False
+            state.private_checks = False
+            row['closed'] = True
+            state.lease = None
+
+    abort = close
+
+    def __enter__(self):
+        if not self.validate():
+            raise RuntimeError('LOCAL_SQLITE_FENCE_INVALID')
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        self.close()
+        return False
+
+
 class SQLiteStore:
-    def __init__(self, path: str, *, commit_each_write: bool = True) -> None:
+    def __init__(self, path: str, *, commit_each_write: bool = True, local_cooldown_mode: str | None = None) -> None:
+        if local_cooldown_mode is not None:
+            from src.config.config_resolver import get_config
+            if (type(self) is not SQLiteStore or local_cooldown_mode != 'PAPER' or os.environ.get('EXECUTION_ENV') != 'TEST'
+                    or get_config('RUN_MODE_EFFECTIVE') != 'PAPER'):
+                raise RuntimeError('LOCAL_SQLITE_TEST_PAPER_ENROLLMENT_REQUIRED')
         self.path = path
         self._capital_writers = {}
         self.commit_each_write = commit_each_write
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-        self.connection = sqlite3.connect(self.path)
-        self.connection.row_factory = sqlite3.Row
-        self.connection.execute("PRAGMA foreign_keys = ON")
+        raw = sqlite3.connect(self.path,check_same_thread=True)
+        raw.row_factory = sqlite3.Row
+        raw.execute("PRAGMA foreign_keys = ON")
+        self._local_cooldown = _LocalSQLiteState(self,raw) if local_cooldown_mode is not None else None
+        self._connection = self._local_cooldown.facade if self._local_cooldown is not None else raw
+
+    @property
+    def connection(self):
+        return self._connection
+
+    @connection.setter
+    def connection(self, value):
+        state = getattr(self,'_local_cooldown',None)
+        if state is not None:
+            state.refuse('CONNECTION_REPLACEMENT')
+        self._connection = value
+
+    def local_cooldown_state(self):
+        state = self._local_cooldown
+        if state is None:
+            return MappingProxyType(dict(enrolled=False,supported=False,revision=0,inflight=0,
+                uncertain=True,reason='LOCAL_SQLITE_NOT_ENROLLED',leased=False))
+        supported = (threading.get_ident() == state.thread and self.connection is state.facade
+            and not state.closed and not state.uncertain)
+        return MappingProxyType(dict(enrolled=True,supported=supported,revision=state.revision,
+            inflight=state.inflight,uncertain=bool(state.uncertain),reason=state.uncertain,leased=state.lease is not None))
+
+    def acquire_local_cooldown_fence(self, *, run_mode='PAPER', expected_revision=None):
+        state = self._local_cooldown
+        if state is None or run_mode != 'PAPER':
+            raise RuntimeError('LOCAL_SQLITE_NOT_ENROLLED')
+        state.check_thread()
+        from src.config import config_resolver
+        if (os.environ.get('EXECUTION_ENV') != 'TEST'
+                or config_resolver.get_config('RUN_MODE_EFFECTIVE') != 'PAPER'):
+            state.refuse('TEST_PAPER_ENROLLMENT_CHANGED')
+        if (not self.local_cooldown_state()['supported'] or state.lease is not None or state.inflight
+                or state.raw.in_transaction or any(_LOCAL_CURSORS[cursor]['active'] for cursor in state.cursors)
+                or (expected_revision is not None and expected_revision != state.revision)):
+            raise RuntimeError('LOCAL_SQLITE_FENCE_UNAVAILABLE')
+        fence = _LocalCooldownFence()
+        row = dict(state=state,revision=state.revision,run_mode=run_mode,closed=False,
+            config_module=config_resolver,config_cache=config_resolver._CONFIG_CACHE,
+            mode_environment=os.environ.get('RUN_MODE'),
+            busy_timeout=state.raw.execute('PRAGMA busy_timeout').fetchone()[0],
+            query_only=state.raw.execute('PRAGMA query_only').fetchone()[0])
+        _LOCAL_FENCES[fence] = row
+        state.lease = fence
+        try:
+            state.private_configuring = True
+            state.raw.execute('PRAGMA busy_timeout=0')
+            state.raw.execute('BEGIN IMMEDIATE')
+            state.raw.execute('PRAGMA query_only=ON')
+            state.private_configuring = False
+            state.fencing = True
+            state.raw.set_authorizer(state.authorize)
+            state.private_checks = True
+            row['settings_verified'] = (state.raw.execute('PRAGMA query_only').fetchone()[0] == 1
+                and state.raw.execute('PRAGMA busy_timeout').fetchone()[0] == 0)
+            state.private_checks = False
+            if not fence.validate():
+                raise RuntimeError('LOCAL_SQLITE_FENCE_INVALID')
+            return fence
+        except BaseException:
+            state.uncertain = 'LOCAL_SQLITE_FENCE_ACQUISITION_FAILED'
+            fence.close()
+            raise
 
     def close(self) -> None:
         self.connection.close()
@@ -1555,44 +2003,53 @@ class SQLiteStore:
         return [dict(row) for row in cursor.fetchall()]
 
     def fetch_committed_lifecycle_accounting(self, *, run_mode: str) -> dict[str, list[dict[str, Any]]]:
-        """Read historical accounting without restoring any runtime ownership.
-
-        All reads share one SQLite snapshot. Unknown run metadata is returned
-        for the accounting validator to reject, rather than silently treating
-        a missing scope as an empty journal. Event order is commit/insertion
-        order; authoritative fill timestamps need not arrive in that order.
-        """
+        """Read one coherent accounting snapshot without adopting runtime state."""
         if run_mode not in {"PAPER", "LIVE"}:
             raise ValueError("COMMITTED_ACCOUNTING_RUN_MODE_INVALID")
         if self.connection.in_transaction:
             raise RuntimeError("COMMITTED_ACCOUNTING_CALLER_TRANSACTION_ACTIVE")
         self.connection.execute("BEGIN")
         try:
-            result = {}
-            for key, table in (("trades", "trade_lifecycle_trades"),
-                               ("events", "trade_lifecycle_events")):
-                cursor = self.connection.execute(
-                    f"""SELECT accounting.*, runs.run_mode, runs.effective_run_mode,
-                               runs.event_replay_mode,
-                               (runs.run_id IS NOT NULL) AS run_metadata_present
-                        FROM {table} AS accounting
-                        LEFT JOIN runs ON runs.run_id = accounting.run_id
-                        WHERE runs.effective_run_mode = ?
-                           OR runs.effective_run_mode IS NULL
-                           OR runs.effective_run_mode NOT IN ('SIM','PAPER','LIVE','READ_ONLY')
-                        ORDER BY accounting.rowid ASC""",
-                    (run_mode,),
-                )
-                result[key] = [dict(row) for row in cursor.fetchall()]
-            result["native_states"] = [dict(row) for row in self.connection.execute(
-                "SELECT transition_id, reason FROM position_lifecycle_transitions WHERE transition_id = ?",
-                ("execution.native_orders.v1:" + run_mode,),
-            ).fetchall()]
-            return result
+            return self._materialize_committed_lifecycle_accounting(self.connection,run_mode)
         finally:
-            # This method owns only its deferred read transaction. In
-            # particular it never commits or rolls back a caller's work.
             self.connection.rollback()
+
+    @staticmethod
+    def _materialize_committed_lifecycle_accounting(connection, run_mode, *, issuer_fence=False):
+        if issuer_fence and (type(run_mode) is not str or run_mode != 'PAPER'):
+            raise RuntimeError('LOCAL_SQLITE_READ_SCOPE_INVALID')
+        # Exact source literals avoid process-global parameter adapters while
+        # issuer materialization is fenced; ordinary readers keep their API.
+        predicate = "'PAPER'" if issuer_fence else '?'
+        parameters = () if issuer_fence else (run_mode,)
+        result = {}
+        for key, table in (("trades", "trade_lifecycle_trades"),
+                           ("events", "trade_lifecycle_events")):
+            cursor = connection.execute(
+                f"""SELECT accounting.*, runs.run_mode, runs.effective_run_mode,
+                           runs.event_replay_mode,
+                           (runs.run_id IS NOT NULL) AS run_metadata_present
+                    FROM {table} AS accounting
+                    LEFT JOIN runs ON runs.run_id = accounting.run_id
+                    WHERE runs.effective_run_mode = {predicate}
+                       OR runs.effective_run_mode IS NULL
+                       OR runs.effective_run_mode NOT IN ('SIM','PAPER','LIVE','READ_ONLY')
+                    ORDER BY accounting.rowid ASC""",
+                parameters,
+            )
+            result[key] = [dict(row) for row in cursor.fetchall()]
+        if issuer_fence:
+            result['native_states'] = [dict(row) for row in connection.execute(
+                "SELECT state.transition_id,state.reason,state.run_id,runs.run_mode,runs.effective_run_mode,"
+                "runs.event_replay_mode,(runs.run_id IS NOT NULL) AS run_metadata_present "
+                "FROM position_lifecycle_transitions AS state LEFT JOIN runs ON runs.run_id=state.run_id "
+                "WHERE state.transition_id='execution.native_orders.v1:PAPER'").fetchall()]
+            return result
+        result["native_states"] = [dict(row) for row in connection.execute(
+            "SELECT transition_id, reason FROM position_lifecycle_transitions WHERE transition_id = ?",
+            ("execution.native_orders.v1:" + run_mode,),
+        ).fetchall()]
+        return result
 
     def fetch_trade_lifecycle_reconciliation_events(self, run_id: str) -> list[dict[str, Any]]:
         cursor = self.connection.execute(

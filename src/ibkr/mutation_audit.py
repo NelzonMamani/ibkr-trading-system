@@ -2,6 +2,7 @@
 from __future__ import annotations
 from functools import wraps
 import inspect
+import sys
 import threading
 import weakref
 from src.ibkr.evidence_safety import register_account, register_payload
@@ -39,7 +40,19 @@ def instrument_mutation(cls, method):
     @wraps(original)
     def audited(self, *args, **kwargs):
         active = getattr(_local, "active", ())
-        outer = not (method == "placeOrder" and (id(self), "submit_order") in active)
+        frames = getattr(_local, "delegations", ())
+        parent = frames[-1] if frames else None
+        outer = True
+        if (method == "placeOrder" and parent is not None
+                and parent["client"] == id(self) and not parent["delegated"]
+                and sys._getframe(1).f_code is parent["source_code"]
+                and (parent["method"] == "submit_order"
+                     or (parent["method"] == "placeOrder" and parent["class"] is not cls
+                         and issubclass(parent["class"], cls)))):
+            # Suppress only one immediate owner -> SDK delegation. A distinct
+            # reentrant Native invocation or a second SDK call is a new attempt.
+            parent["delegated"] = True
+            outer = False
         if outer:
             bound = inspect.signature(original).bind(self, *args, **kwargs)
             values = list(bound.arguments.values())[1:]
@@ -47,6 +60,8 @@ def instrument_mutation(cls, method):
             with _lock:
                 _counts[category] += 1
         _local.active = (*active, (id(self), method))
+        _local.delegations = (*frames, {"client": id(self), "method": method, "class": cls,
+            "source_code": getattr(original, "__code__", None), "delegated": False})
         try:
             from src.ibkr.read_only_guard import assert_read_only_allows
             assert_read_only_allows({"place": "PLACE_ORDER", "modify": "MODIFY_ORDER", "cancel": "CANCEL_ORDER"}[category] if outer else "PLACE_ORDER")
@@ -55,6 +70,7 @@ def instrument_mutation(cls, method):
             return original(self, *args, **kwargs)
         finally:
             _local.active = active
+            _local.delegations = frames
     audited._mutation_audited = True
     setattr(cls, method, audited)
 

@@ -8,9 +8,17 @@ import time
 import math
 import uuid
 from src.core.acquisition import checkpoint
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from typing import Callable, List, Optional
+from contextlib import contextmanager
+from types import MappingProxyType
+from copy import deepcopy
+from threading import Lock, get_ident
+from contextvars import ContextVar
+from functools import wraps
+import sys
+from weakref import WeakValueDictionary
 
 from src.brokers.base_broker import BrokerOrderRequest
 from src.config.config_resolver import get_config
@@ -47,6 +55,100 @@ from src.models.execution_result import ExecutionResult
 from src.models.data_models import RiskDecision
 from src.models.risk_decision import DECISION_ARTIFACT_MISSING
 from src.sim.price_feed import DeterministicPriceFeed, PriceFeed
+
+
+def _p02_detach(value):
+    if isinstance(value, dict):
+        return MappingProxyType({key: _p02_detach(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_p02_detach(item) for item in value)
+    return value
+
+
+@dataclass(frozen=True)
+class _P02LocalObservation:
+    """Process-local observation; no risk or broker permission is carried."""
+    owner: object
+    identity: object
+    context_fingerprint: str
+    assessed_at: datetime
+    source_version: tuple
+    details: object
+
+    def __getitem__(self, key):
+        return self.details[key]
+
+    @property
+    def local_condition_satisfied(self):
+        return self.details["local_condition_satisfied"]
+
+    @property
+    def admission_authorized(self):
+        return False
+
+    def __reduce__(self):
+        raise TypeError("P02_LOCAL_OBSERVATION_NOT_SERIALIZABLE")
+
+    def __copy__(self):
+        raise TypeError("P02_LOCAL_OBSERVATION_NOT_TRANSFERABLE")
+
+    def __deepcopy__(self, memo):
+        raise TypeError("P02_LOCAL_OBSERVATION_NOT_TRANSFERABLE")
+
+
+@dataclass(frozen=True)
+class _P02LocalSettlement:
+    owner: object
+    client: object
+    ticket: object
+    revision: int
+    journal_fingerprint: str
+
+
+class _P02LocalEntryLease:
+    """Composable one-shot mechanics; the native P02 bridge remains vetoed."""
+    admission_authorized = False
+
+    def __init__(self, owner, fence, native_version, order_id, contract, order):
+        from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
+        self.owner, self.fence = owner, fence
+        self.native_version, self.order_id = native_version, order_id
+        self.owner_version = owner._p02_local["revision"]
+        self.lifecycle_version = owner._trade_lifecycle_engine._p02_local_revision
+        self.invocation_fingerprint = (order_id, *IbkrClient.local_native_order_fingerprint(contract, order))
+        self.phase, self.closed = "LEASED", False
+
+    def _consume_native_entry_locked(self, client, order_id, contract, order, intake_snapshot):
+        if (self.closed or self.phase != "LEASED" or client is not self.owner._p02_local["client"]
+                or order_id != self.order_id
+                or self.owner._p02_local["revision"] != self.owner_version
+                or self.owner._trade_lifecycle_engine._p02_local_revision != self.lifecycle_version
+                or not self.fence.validate()
+                or getattr(intake_snapshot,"invocation_fingerprint",None) != self.invocation_fingerprint
+                or self.owner._p02_native_version(intake_snapshot) != self.native_version):
+            raise RuntimeError("P02_LOCAL_ENTRY_LEASE_STALE")
+        self.phase = "CONSUMED"
+        return False  # No native bridge/risk enrollment follows from a component.
+
+    def close_after_entry(self):
+        if self.closed:
+            return
+        self.closed = True
+        try:
+            self.fence.close()
+        except BaseException:
+            self.owner._p02_invalidate("P02_LOCAL_LEASE_CLEANUP_FAILED")
+            raise
+        finally:
+            self.owner._p02_local["gate"].release()
+
+    def abort(self):
+        if self.phase != "CONSUMED":
+            self.phase = "ABORTED"
+        self.close_after_entry()
+
+    def __reduce__(self):
+        raise TypeError("P02_LOCAL_ENTRY_LEASE_NOT_SERIALIZABLE")
 
 
 class ExecutionEngine:
@@ -100,6 +202,7 @@ class ExecutionEngine:
         self.position_records: dict[str, dict] = {}
         self._native_orders: dict[str, dict] = {}
         self._native_scope = None
+        self._p02_local = None
         self._native_state = None
         self._native_loaded = False
         self._native_quarantined = False
@@ -151,6 +254,296 @@ class ExecutionEngine:
             trade_lifecycle_engine=trade_lifecycle_engine,
             provider=self._provider,
         )
+
+    def enable_p02_local_cooldown(self, *, account: str, client) -> None:
+        """Explicit synthetic component enrollment, never P02 Core admission."""
+        from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
+        from src.storage.storage_engine import StorageEngine
+        if (os.environ.get("EXECUTION_ENV") != "TEST" or self.run_mode != RunMode.PAPER
+                or get_config("RUN_MODE_EFFECTIVE") != "PAPER"
+                or type(client) is not IbkrClient or type(self._storage_engine) is not StorageEngine
+                or getattr(self, "_p02_local", None) is not None
+                or not isinstance(account, str) or not account or account != account.strip()
+                or client is not self._native_callback_client()
+                or bool(getattr(self,"_native_orders",{}))
+                or bool(getattr(getattr(self,"relationship_manager",None),"_relationship_plans",{}))
+                or bool(client._execution_callbacks)
+                or getattr(self._trade_lifecycle_engine, "_persistence", None) is not self._storage_engine):
+            raise RuntimeError("P02_LOCAL_ENROLLMENT_UNAVAILABLE")
+        state = self._storage_engine.local_cooldown_state()
+        if not state.get("enrolled") or not state.get("supported"):
+            raise RuntimeError("P02_LOCAL_STORAGE_NOT_ENROLLED")
+        self._p02_local = dict(account=account, client=client, gate=Lock(), revision=0,
+            client_scope="DEDICATED_SYNTHETIC_ONLY",
+            frame=None, frame_thread=None, uncertain=None, synchronized=None, receipts={},
+            observations=WeakValueDictionary(), storage_owner=self._storage_engine,
+            store_owner=self._storage_engine._store,lifecycle_owner=self._trade_lifecycle_engine,
+            frame_context=ContextVar("p02_local_mutation_frame", default=None),
+            source_codes={getattr(method,"__wrapped__",method).__code__
+                for cls in (type(self),type(self._trade_lifecycle_engine))
+                for method in cls.__dict__.values() if callable(method)
+                and hasattr(getattr(method,"__wrapped__",method),"__code__")})
+        self._trade_lifecycle_engine._p02_bind_local_authority(self)
+        client.bind_local_cooldown_owner(self)
+
+    def _p02_invalidate(self, reason):
+        state = getattr(self, "_p02_local", None)
+        if state is not None:
+            state["revision"] += 1
+            state["synchronized"] = None
+            state["uncertain"] = str(reason)
+
+    @contextmanager
+    def _p02_owner_mutation(self, owner, kind, *, parent_frame=None):
+        state = getattr(self, "_p02_local", None)
+        if state is None:
+            yield
+            return
+        nested = (parent_frame is not None and parent_frame is state["frame"]
+            and state["frame_thread"] == get_ident())
+        if nested and state.get("read_frame"):
+            self._p02_invalidate("P02_LOCAL_MUTATION_DURING_READ")
+            raise RuntimeError("P02_LOCAL_MUTATION_DURING_READ")
+        if not nested and not state["gate"].acquire(blocking=False):
+            self._p02_invalidate("P02_LOCAL_OWNER_BUSY")
+            raise RuntimeError("P02_LOCAL_OWNER_BUSY")
+        context_token = None
+        if not nested:
+            state["frame"], state["frame_thread"] = object(), get_ident()
+            context_token = state["frame_context"].set(state["frame"])
+        state["revision"] += 1
+        state["synchronized"] = None
+        if owner is self._trade_lifecycle_engine:
+            owner._p02_local_revision += 1
+        try:
+            yield
+        except BaseException:
+            self._p02_invalidate("P02_LOCAL_OWNER_MUTATION_FAILED")
+            raise
+        finally:
+            state["revision"] += 1
+            if owner is self._trade_lifecycle_engine:
+                owner._p02_local_revision += 1
+            if not nested:
+                state["frame_context"].reset(context_token)
+                state["frame"], state["frame_thread"] = None, None
+                state["gate"].release()
+
+    @staticmethod
+    def _p02_snapshot_field(snapshot, name, default=None):
+        return snapshot.get(name, default) if hasattr(snapshot, "get") else getattr(snapshot, name, default)
+
+    def _p02_native_version(self, snapshot):
+        field = self._p02_snapshot_field
+        return (field(snapshot,"revision"), field(snapshot,"client_object_id"),
+            field(snapshot,"client_id"), field(snapshot,"connection_epoch"), tuple(field(snapshot,"accounts",())))
+
+    def _p02_runtime_scope_valid(self):
+        state = self._p02_local
+        return bool(os.environ.get("EXECUTION_ENV") == "TEST"
+            and get_config("RUN_MODE_EFFECTIVE") == "PAPER" and self.run_mode == RunMode.PAPER
+            and self._storage_engine is state["storage_owner"]
+            and getattr(self._storage_engine,"_store",None) is state["store_owner"]
+            and self._trade_lifecycle_engine is state["lifecycle_owner"]
+            and self._trade_lifecycle_engine._persistence is self._storage_engine)
+
+    def _p02_native_scope_valid(self, client):
+        state = self._p02_local
+        return bool(self._p02_runtime_scope_valid() and client is state["client"]
+            and client is self._native_callback_client()
+            and client.isConnected() and not client._stop_event.is_set()
+            and client._position_transport_available
+            and not client._execution_callbacks
+            and tuple(client._managed_accounts) == (state["account"],)
+            and type(client.client_id) is int and type(client._position_connection_epoch) is int)
+
+    def _p02_begin_read_frame(self):
+        state = self._p02_local
+        if not state["gate"].locked() or state["frame"] is not None:
+            raise RuntimeError("P02_LOCAL_READ_FRAME_UNAVAILABLE")
+        state["frame"],state["frame_thread"],state["read_frame"] = object(),get_ident(),True
+        return state["frame_context"].set(state["frame"])
+
+    def _p02_end_read_frame(self, token):
+        state = self._p02_local
+        state["frame_context"].reset(token)
+        state["frame"],state["frame_thread"],state["read_frame"] = None,None,False
+
+    def _p02_collected_read(self):
+        """Inspect actual settled owners after the existing collector ran.
+
+        This foundation does not enroll nonempty native execution/order caches:
+        their complete per-occurrence handoff is an explicit later prerequisite.
+        Canonical committed entry history is still read across all runs.
+        """
+        state = self._p02_local
+        client = state["client"]
+        snapshot = client.local_intake_snapshot()
+        if (state["uncertain"] or not self._p02_native_scope_valid(client)
+                or self._p02_snapshot_field(snapshot,"inflight",())
+                or getattr(self,"_native_quarantined",False)
+                or getattr(self,"_failsafe_block_new_entries",False)):
+            raise RuntimeError("P02_LOCAL_COLLECTED_SOURCE_UNAVAILABLE")
+        if not client._lock.acquire(blocking=False):
+            raise RuntimeError("P02_LOCAL_NATIVE_CACHE_BUSY")
+        try:
+            if (any(client._exec_details_by_order.values()) or client._order_status
+                    or client._open_orders_snapshot or client._executions_snapshot):
+                raise RuntimeError("P02_LOCAL_NONEMPTY_NATIVE_CACHE_NOT_ENROLLED")
+        finally:
+            client._lock.release()
+        if any(not row.get("terminal") or row.get("cached_update_in_progress")
+                or row.get("owner_effect_pending") or row.get("lifecycle_application_rejected")
+                or any(frame.get("state") != "COMPLETE" or frame.get("accounting_complete") is not True
+                    for frame in row.get("canonical_feedback",()))
+                for _,_,row in self._native_feedback_orders()):
+            raise RuntimeError("P02_LOCAL_OWNED_REQUEST_UNRESOLVED")
+        feedback = self._trade_lifecycle_engine.native_feedback_snapshot()
+        if feedback.get("required") and not feedback.get("available"):
+            raise RuntimeError("P02_LOCAL_CANONICAL_ACCOUNTING_UNAVAILABLE")
+        storage = self._storage_engine.local_cooldown_state()
+        with self._storage_engine.acquire_local_cooldown_fence(run_mode="PAPER",
+                expected_revision=storage["revision"]) as fence:
+            journal = fence.read_committed_accounting()
+            # A coherent successful read is evidence only of this local state.
+            # It does not attest broker intake/history or restore ownership.
+            fingerprint = hashlib.sha256(repr(journal).encode()).hexdigest()
+            if not fence.validate() or self._p02_native_version(client.local_intake_snapshot()) != self._p02_native_version(snapshot):
+                raise RuntimeError("P02_LOCAL_COLLECTED_SOURCE_CHANGED")
+        return snapshot, fingerprint
+
+    def _p02_after_actual_collection(self):
+        state = self._p02_local
+        if not state["gate"].acquire(blocking=False):
+            return
+        read_token = None
+        try:
+            read_token = self._p02_begin_read_frame()
+            state["settlement_thread"] = get_ident()
+            snapshot, fingerprint = self._p02_collected_read()
+            dirty = tuple(self._p02_snapshot_field(snapshot,"dirty",()))
+            for ticket in dirty:
+                # Only source ownership/bootstrap intake is enrolled here.
+                # Unknown/ignored execution/error/financial callbacks remain
+                # pending; no completion flag can turn them into settled facts.
+                kind = self._p02_snapshot_field(ticket,"kind","")
+                if kind not in {"INITIAL","initial","bind","BASELINE","managedAccounts","nextValidId"}:
+                    return
+                receipt = _P02LocalSettlement(self,state["client"],ticket,
+                    self._p02_snapshot_field(snapshot,"revision"),fingerprint)
+                state["receipts"][id(ticket)] = receipt
+                # Native verifies outside its I lock. The receipt came only
+                # from the real collector's completed owner/read frame.
+                state["client"].settle_local_intake(ticket,receipt)
+                snapshot, fingerprint = self._p02_collected_read()
+            if not self._p02_snapshot_field(snapshot,"dirty",()):
+                state["synchronized"] = (self._p02_native_version(snapshot),state["revision"],
+                    self._trade_lifecycle_engine._p02_local_revision)
+        except Exception:
+            # Missing evidence never clears an existing safety/uncertainty latch.
+            state["synchronized"] = None
+        finally:
+            state["receipts"].clear()
+            state["settlement_thread"] = None
+            if read_token is not None:
+                self._p02_end_read_frame(read_token)
+            state["gate"].release()
+
+    def _verify_local_intake_settlement(self, client, ticket, committed_binding):
+        state = getattr(self,"_p02_local",None)
+        if (state is None or type(committed_binding) is not _P02LocalSettlement
+                or state["receipts"].get(id(ticket)) is not committed_binding
+                or committed_binding.owner is not self or committed_binding.client is not client
+                or committed_binding.ticket is not ticket or state["client"] is not client):
+            return False
+        # Called only inside the still-owned collector verification frame;
+        # ordinary callers cannot mint/serialize/renew this receipt.
+        if not state["gate"].locked() or state.get("settlement_thread") != get_ident():
+            return False
+        snapshot, fingerprint = self._p02_collected_read()
+        return bool(self._p02_snapshot_field(snapshot,"revision") == committed_binding.revision
+            and fingerprint == committed_binding.journal_fingerprint)
+
+    def observe_p02_local_cooldown(self, *, identity, context_fingerprint: str,
+                                   assessed_at: datetime) -> _P02LocalObservation:
+        state = getattr(self, "_p02_local", None)
+        if (state is None or not isinstance(context_fingerprint,str) or not context_fingerprint
+                or not isinstance(assessed_at,datetime) or assessed_at.utcoffset() is None
+                or assessed_at > datetime.now(timezone.utc)):
+            raise RuntimeError("P02_LOCAL_OBSERVATION_UNAVAILABLE")
+        if not state["gate"].acquire(blocking=False):
+            raise RuntimeError("P02_LOCAL_OWNER_BUSY")
+        read_token = None
+        try:
+            read_token = self._p02_begin_read_frame()
+            client = state["client"]
+            snapshot = client.local_intake_snapshot()
+            storage = self._storage_engine.local_cooldown_state()
+            current = (self._p02_native_version(snapshot), state["revision"],
+                self._trade_lifecycle_engine._p02_local_revision)
+            if not self._p02_runtime_scope_valid():
+                from src.strategies.statistical_intraday_momentum.strategy_policy import default_policy
+                unavailable = dict(policy="P02_OBSERVABLE_LOCAL_COOLDOWN_V1",basis="OBSERVABLE_LOCAL_STATE",
+                    client_scope=state["client_scope"],
+                    available=False,local_condition_satisfied=False,timing="UNKNOWN",coverage="UNKNOWN",
+                    broker_history_complete=False,admission_authorized=False,
+                    duration_seconds=default_policy().activation.cooldown_seconds,last_entry_at=None,
+                    expires_at=None,entries=(),scope={},findings=("P02_LOCAL_RUNTIME_SCOPE_CHANGED",),
+                    journal_fingerprint=None,journal_read_available=False)
+                evidence = _P02LocalObservation(self,identity,context_fingerprint,assessed_at,
+                    (*current,storage["revision"],id(self._storage_engine),id(state["store_owner"])),
+                    _p02_detach(unavailable))
+                state["observations"][id(evidence)] = evidence
+                return evidence
+            findings = []
+            if state["uncertain"]:
+                findings.append(state["uncertain"])
+            if (not self._p02_native_scope_valid(client)
+                    or self._p02_snapshot_field(snapshot,"inflight",())
+                    or self._p02_snapshot_field(snapshot,"dirty",())
+                    or state["synchronized"] != current):
+                findings.append("P02_LOCAL_INTAKE_NOT_SETTLED")
+            if (getattr(self,"_native_quarantined",False)
+                    or getattr(self,"_failsafe_block_new_entries",False)):
+                findings.append("P02_LOCAL_EXISTING_SAFETY_VETO")
+            with self._storage_engine.acquire_local_cooldown_fence(run_mode="PAPER",
+                    expected_revision=storage["revision"]) as lease:
+                observation = self._trade_lifecycle_engine._p02_local_journal_observation(
+                    authority=self,lease=lease,account=state["account"],identity=identity,
+                    run_mode="PAPER",assessed_at=assessed_at)
+                observation["client_scope"] = state["client_scope"]
+                after = client.local_intake_snapshot()
+                if self._p02_native_version(after) != current[0] or not lease.validate():
+                    findings.append("P02_LOCAL_SOURCE_CHANGED")
+                observation["findings"] = sorted(set(observation["findings"] + findings))
+                observation["available"] = observation["available"] and not findings
+                observation["local_condition_satisfied"] = bool(observation["available"]
+                    and observation["local_condition_satisfied"])
+                source = (*current,lease.revision,id(self._storage_engine),id(lease.owner))
+            evidence = _P02LocalObservation(self,identity,context_fingerprint,assessed_at,
+                source,_p02_detach(observation))
+            state["observations"][id(evidence)] = evidence
+            return evidence
+        finally:
+            if read_token is not None:
+                self._p02_end_read_frame(read_token)
+            state["gate"].release()
+
+    def revalidate_p02_local_cooldown(self, observation, *, assessed_at: datetime,
+                                      stage: str = "LOCAL_CHECK") -> bool:
+        state = getattr(self,"_p02_local",None)
+        if (type(observation) is not _P02LocalObservation or observation.owner is not self
+                or state is None or state["observations"].get(id(observation)) is not observation
+                or stage != "LOCAL_CHECK"):
+            # Actual proposal/risk/final native entry is not enrolled by this
+            # foundation. A component token never manufactures a green decision.
+            return False
+        fresh = self.observe_p02_local_cooldown(identity=observation.identity,
+            context_fingerprint=observation.context_fingerprint,assessed_at=assessed_at)
+        return bool(observation.local_condition_satisfied and fresh.local_condition_satisfied
+            and observation.source_version == fresh.source_version
+            and observation["journal_fingerprint"] == fresh["journal_fingerprint"]
+            and fresh.assessed_at >= observation.assessed_at)
 
     def bind_native_order_scope(self, *, account, client, as_of) -> None:
         # Existing complete position-snapshot authority, not a caller config flag.
@@ -4366,3 +4759,27 @@ class ExecutionEngine:
         if broker is not None and hasattr(broker, "disconnect"):
             broker.disconnect(reason="execution_engine_shutdown")
         print("[EXECUTION] Shutdown requested — broker cleanup complete.")
+
+
+def _p02_owner_mutation_method(method):
+    @wraps(method)
+    def wrapped(self, *args, **kwargs):
+        authority = self if isinstance(self, ExecutionEngine) else getattr(self,"_p02_local_authority",None)
+        state = getattr(authority,"_p02_local",None)
+        if state is None:
+            return method(self,*args,**kwargs)
+        caller = sys._getframe(1).f_code
+        parent = state["frame_context"].get() if caller in state["source_codes"] else None
+        with authority._p02_owner_mutation(self,method.__name__,parent_frame=parent):
+            result = method(self,*args,**kwargs)
+        if method.__name__ == "collect_relationship_updates":
+            authority._p02_after_actual_collection()
+        return deepcopy(result) if self is not authority and parent is None else result
+    return wrapped
+
+
+for _p02_method in ("bind_native_order_scope","_save_native_orders","_load_native_orders",
+        "_retain_native_request","process_native_result","_quarantine_native_update",
+        "collect_relationship_updates","_drain_native_canonical_feedback"):
+    setattr(ExecutionEngine,_p02_method,
+        _p02_owner_mutation_method(getattr(ExecutionEngine,_p02_method)))

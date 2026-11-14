@@ -160,6 +160,10 @@ class TradeLifecycleEngine:
         # Inspection provenance only: recovered snapshot marks are not fresh
         # observations acquired by this process.
         self._recovered_accounting_trade_ids: set[str] = set()
+        # Explicit synthetic opt-in only; historical observation remains UNKNOWN.
+        self._p02_local_authority = None
+        self._p02_local_revision = 0
+        self._p02_local_uncertain: str | None = None
 
     def set_persistence_adapter(self, persistence_adapter: Any | None) -> None:
         self._persistence = persistence_adapter
@@ -204,6 +208,9 @@ class TradeLifecycleEngine:
         try:
             self._persistence.upsert_trade_lifecycle_trade(self._trade_snapshot_payload(trade))
         except Exception as exc:
+            if getattr(self,"_p02_local_authority",None) is not None:
+                self._p02_local_uncertain = "P02_LOCAL_BEST_EFFORT_PERSISTENCE_FAILED"
+                self._p02_local_authority._p02_invalidate("P02_LOCAL_BEST_EFFORT_PERSISTENCE_FAILED")
             print(f"[LIFECYCLE][ERROR] stage=persist_trade_snapshot error={exc}")
 
     def _persist_event_best_effort(self, event: LifecycleEvent) -> None:
@@ -215,6 +222,9 @@ class TradeLifecycleEngine:
                 "payload_json": json.dumps(event.metadata, sort_keys=True, allow_nan=False) if event.metadata else None,
             })
         except Exception as exc:
+            if getattr(self,"_p02_local_authority",None) is not None:
+                self._p02_local_uncertain = "P02_LOCAL_BEST_EFFORT_PERSISTENCE_FAILED"
+                self._p02_local_authority._p02_invalidate("P02_LOCAL_BEST_EFFORT_PERSISTENCE_FAILED")
             print(f"[LIFECYCLE][ERROR] stage=persist_event event_id={event.event_id} error={exc}")
 
     def _persist_reconciliation_best_effort(self, payload: dict[str, Any]) -> None:
@@ -223,6 +233,9 @@ class TradeLifecycleEngine:
         try:
             self._persistence.insert_trade_lifecycle_reconciliation_event(payload)
         except Exception as exc:
+            if getattr(self,"_p02_local_authority",None) is not None:
+                self._p02_local_uncertain = "P02_LOCAL_BEST_EFFORT_PERSISTENCE_FAILED"
+                self._p02_local_authority._p02_invalidate("P02_LOCAL_BEST_EFFORT_PERSISTENCE_FAILED")
             print(f"[LIFECYCLE][ERROR] stage=persist_reconcile error={exc}")
 
     @staticmethod
@@ -428,6 +441,12 @@ class TradeLifecycleEngine:
 
     def p02_entry_cooldown_snapshot(self, *, account: str, identity, run_mode: str,
                                    assessed_at: datetime) -> dict[str, Any]:
+        return self._p02_entry_cooldown_from_reader(account=account, identity=identity,
+            run_mode=run_mode, assessed_at=assessed_at,
+            reader=getattr(self._persistence, "fetch_committed_lifecycle_accounting", None))
+
+    def _p02_entry_cooldown_from_reader(self, *, account: str, identity, run_mode: str,
+                                      assessed_at: datetime, reader) -> dict[str, Any]:
         """Observe durable P02 entry timing, never certify cooldown clearance.
 
         The existing 120-second policy has no complete finite intake/owned-order
@@ -466,7 +485,6 @@ class TradeLifecycleEngine:
             now = self._authoritative_time(assessed_at.isoformat())
             result["scope"] = dict(strategy_id=policy.name,account=account,run_mode=run_mode,
                 symbol=identity.symbol,con_id=identity.con_id,sec_type=identity.sec_type,currency=identity.currency)
-            reader = getattr(self._persistence,"fetch_committed_lifecycle_accounting",None)
             require(callable(reader), "P02_ENTRY_HISTORY_STORAGE_UNAVAILABLE")
             durable = reader(run_mode=run_mode)
             require(isinstance(durable,dict) and isinstance(durable.get("events"),list)
@@ -567,7 +585,130 @@ class TradeLifecycleEngine:
         finding("P02_COOLDOWN_INTAKE_AND_OWNED_REQUEST_COVERAGE_UNKNOWN")
         return result
 
+    def _p02_bind_local_authority(self, authority) -> None:
+        from src.execution.execution_engine import ExecutionEngine
+        if (type(authority) is not ExecutionEngine
+                or getattr(authority, "_trade_lifecycle_engine", None) is not self
+                or getattr(authority, "_storage_engine", None) is not self._persistence
+                or self._p02_local_authority not in (None, authority)):
+            raise RuntimeError("P02_LOCAL_LIFECYCLE_OWNER_UNAVAILABLE")
+        self._p02_local_authority = authority
+
+    def _p02_local_journal_observation(self, *, authority, lease, account: str,
+                                       identity, run_mode: str, assessed_at: datetime) -> dict[str, Any]:
+        """NEW local policy evidence from a real owned fence, never admission."""
+        from src.storage.sqlite_store import _LocalCooldownFence
+        from src.core.daily_risk_governor import DailyRiskGovernor
+        if (authority is not self._p02_local_authority or authority is None
+                or type(lease) is not _LocalCooldownFence
+                or lease.owner is not getattr(self._persistence, "_store", None)
+                or not lease.validate()):
+            raise RuntimeError("P02_LOCAL_JOURNAL_FENCE_UNAVAILABLE")
+        def thaw(value):
+            if isinstance(value, Mapping):
+                return {key: thaw(item) for key, item in value.items()}
+            if isinstance(value, tuple):
+                return [thaw(item) for item in value]
+            return value
+        durable = thaw(lease.read_committed_accounting())
+        reader = lambda **unused: deepcopy(durable)
+        timing = self._p02_entry_cooldown_from_reader(account=account, identity=identity,
+            run_mode=run_mode, assessed_at=assessed_at, reader=reader)
+        findings = [row["reason"] for row in timing["findings"]
+            if row["reason"] != "P02_COOLDOWN_INTAKE_AND_OWNED_REQUEST_COVERAGE_UNKNOWN"]
+        # The same canonical validator checks the entire original financial
+        # chain, including current roots. Targets are deliberately independent
+        # for this timing observation; existing financial view defaults do not
+        # change and P02's independent numeric 2R contract is not enrolled here.
+        financial = self._committed_accounting_from_reader(run_mode=run_mode,
+            trading_day_for=DailyRiskGovernor.trading_day_for, reader=reader,
+            include_live=True, target_independent=True)
+        if not financial["available"]:
+            findings.append(financial["reason"] or "P02_LOCAL_FINANCIAL_CHAIN_UNAVAILABLE")
+        verified = set(financial["verified_historical_roots"])
+        if any(row.get("lifecycle_trade_id") not in verified for row in durable.get("trades", [])):
+            findings.append("P02_LOCAL_SNAPSHOT_WITHOUT_VERIFIED_CHAIN")
+        saved = {row.get("event_id"): row for row in durable.get("events", [])}
+        for event in self._events:
+            if event.event_id not in self._native_committed_event_ids:
+                continue
+            row = saved.get(event.event_id)
+            try:
+                if (row is None
+                        or any(row.get(key) != getattr(event, key)
+                            for key in LifecycleEvent.__dataclass_fields__ if key != "metadata")
+                        or json.loads(row.get("payload_json") or "null") != event.metadata):
+                    raise ValueError("P02_LOCAL_CURRENT_COMMIT_MISSING_OR_CONFLICTING")
+            except (ValueError, TypeError):
+                findings.append("P02_LOCAL_CURRENT_COMMIT_MISSING_OR_CONFLICTING")
+        if self._p02_local_uncertain:
+            findings.append(self._p02_local_uncertain)
+        feedback = self.native_feedback_snapshot()
+        if feedback.get("required") and not feedback.get("available"):
+            findings.append("P02_LOCAL_ACCOUNTING_PENDING_OR_UNCERTAIN")
+        if any(event.event_id not in self._native_committed_event_ids
+                for event in self._events if event.event_type == "ENTRY_FILL"):
+            findings.append("P02_LOCAL_UNCOMMITTED_ENTRY")
+        # Unknown legacy/generic entries cannot silently count as proved foreign
+        # observations. Native identity is the classification source, not name.
+        for row in durable.get("events", []):
+            if row.get("event_type") != "ENTRY_FILL":
+                continue
+            try:
+                metadata = json.loads(row.get("payload_json") or "null")
+                binding = self._native_identity(metadata.get("native_identity"))
+                if (metadata.get("native_feedback_committed") is not True
+                        or binding.get("con_id") is None
+                        or row.get("run_metadata_present") != 1
+                        or row.get("effective_run_mode") != run_mode):
+                    raise ValueError("P02_LOCAL_ENTRY_SCOPE_UNAVAILABLE")
+            except Exception:
+                findings.append("P02_LOCAL_ENTRY_SCOPE_UNAVAILABLE")
+        for state in durable.get("native_states", []):
+            try:
+                payload = json.loads(state["reason"])
+                if (payload.get("version") != 1 or payload.get("mode") != run_mode
+                        or not isinstance(payload.get("orders"), dict)
+                        or state.get("run_metadata_present") != 1
+                        or state.get("effective_run_mode") != run_mode
+                        or state.get("run_mode") not in {"SIM","PAPER","LIVE","READ_ONLY"}
+                        or state.get("event_replay_mode") not in {"OFF","CYCLE","RUN"}):
+                    raise ValueError("P02_LOCAL_REQUEST_HISTORY_UNAVAILABLE")
+                if payload["orders"]:
+                    findings.append("P02_LOCAL_RETAINED_NATIVE_REQUEST_SCOPE_NOT_ENROLLED")
+                for order in payload["orders"].values():
+                    if (order.get("terminal") is not True
+                            or order.get("cached_update_in_progress")
+                            or any(frame.get("state") != "COMPLETE"
+                                or frame.get("accounting_complete") is not True
+                                for frame in order.get("canonical_feedback", []))):
+                        findings.append("P02_LOCAL_OWNED_REQUEST_UNRESOLVED")
+            except Exception:
+                findings.append("P02_LOCAL_REQUEST_HISTORY_UNAVAILABLE")
+        if durable.get("relationship_states"):
+            # Initial enrollment does not adopt relationship mutation semantics.
+            findings.append("P02_LOCAL_RELATIONSHIP_SCOPE_UNSUPPORTED")
+        if not lease.validate():
+            findings.append("P02_LOCAL_JOURNAL_CHANGED")
+        available = timing["journal_read_available"] and not findings
+        return dict(policy="P02_OBSERVABLE_LOCAL_COOLDOWN_V1", basis="OBSERVABLE_LOCAL_STATE",
+            available=available, local_condition_satisfied=bool(available and timing["timing"] != "ACTIVE"),
+            timing=timing["timing"] if timing["entries"] else "EMPTY_LOCAL",
+            coverage="UNKNOWN", broker_history_complete=False, admission_authorized=False,
+            duration_seconds=timing["duration_seconds"], last_entry_at=timing["last_entry_at"],
+            expires_at=timing["expires_at"], entries=deepcopy(timing["entries"]),
+            scope=deepcopy(timing["scope"]), findings=sorted(set(findings)),
+            journal_fingerprint=sha256(json.dumps(durable,sort_keys=True,allow_nan=False,
+                default=str).encode()).hexdigest(), lifecycle_revision=self._p02_local_revision)
+
     def committed_accounting_snapshot(self, *, run_mode: str, trading_day_for=None) -> dict[str, Any]:
+        return self._committed_accounting_from_reader(run_mode=run_mode,
+            trading_day_for=trading_day_for,
+            reader=getattr(self._persistence, "fetch_committed_lifecycle_accounting", None))
+
+    def _committed_accounting_from_reader(self, *, run_mode: str, trading_day_for=None,
+                                         reader, include_live: bool = False,
+                                         target_independent: bool = False) -> dict[str, Any]:
         """Read historical financial facts; restore no runtime/native authority.
 
         NEW bounded project policy: validate the committed journal and latest
@@ -579,11 +720,10 @@ class TradeLifecycleEngine:
             verified_historical_roots=[], historical_roots=[], open_roots=[], findings={},
             fees=dict(required=False, available=True, evidence=[], covered_charges=[]),
             fee_coverage="UNKNOWN")
-        reader = getattr(self._persistence, "fetch_committed_lifecycle_accounting", None)
         if run_mode not in {"PAPER", "LIVE"} or not callable(reader):
             return result
-        live_roots = {event.lifecycle_trade_id for event in self._events
-            if event.event_id in self._native_committed_event_ids}
+        live_roots = (set() if include_live else {event.lifecycle_trade_id for event in self._events
+            if event.event_id in self._native_committed_event_ids})
         result["historical_roots"] = sorted(self._recovered_accounting_trade_ids - live_roots)
         errors = result["findings"]
         try:
@@ -736,7 +876,8 @@ class TradeLifecycleEngine:
                 require(trade is not None, "COMMITTED_SNAPSHOT_MISSING")
                 scoped(trade)
                 require(trade["symbol"] == identity["symbol"] and trade["side"] == "LONG"
-                    and trade["strategy_name"] == identity["strategy"] and trade["target_price"] is None
+                    and trade["strategy_name"] == identity["strategy"]
+                    and (target_independent or trade["target_price"] is None)
                     and trade["quantity_open"] == quantity and trade["quantity_closed"] == closed_quantity
                     and equal(trade["entry_avg_price"], average) and equal(trade["gross_realized_pnl"], pnl)
                     and equal(trade["stop_price"], stop) and trade["opened_at"] == opened
@@ -2186,3 +2327,57 @@ class TradeLifecycleEngine:
 
     def get_session_lifecycle_summary(self) -> dict[str, Any]:
         return self.summarize_session_metrics()
+
+
+def _p02_lifecycle_mutation(method):
+    # Late import avoids changing normal lifecycle/ExecutionEngine import order.
+    from functools import wraps
+    @wraps(method)
+    def wrapped(self,*args,**kwargs):
+        if getattr(self,"_p02_local_authority",None) is None:
+            return method(self,*args,**kwargs)
+        import sys
+        authority = self._p02_local_authority
+        state = authority._p02_local
+        parent = state["frame_context"].get() if sys._getframe(1).f_code in state["source_codes"] else None
+        with authority._p02_owner_mutation(self,method.__name__,parent_frame=parent):
+            result = method(self,*args,**kwargs)
+        return deepcopy(result) if parent is None else result
+    return wrapped
+
+
+for _p02_method in ("set_persistence_adapter","recover_open_state","require_native_feedback",
+        "mark_native_feedback_uncertain","complete_native_feedback","apply_event",
+        "apply_entry_fill","apply_exit_fill","apply_mark_price","mark_to_market",
+        "reconcile_position","apply_reconciliation_snapshot","reconcile_with_broker_snapshot",
+        "apply_native_valuation","mark_native_valuation_unavailable",
+        "begin_native_roundtrip_fee_attempt","mark_native_fee_uncertain","apply_native_roundtrip_fees"):
+    setattr(TradeLifecycleEngine,_p02_method,
+        _p02_lifecycle_mutation(getattr(TradeLifecycleEngine,_p02_method)))
+
+
+def _p02_lifecycle_read(method):
+    from functools import wraps
+    @wraps(method)
+    def wrapped(self,*args,**kwargs):
+        authority = getattr(self,"_p02_local_authority",None)
+        if authority is None:
+            return method(self,*args,**kwargs)
+        import sys
+        state = authority._p02_local
+        parent = state["frame_context"].get() if sys._getframe(1).f_code in state["source_codes"] else None
+        if parent is not None and parent is state["frame"]:
+            return method(self,*args,**kwargs)
+        if not state["gate"].acquire(blocking=False):
+            raise RuntimeError("P02_LOCAL_OWNER_BUSY")
+        try:
+            return deepcopy(method(self,*args,**kwargs))
+        finally:
+            state["gate"].release()
+    return wrapped
+
+
+for _p02_method in ("get_trade","open_trades","get_open_lifecycle_trades",
+        "get_trade_accounting","get_symbol_accounting"):
+    setattr(TradeLifecycleEngine,_p02_method,
+        _p02_lifecycle_read(getattr(TradeLifecycleEngine,_p02_method)))

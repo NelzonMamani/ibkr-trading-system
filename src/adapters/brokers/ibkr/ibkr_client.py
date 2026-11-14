@@ -330,6 +330,83 @@ def _price_decimal(value):
     return price
 
 
+@dataclass(frozen=True)
+class LocalIntakeTicket:
+    ticket_id: int
+    kind: str
+    finished: bool
+    failed: bool
+    revision_start: int
+    revision_end: Optional[int]
+    raw_fingerprint: Optional[str]
+    client_object_id: int
+    client_id: Optional[int]
+    connection_epoch: Optional[int]
+    accounts: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class LocalIntakeSnapshot:
+    revision: int
+    inflight: tuple[int, ...]
+    dirty: tuple[LocalIntakeTicket, ...]
+    client_object_id: int
+    client_id: Optional[int]
+    connection_epoch: Optional[int]
+    accounts: tuple[str, ...]
+    invocation_fingerprint: Optional[tuple] = None
+
+
+def _local_native_value(value):
+    """Detached builtin values only; never invoke caller repr/copy callbacks."""
+    from ibapi.softdollartier import SoftDollarTier
+    from ibapi.execution import Execution
+    from ibapi.order_state import OrderState
+    if type(value) in (str, int, float, bool, bytes, type(None)):
+        return (type(value).__name__, value)
+    if type(value) is Decimal:
+        return ("Decimal", str(value))
+    if type(value) in (list, tuple):
+        return (type(value).__name__, tuple(_local_native_value(item) for item in value))
+    if type(value) is dict and all(type(key) is str for key in value):
+        return ("dict", tuple((key, _local_native_value(value[key])) for key in sorted(value)))
+    if type(value) in (Contract, ContractDetails, Order, OrderState, Execution, _SDKCommissionReport, SoftDollarTier):
+        return (type(value).__name__, _local_native_value(vars(value)))
+    raise RuntimeError("P02_LOCAL_UNSUPPORTED_NATIVE_VALUE")
+
+
+def _instrument_local_native_intake(cls, name):
+    """Outermost source boundary, including existing account-registration hooks."""
+    from functools import wraps
+    original = getattr(cls, name)
+    @wraps(original)
+    def intake(self, *args, **kwargs):
+        ticket = self.begin_local_intake(name)
+        if ticket is None:
+            return original(self, *args, **kwargs)
+        state = self._p02_local_ingress
+        stack = getattr(state["thread"], "intake", ())
+        state["thread"].intake = (*stack, ticket)
+        failed = False
+        try:
+            try:
+                # Fingerprinting occurs after ingress bookkeeping and before
+                # existing parsing/registration, entirely outside I.
+                raw = _local_native_value((args, kwargs))
+                fingerprint = hashlib.sha256(repr(raw).encode()).hexdigest()
+                self._local_intake_fingerprint(ticket, fingerprint)
+            except Exception:
+                self._local_intake_failed(ticket)
+            return original(self, *args, **kwargs)
+        except BaseException:
+            failed = True
+            raise
+        finally:
+            state["thread"].intake = stack
+            self.finish_local_intake(ticket, "FAILED" if failed else "RETURNED")
+    setattr(cls, name, intake)
+
+
 class IbkrClient(EWrapper, EClient):
     MAX_CLIENT_ID_RETRIES = 10
     NON_REJECTING_ORDER_WARNING_CODES = {2109}
@@ -344,6 +421,199 @@ class IbkrClient(EWrapper, EClient):
     - Request market data snapshots
     - Report simple health status
     """
+
+    def __setattr__(self, name, value):
+        state = self.__dict__.get("_p02_local_ingress")
+        if state is None or name not in {"client_id", "_position_connection_epoch", "_managed_accounts"}:
+            return object.__setattr__(self, name, value)
+        active = getattr(state["thread"], "intake", ())
+        kind = active[-1].kind if active else "SET_" + name
+        ticket = self.begin_local_intake(kind)
+        try:
+            self._local_intake_fingerprint(ticket,
+                hashlib.sha256(repr((name, _local_native_value(value))).encode()).hexdigest())
+            object.__setattr__(self, name, value)
+        except BaseException:
+            self.finish_local_intake(ticket, "FAILED")
+            raise
+        else:
+            self.finish_local_intake(ticket, "RETURNED")
+
+    def bind_local_cooldown_owner(self, owner) -> None:
+        """Dedicated synthetic TEST/PAPER participation only, default off.
+
+        This requires a dedicated client; empty callbacks do not certify global
+        exclusivity or broker history. Shared operational enrollment is unsupported.
+        """
+        from src.execution.execution_engine import ExecutionEngine
+        from src.config.runtime_config import RunMode
+        from src.config.config_resolver import get_config
+        if (type(owner) is not ExecutionEngine or os.environ.get("EXECUTION_ENV") != "TEST"
+                or owner.run_mode != RunMode.PAPER or get_config("RUN_MODE_EFFECTIVE") != "PAPER"
+                or getattr(owner, "_p02_local", {}).get("client") is not self
+                or getattr(self, "_p02_local_ingress", None) is not None):
+            raise RuntimeError("P02_LOCAL_NATIVE_ENROLLMENT_UNAVAILABLE")
+        self._p02_local_ingress = dict(owner=owner, lock=threading.Lock(), revision=0,
+            next_ticket=0, tickets={}, origins={}, intake_threads={}, inflight=set(),
+            thread=threading.local(), process=os.getpid())
+        ticket = self.begin_local_intake("BASELINE")
+        self._local_intake_fingerprint(ticket, "INITIAL_OBSERVED_LOCAL_STATE")
+        self.finish_local_intake(ticket, "RETURNED")
+
+    def _local_scope_fields(self):
+        # Exact builtin owner fields only; no property/parser/SDK invocation in I.
+        values = object.__getattribute__(self, "__dict__")
+        client_id, epoch = values.get("client_id"), values.get("_position_connection_epoch")
+        accounts = values.get("_managed_accounts", ())
+        accounts = tuple(accounts) if type(accounts) in (tuple, list) and all(type(row) is str for row in accounts) else ()
+        return (id(self), client_id if type(client_id) is int else None,
+            epoch if type(epoch) is int else None, accounts)
+
+    def begin_local_intake(self, kind):
+        state = getattr(self, "_p02_local_ingress", None)
+        if state is None:
+            return None
+        if type(kind) is not str or not kind:
+            raise RuntimeError("P02_LOCAL_INTAKE_KIND_INVALID")
+        # I performs bookkeeping only. No cache, owner, SQL or SDK lock here.
+        with state["lock"]:
+            state["revision"] += 1
+            state["next_ticket"] += 1
+            ticket = LocalIntakeTicket(state["next_ticket"], kind, False, False,
+                state["revision"], None, None, *self._local_scope_fields())
+            state["tickets"][ticket.ticket_id] = ticket
+            state["origins"][ticket.ticket_id] = ticket
+            state["intake_threads"][ticket.ticket_id] = threading.get_ident()
+            state["inflight"].add(ticket.ticket_id)
+            return ticket
+
+    def _local_intake_fingerprint(self, ticket, fingerprint):
+        state = self._p02_local_ingress
+        with state["lock"]:
+            current = state["tickets"].get(ticket.ticket_id)
+            if current is not None:
+                state["tickets"][ticket.ticket_id] = replace(current, raw_fingerprint=fingerprint)
+
+    def _local_intake_failed(self, ticket):
+        state = self._p02_local_ingress
+        with state["lock"]:
+            current = state["tickets"].get(ticket.ticket_id)
+            if current is not None:
+                state["tickets"][ticket.ticket_id] = replace(current, failed=True)
+
+    def finish_local_intake(self, ticket, outcome):
+        if ticket is None:
+            return
+        if type(ticket) is not LocalIntakeTicket:
+            raise RuntimeError("P02_LOCAL_INTAKE_TICKET_INVALID")
+        state = self._p02_local_ingress
+        returned = type(outcome) is str and outcome == "RETURNED"
+        with state["lock"]:
+            current = state["tickets"].get(ticket.ticket_id)
+            if (current is None or current.client_object_id != id(self)
+                    or state["origins"].get(ticket.ticket_id) is not ticket
+                    or state["intake_threads"].get(ticket.ticket_id) != threading.get_ident()
+                    or ticket.revision_start != current.revision_start
+                    or ticket.ticket_id not in state["inflight"]):
+                raise RuntimeError("P02_LOCAL_INTAKE_TICKET_INVALID")
+            state["revision"] += 1
+            state["inflight"].remove(ticket.ticket_id)
+            state["tickets"][ticket.ticket_id] = replace(current, finished=True,
+                failed=current.failed or not returned, revision_end=state["revision"])
+            # Completion never removes dirty intake. Only the real collector's
+            # verified owner receipt can settle this exact generation.
+
+    def _local_intake_snapshot_locked(self):
+        state = self._p02_local_ingress
+        if state["process"] != os.getpid():
+            raise RuntimeError("P02_LOCAL_NATIVE_PROCESS_CHANGED")
+        return LocalIntakeSnapshot(state["revision"], tuple(sorted(state["inflight"])),
+            tuple(state["tickets"].values()), *self._local_scope_fields())
+
+    def local_intake_snapshot(self):
+        state = getattr(self, "_p02_local_ingress", None)
+        if state is None:
+            raise RuntimeError("P02_LOCAL_NATIVE_NOT_ENROLLED")
+        if not state["lock"].acquire(blocking=False):
+            raise RuntimeError("P02_LOCAL_NATIVE_INGRESS_BUSY")
+        try:
+            return self._local_intake_snapshot_locked()
+        finally:
+            state["lock"].release()
+
+    def settle_local_intake(self, ticket, committed_binding):
+        state = self._p02_local_ingress
+        before = self.local_intake_snapshot()
+        if (type(ticket) is not LocalIntakeTicket or ticket not in before.dirty
+                or not ticket.finished or ticket.failed or ticket.raw_fingerprint is None
+                or before.inflight):
+            raise RuntimeError("P02_LOCAL_INTAKE_NOT_SETTLEABLE")
+        # Owner verification may read actual cache/journal state. It must run
+        # OUTSIDE I, in the actual collector's still-owned mutation frame.
+        if state["owner"]._verify_local_intake_settlement(self, ticket, committed_binding) is not True:
+            raise RuntimeError("P02_LOCAL_INTAKE_RECEIPT_UNVERIFIED")
+        if not state["lock"].acquire(blocking=False):
+            raise RuntimeError("P02_LOCAL_NATIVE_INGRESS_BUSY")
+        try:
+            after = self._local_intake_snapshot_locked()
+            if (after != before or state["tickets"].get(ticket.ticket_id) != ticket):
+                raise RuntimeError("P02_LOCAL_INTAKE_CHANGED_DURING_SETTLEMENT")
+            del state["tickets"][ticket.ticket_id]
+            state["origins"].pop(ticket.ticket_id, None)
+            state["intake_threads"].pop(ticket.ticket_id, None)
+            state["revision"] += 1
+        finally:
+            state["lock"].release()
+
+    @staticmethod
+    def local_native_order_fingerprint(contract, order):
+        if type(contract) is not Contract or type(order) is not Order:
+            raise RuntimeError("P02_LOCAL_NATIVE_DESCRIPTOR_TYPES_UNSUPPORTED")
+        return (_local_native_value(contract), _local_native_value(order))
+
+    def placeOrder(self, orderId, contract, order):  # type: ignore[override]
+        state = getattr(self, "_p02_local_ingress", None)
+        if state is None:
+            return super().placeOrder(orderId, contract, order)
+        context = getattr(state["thread"], "submit", None)
+        if context is None or context.get("lease") is None:
+            # Existing protective/reduction SELL paths retain their own gates.
+            # A supplied entry lease never escapes comparison by changing side.
+            if type(order) is Order and type(order.action) is str and order.action == "SELL":
+                return super().placeOrder(orderId, contract, order)
+            raise RuntimeError("P02_LOCAL_UNGUARDED_NATIVE_ENTRY")
+        if context["order_id"] != orderId:
+            raise RuntimeError("P02_LOCAL_NATIVE_ENTRY_ID_CHANGED")
+        lease = context["lease"]
+        from src.execution.execution_engine import _P02LocalEntryLease
+        try:
+            if type(lease) is not _P02LocalEntryLease or lease.owner is not state["owner"]:
+                raise RuntimeError("P02_LOCAL_ENTRY_ISSUER_INVALID")
+            initial = self.local_native_order_fingerprint(contract, order)
+            detached_contract, detached_order = deepcopy(contract), deepcopy(order)
+            if (self.local_native_order_fingerprint(detached_contract, detached_order) != initial
+                    or self.local_native_order_fingerprint(contract, order) != initial):
+                raise RuntimeError("P02_LOCAL_NATIVE_ARGUMENTS_CHANGED")
+            if not state["lock"].acquire(blocking=False):
+                raise RuntimeError("P02_LOCAL_NATIVE_INGRESS_BUSY")
+            try:
+                snapshot = replace(self._local_intake_snapshot_locked(),
+                    invocation_fingerprint=(orderId, *initial))
+                if snapshot.inflight or snapshot.dirty:
+                    raise RuntimeError("P02_LOCAL_NATIVE_UNSETTLED_INGRESS")
+                authorized = lease._consume_native_entry_locked(
+                    self, orderId, detached_contract, detached_order, snapshot)
+            finally:
+                state["lock"].release()
+            # This closes the SAME G/SQL lease before the audited SDK body.
+            lease.close_after_entry()
+            if authorized is not True or lease.admission_authorized is not True:
+                raise RuntimeError("P02_LOCAL_NATIVE_BRIDGE_NOT_ADOPTED")
+            return super().placeOrder(orderId, detached_contract, detached_order)
+        except BaseException:
+            if type(lease) is _P02LocalEntryLease and lease.owner is state["owner"]:
+                lease.abort()
+            raise
 
     def __init__(
         self,
@@ -679,6 +949,10 @@ class IbkrClient(EWrapper, EClient):
             try:
                 callback(payload if callback in getattr(self, "_internal_execution_callbacks", set()) else sanitize(payload))
             except Exception as exc:
+                state = getattr(self, "_p02_local_ingress", None)
+                if state is not None:
+                    for ticket in getattr(state["thread"], "intake", ()):
+                        self._local_intake_failed(ticket)
                 print(f"[IBKR][CALLBACK_ERROR] reason={exc}")
 
     # --- Connection management ---
@@ -1066,8 +1340,20 @@ class IbkrClient(EWrapper, EClient):
         except Exception:
             pass
         order_id = self.reserve_order_id()
-        self._order_status_events[order_id] = threading.Event()
-        self._exec_details_by_order[order_id] = []
+        if getattr(self, "_p02_local_ingress", None) is not None:
+            with self._lock:
+                if (order_id in self._order_status or order_id in self._exec_details_by_order
+                        or order_id in self._open_orders_snapshot or order_id in self._order_errors
+                        or order_id in self._order_warnings or order_id in self._order_state_registry
+                        or order_id in self._request_context_by_req_id
+                        or self._order_status_events[order_id].is_set()):
+                    raise RuntimeError("P02_LOCAL_NATIVE_PREPARATION_CACHE_OCCUPIED")
+                # reserve_order_id already installed our empty event. Preserve
+                # any later callback publication; never overwrite its slot.
+                self._exec_details_by_order.setdefault(order_id, [])
+        else:
+            self._order_status_events[order_id] = threading.Event()
+            self._exec_details_by_order[order_id] = []
         print(
             "[ORDER][SUBMIT] "
             f"symbol={getattr(contract, 'symbol', None)} order_id={order_id} "
@@ -1087,13 +1373,31 @@ class IbkrClient(EWrapper, EClient):
         assert order.action in ("BUY", "SELL")
         assert int(order.totalQuantity) > 0
         assert order.orderType in ("MKT", "LMT", "STP")
-        if before_submit is not None:
-            before_submit(order_id, contract, order)
+        state = getattr(self, "_p02_local_ingress", None)
+        context = {"order_id": order_id, "lease": None} if state is not None else None
+        if context is not None:
+            if getattr(state["thread"], "submit", None) is not None:
+                raise RuntimeError("P02_LOCAL_REENTRANT_SUBMISSION")
+            state["thread"].submit = context
         try:
+            if before_submit is not None:
+                lease = before_submit(order_id, contract, order)
+                if context is not None and lease is not None:
+                    from src.execution.execution_engine import _P02LocalEntryLease
+                    if type(lease) is not _P02LocalEntryLease or lease.owner is not state["owner"]:
+                        raise RuntimeError("P02_LOCAL_ENTRY_ISSUER_INVALID")
+                    context["lease"] = lease
             self.placeOrder(order_id, contract, order)
         except Exception as exc:
             print(f"[IBKR][PLACE_ORDER][ERROR] symbol={getattr(contract, 'symbol', None)} order_id={order_id} error={exc}")
             raise
+        finally:
+            if context is not None:
+                try:
+                    if context["lease"] is not None:
+                        context["lease"].abort()
+                finally:
+                    state["thread"].submit = None
         return order_id
 
     def wait_for_order_status(
@@ -3123,3 +3427,18 @@ class IbkrClient(EWrapper, EClient):
 from src.ibkr.mutation_audit import install_sdk, instrument_mutation
 install_sdk(EClient, IbkrClient)
 instrument_mutation(IbkrClient, "submit_order")
+instrument_mutation(IbkrClient, "placeOrder")
+
+
+# Outermost wrappers run BEFORE the existing account-registration decorators.
+# Only explicitly enrolled instances participate; ordinary defaults are inert.
+for _local_intake_name in (
+        "connect", "disconnect", "connectionClosed", "nextValidId", "managedAccounts",
+        "register_execution_callback", "register_reconciliation_callback",
+        "execDetails", "execDetailsEnd", "orderStatus", "openOrder", "openOrderEnd",
+        "error", "commissionReport", "accountSummary", "accountSummaryEnd",
+        "position", "positionEnd", "positionMulti", "positionMultiEnd", "completedOrder",
+        "completedOrdersEnd", "orderBound", "connectAck", "updateAccountValue", "updatePortfolio",
+        "updateAccountTime", "accountDownloadEnd", "accountUpdateMulti", "accountUpdateMultiEnd"):
+    _instrument_local_native_intake(IbkrClient, _local_intake_name)
+del _local_intake_name
