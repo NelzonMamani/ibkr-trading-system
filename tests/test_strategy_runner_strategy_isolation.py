@@ -83,10 +83,12 @@ def test_current_p02_sim_adapter_emits_own_intent_without_ross():
     # bar-based statistical signal engine or a positive Core execution proof.
 
 
+@pytest.mark.parametrize("ross_enabled", [False, True])
 @pytest.mark.parametrize("changes", [{"rvol": 1.49}, {"gap_pct": 1.99},
     {"dollar_volume": 19_999_999.}, {"data_quality_flags": ["MD_TIMEOUT"]}])
-def test_p02_adapter_rejections_do_not_inherit_ross_fallback(changes, monkeypatch):
+def test_p02_adapter_rejections_do_not_inherit_ross_fallback(changes, ross_enabled, monkeypatch):
     configure("statistical_intraday_momentum", SCANNER_DATA_SOURCE="MOCK",
+              ROSS_MOMENTUM_STRATEGY_ENABLED=ross_enabled,
               ROSS_VALIDATION_OVERRIDE_ENABLED=True)
     monkeypatch.setenv("FORCE_EXECUTION_WINDOW", "1")
     assert dispatch(StrategyRunner(), "statistical_intraday_momentum",
