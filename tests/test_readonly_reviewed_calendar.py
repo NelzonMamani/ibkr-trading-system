@@ -96,12 +96,18 @@ def test_explicit_admission_rejects_unbound_inputs(owned, change):
         ns['reviewed_calendar_environment'](ns['repo'],True,env,ns['expected'])
 
 
-def test_checkout_crlf_is_exact_reviewed_text_not_arbitrary_reencoding(owned):
+@pytest.mark.parametrize('initial_eol',['lf','crlf'])
+def test_checkout_crlf_is_exact_reviewed_text_not_arbitrary_reencoding(owned,initial_eol):
     ns=owned; path=ns['repo']/EVIDENCE
     env=build_safe_readonly_env(dict(IBKR_CLIENT_ID='71',IBKR_HOST='127.0.0.1',IBKR_PORT='7497'))
+    canonical=path.read_bytes().replace(b'\r\n',b'\n')
+    path.write_bytes(canonical if initial_eol=='lf' else canonical.replace(b'\n',b'\r\n'))
+    initial=ns['reviewed_calendar_environment'](ns['repo'],True,env,ns['expected'])
+    path.write_bytes(canonical)
     first=ns['reviewed_calendar_environment'](ns['repo'],True,env,ns['expected'])
-    path.write_bytes(path.read_bytes().replace(b'\n',b'\r\n'))
+    path.write_bytes(canonical.replace(b'\n',b'\r\n'))
     second=ns['reviewed_calendar_environment'](ns['repo'],True,env,ns['expected'])
+    assert initial[0]==first[0]
     assert first[0]==second[0] and first[1]['evidence_sha256']==second[1]['evidence_sha256']
     assert first[1]['checkout_bytes_sha256']!=second[1]['checkout_bytes_sha256']
     path.write_bytes(b'\xef\xbb\xbf'+path.read_bytes())
