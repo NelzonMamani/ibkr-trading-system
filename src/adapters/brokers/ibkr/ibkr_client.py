@@ -709,13 +709,15 @@ class IbkrClient(EWrapper, EClient):
     def placeOrder(self, orderId, contract, order):  # type: ignore[override]
         state = getattr(self, "_p02_local_ingress", None)
         if state is None:
-            return super().placeOrder(orderId, contract, order)
+            return delegate_sdk_place_order(self, _NATIVE_AUDITED_SDK_PLACE_ORDER,
+                super().placeOrder, orderId, contract, order)
         context = getattr(state["thread"], "submit", None)
         if context is None or context.get("lease") is None:
             # Existing protective/reduction SELL paths retain their own gates.
             # A supplied entry lease never escapes comparison by changing side.
             if type(order) is Order and type(order.action) is str and order.action == "SELL":
-                return super().placeOrder(orderId, contract, order)
+                return delegate_sdk_place_order(self, _NATIVE_AUDITED_SDK_PLACE_ORDER,
+                    super().placeOrder, orderId, contract, order)
             raise RuntimeError("P02_LOCAL_UNGUARDED_NATIVE_ENTRY")
         if context["order_id"] != orderId:
             raise RuntimeError("P02_LOCAL_NATIVE_ENTRY_ID_CHANGED")
@@ -744,7 +746,8 @@ class IbkrClient(EWrapper, EClient):
             lease.close_after_entry()
             if authorized is not True or lease.admission_authorized is not True:
                 raise RuntimeError("P02_LOCAL_NATIVE_BRIDGE_NOT_ADOPTED")
-            return super().placeOrder(orderId, detached_contract, detached_order)
+            return delegate_sdk_place_order(self, _NATIVE_AUDITED_SDK_PLACE_ORDER,
+                super().placeOrder, orderId, detached_contract, detached_order)
         except BaseException:
             if type(lease) is _P02LocalEntryLease and lease.owner is state["owner"]:
                 lease.abort()
@@ -3563,8 +3566,9 @@ class IbkrClient(EWrapper, EClient):
         print("[IBKR] Connection closed by broker.")
 
 
-from src.ibkr.mutation_audit import install_sdk, instrument_mutation
+from src.ibkr.mutation_audit import install_sdk, instrument_mutation, delegate_sdk_place_order
 install_sdk(EClient, IbkrClient)
+_NATIVE_AUDITED_SDK_PLACE_ORDER = EClient.placeOrder
 instrument_mutation(IbkrClient, "submit_order")
 instrument_mutation(IbkrClient, "placeOrder")
 

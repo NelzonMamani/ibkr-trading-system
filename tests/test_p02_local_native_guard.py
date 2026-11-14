@@ -592,3 +592,64 @@ def test_native_bound_reinitialization_invalidates_snapshot_without_resetting_ca
     with pytest.raises(RuntimeError,match='LIFETIME_UNAVAILABLE'):
         h.engine.revalidate_p02_local_cooldown(old,assessed_at=NOW)
     assert not h.engine._p02_local['gate'].locked()
+
+
+@pytest.mark.parametrize('case,expected_ids,expected_counts', [
+    ('direct', [71], dict(place=1,modify=0,cancel=0)),
+    ('shim', [71], dict(place=1,modify=0,cancel=0)),
+    ('twice', [71,71], dict(place=1,modify=1,cancel=0)),
+    ('callback_same', [71,71], dict(place=1,modify=1,cancel=0)),
+    ('callback_other', [72,71], dict(place=2,modify=0,cancel=0)),
+    ('callback_raises', [71], dict(place=1,modify=1,cancel=0)),
+    ('reentrant_native', [72,71], dict(place=2,modify=0,cancel=0)),
+    ('cross_client', [71,71], dict(place=2,modify=0,cancel=0)),
+    ('changed_order', [71], dict(place=1,modify=1,cancel=0)),
+    ('guard_changed', [], dict(place=1,modify=0,cancel=0)),
+])
+def test_native_sdk_receipt_counts_only_exact_selected_delegation(
+        monkeypatch,case,expected_ids,expected_counts):
+    from src.ibkr.mutation_audit import delegate_sdk_place_order, instrument_mutation
+    set_config_overrides(dict(RUN_MODE='PAPER',RUN_MODE_EFFECTIVE='PAPER',EXECUTION_ENABLED=True,
+        EXECUTION_ENABLED_EFFECTIVE=True,IBKR_READONLY_ENABLED=False))
+    calls=[]
+    class SDK:
+        readonly_enabled=False
+        def placeOrder(self,orderId,contract,order):
+            calls.append((self,orderId,contract,order))
+    class Native(SDK):
+        def placeOrder(self,orderId,contract,order):
+            return delegate_sdk_place_order(self,saved_sdk,super().placeOrder,
+                orderId,contract,order)
+    instrument_mutation(SDK,'placeOrder')
+    saved_sdk=SDK.placeOrder
+    instrument_mutation(Native,'placeOrder')
+    client,other=Native(),SDK()
+    contract,order=object(),object()
+    def shim(self,orderId,contract,order):
+        if case in {'callback_same','callback_other','callback_raises'}:
+            def callback():
+                saved_sdk(self,72 if case=='callback_other' else orderId,contract,order)
+            callback()
+            if case=='callback_raises':
+                raise RuntimeError('synthetic shim abort after distinct callback')
+        if case=='reentrant_native' and orderId==71:
+            self.placeOrder(72,contract,order)
+        if case=='cross_client':
+            saved_sdk(other,orderId,contract,order)
+        if case=='guard_changed':
+            self.readonly_enabled=True
+        result=saved_sdk(self,orderId,contract,object() if case=='changed_order' else order)
+        if case=='twice':
+            saved_sdk(self,orderId,contract,order)
+        return result
+    if case!='direct':
+        monkeypatch.setattr(SDK,'placeOrder',shim)
+    if case in {'callback_raises','guard_changed'}:
+        with pytest.raises(RuntimeError,match='synthetic shim abort|read-only'):
+            client.placeOrder(71,contract,order)
+    else:
+        client.placeOrder(71,contract,order)
+    assert [row[1] for row in calls]==expected_ids
+    assert mutations()==expected_counts
+    import src.ibkr.mutation_audit as audit
+    assert getattr(audit._local,'delegations',())==()

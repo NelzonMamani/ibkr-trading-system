@@ -33,6 +33,37 @@ def _category(client, method, args):
     return "modify" if known else "place"
 
 
+def delegate_sdk_place_order(client, audited_sdk, delegate, order_id, contract, order):
+    """Account for one exact Native -> SDK call, including one selected shim.
+
+    This conveys no permission and never bypasses an audited/read-only boundary.
+    The receipt exists only while this function invokes the selected delegate.
+    """
+    frames = getattr(_local, "delegations", ())
+    parent = frames[-1] if frames else None
+    caller = sys._getframe(1)
+    delegate_function = getattr(delegate, "__func__", delegate)
+    if (parent is None or parent["client"] != id(client) or parent["method"] != "placeOrder"
+            or parent["delegated"] or caller.f_code is not parent["source_code"]
+            or not getattr(audited_sdk, "_mutation_audited", False)):
+        return delegate(order_id, contract, order)
+    receipt = dict(target=audited_sdk, client=client, order_id=order_id,
+        contract=contract, order=order, helper_frame=id(sys._getframe()),
+        delegate_code=getattr(delegate_function, "__code__", None), used=False)
+    previous = parent.get("sdk_receipt")
+    parent["sdk_receipt"] = receipt
+    try:
+        return delegate(order_id, contract, order)
+    finally:
+        # A failed/unused delegation cannot escape this invocation or rearm.
+        receipt["used"] = True
+        if parent.get("sdk_receipt") is receipt:
+            if previous is None:
+                parent.pop("sdk_receipt", None)
+            else:
+                parent["sdk_receipt"] = previous
+
+
 def instrument_mutation(cls, method):
     original = getattr(cls, method, None)
     if original is None or getattr(original, "_mutation_audited", False):
@@ -43,7 +74,24 @@ def instrument_mutation(cls, method):
         frames = getattr(_local, "delegations", ())
         parent = frames[-1] if frames else None
         outer = True
-        if (method == "placeOrder" and parent is not None
+        receipt = parent.get("sdk_receipt") if parent is not None else None
+        caller = sys._getframe(1)
+        if (method == "placeOrder" and receipt is not None and not receipt["used"]
+                and receipt["target"] is audited and receipt["client"] is self
+                and not parent["delegated"] and parent["class"] is not cls
+                and issubclass(parent["class"], cls)
+                and (id(caller) == receipt["helper_frame"]
+                     or (caller.f_code is receipt["delegate_code"] and caller.f_back is not None
+                         and id(caller.f_back) == receipt["helper_frame"]))):
+            bound = inspect.signature(original).bind(self, *args, **kwargs)
+            values = list(bound.arguments.values())[1:]
+            if (len(values) == 3 and type(values[0]) is int
+                    and type(receipt["order_id"]) is int and values[0] == receipt["order_id"]
+                    and values[1] is receipt["contract"] and values[2] is receipt["order"]):
+                receipt["used"] = True
+                parent["delegated"] = True
+                outer = False
+        if (outer and method == "placeOrder" and parent is not None
                 and parent["client"] == id(self) and not parent["delegated"]
                 and sys._getframe(1).f_code is parent["source_code"]
                 and (parent["method"] == "submit_order"
