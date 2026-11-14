@@ -305,3 +305,148 @@ def build_completed_context(*, history, identity, quote, reference, assessed_at)
         if isinstance(exc, CompletedContextError):
             raise
         raise CompletedContextError("SOURCE_MALFORMED") from exc
+
+
+@dataclass(frozen=True)
+class CompletedATRMeasurement:
+    """Measurement only. No numerical admission bounds have been adopted."""
+    policy: str
+    source_sha256: str
+    derived_sha256: str
+    member_starts: tuple[str, ...]
+    true_ranges: tuple[float, ...]
+    seed_at: str
+    seed_usd: float
+    update_at: tuple[str, ...]
+    atr_usd: tuple[float, ...]
+    atr_pct: tuple[float, ...]
+    latest_completed_close: float
+    admission: str = "UNKNOWN"
+    eligible: bool = False
+    lower_bound_pct: None = None
+    upper_bound_pct: None = None
+
+
+def measure_completed_atr(context, *, assessed_at) -> CompletedATRMeasurement:
+    """Wilder14 over the original open-aligned completed stream, never a suffix."""
+    if not isinstance(context, CompletedSignalContext):
+        raise CompletedContextError("CONTEXT_TYPE_UNKNOWN")
+    values = context.revalidated(assessed_at=assessed_at)
+    bars = values["bars_1m"]
+    ranges = tuple(max(bar["high"] - bar["low"], abs(bar["high"] - prior["close"]),
+                       abs(bar["low"] - prior["close"]))
+                   for prior, bar in zip(bars, bars[1:]))
+    if len(ranges) < 14:
+        raise CompletedContextError("ATR_WARMUP_INCOMPLETE")
+    seed = sum(ranges[:14]) / 14
+    levels = [seed]
+    for value in ranges[14:]:
+        levels.append((13 * levels[-1] + value) / 14)
+    percentages = tuple(100 * level / bar["close"] for level, bar in zip(levels, bars[14:]))
+    if not all(math.isfinite(x) and x >= 0 for x in (*ranges, *levels, *percentages)):
+        raise CompletedContextError("ATR_ARITHMETIC_INVALID")
+    # Check the detached source and derived members again before returning evidence.
+    context.revalidated(assessed_at=assessed_at)
+    return CompletedATRMeasurement(
+        policy="P02_ATR_MEASUREMENT_V1", source_sha256=context.source_fingerprint,
+        derived_sha256=context.derived_fingerprint,
+        member_starts=tuple(bar["timestamp"].isoformat() for bar in bars),
+        true_ranges=ranges, seed_at=bars[14]["end_timestamp"].isoformat(), seed_usd=seed,
+        update_at=tuple(bar["end_timestamp"].isoformat() for bar in bars[14:]),
+        atr_usd=tuple(levels), atr_pct=percentages, latest_completed_close=bars[-1]["close"])
+
+
+def offline_atr_report(raw: bytes, *, expected_sha256: str) -> bytes:
+    """Validate immutable supplied evidence; no IO, acquisition or live permission.
+
+    Recorded assessments are retrospective only. Effective existing calendar and
+    configuration must reproduce each supplied derived fingerprint. No config is
+    installed from the input. MARKET_UNVERIFIED is a label, never data approval.
+    """
+    def refuse(reason):
+        raise CompletedContextError(reason)
+
+    def digest(value):
+        return (isinstance(value, str) and len(value) == 64
+                and all(c in "0123456789abcdef" for c in value))
+
+    if type(raw) is not bytes or not 0 < len(raw) <= 16 * 1024 * 1024:
+        refuse("OFFLINE_BYTES_INVALID")
+    actual_hash = hashlib.sha256(raw).hexdigest()
+    if not digest(expected_sha256) or actual_hash != expected_sha256:
+        refuse("OFFLINE_HASH_CONFLICT")
+
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                refuse("OFFLINE_DUPLICATE_KEY")
+            result[key] = value
+        return result
+
+    def decode(value):
+        if isinstance(value, dict):
+            if "datetime" in value or "fold" in value:
+                if (set(value) != {"datetime", "fold"} or type(value["fold"]) is not int
+                        or value["fold"] not in (0, 1) or not isinstance(value["datetime"], str)):
+                    refuse("OFFLINE_DATETIME_INVALID")
+                _context_utc(value["datetime"])  # validate awareness without rewriting original offset
+                return datetime.fromisoformat(value["datetime"].replace("Z", "+00:00")).replace(fold=value["fold"])
+            return {k: decode(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [decode(v) for v in value]
+        return value
+
+    try:
+        bundle = json.loads(raw.decode("utf-8"), object_pairs_hook=unique,
+                            parse_constant=lambda _: refuse("OFFLINE_NONFINITE"))
+        if (type(bundle) is not dict or set(bundle) != {"schema", "dataset_id", "classification", "sessions"}
+                or bundle["schema"] != "P02_ATR_OFFLINE_V1"
+                or bundle["classification"] not in ("SYNTHETIC", "MARKET_UNVERIFIED")
+                or not isinstance(bundle["dataset_id"], str) or not bundle["dataset_id"].strip()
+                or len(bundle["dataset_id"]) > 256 or type(bundle["sessions"]) is not list
+                or not 1 <= len(bundle["sessions"]) <= 512):
+            refuse("OFFLINE_SCHEMA_INVALID")
+        reports, seen = [], set()
+        for row in bundle["sessions"]:
+            if (type(row) is not dict or set(row) != {"source_facts", "assessed_at",
+                    "expected_source_sha256", "expected_derived_sha256"}
+                    or not digest(row["expected_source_sha256"]) or not digest(row["expected_derived_sha256"])):
+                refuse("OFFLINE_SESSION_SCHEMA_INVALID")
+            source = decode(row["source_facts"])
+            assessed = _context_utc(row["assessed_at"])
+            source_hash = _context_fingerprint(source)
+            if source_hash != row["expected_source_sha256"]:
+                refuse("OFFLINE_SOURCE_CONFLICT")
+            values = _completed_context_values(source, assessed_at=assessed)
+            derived_hash = _context_fingerprint(values)
+            if derived_hash != row["expected_derived_sha256"]:
+                refuse("OFFLINE_DERIVED_CONFLICT")
+            key = (_context_identity(source["identity"]), values["completed_context_calendar"]["target_session"])
+            if key in seen:
+                refuse("OFFLINE_DUPLICATE_SESSION")
+            seen.add(key)
+            context = CompletedSignalContext(source, values, source_hash, derived_hash)
+            measurement = measure_completed_atr(context, assessed_at=assessed)
+            history = source["history"]
+            reports.append(dict(measurement=asdict(measurement), identity=source["identity"],
+                source_facts=source,
+                calendar=values["completed_context_calendar"], configuration=values["completed_context_configuration"],
+                assessed_at=assessed.isoformat(), assessment_use="HISTORICAL_REPLAY_ONLY",
+                request_id=history["request_id"], request_spec=history["request_spec"],
+                dispatched_at=history["request_dispatched_at_utc"], completed_at=history["completed_at_utc"],
+                raw_member_timestamps=history["normalized_raw_bar_timestamps"],
+                coverage=dict(completed_1m=len(values["bars_1m"]), complete_5m=len(values["bars_5m"]),
+                    true_range_count=len(measurement.true_ranges), start=measurement.member_starts[0],
+                    end=measurement.update_at[-1]),
+                quote_availability="VALIDATED_CONTEXT_QUOTE", costs_availability="UNAVAILABLE"))
+        return json.dumps(dict(schema="P02_ATR_REPORT_V1", input_sha256=actual_hash,
+            dataset_id=bundle["dataset_id"], classification=bundle["classification"],
+            approved_dataset=False, performance_claims=False, sessions=reports),
+            sort_keys=True, allow_nan=False, separators=(",", ":"),
+            default=lambda value: {"datetime": value.isoformat(), "fold": value.fold}
+                if isinstance(value, datetime) else refuse("OFFLINE_ENCODING_INVALID")).encode("utf-8")
+    except (KeyError, TypeError, ValueError, OverflowError, AttributeError, RecursionError) as exc:
+        if isinstance(exc, CompletedContextError):
+            raise
+        raise CompletedContextError("OFFLINE_INPUT_MALFORMED") from exc

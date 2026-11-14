@@ -95,11 +95,12 @@ jobs:
           python tests/powershell/verify_observation_package.py "$GITHUB_WORKSPACE" "$RUNNER_TEMP/observation-package-linux"
           echo "Production/offline Python source unchanged; full-suite receipts carried forward, not rerun."
 
-  windows-offline:
+  windows-offline-suite:
     needs: verification-scope
+    if: needs.verification-scope.outputs.harness_only != 'true'
     runs-on: windows-latest
-    # Measured full suite: up to 23m13s, with ~1.9x slower observed prefixes.
-    # Allow 2x suite time plus setup, remaining Windows gates and finite headroom.
+    # PR1231: full suite passed in 56m15s; unrelated controlled-process gates
+    # exceeded the shared 60m job envelope. Keep each owner's budget unchanged.
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -148,6 +149,35 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}/tests/offline;${{ github.workspace }}
         run: python -m pytest -q
+      - name: Upload focused final-order evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-final-order-evidence
+          path: ${{ runner.temp }}/ps-status-final-orders-*/
+          if-no-files-found: error
+
+  windows-controlled-process:
+    needs: verification-scope
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13.3"
+          cache: "pip"
+      - name: Install dependencies
+        if: needs.verification-scope.outputs.harness_only != 'true'
+        run: python -m pip install -r requirements.txt
+      - name: Seed inherited operator order state
+        if: needs.verification-scope.outputs.harness_only != 'true'
+        run: |
+          $state = Join-Path $env:RUNNER_TEMP 'operator-order-state.json'
+          '{"last_reserved_order_id":361}' | Set-Content -Encoding ascii $state
+          "IBKR_ORDER_ID_STATE_PATH=$state" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: Install controlled-process pytest dependency only
         if: needs.verification-scope.outputs.harness_only == 'true'
         run: python -m pip install pytest "yfinance>=0.2.54"
@@ -179,3 +209,29 @@ jobs:
             ${{ runner.temp }}/ps-status-*/
             ${{ runner.temp }}/ps-observation-*/
           if-no-files-found: error
+
+  windows-offline:
+    # Retain the existing required check; failure/cancellation/skips cannot hide
+    # either Windows owner. Only authoritative harness-only scope skips a suite.
+    if: always()
+    needs: [verification-scope, windows-offline-suite, windows-controlled-process]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require complete Windows verification
+        shell: python
+        env:
+          NEEDS_CONTEXT: ${{ toJSON(needs) }}
+        run: |
+          import json, os
+          needs = json.loads(os.environ['NEEDS_CONTEXT'])
+          scope = needs['verification-scope']
+          harness_only = scope.get('outputs', {}).get('harness_only')
+          if scope.get('result') != 'success' or harness_only not in ('true', 'false'):
+              raise SystemExit('Verification scope missing, failed or ambiguous; Windows gate blocked.')
+          expected_suite = 'skipped' if harness_only == 'true' else 'success'
+          if needs['windows-offline-suite'].get('result') != expected_suite:
+              raise SystemExit('Required Windows full suite did not complete for its scope.')
+          if needs['windows-controlled-process'].get('result') != 'success':
+              raise SystemExit('Required Windows controlled-process gates did not complete.')
+          print('All required Windows gates completed for verified harness_only=' + harness_only)

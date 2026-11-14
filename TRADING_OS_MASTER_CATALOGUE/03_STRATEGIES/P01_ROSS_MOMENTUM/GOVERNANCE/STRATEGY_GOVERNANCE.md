@@ -714,3 +714,153 @@ Failures remain failures/history: context collection TypeError from Mapping.valu
 Final assembled exact-head review and required automatic CI are still mandatory before expected-head integration. Source candidates remain frozen except scoped findings; no pending/partial test result is counted as required CI success. Existing target/management contracts, default activation, actual Core structural veto, all five ownership/truth protections and parked work remain intact. Frozen observation distribution3f48bf3f/sourcec65/calendar unchanged; no observer/provider/broker or operational capital/recovery activity.
 
 Remaining boundary/ONE next bounded task: establish a justified finite authoritative native intake and owned-request/mutation coverage guarantee before cooldown EMPTY/EXPIRED can grant eligibility; current execution_snapshot explicitly supplies REQUEST_ONLY and no no-late-fill interval proof. Do not mint that guarantee from new metadata or uptime. ATR numerical calibration remains a separate unresolved source/data requirement and must stay UNKNOWN/fail-closed. Native entry bridge/activation and a positive P02 Core fill/accounting proof remain outside the adopted prerequisites. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+
+### 2026-11-14 — PR1230 P02 prerequisite integration acceptance
+
+Integrated [PR1230](https://github.com/NelzonMamani/ibkr-trading-system/pull/1230) under standing expected-head authorization. Existing PR1228/1229 evidence and receipt81198a94930058f602ad8805c0203212f27917ac were reused as unchanged prefixes; routing retirement and committed-accounting implementation were not repeated. This receipt is a separate accepted-main-parented SAME3/catalogue addition, not a candidate amendment or documentation-only PR/CI loop.
+
+Exact identities and review:
+- Base ad579cba466716d789b1f7c84d4fe8b17177ba20/treeb6fc987ceb3e9bcebf5f81d2b699756f66ce61c3; final reviewed head b17e7a935f19b2c6a87031def02afa23031a467d/tree540a6bd9dbd50be85cb594da694869c94170e6a1. NEW bounded adoption5911e2c4/80a5e32a precedes source implementations and remains distinct from the unadopted native-entry/ATR proposals.
+- [Independent exact-head review5905809983](https://github.com/NelzonMamani/ibkr-trading-system/pull/1230#pullrequestreview-5905809983) CLEAR. It reuses unchanged independently cleared context d889f7d4 (136context/history passes) and cooldown e435f218 (42cooldown passes); final assembled records/failures/limits were reviewed without duplicate unchanged-subtree suites.
+- Actual PR checkout911e2f56c436c3017ead0c9bbdda9d262d2cdd1f has ordered parents basead579cba then headb17e7a93 and tree540a6bd9. Authorized merge/current main881e47ff791e6c2bafc8fdb1a6249a12a95b1388 has exactly those ordered parents/tree. Reviewed/candidate/PR-tested/merged trees equal; both actual PR platform git-log checkouts identify911e2f56. Source candidate was frozen, not modified to append receipts.
+
+Required CI and exact checkout:
+- [PR43615824430](https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/43615824430) attempt1 SUCCESS: scope132510544078, Linux132510621274 (7941passed/3skipped/4warnings/1216.12s), Windows132510621322 (7942passed/2skipped/6156warnings/2708.68s).
+- [Main43620619427](https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/43620619427) attempt1 SUCCESS at881e47ff: scope132525251283, Linux132525301199 (7941passed/3skipped/4warnings/855.21s), Windows132525301218 (7942passed/2skipped/6156warnings/2878.89s). Both actual platform git-log checkouts identify881e47ff791e6c2bafc8fdb1a6249a12a95b1388; its ordered parents ad579cba then b17e7a93 and tree540a6bd9 match the reviewed/PR-tested integration. Remote main remained unchanged after complete CI.
+- Both automatic PR/main runs completed first attempts with scope/Linux/Windows SUCCESS. Each Windows run also passed focused95, news37, float9, serial46, all six cache-startup fixtures, actual Windows PowerShell5.1 exit propagation13, stub-only observation harness48, quote-parser PASS and evidence upload. No mandatory gate skipped; only conditional harness-only/dependency-only alternatives skipped. Intentional failing children remain negative controls, not passing child suites. Linux30-minute/Windows60-minute and all process/cleanup budgets unchanged.
+- Artifacts are GitHub service-reported archive metadata, not independently downloaded-byte hash claims: PR14123479443,745903bytes,sha256:46502fd51db684d39d14710e9b179a1190225ee0354c6f6a87c1129926661e17. Main14124899954,746125bytes,sha256:9f487072f53def44bb4173b3f4bc66a1b3b6fe35cbb9da23dcfee5784da08928.
+
+Verified scope and proof limits: actual native/ib_insync dispatch/callback/cache owners retain original request specification, independently detached dispatched identity, original clocks and raw completion/normalization facts. The P02 producer and consumer enforce complete current-session security-bound ordered contiguous1m data, only complete aligned5m aggregation, current existing covered-opening/quote/reference authorities and raw/derived provenance revalidation. Cached forming/malformed/mutated tails cannot age or disappear into eligibility. This exercises the existing bar-based decision component; it grants no TradeIntent, default activation, native SF/XL/risk/entry bridge or positive Core proof. Actual Core structural veto remains.
+
+The durable cooldown observation reads actual committed entry facts across current/prior same-mode PAPER/LIVE runs, including a fresh offline process, with original execution-time/partial/duplicate/scope/boundary controls and numeric2R target independence. CoverageUNKNOWN/eligibleFalse remains for ALL outcomes, including ACTIVE, exact120s ELAPSED and empty history. Complete negative clearance is NOT implemented or certified: existing execution_snapshot is explicitly REQUEST_ONLY and supplies no complete finite intake/owned-request no-late-fill interval guarantee. New flags, elapsed uptime and empty current runs cannot invent it. No ledger/schema/capture certificate, order replay, runtime fence/ownership restoration or quarantine clearing was introduced.
+
+Local177 context/history/component/timeframe,42new cooldown and3existing neighbor controls across batches,16assembled Core-veto/isolation and independent136+42 counts overlap CI; they are not additive unique inventory. Prior development collection/reference-format/compatibility/timestamp failures in the preceding entry remain failures/history, not retroactively passing suites. No baseline failure or partial prefix is counted as a full pass. There were NO manual CI reruns, no repeated unchanged-head reviews or full suites, and no documentation-only PR/CI loop. Source candidates stayed frozen; only the required automatic changed-head PR/main workflows ran.
+
+Independent ready work while CI ran: a bounded read-only P02 calibration authority/data review found no justified numerical ATR bounds. P02 strategy_assumptions3–8 is qualitative without a named empirical study/sample; ALGORITHM104–106 requires ATR without values. V1 feature volatility is population stdev of returns; risk_policy's1.5ATR stop multiplier is a placeholder. V2 lines546/560/565/594/607 explicitly retain pending replay calibration. Authored synthetic ramps/callback fixtures prove mechanics, not representative held-out outcomes/costs. Existing replay reconstructs events, not a calibration dataset; LearningDataset lacks enforced held-out/provenance/cost contracts and its proposal owner imports RossMomentumPolicy, not P02 authority. Fixed simulation slippage/commission tables are assumptions, not observed P02 costs. Retained databases/logs were not opened or treated as calibration authority; no dataset was acquired. The existing P02 governance records exact source citations. ATR formula/timeframe/lookback/units/bound protocol proposal remains NOT ADOPTED; numerical bounds remain UNRESOLVED/UNKNOWN, not copied from stdev or selected for a positive fixture.
+
+Remaining boundaries and ONE next bounded task: establish a justified finite authoritative native intake and owned-request/mutation coverage guarantee before cooldown EMPTY/EXPIRED can grant eligibility. Keep the veto if that native guarantee is unavailable. ATR calibration separately needs an approved immutable offline OHLCV/quote dataset manifest (security/session/timestamp/adjustment/missing/halts/cost provenance), frozen chronological/security development/held-out splits and P02 outcome/bound-selection rules before numerical adoption. Reuse existing context/replay/accounting owners, not another engine or tracker. The entire native-entry and mandatory-management draft remains unadopted; P02's own target/management contracts are preserved. No positive P02 Core execution, natural/broker acceptance or operational readiness is certified.
+
+Observation distribution3f48bf3fb769cbffc6ddfdc515d965968e71c31a/sourcec65/tree6ece4121/calendar remains unchanged; no launcher repin or observer launch. All five ownership/truth protections, GAP_GO/HALT/confidence vetoes and parked work remain intact. No real provider/broker, trading/holdings, operational capital/resumption or recovery-clearing activity. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+
+### 2026-11-14 — P02 measurement-only ATR and immutable offline validation
+
+Accepted base881e47ff/tree540a6bd9 and receipt698e12ef are preserved once.
+Independent next_session_contract_review cleared the complete measurement/bytes/
+report contract; adoptionac0c117d precedes implementation. This adopts only the
+recorded measurement, not its unresolved numeric bounds or native-entry draft.
+Existing features.py now measures Wilder14 TR from the revalidated PR1230
+completed context: bars2..15 seed, then every subsequent completed bar, session
+reset/no overnight predecessor, USD/share and each step's own completed-close
+percent. Immutable result retains member timestamps, TRs/seed/updates and context
+hashes. Nonfinite derived arithmetic refuses. No decision/scoring/risk change.
+
+The same feature owner validates bounded immutable UTF8 bytes with exact expected
+SHA256, exact schema, duplicate/nonfinite/depth/size controls and expected source/
+derived fingerprints. Existing source validation at recorded assessment is marked
+HISTORICAL_REPLAY_ONLY; effective covered calendar/configuration must reproduce
+the expected derived hash. No configuration is installed from input. Reports are
+deterministic canonical bytes, retain original source facts and request/member/
+completion provenance, complete1m/5m/TR coverage and explicit context-quote
+availability. CostsUNAVAILABLE, boundsnull, admissionUNKNOWN/eligibleFalse; no
+dataset approval or performance claim. Missing data is refused, never rebuilt
+from completion counters. MARKET_UNVERIFIED and SYNTHETIC are labels only.
+
+Focused causal validation:182passed/2warnings/4.76s across existing P02 tests,
+historical completion owners and actual-Core dependency veto. This includes29
+new ATR checks (overlap, not additive): independent Fraction recurrence and gap
+oracle; seed/update boundaries; no cross-call carry; zero-range measurement
+without admission; async aware/raw timestamp serialization; immutable/report
+repeatability; source/derived/hash mismatch, stale/forming/foreign/missing inputs,
+unknown schema/classification/cost claims, malformed datetime, duplicate keys/
+sessions, invalid/deep/oversized bytes and finite-input arithmetic overflow.
+Original47context controls and actual Core structural veto remain passing.
+No failed test invocation occurred in this implementation prefix; earlier PR1230
+failures remain history in preceding entries. Required exact-head review and CI
+remain pending; focused passes are not CI acceptance.
+
+Read-only metadata inventory identified no explicitly approved immutable P02
+calibration dataset. Across repeated workspace checkouts:166CSV (W02/W03 evidence
+matrices),1206DB/SQLite files,249JSONL and3Ross uploadZIPs; no Parquet/Feather/Arrow/
+HDF5/Pickle/NumPy files. Original databases/ZIPs were not opened; filenames are
+not a completeness claim about their contents or independent market samples.
+No schema-writing constructor, acquisition or provider was invoked.
+
+Concrete calibration plan: approve an exact immutable available input manifest
+and intended reuse first; if DB examination is needed, use an isolated snapshot,
+never a schema-initializing original. Validate qualified security/session/
+adjustment/gap/halts provenance and original completed OHLCV; separately establish
+quote/cost availability. Freeze chronological/security development and held-out
+splits and bound-selection procedure before evaluation. While management/outcome
+semantics remain unresolved, publish measurement distributions/coverage only, no
+profit labels, expectancy or net-performance claims. Generic STATISTICAL zero
+slippage/commission fallback is not observed P02 cost. Numerical bounds remain
+unavailable and C_ATR_WITHIN_BOUNDS UNKNOWN.
+
+Cooldown PR1230 observations remain unchanged: every old outcome retains
+coverageUNKNOWN/eligibleFalse. A separate observable-local-state versioned
+policy is under contract investigation/review; no broker-history completeness
+certificate is fabricated from execDetailsEnd, uptime, terminal orders or flags.
+Native entry/ATR/management vetoes and all five ownership safeguards remain.
+Frozen observation distribution3f48bf3f/sourcec65/calendar unchanged. No observer,
+broker/provider, operational recovery or readiness upgrade.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+
+### 2026-11-14 — PR1231 Windows aggregate budget failure and scoped correction
+
+Original reviewed candidate d7c171aac3a7b0fda87a83f55cad5cb9b3725efb/tree3e60bf62
+remains historical evidence. Independent exact-head review5906997378 cleared ATR
+source and29focused controls; local182passes overlap and are not additive.
+Automatic CI43638331204 attempt1 was CANCELLED, not accepted: Linux132580038763
+passed7970/3skipped/4warnings in1202.99s. Windows132580038753 completed full
+7971passed/2skipped/6156warnings in3375.69s, then serial46passed in32.88s, but hit
+the unchanged60-minute JOB limit during cache diagnostics. Both actual checkout
+logs identify353dcead26f9df5e0c081a8c71a339f7e0bc7c6f, ordered parents881e47ff
+then d7c171aa, candidate tree3e60bf62. Full-suite passes do not substitute for
+complete CI. PR1231 remains draft/unmerged pending corrected required CI.
+
+Causal diagnosis: full Windows suite ran20:38:02–21:34:19UTC. Cache checks began
+21:34:54; cancellation21:36:11 left77seconds. Existing verify_cache_probe.py has
+THREE intentional blocked-child cases with startup30s/cleanup5s; their startup
+budgets alone require about90s. Later actualPS5 exit/harness/parser checks never
+ran. Focused95/news37/float9 had passed before the full suite. No failing test or
+production defect was demonstrated; quiet progress logs cannot identify a causal
+slow individual test. Full Windows was17–25percent slower than PR1230's cited
+2708.68/2878.89s runs. Preserve the cancellation and unrun gates as limits.
+The729-byte partial artifact14132683319 (service-reported SHA256
+309d7f1330639943f766ebc345217a4c75569175f5fd4415339d5ff459936a89) contains
+only earlier focused evidence, not missing downstream proof; archive bytes were
+not independently downloaded/hashed.
+
+The minimal correction separates the existing Windows full-suite and controlled
+process gates into bounded jobs, preserving60minutes per Windows job, Linux30,
+every test/child timeout, dependency/environment branch, inherited-order-state
+guard and evidence upload. The existing required windows-offline name becomes
+an explicit always-run aggregate that requires both upstream successes; suite
+skip is allowed ONLY under authoritative harness_only=true. A skipped/cancelled/
+failed mandatory upstream cannot become aggregate success. Focused suite logs
+retain a separate unique artifact; the controlled harness artifact name stays.
+No optional bypass, threshold change, suite exclusion, retry or widening.
+
+ATR feature/test bytes stay unchanged; their passing focused evidence and review
+are reused. Independent exact-head workflow delta review and required automatic
+CI for the CHANGED head remain mandatory; no already-successful unchanged-head
+suite was manually rerun. This is scoped completion of demonstrated CI budget
+exhaustion, not another observer/source policy or documentation-only cycle.
+Default-off cooldown work continues independently; old UNKNOWN observations,
+ATR numerical-bounds/native-entry/management vetoes and all five ownership
+protections remain. Observation distribution3f48bf3f/sourcec65/calendar unchanged.
+No observer/provider/broker or operational recovery/readiness activity.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+Workflow correctionc3422219f92e01aa3a43682bfe1b5ffdd2eb8461 focused validation:
+4checks passed, including actual embedded aggregate execution across128 causal
+scope/suite/controlled status combinations plus missing/malformed/ambiguous
+inputs. Parsed YAML confirms all15original Windows steps retained exactly across
+the split, and original scope/Linux blocks semantically unchanged. Required
+windows-offline aggregate rejects failed/cancelled/skipped mandatory jobs; only
+authoritative harness-only permits the full-suite job skip. No production ATR/
+context/test fixture bytes were changed or focused source suites rerun. These
+workflow checks do not replace required automatic corrected-head CI.

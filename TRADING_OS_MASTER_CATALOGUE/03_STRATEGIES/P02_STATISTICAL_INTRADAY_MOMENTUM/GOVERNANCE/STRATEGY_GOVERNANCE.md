@@ -342,3 +342,187 @@ positive Core admission is claimed. Full source, failure, evidence and remaining
 guarantee details are in SAME3's latest bounded-prerequisite entry. ATR proposal
 remains NOT ADOPTED with numerical bounds unresolved; original entry, target and
 management draft scope is not implicitly adopted by these prerequisites.
+
+
+### Independent ATR authority/data audit (read-only; no numerical adoption)
+
+Bounded review at b17e7a93 confirms bounds cannot presently be justified:
+strategy_assumptions.md3–8 is qualitative; ALGORITHM104–106 supplies no values;
+strategy_policy_v2.py546/560/565/594/607 says pending replay calibration.
+V1 strategy_policy48–49/features45–48,82–83 measures return population stdev;
+risk_policy15/34 is a placeholder stop multiplier, not admission authority.
+Test_scoring_determinism9–10 and test_completed_context61–76 are authored
+synthetic streams/callbacks, not representative security/session/cost outcomes.
+Existing src/core/replay_engine.py19–24,52–73 replays recorded events; it does
+not supply a calibrated dataset. src/learning/models.py8–24 has trade records
+without enforced held-out/provenance/cost contracts, and policy_proposal.py7
+imports RossMomentumPolicy. It cannot authorize P02 calibration. Fixed
+src/execution/slippage_model.py16–21 and commission_model.py10–13 are simulation
+assumptions, not observed P02 costs. Tracked news-source evidence CSVs are not
+P02 OHLCV training samples; no approved P02 dataset manifest was identified.
+Retained databases/logs were not opened or treated as calibration authority.
+
+Smallest separate calibration prerequisite: approved already-available immutable
+offline OHLCV/quote manifest with security/session/time/adjustment/missing/halts
+and cost provenance; freeze chronological/security development versus held-out
+splits and P02 outcome/bound-selection procedure before validation. Report
+sensitivity/adverse regimes/coverage uncertainty. No provider acquisition,
+fixture-tuned bounds, new engine or activation is authorized here. ATR admission
+remains UNKNOWN/fail-closed. Full cooldown clearance also remains blocked by the
+separate native intake/request-history guarantee documented above. The SAME3
+acceptance receipt carries exact integration/review/CI identities and limits.
+
+
+## 2026-11-14 — ADOPTED measurement-only ATR contract (NEW project policy)
+
+Under delegated authority, after independent next_session_contract_review CLEAR,
+adopt ONLY the preceding recorded ATR measurement proposal: Wilder TR, fourteen
+completed current-session one-minute TRs (bars2..15), arithmetic seed atbar15,
+then Wilder recurrence frombar16. Exclude opening gap/overnight carry; reset each
+actual covered session. Report USD/share and percent of each step's own completed
+close. All derived arithmetic must remain finite. Existing completed-context
+minimum16, original completion clocks, security, calendar, quote/reference and
+all rejection rules remain unchanged. No return-volatility substitution.
+
+The pure offline feature-owner API accepts immutable UTF8 JSON bytes (<=16MiB)
+with a required expected SHA256, unique keys, no nonfinite literals, exact
+P02_ATR_OFFLINE_V1 schema, dataset identity, SYNTHETIC or MARKET_UNVERIFIED
+classification and1..512 unique security/session records. Each record contains
+original source_facts, recorded assessed_at and expected source/derived canonical
+SHA256 fingerprints. Datetime wrappers use exact datetime/fold fields; no inferred
+OHLCV/identity or counter reconstruction. Existing context validation at that
+original assessment is HISTORICAL_REPLAY_ONLY; effective covered calendar/config
+must match the expected derived fingerprint. Input metadata grants no dataset
+approval. No environment override, acquisition, storage constructor or live replay.
+
+Canonical immutable reports retain input hash, source/derived hashes, security,
+calendar/configuration, request/completion and original member timestamps, TRs,
+seed/update values, coverage and explicit validated context-quote availability.
+Costs are UNAVAILABLE: this API does not validate cost evidence or infer zero.
+Invalid/incomplete input refuses report; original source bytes are never changed.
+Numerical bounds remain null/unavailable, ATR admission UNKNOWN, eligibleFalse.
+This adoption supplies no numerical calibration, native entry, stop/management,
+activation, positive Core proof or readiness upgrade. Independent review cleared
+the full bytes/report contract before implementation.
+
+
+### 2026-11-14 — P02 measurement-only ATR and immutable offline validation
+
+Accepted base881e47ff/tree540a6bd9 and receipt698e12ef are preserved once.
+Independent next_session_contract_review cleared the complete measurement/bytes/
+report contract; adoptionac0c117d precedes implementation. This adopts only the
+recorded measurement, not its unresolved numeric bounds or native-entry draft.
+Existing features.py now measures Wilder14 TR from the revalidated PR1230
+completed context: bars2..15 seed, then every subsequent completed bar, session
+reset/no overnight predecessor, USD/share and each step's own completed-close
+percent. Immutable result retains member timestamps, TRs/seed/updates and context
+hashes. Nonfinite derived arithmetic refuses. No decision/scoring/risk change.
+
+The same feature owner validates bounded immutable UTF8 bytes with exact expected
+SHA256, exact schema, duplicate/nonfinite/depth/size controls and expected source/
+derived fingerprints. Existing source validation at recorded assessment is marked
+HISTORICAL_REPLAY_ONLY; effective covered calendar/configuration must reproduce
+the expected derived hash. No configuration is installed from input. Reports are
+deterministic canonical bytes, retain original source facts and request/member/
+completion provenance, complete1m/5m/TR coverage and explicit context-quote
+availability. CostsUNAVAILABLE, boundsnull, admissionUNKNOWN/eligibleFalse; no
+dataset approval or performance claim. Missing data is refused, never rebuilt
+from completion counters. MARKET_UNVERIFIED and SYNTHETIC are labels only.
+
+Focused causal validation:182passed/2warnings/4.76s across existing P02 tests,
+historical completion owners and actual-Core dependency veto. This includes29
+new ATR checks (overlap, not additive): independent Fraction recurrence and gap
+oracle; seed/update boundaries; no cross-call carry; zero-range measurement
+without admission; async aware/raw timestamp serialization; immutable/report
+repeatability; source/derived/hash mismatch, stale/forming/foreign/missing inputs,
+unknown schema/classification/cost claims, malformed datetime, duplicate keys/
+sessions, invalid/deep/oversized bytes and finite-input arithmetic overflow.
+Original47context controls and actual Core structural veto remain passing.
+No failed test invocation occurred in this implementation prefix; earlier PR1230
+failures remain history in preceding entries. Required exact-head review and CI
+remain pending; focused passes are not CI acceptance.
+
+Read-only metadata inventory identified no explicitly approved immutable P02
+calibration dataset. Across repeated workspace checkouts:166CSV (W02/W03 evidence
+matrices),1206DB/SQLite files,249JSONL and3Ross uploadZIPs; no Parquet/Feather/Arrow/
+HDF5/Pickle/NumPy files. Original databases/ZIPs were not opened; filenames are
+not a completeness claim about their contents or independent market samples.
+No schema-writing constructor, acquisition or provider was invoked.
+
+Concrete calibration plan: approve an exact immutable available input manifest
+and intended reuse first; if DB examination is needed, use an isolated snapshot,
+never a schema-initializing original. Validate qualified security/session/
+adjustment/gap/halts provenance and original completed OHLCV; separately establish
+quote/cost availability. Freeze chronological/security development and held-out
+splits and bound-selection procedure before evaluation. While management/outcome
+semantics remain unresolved, publish measurement distributions/coverage only, no
+profit labels, expectancy or net-performance claims. Generic STATISTICAL zero
+slippage/commission fallback is not observed P02 cost. Numerical bounds remain
+unavailable and C_ATR_WITHIN_BOUNDS UNKNOWN.
+
+Cooldown PR1230 observations remain unchanged: every old outcome retains
+coverageUNKNOWN/eligibleFalse. A separate observable-local-state versioned
+policy is under contract investigation/review; no broker-history completeness
+certificate is fabricated from execDetailsEnd, uptime, terminal orders or flags.
+Native entry/ATR/management vetoes and all five ownership safeguards remain.
+Frozen observation distribution3f48bf3f/sourcec65/calendar unchanged. No observer,
+broker/provider, operational recovery or readiness upgrade.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+
+### 2026-11-14 — PR1231 Windows aggregate budget failure and scoped correction
+
+Original reviewed candidate d7c171aac3a7b0fda87a83f55cad5cb9b3725efb/tree3e60bf62
+remains historical evidence. Independent exact-head review5906997378 cleared ATR
+source and29focused controls; local182passes overlap and are not additive.
+Automatic CI43638331204 attempt1 was CANCELLED, not accepted: Linux132580038763
+passed7970/3skipped/4warnings in1202.99s. Windows132580038753 completed full
+7971passed/2skipped/6156warnings in3375.69s, then serial46passed in32.88s, but hit
+the unchanged60-minute JOB limit during cache diagnostics. Both actual checkout
+logs identify353dcead26f9df5e0c081a8c71a339f7e0bc7c6f, ordered parents881e47ff
+then d7c171aa, candidate tree3e60bf62. Full-suite passes do not substitute for
+complete CI. PR1231 remains draft/unmerged pending corrected required CI.
+
+Causal diagnosis: full Windows suite ran20:38:02–21:34:19UTC. Cache checks began
+21:34:54; cancellation21:36:11 left77seconds. Existing verify_cache_probe.py has
+THREE intentional blocked-child cases with startup30s/cleanup5s; their startup
+budgets alone require about90s. Later actualPS5 exit/harness/parser checks never
+ran. Focused95/news37/float9 had passed before the full suite. No failing test or
+production defect was demonstrated; quiet progress logs cannot identify a causal
+slow individual test. Full Windows was17–25percent slower than PR1230's cited
+2708.68/2878.89s runs. Preserve the cancellation and unrun gates as limits.
+The729-byte partial artifact14132683319 (service-reported SHA256
+309d7f1330639943f766ebc345217a4c75569175f5fd4415339d5ff459936a89) contains
+only earlier focused evidence, not missing downstream proof; archive bytes were
+not independently downloaded/hashed.
+
+The minimal correction separates the existing Windows full-suite and controlled
+process gates into bounded jobs, preserving60minutes per Windows job, Linux30,
+every test/child timeout, dependency/environment branch, inherited-order-state
+guard and evidence upload. The existing required windows-offline name becomes
+an explicit always-run aggregate that requires both upstream successes; suite
+skip is allowed ONLY under authoritative harness_only=true. A skipped/cancelled/
+failed mandatory upstream cannot become aggregate success. Focused suite logs
+retain a separate unique artifact; the controlled harness artifact name stays.
+No optional bypass, threshold change, suite exclusion, retry or widening.
+
+ATR feature/test bytes stay unchanged; their passing focused evidence and review
+are reused. Independent exact-head workflow delta review and required automatic
+CI for the CHANGED head remain mandatory; no already-successful unchanged-head
+suite was manually rerun. This is scoped completion of demonstrated CI budget
+exhaustion, not another observer/source policy or documentation-only cycle.
+Default-off cooldown work continues independently; old UNKNOWN observations,
+ATR numerical-bounds/native-entry/management vetoes and all five ownership
+protections remain. Observation distribution3f48bf3f/sourcec65/calendar unchanged.
+No observer/provider/broker or operational recovery/readiness activity.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+Workflow correctionc3422219f92e01aa3a43682bfe1b5ffdd2eb8461 focused validation:
+4checks passed, including actual embedded aggregate execution across128 causal
+scope/suite/controlled status combinations plus missing/malformed/ambiguous
+inputs. Parsed YAML confirms all15original Windows steps retained exactly across
+the split, and original scope/Linux blocks semantically unchanged. Required
+windows-offline aggregate rejects failed/cancelled/skipped mandatory jobs; only
+authoritative harness-only permits the full-suite job skip. No production ATR/
+context/test fixture bytes were changed or focused source suites rerun. These
+workflow checks do not replace required automatic corrected-head CI.
