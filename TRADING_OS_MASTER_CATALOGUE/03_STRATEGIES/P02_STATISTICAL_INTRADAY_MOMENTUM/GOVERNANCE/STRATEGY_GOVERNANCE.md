@@ -277,3 +277,55 @@ ATR remains UNKNOWN and actual Core structural veto remains intact. All five
 ownership vetoes and ordinary defaults remain. The separate ATR proposal above
 was independently cleared as an accurate NOT-ADOPTED proposal; no numerical
 admission bounds or stop/management rule are adopted.
+
+
+## 2026-11-14 — ADOPTED bounded durable cooldown observation (NEW project policy)
+
+Independent next_session_contract_review cleared this bounded read contract;
+under delegated authority adopt it BEFORE implementation. Existing120 seconds
+remains unchanged. This adopts observed timing and fail-closed unknown-history
+behavior only, not the native-entry draft or a negative-clearance capability.
+
+Every distinct positive, durably accounted P02 ENTRY_FILL, including partial
+entry fills, contributes its ORIGINAL authoritative execution timestamp. The
+anchor is the maximum validated original timestamp. Later distinct executions
+reset that anchor; late older events/duplicates do not reset from receipt or
+registration time. Proposals, reservations, risk decisions, acknowledgement-only,
+cancellation/rejection, exits/reductions and process/session/day changes neither
+start nor clear cooldown. Generic lifecycle register-time or receipt-time
+fallbacks do not establish an authoritative entry timestamp and remain UNKNOWN.
+
+Bind exact P02 policy/execution identity (statistical_intraday_momentum /
+StatisticalIntradayMomentum), actual account, qualified positive con_id with
+consistent symbol/STK/currency and actual effective mode. No trader_type guess,
+symbol-only alias, configured-default account or foreign strategy/mode sharing.
+Read the existing canonical lifecycle/storage authority coherently across current
+AND prior same-mode runs; PR1229's filtered financial projection is not a complete
+cooldown history source. Target-independent entry observation must not rewrite
+P02's own numeric2R or management contracts. Validate positive accounted entry,
+original timestamp/source, execution identity and durable journal binding;
+conflicting versions of the anchor invalidate it. Independently validated recent
+facts survive other missing/conflicting/unavailable evidence where available.
+
+At aware current UTC assessment, negative age is UNKNOWN; observed timing is
+ACTIVE for age[0,120) and ELAPSED at EXACT equality120 and above. This is a timing
+classification only. Missing/unavailable/unmarked/conflicting history, incomplete
+prior-run scope or pending/uncertain intake cannot become proof cooldown is clear.
+EMPTY/EXPIRED eligibility requires authoritative complete capture of the entire
+preceding120-second interval and its boundary across all intersecting runs and
+owned request/intake states. Existing execution_snapshot explicitly supplies
+REQUEST_ONLY completion, not a no-late-fill/interval guarantee; neither
+execDetailsEnd nor fill-stall telemetry nor new run timestamps/120s uptime fills
+that gap. Therefore coverage remains UNKNOWN and eligibility=False for every
+currently supported read outcome, including ELAPSED/no-known-entry.
+
+Do NOT add capture-complete flags, a synthetic certificate, timer, capture ledger
+or run/genesis timestamps claiming this missing guarantee. The exact unresolved
+capability is authoritative finite interval intake plus owned-request completeness,
+including pending/uncertain and late-fill ordering, through existing owners. No
+positive negative-clearance test can be manufactured from prepared flags.
+Implement the honest observational read and causal current/prior-run/fresh-process
+controls; retain native admission veto until a separately justified guarantee is
+established. No order replay, ownership restoration, fence restoration, quarantine
+clearing, operational enrollment or resumption follows. Actual Core structural
+veto and ATR UNKNOWN remain; all five ownership vetoes are intact.
