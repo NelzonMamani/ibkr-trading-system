@@ -806,3 +806,41 @@ Native entry/ATR/management vetoes and all five ownership safeguards remain.
 Frozen observation distribution3f48bf3f/sourcec65/calendar unchanged. No observer,
 broker/provider, operational recovery or readiness upgrade.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+
+### 2026-11-14 — ADOPTED separate observable-local cooldown policy V1
+
+Under user-delegated project authority, root adopts the complete independently
+reviewed1aa6b65f8a03cd88fe865e91644ecb7e0eea76c4 contract (tree329c1594)
+BEFORE source implementation, as NEW project policy. This is
+P02_OBSERVABLE_LOCAL_COOLDOWN_V1, default-off and synthetic TEST/PAPER only.
+It is AS-OF validated committed local facts with pending/uncertain/uncommitted
+intake blocked; it is NOT broker-history completeness or a guarantee against
+unseen late fills. PR1230's original complete-capture predicate remains UNKNOWN
+and its original API remains eligibleFalse. Original execution-time120s anchors
+and all original admission/truth/quarantine gates remain.
+
+Final independent next_session_contract_review CLEAR supersedes the earlier
+conditional private-connection design: original-handle identity is unavailable
+through stdlib sqlite3. Adopt SAME-original-owned-connection fencing with tracked
+default-off subtype/creator thread, nonblocking G/I/cache order, BEGIN IMMEDIATE
+after pre-send commit, query_only/authorizer and source-owned public API controls.
+Cached operations must participate in revisions; trusted fresh cursors only.
+Blob usage is sticky unsupported; custom hooks/unknown ownership/configuration
+remain unavailable. Exact own-request nonce transitions, actual immutable native
+ENTRY consume and lexical abandonment cleanup are mandatory; guards release
+before SDK body/ACK. No global SQLite/SDK monkeypatch or second accounting ledger.
+
+Source development remains conditional on implementing every participating owner
+and validating these guarantees. Unsupported participation/fence/cleanup cannot
+grant local permission. Pure mechanism probes on new temporary/in-memory SQLite
+databases confirmed the specified read/write/transaction/cached/cursor/backup
+controls and exposed the Blob/configuration limits; these are NOT production
+owner or pipeline proofs. Original repository databases were not opened.
+
+This adoption does not adopt the native-entry draft, numerical ATR admission
+bounds, management semantics or operational enrollment. Actual Core P02 entry
+remains structurally vetoed; no positive Core proof is claimed. Observation
+distribution3f48bf3f/sourcec65/calendar and all five ownership vetoes unchanged.
+No observer, broker/provider, operational recovery or readiness upgrade.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.

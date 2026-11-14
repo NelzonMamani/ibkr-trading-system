@@ -468,3 +468,431 @@ Native entry/ATR/management vetoes and all five ownership safeguards remain.
 Frozen observation distribution3f48bf3f/sourcec65/calendar unchanged. No observer,
 broker/provider, operational recovery or readiness upgrade.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+
+## 2026-11-14 — Batch B PROPOSAL: observable local-state cooldown (NOT ADOPTED)
+
+This proposes NEW project policy, separate from the adopted historical-entry
+observation above. It is default-off and is not implemented or enrolled. It
+requires independent contract review and delegated adoption before source work.
+It proposes an explicitly named alternative local basis for the P02 cooldown
+condition; it does not reinterpret the old API as complete history. Existing
+`p02_entry_cooldown_snapshot` must retain coverage UNKNOWN / eligible False.
+
+The proposed contract is `P02_OBSERVABLE_LOCAL_COOLDOWN_V1`. Any future opt-in
+selects this policy basis, not a capture-complete flag. Initial proof/enrollment
+is restricted to explicitly synthetic TEST/PAPER scope; operational defaults and
+other modes remain off. Adopting this component contract would not adopt the
+native entry bridge, numerical ATR admission bounds, SF/XL/invalidation mapping,
+management or operational permission. All five ownership vetoes remain.
+
+### Predicate and scope
+
+Keep `ActivationSpec.cooldown_seconds=120` as the sole duration owner. Each
+distinct validated, durably accounted positive P02 ENTRY_FILL, including an
+entry partial, contributes its ORIGINAL authoritative execution timestamp. Use
+the maximum such timestamp. Replayed duplicates and late older fills do not
+renew from callback, registration, accounting, query or read time. Proposals,
+reservations, acknowledgement-only, rejection/cancellation, exits/reductions,
+session/day transitions and restart neither trigger nor clear cooldown. P02's
+own numeric2R/independent stop remain unrelated to this entry-timing predicate.
+
+Bind exact policy/execution aliases `statistical_intraday_momentum` /
+`StatisticalIntradayMomentum`, actual account, qualified positive conId with
+consistent symbol/STK/currency, actual effective PAPER mode and current owner
+instances. Never infer an account from configuration, a strategy from trader
+type, or a security from symbol alone. Missing/ambiguous binding is unavailable.
+
+The proposed local predicate is true AS OF a coherent owner/journal read only
+when every observed relevant local record is classifiable and settled, and
+either no validated local entry is present or its age is at least120 seconds.
+Age below120 is ACTIVE; exact equality120 is locally elapsed. A future timestamp,
+invalid assessment clock, missing/unknown run scope, malformed or contradictory
+relevant entry, persistence uncertainty, pending/in-flight/uncommitted factual
+intake or unresolved owned request makes the local predicate unavailable/false.
+An independently valid recent entry can still be reported as a known ACTIVE
+veto despite other uncertainty. Fully bound foreign scopes may be excluded;
+ambiguous rows must not be silently classified as foreign or empty.
+
+This deliberately narrower local choice says nothing about uncaptured broker
+executions, finite broker history, late unseen messages or lifetime request
+completeness. `execution_snapshot` / `execDetailsEnd` remain REQUEST_ONLY. Empty
+local state is not claimed to prove an empty broker interval. No capture flag,
+genesis/uptime clock, second fill ledger or inferred broker guarantee is added.
+
+### Existing owners and proposed immutable evidence
+
+Use the existing lifecycle/storage/execution/callback owners; no new manager,
+scheduler, database or cooldown ledger. A future composable read/guard must
+detach and fingerprint the relevant current/prior-run canonical events and
+snapshots, run provenance, durable native/relationship ownership and progress,
+and corresponding current pending/uncertain accounting/callback state. Generic
+registration-time or best-effort rows without authoritative entry binding cannot
+become valid anchors or proof that all observed local records are settled.
+Restored raw native state remains inspection-only and quarantine stays active.
+
+An immutable local evidence token must identify the policy/version/configuration,
+account/security/mode, source-context/occurrence fingerprint, original entry IDs
+and timestamps, assessment, owning ExecutionEngine/TLE/StorageEngine and actual
+SQLite connection generation, existing native client OBJECT, client ID and
+connection epoch. Later consumption also binds the actual canonical decision
+and exact prospective order/contract/quantity/entry/stop/target. Object/generation
+witnesses are process-local, not serialized permissions. A same-ID/epoch client
+replacement, reopened/replaced storage owner, restart or account/mode change
+invalidates the token. A path or numeric client ID alone is insufficient.
+
+`PRAGMA data_version`, row counts, maximum event time, callback diagnostic counts
+or a content hash alone are NOT a version protocol: own-connection writes and
+unpublished callbacks can escape them, and a read transaction can remain pinned
+to an old snapshot. Durable content must be re-read through the existing owner;
+any database version is supplemental to actual owner identity and participating
+mutation revisions. The fingerprint is audit evidence, not source completeness.
+
+### Exact participating revisions and mutation APIs (proposed, not implemented)
+
+The ExecutionEngine owns one process-local local-cooldown authority, bound once
+to its actual NativeClient, TLE, StorageEngine and SQLiteStore instances. This is
+a small guard inside those existing owners, not a manager, source-history flag
+or second ledger. An owner without the following participation is unsupported
+and cannot issue a positive token. Its initial state is dirty, never known empty.
+The proposed owner APIs and revisions are explicit:
+
+- NativeClient `begin_local_intake(kind)` / `finish_local_intake(ticket, outcome)`
+  change ingress revision I and the in-flight set. Begin runs at the FIRST owned
+  callback operation, before argument parsing, account registration, diagnostic
+  counters, request filtering, cache publication or listener invocation. Include
+  `execDetails`, `execDetailsEnd`, `orderStatus`, `openOrder`/End, error and
+  connection lifecycle/account-ownership callbacks, including ignored, malformed
+  and conflicting intake. Connect/disconnect/rebind also invalidate before
+  changing ownership. Finish runs in finally; an exception, ignored relevant
+  fact, correction or listener failure remains dirty rather than disappearing
+  when an in-flight counter reaches0. The current post-publication listener is
+  insufficient and its swallowed exception cannot settle intake.
+- ExecutionEngine `begin_local_mutation(kind, binding, parent_frame=None)` /
+  `finish_local_mutation(frame, outcome)` change owner revision E, in-flight
+  frames and dirty/uncertain state BEFORE changing native scope, retained native
+  or relationship requests, reservations, accounting/progress/quarantine, native
+  order ID or initial callback cache. `_retain_native_request`, native state
+  save/load, native-result preparation/drain, request result/terminal updates,
+  relationship updates and scope binding participate. Foreign scope is excluded
+  only after complete binding; unknown identity invalidates globally for this
+  authority. Existing capital/allocation reservation receipts are observed and
+  bound; this contract neither replaces their owners nor changes their policy.
+- TLE entry/exit/generic `apply_event`, `apply_entry_fill`, `apply_exit_fill`,
+  reconciliation/recovery, native feedback require/complete/uncertain, adapter
+  replacement and financial auxiliary mutations join the same frame BEFORE any
+  observable change; nested calls pass the SAME issuer-private frame. Revision
+  L and dirty state extend through durable acknowledgement/readback. Existing
+  `_persist_*_best_effort` catches must report failure to this authority before
+  retaining their existing behavior. A swallowed generic event/snapshot failure
+  therefore makes local eligibility unavailable; it is never accepted merely
+  because strict-native feedback happens to be complete.
+- StorageEngine/SQLiteStore lifecycle event/snapshot/native-state/run-scope and
+  relationship writers join revision S BEFORE relevant mutation and finish only
+  after their real commit/readback. This includes generic/best-effort writer
+  paths, not only `persist_native_lifecycle_feedback`. Store close/reopen/adapter
+  replacement invalidates. A raw SQL writer need not invent an owner revision:
+  its committed contents are in the fresh read and SQLite writer exclusion
+  prevents its intervening write. Unknown/unclassifiable raw rows fail closed.
+  Relevant in-memory mutations must still use the participating owner frame;
+  exposing a mutable authoritative record to an unparticipating writer is an
+  unsupported configuration, not permission to trust a content hash.
+
+`settle_local_intake(ticket, committed_binding)` is issued only by the existing
+actual Core accounting/owned-request collector AFTER cache classification,
+canonical accounting, progress persistence and required truth/reconciliation
+settle that exact intake generation. It verifies actual owner records; it is not
+an input boolean. Identical duplicates can settle through those real owners and
+permit a NEW read, retaining original fill time. Contradictory corrections,
+unknown writes and listener failures retain the existing unresolved latches.
+A source intake whose relevant identity cannot be classified cannot settle as a
+foreign event. Current AND prior-run unresolved durable request/frame records
+are inspected; a restart/empty runtime map never clears them or quarantine.
+
+### Deterministic synchronization and SQLite fence
+
+There are two synchronization domains, with this fixed order and no inversion:
+
+1. I is a NativeClient-owned short lock around ingress revision/in-flight/dirty
+   bookkeeping ONLY. While holding I, never acquire the engine guard, native
+   cache lock, lifecycle lock, SQLite connection/transaction or SDK transport
+   lock, and never invoke a listener or arbitrary callback. It is released before
+   callback parsing/publication. Finish also uses I only. A guard acquisition
+   uses nonblocking I acquisition; busy means unavailable, with no retry loop.
+2. G is the ExecutionEngine-owned nonreentrant authorization/mutation gate.
+   Read/authorization acquisition is nonblocking. Normal owned mutations enter
+   G before touching relevant owner state and release in finally. Legitimate
+   nested owner work receives the same private mutation frame rather than
+   reacquiring G; a thread ID or RLock reentrancy grants no authority. Unrelated
+   reentrant mutation is rejected and invalidates the evidence. Callback ingress
+   NEVER waits for G: actual raw facts remain in the existing NativeClient cache,
+   I remains dirty, and the existing next collector cycle processes them. No
+   callback fact is discarded or marked accounted to make entry validation pass.
+3. Under G, copy required native cache facts with a nonblocking cache-lock
+   acquisition and release that cache lock immediately. Bookend the copy with I
+   observations; any intervening ingress/in-flight/dirty intake refuses the read.
+   Only then acquire the SQLite fence below; never hold the cache lock with SQL.
+   Read participating in-memory state only under G, using detached immutable
+   values. Caller-owned/cached mutable references cannot be token authority.
+4. The SQLite fence uses the SAME already-open original SQLiteStore connection;
+   no private second connection, reopen, database creation or path-based
+   same-file attestation. This replaces the earlier private-connection proposal:
+   stdlib sqlite3 cannot attest an original connection's backing file handle.
+   Require an explicitly enrolled source-owned connection subtype created by
+   the existing SQLiteStore's normal connection factory in synthetic TEST/PAPER
+   scope ONLY. Default-off paths keep their normal connection and behavior; an
+   ordinary preexisting/unknown connection is unsupported, never converted or
+   reopened by a lease. The subtype preserves `check_same_thread=True`, retains
+   its creating thread, exact owner and generation, and refuses cross-thread
+   acquisition. No lease runs a constructor, schema/run insertion, checkpoint,
+   VACUUM or journal-mode change. The connection identity, not a pathname, binds
+   the original database. Normal SQLite sidecars are not another ledger.
+5. The subtype owns one tracked internal authorizer router. It preserves normal
+   outside-lease behavior and tracks authorizer/configuration generation. A
+   public `set_authorizer` replacement is recorded outside a lease, makes custom
+   callbacks unsupported for eligibility, and is refused during a lease. There
+   is no public disable-authorizer capability. The router's private internal
+   SQLite registration is issuer-only. Ordinary configuration APIs that can
+   change connection state or invoke arbitrary code (custom SQL functions,
+   aggregates/collations, progress/trace callbacks, extension loading, row/text
+   factories other than the existing sqlite3.Row/default, deserialize and
+   transaction/autocommit/isolation/setconfig/setlimit configuration) are tracked;
+   unknown custom hooks/configuration refuse enrollment and such changes refuse
+   BEFORE invoking their underlying setter/API during a lease. In particular,
+   autocommit/isolation setters can change their property even when their implicit
+   COMMIT is denied; autocommitFalse/setconfig/setlimit may bypass the authorizer.
+   A failed setter is not evidence of unchanged configuration and invalidates.
+   Any `blobopen` use makes this connection STICKILY unsupported,
+   whether readonly or writable and whether subsequently closed. A retained
+   writable sqlite3.Blob bypasses query_only AND the authorizer, so no handle
+   inference or in_transactionFalse certificate is allowed. Refuse blobopen
+   during a lease. The same conservative unsupported rule covers deserialize or
+   extension loading outside a lease; both refuse during it. A nondefault cursor
+   factory is an unsupported arbitrary hook. Owner materialization uses fresh
+   trusted builtin cursors/row conversion only, never an escaped user cursor.
+   `backup` refuses while this connection is the source of an active lease; a
+   backup INTO this connection must be refused by the held write transaction
+   (prove the actual destination path, not just the source override). Interrupt
+   invalidates and may cancel the read, never grants permission. Read-only getters
+   and serialize do not mutate accounting; they cannot replace owner evidence.
+   Close/replacement also invalidates. This is a narrow enrolled owner subtype,
+   not a global sqlite3/SDK monkeypatch or protection from arbitrary hostile
+   base-class/private-attribute bypass outside supported source ownership.
+6. Under G, require creator-thread/exact connection ownership, no active caller
+   transaction, no pending writer/mutation and no unsupported callback/config.
+   Read and retain the actual `busy_timeout`, `query_only` and authorizer/router
+   generation. Set busy_timeout0 BEFORE `BEGIN IMMEDIATE`, then enable query_only
+   and the restrictive authorizer phase before any final materialization. The
+   already-required pre-send native uncertain record must have COMMITTED before
+   acquisition; never move it into this transaction. The original connection's
+   `BEGIN IMMEDIATE` excludes writers on other connections to that database.
+7. During the fence, query_only prohibits writes even for already-prepared cached
+   statements. Re-register the owner router at the phase change to invalidate
+   cached preparation authorization as well. The active authorizer allows only
+   the required SELECT/READ/builtin FUNCTION/RECURSIVE read actions; it denies
+   write/DDL/transaction/savepoint/ATTACH/DETACH/PRAGMA mutations and all unneeded
+   opcodes. COMMIT, ROLLBACK and executescript's implicit transaction change are
+   refused except the exact private finally-release operation. No arbitrary
+   user SQL function, row factory or callback is invoked during materialization.
+   Source-owned connection API guards additionally refuse authorizer removal,
+   deserialize, close and transaction/config replacement during the lease.
+   Cursor/direct/generic/best-effort SQL cannot write past these same-connection
+   guards; best-effort exceptions still mark the owner dirty. Existing generic
+   writes outside the lease remain in the fresh read and source revisions.
+8. Reuse the existing coherent SELECT/materialization owner on this exact owned
+   transaction, without nested BEGIN/commit/rollback. Read current/prior-run
+   lifecycle events/snapshots, provenance and native/relationship progress fresh.
+   Validate detached local predicate, planned diff and E/L/S. Bookend with I
+   checks. An ambiguity/change/read error/interruption issues no lease. A failed
+   query never returns a fabricated empty success. A raw other-connection write
+   is either already visible in this fresh transaction or excluded until release.
+
+All guard/SQLite lock acquisition is fail-fast; normal connection timeout5s must
+not remain active for BEGIN. There is no lock backoff/retry or invented disk-I/O
+bound. In finally, the exact issuer enables only its own ROLLBACK, rolls back
+ONLY its transaction, restores query_only, busy_timeout and authorizer/router
+state exactly and verifies no active transaction and unchanged ownership. Then
+release G. Never commit or rollback caller work. Partial acquisition and cleanup
+failure invalidate; inability to verify restoration keeps the authority dirty
+and unavailable. No transaction is held for history queries, reconnect, ACK,
+arbitrary hooks or SDK send. No global SQL interceptor, new database/ledger,
+file-handle/VFS mechanism or SDK lock replacement is introduced.
+
+### Proposal, risk and exact own-request transition
+
+At proposal, process actual factual callbacks/accounting/reconciliation/protection
+first. `read_local_cooldown(scope, context, assessed_at)` acquires G and the above
+coherent fence, checks I/E/L/S and returns detached evidence only. It does not
+assert risk green. Its token has one private call-chain nonce and these phases:
+ISSUED -> RISK_BOUND -> PREPARED -> LEASED -> CONSUMED, or ABORTED. No phase or
+nonce is serialized, reusable, copyable or reconstructed after restart.
+
+At actual shared risk evaluation, `bind_local_cooldown_risk(token, decision)`
+performs another fresh coherent read at the real assessment time and binds the
+exact canonical decision/occurrence/context and immutable order specification.
+Any unrelated revision/content/source change aborts; this API cannot refresh a
+stale token to whichever state now happens to pass. A new proposal must start
+with ordinary factual processing. Other risk/truth/admission gates remain
+independent and can reject a locally elapsed/no-entry observation.
+
+Preparation intentionally changes state. `prepare_local_entry_transition`
+issues a private planned-mutation capability for THIS absent new client request
+only. It is valid in this single live call chain and records exact before/after
+records, issuer owner instances, generations and receipts for these edges:
+
+- No own reservation -> the actual capital/allocation owners' known-unsubmitted
+  reservation receipts, bound to exact decision/request/quantity and scope.
+- No retained native request -> the real newly retained DISPATCH_UNCERTAIN row,
+  original immutable request and progress, durably COMMITTED/acknowledged through
+  `_retain_native_request` / existing native-state owner BEFORE any final lease.
+- No native broker ID/cache facts -> the actual client's newly reserved unused
+  ID and its first empty event/execution cache. Before resetting a slot, prove
+  no prior cache/request/order identity exists. ID collision or existing facts
+  abort; never erase callbacks to fit the planned transition.
+
+Each owner transition advances its real revision and is admitted only while
+carrying this exact capability; the authority records that exact delta in the
+nonce. No arbitrary revision subtraction, pending-list exception or later hash
+refresh is allowed. Any callback ingress, unrelated owner mutation, different
+receipt/request/quantity/decision, extra row or unknown outcome aborts. The final
+coherent read must equal the original validated state PLUS those exact planned
+changes. The one own DISPATCH_UNCERTAIN row is permissible only via the live
+never-consumed capability, not because its durable text says uncertain. All other
+pending/uncertain/uncommitted requests remain blockers. None of these preparation
+steps is an ENTRY_FILL or changes the original120-second clock.
+
+Failure before dispatch preserves existing known-unsubmitted release semantics
+only where the real owners prove them. A nonce never authorizes clearing a
+failsafe/quarantine/uncertain record, replay, retry, rearm or broker ownership.
+
+### Final native-entry linearization and one-shot consumption
+
+After actual client resolution, propagate the private bound guard through the
+existing provider/broker/submitter to NativeClient's ordinary entry
+`before_submit(order_id, contract, order)` seam. Resolution may not implicitly
+connect or replace a client for this proof. Reconnection/replacement aborts.
+The hook calls `acquire_local_entry_lease` AFTER the required uncertain native
+record has committed and AFTER the real ID/cache preparation. It acquires G and
+the same-original-connection SQLite fence, reads/validates fresh state, exact
+order and scope, and records LEASED. Failure issues no lease. The existing hook alone is insufficient:
+returning ready and later calling an unguarded SDK method has a race. The lexical
+`submit_order` try/finally owns abandonment from hook invocation through guarded
+native entry: if the hook acquired LEASED but an exception, validation, wrapper
+or READ_ONLY refusal prevents `placeOrder` entry, it changes the nonce to ABORTED
+and releases that exact lease. The hook itself releases on partial acquisition
+failure before return. Entry cleanup and outer abandonment are issuer-bound and
+idempotent, so no branch leaks G/SQL or rearms a consumed/aborted nonce.
+
+The proposed NativeClient `placeOrder` ENTRY adapter therefore consumes the
+issuer-private lease, bound to that exact client/ID/call chain. Existing mutation
+audit and READ_ONLY guards remain active; unsupported/unguarded P02 calls refuse.
+The adapter uses invocation-private detached native Contract/Order descriptors
+matching the risk-bound immutable specification (including native defaults),
+never shared caller objects that another thread can mutate. With G/SQLite held,
+it obtains I nonblocking and compares current object/epoch/account, I in-flight
+and dirty state, I/E/L/S generations, exact prepared nonce and actual arguments.
+On equality it atomically changes LEASED -> CONSUMED at THIS actual immutable
+native mutation invocation entry; this is the authorization linearization point.
+A callback admitted BEFORE this point invalidates/blocks the invocation. A
+callback admitted AFTER it is a factual post-boundary operation: it invalidates
+future permissions and receives ordinary accounting priority, but does not
+retroactively authorize a cancellation/retry or claim the send did not happen.
+This boundary does not claim network-arrival ordering or broker atomicity.
+
+Immediately after consume, release I, then perform the exact owner ROLLBACK/
+configuration-restoration operation and release G in finally, BEFORE delegating
+to the existing audited EClient SDK body. Never close the original connection.
+Cleanup failure aborts without delegation; the nonce is already spent and safety state stays uncertain. No user hook, listener, parser, query,
+logging callback or SDK call occurs between compare-and-consume operations while
+I is held. No issuer may reuse the lease following rejection/exception. Existing
+SDK errors/unknown ACK/partial fills remain factual outcomes and never rearm it.
+
+The lease lifetime is thus `before_submit` acquisition THROUGH actual guarded
+`placeOrder` ENTRY and immediate fence cleanup, not through socket send/return
+or broker ACK. This is a deliberate precise replacement of the earlier draft's
+unsafe through-send wording. Pinned SDK Connection has a nonreentrant lock;
+`disconnect` invokes connectionClosed while holding it, and `sendMsg` acquires it
+without a bounded lock timeout. Holding G/I/cache/SQL through that SDK body risks
+lock inversion or unbounded fence retention. Do not replace SDK locks, duplicate
+transport or claim a timeout1s socket bounds that lock. Source participation must
+ensure callbacks never wait for G while holding SDK/native locks. An actual P02
+bridge must bind this exact entry adapter; a lease-only component/pure test is
+NOT enforcement of proposal/risk/final-write integration. That bridge remains
+separately vetoed until its other authority and wiring are adopted/proved.
+
+### Grounded feasibility and acceptance limits
+
+Existing reusable seams at accepted881e47ff:
+
+- `SQLiteStore.fetch_committed_lifecycle_accounting` (~1557) owns a coherent
+  all-run read; it currently has no combined local mutation/dispatch token.
+- `NativeClient.cached_native_executions` (~516) copies callback facts and
+  detects execution conflicts when read; diagnostic counters are not revisions.
+  `orderStatus`/`execDetails` and `_emit_execution_callback` (~677) do not yet
+  provide the required pre-publication, error-preserving ingress boundary.
+- Native lifecycle feedback establishes PENDING and latches UNCERTAIN around
+  strict writes; generic best-effort persistence is not an equivalent guarantee.
+  `ExecutionEngine._native_callback_lock` (~3736) serializes collectors only.
+- Active Core evaluates risk (~4917) then calls execute_trade (~4966).
+  `_route_order` (~1588) rechecks before provider dispatch; request retention
+  (~1703), client resolution and native cache initialization happen afterwards.
+- `IbkrOrderSubmitter.submit_once` (~85,144) does not pass an ordinary entry
+  guard to `NativeClient.submit_order` (~1056), whose existing optional hook
+  (~1090) precedes `placeOrder`. That propagation and serialized consumption are
+  concrete missing implementation prerequisites, not an existing guarantee.
+
+Before proposing source acceptance, prove real-owner journal reads and every
+invalidation boundary with deterministic offline controls: exact120 boundaries;
+partial/duplicate/late entries; foreign/ambiguous scopes; prior-run pending state;
+callback entry/ignored/conflicting/corrected/completion/error before journal
+commit; interrupted/lost-ACK persistence; database/client/epoch replacement;
+changes between proposal/risk/route/native hook; expected own-request transition
+versus unrelated mutation; single consumption; no dispatch on stale/unavailable
+evidence; and bounded cleanup without leaked workers or deadlocks. Preserve
+existing default-off/unsupported-scope refusals and all prior safety assertions.
+
+This draft changes no source or flags. Adoption would authorize development of
+these bounded components, not claim they already exist. Actual P02 proposal/risk/
+final-write integration remains separately blocked by its native bridge and
+remaining admission/management requirements. No positive P02 Core trading,
+broker-history completeness, restored cold ownership, continuous protection,
+operational capital/recovery action, resumption or readiness is claimed.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+
+### 2026-11-14 — ADOPTED separate observable-local cooldown policy V1
+
+Under user-delegated project authority, root adopts the complete independently
+reviewed1aa6b65f8a03cd88fe865e91644ecb7e0eea76c4 contract (tree329c1594)
+BEFORE source implementation, as NEW project policy. This is
+P02_OBSERVABLE_LOCAL_COOLDOWN_V1, default-off and synthetic TEST/PAPER only.
+It is AS-OF validated committed local facts with pending/uncertain/uncommitted
+intake blocked; it is NOT broker-history completeness or a guarantee against
+unseen late fills. PR1230's original complete-capture predicate remains UNKNOWN
+and its original API remains eligibleFalse. Original execution-time120s anchors
+and all original admission/truth/quarantine gates remain.
+
+Final independent next_session_contract_review CLEAR supersedes the earlier
+conditional private-connection design: original-handle identity is unavailable
+through stdlib sqlite3. Adopt SAME-original-owned-connection fencing with tracked
+default-off subtype/creator thread, nonblocking G/I/cache order, BEGIN IMMEDIATE
+after pre-send commit, query_only/authorizer and source-owned public API controls.
+Cached operations must participate in revisions; trusted fresh cursors only.
+Blob usage is sticky unsupported; custom hooks/unknown ownership/configuration
+remain unavailable. Exact own-request nonce transitions, actual immutable native
+ENTRY consume and lexical abandonment cleanup are mandatory; guards release
+before SDK body/ACK. No global SQLite/SDK monkeypatch or second accounting ledger.
+
+Source development remains conditional on implementing every participating owner
+and validating these guarantees. Unsupported participation/fence/cleanup cannot
+grant local permission. Pure mechanism probes on new temporary/in-memory SQLite
+databases confirmed the specified read/write/transaction/cached/cursor/backup
+controls and exposed the Blob/configuration limits; these are NOT production
+owner or pipeline proofs. Original repository databases were not opened.
+
+This adoption does not adopt the native-entry draft, numerical ATR admission
+bounds, management semantics or operational enrollment. Actual Core P02 entry
+remains structurally vetoed; no positive Core proof is claimed. Observation
+distribution3f48bf3f/sourcec65/calendar and all five ownership vetoes unchanged.
+No observer, broker/provider, operational recovery or readiness upgrade.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
