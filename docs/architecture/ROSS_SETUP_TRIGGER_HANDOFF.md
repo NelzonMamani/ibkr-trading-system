@@ -5992,3 +5992,61 @@ UNKNOWN API, numerical ATR/entry/management vetoes, all five ownership safeguard
 and dedicated synthetic-only scope remain. No native ownership restoration,
 broker/provider activity, capital/recovery action or readiness upgrade.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+
+### 2026-11-14 — PR1232 Linux CI audit regression and scoped SDK correction
+
+Initial reviewed376a3d6c/tree88a5e3c5 and review5907620925 remain historical
+evidence, not CI acceptance. Required CI43650288835 Linux132617056606 FAILED:
+2failed/8089passed/3skipped/4warnings/1060.40s. The failures are EXISTING
+test_standalone_pmh_late_fill_protection cases
+test_first_confirmed_project_partial_retains_original_stop_then_own_failure_to_flat
+and test_first_pending_partial_and_competing_stop_preserve_remainder_without_replay.
+Both completed their genuine33-pattern Core/PAPER/accounting/protection/failure/
+replay assertions, then rejected extra audit counts: expected place4/modify0 and
+place2/modify0, respectively; same commands were additionally counted as modify4/2.
+Actual wire counts stayed4/2, not duplicate sends. Keep all original assertions.
+The old Windows job was still running at this entry; its result is not inferred.
+Controlled-process success does not make this failed required CI acceptable.
+
+Independent diagnosis: FIRST's existing SDK interposition calls a saved audited
+SDK function. Its immediate caller is the shim, rather than Native.placeOrder's
+original code, so the previous immediate-caller-only predicate counted the same
+command twice. Local reproduction exactly2failed/6warnings/2.64s is preserved in
+/workspace/p02-ci-first-partial-audit-before-20261114.log. This is a regression
+in the new audit adaptation, not a family/stop/quantity/target-policy defect or
+a passing baseline.
+
+Scoped source correction4616e111bf729a82802a92a6a00e1bbe90003b00/tree6812b757,
+parent376a3d6c, changes ONLY mutation_audit.py,3Native-to-SDK call sites and
+10counter controls in the existing Native test module. It creates a one-shot
+audit-delegation receipt at the ACTUAL Native SDK body call site, bound to exact
+client/order ID/contract object/order object, top Native audit frame, original
+saved audited SDK identity and direct helper or exactly selected shim frame.
+No arbitrary ancestry/callback borrowing, global registry or SDK monkeypatch.
+The receipt is consumed once and revoked in finally; it is NOT order permission.
+Submit-to-Native immediate-source checks remain. Every SDK/read-only guard still
+runs, even when redundant audit counting is suppressed. No family source, test
+assertion, policy, quantity, stop, TP, financial projection or owned-cursor rule
+was changed.
+
+After correction: exact2existing failures2passed/6warnings/2.43s, overlapping
+selected88real coordination/SDK-interposition/First cases passed/851deselected/
+327warnings/36.84s. New Native/audit module WHOLE51passed/38warnings/1.58s
+includes10new adversarial receipt variants: selected/direct shim, repeated same
+SDK calls, same/different callback commands+abort, reentry, cross-client, changed
+descriptor and guard changes. Existing SDK/default/read-only/submitter164passed/
+1warning/11.92s. Logs /workspace/p02-ci-*-20261114.log. No First assertions or
+price/protection controls were weakened; no unchanged full suite was manually
+rerun. Local delta review cleared source; independent assembled exact-head delta
+review and complete automatic CHANGED-head CI remain required before merge.
+
+Defined new controls now127=SQLite50+ASOF26+Native51; scoped and independent
+counts overlap earlier117/118 and future CI, not additive proof inventory. All
+prior review failures remain preserved. Local observations still have
+admission_authorizedFalse/coverageUNKNOWN; nonempty native financial intake and
+actual P02 admission stages stay unsupported/closed. Observation distribution
+3f48bf3f/sourcec65/calendar, all five ownership vetoes, ATR bounds/native-entry/
+management restrictions and parked work remain. No observer, broker/provider,
+operational capital/recovery action or readiness upgrade.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
