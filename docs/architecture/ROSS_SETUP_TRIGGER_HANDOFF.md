@@ -5687,3 +5687,44 @@ remains structurally vetoed; no positive Core proof is claimed. Observation
 distribution3f48bf3f/sourcec65/calendar and all five ownership vetoes unchanged.
 No observer, broker/provider, operational recovery or readiness upgrade.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+
+### 2026-11-14 — Adopt reviewed original-connection ownership amendment
+
+Independent exact contract review CLEAR at5e57f03570ca74711882336a749e5f9170bd1577
+(treecd45901d) supersedes earlier conditional private-connection/public-raw-subtype
+mechanism designs. Root adopts this bounded amendment before source work, under
+the same delegated authority. The original raw SQLite connection/cursors remain
+issuer-private from FIRST explicit synthetic TEST/PAPER opt-in creation; public
+connection/cursor facades have a strict allowlist, return facades only and reject
+custom factories before invocation. No generic raw forwarding or late wrapping.
+Default-off storage keeps its existing raw connection and behavior.
+
+External SQL/cursor operations including cached execution invalidate source
+revision; only exact issuer-private internal frames are exempt. Existing active
+statements/VMs must be exhausted or closed before acquisition. Lease acquisition
+requires source-owned nonescape and all participation; unsupported ownership
+stays unavailable. This is not a parallel ledger, new database or global SQLite
+interceptor. Actual original-connection BEGIN IMMEDIATE writer exclusion,
+query_only/authorizer/API guards, exact timeout/config restoration and one-shot
+native ENTRY/abandonment rules remain mandatory.
+
+Failures/limits preserved: stdlib cannot attest the original open file handle
+from path stat, so the second-connection scheme is unsupported. Writable blobs
+opened before a query_only/authorizer fence can still write. A backup ALREADY in
+progress can acquire a target fence from its progress callback and then mutate
+the target; rejecting only newly-started backups is insufficient. A pending
+WITH UPDATE RETURNING VM can likewise outlive preparation authorization. These
+are failed mechanism assumptions reproduced in isolated scratch databases, NOT
+passing source guarantees. Opaque initial ownership, forbidden blob/backup APIs
+and no-active-VM preconditions address those findings. Setter/config/cursor
+controls are required before delegation, not after an authorizer refusal.
+
+The completed contract is adopted for bounded implementation; source correctness
+and actual proposal/risk/final native ENTRY enforcement remain unproved until
+independent exact-head review and required CI. Old PR1230 coverageUNKNOWN/
+eligibleFalse remains unchanged; new default-off local basis never certifies
+broker history, unseen late fills, SDK send success or cold ownership. ATR
+numerical bounds, native entry and management vetoes remain. No observer or
+broker/provider/operational action; observation release3f48bf3f/sourcec65/calendar
+and all five ownership safeguards unchanged. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.

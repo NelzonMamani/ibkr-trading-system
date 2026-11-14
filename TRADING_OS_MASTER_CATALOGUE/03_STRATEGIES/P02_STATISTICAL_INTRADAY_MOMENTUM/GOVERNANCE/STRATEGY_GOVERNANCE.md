@@ -591,9 +591,16 @@ The proposed owner APIs and revisions are explicit:
   relationship writers join revision S BEFORE relevant mutation and finish only
   after their real commit/readback. This includes generic/best-effort writer
   paths, not only `persist_native_lifecycle_feedback`. Store close/reopen/adapter
-  replacement invalidates. A raw SQL writer need not invent an owner revision:
-  its committed contents are in the fresh read and SQLite writer exclusion
-  prevents its intervening write. Unknown/unclassifiable raw rows fail closed.
+  replacement invalidates. The enrolled connection AND its owned Cursor wrap
+  external execute/executemany/executescript at OPERATION ENTRY before execution,
+  including already-prepared cached statements; conservatively any external SQL
+  operation advances S/invalidates old evidence, even a read. Only the exact
+  issuer-owned read/mutation frame admits internal operations. Attribute/config
+  setter entry participates likewise. Authorizer prepare callbacks alone never
+  certify that outside-lease cached SQL/PRAGMA/config changes advanced S. A raw
+  OTHER-connection writer has no invented owner revision: its committed contents
+  are in the fresh read and SQLite exclusion prevents its intervening write.
+  Unknown/unclassifiable raw rows fail closed.
   Relevant in-memory mutations must still use the participating owner frame;
   exposing a mutable authoritative record to an unparticipating writer is an
   unsupported configuration, not permission to trust a content hash.
@@ -635,51 +642,58 @@ There are two synchronization domains, with this fixed order and no inversion:
    Read participating in-memory state only under G, using detached immutable
    values. Caller-owned/cached mutable references cannot be token authority.
 4. The SQLite fence uses the SAME already-open original SQLiteStore connection;
-   no private second connection, reopen, database creation or path-based
-   same-file attestation. This replaces the earlier private-connection proposal:
-   stdlib sqlite3 cannot attest an original connection's backing file handle.
-   Require an explicitly enrolled source-owned connection subtype created by
-   the existing SQLiteStore's normal connection factory in synthetic TEST/PAPER
-   scope ONLY. Default-off paths keep their normal connection and behavior; an
-   ordinary preexisting/unknown connection is unsupported, never converted or
-   reopened by a lease. The subtype preserves `check_same_thread=True`, retains
-   its creating thread, exact owner and generation, and refuses cross-thread
-   acquisition. No lease runs a constructor, schema/run insertion, checkpoint,
-   VACUUM or journal-mode change. The connection identity, not a pathname, binds
-   the original database. Normal SQLite sidecars are not another ledger.
-5. The subtype owns one tracked internal authorizer router. It preserves normal
-   outside-lease behavior and tracks authorizer/configuration generation. A
-   public `set_authorizer` replacement is recorded outside a lease, makes custom
-   callbacks unsupported for eligibility, and is refused during a lease. There
-   is no public disable-authorizer capability. The router's private internal
-   SQLite registration is issuer-only. Ordinary configuration APIs that can
-   change connection state or invoke arbitrary code (custom SQL functions,
-   aggregates/collations, progress/trace callbacks, extension loading, row/text
-   factories other than the existing sqlite3.Row/default, deserialize and
-   transaction/autocommit/isolation/setconfig/setlimit configuration) are tracked;
-   unknown custom hooks/configuration refuse enrollment and such changes refuse
-   BEFORE invoking their underlying setter/API during a lease. In particular,
-   autocommit/isolation setters can change their property even when their implicit
-   COMMIT is denied; autocommitFalse/setconfig/setlimit may bypass the authorizer.
-   A failed setter is not evidence of unchanged configuration and invalidates.
-   Any `blobopen` use makes this connection STICKILY unsupported,
-   whether readonly or writable and whether subsequently closed. A retained
-   writable sqlite3.Blob bypasses query_only AND the authorizer, so no handle
-   inference or in_transactionFalse certificate is allowed. Refuse blobopen
-   during a lease. The same conservative unsupported rule covers deserialize or
-   extension loading outside a lease; both refuse during it. A nondefault cursor
-   factory is an unsupported arbitrary hook. Owner materialization uses fresh
-   trusted builtin cursors/row conversion only, never an escaped user cursor.
-   `backup` refuses while this connection is the source of an active lease; a
-   backup INTO this connection must be refused by the held write transaction
-   (prove the actual destination path, not just the source override). Interrupt
-   invalidates and may cancel the read, never grants permission. Read-only getters
-   and serialize do not mutate accounting; they cannot replace owner evidence.
-   Close/replacement also invalidates. This is a narrow enrolled owner subtype,
-   not a global sqlite3/SDK monkeypatch or protection from arbitrary hostile
-   base-class/private-attribute bypass outside supported source ownership.
+   no second connection, reopen, database creation or path-based same-file
+   attestation. Stdlib sqlite3 cannot attest an original backing file handle.
+   Explicit default-off TEST/PAPER opt-in creates an OPAQUE connection facade
+   from the existing SQLiteStore's first normal connection creation. The raw
+   original sqlite3.Connection stays issuer-private and is NEVER publicly exposed.
+   The facade is NOT a sqlite3.Connection subtype: plain external
+   `source.backup(store.connection)` therefore refuses TypeError before target
+   dispatch. This closes the proven PREEXISTING-backup bypass: a raw target can
+   accept BEGIN IMMEDIATE inside a backup progress callback, then the old backup
+   can continue writing past query_only/authorizer. A new-backup-into-an-already-
+   fenced-target refusal alone does not establish safety.
+   Default-off paths retain the normal raw connection and behavior. Preexisting
+   raw connections/escaped aliases are unsupported, never converted or reopened.
+   Keep check_same_threadTrue, actual creator identity, source owner and
+   generation. No lease constructs a store, inserts schema/run state, changes
+   journal mode, checkpoints or VACUUMs. SQLite sidecars are not another ledger.
+5. The facade has a strict supported API allowlist, no raw __getattr__ forwarding
+   or returned bound raw methods. execute/executemany/executescript/cursor return
+   ONLY issuer-owned cursor facades. cursor.connection and __enter__ return the
+   same connection facade; cursor operations/context/iteration return only
+   facade/detached values. Reject custom cursor factories BEFORE raw creation.
+   All raw cursors/handles stay private. Custom row factories are refused from
+   initial opt-in: SQLite passes the RAW Cursor to such callbacks, so recording
+   a flag after invocation is too late. Only builtin sqlite3.Row/default row
+   conversion is supported. No caller can acquire a positive 'now clean' witness
+   after prior raw exposure; unknown provenance stays unsupported.
+   Track outstanding public cursor/VM operations. Lease acquisition refuses a
+   pending/not-exhausted operation, including INSERT RETURNING or an unfinished
+   SELECT; no false in_transaction certificate stands in for completed stepping.
+   Actual owner materialization uses fresh trusted private cursors and fully
+   consumes/closes them under the issuer frame. No external cursor is reused.
+   The owner retains a permanent tracked internal authorizer router. Public
+   authorizer replacement/removal, custom functions/aggregates/window functions/
+   collations/progress/trace hooks, extension loading and custom factories refuse
+   before exposing/invoking an underlying raw API. Their attempt invalidates;
+   ordinary supported default behavior stays unchanged. blobopen, deserialize
+   and backup are forbidden, sticky-unsupported attempts in every phase; no raw
+   Blob/backup handle is ever issued. The facade's target type refusal also
+   covers a backup invoked on an arbitrary OTHER/plain source connection.
+   Track supported transaction/autocommit/isolation/setconfig/setlimit and
+   row/text configuration at operation entry; during a lease refuse BEFORE
+   invoking any underlying setter/API. Setters can mutate even when their
+   implicit COMMIT is denied; autocommitFalse/setconfig/setlimit may bypass the
+   authorizer. A failed setter invalidates rather than certifying unchanged
+   state. Close/replacement/interrupt invalidate; an interrupt can cancel a read
+   but never grant permission. serialize/getconfig/getlimit are read-only and
+   cannot confer authority; unsupported callbacks/actions still refuse.
+   This is a scoped owner facade, not a global SQLite interceptor or protection
+   from hostile private-attribute extraction outside supported source ownership.
 6. Under G, require creator-thread/exact connection ownership, no active caller
-   transaction, no pending writer/mutation and no unsupported callback/config.
+   transaction, no pending cursor/VM/writer/mutation and no unsupported callback/
+   configuration or attempted forbidden API.
    Read and retain the actual `busy_timeout`, `query_only` and authorizer/router
    generation. Set busy_timeout0 BEFORE `BEGIN IMMEDIATE`, then enable query_only
    and the restrictive authorizer phase before any final materialization. The
@@ -694,7 +708,7 @@ There are two synchronization domains, with this fixed order and no inversion:
    opcodes. COMMIT, ROLLBACK and executescript's implicit transaction change are
    refused except the exact private finally-release operation. No arbitrary
    user SQL function, row factory or callback is invoked during materialization.
-   Source-owned connection API guards additionally refuse authorizer removal,
+   Source-owned facade API guards additionally refuse authorizer removal,
    deserialize, close and transaction/config replacement during the lease.
    Cursor/direct/generic/best-effort SQL cannot write past these same-connection
    guards; best-effort exceptions still mark the owner dirty. Existing generic
@@ -896,3 +910,44 @@ remains structurally vetoed; no positive Core proof is claimed. Observation
 distribution3f48bf3f/sourcec65/calendar and all five ownership vetoes unchanged.
 No observer, broker/provider, operational recovery or readiness upgrade.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+
+### 2026-11-14 — Adopt reviewed original-connection ownership amendment
+
+Independent exact contract review CLEAR at5e57f03570ca74711882336a749e5f9170bd1577
+(treecd45901d) supersedes earlier conditional private-connection/public-raw-subtype
+mechanism designs. Root adopts this bounded amendment before source work, under
+the same delegated authority. The original raw SQLite connection/cursors remain
+issuer-private from FIRST explicit synthetic TEST/PAPER opt-in creation; public
+connection/cursor facades have a strict allowlist, return facades only and reject
+custom factories before invocation. No generic raw forwarding or late wrapping.
+Default-off storage keeps its existing raw connection and behavior.
+
+External SQL/cursor operations including cached execution invalidate source
+revision; only exact issuer-private internal frames are exempt. Existing active
+statements/VMs must be exhausted or closed before acquisition. Lease acquisition
+requires source-owned nonescape and all participation; unsupported ownership
+stays unavailable. This is not a parallel ledger, new database or global SQLite
+interceptor. Actual original-connection BEGIN IMMEDIATE writer exclusion,
+query_only/authorizer/API guards, exact timeout/config restoration and one-shot
+native ENTRY/abandonment rules remain mandatory.
+
+Failures/limits preserved: stdlib cannot attest the original open file handle
+from path stat, so the second-connection scheme is unsupported. Writable blobs
+opened before a query_only/authorizer fence can still write. A backup ALREADY in
+progress can acquire a target fence from its progress callback and then mutate
+the target; rejecting only newly-started backups is insufficient. A pending
+WITH UPDATE RETURNING VM can likewise outlive preparation authorization. These
+are failed mechanism assumptions reproduced in isolated scratch databases, NOT
+passing source guarantees. Opaque initial ownership, forbidden blob/backup APIs
+and no-active-VM preconditions address those findings. Setter/config/cursor
+controls are required before delegation, not after an authorizer refusal.
+
+The completed contract is adopted for bounded implementation; source correctness
+and actual proposal/risk/final native ENTRY enforcement remain unproved until
+independent exact-head review and required CI. Old PR1230 coverageUNKNOWN/
+eligibleFalse remains unchanged; new default-off local basis never certifies
+broker history, unseen late fills, SDK send success or cold ownership. ATR
+numerical bounds, native entry and management vetoes remain. No observer or
+broker/provider/operational action; observation release3f48bf3f/sourcec65/calendar
+and all five ownership safeguards unchanged. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
