@@ -88,7 +88,7 @@ def revalidate_handoff(symbol, handoff, *, store=None, request=None):
         # Only the current canonical owner establishes precedence; a retained
         # carrier's marker is data, not original-assertion authority.
         retained = [mark_original_established(item, False) for item in retained_facts]
-        canonical = canonical_original_facts(current_facts, NEXT_SESSION_CONTRACT)
+        canonical = canonical_original_facts(current_facts, NEXT_SESSION_CONTRACT, symbol=symbol, candidates=(candidate,))
         canonical_bindings = {fact_binding(item) for item in canonical}
         facts = coalesce_original_publications(retained + canonical, veto_predicate=retained_veto, contract=NEXT_SESSION_CONTRACT)
     if request is None:

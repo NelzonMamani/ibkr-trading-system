@@ -16,7 +16,7 @@ from src.news.batch_rss_adapter import (
 from src.news.retrieval_diagnostics import emit_retrieval_diagnostics
 from src.news.evidence_store import (
     CanonicalNewsEvidenceStore,
-    dedupe_evidence, retained_evidence, protected_data_request, mark_original_established, original_publication_binding,
+    dedupe_evidence, retained_evidence, protected_data_request, mark_original_established, original_publication_binding, issuer_accepted_evidence,
     evidence_max_entries,
     evidence_freshness_seconds,
     evidence_in_query_window,
@@ -276,6 +276,13 @@ class CanonicalNewsIntelligenceService(NewsIntelligenceProvider):
                 metadata=refresh_metadata,
             )
             refresh_result = self.retrieval_provider.get_news(refresh_candidates, request, refresh_policy)
+            if request.metadata.get("protected_retention_contract") or cache_diagnostics.get("ross_retention_contract_by_symbol"):
+                from src.strategies.ross_momentum.policy.catalyst_policy import protected_ross_request, NEXT_SESSION_CONTRACT
+                if protected_ross_request(request) or any(isinstance(marker, Mapping) and marker.get("contract") == NEXT_SESSION_CONTRACT
+                        for marker in cache_diagnostics.get("ross_retention_contract_by_symbol", {}).values()):
+                    refresh_result = replace(refresh_result, evidence_by_symbol={
+                        key: tuple(issuer_accepted_evidence(key, rows, ordered_candidates))
+                        for key, rows in refresh_result.evidence_by_symbol.items()})
             if any(original_publication_binding(item) for rows in refresh_result.evidence_by_symbol.values() for item in rows):
                 # Provider data cannot assert canonical-owner precedence. Use
                 # the same normalized facts for persistence and live assembly.

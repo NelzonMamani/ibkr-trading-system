@@ -223,11 +223,17 @@ def protected_data_request(request, marker, *, for_write=False):
     return NewsRequest(strategy_id="ross_momentum", max_evidence_per_symbol=limit + PROTECTED_WITNESS_SLOTS, metadata=metadata)
 
 
-def canonical_original_facts(items, contract):
+def issuer_accepted_evidence(symbol, items, candidates=()):
+    result = NewsBatchResult(candidates=tuple(candidates))
+    return [item for item in items if item.normalized_symbol == normalize_symbol(symbol)
+            and evidence_issuer_relevance_verified(symbol, item, result)]
+
+
+def canonical_original_facts(items, contract, *, symbol, candidates=()):
     """Only canonical-owned retained facts establish original precedence."""
     from src.strategies.ross_momentum.policy.catalyst_policy import retained_veto
     return [mark_original_established(item, True) for item in coalesce_original_publications(
-        items, veto_predicate=retained_veto, contract=contract)]
+        issuer_accepted_evidence(symbol, items, candidates), veto_predicate=retained_veto, contract=contract)]
 
 
 def evidence_cache_path() -> Path:
@@ -316,7 +322,10 @@ class CanonicalNewsEvidenceStore:
                 if protected_ross_request(effective_request) or isinstance(marker, Mapping) and marker.get("contract") == NEXT_SESSION_CONTRACT:
                     # Cache-origin facts precede fresh/prep claims. Establish
                     # their data origin before merging any external overlay.
-                    evidence = canonical_original_facts(evidence, NEXT_SESSION_CONTRACT)
+                    checked = issuer_accepted_evidence(symbol, evidence, (candidate,))
+                    if len(checked) != len(evidence):
+                        diagnostics.setdefault("issuer_relevance_rejected_by_symbol", {})[symbol] = len(evidence) - len(checked)
+                    evidence = canonical_original_facts(checked, NEXT_SESSION_CONTRACT, symbol=symbol, candidates=(candidate,))
             if symbol in prep_rows:
                 prep_evidence = evidence_from_prep_entry(
                     prep_rows[symbol],
@@ -335,7 +344,8 @@ class CanonicalNewsEvidenceStore:
                 symbol, item, NewsBatchResult(candidates=(candidate,))
             )]
             if len(accepted) != len(in_window):
-                diagnostics.setdefault("issuer_relevance_rejected_by_symbol", {})[symbol] = len(in_window) - len(accepted)
+                rejected_counts = diagnostics.setdefault("issuer_relevance_rejected_by_symbol", {})
+                rejected_counts[symbol] = rejected_counts.get(symbol, 0) + len(in_window) - len(accepted)
                 # Old cohort metrics may include rejected articles; recompute from facts.
                 accepted = list(enrich_evidence_metrics(tuple(replace(
                     item, velocity_5m=None, velocity_10m=None, velocity_30m=None,
@@ -448,14 +458,31 @@ class CanonicalNewsEvidenceStore:
                             if evidence_in_query_window(item, request, now=now)]
             previous = symbols_payload.get(symbol) or {}
             marker = previous.get("ross_retention_contract")
+            if marker:
+                from src.strategies.ross_momentum.policy.catalyst_policy import NEXT_SESSION_CONTRACT
+                if (not isinstance(marker, Mapping) or marker.get("contract") != NEXT_SESSION_CONTRACT
+                        or type(marker.get("presentation_limit")) is not int or marker["presentation_limit"] < 1):
+                    diagnostics.update(cache_write_failed=True, cache_write_error="protected_retention_marker_invalid")
+                    return diagnostics  # Preserve owned state; never clear an unknown cohort.
             effective_request = protected_data_request(request, marker)
             protection_request = protected_data_request(request, marker, for_write=True)
             protected_selection = False
+            write_candidates = ()
             if protection_request and protection_request.metadata.get("protected_retention_contract"):
                 from src.strategies.ross_momentum.policy.catalyst_policy import protected_ross_request
                 protected_selection = protected_ross_request(protection_request)
             if protected_selection:
-                existing = canonical_original_facts(existing, protection_request.metadata["protected_retention_contract"])
+                retrieval = (retrieval_by_symbol or {}).get(symbol, {})
+                issuer = (retrieval.get("acquisition_profile", {}).get("issuer")
+                          or (marker.get("issuer") if isinstance(marker, Mapping) else None)
+                          or previous.get("last_retrieval", {}).get("acquisition_profile", {}).get("issuer", {}))
+                if isinstance(issuer, Mapping) and issuer.get("symbol") == symbol:
+                    aliases = issuer.get("aliases", ())
+                    write_candidates = (NewsCandidate(symbol, company_name=issuer.get("company_name"),
+                        aliases=tuple(aliases) if isinstance(aliases, (list, tuple)) else ()),)
+                existing = canonical_original_facts(existing, protection_request.metadata["protected_retention_contract"],
+                    symbol=symbol, candidates=write_candidates)
+                incoming = issuer_accepted_evidence(symbol, incoming, write_candidates)
             merged = retained_evidence(existing + incoming, effective_request)
             # Consumer-specific research/presentation caps cannot evict an existing
             # Ross qualification cohort. It remains bounded by its original policy.
@@ -470,7 +497,12 @@ class CanonicalNewsEvidenceStore:
                               "presentation_limit": int(protection_request.metadata["presentation_limit"])}
             protected = [item for row in ross_rows if (item := evidence_from_mapping(row, now=now)) is not None]
             if marker:
+                if write_candidates:
+                    marker = {**marker, "issuer": {"symbol": symbol,
+                        "company_name": write_candidates[0].company_name,
+                        "aliases": list(write_candidates[0].aliases)}}
                 protection_request = protected_data_request(request, marker, for_write=True)
+                protected = issuer_accepted_evidence(symbol, protected, write_candidates)
                 protected = list(retained_evidence(protected + existing + incoming, protection_request))
                 protected = [mark_original_established(item, True) for item in protected]
                 ross_rows = [serialize_evidence(item) for item in protected]

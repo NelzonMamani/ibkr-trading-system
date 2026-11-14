@@ -623,3 +623,59 @@ def test_external_established_claim_cannot_override_legacy_canonical_original(li
         from src.strategies.ross_momentum.policy.catalyst_lifecycle import evidence_handoff
         handoff=evidence_handoff('JPM',(update,),CANDIDATE,acquisition_health='unknown',acquisition_reason='synthetic',request=life.request)
         assert not revalidate_handoff('JPM',handoff,store=life.store)['qualified']
+
+
+@pytest.mark.parametrize('boundary', ['cache_read', 'generic_write', 'provider'])
+def test_foreign_identity_cannot_coalesce_away_owned_veto(lifecycle, monkeypatch, boundary):
+    from src.news.evidence_store import serialize_evidence
+    life = configure(lifecycle, monkeypatch)
+    positive = article(life, 'P')
+    veto = article(life, 'V', 'JPM announces registered direct offering', NOW-timedelta(minutes=5))
+    life.store.write({'JPM': (positive, veto)}, life.request)
+    foreign = replace(article(life, 'FOREIGN', '$JPM.TO announces registered direct offering',
+                              veto.published_at-timedelta(days=1)), url=veto.url)
+    if boundary == 'provider':
+        life.provider.articles = (foreign,)
+        result = life.service.get_news((CANDIDATE,), life.request, life.policy)
+        context = ross._ross_news_contexts_from_news_intelligence_result(result)['JPM']
+        assert context['dilution_flag'] and not context['ross_catalyst_valid']
+    else:
+        payload = json.loads(life.store.cache_path.read_text())
+        payload['news_intelligence']['symbols']['JPM']['evidence'].append(serialize_evidence(foreign))
+        life.store.cache_path.write_text(json.dumps(payload))
+        if boundary == 'generic_write':
+            life.store.write({'JPM': (article(life, 'G', 'JPM market bulletin', NOW),)},
+                             NewsRequest(strategy_id='unrelated', max_evidence_per_symbol=1))
+    rows = life.store.read((CANDIDATE,), life.request).evidence_by_symbol['JPM']
+    assert retained_dilution(rows)
+    assert any(row.evidence_id == positive.evidence_id for row in rows)
+    assert not any(row.evidence_id == foreign.evidence_id for row in rows)
+
+
+def test_company_name_only_veto_survives_repeated_generic_metadata_writes(lifecycle, monkeypatch):
+    life = configure(lifecycle, monkeypatch)
+    positive = article(life, 'P')
+    veto = replace(article(life, 'V', 'JPMorgan Chase announces registered direct offering', NOW),
+                   company_name=None, aliases=())
+    issuer = {'symbol': 'JPM', 'company_name': CANDIDATE.company_name, 'aliases': list(CANDIDATE.aliases)}
+    life.store.write({'JPM': (positive, veto)}, life.request,
+                     retrieval_by_symbol={'JPM': {'acquisition_profile': {'issuer': issuer}}})
+    for index in range(3):
+        life.store.write({'JPM': (article(life, str(index), 'JPM market bulletin', NOW),)},
+                         NewsRequest(strategy_id='unrelated', max_evidence_per_symbol=1),
+                         retrieval_by_symbol={'JPM': {'completed_at': NOW.isoformat()}})
+        rows = life.store.read((CANDIDATE,), life.request).evidence_by_symbol['JPM']
+        assert retained_dilution(rows)
+        assert any(row.evidence_id == veto.evidence_id for row in rows)
+
+
+def test_unknown_protected_retention_marker_refuses_write_without_mutating_cache(lifecycle, monkeypatch):
+    life = configure(lifecycle, monkeypatch)
+    life.store.write({'JPM': (article(life),)}, life.request)
+    payload = json.loads(life.store.cache_path.read_text())
+    payload['news_intelligence']['symbols']['JPM']['ross_retention_contract']['contract'] = 'unknown'
+    life.store.cache_path.write_text(json.dumps(payload))
+    before = life.store.cache_path.read_bytes()
+    result = life.store.write({'JPM': (article(life, 'G', 'JPM market bulletin', NOW),)}, life.request)
+    assert result['cache_write_failed'] and result['cache_write_error'] == 'protected_retention_marker_invalid'
+    assert life.store.cache_path.read_bytes() == before
