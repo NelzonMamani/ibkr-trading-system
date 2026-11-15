@@ -1463,7 +1463,7 @@ calendar remain unchanged. Synthetic evidence is not natural/broker readiness.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
 
 
-### 2026-11-15 — Batch B financial-callback settlement V1 — PROPOSAL, NOT ADOPTED
+### 2026-11-15 — Batch B financial-callback settlement V1 — ADOPTED
 
 This is a proposed NEW bounded extension to P02_OBSERVABLE_LOCAL_COOLDOWN_V1,
 not historical Ross doctrine, broker-history completeness or entry authority.
@@ -1726,3 +1726,34 @@ changed-head CI. Preserve all original failures/count overlap; no unchanged broa
 suite repetition or docs-only review loop. No actual broker/provider activity,
 observer, capital enrollment/recovery action or readiness upgrade.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+
+#### Delegated adoption before implementation
+
+Under the user's standing programme authority, adopt ONLY the independently
+reviewed complete financial-callback settlement contract at
+5b5bf6914286a0b543f0440c15081fc97c10f74f/tree56910bd0844015724409cce480fef5920ce668bd
+(original draft bf44ad9b7b4fb712a7238de691dcfe1101c870e7). Independent review
+resolved mandatory COMPLETE fee coverage for every selected execution, actual
+position-owner completion/retirement/local-cleanup receipts, and fresh-empty
+post-fill/registry binding with private input and detached outward ownership.
+This is NEW project policy, not historical doctrine. The proposal wording above
+records its review history; this adoption is the authorization boundary for code.
+
+Only one same-process fully closed standalone entry/original selected protective
+stop/flat roundtrip is initially supported. Nonempty source caches remain intact.
+Financial callback settlement is source-issued, occurrence-bound and dependent on
+actual complete durable accounting, protection, position and fee owners. No report
+remains GROSS/fee UNKNOWN and cannot settle this nonempty subset. No source
+cleanup/cancellation acknowledgment or broker-history completeness is invented.
+
+This adoption supplies LOCAL_CHECK only, still default-off through the accepted
+explicit synthetic TEST/PAPER enrollment. Every observation retains coverage
+UNKNOWN, broker_history_complete=False and admission_authorized=False. All
+proposal/risk/reservation/final-write, numerical ATR bounds, native entry and
+management remain closed. A legitimate Ross retained request stays Ross; no
+positive P02 SDK send, P02 target rewrite or strategy relabel is authorized.
+P03 trend/macro-source proposals are NOT adopted by this decision. All five
+ownership vetoes and observation3f48bf3f/sourcec65/calendar remain unchanged.
+No actual provider/broker acquisition, observer, operational capital/recovery
+action or readiness upgrade. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
