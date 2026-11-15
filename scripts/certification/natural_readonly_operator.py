@@ -473,8 +473,8 @@ elif phase == 'package':
             'source_integrity_status':'NOT_VERIFIED' if unchanged is None else ('PASS' if unchanged else 'FAIL'),
             'order_state_status':'NOT_VERIFIED' if operator_unchanged is None else ('PASS' if operator_unchanged else 'FAIL'),
             'tracked_source_unchanged': unchanged, 'operator_order_state_unchanged': operator_unchanged,
-            'blockers': blockers, 'scanner_pass': ('REQUIRES_LOG_REVIEW' if attempted else 'NOT_OBSERVED'), 'natural_issuer_acquisition': ('REQUIRES_LOG_REVIEW' if attempted else 'NOT_OBSERVED'),
-            'catalyst': ('REQUIRES_LOG_REVIEW' if attempted else 'NOT_OBSERVED'), 'downstream_progression': ('REQUIRES_LOG_REVIEW' if attempted else 'NOT_OBSERVED'), 'PAPER_READY': False})
+            'blockers': blockers, 'scanner_pass': ('NOT_RUN_CAPTURE_PROFILE' if globals().get('benchmark_capture',False) else ('REQUIRES_LOG_REVIEW' if attempted else 'NOT_OBSERVED')), 'natural_issuer_acquisition': ('NOT_RUN_CAPTURE_PROFILE' if globals().get('benchmark_capture',False) else ('REQUIRES_LOG_REVIEW' if attempted else 'NOT_OBSERVED')),
+            'catalyst': ('NOT_RUN_CAPTURE_PROFILE' if globals().get('benchmark_capture',False) else ('REQUIRES_LOG_REVIEW' if attempted else 'NOT_OBSERVED')), 'downstream_progression': ('NOT_RUN_CAPTURE_PROFILE' if globals().get('benchmark_capture',False) else ('REQUIRES_LOG_REVIEW' if attempted else 'NOT_OBSERVED')), 'PAPER_READY': False})
     preflight_timing('privacy_scan_begin')
     if globals().get('benchmark_capture', False) and sum(p.stat().st_size for p in (root/'private').rglob('*') if p.is_file()) > 64*1024*1024:
         raise SystemExit('Private capture size limit exceeded; retention incomplete, no archive.')

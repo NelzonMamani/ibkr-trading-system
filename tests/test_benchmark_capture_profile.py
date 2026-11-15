@@ -397,3 +397,169 @@ def test_effective_child_dependencies_refuse_before_network_admission(tmp_path,m
     assert result['child_exited'] and not result['timed_out']
     assert result['required_capture_dependencies'] and not result['required_news_dependencies']
     assert result['exit_code']==(1 if missing else 0)
+
+
+@pytest.fixture
+def native_profile_audit(monkeypatch,tmp_path):
+    """Original Native connect + SDK encoders; transport is memory-only."""
+    import socket
+    from src.config import runtime_config
+    monkeypatch.setattr(runtime_config,'resolve_ibkr_connection',lambda:('127.0.0.1',7497,71,'READ_ONLY'))
+    for name in ('connect','create_connection'):
+        if hasattr(socket,name):monkeypatch.setattr(socket,name,lambda *a,**k:pytest.fail('No network'))
+    monkeypatch.setattr(socket.socket,'connect',lambda *a,**k:pytest.fail('No network'))
+    for name in ('placeOrder','cancelOrder','reqGlobalCancel'):
+        monkeypatch.setattr(EClient,name,lambda *a,**k:pytest.fail('No order mutation'))
+    packets=[];connected={};instances=[]
+    state=NS(account='DU000000001',case=None,bootstrap=True,managed_reply='DU000000001')
+    def connect(self,host,port,clientId):
+        assert (host,port,clientId)==('127.0.0.1',7497,71)
+        instances.append(self)
+        if state.case=='connect_exception':raise RuntimeError('PRIVATE_CONNECT_DETAIL')
+        self.clientId=clientId;connected[id(self)]=True
+        if state.case=='changed_after_wait':
+            original_wait=self._open_orders_event.wait
+            def waited(timeout):
+                result=original_wait(timeout)
+                self.managedAccounts('DU000000002')
+                return result
+            self._open_orders_event.wait=waited
+    def run(self):
+        if state.bootstrap:self.managedAccounts(state.account)
+        self.nextValidId(1)
+        self._stop_event.wait(2)
+    def send(self,message):
+        opcode=message.split('\0')[0];packets.append(opcode)
+        if opcode=='17':self.managedAccounts(state.managed_reply)
+        if opcode=='59' and state.case=='changed_before_query':self.managedAccounts('U000000001')
+        if opcode=='59' and state.case=='SDK_id':self.clientId=True
+        if opcode=='16':
+            if state.case=='query_exception':raise RuntimeError('PRIVATE_QUERY_DETAIL')
+            if state.case=='changed_during_query':self.managedAccounts('DU000000002')
+            if state.case=='epoch':self._position_connection_epoch+=1
+            self.openOrderEnd()
+    monkeypatch.setattr(EClient,'connect',connect)
+    monkeypatch.setattr(EClient,'run',run)
+    monkeypatch.setattr(EClient,'isConnected',lambda self:connected.get(id(self),False))
+    monkeypatch.setattr(EClient,'disconnect',lambda self:connected.__setitem__(id(self),False))
+    monkeypatch.setattr(EClient,'serverVersion',lambda self:180)
+    monkeypatch.setattr(EClient,'sendMsg',send)
+    output=tmp_path/'owned-audit-root'/'e'/'terminal';output.mkdir(parents=True)
+    source=dict(accounts=['DU000000001'],client_id=71,SDK_client_id=71,connection_epoch=23,
+        scope='ORIGINAL_NATIVE_MANAGED_ACCOUNTS')
+    commitment=capture.benchmark_private_write(output.parent.parent/'private'/'capture',
+        'original-account-scope.json',capture.benchmark_json_bytes(source))
+    identity=verified_process(lambda:0).runtime_identity
+    proof={'runtime_profile':capture.BENCHMARK_PROFILE,'process_identity':identity,'capture_account_scope':commitment}
+    (output/'shutdown_evidence.json').write_text(json.dumps(proof))
+    def invoke(**changes):
+        return supervisor.final_broker_audit(expected_profile=capture.BENCHMARK_PROFILE,
+            capture_evidence=output,expected_runtime_identity=identity,**changes)
+    return NS(invoke=invoke,state=state,packets=packets,instances=instances,output=output,
+        source=source,proof=proof,identity=identity,connected=connected)
+
+
+def test_matched_original_paper_scope_uses_one_actual_native_query_and_cleanup(native_profile_audit):
+    f=native_profile_audit
+    result=f.invoke()
+    assert result['query_completed'] and result['disconnected'] and result['end_received']
+    assert f.packets.count('16')==1 and f.packets.count('17')==0
+    assert len(f.instances)==1 and not f.instances[0]._thread.is_alive()
+
+
+@pytest.mark.parametrize('account',['U000000001','','DU000000001,DU000000002','DU000000002'])
+def test_post_audit_wrong_empty_multiple_or_other_paper_account_never_queries(native_profile_audit,account):
+    f=native_profile_audit;f.state.account=account
+    result=f.invoke()
+    assert not result['query_completed'] and result['disconnected']
+    assert f.packets.count('16')==0 and f.packets.count('17')==0
+    assert not f.instances[0]._thread.is_alive()
+
+
+@pytest.mark.parametrize('case',['changed_before_query','SDK_id','changed_during_query','changed_after_wait','epoch','query_exception','connect_exception'])
+def test_post_audit_scope_changes_and_exceptions_never_certify_old_scope(native_profile_audit,case):
+    f=native_profile_audit;f.state.case=case
+    result=f.invoke()
+    assert not result['query_completed'] and result['disconnected']
+    assert f.packets.count('16')==(1 if case in ('changed_during_query','changed_after_wait','epoch','query_exception') else 0)
+    assert f.packets.count('17')==0
+    thread=f.instances[0]._thread
+    assert thread is None or not thread.is_alive()
+
+
+@pytest.mark.parametrize('reply',['DU000000001','','DU000000001,DU000000002'])
+def test_missing_bootstrap_permits_only_one_bounded_original_managed_account_read(native_profile_audit,reply):
+    f=native_profile_audit;f.state.bootstrap=False;f.state.managed_reply=reply
+    result=f.invoke()
+    assert result['query_completed'] is (reply=='DU000000001') and result['disconnected']
+    assert f.packets.count('17')==1 and f.packets.count('16')==(1 if reply=='DU000000001' else 0)
+
+
+@pytest.mark.parametrize('fault',['missing','corrupt','hash','missing_commitment','identity'])
+def test_original_capture_scope_proof_missing_or_changed_refuses_before_connect(native_profile_audit,fault):
+    f=native_profile_audit
+    path=f.output.parent.parent/'private'/'capture'/'original-account-scope.json'
+    if fault=='missing':path.unlink()
+    elif fault=='corrupt':path.write_text('{}')
+    elif fault=='hash':path.write_bytes(path.read_bytes().replace(b'DU000000001',b'DU000000002'))
+    elif fault=='missing_commitment':
+        f.proof.pop('capture_account_scope');(f.output/'shutdown_evidence.json').write_text(json.dumps(f.proof))
+    else:f.identity={**f.identity,'creation_token':'windows-filetime:999'}
+    with pytest.raises((RuntimeError,OSError)):
+        supervisor.final_broker_audit(expected_profile=capture.BENCHMARK_PROFILE,capture_evidence=f.output,
+            expected_runtime_identity=f.identity)
+    assert not f.instances and not f.packets
+
+
+def test_ordinary_audit_default_keeps_its_existing_behavior(native_profile_audit,monkeypatch):
+    f=native_profile_audit;f.state.account='U000000001'
+    monkeypatch.delenv('READONLY_BENCHMARK_CAPTURE',raising=False)
+    result=supervisor.final_broker_audit()
+    assert result['query_completed'] and result['disconnected']
+    assert f.packets.count('16')==1 and not f.packets.count('17')
+
+
+def test_capture_dependency_probe_caps_and_drains_noisy_imports_before_admission(tmp_path):
+    import os,sys
+    from scripts.certification.readonly_cache_probe import run_cache_probe
+    startup=tmp_path/'startup';startup.mkdir();package=startup/'yfinance';package.mkdir()
+    (package/'__init__.py').write_text('')
+    (package/'cache.py').write_text("print('PRIVATE_DEPENDENCY_DETAIL'*60000,flush=True)\n_readonly_cache_isolated=True\n_readonly_cache_locations=[]\n")
+    (startup/'sitecustomize.py').write_text("import sys\ndef no_network(event,args):\n    if event in ('socket.connect','socket.bind','socket.getaddrinfo'):raise AssertionError('Network forbidden')\nsys.addaudithook(no_network)\ndef probe_stage(stage):pass\n")
+    evidence=tmp_path/'private-probe';evidence.mkdir()
+    child_env=dict(os.environ,PYTHONPATH=os.pathsep.join((str(startup),str(Path(__file__).resolve().parents[1]))),
+        PR1108_YFINANCE_CACHE=str(tmp_path/'cache'))
+    with pytest.raises(RuntimeError,match='logs incomplete or over limit'):
+        run_cache_probe(sys.executable,Path(__file__).resolve().parents[1],evidence,child_env,require_capture_dependencies=True)
+    result=json.loads((evidence/'child-cache-probe.json').read_text())
+    assert result['child_exited'] and result['exit_code']==0 and not result['timed_out']
+    assert result['capture_log_readers_complete'] and not result['retention_complete']
+    assert (evidence/'child-cache.stdout.log').stat().st_size==512*1024
+    assert (evidence/'child-cache.stderr.log').stat().st_size<=512*1024
+
+
+
+def test_actual_profile_finalization_persists_audit_scope_privately_only(native_profile_audit,monkeypatch):
+    from test_pr1090_p1_repairs import Process
+    f=native_profile_audit
+    process=Process([0])
+    process.runtime_identity={**f.identity,'argv':['python','-m',
+        'scripts.certification.pr1040_real_readonly_runtime_observation_adapter','--benchmark-capture']}
+    process.launcher_identity=process.runtime_identity
+    proof=shutdown.ShutdownEvidence(runtime_profile=capture.BENCHMARK_PROFILE)
+    proof.record('GRACEFUL_STOP_REQUESTED',completed=True);proof.record('SHUTDOWN_STARTED',completed=True)
+    for name in shutdown.BENCHMARK_REQUIRED_HOOKS:proof.attempt(name,lambda:True)
+    proof.record('SHUTDOWN_COMPLETE',completed=True);proof.record('TERMINAL_FLUSHED',completed=True)
+    payload=proof.payload();payload.update(pid=process.pid,process_identity=process.runtime_identity,
+        capture_account_scope=f.proof['capture_account_scope'])
+    (f.output/'shutdown_evidence.json').write_text(json.dumps(payload))
+    monkeypatch.setattr(supervisor,'benchmark_conflict_check',lambda root:{'completed':True,'runtimes':[]})
+    private=f.output.parent.parent/'private'/'supervisor';private.mkdir()
+    result=supervisor.stop_and_finalize(process,[],[],f.output,expected_profile=capture.BENCHMARK_PROFILE,
+        private_output=private,graceful_timeout=.1,terminate_timeout=.1,kill_timeout=.1,reader_timeout=.1)
+    assert result==0
+    public=json.loads((f.output/'terminal_evidence.json').read_text())
+    assert 'private_account_scope' not in public['final_broker_audit']
+    private_audit=json.loads((private.parent/'capture'/'final-audit-private.json').read_text())
+    assert private_audit['private_account_scope']['observed_accounts']==['DU000000001']
+    assert private_audit['query_completed'] and private_audit['disconnected']

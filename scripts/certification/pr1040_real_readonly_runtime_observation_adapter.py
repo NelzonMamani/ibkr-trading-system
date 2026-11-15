@@ -2264,7 +2264,7 @@ def collect_benchmark_capture(*, manager, private_directory, shared_directory, _
             with client._lock:
                 original_accounts = tuple(client._managed_accounts)
             original_window = _benchmark_scope(manager, client, epoch, generation, expected_accounts=original_accounts)
-            benchmark_private_write(private_directory,"original-account-scope.json",benchmark_json_bytes(
+            summary["account_scope"] = benchmark_private_write(private_directory,"original-account-scope.json",benchmark_json_bytes(
                 {"accounts":original_accounts,"client_id":client.client_id,"SDK_client_id":client.clientId,
                  "connection_epoch":epoch,"scope":"ORIGINAL_NATIVE_MANAGED_ACCOUNTS"}))
             market = manager.get_market_data_client()
@@ -2482,6 +2482,11 @@ def run_benchmark_capture_entrypoint():
         proof.record("SHUTDOWN_COMPLETE", completed=all(x["completed"] for x in proof.hooks))
         proof.record("TERMINAL_FLUSHED", completed=True)
         payload = proof.payload()
+        source_summary = output/"benchmark-capture-summary.json"
+        if source_summary.exists():
+            # Commitment was issued from the original managed-account callback
+            # scope before any data acquisition, not selected by the auditor.
+            payload["capture_account_scope"] = json.loads(source_summary.read_text()).get("account_scope")
         try:
             benchmark_private_write(private,"shutdown-private.json",benchmark_json_bytes(payload))
         except Exception:

@@ -200,7 +200,50 @@ def no_ross_runtime_remains(evidence_path=None):
     return evidence["completed"] and not evidence["runtimes"]
 
 
-def final_broker_audit(*, observer_factory=None):
+def _capture_audit_original_accounts(directory, runtime_identity):
+    import hashlib
+    directory = Path(directory)
+    if not isinstance(runtime_identity, dict) or type(runtime_identity.get("pid")) is not int or not runtime_identity.get("creation_token"):
+        raise RuntimeError("Original capture runtime identity unverified")
+    proof = json.loads((directory/"shutdown_evidence.json").read_text())
+    if proof.get("runtime_profile") != "BENCHMARK_CAPTURE_V1" or proof.get("process_identity") != runtime_identity:
+        raise RuntimeError("Original capture profile/process differs")
+    commitment = proof.get("capture_account_scope")
+    if (not isinstance(commitment, dict) or set(commitment) != {"bytes","sha256"}
+            or type(commitment["bytes"]) is not int or not 0 < commitment["bytes"] <= 4096
+            or not isinstance(commitment["sha256"],str) or not re.fullmatch(r"[0-9a-f]{64}",commitment["sha256"])):
+        raise RuntimeError("Original capture account commitment unavailable")
+    private = directory.parent.parent/"private"/"capture"/"original-account-scope.json"
+    if private.is_symlink() or private.parent.is_symlink() or private.stat().st_size != commitment["bytes"]:
+        raise RuntimeError("Original capture account source differs")
+    raw = private.read_bytes()
+    if hashlib.sha256(raw).hexdigest() != commitment["sha256"]:
+        raise RuntimeError("Original capture account source hash differs")
+    source = json.loads(raw)
+    if (set(source) != {"accounts","client_id","SDK_client_id","connection_epoch","scope"}
+            or source["scope"] != "ORIGINAL_NATIVE_MANAGED_ACCOUNTS"
+            or type(source["client_id"]) is not int or source["client_id"] != 71
+            or type(source["SDK_client_id"]) is not int or source["SDK_client_id"] != 71
+            or type(source["connection_epoch"]) is not int or source["connection_epoch"] < 0
+            or not isinstance(source["accounts"],list) or len(source["accounts"]) != 1
+            or not isinstance(source["accounts"][0],str) or re.fullmatch(r"DU[0-9]+",source["accounts"][0]) is None):
+        raise RuntimeError("Original capture PAPER account scope unavailable")
+    return tuple(source["accounts"])
+
+
+def _capture_audit_scope(client, expected_accounts, epoch):
+    with client._lock:
+        if (type(client.client_id) is not int or client.client_id != 71
+                or type(client.clientId) is not int or client.clientId != 71
+                or type(epoch) is not int or epoch < 0
+                or type(client._position_connection_epoch) is not int or client._position_connection_epoch != epoch
+                or client._stop_event.is_set() or not client.isConnected()
+                or not client._managed_accounts_event.is_set()
+                or tuple(client._managed_accounts) != expected_accounts):
+            raise RuntimeError("Audit original PAPER account/client scope unavailable or changed")
+
+
+def final_broker_audit(*, observer_factory=None, expected_profile=None, capture_evidence=None, expected_runtime_identity=None):
     """Fresh end-marker-confirmed query on a separate READ_ONLY audit client."""
     from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
     from src.config.runtime_config import resolve_ibkr_connection
@@ -208,6 +251,12 @@ def final_broker_audit(*, observer_factory=None):
     host, port, client_id, mode = resolve_ibkr_connection()
     if mode != "READ_ONLY":
         raise RuntimeError("Final audit requires READ_ONLY")
+    expected_accounts = None
+    if expected_profile is not None:
+        if (expected_profile != "BENCHMARK_CAPTURE_V1" or host != "127.0.0.1"
+                or type(port) is not int or port != 7497 or type(client_id) is not int or client_id != 71):
+            raise RuntimeError("Explicit capture audit scope differs")
+        expected_accounts = _capture_audit_original_accounts(capture_evidence, expected_runtime_identity)
     client = IbkrClient(host=host, port=port, client_id=client_id,
                         market_data_type="DELAYED", snapshot_timeout_seconds=10, readonly_enabled=True)
     client.readonly_enabled = True
@@ -219,6 +268,14 @@ def final_broker_audit(*, observer_factory=None):
             observer = observer_factory(client)
             observer.__enter__()
         client.connect()
+        epoch = client._position_connection_epoch if expected_profile is not None else None
+        if expected_profile is not None:
+            # A completed empty/foreign/multiple bootstrap is not refreshed to
+            # obtain a favorable result. Missing bootstrap permits ONE existing
+            # bounded managed-account read and no polling/query fallback.
+            if not client._managed_accounts_event.is_set():
+                client.get_primary_account(timeout_seconds=10)
+            _capture_audit_scope(client, expected_accounts, epoch)
         client._open_orders_event.clear()
         client._open_orders_snapshot = {}
         result["connected_before_query"] = client.is_connected()
@@ -227,12 +284,18 @@ def final_broker_audit(*, observer_factory=None):
         if not result["connected_before_query"] or not result["network_thread_alive_before_query"]:
             raise RuntimeError("Final audit transport unavailable before query")
         query_started = time.monotonic()
+        if expected_profile is not None:
+            _capture_audit_scope(client, expected_accounts, epoch)
         client.reqAllOpenOrders()
+        if expected_profile is not None:
+            _capture_audit_scope(client, expected_accounts, epoch)
         if observer_factory is None:
             result["end_received"] = bool(client._open_orders_event.wait(timeout=10))
         else:
             from src.core.acquisition import wait_event
             result["end_received"] = bool(wait_event(client._open_orders_event, 10))
+        if expected_profile is not None:
+            _capture_audit_scope(client, expected_accounts, epoch)
         result["elapsed_seconds"] = time.monotonic() - query_started
         result["connected_after_wait"] = client.is_connected()
         result["network_thread_alive_after_wait"] = bool(thread and thread.is_alive())
@@ -252,6 +315,13 @@ def final_broker_audit(*, observer_factory=None):
             if isinstance(exc, (AcquisitionCancelled, AcquisitionDeadlineExceeded)):
                 raise
     finally:
+        if expected_profile is not None:
+            with client._lock:
+                result["private_account_scope"] = {"original_capture_accounts":expected_accounts,
+                    "observed_accounts":tuple(client._managed_accounts),
+                    "managed_accounts_end_received":client._managed_accounts_event.is_set(),
+                    "native_client_id":client.client_id,"SDK_client_id":client.clientId,
+                    "connection_epoch":client._position_connection_epoch}
         if observer is not None:
             try:
                 finalizing = getattr(observer, "audit_finalization", None)
@@ -276,8 +346,9 @@ def final_broker_audit(*, observer_factory=None):
     return result
 
 
-def _capture_inner(pipe, path):
-    private_capture = os.environ.get("READONLY_BENCHMARK_CAPTURE") == "BENCHMARK_CAPTURE_V1"
+def _capture_inner(pipe, path, *, bounded_private=None):
+    private_capture = (os.environ.get("READONLY_BENCHMARK_CAPTURE") == "BENCHMARK_CAPTURE_V1"
+                       if bounded_private is None else bounded_private)
     if private_capture:
         from scripts.certification.pr1040_real_readonly_runtime_observation_adapter import _BoundedPrivateText
         with path.open("xb") as file:
@@ -304,9 +375,9 @@ def _capture_inner(pipe, path):
             pipe.close()
 
 
-def _capture(pipe, path, errors):
+def _capture(pipe, path, errors, *, bounded_private=None):
     try:
-        _capture_inner(pipe, path)
+        _capture_inner(pipe, path, **({"bounded_private":bounded_private} if bounded_private is not None else {}))
     except BaseException as exc:
         errors.append(type(exc).__name__)
 
@@ -457,7 +528,8 @@ def stop_and_finalize(process, readers, capture_errors, output, *, expected_prof
         from scripts.certification.pr1040_real_readonly_runtime_observation_adapter import benchmark_private_write, benchmark_json_bytes, benchmark_private_console
         benchmark_conflict_check(output.parent.parent)
         with benchmark_private_console(Path(private_output) / "audit"):
-            raw = final_broker_audit()
+            raw = final_broker_audit(expected_profile=expected_profile, capture_evidence=output,
+                expected_runtime_identity=state["runtime_identity"] if state["runtime_identity_verified"] else None)
         benchmark_private_write(output.parent.parent/"private"/"capture", "final-audit-private.json", benchmark_json_bytes(raw))
         # Exact status/count/mutation allowlist; no orders or broker error text.
         return {key: raw.get(key) for key in ("query_completed", "disconnected", "query_type",

@@ -5,6 +5,8 @@ from pathlib import Path
 import subprocess
 import sys
 import time
+import threading
+from contextlib import ExitStack
 
 
 def run_cache_probe(python, repo, evidence, env, *, timeout=30, cleanup=5, require_news_dependencies=False, require_capture_dependencies=False):
@@ -59,11 +61,27 @@ def run_cache_probe(python, repo, evidence, env, *, timeout=30, cleanup=5, requi
                'trace_path': trace.name, 'started_utc_epoch_ns': time.time_ns()}
     started = time.monotonic()
     process = None
+    readers = []
+    reader_errors = []
     try:
         # Direct files retain partial output even if startup never reaches -c.
         # No pipe readers or unbounded communicate() after timeout.
-        with (evidence / receipt['stdout_path']).open('xb') as out, (evidence / receipt['stderr_path']).open('xb') as err:
-            process = subprocess.Popen([python, *flags, body], cwd=repo, env=child_env, stdout=out, stderr=err)
+        with ExitStack() as stack:
+            if require_capture_dependencies:
+                out, err = subprocess.PIPE, subprocess.PIPE
+            else:
+                out = stack.enter_context((evidence / receipt['stdout_path']).open('xb'))
+                err = stack.enter_context((evidence / receipt['stderr_path']).open('xb'))
+            process = subprocess.Popen([python, *flags, body], cwd=repo, env=child_env, stdout=out, stderr=err,
+                **({'text':True,'encoding':'utf-8','errors':'replace'} if require_capture_dependencies else {}))
+            if require_capture_dependencies:
+                # Reuse the maintained capped/draining pipe owner. This is
+                # profile-only; ordinary probe file behavior remains unchanged.
+                from scripts.certification.pr1090_terminal_observation_supervisor import _capture
+                readers = [threading.Thread(target=_capture, args=(pipe,evidence/receipt[name+'_path'],reader_errors),
+                    kwargs={'bounded_private':True}, daemon=True)
+                    for name,pipe in (('stdout',process.stdout),('stderr',process.stderr))]
+                for reader in readers:reader.start()
             receipt['pid'] = process.pid
             try:
                 process.wait(timeout=max(0, timeout - (time.monotonic() - started)))
@@ -81,6 +99,11 @@ def run_cache_probe(python, repo, evidence, env, *, timeout=30, cleanup=5, requi
                         receipt['cleanup_timed_out'] = True
                 receipt['exit_code'] = process.poll()
                 receipt['child_exited'] = receipt['exit_code'] is not None
+                if require_capture_dependencies:
+                    for reader in readers:reader.join(timeout=cleanup)
+                    receipt['capture_log_readers_complete'] = all(not reader.is_alive() for reader in readers)
+                    receipt['capture_log_errors'] = list(reader_errors)
+                    receipt['retention_complete'] = receipt['capture_log_readers_complete'] and not reader_errors
     except BaseException as exc:
         receipt['error_type'] = type(exc).__name__
         raise
@@ -100,6 +123,8 @@ def run_cache_probe(python, repo, evidence, env, *, timeout=30, cleanup=5, requi
         temporary = target.with_suffix('.tmp')
         temporary.write_text(json.dumps(receipt, indent=2), encoding='utf-8')
         temporary.replace(target)
+    if require_capture_dependencies and receipt.get('retention_complete') is not True:
+        raise RuntimeError('Private capture dependency logs incomplete or over limit; no runtime launch.')
     if receipt['timed_out']:
         raise subprocess.TimeoutExpired([python, *flags, '<cache-isolation-probe>'], timeout)
     if not receipt['child_exited'] or receipt['exit_code'] != 0 or 'CHILD_CACHE_ISOLATION_VERIFIED' not in receipt.get('stdout', ''):
