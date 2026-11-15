@@ -1915,3 +1915,39 @@ private raw evidence, expected-profile cleanup and all fail-closed gates apply.
 No P02 admission, ATR numerical bounds, native entry/management, cost/profit
 claim or operational enrollment is granted. PAPER_READY=NO;
 PAPER_READINESS_GATE=FAIL.
+
+### Adopted resource-bound refinement before implementation — 2026-11-15
+
+Independent source review demonstrated cache amplification from malformed original
+qualification metadata: a scaled48KiB source quota reached50,353 bytes after an
+unwrapped canonical-reference cache publication (1FAIL/3boundaryPASS/.91s).
+Primary-exchange enlargement alone did NOT reproduce it (1PASS/.77s). These are
+controlled original Native callback fixtures, not observed real market data.
+Existing date-prefix acceptance can also preserve a large original literal in
+the reference payload; posthoc size inspection cannot establish a hard bound.
+
+Under delegated authority, after independent complete design CLEAR, adopt these
+NEW capture resource/source-shape choices BEFORE their implementation:
+- The EXISTING PersistentReferenceCache gains an optional per-instance max_bytes;
+  None preserves ordinary behavior. Benchmark instances use256KiB. A prospective
+  copied payload is serialized to exact UTF-8 bytes and checked BEFORE in-memory
+  publication or any temporary file. The bounded path writes those EXACT bytes
+  in binary (no Windows newline expansion), then atomically replaces and only
+  then publishes the new in-memory state. Refusal leaves prior cache unchanged.
+- Reserve1MiB BEFORE quota-wrapped source writes within the existing48MiB source
+  component (effective wrapped ceiling47MiB, conservatively counting existing
+  cache bytes). Two fresh256KiB conid-key cache files plus one256KiB atomic temp
+  fit that reserve. The finite log partition is15MiB, with1MiB left for small
+  fixed receipts/metadata; total private retention stays at most64MiB.
+- Original serialized qualification/identity metadata has a64KiB admission limit
+  BEFORE daily/reference processing. Retain original quota-checked raw evidence
+  first, then refuse oversize; do not rewrite a conId or infer an SDK integer
+  range without authority. For this actual Native1day/formatDate1 request, daily
+  source dates must be exact valid eight-ASCII-digit YYYYMMDD. Retain raw first;
+  malformed/trailing literals refuse before the existing reference consumer,
+  rather than being stripped/converted to favorable dates.
+These are storage/source-protocol bounds, not price, ATR, confidence, profitability
+or strategy calibration. No new cache/acquisition/controller engine or ledger.
+Ordinary resolver/probe/history defaults and all trading/ownership vetoes remain.
+No actual acquisition, observer, broker/provider or recovery action occurred.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
