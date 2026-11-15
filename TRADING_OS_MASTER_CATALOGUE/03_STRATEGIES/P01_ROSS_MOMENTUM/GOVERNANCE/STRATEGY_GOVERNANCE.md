@@ -2014,3 +2014,61 @@ all five ownership vetoes and `PAPER_READY=NO; PAPER_READINESS_GATE=FAIL` remain
 unchanged. Next bounded action: independently review this fixture-only delta,
 finish required final-head CI, integrate the verified tree, and publish the
 accepted-source-pinned capture caller without launching it.
+
+
+### PR1235 Windows child-startup fixture correction — 2026-11-15
+
+Initial-head CI43771634891 completed Windows full suite job132988675929:
+**64 failed, 8358 passed, 2 skipped**, 6312 warnings, 2989.96s. Its downstream
+`windows-offline` job133003612765 correctly failed. Preserve this alongside the
+initial Linux62-failure receipt. Windows included the same49 history/eight
+capture/five downstream failures, plus two child-dependency probe failures.
+No completed job was manually rerun or cancelled.
+
+The fixture-isolation head `c38dfe166c7058572e3872f7e7ad8ee429e86d48`
+(tree `d90be96a060568272456d6a0c24010b385a65ed6`) independently cleared
+[review5913443165](https://github.com/NelzonMamani/ibkr-trading-system/pull/1235#pullrequestreview-5913443165).
+Seven independently ordered regression controls passed in3.75s (four existing
+warnings). Automatic CI43773850842 Linux job132995556621 passed **8423 passed,
+3 skipped**, four warnings, 809.65s at actual checkout
+`6e02f249acb36828388f92815d12852f94839371`; its ordered parents are accepted
+main `a38b057d18c3254c9c8dfe0e1899b398ba362056` then c38dfe16 and its tree
+matches d90be96a. Windows controlled-process job132995556594 passed, including
+52 actual PowerShell harness checks. That head's Windows full suite remains
+pending at this record; neither Linux nor controlled-process passes substitute
+for its outcome or subsequent changed-head CI.
+
+The two extra initial Windows failures were investigated separately. Their
+new test startup shim indiscriminately rejected socket.bind/connect. Both
+failures reproduce offline when Python's actual stdlib TCP socketpair fallback
+is selected: safe_import_ib_insync → ensure_event_loop → asyncio self-pipe →
+stdlib fallback listener bind → the custom test guard's AssertionError. This
+controlled reproduction is not the unretained original Windows child stack.
+Original Windows child stderr was not printed by the tests; no unseen stack or
+production clock/dependency defect is claimed. Installed timezone data was
+present in the original Windows environment.
+
+Repair only the new capture test module: reuse the exact maintained
+`tests/offline/sitecustomize.py` boundary and its existing strictly correlated
+stdlib socketpair exception, rather than inventing a loopback allowance. Keep
+normal plus forced real-fallback cases, controlled absent ibapi/ib_insync
+failures, successful child exit, capped/draining output and retention refusal
+assertions. Require the actual controlled missing-module reason, and print
+bounded synthetic receipt/stderr diagnostics on failure. The maintained offline
+guard and all production owners remain byte-unchanged.
+
+Causal evidence: original shim plus forced fallback **2 failed**, 1.28s;
+corrected normal/fallback available/missing-SDK/noisy-cap controls **8 passed**,
+2.80s (108 deselected; overlapping controls, not added to a full-suite total).
+Existing maintained offline socketpair/external/broker/DNS/datagram/native-curl/
+grandchild controls **24 passed**, 3.33s. Four additional parametrized controls
+bring expected normal collection to8430 (143 added over8287); actual required
+final-head CI remains authoritative. Diff/compile checks passed. No observer,
+provider/broker acquisition, production networking exception, operational action
+or readiness upgrade occurred.
+
+Next bounded action remains exact-head delta review and complete automatic
+required final-head CI, verified integration and immutable capture-only caller
+publication. Frozen Ross3f48bf3f/c65/calendar, actual P03-source/active-handoff
+closure, P02 vetoes, five ownership vetoes and
+`PAPER_READY=NO; PAPER_READINESS_GATE=FAIL` remain intact.

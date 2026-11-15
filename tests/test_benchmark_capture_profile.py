@@ -403,15 +403,37 @@ def test_retirement_observation_never_clears_unknown_active_request_state(compon
     assert component.native._active_market_req_ids=={999}
 
 
+def write_capture_probe_startup(startup, *, force_fallback):
+    # Reuse the maintained hard boundary, including its exact stdlib-only
+    # socketpair exception. A blanket bind/connect ban breaks Windows asyncio.
+    guard = (Path(__file__).resolve().parent/'offline'/'sitecustomize.py').read_bytes()
+    suffix = b"\ndef probe_stage(stage):pass\n"
+    if force_fallback:
+        # Exercise the actual Windows TCP fallback on Linux too, without
+        # changing the interpreter's event-loop policy or network permissions.
+        suffix += b"import socket\nsocket.socketpair=socket._fallback_socketpair\n"
+    (startup/'sitecustomize.py').write_bytes(guard+suffix)
+
+
+def capture_probe_diagnostic(evidence):
+    parts = []
+    for name in ('child-cache-probe.json','child-cache.stderr.log'):
+        path = evidence/name
+        if path.exists():
+            parts.append(name+': '+path.read_text(encoding='utf-8',errors='replace')[-8192:])
+    return '\n'.join(parts)
+
+
+@pytest.mark.parametrize('force_fallback',[False,True])
 @pytest.mark.parametrize('missing',[None,'ibapi','ib_insync'])
-def test_effective_child_dependencies_refuse_before_network_admission(tmp_path,missing):
+def test_effective_child_dependencies_refuse_before_network_admission(tmp_path,missing,force_fallback):
     import os,sys
     from scripts.certification.readonly_cache_probe import run_cache_probe
     startup=tmp_path/'startup';startup.mkdir()
     package=startup/'yfinance';package.mkdir()
     (package/'__init__.py').write_text('')
     (package/'cache.py').write_text('_readonly_cache_isolated=True\n_readonly_cache_locations=[]\n')
-    (startup/'sitecustomize.py').write_text("import sys\ndef no_network(event,args):\n    if event in ('socket.connect','socket.bind','socket.getaddrinfo'):raise AssertionError('Network forbidden')\nsys.addaudithook(no_network)\ndef probe_stage(stage):pass\n")
+    write_capture_probe_startup(startup,force_fallback=force_fallback)
     if missing:(startup/(missing+'.py')).write_text("raise ModuleNotFoundError('controlled child-only SDK absence')\n")
     evidence=tmp_path/'private-probe';evidence.mkdir()
     child_env=dict(os.environ,PYTHONPATH=os.pathsep.join((str(startup),str(Path(__file__).resolve().parents[1]))),
@@ -420,11 +442,16 @@ def test_effective_child_dependencies_refuse_before_network_admission(tmp_path,m
         with pytest.raises(RuntimeError):run_cache_probe(sys.executable,Path(__file__).resolve().parents[1],evidence,
             child_env,require_capture_dependencies=True)
     else:
-        result=run_cache_probe(sys.executable,Path(__file__).resolve().parents[1],evidence,
-            child_env,require_capture_dependencies=True)
-        assert 'CHILD_CAPTURE_DEPENDENCIES_VERIFIED' in result['stdout']
+        try:
+            result=run_cache_probe(sys.executable,Path(__file__).resolve().parents[1],evidence,
+                child_env,require_capture_dependencies=True)
+        except RuntimeError as exc:
+            raise AssertionError(capture_probe_diagnostic(evidence)) from exc
+        assert 'CHILD_CAPTURE_DEPENDENCIES_VERIFIED' in result['stdout'], capture_probe_diagnostic(evidence)
     result=json.loads((evidence/'child-cache-probe.json').read_text())
-    assert result['child_exited'] and not result['timed_out']
+    assert result['child_exited'] and not result['timed_out'], capture_probe_diagnostic(evidence)
+    if missing:
+        assert 'controlled child-only SDK absence' in (evidence/'child-cache.stderr.log').read_text(encoding='utf-8',errors='replace'), capture_probe_diagnostic(evidence)
     assert result['required_capture_dependencies'] and not result['required_news_dependencies']
     assert result['exit_code']==(1 if missing else 0)
 
@@ -549,20 +576,21 @@ def test_ordinary_audit_default_keeps_its_existing_behavior(native_profile_audit
     assert f.packets.count('16')==1 and not f.packets.count('17')
 
 
-def test_capture_dependency_probe_caps_and_drains_noisy_imports_before_admission(tmp_path):
+@pytest.mark.parametrize('force_fallback',[False,True])
+def test_capture_dependency_probe_caps_and_drains_noisy_imports_before_admission(tmp_path,force_fallback):
     import os,sys
     from scripts.certification.readonly_cache_probe import run_cache_probe
     startup=tmp_path/'startup';startup.mkdir();package=startup/'yfinance';package.mkdir()
     (package/'__init__.py').write_text('')
     (package/'cache.py').write_text("print('PRIVATE_DEPENDENCY_DETAIL'*60000,flush=True)\n_readonly_cache_isolated=True\n_readonly_cache_locations=[]\n")
-    (startup/'sitecustomize.py').write_text("import sys\ndef no_network(event,args):\n    if event in ('socket.connect','socket.bind','socket.getaddrinfo'):raise AssertionError('Network forbidden')\nsys.addaudithook(no_network)\ndef probe_stage(stage):pass\n")
+    write_capture_probe_startup(startup,force_fallback=force_fallback)
     evidence=tmp_path/'private-probe';evidence.mkdir()
     child_env=dict(os.environ,PYTHONPATH=os.pathsep.join((str(startup),str(Path(__file__).resolve().parents[1]))),
         PR1108_YFINANCE_CACHE=str(tmp_path/'cache'))
     with pytest.raises(RuntimeError,match='logs incomplete or over limit'):
         run_cache_probe(sys.executable,Path(__file__).resolve().parents[1],evidence,child_env,require_capture_dependencies=True)
     result=json.loads((evidence/'child-cache-probe.json').read_text())
-    assert result['child_exited'] and result['exit_code']==0 and not result['timed_out']
+    assert result['child_exited'] and result['exit_code']==0 and not result['timed_out'], capture_probe_diagnostic(evidence)
     assert result['capture_log_readers_complete'] and not result['retention_complete']
     assert (evidence/'child-cache.stdout.log').stat().st_size==512*1024
     assert (evidence/'child-cache.stderr.log').stat().st_size<=512*1024
