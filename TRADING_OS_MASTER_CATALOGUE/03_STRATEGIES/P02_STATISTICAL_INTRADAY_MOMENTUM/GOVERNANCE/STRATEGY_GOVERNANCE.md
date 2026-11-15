@@ -470,6 +470,488 @@ broker/provider, operational recovery or readiness upgrade.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
 
 
+## 2026-11-14 — Batch B PROPOSAL: observable local-state cooldown (NOT ADOPTED)
+
+This proposes NEW project policy, separate from the adopted historical-entry
+observation above. It is default-off and is not implemented or enrolled. It
+requires independent contract review and delegated adoption before source work.
+It proposes an explicitly named alternative local basis for the P02 cooldown
+condition; it does not reinterpret the old API as complete history. Existing
+`p02_entry_cooldown_snapshot` must retain coverage UNKNOWN / eligible False.
+
+The proposed contract is `P02_OBSERVABLE_LOCAL_COOLDOWN_V1`. Any future opt-in
+selects this policy basis, not a capture-complete flag. Initial proof/enrollment
+is restricted to explicitly synthetic TEST/PAPER scope; operational defaults and
+other modes remain off. Adopting this component contract would not adopt the
+native entry bridge, numerical ATR admission bounds, SF/XL/invalidation mapping,
+management or operational permission. All five ownership vetoes remain.
+
+### Predicate and scope
+
+Keep `ActivationSpec.cooldown_seconds=120` as the sole duration owner. Each
+distinct validated, durably accounted positive P02 ENTRY_FILL, including an
+entry partial, contributes its ORIGINAL authoritative execution timestamp. Use
+the maximum such timestamp. Replayed duplicates and late older fills do not
+renew from callback, registration, accounting, query or read time. Proposals,
+reservations, acknowledgement-only, rejection/cancellation, exits/reductions,
+session/day transitions and restart neither trigger nor clear cooldown. P02's
+own numeric2R/independent stop remain unrelated to this entry-timing predicate.
+
+Bind exact policy/execution aliases `statistical_intraday_momentum` /
+`StatisticalIntradayMomentum`, actual account, qualified positive conId with
+consistent symbol/STK/currency, actual effective PAPER mode and current owner
+instances. Never infer an account from configuration, a strategy from trader
+type, or a security from symbol alone. Missing/ambiguous binding is unavailable.
+
+The proposed local predicate is true AS OF a coherent owner/journal read only
+when every observed relevant local record is classifiable and settled, and
+either no validated local entry is present or its age is at least120 seconds.
+Age below120 is ACTIVE; exact equality120 is locally elapsed. A future timestamp,
+invalid assessment clock, missing/unknown run scope, malformed or contradictory
+relevant entry, persistence uncertainty, pending/in-flight/uncommitted factual
+intake or unresolved owned request makes the local predicate unavailable/false.
+An independently valid recent entry can still be reported as a known ACTIVE
+veto despite other uncertainty. Fully bound foreign scopes may be excluded;
+ambiguous rows must not be silently classified as foreign or empty.
+
+This deliberately narrower local choice says nothing about uncaptured broker
+executions, finite broker history, late unseen messages or lifetime request
+completeness. `execution_snapshot` / `execDetailsEnd` remain REQUEST_ONLY. Empty
+local state is not claimed to prove an empty broker interval. No capture flag,
+genesis/uptime clock, second fill ledger or inferred broker guarantee is added.
+
+### Existing owners and proposed immutable evidence
+
+Use the existing lifecycle/storage/execution/callback owners; no new manager,
+scheduler, database or cooldown ledger. A future composable read/guard must
+detach and fingerprint the relevant current/prior-run canonical events and
+snapshots, run provenance, durable native/relationship ownership and progress,
+and corresponding current pending/uncertain accounting/callback state. Generic
+registration-time or best-effort rows without authoritative entry binding cannot
+become valid anchors or proof that all observed local records are settled.
+Restored raw native state remains inspection-only and quarantine stays active.
+
+An immutable local evidence token must identify the policy/version/configuration,
+account/security/mode, source-context/occurrence fingerprint, original entry IDs
+and timestamps, assessment, owning ExecutionEngine/TLE/StorageEngine and actual
+SQLite connection generation, existing native client OBJECT, client ID and
+connection epoch. Later consumption also binds the actual canonical decision
+and exact prospective order/contract/quantity/entry/stop/target. Object/generation
+witnesses are process-local, not serialized permissions. A same-ID/epoch client
+replacement, reopened/replaced storage owner, restart or account/mode change
+invalidates the token. A path or numeric client ID alone is insufficient.
+
+`PRAGMA data_version`, row counts, maximum event time, callback diagnostic counts
+or a content hash alone are NOT a version protocol: own-connection writes and
+unpublished callbacks can escape them, and a read transaction can remain pinned
+to an old snapshot. Durable content must be re-read through the existing owner;
+any database version is supplemental to actual owner identity and participating
+mutation revisions. The fingerprint is audit evidence, not source completeness.
+
+### Exact participating revisions and mutation APIs (proposed, not implemented)
+
+The ExecutionEngine owns one process-local local-cooldown authority, bound once
+to its actual NativeClient, TLE, StorageEngine and SQLiteStore instances. This is
+a small guard inside those existing owners, not a manager, source-history flag
+or second ledger. An owner without the following participation is unsupported
+and cannot issue a positive token. Its initial state is dirty, never known empty.
+The proposed owner APIs and revisions are explicit:
+
+- NativeClient `begin_local_intake(kind)` / `finish_local_intake(ticket, outcome)`
+  change ingress revision I and the in-flight set. Begin runs at the FIRST owned
+  callback operation, before argument parsing, account registration, diagnostic
+  counters, request filtering, cache publication or listener invocation. Include
+  `execDetails`, `execDetailsEnd`, `orderStatus`, `openOrder`/End, error and
+  connection lifecycle/account-ownership callbacks, including ignored, malformed
+  and conflicting intake. Connect/disconnect/rebind also invalidate before
+  changing ownership. Finish runs in finally; an exception, ignored relevant
+  fact, correction or listener failure remains dirty rather than disappearing
+  when an in-flight counter reaches0. The current post-publication listener is
+  insufficient and its swallowed exception cannot settle intake.
+- ExecutionEngine `begin_local_mutation(kind, binding, parent_frame=None)` /
+  `finish_local_mutation(frame, outcome)` change owner revision E, in-flight
+  frames and dirty/uncertain state BEFORE changing native scope, retained native
+  or relationship requests, reservations, accounting/progress/quarantine, native
+  order ID or initial callback cache. `_retain_native_request`, native state
+  save/load, native-result preparation/drain, request result/terminal updates,
+  relationship updates and scope binding participate. Foreign scope is excluded
+  only after complete binding; unknown identity invalidates globally for this
+  authority. Existing capital/allocation reservation receipts are observed and
+  bound; this contract neither replaces their owners nor changes their policy.
+- TLE entry/exit/generic `apply_event`, `apply_entry_fill`, `apply_exit_fill`,
+  reconciliation/recovery, native feedback require/complete/uncertain, adapter
+  replacement and financial auxiliary mutations join the same frame BEFORE any
+  observable change; nested calls pass the SAME issuer-private frame. Revision
+  L and dirty state extend through durable acknowledgement/readback. Existing
+  `_persist_*_best_effort` catches must report failure to this authority before
+  retaining their existing behavior. A swallowed generic event/snapshot failure
+  therefore makes local eligibility unavailable; it is never accepted merely
+  because strict-native feedback happens to be complete.
+- StorageEngine/SQLiteStore lifecycle event/snapshot/native-state/run-scope and
+  relationship writers join revision S BEFORE relevant mutation and finish only
+  after their real commit/readback. This includes generic/best-effort writer
+  paths, not only `persist_native_lifecycle_feedback`. Store close/reopen/adapter
+  replacement invalidates. The enrolled connection AND its owned Cursor wrap
+  external execute/executemany/executescript at OPERATION ENTRY before execution,
+  including already-prepared cached statements; conservatively any external SQL
+  operation advances S/invalidates old evidence, even a read. Only the exact
+  issuer-owned read/mutation frame admits internal operations. Attribute/config
+  setter entry participates likewise. Authorizer prepare callbacks alone never
+  certify that outside-lease cached SQL/PRAGMA/config changes advanced S. A raw
+  OTHER-connection writer has no invented owner revision: its committed contents
+  are in the fresh read and SQLite exclusion prevents its intervening write.
+  Unknown/unclassifiable raw rows fail closed.
+  Relevant in-memory mutations must still use the participating owner frame;
+  exposing a mutable authoritative record to an unparticipating writer is an
+  unsupported configuration, not permission to trust a content hash.
+
+`settle_local_intake(ticket, committed_binding)` is issued only by the existing
+actual Core accounting/owned-request collector AFTER cache classification,
+canonical accounting, progress persistence and required truth/reconciliation
+settle that exact intake generation. It verifies actual owner records; it is not
+an input boolean. Identical duplicates can settle through those real owners and
+permit a NEW read, retaining original fill time. Contradictory corrections,
+unknown writes and listener failures retain the existing unresolved latches.
+A source intake whose relevant identity cannot be classified cannot settle as a
+foreign event. Current AND prior-run unresolved durable request/frame records
+are inspected; a restart/empty runtime map never clears them or quarantine.
+
+### Deterministic synchronization and SQLite fence
+
+There are two synchronization domains, with this fixed order and no inversion:
+
+1. I is a NativeClient-owned short lock around ingress revision/in-flight/dirty
+   bookkeeping ONLY. While holding I, never acquire the engine guard, native
+   cache lock, lifecycle lock, SQLite connection/transaction or SDK transport
+   lock, and never invoke a listener or arbitrary callback. It is released before
+   callback parsing/publication. Finish also uses I only. A guard acquisition
+   uses nonblocking I acquisition; busy means unavailable, with no retry loop.
+2. G is the ExecutionEngine-owned nonreentrant authorization/mutation gate.
+   Read/authorization acquisition is nonblocking. Normal owned mutations enter
+   G before touching relevant owner state and release in finally. Legitimate
+   nested owner work receives the same private mutation frame rather than
+   reacquiring G; a thread ID or RLock reentrancy grants no authority. Unrelated
+   reentrant mutation is rejected and invalidates the evidence. Callback ingress
+   NEVER waits for G: actual raw facts remain in the existing NativeClient cache,
+   I remains dirty, and the existing next collector cycle processes them. No
+   callback fact is discarded or marked accounted to make entry validation pass.
+3. Under G, copy required native cache facts with a nonblocking cache-lock
+   acquisition and release that cache lock immediately. Bookend the copy with I
+   observations; any intervening ingress/in-flight/dirty intake refuses the read.
+   Only then acquire the SQLite fence below; never hold the cache lock with SQL.
+   Read participating in-memory state only under G, using detached immutable
+   values. Caller-owned/cached mutable references cannot be token authority.
+4. The SQLite fence uses the SAME already-open original SQLiteStore connection;
+   no second connection, reopen, database creation or path-based same-file
+   attestation. Stdlib sqlite3 cannot attest an original backing file handle.
+   Explicit default-off TEST/PAPER opt-in creates an OPAQUE connection facade
+   from the existing SQLiteStore's first normal connection creation. The raw
+   original sqlite3.Connection stays issuer-private and is NEVER publicly exposed.
+   The facade is NOT a sqlite3.Connection subtype: plain external
+   `source.backup(store.connection)` therefore refuses TypeError before target
+   dispatch. This closes the proven PREEXISTING-backup bypass: a raw target can
+   accept BEGIN IMMEDIATE inside a backup progress callback, then the old backup
+   can continue writing past query_only/authorizer. A new-backup-into-an-already-
+   fenced-target refusal alone does not establish safety.
+   Default-off paths retain the normal raw connection and behavior. Preexisting
+   raw connections/escaped aliases are unsupported, never converted or reopened.
+   Keep check_same_threadTrue, actual creator identity, source owner and
+   generation. No lease constructs a store, inserts schema/run state, changes
+   journal mode, checkpoints or VACUUMs. SQLite sidecars are not another ledger.
+5. The facade has a strict supported API allowlist, no raw __getattr__ forwarding
+   or returned bound raw methods. execute/executemany/executescript/cursor return
+   ONLY issuer-owned cursor facades. cursor.connection and __enter__ return the
+   same connection facade; cursor operations/context/iteration return only
+   facade/detached values. Reject custom cursor factories BEFORE raw creation.
+   All raw cursors/handles stay private. Custom row factories are refused from
+   initial opt-in: SQLite passes the RAW Cursor to such callbacks, so recording
+   a flag after invocation is too late. Only builtin sqlite3.Row/default row
+   conversion is supported. No caller can acquire a positive 'now clean' witness
+   after prior raw exposure; unknown provenance stays unsupported.
+   Track outstanding public cursor/VM operations. Lease acquisition refuses a
+   pending/not-exhausted operation, including INSERT RETURNING or an unfinished
+   SELECT; no false in_transaction certificate stands in for completed stepping.
+   Actual owner materialization uses fresh trusted private cursors and fully
+   consumes/closes them under the issuer frame. No external cursor is reused.
+   The owner retains a permanent tracked internal authorizer router. Public
+   authorizer replacement/removal, custom functions/aggregates/window functions/
+   collations/progress/trace hooks, extension loading and custom factories refuse
+   before exposing/invoking an underlying raw API. Their attempt invalidates;
+   ordinary supported default behavior stays unchanged. blobopen, deserialize
+   and backup are forbidden, sticky-unsupported attempts in every phase; no raw
+   Blob/backup handle is ever issued. The facade's target type refusal also
+   covers a backup invoked on an arbitrary OTHER/plain source connection.
+   Track supported transaction/autocommit/isolation/setconfig/setlimit and
+   row/text configuration at operation entry; during a lease refuse BEFORE
+   invoking any underlying setter/API. Setters can mutate even when their
+   implicit COMMIT is denied; autocommitFalse/setconfig/setlimit may bypass the
+   authorizer. A failed setter invalidates rather than certifying unchanged
+   state. Close/replacement/interrupt invalidate; an interrupt can cancel a read
+   but never grant permission. serialize/getconfig/getlimit are read-only and
+   cannot confer authority; unsupported callbacks/actions still refuse.
+   This is a scoped owner facade, not a global SQLite interceptor or protection
+   from hostile private-attribute extraction outside supported source ownership.
+6. Under G, require creator-thread/exact connection ownership, no active caller
+   transaction, no pending cursor/VM/writer/mutation and no unsupported callback/
+   configuration or attempted forbidden API.
+   Read and retain the actual `busy_timeout`, `query_only` and authorizer/router
+   generation. Set busy_timeout0 BEFORE `BEGIN IMMEDIATE`, then enable query_only
+   and the restrictive authorizer phase before any final materialization. The
+   already-required pre-send native uncertain record must have COMMITTED before
+   acquisition; never move it into this transaction. The original connection's
+   `BEGIN IMMEDIATE` excludes writers on other connections to that database.
+7. During the fence, query_only prohibits writes even for already-prepared cached
+   statements. Re-register the owner router at the phase change to invalidate
+   cached preparation authorization as well. The active authorizer allows only
+   the required SELECT/READ/builtin FUNCTION/RECURSIVE read actions; it denies
+   write/DDL/transaction/savepoint/ATTACH/DETACH/PRAGMA mutations and all unneeded
+   opcodes. COMMIT, ROLLBACK and executescript's implicit transaction change are
+   refused except the exact private finally-release operation. No arbitrary
+   user SQL function, row factory or callback is invoked during materialization.
+   Source-owned facade API guards additionally refuse authorizer removal,
+   deserialize, close and transaction/config replacement during the lease.
+   Cursor/direct/generic/best-effort SQL cannot write past these same-connection
+   guards; best-effort exceptions still mark the owner dirty. Existing generic
+   writes outside the lease remain in the fresh read and source revisions.
+8. Reuse the existing coherent SELECT/materialization owner on this exact owned
+   transaction, without nested BEGIN/commit/rollback. Read current/prior-run
+   lifecycle events/snapshots, provenance and native/relationship progress fresh.
+   Validate detached local predicate, planned diff and E/L/S. Bookend with I
+   checks. An ambiguity/change/read error/interruption issues no lease. A failed
+   query never returns a fabricated empty success. A raw other-connection write
+   is either already visible in this fresh transaction or excluded until release.
+
+All guard/SQLite lock acquisition is fail-fast; normal connection timeout5s must
+not remain active for BEGIN. There is no lock backoff/retry or invented disk-I/O
+bound. In finally, the exact issuer enables only its own ROLLBACK, rolls back
+ONLY its transaction, restores query_only, busy_timeout and authorizer/router
+state exactly and verifies no active transaction and unchanged ownership. Then
+release G. Never commit or rollback caller work. Partial acquisition and cleanup
+failure invalidate; inability to verify restoration keeps the authority dirty
+and unavailable. No transaction is held for history queries, reconnect, ACK,
+arbitrary hooks or SDK send. No global SQL interceptor, new database/ledger,
+file-handle/VFS mechanism or SDK lock replacement is introduced.
+
+### Proposal, risk and exact own-request transition
+
+At proposal, process actual factual callbacks/accounting/reconciliation/protection
+first. `read_local_cooldown(scope, context, assessed_at)` acquires G and the above
+coherent fence, checks I/E/L/S and returns detached evidence only. It does not
+assert risk green. Its token has one private call-chain nonce and these phases:
+ISSUED -> RISK_BOUND -> PREPARED -> LEASED -> CONSUMED, or ABORTED. No phase or
+nonce is serialized, reusable, copyable or reconstructed after restart.
+
+At actual shared risk evaluation, `bind_local_cooldown_risk(token, decision)`
+performs another fresh coherent read at the real assessment time and binds the
+exact canonical decision/occurrence/context and immutable order specification.
+Any unrelated revision/content/source change aborts; this API cannot refresh a
+stale token to whichever state now happens to pass. A new proposal must start
+with ordinary factual processing. Other risk/truth/admission gates remain
+independent and can reject a locally elapsed/no-entry observation.
+
+Preparation intentionally changes state. `prepare_local_entry_transition`
+issues a private planned-mutation capability for THIS absent new client request
+only. It is valid in this single live call chain and records exact before/after
+records, issuer owner instances, generations and receipts for these edges:
+
+- No own reservation -> the actual capital/allocation owners' known-unsubmitted
+  reservation receipts, bound to exact decision/request/quantity and scope.
+- No retained native request -> the real newly retained DISPATCH_UNCERTAIN row,
+  original immutable request and progress, durably COMMITTED/acknowledged through
+  `_retain_native_request` / existing native-state owner BEFORE any final lease.
+- No native broker ID/cache facts -> the actual client's newly reserved unused
+  ID and its first empty event/execution cache. Before resetting a slot, prove
+  no prior cache/request/order identity exists. ID collision or existing facts
+  abort; never erase callbacks to fit the planned transition.
+
+Each owner transition advances its real revision and is admitted only while
+carrying this exact capability; the authority records that exact delta in the
+nonce. No arbitrary revision subtraction, pending-list exception or later hash
+refresh is allowed. Any callback ingress, unrelated owner mutation, different
+receipt/request/quantity/decision, extra row or unknown outcome aborts. The final
+coherent read must equal the original validated state PLUS those exact planned
+changes. The one own DISPATCH_UNCERTAIN row is permissible only via the live
+never-consumed capability, not because its durable text says uncertain. All other
+pending/uncertain/uncommitted requests remain blockers. None of these preparation
+steps is an ENTRY_FILL or changes the original120-second clock.
+
+Failure before dispatch preserves existing known-unsubmitted release semantics
+only where the real owners prove them. A nonce never authorizes clearing a
+failsafe/quarantine/uncertain record, replay, retry, rearm or broker ownership.
+
+### Final native-entry linearization and one-shot consumption
+
+After actual client resolution, propagate the private bound guard through the
+existing provider/broker/submitter to NativeClient's ordinary entry
+`before_submit(order_id, contract, order)` seam. Resolution may not implicitly
+connect or replace a client for this proof. Reconnection/replacement aborts.
+The hook calls `acquire_local_entry_lease` AFTER the required uncertain native
+record has committed and AFTER the real ID/cache preparation. It acquires G and
+the same-original-connection SQLite fence, reads/validates fresh state, exact
+order and scope, and records LEASED. Failure issues no lease. The existing hook alone is insufficient:
+returning ready and later calling an unguarded SDK method has a race. The lexical
+`submit_order` try/finally owns abandonment from hook invocation through guarded
+native entry: if the hook acquired LEASED but an exception, validation, wrapper
+or READ_ONLY refusal prevents `placeOrder` entry, it changes the nonce to ABORTED
+and releases that exact lease. The hook itself releases on partial acquisition
+failure before return. Entry cleanup and outer abandonment are issuer-bound and
+idempotent, so no branch leaks G/SQL or rearms a consumed/aborted nonce.
+
+The proposed NativeClient `placeOrder` ENTRY adapter therefore consumes the
+issuer-private lease, bound to that exact client/ID/call chain. Existing mutation
+audit and READ_ONLY guards remain active; unsupported/unguarded P02 calls refuse.
+The adapter uses invocation-private detached native Contract/Order descriptors
+matching the risk-bound immutable specification (including native defaults),
+never shared caller objects that another thread can mutate. With G/SQLite held,
+it obtains I nonblocking and compares current object/epoch/account, I in-flight
+and dirty state, I/E/L/S generations, exact prepared nonce and actual arguments.
+On equality it atomically changes LEASED -> CONSUMED at THIS actual immutable
+native mutation invocation entry; this is the authorization linearization point.
+A callback admitted BEFORE this point invalidates/blocks the invocation. A
+callback admitted AFTER it is a factual post-boundary operation: it invalidates
+future permissions and receives ordinary accounting priority, but does not
+retroactively authorize a cancellation/retry or claim the send did not happen.
+This boundary does not claim network-arrival ordering or broker atomicity.
+
+Immediately after consume, release I, then perform the exact owner ROLLBACK/
+configuration-restoration operation and release G in finally, BEFORE delegating
+to the existing audited EClient SDK body. Never close the original connection.
+Cleanup failure aborts without delegation; the nonce is already spent and safety state stays uncertain. No user hook, listener, parser, query,
+logging callback or SDK call occurs between compare-and-consume operations while
+I is held. No issuer may reuse the lease following rejection/exception. Existing
+SDK errors/unknown ACK/partial fills remain factual outcomes and never rearm it.
+
+The lease lifetime is thus `before_submit` acquisition THROUGH actual guarded
+`placeOrder` ENTRY and immediate fence cleanup, not through socket send/return
+or broker ACK. This is a deliberate precise replacement of the earlier draft's
+unsafe through-send wording. Pinned SDK Connection has a nonreentrant lock;
+`disconnect` invokes connectionClosed while holding it, and `sendMsg` acquires it
+without a bounded lock timeout. Holding G/I/cache/SQL through that SDK body risks
+lock inversion or unbounded fence retention. Do not replace SDK locks, duplicate
+transport or claim a timeout1s socket bounds that lock. Source participation must
+ensure callbacks never wait for G while holding SDK/native locks. An actual P02
+bridge must bind this exact entry adapter; a lease-only component/pure test is
+NOT enforcement of proposal/risk/final-write integration. That bridge remains
+separately vetoed until its other authority and wiring are adopted/proved.
+
+### Grounded feasibility and acceptance limits
+
+Existing reusable seams at accepted881e47ff:
+
+- `SQLiteStore.fetch_committed_lifecycle_accounting` (~1557) owns a coherent
+  all-run read; it currently has no combined local mutation/dispatch token.
+- `NativeClient.cached_native_executions` (~516) copies callback facts and
+  detects execution conflicts when read; diagnostic counters are not revisions.
+  `orderStatus`/`execDetails` and `_emit_execution_callback` (~677) do not yet
+  provide the required pre-publication, error-preserving ingress boundary.
+- Native lifecycle feedback establishes PENDING and latches UNCERTAIN around
+  strict writes; generic best-effort persistence is not an equivalent guarantee.
+  `ExecutionEngine._native_callback_lock` (~3736) serializes collectors only.
+- Active Core evaluates risk (~4917) then calls execute_trade (~4966).
+  `_route_order` (~1588) rechecks before provider dispatch; request retention
+  (~1703), client resolution and native cache initialization happen afterwards.
+- `IbkrOrderSubmitter.submit_once` (~85,144) does not pass an ordinary entry
+  guard to `NativeClient.submit_order` (~1056), whose existing optional hook
+  (~1090) precedes `placeOrder`. That propagation and serialized consumption are
+  concrete missing implementation prerequisites, not an existing guarantee.
+
+Before proposing source acceptance, prove real-owner journal reads and every
+invalidation boundary with deterministic offline controls: exact120 boundaries;
+partial/duplicate/late entries; foreign/ambiguous scopes; prior-run pending state;
+callback entry/ignored/conflicting/corrected/completion/error before journal
+commit; interrupted/lost-ACK persistence; database/client/epoch replacement;
+changes between proposal/risk/route/native hook; expected own-request transition
+versus unrelated mutation; single consumption; no dispatch on stale/unavailable
+evidence; and bounded cleanup without leaked workers or deadlocks. Preserve
+existing default-off/unsupported-scope refusals and all prior safety assertions.
+
+This draft changes no source or flags. Adoption would authorize development of
+these bounded components, not claim they already exist. Actual P02 proposal/risk/
+final-write integration remains separately blocked by its native bridge and
+remaining admission/management requirements. No positive P02 Core trading,
+broker-history completeness, restored cold ownership, continuous protection,
+operational capital/recovery action, resumption or readiness is claimed.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+
+### 2026-11-14 — ADOPTED separate observable-local cooldown policy V1
+
+Under user-delegated project authority, root adopts the complete independently
+reviewed1aa6b65f8a03cd88fe865e91644ecb7e0eea76c4 contract (tree329c1594)
+BEFORE source implementation, as NEW project policy. This is
+P02_OBSERVABLE_LOCAL_COOLDOWN_V1, default-off and synthetic TEST/PAPER only.
+It is AS-OF validated committed local facts with pending/uncertain/uncommitted
+intake blocked; it is NOT broker-history completeness or a guarantee against
+unseen late fills. PR1230's original complete-capture predicate remains UNKNOWN
+and its original API remains eligibleFalse. Original execution-time120s anchors
+and all original admission/truth/quarantine gates remain.
+
+Final independent next_session_contract_review CLEAR supersedes the earlier
+conditional private-connection design: original-handle identity is unavailable
+through stdlib sqlite3. Adopt SAME-original-owned-connection fencing with tracked
+default-off subtype/creator thread, nonblocking G/I/cache order, BEGIN IMMEDIATE
+after pre-send commit, query_only/authorizer and source-owned public API controls.
+Cached operations must participate in revisions; trusted fresh cursors only.
+Blob usage is sticky unsupported; custom hooks/unknown ownership/configuration
+remain unavailable. Exact own-request nonce transitions, actual immutable native
+ENTRY consume and lexical abandonment cleanup are mandatory; guards release
+before SDK body/ACK. No global SQLite/SDK monkeypatch or second accounting ledger.
+
+Source development remains conditional on implementing every participating owner
+and validating these guarantees. Unsupported participation/fence/cleanup cannot
+grant local permission. Pure mechanism probes on new temporary/in-memory SQLite
+databases confirmed the specified read/write/transaction/cached/cursor/backup
+controls and exposed the Blob/configuration limits; these are NOT production
+owner or pipeline proofs. Original repository databases were not opened.
+
+This adoption does not adopt the native-entry draft, numerical ATR admission
+bounds, management semantics or operational enrollment. Actual Core P02 entry
+remains structurally vetoed; no positive Core proof is claimed. Observation
+distribution3f48bf3f/sourcec65/calendar and all five ownership vetoes unchanged.
+No observer, broker/provider, operational recovery or readiness upgrade.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+
+### 2026-11-14 — Adopt reviewed original-connection ownership amendment
+
+Independent exact contract review CLEAR at5e57f03570ca74711882336a749e5f9170bd1577
+(treecd45901d) supersedes earlier conditional private-connection/public-raw-subtype
+mechanism designs. Root adopts this bounded amendment before source work, under
+the same delegated authority. The original raw SQLite connection/cursors remain
+issuer-private from FIRST explicit synthetic TEST/PAPER opt-in creation; public
+connection/cursor facades have a strict allowlist, return facades only and reject
+custom factories before invocation. No generic raw forwarding or late wrapping.
+Default-off storage keeps its existing raw connection and behavior.
+
+External SQL/cursor operations including cached execution invalidate source
+revision; only exact issuer-private internal frames are exempt. Existing active
+statements/VMs must be exhausted or closed before acquisition. Lease acquisition
+requires source-owned nonescape and all participation; unsupported ownership
+stays unavailable. This is not a parallel ledger, new database or global SQLite
+interceptor. Actual original-connection BEGIN IMMEDIATE writer exclusion,
+query_only/authorizer/API guards, exact timeout/config restoration and one-shot
+native ENTRY/abandonment rules remain mandatory.
+
+Failures/limits preserved: stdlib cannot attest the original open file handle
+from path stat, so the second-connection scheme is unsupported. Writable blobs
+opened before a query_only/authorizer fence can still write. A backup ALREADY in
+progress can acquire a target fence from its progress callback and then mutate
+the target; rejecting only newly-started backups is insufficient. A pending
+WITH UPDATE RETURNING VM can likewise outlive preparation authorization. These
+are failed mechanism assumptions reproduced in isolated scratch databases, NOT
+passing source guarantees. Opaque initial ownership, forbidden blob/backup APIs
+and no-active-VM preconditions address those findings. Setter/config/cursor
+controls are required before delegation, not after an authorizer refusal.
+
+The completed contract is adopted for bounded implementation; source correctness
+and actual proposal/risk/final native ENTRY enforcement remain unproved until
+independent exact-head review and required CI. Old PR1230 coverageUNKNOWN/
+eligibleFalse remains unchanged; new default-off local basis never certifies
+broker history, unseen late fills, SDK send success or cold ownership. ATR
+numerical bounds, native entry and management vetoes remain. No observer or
+broker/provider/operational action; observation release3f48bf3f/sourcec65/calendar
+and all five ownership safeguards unchanged. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
 ### 2026-11-14 — PR1231 Windows aggregate budget failure and scoped correction
 
 Original reviewed candidate d7c171aac3a7b0fda87a83f55cad5cb9b3725efb/tree3e60bf62
@@ -526,3 +1008,268 @@ windows-offline aggregate rejects failed/cancelled/skipped mandatory jobs; only
 authoritative harness-only permits the full-suite job skip. No production ATR/
 context/test fixture bytes were changed or focused source suites rerun. These
 workflow checks do not replace required automatic corrected-head CI.
+
+
+### 2026-11-14 — Default-off P02 observable-local foundation implemented (bounded)
+
+Sourceb5f4f0f589810ca5796b3053f9a80c04024dfa66 follows reviewed adoptiond427f27b.
+Final contract5e57f035/treecd45901d was independently cleared before source work.
+Integration3a3cedd5a5f50703896647b346346bce90f67442/tree434a2774 has ordered
+parentsb5f4f0f5 then corrected ATR prerequisite29e9c4ac; all9 source/test blobs
+were preserved byte-for-byte. Only EOF record conflicts were resolved, retaining
+both exact histories once. No source duplication, new database/ledger or manager.
+
+NEW P02_OBSERVABLE_LOCAL_COOLDOWN_V1 is explicit TEST/PAPER keyword opt-in only;
+default raw storage/native behavior remains. Actual canonical TLE writes and
+current/prior committed journal, actual native bootstrap facts and existing
+collect_relationship_updates feed a same-original-connection fenced source read
+and immutable context/version-bound AS-OF LOCAL observation. Original authoritative
+entry times including partials anchor the existing120s; duplicates and late older
+facts never renew by receipt. Empty observed local state or exact120 elapsed can
+satisfy ONLY local_condition_satisfied. Every evidence retains coverageUNKNOWN,
+broker_history_completeFalse and admission_authorizedFalse. Old PR1230 public
+reader still always returns coverageUNKNOWN/eligibleFalse. This is not capture
+completeness, broker-history proof or a guarantee against unseen late executions.
+
+Opt-in SQLite ownership uses opaque connection/cursor facades from FIRST creation
+with no raw-handle/custom-factory escapes. Operation-entry revisions cover cached
+SQL; outstanding statements/RETURNING VMs refuse acquisition. Blob, backup,
+deserialize and custom hooks/configuration are unsupported. SAME original
+BEGIN IMMEDIATE after pre-send commit, timeout0, query_only/authorizer and actual
+finally restoration exclude interfering writers. Fixed issuer SQL has no bound
+parameters that could invoke global adapter callbacks. Strict actual source/read
+frames are capabilities; RLock/thread identity is not permission. Best-effort
+persistence failures become local uncertainty. The existing financial/timestamp/
+identity/chain validators are reused; P02 numeric2R and independent stop are not
+rewritten. Missing snapshots/events/current known commits, foreign journal changes
+and unknown current/prior native-state scope cannot silently become EMPTY_LOCAL.
+
+Native I registration precedes existing account registration/parsing/cache
+publication; completion never clears dirty intake. Listener failures preserve
+raw facts; actual ticket/thread ownership and callback-registration revisions
+are checked. Initial BASELINE settles only via an opaque receipt issued after
+actual collector/cache+journal verification. The component G+SQL lease exercises
+one-shot, argument/callback race and lexical-abandonment cleanup at immutable
+native ENTRY; locks close BEFORE SDK body. No actual SDK send was performed.
+The mutation audit counts direct/refused calls, immediate owner-to-base SDK
+delegation once, and distinct reentrant/cross-client/before_submit commands
+independently; every wrapper still runs read-only guards.
+
+Initial client scope is DEDICATED_SYNTHETIC_ONLY, a REQUIREMENT, not a global
+unshared-client/capture certificate. Initial retained native/plans/callback owners
+refuse enrollment. Unknown/foreign/unleased BUY remains blocked on that enrolled
+client; this is not positive mixed-strategy enrollment. Default/unbound BUY uses
+existing SDK guards, and protective SELL without an entry lease preserves them.
+Changing a bound BUY lease to SELL refuses rather than escaping comparison.
+
+EXACT LIMIT: positive observations use synthetic ENTRY LifecycleEvents through
+REAL canonical accounting and EMPTY native-cache/bootstrap settlement, NOT a
+retained-native-fill/protection P02 pipeline. NONEMPTY execution/order/open-order
+caches, retained request states and relationship state remain unsupported;
+financial/error/ignored/inherited/unknown callback tickets stay dirty. No positive
+financial-ticket settlement or new P02 bridge is proved. Actual proposal/risk/
+canonical decision/planned reservation nonce/final Core dispatch integration is
+CLOSED: stage revalidation except LOCAL_CHECK returnsFalse. This is a foundation,
+NOT complete policy enforcement or full Core enrollment. Cold native ownership,
+adoption, valuations, resumption and recovery clearing remain ungranted.
+
+Latest implementation receipts: SQLite42passed/.86s; ASOF24passed/26warnings/1.13s;
+Native WHOLE30passed/26warnings/1.25s plus ONLY2newscopecontrols passed with30
+deselected/3warnings/.69s. Thus98 DISTINCT new controls across scoped batches,
+not a claimed whole98 or whole32Native invocation. Earlier33/20/21/24 prefixes
+overlap and are not additive. Existing affected checks ran ONCE after relevant
+changes: lifecycle/SQLite/schema285passed/246warnings/12.31s; cached-client/
+read-only/guard/submitter164passed/1warning/11.85s; exactly4actual-Core cold
+accounting variants (gross/positive fee/known-zero fee/partial gross)4passed/
+8warnings/21.40s. These453existing checks overlap future CI, not new inventory.
+No old1600/full suite was manually repeated. Compile/whitespace checks passed.
+Independent assembled exact-head source review and required final-head CI remain
+mandatory; no pending or isolated prefix substitutes for them.
+
+Failures remain failures, with overlapping after-passes identified:
+1. SQLite first1passed/32SETUPERROR/3.52s: overbroad PRAGMA filter denied readonly
+   table_info(table); exact introspection/private-config handling fixed it.
+2. First composed run19failed/1passed/21warnings/6.33s: trusted feedback->open_trades
+   reacquired nonreentrant G. Exact source/private READ frame fixed it. Separate
+   single1failed/.79s hit the constructor PRAGMA issue BEFORE that frame; corrected
+   single1passed/.62s overlaps final24, not another full-module result.
+3. Missing-all-events control1failed/1warning/.78s: known runtime commit/snapshot
+   could falsely become EMPTY_LOCAL. Full verified snapshot chains and exact
+   current committed-event durable matches now required; after1pass/.67s overlaps24.
+4. Runtime/journal controls3failed/21deselected/4warnings/.75s: PAPER->LIVE, TEST
+   departure and coherent other-connection original-time changes revalidated old
+   evidence. Fresh actual context/generation+journal fingerprint fixed them;
+   after3passed/.72s overlaps24.
+5. Native cache control1failed/12deselected/1warning/.70s: callback after ID reserve
+   could be erased by cache reset. Enrolled CACHE_OCCUPIED refuses before hook and
+   setdefault preserves raw facts; default-off old path unchanged.
+6. Initial audit adaptation reentry1failed/20deselected/.61s undercounted2commands
+   as1; class-qualified one-use delegation fixed it (after1pass/.76s overlaps30).
+7. Callback audit1failed/29deselected/.72s suppressed a distinct before_submit
+   command before an exception; immediate caller ORIGINAL CODE identity is now
+   also required (after1pass/.80s overlaps30).
+These source-development failures and the earlier disproven Blob/backup/activeVM/
+second-file assumptions are not baseline passes or production certification.
+Detailed offline logs remain in /workspace/p02-local-*-20261114.log; originals
+and accepted failure history were not removed.
+
+ONE next bounded prerequisite: establish actual per-occurrence financial callback
+settlement through existing retained request/accounting/protection owners before
+expanding local observation consumption. Preserve unsupported-stage vetoes until
+the native bridge/decision bindings are adopted and implemented; do not invent
+P02 admission to demonstrate them. ATR numeric bounds remain a separate unresolved
+approved-data/calibration requirement; use the recorded plan, no acquisition or
+profit labels while management outcomes/cost evidence remain unresolved. All five
+ownership vetoes and native-entry/ATR/management gates stay closed. Observation
+distribution3f48bf3f/sourcec65/calendar unchanged. No observer, broker/provider,
+operational capital/recovery action or readiness upgrade.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+
+### 2026-11-14 — Scoped independent review findings repaired; final review pending
+
+Accepted ATR prerequisite PR1231 mergedabfc822d804ab966e9abd8638ed052e842393d75,
+treec2e77a3b, after corrected CI43644351093 attempt1 SUCCESS: Linux7974/3skipped/
+4warnings/804.71s, Windows7975/2skipped/6156warnings/3205.34s, all original
+controlled-process gates and required aggregate SUCCESS. Actual test checkouts
+dfba9283 have ordered parents881e47ff then29e9c4ac and reviewed treec2e77a3b;
+accepted merge has the same ordered parents/tree. Original cancelled43638331204
+remains failure history. Automatic main43649428902 is RUNNING at this entry; do
+not infer its result. Receipt publication follows complete CI, without changing
+the frozen source merely to append receipts. Observation release3f48bf3f unchanged.
+
+Independent source review at46f457f94541ccbf629f19423ac142f1a9ca0f04/tree3c228986
+ran99focused controls (57warnings), which PASSED but MISSED3blocking findings;
+that head was NOT CLEAR. Two bounded public-source probes released/joined their
+workers: pre-bind Native.orderStatus could be in flight while baseline/read
+reported local_conditionTrue; weak facade finalization could remove an active
+RETURNING VM from weak tracking before raw finalization, admitting a fence.
+The third source defect passed UNBOUND DailyRiskGovernor.trading_day_for to fee
+validation, rejecting valid fee-bearing history. None is a passing certification.
+
+Consolidated source correction435d8e55a291777ae9d555d9e7f69c50d1b42d0f
+(tree4ca55f43, parent46f457f9) changes only8scoped source/test paths. Constructor-
+FIRST bounded actual lifetime-operation/revision bookkeeping and the SAME I lock
+now participate before binding. Atomic quiescent bind never resets the witness;
+actual negative operation IDs remain visible before ordinary ticket registration
+and after ticket finish. Unknown/failure/rebind is sticky unsupported. No callback
+history/raw-fingerprint accumulation or inferred capture certificate. Missing
+constructor provenance and reinitialization refuse; stable actual stdlib thread
+primitives preserve existing history Event fixtures. Default transport/cache
+semantics and all operational permissions remain; this bookkeeping supplies no
+broker history or global unshared-client guarantee.
+
+SQLite keeps strong RAW active-operation records independently of weak facade
+lifetime until verified exhaustion/explicit close. Abandoned active VM refuses
+fencing until creator-store shutdown closes the actual operation. Dead weakrefs
+never mean settled; no strong facade retention. This exposed actual owned-read
+leaks, repaired by finally-closing4schema probes,5strict canonical-pair checks
+and the StorageEngine native-state reader. No caller VM auto-clear, rollback of
+caller work, capital redesign or relaxed active-VM rule was introduced.
+
+ONLY the new local helper now uses the ACTUAL bound governor day owner, verifying
+exact governor/Storage/TLE/provider and bound-method provenance; governor identity
+is in the immutable source version. Synthetic positive-fee and known-wire-zero
+CHARGE evidence is validated through real canonical auxiliary owners and offline
+SDK-summary fixtures. A known-zero wire leg does NOT mean all round-trip fees
+are zero. No fallback timezone/fee, empirical-cost or net-performance claim.
+Wrong/missing governor ownership refuses. All actual P02 stage/bridge restrictions
+from the preceding foundation entry remain unchanged.
+
+Failure chronology (prefixes overlap final checks; not additive inventory):
+- Maintained pre-bind regression1failed/32deselected/1warning/.73s ->1passed/.65s.
+  A failure before ticket registration was separately1failed/38deselected/
+  1warning/.79s; source-minted failed-intake fallback repaired it, targeted2passed
+  /.70s including real-threading-alias control. Bound-reinit expectation1failed/
+  .96s was a TEST expectation error: existing API correctly raised unavailable,
+  rather than returningFalse. Test-only correction1passed/.68s; source unchanged.
+- Weak cursor finalizer1failed/.43s ->1passed/.45s. Strong tracking then exposed
+  reopened-schema1failed/.48s and strict canonical ENTRY/STOP1failed/1warning/
+  .76s; actual owned reads were closed, not silently declared inactive.
+- Fee probe first2failed/4warnings/1.37s stopped at the schema VM refusal BEFORE
+  the day branch; this is NOT TypeError proof. After reader repair,2failed/
+  4warnings/.97s causally REACHED the unbound-day missing-timestamp defect with
+  valid synthetic auxiliary facts. Bound-owner repair2passed/.89s, then expanded
+  wrong/missing-owner controls2passed/1.12s overlap final26.
+
+Latest defined NEW controls117=SQLite50+ASOF26+Native41; NOT a claimed whole117
+invocation. SQLite whole50passed/1warning/1.15s; ASOF whole26passed/30warnings/
+1.42s; Native whole38passed/36warnings/1.49s plus ONLY2newfocusedpassed/1warning/
+.70s and1newfocusedpassed/1warning/.68s. Earlier42/48/49/24/30/32/38 prefixes
+overlap and remain attributed to their actual source.
+
+Affected existing checks ran ONCE after these constructor/default-callback and
+owned-reader corrections:285lifecycle/SQLite/schema passed/246warnings/11.36s;
+253native/read-only/submitter/history passed/1warning/12.91s (includes89existing
+history-completion cases); exactly4actual-Core cold accounting variants passed/
+8warnings/16.44s. These542existing nodes overlap earlier453 and future CI; they
+are not new inventory. Logs: /workspace/p02-local-review-fixed-*-20261114.log.
+No old fullCore/full-suite blind rerun, manual CI retry or observer.
+
+Final assembled exact-head correction review and complete automatic CI remain
+mandatory before expected-head integration. Local condition observations and
+component lease cleanup are NOT complete policy enforcement: nonempty native
+caches/request/relationship states and financial tickets remain unsupported,
+actual proposal/risk/planned nonce/final Core stages stay closed. Original
+UNKNOWN API, numerical ATR/entry/management vetoes, all five ownership safeguards
+and dedicated synthetic-only scope remain. No native ownership restoration,
+broker/provider activity, capital/recovery action or readiness upgrade.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+
+### 2026-11-14 — PR1232 Linux CI audit regression and scoped SDK correction
+
+Initial reviewed376a3d6c/tree88a5e3c5 and review5907620925 remain historical
+evidence, not CI acceptance. Required CI43650288835 Linux132617056606 FAILED:
+2failed/8089passed/3skipped/4warnings/1060.40s. The failures are EXISTING
+test_standalone_pmh_late_fill_protection cases
+test_first_confirmed_project_partial_retains_original_stop_then_own_failure_to_flat
+and test_first_pending_partial_and_competing_stop_preserve_remainder_without_replay.
+Both completed their genuine33-pattern Core/PAPER/accounting/protection/failure/
+replay assertions, then rejected extra audit counts: expected place4/modify0 and
+place2/modify0, respectively; same commands were additionally counted as modify4/2.
+Actual wire counts stayed4/2, not duplicate sends. Keep all original assertions.
+The old Windows job was still running at this entry; its result is not inferred.
+Controlled-process success does not make this failed required CI acceptable.
+
+Independent diagnosis: FIRST's existing SDK interposition calls a saved audited
+SDK function. Its immediate caller is the shim, rather than Native.placeOrder's
+original code, so the previous immediate-caller-only predicate counted the same
+command twice. Local reproduction exactly2failed/6warnings/2.64s is preserved in
+/workspace/p02-ci-first-partial-audit-before-20261114.log. This is a regression
+in the new audit adaptation, not a family/stop/quantity/target-policy defect or
+a passing baseline.
+
+Scoped source correction4616e111bf729a82802a92a6a00e1bbe90003b00/tree6812b757,
+parent376a3d6c, changes ONLY mutation_audit.py,3Native-to-SDK call sites and
+10counter controls in the existing Native test module. It creates a one-shot
+audit-delegation receipt at the ACTUAL Native SDK body call site, bound to exact
+client/order ID/contract object/order object, top Native audit frame, original
+saved audited SDK identity and direct helper or exactly selected shim frame.
+No arbitrary ancestry/callback borrowing, global registry or SDK monkeypatch.
+The receipt is consumed once and revoked in finally; it is NOT order permission.
+Submit-to-Native immediate-source checks remain. Every SDK/read-only guard still
+runs, even when redundant audit counting is suppressed. No family source, test
+assertion, policy, quantity, stop, TP, financial projection or owned-cursor rule
+was changed.
+
+After correction: exact2existing failures2passed/6warnings/2.43s, overlapping
+selected88real coordination/SDK-interposition/First cases passed/851deselected/
+327warnings/36.84s. New Native/audit module WHOLE51passed/38warnings/1.58s
+includes10new adversarial receipt variants: selected/direct shim, repeated same
+SDK calls, same/different callback commands+abort, reentry, cross-client, changed
+descriptor and guard changes. Existing SDK/default/read-only/submitter164passed/
+1warning/11.92s. Logs /workspace/p02-ci-*-20261114.log. No First assertions or
+price/protection controls were weakened; no unchanged full suite was manually
+rerun. Local delta review cleared source; independent assembled exact-head delta
+review and complete automatic CHANGED-head CI remain required before merge.
+
+Defined new controls now127=SQLite50+ASOF26+Native51; scoped and independent
+counts overlap earlier117/118 and future CI, not additive proof inventory. All
+prior review failures remain preserved. Local observations still have
+admission_authorizedFalse/coverageUNKNOWN; nonempty native financial intake and
+actual P02 admission stages stay unsupported/closed. Observation distribution
+3f48bf3f/sourcec65/calendar, all five ownership vetoes, ATR bounds/native-entry/
+management restrictions and parked work remain. No observer, broker/provider,
+operational capital/recovery action or readiness upgrade.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.

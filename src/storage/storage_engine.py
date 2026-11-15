@@ -57,7 +57,7 @@ class StorageResult:
 class StorageEngine:
     """SQLite-backed storage engine with audit hash chain support."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, local_cooldown_mode: str | None = None) -> None:
         self.enabled = get_persistence_enabled(default=True)
         self.backend = get_persistence_backend(default="sqlite")
         self.sqlite_path = self._resolve_sqlite_path()
@@ -75,6 +75,8 @@ class StorageEngine:
             self._store = SQLiteStore(
                 self.sqlite_path,
                 commit_each_write=self.flush_each_cycle,
+                **({"local_cooldown_mode": local_cooldown_mode}
+                   if local_cooldown_mode is not None else {}),
             )
             self._store.initialize_schema()
             self._insert_run()
@@ -326,9 +328,13 @@ class StorageEngine:
     def fetch_management_state(self, state_id: str) -> dict[str, Any] | None:
         if not self.enabled or self.backend != "sqlite" or not self._store:
             return None
-        row = self._store.connection.execute(
+        cursor = self._store.connection.execute(
             "SELECT reason FROM position_lifecycle_transitions WHERE transition_id = ?", (state_id,)
-        ).fetchone()
+        )
+        try:
+            row = cursor.fetchone()
+        finally:
+            cursor.close()
         if row is None:
             return None
         payload = json.loads(row[0])
@@ -485,6 +491,18 @@ class StorageEngine:
         if not self.enabled or self.backend != "sqlite" or not self._store:
             raise RuntimeError("COMMITTED_ACCOUNTING_STORAGE_UNAVAILABLE")
         return self._store.fetch_committed_lifecycle_accounting(run_mode=run_mode)
+
+    def local_cooldown_state(self) -> dict[str, Any]:
+        """Local owner capability only; never broker-history completeness."""
+        if not self.enabled or self.backend != "sqlite" or self._store is None:
+            raise RuntimeError("P02_LOCAL_STORAGE_UNAVAILABLE")
+        return self._store.local_cooldown_state()
+
+    def acquire_local_cooldown_fence(self, *, run_mode: str = "PAPER", expected_revision=None):
+        if not self.enabled or self.backend != "sqlite" or self._store is None:
+            raise RuntimeError("P02_LOCAL_STORAGE_UNAVAILABLE")
+        return self._store.acquire_local_cooldown_fence(
+            run_mode=run_mode, expected_revision=expected_revision)
 
     def fetch_trade_lifecycle_reconciliation_events(
         self,
