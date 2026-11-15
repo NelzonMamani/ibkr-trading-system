@@ -8,6 +8,11 @@ from ibapi.contract import Contract
 from ibapi.execution import Execution
 from ibapi.order import Order
 
+_SOURCE_REQ_POSITIONS_MULTI=EClient.reqPositionsMulti
+_SOURCE_CANCEL_POSITIONS_MULTI=EClient.cancelPositionsMulti
+_SOURCE_REQ_ACCOUNT_SUMMARY=EClient.reqAccountSummary
+_SOURCE_CANCEL_ACCOUNT_SUMMARY=EClient.cancelAccountSummary
+
 from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
 from src.config.config_resolver import set_config_overrides
 from src.ibkr.mutation_audit import snapshot as mutations
@@ -88,6 +93,248 @@ def test_native_ingress_precedes_order_cache_publication(local_component,monkeyp
     assert any(ticket.kind=='orderStatus' and ticket.finished and ticket.raw_fingerprint for ticket in snapshot.dirty)
     _settle(h)
     assert h.client.local_intake_snapshot().dirty  # Nonempty financial cache is not enrolled.
+
+
+def test_native_financial_occurrence_retains_original_semantics_and_publication(local_component):
+    h=local_component()
+    _status(h.client)
+    ticket=next(row for row in h.client.local_intake_snapshot().dirty if row.kind=='orderStatus')
+    _settle(h)
+    assert h.client.local_intake_snapshot().dirty  # Existing bounded refusal stays truthful.
+    assert ticket.semantic_payload and dict(ticket.publication)=={
+        'kind':'orderStatus','cache':'_order_status','order_id':71}
+    assert h.client.local_intake_occurrence(ticket) is ticket
+    with pytest.raises(FrozenInstanceError):ticket.semantic_payload=()
+
+
+def _source_request_encoder(h,monkeypatch,on_request,on_cancel):
+    client=h.client;requests=[];cancels=[]
+    monkeypatch.setattr(client,'serverVersion',lambda:180)
+    def send(message):
+        fields=message.split('\0');kind=int(fields[0]);request_id=int(fields[2])
+        if kind in {74,62}:
+            requests.append((kind,request_id))
+            assert client.local_intake_snapshot().inflight
+            try:on_request(kind,request_id)
+            except BaseException:
+                import traceback
+                traceback.print_exc()
+                raise
+        elif kind in {75,63}:
+            cancels.append((kind,request_id))
+            on_cancel(kind,request_id)
+        else:pytest.fail('Unexpected synthetic SDK request '+str(kind))
+    monkeypatch.setattr(client,'sendMsg',send)
+    for name,method in (('reqPositionsMulti',_SOURCE_REQ_POSITIONS_MULTI),
+            ('cancelPositionsMulti',_SOURCE_CANCEL_POSITIONS_MULTI),
+            ('reqAccountSummary',_SOURCE_REQ_ACCOUNT_SUMMARY),
+            ('cancelAccountSummary',_SOURCE_CANCEL_ACCOUNT_SUMMARY)):
+        monkeypatch.setattr(client,name,lambda *args,_method=method:_method(client,*args))
+    return requests,cancels
+
+
+def _source_position_contract():
+    contract=Contract();contract.conId=123;contract.symbol='JPM'
+    contract.secType='STK';contract.currency='USD'
+    return contract
+
+
+def test_native_position_receipt_requires_actual_owner_retirement_and_cancel_return(local_component,monkeypatch):
+    import copy
+    h=local_component();contract=_source_position_contract()
+    def requested(kind,req_id):
+        assert kind==74
+        h.client.positionMulti(req_id,ACCOUNT,'',contract,0,0.)
+        h.client.positionMultiEnd(req_id)
+        assert h.client.local_request_completion('POSITIONS_MULTI',req_id) is None
+    def cancelled(kind,req_id):
+        assert kind==75 and req_id not in h.client._position_queries
+        assert h.client.local_request_completion('POSITIONS_MULTI',req_id) is None
+    requests,cancels=_source_request_encoder(h,monkeypatch,requested,cancelled)
+    result=h.client.position_snapshot(timeout_seconds=.1)
+    assert result.status=='COMPLETE' and len(requests)==len(cancels)==1
+    req_id=requests[0][1];receipt=h.client.local_request_completion('POSITIONS_MULTI',req_id)
+    assert receipt is not None and receipt.source_client is h.client
+    assert receipt.retired and receipt.cancellation_returned and receipt.context_id>0
+    assert receipt.request_started_at<=receipt.completed_at
+    assert receipt.revision_start<receipt.revision_end
+    assert tuple(dict(row) for row in receipt.rows)==(dict(account=ACCOUNT,con_id=123,
+        symbol='JPM',sec_type='STK',currency='USD',quantity=0,avg_cost=0.),)
+    tickets=[h.client.local_intake_occurrence(ticket) for ticket in h.client.local_intake_occurrences()
+        if ticket.ticket_id in receipt.callback_ticket_ids]
+    assert {ticket.kind for ticket in tickets}=={'positionMulti','positionMultiEnd'}
+    assert all(dict(ticket.publication)['context_id']==receipt.context_id for ticket in tickets)
+    with pytest.raises(TypeError):receipt.rows[0]['quantity']=1
+    with pytest.raises(TypeError):copy.copy(receipt)
+
+
+@pytest.mark.parametrize('fault',['cancel_error','late_callback','wrong_scope','fractional','mutated_sdk'])
+def test_native_legacy_complete_position_result_cannot_fabricate_cleanup_receipt(local_component,monkeypatch,fault):
+    h=local_component();contract=_source_position_contract()
+    def requested(kind,req_id):
+        h.client.positionMulti(req_id,ACCOUNT,'',contract,.5 if fault=='fractional' else 0,0.)
+        h.client.positionMultiEnd(req_id)
+        if fault=='mutated_sdk':contract.symbol='MUTATED_AFTER_CALLBACK'
+    def cancelled(kind,req_id):
+        if fault=='cancel_error':raise OSError('synthetic cancellation did not return')
+        if fault=='late_callback':h.client.positionMultiEnd(req_id)
+        if fault=='wrong_scope':h.client.managedAccounts('OTHER_SYNTHETIC')
+    requests,cancels=_source_request_encoder(h,monkeypatch,requested,cancelled)
+    result=h.client.position_snapshot(timeout_seconds=.1)
+    assert result.status=='COMPLETE' and len(requests)==len(cancels)==1
+    assert h.client.local_request_completion('POSITIONS_MULTI',requests[0][1]) is None
+    assert h.client.local_intake_snapshot().dirty
+
+
+def test_native_currency_receipt_binds_actual_strict_context_and_cleanup(local_component,monkeypatch):
+    h=local_component()
+    def requested(kind,req_id):
+        assert kind==62
+        h.client.accountSummary(req_id,ACCOUNT,'CashBalance','12.34','USD')
+        h.client.accountSummaryEnd(req_id)
+    def cancelled(kind,req_id):
+        assert kind==63
+        assert 'account_currency_query' not in h.client._request_context_by_req_id[req_id]
+    requests,cancels=_source_request_encoder(h,monkeypatch,requested,cancelled)
+    result=h.client.account_currency_snapshot(expected_account=ACCOUNT,timeout_seconds=.1)
+    assert result.status=='COMPLETE' and result.currency=='USD' and len(requests)==len(cancels)==1
+    receipt=h.client.local_request_completion('ACCOUNT_CURRENCY_STRICT',result.request_id)
+    assert receipt is not None and receipt.currency=='USD' and receipt.tags==('CashBalance',)
+    assert receipt.completed_at==result.completed_at and receipt.account==ACCOUNT
+    tickets=[ticket for ticket in h.client.local_intake_occurrences() if ticket.ticket_id in receipt.callback_ticket_ids]
+    assert {ticket.kind for ticket in tickets}=={'accountSummary','accountSummaryEnd'}
+    assert all(dict(ticket.publication)['context_id']==receipt.context_id for ticket in tickets)
+
+
+def _source_execution(identifier='source-execution',price=10.5):
+    execution=Execution();execution.orderId=71;execution.clientId=999
+    execution.acctNumber=ACCOUNT;execution.execId=identifier;execution.side='BOT'
+    execution.shares=1;execution.cumQty=1;execution.price=price;execution.avgPrice=price
+    execution.time='20261115 13:35:00 UTC'
+    return execution
+
+
+def test_native_semantics_remain_frozen_after_sdk_object_mutation_and_reject_copies(local_component):
+    from dataclasses import replace
+    h=local_component();contract=_source_position_contract();execution=_source_execution()
+    h.client.execDetails(-1,contract,execution)
+    ticket=next(row for row in h.client.local_intake_snapshot().dirty if row.kind=='execDetails')
+    original=ticket.semantic_payload
+    snapshot=h.client.local_financial_cache_snapshot()
+    assert dict(ticket.publication)==dict(kind='execDetails',cache='_exec_details_by_order',
+        order_id=71,execution_id=execution.execId,request_id=-1)
+    execution.price=99.
+    changed=h.client.local_financial_cache_snapshot()
+    assert ticket.semantic_payload is original
+    assert changed['executions_snapshot']!=snapshot['executions_snapshot']
+    assert changed['native_executions']==snapshot['native_executions']
+    with pytest.raises(RuntimeError,match='OCCURRENCE_UNAVAILABLE'):
+        h.client.local_intake_occurrence(replace(ticket))
+    with pytest.raises(RuntimeError,match='SEMANTIC_SOURCE_REQUIRED'):
+        h.client._local_intake_fingerprint(ticket,'caller-hash',semantic_payload=('caller',))
+    with pytest.raises(RuntimeError,match='PUBLICATION_SOURCE_REQUIRED'):
+        h.client._publish_local_intake('execDetails',cache='caller')
+    assert ticket in h.client.local_intake_occurrences()
+
+
+def test_native_duplicate_occurrences_keep_distinct_receipts_without_dedup_cache_deletion(local_component):
+    h=local_component();contract=_source_position_contract();execution=_source_execution()
+    h.client.execDetails(-1,contract,execution);h.client.execDetails(-1,contract,execution)
+    tickets=[row for row in h.client.local_intake_occurrences() if row.kind=='execDetails']
+    assert len(tickets)==2 and tickets[0].ticket_id!=tickets[1].ticket_id
+    assert tickets[0].semantic_payload==tickets[1].semantic_payload
+    assert len(h.client.cached_native_executions(71))==1
+    assert len(h.client._exec_details_by_order[71])==len(h.client._executions_snapshot)==2
+    assert all(ticket.finished and not ticket.failed for ticket in tickets)
+
+
+def test_native_changed_duplicate_remains_conflicting_and_nonfinite_occurrence_fails(local_component):
+    h=local_component();contract=_source_position_contract()
+    h.client.execDetails(-1,contract,_source_execution())
+    h.client.execDetails(-1,contract,_source_execution(price=10.6))
+    with pytest.raises(ValueError,match='DUPLICATE_CONFLICT'):h.client.cached_native_executions(71)
+    bad=_source_execution('nonfinite');bad.price=float('nan')
+    h.client.execDetails(-1,contract,bad)
+    tickets=[row for row in h.client.local_intake_occurrences() if row.kind=='execDetails']
+    assert tickets[-1].finished and tickets[-1].failed and tickets[-1].semantic_payload is None
+    assert len(h.client.local_intake_snapshot().dirty)>=3
+
+
+@pytest.mark.parametrize('fault',['cancel_error','late_callback','empty_end'])
+def test_native_currency_cleanup_or_unowned_end_never_issues_receipt(local_component,monkeypatch,fault):
+    h=local_component()
+    def requested(kind,req_id):
+        if fault!='empty_end':h.client.accountSummary(req_id,ACCOUNT,'CashBalance','0','USD')
+        h.client.accountSummaryEnd(req_id)
+    def cancelled(kind,req_id):
+        if fault=='cancel_error':raise OSError('synthetic currency cleanup error')
+        if fault=='late_callback':h.client.accountSummaryEnd(req_id)
+    requests,cancels=_source_request_encoder(h,monkeypatch,requested,cancelled)
+    result=h.client.account_currency_snapshot(expected_account=ACCOUNT,timeout_seconds=.1)
+    assert len(requests)==len(cancels)==1
+    assert result.status=={'cancel_error':'CLEANUP_UNCONFIRMED','late_callback':'COMPLETE',
+        'empty_end':'MISSING_CURRENCY'}[fault]
+    assert h.client.local_request_completion('ACCOUNT_CURRENCY_STRICT',result.request_id) is None
+
+
+def test_native_new_request_is_inflight_before_first_callback_and_is_released(local_component,monkeypatch):
+    h=local_component();entered,release=threading.Event(),threading.Event();results=[];errors=[]
+    contract=_source_position_contract()
+    def requested(kind,req_id):
+        entered.set()
+        assert release.wait(2)
+        h.client.positionMulti(req_id,ACCOUNT,'',contract,0,0.)
+        h.client.positionMultiEnd(req_id)
+    requests,cancels=_source_request_encoder(h,monkeypatch,requested,lambda *args:None)
+    before=h.client.local_intake_snapshot()
+    def run():
+        try:results.append(h.client.position_snapshot(timeout_seconds=.5))
+        except BaseException as exc:errors.append(exc)
+    worker=threading.Thread(target=run);worker.start()
+    try:
+        assert entered.wait(2)
+        current=h.client.local_intake_snapshot()
+        assert current.revision>before.revision and current.inflight
+        assert h.client.local_request_completion('POSITIONS_MULTI',requests[0][1]) is None
+        with pytest.raises(RuntimeError,match='CACHE_BUSY'):h.client.local_financial_cache_snapshot()
+    finally:
+        release.set();worker.join(3)
+        assert not worker.is_alive()
+    assert not errors and results[0].status=='COMPLETE'
+    assert h.client.local_request_completion('POSITIONS_MULTI',requests[0][1]) is not None
+    assert len(requests)==len(cancels)==1
+
+
+def test_native_request_receipt_never_renews_time_and_epoch_change_revokes_it(local_component,monkeypatch):
+    h=local_component();contract=_source_position_contract()
+    def requested(kind,req_id):
+        h.client.positionMulti(req_id,ACCOUNT,'',contract,0,0.)
+        h.client.positionMultiEnd(req_id)
+    requests,cancels=_source_request_encoder(h,monkeypatch,requested,lambda *args:None)
+    result=h.client.position_snapshot(timeout_seconds=.1)
+    receipt=h.client.local_request_completion('POSITIONS_MULTI',requests[0][1])
+    assert receipt.completed_at==result.completed_at
+    assert h.client.local_request_completion('POSITIONS_MULTI',requests[0][1]) is receipt
+    h.client._position_connection_epoch+=1
+    assert h.client.local_request_completion('POSITIONS_MULTI',requests[0][1]) is None
+
+
+def test_native_failed_request_without_callbacks_stays_dirty_without_replacing_prior_receipt(local_component,monkeypatch):
+    h=local_component();contract=_source_position_contract()
+    def requested(kind,req_id):
+        h.client.positionMulti(req_id,ACCOUNT,'',contract,0,0.)
+        h.client.positionMultiEnd(req_id)
+    requests,cancels=_source_request_encoder(h,monkeypatch,requested,lambda *args:None)
+    assert h.client.position_snapshot(timeout_seconds=.1).status=='COMPLETE'
+    previous=h.client.local_request_completion('POSITIONS_MULTI',requests[0][1])
+    def failed_request(*args):raise OSError('synthetic request failed before any callback')
+    _source_request_encoder(h,monkeypatch,failed_request,lambda *args:None)
+    assert h.client.position_snapshot(timeout_seconds=.1).status=='FAILED'
+    dirty=h.client.local_intake_snapshot().dirty
+    assert any(ticket.kind=='POSITIONS_MULTI' and ticket.finished and ticket.failed for ticket in dirty)
+    assert h.client.local_request_completion('POSITIONS_MULTI',requests[0][1]) is previous
+    monkeypatch.setattr(h.client,'isConnected',lambda:False)
+    assert h.client.local_request_completion('POSITIONS_MULTI',requests[0][1]) is None
 
 
 def test_native_malformed_and_ignored_callbacks_finish_but_remain_dirty(local_component):

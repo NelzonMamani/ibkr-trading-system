@@ -1461,3 +1461,299 @@ clearing, broker/provider/observer activity, operational capital/recovery action
 parked-work activation or readiness upgrade. Distribution3f48bf3f/sourcec65 and
 calendar remain unchanged. Synthetic evidence is not natural/broker readiness.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+
+### 2026-11-15 — Batch B financial-callback settlement V1 — ADOPTED
+
+This is a proposed NEW bounded extension to P02_OBSERVABLE_LOCAL_COOLDOWN_V1,
+not historical Ross doctrine, broker-history completeness or entry authority.
+Independent contract review and delegated adoption MUST precede source changes.
+The accepted empty-cache foundation and old UNKNOWN reader are unchanged until
+that adoption. This proposal supplies LOCAL_CHECK observations only. Proposal,
+risk, canonical decision, planned reservation nonce, final native/Core write,
+numerical ATR bounds, P02 native entry and management remain unsupported/closed.
+Every observation keeps admission_authorized=False, broker_history_complete=False,
+coverage=UNKNOWN; settled means locally accounted AS OF an owned coherent read,
+not that no unseen late execution exists.
+
+FIRST SUPPORTED CASE AND EXCLUSIONS
+One same-process, same original Native client/account/client-id/epoch, reconciled
+standalone long ENTRY -> original selected protective STOP -> flat roundtrip.
+The original retained request and exactly its protective child must be terminal,
+fully filled, uniquely owned, with no pending entry/stop/remainder liability,
+relationship/selected-unit plan, add, amendment, discretionary exit or management
+enrollment. Original measured entry/stop/target contracts, quantities and default
+one-share operational request stay unchanged. Existing guarded synthetic sizing
+can supply adverse partial cases; this policy grants no new sizing or capital.
+A real retained Ross standalone fixture may demonstrate this financial boundary;
+no positive P02 intent, green RiskDecision or P02 SDK send is required/permitted.
+The P02 observation identity still comes from its accepted identity owner; a
+foreign strategy fill is not relabelled as a P02 cooldown entry.
+
+Enrollment remains before financial callbacks on the actual fresh opted-in
+synthetic owner, after constructor-lifetime/quiescent binding. Do not weaken the
+prebind unknown-intake refusal, accept old callback history at enrollment, restore
+cold orders, or clear native caches. Controlled tests may invoke the existing
+retained-request owner with its genuine source bindings; neither a fake settled
+flag nor a caller-created canonical event substitutes for callback consumption.
+Actual retained requests created later must pass the existing prospective
+decision/native-scope/persistence owner; this is not permission to dispatch BUY.
+
+IMMUTABLE SOURCE OCCURRENCES (EXISTING NATIVE INGRESS OWNER)
+Extend the existing LocalIntakeTicket/origin registry, not a parallel order or
+financial ledger. For each admitted bound callback preserve the detached exact
+builtin/SDK-field value tree ALREADY captured by _local_native_value at outermost
+callback ENTRY, plus its existing ticket id, start/end revisions, source object,
+client-id/epoch/accounts, failure/finished state and raw hash. The tree is a frozen
+semantic payload, not repr of a mutable SDK object retained for future use.
+No user callback, arbitrary deepcopy/property or fresh caller payload is invoked
+under I. Unknown types/nonfinite or malformed financial values cannot settle.
+
+The actual Native callback body records publication linkage on its OWN active
+origin ticket/thread, after the relevant source cache/query owner accepted facts:
+exact order/exec/request id, selected source-cache key and source-owned request
+context/generation where applicable. Only known original Native source frames
+may publish; the helper cannot accept a caller's accounted/complete assertion.
+Ignored/rejected/no-publication callbacks remain dirty. Frozen payload is retained
+independently of mutable _executions_snapshot/open-order SDK objects. A later
+mutation of such an object must fail comparison; it cannot rewrite the occurrence.
+Snapshot readers return immutable detached records. Original ticket identity and
+issuer registry remain necessary: constructing an equal dataclass is not origin.
+
+CALLBACK MATRIX (EVERY OCCURRENCE IS CLASSIFIED, NONE DISCARDED)
+- execDetails: unsolicited existing-owner path only, exactly one retained native
+  entry/stop id. Bind account, actual client/id/epoch, positive conId/STK/currency,
+  symbol, BOT/SLD side, execId, whole quantity, cumulative interval, price/average
+  and authoritative original execution time. Existing cached_native_executions,
+  _validate_native_binding and canonical drain perform the financial checks.
+  Match exactly one committed canonical execution event and its COMPLETE feedback
+  interval. A duplicate occurrence may reference that SAME event; it never creates
+  a second financial effect. Changed duplicate/correction, unexpected query/history
+  response, fractional/malformed/foreign or unbound execution stays dirty/vetoed.
+- orderStatus: freeze ALL original fields, not latest status alone. Validate its
+  exact retained order id/client/parent and status/filled/remaining/average/notional
+  against that request and the actual execution-prefix intervals. Intermediate
+  acknowledged/partial snapshots can be classified as superseded only when their
+  exact cumulative financial prefix is complete and the terminal successor belongs
+  to this same retained order; no FILLED inference from a later unrelated cache.
+  Uncertain acknowledgement, contradictory terminal/quantity/price or unsupported
+  status remains dirty. Status alone never proves a fill or monetary completion.
+- openOrder: freeze contract/order/state and bind exact retained entry or original
+  protective child, orderRef/parent/account/action/quantity/type/stop/target/session
+  fields through existing request/protection validation. An old valid acknowledgement
+  can be retained as such after terminal fill, not treated as a still-live order or
+  deleted. Unknown order, changed stop/quantity/identity or unrelated cache refuses.
+- commissionReport: bind exact source-frozen occurrence to its original execution
+  via cached_native_execution_fees, including immutable first report, semantic
+  conflict state and actual source/currency. A report is never itself NET authority.
+  If present, all selected roundtrip execution charges must be covered by the
+  existing COMPLETE durable NATIVE_ROUNDTRIP_FEE event and exact fee-owner basis.
+  Identical repeated reports reuse that same auxiliary effect; receipt/latest-audit
+  timestamps do not create another charge. Explicit zero requires the accepted
+  actual pinned-decoder first-wire witness. Direct/default/empty zero is not known
+  zero. Conflicting, malformed, negative, unbound, unsupported currency/FX or
+  attempted-uncertain fee evidence remains dirty; no financial retry/NET invention.
+- accountSummary/accountSummaryEnd: only the existing strict account-currency
+  request's exact source-owned request id/context, actual account/client/epoch,
+  completed result and verified local cleanup may support the existing fee event.
+  Legacy/global summary, unrelated/late/retired request or end-only evidence refuses.
+- positionMulti/positionMultiEnd: only the existing position_snapshot's actual
+  request-owned context, exact account/client/epoch/security, completed immutable
+  result and retired/cleaned request can establish ASOF flat quantity for this
+  selected terminal case. Existing BrokerPositionResult.COMPLETE alone is NOT
+  cleanup/source authority: before returning, the actual position_snapshot owner
+  must issue a separate opt-in immutable completion receipt AFTER its finally has
+  verified exact context retirement and local cancellation return. Freeze original
+  request id/context identity, source object/client/epoch/account, detached validated
+  conId/STK/currency/symbol/whole-quantity rows, completed_at, actual retirement and
+  cleanup outcome in that source receipt. Never retain mutable SDK contracts there.
+  Cancellation return is local cleanup, NOT broker acknowledgement. A swallowed
+  cancellation exception, ownership loss, absent context, late callback or uncertain
+  cleanup yields NO valid receipt and remains dirty; preserve legacy default result
+  behavior without treating it as positive local authority. Completion must come
+  from the original real request owner, never a test completion argument.
+  Preserve source completion time and existing freshness
+  rule; do not renew it on read. Whole-snapshot completeness and no foreign active
+  owned remainder are required. These are local request facts, not lifetime intake
+  coverage. Legacy uncorrelated position/positionEnd remain unsupported/dirty.
+- Existing BASELINE/managedAccounts/nextValidId bootstrap settlement remains under
+  its original exact owner checks. Request-id end markers, openOrderEnd/history,
+  error, ignored inherited account callbacks, listener registration/change, unknown
+  callback kinds and anything not explicitly mapped above remain dirty/vetoed.
+  connect/disconnect/epoch/account/client change invalidates, never settles away.
+
+PARTIALS, ORDERING AND SOURCE-CACHE RETENTION
+A partial entry, temporary flat before terminal entry, partial protective exit,
+pending cancellation/replacement or unknown remainder cannot satisfy this first
+subset, even when its factual prefix is accounted/protected. Factual processing
+continues. A later genuinely completed terminal roundtrip may classify historical
+partial occurrences ONLY via exact source-frozen prefix-to-committed-execution
+mapping; no overwrite of their original values/times. Exec/status/report arrival
+orders may differ, but every callback remains dirty until its own required effects
+exist. No receipt time substitutes for fill time. Corrected executions are an
+explicit first-scope refusal, not a request to repair financial history here.
+All nonempty Native exec/status/open-order/legacy execution rows must remain and
+map to this same one-root source history; any extra/unclassified/changed row refuses.
+No clear/reset/cache rewrite, dedup deletion, callback drop or invented status.
+
+ACTUAL OWNER COMPLETION AND COHERENT LOCAL READ
+The existing collect_relationship_updates and canonical drain remain the financial
+pipeline. Actual strict TLE apply_event SQL event+snapshot ACK, committed event-id
+membership, complete_native_feedback and retained COMPLETE canonical frames are
+necessary. Match exact event ids/execution facts, quantities/notional and original
+fill day against a coherent read of the existing journal, not just in-memory flags.
+The current SAME-process retained native snapshot must match the latest owned
+current-run durable native state byte/semantic payload and canonical basis. Prior
+run nonempty retained states/cold ownership stay unsupported, as do missing/conflict
+rows, unknown mode/run metadata, best-effort persistence failure and quarantine.
+The read-only settlement step adds no financial SQL, native-order save or fee write.
+
+Original selected protection must have been created/reconciled through the actual
+existing post-fill owner, its exact child/native parent/selected stop preserved,
+and the authoritative stop fill must have closed that same owned remainder.
+Require canonical CLOSED/0, post-fill filled_qty0/exited_qty=requested, no active
+registry position for the selected request and source-owned complete ASOF flat
+position facts. A caller protection_confirmed/truth dictionary cannot substitute.
+No open/protected-position or partial-stop local permission is introduced.
+
+For this opt-in scope, bind the actual PostFillLifecycleEngine and ActiveTradeRegistry
+objects once to the SAME existing ExecutionEngine local authority. Bind only
+exact, freshly created EMPTY owners before any trade/leg/input/output handle has
+escaped; prepopulated/rebound/custom/unknown lifetime refuses financial enrollment.
+Register_trade currently stores caller ActiveTrade directly: under this opt-in,
+external accepted exact ActiveTrade data is privately copied before storage so
+the caller-retained input cannot mutate an owned record. Every external mutable
+post-fill input/output is likewise either copied from an exact supported builtin/
+owned dataclass field allowlist or marks the local source unsupported BEFORE
+exposure. No arbitrary deepcopy hook/custom SDK property is called for authority.
+Public get_trade/snapshot/selected_unit_leg, registry get_trade/snapshot and any
+mutation return are detached recursively, including ProtectionOrderMeta stop/target/
+stop_legs, pending-exit dictionaries, failure flags, take-profit events and registry
+state_history. Internal original source-frame calls retain actual references.
+A retained input/output alias is not made safe by a later fingerprint.
+Their actual mutating API entries participate in existing G/revision ownership; public reads
+that expose mutable trade objects become detached outside a verified original
+owner frame, as the accepted TLE already does. Internal existing owner calls keep
+actual references. Cover post-fill activation/exposure/fill/callback/reconciliation/
+management/transition/close/recovery mutation entry and registry register/unregister/
+mark_closed/close_all entry. The participating post-fill entry set is
+set_startup_recovery_complete, activate_trade_management_after_fill,
+update_selected_exposure, record_exit_fill, handle_broker_callback, reconcile_orders,
+evaluate_trade_management, evaluate_trailing, replace_stop, cancel_stop,
+execute_exit_intents, mark_exit_pending, mark_exited, startup_safe_state, and actual
+transition/stop/target/selected-leg mutation helpers used by these owners. Registry
+entries are register_trade, unregister_trade, mark_closed and close_all_trades.
+Direct unsupported mutation helpers invalidate before use; no untracked recovery/
+management action becomes an enrollment path. Existing default-off behavior is
+unchanged. Unbound,
+replaced, unsupported/custom/escaped owner or call during local read refuses the
+local observation. Never merely hash mutable protection/registry state twice and
+call that synchronization. This adds no manager, management action or new truth
+policy. Native request/query callback lifetime and SAME I protect source facts;
+Core truth/admission holders are not enrolled and remain unsupported.
+
+Keep lock order from adopted foundation: nonblocking G outer owner frame, short I
+snapshot/bookkeeping only, release I before Native cache lock or SQL; acquire
+same-original SQLite fence only with no active owner write, failfast busy_timeout0,
+trusted read/query_only/authorizer, existing finally restoration. No SDK/network/
+SQL/cache/G acquisition or arbitrary listener under I. Post-fill/registry mutations
+join the existing actual-source frame, not arbitrary thread/RLock nesting. Any busy
+or unsupported owner returns unavailable; factual callback intake never waits for G.
+
+ISSUER, CONSUMPTION AND REVOCATION
+The actual collector-completion path may attempt settlement only AFTER its factual
+fill/accounting/protection effects. Fee-bound tickets also wait for the real fee
+owner completion; the early collector-return hook alone cannot certify fees.
+Use one existing owner completion hook at that point; do not add a scheduler or
+parallel collector. A subsequent actual collector pass may read already committed
+fees. No extra fee query/write is performed by settlement.
+Inside the source-owned G/read/fence frame, verify ALL selected occurrences and
+current retained/canonical/protection/registry/query/fee bindings. Mint an extended
+existing opaque _P02LocalSettlement receipt tied to that EXACT original ticket,
+frozen occurrence/publication hash, native revision/scope, owner revisions,
+retained-state and journal/fee/position basis fingerprints and actual read frame.
+Register it in the existing issuer map only for this lexical completion frame.
+No public caller API accepts an eligible/settled/accounted flag or prepared result.
+
+Native verifies receipt OUTSIDE I using the actual owner read, then compares exact
+current ticket/snapshot/source generation and consumes ONCE inside I. Only that
+ticket's dirty marker is removed; original facts/caches/financial records remain.
+Before/after each consumption recheck scope and snapshots; a new callback before
+consume blocks, and a new callback after consume invalidates every earlier local
+observation. Final synchronized version is recorded only when no dirty/inflight
+source occurrence remains and all actual-owner/journal predicates still hold.
+Receipts are nonserializable/nontransferable, source-issued, exact-frame/thread/
+origin checked, single-use and revoked in finally. Failure/exception/abandonment,
+callback-registration change, connection/account/client/epoch change, new pending
+request, owner mutation, SQL ambiguity or changed fee basis invalidates immediately.
+Known fills/fees stay recorded; no uncertainty/quarantine/recovery latch is cleared.
+A fully revalidated ordinary duplicate can get a new occurrence receipt only from
+another actual completion frame, never by reusing the old receipt or reaccounting.
+
+FEES AND PROOF LIMITS
+For this FIRST nonempty terminal-roundtrip subset, COMPLETE existing durable
+fee-owner coverage for EVERY selected execution is mandatory before the financial
+bundle can settle or make localavailable true. No-report/no-attempt still preserves
+authoritative known GROSS with fee coverage UNKNOWN, but is NOT positive settlement
+for this subset. Absence is not zero/NET and this narrow local restriction changes
+no global financial fallback, fee rule or accepted empty-bootstrap behavior. The
+settlement reader performs no query/retry/write to obtain fee coverage. Once
+observed fee callbacks require effects or existing fee state is selected/uncertain,
+all applicable existing fee-owner vetoes remain. Present valid
+known-zero fees require durable accepted source witness just like positive fees.
+No fee freshness renewal, fee-event backfill, foreign-currency conversion, timestamp
+reclassification or price/quantity/target policy changes. Do not weaken canonical
+missing/conflicting accounting to obtain a local condition.
+
+CAUSAL VALIDATION BEFORE SOURCE ACCEPTANCE
+Reuse existing Native/retained standalone/canonical/post-fill/strict-currency/fee
+fixtures and hard SDK/memory-only guards. First demonstrate the accepted code's
+specific nonempty-cache/financial-ticket refusal, not an invented production bug.
+Then prove one actual source callback -> retained owner -> canonical durable effect
+-> protective stop closure/reconciliation -> fee owner (where present) -> issued
+receipt -> LOCAL_CHECK observation with all raw caches retained. Observe the actual
+issuer call path, event counts/ids, original timestamps and no duplicate financial,
+protection/capital effect. Assert all unsupported P02 stages stillFalse/no dispatch.
+Paired controls: status-before-exec/report-before-exec; partial/pending/temporaryflat;
+identical duplicates/repeats; corrected/conflicting executions/reports; missing or
+conflicting durable event/snapshot/native state; wrong account/security/decision/
+root/client/epoch; mutable SDK object after receipt; unsupported/legacy/query-end-only
+facts; fee uncertainty/no-assumedzero; callback/connection/owner mutation during
+issuance/verification; thrown callback/accounting/read/cleanup; forged/reused/abandoned
+receipt. Use bounded synchronization/finally cleanup, no sleeps/hidden retries.
+Run focused and newly affected checks, independent exact-head review and required
+changed-head CI. Preserve all original failures/count overlap; no unchanged broad
+suite repetition or docs-only review loop. No actual broker/provider activity,
+observer, capital enrollment/recovery action or readiness upgrade.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+
+#### Delegated adoption before implementation
+
+Under the user's standing programme authority, adopt ONLY the independently
+reviewed complete financial-callback settlement contract at
+5b5bf6914286a0b543f0440c15081fc97c10f74f/tree56910bd0844015724409cce480fef5920ce668bd
+(original draft bf44ad9b7b4fb712a7238de691dcfe1101c870e7). Independent review
+resolved mandatory COMPLETE fee coverage for every selected execution, actual
+position-owner completion/retirement/local-cleanup receipts, and fresh-empty
+post-fill/registry binding with private input and detached outward ownership.
+This is NEW project policy, not historical doctrine. The proposal wording above
+records its review history; this adoption is the authorization boundary for code.
+
+Only one same-process fully closed standalone entry/original selected protective
+stop/flat roundtrip is initially supported. Nonempty source caches remain intact.
+Financial callback settlement is source-issued, occurrence-bound and dependent on
+actual complete durable accounting, protection, position and fee owners. No report
+remains GROSS/fee UNKNOWN and cannot settle this nonempty subset. No source
+cleanup/cancellation acknowledgment or broker-history completeness is invented.
+
+This adoption supplies LOCAL_CHECK only, still default-off through the accepted
+explicit synthetic TEST/PAPER enrollment. Every observation retains coverage
+UNKNOWN, broker_history_complete=False and admission_authorized=False. All
+proposal/risk/reservation/final-write, numerical ATR bounds, native entry and
+management remain closed. A legitimate Ross retained request stays Ross; no
+positive P02 SDK send, P02 target rewrite or strategy relabel is authorized.
+P03 trend/macro-source proposals are NOT adopted by this decision. All five
+ownership vetoes and observation3f48bf3f/sourcec65/calendar remain unchanged.
+No actual provider/broker acquisition, observer, operational capital/recovery
+action or readiness upgrade. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.

@@ -73,3 +73,22 @@ short enablement or a production regime producer. Existing structural/risk,
 ownership, lifecycle, default activation and management requirements remain.
 No Ross/P02 management contract is imported. PAPER_READY=NO;
 PAPER_READINESS_GATE=FAIL.
+
+## 2026-11-15 — Source-producing regime prerequisite remains open
+
+The completed PR1233 repair is not a source producer. The bounded offline
+inspection/proposal in existing source-local governance
+`src/strategies/mean_reversion/governance/07_REGIME_FILTERS.md` identifies exact
+missing inputs: P03-specific index strong-trend measurement/calibration;
+qualified, completed current-session SPY/QQQ source facts; and an approved
+scheduled-release source/class/window/revision-completeness contract plus a
+finite original offline receipt. No existing aggregate regime label, exchange
+calendar, empty news response or illustrative False establishes this authority.
+
+The proposed immutable handoff/revalidation shape is DRAFT and not adopted as
+a complete contract while these decisions and actual inputs are absent. No
+UNKNOWN-only carrier, source adapter, Core wiring or policy numerical change
+is implemented. Preserve all required unknown-state vetoes and proceed with
+independent ready work. This records a concrete dependency, not completion,
+positive Core admission, natural validation or operational readiness.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.

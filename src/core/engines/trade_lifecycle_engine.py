@@ -675,6 +675,15 @@ class TradeLifecycleEngine:
                     raise ValueError("P02_LOCAL_ENTRY_SCOPE_UNAVAILABLE")
             except Exception:
                 findings.append("P02_LOCAL_ENTRY_SCOPE_UNAVAILABLE")
+        local_financial_bundle = None
+        if getattr(authority, "_native_orders", None):
+            try:
+                # Runtime ownership still requires its durable witness even
+                # when the entire native-state row has disappeared.
+                local_financial_bundle = authority._p02_financial_bundle(lease=lease,
+                    snapshot=authority._p02_local["client"].local_intake_snapshot())
+            except Exception as exc:
+                findings.append(str(exc) or "P02_LOCAL_RETAINED_NATIVE_REQUEST_SCOPE_NOT_ENROLLED")
         for state in durable.get("native_states", []):
             try:
                 payload = json.loads(state["reason"])
@@ -686,7 +695,18 @@ class TradeLifecycleEngine:
                         or state.get("event_replay_mode") not in {"OFF","CYCLE","RUN"}):
                     raise ValueError("P02_LOCAL_REQUEST_HISTORY_UNAVAILABLE")
                 if payload["orders"]:
-                    findings.append("P02_LOCAL_RETAINED_NATIVE_REQUEST_SCOPE_NOT_ENROLLED")
+                    # NEW bounded policy: only this original process's exact
+                    # terminal standalone effects can explain nonempty state.
+                    # Old/cold requests are never adopted by this read.
+                    try:
+                        bundle = local_financial_bundle
+                        if bundle is None:
+                            raise RuntimeError("P02_LOCAL_RETAINED_NATIVE_REQUEST_SCOPE_NOT_ENROLLED")
+                        if (state.get("run_id") != bundle["current_run_id"]
+                                or payload != bundle["native_state"]):
+                            raise RuntimeError("P02_LOCAL_RETAINED_NATIVE_REQUEST_SCOPE_NOT_ENROLLED")
+                    except Exception as exc:
+                        findings.append(str(exc) or "P02_LOCAL_RETAINED_NATIVE_REQUEST_SCOPE_NOT_ENROLLED")
                 for order in payload["orders"].values():
                     if (order.get("terminal") is not True
                             or order.get("cached_update_in_progress")

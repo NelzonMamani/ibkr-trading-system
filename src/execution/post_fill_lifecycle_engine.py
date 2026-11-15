@@ -4,8 +4,17 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 import math
+import sys
 from typing import Any
 
+from src.core.active_trade_registry import (
+    _P02UnsupportedValue,
+    _p02_copy_or_taint,
+    _p02_copy_value,
+    _p02_exact_methods,
+    _p02_original_frame,
+    _p02_taint_owner,
+)
 from src.core.take_profit_authority import TakeProfitAuthority, TakeProfitDecision, TakeProfitTargetType
 from src.core.stop_loss_authority import (
     StopAuditEventType,
@@ -174,6 +183,10 @@ class PostFillLifecycleEngine:
         trailing_stop_authority: TrailingStopAuthority | None = None,
         startup_recovery_complete: bool = True,
     ) -> None:
+        reused = hasattr(self, "_p02_local_pristine")
+        if getattr(self, "_p02_local_authority", None) is not None:
+            _p02_taint_owner(self, "P02_LOCAL_POST_FILL_REINITIALIZED")
+            raise RuntimeError("P02_LOCAL_POST_FILL_OWNER_UNAVAILABLE")
         self.run_mode = str(run_mode or "SIM").upper()
         self.policy = policy or LifecyclePolicy()
         self.execution_provider = execution_provider
@@ -185,6 +198,44 @@ class PostFillLifecycleEngine:
         self._active_trade_ids: set[str] = set()
         self._active_position_qty_by_symbol: dict[str, int] = {}
         self._pending_exit_requests: dict[str, dict[str, Any]] = {}
+        self._p02_local_authority = None
+        self._p02_local_revision = 0
+        self._p02_local_pristine = not reused
+        self._p02_local_supported = True
+        self._p02_local_constructor_supported = (policy is None and stop_audit_trail is None
+            and take_profit_authority is None and trailing_stop_authority is None)
+
+    def bind_p02_local_authority(self, authority) -> None:
+        from src.execution.execution_engine import ExecutionEngine
+        if (type(self) is not PostFillLifecycleEngine or type(authority) is not ExecutionEngine
+                or getattr(authority, "post_fill_lifecycle", None) is not self
+                or getattr(authority, "_p02_local", None) is None
+                or getattr(self, "_p02_local_authority", None) is not None
+                or getattr(self, "_p02_local_pristine", None) is not True
+                or getattr(self, "_p02_local_supported", None) is not True
+                or getattr(self, "_p02_local_constructor_supported", None) is not True
+                or self.run_mode != "PAPER"
+                or type(getattr(self, "_trades", None)) is not dict or self._trades
+                or type(getattr(self, "_active_trade_ids", None)) is not set or self._active_trade_ids
+                or type(getattr(self, "_active_position_qty_by_symbol", None)) is not dict
+                or self._active_position_qty_by_symbol
+                or type(getattr(self, "_pending_exit_requests", None)) is not dict
+                or self._pending_exit_requests
+                or not _p02_exact_methods(self, _P02_POST_FILL_METHODS)):
+            raise RuntimeError("P02_LOCAL_POST_FILL_OWNER_UNAVAILABLE")
+        self._p02_local_authority = authority
+        self._p02_local_pristine = False
+
+    def _p02_local_source_frame(self):
+        if (self._p02_local_authority is None
+                or _p02_original_frame(self, sys._getframe(1).f_code) is None):
+            raise RuntimeError("P02_LOCAL_POST_FILL_FRAME_UNAVAILABLE")
+        _p02_validate_post_fill_values(self)
+        return dict(owner=self, revision=self._p02_local_revision,
+            supported=self._p02_local_supported and _p02_exact_methods(self, _P02_POST_FILL_METHODS),
+            trades=self._trades, active_trade_ids=self._active_trade_ids,
+            active_position_qty_by_symbol=self._active_position_qty_by_symbol,
+            pending_exit_requests=self._pending_exit_requests)
 
     def set_startup_recovery_complete(self, complete: bool) -> None:
         self.startup_recovery_complete = bool(complete)
@@ -299,7 +350,7 @@ class PostFillLifecycleEngine:
             if trade.stop is None:
                 trade.stop = leg  # One REAL leg, never an aggregate fake ID/quantity.
             submitter(trade, leg)
-        return {"success": True, "trade": trade.to_dict(), "rationale": "unit_stops_submitted_not_yet_confirmed"}
+        return {"success": True, "trade": _p02_trade_payload(self, trade), "rationale": "unit_stops_submitted_not_yet_confirmed"}
 
     def assess_trade_stop_protection(self, trade_id: str) -> dict[str, Any]:
         trade = self._trades.get(str(trade_id))
@@ -858,7 +909,7 @@ class PostFillLifecycleEngine:
                 f"trade_id={trade.trade_id} symbol={trade.symbol} reason=READ_ONLY_NO_ORDER_MUTATION"
             )
             self._transition(trade, PositionLifecycleState.LIFECYCLE_FAILURE, "read_only_no_install")
-            return {"success": False, "trade": trade.to_dict(), "failure_reason": "READ_ONLY_MODE"}
+            return {"success": False, "trade": _p02_trade_payload(self, trade), "failure_reason": "READ_ONLY_MODE"}
 
         if selected_stop_units:
             if self.run_mode != "PAPER" or not preserve_selected_protection or take_profit_price is not None:
@@ -1015,12 +1066,12 @@ class PostFillLifecycleEngine:
         print(f"[LIFECYCLE][SUMMARY] trade_id={trade.trade_id} symbol={trade.symbol} state={trade.state.value}")
         return {
             "success": installed,
-            "installed_stop_metadata": asdict(trade.stop) if trade.stop else None,
-            "installed_target_metadata": asdict(trade.target) if trade.target else None,
+            "installed_stop_metadata": _p02_protection_payload(self, trade.stop) if trade.stop else None,
+            "installed_target_metadata": _p02_protection_payload(self, trade.target) if trade.target else None,
             "protection_state": trade.state.value,
             "rationale": "initial_protection_installed" if installed else "protection_install_failed",
             "failure_reason": failure_reason,
-            "trade": trade.to_dict(),
+            "trade": _p02_trade_payload(self, trade),
         }
 
     def evaluate_trailing(self, trade_id: str, current_price: float) -> dict[str, Any]:
@@ -2247,4 +2298,100 @@ class PostFillLifecycleEngine:
         return self._trades.get(str(trade_id))
 
     def snapshot(self) -> dict[str, dict[str, Any]]:
-        return {trade_id: trade.to_dict() for trade_id, trade in self._trades.items()}
+        return {trade_id: _p02_trade_payload(self, trade) for trade_id, trade in self._trades.items()}
+
+
+_P02_POST_FILL_DATA = (ManagedTradeLifecycle, ProtectionOrderMeta)
+_P02_POST_FILL_ENUMS = (PositionLifecycleState,)
+
+
+def _p02_trade_payload(owner, trade):
+    if owner._p02_local_authority is None:
+        return trade.to_dict()
+    copied = _p02_copy_or_taint(owner, trade, _P02_POST_FILL_DATA,
+        _P02_POST_FILL_ENUMS, refuse=True)
+    return copied.to_dict()
+
+
+def _p02_protection_payload(owner, protection):
+    if owner._p02_local_authority is None:
+        return asdict(protection)
+    copied = _p02_copy_or_taint(owner, protection, _P02_POST_FILL_DATA,
+        _P02_POST_FILL_ENUMS, refuse=True)
+    return asdict(copied)
+
+
+def _p02_validate_post_fill_values(owner):
+    # Inspect exact fields before asdict or any custom object can run a hook.
+    try:
+        _p02_copy_value((owner._trades, owner._pending_exit_requests,
+            owner._active_trade_ids, owner._active_position_qty_by_symbol),
+            _P02_POST_FILL_DATA, _P02_POST_FILL_ENUMS)
+    except _P02UnsupportedValue:
+        _p02_taint_owner(owner, "P02_LOCAL_UNSUPPORTED_POST_FILL_VALUE")
+        return False
+    return True
+
+
+def _p02_post_fill_method(method, *, mutation=False, private=False):
+    from functools import wraps
+    @wraps(method)
+    def wrapped(self, *args, **kwargs):
+        authority = getattr(self, "_p02_local_authority", None)
+        if authority is None:
+            self._p02_local_pristine = False
+            return method(self, *args, **kwargs)
+        parent = _p02_original_frame(self, sys._getframe(1).f_code)
+        if not _p02_exact_methods(self, _P02_POST_FILL_METHODS):
+            _p02_taint_owner(self, "P02_LOCAL_CUSTOM_POST_FILL_OWNER")
+        input_data = _P02_POST_FILL_DATA
+        if method.__name__ == "reconcile_orders":
+            # The actual provider returns this exact frozen field container.
+            # Its mutable metadata still needs the same strict recursive copy.
+            from src.execution.execution_providers import OrderSnapshot
+            input_data += (OrderSnapshot,)
+        if mutation:
+            with authority._p02_owner_mutation(self, method.__name__, parent_frame=parent):
+                if parent is None:
+                    if private:
+                        _p02_taint_owner(self, "P02_LOCAL_DIRECT_POST_FILL_HELPER")
+                    args, kwargs = _p02_copy_or_taint(self, (args, kwargs),
+                        input_data, _P02_POST_FILL_ENUMS)
+                    _p02_validate_post_fill_values(self)
+                result = method(self, *args, **kwargs)
+                return (_p02_copy_or_taint(self, result, _P02_POST_FILL_DATA,
+                    _P02_POST_FILL_ENUMS, refuse=True) if parent is None else result)
+        if parent is not None:
+            return method(self, *args, **kwargs)
+        state = authority._p02_local
+        if not state["gate"].acquire(blocking=False):
+            raise RuntimeError("P02_LOCAL_OWNER_BUSY")
+        try:
+            args, kwargs = _p02_copy_or_taint(self, (args, kwargs),
+                input_data, _P02_POST_FILL_ENUMS)
+            if not _p02_validate_post_fill_values(self):
+                raise RuntimeError("P02_LOCAL_UNSUPPORTED_OWNER_VALUE")
+            return _p02_copy_or_taint(self, method(self, *args, **kwargs),
+                _P02_POST_FILL_DATA, _P02_POST_FILL_ENUMS, refuse=True)
+        finally:
+            state["gate"].release()
+    return wrapped
+
+
+for _p02_name in ("set_startup_recovery_complete", "activate_trade_management_after_fill",
+        "update_selected_exposure", "record_exit_fill", "handle_broker_callback", "reconcile_orders",
+        "evaluate_trade_management", "evaluate_trailing", "replace_stop", "cancel_stop",
+        "execute_exit_intents", "mark_exit_pending", "mark_exited", "startup_safe_state",
+        "_install_selected_unit_stops", "_update_in_memory_state", "_transition",
+        "_record_take_profit_event", "_clear_unsubmitted_take_profit_target", "_compute_stop_target",
+        "_tighten_stop_after_take_profit", "_create_exit_request", "_repair_missing_stop",
+        "_repair_missing_target", "_escalate_failsafe", "_record_stop_event", "_record_trailing_decision"):
+    setattr(PostFillLifecycleEngine, _p02_name,
+        _p02_post_fill_method(getattr(PostFillLifecycleEngine, _p02_name),
+            mutation=True, private=_p02_name.startswith("_")))
+for _p02_name in ("get_trade", "snapshot", "selected_unit_leg", "assess_trade_stop_protection",
+        "_get_open_trades_for_symbol"):
+    setattr(PostFillLifecycleEngine, _p02_name,
+        _p02_post_fill_method(getattr(PostFillLifecycleEngine, _p02_name)))
+_P02_POST_FILL_METHODS = {name: method for name, method in PostFillLifecycleEngine.__dict__.items()
+    if callable(method)}

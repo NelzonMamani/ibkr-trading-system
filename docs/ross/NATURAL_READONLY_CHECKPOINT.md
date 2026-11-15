@@ -20155,3 +20155,237 @@ Next bounded task after verified integration: specify the missing security/time/
 Initial PR1233 head523b7646/tree2fe069af automatic CI43700793472 attempt1 Linux132771305507 passed8106/3skipped/4warnings/988.77s on actual combined checkoutb89597a0 (parents b479ba17 then523b7646). The count exposed that pytest.ini testpaths=tests excludes strategy-local directories: the new92 P03 controls had passed focused/independent checks but were NOT collected by this automatic full suite. They are now moved unchanged as one module to tests/test_p03_veto_fidelity.py, using the same existing P03 fixture/owners; no duplicate module, thresholds or production changes. All97 new controls will be eligible for the unchanged required CI commands. The relocated module focused check executes92passed; the earlier integrated233 count remains historical and overlapping. This substantive coverage correction requires new final-head review/automatic CI; no successful unchanged-head suite is manually rerun.
 
 The same initial run's controlled Windows job132771305482 FAILED at stub-only venv-handoff preparation: require_controller's existing3-second ancestry budget reached read_process_identity's PowerShell Get-CimInstance query, which raised TimeoutExpired at2.9999988s. Preparation exited1 after3.5423496s, timely within150s (NOT a preparation timeout); preflight/observation/package were unrun.46serial/6cache/13PowerShell-exit checks passed; later complete-harness/parser gates did not. Verified downloaded artifact14156014588:427214bytes, SHA256 d4333c9d55e2c58e2112c86be8487f378c7941b6565192cc361e900963c9e99e. Environment latency is suspected; its underlying cause is unproved. No unsafe acceptance, P03/capital defect or changed operator owner was demonstrated. Budgets, controller guards and frozen observation distribution remain unchanged. An independent diagnostic assessment permitted one failed-job-only qualification if the head stayed fixed; that plan was superseded by the necessary collection correction. The old run is allowed to finish naturally, with no manual retry or cancellation. Preserve its failures and final platform results separately; no pass is called a latency repair or robustness proof.
+
+
+### 2026-11-15 — PR1233 accepted P03 veto fidelity and capital diagnostics
+
+PR1233: https://github.com/NelzonMamani/ibkr-trading-system/pull/1233
+Verified base b479ba17368634a1918278d1cffda2b95554ae02;
+final reviewed head b8c1cbb6b67628cdd917c12c823984cac1be023e;
+reviewed/candidate/PR-tested/merged tree cb63fe082209b2e754b45ee5607477eeb559fa33.
+Independent full-source reviews5910107245/5910107543 and final collection-delta
+review5910191153 are CLEAR. The final delta moved exactly one unchanged test
+blob into the default CI directory; no production/fixture/CI-budget changes.
+https://github.com/NelzonMamani/ibkr-trading-system/pull/1233#pullrequestreview-5910191153
+Independent97 causal checks passed; integrated233 and relocated92 passed;
+independent default-command collection confirmed8201 nodes including all92 P03
+controls. Counts overlap and do not upgrade placeholder tests into coverage.
+
+Required final-head PR CI43702737026 attempt1 COMPLETE SUCCESS:
+https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/43702737026
+- scope132777190008 SUCCESS, actual harness_only=false;
+- Linux132777252897:8198passed/3skipped/4warnings/1147.91s;
+- Windows full132777252939:8199passed/2skipped/6227warnings/2671.55s;
+- controlled132777252955 SUCCESS:46serial/6cache/13PowerShell exit/48stub-only
+  harness cases, quote parser and evidence upload;
+- required Windows aggregate132788666122 SUCCESS, requiring both Windows owners.
+Focused95/news37/float-cache9 checks also passed; no mandatory downstream gate
+was omitted. Both full platforms and controlled actual checkout identify
+ a53f901f6f71de5bbbcb0df10957158ea911fa7d. That commit's ordered parents are
+ b479ba17368634a1918278d1cffda2b95554ae02 then
+ b8c1cbb6b67628cdd917c12c823984cac1be023e and its tree is cb63fe08 above.
+
+Immediately before merge, remote main/base/head and complete required CI were
+independently re-read unchanged. Standing expected-head authorization produced
+actual merge/main 0c50c29a587f789c220cc8a1faa3f54fff13e4e6. Its ordered parents
+are exactly the SAME base then reviewed head above, and tree cb63fe08 matches.
+No candidate amendment was made to append acceptance receipts.
+
+Automatic main CI43707412749 attempt1 event=push COMPLETE SUCCESS:
+https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/43707412749
+- scope132791380135 SUCCESS, actual harness_only=false;
+- Linux132791435904:8198passed/3skipped/4warnings/1171.59s;
+- Windows full132791435848:8199passed/2skipped/6227warnings/2293.50s;
+- controlled132791435843 SUCCESS:46serial/6cache/13PowerShell exit/48stub-only
+  harness cases, quote parser and evidence upload;
+- required Windows aggregate132801344838 SUCCESS, both Windows owners required.
+Focused95/news37/float-cache9 also passed. Every mandatory gate completed.
+Actual Linux/Windows/controlled checkouts identify accepted0c50c29a above.
+Whole-run SUCCESS, all five job states, exact head/tree and unchanged remote
+main were independently re-read after completion. No manual retry/cancellation
+or successful unchanged-head suite rerun occurred; main push CI was automatic.
+
+The following archive identities are GitHub SERVICE metadata, NOT independent
+ downloaded-byte verification. PR focused14158781019:726bytes SHA256
+ ec0db033e5d8dd21edc4250de6dc088b5e16c9260569d6e4f23db52d70e931f0;
+PR controlled14157198548:745093bytes SHA256
+ 5a8b3780d6f8a053fd4a659315d12f0cc96692b37834a49a25efd7b415064ecd;
+main focused14159768713:728bytes SHA256
+ 05c27fa8c13d589f5bddc764ab66749ebbc76fe389dd3c96ac1100441aee3c17;
+main controlled14158873136:745314bytes SHA256
+ 60c8f72edb7d4b96c9dd6bba3dd56e093fbe7b77995ed114b7a855ec929b650a.
+
+Historical failure remains FAILURE. Initial head523b7646/tree2fe069af CI
+43700793472 attempt1 finished naturally FAILED: Linux132771305507 passed8106/
+3skipped/4warnings/988.77s, Windows132771305503 passed8107/2skipped/6227warnings/
+2876.55s, but those full commands omitted92 source-local P03 cases. The source-
+local focused/independent passes were real, not automatic full-CI coverage.
+Controlled132771305482 FAILED at stub venv-handoff preparation; aggregate
+132783670485 correctly FAILED because controlled success is mandatory. No
+manual retry or cancellation occurred. Actual old checkout b89597a0547941247d3f345e166ccf6846df2d2c
+has ordered parents b479ba17 then523b7646/tree2fe069af; it is not the final tree.
+
+Original preparation exited1 after3.5423496s with timed_out=False under150s;
+require_controller's existing3s ancestry inspection exhausted a PowerShell
+Get-CimInstance query deadline (TimeoutExpired2.9999988s). No preflight,
+observation or packaging followed in that case; later parser was unrun.46serial,
+6cache and13exit controls had passed, not the complete harness. Downloaded
+artifact14156014588 independently verified427214bytes, SHA256
+ d4333c9d55e2c58e2112c86be8487f378c7941b6565192cc361e900963c9e99e.
+Environment latency is suspected; its underlying cause remains unproved. The
+collection correction, not a controller repair, required a new automatic head.
+Later green controls do not causally fix that failure or establish robustness.
+The separate historical capital Windows timeout likewise remains UNLOCALIZED.
+No production capital, SQLite, fence or controller policy defect was established.
+
+Accepted scope: P03's actual all-veto path emits no fabricated LONG0.58 proposal
+in SIM/PAPER or another mode. Actual RTH phases/timing and required quote/quality,
+original market-time/history, configured halt/news and index/macro facts use
+existing owners and preserve unknowns. Explicit bounded NEW reconciliation is
+in existing P03 governance (reviewed adoption before implementation); no new
+numerical threshold, management rule or historical Ross claim. Optional SSR
+metadata is retained without short permission. Genuine complete synthetic
+policy approval retains its own direction, stop, target and actual conversion.
+The existing guarded actual-Core route proves all-veto zero proposals/positions/
+native orders; it is not positive Core admission or natural/broker certification.
+Capital diagnostics retain both original future outcomes/tracebacks and primary+
+cleanup failures, bounded monotonic phases, original two-worker overlap/wait10,
+unauthorized writer rejection, unchanged state and cross-account/cap assertions.
+Four actual-probe fault controls expose errors without changing production.
+
+ONE next bounded task: specify the missing security/time/provenance-bound P03
+regime-fact handoff through existing active context/regime owners. Aggregate
+labels cannot mint calm individual-index or macro-window facts. Runtime remains
+blocked until legitimate required facts and native structural/risk requirements
+exist; this receipt supplies no bridge, short or management enrollment. P02's
+separate financial-callback settlement prerequisite stays recorded; ATR bounds,
+native entry/management and unsupported proposal/risk/reservation/final-write
+stages remain closed. LOCAL_CHECK is never final-write permission.
+
+This receipt appends only to the SAME records from actual accepted main; all
+accepted bytes remain exact prefixes. No source amendment, tracker, docs-only
+PR/review loop or manual green-suite rerun. Frozen observation distribution
+3f48bf3f/sourcec65/calendar, all five ownership vetoes, evidence/databases and
+parked work are unchanged. No observer, broker/provider, operational capital,
+holdings/recovery action or readiness upgrade.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## P03 source dependency and P02 actual-callback settlement — 2026-11-15
+
+Starting accepted main0c50c29a587f789c220cc8a1faa3f54fff13e4e6/tree
+cb63fe082209b2e754b45ee5607477eeb559fa33 and acceptance2bdf19b292250f08f41f8cf791b5f32a9c606c82
+were verified. Missing acceptance additions were carried once, preserving all
+previous bytes. PR1233 attribution/veto/diagnostic work was reused, not repeated.
+
+P03 Batch A remains BLOCKED, not implemented or adopted. Independently reviewed
+source investigation5a6750624cc2e3a05e90928fdd83194c0a9b3c79 (integrated3a285ab9)
+is recorded in the EXISTING P03 governance owners. The aggregate watchlist regime
+and news-density placeholder do not supply qualified individual SPY/QQQ trend
+or macro-window clearance; their optional active observation occurs after strategy
+assessment. The legacy orchestration tail remains unreachable and untouched.
+No approved scheduled-event coverage dataset/source adapter or P03 strong-trend
+formula/calibration contract exists here. Required inputs are separately qualified
+SPY/QQQ original historical/quote evidence, justified completed timeframe/lookback,
+direction/conflict/freshness parameters, and an approved finite publisher/event-
+class/revision/interval coverage manifest with adopted windows. Fed/BLS/BEA URLs
+in the draft are candidates, not fetched/approved coverage. Empty responses cannot
+mean clear; scheduled coverage cannot rule out unforeseen risk. No all-UNKNOWN
+carrier, invented numeric policy, source acquisition or adaptive-layer enrollment
+was used to claim this dependency complete. Existing P03 missing-fact vetoes stay.
+
+P02 Batch B NEW project policy was adopted BEFORE implementation under delegated
+standing authority, after independent contract review. Original draftbf44ad9b,
+precision revision5b5bf6914286a0b543f0440c15081fc97c10f74f and adoption
+479113bec88186dc31d7d06873a967dd2ada575e are integrated as ea504d41/d8b8b4dc/
+abb37760. The existing P02 governance contains the complete bounded contract:
+one fresh, same-process, original-account/client/epoch standalone long ENTRY,
+original selected protective STOP and terminal flat roundtrip, COMPLETE durable
+fee coverage for every selected execution, strict actual-owner query completion
+and local cleanup, pristine privately bound lifecycle/registry ownership. This is
+observable local-state settlement AS OF coherent original-owner/journal reads,
+not broker-history completeness or protection against unseen late fills.
+
+The existing Native owner now preserves immutable semantic payload/publication
+for each exact callback occurrence and source-issued query completion only after
+actual cleanup. The actual execution collector verifies retained requests,
+original prospective decision binding, canonical TLE/SQLite financial effects,
+original protection, independent truth, complete fees and ALL retained cache rows.
+Only that flow issues/consumes an opaque single-use settlement receipt. PostFill
+and registry use the same mutation gate/revisions, private supported input copies
+and detached nested outward references; default-off behavior remains unchanged.
+No caller flag, cache clearing, order replay or parallel financial ledger supplies
+clearance. Runtime native ownership requires its durable witness even when an
+entire native-state row disappears. Duplicate callbacks do not renew original
+execution/query time or duplicate financial effects. Corrections/unsupported
+scope, unknown fees, dirty source occurrences and stale receipts fail closed.
+
+A concrete pre-existing SQLite CAS-read cursor gap was reproduced through actual
+Engine load/save/save/observe: LOCAL_SQLITE_FENCE_UNAVAILABLE. The known owned
+SELECT used raw execute().fetchone(), leaving its VM active under existing strong
+tracking. A one-line use of the EXISTING _owned_fetchone helper closes that owned
+cursor. No transaction/CAS/fence/timeout policy or unknown-VM cleanup changed.
+An earlier cold-quarantine probe failed before that cause and is not the causal
+proof. Historical capital Windows timeout and PR1233 controller latency remain
+unlocalized; this is not a repair claim for either.
+
+The composed positive is controlled synthetic retained ROSS native requests,
+public Native callback entrypoints, actual collector, TLE/SQLite accounting,
+PostFill/registry, strict currency/position encoders and complete fee owners.
+The factual Core handoff method is exercised on a __new__ component; this is NOT
+a complete Core boot/scheduling, full-registry, positive P02 SDK-send, natural or
+broker proof. SDK place/modify/cancel calls are zero; query transport is memory-
+bound. Measured entry10.30/structural stop10.2897 remain distinct from actual
+entryfill10.53/stopfill10.28. One share produces GROSS -0.25 with original fees
+0.01+0.02. P02 observes EMPTY_LOCAL because no P02 entry was manufactured, not
+because the Ross request changed strategy. The two-share callback-only control
+proves actual stop partial accounting/protection and local veto while one remains,
+then terminal GROSS -0.50 and complete fee/query evidence permit LOCAL_CHECK.
+It is not producer sizing, risk admission or operational-capital proof; default
+one-share fixtures and scope=None memory capital remain unchanged. Partial entry
+never enrolls, even if its filled portion becomes flat. Repeated cycles do not
+duplicate accounting, protection, capital release or dispatch.
+
+Initial frozen source d01b48408f4018ea0d99340ca7a5e8fb8e20e0b3, integrated b3f41dc1,
+passed one focused/affected run384 tests/313 known warnings/24.09s:80 newly defined
+cases (17 Native,30 owner,33 composed) plus304 existing. Counts overlap earlier
+focused runs and are not additive; this is not required full CI. Compile and diff
+checks passed. Development failures were preserved, including fixture import/
+carrier/descriptor errors, unsupported dataclass-copy coverage, missing import,
+strict cold scope/foreign-key controls and actual new-reader defects: duplicate
+execution invalidation, wrong stop orderRef, deleted durable witness and rebound
+original decision. Each was repaired with causal controls; foreign keys, source
+times and quarantine were preserved. Independent exact-source review then found
+four further causal FAILURES: a FIRST/sole acknowledgement with IOC TIF, altered
+outsideRth, limit price, or Rejected status could settle. Repeated-ACK comparison
+had not bound the first acknowledgement's complete original terms. These failures
+are not converted into passes by the earlier384 checks. Correction45adf06aa42c34eab9c388cf0e2588dc745cd517
+(integrated a7ca2873) binds the existing native MKT-entry DAY/original-STP GTC,
+outsideRth/transmit, unused SDK-price sentinels and recognized status semantics.
+Non-MKT entry remains outside this first scope without a retained limit contract.
+Historical recognized transient PendingCancel does not invent a new blanket veto;
+actual terminal accounting/flat/fees and no current liability are still required.
+Six added first-ACK controls plus the valid baseline passed7/32deselected/7warnings/
+1.58s; cancelled protective ACK preserves the existing earlier quarantine veto.
+A WIP misplaced import caused1FAIL/6PASS/1.38s before the corrected7PASS; that
+broken-prefix negative result is not sufficient proof. The original384 green
+checks were reused for unchanged source rather than blindly rerun. Final default
+collection contains8287 tests, including all86 newly defined cases; counts overlap.
+Compile/diff checks pass. Independent final-head review and REQUIRED CI evidence
+are appended only after their actual completion; no partial local result grants
+integration permission.
+
+Scope remains LOCAL_CHECK only. Proposal/risk/reservation/final-write enrollment,
+ATR numerical bounds, native-entry/management and broker-history completeness
+remain CLOSED/UNKNOWN. Cold restart ownership, multiple roots, relationship/add/
+amendment/discretionary paths and uncertain/open/partial liabilities do not gain
+clearance. Original execution-day attribution and fee uncertainty stay intact.
+
+ONE next bounded action after verified integration: obtain the explicit P03
+source/measurement/coverage inputs above before implementing its immutable active
+handoff. P02's next supported settlement expansion requires a separately reviewed
+contract; LOCAL_CHECK is never final-write permission. No new engine/tracker,
+legacy-tail activation or completed investigation repeat. Frozen observation
+3f48bf3f/sourcec65/calendar, all five ownership vetoes, existing databases/evidence,
+parked work and operational quarantine are unchanged. No observer, provider/broker
+acquisition, broker mutation, operational enrollment or recovery clearing.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
