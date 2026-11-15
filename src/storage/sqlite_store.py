@@ -2505,7 +2505,7 @@ class SQLiteStore:
         prior = json.dumps(expected, sort_keys=True, allow_nan=False) if expected is not None else None
         try:
             self.connection.execute("BEGIN IMMEDIATE")
-            row = self.connection.execute("SELECT reason FROM position_lifecycle_transitions WHERE transition_id=?", (state_id,)).fetchone()
+            row = self._owned_fetchone("SELECT reason FROM position_lifecycle_transitions WHERE transition_id=?", (state_id,))
             if (row[0] if row else None) != prior:
                 raise RuntimeError("NATIVE_ORDER_STATE_CONFLICT")
             self.connection.execute("INSERT OR REPLACE INTO position_lifecycle_transitions (transition_id,run_id,strategy_owner,intent,reason_code,reason,transition_seq,timestamp,created_at) VALUES (?,?,?,?,?,?,?,?,?)",

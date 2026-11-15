@@ -344,6 +344,8 @@ class LocalIntakeTicket:
     client_id: Optional[int]
     connection_epoch: Optional[int]
     accounts: tuple[str, ...]
+    semantic_payload: Optional[tuple] = None
+    publication: Optional[tuple] = None
 
 
 @dataclass(frozen=True)
@@ -358,14 +360,54 @@ class LocalIntakeSnapshot:
     invocation_fingerprint: Optional[tuple] = None
 
 
+@dataclass(frozen=True)
+class LocalRequestCompletion:
+    kind: str
+    source_client: object
+    client_object_id: int
+    client_id: int
+    connection_epoch: int
+    account: str
+    request_id: int
+    context_id: int
+    request_started_at: datetime
+    completed_at: datetime
+    revision_start: int
+    revision_end: int
+    rows: tuple = ()
+    currency: Optional[str] = None
+    tags: tuple[str, ...] = ()
+    retired: bool = True
+    cancellation_returned: bool = True
+    callback_ticket_ids: tuple[int, ...] = ()
+
+    def __reduce__(self):
+        raise TypeError("P02_LOCAL_REQUEST_COMPLETION_NOT_TRANSFERABLE")
+
+    def __copy__(self):
+        raise TypeError("P02_LOCAL_REQUEST_COMPLETION_NOT_TRANSFERABLE")
+
+    def __deepcopy__(self, memo):
+        raise TypeError("P02_LOCAL_REQUEST_COMPLETION_NOT_TRANSFERABLE")
+
+
+_LOCAL_NATIVE_PUBLICATION_CODES = {}
+_LOCAL_NATIVE_REQUEST_CODES = {}
+_LOCAL_NATIVE_FINGERPRINT_CODES = set()
+
+
 def _local_native_value(value):
     """Detached builtin values only; never invoke caller repr/copy callbacks."""
     from ibapi.softdollartier import SoftDollarTier
     from ibapi.execution import Execution
     from ibapi.order_state import OrderState
+    if type(value) is float and not math.isfinite(value):
+        raise RuntimeError("P02_LOCAL_NONFINITE_NATIVE_VALUE")
     if type(value) in (str, int, float, bool, bytes, type(None)):
         return (type(value).__name__, value)
     if type(value) is Decimal:
+        if not value.is_finite():
+            raise RuntimeError("P02_LOCAL_NONFINITE_NATIVE_VALUE")
         return ("Decimal", str(value))
     if type(value) in (list, tuple):
         return (type(value).__name__, tuple(_local_native_value(item) for item in value))
@@ -380,6 +422,7 @@ def _instrument_local_native_intake(cls, name):
     """Constructor-lifetime boundary outside registration/parsing/publication."""
     from functools import wraps
     original = getattr(cls, name)
+    _LOCAL_NATIVE_PUBLICATION_CODES[name] = inspect.unwrap(original).__code__
     @wraps(original)
     def intake(self, *args, **kwargs):
         operation = self._begin_local_source_operation(name)
@@ -398,7 +441,7 @@ def _instrument_local_native_intake(cls, name):
                 # Outside I; failed/unknown inputs still reach the old owner.
                 raw = _local_native_value((args, kwargs))
                 fingerprint = hashlib.sha256(repr(raw).encode()).hexdigest()
-                self._local_intake_fingerprint(ticket, fingerprint)
+                self._local_intake_fingerprint(ticket, fingerprint, semantic_payload=raw)
             except Exception:
                 self._local_intake_failed(ticket)
             return original(self, *args, **kwargs)
@@ -415,6 +458,36 @@ def _instrument_local_native_intake(cls, name):
                 # no registration or completion gap between these domains.
                 self._finish_local_source_operation(operation, failed=failed)
     setattr(cls, name, intake)
+    _LOCAL_NATIVE_FINGERPRINT_CODES.add(intake.__code__)
+
+
+def _instrument_local_native_request(cls, name, kind):
+    from functools import wraps
+    original = getattr(cls, name)
+    _LOCAL_NATIVE_REQUEST_CODES[kind] = inspect.unwrap(original).__code__
+    @wraps(original)
+    def request(self, *args, **kwargs):
+        operation = self._begin_local_source_operation(kind)
+        state = getattr(self, "_p02_local_ingress", None)
+        stack = getattr(state["thread"], "requests", ()) if state is not None else ()
+        if state is not None:
+            state["thread"].requests = (*stack,(kind,operation,datetime.now(timezone.utc)))
+        failed = False
+        try:
+            result = original(self,*args,**kwargs)
+            if state is not None:
+                with state["lock"]:
+                    failed = not any(receipt.revision_start == operation[4]
+                        for receipt,context in state["request_completions"].values())
+            return result
+        except BaseException:
+            failed = True
+            raise
+        finally:
+            if state is not None:
+                state["thread"].requests = stack
+            self._finish_local_source_operation(operation,failed=failed)
+    setattr(cls,name,request)
 
 
 class IbkrClient(EWrapper, EClient):
@@ -449,7 +522,7 @@ class IbkrClient(EWrapper, EClient):
             process=os.getpid(), client_object_id=id(self), ready=False,
             supported=not bool(values), unsupported="NATIVE_PRECONSTRUCTION_STATE" if values else None,
             constructor_thread=_local_source_thread_id(), next_operation=0, operations={}, operation_tickets={},
-            bootstrap_accounts=None, connect_count=0)
+            bootstrap_accounts=None, connect_count=0, request_completions={}, occurrences={})
         object.__setattr__(self, "_p02_source_lifetime", state)
         return state
 
@@ -510,6 +583,7 @@ class IbkrClient(EWrapper, EClient):
                         revision_end=state["revision"])
                     state["inflight"].discard(current_ticket.ticket_id)
                 state["tickets"][current_ticket.ticket_id] = current_ticket
+                state["occurrences"][current_ticket.ticket_id] = current_ticket
             del state["operations"][operation[0]]
             state["thread"].operations = stack[:-1]
             state["revision"] += 1
@@ -540,8 +614,9 @@ class IbkrClient(EWrapper, EClient):
                         lifetime["bootstrap_accounts"] = accounts
             ticket = self.begin_local_intake(kind)
             if ticket is not None:
+                raw = _local_native_value((name,value))
                 self._local_intake_fingerprint(ticket,
-                    hashlib.sha256(repr((name, _local_native_value(value))).encode()).hexdigest())
+                    hashlib.sha256(repr(raw).encode()).hexdigest(),semantic_payload=raw)
             object.__setattr__(self, name, value)
         except BaseException:
             failed = True
@@ -585,6 +660,7 @@ class IbkrClient(EWrapper, EClient):
             ticket = LocalIntakeTicket(state["next_ticket"], "BASELINE", True, False,
                 start, state["revision"], "INITIAL_OBSERVED_LOCAL_STATE", *self._local_scope_fields())
             state["tickets"][ticket.ticket_id] = ticket
+            state["occurrences"][ticket.ticket_id] = ticket
             state["origins"][ticket.ticket_id] = ticket
             state["intake_threads"][ticket.ticket_id] = _local_source_thread_id()
             object.__setattr__(self, "_p02_local_ingress", state)
@@ -621,12 +697,19 @@ class IbkrClient(EWrapper, EClient):
                 state["operation_tickets"][operations[-1][0]] = ticket.ticket_id
             return ticket
 
-    def _local_intake_fingerprint(self, ticket, fingerprint):
+    def _local_intake_fingerprint(self, ticket, fingerprint, *, semantic_payload=None):
+        import sys
         state = self._p02_local_ingress
         with state["lock"]:
+            if (sys._getframe(1).f_code not in _LOCAL_NATIVE_FINGERPRINT_CODES
+                    or state["origins"].get(ticket.ticket_id) is not ticket
+                    or ticket.ticket_id not in state["inflight"]
+                    or state["intake_threads"].get(ticket.ticket_id) != _local_source_thread_id()):
+                raise RuntimeError("P02_LOCAL_SEMANTIC_SOURCE_REQUIRED")
             current = state["tickets"].get(ticket.ticket_id)
             if current is not None:
-                state["tickets"][ticket.ticket_id] = replace(current, raw_fingerprint=fingerprint)
+                state["tickets"][ticket.ticket_id] = replace(current, raw_fingerprint=fingerprint,
+                    semantic_payload=semantic_payload)
 
     def _local_intake_failed(self, ticket):
         state = self._p02_local_ingress
@@ -634,6 +717,168 @@ class IbkrClient(EWrapper, EClient):
             current = state["tickets"].get(ticket.ticket_id)
             if current is not None:
                 state["tickets"][ticket.ticket_id] = replace(current, failed=True)
+
+    def _publish_local_intake(self, kind, **facts):
+        state = getattr(self,"_p02_local_ingress",None)
+        if state is None:
+            return None
+        import sys
+        stack = getattr(state["thread"],"intake",())
+        if (sys._getframe(1).f_code is not _LOCAL_NATIVE_PUBLICATION_CODES.get(kind)
+                or not stack or stack[-1].kind != kind):
+            raise RuntimeError("P02_LOCAL_PUBLICATION_SOURCE_REQUIRED")
+        ticket = stack[-1]
+        if any(type(key) is not str or type(value) not in (str,int,bool,type(None))
+                for key,value in facts.items()):
+            raise RuntimeError("P02_LOCAL_PUBLICATION_FACTS_INVALID")
+        publication = tuple(sorted(dict(kind=kind,**facts).items()))
+        with state["lock"]:
+            current = state["tickets"].get(ticket.ticket_id)
+            if (state["origins"].get(ticket.ticket_id) is not ticket
+                    or state["intake_threads"].get(ticket.ticket_id) != _local_source_thread_id()
+                    or ticket.ticket_id not in state["inflight"] or current is None
+                    or current.publication is not None):
+                raise RuntimeError("P02_LOCAL_PUBLICATION_TICKET_INVALID")
+            state["revision"] += 1
+            state["tickets"][ticket.ticket_id] = replace(current,publication=publication)
+        return ticket.ticket_id
+
+    def local_intake_occurrence(self, ticket):
+        state = getattr(self,"_p02_local_ingress",None)
+        if state is None or type(ticket) is not LocalIntakeTicket:
+            raise RuntimeError("P02_LOCAL_OCCURRENCE_UNAVAILABLE")
+        if not state["lock"].acquire(blocking=False):
+            raise RuntimeError("P02_LOCAL_NATIVE_INGRESS_BUSY")
+        try:
+            if (state["occurrences"].get(ticket.ticket_id) is not ticket
+                    or ticket.client_object_id != id(self)
+                    or ticket.client_id != self._local_scope_fields()[1]
+                    or ticket.connection_epoch != self._local_scope_fields()[2]
+                    or ticket.accounts != self._local_scope_fields()[3]
+                    or ticket.ticket_id not in state["origins"]):
+                raise RuntimeError("P02_LOCAL_OCCURRENCE_UNAVAILABLE")
+            return ticket
+        finally:
+            state["lock"].release()
+
+    def local_intake_occurrences(self):
+        state = getattr(self,"_p02_local_ingress",None)
+        if state is None or not state["lock"].acquire(blocking=False):
+            raise RuntimeError("P02_LOCAL_OCCURRENCES_UNAVAILABLE")
+        try:
+            self._local_intake_snapshot_locked()
+            return tuple(state["occurrences"][key] for key in sorted(state["occurrences"]))
+        finally:
+            state["lock"].release()
+
+    def local_financial_cache_snapshot(self):
+        before = self.local_intake_snapshot()
+        if before.inflight or not self._lock.acquire(blocking=False):
+            raise RuntimeError("P02_LOCAL_NATIVE_CACHE_BUSY")
+        try:
+            def keyed(values):
+                if any(type(key) is not int for key in values):
+                    raise RuntimeError("P02_LOCAL_NATIVE_CACHE_KEYS_INVALID")
+                return tuple((key,_local_native_value(value)) for key,value in sorted(values.items()))
+            def namespace(value):
+                if type(value) is not SimpleNamespace:
+                    raise RuntimeError("P02_LOCAL_NATIVE_CACHE_ROW_UNSUPPORTED")
+                return _local_native_value(vars(value))
+            if (any(type(key) is not int for key in self._open_orders_snapshot)
+                    or any(type(key) is not str or not key for key in self._commission_by_exec_id)):
+                raise RuntimeError("P02_LOCAL_NATIVE_CACHE_KEYS_INVALID")
+            value = dict(revision=before.revision,scope=(before.client_object_id,before.client_id,
+                before.connection_epoch,before.accounts),
+                exec_details_by_order=keyed(self._exec_details_by_order),
+                order_status=keyed(self._order_status),
+                open_orders_snapshot=tuple((key,namespace(row)) for key,row in sorted(self._open_orders_snapshot.items())),
+                executions_snapshot=tuple(namespace(row) for row in self._executions_snapshot),
+                native_executions=tuple((key,self.cached_native_executions(key))
+                    for key in sorted(self._exec_details_by_order)),
+                commission_execution_ids=tuple(sorted(self._commission_by_exec_id)),
+                native_execution_fees=tuple((key,self.cached_native_execution_fees(key))
+                    for key in sorted(self._exec_details_by_order)))
+        finally:
+            self._lock.release()
+        if self.local_intake_snapshot() != before:
+            raise RuntimeError("P02_LOCAL_NATIVE_CACHE_CHANGED")
+        return MappingProxyType(value)
+
+    def _issue_local_request_completion(self, kind, req_id, context, *, rows=(), currency=None, tags=()):
+        state = getattr(self,"_p02_local_ingress",None)
+        if state is None:
+            return
+        import sys
+        requests = getattr(state["thread"],"requests",())
+        if (sys._getframe(1).f_code is not _LOCAL_NATIVE_REQUEST_CODES.get(kind)
+                or not requests or requests[-1][0] != kind):
+            raise RuntimeError("P02_LOCAL_REQUEST_OWNER_REQUIRED")
+        operation,started = requests[-1][1:]
+        with state["lock"]:
+            scope = self._local_scope_fields()
+            if (state["operations"].get(operation[0]) is not operation
+                    or context["epoch"] != scope[2] or context["client_id"] != scope[1]
+                    or scope[3] != (context["account"],) or state["inflight"]
+                    or context.get("_local_cleanup_revision") != state["revision"]):
+                return
+            receipt = LocalRequestCompletion(kind,self,id(self),scope[1],scope[2],context["account"],
+                req_id,id(context),started,context["completed_at"],operation[4],state["revision"],
+                tuple(rows),currency,tuple(tags),True,True,tuple(context.get("_local_callback_ticket_ids",())))
+            state["request_completions"][(kind,req_id)] = (receipt,context)
+
+    def _local_request_cleanup_revision(self):
+        state = getattr(self,"_p02_local_ingress",None)
+        if state is None:
+            return None
+        with state["lock"]:
+            return state["revision"]
+
+    @staticmethod
+    def _local_position_completion_rows(context):
+        rows = []
+        for row in context["rows"].values():
+            if type(row) is not SimpleNamespace or type(row.contract) is not Contract:
+                raise ValueError("P02_LOCAL_POSITION_ROW_UNSUPPORTED")
+            contract = row.contract
+            quantity,average = row.position,row.avgCost
+            if (type(contract.conId) is not int or contract.conId <= 0 or contract.secType != "STK"
+                    or type(contract.currency) is not str or len(contract.currency) != 3
+                    or not contract.currency.isascii() or not contract.currency.isalpha()
+                    or contract.currency != contract.currency.upper()
+                    or type(row.account) is not str or row.account != context["account"]
+                    or type(row.symbol) is not str or not row.symbol
+                    or type(contract.symbol) is not str or contract.symbol.strip().upper() != row.symbol
+                    or type(quantity) not in (int,float,Decimal) or type(average) not in (int,float,Decimal)
+                    or not math.isfinite(float(quantity)) or quantity != int(quantity)
+                    or not math.isfinite(float(average))):
+                raise ValueError("P02_LOCAL_POSITION_ROW_INVALID")
+            rows.append(MappingProxyType(dict(account=row.account,con_id=contract.conId,symbol=row.symbol,
+                sec_type=contract.secType,currency=contract.currency,quantity=int(quantity),avg_cost=float(average))))
+        return tuple(sorted(rows,key=lambda row:(row["account"],row["con_id"],row["symbol"])))
+
+    def local_request_completion(self, kind, request_id):
+        state = getattr(self,"_p02_local_ingress",None)
+        if (state is None or kind not in {"POSITIONS_MULTI","ACCOUNT_CURRENCY_STRICT"}
+                or type(request_id) is not int):
+            return None
+        if (not self.is_connected() or self._stop_event.is_set()
+                or not self._position_transport_available):
+            return None
+        if not state["lock"].acquire(blocking=False):
+            raise RuntimeError("P02_LOCAL_NATIVE_INGRESS_BUSY")
+        try:
+            snapshot = self._local_intake_snapshot_locked()
+            row = state["request_completions"].get((kind,request_id))
+            if row is None or snapshot.inflight:
+                return None
+            receipt,context = row
+            if (receipt.source_client is not self or receipt.context_id != id(context)
+                    or (receipt.client_object_id,receipt.client_id,receipt.connection_epoch,(receipt.account,))
+                        != (snapshot.client_object_id,snapshot.client_id,snapshot.connection_epoch,snapshot.accounts)):
+                return None
+            return receipt
+        finally:
+            state["lock"].release()
 
     def finish_local_intake(self, ticket, outcome):
         if ticket is None:
@@ -654,6 +899,7 @@ class IbkrClient(EWrapper, EClient):
             state["inflight"].remove(ticket.ticket_id)
             state["tickets"][ticket.ticket_id] = replace(current, finished=True,
                 failed=current.failed or not returned, revision_end=state["revision"])
+            state["occurrences"][ticket.ticket_id] = state["tickets"][ticket.ticket_id]
             # Completion never removes dirty intake. Only the real collector's
             # verified owner receipt can settle this exact generation.
 
@@ -694,8 +940,8 @@ class IbkrClient(EWrapper, EClient):
             if (after != before or state["tickets"].get(ticket.ticket_id) != ticket):
                 raise RuntimeError("P02_LOCAL_INTAKE_CHANGED_DURING_SETTLEMENT")
             del state["tickets"][ticket.ticket_id]
-            state["origins"].pop(ticket.ticket_id, None)
-            state["intake_threads"].pop(ticket.ticket_id, None)
+            # Only the dirty marker is consumed. The original immutable
+            # occurrence/origin remains available for later cache revalidation.
             state["revision"] += 1
         finally:
             state["lock"].release()
@@ -1787,7 +2033,7 @@ class IbkrClient(EWrapper, EClient):
             epoch = self._position_connection_epoch
         req_id = self._next_req_id()
         timeout = self.snapshot_timeout_seconds if timeout_seconds is None else timeout_seconds
-        context = {"account": accounts[0], "rows": {}, "event": threading.Event(),
+        context = {"account": accounts[0], "client_id": self.client_id, "rows": {}, "event": threading.Event(),
                    "status": "PARTIAL", "completed_at": None, "epoch": epoch,
                    "deadline": time.monotonic() + max(0, timeout)}
         with self._lock:
@@ -1835,11 +2081,29 @@ class IbkrClient(EWrapper, EClient):
                     self._request_type_by_req_id.pop(req_id, None)
                 can_cancel = (owned and sent and epoch == self._position_connection_epoch
                               and self.is_connected() and not self._request_id_conflicted(req_id))
+            cancellation_returned = False
+            context["_local_cleanup_revision"] = self._local_request_cleanup_revision()
             if can_cancel:
                 try:
                     self.cancelPositionsMulti(req_id)
+                    cancellation_returned = True
                 except Exception:
                     pass
+            if getattr(self,"_p02_local_ingress",None) is not None:
+                with self._lock:
+                    if (owned and sent and cancellation_returned and context["status"] == "COMPLETE"
+                            and req_id not in self._position_queries and req_id not in self._request_type_by_req_id
+                            and epoch == self._position_connection_epoch and self.client_id == context["client_id"]
+                            and self.is_connected() and not self._stop_event.is_set() and self._position_transport_available
+                            and tuple(self._managed_accounts) == accounts and not self._request_id_conflicted(req_id)):
+                        try:
+                            rows = self._local_position_completion_rows(context)
+                            frozen = tuple(sorted(context.get("_local_position_rows",{}).values(),
+                                key=lambda row:(row["account"],row["con_id"],row["symbol"])))
+                            if rows == frozen and not context.get("_local_position_invalid"):
+                                self._issue_local_request_completion("POSITIONS_MULTI",req_id,context,rows=frozen)
+                        except (ValueError,TypeError,AttributeError,OverflowError):
+                            pass  # Legacy COMPLETE alone grants no opted-in cleanup authority.
 
     def positions(self, timeout_seconds: Optional[int] = None) -> list[object]:
         result = self.position_snapshot(timeout_seconds)
@@ -1892,8 +2156,19 @@ class IbkrClient(EWrapper, EClient):
                 context["status"] = "FAILED"
                 context["event"].set()
                 return
-            context["rows"][(account, getattr(contract, "conId", 0), symbol)] = SimpleNamespace(
+            key = (account,getattr(contract,"conId",0),symbol)
+            context["rows"][key] = SimpleNamespace(
                 account=account, contract=contract, symbol=symbol, position=pos, avgCost=avgCost)
+            if getattr(self,"_p02_local_ingress",None) is not None:
+                try:
+                    frozen = self._local_position_completion_rows(dict(account=context["account"],
+                        rows={key:context["rows"][key]}))[0]
+                    context.setdefault("_local_position_rows",{})[key] = frozen
+                except (ValueError,TypeError,AttributeError,OverflowError):
+                    context["_local_position_invalid"] = True
+            ticket_id = self._publish_local_intake("positionMulti",cache="_position_queries",
+                request_id=reqId,context_id=id(context))
+            if ticket_id is not None:context.setdefault("_local_callback_ticket_ids",[]).append(ticket_id)
 
     def positionMultiEnd(self, reqId):
         with self._lock:
@@ -1908,6 +2183,9 @@ class IbkrClient(EWrapper, EClient):
             else:
                 context["status"] = "COMPLETE"
                 context["completed_at"] = datetime.now(timezone.utc)
+                ticket_id = self._publish_local_intake("positionMultiEnd",cache="_position_queries",
+                    request_id=reqId,context_id=id(context))
+                if ticket_id is not None:context.setdefault("_local_callback_ticket_ids",[]).append(ticket_id)
             context["event"].set()
 
 
@@ -1968,6 +2246,7 @@ class IbkrClient(EWrapper, EClient):
         except Exception:
             query["status"] = "ERROR"
         finally:
+            query["_local_cleanup_revision"] = self._local_request_cleanup_revision()
             with self._lock:
                 current = self._request_context_by_req_id.get(req_id)
                 owned = current is context and context.get("account_currency_query") is query
@@ -2004,10 +2283,17 @@ class IbkrClient(EWrapper, EClient):
             if cleanup_error is not None:
                 query["status"] = "CLEANUP_UNCONFIRMED"
             complete = query["status"] == "COMPLETE"
-            return result(query["status"], req_id,
+            value = result(query["status"], req_id,
                 currency=query["currency"] if complete else None,
                 completed_at=query["completed_at"] if complete else None,
                 tags=tuple(sorted(query["tags"])), cancelled=cancelled)
+            if (complete and cancelled and cleanup_error is None
+                    and self._request_context_by_req_id.get(req_id) is context
+                    and context.get("account_currency_query") is None
+                    and req_id not in self._request_type_by_req_id):
+                self._issue_local_request_completion("ACCOUNT_CURRENCY_STRICT",req_id,query,
+                    currency=query["currency"],tags=tuple(sorted(query["tags"])))
+            return value
 
     def _account_currency_query_current(self, req_id, query, *, allow_complete=False, retired=False):
         status = query["status"]
@@ -2980,6 +3266,9 @@ class IbkrClient(EWrapper, EClient):
                 else:
                     query["currency"] = currency
                     query["tags"].add(tag)
+                    ticket_id = self._publish_local_intake("accountSummary",cache="_request_context_by_req_id",
+                        request_id=reqId,context_id=id(query))
+                    if ticket_id is not None:query.setdefault("_local_callback_ticket_ids",[]).append(ticket_id)
                     return
                 query["event"].set()
                 return
@@ -3000,6 +3289,9 @@ class IbkrClient(EWrapper, EClient):
                     query["status"] = "COMPLETE" if query["currency"] is not None else "MISSING_CURRENCY"
                     if query["status"] == "COMPLETE":
                         query["completed_at"] = datetime.now(timezone.utc)
+                        ticket_id = self._publish_local_intake("accountSummaryEnd",cache="_request_context_by_req_id",
+                            request_id=reqId,context_id=id(query))
+                        if ticket_id is not None:query.setdefault("_local_callback_ticket_ids",[]).append(ticket_id)
                     query["event"].set()
                 return
             if context.get("request_type") != "ACCOUNT_SUMMARY":
@@ -3277,6 +3569,7 @@ class IbkrClient(EWrapper, EClient):
             "avgFillPrice": avgFillPrice,
             "lastFillPrice": lastFillPrice,
         }
+        self._publish_local_intake("orderStatus",cache="_order_status",order_id=orderId)
         print(
             "[ORDER][STATUS] "
             f"order_id={orderId} status={status} filled={filled} remaining={remaining}"
@@ -3389,6 +3682,9 @@ class IbkrClient(EWrapper, EClient):
         self._executions_snapshot.append(
             SimpleNamespace(contract=contract, execution=execution, orderId=order_id)
         )
+        if reqId == -1:
+            self._publish_local_intake("execDetails",cache="_exec_details_by_order",
+                order_id=order_id,execution_id=getattr(execution,"execId",None),request_id=reqId)
         self._emit_execution_callback(
             {
                 "event_type": "execDetails",
@@ -3427,6 +3723,7 @@ class IbkrClient(EWrapper, EClient):
         )
         row = SimpleNamespace(orderId=orderId, contract=contract, order=order, orderState=orderState)
         self._open_orders_snapshot[orderId] = row
+        self._publish_local_intake("openOrder",cache="_open_orders_snapshot",order_id=orderId)
         self._emit_execution_callback(
             {
                 "event_type": "openOrder",
@@ -3495,6 +3792,7 @@ class IbkrClient(EWrapper, EClient):
             if commission is not None and conversion_error is None:
                 record["legacy_amount"] = legacy_amount
             self._commission_by_exec_id[exec_id] = record
+        self._publish_local_intake("commissionReport",cache="_commission_by_exec_id",execution_id=exec_id)
         if conversion_error is not None:
             raise conversion_error  # Preserve the legacy callback contract.
         if commission is None:
@@ -3586,3 +3884,7 @@ for _local_intake_name in (
         "updateAccountTime", "accountDownloadEnd", "accountUpdateMulti", "accountUpdateMultiEnd"):
     _instrument_local_native_intake(IbkrClient, _local_intake_name)
 del _local_intake_name
+
+_instrument_local_native_request(IbkrClient,"position_snapshot","POSITIONS_MULTI")
+_instrument_local_native_request(IbkrClient,"account_currency_snapshot","ACCOUNT_CURRENCY_STRICT")
+_LOCAL_NATIVE_FINGERPRINT_CODES.add(IbkrClient.__setattr__.__code__)

@@ -3,6 +3,7 @@ Execution engine that routes through a broker adapter with deterministic retry s
 """
 
 import hashlib
+import json
 import os
 import time
 import math
@@ -11,6 +12,7 @@ from src.core.acquisition import checkpoint
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from typing import Callable, List, Optional
+from collections.abc import Mapping
 from contextlib import contextmanager
 from types import MappingProxyType
 from copy import deepcopy
@@ -103,6 +105,17 @@ class _P02LocalSettlement:
     ticket: object
     revision: int
     journal_fingerprint: str
+    financial_fingerprint: str | None = None
+    occurrence_fingerprint: str | None = None
+
+    def __reduce__(self):
+        raise TypeError("P02_LOCAL_SETTLEMENT_NOT_SERIALIZABLE")
+
+    def __copy__(self):
+        raise TypeError("P02_LOCAL_SETTLEMENT_NOT_TRANSFERABLE")
+
+    def __deepcopy__(self, memo):
+        raise TypeError("P02_LOCAL_SETTLEMENT_NOT_TRANSFERABLE")
 
 
 class _P02LocalEntryLease:
@@ -286,6 +299,43 @@ class ExecutionEngine:
         self._trade_lifecycle_engine._p02_bind_local_authority(self)
         client.bind_local_cooldown_owner(self)
 
+    def _p02_bind_financial_owners(self):
+        """Bind fresh actual protection/registry owners, never trade authority.
+
+        The original empty-cache component can remain unbound.  A nonempty
+        financial bundle needs these additional participating owners before its
+        first input or returned mutable trade handle exists.
+        """
+        state = getattr(self, "_p02_local", None)
+        protection = getattr(self, "post_fill_lifecycle", None)
+        registry = getattr(self, "trade_registry", None)
+        if (state is None or type(protection) is not PostFillLifecycleEngine
+                or type(registry) is not ActiveTradeRegistry
+                or protection.execution_provider is not self._provider
+                or protection.stop_audit_trail.storage_engine is not self._storage_engine
+                or state.get("financial_owners") is not None):
+            raise RuntimeError("P02_LOCAL_FINANCIAL_OWNERS_UNAVAILABLE")
+        with self._p02_owner_mutation(self, "bind_financial_owners"):
+            from src.core.orchestrator import CoreOrchestrator
+            # This existing factual callback handoff may recurse into this SAME
+            # collector.  It grants no strategy/risk/native-entry permission.
+            state["source_codes"].add(CoreOrchestrator._apply_execution_results_to_trade_management.__code__)
+            for owner in (protection, registry):
+                owner.bind_p02_local_authority(self)
+                state["source_codes"].update(
+                    getattr(method, "__wrapped__", method).__code__
+                    for method in type(owner).__dict__.values()
+                    if callable(method) and hasattr(getattr(method, "__wrapped__", method), "__code__"))
+            state["financial_owners"] = (protection, registry)
+
+    def _p02_financial_owner_versions(self):
+        state = self._p02_local
+        owners = state.get("financial_owners")
+        if owners is None:
+            return ()
+        return tuple((id(owner), getattr(owner, "_p02_local_revision", None),
+            getattr(owner, "_p02_local_supported", False)) for owner in owners)
+
     def _p02_invalidate(self, reason):
         state = getattr(self, "_p02_local", None)
         if state is not None:
@@ -313,7 +363,7 @@ class ExecutionEngine:
             context_token = state["frame_context"].set(state["frame"])
         state["revision"] += 1
         state["synchronized"] = None
-        if owner is self._trade_lifecycle_engine:
+        if owner is not self and getattr(owner, "_p02_local_authority", None) is self:
             owner._p02_local_revision += 1
         try:
             yield
@@ -322,7 +372,7 @@ class ExecutionEngine:
             raise
         finally:
             state["revision"] += 1
-            if owner is self._trade_lifecycle_engine:
+            if owner is not self and getattr(owner, "_p02_local_authority", None) is self:
                 owner._p02_local_revision += 1
             if not nested:
                 state["frame_context"].reset(context_token)
@@ -345,7 +395,13 @@ class ExecutionEngine:
             and self._storage_engine is state["storage_owner"]
             and getattr(self._storage_engine,"_store",None) is state["store_owner"]
             and self._trade_lifecycle_engine is state["lifecycle_owner"]
-            and self._trade_lifecycle_engine._persistence is self._storage_engine)
+            and self._trade_lifecycle_engine._persistence is self._storage_engine
+            and (state.get("financial_owners") is None or (
+                state["financial_owners"] == (getattr(self, "post_fill_lifecycle", None),
+                    getattr(self, "trade_registry", None))
+                and all(getattr(owner, "_p02_local_authority", None) is self
+                    and getattr(owner, "_p02_local_supported", False)
+                    for owner in state["financial_owners"]))))
 
     def _p02_native_scope_valid(self, client):
         state = self._p02_local
@@ -369,13 +425,311 @@ class ExecutionEngine:
         state["frame_context"].reset(token)
         state["frame"],state["frame_thread"],state["read_frame"] = None,None,False
 
-    def _p02_collected_read(self):
-        """Inspect actual settled owners after the existing collector ran.
+    @staticmethod
+    def _p02_source_value(value):
+        """Decode only Native's frozen builtin tree, never a live SDK object."""
+        from decimal import Decimal
+        if type(value) is not tuple or len(value) != 2:
+            raise ValueError("P02_LOCAL_SOURCE_VALUE_INVALID")
+        kind, payload = value
+        if kind in {"str", "int", "float", "bool", "bytes", "NoneType"}:
+            return payload
+        if kind == "Decimal":
+            number = Decimal(payload)
+            if not number.is_finite():
+                raise ValueError("P02_LOCAL_SOURCE_VALUE_INVALID")
+            return number
+        if kind in {"list", "tuple"}:
+            return tuple(ExecutionEngine._p02_source_value(item) for item in payload)
+        if kind == "dict":
+            return {key: ExecutionEngine._p02_source_value(item) for key, item in payload}
+        if kind in {"Contract", "Execution", "Order", "OrderState", "CommissionReport", "SoftDollarTier"}:
+            fields = ExecutionEngine._p02_source_value(payload)
+            return dict(fields, _native_type=kind)
+        raise ValueError("P02_LOCAL_SOURCE_VALUE_UNSUPPORTED")
 
-        This foundation does not enroll nonempty native execution/order caches:
-        their complete per-occurrence handoff is an explicit later prerequisite.
-        Canonical committed entry history is still read across all runs.
-        """
+    @staticmethod
+    def _p02_callback_fields(ticket):
+        names = {
+            "execDetails": ("reqId", "contract", "execution"),
+            "orderStatus": ("orderId", "status", "filled", "remaining", "avgFillPrice", "permId",
+                "parentId", "lastFillPrice", "clientId", "whyHeld", "mktCapPrice"),
+            "openOrder": ("orderId", "contract", "order", "orderState"),
+            "commissionReport": ("commissionReport",),
+            "positionMulti": ("reqId", "account", "modelCode", "contract", "pos", "avgCost"),
+            "positionMultiEnd": ("reqId",),
+            "accountSummary": ("reqId", "account", "tag", "value", "currency"),
+            "accountSummaryEnd": ("reqId",),
+        }.get(ticket.kind)
+        if names is None or ticket.semantic_payload is None:
+            raise ValueError("P02_LOCAL_CALLBACK_KIND_UNSUPPORTED")
+        args, kwargs = ExecutionEngine._p02_source_value(ticket.semantic_payload)
+        if (len(args) > len(names) or any(key not in names for key in kwargs)
+                or any(name in kwargs for name in names[:len(args)])):
+            raise ValueError("P02_LOCAL_CALLBACK_ARGUMENTS_INVALID")
+        values = dict(zip(names, args)); values.update(kwargs)
+        if set(values) != set(names):
+            raise ValueError("P02_LOCAL_CALLBACK_ARGUMENTS_INVALID")
+        return values
+
+    @staticmethod
+    def _p02_local_fingerprint(value):
+        from decimal import Decimal
+        def scalar(item):
+            if isinstance(item, Mapping):
+                return {str(key): scalar(value) for key, value in item.items()}
+            if type(item) in (tuple, list):
+                return [scalar(value) for value in item]
+            if isinstance(item, datetime):
+                return item.isoformat()
+            if type(item) is Decimal:
+                return str(item)
+            if type(item) not in (str, int, float, bool, type(None)):
+                raise ValueError("P02_LOCAL_FINGERPRINT_VALUE_UNSUPPORTED")
+            return item
+        return hashlib.sha256(json.dumps(scalar(value), sort_keys=True, allow_nan=False).encode()).hexdigest()
+
+    def _p02_financial_bundle(self, *, lease, snapshot):
+        """Read ONE closed actual standalone bundle; create no financial effects."""
+        from decimal import Decimal
+        from src.storage.sqlite_store import _LocalCooldownFence
+        from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
+        state, client = self._p02_local, self._p02_local["client"]
+        if (type(lease) is not _LocalCooldownFence or lease.owner is not state["store_owner"]
+                or not lease.validate() or not state["gate"].locked()
+                or state.get("frame_thread") != get_ident() or not state.get("read_frame")
+                or not self._p02_runtime_scope_valid() or state.get("financial_owners") is None):
+            raise RuntimeError("P02_LOCAL_FINANCIAL_FRAME_UNAVAILABLE")
+        cache = client.local_financial_cache_snapshot()
+        occurrences = client.local_intake_occurrences()
+        candidates = self.native_roundtrip_fee_candidates()
+        if len(candidates) != 1:
+            raise RuntimeError("P02_LOCAL_TERMINAL_ROUNDTRIP_UNAVAILABLE")
+        root_id, candidate = next(iter(candidates.items()))
+        root = self._native_orders[root_id]
+        if (getattr(self, "_prospective_decisions_by_order_id", {}).get(root_id) != root.get("decision_id")
+                or set(self._prospective_decisions_by_order_id) != {root_id}):
+            # This first same-process case retains its actual construction slot.
+            # Matching rewritten request/SQL records cannot rebind that origin.
+            raise RuntimeError("P02_LOCAL_ORIGINAL_DECISION_BINDING_UNAVAILABLE")
+        children = [(order_id, order) for order_id, order in self._native_orders.items()
+            if order.get("protection_parent_order_id") == root_id]
+        if (len(children) != 1 or len(self._native_orders) != 2
+                or root.get("request", {}).get("selected_stop_units")
+                or root.get("unit_initial_protection_profile")
+                or root.get("pmh_failure_exit") or root.get("partial_profit_action")
+                or root.get("quarantine") or getattr(self.relationship_manager, "_relationship_plans", {})):
+            raise RuntimeError("P02_LOCAL_STANDALONE_SCOPE_UNSUPPORTED")
+        child_id, child = children[0]
+        if (child.get("request", {}).get("order_type") != "STP"
+                or child.get("request", {}).get("relationship_context")
+                or child.get("requested") != root["requested"]
+                or child.get("filled") != root["requested"]):
+            raise RuntimeError("P02_LOCAL_SELECTED_STOP_BINDING_UNAVAILABLE")
+        owned = {int(order["broker_order_id"]): (order_id, order)
+            for order_id, order in ((root_id, root), (child_id, child))}
+        if len(owned) != 2:
+            raise RuntimeError("P02_LOCAL_NATIVE_ORDER_ID_CONFLICT")
+        protection, registry = state["financial_owners"]
+        p = protection._p02_local_source_frame(); r = registry._p02_local_source_frame()
+        life = p["trades"].get(root.get("protection_trade_id") or root_id)
+        if (not p["supported"] or not r["supported"] or life is None
+                or life.state is not PositionLifecycleState.EXITED
+                or life.filled_qty != 0 or life.exited_qty != root["requested"]
+                or life.intended_qty != root["requested"] or life.stop is None
+                or str(life.stop.broker_order_id) != str(child["broker_order_id"])
+                or str(life.stop.entry_order_id) != str(root["broker_order_id"])
+                or life.selected_stop_price != root["request"].get("stop_loss_price")
+                or life.selected_target_price is not None or life.stop_legs
+                or p["active_trade_ids"] or p["active_position_qty_by_symbol"]
+                or p["pending_exit_requests"] or r["trades"]):
+            raise RuntimeError("P02_LOCAL_PROTECTION_CLOSURE_UNAVAILABLE")
+        lifecycle = self._trade_lifecycle_engine
+        now = datetime.now(timezone.utc)
+        fees = lifecycle.native_fee_feedback_snapshot(now=now,
+            max_age_seconds=get_ibkr_snapshot_max_age_seconds(), expected_source_client=client)
+        if (not fees["required"] or not fees["available"] or set(fees["states"]) != {root_id}
+                or fees["states"][root_id]["state"] != "COMPLETE"
+                or tuple(fees["states"][root_id]["basis_event_ids"]) != candidate["basis_event_ids"]):
+            raise RuntimeError("P02_LOCAL_COMPLETE_FEES_REQUIRED")
+        fee_evidence = [row for row in fees["evidence"] if row["root_order_id"] == root_id]
+        if len(fee_evidence) != 1 or not fee_evidence[0]["matched_current_basis"]:
+            raise RuntimeError("P02_LOCAL_FEE_BASIS_UNAVAILABLE")
+        durable = lease.read_committed_accounting()
+        def thaw(value):
+            if isinstance(value, Mapping):
+                return {key: thaw(item) for key, item in value.items()}
+            if type(value) in (tuple, list):
+                return [thaw(item) for item in value]
+            return value
+        durable = thaw(durable)
+        financial = lifecycle._committed_accounting_from_reader(run_mode="PAPER",
+            trading_day_for=self.daily_risk_governor.trading_day_for,
+            reader=lambda **unused: deepcopy(durable), include_live=True, target_independent=True)
+        if (not financial["available"] or financial["fee_coverage"] != "COMPLETE_DURABLE_BASIS"
+                or root_id not in financial["verified_historical_roots"]):
+            raise RuntimeError("P02_LOCAL_DURABLE_FINANCIAL_BASIS_UNAVAILABLE")
+        fee_id = fee_evidence[0]["event_id"]
+        fee_events = [row for row in durable["events"] if row["event_id"] == fee_id]
+        if len(fee_events) != 1:
+            raise RuntimeError("P02_LOCAL_DURABLE_FEE_EVENT_UNAVAILABLE")
+        currency_audit = json.loads(fee_events[0]["payload_json"])["native_roundtrip_fee"]["account_currency_observation"]
+        currency = client.local_request_completion("ACCOUNT_CURRENCY_STRICT", currency_audit["request_id"])
+        if (currency is None or currency.currency != fee_evidence[0]["currency"]
+                or currency.completed_at.isoformat() != currency_audit["completed_at"]
+                or currency.client_id != currency_audit["client_id"]
+                or currency.connection_epoch != currency_audit["connection_epoch"]):
+            raise RuntimeError("P02_LOCAL_CURRENCY_SOURCE_COMPLETION_UNAVAILABLE")
+        executions = {row["execution"]["execId"]: row["execution"] for row in candidate["fee_observations"]}
+        views = {row["execution"]["execId"]: row for row in candidate["fee_observations"]}
+        if (set(key for key, _ in cache["native_executions"]) != set(owned)
+                or set(cache["commission_execution_ids"]) != set(executions)):
+            raise RuntimeError("P02_LOCAL_UNCLASSIFIED_NATIVE_CACHE")
+        bootstrap = {"INITIAL", "initial", "bind", "BASELINE", "managedAccounts", "nextValidId"}
+        normalized, by_exec, by_report, by_open, by_status, position_receipts = {}, {}, {}, {}, {}, {}
+        last_financial_revision = 0
+        for ticket in occurrences:
+            if client.local_intake_occurrence(ticket) is not ticket or ticket.failed or not ticket.finished:
+                raise RuntimeError("P02_LOCAL_CALLBACK_OCCURRENCE_UNAVAILABLE")
+            if ticket.kind in bootstrap:
+                continue
+            if (ticket.client_object_id != id(client) or ticket.client_id != client.client_id
+                    or ticket.connection_epoch != client._position_connection_epoch
+                    or ticket.accounts != (state["account"],) or ticket.publication is None):
+                raise RuntimeError("P02_LOCAL_CALLBACK_SOURCE_UNAVAILABLE")
+            fields, publication = self._p02_callback_fields(ticket), dict(ticket.publication)
+            if publication["kind"] != ticket.kind:
+                raise RuntimeError("P02_LOCAL_CALLBACK_PUBLICATION_CONFLICT")
+            normalized[ticket.ticket_id] = (ticket.raw_fingerprint, ticket.publication)
+            if ticket.kind == "execDetails":
+                contract, execution = fields["contract"], fields["execution"]
+                execution_id = execution.get("execId"); current = executions.get(execution_id)
+                if (fields["reqId"] != -1 or current is None
+                        or publication.get("execution_id") != execution_id
+                        or publication.get("order_id") != current["orderId"]
+                        or contract.get("conId") != current["conId"]
+                        or contract.get("secType") != "STK" or contract.get("symbol") != current["symbol"]
+                        or contract.get("currency") != fee_evidence[0]["currency"]
+                        or execution.get("acctNumber") != current["account"]
+                        or execution.get("clientId") != current["clientId"]
+                        or any(execution.get(key) != current[key] for key in ("orderId", "side", "time"))
+                        or any(Decimal(str(execution.get(key))) != current[key]
+                            for key in ("shares", "price", "cumQty", "avgPrice"))):
+                    raise RuntimeError("P02_LOCAL_EXECUTION_OCCURRENCE_CONFLICT")
+                first_occurrence = execution_id not in by_exec
+                old = by_exec.setdefault(execution_id, (contract, execution))
+                if old != (contract, execution):
+                    raise RuntimeError("P02_LOCAL_CORRECTED_EXECUTION_UNSUPPORTED")
+                # An identical duplicate creates no new quantity/financial
+                # basis and cannot require or renew the source position time.
+                if first_occurrence:
+                    last_financial_revision = max(last_financial_revision, ticket.revision_end)
+            elif ticket.kind == "orderStatus":
+                native_id = fields["orderId"]
+                if native_id not in owned or publication.get("order_id") != native_id:
+                    raise RuntimeError("P02_LOCAL_STATUS_OWNER_UNAVAILABLE")
+                _, order = owned[native_id]
+                filled, remaining = fields["filled"], fields["remaining"]
+                prefix = [row for row in executions.values() if row["orderId"] == native_id
+                    and row["cumQty"] <= Decimal(str(filled))]
+                quantity = sum((row["shares"] for row in prefix), Decimal(0))
+                notional = sum((row["shares"] * row["price"] for row in prefix), Decimal(0))
+                if (type(filled) not in (int, float, Decimal) or type(remaining) not in (int, float, Decimal)
+                        or filled != int(filled) or remaining != int(remaining)
+                        or filled < 0 or remaining < 0 or filled + remaining != order["requested"]
+                        or fields["clientId"] != client.client_id
+                        or fields["parentId"] != (0 if native_id == int(root["broker_order_id"]) else int(root["broker_order_id"]))
+                        or quantity != filled or (filled and notional / quantity != Decimal(str(fields["avgFillPrice"])))
+                        or fields["status"] not in self.VALID_IBKR_STATUSES
+                        or (fields["status"].upper() == "FILLED" and (remaining or filled != order["requested"]))):
+                    raise RuntimeError("P02_LOCAL_STATUS_PREFIX_UNAVAILABLE")
+                by_status[native_id] = fields
+            elif ticket.kind == "openOrder":
+                native_id, contract, order = fields["orderId"], fields["contract"], fields["order"]
+                if native_id not in owned or publication.get("order_id") != native_id:
+                    raise RuntimeError("P02_LOCAL_OPEN_ORDER_OWNER_UNAVAILABLE")
+                _, retained = owned[native_id]; request = retained["request"]
+                if (contract.get("conId") != root["security_id"] or contract.get("symbol") != root["symbol"]
+                        or contract.get("secType") != "STK" or contract.get("currency") != fee_evidence[0]["currency"]
+                        or order.get("action") != ("BUY" if native_id == int(root["broker_order_id"]) else "SELL")
+                        or order.get("orderType") != request["order_type"]
+                        or order.get("totalQuantity") != retained["requested"]
+                        or order.get("account") != state["account"]
+                        or order.get("clientId") != client.client_id
+                        or order.get("orderRef") != (root_id if native_id == int(root["broker_order_id"])
+                            else "PROTECT|" + life.trade_id)
+                        or order.get("parentId") != (0 if native_id == int(root["broker_order_id"]) else int(root["broker_order_id"]))
+                        or (request["order_type"] == "STP" and order.get("auxPrice") != root["request"]["stop_loss_price"])):
+                    raise RuntimeError("P02_LOCAL_OPEN_ORDER_BINDING_CONFLICT")
+                if native_id in by_open and any(by_open[native_id][key] != fields[key]
+                        for key in ("contract", "order")):
+                    raise RuntimeError("P02_LOCAL_ORDER_AMENDMENT_UNSUPPORTED")
+                by_open[native_id] = fields
+            elif ticket.kind == "commissionReport":
+                report = fields["commissionReport"]; view = views.get(report.get("execId"))
+                if (view is None or publication.get("execution_id") != report["execId"]
+                        or Decimal(str(report.get("commission"))) != view["amount"]
+                        or report.get("currency") != view["report_currency"]):
+                    raise RuntimeError("P02_LOCAL_FEE_OCCURRENCE_CONFLICT")
+                previous_report = by_report.setdefault(report["execId"], report)
+                if previous_report != report:
+                    raise RuntimeError("P02_LOCAL_CORRECTED_FEE_OCCURRENCE_UNSUPPORTED")
+            elif ticket.kind in {"accountSummary", "accountSummaryEnd"}:
+                if (fields["reqId"] != currency.request_id
+                        or publication.get("request_id") != currency.request_id
+                        or publication.get("context_id") != currency.context_id
+                        or ticket.ticket_id not in currency.callback_ticket_ids):
+                    raise RuntimeError("P02_LOCAL_CURRENCY_OCCURRENCE_UNAVAILABLE")
+            elif ticket.kind in {"positionMulti", "positionMultiEnd"}:
+                receipt = client.local_request_completion("POSITIONS_MULTI", fields["reqId"])
+                if (receipt is None or publication.get("request_id") != receipt.request_id
+                        or publication.get("context_id") != receipt.context_id
+                        or ticket.ticket_id not in receipt.callback_ticket_ids):
+                    raise RuntimeError("P02_LOCAL_POSITION_OCCURRENCE_UNAVAILABLE")
+                position_receipts[receipt.request_id] = receipt
+            else:
+                raise RuntimeError("P02_LOCAL_CALLBACK_KIND_UNSUPPORTED")
+        if set(by_exec) != set(executions) or set(by_status) != set(owned) or set(by_open) != set(owned):
+            raise RuntimeError("P02_LOCAL_SOURCE_OCCURRENCE_COVERAGE_MISSING")
+        latest_fill = max(row["timestamp_utc"] for row in executions.values())
+        positions = [receipt for receipt in position_receipts.values()
+            if receipt.revision_start > last_financial_revision and receipt.completed_at >= latest_fill
+            and 0 <= (now - receipt.completed_at).total_seconds() <= get_ibkr_snapshot_max_age_seconds()
+            and all(row["quantity"] == 0 for row in receipt.rows)]
+        if not positions:
+            raise RuntimeError("P02_LOCAL_POST_FILL_FLAT_SOURCE_UNAVAILABLE")
+        for native_id, raw in cache["order_status"]:
+            if native_id not in by_status:
+                raise RuntimeError("P02_LOCAL_UNCLASSIFIED_STATUS_CACHE")
+            saved = self._p02_source_value(raw); expected = by_status[native_id]
+            if any(saved.get(key) != expected[key] for key in ("status", "filled", "remaining", "avgFillPrice", "lastFillPrice")):
+                raise RuntimeError("P02_LOCAL_STATUS_CACHE_CHANGED")
+        for native_id, raw in cache["open_orders_snapshot"]:
+            saved = self._p02_source_value(raw); expected = by_open.get(native_id)
+            if expected is None or any(saved.get(key) != expected[key] for key in ("contract", "order", "orderState")):
+                raise RuntimeError("P02_LOCAL_OPEN_CACHE_CHANGED")
+        for raw in cache["executions_snapshot"]:
+            saved = self._p02_source_value(raw); expected = by_exec.get(saved.get("execution", {}).get("execId"))
+            if expected is None or (saved.get("contract"), saved.get("execution")) != expected:
+                raise RuntimeError("P02_LOCAL_EXECUTION_CACHE_CHANGED")
+        native_state = dict(version=1, mode="PAPER", orders=deepcopy(self._native_orders))
+        matches = [row for row in durable["native_states"] if row.get("run_id") == self._storage_engine.run_id
+            and json.loads(row["reason"]) == native_state]
+        if len(matches) != 1:
+            raise RuntimeError("P02_LOCAL_DURABLE_REQUEST_STATE_UNAVAILABLE")
+        if not lease.validate() or self._p02_native_version(client.local_intake_snapshot()) != self._p02_native_version(snapshot):
+            raise RuntimeError("P02_LOCAL_FINANCIAL_SOURCE_CHANGED")
+        fingerprint = self._p02_local_fingerprint(dict(root=root_id, native_state=native_state,
+            cache=cache, occurrences=normalized, fees=fee_evidence,
+            financial_events=[row for row in financial["events"] if row["lifecycle_trade_id"] == root_id],
+            protection_revision=p["revision"], registry_revision=r["revision"],
+            position_request_id=max(positions, key=lambda row: row.revision_end).request_id))
+        return dict(root_order_id=root_id, native_state=native_state,
+            current_run_id=self._storage_engine.run_id, fingerprint=fingerprint,
+            occurrences=normalized, owner_versions=self._p02_financial_owner_versions())
+
+    def _p02_collected_read(self):
+        """Inspect the actual collector's effects through the original journal."""
         state = self._p02_local
         client = state["client"]
         snapshot = client.local_intake_snapshot()
@@ -384,12 +738,15 @@ class ExecutionEngine:
                 or getattr(self,"_native_quarantined",False)
                 or getattr(self,"_failsafe_block_new_entries",False)):
             raise RuntimeError("P02_LOCAL_COLLECTED_SOURCE_UNAVAILABLE")
+        for owner in state.get("financial_owners", ()):
+            if not owner._p02_local_source_frame()["supported"]:
+                raise RuntimeError("P02_LOCAL_FINANCIAL_OWNER_CHANGED")
         if not client._lock.acquire(blocking=False):
             raise RuntimeError("P02_LOCAL_NATIVE_CACHE_BUSY")
         try:
-            if (any(client._exec_details_by_order.values()) or client._order_status
-                    or client._open_orders_snapshot or client._executions_snapshot):
-                raise RuntimeError("P02_LOCAL_NONEMPTY_NATIVE_CACHE_NOT_ENROLLED")
+            nonempty = bool(any(client._exec_details_by_order.values()) or client._order_status
+                or client._open_orders_snapshot or client._executions_snapshot
+                or self._native_orders)
         finally:
             client._lock.release()
         if any(not row.get("terminal") or row.get("cached_update_in_progress")
@@ -405,12 +762,13 @@ class ExecutionEngine:
         with self._storage_engine.acquire_local_cooldown_fence(run_mode="PAPER",
                 expected_revision=storage["revision"]) as fence:
             journal = fence.read_committed_accounting()
+            bundle = self._p02_financial_bundle(lease=fence, snapshot=snapshot) if nonempty else None
             # A coherent successful read is evidence only of this local state.
             # It does not attest broker intake/history or restore ownership.
             fingerprint = hashlib.sha256(repr(journal).encode()).hexdigest()
             if not fence.validate() or self._p02_native_version(client.local_intake_snapshot()) != self._p02_native_version(snapshot):
                 raise RuntimeError("P02_LOCAL_COLLECTED_SOURCE_CHANGED")
-        return snapshot, fingerprint
+        return snapshot, fingerprint, bundle
 
     def _p02_after_actual_collection(self):
         state = self._p02_local
@@ -420,28 +778,29 @@ class ExecutionEngine:
         try:
             read_token = self._p02_begin_read_frame()
             state["settlement_thread"] = get_ident()
-            snapshot, fingerprint = self._p02_collected_read()
+            snapshot, fingerprint, bundle = self._p02_collected_read()
             dirty = tuple(self._p02_snapshot_field(snapshot,"dirty",()))
             for ticket in dirty:
-                # Only source ownership/bootstrap intake is enrolled here.
-                # Unknown/ignored execution/error/financial callbacks remain
-                # pending; no completion flag can turn them into settled facts.
                 kind = self._p02_snapshot_field(ticket,"kind","")
-                if kind not in {"INITIAL","initial","bind","BASELINE","managedAccounts","nextValidId"}:
+                bootstrap = kind in {"INITIAL","initial","bind","BASELINE","managedAccounts","nextValidId"}
+                if not bootstrap and (bundle is None or ticket.ticket_id not in bundle["occurrences"]):
                     return
                 receipt = _P02LocalSettlement(self,state["client"],ticket,
-                    self._p02_snapshot_field(snapshot,"revision"),fingerprint)
+                    self._p02_snapshot_field(snapshot,"revision"),fingerprint,
+                    bundle["fingerprint"] if bundle is not None else None,
+                    self._p02_local_fingerprint(bundle["occurrences"][ticket.ticket_id]) if not bootstrap else None)
                 state["receipts"][id(ticket)] = receipt
                 # Native verifies outside its I lock. The receipt came only
                 # from the real collector's completed owner/read frame.
                 state["client"].settle_local_intake(ticket,receipt)
-                snapshot, fingerprint = self._p02_collected_read()
+                snapshot, fingerprint, bundle = self._p02_collected_read()
             if not self._p02_snapshot_field(snapshot,"dirty",()):
                 state["synchronized"] = (self._p02_native_version(snapshot),state["revision"],
-                    self._trade_lifecycle_engine._p02_local_revision)
-        except Exception:
+                    self._trade_lifecycle_engine._p02_local_revision,self._p02_financial_owner_versions())
+        except Exception as exc:
             # Missing evidence never clears an existing safety/uncertainty latch.
             state["synchronized"] = None
+            state["settlement_unavailable"] = str(exc)
         finally:
             state["receipts"].clear()
             state["settlement_thread"] = None
@@ -460,9 +819,14 @@ class ExecutionEngine:
         # ordinary callers cannot mint/serialize/renew this receipt.
         if not state["gate"].locked() or state.get("settlement_thread") != get_ident():
             return False
-        snapshot, fingerprint = self._p02_collected_read()
+        snapshot, fingerprint, bundle = self._p02_collected_read()
         return bool(self._p02_snapshot_field(snapshot,"revision") == committed_binding.revision
-            and fingerprint == committed_binding.journal_fingerprint)
+            and fingerprint == committed_binding.journal_fingerprint
+            and (bundle["fingerprint"] if bundle is not None else None) == committed_binding.financial_fingerprint
+            and (committed_binding.occurrence_fingerprint is None or (bundle is not None
+                and ticket.ticket_id in bundle["occurrences"]
+                and self._p02_local_fingerprint(bundle["occurrences"][ticket.ticket_id])
+                    == committed_binding.occurrence_fingerprint)))
 
     def observe_p02_local_cooldown(self, *, identity, context_fingerprint: str,
                                    assessed_at: datetime) -> _P02LocalObservation:
@@ -480,7 +844,7 @@ class ExecutionEngine:
             snapshot = client.local_intake_snapshot()
             storage = self._storage_engine.local_cooldown_state()
             current = (self._p02_native_version(snapshot), state["revision"],
-                self._trade_lifecycle_engine._p02_local_revision)
+                self._trade_lifecycle_engine._p02_local_revision,self._p02_financial_owner_versions())
             if not self._p02_runtime_scope_valid():
                 from src.strategies.statistical_intraday_momentum.strategy_policy import default_policy
                 unavailable = dict(policy="P02_OBSERVABLE_LOCAL_COOLDOWN_V1",basis="OBSERVABLE_LOCAL_STATE",
@@ -496,6 +860,12 @@ class ExecutionEngine:
                 state["observations"][id(evidence)] = evidence
                 return evidence
             findings = []
+            for owner in state.get("financial_owners", ()):
+                try:
+                    if not owner._p02_local_source_frame()["supported"]:
+                        raise RuntimeError("P02_LOCAL_FINANCIAL_OWNER_CHANGED")
+                except Exception:
+                    findings.append("P02_LOCAL_FINANCIAL_OWNER_CHANGED")
             if state["uncertain"]:
                 findings.append(state["uncertain"])
             if (not self._p02_native_scope_valid(client)
