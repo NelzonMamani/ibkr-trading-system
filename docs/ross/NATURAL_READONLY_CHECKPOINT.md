@@ -20508,3 +20508,150 @@ remain subsequent work, not claimed by this adoption. Frozen observation
 provider/broker acquisition, operational enrollment or recovery clearing.
 P02 stages/ATR bounds/native entry/management and unsupported P03 permissions
 remain closed. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+### Bounded benchmark capture implementation and proof limits — 2026-11-15
+
+Starting accepted maina38b057d18c3254c9c8dfe0e1899b398ba362056/treeac52b564
+and recorded scopef69ca17c92d6762ab386c472706dceceaf7378c9 were verified;
+prior acceptance/scope additions were carried once in15efe7b0. Complete contract
+2aef475e6039428391fb76c258d2a6669f6525d6/tree0d56d01d received independent
+CLEAR before delegated NEW policy adoption065fb032 and any implementation.
+Existing P02/P03 governance retains exact definitions, budgets and rationale;
+these are new operational project choices, not historical Ross doctrine or
+calibrated trading results. Publisher reference retrieval's proxy403 failures
+remain failures with no acquired official page/schedule bytes.
+
+Source8bb21f42 adds the existing normalized historical owner's explicit bound
+completed-opening opt-in. Actual owner UTC/calendar supplies current completed
+minute end and duration from actual RTHopen; Native transmits1min/TRADES/RTH1/
+formatDate2/nonstreaming/empty options. Original Native client/SDK IDs71, epoch,
+qualified security, actual dispatch/completion/spec/raw metadata and final
+pre-wire calendar/minute are checked. NOOP has no fabricated wire witness.
+ALL returned raw rows remain, including forming/gapped/malformed/over-limit-N
+rows; rejected normalization counts prevent false qualification. Legacy default
+empty-end/RTH0/last-N/volume behavior remains unchanged. Source blob4896e8f8 and
+new collected test blob8663b77a were frozen and independently reviewed.
+
+Sourcec4182036 through the existing operator/process/supervisor/PR1040 adapter,
+market-data/snapshot/cache-probe and shutdown owners adds BENCHMARK_CAPTURE_V1,
+default OFF. Fixed SPY then QQQ only; no scanner/news/Core/strategy/risk/order/
+capital constructors or additional cohort. One capture connection and one
+sequential post-exit audit, exact71/no alternate-ID fallback, actual single PAPER
+account callback scope, strict client/epoch/generation checks and existing
+owned cancellation/cleanup. A primary25D daily reference request is one-shot;
+its retained-source adapter lets the actual canonical resolver consume original
+qualified evidence without new qualification/fallback/network requests. Opening
+history precedes one fresh LIVE quote; original assessment is captured promptly.
+Actual context/ATR/P02_ATR_OFFLINE_V1/report owners are reused unchanged. Missing,
+empty, delayed, stale, future, foreign, ambiguous, incomplete or malformed facts
+stay private evidence/refusals, never favorable-result retries or inferred facts.
+Quote clean-quality admission also rejects the legacy close-as-last projection.
+No costs, calibrated ATR bounds, universe representativeness or profit is inferred.
+
+Full raw history/quote/reference/source/context/report bytes and ALL child,
+operator, supervisor, audit and dependency diagnostics stay in fresh-root/private,
+structurally outside archived root/e. Safe metadata/counts/reasons/length/SHA256
+commitments only are shareable. Source-data48MiB plus finite bounded log streams
+and small fixed receipts fit the64MiB private limit; canonical input ceiling is
+existing16MiB. Over-limit retention stops qualification/further requests and
+marks retention incomplete; a truncated stream never becomes complete input.
+Actual capture-only request retirement, disconnect and console hooks replace no
+legacy hooks: expected profile is bound independently by operator/supervisor and
+verified OS identity. Unknown/self-declared weaker profiles fail. No nonexistent
+Core shutdown is recorded. Four new native Windows stub-only PowerShell controls
+cover private routing, cap/pipe draining and private second-log-open failure;
+they were not run locally because pwsh is absent, and require actual Windows CI.
+
+Focused validation: final historical50 passed/1.34s; existing affected history/
+completed-context/timeframe190 passed/4.26s. Independent isolated provider7 passed.
+Initial owner development6 failures (actual SDK/client identity and retained
+post-dispatch error evidence) and later3 pre-wire clock/calendar failures were
+reproduced and repaired. Earlier47 is superseded by50, not additive.
+Capture's initial frozen42 controls passed/2.64s; dependency neighbors6 passed/
+1.32s and canonical affected381 passed/8.86s. Counts overlap. Default collection
+atc418 contained8379 tests (92 new); all new tests are under collected tests/.
+These local results do not substitute for required final-head CI.
+
+Historical development failures remain: default-affected10FAIL/167PASS/7.19s
+exposed parser ordering and AST-extracted helper compatibility; repaired operator
+controls83PASS/5.61s. Composed first4FAIL/5PASS/.98s then1FAIL/8PASS/1.18s and
+1FAIL/8PASS/1.23s exposed missing new private-serializer SDK-object support and
+fixture SDK identity/clock/tick coherence; corrected9PASS/1.33s, then expanded
+20PASS/1.79s. Fixtures use
+coherent LIVE SDK tick types and original synthetic clocks, not production clock
+or tolerance changes. A separate381-probe1FAIL/380PASS/8.43s lacked the canonical
+inherited tests/offline guard; corrected-environment381PASS is recorded separately,
+not a production source repair. Required-import configuration output displaced an
+old marker from the existing16KiB receipt tail (1FAIL/38PASS/2.69s); requalification
+at the actual owner re-emits cache proof after imports, without increasing tail
+or timeout. Actual missing-last false acceptance was causally reproduced1FAIL/
+1.07s and fixed through the existing clean-quote owner, preserving raw evidence.
+
+Independent fullc418 review then found two substantive new-profile defects:
+post-exit audit queried for live/empty/multiple account scope (3 causal FAIL,
+1 matched-PAPER PASS/.35s), and dependency logs were direct/unbounded before a
+posthoc refusal (1 causal FAIL/.07s;1,048,644 bytes exceeded512KiB). The latter
+was a retention defect, not an admission bypass. Correction9a0d139c binds the
+actual original private capture scope/hash and verified child identity, validates
+the fresh audit's exact PAPER/client/epoch scope before and after query/wait,
+and caps/drains dependency logs in their EXISTING owner. Legacy audit/probe
+behavior remains unchanged. Unlaunched package scanner/news/catalyst/downstream
+stages now say NOT_RUN_CAPTURE_PROFILE. Observed changes invalidate certificates;
+no broker-atomic or unseen in-flight change guarantee is claimed.
+Correction's narrow run131PASS/2FAIL/4.73s included65 passing capture controls;
+the2 legacy stub failures were an unconditional new epoch read, repaired to be
+profile-only and verified with3 targeted passes/.84s. Independent adapted audit,
+probe, finalization/default controls8PASS/1.97s cleared9a0d's exact delta.
+
+A final resource review first found NO breach from primary-exchange enlargement
+alone (1PASS/.77s), then causally exposed cache amplification with deliberately
+malformed original Native metadata (1500-digit positive conId plus12KiB primary
+exchange): scaled48KiB private-source quota reached50,353 bytes after an unwrapped
+reference cache write (1FAIL/3boundaryPASS/.91s). This is not observed market
+data. Independent design CLEAR preceded quota adoptionf9e7b334 and implementation
+b758293c. The EXISTING cache now has optional benchmark256KiB prospective exact-
+UTF8/binary publication bounds (ordinaryNone behavior unchanged), with1MiB
+reserved BEFORE wrapped source writes inside48MiB (effective47MiB). Two caches
+and one atomic temp stay below that reserve. Original qualification metadata
+has64KiB raw-first admission; malformed actual1day/formatDate1 dates refuse
+before reference processing rather than being repaired from a valid prefix.
+No native integer range or trading threshold was invented. Source/codebyte
+boundary,+1,Unicode, unchanged-store/file on failure and production-positive
+controls23PASS/64deselected/1.46s (22 new cases), plus existingcache3PASS/.88s and
+namespace/discard2PASS/.42s. Independent original-cause/boundary/atomicity/
+production-positive delta9PASS/2.21s with1 existing warning clearedb758's exact
+three-file delta. Earlier50/190/381/42/65 and independent counts overlap, not
+additive exposure. Final normal CI collection contains8424 tests, including all
+137 new collected cases (50 historical and87 capture/cache); no source-local
+collection omission. Compile/diff checks pass. Complete final-head CI remains
+required; passing local subsets and failed prefixes are not integration permission.
+
+Known concurrency limit: checks recognize running modules and known old/new
+controller phases, recheck source/admission/audit boundaries and stop only owned
+work; the new profile pins/verifies actual71. Genuine exclusive operator scheduling
+through cleanup remains required. Frozen c65 does not share a whole-attempt lock;
+preflight/audit TOCTOU and opaque interactive launch limitations prevent an
+unconditional full-process nonoverlap certificate. No actual alternate-ID broker
+connection was demonstrated in the frozen route; no replacement or safety claim
+is manufactured from that source observation. Both attempts must be scheduled
+exclusively and never reuse roots. Existing frozen3f48bf3f caller bytes SHA256
+964e4dc4aad874a5aaa1d77dc91ff4de31d9d8960940601dfcdc0abe2d8b64be and its
+c65 source/calendar are unchanged. All6 reviewed calendar source-owner blobs
+still match; the completed78 calendar calls were reused, not repeated.
+
+This is offline synthetic transport/SDK callback and controlled-process proof,
+not real acquisition, natural progression, broker acceptance or live dataset
+approval. No capture/observer/provider/broker operation was launched. P03's
+adopted structural/event contract still lacks genuine finite official receipts,
+qualified current benchmark evidence and implemented active handoff fences;
+no alwaysUNKNOWN carrier closes that dependency. P02 admission stages, ATR
+numerical bounds and native entry/management remain CLOSED/UNKNOWN. All five
+ownership vetoes, parked work, evidence/databases and recovery state remain.
+
+ONE next bounded action after verified source integration: publish the separately
+reviewed immutable capture-only caller pinned to actual accepted source and the
+same reviewed calendar, then coordinator inspection before ONE exclusive later
+user-run attempt. Raw data remains private and any later quality decision is
+separate. Additional P02 securities need a predeclared finite cohort/selection/
+request budget. No trading, operational enrollment, recovery clearing or readiness
+upgrade follows. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
