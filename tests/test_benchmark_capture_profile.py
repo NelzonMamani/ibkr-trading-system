@@ -1,10 +1,12 @@
 """Synthetic SDK facts through actual capture/reference/history/quote/ATR owners."""
 from copy import deepcopy
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace as NS
 import json
 import io
+import os
 
 import pytest
 from ibapi.client import EClient
@@ -27,6 +29,8 @@ from test_next_session_catalyst import receipt
 from test_readonly_reviewed_calendar import owned, scrub
 from test_pr1090_evidence_safety import verified_process
 
+_CANONICAL_GET_INTRADAY_BARS = historical.get_intraday_bars
+
 NOW = datetime(2026, 11, 16, 14, 50, 5, tzinfo=timezone.utc)
 OPEN = NOW.replace(minute=30, second=0)
 
@@ -34,6 +38,31 @@ class Clock(datetime):
     @classmethod
     def now(cls, tz=None):
         return NOW if tz is None else NOW.astimezone(tz)
+
+
+@contextmanager
+def isolated_capture_process_configuration():
+    # The real child entrypoint intentionally publishes its READ_ONLY environment
+    # with os.environ.update, outside monkeypatch. Model a separate child process
+    # for each test and restore the caller's complete environment and overrides.
+    environment = dict(os.environ)
+    overrides = deepcopy(cfg._CONFIG_OVERRIDES)
+    # Existing joined fixtures can restore their imported foreign alias onto the
+    # shared provider module. Retain the real owner captured during collection.
+    historical.get_intraday_bars = _CANONICAL_GET_INTRADAY_BARS
+    try:
+        yield
+    finally:
+        historical.get_intraday_bars = _CANONICAL_GET_INTRADAY_BARS
+        os.environ.clear()
+        os.environ.update(environment)
+        cfg.set_config_overrides(overrides)
+
+
+@pytest.fixture(autouse=True)
+def isolate_capture_process_configuration(monkeypatch):
+    with isolated_capture_process_configuration():
+        yield
 
 
 @pytest.fixture
@@ -113,7 +142,6 @@ def component(native, monkeypatch, tmp_path):
     monkeypatch.setattr(manager,'_connect_locked',connect_transport)
     monkeypatch.setattr(historical,'get_shared_ibkr_connection_manager',lambda **kw:manager)
     yield NS(manager=manager,native=native,sent=sent,fault=fault,transport=transport,private=tmp_path/'private',shared=tmp_path/'e')
-    cfg.set_config_overrides(None)
 
 
 def run(component):
@@ -124,7 +152,9 @@ def run(component):
 def test_actual_capture_owners_preserve_exact_source_and_measurement(component):
     result=run(component)
     assert result['capture_completed'] and result['retention_complete']
-    assert [row['status'] for row in result['assets']]==['MEASUREMENT_RECORDED']*2
+    assert [row['status'] for row in result['assets']]==['MEASUREMENT_RECORDED']*2, {
+        symbol:json.loads((component.private/(symbol+'-raw.json')).read_bytes()).get('error')
+        for symbol in ('SPY','QQQ')}
     assert [x[:2] for x in component.sent]==[(kind,symbol) for symbol in ('SPY','QQQ')
         for kind in ('qualify','history','history','quote')]
     for symbol in ('SPY','QQQ'):
@@ -685,3 +715,20 @@ def test_actual_reference_cache_limit_stops_capture_without_publishing_cache(com
     assert raw['error']['cause']['type']=='ReferenceCacheSizeLimitError'
     result=json.loads((component.shared/'benchmark-capture-summary.json').read_text())
     assert not result['capture_completed'] and not result['retention_complete']
+
+
+def test_capture_fixture_restores_actual_owner_and_child_environment(component,monkeypatch):
+    def foreign_joined_history(**kwargs):
+        pytest.fail('Foreign joined history alias must not replace the capture source owner')
+    monkeypatch.setattr(historical,'get_intraday_bars',foreign_joined_history)
+    before = dict(os.environ)
+    overrides = deepcopy(cfg._CONFIG_OVERRIDES)
+    with isolated_capture_process_configuration():
+        assert historical.get_intraday_bars is _CANONICAL_GET_INTRADAY_BARS
+        result = run(component)
+        assert all(row['status']=='MEASUREMENT_RECORDED' for row in result['assets'])
+        capture.apply_readonly_runtime_overrides(capture.build_safe_readonly_env())
+        assert os.environ['RUN_MODE']=='READ_ONLY'
+        assert os.environ['FORCE_RISK_APPROVAL_FOR_TRADE_READY']=='false'
+    assert historical.get_intraday_bars is _CANONICAL_GET_INTRADAY_BARS
+    assert dict(os.environ)==before and cfg._CONFIG_OVERRIDES==overrides

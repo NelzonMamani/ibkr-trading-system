@@ -6772,3 +6772,65 @@ user-run attempt. Raw data remains private and any later quality decision is
 separate. Additional P02 securities need a predeclared finite cohort/selection/
 request budget. No trading, operational enrollment, recovery clearing or readiness
 upgrade follows. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+
+### PR1235 final-head CI fixture-isolation correction — 2026-11-15
+
+PR1235 initial reviewed head `0f29d988f3e72ae54b33531d95cf98670b4d63eb`
+(tree `9495e81b91582db649d08da8b83946b4db03bf6f`, independent exact-head
+review [5913359807](https://github.com/NelzonMamani/ibkr-trading-system/pull/1235#pullrequestreview-5913359807))
+was tested at ordered merge checkout `cd62ab7845d3c9c659a8adb3098582fc2f1b3c9f`
+with parents accepted main `a38b057d18c3254c9c8dfe0e1899b398ba362056`
+and that candidate. Its tested tree matched the reviewed tree.
+
+[CI43771634891](https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/43771634891)
+Linux job132988675943 FAILED: **62 failed, 8359 passed, 3 skipped**, four
+warnings, 1070.38s. Preserve this failure, not a pass: 49 new history tests,
+eight capture tests and five later existing quote/Ross tests failed. The
+Windows controlled-process job132988675887 succeeded, including actual
+Windows PowerShell **52 harness checks**; the initial-head Windows full
+suite remains pending at this correction record and is not final-head evidence.
+No passing job was manually rerun or cancelled.
+
+Two causal test-process isolation defects were reproduced. The existing joined
+PMH pattern fixture's trace builder copies its temporary history function into
+the shared normalized provider module; restoring the trace alias alone leaves
+the foreign function behind. The new tests then called that function with
+`completed_opening`, producing TypeError before genuine source dispatch.
+Separately, the actual READ_ONLY child entrypoint deliberately publishes its
+safe environment directly; calling it in-process without restoring the complete
+environment leaked READ_ONLY/force-approval values into later strategy tests.
+Neither demonstrates a production acquisition/risk defect.
+
+Only the two new test modules were repaired: retain the actual provider callable
+at collection, restore it before and finally after capture fixtures, and isolate
+complete caller environment plus prior config overrides around in-process child
+entrypoint tests. Add two permanent causal controls using the actual native
+encoder/full capture owners and original environment publisher. Preserve all
+existing assertions, production defaults, deadlines, source/risk/safety gates and
+frozen observation distribution. Positive failure messages now expose the
+private synthetic refusal cause during tests.
+
+Ordered causal evidence (overlapping, not additive): real PMH complete-empty
+case then new native encoder **1 failed/1 passed**, 1.06s, before; same case then
+all 51 history tests **52 passed**, 1.61s, after. ABCD joined tests then capture
+**8 failed/139 passed**, 7.04s, before; corrected ABCD/capture/actual Core control
+**149 passed**, 7.45s. Two real entrypoint controls then existing force-approval
+control **1 failed/2 passed**, 1.10s, before and **3 passed**, 1.18s, after. An
+initial diagnostic command used a nonexistent node and collected no tests; it is
+not a regression pass. Final combined ABCD → capture → completed-history → quote
+future-admission → Ross policy/fast-trigger order **299 passed**, 62 existing
+datetime deprecation warnings, 10.00s. No unchanged full suite was repeated
+locally. Two added causal controls bring expected normal collection to 8426;
+required changed-head CI must establish actual complete results.
+
+The correction requires independent exact-head delta review and fresh automatic
+required Linux/Windows/downstream CI. Initial-head Windows successes, if any,
+remain historical. No source or artifact acceptance is inferred from these
+focused checks; final immutable caller publication remains pending verified
+integration. No acquisition/observer/broker mutation occurred. P03 actual source
+coverage and active handoff, P02 admission/ATR bounds/native entry/management,
+all five ownership vetoes and `PAPER_READY=NO; PAPER_READINESS_GATE=FAIL` remain
+unchanged. Next bounded action: independently review this fixture-only delta,
+finish required final-head CI, integrate the verified tree, and publish the
+accepted-source-pinned capture caller without launching it.

@@ -23,12 +23,16 @@ from src.market_data.candidate_identity import CandidateIdentity
 
 
 SDK_HISTORY_ENCODER = EClient.reqHistoricalData
+# Pattern fixtures copy their temporary override into this shared module while
+# building runtime inputs. Capture the real owner before any fixture runs.
+CANONICAL_INTRADAY_PROVIDER = provider.get_intraday_bars
 UTC = timezone.utc
 OPEN = datetime(2026, 11, 13, 14, 30, tzinfo=UTC)
 
 
 @pytest.fixture
 def capture(owner, monkeypatch):
+    provider.get_intraday_bars = CANONICAL_INTRADAY_PROVIDER
     for name in ('FORCE_SESSION', 'SESSION_OVERRIDE', 'MARKET_SESSION_OVERRIDE'):
         monkeypatch.delenv(name, raising=False)
     cfg.set_config_overrides(dict(MARKET_SESSION_COVERAGE=json.dumps(receipt('2026-11-12', '2026-11-13')),
@@ -74,9 +78,30 @@ def capture(owner, monkeypatch):
     state.call = lambda **changes: provider.get_intraday_bars(**dict(dict(symbol='SYNTH',
         completed_opening=True, expected_client=c, expected_connection_epoch=0,
         qualified_contract=state.contract, expected_identity=CandidateIdentity.from_contract(state.contract)), **changes))
-    yield state
-    retired(c)
-    cfg.set_config_overrides(None)
+    try:
+        yield state
+    finally:
+        provider.get_intraday_bars = CANONICAL_INTRADAY_PROVIDER
+        retired(c)
+        cfg.set_config_overrides(None)
+
+
+def test_fixture_uses_actual_provider_after_foreign_alias_copy(request):
+    called = []
+    def foreign_history(*, symbol, timeframe='1m', limit=50):
+        called.append(symbol)
+        pytest.fail('A copied pattern fixture must not replace the provider owner')
+    # Reproduce the shared-module assignment made by build_runtime_pattern_inputs
+    # before requesting this fixture, without inventing any history result.
+    provider.get_intraday_bars = foreign_history
+    try:
+        captured = request.getfixturevalue('capture')
+        result = captured.call()
+        assert provider.get_intraday_bars is CANONICAL_INTRADAY_PROVIDER
+        assert result.completed and len(captured.packets) == 1 and called == []
+        assert result.request_spec.end_date_time == '20261113-14:46:00'
+    finally:
+        provider.get_intraday_bars = CANONICAL_INTRADAY_PROVIDER
 
 
 @pytest.mark.parametrize('field,value', [('client_id', 72), ('clientId', 72),
