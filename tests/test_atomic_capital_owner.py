@@ -200,7 +200,8 @@ def _collect_capital_worker_outcomes(futures, phases, signals):
     return outcomes, phases, observed_signals
 
 
-def _concurrent_capital_probe(path, *, unauthorized_storage=storage, unauthorized_close=None):
+def _concurrent_capital_probe(path, *, unauthorized_storage=storage, unauthorized_close=None,
+                              authorized_close=None):
     from concurrent.futures import ThreadPoolExecutor
     from threading import Event
     from time import monotonic_ns
@@ -219,6 +220,8 @@ def _concurrent_capital_probe(path, *, unauthorized_storage=storage, unauthorize
 
     def authorized():
         s = None
+        errors = []
+        result = None
         try:
             phase('authorized', 'construct_start')
             s = storage(path)
@@ -234,15 +237,26 @@ def _concurrent_capital_probe(path, *, unauthorized_storage=storage, unauthorize
             phase('authorized', 'admit_start')
             result = admit(o).executable
             phase('authorized', 'admit_complete')
-            return result
+        except BaseException as error:
+            errors.append(error)
         finally:
             try:
                 if s is not None:
                     phase('authorized', 'close_start')
-                    s._store.close()
+                    if authorized_close is None:
+                        s._store.close()
+                    else:
+                        authorized_close(s)
                     phase('authorized', 'close_complete')
+            except BaseException as error:
+                errors.append(error)
             finally:
                 phase('authorized', 'terminated')
+        if len(errors) == 1:
+            raise errors[0]
+        if errors:
+            raise BaseExceptionGroup('Authorized operation and cleanup failures', errors)
+        return result
 
     def unauthorized():
         s = None
@@ -381,6 +395,36 @@ def test_concurrent_capital_operation_and_close_failures_are_both_retained(tmp_p
     assert 'fail_close' in failure.outcomes['unauthorized']['traceback']
     assert isinstance(failure.outcomes['authorized']['error'], AssertionError)
     assert failure.signals == dict(ready=True, attempted=False, closed=False, terminated=True)
+
+def test_concurrent_capital_authorized_assertion_and_close_failures_are_retained(tmp_path):
+    original_constructor = OSError('synthetic unauthorized constructor failure')
+    original_close = OSError('synthetic authorized close failure')
+
+    def fail_constructor(path):
+        raise original_constructor
+
+    def fail_close(s):
+        s._store.close()
+        raise original_close
+
+    with pytest.raises(ConcurrentCapitalProbeFailure) as observed:
+        _concurrent_capital_probe(tmp_path / 'authorized-close.db',
+                                  unauthorized_storage=fail_constructor,
+                                  authorized_close=fail_close)
+    failure = observed.value
+    errors = failure.outcomes['authorized']['error']
+    assert isinstance(errors, BaseExceptionGroup)
+    assert len(errors.exceptions) == 2
+    assert isinstance(errors.exceptions[0], AssertionError)
+    assert 'Unauthorized admission-attempt assertions did not complete' in str(errors.exceptions[0])
+    assert errors.exceptions[1] is original_close
+    assert failure.outcomes['unauthorized']['error'] is original_constructor
+    assert 'fail_constructor' in failure.outcomes['unauthorized']['traceback']
+    assert 'fail_close' in failure.outcomes['authorized']['traceback']
+    assert 'Unauthorized admission-attempt assertions did not complete' in failure.outcomes['authorized']['traceback']
+    assert failure.signals == dict(ready=True, attempted=False, closed=False, terminated=True)
+    assert failure.phases['authorized'][-1][0] == 'terminated'
+    assert 'admit_start' not in dict(failure.phases['authorized'])
 
 @pytest.mark.parametrize('defect',['unavailable','unenrolled','readonly','future','unfenced'])
 def test_no_storage_or_scope_fallback(enrolled,monkeypatch,defect):
