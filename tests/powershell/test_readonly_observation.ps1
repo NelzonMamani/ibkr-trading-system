@@ -17,6 +17,9 @@ def no_network(event,args):
 sys.addaudithook(no_network)
 phase, root, head, *duration_args = sys.argv[1:]
 p = pathlib.Path(root); e=p/'e'; e.mkdir(exist_ok=True)
+benchmark = '--benchmark-capture' in duration_args
+if benchmark: duration_args.remove('--benchmark-capture')
+with (e/'capture_modes').open('a') as modes: modes.write(phase+':'+str(benchmark)+'\n')
 calendar = duration_args[-1:] == ['--reviewed-calendar']
 if calendar: duration_args.pop()
 with (e/'calendar_modes').open('a') as modes: modes.write(phase+':'+str(calendar)+'\n')
@@ -24,6 +27,10 @@ with (e/'durations').open('a') as durations: durations.write(phase+':'+(duration
 with (e/'phases').open('a') as out: out.write(phase+'\n')
 case=os.environ.get('OBS_TEST_CASE','success')
 print('STDOUT '+phase, flush=True); print('STDERR '+phase, file=sys.stderr, flush=True)
+if benchmark:
+    print('PRIVATE_PROVIDER_SENTINEL '+phase,flush=True)
+    print('PRIVATE_PROVIDER_SENTINEL '+phase,file=sys.stderr,flush=True)
+if case=='benchmark-success' and not benchmark: raise RuntimeError('PRIVATE_PROVIDER_SENTINEL missing profile')
 if phase == 'prepare':
     if case=='prepare-failure':sys.exit(3)
     if case=='prepare-late':time.sleep(1)
@@ -301,6 +308,53 @@ public class ObservationFaultStream : Stream {
         }
         $passed++
     }
+    # New default-off benchmark profile uses the same real process/exit owner.
+    # Only synthetic child output is produced; every phase must receive opt-in.
+    $env:OBS_TEST_CASE='benchmark-success'
+    $root=Join-Path $scratch 'benchmark-success';New-Item -ItemType Directory $root | Out-Null
+    $code=Invoke-ReadonlyObservation -Python $Python -Operator $stub -Root $root -ExpectedCommit ('a'*40) -ReviewedCalendar -BenchmarkCapture
+    Check ($code -eq 0) 'Benchmark controlled profile did not complete'
+    $modes=Get-Content (Join-Path $root 'e/capture_modes')
+    Check ($modes.Count -eq 5 -and @($modes | Where-Object {$_ -notmatch ':True$'}).Count -eq 0) 'Benchmark profile lost at a phase'
+    $shared=@(Get-ChildItem (Join-Path $root 'e'),(Join-Path $root 'preparation') -File -Recurse | ForEach-Object {Get-Content -Raw $_.FullName}) -join "`n"
+    Check ($shared -notmatch 'PRIVATE_PROVIDER_SENTINEL') 'Provider output escaped private profile streams'
+    $private=@(Get-ChildItem (Join-Path $root 'private') -File -Recurse | ForEach-Object {Get-Content -Raw $_.FullName}) -join "`n"
+    Check ($private -match 'PRIVATE_PROVIDER_SENTINEL') 'Private original provider output not retained'
+    $passed++
+    # Wrong/missing calendar opt-in is rejected before preparation/runner claim.
+    $root=Join-Path $scratch 'benchmark-wrong-profile';New-Item -ItemType Directory $root | Out-Null
+    $failed=$false
+    try {Invoke-ReadonlyObservation -Python $Python -Operator $stub -Root $root -ExpectedCommit ('a'*40) -BenchmarkCapture | Out-Null} catch {$failed=$true}
+    Check ($failed -and !(Test-Path (Join-Path $root 'runner.json'))) 'Invalid benchmark profile created admission'
+    $passed++
+    # Oversized raw output is drained with a fixed cap and retains non-success.
+    $root=Join-Path $scratch 'benchmark-cap';New-Item -ItemType Directory $root | Out-Null
+    $privatePrefix=Join-Path (Join-Path $root 'private') 'raw'
+    $failed=$false;$ended=$false;$clock=[Diagnostics.Stopwatch]::StartNew()
+    try {
+        Invoke-ObservationChild -Python $Python -ChildArguments @('-E','-u','-c','import sys;sys.stdout.write("PRIVATE_PROVIDER_SENTINEL"*100000);sys.stdout.flush()') -LogPrefix (Join-Path $root 'receipt') -PrivateLogPrefix $privatePrefix -BudgetSeconds 10 -StopSeconds 5 | Out-Null
+    } catch {$failed=$true;$ended=[bool]$_.Exception.Data['ChildExited']}
+    $receipt=Get-Content -Raw (Join-Path $root 'receipt.process.json') | ConvertFrom-Json
+    Check ($failed -and $ended -and $clock.Elapsed.TotalSeconds -lt 15) 'Private cap failed to drain/close bounded child'
+    Check ((Get-Item ($privatePrefix+'.stdout.log')).Length -eq 1048576) 'Private log exceeded fixed byte cap'
+    Check ($receipt.retention_complete -eq $false) 'Truncated private stream labelled complete'
+    Check ((Get-Content -Raw (Join-Path $root 'receipt.process.json')) -notmatch 'PRIVATE_PROVIDER_SENTINEL') 'Raw source in public process receipt'
+    $passed++
+    # StrictMode second private-log open failure preserves the primary error,
+    # proves no child launch and still writes the unchanged authoritative receipt.
+    $root=Join-Path $scratch 'benchmark-private-open';New-Item -ItemType Directory $root | Out-Null
+    $prefix=Join-Path (Join-Path $root 'private') 'raw'
+    New-Item -ItemType Directory ($prefix+'.stderr.log') | Out-Null
+    $failed=$false;$started=$true;$primary=$null
+    Set-StrictMode -Version 2
+    try {
+        Invoke-ObservationChild -Python $Python -ChildArguments @('-E','-u','-c','raise AssertionError("must not launch")') -LogPrefix (Join-Path $root 'receipt') -PrivateLogPrefix $prefix -BudgetSeconds 5 | Out-Null
+    } catch {$failed=$true;$started=[bool]$_.Exception.Data['ChildStarted'];$primary=$_.Exception.GetType().Name}
+    finally {Set-StrictMode -Off}
+    $receipt=Get-Content -Raw (Join-Path $root 'receipt.process.json') | ConvertFrom-Json
+    Check ($failed -and !$started -and $primary -ne 'PropertyNotFoundException') 'Private log-open failure was masked or launched child'
+    Check (!$receipt.started -and !$receipt.retention_complete) 'Failed private log-open receipt missing or falsely complete'
+    $passed++
     # Real local Git worktree preparation, including dirty source and old evidence.
     # No network fetch/clone, no operator child is invoked.
     $source=Join-Path $scratch 'local-source'; New-Item -ItemType Directory $source | Out-Null

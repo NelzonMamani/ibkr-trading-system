@@ -7,7 +7,7 @@ import sys
 import time
 
 
-def run_cache_probe(python, repo, evidence, env, *, timeout=30, cleanup=5, require_news_dependencies=False):
+def run_cache_probe(python, repo, evidence, env, *, timeout=30, cleanup=5, require_news_dependencies=False, require_capture_dependencies=False):
     evidence = Path(evidence)
     trace = evidence / 'child-cache-stages.jsonl'
     child_env = dict(env, PR1108_CACHE_PROBE_TRACE=str(trace))
@@ -32,8 +32,27 @@ def run_cache_probe(python, repo, evidence, env, *, timeout=30, cleanup=5, requi
             "print('CHILD_NEWS_DEPENDENCIES_VERIFIED', requests.__version__, feedparser.__version__, flush=True)\n"
             "s.probe_stage('news_dependencies_complete')"
         )
+    if require_capture_dependencies:
+        # Same effective child interpreter/startup as capture. Imports only;
+        # no broker/provider instance, request, schema or network admission.
+        body += (
+            "; s.probe_stage('capture_dependencies_begin'); import ibapi.client, ibapi.contract; "
+            "from src.runtime.async_runtime_bootstrap import safe_import_ib_insync; "
+            "capture_types=safe_import_ib_insync(); "
+            "from zoneinfo import ZoneInfo; ZoneInfo('America/New_York'); "
+            "from src.market_data.reference_resolver import CanonicalReferenceResolver; "
+            "from src.market_data.market_data_snapshot_manager import MarketDataSnapshotManager; "
+            "from src.strategies.statistical_intraday_momentum.signal_engine.features import build_completed_context, measure_completed_atr, offline_atr_report\n"
+            "if not all(callable(value) for value in capture_types) or not callable(ibapi.client.EClient.connect):\n"
+            "    raise RuntimeError('Required capture SDK APIs unavailable')\n"
+            "if getattr(c, '_readonly_cache_isolated', False) is not True or not pathlib.Path(os.environ['PR1108_YFINANCE_CACHE']).is_absolute():\n"
+            "    raise RuntimeError('Capture child cache qualification changed')\n"
+            "print('CHILD_CACHE_ISOLATION_VERIFIED', flush=True)\n"
+            "print('CHILD_CAPTURE_DEPENDENCIES_VERIFIED', flush=True)\n"
+            "s.probe_stage('capture_dependencies_complete')"
+        )
     flags = ['-u', '-X', 'importtime', '-c']
-    receipt = {'required_news_dependencies': require_news_dependencies, 'child_flags': flags, 'parent_ignore_environment': bool(sys.flags.ignore_environment),
+    receipt = {'required_news_dependencies': require_news_dependencies, 'required_capture_dependencies':require_capture_dependencies, 'child_flags': flags, 'parent_ignore_environment': bool(sys.flags.ignore_environment),
                'timeout_seconds': timeout, 'cleanup_seconds': cleanup, 'timed_out': False,
                'child_exited': None, 'exit_code': None, 'pid': None,
                'stdout_path': 'child-cache.stdout.log', 'stderr_path': 'child-cache.stderr.log',
@@ -87,4 +106,6 @@ def run_cache_probe(python, repo, evidence, env, *, timeout=30, cleanup=5, requi
         raise RuntimeError('Child startup/cache isolation or required news qualification failed; no runtime launch.')
     if require_news_dependencies and 'CHILD_NEWS_DEPENDENCIES_VERIFIED' not in receipt.get('stdout', ''):
         raise RuntimeError('Child required news dependencies unavailable; no runtime launch.')
+    if require_capture_dependencies and 'CHILD_CAPTURE_DEPENDENCIES_VERIFIED' not in receipt.get('stdout',''):
+        raise RuntimeError('Child required capture dependencies unavailable; no runtime launch.')
     return receipt

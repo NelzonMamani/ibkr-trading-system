@@ -16,8 +16,15 @@ REQUIRED_HOOKS = (
 )
 
 
+BENCHMARK_PROFILE = "BENCHMARK_CAPTURE_V1"
+BENCHMARK_REQUIRED_HOOKS = ("capture_requests.retired", "manager_disconnect", "console_flush")
+
+
 class ShutdownEvidence:
-    def __init__(self):
+    def __init__(self, *, runtime_profile=None):
+        if runtime_profile not in (None, BENCHMARK_PROFILE):
+            raise ValueError("Unsupported shutdown profile")
+        self.runtime_profile = runtime_profile
         self.events = []
         self.hooks = []
 
@@ -41,7 +48,8 @@ class ShutdownEvidence:
 
     def payload(self):
         from src.runtime.process_identity import runtime_identity_for_evidence
-        return {"schema": "PR1090.shutdown.v1", "pid": os.getpid(),
+        return {**({"runtime_profile": self.runtime_profile} if self.runtime_profile is not None else {}),
+                "schema": "PR1090.shutdown.v1", "pid": os.getpid(),
                 "process_identity": runtime_identity_for_evidence(),
                 "events": self.events, "hooks": self.hooks, "mutation_attempts": snapshot()}
 
@@ -65,8 +73,10 @@ def disconnect_manager():
     return not manager.is_connected() and not (thread is not None and thread.is_alive())
 
 
-def validate_terminal(evidence):
+def validate_terminal(evidence, *, expected_profile=None):
     blockers = []
+    if expected_profile not in (None, BENCHMARK_PROFILE) or evidence.get("runtime_profile") != expected_profile:
+        blockers.append("Unexpected or mismatched runtime profile")
     if evidence.get("supervisor_error"):
         blockers.append("Supervisor finalization failed")
     callbacks = evidence.get("final_callbacks", {})
@@ -113,7 +123,8 @@ def validate_terminal(evidence):
     hooks = evidence.get("hooks", [])
     owned_hooks = ("news_maintenance.shutdown",) if any(
         row.get("event") == "SHUTDOWN_STARTED" and row.get("news_maintenance_owned") is True for row in events) else ()
-    for name in (*REQUIRED_HOOKS, *owned_hooks):
+    required_hooks = BENCHMARK_REQUIRED_HOOKS if expected_profile == BENCHMARK_PROFILE else REQUIRED_HOOKS
+    for name in (*required_hooks, *owned_hooks):
         matching = [row for row in hooks if row.get("hook") == name]
         if len(matching) != 1 or matching[0].get("attempted") is not True or matching[0].get("completed") is not True:
             blockers.append("Incomplete hook: " + name)
@@ -145,7 +156,7 @@ def _attempt_final_callback(callbacks, name, function, successful=lambda result:
         return None
 
 
-def finalize_report(directory, evidence):
+def finalize_report(directory, evidence, *, expected_profile=None):
     """Attempt all final checks, recording failures before returning a verdict."""
     directory = Path(directory)
     callbacks = evidence.setdefault("final_callbacks", {})
@@ -171,7 +182,7 @@ def finalize_report(directory, evidence):
         return True
 
     _attempt_final_callback(callbacks, "mutation_validation", mutations)
-    result = _attempt_final_callback(callbacks, "terminal_verdict", lambda: validate_terminal(evidence),
+    result = _attempt_final_callback(callbacks, "terminal_verdict", lambda: validate_terminal(evidence, expected_profile=expected_profile) if expected_profile is not None else validate_terminal(evidence),
                                      lambda value: isinstance(value, dict) and value.get("passed") is True)
     if not isinstance(result, dict) or not isinstance(result.get("blockers"), list):
         result = {"passed": False, "blockers": ["Terminal verdict unavailable"]}
@@ -222,7 +233,7 @@ def finalize_report(directory, evidence):
     return result
 
 
-def complete_after_process_exit(directory, process, no_runtime_remains, final_audit):
+def complete_after_process_exit(directory, process, no_runtime_remains, final_audit, *, expected_profile=None):
     """Supervisor boundary: never claim exit from inside the observed process.
 
     Final inventory and READ_ONLY reconciliation are independent best-effort
@@ -292,4 +303,5 @@ def complete_after_process_exit(directory, process, no_runtime_remains, final_au
     if errors:
         evidence["supervisor_error"] = sanitize("; ".join(errors))
     record("FINAL_EVIDENCE_FLUSHED", False)
-    return finalize_report(directory, evidence)
+    return (finalize_report(directory, evidence, expected_profile=expected_profile)
+            if expected_profile is not None else finalize_report(directory, evidence))

@@ -3,14 +3,25 @@ import hashlib, json, os, shutil, subprocess, sys, zipfile, time
 from datetime import datetime, timezone
 from pathlib import Path
 phase, root_text, expected, *duration_args = sys.argv[1:]
-reviewed_calendar = duration_args[-1:] == ['--reviewed-calendar']
-if reviewed_calendar:
-    duration_args.pop()
+if len(duration_args) != len(set(duration_args)):
+    raise SystemExit('Duplicate operator options are not allowed')
+if any(arg not in ('--benchmark-capture','--reviewed-calendar') for index,arg in enumerate(duration_args)
+       if any(value.startswith('--') for value in duration_args[:index])):
+    raise SystemExit('Runtime duration must precede opt-in switches')
+benchmark_capture = '--benchmark-capture' in duration_args
+reviewed_calendar = '--reviewed-calendar' in duration_args
+for option in ('--benchmark-capture', '--reviewed-calendar'):
+    if option in duration_args:
+        duration_args.remove(option)
+if globals().get('benchmark_capture', False) and not reviewed_calendar:
+    raise SystemExit('Benchmark capture requires the exact reviewed calendar opt-in')
 if len(duration_args) > 1:
     raise SystemExit('At most one bounded runtime duration is allowed')
 runtime_seconds = int(duration_args[0]) if duration_args else 180
 if not 180 <= runtime_seconds <= 1800:
     raise SystemExit('Runtime duration must be between180 and1800 seconds')
+if globals().get('benchmark_capture', False) and runtime_seconds != 180:
+    raise SystemExit('Benchmark capture runtime must remain180 seconds')
 if phase not in ('prepare', 'preflight', 'observe', 'package', 'seal'):
     raise SystemExit('Unknown operator phase')
 root = Path(root_text); repo = root/'s'; evidence = root/'e'; state = root/'state'
@@ -33,7 +44,7 @@ preflight_timing('python_entry_before_repository_imports')
 sys.path.insert(0, str(repo)); os.chdir(repo)
 if hasattr(sys.modules.get('sitecustomize'), 'offline'):
     raise SystemExit('Offline pytest hook present: observation must use a separate process.')
-from scripts.certification.pr1040_real_readonly_runtime_observation_adapter import build_safe_readonly_env, assert_safe_runtime_env
+from scripts.certification.pr1040_real_readonly_runtime_observation_adapter import build_safe_readonly_env, assert_safe_runtime_env, benchmark_private_console
 from src.config.config_registry import CONFIG_REGISTRY
 preflight_timing('adapter_and_registry_imports_complete')
 
@@ -68,7 +79,7 @@ def reviewed_calendar_environment(checkout, enabled, safe_env, source_head):
         if actual != wanted:
             raise SystemExit('Calendar/configuration source owner changed since receipt review.')
     coverage = reviewed['files']['calendar_receipt.json']['utf8']
-    updates = dict(ROSS_NEXT_SESSION_CATALYST_ENABLED='true', MARKET_SESSION_COVERAGE=coverage,
+    updates = dict(ROSS_NEXT_SESSION_CATALYST_ENABLED='false' if globals().get('benchmark_capture',False) else 'true', MARKET_SESSION_COVERAGE=coverage,
                    MARKET_HOLIDAYS='2026-11-26', MARKET_HALF_DAYS='2026-11-27', MARKET_EARLY_CLOSE_TIME='13:00')
     return updates, {'enabled': True, 'review_commit': '196c45f0c34749aa17d74c67022656d0e6837f60',
         'reviewed_source': manifest['commit'], 'source_head': head,
@@ -79,6 +90,7 @@ env = dict(os.environ)
 env.pop('PR1108_CACHE_PROBE_TRACE', None)
 env.pop('PYTHONHOME', None)
 env.pop('PYTHONSTARTUP', None)
+env.pop('READONLY_BENCHMARK_CAPTURE', None)
 for key in ('FORCE_SESSION', 'SESSION_OVERRIDE', 'MARKET_SESSION_OVERRIDE'):
     env.pop(key, None)
 for entry in CONFIG_REGISTRY.values():
@@ -102,6 +114,10 @@ env.update(PYTHONPATH=os.pathsep.join((str(state/'startup'),str(repo))), PYTHONU
     PERSISTENCE_SQLITE_PATH=str(state/'runtime.sqlite3'), DECISION_TRACE_PATH=str(state/'decision-trace.jsonl'))
 calendar_updates, calendar_enrollment = reviewed_calendar_environment(repo, reviewed_calendar, env, expected)
 env.update(calendar_updates)
+if globals().get('benchmark_capture', False):
+    env.update(READONLY_BENCHMARK_CAPTURE='BENCHMARK_CAPTURE_V1', IBKR_MARKET_DATA_TYPE='LIVE',
+        NEWS_ENABLED='false', NEWS_MAINTENANCE_ENABLED='false', ROSS_ISSUER_QUERY_ENABLED='false',
+        ROSS_REQUIRE_NEWS='false')
 assert_safe_runtime_env(env)
 original_state = Path(os.environ.get('IBKR_ORDER_ID_STATE_PATH') or Path.home()/'.ibkr_order_id_state.json')
 os.environ.clear(); os.environ.update(env)
@@ -154,7 +170,7 @@ def binding():
     if any(os.environ.get(key) != value for key, value in updates.items()):
         raise SystemExit('Reviewed calendar environment changed after admission.')
     return {'root': str(root.resolve()), 'head': actual_head,
-        'calendar_enrollment': enrollment,
+        'calendar_enrollment': enrollment, 'runtime_profile': 'BENCHMARK_CAPTURE_V1' if globals().get('benchmark_capture', False) else None,
         'tree': subprocess.check_output(['git','rev-parse','HEAD^{tree}'], cwd=repo, text=True).strip(),
         'seconds': runtime_seconds, 'config': {key: canonical_config(get_config(key)) for key in CONFIG_REGISTRY},
         'hook': digest(state/'startup/sitecustomize.py'),
@@ -192,6 +208,8 @@ def session_check():
         if (start is None or end is None or start.phase != 'RTH_OPEN' or end.phase != 'RTH_OPEN'
                 or start.fingerprint != end.fingerprint):
             raise SystemExit('Full opt-in observation envelope must stay in one reviewed RTH_OPEN window.')
+        if globals().get('benchmark_capture', False) and (now-start.current_open).total_seconds() < 16*60:
+            raise SystemExit('Benchmark capture requires16 completed current-session minutes.')
     if (get_current_market_session(now) != 'RTH' or
             get_current_market_session(now + timedelta(seconds=runtime_seconds + 360)) != 'RTH'):
         raise SystemExit('Requires normal configured RTH with runtime and finalization time remaining; no session override.')
@@ -262,7 +280,7 @@ elif phase == 'preflight':
         evidence.mkdir(exist_ok=True)
         require_controller()
         prepared = require_prepared()
-        with capture_console(evidence/'preflight'):
+        with (benchmark_private_console(root/'private'/'preflight') if globals().get('benchmark_capture', False) else capture_console(evidence/'preflight')):
             preflight_stage = 'platform'
             preflight_timing(preflight_stage)
             if os.name != 'nt' or sys.version_info[:3] != (3, 13, 3):
@@ -280,6 +298,8 @@ elif phase == 'preflight':
                     's; timeout='+str(inventory.get('timeout_seconds',15))+'s; no launch.')
             if inventory['runtimes']:
                 raise SystemExit('Pre-existing Ross runtime; no launch.')
+            if globals().get('benchmark_capture', False):
+                supervisor.benchmark_conflict_check(root)
             preflight_stage = 'session'
             preflight_timing(preflight_stage)
             from src.config.config_resolver import get_config
@@ -288,7 +308,7 @@ elif phase == 'preflight':
             preflight_timing(preflight_stage)
             news_config = {key:get_config(key) for key in ('NEWS_ENABLED','NEWS_MAINTENANCE_ENABLED',
                           'ROSS_ISSUER_QUERY_ENABLED','NEWS_REFRESH_SECONDS_RTH','NEWS_TOTAL_BUDGET_S')}
-            if not all(news_config[key] is True for key in ('NEWS_ENABLED','NEWS_MAINTENANCE_ENABLED','ROSS_ISSUER_QUERY_ENABLED')):
+            if not globals().get('benchmark_capture', False) and not all(news_config[key] is True for key in ('NEWS_ENABLED','NEWS_MAINTENANCE_ENABLED','ROSS_ISSUER_QUERY_ENABLED')):
                 raise SystemExit('Canonical news maintenance configuration not enabled; no launch.')
             write_json(evidence/'news-maintenance-config.json', news_config)
             preflight_stage = 'write_guards'
@@ -300,7 +320,15 @@ elif phase == 'preflight':
             preflight_timing(preflight_stage)
             hook = state/'startup/sitecustomize.py'
             from scripts.certification.readonly_cache_probe import run_cache_probe
-            run_cache_probe(sys.executable, repo, evidence, env, require_news_dependencies=True)
+            probe_dir = root/'private'/'cache-probe' if globals().get('benchmark_capture', False) else evidence
+            run_cache_probe(sys.executable, repo, probe_dir, env, require_news_dependencies=not globals().get('benchmark_capture', False),
+                **({'require_capture_dependencies':True} if globals().get('benchmark_capture',False) else {}))
+            if globals().get('benchmark_capture', False):
+                if any(path.stat().st_size > 512*1024 for path in probe_dir.glob('*.log')):
+                    raise SystemExit('Private cache-probe log limit exceeded; no capture admission.')
+                raw_probe = json.loads((probe_dir/'child-cache-probe.json').read_text())
+                write_json(evidence/'child-cache-probe.json', {key: raw_probe.get(key) for key in
+                    ('child_exited','exit_code','pid','timed_out','elapsed_seconds')})
             write_json(evidence/'operator-startup-config.json', {'scope': 'yfinance cache location only',
                 'sha256': digest(hook), 'source': hook.read_text(), 'path': str(hook)})
             preflight_stage = 'baseline_finalization'
@@ -342,7 +370,7 @@ elif phase == 'preflight':
         code = exc.code if isinstance(exc, SystemExit) and isinstance(exc.code, int) else 1
         failure = {'status':'FAIL', 'stage':preflight_stage,
             'exit_code':code, 'error_type':type(exc).__name__,
-            'reason':str(exc) if isinstance(exc, SystemExit) else type(exc).__name__,
+            'reason':'PREFLIGHT_REFUSED' if globals().get('benchmark_capture',False) else (str(exc) if isinstance(exc, SystemExit) else type(exc).__name__),
             'observation_started':False}
         try:
             write_json(evidence/'preflight-result.json', failure)
@@ -368,6 +396,8 @@ elif phase == 'observe':
     if admission['operator_receipt'] != digest(root/'operator-state-source.json') or not operator_unchanged():
         raise SystemExit('Operator state changed before launch.')
     session_check()
+    if globals().get('benchmark_capture', False):
+        supervisor.benchmark_conflict_check(root)
     # Exclusive single-use claim; an interrupted attempt cannot resume.
     with (root/'admission-consumed').open('x') as claim:
         claim.write('consumed')
@@ -377,7 +407,7 @@ elif phase == 'observe':
         raise SystemExit('Observation duration/head differs from successful preflight')
     install_console_protection()
     write_json(evidence/'observation-attempt.json', {'attempted':True})
-    raise SystemExit(supervisor.main(['--seconds',str(runtime_seconds),'--output',str(evidence/'terminal'),'--expected-commit',expected]))
+    raise SystemExit(supervisor.main(['--seconds',str(runtime_seconds),'--output',str(evidence/'terminal'),'--expected-commit',expected] + (['--benchmark-capture'] if globals().get('benchmark_capture', False) else [])))
 elif phase == 'package':
     # This phase performs filesystem/process checks only. Broker audit belongs
     # exclusively to the existing supervisor after its observed runtime exits.
@@ -385,7 +415,7 @@ elif phase == 'package':
     probe_path = evidence/'child-cache-probe.json'
     if probe_path.exists() and json.loads(probe_path.read_text()).get('child_exited') is False:
         raise SystemExit('Cache probe still alive; preserve raw evidence, no archive.')
-    with capture_console(evidence/'packaging'):
+    with (benchmark_private_console(root/'private'/'packaging') if globals().get('benchmark_capture', False) else capture_console(evidence/'packaging')):
         preflight_timing('packaging_begin')
         after = complete_manifest()
         before_path = evidence/'source-before.json'
@@ -411,7 +441,7 @@ elif phase == 'package':
             from src.ibkr.shutdown_evidence import validate_terminal
             require_zero_attempts(terminal.get('mutation_attempts'))
             require_zero_attempts(terminal.get('audit_mutation_attempts'))
-            verdict = validate_terminal(terminal)
+            verdict = validate_terminal(terminal, **({'expected_profile':'BENCHMARK_CAPTURE_V1'} if globals().get('benchmark_capture', False) else {}))
             mutation_ok = True
             blockers = verdict['blockers']
         except Exception as exc:
@@ -446,6 +476,8 @@ elif phase == 'package':
             'blockers': blockers, 'scanner_pass': ('REQUIRES_LOG_REVIEW' if attempted else 'NOT_OBSERVED'), 'natural_issuer_acquisition': ('REQUIRES_LOG_REVIEW' if attempted else 'NOT_OBSERVED'),
             'catalyst': ('REQUIRES_LOG_REVIEW' if attempted else 'NOT_OBSERVED'), 'downstream_progression': ('REQUIRES_LOG_REVIEW' if attempted else 'NOT_OBSERVED'), 'PAPER_READY': False})
     preflight_timing('privacy_scan_begin')
+    if globals().get('benchmark_capture', False) and sum(p.stat().st_size for p in (root/'private').rglob('*') if p.is_file()) > 64*1024*1024:
+        raise SystemExit('Private capture size limit exceeded; retention incomplete, no archive.')
     privacy = scan_artifacts(evidence)
     write_json(evidence/'shareable-evidence-scan.json', privacy)
     if not privacy['passed']:
@@ -465,6 +497,8 @@ elif phase == 'seal':
     status = json.loads((evidence/'phase-status.json').read_text(encoding='utf-8-sig'))
     if status.get('package_exit') not in (0, 2):
         raise SystemExit('Cannot seal an unsuccessful packaging process.')
+    if globals().get('benchmark_capture', False) and sum(p.stat().st_size for p in (root/'private').rglob('*') if p.is_file()) > 64*1024*1024:
+        raise SystemExit('Private capture size limit exceeded; retention incomplete, no archive.')
     privacy = scan_artifacts(evidence)
     write_json(evidence/'shareable-evidence-scan.json', privacy)
     if not privacy['passed']:

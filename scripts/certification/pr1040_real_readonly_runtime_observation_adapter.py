@@ -2072,9 +2072,436 @@ def _cleanup_scanner_runtime_after_observation() -> dict[str, Any]:
     return diagnostics
 
 
+# Explicit maintained capture profile. Importing these owners performs no IO.
+BENCHMARK_PROFILE = "BENCHMARK_CAPTURE_V1"
+BENCHMARK_SOURCE_LIMIT = 48 * 1024 * 1024  # 16MiB reserved for independently bounded logs.
+BENCHMARK_INPUT_LIMIT = 16 * 1024 * 1024
+BENCHMARK_LOG_LIMIT = 512 * 1024
+
+
+class BenchmarkCaptureRefused(PR1040AdapterError):
+    pass
+
+
+class _BoundedPrivateText:
+    def __init__(self, handle, *, limit=BENCHMARK_LOG_LIMIT):
+        self.handle, self.limit, self.used, self.exceeded = handle, limit, 0, False
+    def write(self, text):
+        raw = text.encode("utf-8", errors="replace")
+        remaining = self.limit - self.used
+        if len(raw) > remaining:
+            self.exceeded = True
+        kept = raw[:max(0, remaining)]
+        self.handle.write(kept)
+        self.used += len(kept)
+        return len(text)  # Drain, never block an owned child on a full log.
+    def flush(self):
+        self.handle.flush()
+    @property
+    def encoding(self):
+        return "utf-8"
+    def isatty(self):
+        return False
+
+
+def benchmark_private_console(directory):
+    from contextlib import contextmanager, redirect_stdout, redirect_stderr
+    @contextmanager
+    def capture():
+        directory_path = Path(directory)
+        directory_path.mkdir(parents=True, exist_ok=False)
+        with (directory_path/"stdout.log").open("xb") as out, (directory_path/"stderr.log").open("xb") as err:
+            stdout, stderr = _BoundedPrivateText(out), _BoundedPrivateText(err)
+            try:
+                with redirect_stdout(stdout), redirect_stderr(stderr):
+                    yield
+            finally:
+                stdout.flush(); stderr.flush()
+                if stdout.exceeded or stderr.exceeded:
+                    (directory_path/"retention-incomplete.json").write_text('{"retention_complete":false,"reason":"PRIVATE_LOG_LIMIT"}')
+                    raise BenchmarkCaptureRefused("PRIVATE_LOG_LIMIT")
+    return capture()
+
+
+def benchmark_json_bytes(value):
+    """Original detached datetime representation shared by the offline owner."""
+    from datetime import datetime as DateTimeType
+    def encode(item):
+        if isinstance(item, DateTimeType):
+            return {"datetime": item.isoformat(), "fold": item.fold}
+        if is_dataclass(item):
+            return asdict(item)
+        if hasattr(item, "__dict__"):
+            return {"source_type":type(item).__name__, "source_fields":vars(item)}
+        raise TypeError("Unsupported private source value")
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False,
+                      default=encode).encode("utf-8")
+
+
+def benchmark_private_write(directory, name, raw):
+    """Single source-writer budget; no truncated input can become complete."""
+    import hashlib
+    directory = Path(directory)
+    if Path(name).name != name or type(raw) is not bytes:
+        raise BenchmarkCaptureRefused("PRIVATE_WRITE_INVALID")
+    directory.mkdir(parents=True, exist_ok=True)
+    used = sum(p.stat().st_size for p in directory.rglob("*") if p.is_file())
+    if used + len(raw) + 4096 > BENCHMARK_SOURCE_LIMIT:
+        reason = {"status": "REFUSED", "reason": "PRIVATE_SIZE_LIMIT",
+                  "retention_complete": False, "attempted_bytes": len(raw),
+                  "attempted_sha256": hashlib.sha256(raw).hexdigest()}
+        marker = directory / "retention-incomplete.json"
+        if not marker.exists():
+            marker.write_bytes(benchmark_json_bytes(reason))
+        raise BenchmarkCaptureRefused("PRIVATE_SIZE_LIMIT")
+    target = directory / name
+    with target.open("xb") as handle:
+        handle.write(raw)
+        handle.flush()
+        os.fsync(handle.fileno())
+    return {"bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest()}
+
+
+def _benchmark_reason(exc):
+    # Source-owner refusal codes are bounded enums. Arbitrary provider text is
+    # retained privately, never smuggled through public exception summaries.
+    from src.strategies.statistical_intraday_momentum.signal_engine.features import CompletedContextError
+    allowed = frozenset({'NORMALIZATION_UNVERIFIED_OR_REJECTED', 'SECURITY_CONFLICT', 'REFERENCE_IDENTITY_CHANGED', 'CAPTURE_CONFIGURATION_MISMATCH', 'INVALID_NUMBER', 'REFERENCE_UNVERIFIED', 'BAR_RAW_TIMESTAMP_CONFLICT', 'NORMALIZATION_RAW_CONFLICT', 'SECURITY_UNKNOWN', 'SOURCE_MALFORMED', 'OFFLINE_BYTES_INVALID', 'CAPTURE_CALENDAR_UNKNOWN', 'CAPTURE_MARKET_OWNER_UNBOUND', 'QUOTE_ACQUISITION_CLOCK_CONFLICT', 'NONFINITE_OR_MISSING_NUMBER', 'REFERENCE_FALLBACK_NOT_DISPATCHED', 'CONTEXT_MUTATED', 'PRIVATE_WRITE_INVALID', 'TIME_UNKNOWN', 'QUOTE_CROSSED', 'SOURCE_TYPE_UNKNOWN', 'SECURITY_ROUTING_CONFLICT', 'CAPTURE_CALENDAR_CHANGED', 'QUOTE_UNVERIFIED', 'ATR_ARITHMETIC_INVALID', 'HISTORY_STALE_OR_FUTURE', 'QUOTE_TIME_REJECTED', 'CALENDAR_CHANGED', 'HISTORY_REQUEST_UNVERIFIED', 'BAR_COVERAGE_OR_COMPLETION_CONFLICT', 'BAR_GEOMETRY_INVALID', 'ATR_WARMUP_INCOMPLETE', 'COVERED_RTH_OPEN_UNKNOWN', 'PRIVATE_SIZE_LIMIT', 'CONFIGURATION_CHANGED', 'CAPTURE_SOURCE_SCOPE_CHANGED', 'CAPTURE_PAPER_ACCOUNT_SCOPE_UNVERIFIED', 'BAR_START_UNKNOWN', 'HISTORY_CLOCK_CONFLICT', 'HISTORY_OWNERSHIP_UNKNOWN', 'REFERENCE_SOURCE_TYPE_UNKNOWN', 'HISTORY_LOOKBACK_INCOMPLETE', 'OFFLINE_INPUT_MALFORMED', 'QUALIFICATION_UNVERIFIED', 'QUOTE_QUALITY_UNVERIFIED', 'CONTEXT_TYPE_UNKNOWN', 'SUPERVISED_CAPTURE_ADMISSION_REQUIRED'})
+    if isinstance(exc, (CompletedContextError, BenchmarkCaptureRefused)) and str(exc) in allowed:
+        return str(exc)
+    return "SOURCE_REFUSED"
+
+
+def _benchmark_scope(manager, client, epoch, generation, *, window_fingerprint=None, expected_accounts=None):
+    from src.config.config_resolver import get_config
+    from src.market_data.session_pct_change import covered_opening_window
+    from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
+    from src.core.acquisition import checkpoint
+    checkpoint()
+    if os.environ.get("READONLY_BENCHMARK_CAPTURE") == BENCHMARK_PROFILE:
+        from scripts.certification.pr1090_terminal_observation_supervisor import benchmark_conflict_check
+        benchmark_conflict_check(Path(os.environ["PR1090_EVIDENCE_DIR"]).parent.parent)
+    if (not isinstance(client, IbkrClient) or manager.existing_client is not client
+            or type(client.client_id) is not int or client.client_id != 71
+            or type(client.clientId) is not int or client.clientId != 71 or type(epoch) is not int
+            or client._position_connection_epoch != epoch or not client.isConnected()
+            or client._stop_event.is_set() or manager.connection_metadata()["connection_generation"] != generation
+            or get_config("RUN_MODE_EFFECTIVE") != "READ_ONLY"
+            or not get_config("IBKR_READONLY_ENABLED") or get_config("IBKR_API_WRITE_ALLOWED")):
+        raise BenchmarkCaptureRefused("CAPTURE_SOURCE_SCOPE_CHANGED")
+    with client._lock:
+        accounts = tuple(client._managed_accounts)
+        account_end = client._managed_accounts_event.is_set()
+    if (not account_end or len(accounts) != 1 or not isinstance(accounts[0], str)
+            or re.fullmatch(r"DU[0-9]+", accounts[0]) is None
+            or (expected_accounts is not None and accounts != expected_accounts)):
+        raise BenchmarkCaptureRefused("CAPTURE_PAPER_ACCOUNT_SCOPE_UNVERIFIED")
+    window = covered_opening_window(datetime.now(timezone.utc))
+    if window is None or window.phase != "RTH_OPEN":
+        raise BenchmarkCaptureRefused("CAPTURE_CALENDAR_UNKNOWN")
+    if window_fingerprint is not None and window.fingerprint != window_fingerprint:
+        raise BenchmarkCaptureRefused("CAPTURE_CALENDAR_CHANGED")
+    return window
+
+
+class _RetainedDailyReference:
+    """Existing resolver consumes one actual result; this facade never acquires."""
+    source_name = "IBKR"
+
+    def __init__(self, market_data_client, contract, identity, result):
+        self.market_data_client = market_data_client
+        self.contract, self.identity, self.result = contract, identity, result
+        self.refused_fallbacks = []
+
+    def qualifyContracts(self, contract):
+        from src.market_data.candidate_identity import CandidateIdentity
+        if CandidateIdentity.from_contract(contract) != self.identity:
+            raise BenchmarkCaptureRefused("REFERENCE_IDENTITY_CHANGED")
+        return [self.contract]
+
+    def get_daily_bars(self, identity, *, lookback_days, use_rth=True, end_datetime=""):
+        if identity != self.identity or lookback_days != 25:
+            raise BenchmarkCaptureRefused("REFERENCE_IDENTITY_CHANGED")
+        if use_rth is not True or end_datetime:
+            self.refused_fallbacks.append({"dispatched": False, "reason": "FALLBACK_OUTSIDE_CAPTURE_SCOPE"})
+            raise BenchmarkCaptureRefused("REFERENCE_FALLBACK_NOT_DISPATCHED")
+        return self.result
+
+
+def collect_benchmark_capture(*, manager, private_directory, shared_directory, _retain_original_client=None):
+    """Bounded actual-owner collection; tests replace only synthetic transport facts.
+
+    Call only from the explicitly supervised user-operated capture entrypoint.
+    No Core, scanner, news, strategy, order or storage constructor is involved.
+    """
+    from hashlib import sha256
+    from src.core.acquisition import acquisition_scope, acquisition_deadline, historical_enrichment_attempt, checkpoint
+    from src.ibkr.market_data_client import HistoricalDataResult
+    from src.market_data.candidate_identity import CandidateIdentity
+    from src.market_data.market_data_snapshot_manager import MarketDataSnapshotManager
+    from src.market_data.reference_resolver import CanonicalReferenceResolver, PersistentReferenceCache
+    from src.adapters.data.historical_data_provider import get_intraday_bars
+    from src.strategies.statistical_intraday_momentum.signal_engine.features import (
+        build_completed_context, measure_completed_atr, offline_atr_report)
+    from src.ibkr.evidence_safety import write_json
+    private_directory, shared_directory = Path(private_directory), Path(shared_directory)
+    private_directory.mkdir(parents=True, exist_ok=False)
+    summary = {"profile": BENCHMARK_PROFILE, "assets": [], "capture_completed": False,
+               "retention_complete": True, "approved_dataset": False,
+               "ATR_admission": "UNKNOWN", "PAPER_READY": False}
+    began = time.monotonic()
+    try:
+        with acquisition_scope(), acquisition_deadline(began + 180), historical_enrichment_attempt():
+            if os.environ.get("READONLY_BENCHMARK_CAPTURE") == BENCHMARK_PROFILE:
+                from scripts.certification.pr1090_terminal_observation_supervisor import benchmark_conflict_check
+                benchmark_conflict_check(shared_directory.parent.parent)
+            manager.pin_readonly_client_id(71)
+            client = manager.get_client()
+            if _retain_original_client is not None:
+                _retain_original_client(client)  # Cleanup reference only, not admission authority.
+            epoch = client._position_connection_epoch
+            generation = manager.connection_metadata()["connection_generation"]
+            with client._lock:
+                original_accounts = tuple(client._managed_accounts)
+            original_window = _benchmark_scope(manager, client, epoch, generation, expected_accounts=original_accounts)
+            benchmark_private_write(private_directory,"original-account-scope.json",benchmark_json_bytes(
+                {"accounts":original_accounts,"client_id":client.client_id,"SDK_client_id":client.clientId,
+                 "connection_epoch":epoch,"scope":"ORIGINAL_NATIVE_MANAGED_ACCOUNTS"}))
+            market = manager.get_market_data_client()
+            # Publish the already owned original client. This is the facade's
+            # ordinary binding, never a fresh get_client/reconnection shortcut.
+            if market.ib is None:
+                market.ib = client  # Bind the actual existing owner; never reconnect.
+            if market.ib is not client:
+                raise BenchmarkCaptureRefused("CAPTURE_MARKET_OWNER_UNBOUND")
+            for symbol in ("SPY", "QQQ"):
+                row = {"symbol": symbol, "status": "REFUSED", "reason": "SOURCE_REFUSED"}
+                summary["assets"].append(row)
+                facts = {"symbol": symbol, "profile": BENCHMARK_PROFILE}
+                started = time.monotonic()
+                try:
+                    with acquisition_deadline(min(began + 180, started + 60)):
+                        window = _benchmark_scope(manager, client, epoch, generation,
+                            window_fingerprint=original_window.fingerprint, expected_accounts=original_accounts)
+                        contract = market.qualify_contract(symbol, expected_client=client,
+                            expected_connection_epoch=epoch)
+                        identity = CandidateIdentity.from_contract(contract)
+                        metadata = market.get_contract_reference_metadata(contract)
+                        facts.update(identity=asdict(identity), qualification=metadata)
+                        if (getattr(contract,"symbol",None) != symbol or getattr(contract,"secType",None) != "STK"
+                                or getattr(contract,"currency",None) != "USD"
+                                or type(getattr(contract,"conId",None)) is not int or contract.conId <= 0
+                                or identity.symbol != symbol or identity.sec_type != "STK" or identity.currency != "USD"
+                                or type(identity.con_id) is not int or identity.con_id <= 0 or not metadata
+                                or metadata.get("source") != "IBKR_CONTRACT_DETAILS"
+                                or metadata.get("conId") != identity.con_id
+                                or type(metadata.get("request_id")) is not int
+                                or client._request_id_conflicted(metadata["request_id"])):
+                            raise BenchmarkCaptureRefused("QUALIFICATION_UNVERIFIED")
+                        benchmark_private_write(private_directory, symbol+"-qualification.json", benchmark_json_bytes(facts))
+                        _benchmark_scope(manager, client, epoch, generation, window_fingerprint=window.fingerprint, expected_accounts=original_accounts)
+                        daily = market._history_request(contract, expected_client=client,
+                            expected_connection_epoch=epoch,
+                            endDateTime=window.current_open.strftime("%Y%m%d %H:%M:%S UTC"),
+                            durationStr="25 D", barSizeSetting="1 day", whatToShow="TRADES", useRTH=True, formatDate=1)
+                        facts["daily_history"] = asdict(daily)
+                        if not isinstance(daily, HistoricalDataResult):
+                            raise BenchmarkCaptureRefused("REFERENCE_SOURCE_TYPE_UNKNOWN")
+                        benchmark_private_write(private_directory, symbol+"-daily.json", benchmark_json_bytes(daily))
+                        retained = _RetainedDailyReference(market, contract, identity, daily)
+                        facts["refused_reference_fallbacks"] = retained.refused_fallbacks
+                        # Explicit fresh private cache; never the default repository cache.
+                        resolver = CanonicalReferenceResolver(cache=PersistentReferenceCache(private_directory/(symbol+"-reference-cache.json")))
+                        reference = resolver.resolve(identity=identity, provider=retained,
+                            session_label="RTH_OPEN", current_volume=None, intraday_avg_volume_20d=None,
+                            current_last_price=None, rth_open_price=None, rth_close_price=None,
+                            ibkr_change_pct=None, persisted_pct_change=None)
+                        facts.update(reference=asdict(reference), refused_reference_fallbacks=retained.refused_fallbacks)
+                        _benchmark_scope(manager, client, epoch, generation, window_fingerprint=window.fingerprint, expected_accounts=original_accounts)
+                        history = get_intraday_bars(symbol=symbol, timeframe="1m", limit=50,
+                            completed_opening=True, expected_client=client,
+                            expected_connection_epoch=epoch, qualified_contract=contract, expected_identity=identity)
+                        facts["opening_history"] = asdict(history)
+                        benchmark_private_write(private_directory, symbol+"-opening.json", benchmark_json_bytes(history))
+                        _benchmark_scope(manager, client, epoch, generation, window_fingerprint=window.fingerprint, expected_accounts=original_accounts)
+                        quote, quality = MarketDataSnapshotManager(market).get_snapshot(contract,
+                            expected_client=client, expected_connection_epoch=epoch, single_attempt=True)
+                        # This original contemporaneous time is taken immediately
+                        # after quote completion, before persistence/next asset.
+                        assessed = datetime.now(timezone.utc)
+                        from copy import deepcopy
+                        facts.update(quote=asdict(quote), quality=asdict(quality), assessed_at=assessed,
+                            quote_original_diagnostics=deepcopy(market.last_snapshot_debug))
+                        benchmark_private_write(private_directory, symbol+"-quote.json", benchmark_json_bytes(
+                            {"quote":facts["quote"],"quality":facts["quality"],"assessed_at":assessed,
+                             "original_diagnostics":facts["quote_original_diagnostics"]}))
+                        _benchmark_scope(manager, client, epoch, generation, window_fingerprint=window.fingerprint, expected_accounts=original_accounts)
+                        guard = getattr(reference, "_history_ownership_guard", None)
+                        if not callable(guard) or not guard() or any(
+                            type(request_id) is not int or client._request_id_conflicted(request_id)
+                            for request_id in (daily.request_id, history.request_id)):
+                            raise BenchmarkCaptureRefused("HISTORY_OWNERSHIP_UNKNOWN")
+                        if MarketDataSnapshotManager.clean_snapshot({symbol:quote},{symbol:quality},symbol) is None:
+                            raise BenchmarkCaptureRefused("QUOTE_QUALITY_UNVERIFIED")
+                        context = build_completed_context(history=history, identity=identity,
+                            quote=quote, reference=reference, assessed_at=assessed)
+                        measure_completed_atr(context, assessed_at=assessed)
+                        source = {"schema": "P02_ATR_OFFLINE_V1", "dataset_id": symbol+"-"+window.target_session,
+                            "classification": "MARKET_UNVERIFIED", "sessions": [{
+                                "source_facts": context.source_facts, "assessed_at": assessed.isoformat(),
+                                "expected_source_sha256": context.source_fingerprint,
+                                "expected_derived_sha256": context.derived_fingerprint}]}
+                        canonical = benchmark_json_bytes(source)
+                        if len(canonical) > BENCHMARK_INPUT_LIMIT:
+                            benchmark_private_write(private_directory, symbol+"-input-refused.json", benchmark_json_bytes(
+                                {"retention_complete":False,"reason":"OFFLINE_BYTES_INVALID",
+                                 "bytes":len(canonical),"sha256":sha256(canonical).hexdigest()}))
+                            raise BenchmarkCaptureRefused("OFFLINE_BYTES_INVALID")
+                        report = offline_atr_report(canonical, expected_sha256=sha256(canonical).hexdigest())
+                        input_commitment = benchmark_private_write(private_directory, symbol+"-offline-input.json", canonical)
+                        report_commitment = benchmark_private_write(private_directory, symbol+"-offline-report.json", report)
+                        row.update(status="MEASUREMENT_RECORDED", reason=None,
+                            input=input_commitment, report=report_commitment,
+                            completed_1m=len(history), quote_available=True, costs_available=False)
+                except Exception as exc:
+                    # Only bounded reason enums are public. Preserve complete
+                    # original exception/source details under PRIVATE below.
+                    row["reason"] = _benchmark_reason(exc)
+                    if market.last_snapshot_debug.get("requested_symbol") == symbol:
+                        from copy import deepcopy
+                        facts["market_diagnostics_at_refusal"] = deepcopy(market.last_snapshot_debug)
+                    facts["error"] = {"type": type(exc).__name__, "detail": str(exc)}
+                    if row["reason"] in {"PRIVATE_SIZE_LIMIT", "OFFLINE_BYTES_INVALID"}:
+                        summary["retention_complete"] = False
+                        raise
+                finally:
+                    facts["elapsed_seconds"] = time.monotonic() - started
+                    try:
+                        raw = benchmark_json_bytes(facts)
+                    except (ValueError, TypeError):
+                        # Malformed source values stay distinguishable; they are
+                        # raw diagnostic representations, never offline inputs.
+                        raw = json.dumps(_json_safe(facts), sort_keys=True, default=repr).encode()
+                    row["raw"] = benchmark_private_write(private_directory, symbol+"-raw.json", raw)
+                    checkpoint()
+                _benchmark_scope(manager, client, epoch, generation, window_fingerprint=original_window.fingerprint, expected_accounts=original_accounts)
+            summary["capture_completed"] = True
+    except BaseException as exc:
+        summary["capture_completed"] = False
+        summary["retention_complete"] = False
+        summary["reason"] = _benchmark_reason(exc)
+        if isinstance(exc, BenchmarkCaptureRefused) and str(exc) in {"PRIVATE_SIZE_LIMIT", "OFFLINE_BYTES_INVALID"}:
+            summary["retention_complete"] = False
+        raise
+    finally:
+        summary["elapsed_seconds"] = time.monotonic() - began
+        write_json(shared_directory/"benchmark-capture-summary.json", summary)
+    return summary
+
+
+def _benchmark_capture_requests_retired(client):
+    """Observe existing original native request owners, never clear their facts."""
+    if client is None:
+        return True  # No client was ever published to this attempt.
+    from src.adapters.brokers.ibkr.ibkr_client import IbkrClient
+    if not isinstance(client, IbkrClient):
+        return False
+    with client._lock:
+        if any(getattr(client, name) for name in ("_historical_states", "_historical_events",
+                "_historical_data", "_active_market_req_ids", "_ticker_by_req_id", "_market_events",
+                "_pending_request_allocations")):
+            return False
+        # Completed qualification evidence is retained by its owner. Do not
+        # call it active, delete it, or infer an end from socket closure.
+        events = client._contract_events
+        if any(not event.is_set() for event in events.values()):
+            return False
+        if any(kind != "CONTRACT_DETAILS" or request_id not in events
+               for request_id, kind in client._request_type_by_req_id.items()):
+            return False
+    return True
+
+
+def _benchmark_disconnect_original(manager, client):
+    if client is None:
+        return manager.existing_client is None
+    if manager.existing_client is not client:
+        # Retire only our retained original. Never disconnect a replacement.
+        client.disconnect()
+        return False
+    manager.disconnect(reason="benchmark_capture_shutdown")
+    thread = client._thread
+    return (manager.existing_client is None and not client.isConnected()
+            and not (thread is not None and thread.is_alive()))
+
+
+def run_benchmark_capture_entrypoint():
+    from src.runtime.process_identity import HANDSHAKE_PATH, HANDSHAKE_NONCE, HANDSHAKE_ACK, publish_runtime_identity
+    from src.ibkr.shutdown_evidence import ShutdownEvidence
+    from src.ibkr.evidence_safety import finish_console_protection, install_console_protection, write_json
+    from src.ibkr.mutation_audit import snapshot, require_zero_attempts
+    from src.adapters.brokers.ibkr.ibkr_connection_manager import get_shared_ibkr_connection_manager
+    if not all(os.environ.get(key) for key in (HANDSHAKE_PATH, HANDSHAKE_NONCE, HANDSHAKE_ACK,
+            "PR1090_EVIDENCE_DIR", "READONLY_ADMISSION_TOKEN")) or os.environ.get("READONLY_BENCHMARK_CAPTURE") != "BENCHMARK_CAPTURE_V1":
+        raise BenchmarkCaptureRefused("SUPERVISED_CAPTURE_ADMISSION_REQUIRED")
+    publish_runtime_identity()
+    install_console_protection()
+    output = Path(os.environ["PR1090_EVIDENCE_DIR"])
+    private = output.parent.parent/"private"/"capture"
+    env = build_safe_readonly_env()
+    apply_readonly_runtime_overrides(env)
+    if any(env.get(key) != wanted for key, wanted in {
+        "IBKR_HOST":"127.0.0.1", "IBKR_PORT":"7497", "IBKR_CLIENT_ID":"71",
+        "NEWS_ENABLED":"false", "NEWS_MAINTENANCE_ENABLED":"false"}.items()):
+        raise BenchmarkCaptureRefused("CAPTURE_CONFIGURATION_MISMATCH")
+    proof = ShutdownEvidence(runtime_profile=BENCHMARK_PROFILE)
+    success = False
+    original_client = None
+    manager = get_shared_ibkr_connection_manager(readonly_enabled=True)
+    def retain_original(client):
+        nonlocal original_client
+        if original_client is not None:
+            raise BenchmarkCaptureRefused("CAPTURE_SOURCE_SCOPE_CHANGED")
+        original_client = client
+    try:
+        collect_benchmark_capture(manager=manager, private_directory=private,
+            shared_directory=output, _retain_original_client=retain_original)
+        require_zero_attempts(snapshot())
+        success = True
+    except BaseException as exc:
+        # No provider detail is written into the public terminal receipt.
+        print("BENCHMARK_CAPTURE_REFUSED", type(exc).__name__, str(exc), file=sys.stderr)
+    finally:
+        proof.record("GRACEFUL_STOP_REQUESTED", completed=True)
+        proof.record("SHUTDOWN_STARTED", completed=True)
+        # Requests live in lexical source/acquisition scopes; native disconnect
+        # owns retirement and thread cleanup. Completion is checked independently.
+        proof.attempt("manager_disconnect", lambda: _benchmark_disconnect_original(manager, original_client))
+        proof.attempt("capture_requests.retired", lambda: _benchmark_capture_requests_retired(original_client))
+        proof.attempt("console_flush", finish_console_protection)
+        proof.record("SHUTDOWN_COMPLETE", completed=all(x["completed"] for x in proof.hooks))
+        proof.record("TERMINAL_FLUSHED", completed=True)
+        payload = proof.payload()
+        try:
+            benchmark_private_write(private,"shutdown-private.json",benchmark_json_bytes(payload))
+        except Exception:
+            success = False
+            source_summary = output/"benchmark-capture-summary.json"
+            if source_summary.exists():
+                saved = json.loads(source_summary.read_text())
+                saved.update(retention_complete=False,capture_completed=False,reason="PRIVATE_SIZE_LIMIT")
+                write_json(source_summary,saved)
+        for hook in payload["hooks"]:
+            hook.pop("error", None)
+        for event in payload["events"]:
+            event.pop("error", None)
+        write_json(output/"shutdown_evidence.json", payload)
+    return 0 if success and all(x["completed"] for x in proof.hooks) else 2
+
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run PR1040 real READ_ONLY Ross runtime observation adapter.")
-    parser.add_argument("--operator", required=True)
+    parser.add_argument("--operator", required=False)
+    parser.add_argument("--benchmark-capture", action="store_true")
     parser.add_argument("--cycle-id", type=int, default=1)
     parser.add_argument("--observation-output", type=Path, default=DEFAULT_OBSERVATION_OUTPUT)
     parser.add_argument("--raw-output-dir", type=Path, default=DEFAULT_RAW_OUTPUT_DIR)
@@ -2092,7 +2519,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     from src.ibkr.evidence_safety import install_console_protection, capture_console, scan_artifacts, write_text
     from src.ibkr.mutation_audit import snapshot, require_zero_attempts
     install_console_protection()
-    args = build_arg_parser().parse_args(argv)
+    parser = build_arg_parser()
+    args = parser.parse_args(argv)
+    if args.benchmark_capture:
+        if list(sys.argv[1:] if argv is None else argv) != ["--benchmark-capture"]:
+            parser.error("Benchmark capture accepts no source/scope overrides")
+        return run_benchmark_capture_entrypoint()
+    if not args.operator:
+        parser.error("--operator is required for ordinary observation")
     env = build_safe_readonly_env()
     scope = build_operator_observation_scope(
         max_observation_symbols=args.max_observation_symbols,

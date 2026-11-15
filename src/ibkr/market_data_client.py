@@ -713,7 +713,13 @@ class MarketDataClient:
         return result
 
     def snapshot_stock(self, contract_or_symbol, *, refresh: bool = False,
-                       expected_client=None, expected_connection_epoch=None) -> MarketDataSnapshot:
+                       expected_client=None, expected_connection_epoch=None, single_attempt=False) -> MarketDataSnapshot:
+        if type(single_attempt) is not bool:
+            raise ValueError("single_attempt must be boolean")
+        if single_attempt and (expected_client is None or expected_connection_epoch is None
+                               or self.market_data_type != "LIVE"):
+            raise RuntimeError("SINGLE_ATTEMPT_REQUIRES_BOUND_LIVE_SOURCE")
+        refresh = refresh or single_attempt
         checkpoint()
         strict = expected_client is not None or expected_connection_epoch is not None
         if strict:
@@ -757,7 +763,7 @@ class MarketDataClient:
                 self._snapshot_request_client(client, expected_connection_epoch)
             return snapshot
         snapshot = (self._snapshot_stock_uncached(contract_or_symbol, expected_client=client,
-                    expected_connection_epoch=expected_connection_epoch) if strict else
+                    expected_connection_epoch=expected_connection_epoch, **({"single_attempt": True} if single_attempt else {})) if strict else
                     self._snapshot_stock_uncached(contract_or_symbol))
         checkpoint()
         if strict:
@@ -784,7 +790,11 @@ class MarketDataClient:
         return snapshot
 
     def _snapshot_stock_uncached(self, contract_or_symbol, *, expected_client=None,
-                                 expected_connection_epoch=None) -> MarketDataSnapshot:
+                                 expected_connection_epoch=None, single_attempt=False) -> MarketDataSnapshot:
+        if type(single_attempt) is not bool:
+            raise ValueError("single_attempt must be boolean")
+        if single_attempt and (expected_client is None or expected_connection_epoch is None or self.market_data_type != "LIVE"):
+            raise RuntimeError("SINGLE_ATTEMPT_REQUIRES_BOUND_LIVE_SOURCE")
         ib = self._snapshot_request_client(expected_client, expected_connection_epoch)
         epoch = getattr(ib, "_position_connection_epoch", None)
         client_id = self._snapshot_native_client_id(ib)
@@ -827,8 +837,10 @@ class MarketDataClient:
                 raise RuntimeError("SNAPSHOT_CLIENT_SCOPE_CHANGED")
             return self._empty_snapshot(symbol, base_flags + ["MD_SOURCE_SCOPE_CHANGED"])
         con_id = self._snapshot_scope_integer(getattr(contract, "conId", None), minimum=1)
-        attempts = [(self.market_data_type, "primary"), (self.market_data_type, "snapshot_retry")]
-        if (self.market_data_type or "").upper() not in {"DELAYED", "DELAYED_FROZEN"}:
+        attempts = [(self.market_data_type, "primary")]
+        if not single_attempt:
+            attempts.append((self.market_data_type, "snapshot_retry"))
+        if not single_attempt and (self.market_data_type or "").upper() not in {"DELAYED", "DELAYED_FROZEN"}:
             attempts.append(("DELAYED", "delayed_fallback"))
         best_fields = None
         best_debug = None
@@ -1119,11 +1131,12 @@ class MarketDataClient:
         valid.unavailable_reason = unavailable_reason
         return valid
 
-    def _history_request(self, contract, **params):
+    def _history_request(self, contract, *, expected_client=None, expected_connection_epoch=None, **params):
         checkpoint()
         with historical_enrichment_attempt() as cache:
             try:
-                client = self._resolve_ib_client()
+                client = (self._snapshot_request_client(expected_client, expected_connection_epoch)
+                    if expected_client is not None or expected_connection_epoch is not None else self._resolve_ib_client())
             except Exception:
                 return HistoricalDataResult("DISCONNECTED")
             if callable(getattr(client, "isConnected", None)) and not client.isConnected():
@@ -1156,6 +1169,8 @@ class MarketDataClient:
                 # create another send or renew the owner's deadline.
                 cache[key] = HistoricalDataResult("IN_PROGRESS")
             try:
+                if expected_client is not None or expected_connection_epoch is not None:
+                    self._snapshot_request_client(expected_client, expected_connection_epoch)
                 if callable(getattr(client, "reqHistoricalDataAsync", None)):
                     result = self._run_async(cooperative_await(self._cancellable_insync_history(client, contract, **params)))
                 else:
@@ -1169,6 +1184,13 @@ class MarketDataClient:
             except Exception:
                 result = HistoricalDataResult("ERROR")
             checkpoint()
+            if expected_client is not None or expected_connection_epoch is not None:
+                try:
+                    self._snapshot_request_client(expected_client, expected_connection_epoch)
+                except Exception:
+                    # Retain original wire/request/raw completion facts while
+                    # refusing their use after original source ownership changed.
+                    result = replace(result, status="SOURCE_SCOPE_CHANGED")
             with cache.lock:
                 if cache.closed:
                     return HistoricalDataResult("ATTEMPT_CLOSED")

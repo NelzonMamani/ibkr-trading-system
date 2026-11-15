@@ -31,7 +31,11 @@ class MarketDataSnapshotManager:
         self.max_workers = max_workers
 
     def get_snapshot(self, symbol: str, *, expected_client=None,
-                     expected_connection_epoch=None) -> tuple[MarketSnapshot, SnapshotQuality]:
+                     expected_connection_epoch=None, single_attempt=False) -> tuple[MarketSnapshot, SnapshotQuality]:
+        if type(single_attempt) is not bool:
+            raise ValueError("single_attempt must be boolean")
+        if single_attempt and (expected_client is None or expected_connection_epoch is None):
+            raise RuntimeError("Single-attempt snapshot requires original client scope")
         if self.market_data_client is None:
             snapshot = MarketSnapshot(
                 symbol=symbol,
@@ -53,7 +57,7 @@ class MarketDataSnapshotManager:
         raw = (self.market_data_client.snapshot_stock(symbol) if
             expected_client is None and expected_connection_epoch is None else
             self.market_data_client.snapshot_stock(symbol, expected_client=expected_client,
-                expected_connection_epoch=expected_connection_epoch))
+                expected_connection_epoch=expected_connection_epoch, **({"single_attempt": True} if single_attempt else {})))
         snapshot, quality = self._translate_snapshot(raw)
         self._log_quality(quality)
         return snapshot, quality

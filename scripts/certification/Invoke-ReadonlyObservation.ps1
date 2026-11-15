@@ -1,3 +1,35 @@
+# Optional capture-only sink: keep draining pipes after the fixed private log cap.
+function New-BenchmarkLogSink {
+    param([IO.Stream]$Stream)
+    if (-not ('BenchmarkPrivateLogStream' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.IO;
+public sealed class BenchmarkPrivateLogStream : Stream {
+    private readonly Stream inner;
+    private long used;
+    public bool Exceeded { get; private set; }
+    public BenchmarkPrivateLogStream(Stream value) { inner = value; }
+    public override void Write(byte[] buffer, int offset, int count) {
+        int allowed = (int)Math.Max(0, Math.Min(count, 1048576L-used));
+        if (allowed < count) Exceeded = true;
+        if (allowed > 0) { inner.Write(buffer, offset, allowed); used += allowed; }
+    }
+    public override bool CanRead { get { return false; } }
+    public override bool CanSeek { get { return false; } }
+    public override bool CanWrite { get { return true; } }
+    public override long Length { get { return used; } }
+    public override long Position { get { return used; } set { throw new NotSupportedException(); } }
+    public override void Flush() { inner.Flush(); }
+    public override int Read(byte[] b,int o,int c) { throw new NotSupportedException(); }
+    public override long Seek(long o,SeekOrigin w) { throw new NotSupportedException(); }
+    public override void SetLength(long l) { throw new NotSupportedException(); }
+    protected override void Dispose(bool disposing) { if (disposing) inner.Dispose(); base.Dispose(disposing); }
+}
+'@
+    }
+    return (New-Object BenchmarkPrivateLogStream -ArgumentList $Stream)
+}
 # Timeliness is proved by the OS exit timestamp, never by a child's PASS file.
 function Test-ObservationExitDeadline {
     param([datetime]$DeadlineUtc, [Nullable[datetime]]$ExitUtc)
@@ -7,15 +39,23 @@ function Test-ObservationExitDeadline {
 function Invoke-ObservationChild {
     param([string]$Python, [string[]]$ChildArguments, [string]$LogPrefix,
           [string]$StopPath, [double]$BudgetSeconds, [double]$StopSeconds = 30,
-          [scriptblock]$LogStreamFactory = { param($path) [IO.File]::Open($path, 'Create', 'Write', 'Read') })
+          [string]$PrivateLogPrefix, [scriptblock]$LogStreamFactory = { param($path) [IO.File]::Open($path, 'Create', 'Write', 'Read') })
     $ErrorActionPreference = 'Stop'
     $process = $null; $outFile = $null; $errFile = $null
     $code = $null; $exited = $false; $timedOut = $false; $started = $false; $stopWaited = $false; $childError = $null
     $startUtc = $null; $deadlineUtc = $null; $exitUtc = $null; $clock = $null; $timeoutReason = $null
+    $privateStreamsReady = $false
     try {
         # Open both logs before starting anything. Failures cannot launch a child.
-        $outFile = & $LogStreamFactory ($LogPrefix + '.stdout.log')
-        $errFile = & $LogStreamFactory ($LogPrefix + '.stderr.log')
+        $outputPrefix = if ($PrivateLogPrefix) { $PrivateLogPrefix } else { $LogPrefix }
+        if ($PrivateLogPrefix) { [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($PrivateLogPrefix)) | Out-Null }
+        $outFile = & $LogStreamFactory ($outputPrefix + '.stdout.log')
+        $errFile = & $LogStreamFactory ($outputPrefix + '.stderr.log')
+        if ($PrivateLogPrefix) {
+            $outFile = New-BenchmarkLogSink $outFile
+            $errFile = New-BenchmarkLogSink $errFile
+            $privateStreamsReady = $true
+        }
         $info = New-Object Diagnostics.ProcessStartInfo
         $info.FileName = $Python
         $info.UseShellExecute = $false
@@ -49,6 +89,9 @@ function Invoke-ObservationChild {
                 break
             }
             if ($outCopy.IsFaulted -or $errCopy.IsFaulted) { throw 'Child log write failed.' }
+            if ($PrivateLogPrefix -and ($outFile.Exceeded -or $errFile.Exceeded)) {
+                throw 'Private capture log limit exceeded; retention incomplete.'
+            }
             if ($clock.Elapsed.TotalSeconds -ge $BudgetSeconds) {
                 # Recheck a process that exited between the bounded wait and
                 # deadline decision. A late observer may accept only proven timely exit.
@@ -78,6 +121,7 @@ function Invoke-ObservationChild {
         # Descendants holding a pipe cannot make cleanup wait indefinitely.
         if (!$outCopy.Wait(5000) -or !$errCopy.Wait(5000)) { throw 'Child pipes did not close within budget.' }
         $outFile.Flush(); $errFile.Flush()
+        if ($PrivateLogPrefix -and ($outFile.Exceeded -or $errFile.Exceeded)) { throw 'Private capture log limit exceeded; retention incomplete.' }
         [pscustomobject]@{ ExitCode = $code; TimedOut = $timedOut; Exited = $true; ProcessId = $childId; StartedUtc = $startUtc; DeadlineUtc = $deadlineUtc; ExitUtc = $exitUtc; TimeoutReason = $timeoutReason }
     } catch {
         $childError = $_
@@ -106,6 +150,8 @@ function Invoke-ObservationChild {
             }
             [ordered]@{ started=$started; exited=$exited; exit_code=$code;
                 timed_out=$timedOut; timeout_reason=$timeoutReason;
+                retention_complete=(!$PrivateLogPrefix -or ($privateStreamsReady -and !($outFile.Exceeded -or $errFile.Exceeded)));
+                private_log_limit_bytes=$(if ($PrivateLogPrefix) {1048576} else {$null});
                 budget_seconds=$BudgetSeconds; cleanup_budget_seconds=$StopSeconds;
                 started_utc=$startUtc; deadline_utc=$deadlineUtc; os_exit_utc=$exitUtc;
                 completed_utc=[datetime]::UtcNow;
@@ -133,11 +179,15 @@ function Invoke-ReadonlyObservation {
           [double]$StopSeconds = 30, [double]$PackageSeconds = 150,
           [double]$PreparationSeconds = 150, [double]$SealSeconds = 90,
           [ValidateRange(180,1800)][int]$RuntimeSeconds = 180, [switch]$PreflightOnly,
-          [switch]$ReviewedCalendar)
+          [switch]$ReviewedCalendar, [switch]$BenchmarkCapture)
     $ErrorActionPreference = 'Stop'
     $durationArguments = @()
     if ($RuntimeSeconds -ne 180) { $durationArguments = @([string]$RuntimeSeconds) }
     if ($ReviewedCalendar) { $durationArguments += '--reviewed-calendar' }
+    if ($BenchmarkCapture) {
+        if (!$ReviewedCalendar -or $RuntimeSeconds -ne 180) { throw 'Benchmark capture requires reviewed calendar and180 seconds.' }
+        $durationArguments += '--benchmark-capture'
+    }
     $evidence = Join-Path $Root 'e'
     if (Test-Path -LiteralPath $evidence) { throw 'Evidence already exists; prepare a fresh run root. Existing evidence preserved.' }
     $preparation = Join-Path $Root 'preparation'
@@ -155,12 +205,12 @@ function Invoke-ReadonlyObservation {
     $phaseStatus = [ordered]@{ preparation_exit=$null; preparation_timed_out=$null; preflight_exit=$null; observation_exit=$null; package_exit=$null; final_exit=$null; package_status='NOT_STARTED' }
     try {
         $canPackage = $false
-        $prepared = Invoke-ObservationChild -Python $Python -ChildArguments (@('-E','-u',$Operator,'prepare',$Root,$ExpectedCommit) + $durationArguments) -LogPrefix (Join-Path $preparation 'prepare-process') -StopPath (Join-Path $preparation 'STOP_REQUESTED') -BudgetSeconds $PreparationSeconds -StopSeconds $StopSeconds
+        $prepared = Invoke-ObservationChild -Python $Python -ChildArguments (@('-E','-u',$Operator,'prepare',$Root,$ExpectedCommit) + $durationArguments) -LogPrefix (Join-Path $preparation 'prepare-process') -PrivateLogPrefix $(if ($BenchmarkCapture) { Join-Path (Join-Path $Root 'private') 'prepare-process' } else { $null }) -StopPath (Join-Path $preparation 'STOP_REQUESTED') -BudgetSeconds $PreparationSeconds -StopSeconds $StopSeconds
         $phaseStatus.preparation_exit = $prepared.ExitCode
         $phaseStatus.preparation_timed_out = $prepared.TimedOut
         if ($prepared.ExitCode -ne 0 -or $prepared.TimedOut) { throw 'Filesystem preparation failed or late; no admission.' }
         [IO.Directory]::CreateDirectory($evidence) | Out-Null
-        $preflight = Invoke-ObservationChild -Python $Python -ChildArguments (@('-E','-u',$Operator,'preflight',$Root,$ExpectedCommit) + $durationArguments) -LogPrefix (Join-Path $evidence 'preflight-process') -StopPath (Join-Path $evidence 'preflight.stop') -BudgetSeconds $PreflightSeconds -StopSeconds $StopSeconds
+        $preflight = Invoke-ObservationChild -Python $Python -ChildArguments (@('-E','-u',$Operator,'preflight',$Root,$ExpectedCommit) + $durationArguments) -LogPrefix (Join-Path $evidence 'preflight-process') -PrivateLogPrefix $(if ($BenchmarkCapture) { Join-Path (Join-Path $Root 'private') 'preflight-process' } else { $null }) -StopPath (Join-Path $evidence 'preflight.stop') -BudgetSeconds $PreflightSeconds -StopSeconds $StopSeconds
         $canPackage = $true
         $result = $preflight.ExitCode
         $phaseStatus.preflight_exit = $result
@@ -173,7 +223,8 @@ function Invoke-ReadonlyObservation {
                 $reason = Get-Content -Raw $reasonFile | ConvertFrom-Json
                 Write-Host ("Preflight failed at {0}: {1}" -f $reason.stage,$reason.reason)
             } else {
-                Get-Content (Join-Path $evidence 'preflight-process.stderr.log') | ForEach-Object { Write-Host $_ }
+                if ($BenchmarkCapture) { Write-Host 'Preflight refused; original details retained privately.' }
+                else { Get-Content (Join-Path $evidence 'preflight-process.stderr.log') | ForEach-Object { Write-Host $_ } }
             }
         }
         if ($preflight.TimedOut) { throw ('Preflight timed out; no observation launch. Child exit {0} is separate from deadline failure ({1}); see preflight-process.process.json.' -f $result,$preflight.TimeoutReason) }
@@ -182,7 +233,7 @@ function Invoke-ReadonlyObservation {
             Write-Host "Early graceful stop: New-Item -ItemType File -Force '$stop'"
             try {
                 $canPackage = $false
-                $observed = Invoke-ObservationChild -Python $Python -ChildArguments (@('-E','-u',$Operator,'observe',$Root,$ExpectedCommit) + $durationArguments) -LogPrefix (Join-Path $evidence 'supervisor') -StopPath $stop -BudgetSeconds $ObservationSeconds -StopSeconds $StopSeconds
+                $observed = Invoke-ObservationChild -Python $Python -ChildArguments (@('-E','-u',$Operator,'observe',$Root,$ExpectedCommit) + $durationArguments) -LogPrefix (Join-Path $evidence 'supervisor') -PrivateLogPrefix $(if ($BenchmarkCapture) { Join-Path (Join-Path $Root 'private') 'observe-process' } else { $null }) -StopPath $stop -BudgetSeconds $ObservationSeconds -StopSeconds $StopSeconds
                 $canPackage = $true
                 $result = $observed.ExitCode
                 $phaseStatus.observation_exit = $result
@@ -196,7 +247,7 @@ function Invoke-ReadonlyObservation {
     } catch {
         if ($result -eq 0) { $result = 1 }
         $phaseStatus.outer_error = $_.Exception.GetType().Name
-        $phaseStatus.outer_reason = $_.Exception.Message
+        $phaseStatus.outer_reason = if ($BenchmarkCapture) {'PRIVATE_DETAIL_RETAINED'} else {$_.Exception.Message}
         if ($_.Exception.Data.Contains('ChildStarted')) {
             $canPackage = $false
         }
@@ -216,7 +267,7 @@ function Invoke-ReadonlyObservation {
             $phaseStatus.package_status = 'RUNNING'
             $phaseStatus | ConvertTo-Json | Set-Content -Encoding UTF8 (Join-Path $evidence 'phase-status-before-package.json')
             try {
-                $packaged = Invoke-ObservationChild -Python $Python -ChildArguments (@('-E','-u',$Operator,'package',$Root,$ExpectedCommit) + $durationArguments) -LogPrefix (Join-Path $evidence 'package-process') -StopPath (Join-Path $evidence 'package.stop') -BudgetSeconds $PackageSeconds -StopSeconds $StopSeconds
+                $packaged = Invoke-ObservationChild -Python $Python -ChildArguments (@('-E','-u',$Operator,'package',$Root,$ExpectedCommit) + $durationArguments) -LogPrefix (Join-Path $evidence 'package-process') -PrivateLogPrefix $(if ($BenchmarkCapture) { Join-Path (Join-Path $Root 'private') 'package-process' } else { $null }) -StopPath (Join-Path $evidence 'package.stop') -BudgetSeconds $PackageSeconds -StopSeconds $StopSeconds
                 $phaseStatus.package_exit = $packaged.ExitCode
                 $phaseStatus.package_status = if ($packaged.TimedOut) { 'TIMEOUT' } elseif ($packaged.ExitCode -eq 0) { 'PASS' } elseif ($packaged.ExitCode -eq 2) { 'DIAGNOSTIC_ONLY' } else { 'NONZERO' }
                 Write-Host ("Package exit: {0}; status: {1}" -f $packaged.ExitCode,$phaseStatus.package_status)
@@ -237,7 +288,7 @@ function Invoke-ReadonlyObservation {
         $zip = Join-Path $Root 'ross-natural-readonly-upload.zip'
         if ($canPackage -and $phaseStatus.package_status -in @('PASS','DIAGNOSTIC_ONLY') -and $phaseStatus.package_exit -in @(0,2) -and (Test-Path -LiteralPath $zip -PathType Leaf)) {
             try {
-                $sealed = Invoke-ObservationChild -Python $Python -ChildArguments (@('-E','-u',$Operator,'seal',$Root,$ExpectedCommit) + $durationArguments) -LogPrefix (Join-Path $Root 'seal-process') -StopPath (Join-Path $Root 'seal.stop') -BudgetSeconds $SealSeconds -StopSeconds $StopSeconds
+                $sealed = Invoke-ObservationChild -Python $Python -ChildArguments (@('-E','-u',$Operator,'seal',$Root,$ExpectedCommit) + $durationArguments) -LogPrefix (Join-Path $Root 'seal-process') -PrivateLogPrefix $(if ($BenchmarkCapture) { Join-Path (Join-Path $Root 'private') 'seal-process' } else { $null }) -StopPath (Join-Path $Root 'seal.stop') -BudgetSeconds $SealSeconds -StopSeconds $StopSeconds
                 Write-Host ("Archive seal exit: {0}" -f $sealed.ExitCode)
                 if ($sealed.ExitCode -eq 0 -and !$sealed.TimedOut) { Write-Host "DIAGNOSTIC ZIP: $zip" }
                 else { if ($result -eq 0) { $result = 1 }; Write-Host 'Archive sealing failed; no shareable ZIP is announced.' }
