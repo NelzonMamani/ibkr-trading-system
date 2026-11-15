@@ -20389,3 +20389,90 @@ legacy-tail activation or completed investigation repeat. Frozen observation
 parked work and operational quarantine are unchanged. No observer, provider/broker
 acquisition, broker mutation, operational enrollment or recovery clearing.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## PR1234 acceptance — P03 source blocker and P02 local callback settlement
+
+Base 0c50c29a587f789c220cc8a1faa3f54fff13e4e6.
+Reviewed candidate 89c15d7c1fba836be7209293ddda65e2eb44ac3f.
+Candidate/reviewed tree ac52b56426b890643dd69e3812019d41ef62d696.
+PR https://github.com/NelzonMamani/ibkr-trading-system/pull/1234
+Independent exact-head review5912313204:
+https://github.com/NelzonMamani/ibkr-trading-system/pull/1234#pullrequestreview-5912313204
+The review first reproduced four first-ACK false-clear failures, then cleared
+the scoped correction. Independent7 core and11 correction checks passed; these
+counts overlap retained focused validation and are not additional full suites.
+The final SAME3 delta only appended evidence; source/test bytes remained exact.
+
+Required PR CI43749927830 attempt1 COMPLETE SUCCESS:
+https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/43749927830
+Scope132921423905 success, HARNESS_ONLY=False.
+Linux132921493876:8284passed/3skipped/4warnings/1198.02s.
+Windows full132921493919:8285passed/2skipped/6312warnings/2786.92s.
+Required Windows aggregate132935685371 SUCCESS; both Windows owners mandatory.
+Windows focused95/news37/float-cache9 also passed; counts overlap full coverage.
+Controlled132921493896 success:46 serial/6 cache/13 exit/48 stub-only harness
+controls, quote parser and evidence upload. No acquisition/observer was launched.
+Actual completed logs identify tested checkout99fe5588cacdd4b07eb4cf085639715a0a3c7771,
+whose ordered parents are base0c50c29a then reviewed head89c15d7c, treeac52b564.
+
+PR final focused archive14177413571 service metadata:727bytes SHA256
+a6d5f6dd2412d3bf6685f52bfd606b354158b77fa7a8326ad65331ffa2d279b8.
+Controlled archive14175822103 service metadata:745035bytes, SHA256
+5654f336d2ff193bceb2fe4bb4b3c42887072f1aa8514d7548c192da0fc27b4a.
+These are GitHub SERVICE metadata, not independent downloaded-byte verification.
+
+
+Immediately before integration, independent review re-read all five required
+job states/logs and whole-run SUCCESS, remote main/base/head unchanged, actual
+checkout and ordered parents/tree identity. Standing authorized expected-head
+merge produced accepted main a38b057d18c3254c9c8dfe0e1899b398ba362056.
+Its ordered parents are exactly base0c50c29a then reviewed head89c15d7c; its
+ac52b564 tree equals the candidate/reviewed/tested tree. No candidate receipt
+amendment, manual cancellation or unchanged-success suite rerun occurred.
+
+Automatic main push CI43754720567 is a separate run, not PR evidence renewal:
+https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/43754720567
+Attempt1 COMPLETE SUCCESS; all five mandatory jobs completed:
+- scope132936182472 SUCCESS, actual HARNESS_ONLY=False;
+- Linux132936229127:8284passed/3skipped/4warnings/1186.77s;
+- Windows full132936229369:8285passed/2skipped/6312warnings/2825.79s;
+- controlled132936229148 SUCCESS:46serial/6cache/13exit/48stub-only harness,
+  quote parser and evidence upload;
+- required Windows aggregate132950580621 SUCCESS, both Windows owners mandatory.
+Windows focused95/news37/float-cache9 also passed; counts overlap full coverage.
+Actual Linux/Windows/controlled checkouts all identify accepted a38b057d above.
+Whole-run SUCCESS, every job state, checkout/parents/tree and unchanged remote
+main were re-read after completion. No manual retry/cancellation occurred.
+Automatic push coverage is kept separate from prior PR/focused evidence; counts
+are overlapping, not additive financial or runtime exposure.
+Main focused archive14180050516 service metadata:726bytes SHA256
+7b064a4d30de36d688c65c45ff430912a62d524bc88fdf1d1512afbb1a7b7b5b.
+Main controlled archive14178161333 service metadata:745319bytes SHA256
+d970fcabe9a1911b6ac5bc2d6b967744cd743cc485ab975819b2883b16cdd396.
+Again these are service metadata, not independent downloaded-byte verification.
+
+P03 remains BLOCKED_SOURCE_NOT_ADOPTED: qualified SPY/QQQ evidence, justified
+strong-trend measurement/calibration and approved scheduled-event source/class/
+window/coverage inputs are still missing. No source acquisition or all-UNKNOWN
+carrier supplied false clearance. P02 supports ONLY the reviewed same-process
+terminal standalone roundtrip's observable local settlement, using retained Ross
+requests and real financial owners. Caches stay nonempty; no P02 SDK send/full
+Core boot/natural/broker proof is claimed. LOCAL_CHECK is not proposal/risk/
+reservation/final-write enrollment; ATR bounds/native entry/management stay closed.
+Original failures, old timeout uncertainty and cold quarantine remain preserved.
+
+ONE next bounded action: establish the missing P03 input authority before any
+adapter: approved separately qualified SPY/QQQ original completed-history/quote
+facts and justified measurement parameters, plus finite scheduled-event publisher,
+class/revision/interval coverage and window policy. Scheduled-event coverage must
+not attest absence of unforeseen risk. No UNKNOWN-only carrier closes this gap.
+Unsupported P02 scope/stages require separate reviewed contracts; this receipt
+supplies no additional enrollment or broker-history completeness certificate.
+
+This receipt appends only to the SAME3 from the actual accepted merge. All prior
+accepted bytes remain exact prefixes; only these three existing records change.
+No candidate amendment solely to append receipts, tracker or documentation-only
+PR loop. Frozen observation3f48bf3f/sourcec65/calendar, all five ownership vetoes,
+existing evidence/databases and parked work remain unchanged. No observer,
+provider/broker acquisition, operational capital or recovery action.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
