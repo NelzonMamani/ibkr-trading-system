@@ -1757,3 +1757,142 @@ P03 trend/macro-source proposals are NOT adopted by this decision. All five
 ownership vetoes and observation3f48bf3f/sourcec65/calendar remain unchanged.
 No actual provider/broker acquisition, observer, operational capital/recovery
 action or readiness upgrade. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## Proposed bounded benchmark READ_ONLY capture contract — 2026-11-15
+
+DRAFT pending independent contract review and explicit delegated adoption BEFORE
+implementation. This is NEW project capture policy, not P02 entry/calibration or
+historical Ross doctrine. One later user-operated attempt, not acquisition now.
+
+- Profile `BENCHMARK_CAPTURE_V1`, default OFF, explicitly selected through the
+  maintained operator/process/supervisor owners. No scanner, news, strategy,
+  risk-decision, execution, order enrollment or adaptive layer is launched.
+  Fixed cohort/order SPY then QQQ, separately qualified STK/USD identities, no
+  substitution or extra securities. No representativeness/performance claim.
+- Exact existing local PAPER/read-only 127.0.0.1:7497/client71. Native exact-ID
+  pin BEFORE connect; no alternate-ID retry. Genuine operator verification covers
+  PAPER account, API read-only, disabled submission and account/session scope,
+  not guessed vacancy. Existing runtime inventory blocks both capture and Ross
+  entrypoints; shared exact client admission refuses conflicts without terminating
+  other clients. The frozen 3f48bf3f/c65/calendar caller remains unchanged.
+- Use the exact reviewed finite calendar receipt through its existing configuration
+  and source-integrity owner. Entire existing180s runtime plus360s supervision/
+  finalization envelope must remain in ONE covered actual RTH_OPEN. Admission
+  requires at least16 completed minutes since actual RTHopen. No override,
+  inferred weekday, old root, resume, root reuse or concurrent observation.
+- The normalized historical owner adds an explicit default-off completed-opening
+  request. At actual request time obtain the existing covered window, floor actual
+  UTC time to a completed minute, transmit explicit UTC endDateTime, duration in
+  seconds from actual RTHopen,1min/TRADES/useRTH1/formatDate2/nonstreaming/empty
+  chart options. Strict interval/identity/source checks precede dispatch. Ordinary
+  last-N/empty-end defaults stay unchanged. ALL returned rows remain evidence:
+  no suffix removal, forming-tail removal, gap repair, sorting or metadata repair.
+- Fixed finite budget: one qualified identity, one daily-reference history, one
+  opening1m history and one live snapshot per benchmark; one original connection.
+  No favorable-result retries/fallback or delayed-data retry. Existing native
+  deadlines/pacing/cancellation and acquisition stop owner apply. Capture has
+  one180s monotonic acquisition envelope; each benchmark at most60s, remaining
+  time for initial facts and cleanup; no rollover/retry when budget is exhausted.
+  Additional implicit requests must be enumerated or refused before adoption.
+- Acquire canonical previous completed RTH reference BEFORE opening history and
+  quote; bind actual reference owner and its full original history evidence, with
+  no missing-reference synthetic default. Compute the history endpoint separately
+  immediately before each benchmark request; capture quote last, then original
+  UTC assessment immediately, before persistence or next benchmark. Revalidate
+  unchanged client/epoch/identity/calendar at every stage. No rewritten timestamp.
+- Retain exact transmitted SDK spec, qualified/dispatched identities, raw bars,
+  end callback/completion/dispatched clocks, normalizer choices/rejections, raw
+  quote authority and source quality, reference provenance, original assessment,
+  acquisition durations and detached source/input fingerprints. Missing/empty/
+  partial/stale/future/forming/foreign/malformed results are retained with explicit
+  refusal, not favorable retry. Unexpected source scope/callback changes abort.
+- Exact existing build_completed_context/measure_completed_atr/offline_atr_report
+  owners validate genuine applicable inputs. Write P02_ATR_OFFLINE_V1 canonical
+  original bytes and exact report when valid, MARKET_UNVERIFIED, otherwise raw
+  facts and specific refusal. Keep original strict16bar/open-aligned/live-quote/
+  reference/calendar/age rules, measurement formula and numerical ATR UNKNOWN.
+- Raw brokerage/provider and full offline source/report bytes stay PRIVATE under
+  the fresh root, outside the shareable evidence subtree/archive. Existing privacy
+  owners publish only explicit metadata, counts, status/reasons and SHA256/length
+  commitments. No automatic raw redistribution, account/path disclosure or raw
+  source/derived facts disguised as a summary. Capture success is not data-quality
+  acceptance; neither implies calibration, costs, profit, P03 trend or macro clear.
+- Reuse the actual supervisor process handshake, native client, SDK mutation audit,
+  owned source/connection/request cleanup and terminal receipt. No new controller,
+  scheduler, exporter, external order call, operational capital or recovery action.
+  All existing five ownership/trading vetoes remain. P02 stages and unsupported
+  P03 permissions remain closed. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+### Capture draft precision: budgets, privacy and terminal scope
+
+The following refinements supersede ambiguous shorthand above, pending the same
+independent review. One CAPTURE connection plus the existing independent
+post-runtime-exit audit connection are sequential, never concurrent; both use
+exact71, local PAPER/read-only, no fallback. Bootstrap nextValidId/managedAccounts
+and any explicit managed-account read are connection ownership facts. No account
+balance/position/currency subscription is added for this data-only profile.
+Each asset has one contract-details qualification, one primary25D daily TRADES
+useRTH1 request ending explicitly at that actual RTHopen (formatDate1 daily-date
+semantics), one1m request, and one live snapshot (including reqMarketDataType and
+owned market-data cancellation). Existing terminal audit adds exactly one
+reqAllOpenOrders after the capture network thread is confirmed dead; its10s query
+and owned disconnect are within the existing finalization allowance. No before/
+after _broker_snapshot loop or extra scanner/provider fetch runs. Cancellation of
+owned DATA requests is permitted; order cancellation/mutation remains forbidden.
+The ordinary supervisor audit's read-only connection request is NOT a capture
+retry, ownership restoration or flat-state assumption.
+
+Canonical reference consumes the original one-shot daily result and original
+qualified identity through the existing resolver. Its retained-source adapter
+must be a bounded actual-source consumption seam: same identity/contract, exact
+raw result, original ownership guard, no second qualification, no network on
+fallback selectors, no cached positive flags or synthetic fallback_attempted.
+Every rejected fallback attempt is recorded as no-dispatch. If this cannot be
+established faithfully, retain REFERENCE_UNVERIFIED rather than construct a
+passing reference. Actual transmitted specs remain distinct from consumer replay
+parameters; original failures and raw primary results are never overwritten.
+
+ALL child stdout/stderr, provider traces, exception details and complete private
+source/context/ATR bytes are routed outside root/e before the child starts. Safe
+terminal/process receipts contain whitelisted metadata only. Existing console
+redaction is necessary but does not authorize publishing OHLC/quotes. The existing
+archive/seal must exclude private data structurally, not merely hope a privacy
+regex recognizes it. Use a16MiB canonical input ceiling (existing offline schema)
+and64MiB whole private-capture ceiling. Over-limit inputs must stop further
+requests, retain bounded failure/count/hash/retention-incomplete evidence privately,
+explicitly refuse context/ATR qualification and never represent a truncated input
+as complete. No favorable retry or silent oldest/negative-evidence eviction.
+
+A genuine capture-only process cannot fabricate full Core cleanup hooks. Extend
+ONLY existing shutdown evidence ownership with an explicit profile bound by the
+supervisor's selected command AND operator expected profile, not self-declared
+payload alone. BENCHMARK_CAPTURE_V1 requires actual capture/request retirement,
+manager_disconnect and console_flush evidence; unknown/mismatched profiles refuse.
+Legacy REQUIRED_HOOKS and ordinary defaults stay unchanged. Existing exact process
+identity, OS exit, ordered shutdown, no-runtime inventory, post-exit broker query,
+mutation audits and independent finalization callbacks remain mandatory. No
+nonexistent Core/scanner/news/storage cleanup is recorded as having run.
+
+Final draft source/diagnostic precision: all CAPTURE, SUPERVISOR and independent
+AUDIT stdout/stderr/provider exceptions/callback traces are private, including
+preflight, failed preparation, package and seal paths. Redaction alone does not
+make provider quotes/orders safe to distribute. Shared terminal evidence must
+allowlist factual safety/process statuses and counts/hashes, not arbitrary broker
+error strings, retained order/quote objects or source payloads. Private logging
+must preserve existing authoritative OS-exit receipt paths and cleanup ownership.
+Bounded size failure must invalidate terminal success without hiding the failure.
+
+The completed-opening opt-in requires the original expected Native client object,
+client71, connection epoch and original qualified contract/identity. It never
+calls get_client/resolve_contract/reconnect on this bound route. Require a single
+complete unambiguous contract-details result before data requests; strict scope
+and calendar are rechecked immediately before and after dispatch. The daily
+reference uses existing MarketDataClient._history_request with explicit expected
+client/epoch, before/after strict ownership checks and NO implicit reconnect.
+The same live original historical-attempt/guard context covers reference
+consumption; original request-ID conflicts invalidate both daily and minute
+facts. Missing original source identity/spec/completion cannot be filled from
+caller expectations. Non-dispatched refusals have no fabricated transmitted spec.
+The existing snapshot owner adds a strict explicit single-attempt LIVE/fresh
+option through its existing manager; primary retry and delayed fallback are
+outside this profile. All ordinary call signatures/default behavior stay valid.

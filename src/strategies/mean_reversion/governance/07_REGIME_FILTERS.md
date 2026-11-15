@@ -174,3 +174,186 @@ Current outcome: exact source/calibration dependencies remain unresolved;
 P03 regime vetoes remain intact. Continue the independent ready programme batch.
 No provider/broker acquisition, observer, order, operational action or readiness
 upgrade. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## 2026-11-15 — Concrete bounded measurement/schedule proposal for review
+
+Status: **PROPOSED NEW PROJECT POLICY, NOT ADOPTED OR IMPLEMENTED.** This makes
+specific choices for review instead of claiming the earlier missing-input
+inventory was a complete contract. No P03 permission is opened by this text.
+No market outcome, profit label or desired fixture was used to choose it.
+
+### P03_REGIME_SOURCE_V1: finite opening-phase scope
+
+Initial applicability is actual RTH_OPEN under the existing finite reviewed
+market-session owner, after fifteen completed current-session minutes and
+strictly before its opening_end/current_close. PRE, MID, LATE, an unknown
+calendar, holiday, override or identity/source conflict remains UNKNOWN.
+This intentionally does not extend the current opening-only calendar owner or
+P03's native/management authority. Ordinary P03 min/max-time, spread, risk,
+news and ownership gates remain independently necessary.
+
+**Measurement definition, not calibrated predictive strength.** For each
+separately qualified SPY and QQQ, use the most recent three fully completed
+five-minute blocks aligned to the covered 09:30 New York RTH open. Derive those
+blocks solely from their same-security completed one-minute OHLCV stream.
+Let their OHLC values in increasing time order be O[i],H[i],L[i],C[i], i=0..2.
+The proposed operational directional-structure veto is:
+
+- UP: C[i] > O[i] for all three blocks, and H[0] < H[1] < H[2],
+  L[0] < L[1] < L[2], C[0] < C[1] < C[2].
+- DOWN: C[i] < O[i] for all three blocks, and H[0] > H[1] > H[2],
+  L[0] > L[1] > L[2], C[0] > C[1] > C[2].
+- Neither: both direction flags False, only if every required input is valid
+  and the complete formula has been evaluated. Equality breaks the relevant
+  strict structure condition; no epsilon, percentage-strength threshold or
+  minimum net-return calibration is introduced. A flat valid window can be
+  neither. This is not a claim that no other form of market trend exists.
+
+Rationale: three complete aligned blocks distinguish a sustained sequence of
+bodies and progressing entire ranges from a single-bar impulse. Requiring
+both high/low and close progression avoids making candle color alone the
+stand-down definition. Fifteen minutes is the explicit structure horizon,
+not a backtested optimum. Strict inequalities are deterministic geometry,
+not a probability estimate. Tiny but valid progression can conservatively
+veto; this proposal makes no claim of calibrated signal quality. A different
+broader meaning of strong trend would require a separately reviewed policy.
+
+UP and DOWN cannot both be true for a single coherent window; supplied or
+derived contradictory flags are invalid evidence, not an arbitration choice.
+Valid SPY-UP with valid QQQ-DOWN is not a source conflict: either individual
+strong direction vetoes P03 as before. No direction or absence is inferred
+from the other ETF, the selected-stock universe or an aggregate regime label.
+
+**Completion/freshness.** Let E be the most recent aligned five-minute end at
+or before the current assessment. The three blocks exactly cover [E-15m,E).
+Require that interval to lie inside the current covered RTH session. Source
+one-minute bars cover that interval and every completed minute through the
+latest completed minute, ordered with no gaps/duplicates; no forming bar,
+prior-session carry or reconstructed bar is permitted. Each block needs all
+five members with finite positive coherent OHLC and finite nonnegative
+volume. A zero-volume member is retained, never fabricated or dropped.
+The latest one-minute end has age in [0,60s); E has age in [0,300s). Equality
+at either stale boundary requires a newer completed window. The one-minute
+rule is the natural completion cadence, not a widened quote tolerance.
+Original request dispatch <= completion <= current assessment; every used
+bar end <= authoritative completion. Preserve all raw/normalized membership,
+rejections, request spec, IDs and actual historical ownership guards. Require
+an independently qualified same-security LIVE quote under the existing
+quote-time/market-data/quality owners and unchanged quote max-age/history
+rules; a history close is not a current quote. No missing ownership metadata
+may be inferred from historical completion counters.
+
+### Scheduled-event classes, publishers and operational windows
+
+The following exact publisher endpoints/classes are proposed for explicit
+source approval. They are reference candidates, not an already acquired or
+reviewed finite event dataset:
+
+| Publisher/source | Covered class identifiers | Proposed closed window around explicit scheduled start |
+| --- | --- | --- |
+| Federal Reserve, https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm | FED_FOMC_RATE_STATEMENT; FED_FOMC_CHAIR_PRESS_CONFERENCE | [start-30m,start+90m] for each event |
+| BLS, https://www.bls.gov/schedule/ | BLS_EMPLOYMENT_SITUATION; BLS_CONSUMER_PRICE_INDEX | [start-15m,start+30m] |
+| BEA, https://www.bea.gov/news/schedule | BEA_GDP_ADVANCE; BEA_GDP_SECOND; BEA_GDP_THIRD; BEA_PERSONAL_INCOME_AND_OUTLAYS | [start-15m,start+30m] |
+
+These are NEW operational stand-down choices, not publisher recommendations,
+Ross doctrine or calibrated impact estimates. The statistical-release embargo
+includes the immediate pre-release interval and the next half hour; the wider
+FOMC interval covers overlapping statement/press-conference scheduling and
+longer communication. Overlapping windows are unioned; each event retains its
+own identity. All listed GDP estimates are covered so an estimate revision is
+not silently treated as an unrelated harmless update. Minutes, speeches,
+auctions, PPI and other releases are explicitly outside this finite class
+universe; its False result cannot assert those risks absent. An unforeseen
+or unscheduled event is not certified absent by scheduled-calendar clearance.
+Existing news, safety and risk vetoes remain separate and cannot be overridden.
+
+**No default release clocks.** Each event must retain its actual publisher
+class/name, scheduled local date/time, explicit source timezone, canonical
+UTC instant and original source literal. A date-only FOMC calendar entry
+cannot be assigned a conventional 14:00/14:30 time by inference. If a linked
+publisher release page is necessary to establish the clock, its exact URL
+and bytes must be included and independently approved with the parent receipt.
+Only explicit Eastern/New York scheduling may use America/New_York; preserve
+DST conversion and refuse naive, ambiguous, nonexistent or conflicting times.
+Do not invent midnight events or refresh original publication/revision time.
+
+**Finite observable coverage.** An approved immutable receipt covers the
+entire target New York calendar date for EVERY listed class, with explicit
+per-class rows including reviewed no-event declarations. It contains exact
+original publisher bytes/content hashes, retrieval/completion times, original
+publication/revision times if supplied, final official URLs, event identities,
+canonical clocks, class intervals, source version, reviewer/adoption reference
+and a declared valid-through. A local hash is content identity, not a publisher
+revision number or completeness proof. Where the publisher supplies no
+revision timestamp/version, record that absence; approval must identify the
+exact reviewed bytes and the last successful source verification, never mint
+a publisher version. Cancellations/reschedules require explicit new evidence;
+conflicting or incomplete revisions make the affected coverage UNKNOWN.
+
+The proposed receipt source verification age is [0,15m), with valid-through
+no later than verification+15m or target-date end, whichever comes first.
+This is a bounded operational refresh choice, not a guarantee the publisher
+cannot change within fifteen minutes. No refresh is implemented here. A new
+read can renew verification of the same bytes but cannot renew an event's
+publication or scheduled time; failed reads and cache reuse cannot renew it.
+An immutable static receipt naturally expires; no local flag extends it.
+Historical and synthetic receipts may be replayed only with explicitly
+labelled retrospective assessments, never as contemporaneous clearance.
+
+True requires a valid covered event with assessment in its class's closed
+window, including both endpoints. False requires every adopted class's
+reviewed coverage over all event starts that could intersect assessment:
+[start_of_relevant_interval = assessment-post_window,
+ end_of_relevant_interval = assessment+pre_window], inclusive. The initial
+opening-phase scope places these intervals within the covered target date;
+any cross-date interval outside the receipt is UNKNOWN. Empty HTTP/ICS/JSON,
+missing class, unavailable source, a caller coverage=True, a changed/unapproved
+source or a stale receipt is UNKNOWN. This is only **observed scheduled-event
+coverage as of the approved verification**, not a guarantee against an unseen
+late schedule revision, unscheduled event or unforeseen macroeconomic risk.
+
+### Immutable active handoff, revision fencing and evidence still missing
+
+Reuse existing CandidateIdentity, HistoricalDataResult/RequestSpec, history
+ownership guard, MarketSnapshot/quote-time and covered-session owners. The
+future P03 owner may project these completed supplied inputs; it must not
+construct another acquisition manager or borrow P02 trading calibration.
+One detached immutable evidence bundle must retain separate SPY and QQQ raw
+source facts/membership and derived geometry, schedule source bytes/coverage,
+original times and validity ends, qualified identities, cycle/session,
+connection/source-owner versions, policy/config/schema versions and canonical
+source/derived SHA256 fingerprints. The bundle is not four caller-supplied
+booleans plus a claimed coverage flag.
+
+Before assessment, actual Core supplies that bundle through StrategyRunner ->
+MeanReversionRunner -> P03 consumer. At every boundary use current assessment
+time and the same original source bundle, checking expiry, actual phase,
+identity, live request/connection guard, source/policy/config version and both
+fingerprints. The mutation/version owner must expose corrections, replacement
+quotes/history, disconnect/reconnect, calendar change, schedule revision or
+persistence failure; any such change invalidates prior positive observations.
+No recalculated hash over silently changed facts, new receipt clock or legacy
+adaptive label may repair a failed revalidation. The concrete existing seams
+are `CoreOrchestrator._run_manager_pipeline` before its strategy call,
+`StrategyRunner.process`'s existing per-runner context,
+`MeanReversionRunner.run`, `MeanReversionStrategy.process_watchlist` and the
+existing `build_market_regime_facts` consumer (currently given None). Any new
+optional handoff argument must be P03-specific and default absent; other
+strategies and their ordinary defaults must not inherit these facts or rules.
+This prerequisite must be implemented through existing owners deliberately;
+it is not supplied by this policy draft. Current native structural/risk/short/
+management vetoes remain.
+
+Reference research on 2026-11-15 attempted the three HTTPS publisher pages;
+each was refused by the environment proxy with HTTP tunnel403 before page
+retrieval. No publisher bytes, current release times, calendar dataset or
+completeness certificate was acquired or approved. Therefore the source
+endpoints/classes/windows and structural formula above are concrete review
+proposals ONLY. Independent contract review must precede any adoption and
+implementation. Missing inputs remain: approved finite original official
+schedule receipts with per-class coverage and revision/freshness authority;
+qualified contemporaneous SPY/QQQ complete history/quotes; and existing-owner
+version fences at the actual active handoff. A bounded READ_ONLY capture can
+preserve benchmark source facts, but cannot fabricate schedule coverage or
+make this measurement a calibrated/profitable strategy. No alwaysUNKNOWN
+carrier is counted as closing the source-producing dependency.

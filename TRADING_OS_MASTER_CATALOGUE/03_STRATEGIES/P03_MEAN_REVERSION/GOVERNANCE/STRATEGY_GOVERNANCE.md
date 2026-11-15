@@ -92,3 +92,22 @@ is implemented. Preserve all required unknown-state vetoes and proceed with
 independent ready work. This records a concrete dependency, not completion,
 positive Core admission, natural validation or operational readiness.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## 2026-11-15 — Concrete regime proposal submitted for independent review
+
+The same source-local `governance/07_REGIME_FILTERS.md` now proposes explicit
+P03_REGIME_SOURCE_V1 choices: separate completed three-by-five-minute SPY/QQQ
+strict OHLC progression, current covered opening scope, original completion/
+quote freshness, and a finite official Fed/BLS/BEA scheduled-class receipt with
+explicit embargo, timezone, revision, coverage and revalidation rules. This is
+NEW PROJECT POLICY PROPOSED, not adopted policy, calibrated strength, verified
+publisher contents or implemented admission. It is independent of desired
+synthetic pass/fail outcomes. Public reference-page retrieval was blocked by
+proxy tunnel403; no official bytes/current schedule were acquired.
+
+Independent complete-contract review remains required before adoption/code.
+A reviewed source contract must still receive genuine immutable source facts;
+benchmark capture does not supply macro-calendar completeness. Missing actual
+schedule receipts and current qualified benchmark source facts/owner versions
+stay explicit, and existing P03 native/risk/management permissions stay closed.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
