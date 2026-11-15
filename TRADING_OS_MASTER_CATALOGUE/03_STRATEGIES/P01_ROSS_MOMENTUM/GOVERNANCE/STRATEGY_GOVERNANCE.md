@@ -1554,3 +1554,123 @@ PR/review loop or manual green-suite rerun. Frozen observation distribution
 parked work are unchanged. No observer, broker/provider, operational capital,
 holdings/recovery action or readiness upgrade.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## P03 source dependency and P02 actual-callback settlement — 2026-11-15
+
+Starting accepted main0c50c29a587f789c220cc8a1faa3f54fff13e4e6/tree
+cb63fe082209b2e754b45ee5607477eeb559fa33 and acceptance2bdf19b292250f08f41f8cf791b5f32a9c606c82
+were verified. Missing acceptance additions were carried once, preserving all
+previous bytes. PR1233 attribution/veto/diagnostic work was reused, not repeated.
+
+P03 Batch A remains BLOCKED, not implemented or adopted. Independently reviewed
+source investigation5a6750624cc2e3a05e90928fdd83194c0a9b3c79 (integrated3a285ab9)
+is recorded in the EXISTING P03 governance owners. The aggregate watchlist regime
+and news-density placeholder do not supply qualified individual SPY/QQQ trend
+or macro-window clearance; their optional active observation occurs after strategy
+assessment. The legacy orchestration tail remains unreachable and untouched.
+No approved scheduled-event coverage dataset/source adapter or P03 strong-trend
+formula/calibration contract exists here. Required inputs are separately qualified
+SPY/QQQ original historical/quote evidence, justified completed timeframe/lookback,
+direction/conflict/freshness parameters, and an approved finite publisher/event-
+class/revision/interval coverage manifest with adopted windows. Fed/BLS/BEA URLs
+in the draft are candidates, not fetched/approved coverage. Empty responses cannot
+mean clear; scheduled coverage cannot rule out unforeseen risk. No all-UNKNOWN
+carrier, invented numeric policy, source acquisition or adaptive-layer enrollment
+was used to claim this dependency complete. Existing P03 missing-fact vetoes stay.
+
+P02 Batch B NEW project policy was adopted BEFORE implementation under delegated
+standing authority, after independent contract review. Original draftbf44ad9b,
+precision revision5b5bf6914286a0b543f0440c15081fc97c10f74f and adoption
+479113bec88186dc31d7d06873a967dd2ada575e are integrated as ea504d41/d8b8b4dc/
+abb37760. The existing P02 governance contains the complete bounded contract:
+one fresh, same-process, original-account/client/epoch standalone long ENTRY,
+original selected protective STOP and terminal flat roundtrip, COMPLETE durable
+fee coverage for every selected execution, strict actual-owner query completion
+and local cleanup, pristine privately bound lifecycle/registry ownership. This is
+observable local-state settlement AS OF coherent original-owner/journal reads,
+not broker-history completeness or protection against unseen late fills.
+
+The existing Native owner now preserves immutable semantic payload/publication
+for each exact callback occurrence and source-issued query completion only after
+actual cleanup. The actual execution collector verifies retained requests,
+original prospective decision binding, canonical TLE/SQLite financial effects,
+original protection, independent truth, complete fees and ALL retained cache rows.
+Only that flow issues/consumes an opaque single-use settlement receipt. PostFill
+and registry use the same mutation gate/revisions, private supported input copies
+and detached nested outward references; default-off behavior remains unchanged.
+No caller flag, cache clearing, order replay or parallel financial ledger supplies
+clearance. Runtime native ownership requires its durable witness even when an
+entire native-state row disappears. Duplicate callbacks do not renew original
+execution/query time or duplicate financial effects. Corrections/unsupported
+scope, unknown fees, dirty source occurrences and stale receipts fail closed.
+
+A concrete pre-existing SQLite CAS-read cursor gap was reproduced through actual
+Engine load/save/save/observe: LOCAL_SQLITE_FENCE_UNAVAILABLE. The known owned
+SELECT used raw execute().fetchone(), leaving its VM active under existing strong
+tracking. A one-line use of the EXISTING _owned_fetchone helper closes that owned
+cursor. No transaction/CAS/fence/timeout policy or unknown-VM cleanup changed.
+An earlier cold-quarantine probe failed before that cause and is not the causal
+proof. Historical capital Windows timeout and PR1233 controller latency remain
+unlocalized; this is not a repair claim for either.
+
+The composed positive is controlled synthetic retained ROSS native requests,
+public Native callback entrypoints, actual collector, TLE/SQLite accounting,
+PostFill/registry, strict currency/position encoders and complete fee owners.
+The factual Core handoff method is exercised on a __new__ component; this is NOT
+a complete Core boot/scheduling, full-registry, positive P02 SDK-send, natural or
+broker proof. SDK place/modify/cancel calls are zero; query transport is memory-
+bound. Measured entry10.30/structural stop10.2897 remain distinct from actual
+entryfill10.53/stopfill10.28. One share produces GROSS -0.25 with original fees
+0.01+0.02. P02 observes EMPTY_LOCAL because no P02 entry was manufactured, not
+because the Ross request changed strategy. The two-share callback-only control
+proves actual stop partial accounting/protection and local veto while one remains,
+then terminal GROSS -0.50 and complete fee/query evidence permit LOCAL_CHECK.
+It is not producer sizing, risk admission or operational-capital proof; default
+one-share fixtures and scope=None memory capital remain unchanged. Partial entry
+never enrolls, even if its filled portion becomes flat. Repeated cycles do not
+duplicate accounting, protection, capital release or dispatch.
+
+Initial frozen source d01b48408f4018ea0d99340ca7a5e8fb8e20e0b3, integrated b3f41dc1,
+passed one focused/affected run384 tests/313 known warnings/24.09s:80 newly defined
+cases (17 Native,30 owner,33 composed) plus304 existing. Counts overlap earlier
+focused runs and are not additive; this is not required full CI. Compile and diff
+checks passed. Development failures were preserved, including fixture import/
+carrier/descriptor errors, unsupported dataclass-copy coverage, missing import,
+strict cold scope/foreign-key controls and actual new-reader defects: duplicate
+execution invalidation, wrong stop orderRef, deleted durable witness and rebound
+original decision. Each was repaired with causal controls; foreign keys, source
+times and quarantine were preserved. Independent exact-source review then found
+four further causal FAILURES: a FIRST/sole acknowledgement with IOC TIF, altered
+outsideRth, limit price, or Rejected status could settle. Repeated-ACK comparison
+had not bound the first acknowledgement's complete original terms. These failures
+are not converted into passes by the earlier384 checks. Correction45adf06aa42c34eab9c388cf0e2588dc745cd517
+(integrated a7ca2873) binds the existing native MKT-entry DAY/original-STP GTC,
+outsideRth/transmit, unused SDK-price sentinels and recognized status semantics.
+Non-MKT entry remains outside this first scope without a retained limit contract.
+Historical recognized transient PendingCancel does not invent a new blanket veto;
+actual terminal accounting/flat/fees and no current liability are still required.
+Six added first-ACK controls plus the valid baseline passed7/32deselected/7warnings/
+1.58s; cancelled protective ACK preserves the existing earlier quarantine veto.
+A WIP misplaced import caused1FAIL/6PASS/1.38s before the corrected7PASS; that
+broken-prefix negative result is not sufficient proof. The original384 green
+checks were reused for unchanged source rather than blindly rerun. Final default
+collection contains8287 tests, including all86 newly defined cases; counts overlap.
+Compile/diff checks pass. Independent final-head review and REQUIRED CI evidence
+are appended only after their actual completion; no partial local result grants
+integration permission.
+
+Scope remains LOCAL_CHECK only. Proposal/risk/reservation/final-write enrollment,
+ATR numerical bounds, native-entry/management and broker-history completeness
+remain CLOSED/UNKNOWN. Cold restart ownership, multiple roots, relationship/add/
+amendment/discretionary paths and uncertain/open/partial liabilities do not gain
+clearance. Original execution-day attribution and fee uncertainty stay intact.
+
+ONE next bounded action after verified integration: obtain the explicit P03
+source/measurement/coverage inputs above before implementing its immutable active
+handoff. P02's next supported settlement expansion requires a separately reviewed
+contract; LOCAL_CHECK is never final-write permission. No new engine/tracker,
+legacy-tail activation or completed investigation repeat. Frozen observation
+3f48bf3f/sourcec65/calendar, all five ownership vetoes, existing databases/evidence,
+parked work and operational quarantine are unchanged. No observer, provider/broker
+acquisition, broker mutation, operational enrollment or recovery clearing.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
