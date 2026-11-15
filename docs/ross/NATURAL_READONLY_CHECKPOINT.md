@@ -20476,3 +20476,11 @@ PR loop. Frozen observation3f48bf3f/sourcec65/calendar, all five ownership vetoe
 existing evidence/databases and parked work remain unchanged. No observer,
 provider/broker acquisition, operational capital or recovery action.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+### 2026-11-15 — Separate READ_ONLY data-capture preparation is next
+
+See SAME governance section "Next prerequisite: separate source-bound READ_ONLY data-capture preparation". PR1234 review, complete PR/main CI jobs, tested parents/tree and accepteda38b057d/treeac52b564 independently verified; failure/proof limits preserved.
+
+Under standing authority prepare a default-off profile through existing qualified-history/quote/reference/context/evidence owners for later user-run IBKR PAPER/read-only capture: SPY/QQQ benchmarks first, any P02 cohort explicitly finite/approved. Repair bounded completed-minute/open-aligned request support at actual owner, defaults unchanged; retain raw wire/end clocks and prompt original assessment, never massage data to qualify. Existing pacing, exactclient, SDK/read-only, fresh-root and owned cleanup apply. Review exact runtime/window and publish a verified immutable capture-only caller after source review/CI. No acquisition now. Raw data private, safe metadata/hash receipts only. Single-day benchmarks are not calibration, numeric bounds, trend/macro clearance, costs or profitability.
+
+Frozen Ross observation3f48bf3f/sourcec65/calendar remains unchanged/separate, never concurrent. Independently propose official publisher/class/revision/interval/window macro coverage; no generic-label or empty-response false clearance. No new exporter/controller engine or repeated completed investigation. Actual P02 admission stages and other unresolved policies remain closed; all five vetoes and PAPER_READY=NO; PAPER_READINESS_GATE=FAIL remain.
