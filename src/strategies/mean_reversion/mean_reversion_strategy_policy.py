@@ -31,6 +31,21 @@ import math
 import time
 
 
+def _finite_number(value) -> bool:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        return False
+
+
+def quote_spread_consistent(bid: float, ask: float, spread: float) -> bool:
+    # Binary representation error only, not a trading/calibration tolerance.
+    return math.isclose(spread, ask - bid, rel_tol=0.0,
+                        abs_tol=math.ulp(bid) + math.ulp(ask))
+
+
 # =============================================================================
 # 1) Core Types (minimal contracts; adapt to your project's canonical types)
 # =============================================================================
@@ -139,13 +154,21 @@ class ScannerFacts:
     rejection_wick_down_flag: bool = False
 
     # News / catalyst presence (facts)
-    has_fresh_news: bool = False
-    halt_flag: bool = False
-    ssr_flag: bool = False
+    has_fresh_news: Optional[bool] = None
+    halt_flag: Optional[bool] = None
+    ssr_flag: Optional[bool] = None
 
     # Market session facts
-    is_rth: bool = True
+    is_rth: bool = False
     minutes_since_open: Optional[int] = None
+
+    # Canonical required quote/data facts. SSR remains optional selection
+    # metadata; neither False nor True supplies short execution permission.
+    bid: Optional[float] = None
+    ask: Optional[float] = None
+    data_quality_ok: Optional[bool] = None
+    quote_time_valid: Optional[bool] = None
+    source_fact_errors: Tuple[str, ...] = ()
 
     # Optional slope proxies (scanner can compute a simple recent VWAP slope)
     vwap_slope: Optional[float] = None  # $ per minute (signed)
@@ -158,16 +181,16 @@ class MarketRegimeFacts:
     Policy consumes them and decides 'permission'.
     """
     # Broad index trend proxies (facts)
-    spy_trending_up: bool = False
-    spy_trending_down: bool = False
-    qqq_trending_up: bool = False
-    qqq_trending_down: bool = False
+    spy_trending_up: Optional[bool] = None
+    spy_trending_down: Optional[bool] = None
+    qqq_trending_up: Optional[bool] = None
+    qqq_trending_down: Optional[bool] = None
 
     # Volatility regime (facts)
-    high_volatility_day: bool = False
+    high_volatility_day: Optional[bool] = None
 
     # News / event regime (facts)
-    major_macro_event_window: bool = False
+    major_macro_event_window: Optional[bool] = None
 
 
 # =============================================================================
@@ -320,8 +343,24 @@ class MeanReversionStrategyPolicy:
         8) Risk asymmetry
         """
         # 0) Basic sanity
-        if not facts.symbol or facts.last <= 0:
+        if not facts.symbol or not _finite_number(facts.last) or facts.last <= 0:
             return self._deny(facts, "INVALID_PRICE_OR_SYMBOL")
+
+        if facts.source_fact_errors:
+            return self._deny(facts, "INVALID_SOURCE_FACTS", tags={"facts": ",".join(facts.source_fact_errors)})
+        if facts.data_quality_ok is not True:
+            return self._deny(facts, "DATA_QUALITY_UNKNOWN_OR_INVALID")
+        if facts.quote_time_valid is not True:
+            return self._deny(facts, "QUOTE_TIME_UNKNOWN_OR_INVALID")
+        for value in (facts.vwap, facts.ema9, facts.ema20, facts.atr, facts.hod, facts.lod, facts.vwap_slope):
+            if value is not None and not _finite_number(value):
+                return self._deny(facts, "INVALID_SOURCE_FACTS")
+
+        for value in (facts.volume_deceleration_flag, facts.failed_breakout_up_flag,
+                      facts.failed_breakout_down_flag, facts.rejection_wick_up_flag,
+                      facts.rejection_wick_down_flag, facts.ssr_flag):
+            if value is not None and type(value) is not bool:
+                return self._deny(facts, "INVALID_SOURCE_FACTS")
 
         # 7) Regime permission (early veto)
         ok, reason = self._regime_permission(facts, regime)
@@ -392,7 +431,7 @@ class MeanReversionStrategyPolicy:
 
         # 5) Hard stop (structural invalidation)
         stop_price = self._compute_stop(facts, side, atr, setup)
-        if stop_price <= 0:
+        if not math.isfinite(stop_price) or stop_price <= 0:
             return self._deny(facts, "INVALID_STOP_PRICE")
 
         # Stop sanity: stop distance must be bounded
@@ -408,7 +447,7 @@ class MeanReversionStrategyPolicy:
 
         # 6) Predefined target (the mean, with cushion)
         target_price = self._compute_target(mean_price, side, atr)
-        if target_price <= 0:
+        if not math.isfinite(target_price) or target_price <= 0:
             return self._deny(facts, "INVALID_TARGET_PRICE")
 
         # 8) Risk asymmetry (R:R)
@@ -469,6 +508,10 @@ class MeanReversionStrategyPolicy:
     # =============================================================================
 
     def _regime_permission(self, facts: ScannerFacts, regime: MarketRegimeFacts) -> Tuple[bool, str]:
+        # Session and time are required by canonical P03 conditions. Missing
+        # timing must not bypass the existing min/max window.
+        if facts.is_rth is not True or type(facts.minutes_since_open) is not int:
+            return False, "SESSION_OR_TIME_UNKNOWN_OR_DISALLOWED"
         # Session window
         if facts.minutes_since_open is not None:
             if facts.minutes_since_open < self.cfg.min_minutes_since_open:
@@ -477,11 +520,23 @@ class MeanReversionStrategyPolicy:
                 return False, "TOO_LATE_IN_SESSION"
 
         # News / halts
+        if self.cfg.forbid_on_halt and type(facts.halt_flag) is not bool:
+            return False, "HALT_STATE_UNKNOWN"
+        if self.cfg.forbid_on_fresh_news and type(facts.has_fresh_news) is not bool:
+            return False, "NEWS_STATE_UNKNOWN"
         if self.cfg.forbid_on_halt and facts.halt_flag:
             return False, "HALT_FLAG"
         if self.cfg.forbid_on_fresh_news and facts.has_fresh_news:
             return False, "FRESH_NEWS_REGIME_VETO"
 
+        # Missing aggregate regime input is not evidence of calm indices or
+        # an absent macro window. Optional high_volatility_day stays metadata.
+        if (self.cfg.forbid_on_macro_event_window and type(regime.major_macro_event_window) is not bool):
+            return False, "MACRO_EVENT_STATE_UNKNOWN"
+        if self.cfg.forbid_on_index_trend and any(type(value) is not bool for value in (
+                regime.spy_trending_up, regime.spy_trending_down,
+                regime.qqq_trending_up, regime.qqq_trending_down)):
+            return False, "INDEX_TREND_STATE_UNKNOWN"
         # Macro window
         if self.cfg.forbid_on_macro_event_window and regime.major_macro_event_window:
             return False, "MACRO_EVENT_WINDOW_VETO"
@@ -504,11 +559,13 @@ class MeanReversionStrategyPolicy:
     # =============================================================================
 
     def _liquidity_gate(self, facts: ScannerFacts) -> Tuple[bool, str]:
-        if facts.spread is None or facts.spread <= 0:
-            # If spread unknown, allow but annotate; you can hard-gate if preferred
-            return True, "OK_SPREAD_UNKNOWN"
+        for value in (facts.bid, facts.ask, facts.spread):
+            if not _finite_number(value) or value <= 0:
+                return False, "QUOTE_OR_SPREAD_UNKNOWN_OR_INVALID"
+        if facts.ask <= facts.bid or not quote_spread_consistent(facts.bid, facts.ask, facts.spread):
+            return False, "QUOTE_OR_SPREAD_UNKNOWN_OR_INVALID"
 
-        spread_pct = facts.spread / facts.last if facts.last > 0 else math.inf
+        spread_pct = (facts.ask - facts.bid) / facts.last if facts.last > 0 else math.inf
         if spread_pct > self.cfg.max_spread_pct:
             return False, "SPREAD_TOO_WIDE"
         return True, "OK"

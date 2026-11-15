@@ -98,7 +98,7 @@ def test_policy_decision_maps_to_model_intent() -> None:
     assert mapped.data_quality_flags == ["FLAG"]
 
 
-def test_mean_reversion_emits_intent_in_read_only() -> None:
+def test_mean_reversion_read_only_does_not_emit_with_unknown_required_facts() -> None:
     strategy = MeanReversionStrategy()
     candidate = SimpleNamespace(
         symbol="REV",
@@ -123,4 +123,6 @@ def test_mean_reversion_emits_intent_in_read_only() -> None:
         mode=RunMode.READ_ONLY,
         session_phase="MORNING",
     )
-    assert len(intents) == 1
+    # The former fixture had no bid/ask, quote time, data-quality or regime
+    # observations. READ_ONLY does not convert these unknowns into permission.
+    assert intents == []

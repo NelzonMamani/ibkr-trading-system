@@ -122,7 +122,7 @@ def test_mean_reversion_handles_empty_watchlist() -> None:
     assert intents == []
 
 
-def test_mean_reversion_fallback_is_long_only_in_sim_and_paper() -> None:
+def test_mean_reversion_all_vetoes_stay_empty_in_sim_and_paper() -> None:
     strategy = MeanReversionStrategy()
     watchlist = [_candidate("AAPL")]
 
@@ -135,4 +135,4 @@ def test_mean_reversion_fallback_is_long_only_in_sim_and_paper() -> None:
             mode=mode,
             session_phase="MORNING",
         )
-        assert all(intent.direction == "LONG" for intent in intents)
+        assert intents == []
