@@ -22,3 +22,54 @@
 ## 4) Change control (M8)
 All changes must be parameter edits in strategy_policy + verification + certification note.
 
+
+## 2026-11-15 — Bounded veto/source-fact reconciliation
+
+This repairs the active legacy P03 policy/adapter/runner against the existing
+immutable eight-clause contract and canonical ALGORITHM §4/§5. A veto produces
+no proposal in every mode; SIM/PAPER do not supply a fallback trade.
+
+Canonical required bid/ask, spread, data-quality, session/time and halt-state
+conditions override the older local ScannerFacts prose describing spread/time
+as optional. The active policy retains its existing configurable spread and
+minute limits; this change does not adopt V2's different numerical calibration.
+Both sides of the same quote must be finite, positive and non-crossed; its
+spread is measured from ask minus bid and that measured spread controls the
+existing cap. A supplied redundant spread may differ only by the sum of the
+bid/ask machine ULPs (binary representation error, no trading tolerance).
+A provided bad or incomplete snapshot cannot borrow another quote's fields.
+
+The following explicit source-admission choices are NEW bounded project
+reconciliation, not claims of historical strategy doctrine:
+
+- Unknown/malformed configured halt/news veto facts and required index/macro
+  permission facts remain unknown and refuse proposals. An aggregate regime
+  label alone proves neither four individual index directions nor absence of
+  a macro event. No current runner producer supplies those observations; its
+  missing regime is a remaining blocker, not an all-False calm regime.
+- The existing shared quote-time owner checks original LAST_TRADE timestamps,
+  historical rejection flags and its unchanged configured maximum age, at the
+  supplied aware assessment time. Missing, stale, future and unknown-time facts
+  refuse. Acquisition time cannot replace market time; a current snapshot
+  cannot erase retained selection quote rejections. Explicit candidate
+  data_quality_ok=True and absence of candidate/snapshot quality errors are
+  necessary, and cannot override missing quote-time evidence.
+- Actual existing session resolution owns RTH_OPEN/MID/LATE and minutes since
+  its 09:30 New York open. Coarse RTH/REG/REGULAR aliases constrain actual RTH;
+  explicit phases must match. Missing/unknown/conflicting labels, naive or
+  malformed assessment time, holidays/weekends/closed time and configured or
+  environment overrides cannot grant eligibility. No new calendar is added.
+- SSR remains optional selection metadata per V2 data_requirements and the
+  scanner's allow_ssr=True. Missing SSR stays None, supplied booleans are
+  retained, and malformed values refuse rather than becoming False. Neither
+  known SSR status nor a policy SHORT proposal grants locate/borrow, short
+  execution or Core admission. No new SSR execution rule is adopted.
+- Optional absent exhaustion markers provide no supporting evidence. A string
+  or integer cannot serve as a positive flag. Nonfinite/unrepresentable
+  numerical inputs refuse rather than bypassing comparisons.
+
+This is not complete P03 canon/certification, a positive Core execution proof,
+short enablement or a production regime producer. Existing structural/risk,
+ownership, lifecycle, default activation and management requirements remain.
+No Ross/P02 management contract is imported. PAPER_READY=NO;
+PAPER_READINESS_GATE=FAIL.

@@ -48,3 +48,13 @@ Policy outputs:
 - reason: machine-readable reason code
 - intent: (if allowed) includes entry_type, entry_price, stop_price, target_price
 - diagnostics: numerical fields for audit/debug
+
+## 2026-11-15 active-source correction
+
+The canonical P03 ALGORITHM required quote/spread/session/time conditions take
+precedence over this document's older "optional but valuable" spread and
+minutes wording for new proposals. See the existing P03 catalogue governance
+section "Bounded veto/source-fact reconciliation" for exact applicability,
+unknown-state behavior, unchanged numerical limits, quote-time provenance,
+optional SSR treatment and remaining regime/Core blockers. Unknown required
+facts are not negative observations; none of the examples certify admission.
