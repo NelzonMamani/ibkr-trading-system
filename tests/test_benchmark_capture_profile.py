@@ -563,3 +563,125 @@ def test_actual_profile_finalization_persists_audit_scope_privately_only(native_
     private_audit=json.loads((private.parent/'capture'/'final-audit-private.json').read_text())
     assert private_audit['private_account_scope']['observed_accounts']==['DU000000001']
     assert private_audit['query_completed'] and private_audit['disconnected']
+
+
+@pytest.mark.parametrize('value',['ordinary','£ and 東京'])
+def test_existing_cache_optional_bound_writes_exact_checked_bytes_at_boundary(tmp_path,value):
+    from src.market_data.reference_resolver import PersistentReferenceCache
+    record={'reference_price':100.0,'label':value}
+    raw=json.dumps({'conid:123':record},indent=2,sort_keys=True).encode('utf-8')
+    path=tmp_path/'cache.json'
+    cache=PersistentReferenceCache(path,max_bytes=len(raw))
+    cache.put(('conid:123',),record)
+    assert path.read_bytes()==raw and path.stat().st_size==len(raw)
+    assert b'\r\n' not in raw and cache.get('conid:123',trading_date=None)==record
+    assert not list(tmp_path.glob('cache.json.*.tmp'))
+
+
+def test_existing_cache_one_byte_overflow_opens_no_temp_and_publishes_no_memory(tmp_path,monkeypatch):
+    from src.market_data import reference_resolver as owner
+    record={'reference_price':100.0,'label':'£'}
+    raw=json.dumps({'conid:123':record},indent=2,sort_keys=True).encode('utf-8')
+    path=tmp_path/'not-created'/'cache.json'
+    cache=owner.PersistentReferenceCache(path,max_bytes=len(raw)-1)
+    monkeypatch.setattr(owner.tempfile,'NamedTemporaryFile',lambda **kw:pytest.fail('over-limit temporary opened'))
+    with pytest.raises(owner.ReferenceCacheSizeLimitError):cache.put(('conid:123',),record)
+    assert not path.parent.exists() and cache.get('conid:123',trading_date=None) is None
+    assert cache._store=={}
+
+
+def test_existing_bounded_cache_failure_preserves_prior_file_and_memory(tmp_path,monkeypatch):
+    from src.market_data import reference_resolver as owner
+    path=tmp_path/'cache.json';cache=owner.PersistentReferenceCache(path,max_bytes=256)
+    cache.put(('conid:123',),{'reference_price':100.0})
+    original=path.read_bytes();stored=deepcopy(cache._store)
+    with pytest.raises(owner.ReferenceCacheSizeLimitError):
+        cache.put(('conid:999',),{'label':'£'*200})
+    assert path.read_bytes()==original and cache._store==stored
+    assert cache.get('conid:999',trading_date=None) is None
+    def no_replace(*args):raise OSError('controlled atomic publication failure')
+    monkeypatch.setattr(owner.os,'replace',no_replace)
+    with pytest.raises(OSError):cache.put(('conid:123',),{'reference_price':101.0})
+    assert path.read_bytes()==original and cache._store==stored
+    assert not list(tmp_path.glob('cache.json.*.tmp'))
+
+
+def test_existing_unbounded_cache_default_keeps_ordinary_behavior(tmp_path):
+    from src.market_data.reference_resolver import PersistentReferenceCache
+    cache=PersistentReferenceCache(tmp_path/'ordinary.json')
+    value={'literal':'x'*(300*1024)}
+    cache.put(('ordinary',),value)
+    assert cache.max_bytes is None and cache.path.stat().st_size>256*1024
+    assert cache.get('ordinary',trading_date=None)==value
+
+
+@pytest.mark.parametrize('bound',[False,True,0,-1,1.5,'256'])
+def test_cache_bound_parameter_is_explicit_positive_integer_only(tmp_path,bound):
+    from src.market_data.reference_resolver import PersistentReferenceCache
+    with pytest.raises(ValueError):PersistentReferenceCache(tmp_path/'cache.json',max_bytes=bound)
+    assert not list(tmp_path.iterdir())
+
+
+@pytest.mark.parametrize('metadata_size',[9*1024,10*1024,11*1024,12*1024])
+def test_original_native_conid_amplification_respects_prewrite_cache_reserve(component,monkeypatch,metadata_size):
+    # Same original callback shape as the independent48KiB failure. Scale the
+    # reserve to8KiB, so qualification succeeds and DAILY retention reaches the
+    # relevant quota boundary; a fixed1MiB reserve would refuse trivially early.
+    limit=48*1024
+    monkeypatch.setattr(capture,'BENCHMARK_SOURCE_LIMIT',limit)
+    monkeypatch.setattr(capture,'BENCHMARK_CACHE_RESERVE',8*1024)
+    monkeypatch.setattr(capture,'BENCHMARK_CACHE_LIMIT',2*1024)
+    original=component.native.contractDetails
+    def supplied(request_id,details):
+        details.contract.primaryExchange='X'*metadata_size
+        details.contract.conId=int('9'*1500)
+        return original(request_id,details)
+    monkeypatch.setattr(component.native,'contractDetails',supplied)
+    with pytest.raises(capture.BenchmarkCaptureRefused,match='PRIVATE_SIZE_LIMIT'):run(component)
+    assert [row[:3] for row in component.sent]==[('qualify','SPY'),('history','SPY','1 day')]
+    assert (component.private/'SPY-qualification.json').exists()
+    assert not list(component.private.glob('*reference-cache.json'))
+    assert not list(component.private.glob('*.tmp'))
+    assert sum(path.stat().st_size for path in component.private.rglob('*') if path.is_file())<=limit
+    result=json.loads((component.shared/'benchmark-capture-summary.json').read_text())
+    assert not result['capture_completed'] and not result['retention_complete']
+
+
+def test_oversized_original_qualification_is_retained_before_daily_refusal(component,monkeypatch):
+    original=component.native.contractDetails
+    def supplied(request_id,details):
+        details.longName='X'*(capture.BENCHMARK_QUALIFICATION_LIMIT+1)
+        return original(request_id,details)
+    monkeypatch.setattr(component.native,'contractDetails',supplied)
+    with pytest.raises(capture.BenchmarkCaptureRefused,match='QUALIFICATION_METADATA_LIMIT'):run(component)
+    assert component.sent==[('qualify','SPY')]
+    raw=json.loads((component.private/'SPY-qualification.json').read_text())
+    assert raw['qualification']['longName']=='X'*(64*1024+1)
+    assert not list(component.private.glob('*reference-cache.json'))
+
+
+@pytest.mark.parametrize('literal',['2026-11-13'+'Z'*2048,'20261113trailing','20261313','20261131','２０２６１１１３'])
+def test_original_daily_date_literal_is_never_trimmed_into_reference_authority(component,monkeypatch,literal):
+    original=component.native.historicalData
+    def supplied(request_id,bar):
+        if bar.date=='20261113':bar.date=literal
+        return original(request_id,bar)
+    monkeypatch.setattr(component.native,'historicalData',supplied)
+    result=run(component)
+    assert all(row['reason']=='DAILY_DATE_INVALID' for row in result['assets'])
+    assert not any(row[0]=='quote' or (row[0]=='history' and row[2]=='1 min') for row in component.sent)
+    assert not list(component.private.glob('*reference-cache.json'))
+    raw=json.loads((component.private/'SPY-daily.json').read_text())
+    assert raw['raw_source_bars'][0]['date']==literal
+
+
+def test_actual_reference_cache_limit_stops_capture_without_publishing_cache(component,monkeypatch):
+    monkeypatch.setattr(capture,'BENCHMARK_CACHE_LIMIT',256)
+    with pytest.raises(capture.BenchmarkCaptureRefused,match='PRIVATE_SIZE_LIMIT'):run(component)
+    assert [row[:3] for row in component.sent]==[('qualify','SPY'),('history','SPY','1 day')]
+    assert not list(component.private.glob('*reference-cache.json'))
+    assert not list(component.private.glob('*.tmp'))
+    raw=json.loads((component.private/'SPY-raw.json').read_text())
+    assert raw['error']['cause']['type']=='ReferenceCacheSizeLimitError'
+    result=json.loads((component.shared/'benchmark-capture-summary.json').read_text())
+    assert not result['capture_completed'] and not result['retention_complete']

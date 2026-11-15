@@ -2074,7 +2074,11 @@ def _cleanup_scanner_runtime_after_observation() -> dict[str, Any]:
 
 # Explicit maintained capture profile. Importing these owners performs no IO.
 BENCHMARK_PROFILE = "BENCHMARK_CAPTURE_V1"
-BENCHMARK_SOURCE_LIMIT = 48 * 1024 * 1024  # 16MiB reserved for independently bounded logs.
+BENCHMARK_SOURCE_LIMIT = 48 * 1024 * 1024
+# Reserve BEFORE wrapped writes, including already retained cache bytes.
+BENCHMARK_CACHE_RESERVE = 1024 * 1024
+BENCHMARK_CACHE_LIMIT = 256 * 1024
+BENCHMARK_QUALIFICATION_LIMIT = 64 * 1024
 BENCHMARK_INPUT_LIMIT = 16 * 1024 * 1024
 BENCHMARK_LOG_LIMIT = 512 * 1024
 
@@ -2146,7 +2150,7 @@ def benchmark_private_write(directory, name, raw):
         raise BenchmarkCaptureRefused("PRIVATE_WRITE_INVALID")
     directory.mkdir(parents=True, exist_ok=True)
     used = sum(p.stat().st_size for p in directory.rglob("*") if p.is_file())
-    if used + len(raw) + 4096 > BENCHMARK_SOURCE_LIMIT:
+    if used + len(raw) + 4096 > BENCHMARK_SOURCE_LIMIT - BENCHMARK_CACHE_RESERVE:
         reason = {"status": "REFUSED", "reason": "PRIVATE_SIZE_LIMIT",
                   "retention_complete": False, "attempted_bytes": len(raw),
                   "attempted_sha256": hashlib.sha256(raw).hexdigest()}
@@ -2166,7 +2170,7 @@ def _benchmark_reason(exc):
     # Source-owner refusal codes are bounded enums. Arbitrary provider text is
     # retained privately, never smuggled through public exception summaries.
     from src.strategies.statistical_intraday_momentum.signal_engine.features import CompletedContextError
-    allowed = frozenset({'NORMALIZATION_UNVERIFIED_OR_REJECTED', 'SECURITY_CONFLICT', 'REFERENCE_IDENTITY_CHANGED', 'CAPTURE_CONFIGURATION_MISMATCH', 'INVALID_NUMBER', 'REFERENCE_UNVERIFIED', 'BAR_RAW_TIMESTAMP_CONFLICT', 'NORMALIZATION_RAW_CONFLICT', 'SECURITY_UNKNOWN', 'SOURCE_MALFORMED', 'OFFLINE_BYTES_INVALID', 'CAPTURE_CALENDAR_UNKNOWN', 'CAPTURE_MARKET_OWNER_UNBOUND', 'QUOTE_ACQUISITION_CLOCK_CONFLICT', 'NONFINITE_OR_MISSING_NUMBER', 'REFERENCE_FALLBACK_NOT_DISPATCHED', 'CONTEXT_MUTATED', 'PRIVATE_WRITE_INVALID', 'TIME_UNKNOWN', 'QUOTE_CROSSED', 'SOURCE_TYPE_UNKNOWN', 'SECURITY_ROUTING_CONFLICT', 'CAPTURE_CALENDAR_CHANGED', 'QUOTE_UNVERIFIED', 'ATR_ARITHMETIC_INVALID', 'HISTORY_STALE_OR_FUTURE', 'QUOTE_TIME_REJECTED', 'CALENDAR_CHANGED', 'HISTORY_REQUEST_UNVERIFIED', 'BAR_COVERAGE_OR_COMPLETION_CONFLICT', 'BAR_GEOMETRY_INVALID', 'ATR_WARMUP_INCOMPLETE', 'COVERED_RTH_OPEN_UNKNOWN', 'PRIVATE_SIZE_LIMIT', 'CONFIGURATION_CHANGED', 'CAPTURE_SOURCE_SCOPE_CHANGED', 'CAPTURE_PAPER_ACCOUNT_SCOPE_UNVERIFIED', 'BAR_START_UNKNOWN', 'HISTORY_CLOCK_CONFLICT', 'HISTORY_OWNERSHIP_UNKNOWN', 'REFERENCE_SOURCE_TYPE_UNKNOWN', 'HISTORY_LOOKBACK_INCOMPLETE', 'OFFLINE_INPUT_MALFORMED', 'QUALIFICATION_UNVERIFIED', 'QUOTE_QUALITY_UNVERIFIED', 'CONTEXT_TYPE_UNKNOWN', 'SUPERVISED_CAPTURE_ADMISSION_REQUIRED'})
+    allowed = frozenset({'NORMALIZATION_UNVERIFIED_OR_REJECTED', 'SECURITY_CONFLICT', 'REFERENCE_IDENTITY_CHANGED', 'CAPTURE_CONFIGURATION_MISMATCH', 'INVALID_NUMBER', 'REFERENCE_UNVERIFIED', 'BAR_RAW_TIMESTAMP_CONFLICT', 'NORMALIZATION_RAW_CONFLICT', 'SECURITY_UNKNOWN', 'SOURCE_MALFORMED', 'OFFLINE_BYTES_INVALID', 'CAPTURE_CALENDAR_UNKNOWN', 'CAPTURE_MARKET_OWNER_UNBOUND', 'QUOTE_ACQUISITION_CLOCK_CONFLICT', 'NONFINITE_OR_MISSING_NUMBER', 'REFERENCE_FALLBACK_NOT_DISPATCHED', 'CONTEXT_MUTATED', 'PRIVATE_WRITE_INVALID', 'TIME_UNKNOWN', 'QUOTE_CROSSED', 'SOURCE_TYPE_UNKNOWN', 'SECURITY_ROUTING_CONFLICT', 'CAPTURE_CALENDAR_CHANGED', 'QUOTE_UNVERIFIED', 'ATR_ARITHMETIC_INVALID', 'HISTORY_STALE_OR_FUTURE', 'QUOTE_TIME_REJECTED', 'CALENDAR_CHANGED', 'HISTORY_REQUEST_UNVERIFIED', 'BAR_COVERAGE_OR_COMPLETION_CONFLICT', 'BAR_GEOMETRY_INVALID', 'ATR_WARMUP_INCOMPLETE', 'COVERED_RTH_OPEN_UNKNOWN', 'PRIVATE_SIZE_LIMIT', 'CONFIGURATION_CHANGED', 'CAPTURE_SOURCE_SCOPE_CHANGED', 'CAPTURE_PAPER_ACCOUNT_SCOPE_UNVERIFIED', 'BAR_START_UNKNOWN', 'HISTORY_CLOCK_CONFLICT', 'HISTORY_OWNERSHIP_UNKNOWN', 'REFERENCE_SOURCE_TYPE_UNKNOWN', 'HISTORY_LOOKBACK_INCOMPLETE', 'OFFLINE_INPUT_MALFORMED', 'QUALIFICATION_UNVERIFIED', 'QUALIFICATION_METADATA_LIMIT', 'DAILY_DATE_INVALID', 'QUOTE_QUALITY_UNVERIFIED', 'CONTEXT_TYPE_UNKNOWN', 'SUPERVISED_CAPTURE_ADMISSION_REQUIRED'})
     if isinstance(exc, (CompletedContextError, BenchmarkCaptureRefused)) and str(exc) in allowed:
         return str(exc)
     return "SOURCE_REFUSED"
@@ -2239,7 +2243,7 @@ def collect_benchmark_capture(*, manager, private_directory, shared_directory, _
     from src.ibkr.market_data_client import HistoricalDataResult
     from src.market_data.candidate_identity import CandidateIdentity
     from src.market_data.market_data_snapshot_manager import MarketDataSnapshotManager
-    from src.market_data.reference_resolver import CanonicalReferenceResolver, PersistentReferenceCache
+    from src.market_data.reference_resolver import CanonicalReferenceResolver, PersistentReferenceCache, ReferenceCacheSizeLimitError
     from src.adapters.data.historical_data_provider import get_intraday_bars
     from src.strategies.statistical_intraday_momentum.signal_engine.features import (
         build_completed_context, measure_completed_atr, offline_atr_report)
@@ -2298,7 +2302,10 @@ def collect_benchmark_capture(*, manager, private_directory, shared_directory, _
                                 or type(metadata.get("request_id")) is not int
                                 or client._request_id_conflicted(metadata["request_id"])):
                             raise BenchmarkCaptureRefused("QUALIFICATION_UNVERIFIED")
-                        benchmark_private_write(private_directory, symbol+"-qualification.json", benchmark_json_bytes(facts))
+                        qualification_raw = benchmark_json_bytes(facts)
+                        benchmark_private_write(private_directory, symbol+"-qualification.json", qualification_raw)
+                        if len(qualification_raw) > BENCHMARK_QUALIFICATION_LIMIT:
+                            raise BenchmarkCaptureRefused("QUALIFICATION_METADATA_LIMIT")
                         _benchmark_scope(manager, client, epoch, generation, window_fingerprint=window.fingerprint, expected_accounts=original_accounts)
                         daily = market._history_request(contract, expected_client=client,
                             expected_connection_epoch=epoch,
@@ -2308,14 +2315,28 @@ def collect_benchmark_capture(*, manager, private_directory, shared_directory, _
                         if not isinstance(daily, HistoricalDataResult):
                             raise BenchmarkCaptureRefused("REFERENCE_SOURCE_TYPE_UNKNOWN")
                         benchmark_private_write(private_directory, symbol+"-daily.json", benchmark_json_bytes(daily))
+                        # Native formatDate1 DAILY dates are original YYYYMMDD
+                        # literals. Never trim a valid prefix from malformed data.
+                        for bar in daily:
+                            stamp = getattr(bar,"date",None)
+                            if type(stamp) is not str or re.fullmatch(r"[0-9]{8}",stamp) is None:
+                                raise BenchmarkCaptureRefused("DAILY_DATE_INVALID")
+                            try:
+                                datetime.strptime(stamp,"%Y%m%d")
+                            except ValueError:
+                                raise BenchmarkCaptureRefused("DAILY_DATE_INVALID") from None
                         retained = _RetainedDailyReference(market, contract, identity, daily)
                         facts["refused_reference_fallbacks"] = retained.refused_fallbacks
                         # Explicit fresh private cache; never the default repository cache.
-                        resolver = CanonicalReferenceResolver(cache=PersistentReferenceCache(private_directory/(symbol+"-reference-cache.json")))
-                        reference = resolver.resolve(identity=identity, provider=retained,
-                            session_label="RTH_OPEN", current_volume=None, intraday_avg_volume_20d=None,
-                            current_last_price=None, rth_open_price=None, rth_close_price=None,
-                            ibkr_change_pct=None, persisted_pct_change=None)
+                        resolver = CanonicalReferenceResolver(cache=PersistentReferenceCache(
+                            private_directory/(symbol+"-reference-cache.json"), max_bytes=BENCHMARK_CACHE_LIMIT))
+                        try:
+                            reference = resolver.resolve(identity=identity, provider=retained,
+                                session_label="RTH_OPEN", current_volume=None, intraday_avg_volume_20d=None,
+                                current_last_price=None, rth_open_price=None, rth_close_price=None,
+                                ibkr_change_pct=None, persisted_pct_change=None)
+                        except ReferenceCacheSizeLimitError as exc:
+                            raise BenchmarkCaptureRefused("PRIVATE_SIZE_LIMIT") from exc
                         facts.update(reference=asdict(reference), refused_reference_fallbacks=retained.refused_fallbacks)
                         _benchmark_scope(manager, client, epoch, generation, window_fingerprint=window.fingerprint, expected_accounts=original_accounts)
                         history = get_intraday_bars(symbol=symbol, timeframe="1m", limit=50,
@@ -2371,7 +2392,9 @@ def collect_benchmark_capture(*, manager, private_directory, shared_directory, _
                         from copy import deepcopy
                         facts["market_diagnostics_at_refusal"] = deepcopy(market.last_snapshot_debug)
                     facts["error"] = {"type": type(exc).__name__, "detail": str(exc)}
-                    if row["reason"] in {"PRIVATE_SIZE_LIMIT", "OFFLINE_BYTES_INVALID"}:
+                    if exc.__cause__ is not None:
+                        facts["error"]["cause"] = {"type":type(exc.__cause__).__name__,"detail":str(exc.__cause__)}
+                    if row["reason"] in {"PRIVATE_SIZE_LIMIT", "OFFLINE_BYTES_INVALID", "QUALIFICATION_METADATA_LIMIT"}:
                         summary["retention_complete"] = False
                         raise
                 finally:
