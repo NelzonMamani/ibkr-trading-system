@@ -168,34 +168,263 @@ def test_persistence_boundaries_are_all_or_nothing(enrolled,stage):
     assert owner(enrolled).total_reserved_capital==(100 if stage=='after_commit' else 0)
 
 
-def test_cross_account_and_concurrent_cap(enrolled,tmp_path):
+class ConcurrentCapitalProbeFailure(AssertionError):
+    """Both original worker outcomes, including traceback and bounded phases."""
+
+    def __init__(self, outcomes, phases, signals):
+        self.outcomes = outcomes
+        self.phases = phases
+        self.signals = signals
+        failures = []
+        for name, outcome in outcomes.items():
+            if outcome['error'] is not None:
+                failures.append(f"{name}:\n{outcome['traceback']}")
+        super().__init__('\n'.join(failures) + f"\nphases={phases!r} signals={signals!r}")
+
+
+def _collect_capital_worker_outcomes(futures, phases, signals):
+    import traceback
+
+    outcomes = {}
+    # Do not short-circuit: the second future often contains the original cause
+    # of a failure in the first worker's bounded wait/assertion.
+    for name, future in futures.items():
+        try:
+            outcomes[name] = dict(value=future.result(), error=None, traceback=None)
+        except BaseException as error:
+            outcomes[name] = dict(value=None, error=error,
+                                  traceback=''.join(traceback.format_exception(error)))
+    observed_signals = {name: event.is_set() for name, event in signals.items()}
+    if any(outcome['error'] is not None for outcome in outcomes.values()):
+        raise ConcurrentCapitalProbeFailure(outcomes, phases, observed_signals)
+    return outcomes, phases, observed_signals
+
+
+def _concurrent_capital_probe(path, *, unauthorized_storage=storage, unauthorized_close=None,
+                              authorized_close=None):
     from concurrent.futures import ThreadPoolExecutor
     from threading import Event
-    path=tmp_path/'concurrent.db'; ready=Event(); attempted=Event()
+    from time import monotonic_ns
+
+    ready = Event()
+    attempted = Event()  # Successful fence rejection AND unchanged-state check.
+    closed = Event()  # Successful cleanup, separately from worker termination.
+    terminated = Event()  # Always signalled, including constructor/close failure.
+    phases = {'authorized': [], 'unauthorized': []}
+
+    def phase(worker, name):
+        # One writer per list; read only after both futures have been collected.
+        # No contested SQL, file I/O, waits or unbounded logging in this metadata.
+        assert len(phases[worker]) < 16
+        phases[worker].append((name, monotonic_ns()))
+
     def authorized():
-        s=storage(path)
+        s = None
+        errors = []
+        result = None
         try:
-            enroll(s);o=owner(s);ready.set()
-            assert attempted.wait(10)
-            return admit(o).executable
-        finally:s._store.close()
+            phase('authorized', 'construct_start')
+            s = storage(path)
+            phase('authorized', 'construct_complete')
+            enroll(s)
+            o = owner(s)
+            phase('authorized', 'enrolled')
+            ready.set()
+            phase('authorized', 'wait_unauthorized')
+            assert terminated.wait(10), 'Unauthorized worker did not terminate within original wait'
+            assert attempted.is_set(), 'Unauthorized admission-attempt assertions did not complete'
+            assert closed.is_set(), 'Unauthorized worker cleanup did not complete'
+            phase('authorized', 'admit_start')
+            result = admit(o).executable
+            phase('authorized', 'admit_complete')
+        except BaseException as error:
+            errors.append(error)
+        finally:
+            try:
+                if s is not None:
+                    phase('authorized', 'close_start')
+                    if authorized_close is None:
+                        s._store.close()
+                    else:
+                        authorized_close(s)
+                    phase('authorized', 'close_complete')
+            except BaseException as error:
+                errors.append(error)
+            finally:
+                phase('authorized', 'terminated')
+        if len(errors) == 1:
+            raise errors[0]
+        if errors:
+            raise BaseExceptionGroup('Authorized operation and cleanup failures', errors)
+        return result
+
     def unauthorized():
-        assert ready.wait(10)
-        s=storage(path)
+        s = None
+        errors = []
         try:
-            before=s.read_capital_state('synthetic:account-a','PAPER')
-            with pytest.raises(RuntimeError,match='SESSION_REQUIRED'):admit(owner(s),'other')
-            assert s.read_capital_state('synthetic:account-a','PAPER')==before
-            return False
-        finally:s._store.close();attempted.set()
+            phase('unauthorized', 'wait_ready')
+            assert ready.wait(10), 'Authorized worker did not become ready within original wait'
+            phase('unauthorized', 'construct_start')
+            s = unauthorized_storage(path)
+            phase('unauthorized', 'construct_complete')
+            before = s.read_capital_state('synthetic:account-a', 'PAPER')
+            phase('unauthorized', 'admit_start')
+            with pytest.raises(RuntimeError, match='SESSION_REQUIRED'):
+                admit(owner(s), 'other')
+            assert s.read_capital_state('synthetic:account-a', 'PAPER') == before
+            phase('unauthorized', 'admit_assertions_complete')
+            attempted.set()
+        except BaseException as error:
+            errors.append(error)
+        finally:
+            try:
+                if s is not None:
+                    phase('unauthorized', 'close_start')
+                    if unauthorized_close is None:
+                        s._store.close()
+                    else:
+                        unauthorized_close(s)
+                    phase('unauthorized', 'close_complete')
+                    closed.set()
+            except BaseException as error:
+                errors.append(error)
+            finally:
+                phase('unauthorized', 'terminated')
+                terminated.set()
+        if len(errors) == 1:
+            raise errors[0]
+        if errors:
+            raise BaseExceptionGroup('Unauthorized operation and cleanup failures', errors)
+        return False
+
     with ThreadPoolExecutor(max_workers=2) as pool:
-        first=pool.submit(authorized);second=pool.submit(unauthorized)
-        assert first.result() and not second.result()
+        futures = {'authorized': pool.submit(authorized), 'unauthorized': pool.submit(unauthorized)}
+        return _collect_capital_worker_outcomes(
+            futures, phases, {'ready': ready, 'attempted': attempted, 'closed': closed, 'terminated': terminated})
+
+
+def test_cross_account_and_concurrent_cap(enrolled, tmp_path):
+    outcomes, phases, signals = _concurrent_capital_probe(tmp_path / 'concurrent.db')
+    assert outcomes['authorized']['value'] and not outcomes['unauthorized']['value'], (outcomes, phases, signals)
+    assert signals == dict(ready=True, attempted=True, closed=True, terminated=True)
+    # Successful unauthorized attempt and close precede the authorized admission;
+    # the original two-worker overlap and ten-second waits remain in force.
+    unauthorized = dict(phases['unauthorized'])
+    authorized = dict(phases['authorized'])
+    assert authorized['enrolled'] <= unauthorized['construct_start']
+    assert unauthorized['close_complete'] <= authorized['admit_start']
+    for worker_phases in phases.values():
+        assert 0 < len(worker_phases) <= 16
+        times = [timestamp for _, timestamp in worker_phases]
+        assert times == sorted(times)
     o=owner(enrolled);assert admit(o).executable
     enroll(enrolled,'synthetic:account-b')
     other=owner(enrolled,'synthetic:account-b')
     assert other.total_reserved_capital==0 and admit(other).executable
     assert other.total_reserved_capital==100 and o.total_reserved_capital==100
+
+
+def test_concurrent_capital_constructor_failure_preserves_both_worker_outcomes(tmp_path):
+    original = OSError('synthetic unauthorized constructor failure')
+
+    def fail_constructor(path):
+        raise original
+
+    with pytest.raises(ConcurrentCapitalProbeFailure) as observed:
+        _concurrent_capital_probe(tmp_path / 'constructor.db', unauthorized_storage=fail_constructor)
+    failure = observed.value
+    assert failure.outcomes['unauthorized']['error'] is original
+    assert isinstance(failure.outcomes['authorized']['error'], AssertionError)
+    assert 'fail_constructor' in failure.outcomes['unauthorized']['traceback']
+    assert 'synthetic unauthorized constructor failure' in str(failure)
+    assert 'Unauthorized admission-attempt assertions did not complete' in str(failure)
+    assert failure.signals == dict(ready=True, attempted=False, closed=False, terminated=True)
+    assert [name for name, _ in failure.phases['unauthorized']] == [
+        'wait_ready', 'construct_start', 'terminated']
+    assert 'admit_start' not in dict(failure.phases['authorized'])
+
+
+def test_concurrent_capital_close_failure_retains_original_traceback(tmp_path):
+    original = OSError('synthetic unauthorized close failure')
+
+    def fail_close(s):
+        s._store.close()
+        raise original
+
+    with pytest.raises(ConcurrentCapitalProbeFailure) as observed:
+        _concurrent_capital_probe(tmp_path / 'close.db', unauthorized_close=fail_close)
+    failure = observed.value
+    assert failure.outcomes['unauthorized']['error'] is original
+    assert isinstance(failure.outcomes['authorized']['error'], AssertionError)
+    assert 'Unauthorized worker cleanup did not complete' in str(failure)
+    assert 'admit_start' not in dict(failure.phases['authorized'])
+    assert 'fail_close' in failure.outcomes['unauthorized']['traceback']
+    assert 'synthetic unauthorized close failure' in str(failure)
+    assert failure.signals == dict(ready=True, attempted=True, closed=False, terminated=True)
+    assert 'admit_assertions_complete' in dict(failure.phases['unauthorized'])
+    assert 'close_start' in dict(failure.phases['unauthorized'])
+    assert 'close_complete' not in dict(failure.phases['unauthorized'])
+    assert failure.phases['unauthorized'][-1][0] == 'terminated'
+
+def test_concurrent_capital_operation_and_close_failures_are_both_retained(tmp_path):
+    original_read = OSError('synthetic unauthorized state read failure')
+    original_close = OSError('synthetic unauthorized close failure after read')
+
+    def failing_read_storage(path):
+        s = storage(path)
+
+        def fail_read(*args, **kwargs):
+            raise original_read
+
+        s.read_capital_state = fail_read
+        return s
+
+    def fail_close(s):
+        s._store.close()
+        raise original_close
+
+    with pytest.raises(ConcurrentCapitalProbeFailure) as observed:
+        _concurrent_capital_probe(tmp_path / 'read-and-close.db',
+                                  unauthorized_storage=failing_read_storage,
+                                  unauthorized_close=fail_close)
+    failure = observed.value
+    errors = failure.outcomes['unauthorized']['error']
+    assert isinstance(errors, BaseExceptionGroup)
+    assert errors.exceptions == (original_read, original_close)
+    assert 'fail_read' in failure.outcomes['unauthorized']['traceback']
+    assert 'fail_close' in failure.outcomes['unauthorized']['traceback']
+    assert isinstance(failure.outcomes['authorized']['error'], AssertionError)
+    assert failure.signals == dict(ready=True, attempted=False, closed=False, terminated=True)
+
+def test_concurrent_capital_authorized_assertion_and_close_failures_are_retained(tmp_path):
+    original_constructor = OSError('synthetic unauthorized constructor failure')
+    original_close = OSError('synthetic authorized close failure')
+
+    def fail_constructor(path):
+        raise original_constructor
+
+    def fail_close(s):
+        s._store.close()
+        raise original_close
+
+    with pytest.raises(ConcurrentCapitalProbeFailure) as observed:
+        _concurrent_capital_probe(tmp_path / 'authorized-close.db',
+                                  unauthorized_storage=fail_constructor,
+                                  authorized_close=fail_close)
+    failure = observed.value
+    errors = failure.outcomes['authorized']['error']
+    assert isinstance(errors, BaseExceptionGroup)
+    assert len(errors.exceptions) == 2
+    assert isinstance(errors.exceptions[0], AssertionError)
+    assert 'Unauthorized admission-attempt assertions did not complete' in str(errors.exceptions[0])
+    assert errors.exceptions[1] is original_close
+    assert failure.outcomes['unauthorized']['error'] is original_constructor
+    assert 'fail_constructor' in failure.outcomes['unauthorized']['traceback']
+    assert 'fail_close' in failure.outcomes['authorized']['traceback']
+    assert 'Unauthorized admission-attempt assertions did not complete' in failure.outcomes['authorized']['traceback']
+    assert failure.signals == dict(ready=True, attempted=False, closed=False, terminated=True)
+    assert failure.phases['authorized'][-1][0] == 'terminated'
+    assert 'admit_start' not in dict(failure.phases['authorized'])
 
 @pytest.mark.parametrize('defect',['unavailable','unenrolled','readonly','future','unfenced'])
 def test_no_storage_or_scope_fallback(enrolled,monkeypatch,defect):

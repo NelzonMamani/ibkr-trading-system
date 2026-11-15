@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import List
 
 from src.config.runtime_config import RunMode
@@ -12,6 +11,7 @@ from src.market_data.session_pct_change import normalize_session_label
 from src.strategy.base_strategy import BaseStrategy
 from src.strategies.mean_reversion.adapters import (
     build_market_regime_facts,
+    _parse_timestamp,
     build_scanner_facts,
     policy_decision_to_model_intent,
 )
@@ -48,16 +48,12 @@ class MeanReversionStrategy(BaseStrategy):
         mode: RunMode,
         session_phase: str,
     ) -> List[TradeIntent]:
-        now = (
-            datetime.fromisoformat(timestamp_utc)
-            if timestamp_utc
-            else datetime.now(timezone.utc)
-        )
+        now = _parse_timestamp(timestamp_utc)
         normalized_session = normalize_session_label(session_label)
         print(
             "[MEAN_REVERSION][CYCLE] start "
             f"timestamp={timestamp_utc} mode={mode.value} session={normalized_session} "
-            f"session_phase={session_phase} utc={now.isoformat()}"
+            f"session_phase={session_phase} utc={now.isoformat() if now else 'UNKNOWN'}"
         )
         regime = build_market_regime_facts(None)
         intents: List[TradeIntent] = []
@@ -93,25 +89,6 @@ class MeanReversionStrategy(BaseStrategy):
                 print(
                     "[MEAN_REVERSION][EVAL] "
                     f"symbol={symbol} decision=SKIP reason={decision.reason}"
-                )
-
-        if not intents and watchlist and mode in {RunMode.SIM, RunMode.PAPER}:
-            first_symbol = getattr(watchlist[0], "symbol", None)
-            if first_symbol:
-                intents.append(
-                    TradeIntent(
-                        symbol=first_symbol,
-                        direction="LONG",
-                        strategy_name=self.name,
-                        confidence=0.58,
-                        rationale="Deterministic fallback intent for MeanReversion when policy vetoes all symbols.",
-                        trader_type=self.trader_type,
-                        pattern_name="MEAN_REVERSION_FALLBACK",
-                    )
-                )
-                print(
-                    "[MEAN_REVERSION][FALLBACK] "
-                    f"symbol={first_symbol} mode={mode.value}"
                 )
 
         if mode == RunMode.READ_ONLY:

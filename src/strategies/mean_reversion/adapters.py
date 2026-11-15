@@ -2,19 +2,24 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
+import math
+import os
 from typing import Iterable, Optional
 from uuid import uuid4
 
 from src.domain.market_snapshot import MarketSnapshot
 from src.models.data_models import TradeIntent as ModelTradeIntent
-from src.regime.contracts import RegimeLabel, RegimeSnapshot
+from src.regime.contracts import RegimeSnapshot
 from src.scanner.result_models import CandidateMetrics
-from src.market_data.session_pct_change import normalize_session_label
+from src.market_data.session_pct_change import normalize_session_label, resolve_market_session_context
+from src.config.config_resolver import get_config
+from src.domain.quote_freshness import evidence_rejection, quote_evidence
 from src.strategies.mean_reversion.mean_reversion_strategy_policy import (
     MarketRegimeFacts,
     PolicyDecision,
     ScannerFacts,
+    quote_spread_consistent,
 )
 from src.strategies.strategy_contracts import (
     Direction,
@@ -29,9 +34,11 @@ from src.utils.time_utils import to_ny_time
 def _safe_float(value: Optional[float]) -> Optional[float]:
     if value is None:
         return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
     try:
-        return float(value)
-    except (TypeError, ValueError):
+        return float(value) if math.isfinite(value) else None
+    except OverflowError:
         return None
 
 
@@ -43,21 +50,15 @@ def _coalesce(*values: Optional[float]) -> Optional[float]:
     return None
 
 
-def _snapshot_spread(snapshot: MarketSnapshot | None) -> Optional[float]:
-    if snapshot is None or snapshot.bid is None or snapshot.ask is None:
-        return None
-    return snapshot.ask - snapshot.bid
-
-
 def _parse_timestamp(timestamp_utc: str | None) -> Optional[datetime]:
     if not timestamp_utc:
         return None
     try:
         parsed = datetime.fromisoformat(timestamp_utc)
-    except ValueError:
+    except (TypeError, ValueError):
         return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return None
     return parsed
 
 
@@ -85,23 +86,50 @@ def build_scanner_facts(
     timestamp_utc: str | None = None,
     session_label: str | None = None,
 ) -> ScannerFacts:
-    last = _coalesce(
-        _safe_float(getattr(snapshot, "last", None)),
-        _safe_float(getattr(candidate, "last_price", None)),
-        _safe_float(getattr(candidate, "last", None)),
-    )
-    bid = _coalesce(
-        _safe_float(getattr(snapshot, "bid", None)),
-        _safe_float(getattr(candidate, "bid", None)),
-    )
-    ask = _coalesce(
-        _safe_float(getattr(snapshot, "ask", None)),
-        _safe_float(getattr(candidate, "ask", None)),
-    )
-    spread = _snapshot_spread(snapshot)
-    if spread is None and bid is not None and ask is not None:
-        spread = ask - bid
-    spread = _coalesce(spread, _safe_float(getattr(candidate, "spread", None)))
+    errors: list[str] = []
+    # A supplied snapshot owns its entire quote. Never hide a bad/missing field
+    # by falling through to a different acquisition's candidate price.
+    quote = snapshot if snapshot is not None else candidate
+    last = _safe_float(getattr(quote, "last" if snapshot is not None else "last_price", None))
+    bid = _safe_float(getattr(quote, "bid", None))
+    ask = _safe_float(getattr(quote, "ask", None))
+    spread = ask - bid if bid is not None and ask is not None else None
+    if snapshot is not None:
+        if snapshot.symbol != getattr(candidate, "symbol", None):
+            errors.append("FOREIGN_QUOTE_SYMBOL")
+        if (getattr(candidate, "con_id", None) is not None and snapshot.con_id is not None
+                and candidate.con_id != snapshot.con_id):
+            errors.append("FOREIGN_QUOTE_SECURITY")
+        evidence = quote_evidence(snapshot.market_timestamp_utc, snapshot.timestamp_source,
+                                  snapshot.data_quality_flags)
+    else:
+        evidence = getattr(candidate, "quote_evidence", None)
+    assessed = _parse_timestamp(timestamp_utc)
+    quote_time_valid = assessed is not None and evidence_rejection(evidence, now=assessed) is None
+    retained_evidence = getattr(candidate, "quote_evidence", None)
+    if snapshot is not None and retained_evidence is not None:
+        quote_time_valid = quote_time_valid and evidence_rejection(retained_evidence, now=assessed) is None
+    if snapshot is None:
+        supplied_spread = getattr(candidate, "spread", None)
+        if supplied_spread is not None and (
+                _safe_float(supplied_spread) is None or supplied_spread <= 0 or
+                (spread is not None and not quote_spread_consistent(bid, ask, supplied_spread))):
+            errors.append("INVALID_OR_CONFLICTING_SPREAD")
+    # Missing optional markers are absence of support, never positive evidence.
+    def marker(name):
+        return getattr(candidate, name, None) is True
+
+    def status(name):
+        value = getattr(candidate, name, None)
+        if value is not None and type(value) is not bool:
+            errors.append("INVALID_" + name.upper())
+            return None
+        return value
+
+    for name in ("vwap", "ema9", "ema20", "atr", "hod", "lod", "vwap_slope"):
+        value = getattr(candidate, name, None)
+        if value is not None and _safe_float(value) is None:
+            errors.append("INVALID_" + name.upper())
     vwap = _safe_float(getattr(candidate, "vwap", None))
     ema9 = _safe_float(getattr(candidate, "ema9", None))
     ema20 = _safe_float(getattr(candidate, "ema20", None))
@@ -112,8 +140,18 @@ def build_scanner_facts(
         _safe_float(getattr(candidate, "rvol", None)),
         _safe_float(getattr(candidate, "relative_volume", None)),
     )
-    normalized_session = normalize_session_label(session_label or getattr(candidate, "session_label", "") or "")
-    is_rth = normalized_session == "RTH"
+    raw_session = session_label if session_label is not None else getattr(candidate, "session_label", None)
+    raw_session = raw_session if isinstance(raw_session, str) else ""
+    normalized_session = normalize_session_label(raw_session or "")
+    # Label aliases constrain the actual time owner; they cannot enroll an
+    # override, weekend, holiday or a different actual phase.
+    override = bool(get_config("SESSION_PHASE_OVERRIDE")) or any(
+        os.getenv(key, "").strip() for key in ("FORCE_SESSION", "SESSION_OVERRIDE", "MARKET_SESSION_OVERRIDE")
+    )
+    actual = resolve_market_session_context(assessed) if assessed is not None else None
+    coarse_rth = str(raw_session or "").upper() in {"RTH", "REG", "REGULAR"}
+    is_rth = bool(not override and actual is not None and actual.coarse == "RTH" and
+                  (coarse_rth or normalized_session == actual.phase))
     minutes_since_open = _minutes_since_open(timestamp_utc) if is_rth else None
     last_value = last or 0.0
     dist_from_vwap = (last_value - vwap) if vwap is not None and last is not None else None
@@ -134,16 +172,22 @@ def build_scanner_facts(
         dist_from_ema20=dist_from_ema20,
         rvol=rvol,
         impulse_strength=_safe_float(getattr(candidate, "impulse_strength", None)),
-        volume_deceleration_flag=bool(
-            getattr(candidate, "volume_deceleration_flag", False)
-        ),
-        failed_breakout_up_flag=bool(getattr(candidate, "failed_breakout_up_flag", False)),
-        failed_breakout_down_flag=bool(getattr(candidate, "failed_breakout_down_flag", False)),
-        rejection_wick_up_flag=bool(getattr(candidate, "rejection_wick_up_flag", False)),
-        rejection_wick_down_flag=bool(getattr(candidate, "rejection_wick_down_flag", False)),
-        has_fresh_news=bool(getattr(candidate, "catalyst_present", False)),
-        halt_flag=bool(getattr(candidate, "halted", False)),
-        ssr_flag=bool(getattr(candidate, "ssr", False)),
+        volume_deceleration_flag=marker("volume_deceleration_flag"),
+        failed_breakout_up_flag=marker("failed_breakout_up_flag"),
+        failed_breakout_down_flag=marker("failed_breakout_down_flag"),
+        rejection_wick_up_flag=marker("rejection_wick_up_flag"),
+        rejection_wick_down_flag=marker("rejection_wick_down_flag"),
+        has_fresh_news=status("catalyst_present"),
+        halt_flag=status("halted"),
+        ssr_flag=status("ssr"),
+        bid=bid,
+        ask=ask,
+        data_quality_ok=(getattr(candidate, "data_quality_ok", None) is True and
+                         not getattr(candidate, "data_quality_flags", ()) and
+                         not getattr(candidate, "data_integrity_flags", ()) and
+                         not getattr(snapshot, "data_quality_flags", ())),
+        quote_time_valid=quote_time_valid,
+        source_fact_errors=tuple(errors),
         is_rth=is_rth,
         minutes_since_open=minutes_since_open,
         vwap_slope=_safe_float(getattr(candidate, "vwap_slope", None)),
@@ -153,18 +197,10 @@ def build_scanner_facts(
 def build_market_regime_facts(
     regime_snapshot: RegimeSnapshot | None,
 ) -> MarketRegimeFacts:
-    if regime_snapshot is None:
-        return MarketRegimeFacts()
-    label = regime_snapshot.label
-    trending_flag = label == RegimeLabel.TRENDING
-    return MarketRegimeFacts(
-        spy_trending_up=trending_flag,
-        spy_trending_down=trending_flag,
-        qqq_trending_up=trending_flag,
-        qqq_trending_down=trending_flag,
-        high_volatility_day=label == RegimeLabel.HIGH_VOL_RISK_OFF,
-        major_macro_event_window=label == RegimeLabel.NEWS_DRIVEN,
-    )
+    # A single aggregate regime label cannot prove four index directions or
+    # absence of an event window. The active runner has no such fact producer.
+    # Preserve unknown rather than minting safe-looking False values.
+    return MarketRegimeFacts()
 
 
 def _confidence_from_decision(decision: PolicyDecision) -> float:
