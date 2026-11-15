@@ -1674,3 +1674,110 @@ legacy-tail activation or completed investigation repeat. Frozen observation
 parked work and operational quarantine are unchanged. No observer, provider/broker
 acquisition, broker mutation, operational enrollment or recovery clearing.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+## PR1234 acceptance — P03 source blocker and P02 local callback settlement
+
+Base 0c50c29a587f789c220cc8a1faa3f54fff13e4e6.
+Reviewed candidate 89c15d7c1fba836be7209293ddda65e2eb44ac3f.
+Candidate/reviewed tree ac52b56426b890643dd69e3812019d41ef62d696.
+PR https://github.com/NelzonMamani/ibkr-trading-system/pull/1234
+Independent exact-head review5912313204:
+https://github.com/NelzonMamani/ibkr-trading-system/pull/1234#pullrequestreview-5912313204
+The review first reproduced four first-ACK false-clear failures, then cleared
+the scoped correction. Independent7 core and11 correction checks passed; these
+counts overlap retained focused validation and are not additional full suites.
+The final SAME3 delta only appended evidence; source/test bytes remained exact.
+
+Required PR CI43749927830 attempt1 COMPLETE SUCCESS:
+https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/43749927830
+Scope132921423905 success, HARNESS_ONLY=False.
+Linux132921493876:8284passed/3skipped/4warnings/1198.02s.
+Windows full132921493919:8285passed/2skipped/6312warnings/2786.92s.
+Required Windows aggregate132935685371 SUCCESS; both Windows owners mandatory.
+Windows focused95/news37/float-cache9 also passed; counts overlap full coverage.
+Controlled132921493896 success:46 serial/6 cache/13 exit/48 stub-only harness
+controls, quote parser and evidence upload. No acquisition/observer was launched.
+Actual completed logs identify tested checkout99fe5588cacdd4b07eb4cf085639715a0a3c7771,
+whose ordered parents are base0c50c29a then reviewed head89c15d7c, treeac52b564.
+
+PR final focused archive14177413571 service metadata:727bytes SHA256
+a6d5f6dd2412d3bf6685f52bfd606b354158b77fa7a8326ad65331ffa2d279b8.
+Controlled archive14175822103 service metadata:745035bytes, SHA256
+5654f336d2ff193bceb2fe4bb4b3c42887072f1aa8514d7548c192da0fc27b4a.
+These are GitHub SERVICE metadata, not independent downloaded-byte verification.
+
+
+Immediately before integration, independent review re-read all five required
+job states/logs and whole-run SUCCESS, remote main/base/head unchanged, actual
+checkout and ordered parents/tree identity. Standing authorized expected-head
+merge produced accepted main a38b057d18c3254c9c8dfe0e1899b398ba362056.
+Its ordered parents are exactly base0c50c29a then reviewed head89c15d7c; its
+ac52b564 tree equals the candidate/reviewed/tested tree. No candidate receipt
+amendment, manual cancellation or unchanged-success suite rerun occurred.
+
+Automatic main push CI43754720567 is a separate run, not PR evidence renewal:
+https://github.com/NelzonMamani/ibkr-trading-system/actions/runs/43754720567
+Attempt1 COMPLETE SUCCESS; all five mandatory jobs completed:
+- scope132936182472 SUCCESS, actual HARNESS_ONLY=False;
+- Linux132936229127:8284passed/3skipped/4warnings/1186.77s;
+- Windows full132936229369:8285passed/2skipped/6312warnings/2825.79s;
+- controlled132936229148 SUCCESS:46serial/6cache/13exit/48stub-only harness,
+  quote parser and evidence upload;
+- required Windows aggregate132950580621 SUCCESS, both Windows owners mandatory.
+Windows focused95/news37/float-cache9 also passed; counts overlap full coverage.
+Actual Linux/Windows/controlled checkouts all identify accepted a38b057d above.
+Whole-run SUCCESS, every job state, checkout/parents/tree and unchanged remote
+main were re-read after completion. No manual retry/cancellation occurred.
+Automatic push coverage is kept separate from prior PR/focused evidence; counts
+are overlapping, not additive financial or runtime exposure.
+Main focused archive14180050516 service metadata:726bytes SHA256
+7b064a4d30de36d688c65c45ff430912a62d524bc88fdf1d1512afbb1a7b7b5b.
+Main controlled archive14178161333 service metadata:745319bytes SHA256
+d970fcabe9a1911b6ac5bc2d6b967744cd743cc485ab975819b2883b16cdd396.
+Again these are service metadata, not independent downloaded-byte verification.
+
+P03 remains BLOCKED_SOURCE_NOT_ADOPTED: qualified SPY/QQQ evidence, justified
+strong-trend measurement/calibration and approved scheduled-event source/class/
+window/coverage inputs are still missing. No source acquisition or all-UNKNOWN
+carrier supplied false clearance. P02 supports ONLY the reviewed same-process
+terminal standalone roundtrip's observable local settlement, using retained Ross
+requests and real financial owners. Caches stay nonempty; no P02 SDK send/full
+Core boot/natural/broker proof is claimed. LOCAL_CHECK is not proposal/risk/
+reservation/final-write enrollment; ATR bounds/native entry/management stay closed.
+Original failures, old timeout uncertainty and cold quarantine remain preserved.
+
+ONE next bounded action: establish the missing P03 input authority before any
+adapter: approved separately qualified SPY/QQQ original completed-history/quote
+facts and justified measurement parameters, plus finite scheduled-event publisher,
+class/revision/interval coverage and window policy. Scheduled-event coverage must
+not attest absence of unforeseen risk. No UNKNOWN-only carrier closes this gap.
+Unsupported P02 scope/stages require separate reviewed contracts; this receipt
+supplies no additional enrollment or broker-history completeness certificate.
+
+This receipt appends only to the SAME3 from the actual accepted merge. All prior
+accepted bytes remain exact prefixes; only these three existing records change.
+No candidate amendment solely to append receipts, tracker or documentation-only
+PR loop. Frozen observation3f48bf3f/sourcec65/calendar, all five ownership vetoes,
+existing evidence/databases and parked work remain unchanged. No observer,
+provider/broker acquisition, operational capital or recovery action.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+### 2026-11-15 — Next prerequisite: separate source-bound READ_ONLY data-capture preparation
+
+PR1234 independently verified: maina38b057d18c3254c9c8dfe0e1899b398ba362056/treeac52b56426b890643dd69e3812019d41ef62d696; final reviewed head89c15d7c1fba836be7209293ddda65e2eb44ac3f. Tested checkout99fe5588cacdd4b07eb4cf085639715a0a3c7771 has the same ordered base0c50c29a/head89c15d7c parents and reviewed/accepted tree. PR43749927830/main43754720567 attempt1 both COMPLETE SUCCESS; all five mandatory scope/Linux/Windows-suite/controlled/aggregate jobs successful. Review5912313204 remains exact-head COMMENTED/CLEAR, not a separate human approval. All prior failures, local-only proof limits and unlocalized timeouts remain.
+
+Root coordinator continuation under standing delegated authority: prepare, review and implement a SEPARATE default-off READ_ONLY historical/quote evidence capture profile through existing owners. Approve the existing authorized IBKR PAPER/read-only market-data connection as the proposed source for a later user-run capture, reusing existing entitlements and strict local/client/SDK guards. This authorizes preparation NOW, not an actual acquisition, broker operation, new subscription/purchase, permission change or concurrent client. Frozen Ross observation3f48bf3f/sourcec65/tree6ece/reviewed calendar remains unchanged and separately runnable; never silently replace it or run both attempts concurrently.
+
+The initial capture cohort is separately qualified SPY and QQQ as benchmarks. Additional P02 securities require an explicit finite project-approved cohort/selection and request budget before collection; benchmark ETFs do not automatically belong to P02's price/universe scope. Predeclare the assessment/window and sample selection, rather than cherry-pick favorable captures. One day/two ETFs cannot establish representative P02 calibration, ATR bounds, P03 strong-trend parameters, complete macro coverage, observed costs or profitability.
+
+Existing HistoricalDataResult/request-spec, identity, quote/reference/context and offline_atr_report owners already retain/consume the needed source facts. Reuse them; no new acquisition/controller/calibration engine, duplicated exporter or parallel ledger. Concrete source gaps to repair narrowly: intraday_bars_from_history currently uses formatDate1/suffix selection, while normalized get_intraday_bars uses formatDate2 but hardcoded empty endDateTime/lastN. A completed-current-minute/open-aligned capture needs explicit bounded SDK request parameters through the existing owner, with defaults unchanged and full actual wire/raw/end/completion/normalization evidence retained. Do not drop a forming tail, sort/fill gaps, reconstruct lost metadata from old logs, invent a reference or renew clocks to force qualification. Official reqHistoricalData documentation distinguishes explicit endDateTime, duration/bar specification, nonstreaming requests and end callbacks; verify the exact installed owner/SDK contract.
+
+Prepare a finite one-connection profile with sequential qualified requests, existing pacing/cancellation/deadline/inventory/owned-cleanup and source/current-policy guards, automatic confirmed laptop paths and fresh single-use root. Explicitly review its request/runtime/market envelope instead of borrowing900s blindly. Capture original callback-confirmed quote, canonical reference and full history facts; serialize detached original assessment/input bytes and source/derived fingerprints promptly. Strict P02 completed-context requirements remain unchanged: at least16 current-session completed1mTRADES from actual RTHopen, no ends after original completion, latest completed end age[0,60), real covered RTH_OPEN and complete confirmed LIVE quote. Missing entitlement/delayed/unknown/empty/incomplete outcomes stay recorded, never upgraded. Preserve failures without retrying to obtain favorable data.
+
+Integrate exact immutable P02_ATR_OFFLINE_V1 measurement evidence where genuinely valid; retain raw capture plus explicit refusal when not. Status remains MARKET_UNVERIFIED pending separate review. Preserve raw broker/provider records privately using existing evidence safety/package owners; publish code and safe metadata/hashes rather than automatically redistributing raw/account data. Measurement/data-quality evidence grants no dataset calibration approval, entry permission or strategy result.
+
+In parallel, use official publisher sources to develop the missing P03 scheduled-event contract: exact class universe, revision/retrieval provenance, covered interval, timezone and window policy. Primary source candidates verified in this coordinator review: BLS selected-release schedule https://www.bls.gov/schedule/2026/ and Federal Reserve https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm; each has bounded publication scope, not all-macro completeness. Other chosen classes need their actual official publishers. Propose and independently review the finite policy before adoption; these pages alone do not choose pre/post windows or prove absence of unforeseen events. No empty response/generic news label/all-False carrier supplies clearance. Qualified raw benchmark capture still does not define a strong-trend classifier.
+
+Complete capture contract review/adoption before implementation, focused causal controls (including forming/late/partial/wrong identity/quote/ref/SDK-default/non-concurrent and safe-zero-mutation cases), independent exact-head review, required final-head CI/expected-head integration/main checks, then publish an immutable reviewed capture-only caller with one complete command. No real capture starts in this preparation batch. Do not require user path typing or obscure SDK/client-vacancy knowledge; retain genuine contemporaneous operator facts and native exact-ID admission. Preserve old observation distribution/pin and all current defaults.
+
+P02 LOCAL_CHECK remains local evidence, not proposal/risk/reservation/final-write; native entry/management/ATR bounds and P03 input/classifier/coverage remain closed. No source implementation, tests, dataset acquisition, observer/broker/provider operation or operational recovery occurred in this coordinator queue-setting step. All five ownership vetoes and PAPER_READY=NO; PAPER_READINESS_GATE=FAIL remain.
