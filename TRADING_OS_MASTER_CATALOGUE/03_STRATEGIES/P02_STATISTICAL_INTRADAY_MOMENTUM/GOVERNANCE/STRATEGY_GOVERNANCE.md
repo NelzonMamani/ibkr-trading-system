@@ -1560,7 +1560,19 @@ CALLBACK MATRIX (EVERY OCCURRENCE IS CLASSIFIED, NONE DISCARDED)
 - positionMulti/positionMultiEnd: only the existing position_snapshot's actual
   request-owned context, exact account/client/epoch/security, completed immutable
   result and retired/cleaned request can establish ASOF flat quantity for this
-  selected terminal case. Preserve source completion time and existing freshness
+  selected terminal case. Existing BrokerPositionResult.COMPLETE alone is NOT
+  cleanup/source authority: before returning, the actual position_snapshot owner
+  must issue a separate opt-in immutable completion receipt AFTER its finally has
+  verified exact context retirement and local cancellation return. Freeze original
+  request id/context identity, source object/client/epoch/account, detached validated
+  conId/STK/currency/symbol/whole-quantity rows, completed_at, actual retirement and
+  cleanup outcome in that source receipt. Never retain mutable SDK contracts there.
+  Cancellation return is local cleanup, NOT broker acknowledgement. A swallowed
+  cancellation exception, ownership loss, absent context, late callback or uncertain
+  cleanup yields NO valid receipt and remains dirty; preserve legacy default result
+  behavior without treating it as positive local authority. Completion must come
+  from the original real request owner, never a test completion argument.
+  Preserve source completion time and existing freshness
   rule; do not renew it on read. Whole-snapshot completeness and no foreign active
   owned remainder are required. These are local request facts, not lifetime intake
   coverage. Legacy uncorrelated position/positionEnd remain unsupported/dirty.
@@ -1605,13 +1617,35 @@ position facts. A caller protection_confirmed/truth dictionary cannot substitute
 No open/protected-position or partial-stop local permission is introduced.
 
 For this opt-in scope, bind the actual PostFillLifecycleEngine and ActiveTradeRegistry
-objects once to the SAME existing ExecutionEngine local authority. Their actual
-mutating API entries participate in existing G/revision ownership; public reads
+objects once to the SAME existing ExecutionEngine local authority. Bind only
+exact, freshly created EMPTY owners before any trade/leg/input/output handle has
+escaped; prepopulated/rebound/custom/unknown lifetime refuses financial enrollment.
+Register_trade currently stores caller ActiveTrade directly: under this opt-in,
+external accepted exact ActiveTrade data is privately copied before storage so
+the caller-retained input cannot mutate an owned record. Every external mutable
+post-fill input/output is likewise either copied from an exact supported builtin/
+owned dataclass field allowlist or marks the local source unsupported BEFORE
+exposure. No arbitrary deepcopy hook/custom SDK property is called for authority.
+Public get_trade/snapshot/selected_unit_leg, registry get_trade/snapshot and any
+mutation return are detached recursively, including ProtectionOrderMeta stop/target/
+stop_legs, pending-exit dictionaries, failure flags, take-profit events and registry
+state_history. Internal original source-frame calls retain actual references.
+A retained input/output alias is not made safe by a later fingerprint.
+Their actual mutating API entries participate in existing G/revision ownership; public reads
 that expose mutable trade objects become detached outside a verified original
 owner frame, as the accepted TLE already does. Internal existing owner calls keep
 actual references. Cover post-fill activation/exposure/fill/callback/reconciliation/
 management/transition/close/recovery mutation entry and registry register/unregister/
-mark_closed/close_all entry. Existing default-off behavior is unchanged. Unbound,
+mark_closed/close_all entry. The participating post-fill entry set is
+set_startup_recovery_complete, activate_trade_management_after_fill,
+update_selected_exposure, record_exit_fill, handle_broker_callback, reconcile_orders,
+evaluate_trade_management, evaluate_trailing, replace_stop, cancel_stop,
+execute_exit_intents, mark_exit_pending, mark_exited, startup_safe_state, and actual
+transition/stop/target/selected-leg mutation helpers used by these owners. Registry
+entries are register_trade, unregister_trade, mark_closed and close_all_trades.
+Direct unsupported mutation helpers invalidate before use; no untracked recovery/
+management action becomes an enrollment path. Existing default-off behavior is
+unchanged. Unbound,
 replaced, unsupported/custom/escaped owner or call during local read refuses the
 local observation. Never merely hash mutable protection/registry state twice and
 call that synchronization. This adds no manager, management action or new truth
@@ -1657,10 +1691,15 @@ A fully revalidated ordinary duplicate can get a new occurrence receipt only fro
 another actual completion frame, never by reusing the old receipt or reaccounting.
 
 FEES AND PROOF LIMITS
-No commission callback/no eligible fee attempt preserves existing known GROSS with
-fee coverage UNKNOWN; absence is not zero/NET and this policy grants no global fee
-assumption. Once observed fee callbacks require effects or existing fee state is
-selected/uncertain, all applicable existing fee-owner vetoes remain. Present valid
+For this FIRST nonempty terminal-roundtrip subset, COMPLETE existing durable
+fee-owner coverage for EVERY selected execution is mandatory before the financial
+bundle can settle or make localavailable true. No-report/no-attempt still preserves
+authoritative known GROSS with fee coverage UNKNOWN, but is NOT positive settlement
+for this subset. Absence is not zero/NET and this narrow local restriction changes
+no global financial fallback, fee rule or accepted empty-bootstrap behavior. The
+settlement reader performs no query/retry/write to obtain fee coverage. Once
+observed fee callbacks require effects or existing fee state is selected/uncertain,
+all applicable existing fee-owner vetoes remain. Present valid
 known-zero fees require durable accepted source witness just like positive fees.
 No fee freshness renewal, fee-event backfill, foreign-currency conversion, timestamp
 reclassification or price/quantity/target policy changes. Do not weaken canonical
