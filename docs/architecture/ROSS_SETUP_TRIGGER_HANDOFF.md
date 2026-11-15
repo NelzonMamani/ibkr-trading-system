@@ -6601,3 +6601,27 @@ See SAME governance section "Next prerequisite: separate source-bound READ_ONLY 
 Under standing authority prepare a default-off profile through existing qualified-history/quote/reference/context/evidence owners for later user-run IBKR PAPER/read-only capture: SPY/QQQ benchmarks first, any P02 cohort explicitly finite/approved. Repair bounded completed-minute/open-aligned request support at actual owner, defaults unchanged; retain raw wire/end clocks and prompt original assessment, never massage data to qualify. Existing pacing, exactclient, SDK/read-only, fresh-root and owned cleanup apply. Review exact runtime/window and publish a verified immutable capture-only caller after source review/CI. No acquisition now. Raw data private, safe metadata/hash receipts only. Single-day benchmarks are not calibration, numeric bounds, trend/macro clearance, costs or profitability.
 
 Frozen Ross observation3f48bf3f/sourcec65/calendar remains unchanged/separate, never concurrent. Independently propose official publisher/class/revision/interval/window macro coverage; no generic-label or empty-response false clearance. No new exporter/controller engine or repeated completed investigation. Actual P02 admission stages and other unresolved policies remain closed; all five vetoes and PAPER_READY=NO; PAPER_READINESS_GATE=FAIL remain.
+
+
+### 2026-11-15 — Reviewed bounded capture and P03 source-policy adoption
+
+Verified maina38b057d/treeac52 and carried receipt/scopef69ca17 once.
+Independent exact-contract review CLEAR on2aef475e6039428391fb76c258d2a6669f6525d6/
+tree0d56d01d4aa40d386c67eb1324b90db23e9c44c6 precedes this NEW project-policy
+adoption and all source implementation. Existing P02 governance now owns the
+separate default-off BENCHMARK_CAPTURE_V1 fixed SPY/QQQ cohort, actual completed-
+opening request/source/quote/reference contract, finite budgets, private raw
+retention, original assessment/fingerprints and expected-profile terminal safety.
+Existing P03 governance adopts the explicit uncalibrated three-completed-five-
+minute structural measurement and finite scheduled-event publisher/class/window/
+coverage/revision requirements; it does NOT adopt current publisher facts or
+actual source-producing permissions. Official-reference retrieval encountered
+proxy403; no page bytes, schedule dataset or market capture was acquired.
+A later approved finite source receipt and actual qualified benchmark inputs
+are still required; an empty response never grants macro clearance. No generic
+UNKNOWN-only carrier is completion. Source implementation/validation/review/CI
+remain subsequent work, not claimed by this adoption. Frozen observation
+3f48bf3f/sourcec65/calendar and all five vetoes stay unchanged. No observer,
+provider/broker acquisition, operational enrollment or recovery clearing.
+P02 stages/ATR bounds/native entry/management and unsupported P03 permissions
+remain closed. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.

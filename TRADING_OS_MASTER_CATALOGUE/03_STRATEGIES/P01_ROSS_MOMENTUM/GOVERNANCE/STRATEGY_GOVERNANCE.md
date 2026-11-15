@@ -1781,3 +1781,27 @@ In parallel, use official publisher sources to develop the missing P03 scheduled
 Complete capture contract review/adoption before implementation, focused causal controls (including forming/late/partial/wrong identity/quote/ref/SDK-default/non-concurrent and safe-zero-mutation cases), independent exact-head review, required final-head CI/expected-head integration/main checks, then publish an immutable reviewed capture-only caller with one complete command. No real capture starts in this preparation batch. Do not require user path typing or obscure SDK/client-vacancy knowledge; retain genuine contemporaneous operator facts and native exact-ID admission. Preserve old observation distribution/pin and all current defaults.
 
 P02 LOCAL_CHECK remains local evidence, not proposal/risk/reservation/final-write; native entry/management/ATR bounds and P03 input/classifier/coverage remain closed. No source implementation, tests, dataset acquisition, observer/broker/provider operation or operational recovery occurred in this coordinator queue-setting step. All five ownership vetoes and PAPER_READY=NO; PAPER_READINESS_GATE=FAIL remain.
+
+
+### 2026-11-15 — Reviewed bounded capture and P03 source-policy adoption
+
+Verified maina38b057d/treeac52 and carried receipt/scopef69ca17 once.
+Independent exact-contract review CLEAR on2aef475e6039428391fb76c258d2a6669f6525d6/
+tree0d56d01d4aa40d386c67eb1324b90db23e9c44c6 precedes this NEW project-policy
+adoption and all source implementation. Existing P02 governance now owns the
+separate default-off BENCHMARK_CAPTURE_V1 fixed SPY/QQQ cohort, actual completed-
+opening request/source/quote/reference contract, finite budgets, private raw
+retention, original assessment/fingerprints and expected-profile terminal safety.
+Existing P03 governance adopts the explicit uncalibrated three-completed-five-
+minute structural measurement and finite scheduled-event publisher/class/window/
+coverage/revision requirements; it does NOT adopt current publisher facts or
+actual source-producing permissions. Official-reference retrieval encountered
+proxy403; no page bytes, schedule dataset or market capture was acquired.
+A later approved finite source receipt and actual qualified benchmark inputs
+are still required; an empty response never grants macro clearance. No generic
+UNKNOWN-only carrier is completion. Source implementation/validation/review/CI
+remain subsequent work, not claimed by this adoption. Frozen observation
+3f48bf3f/sourcec65/calendar and all five vetoes stay unchanged. No observer,
+provider/broker acquisition, operational enrollment or recovery clearing.
+P02 stages/ATR bounds/native entry/management and unsupported P03 permissions
+remain closed. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.

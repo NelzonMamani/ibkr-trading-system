@@ -357,3 +357,27 @@ version fences at the actual active handoff. A bounded READ_ONLY capture can
 preserve benchmark source facts, but cannot fabricate schedule coverage or
 make this measurement a calibrated/profitable strategy. No alwaysUNKNOWN
 carrier is counted as closing the source-producing dependency.
+
+
+## Delegated policy adoption; source enrollment still closed — 2026-11-15
+
+Independent exact-contract review cleared2aef475e6039428391fb76c258d2a6669f6525d6
+(tree0d56d01d4aa40d386c67eb1324b90db23e9c44c6). Under standing delegated
+project authority, adopt the concrete P03_REGIME_SOURCE_V1 opening-only
+three-by-five-minute structural formula, source freshness/binding requirements,
+finite named official publisher/class universe, event windows and coverage/
+revision/expiry/handoff requirements specified in the concrete proposal above
+as NEW PROJECT POLICY before implementation. This supersedes its historical
+PROPOSED labels as to these operational definitions; it does not adopt a
+calibrated strength/probability/performance claim or any verified publisher facts.
+The earlier generic draft remains historical, not an alternative current policy.
+
+No official page bytes or genuine schedule receipt were acquired in this task:
+proxy tunnel403 failures remain failures. Endpoint/class choices are policy
+requirements for later verified source evidence, not assertions of current
+publisher contents/completeness. No finite date/class/revision/time coverage
+receipt, contemporaneous qualified benchmarks or active source-version fences
+exist yet; actual P03 source-producing enrollment/permissions remain CLOSED.
+This batch prepares capture through existing owners, not an alwaysUNKNOWN
+handoff or fabricated passing Core proof. Keep all existing P03/P02 vetoes.
+PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.

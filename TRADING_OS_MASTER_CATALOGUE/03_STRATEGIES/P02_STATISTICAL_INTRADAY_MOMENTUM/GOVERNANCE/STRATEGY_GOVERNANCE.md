@@ -1898,3 +1898,20 @@ caller expectations. Non-dispatched refusals have no fabricated transmitted spec
 The existing snapshot owner adds a strict explicit single-attempt LIVE/fresh
 option through its existing manager; primary retry and delayed fallback are
 outside this profile. All ordinary call signatures/default behavior stay valid.
+
+
+## Delegated adoption before implementation — 2026-11-15
+
+After independent exact-contract review CLEAR on
+2aef475e6039428391fb76c258d2a6669f6525d6/tree
+0d56d01d4aa40d386c67eb1324b90db23e9c44c6, the coordinator adopts the
+BENCHMARK_CAPTURE_V1 contract and its precision sections above as NEW project
+policy under standing delegated authority, BEFORE source implementation.
+Historical DRAFT labels describe the reviewed proposal history; this adoption
+is the current authority. Ordinary defaults remain unchanged. Only a later
+explicit user-run attempt may acquire; this preparation performs no acquisition.
+Fixed SPY/QQQ cohort, finite request/time/size budgets, strict original owners,
+private raw evidence, expected-profile cleanup and all fail-closed gates apply.
+No P02 admission, ATR numerical bounds, native entry/management, cost/profit
+claim or operational enrollment is granted. PAPER_READY=NO;
+PAPER_READINESS_GATE=FAIL.
