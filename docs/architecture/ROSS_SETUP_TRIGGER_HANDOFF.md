@@ -6238,3 +6238,11 @@ clearing, broker/provider/observer activity, operational capital/recovery action
 parked-work activation or readiness upgrade. Distribution3f48bf3f/sourcec65 and
 calendar remain unchanged. Synthetic evidence is not natural/broker readiness.
 PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
+
+### 2026-11-15 — Next offline queue: P03 veto fidelity and capital diagnostics
+
+See SAME governance section "Verified PR1231/1232; next concrete offline repair queue". Both corrected PR/main CI pairs and all five required jobs per run independently verified successful; accepted b479ba17/tree09f695bf retained. P03 actual SIM/PAPER all-veto fallback fabricates a LONG proposal; normalized RTH phases are misclassified by literalRTH comparison. Reproduce/repair those paths and reconcile required unknown source facts with P03's own contract, preserving downstream gates. No broker-order claim or forced positive proof.
+
+Shared capital test masks worker2 exceptions through pre-finally construction/close signaling and first-future short-circuiting. Preserve original concurrency/assertions while collecting both original outcomes and named phases; constructor/close failure controls must expose cause. The old Windows timeout stays unlocalized unless causal evidence establishes more; no wait/SQLite/fence relaxation.
+
+P02 ATR tooling is complete but representative calibration remains unavailable; LOCAL_CHECK foundation still grants no actual-stage admission. Later scoped financial-callback settlement is a distinct prerequisite, not stage relabeling. No duplicated exporters or new tracker. Continue bounded repairs/review/CI/authorized merges; preserve distribution3f48bf3f/sourcec65/calendar, evidence/state and all five ownership vetoes. Queue inspection only, no source/test/provider/broker/observer action. PAPER_READY=NO; PAPER_READINESS_GATE=FAIL.
