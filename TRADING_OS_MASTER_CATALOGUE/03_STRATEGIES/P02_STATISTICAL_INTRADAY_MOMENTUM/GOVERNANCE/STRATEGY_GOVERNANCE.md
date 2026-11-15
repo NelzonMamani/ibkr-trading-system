@@ -1829,8 +1829,10 @@ The following refinements supersede ambiguous shorthand above, pending the same
 independent review. One CAPTURE connection plus the existing independent
 post-runtime-exit audit connection are sequential, never concurrent; both use
 exact71, local PAPER/read-only, no fallback. Bootstrap nextValidId/managedAccounts
-and any explicit managed-account read are connection ownership facts. No account
-balance/position/currency subscription is added for this data-only profile.
+are connection ownership facts. At most ONE reqManagedAccts per connection is
+permitted (zero if its original handshake already establishes scope), with no
+polling/retry/query fallback. No account balance/position/currency subscription
+is added for this data-only profile.
 Each asset has one contract-details qualification, one primary25D daily TRADES
 useRTH1 request ending explicitly at that actual RTHopen (formatDate1 daily-date
 semantics), one1m request, and one live snapshot (including reqMarketDataType and
