@@ -45,10 +45,13 @@ def financial_component(local_component, monkeypatch, request):
             return cls.current if tz is None else cls.current.astimezone(tz)
     for module in (execution_module, protection_module, management_module, native_module):
         monkeypatch.setattr(module, 'datetime', Clock)
-    requested_quantity = getattr(request, 'param', 1)
+    scenario = getattr(request, 'param', 1)
+    ack_fault = scenario.get('ack_fault') if type(scenario) is dict else None
+    requested_quantity = scenario.get('quantity', 1) if type(scenario) is dict else scenario
     assert requested_quantity in {1, 2}  # Explicit controlled owner fixture, not sizing/admission.
     h = local_component()
     h.clock = Clock
+    h.ack_fault = ack_fault
     engine, client, broker = h.engine, h.client, h.engine._provider.broker
     engine.trade_registry = ActiveTradeRegistry()
     engine._provider.trade_registry = engine.trade_registry
@@ -90,6 +93,14 @@ def financial_component(local_component, monkeypatch, request):
         order.transmit = True
         if stop is not None: order.auxPrice = stop
         state = OrderState(); state.status = 'Submitted'
+        if native_id == 71:
+            if ack_fault == 'entry_tif_ioc': order.tif = 'IOC'
+            elif ack_fault == 'entry_outside_false': order.outsideRth = False
+            elif ack_fault == 'entry_limit_price': order.lmtPrice = 1.
+            elif ack_fault == 'entry_state_rejected': state.status = 'Rejected'
+        elif native_id == 72:
+            if ack_fault == 'stop_tif_day': order.tif = 'DAY'
+            elif ack_fault == 'stop_state_cancelled': state.status = 'Cancelled'
         h.orders[native_id] = (h.contract, order, state)
         client.openOrder(native_id, h.contract, order, state)
         client.orderStatus(native_id, 'Submitted', 0, order.totalQuantity, 0., 0, parent, 0., client.client_id, '', 0.)
@@ -638,4 +649,29 @@ def test_external_active_read_vm_is_not_silently_closed_by_settlement(financial_
     h.collect()
     assert _observe(h)['available']
     assert not h.engine.revalidate_p02_local_cooldown(original, assessed_at=NOW)
+    assert len(h.storage.fetch_trade_lifecycle_events()) == 3
+
+
+@pytest.mark.parametrize('financial_component', [
+    {'ack_fault': fault} for fault in ('entry_tif_ioc', 'entry_outside_false', 'entry_limit_price',
+        'entry_state_rejected', 'stop_tif_day', 'stop_state_cancelled')
+], indirect=True, ids=lambda value: value['ack_fault'])
+def test_first_sole_ack_must_match_existing_native_owner_terms(financial_component):
+    h = financial_component
+    if h.ack_fault == 'stop_state_cancelled':
+        # The existing protection owner legitimately rejects this first.
+        with pytest.raises(RuntimeError, match='NATIVE_ORDER_PROTECTION_UNVERIFIED'):
+            _closed_roundtrip(h)
+        assert h.engine._native_quarantined
+        assert not _observe(h)['available']
+        return
+    _closed_roundtrip(h)
+    assert sum(ticket.kind == 'openOrder' and dict(ticket.publication).get('order_id') ==
+        (72 if h.ack_fault.startswith('stop_') else 71)
+        for ticket in h.client.local_intake_occurrences() if ticket.publication) == 1
+    h.collect()
+    value = _observe(h)
+    assert not value['available'] and not value.local_condition_satisfied
+    assert h.client.local_intake_snapshot().dirty
+    assert h.lifecycle.get_trade(h.request.client_order_id).gross_realized_pnl == pytest.approx(-.25)
     assert len(h.storage.fetch_trade_lifecycle_events()) == 3

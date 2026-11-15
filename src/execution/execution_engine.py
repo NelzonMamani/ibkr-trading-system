@@ -492,6 +492,7 @@ class ExecutionEngine:
     def _p02_financial_bundle(self, *, lease, snapshot):
         """Read ONE closed actual standalone bundle; create no financial effects."""
         from decimal import Decimal
+        from ibapi.common import UNSET_DOUBLE
         from src.storage.sqlite_store import _LocalCooldownFence
         from src.config.runtime_config import get_ibkr_snapshot_max_age_seconds
         state, client = self._p02_local, self._p02_local["client"]
@@ -507,6 +508,9 @@ class ExecutionEngine:
             raise RuntimeError("P02_LOCAL_TERMINAL_ROUNDTRIP_UNAVAILABLE")
         root_id, candidate = next(iter(candidates.items()))
         root = self._native_orders[root_id]
+        if root["request"].get("order_type") != "MKT":
+            # This first subset has no retained limit-price contract to verify.
+            raise RuntimeError("P02_LOCAL_ENTRY_PRICE_TERMS_UNSUPPORTED")
         if (getattr(self, "_prospective_decisions_by_order_id", {}).get(root_id) != root.get("decision_id")
                 or set(self._prospective_decisions_by_order_id) != {root_id}):
             # This first same-process case retains its actual construction slot.
@@ -649,6 +653,18 @@ class ExecutionEngine:
                 if native_id not in owned or publication.get("order_id") != native_id:
                     raise RuntimeError("P02_LOCAL_OPEN_ORDER_OWNER_UNAVAILABLE")
                 _, retained = owned[native_id]; request = retained["request"]
+                entry_ack = native_id == int(root["broker_order_id"])
+                # Existing native owner terms: IbkrLiveBroker's MKT intake uses
+                # DAY, its original protective STP uses GTC, and both native
+                # builders enable outsideRth.  An unset price is the SDK's
+                # actual sentinel, not a numeric price/tolerance/default target.
+                if (order.get("tif") != ("DAY" if entry_ack else "GTC")
+                        or order.get("outsideRth") is not True
+                        or order.get("transmit") is not True
+                        or order.get("lmtPrice") != UNSET_DOUBLE
+                        or (entry_ack and order.get("auxPrice") != UNSET_DOUBLE)
+                        or fields["orderState"].get("status") not in self.VALID_IBKR_STATUSES):
+                    raise RuntimeError("P02_LOCAL_OPEN_ORDER_NATIVE_TERMS_UNAVAILABLE")
                 if (contract.get("conId") != root["security_id"] or contract.get("symbol") != root["symbol"]
                         or contract.get("secType") != "STK" or contract.get("currency") != fee_evidence[0]["currency"]
                         or order.get("action") != ("BUY" if native_id == int(root["broker_order_id"]) else "SELL")
